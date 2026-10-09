@@ -1,0 +1,15 @@
+{
+  "name": "proofline",
+  "owner": {
+    "name": "Furkan SARIKAYA"
+  },
+  "plugins": [
+    {
+      "name": "proofline",
+      "source": ".",
+      "description": "A complete engineering team for coding agents: lead, specialist roles, evidence-producing skills and independent gates.",
+      "version": "0.0.1"
+    }
+  ],
+  "description": "proofline: a deterministic engineering team for coding agents. No evidence, no claim."
+}

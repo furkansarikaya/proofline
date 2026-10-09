@@ -1,0 +1,243 @@
+#!/bin/sh
+# proofline CLI (D8, D23). POSIX sh. Installs and checks the control plane (init, upgrade, doctor), shows
+# state (status, resume, queue) and tells you the exact instruction for your agent session for the commands
+# that need one (task, design, run, review, audit, debug, deliver). It never commits, pushes or approves.
+#   proofline help
+# shellcheck source-path=SCRIPTDIR
+set -u
+PROOFLINE_VERSION=0.0.1
+
+# Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
+self=$0
+case "$self" in */*) ;; *) self=$(command -v "$self" 2>/dev/null || echo "$self") ;; esac
+while [ -L "$self" ]; do
+  l=$(readlink "$self")
+  case "$l" in /*) self=$l ;; *) self=$(dirname "$self")/$l ;; esac
+done
+PL_HOME=$(CDPATH='' cd "$(dirname "$self")/.." && pwd) || exit 1
+LIB=$PL_HOME/bin/lib
+
+say() { printf '%s\n' "$*"; }
+warn() { printf 'proofline: %s\n' "$*" >&2; }
+die() { printf 'proofline: %s\n' "$*" >&2; exit 1; }
+if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
+else sha256() { sha256sum "$1" | awk '{print $1}'; }; fi
+
+# shellcheck source=lib/config.sh
+. "$LIB/config.sh"
+# shellcheck source=lib/discover.sh
+. "$LIB/discover.sh"
+# shellcheck source=lib/install.sh
+. "$LIB/install.sh"
+# shellcheck source=lib/doctor.sh
+. "$LIB/doctor.sh"
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$PWD
+CFG=$ROOT/.agents/config.yaml
+A=$ROOT/.agents/scripts/agent.sh
+
+usage() {
+  cat <<'EOF'
+proofline: a deterministic engineering team for coding agents
+
+usage: proofline <command> [args]
+
+setup
+  init [flags]            install the control plane, agents, skills and hooks into this git repository
+                            --yes  --dry-run  --runtimes claude,codex  --lead R  --worker R  --reviewers R
+                            --profile max|balanced|economy  --task-adapter markdown|github|jira|linear
+                            --protected-branches "a b"  --push-approval true|false
+                            --forbidden-identity PATTERN (repeatable)  --verify-commands
+  upgrade [--dry-run]     update unmodified control-plane files; keep yours and report conflicts
+  doctor                  verify hooks, runtimes, config, commit identity and every enforced rule (live probes)
+  version
+
+state (works without an agent session)
+  status                  active run and its next step (default command)
+  resume                  run state, ledger tail, freshness and the next step after a pause or runtime switch
+  queue                   task files and runs
+  deliver <TASK>          delivery check and what a commit / push would do (never commits)
+  clean [--yes]           remove .agents/local state and finished runs
+
+agent session (prints the exact instruction for your runtime)
+  task [--grill] <text>   write a task file (grill the intent first with --grill)
+  design system|data|api|ui [--check]
+  run <TASK>              take a task through the full workflow
+  review | audit | debug  proof-review, test-trust and debug-proof standalone
+EOF
+}
+
+installed() { [ -f "$CFG" ] && [ -f "$A" ]; }
+require_installed() { installed || die "proofline is not installed in $ROOT (.agents/config.yaml missing); run: proofline init"; }
+agent() { (cd "$ROOT" && sh "$A" "$@"); }
+active_id() { agent status 2>/dev/null | sed -n 's/^active_task=//p' | head -1; }
+tasks_dir() { cfg_val "$CFG" tasks.dir .agents/tasks; }
+
+# hint ARGS...: the instruction for the lead's session, for the configured lead runtime.
+hint() {
+  rt=$(cfg_val "$CFG" runtime.lead claude)
+  say ""
+  case "$rt" in
+    codex)
+      say "This step needs an agent session (lead runtime: codex). In your Codex session say:"
+      # shellcheck disable=SC2016
+      printf '  $proofline %s\n' "$*"
+      say "or start one:"
+      printf "  codex '\$proofline %s'\n" "$*" ;;
+    *)
+      say "This step needs an agent session (lead runtime: $rt). In your Claude Code session say:"
+      printf '  /proofline %s\n' "$*" ;;
+  esac
+  say "Any other agent that reads AGENTS.md: ask it to follow .agents/skills/proofline-lead/SKILL.md for: $*"
+}
+
+cmd_status() {
+  require_installed
+  agent status | sed -n '1,4p'
+  say "(full policy: .agents/scripts/agent.sh status)"
+  id=$(active_id)
+  case "$id" in
+    ''|none) say "no active run. Queue: proofline queue; start: proofline run <TASK>" ;;
+    *) say ""; agent next "$id" ;;
+  esac
+}
+
+cmd_resume() {
+  require_installed
+  id=$(active_id)
+  case "$id" in
+    ''|none) say "no active run to resume. Queue: proofline queue"; hint run "<TASK>"; return 0 ;;
+  esac
+  say "run $id"
+  agent next "$id" || die "agent.sh next failed for $id (is .agents/runs/$id intact?)"
+  led=$ROOT/.agents/runs/$id/LEDGER.log
+  if [ -f "$led" ]; then say ""; say "ledger (last 5 rows):"; tail -n 5 "$led" | sed 's/^/  /'; fi
+  say ""
+  for chk in freshness verify-handoff; do
+    if out=$(agent "$chk" "$id" 2>&1); then say "$chk: ok"
+    else say "$chk: FAILED ($(printf '%s' "$out" | tail -n 1)); the lead re-checks this before trusting persisted work"; fi
+  done
+  say "An interrupted step restarts from its beginning; persisted work is trusted only after both checks pass."
+  hint resume
+}
+
+cmd_queue() {
+  require_installed
+  td=$ROOT/$(tasks_dir)
+  say "tasks ($(tasks_dir)):"
+  found=0
+  for d in todo backlog; do
+    for f in "$td/$d"/*.md; do [ -f "$f" ] || continue; say "  $d/$(basename "$f")"; found=1; done
+  done
+  for f in "$td"/*.md; do [ -f "$f" ] || continue; say "  $(basename "$f")"; found=1; done
+  [ "$found" = 1 ] || say "  (none)"
+  act=$(active_id); say "runs (.agents/runs):"
+  found=0
+  for r in "$ROOT"/.agents/runs/*/; do
+    [ -d "$r" ] || continue; rid=$(basename "$r"); found=1
+    st=$(agent next "$rid" 2>/dev/null | sed -n 's/^state=//p; s/^handoff=/ handoff=/p' | tr '\n' ' ')
+    if [ "$rid" = "$act" ]; then mark='*'; else mark=' '; fi
+    say " $mark $rid  ${st:-state unknown}"
+  done
+  [ "$found" = 1 ] || say "  (none)"
+  say "(* = active run)"
+}
+
+cmd_deliver() {
+  require_installed
+  id=${1:-}; [ -n "$id" ] || die "usage: proofline deliver <TASK>"
+  if ! out=$(agent delivery-check "$id" 2>&1); then
+    printf '%s\n' "$out" >&2
+    say "not deliverable yet; nothing was committed. The lead continues the run until every required gate passes."
+    hint deliver "$id"; return 1
+  fi
+  printf '%s\n' "$out"
+  br=$(git -C "$ROOT" branch --show-current 2>/dev/null)
+  n=$(git -C "$ROOT" status --porcelain --untracked-files=all 2>/dev/null | grep -vc ' \.agents/\(runs\|local\)/' || true)
+  say ""
+  say "what delivery would do (proofline never commits by itself):"
+  say "  commit : $n changed path(s) on branch $br, message format $(cfg_val "$CFG" git.commit_format conventional), identity $(git -C "$ROOT" var GIT_AUTHOR_IDENT 2>/dev/null | sed 's/ [0-9]* [-+][0-9]*$//')"
+  say "           needs your commit approval for this exact content (agent.sh request-approval $id commit)"
+  say "  push   : approval required = $(cfg_val "$CFG" git.push_requires_approval true); remote(s): $(git -C "$ROOT" remote 2>/dev/null | tr '\n' ' ')"
+  say "  never  : merge, tag, force-push, touch a protected branch (configured: $(cfg_val "$CFG" git.protected_branches none))"
+  hint deliver "$id"
+}
+
+confirm() { # PROMPT -> 0 when the user types y/yes on a terminal
+  [ -t 0 ] || return 1
+  printf '%s [y/N]: ' "$1" >&2; IFS= read -r c || return 1
+  case "$c" in y|Y|yes|YES) return 0 ;; esac; return 1
+}
+
+cmd_clean() {
+  require_installed
+  yes=0; [ "${1:-}" = --yes ] && yes=1
+  act=$(active_id); fin=''
+  for r in "$ROOT"/.agents/runs/*/; do
+    [ -d "$r" ] || continue; rid=$(basename "$r")
+    nx=$(agent next "$rid" 2>/dev/null) || continue
+    case "$(printf '%s\n' "$nx" | sed -n 's/^state=//p')" in FAILED|BLOCKED) fin="$fin $rid"; continue ;; esac
+    [ "$(printf '%s\n' "$nx" | sed -n 's/^handoff=//p')" = DONE ] && fin="$fin $rid"
+  done
+  lf=0; [ ! -d "$ROOT/.agents/local" ] || lf=$(find "$ROOT/.agents/local" -type f ! -name ACTIVE_RUN | wc -l | tr -d ' ')
+  say "clean would remove:"
+  say "  .agents/local state: $lf file(s) (the ACTIVE_RUN selector is kept unless its run is cleaned)"
+  say "  finished runs:${fin:- none}"
+  if [ "$lf" = 0 ] && [ -z "$fin" ]; then say "nothing to clean"; return 0; fi
+  if [ "$yes" != 1 ] && ! confirm "remove these?"; then die "refusing to remove anything without --yes (or a yes at the prompt)"; fi
+  [ ! -d "$ROOT/.agents/local" ] || find "$ROOT/.agents/local" -mindepth 1 ! -name ACTIVE_RUN -delete 2>/dev/null
+  for rid in $fin; do agent cleanup "$rid" || warn "run $rid was not cleaned (agent.sh refused)"; done
+  [ -z "$act" ] || [ "$act" = none ] || say "active run $act kept unless it was finished"
+}
+
+cmd_task() {
+  require_installed
+  grill=''; [ "${1:-}" = --grill ] && { grill='--grill '; shift; }
+  [ $# -gt 0 ] || die "usage: proofline task [--grill] <text>"
+  say "task file goes to $(tasks_dir)/ through the $(cfg_val "$CFG" tasks.adapter markdown) adapter; no run starts."
+  hint task "$grill$*"
+}
+
+cmd_design() {
+  require_installed
+  case "${1:-}" in system|data|api|ui) ;; *) die "usage: proofline design system|data|api|ui [--check]" ;; esac
+  say "durable design documents: $(cfg_val "$CFG" design_docs.design DESIGN.md), $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
+  hint design "$@"
+}
+
+cmd_run() {
+  require_installed
+  [ -n "${1:-}" ] || die "usage: proofline run <TASK>"
+  act=$(active_id)
+  case "$act" in ''|none) ;; "$1") say "run $1 is already active; resuming it is: proofline resume" ;; *) warn "run $act is active; one active run per worktree: finish or clean it first" ;; esac
+  hint run "$@"
+}
+
+cmd_session() { # review | audit | debug
+  require_installed
+  c=$1; shift
+  hint "$c" "$@"
+}
+
+main() {
+  cmd=${1:-status}
+  [ $# -eq 0 ] || shift
+  case "$cmd" in
+    init) cmd_init "$@" ;;
+    upgrade) cmd_upgrade "$@" ;;
+    doctor) cmd_doctor ;;
+    status) cmd_status ;;
+    resume) cmd_resume ;;
+    queue) cmd_queue ;;
+    deliver) cmd_deliver "$@" ;;
+    clean) cmd_clean "$@" ;;
+    task) cmd_task "$@" ;;
+    design) cmd_design "$@" ;;
+    run) cmd_run "$@" ;;
+    review|audit|debug) cmd_session "$cmd" "$@" ;;
+    version|--version|-v) say "proofline $PROOFLINE_VERSION" ;;
+    help|--help|-h) usage ;;
+    *) usage >&2; die "unknown command: $cmd" ;;
+  esac
+}
+main "$@"

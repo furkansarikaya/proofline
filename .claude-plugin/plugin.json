@@ -1,0 +1,31 @@
+{
+  "name": "proofline",
+  "version": "0.0.1",
+  "description": "A complete engineering team for coding agents: a lead, bounded specialist roles, 17 evidence-producing skills and independent gates, enforced by scripts and hooks. No evidence, no claim.",
+  "author": {
+    "name": "Furkan SARIKAYA"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/furkansarikaya/proofline",
+  "keywords": [
+    "workflow",
+    "agents",
+    "review",
+    "tdd",
+    "gates",
+    "evidence"
+  ],
+  "agents": [
+    "./adapters/claude/agents/proofline-architect.md",
+    "./adapters/claude/agents/proofline-data-architect.md",
+    "./adapters/claude/agents/proofline-designer.md",
+    "./adapters/claude/agents/proofline-explorer.md",
+    "./adapters/claude/agents/proofline-implementer.md",
+    "./adapters/claude/agents/proofline-qa.md",
+    "./adapters/claude/agents/proofline-reviewer.md",
+    "./adapters/claude/agents/proofline-security-reviewer.md",
+    "./adapters/claude/agents/proofline-task-author.md",
+    "./adapters/claude/agents/proofline-verifier.md"
+  ],
+  "hooks": "./adapters/claude/hooks/hooks.json"
+}
