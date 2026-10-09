@@ -1,0 +1,56 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            if [ "$(uname)" = Darwin ]; then brew install shellcheck; else sudo apt-get install -y shellcheck; fi
+          fi
+          files=$(find . -path ./.git -prune -o -type f \( -name '*.sh' -o -name 'pre-commit' -o -name 'pre-push' \) -print)
+          if [ -f bin/proofline ]; then files="$files bin/proofline"; fi
+          # shellcheck disable=SC2086
+          shellcheck -s sh $files
+
+      - name: script self-tests
+        run: |
+          if [ -f tests/selftest.sh ]; then sh tests/selftest.sh
+          else echo "SKIPPED: tests/selftest.sh does not exist yet"; fi
+
+      - name: generator tests
+        run: sh tests/generator/generator-test.sh
+
+      - name: generated files in sync
+        run: |
+          if ls roles/*.md >/dev/null 2>&1; then sh tests/generator/role-conformance.sh roles; fi
+          if ls roles/*.md >/dev/null 2>&1; then sh adapters/generate.sh --check
+          else echo "SKIPPED: roles/*.md do not exist yet"; fi
+
+      - name: shared sections in sync
+        run: |
+          if [ -f tests/shared/check-shared.sh ]; then sh tests/shared/check-shared.sh
+          else echo "SKIPPED: tests/shared/check-shared.sh does not exist yet"; fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: skill tests
+        run: |
+          if ls tests/skills/*.test.mjs >/dev/null 2>&1; then node --test tests/skills/
+          else echo "SKIPPED: no tests/skills/*.test.mjs yet"; fi
+
+      - name: fixtures
+        run: |
+          if [ -f tests/fixtures/check-fixtures.sh ]; then sh tests/fixtures/check-fixtures.sh
+          else echo "SKIPPED: tests/fixtures/check-fixtures.sh does not exist yet"; fi
