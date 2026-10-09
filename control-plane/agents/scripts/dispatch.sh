@@ -1,0 +1,307 @@
+#!/bin/sh
+# Platform-independent specialist runner (D6, D7, D8). Runs ONE specialist step headless on the runtime
+# the execution policy resolves, then records its final message through `agent.sh record`.
+#
+#   dispatch.sh <TASK-ID> <role> [--focus F] [--prompt-file F] [--model M] [--effort E] [--runtime RT]
+#
+# 1 decision: `agent.sh decide <ID> <role> [--focus F] [--model M] [--effort E] [--runtime RT]`
+#   (key=value lines incl. runtime, model, effort, context_bytes). Nothing here re-decides them.
+# 2 prompt: stable prefix = the role's instructions (role_instructions), then the task-specific suffix
+#   (header + --prompt-file), which must fit the decision's context_bytes (never truncated).
+# 3 run: codex `exec` (`-s workspace-write`, `--add-dir` the run or worker-evidence), claude `-p` running the
+#   generated agent (`--agent proofline-<role>` from .claude/agents/, else `--agents` JSON built from
+#   .agents/roles/<role>.md and .agents/tools.conf; never the Agent/Task tools), or config
+#   dispatch.command_template.<runtime> (D8), with a timeout (config dispatch.timeout_seconds, default 1800,
+#   minimum 30). The implementer, and the designer while handoff is IMPLEMENTING, are bracketed by
+#   `agent.sh window-open` / `window-close`; every other role must leave the product tree unchanged. A change
+#   to .git/config (e.g. core.hooksPath) or to HEAD during the step is BLOCKED for every role.
+# 4 the last message is saved as results/dispatch-<NNN>-<role>-<runtime>.md in the run and piped to
+#   `AGENT_ROLE=<role> agent.sh record <ID> --file <it>`; the raw runtime log goes to dispatch/.
+# Failover (D7) on a runtime failure (limit/quota/rate limit/429, missing binary, auth error), never on a
+#   task failure: config `failover: auto` reruns the same step from its beginning on the other runtime
+#   when it is installed and meets the role's capability floor (ledgered via `agent.sh ledger-note`);
+#   `ask` stores a pending question through `agent.sh ask` (awaiting_input, ledgered; `agent.sh questions` shows
+#   it and `next` stops for the user) and prints it as NEEDS_INPUT; `off`, floor unmet or no other runtime ->
+#   BLOCKED.
+# Codex runs with --dangerously-bypass-hook-trust: a headless `codex exec` never asks to trust the project's
+#   hooks, so without it the proofline hooks (.codex/) would not load for the worker. The fingerprint and
+#   .git/config/HEAD checks below stay the enforcement; the hooks are an extra layer (ENFORCEMENT.md).
+# Exit: 0 recorded | 1 task failure or record rejected | 2 usage/config | 5 NEEDS_INPUT | 6 BLOCKED |
+#   124 timeout.
+# Runtime binaries: PROOFLINE_CODEX_BIN, PROOFLINE_CLAUDE_BIN (tests use fake runtimes).
+set -eu
+here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+root=$(CDPATH='' cd "$here/../.." && pwd)
+config=$root/.agents/config.yaml
+agent=$here/agent.sh
+
+usage() { echo "usage: $0 <TASK-ID> <role> [--focus F] [--prompt-file F] [--model M] [--effort E] [--runtime RT]" >&2; exit 2; }
+die() { echo "dispatch: $*" >&2; exit 2; }
+tok() { case "$2" in ''|*[!A-Za-z0-9._+:-]*|-*) die "invalid value for $1: '$2'" ;; esac; }
+
+[ $# -ge 2 ] || usage
+id=$1 role=$2; shift 2
+tok task-id "$id"; tok role "$role"
+case "$role" in
+  full_lifecycle) role=lead ;; implementation_worker) role=implementer ;; independent_reviewer) role=reviewer ;;
+  independent_qa) role=qa ;; independent_verifier) role=verifier ;;
+esac
+focus='' prompt_file='' o_model='' o_effort='' o_runtime=''
+while [ $# -gt 0 ]; do
+  [ $# -ge 2 ] || usage
+  case "$1" in
+    --focus) tok "$1" "$2"; focus=$2 ;; --prompt-file) prompt_file=$2 ;;
+    --model) tok "$1" "$2"; o_model=$2 ;; --effort) tok "$1" "$2"; o_effort=$2 ;; --runtime) tok "$1" "$2"; o_runtime=$2 ;;
+    *) usage ;;
+  esac
+  shift 2
+done
+[ -z "$prompt_file" ] || [ -f "$prompt_file" ] || die "no such prompt file: $prompt_file"
+run=$root/.agents/runs/$id
+[ -d "$run" ] || die "no such run: $id"
+[ -f "$agent" ] || die "agent.sh not found next to dispatch.sh"
+
+cfg() { # KEY... -> scalar from the flat YAML config (empty when absent)
+  [ -f "$config" ] || return 0
+  awk -v want="$*" '
+    /^[[:space:]]*(#|$)/ { next }
+    { ind = match($0, /[^ ]/) - 1; d = int(ind / 2); line = substr($0, ind + 1)
+      if (index(line, ":") == 0) next
+      key = line; sub(/:.*/, "", key); val = line; sub(/^[^:]*:[[:space:]]*/, "", val); sub(/[[:space:]]+#.*$/, "", val)
+      if (val ~ /^".*"$/) val = substr(val, 2, length(val) - 2)
+      for (i = d + 1; i < 32; i++) delete st[i]
+      st[d] = key; p = st[0]; for (i = 1; i <= d; i++) p = p " " st[i]
+      if (p == want) { print val; exit } }' "$config"
+}
+note() { "$agent" ledger-note "$id" "$*" >/dev/null; }
+blocked() { # REASON : result-protocol block on stdout, ledgered, exit 6
+  printf 'ROLE: %s\nTASK: %s\nRESULT: BLOCKED\nBLOCKED_REASON: %s\n' "$role" "$id" "$1"
+  note "dispatch blocked role=$role reason=$1" || true
+  exit 6
+}
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+subst() { # TEMPLATE NAME VALUE : replace every {NAME}
+  s_t=$1 s_o=''
+  while :; do case "$s_t" in *"{$2}"*) s_o="$s_o${s_t%%"{$2}"*}$3"; s_t=${s_t#*"{$2}"} ;; *) break ;; esac; done
+  printf '%s' "$s_o$s_t"
+}
+
+agent_name() { printf 'proofline-%s\n' "$(printf '%s' "$1" | tr _ -)"; }
+# The role's stable instructions: the one place that knows where they live.
+role_instructions() {
+  for ri in "$root/.agents/roles/$1.md" "$root/.claude/agents/$(agent_name "$1").md" "$root/.codex/agents/$(agent_name "$1").toml"; do
+    [ -f "$ri" ] && { printf '%s\n' "$ri"; return 0; }
+  done
+  return 1
+}
+
+# Tools that spawn agents: never granted to a dispatched role (no recursion).
+spawn_tool() { printf '%s\n' "$1" | tr -s ', ' '\n' | grep -Eq '^(Agent|Task)([(]|$)'; }
+json_str() { awk 'BEGIN { ORS = ""; printf "\"" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); if (NR > 1) printf "\\n"; printf "%s", $0 } END { printf "\"" }'; }
+# --agents JSON for a role without a generated .claude agent: instructions + tools.conf list (minus Agent/Task).
+agents_json() { # NAME INSTRUCTIONS-FILE ROLE
+  aj_t=''
+  for aj_c in "$root/.agents/tools.conf" "$root/.agents/roles/tools.conf"; do
+    [ -f "$aj_c" ] || continue; aj_t=$(awk -v r="$3" '$1 == r { $1 = ""; print; exit }' "$aj_c"); break
+  done
+  [ -n "$(printf '%s' "$aj_t" | tr -d ' ,')" ] || aj_t='Read,Grep,Glob,Bash,Write,Edit'
+  aj_l=''
+  for aj_x in $(printf '%s' "$aj_t" | tr ',' ' '); do spawn_tool "$aj_x" || aj_l="$aj_l${aj_l:+,}$(printf '%s' "$aj_x" | json_str)"; done
+  printf '{"%s":{"description":%s,"prompt":%s,"tools":[%s]}}' "$1" "$(printf 'proofline %s' "$3" | json_str)" "$(json_str < "$2")" "$aj_l"
+}
+# .git/config and HEAD: a dispatched step must change neither (hooksPath, branch, commits).
+git_state() {
+  gs_c=$(git -C "$root" rev-parse --git-path config 2>/dev/null) || { echo none; return 0; }
+  case "$gs_c" in /*) ;; *) gs_c=$root/$gs_c ;; esac
+  printf '%s|%s|%s\n' "$(cksum < "$gs_c" 2>/dev/null || echo none)" "$(git -C "$root" symbolic-ref -q HEAD 2>/dev/null || echo detached)" "$(git -C "$root" rev-parse -q --verify HEAD 2>/dev/null || echo none)"
+}
+handoff_state() { awk '$0 == "handoff:" { i = 1; next } i && /^[^ ]/ { exit } i && /^  state:/ { sub(/^  state:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$run/RUN.yaml" 2>/dev/null; }
+
+timeout_s=$(cfg dispatch timeout_seconds); case "$timeout_s" in ''|*[!0-9]*) timeout_s=1800 ;; esac
+# PROOFLINE_DISPATCH_MIN_TIMEOUT exists for the test suite only.
+min_t=${PROOFLINE_DISPATCH_MIN_TIMEOUT:-30}; [ "$timeout_s" -ge "$min_t" ] || timeout_s=$min_t
+
+# run_timed SECONDS LOG IN CMD... : CMD < IN > LOG 2>&1 with a portable watchdog. 124 on timeout.
+run_timed() {
+  rt_s=$1 rt_log=$2 rt_in=$3; shift 3
+  rt_mark=$(mktemp "${TMPDIR:-/tmp}/dispatch-timeout.XXXXXX"); rm -f "$rt_mark"
+  "$@" < "$rt_in" > "$rt_log" 2>&1 &
+  rt_pid=$!
+  (
+    trap 'kill "$rt_sp" 2>/dev/null; exit 0' TERM
+    sleep "$rt_s" & rt_sp=$!; wait "$rt_sp"
+    : > "$rt_mark"; kill -TERM "$rt_pid" 2>/dev/null; (sleep 5; kill -KILL "$rt_pid") >/dev/null 2>&1 &
+  ) &
+  rt_wd=$!
+  rt_rc=0; wait "$rt_pid" || rt_rc=$?
+  kill -TERM "$rt_wd" 2>/dev/null || true; wait "$rt_wd" 2>/dev/null || true
+  if [ -f "$rt_mark" ]; then rm -f "$rt_mark"; return 124; fi
+  return "$rt_rc"
+}
+
+# Runtime failure (D7: the runtime could not do the step) vs task failure (it ran and failed).
+runtime_failure_reason() { # LOG
+  tail -n 60 "$1" 2>/dev/null | grep -Eiq 'usage limit|rate[ _-]?limit|quota|too many requests|(^|[^0-9])429([^0-9]|$)|limit (reached|exceeded)|hit your limit|overloaded' && { echo limit; return; }
+  tail -n 60 "$1" 2>/dev/null | grep -Eiq 'not logged in|unauthori[sz]ed|authentication (failed|error|required)|invalid api key|please (run )?.*login|(^|[^0-9])401([^0-9]|$)' && { echo auth; return; }
+  echo none
+}
+
+# Extract the top-level "result" string of claude's --output-format json, unescaped.
+claude_result() {
+  awk 'BEGIN { RS = "\001" } {
+    i = index($0, "\"result\":\""); if (!i) exit 1
+    s = substr($0, i + 10); o = ""
+    while (length(s) > 0) {
+      c = substr(s, 1, 1)
+      if (c == "\"") break
+      if (c == "\\") { n = substr(s, 2, 1); s = substr(s, 3)
+        if (n == "n") o = o "\n"; else if (n == "t") o = o "\t"; else if (n == "r") o = o "\r"
+        else if (n == "u") { o = o "\\u" substr(s, 1, 4); s = substr(s, 5) } else o = o n
+        continue }
+      o = o c; s = substr(s, 2)
+    }
+    printf "%s\n", o }' "$1"
+}
+
+seq_n=$(find "$run/results" -name 'dispatch-*' 2>/dev/null | wc -l | tr -d ' '); seq_n=$((seq_n + 1))
+mkdir -p "$run/results" "$run/dispatch"
+work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX"); trap 'rm -rf "$work"' EXIT
+
+# attempt RUNTIME-OVERRIDE : sets $status (0 ok, 124 timeout, other failure), $rt, $out, $log
+attempt() {
+  set --
+  [ -n "$focus" ] && set -- "$@" --focus "$focus"
+  [ -n "$o_model" ] && set -- "$@" --model "$o_model"
+  [ -n "$o_effort" ] && set -- "$@" --effort "$o_effort"
+  [ -n "$a_runtime" ] && set -- "$@" --runtime "$a_runtime"
+  d_rc=0; decision=$("$agent" decide "$id" "$role" "$@" 2>"$work/decide.err") || d_rc=$?
+  if [ "$d_rc" -ne 0 ]; then
+    cat "$work/decide.err" >&2
+    [ "$d_rc" -eq 4 ] && blocked "no decision for $role on ${a_runtime:-the configured runtime}: capability floor unmet or unresolvable"
+    echo "dispatch: no execution decision for $id $role (exit $d_rc)" >&2; exit 1
+  fi
+  dv() { printf '%s\n' "$decision" | sed -n "s/^$1=//p" | head -1; }
+  rt=$(dv runtime) model=$(dv model) effort=$(dv effort) budget=$(dv context_bytes)
+  tok runtime "$rt"; tok model "$model"; tok effort "$effort"
+  case "$budget" in ''|*[!0-9]*) die "decision has no context_bytes" ;; esac
+
+  ins=$(role_instructions "$role") || die "no instructions for role $role (.agents/roles/$role.md, .claude/agents/proofline-$role.md or .codex/agents/proofline-$role.toml)"
+  { printf 'TASK: %s\nROLE: %s\n' "$id" "$role"; [ -z "$focus" ] || printf 'FOCUS: %s\n' "$focus"
+    printf 'RUN_DIR: .agents/runs/%s\nStart your final message with the result protocol header.\n' "$id"
+    [ -z "$prompt_file" ] || { printf '\n'; cat "$prompt_file"; }
+  } > "$work/suffix"
+  sb=$(wc -c < "$work/suffix" | tr -d ' ')
+  [ "$sb" -le "$budget" ] || blocked "task prompt is $sb bytes, over the resolved context budget of $budget (trim it; it is never truncated)"
+  { cat "$ins"; printf '\n=== TASK ===\n'; cat "$work/suffix"; } > "$work/full"
+
+  out=$run/results/dispatch-$(printf '%03d' "$seq_n")-$role-$rt.md
+  log=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.log
+  seq_n=$((seq_n + 1)); : > "$out"
+  # Every role writes its owned artifacts in the run dir; only the implementer, and the designer during
+  # IMPLEMENTING, may touch the product tree, inside an attested window.
+  writes_code=no; case "$role" in implementer) writes_code=yes ;; designer) [ "$(handoff_state)" != IMPLEMENTING ] || writes_code=yes ;; esac
+  tmpl=$(cfg dispatch command_template "$rt")
+  if [ -n "$tmpl" ]; then
+    for ph in "prompt_file $work/full" "output_file $out" "root $root" "model $model" "effort $effort"; do
+      tmpl=$(subst "$tmpl" "${ph%% *}" "$(sq "${ph#* }")")
+    done
+    set -- sh -c "$tmpl"
+  else
+    case "$rt" in
+      codex)
+        set -- "${PROOFLINE_CODEX_BIN:-codex}" exec -C "$root" -s workspace-write -m "$model" -c "model_reasoning_effort=$effort" -c 'approval_policy="never"' --dangerously-bypass-hook-trust -o "$out"
+        if [ "$role" = implementer ]; then mkdir -p "$run/worker-evidence"; set -- "$@" --add-dir "$run/worker-evidence"
+        else set -- "$@" --add-dir "$run"; fi
+        set -- "$@" - ;;
+      claude)
+        an=$(agent_name "$role"); af=$root/.claude/agents/$an.md
+        if [ -f "$af" ]; then
+          # the generated agent runs, so its tools: list applies
+          at=$(sed -n 's/^tools:[[:space:]]*//p' "$af" | head -1)
+          [ -n "$at" ] || blocked "$af has no tools: list (it would inherit every tool, Agent included)"
+          ! spawn_tool "$at" || blocked "$af grants an agent-spawning tool (Agent/Task)"
+          set -- "${PROOFLINE_CLAUDE_BIN:-claude}" -p --agent "$an"
+        else
+          aj_src=$root/.agents/roles/$role.md; [ -f "$aj_src" ] || aj_src=$ins
+          set -- "${PROOFLINE_CLAUDE_BIN:-claude}" -p --agents "$(agents_json "$an" "$aj_src" "$role")" --agent "$an"
+        fi
+        set -- "$@" --model "$model" --effort "$effort" --output-format json ;;
+      *) blocked "runtime $rt has no built-in invocation and no dispatch.command_template.$rt" ;;
+    esac
+  fi
+  input=$work/full; [ "$rt" = claude ] && [ -z "$tmpl" ] && input=$work/suffix
+
+  before='' fp_before='' gs_before=$(git_state)
+  if [ "$writes_code" = no ]; then
+    fp_before=$("$agent" fingerprint "$id") && [ -n "$fp_before" ] || { echo "dispatch: no product-tree fingerprint; $role not started" >&2; exit 1; }
+  else
+    before=$("$agent" window-open "$id" "$role") || { echo "dispatch: window-open refused; $role not started" >&2; exit 1; }
+  fi
+  echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code" >&2
+  status=0
+  if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
+  else (cd "$root" && export AGENT_ROLE="$role" && run_timed "$timeout_s" "$log" "$input" "$@") || status=$?; fi
+  if [ "$writes_code" = yes ]; then
+    "$agent" window-close "$id" "$before" "$status" "$role" >&2 || { echo "dispatch: window-close failed (unattributed mutation?)" >&2; exit 1; }
+  fi
+  gs_after=$(git_state)
+  if [ "$gs_after" != "$gs_before" ]; then
+    note "policy_violation role=$role runtime=$rt changed .git/config or HEAD during the step" || true
+    blocked "policy_violation: $role changed .git/config (hooks, config) or HEAD during the step; result not recorded"
+  fi
+  if [ "$writes_code" = no ]; then
+    fp_after=$("$agent" fingerprint "$id") || fp_after=unknown
+    if [ "$fp_after" != "$fp_before" ]; then
+      # Never auto-reverted: the user's files are theirs. Changed paths are reported; the result is not recorded.
+      changed=$(git -C "$root" diff-tree -r --name-only "$fp_before" "$fp_after" 2>/dev/null | tr '\n' ' ') || changed=''
+      note "policy_violation role=$role runtime=$rt product tree changed by a role that does not write code: ${changed:-paths unknown}" || true
+      blocked "policy_violation: $role changed the product tree (${changed:-paths unknown}); result not recorded, changes left in place"
+    fi
+  fi
+  if [ "$status" -eq 0 ] && [ "$rt" = claude ] && [ -z "$tmpl" ]; then
+    if grep -q '"is_error":[[:space:]]*true' "$log"; then status=1
+    else claude_result "$log" > "$out" || status=1; fi
+  fi
+  [ "$status" -ne 0 ] || [ -s "$out" ] || { [ -n "$tmpl" ] && cp "$log" "$out"; } || true
+  [ "$status" -ne 0 ] || [ -s "$out" ] || status=1
+  [ -s "$out" ] || rm -f "$out"
+  return 0
+}
+
+a_runtime=$o_runtime
+attempt
+if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+  reason=$(runtime_failure_reason "$log"); [ "$status" -eq 127 ] && reason=missing_binary
+  if [ "$reason" != none ]; then
+    case "$rt" in claude) other=codex ;; codex) other=claude ;; *) other='' ;; esac
+    mode=$(cfg failover); [ -n "$mode" ] || mode=auto
+    [ -n "$other" ] || blocked "runtime $rt failed ($reason) and has no failover peer"
+    case "$mode" in
+      off) blocked "runtime $rt failed ($reason); failover: off" ;;
+      ask)
+        { printf '1. Runtime %s could not run %s (%s). Re-run this step from its beginning on %s?\n' "$rt" "$role" "$reason" "$other"
+          printf '   options: yes | no\n   recommended: yes, if %s is acceptable for this role\n   why: config failover is ask\n' "$other"
+        } > "$work/question"
+        "$agent" ask "$id" --file "$work/question" >&2 || blocked "runtime $rt failed ($reason); failover: ask, but the question could not be stored"
+        note "dispatch needs_input role=$role runtime=$rt reason=$reason" || true
+        printf 'ROLE: %s\nTASK: %s\nRESULT: NEEDS_INPUT\nQUESTIONS:\n' "$role" "$id"; cat "$work/question"
+        exit 5 ;;
+      auto) ;;
+      *) die "invalid failover mode in config: $mode (want auto|ask|off)" ;;
+    esac
+    sh "$here/runtime-detect.sh" has "$other" || blocked "runtime $rt failed ($reason); $other is not installed"
+    from=$rt; o_model=''   # model ids are runtime-specific; the policy picks the other runtime's model
+    note "failover from=$from to=$other reason=$reason role=$role" || blocked "runtime $rt failed ($reason); failover could not be ledgered"
+    a_runtime=$other
+    attempt
+    if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$(runtime_failure_reason "$log")" != none ]; then
+      blocked "runtime $from failed ($reason) and failover runtime $rt failed too"
+    fi
+  fi
+fi
+if [ "$status" -eq 124 ]; then
+  note "dispatch timeout role=$role runtime=$rt after=${timeout_s}s" || true
+  echo "dispatch: $role on $rt timed out after ${timeout_s}s; log: ${log#"$root"/}" >&2; exit 124
+fi
+if [ "$status" -ne 0 ]; then echo "dispatch: $role on $rt failed (exit $status); log: ${log#"$root"/}" >&2; exit 1; fi
+AGENT_ROLE=$role "$agent" record "$id" --file "$out" || { echo "dispatch: record rejected the result of $role (${out#"$root"/})" >&2; exit 1; }

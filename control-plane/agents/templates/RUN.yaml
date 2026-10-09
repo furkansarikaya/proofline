@@ -1,0 +1,71 @@
+# Runtime state of one task: .agents/runs/<TASK-ID>/RUN.yaml (git-ignored, disposable; .agents/WORKFLOW.md
+# "Runtime artifacts"). Lifecycle facts only. agent.sh writes every field except task.id, task_source.* and
+# the execution overrides marked "optional". Lifecycle fields are sealed by LEDGER.log: never edit them.
+task:
+  id: <TASK-ID>
+
+repository:
+  base_sha: PENDING
+  canonical_branch: PENDING
+  task_branch: PENDING
+
+task_source:
+  # local_markdown | none
+  type: local_markdown
+  path: <REPOSITORY-RELATIVE-TASK-FILE.md>
+  # Hash of the frozen task contract. Only freeze and refreeze write it.
+  revision: PENDING
+
+execution:
+  mode: deterministic
+  # optional: max | balanced | economy; PENDING inherits `profile` from .agents/config.yaml.
+  profile: PENDING
+  # optional: supervised | autonomous; PENDING inherits `autonomy.<CLASS>` (D3).
+  autonomy: PENDING
+  # optional: standalone | orchestrated; PENDING inherits `default_topology`.
+  topology: PENDING
+  state: PLANNING
+  knowledge_state: not_started
+  awaiting_input: false
+
+# Written by `agent.sh classify` (forced to CRITICAL at freeze by a destructive plan). tier is the highest
+# tier recorded so far: it never decreases.
+pipeline:
+  classification: PENDING
+  review: PENDING
+  tier: PENDING
+
+baseline:
+  status: pending
+
+# `not_required` replaces a hash for an artifact the class does not produce.
+freeze:
+  task_sha256: PENDING
+  evidence_sha256: PENDING
+  plan_sha256: PENDING
+  qa_plan_sha256: PENDING
+  policy_sha256: PENDING
+  pipeline: PENDING
+  scope_paths: PENDING
+
+handoff:
+  state: PLANNED
+  implemented_patch_sha256: PENDING
+  code_done_patch_sha256: PENDING
+
+# The presence of these keys subjects the run to worker evidence/TDD, the completion report and the
+# lifecycle gates (gates, attested tree ownership, ledger, amend).
+worker_evidence:
+  required: true
+
+tdd:
+  required: true
+
+completion_report:
+  required: true
+  adapter: PENDING
+  published: false
+  receipt: PENDING
+
+lifecycle_gates:
+  required: true

@@ -1,0 +1,502 @@
+#!/bin/sh
+# shellcheck disable=SC2010,SC2012,SC2015,SC2119,SC2120,SC2016,SC2329 # test code: ls over our own fixture names, assertion chains
+# Self-tests for the proofline extensions of agent.sh: tier, the D12 result protocol (`record`), the gate
+# set, per-gate staleness and the fix loop, waivers, approvals, questions, `next`, `decide`, metrics,
+# config-check, scope `new: true`, secret-scan and ledger-note.
+set -eu
+# shellcheck source-path=SCRIPTDIR source=test-lib.sh
+. "$(dirname "$0")/test-lib.sh"
+
+gates_of() { pipe_val gates; }
+gate_st() { A pipeline "$RID" | sed -n "s/^gate.$1=//p"; }
+n_gates() { ls .agents/runs/LC/gates/*.yaml 2>/dev/null | wc -l | tr -d ' '; }
+# implemented ORCH|SOLO: scaffolded run with RED/GREEN done and handoff IMPLEMENTED.
+implemented() {
+  if [ "$1" = orchestrated ]; then worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  else solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass impl.txt 'impl: lookup returns the stored value'; fi
+  A handoff LC IMPLEMENTED >/dev/null
+}
+# scaffold without freeze: class, then the PLAN can be edited before `freeze`.
+unfrozen() { scaffold standalone no "${1:-STANDARD}" manual; }
+
+sc_tier() {
+  unfrozen STANDARD; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  [ "$(A tier LC)" = docs ] || die "no change is not tier docs"
+  printf 'notes\n' > notes.md; mkdir -p docs; printf 'guide\n' > docs/guide.txt
+  [ "$(A tier LC)" = docs ] || die "plain documentation is not tier docs"
+  rm -f notes.md; rm -rf docs
+  mkdir -p skills/x; printf 'a skill\n' > skills/x/SKILL.md
+  [ "$(AS reviewer tier LC)" = small ] || die "code-like markdown is not tier small"
+  expect_state pipeline tier docs                                               # a non-lead role never records
+  [ "$(A tier LC)" = small ]; expect_state pipeline tier small
+  rm -rf skills
+  [ "$(A tier LC)" = small ] || die "the tier decreased"
+  printf '{}\n' > package.json
+  [ "$(A tier LC)" = full ] || die "a risky path is not tier full"
+  rm package.json; [ "$(A tier LC)" = full ] || die "the tier decreased from full"
+  # size limits on a fresh run: > small_max_lines is full
+  unfrozen STANDARD; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  printf 'one\n' >> impl.txt; [ "$(A tier LC)" = docs ] || die "a .txt change is not tier docs"
+  printf 'package x\n' > app.go; [ "$(A tier LC)" = small ] || die "one small code file is not tier small"
+  i=0; while [ $i -lt 31 ]; do printf 'line %s\n' $i >> app.go; i=$((i + 1)); done
+  [ "$(A tier LC)" = full ] || die "more than small_max_lines is not tier full"
+  # CRITICAL is always full; a plan with ## Data adds REVIEW_DATA
+  unfrozen CRITICAL; printf '\n## Data\n\ndestructive: no\n\nno schema change in practice\n' >> .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan'
+  A freeze LC >/dev/null
+  [ "$(gates_of)" = 'SECRETS REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA SECURITY QA VERIFY' ] || die "CRITICAL gate set: $(gates_of)"
+  ok "tier: docs, code-like markdown, risky path, size, never decreasing, CRITICAL full, REVIEW_DATA"
+}
+
+# B5/I7: risky paths and code-like markdown before docs; docs only by plain-documentation extension; the small
+# limits measured on real code files. A non-lead `tier` computes without recording, so one run serves all.
+sc_tier_paths() {
+  unfrozen STANDARD; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  t() { mkdir -p "$(dirname "$1")"; printf 'x = 1\n' > "$1"; got=$(AS reviewer tier LC); rm -f "$1"; [ "$got" = "$2" ] || die "tier of $1 is $got, want $2"; }
+  t docs/guide.adoc docs; t notes.mdx docs; t docs/api.rst docs; t guide.txt docs
+  t docs/conf.py small; t docs/build.sh small; t docs/index.html small
+  t requirements.txt full; t requirements-dev.txt full; t CMakeLists.txt full; t docs/requirements.txt full
+  t skills/x/SKILL.md small; t AGENTS.md small
+  i=0; while [ $i -lt 10 ]; do printf 'line %s\n' $i >> app.go; printf 'line %s\n' $i >> util.go; i=$((i + 1)); done
+  [ "$(AS reviewer tier LC)" = small ] || die "two code files, 20 lines are not tier small"
+  printf 'package x\n' > extra.go
+  [ "$(AS reviewer tier LC)" = full ] || die "three code files are not tier full (small_max_files)"
+  rm extra.go; i=0; while [ $i -lt 11 ]; do printf 'more %s\n' $i >> util.go; i=$((i + 1)); done
+  [ "$(AS reviewer tier LC)" = full ] || die "31 changed lines of code are not tier full (small_max_lines)"
+  ok "tier paths: docs only by extension, docs/ code is not docs, dependency manifests full, small limits on code files"
+}
+
+sc_record() {
+  scaffold orchestrated; implemented orchestrated
+  before=$(n_gates)
+  f=$(result_for REVIEW_SMALL PASS)
+  expect_msg "a wrong role recorded" 'does not match AGENT_ROLE' AS qa record LC --file "$f"
+  sed "s/^FINGERPRINT: .*/FINGERPRINT: 0123456789abcdef0123456789abcdef01234567/" "$f" > "$base/r.md"
+  expect_msg "a stale fingerprint was accepted" 'stale' AS reviewer record LC --file "$base/r.md"
+  sed "s/^\(ARTIFACT: [^ ]*\) .*/\1 0000000000000000000000000000000000000000000000000000000000000000/" "$f" > "$base/r.md"
+  expect_msg "a bad artifact hash was accepted" 'sha256 mismatch' AS reviewer record LC --file "$base/r.md"
+  sed "s/^ARTIFACT: .*/ARTIFACT: ..\/..\/..\/impl.txt $(tsha impl.txt)/" "$f" > "$base/r.md"
+  expect_msg "an artifact outside the run was accepted" 'run-relative' AS reviewer record LC --file "$base/r.md"
+  mkdir -p .agents/runs/LC/reviews/proof-review/plan .agents/runs/LC/reviews/proof-review/other
+  printf 'Verdict: PASS\n' > .agents/runs/LC/reviews/proof-review/plan/REPORT.md; printf 'Verdict: PASS\n' > .agents/runs/LC/reviews/proof-review/other/REPORT.md
+  sed "s#^ARTIFACT: .*#ARTIFACT: reviews/proof-review/plan/REPORT.md $(tsha .agents/runs/LC/reviews/proof-review/plan/REPORT.md)#" "$f" > "$base/r.md"
+  expect_msg "a rules+tests result used the plan focus's artifact" 'outside the paths' AS reviewer record LC --file "$base/r.md"
+  sed "s#^ARTIFACT: .*#ARTIFACT: reviews/proof-review/other/REPORT.md $(tsha .agents/runs/LC/reviews/proof-review/other/REPORT.md)#" "$f" > "$base/r.md"
+  expect_msg "an unregistered review directory was accepted" 'not a registered run artifact' AS reviewer record LC --file "$base/r.md"
+  rm -rf .agents/runs/LC/reviews/proof-review/plan .agents/runs/LC/reviews/proof-review/other
+  grep -v '^CONFIDENCE:' "$f" > "$base/r.md"
+  expect_msg "a header without CONFIDENCE was accepted" 'malformed header' AS reviewer record LC --file "$base/r.md"
+  { echo 'Here is my review.'; cat "$f"; } > "$base/r.md"
+  expect_msg "a result not starting with the header was accepted" 'malformed header' AS reviewer record LC --file "$base/r.md"
+  sed 's/^FOCUS: .*/FOCUS: bugs/' "$f" > "$base/r.md"
+  expect_msg "an unknown FOCUS was accepted" 'FOCUS' AS reviewer record LC --file "$base/r.md"
+  sed 's/^RESULT: .*/RESULT: NEEDS_INPUT/' "$f" > "$base/r.md"
+  expect_msg "a gate role returned NEEDS_INPUT" 'not valid for role reviewer' AS reviewer record LC --file "$base/r.md"
+  f=$(result_for REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|info|impl.txt:1|suspicion|none')
+  expect_msg "a FAIL with only info rows was accepted" 'at least one blocking' AS reviewer record LC --file "$f"
+  f=$(result_for REVIEW_SMALL PASS high 'REVIEW_SMALL-1|blocking|impl.txt:1|real bug|traced')
+  expect_msg "a PASS with a blocking row was accepted" 'PASS cannot carry' AS reviewer record LC --file "$f"
+  f=$(result_for REVIEW_SMALL FAIL high 'QA-1|blocking|impl.txt:1|real bug|traced')
+  expect_msg "a finding id of another gate was accepted" 'want REVIEW_SMALL-<n>' AS reviewer record LC --file "$f"
+  f=$(result_for REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|HIGH|impl.txt:1|real bug|traced')
+  expect_msg "a severity outside blocking|info was accepted" 'severity' AS reviewer record LC --file "$f"
+  [ "$(n_gates)" = "$before" ] || die "a rejected result left a gate record"
+  [ ! -d .agents/runs/LC/results ] || [ -z "$(ls .agents/runs/LC/results)" ] || die "a rejected result left a results file"
+  # low confidence: recorded as pass_low and does not satisfy the gate
+  rec REVIEW_SMALL PASS low
+  [ "$(gate_st REVIEW_SMALL)" = pass_low ] || die "low-confidence PASS is $(gate_st REVIEW_SMALL)"
+  A secret-scan LC >/dev/null; gpass QA; gpass VERIFY
+  expect_msg "CODE_DONE counted a pass_low" 'REVIEW_SMALL of LC is pass_low' A handoff LC CODE_DONE
+  # a skill-owned results file is never overwritten; record writes NNN-<role>.result.md
+  mkdir -p .agents/runs/LC/results; printf '# explorer evidence\n' > .agents/runs/LC/results/005-explorer.md
+  gpass REVIEW_SMALL
+  ls .agents/runs/LC/results/006-reviewer.result.md >/dev/null || die "record did not write NNN-<role>.result.md"
+  [ "$(cat .agents/runs/LC/results/005-explorer.md)" = '# explorer evidence' ]
+  grep -q "^result_sha256: \"$(tsha .agents/runs/LC/results/006-reviewer.result.md)\"" .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "the gate does not bind the raw result sha256"
+  grep -q 'event=record:reviewer:PASS .*sha256=' .agents/runs/LC/LEDGER.log || die "record is not ledgered with the raw sha256"
+  # qa task result (QA plan step) is a non-gate result
+  printf 'ROLE: qa\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: QA_PLAN.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/QA_PLAN.md)" > "$base/qa.md"
+  n=$(n_gates); AS qa record LC --file "$base/qa.md" >/dev/null; [ "$(n_gates)" = "$n" ] || die "a qa task result created a gate record"
+  A handoff LC CODE_DONE >/dev/null
+  ok "record: role, fingerprint, artifact, header, focus, findings, pass_low, result naming, qa task result"
+}
+
+sc_fix_loop() {
+  scaffold orchestrated; implemented orchestrated
+  A secret-scan LC >/dev/null; gfail REVIEW_SMALL impl.txt; gpass QA; gpass VERIFY
+  [ "$(gate_st REVIEW_SMALL)" = fail ] && [ "$(gate_st QA)" = pass ] && [ "$(gate_st SECRETS)" = pass ]
+  A next LC | grep -q '^next=agent.sh handoff LC IMPLEMENTING (fix round 1' || die "next does not start fix round 1"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: empty key default'; A handoff LC IMPLEMENTED >/dev/null
+  [ "$(gate_st QA)" = stale ] && [ "$(gate_st REVIEW_SMALL)" = stale ] || die "passes on older content are not stale"
+  A secret-scan LC >/dev/null; gpass REVIEW_SMALL; gpass QA
+  [ "$(A next LC | grep -c '^next=')" = 1 ] && A next LC | grep -q '^next=dispatch.sh LC verifier' || die "next does not list only the stale gate: $(A next LC)"
+  gfail VERIFY impl.txt
+  A handoff LC IMPLEMENTING >/dev/null
+  [ "$(pipe_val fix_round)" = 2 ] && [ "$(pipe_val escalation)" = yes ] || die "round 2 does not set the escalation flag"
+  A decide LC implementer >/dev/null; grep -q 'signals=fix_round_2' .agents/runs/LC/decisions/*-implementer.decision || die "decide misses fix_round_2"
+  worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null
+  gfail REVIEW_SMALL impl.txt
+  expect_msg "a third round was allowed" 'fix rounds exhausted' A handoff LC IMPLEMENTING
+  A next LC | grep -q '^next=agent.sh terminate LC FAILED' || die "next does not point to terminate FAILED"
+  printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: REVIEW_SMALL and VERIFY failed on all three contents\n' | A terminate LC FAILED >/dev/null
+  expect_state execution state FAILED
+  ok "fix loop: per-gate status, only stale gates listed, round-2 escalation, terminate FAILED"
+}
+
+sc_waiver() {
+  scaffold orchestrated; implemented orchestrated
+  A secret-scan LC >/dev/null; gfail REVIEW_SMALL impl.txt; gpass QA; gpass VERIFY
+  expect_msg "a waiver without approval" 'needs the user' A waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream'
+  expect_msg "a waiver without a reason" 'reason' A waive LC REVIEW_SMALL-1
+  A request-approval LC waive:REVIEW_SMALL-1 >/dev/null
+  capture 'approved, go ahead'
+  expect_msg "an approval text not naming the finding" 'no approval phrase' A approve LC waive:REVIEW_SMALL-1
+  capture 'I approve waiving REVIEW_SMALL-1, the default is documented'
+  A approve LC waive:REVIEW_SMALL-1 >/dev/null
+  expect_fail "a reviewer waived" AS reviewer waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream'
+  A waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream' >/dev/null
+  [ "$(gate_st REVIEW_SMALL)" = waived ] || die "a fully waived FAIL is $(gate_st REVIEW_SMALL)"
+  grep -q 'event=waive ' .agents/runs/LC/LEDGER.log
+  A handoff LC CODE_DONE >/dev/null
+  # SECRETS findings are never waivable
+  scaffold orchestrated; worker RED fail impl_test.txt 'test: lookup'; worker GREEN pass impl.txt 'PLANTED_SECRET=abc'; A handoff LC IMPLEMENTED >/dev/null
+  A secret-scan LC >/dev/null; [ "$(gate_st SECRETS)" = fail ]
+  expect_msg "a SECRETS waiver approval was requested" 'never waivable' A request-approval LC waive:SECRETS-1
+  expect_msg "a SECRETS finding was waived" 'never waivable' A waive LC SECRETS-1 --reason 'it is only a test fixture value anyway'
+  # SECURITY findings are never waivable
+  unfrozen CRITICAL; approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  solo RED fail impl_test.txt 'test: lookup'; solo GREEN pass impl.txt 'impl: lookup'; A handoff LC IMPLEMENTED >/dev/null
+  rec SECURITY FAIL high 'SECURITY-1|blocking|impl.txt:1|injection reachable from input|traced: input -> eval'
+  expect_msg "a SECURITY waiver approval was requested" 'never waivable' A request-approval LC waive:SECURITY-1
+  expect_msg "a SECURITY finding was waived" 'never waivable' A waive LC SECURITY-1 --reason 'the input is trusted in this deployment'
+  ok "waivers: approval naming the finding, lead only, SECRETS and SECURITY never"
+}
+
+sc_approvals() {
+  unfrozen COMPLEX
+  expect_msg "approve without a request" 'no approval request' A approve LC plan
+  A request-approval LC plan | grep -q '^QUESTIONS:' || die "request-approval does not print the D13 question"
+  expect_msg "approve without TTY or capture" 'no user prompt capture' A approve LC plan
+  capture 'approve the plan' "$(( $(date +%s) - 100 ))"
+  expect_msg "a stale capture was accepted" 'stale capture' A approve LC plan
+  capture 'looks fine to me'
+  expect_msg "a capture without an approval phrase" 'no approval phrase' A approve LC plan
+  capture 'approve the plan'; sed 's/"sha256":"[0-9a-f]*"/"sha256":"00"/' .agents/local/prompts/s1.json > "$base/c.json"; cp "$base/c.json" .agents/local/prompts/s1.json
+  expect_msg "a capture with a wrong sha256" 'sha256 does not match' A approve LC plan
+  capture 'Approve the PLAN, onaylıyorum'
+  A approve LC plan >/dev/null
+  expect_msg "one request approved twice" 'already approved' A approve LC plan
+  A request-approval LC plan >/dev/null
+  expect_msg "a prompt reused for a second approval" 'single-use' A approve LC plan
+  grep -q '^answered_by: "user"' .agents/runs/LC/approvals/*-plan.yaml
+  # commit approvals bind the content fingerprint and are consumed once
+  A freeze LC >/dev/null
+  grep -q '^consumed: "true"' .agents/runs/LC/approvals/*-plan.yaml || die "freeze did not consume the plan approval"
+  A request-approval LC commit >/dev/null; capture 'commit it'; A approve LC commit >/dev/null
+  expect_fail "approval-consume with another fingerprint" A approval-consume LC commit 0123456789abcdef0123456789abcdef01234567
+  A approval-consume LC commit "$(A fingerprint LC)" >/dev/null
+  expect_fail "a commit approval consumed twice" A approval-consume LC commit "$(A fingerprint LC)"
+  # outside a run: push approvals in .agents/local
+  A request-approval - push >/dev/null; capture 'push it'; A approve - push >/dev/null
+  A approval-consume - push >/dev/null
+  expect_fail "a no-run plan approval" A request-approval - plan
+  ok "approvals: request, capture freshness/phrase/sha, single-use, commit binding, no-run push"
+}
+
+# Prompt captures and approval files must be regular single-link files on a symlink-free path under the project.
+sc_capture_integrity() {
+  unfrozen COMPLEX
+  A request-approval LC plan >/dev/null
+  capture 'approve the plan'; mv .agents/local/prompts/s1.json "$base/real.json"; ln -s "$base/real.json" .agents/local/prompts/s1.json
+  expect_msg "a symlinked capture was accepted" 'single-link' A approve LC plan
+  rm .agents/local/prompts/s1.json; mv "$base/real.json" .agents/local/prompts/s1.json; ln .agents/local/prompts/s1.json "$base/hard.json"
+  expect_msg "a hard-linked capture was accepted" 'single-link' A approve LC plan
+  rm -f "$base/hard.json"; mv .agents/local/prompts "$base/prompts"; ln -s "$base/prompts" .agents/local/prompts
+  expect_msg "a capture under a symlinked prompts directory was accepted" 'single-link' A approve LC plan
+  rm .agents/local/prompts; mv "$base/prompts" .agents/local/prompts
+  A approve LC plan >/dev/null
+  A freeze LC >/dev/null
+  # approval files: a symlinked approval is never consumed
+  A request-approval LC commit >/dev/null; capture 'commit it'; A approve LC commit >/dev/null
+  cf=$(ls .agents/runs/LC/approvals/*-commit.yaml | grep -v request); mv "$cf" "$base/appr.yaml"; ln -s "$base/appr.yaml" "$cf"
+  expect_fail "a symlinked approval file was consumed" A approval-consume LC commit "$(A fingerprint LC)"
+  rm "$cf"; cp "$base/appr.yaml" "$cf"; ln "$cf" "$base/appr-hard.yaml"
+  expect_fail "a hard-linked approval file was consumed" A approval-consume LC commit "$(A fingerprint LC)"
+  rm -f "$base/appr-hard.yaml"
+  A approval-consume LC commit "$(A fingerprint LC)" >/dev/null
+  ok "captures and approvals: regular, single-link, symlink-free path"
+}
+
+# The lead's own question (D13) and dispatch's failover question: `ask` stores a pending question.
+sc_ask() {
+  scaffold orchestrated
+  printf 'QUESTIONS:\n1. Split the cache into its own module?\n   options: yes | no\n   recommended: no\n   why: AC-1 is met either way\n' > "$base/ask.md"
+  expect_fail "a specialist asked as the lead" AS reviewer ask LC --file "$base/ask.md"
+  expect_fail "ask without a numbered question" sh -c "printf 'no question here\n' | sh ./.agents/scripts/agent.sh ask LC"
+  A ask LC --file "$base/ask.md" >/dev/null
+  expect_state execution awaiting_input true
+  grep -q '^asked_at: [0-9]' .agents/runs/LC/questions/001.md || die "ask stored no asked_at"
+  A questions LC | grep -Fq '1. Split the cache into its own module?' || die "questions does not show the asked question"
+  A questions LC | grep -q '^QUESTIONS:' && die "the QUESTIONS: line was stored"
+  A next LC | grep -q '^next=agent.sh questions LC' || die "next does not stop for the asked question"
+  grep -q 'event=ask .*questions/001.md@' .agents/runs/LC/LEDGER.log || die "ask was not ledgered"
+  capture 'no, keep it in one module'; printf 'no, keep it in one module\n' | A answer LC 1 >/dev/null
+  grep -q '^answered_by: user' .agents/runs/LC/questions/001.answer.md || die "the user's answer is not answered_by user"
+  expect_state execution awaiting_input false
+  A verify-seal LC >/dev/null
+  ok "ask: the lead's question is pending, verbatim, ledgered, answered like a specialist's"
+}
+
+sc_supervised_destructive() {
+  unfrozen COMPLEX
+  expect_msg "supervised freeze without plan approval" 'plan approval' A freeze LC
+  A next LC | grep -q '^next=agent.sh request-approval LC plan' || die "next does not ask for the plan approval"
+  approve_as_user plan 'approve the plan'
+  printf 'edited after approval\n' >> .agents/runs/LC/PLAN.md
+  expect_msg "an approval for an older PLAN.md" 'plan approval' A freeze LC
+  approve_as_user plan 'approve the plan again'
+  A freeze LC >/dev/null
+  ok "supervised freeze needs a plan approval bound to PLAN.md"
+  # destructive data change: forced CRITICAL, needs plan + destructive approvals
+  unfrozen STANDARD
+  printf '\n## Data\n\ndestructive: maybe\n' >> .agents/runs/LC/PLAN.md
+  expect_msg "an invalid ## Data first line" 'destructive: yes' A freeze LC
+  sed 's/^destructive: maybe$/destructive: yes/' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
+  expect_fail "a destructive plan froze without approvals" A freeze LC
+  expect_state pipeline classification CRITICAL
+  expect_msg "a destructive plan reclassified below CRITICAL" 'CRITICAL' A classify LC STANDARD
+  approve_as_user plan 'approve the plan'
+  expect_msg "destructive freeze without destructive approval" 'destructive approval' A freeze LC
+  approve_as_user destructive 'approve the destructive migration'
+  A freeze LC >/dev/null
+  [ "$(pipe_val tier)" = full ]
+  ok "destructive plan: forced CRITICAL, plan + destructive approvals"
+}
+
+sc_questions() {
+  scaffold orchestrated
+  mkdir -p .agents/runs/LC/results; printf '# explorer notes\n' > .agents/runs/LC/results/001-explorer.md
+  q() { printf 'ROLE: explorer\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: results/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/results/001-explorer.md)" "$1" > "$base/q.md"; AS explorer record LC --file "$base/q.md"; }
+  expect_msg "NEEDS_INPUT without questions" 'QUESTIONS' q ''
+  q 'QUESTIONS:
+1. Which default should an empty key return?
+   options: nil | empty string
+   recommended: nil
+   why: AC-1 depends on it
+' >/dev/null
+  q 'QUESTIONS:
+1. Keep the old lookup name?
+   options: yes | no
+   recommended: yes
+   why: callers depend on it
+' >/dev/null
+  expect_state execution awaiting_input true
+  A questions LC | grep -Fq '1. Which default should an empty key return?' || die "questions are not relayed verbatim"
+  A next LC | grep -q '^next=agent.sh questions LC' || die "next does not point to the questions"
+  capture 'the answer is: empty string'
+  printf 'empty string\n' | A answer LC 1 >/dev/null
+  grep -q '^answered_by: user' .agents/runs/LC/questions/001.answer.md || die "an answer contained in the user prompt is not answered_by user"
+  expect_state execution awaiting_input true
+  printf 'yes, keep it\n' | A answer LC 2 >/dev/null
+  grep -q '^answered_by: lead' .agents/runs/LC/questions/002.answer.md || die "an answer the user never gave is not answered_by lead"
+  expect_state execution awaiting_input false
+  # I4: a capture older than the question, or an answer under 3 characters, is never the user's
+  q 'QUESTIONS:
+1. Which default for a missing file?
+' >/dev/null
+  capture 'the default is an empty list' "$(( $(date +%s) - 100 ))"
+  printf 'the default is an empty list\n' | A answer LC 3 >/dev/null
+  grep -q '^answered_by: lead' .agents/runs/LC/questions/003.answer.md || die "an answer from a capture older than the question is answered_by user"
+  q 'QUESTIONS:
+1. Proceed?
+' >/dev/null
+  capture 'ok'
+  printf 'ok\n' | A answer LC 4 >/dev/null
+  grep -q '^answered_by: lead' .agents/runs/LC/questions/004.answer.md || die "a two-character answer is answered_by user"
+  A verify-seal LC >/dev/null
+  ok "questions: verbatim store, answered_by user vs lead (capture newer, answer >= 3 chars), awaiting_input"
+}
+
+sc_next() {
+  unfrozen COMPLEX
+  A next LC | grep -q '^next=agent.sh request-approval LC plan'
+  A request-approval LC plan >/dev/null
+  A next LC | grep -q '^next=wait for the user' || die "next after a request: $(A next LC)"
+  capture 'approve the plan'; A approve LC plan >/dev/null
+  A next LC | grep -q '^next=agent.sh freeze LC'
+  A freeze LC >/dev/null
+  A next LC | grep -q '^next=agent.sh handoff LC IMPLEMENTING'
+  A handoff LC IMPLEMENTING >/dev/null
+  A next LC | grep -q '^next=dispatch.sh LC implementer'
+  implemented standalone
+  out=$(A next LC)
+  for want in 'next=agent.sh secret-scan LC' 'next=dispatch.sh LC reviewer --focus rules+tests' 'next=dispatch.sh LC qa' 'next=dispatch.sh LC verifier'; do
+    printf '%s\n' "$out" | grep -Fxq "$want" || die "next at IMPLEMENTED lacks '$want': $out"
+  done
+  pass_all
+  A next LC | grep -q '^next=agent.sh handoff LC CODE_DONE'
+  A handoff LC CODE_DONE >/dev/null
+  A next LC | grep -q '^next=agent.sh knowledge-done LC'
+  A knowledge-done LC not_applicable >/dev/null
+  A next LC | grep -q '^next=write COMPLETION_REPORT.md'
+  ok "next: deterministic steps from approval to completion"
+}
+
+sc_decide() {
+  scaffold orchestrated; implemented orchestrated
+  STUB_ARGS=$base/args; export STUB_ARGS; : > "$STUB_ARGS"
+  A decide LC reviewer --focus rules+tests >/dev/null
+  ls .agents/runs/LC/decisions/001-reviewer-rules-tests.decision >/dev/null
+  grep -q -- '--role reviewer --class COMPLEX --tier small --escalations-used 0' "$STUB_ARGS" || die "decide args: $(cat "$STUB_ARGS")"
+  ! grep -q -- '--runtime\|--profile' "$STUB_ARGS" || die "decide passed runtime/profile without an override"
+  grep -q 'event=decide .*model=sonnet' .agents/runs/LC/LEDGER.log
+  A decide LC implementer --runtime codex >/dev/null
+  tail -1 "$STUB_ARGS" | grep -q -- '--runtime codex' || die "--runtime override not passed"
+  grep -q '^runtime=codex' .agents/runs/LC/decisions/002-implementer.decision
+  expect_fail "an invalid override was accepted" A decide LC reviewer --model bogus
+  [ ! -e .agents/runs/LC/decisions/003-reviewer.decision ] || die "a refused decision was persisted"
+  expect_fail "an unknown decide flag was accepted" A decide LC reviewer --turbo yes
+  expect_fail "a reviewer called decide" AS reviewer decide LC reviewer
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced'
+  printf 'escalated=yes\n' >> .agents/runs/LC/decisions/001-reviewer-rules-tests.decision
+  A decide LC reviewer --focus rules+tests >/dev/null
+  tail -1 "$STUB_ARGS" | grep -q -- '--signal recent_fail_same_focus --escalations-used 1' || die "signals/escalations: $(tail -1 "$STUB_ARGS")"
+  # metrics: one line per recorded specialist step with runtime and model from the decision
+  grep -q "$(printf '\tLC\treviewer\tclaude\tsonnet\t')" .agents/local/metrics/history.tsv || die "metrics line missing: $(cat .agents/local/metrics/history.tsv)"
+  sed 's/^metrics: on/metrics: off/' .agents/config.yaml > "$base/c.yaml"; cp "$base/c.yaml" .agents/config.yaml; rm -rf .agents/local/metrics
+  mkdir -p .agents/runs/LC/results; printf '# e\n' > .agents/runs/LC/results/090-explorer.md
+  printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: results/090-explorer.md %s\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/results/090-explorer.md)" > "$base/e.md"
+  AS explorer record LC --file "$base/e.md" >/dev/null
+  [ ! -e .agents/local/metrics/history.tsv ] || die "metrics: off still wrote metrics"
+  ok "decide: signals, overrides, escalations-used, persisted and ledgered; metrics on/off"
+}
+
+sc_config_scope_misc() {
+  new_repo
+  A config-check >/dev/null
+  [ "$(A config-get review.max_fix_rounds)" = 2 ] && [ "$(A config-get git.branch_prefix)" = proofline/ ]
+  expect_fail "config-get of a missing key" A config-get no.such.key
+  for edit in 's/^profile: balanced/profile: .*/' 's/^failover: auto/failover: a.*/' 's/^profile: balanced/profile: turbo/' 's/^failover: auto/failover: sometimes/' 's/^  max_fix_rounds: 2/  max_fix_rounds: two/' 's/^metrics: on/metrics: maybe/' 's/^  COMPLEX: supervised/  COMPLEX: lazy/' 's/^    opus: 3/    opus: 4/'; do
+    sed "$edit" .agents/config.yaml > "$base/bad.yaml"
+    expect_msg "config-check accepted: $edit" 'config invalid' A config-check "$base/bad.yaml"
+  done
+  { cat .agents/config.yaml; printf 'surprise: 1\n'; } > "$base/bad.yaml"
+  expect_msg "config-check accepted an unknown top-level key" 'unknown top-level key: surprise' A config-check "$base/bad.yaml"
+  # scope `new: true`
+  unfrozen STANDARD
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl.txt.new' '    criteria: [AC-1]' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  expect_msg "a missing path without new: true" 'does not exist' A freeze LC
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  expect_msg "an existing path marked new: true" 'already exists' A freeze LC
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: src/new.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  A freeze LC >/dev/null
+  A handoff LC IMPLEMENTING >/dev/null; A verify-scope LC >/dev/null
+  A ledger-note LC 'failover from=claude to=codex reason=limit' >/dev/null
+  grep -q 'event=note .*failover from=claude' .agents/runs/LC/LEDGER.log
+  expect_fail "a reviewer wrote a ledger note" AS reviewer ledger-note LC 'x'
+  A verify-seal LC >/dev/null
+  ok "config-check, config-get, scope new: true, ledger-note"
+}
+
+sc_secret_scan() {
+  scaffold orchestrated; implemented orchestrated
+  n=$(n_gates)
+  expect_msg "a scanner error was recorded" 'secret scan error' env STUB_SCAN_ERROR=1 sh ./.agents/scripts/agent.sh secret-scan LC
+  [ "$(n_gates)" = "$n" ] || die "a scanner error left a gate record"
+  expect_fail "a reviewer ran secret-scan" AS reviewer secret-scan LC
+  A secret-scan LC >/dev/null; [ "$(gate_st SECRETS)" = pass ]
+  ok "secret-scan: error records nothing, lead only"
+}
+
+# B2: only records written by record/gate/secret-scan/waive/approve (bound in the ledger chain) count.
+sc_provenance() {
+  scaffold orchestrated no CRITICAL; implemented orchestrated
+  for g in $(required); do case $g in SECRETS) A secret-scan LC >/dev/null ;; SECURITY|REVIEW_RULES) gfail "$g" impl.txt ;; *) gpass "$g" ;; esac; done
+  gd=.agents/runs/LC/gates; wd=.agents/runs/LC/waivers; mkdir -p "$wd"
+  sr=$(ls "$gd" | grep 'SECURITY.yaml$' | tail -1); rr=$(ls "$gd" | grep 'REVIEW_RULES.yaml$' | tail -1)
+  printf 'finding: "SECURITY-1"\ngate_record: "%s"\ngate_record_sha256: "%s"\n' "$sr" "$(tsha "$gd/$sr")" > "$wd/001-SECURITY-1.yaml"
+  printf 'finding: "REVIEW_RULES-1"\ngate_record: "%s"\ngate_record_sha256: "%s"\n' "$rr" "$(tsha "$gd/$rr")" > "$wd/002-REVIEW_RULES-1.yaml"
+  [ "$(gate_st SECURITY)" = fail ] || die "a hand-written SECURITY waiver counted: $(gate_st SECURITY)"
+  [ "$(gate_st REVIEW_RULES)" = fail ] || die "a hand-written waiver counted: $(gate_st REVIEW_RULES)"
+  v=$(ls "$gd" | grep 'VERIFY.yaml$' | tail -1)
+  sed 's/^gate: .*/gate: "SECURITY"/; s/^role: .*/role: "security_reviewer"/; s/^seq: .*/seq: 90/' "$gd/$v" > "$gd/090-SECURITY.yaml"; cp "$gd/${v%.yaml}.manifest" "$gd/090-SECURITY.manifest"
+  [ "$(gate_st SECURITY)" = fail ] || die "a hand-written PASS record counted: $(gate_st SECURITY)"
+  expect_msg "CODE_DONE over hand-written records" 'is fail for the current content' A handoff LC CODE_DONE
+  expect_msg "validate missed the hand-written records" 'gates/090-SECURITY.yaml' A validate LC
+  mkdir -p .agents/runs/LC/approvals
+  printf 'kind: "commit"\nbound: "%s"\nconsumed: "false"\n' "$(A fingerprint LC)" > .agents/runs/LC/approvals/050-commit.yaml
+  expect_fail "a hand-written commit approval was consumed" A approval-consume LC commit "$(A fingerprint LC)"
+  ok "provenance: hand-written gate records, waivers (SECURITY included) and approvals are ignored; validate names them"
+}
+
+# B3: a waiver approval binds the failing gate record (name + sha256) and the finding id.
+sc_waiver_rebind() {
+  scaffold orchestrated no STANDARD; implemented orchestrated
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:1|first problem: cache never invalidated|traced'
+  approve_as_user waive:VERIFY-1 'approve waiving VERIFY-1'
+  grep -q '^bound: "[0-9]*-VERIFY.yaml@[0-9a-f]*#VERIFY-1"' .agents/runs/LC/approvals/*-waive-VERIFY-1.yaml || die "the waiver approval is not bound to the gate record"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: fix attempt'; A handoff LC IMPLEMENTED >/dev/null
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:2|different problem: data loss on concurrent write|traced'
+  expect_msg "a round-1 approval waived round 2's VERIFY-1" "needs the user's approval" A waive LC VERIFY-1 --reason 'the user approved waiving VERIFY-1 earlier on'
+  ok "waiver approvals bind the failing gate record and finding; a later round never reuses them"
+}
+
+# B1: the git hooks see every open run, not ACTIVE_RUN.
+sc_open_runs() {
+  scaffold orchestrated no STANDARD
+  mkdir -p .agents/githooks; cp "$tl_agents/githooks/"* .agents/githooks/; git config core.hooksPath .agents/githooks
+  : > .agents/local/ACTIVE_RUN
+  [ "$(A open-runs)" = 'LC -' ] || die "open-runs: $(A open-runs)"
+  printf 'notes\n' > notes.md; git add notes.md
+  expect_msg "emptying ACTIVE_RUN opened commits outside the run" "commits only on a run's task branch" env PROOFLINE_NO_TTY=1 git commit -qm 'docs: notes'
+  printf 'reason: the lookup backend is unreachable from this sandbox\nevidence: three connection attempts to the backend timed out\n' | A terminate LC BLOCKED >/dev/null
+  [ -z "$(A open-runs)" ] || die "a terminated run is still open"
+  PROOFLINE_NO_TTY=1 git commit -qm 'docs: notes' || die "a terminated run still blocks commits"
+  ok "git hooks: every open run counts (ACTIVE_RUN emptied), terminated runs do not"
+}
+
+# I5: knowledge-scope files are written after the SECRETS gate; DONE and delivery-check scan them.
+sc_knowledge_secrets() {
+  scaffold orchestrated; to_code_done orchestrated
+  printf 'token: PLANTED_SECRET\n' > DESIGN.md
+  A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null
+  expect_msg "delivery-check over a secret in a knowledge file" 'found secrets' A delivery-check LC
+  expect_msg "DONE over a secret in a knowledge file" 'found secrets' A handoff LC DONE
+  printf 'design notes\n' > DESIGN.md
+  A handoff LC DONE >/dev/null
+  ok "knowledge-scope files are secret-scanned at DONE and delivery-check"
+}
+
+# CLASSIFY precedes BRANCH: `next` prints the order the commands accept.
+sc_next_order() {
+  new_repo; nd=.agents/runs/NB; mkdir -p "$nd" tasks
+  sed 's/<TASK-ID>/NB/; s#<REPOSITORY-RELATIVE-TASK-FILE.md>#tasks/NB-sample.md#' .agents/templates/RUN.yaml > "$nd/RUN.yaml"
+  printf '# Task: NB - sample\n' > "$nd/TASK.md"; printf '# NB sample\n' > tasks/NB-sample.md; git add -A; git commit -qm base
+  A next NB | grep -q '^next=agent.sh classify NB' || die "next on a new run: $(A next NB)"
+  A classify NB STANDARD >/dev/null
+  A next NB | grep -q '^next=agent.sh branch NB' || die "next after classify: $(A next NB)"
+  A branch NB >/dev/null
+  A next NB | grep -q '^next=agent.sh baseline NB' || die "next after branch: $(A next NB)"
+  ok "next: classify, branch, baseline in the order the commands accept"
+}
+
+run_sc sc_tier
+run_sc sc_tier_paths
+run_sc sc_record
+run_sc sc_fix_loop
+run_sc sc_waiver
+run_sc sc_approvals
+run_sc sc_supervised_destructive
+run_sc sc_capture_integrity
+run_sc sc_ask
+run_sc sc_questions
+run_sc sc_next
+run_sc sc_decide
+run_sc sc_config_scope_misc
+run_sc sc_secret_scan
+run_sc sc_provenance
+run_sc sc_waiver_rebind
+run_sc sc_open_runs
+run_sc sc_knowledge_secrets
+run_sc sc_next_order
+echo 'gates tests passed'

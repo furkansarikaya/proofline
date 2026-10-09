@@ -1,0 +1,7 @@
+mode: review
+task:
+  required: true
+application_writes: false
+knowledge:
+  read: true
+  write_during_code_transaction: false

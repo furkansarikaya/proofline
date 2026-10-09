@@ -1,0 +1,42 @@
+#!/bin/sh
+# proofline pre-push (D19, D34). Installed with `git config core.hooksPath .agents/githooks`.
+#  1 protected branches (git.protected_branches, globs): agents never push there; a human at a TTY may.
+#  2 open runs (`agent.sh open-runs`, never ACTIVE_RUN): only a run's task branch is pushed.
+#  3 git.push_requires_approval (default true): an agent push needs a single-use `push` approval
+#    (`agent.sh approval-consume <ID|-> push`; `-` when no run is open); a human at a TTY passes.
+set -u
+root=$(git rev-parse --show-toplevel) || exit 1
+config=$root/.agents/config.yaml
+agent=$root/.agents/scripts/agent.sh
+block() { echo "proofline pre-push: BLOCKED: $*" >&2; exit 1; }
+cfg() { # SECTION KEY -> value of a 2-level key (empty when absent)
+  [ -f "$config" ] || return 0
+  awk -v s="$1" -v k="$2" '$0 ~ "^" s ":" { c = 1; next } /^[^ #]/ { c = 0 }
+    c && $0 ~ "^  " k ":" { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/"/, "", v); print v; exit }' "$config"
+}
+human() { [ "${PROOFLINE_NO_TTY:-0}" != 1 ] && [ -z "${AGENT_ROLE:-}" ] && [ -t 2 ]; }
+set -f
+protected=$(cfg git protected_branches)
+runs=''
+if [ -f "$agent" ]; then runs=$("$agent" open-runs 2>/dev/null) || block "agent.sh open-runs failed; cannot tell whether a run is open"; fi
+refs=0 id=-
+while read -r lref _lsha rref _rsha; do
+  refs=$((refs + 1)); b=${rref#refs/heads/}
+  if [ -n "$runs" ]; then
+    lb=${lref#refs/heads/}; [ "$lref" != HEAD ] || lb=$(git symbolic-ref --short -q HEAD || true)
+    rid=$(printf '%s\n' "$runs" | awk -v b="$lb" '$2 == b { print $1; exit }')
+    [ -n "$rid" ] || block "a run is open ($(printf '%s\n' "$runs" | awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $1 }')): only its task branch is pushed (pushing '$lref')"
+    [ "$id" = - ] || [ "$id" = "$rid" ] || block "one push delivers one run"
+    id=$rid
+  fi
+  for pb in $protected; do
+    # shellcheck disable=SC2254 # the pattern is a glob on purpose
+    case "$b" in $pb) human || block "branch '$b' is listed in git.protected_branches; agents never push there" ;; esac
+  done
+done
+[ "$refs" -gt 0 ] || exit 0
+[ "$(cfg git push_requires_approval)" = false ] && exit 0
+human && exit 0
+[ -f "$agent" ] || block "git.push_requires_approval is on and .agents/scripts/agent.sh is missing"
+"$agent" approval-consume "$id" push >&2 || block "git.push_requires_approval: no user push approval"
+exit 0

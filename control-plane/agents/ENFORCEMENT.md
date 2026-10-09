@@ -1,0 +1,51 @@
+# Enforcement matrix
+
+"Script-enforced" means `.agents/scripts/agent.sh` (or a git hook in `.agents/githooks/`, or
+`dispatch.sh`/`exec-policy.sh`) fails closed. "Policy-only" means only instructions stand behind it. Runtime
+hooks (Claude Code, Codex) are an extra layer, never the foundation (D6). Never describe policy-only
+behaviour as technically prevented.
+
+| Rule | Classification | Mechanism |
+|---|---|---|
+| Active task selection | Script-enforced | `.agents/local/ACTIVE_RUN` absent or empty = no task for `status`; a malformed or dangling selector FAILS `status`. The git hooks never use it: they use `agent.sh open-runs` (every run directory not terminated and not cleaned up). |
+| Role command boundary | Script-enforced for CLI commands | Default role `lead`. Gate roles may run only read-only commands plus `record`/`gate`; the implementer adds `worker-evidence` and `handoff IMPLEMENTING` (never the reopen after a finding); other roles read-only plus `record`. State commands (`classify freeze refreeze handoff approve waive answer terminate amend cleanup decide secret-scan ledger-note ask`) are lead-only. `AGENT_ROLE` is a declared claim. |
+| Lead never writes a verdict | Script-enforced | `record` requires `ROLE` = `AGENT_ROLE` and rejects PASS/FAIL for `lead`; `gate` rejects the lead; gate records whose role is not the gate's owner count as `stale`. |
+| Result protocol | Script-enforced | `record` rejects a malformed header, wrong role or task, stale fingerprint, unregistered or mismatched artifact, an artifact outside the role's and focus's paths, malformed findings (PROTOCOL.md). |
+| Provenance of gate records, waivers, approvals | Script-enforced detection | only files bound `<dir>/<file>@<sha256>` in the ledger chain by their writing command count; `validate` names the others. A same-user actor who appends correctly chained ledger entries is not stopped (the chain is unkeyed). |
+| Low-confidence PASS does not count | Script-enforced | recorded `pass_low`; never satisfies a gate. |
+| Lead never writes product code (orchestrated) | Script-enforced detection at every transition and gate; write-time blocking is a runtime hook (phase 3) | `window-open`/`window-close` attest the implementer's tree; any other change FAILS. |
+| No swarm, one implementer, explorer bound | Policy-only | Role instructions and mode policy; the repository has no agent-spawn interceptor. |
+| Classification selects artifacts and QA | Script-enforced (the choice of class is a lead judgment) | `classify` lead-only; `freeze` requires exactly the class artifacts; TRIVIAL scope bound; the class is frozen and sealed. |
+| Destructive plan is CRITICAL | Script-enforced | `freeze` forces CRITICAL when `## Data` starts `destructive: yes`; `classify` below CRITICAL FAILS; an invalid first line FAILS. |
+| Tier from the diff, never decreasing | Script-enforced | `tier` computes from the diff; `pipeline.tier` is recorded by the lead, sealed by the ledger, and the effective tier is the maximum. |
+| Required gates per class and tier | Script-enforced | `required_gates`; a gate outside the set is refused; CODE_DONE needs all `pass`/`waived`. |
+| Gates bound to exact content and artifact | Script-enforced | fingerprint, patch manifest, frozen hashes, artifact sha256, raw result sha256. |
+| Secret scan always, never waivable | Script-enforced | `secret-scan` records SECRETS; `request-approval`, `waive` and gate evaluation refuse waivers of SECRETS and SECURITY. Knowledge-scope files (written after CODE_DONE) are scanned at DONE and `delivery-check`. The scanner's coverage is the scanner's (secret-scan.sh). |
+| Fix loop bound | Script-enforced | rounds ≤ `review.max_fix_rounds`; fix inside `fix_scope`; FAILED only after exhaustion; a refreeze after exhaustion needs a `budget` approval. |
+| Waivers need the user | Script-enforced structure; identity as below | `waive` needs a `waive:<ID>` approval naming the finding, bound to the failing gate record's sha256 and granted after it. |
+| Approvals from the user | Script-enforced structure; the user's identity is declared | TTY input or a prompt capture newer than the request, with matching sha256, an approval phrase and a kind word, single-use. Captures, approval requests and approval files count only as regular files (no symlink) with one hard link on a directory chain without symlinks below the project root, so a capture or approval cannot be a link to a file an agent controls. Residual: no writer marker exists, so a same-user process that writes a well-formed regular file into `.agents/local/prompts/` forges a capture; the capture hook and the runtime hook's denial of agent writes to `.agents/local/` (except the lead's `.agents/local/assignments/`) close it further. Phrase matching is substring-based and does not detect negation ("do not approve"). |
+| Supervised plan approval, destructive approval, scope approval | Script-enforced | `freeze`/`refreeze` require and consume them, bound to the PLAN.md sha256. |
+| Questions relayed verbatim | Script-enforced storage and `answered_by`; relaying verbatim is policy-only | `questions/NNN.md` verbatim (a specialist's NEEDS_INPUT through `record`, the lead's own question and `dispatch.sh`'s `failover: ask` question through the lead-only `ask`); `answered_by: user` only when contained in the latest user prompt capture; CODE_DONE FAILS and `next` stops while questions are pending. |
+| Commit/push need gates and approval | Script-enforced in git hooks (`githooks/`, P1-B) | pre-commit: identity guard, the task branch of an open run (`open-runs`; emptying ACTIVE_RUN opens nothing), `delivery-check`, `approval-consume commit <fingerprint>`; pre-push: only an open run's task branch, `approval-consume push`. Residuals: `git commit --no-verify` / `git push --no-verify` skip the hooks entirely and are blocked only by the Claude Code / Codex PreToolUse hook (a runtime layer, not git); the "human at a TTY" exemption is detected from a terminal on stderr, so a process that allocates a pseudo-terminal (`script(1)`, `expect`, `unbuffer`) without `AGENT_ROLE` passes as a human (it still needs the gates, never the approval); a user who disables `core.hooksPath` bypasses them (`doctor` checks it). `dispatch.sh` BLOCKS a dispatched step that changes `.git/config` (e.g. `core.hooksPath`) or HEAD. |
+| Freeze of task, evidence, plan, QA plan, policy | Script-enforced | sha256 in RUN.yaml; `verify-freeze`. |
+| Scope `new: true` | Script-enforced at freeze | a `new: true` path that exists FAILS; a path without it that is missing FAILS. |
+| Planning freshness, task-source contract | Script-enforced for local Markdown and `none` sources | `freshness`; projection hash; `task-source-status`, `task-source-relocate`; adapter confinement. |
+| Run artifact registry | Script-enforced | unknown files in the run directory FAIL `verify-scope`, gates and `validate` (WORKFLOW.md table). |
+| Branch isolation | Script-enforced for a RUN.yaml with `repository.task_branch` | `branch` creates `<git.branch_prefix><ID>-<slug>` from the canonical tip; transitions require that branch; a conflicting branch is never reused. |
+| Baseline of user changes | Script-enforced | fingerprints; a later change to a user file is task scope. |
+| Worker evidence and TDD | Script-enforced for a run with `worker_evidence:` | RED/GREEN per non-exempt path, bound to frozen hashes and the topology's owner. |
+| Ledger and manual rewind | Script-enforced detection | hash chain sealing the RUN.yaml lifecycle fields (state, knowledge, awaiting_input, autonomy, handoff, class, review, tier, completion report, task source). A same-user actor who rewrites RUN.yaml and re-seals the whole ledger is not stopped. |
+| Knowledge transaction scope | Script-enforced | `knowledge_scope_root`; DONE, delivery-check and validate check both scopes; DONE and delivery-check secret-scan the knowledge files. |
+| Completion report | Script-enforced structure | required sections per run; published and verified through the adapter. |
+| Execution policy, escalation | Script-enforced resolution and recording | `decide` → `exec-policy.sh resolve`; decisions ledgered; the model a runtime really used is the runtime's. |
+| Terminal outcomes, cleanup, reopen | Script-enforced | `terminate`, `cleanup`, `amend` as in WORKFLOW.md. After the delivery commit `cleanup` needs `base_sha` an ancestor of HEAD, the task-owned patch measured from `base_sha` equal to the CODE_DONE patch and committed exactly, and every required gate passing; then the run directory is deleted and the hooks see no open run. |
+| Runtime hooks in headless Codex workers | Runtime layer | `dispatch.sh` runs `codex exec --dangerously-bypass-hook-trust`: a headless run cannot answer Codex's hook-trust prompt, and without the flag the project's proofline hooks would not load for the worker. The flag trusts only the hooks this project installed; the enforcement stays in `dispatch.sh` (product-tree fingerprint for non-writing roles, attested window for the implementer, `.git/config` and HEAD unchanged) and `agent.sh`. |
+| Metrics | Best effort | `.agents/local/metrics/history.tsv`; never blocks a command. |
+
+## Evidence strength
+
+Hashes, fingerprints, ledger chains and gate bindings are machine-verifiable. Roles, the independence of
+reviewers, and the identity of the user behind an approval are declared claims unless the runtime supplies
+auditable identities. Which layers apply to a run is decided by the policy keys in its RUN.yaml
+(`worker_evidence`, `tdd`, `completion_report`, `lifecycle_gates`, `repository.task_branch`); the template
+carries them all.

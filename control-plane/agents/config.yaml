@@ -1,0 +1,153 @@
+# proofline control-plane configuration (installed as .agents/config.yaml).
+# Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
+# phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
+# validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
+proofline_version: 0.0.1
+# The canonical integration branch (detected by init). No task implements on it directly.
+canonical_branch: main
+# orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
+default_topology: orchestrated
+# Model profile (D5): max | balanced | economy. A run's execution.profile overrides it.
+profile: balanced
+runtime:
+  lead: claude
+  worker: claude
+  reviewers: claude
+  # Optional per-role override, for example `security_reviewer: claude`.
+  roles:
+# Specialist failover (D7): auto | ask | off.
+failover: auto
+# supervised: freeze needs a plan approval. autonomous: no stop before CODE_DONE (D3).
+autonomy:
+  TRIVIAL: autonomous
+  STANDARD: autonomous
+  COMPLEX: supervised
+  CRITICAL: supervised
+review:
+  max_fix_rounds: 2
+  small_max_files: 2
+  small_max_lines: 30
+  # A change touching one of these globs is never tier small.
+  risky_paths: "**/migrations/** **/migration/** **/*migration*.* **/schema.* **/auth/** **/*auth*.* **/security/** **/*security*.* **/payment*/** **/*payment*.* **/billing/** **/crypto/** **/*crypto*.* **/secrets/** .github/** .gitlab-ci.yml .circleci/** Jenkinsfile azure-pipelines.yml bitbucket-pipelines.yml **/deploy/** **/*deploy*.* Dockerfile **/Dockerfile* docker-compose*.yml compose*.yml **/k8s/** **/helm/** **/infra/** **/terraform/** *.tf *.tfvars package.json package-lock.json yarn.lock pnpm-lock.yaml go.mod go.sum Cargo.toml Cargo.lock requirements*.txt pyproject.toml poetry.lock uv.lock Pipfile Pipfile.lock Gemfile Gemfile.lock pom.xml build.gradle build.gradle.kts *.csproj Directory.Packages.props packages.lock.json composer.json composer.lock mix.exs mix.lock CMakeLists.txt conanfile.txt vcpkg.json"
+  # Markdown that is code: never tier docs.
+  code_like_markdown: ".agents/** skills/** roles/** adapters/** .claude/** .codex/** AGENTS.md CLAUDE.md **/SKILL.md **/*.prompt.md"
+  # none | task: `task` writes a follow-up task per waiver through the task adapter.
+  waiver_followup: none
+git:
+  branch_prefix: proofline/
+  commit_format: conventional
+  # Empty by default (D34): the team decides.
+  protected_branches:
+  push_requires_approval: true
+  # Forbidden commit identities (glob or ERE, case-insensitive), for example *@example-corp.com
+  forbidden_identities:
+approval:
+  phrases: approve, approved, onaylıyorum, onayliyorum, go ahead, commit it, push it
+commands:
+  build:
+  test:
+  lint:
+  # The project's own secret scanner, if any; the built-in pattern scan otherwise.
+  secret_scan:
+tasks:
+  adapter: markdown
+  dir: .agents/tasks
+design_docs:
+  design: DESIGN.md
+  architecture: docs/design/ARCHITECTURE.md
+  data_model: docs/design/DATA_MODEL.md
+  api: docs/design/API.md
+  adr_dir: docs/adr
+local_state: on
+metrics: on
+test_trust:
+  repeat: 5
+  mutation_budget: 20
+  slow_ratio: 3
+budgets:
+  max_advisor_calls: 3
+  max_escalations: 2
+  max_parallel_reviewers: 5
+
+# --- Inherited from the source workflow --------------------------------------------------
+default_mode: deterministic
+# The active-run selector (local state, git-ignored). Absent or empty: no active task.
+active_run_file: .agents/local/ACTIVE_RUN
+policy_source: .agents/modes
+# Knowledge transaction (Transaction B) scope: space-separated; an entry ending in / is a directory
+# prefix, any other entry an exact path. A path listed in the frozen plan scope stays application scope.
+knowledge_scope_root: DESIGN.md docs/design/ docs/adr/
+safety:
+  destructive_git_requires_explicit_authorization: true
+  external_network_requires_task_authorization: true
+  dependency_changes_require_task_authorization: true
+# The class selects artifacts and the QA gate. review: yes|no|optional sets a review floor (tier at least
+# small); CRITICAL is always tier full. max_scope_paths bounds PLAN.md scope paths.
+pipelines:
+  TRIVIAL:
+    evidence: no
+    qa: no
+    review: no
+    architect: no
+    max_explorers: 0
+    max_scope_paths: 2
+  STANDARD:
+    evidence: yes
+    qa: yes
+    review: optional
+    architect: no
+    max_explorers: 1
+  COMPLEX:
+    evidence: yes
+    qa: yes
+    review: yes
+    architect: yes
+    max_explorers: 2
+  CRITICAL:
+    evidence: yes
+    qa: yes
+    review: yes
+    architect: yes
+    max_explorers: 3
+# Execution policy (D5, D7): read by exec-policy.sh, dispatch.sh and runtime-detect.sh.
+execution_policy:
+  # Policy semantics version; bump when resolution or escalation behaviour changes.
+  revision: 1
+  # Efforts no override may select.
+  forbidden_efforts: ultra
+  # Hard ceiling for the dynamic context budget in bytes, overrides included.
+  max_context_bytes: 262144
+  # Per class: effort floor and dynamic context budget in bytes (the role's stable prefix is outside it).
+  classes:
+    TRIVIAL: effort=low context_bytes=16384
+    STANDARD: effort=low context_bytes=49152
+    COMPLEX: effort=medium context_bytes=98304
+    CRITICAL: effort=high context_bytes=163840
+  # Per runtime: model ladder (cheapest to strongest) and supported efforts (lowest to highest).
+  providers:
+    claude:
+      models: haiku sonnet opus
+      efforts: low medium high xhigh max
+    codex:
+      models: gpt-6-luna gpt-6-sol gpt-6-astra
+      efforts: low medium high xhigh
+# Capability tier (1..3) of every runtime model; role tier floors are checked against it (D5, D7).
+# A ladder model without an entry gets its ladder position as tier.
+capabilities:
+  claude:
+    haiku: 1
+    sonnet: 2
+    opus: 3
+  codex:
+    gpt-6-luna: 1
+    gpt-6-sol: 2
+    gpt-6-astra: 3
+dispatch:
+  # Timeout of one specialist run in seconds (minimum 30).
+  timeout_seconds: 1800
+  # D8 Worker tier: any headless CLI as a runtime, one line per runtime, e.g.
+  #   mycli: mycli run --model {model} --input {prompt_file} --out {output_file} --cwd {root}
+  # Placeholders: {prompt_file} {model} {effort} {output_file} {root} (substituted shell-quoted).
+  # A runtime used this way also needs execution_policy.providers.<runtime> and capabilities.<runtime>.
+  # A template set for claude or codex replaces the built-in invocation.
+  command_template:

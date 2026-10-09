@@ -1,0 +1,56 @@
+#!/bin/sh
+# proofline pre-commit (D19, D34). Installed with `git config core.hooksPath .agents/githooks`.
+#  1 identity guard: author or committer email matching git.forbidden_identities (case-insensitive glob or
+#    ERE) is blocked for everyone, humans included. The patterns are never printed.
+#  2 protected branches (git.protected_branches, globs): agents never commit there; a human at a TTY may.
+#  3 open runs (`agent.sh open-runs`: every run under .agents/runs/ not terminated FAILED/BLOCKED and not
+#    cleaned up; ACTIVE_RUN plays no part, so emptying it opens nothing): a commit only on the task branch
+#    of one of them, only exactly the gated content (nothing unstaged or untracked outside .agents/runs
+#    and .agents/local), only when `agent.sh delivery-check` passes for that run, and only with a `commit`
+#    approval bound to the content fingerprint (`agent.sh approval-consume`); a human at a TTY skips the
+#    approval step but never the gate check.
+set -u
+root=$(git rev-parse --show-toplevel) || exit 1
+config=$root/.agents/config.yaml
+agent=$root/.agents/scripts/agent.sh
+block() { echo "proofline pre-commit: BLOCKED: $*" >&2; exit 1; }
+cfg() { # SECTION KEY -> value of a 2-level key (empty when absent)
+  [ -f "$config" ] || return 0
+  awk -v s="$1" -v k="$2" '$0 ~ "^" s ":" { c = 1; next } /^[^ #]/ { c = 0 }
+    c && $0 ~ "^  " k ":" { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/"/, "", v); print v; exit }' "$config"
+}
+# A human: a terminal on stderr and no agent role. PROOFLINE_NO_TTY=1 forces "not human" (tests).
+human() { [ "${PROOFLINE_NO_TTY:-0}" != 1 ] && [ -z "${AGENT_ROLE:-}" ] && [ -t 2 ]; }
+set -f
+email_of() { git var "$1" 2>/dev/null | sed -n 's/.*<\([^>]*\)>.*/\1/p'; }
+forbidden() { # EMAIL
+  fb_e=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  for fb_p in $(cfg git forbidden_identities); do
+    fb_lp=$(printf '%s' "$fb_p" | tr '[:upper:]' '[:lower:]')
+    # shellcheck disable=SC2254 # the pattern is a glob on purpose
+    case "$fb_e" in $fb_lp) return 0 ;; esac
+    printf '%s\n' "$1" | grep -Eiq -e "$fb_p" 2>/dev/null && return 0
+  done
+  return 1
+}
+forbidden "$(email_of GIT_AUTHOR_IDENT)" && block "the author email matches git.forbidden_identities in .agents/config.yaml; set a repository-local identity (git config user.email ...)"
+forbidden "$(email_of GIT_COMMITTER_IDENT)" && block "the committer email matches git.forbidden_identities in .agents/config.yaml; set a repository-local identity"
+
+branch=$(git symbolic-ref --short -q HEAD || true)
+for pb in $(cfg git protected_branches); do
+  # shellcheck disable=SC2254
+  case "$branch" in $pb) human || block "branch '$branch' is listed in git.protected_branches; agents never commit there" ;; esac
+done
+
+[ -f "$agent" ] || exit 0
+runs=$("$agent" open-runs 2>/dev/null) || block "agent.sh open-runs failed; cannot tell whether a run is open"
+[ -n "$runs" ] || exit 0
+id=$(printf '%s\n' "$runs" | awk -v b="$branch" 'b != "" && $2 == b { print $1; exit }')
+[ -n "$id" ] || block "open run(s) $(printf '%s\n' "$runs" | awk '{ printf "%s%s (task branch %s)", (NR > 1 ? ", " : ""), $1, ($2 == "-" ? "not established" : $2) }'): commits only on a run's task branch (current: '${branch:-detached}'); finish or terminate and clean up the run first"
+dirty=$(git -C "$root" status --porcelain --untracked-files=all | grep -v -e '^.. \.agents/runs/' -e '^.. \.agents/local/' | grep -v '^[MADRC] ' || true)
+[ -z "$dirty" ] || block "run $id: the commit must contain exactly the gated content; stage every change (unstaged or untracked paths exist)"
+"$agent" delivery-check "$id" >&2 || block "run $id is not delivery-ready (required gates must pass for the current content)"
+human && exit 0
+fp=$("$agent" fingerprint "$id") || block "run $id: could not compute the content fingerprint"
+"$agent" approval-consume "$id" commit "$fp" >&2 || block "run $id: no user commit approval for this content"
+exit 0

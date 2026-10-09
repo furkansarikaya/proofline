@@ -1,0 +1,11 @@
+mode: explore
+task:
+  required: false
+knowledge:
+  read: true
+  write_during_code_transaction: false
+memory:
+  read: true
+  write: false
+orchestration:
+  swarm: explicit_only

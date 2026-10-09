@@ -6,3 +6,4 @@ node_modules/
 .claude/bundles/
 .claude/settings.local.json
 .agents/local/
+.claude/build/

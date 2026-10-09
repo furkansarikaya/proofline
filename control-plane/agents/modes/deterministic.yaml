@@ -1,0 +1,49 @@
+mode: deterministic
+task:
+  required: true
+baseline:
+  required_before_implementation: true
+# The class (`pipelines:` in .agents/config.yaml) and the tier decide artifacts and gates; this mode
+# only says what the session is permitted to do.
+evidence:
+  frozen_before_implementation: true
+plan:
+  frozen_before_implementation: true
+scope:
+  frozen: true
+  unexpected_files: block
+context:
+  strategy: progressive_disclosure
+  control_plane: on_demand
+  history:
+    load_unrelated_runs: false
+    include_session_history_in_review: false
+knowledge:
+  read: true
+  write_during_code_transaction: false
+  write_after_code_done: true
+memory:
+  read: false
+  write: false
+dynamic_recall:
+  enabled: false
+prompt_auto_improver:
+  enabled: false
+self_learning:
+  read_during_run: false
+  write: deferred
+orchestration:
+  swarm: false
+  recursive_delegation: false
+  max_implementation_workers: 1
+# Gate verdicts come only from the gate roles through `agent.sh record`; the lead never records one.
+review:
+  independent: true
+qa:
+  independent: true
+verification:
+  independent_verifier: true
+dependencies:
+  changes_require_task_authorization: true
+architecture:
+  autonomous_changes: false
