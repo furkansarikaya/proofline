@@ -1,0 +1,7 @@
+interface:
+  display_name: "System Design"
+  short_description: "Smallest valid architecture mapped to real repo paths, with ADRs only for real decisions"
+  default_prompt: "Use $system-design to design the architecture for this task: "
+
+policy:
+  allow_implicit_invocation: false

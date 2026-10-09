@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/furkansarikaya/proofline/skills/intent-grill/schema/intent.schema.json",
+  "title": "intent-grill INTENT.md (parsed form)",
+  "description": "The structure validate-intent.mjs reads from INTENT.md. Cross-row rules (dependency order, request quotes, candidate coverage) are in references/INTENT-FORMAT.md section 4.",
+  "type": "object",
+  "required": ["title", "request", "status", "decisions", "rounds", "acceptance_criteria_candidates", "out_of_scope_candidates"],
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "request": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["in-progress", "complete"] },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "branch", "question", "depends_on", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^D-\\d+$" },
+          "branch": { "enum": ["scope", "behavior", "data", "ui", "failure", "non-goals"] },
+          "question": { "type": "string", "minLength": 1 },
+          "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^D-\\d+$" } },
+          "status": { "enum": ["open", "resolved", "deferred"] },
+          "decision": { "type": "string" },
+          "decided_by": { "enum": ["request", "user", "lead"] },
+          "source": { "type": "string", "pattern": "^(\".+\"|round \\d+)$" }
+        }
+      }
+    },
+    "rounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round", "asked"],
+        "additionalProperties": false,
+        "properties": {
+          "round": { "type": "integer", "minimum": 1 },
+          "asked": { "type": "string", "pattern": "^D-\\d+$" },
+          "answer": { "type": "string" },
+          "answered_by": { "enum": ["user", "lead"] }
+        }
+      }
+    },
+    "acceptance_criteria_candidates": { "type": "array", "items": { "type": "string", "pattern": "^- ACC-\\d+: \\S.*\\(from D-\\d+(, D-\\d+)*\\)$" } },
+    "out_of_scope_candidates": { "type": "array", "items": { "type": "string", "pattern": "^- OOS-\\d+: \\S.*\\(from D-\\d+(, D-\\d+)*\\)$" } }
+  }
+}

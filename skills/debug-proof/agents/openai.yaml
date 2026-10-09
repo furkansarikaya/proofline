@@ -1,0 +1,7 @@
+interface:
+  display_name: "Debug Proof"
+  short_description: "Reproduce, hypothesise, narrow, prove the root cause, fix minimally, and lock it with a regression test"
+  default_prompt: "Use $debug-proof to debug this failure with proof: "
+
+policy:
+  allow_implicit_invocation: false

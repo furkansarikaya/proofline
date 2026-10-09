@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "validate-task.mjs --json output",
+  "type": "object",
+  "required": ["valid", "errors", "warnings", "task"],
+  "additionalProperties": false,
+  "properties": {
+    "valid": { "type": "boolean" },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "task": {
+      "type": "object",
+      "required": ["acs"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "acs": { "type": "integer", "minimum": 0 },
+        "class": { "enum": ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL", null] }
+      }
+    }
+  }
+}

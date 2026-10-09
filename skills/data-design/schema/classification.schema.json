@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/furkansarikaya/proofline/skills/data-design/schema/classification.schema.json",
+  "title": "data-design migration classification (output of scripts/classify-migration.mjs)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "destructive", "files", "actions"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "destructive": {
+      "description": "yes when any action is destructive or unknown",
+      "enum": ["yes", "no"]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "method"],
+        "properties": {
+          "file": { "type": "string", "minLength": 1 },
+          "method": { "enum": ["sql", "token-scan"] }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "line", "statement", "kind", "object", "class", "reason"],
+        "properties": {
+          "file": { "type": "string", "minLength": 1 },
+          "line": { "type": "integer", "minimum": 1 },
+          "statement": { "type": "string", "maxLength": 300 },
+          "kind": {
+            "enum": ["create_table", "drop_table", "drop_schema", "truncate", "rename_table",
+              "add_column", "drop_column", "rename_column", "alter_column_type", "set_not_null", "drop_not_null",
+              "set_default", "drop_default", "add_constraint", "drop_constraint", "drop_partition",
+              "create_index", "drop_index", "create_other", "drop_other",
+              "insert", "update", "delete", "replace", "merge", "alter_other", "other", "unknown"]
+          },
+          "object": {
+            "description": "lower-case table, or table.column; \"?\" when a token scan could not name it; empty when not applicable",
+            "type": "string"
+          },
+          "class": { "enum": ["destructive", "breaking", "safe", "unknown"] },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/furkansarikaya/proofline/skills/plan-contract/schema/plan.schema.json",
+  "title": "plan-contract PLAN.md front matter (parsed form)",
+  "description": "The scope front matter validate-plan.mjs reads. Cross-document rules (criterion mapping, sections by class, path existence) are in references/SCOPE.md section 4.",
+  "type": "object",
+  "required": ["scope"],
+  "additionalProperties": false,
+  "properties": {
+    "scope": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "criteria"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "pattern": "^(?!/)(?!\\./)(?!.*(^|/)\\.\\.(/|$))[^*?\\[\\]{}]+$" },
+          "criteria": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^AC-\\d+$" } },
+          "new": { "type": "boolean" },
+          "tdd_exemption": { "type": "string", "minLength": 20 }
+        }
+      }
+    }
+  },
+  "$comment": "Classes: TRIVIAL STANDARD COMPLEX CRITICAL. Sections always required: Behavior, Tests, Verification commands, Dependencies, Contracts; Architecture for COMPLEX and CRITICAL."
+}

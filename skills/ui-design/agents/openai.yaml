@@ -1,0 +1,7 @@
+interface:
+  display_name: "UI Design"
+  short_description: "DESIGN.md design system and per-task UI spec covering every state, reusing existing components"
+  default_prompt: "Use $ui-design to design the UI for this task: "
+
+policy:
+  allow_implicit_invocation: false

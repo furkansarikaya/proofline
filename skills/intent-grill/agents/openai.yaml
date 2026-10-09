@@ -1,0 +1,7 @@
+interface:
+  display_name: "Intent Grill"
+  short_description: "Interviews you one decision at a time until a vague request is fully specified"
+  default_prompt: "Use $intent-grill to grill me on this request before a task is written: "
+
+policy:
+  allow_implicit_invocation: false

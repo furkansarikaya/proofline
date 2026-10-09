@@ -1,0 +1,7 @@
+interface:
+  display_name: "Task Author"
+  short_description: "Turns a request or an issue into a canonical TASK.md with testable acceptance criteria"
+  default_prompt: "Use $task-author to write a task for: "
+
+policy:
+  allow_implicit_invocation: false

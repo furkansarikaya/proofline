@@ -1,0 +1,7 @@
+interface:
+  display_name: "Verify Proof"
+  short_description: "Mechanically proves a frozen plan was implemented: criteria tests, scope, build/test/lint, drift"
+  default_prompt: "Use $verify-proof to verify this change against its task: "
+
+policy:
+  allow_implicit_invocation: false

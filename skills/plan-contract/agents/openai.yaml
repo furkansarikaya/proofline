@@ -1,0 +1,7 @@
+interface:
+  display_name: "Plan Contract"
+  short_description: "Writes a scoped, self-validating PLAN.md where every path maps to an acceptance criterion"
+  default_prompt: "Use $plan-contract to write and validate the plan for this task: "
+
+policy:
+  allow_implicit_invocation: false

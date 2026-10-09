@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "system-design architecture.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "levels", "components", "boundaries", "compatibility", "migration", "tradeoffs", "adrs"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "enum": ["task", "reverse"] },
+    "levels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["context", "container", "component"] } },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "level", "path", "change", "responsibility"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^C[0-9]+$" },
+          "name": { "type": "string", "minLength": 1 },
+          "level": { "enum": ["context", "container", "component"] },
+          "path": { "type": "string", "minLength": 1 },
+          "change": { "enum": ["new", "modify", "unchanged"] },
+          "responsibility": { "type": "string", "minLength": 1 },
+          "reuse_rejected": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "boundaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "contract", "direction"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "contract": { "type": "string", "minLength": 1 },
+          "direction": { "enum": ["from->to", "to->from", "both"] },
+          "contract_change": { "type": "boolean" }
+        }
+      }
+    },
+    "compatibility": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "migration": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "tradeoffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["choice", "alternatives", "evidence"],
+        "properties": {
+          "choice": { "type": "string", "minLength": 1 },
+          "alternatives": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "evidence": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "adrs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "status", "path", "alternatives"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-9]{4}$" },
+          "title": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["proposed", "accepted", "superseded", "deprecated"] },
+          "path": { "type": "string", "minLength": 1 },
+          "alternatives": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    }
+  }
+}

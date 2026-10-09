@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "api-design api.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "format", "existing_contract", "contract_file", "searched", "operations", "contracts_text"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "enum": ["task", "reverse"] },
+    "format": { "enum": ["openapi", "graphql", "protobuf", "jsonschema", "api-md"] },
+    "existing_contract": { "type": ["string", "null"] },
+    "contract_file": { "type": "string", "minLength": 1 },
+    "searched": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "style", "change", "breaking", "versioned", "purpose"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "style": { "enum": ["rest", "graphql", "rpc"] },
+          "change": { "enum": ["added", "modified", "removed", "unchanged"] },
+          "breaking": { "type": "boolean" },
+          "breaking_reason": { "type": "string" },
+          "versioned": { "type": "boolean" },
+          "purpose": { "type": "string", "minLength": 1 },
+          "auth": { "type": "string" },
+          "idempotency": { "type": "string" },
+          "pagination": { "type": "string" },
+          "list": { "type": "boolean" },
+          "errors": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "handler": { "type": "string" }
+        }
+      }
+    },
+    "contracts_text": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

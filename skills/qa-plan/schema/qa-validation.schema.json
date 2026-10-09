@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "validate-qa.mjs --json output",
+  "oneOf": [
+    {
+      "title": "plan",
+      "type": "object",
+      "required": ["valid", "errors", "acceptance", "adversarial"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "id": { "type": ["string", "null"] },
+        "acceptance": { "type": "array", "items": { "type": "string", "pattern": "^QA-\\d+$" } },
+        "adversarial": { "type": "array", "items": { "type": "string", "pattern": "^QA-\\d+$" } }
+      }
+    },
+    {
+      "title": "report",
+      "type": "object",
+      "required": ["valid", "errors", "computed"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "verdict": { "enum": ["PASS", "FAIL", "BLOCKED", null] },
+        "computed": { "enum": ["PASS", "FAIL", "BLOCKED"] }
+      }
+    }
+  ]
+}

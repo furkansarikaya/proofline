@@ -1,0 +1,7 @@
+interface:
+  display_name: "Design Sync"
+  short_description: "Checks design documents against code and reports drift; reverse-engineers missing documents"
+  default_prompt: "Use $design-sync to check the design documents against the code: "
+
+policy:
+  allow_implicit_invocation: false

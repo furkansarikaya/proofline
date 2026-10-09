@@ -1,0 +1,7 @@
+interface:
+  display_name: "TDD Proof"
+  short_description: "Test-first implementation with recorded RED (right reason), GREEN, hollow-test check and refactor"
+  default_prompt: "Use $tdd-proof to implement this change test-first with recorded proof: "
+
+policy:
+  allow_implicit_invocation: false

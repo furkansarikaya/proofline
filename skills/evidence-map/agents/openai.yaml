@@ -1,0 +1,7 @@
+interface:
+  display_name: "Evidence Map"
+  short_description: "Bounded code investigation where every claim is a verified path:symbol"
+  default_prompt: "Use $evidence-map to map the verified evidence for: "
+
+policy:
+  allow_implicit_invocation: false

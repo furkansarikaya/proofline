@@ -1,0 +1,7 @@
+interface:
+  display_name: "Data Design"
+  short_description: "Data model, ERD, invariants and a lock-aware expand/contract migration plan; destructive changes stop for approval"
+  default_prompt: "Use $data-design to plan the data change for this task: "
+
+policy:
+  allow_implicit_invocation: false

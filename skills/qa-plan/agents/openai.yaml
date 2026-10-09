@@ -1,0 +1,7 @@
+interface:
+  display_name: "QA Plan"
+  short_description: "Plans acceptance and adversarial scenarios before coding, then executes the frozen plan"
+  default_prompt: "Use $qa-plan to plan or run QA for: "
+
+policy:
+  allow_implicit_invocation: false

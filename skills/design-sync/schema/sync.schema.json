@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "design-sync.mjs output (check mode)",
+  "type": "object",
+  "required": ["schema_version", "docs", "code_facts", "claims", "drift", "unverifiable", "summary", "verdict"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "root": { "type": "string" },
+    "docs": {
+      "type": "array",
+      "items": { "type": "object", "required": ["role", "path", "present"], "properties": { "role": { "enum": ["data_model", "architecture", "api", "design"] }, "path": { "type": "string" }, "present": { "type": "boolean" } } }
+    },
+    "code_facts": { "type": "object", "required": ["tables", "routes", "files"], "properties": { "tables": { "type": "integer" }, "routes": { "type": "integer" }, "files": { "type": "integer" } } },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["doc", "role", "line", "kind", "claim", "status", "evidence", "note"],
+        "properties": {
+          "doc": { "type": "string" },
+          "role": { "type": "string" },
+          "line": { "type": "integer", "minimum": 1 },
+          "kind": { "enum": ["table", "path", "endpoint", "css-var", "component", "token"] },
+          "claim": { "type": "string" },
+          "status": { "enum": ["matched", "unmatched", "unverifiable"] },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "drift": { "type": "array", "items": { "type": "string", "pattern": "^.+:\\d+ -> .+" } },
+    "unverifiable": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "object", "required": ["matched", "unmatched", "unverifiable"], "properties": { "matched": { "type": "integer" }, "unmatched": { "type": "integer" }, "unverifiable": { "type": "integer" } } },
+    "verdict": { "enum": ["PASS", "FAIL", "SKIPPED"] }
+  }
+}

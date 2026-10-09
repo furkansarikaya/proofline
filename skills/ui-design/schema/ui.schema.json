@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ui-design ui.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "ui_languages", "design_system", "reused", "new", "screens", "flows"],
+  "$defs": {
+    "strings": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "state": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["copy", "behavior"], "properties": { "copy": { "type": "string", "minLength": 1 }, "behavior": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["not_applicable"], "properties": { "not_applicable": { "type": "string", "minLength": 1 } } }
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "enum": ["task", "reverse"] },
+    "ui_languages": { "$ref": "#/$defs/strings" },
+    "design_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "exists"],
+      "properties": { "file": { "type": "string", "minLength": 1 }, "exists": { "type": "boolean" } }
+    },
+    "reused": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["kind", "name", "path"],
+        "properties": { "kind": { "enum": ["token", "component"] }, "name": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "new": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["kind", "name", "reason", "reuse_rejected"],
+        "properties": {
+          "kind": { "enum": ["token", "component", "variant"] },
+          "name": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "reuse_rejected": { "type": "string", "minLength": 1 },
+          "base": { "type": "string" }
+        }
+      }
+    },
+    "screens": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "name", "states", "keyboard", "screen_reader", "responsive"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^S[0-9]+$" },
+          "name": { "type": "string", "minLength": 1 },
+          "route": { "type": "string" },
+          "states": {
+            "type": "object", "additionalProperties": false,
+            "required": ["empty", "loading", "error", "success", "partial", "permission-denied"],
+            "properties": {
+              "empty": { "$ref": "#/$defs/state" }, "loading": { "$ref": "#/$defs/state" }, "error": { "$ref": "#/$defs/state" },
+              "success": { "$ref": "#/$defs/state" }, "partial": { "$ref": "#/$defs/state" }, "permission-denied": { "$ref": "#/$defs/state" }
+            }
+          },
+          "keyboard": { "$ref": "#/$defs/strings" },
+          "screen_reader": { "$ref": "#/$defs/strings" },
+          "responsive": { "$ref": "#/$defs/strings" }
+        }
+      }
+    },
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "name", "steps", "screens"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 },
+          "steps": { "$ref": "#/$defs/strings" }, "screens": { "$ref": "#/$defs/strings" }
+        }
+      }
+    }
+  }
+}

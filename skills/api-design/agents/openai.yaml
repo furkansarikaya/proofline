@@ -1,0 +1,7 @@
+interface:
+  display_name: "API Design"
+  short_description: "API contracts in the project's existing format, with every breaking change flagged"
+  default_prompt: "Use $api-design to design the API contract for this task: "
+
+policy:
+  allow_implicit_invocation: false

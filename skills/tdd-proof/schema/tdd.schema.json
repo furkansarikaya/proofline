@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tdd-proof tdd.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "task", "cycles", "exemptions"],
+  "$defs": {
+    "failureClass": { "enum": ["assertion", "syntax", "compile", "import", "missing_file", "no_tests", "setup_crash", "timeout", "crash", "unknown"] }
+  },
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "enum": ["team", "standalone"] },
+    "task": { "type": "string", "minLength": 1 },
+    "cycles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "criterion", "test", "red", "green", "hollow_check"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "criterion": { "type": "string", "minLength": 1 },
+          "test": { "type": "object", "additionalProperties": false, "required": ["file", "name"], "properties": { "file": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 } } },
+          "red": {
+            "type": "object", "additionalProperties": false,
+            "required": ["command", "exit_code", "failure_class", "expected_failure", "output_excerpt", "stub_written"],
+            "properties": {
+              "command": { "type": "string", "minLength": 1 }, "exit_code": { "type": "integer" },
+              "failure_class": { "$ref": "#/$defs/failureClass" },
+              "expected_failure": { "type": "string", "minLength": 20 },
+              "output_excerpt": { "type": "string", "minLength": 1 }, "stub_written": { "type": "boolean" }
+            }
+          },
+          "green": {
+            "type": "object", "additionalProperties": false,
+            "required": ["command", "exit_code", "suite_command", "suite_exit_code"],
+            "properties": { "command": { "type": "string", "minLength": 1 }, "exit_code": { "type": "integer" }, "suite_command": { "type": "string", "minLength": 1 }, "suite_exit_code": { "type": "integer" } }
+          },
+          "hollow_check": {
+            "type": "object", "additionalProperties": false,
+            "required": ["method", "worktree", "command", "exit_code", "output_excerpt", "failed_for_expected_reason"],
+            "properties": {
+              "method": { "enum": ["revert", "mutate"] }, "worktree": { "type": "string", "minLength": 1 },
+              "command": { "type": "string", "minLength": 1 }, "exit_code": { "type": "integer" },
+              "output_excerpt": { "type": "string", "minLength": 1 }, "failed_for_expected_reason": { "type": "boolean" }
+            }
+          },
+          "refactor": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "object", "additionalProperties": false, "required": ["changes", "command", "exit_code"], "properties": { "changes": { "type": "string", "minLength": 1 }, "command": { "type": "string", "minLength": 1 }, "exit_code": { "type": "integer" } } }
+            ]
+          }
+        }
+      }
+    },
+    "exemptions": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": false, "required": ["path", "reason"], "properties": { "path": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 20 } } }
+    }
+  }
+}

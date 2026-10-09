@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "validate-verify.mjs --json output",
+  "type": "object",
+  "required": ["valid", "errors", "computed", "reasons"],
+  "additionalProperties": false,
+  "properties": {
+    "valid": { "type": "boolean" },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "verdict": { "enum": ["PASS", "FAIL", "BLOCKED", null] },
+    "computed": { "enum": ["PASS", "FAIL"] },
+    "reasons": { "type": "array", "items": { "type": "string" } }
+  }
+}

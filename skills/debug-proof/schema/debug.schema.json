@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "debug-proof debug.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "status", "symptom", "reproduction", "hypotheses", "experiments", "bisect"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "enum": ["bug", "build_error"] },
+    "status": { "enum": ["fixed", "unresolved"] },
+    "symptom": { "type": "string", "minLength": 1 },
+    "reproduction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command", "exit_code", "runs", "failures", "output_excerpt"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 }, "exit_code": { "type": "integer" },
+        "runs": { "type": "integer", "minimum": 2 }, "failures": { "type": "integer", "minimum": 1 },
+        "output_excerpt": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hypotheses": {
+      "type": "array", "minItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "rank", "statement", "falsifier", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^H[0-9]+$" }, "rank": { "type": "integer", "minimum": 1 },
+          "statement": { "type": "string", "minLength": 1 }, "falsifier": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["open", "confirmed", "refuted"] }
+        }
+      }
+    },
+    "experiments": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "hypothesis", "change", "command", "exit_code", "outcome", "result", "flips_failure", "isolates_cause"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^E[0-9]+$" }, "hypothesis": { "type": "string" },
+          "change": { "type": "string", "minLength": 1 }, "command": { "type": "string", "minLength": 1 },
+          "exit_code": { "type": "integer" }, "outcome": { "type": "string", "minLength": 1 },
+          "result": { "enum": ["confirms", "refutes", "inconclusive"] },
+          "flips_failure": { "type": "boolean" }, "isolates_cause": { "type": "boolean" }
+        }
+      }
+    },
+    "bisect": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["good", "bad", "script", "first_bad_commit", "worktree"],
+          "properties": {
+            "good": { "type": "string", "minLength": 4 }, "bad": { "type": "string", "minLength": 4 },
+            "script": { "type": "string", "minLength": 1 }, "first_bad_commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "worktree": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "root_cause": {
+      "type": "object", "additionalProperties": false, "required": ["statement", "path", "hypothesis", "proof_experiment"],
+      "properties": {
+        "statement": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 },
+        "hypothesis": { "type": "string" }, "proof_experiment": { "type": "string" }
+      }
+    },
+    "fix": {
+      "type": "object", "additionalProperties": false, "required": ["paths", "summary"],
+      "properties": { "paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }, "summary": { "type": "string", "minLength": 1 } }
+    },
+    "regression_test": {
+      "type": "object", "additionalProperties": false, "required": ["type", "path", "command", "before", "after", "suite_exit_code"],
+      "properties": {
+        "type": { "enum": ["test", "build"] }, "path": { "type": "string", "minLength": 1 }, "command": { "type": "string", "minLength": 1 },
+        "before": { "type": "object", "additionalProperties": false, "required": ["exit_code", "output_excerpt"], "properties": { "exit_code": { "type": "integer" }, "output_excerpt": { "type": "string", "minLength": 1 } } },
+        "after": { "type": "object", "additionalProperties": false, "required": ["exit_code"], "properties": { "exit_code": { "type": "integer" } } },
+        "suite_exit_code": { "type": "integer" }
+      }
+    },
+    "blocked_reason": { "type": "string" },
+    "next_experiment": { "type": "string" }
+  }
+}
