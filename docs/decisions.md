@@ -315,6 +315,13 @@ Each entry: decision — reason — alternatives considered.
 - **A22. Codex during the build (D28 changed by the user mid-build).** The user allowed Codex for development work after phase 6 to save limits; earlier phases were written with Claude only. — Explicit user instruction. — Keeping D28.
 - **A23. Plugin manifest lists agent files explicitly** (`claude plugin validate` requires `.md` paths); a test keeps the list equal to `adapters/claude/agents/`. — Validator behaviour. — Directory path (rejected by the validator).
 
+- **A24. `agent.sh start` creates a run** (task file, run folder from templates, ACTIVE_RUN) in one command. — The first end-to-end run showed a lead creating RUN.yaml by hand and getting stuck. — Hand-copied templates.
+- **A25. Run-level lock in `agent.sh`** for every read-modify-write of run state. — Parallel reviewers (D4) broke the ledger hash chain in an end-to-end run. — Serialising specialists (loses D4 parallelism).
+- **A26. Codex lead sandbox.** A Codex lead needs `.git` write access and network for nested workers (`danger-full-access` headless or approving git commands interactively; `proofline init` enables network for the workspace sandbox). — Observed in end-to-end runs. — Read-only `.git` (no task branch possible).
+- **A27. Verification of text-only criteria.** An acceptance criterion whose mapped paths all carry a `tdd_exemption` may be proven by a recorded verification command and its output instead of a test. — A typo fix was failed for lack of a test asserting a string. — Tests for every text change.
+- **A28. QA scenarios declare `execution: auto | manual`;** manual scenarios never block the gate and are carried into the completion report. — A browser-only UI check blocked the QA gate. — Headless browser dependency (would violate "never install").
+- **A29. End-to-end runs used `--profile economy` and a Sonnet lead** to fit usage limits; results are reported as such.
+
 ### Open technical points — how they were closed
 
 - **User-invoked-only skills in role agents:** verified against the Claude Code docs: a skill with `disable-model-invocation: true` cannot be preloaded or invoked by a subagent, so role definitions point to the skill's SKILL.md path explicitly (A15). Codex reads `.agents/skills/` natively.

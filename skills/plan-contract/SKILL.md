@@ -1,6 +1,6 @@
 ---
 name: plan-contract
-description: Writes an executable, scoped PLAN.md for one task and validates it mechanically. YAML `scope:` front matter lists every file the change may touch, each mapped to at least one acceptance criterion; every criterion maps back to a scope path or an explicit test. Adds only the sections the task's class and scope require (Architecture for COMPLEX/CRITICAL, Data with `destructive: yes|no` when persistence changes, UI when UI changes), plus Behavior, Tests, Verification commands, and explicit Dependencies and Contracts. TDD exemptions need a specific reason. A bundled validator checks mapping in both directions, required sections, path existence, globs and duplicates. Use when the proofline lead plans a task before freeze, or standalone to turn a TASK.md into a reviewable plan.
+description: "Writes an executable, scoped PLAN.md for one task and validates it mechanically. YAML `scope:` front matter lists every file the change may touch, each mapped to at least one acceptance criterion; every criterion maps back to a scope path or an explicit test. Adds only the sections the task's class and scope require (Architecture for COMPLEX/CRITICAL, Data with `destructive: yes|no` when persistence changes, UI when UI changes), plus Behavior, Tests, Verification commands, and explicit Dependencies and Contracts. TDD exemptions need a specific reason. A bundled validator checks mapping in both directions, required sections, path existence, globs and duplicates. Use when the proofline lead plans a task before freeze, or standalone to turn a TASK.md into a reviewable plan."
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -67,6 +67,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 10. **Ledger.** Each step's rows are written before the next step starts; the ledger is the resume point and never records what did not happen.
 11. **Language.** Files this skill writes for machines are English; reports to the user are in the user's language; identifiers, paths, commands and enum values are never translated.
 12. **Commit identity.** Never commit, push or tag on the user's behalf unless asked; never assume the user's global git identity.
+13. **Temporary files** only in a fresh `mktemp -d` directory outside the repository, removed after use; never inside the repository, `.agents/runs/` or `.agents/local/` (unknown files there block the run). Inside a run, the content fingerprint comes from `.agents/scripts/agent.sh fingerprint <TASK-ID>`.
 
 ### Inside a proofline run
 
@@ -74,6 +75,7 @@ When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the
 
 - Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - The final message starts with the result header from `.agents/PROTOCOL.md` (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`), then the compact findings table, then `BLOCKED_REASON` or `QUESTIONS` if any. Nothing else reaches the lead.
+- With no findings, output only the table header row.
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); resume when restarted with an `ANSWERS` block. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
 - Never spawn agents and never change task state; only the lead does.
 <!-- proofline:shared-rules:end -->
