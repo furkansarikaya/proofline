@@ -1,0 +1,7 @@
+interface:
+  display_name: "Proof Review"
+  short_description: "Reviews a change: does it do what it says, and are there bugs that can be proven"
+  default_prompt: "Use $proof-review to review this change with proof: "
+
+policy:
+  allow_implicit_invocation: false

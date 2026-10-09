@@ -1,0 +1,7 @@
+interface:
+  display_name: "Test Trust"
+  short_description: "Evidence-backed audit of flaky, hollow, and slow tests"
+  default_prompt: "Use $test-trust to audit how far the tests in this scope can be trusted: "
+
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,605 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "test-trust findings",
+  "type": "object",
+  "required": [
+    "scope",
+    "findings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "enum": [
+        "full",
+        "diff"
+      ],
+      "description": "Audit mode. Omitted means full. diff is the review gate's tests focus inside a proofline run."
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40,64}$",
+      "description": "Content tree id the audit evaluated (same value as the FINGERPRINT result header)."
+    },
+    "evidence_pruned": {
+      "type": "boolean",
+      "description": "true when the raw evidence files were deleted after the report was written; cited paths are then history and are not checked for existence."
+    },
+    "gate": {
+      "type": "object",
+      "required": [
+        "result",
+        "failing"
+      ],
+      "additionalProperties": false,
+      "description": "diff mode only. Computed by the rule in SKILL.md, never by judgement; scripts/validate-findings.mjs recomputes it.",
+      "properties": {
+        "result": {
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "failing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^F[0-9]{3,}$"
+          },
+          "description": "Ids of the confirmed flaky or hollow findings that cause FAIL."
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "slug",
+        "paths",
+        "commit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Git commit hash the audit ran on; null without git."
+        },
+        "diff": {
+          "type": "object",
+          "required": [
+            "base",
+            "thresholds",
+            "changed_units",
+            "tests",
+            "mutants_run",
+            "not_examined"
+          ],
+          "additionalProperties": false,
+          "description": "diff mode only: what the diff contained and which thresholds applied.",
+          "properties": {
+            "base": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Commit the task diff is taken against."
+            },
+            "thresholds": {
+              "type": "object",
+              "required": [
+                "repeat",
+                "mutation_budget",
+                "slow_ratio"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "repeat": {
+                  "type": "integer",
+                  "minimum": 2
+                },
+                "mutation_budget": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "slow_ratio": {
+                  "type": "number",
+                  "exclusiveMinimum": 1
+                }
+              }
+            },
+            "changed_units": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Changed production units as file:name."
+            },
+            "tests": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Tests in the diff scope: changed tests plus tests covering changed units."
+            },
+            "mutants_run": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Must not exceed thresholds.mutation_budget."
+            },
+            "not_examined": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "unit",
+                  "reason"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "unit": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "unsupported": {
+      "type": "array",
+      "description": "Capabilities the probe could not prove.",
+      "items": {
+        "enum": [
+          "single_test",
+          "repeat",
+          "shuffle",
+          "per_test_duration"
+        ]
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "verdict",
+        "test",
+        "evidence",
+        "observed",
+        "source_commit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,}$"
+        },
+        "kind": {
+          "enum": [
+            "flaky_nondeterministic",
+            "flaky_order_dependent",
+            "flaky_unclassified",
+            "hollow",
+            "slow"
+          ]
+        },
+        "verdict": {
+          "enum": [
+            "confirmed",
+            "needs_validation",
+            "cleared"
+          ]
+        },
+        "test": {
+          "type": "object",
+          "required": [
+            "file",
+            "name"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path relative to the repository root."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Relative to the output folder (.agents/runs/<TASK-ID>/reviews/test-trust/tests/ or qa/ in a run, .agents/local/test-trust/<scope-slug>/ outside one)."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "observed": {
+          "type": "object"
+        },
+        "missing": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required on needs_validation and on flaky_unclassified; forbidden otherwise."
+        },
+        "source_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "carried_forward": {
+          "type": "boolean",
+          "description": "true when copied from a previous run because the test and tested code are unchanged."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "verdict": {
+                    "const": "needs_validation"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "flaky_unclassified"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "missing"
+            ]
+          },
+          "else": {
+            "properties": {
+              "missing": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "confirmed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "flaky_nondeterministic",
+                  "flaky_order_dependent",
+                  "flaky_unclassified"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "$ref": "#/$defs/observedFlaky"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "flaky_nondeterministic",
+                  "flaky_order_dependent",
+                  "flaky_unclassified"
+                ]
+              },
+              "verdict": {
+                "const": "confirmed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "properties": {
+                  "passes": {
+                    "minimum": 1
+                  },
+                  "fails": {
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "hollow"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "$ref": "#/$defs/observedHollow"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "hollow"
+              },
+              "verdict": {
+                "const": "confirmed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "properties": {
+                  "surviving_mutants": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "slow"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "$ref": "#/$defs/observedSlow"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "observedFlaky": {
+      "type": "object",
+      "required": [
+        "passes",
+        "fails",
+        "runs",
+        "stage"
+      ],
+      "properties": {
+        "passes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fails": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeouts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Included in fails."
+        },
+        "stage": {
+          "enum": [
+            "suite",
+            "isolated"
+          ],
+          "description": "Where the pass/fail pair was recorded."
+        },
+        "seeds": {
+          "type": "object",
+          "properties": {
+            "passing": {
+              "type": "string"
+            },
+            "failing": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "observedHollow": {
+      "type": "object",
+      "required": [
+        "unit",
+        "surviving_mutants",
+        "covering_tests"
+      ],
+      "properties": {
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Production function, as file:name."
+        },
+        "surviving_mutants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "diff_path",
+              "summary"
+            ],
+            "properties": {
+              "diff_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "killed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "covering_tests": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "observedSlow": {
+      "type": "object",
+      "required": [
+        "mean_ms",
+        "runs_ms",
+        "median_ms",
+        "ratio_to_median",
+        "share_of_total"
+      ],
+      "properties": {
+        "mean_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "runs_ms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "median_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "ratio_to_median": {
+          "type": "number",
+          "minimum": 0
+        },
+        "share_of_total": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "timeouts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "const": "diff"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "gate",
+          "fingerprint"
+        ],
+        "properties": {
+          "scope": {
+            "required": [
+              "diff"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "gate": false,
+          "scope": {
+            "properties": {
+              "diff": false
+            }
+          }
+        }
+      }
+    }
+  ]
+}
