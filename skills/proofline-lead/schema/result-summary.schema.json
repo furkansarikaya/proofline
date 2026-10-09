@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "proofline-lead/result-summary.schema.json",
+  "title": "proofline-lead check-result summary",
+  "description": "The compact JSON scripts/check-result.mjs prints for one valid D12 specialist result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role", "task", "kind", "gate", "focus", "result", "confidence", "pass_low", "counts", "fingerprint", "artifact", "blocking", "fix_scope", "info_count", "blocked_reason", "questions"],
+  "properties": {
+    "role": { "enum": ["lead", "task_author", "explorer", "architect", "data_architect", "designer", "qa", "implementer", "reviewer", "security_reviewer", "verifier"] },
+    "task": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["gate", "task"] },
+    "gate": { "enum": ["REVIEW_SMALL", "REVIEW_PLAN", "REVIEW_RULES", "REVIEW_TESTS", "REVIEW_DATA", "SECURITY", "QA", "VERIFY", null] },
+    "focus": { "enum": ["plan", "rules", "tests", "data", "rules+tests", null] },
+    "result": { "enum": ["PASS", "FAIL", "BLOCKED", "DONE", "NEEDS_INPUT"] },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "pass_low": { "type": "boolean", "description": "PASS with CONFIDENCE low: recorded as pass_low, never satisfies the gate" },
+    "counts": { "type": "boolean", "description": "a gate PASS that satisfies the gate once recorded on the current content" },
+    "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+    },
+    "blocking": { "type": "array", "items": { "type": "string" }, "description": "ids of blocking findings" },
+    "fix_scope": { "type": "array", "items": { "type": "string" }, "description": "FAIL only: unique finding paths without the line; * = any frozen scope path" },
+    "info_count": { "type": "integer", "minimum": 0 },
+    "blocked_reason": { "type": ["string", "null"] },
+    "questions": { "type": "integer", "minimum": 0, "description": "numbered questions in the QUESTIONS: block" }
+  }
+}

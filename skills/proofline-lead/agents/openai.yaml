@@ -1,0 +1,7 @@
+interface:
+  display_name: "proofline Lead"
+  short_description: "Runs a proofline task as the lead: next-step driven lifecycle, dispatch, gates, fix loop, stops before delivery"
+  default_prompt: "Use $proofline-lead as the lead of this project's proofline run: "
+
+policy:
+  allow_implicit_invocation: false
