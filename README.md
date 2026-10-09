@@ -1,5 +1,8 @@
 # proofline
 
+> **Status 0.0.1: control plane and enforcement are tested; end-to-end team runs do not pass yet.**
+> See the [end-to-end results table](tests/e2e/README.md#results-for-001-2026-10-09).
+
 **No evidence, no claim.** A deterministic engineering team for coding agents: nothing is "done" because a model said so.
 
 ## What it is
