@@ -36,6 +36,9 @@ jobs:
           if ls roles/*.md >/dev/null 2>&1; then sh adapters/generate.sh --check
           else echo "SKIPPED: roles/*.md do not exist yet"; fi
 
+      - name: skills reference in sync
+        run: sh docs/reference/generate-skills.sh --check
+
       - name: shared sections in sync
         run: |
           if [ -f tests/shared/check-shared.sh ]; then sh tests/shared/check-shared.sh
