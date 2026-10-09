@@ -6,6 +6,7 @@
 #   markdown.sh verify   <TASK-ID> <receipt>                 exit 0 iff the report block is still there
 #   markdown.sh followup <TASK-ID> <waiver-file>             creates tasks/backlog/<ID>-FU<n>.md, prints its path
 #   markdown.sh status   <TASK-ID> <backlog|todo|in-progress|done>
+#   markdown.sh create   <TASK-ID> <title> <body-file>  prints the new in-progress task path
 #
 # Task files live in `tasks.dir` (default .agents/tasks), usually in lifecycle folders backlog/ todo/
 # in-progress/ done/ with a `**Status:**` line. The completion report is the one block agent.sh's
@@ -35,6 +36,24 @@ find_task() {   # ID -> relative path of the task file (first match across lifec
 }
 
 case "$op" in
+  create)
+    [ $# -eq 4 ] || pl_usage 'markdown.sh create <TASK-ID> <title> <body-file>'
+    id=$2 title=$3 body=$4; pl_id "$id"
+    [ -f "$body" ] || pl_die "task body missing: $body"
+    [ -n "$title" ] || pl_die 'task title is required'
+    slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-48 | sed 's/-$//')
+    [ -n "$slug" ] || pl_die 'task title needs a usable slug'
+    if find_task "$id" >/dev/null 2>&1; then pl_die "task file already exists for $id"; fi
+    rel=$tdir/in-progress/$id-$slug.md
+    [ ! -e "$root/$rel" ] || pl_die "task file already exists: $rel"
+    tmp=$(mktemp "${TMPDIR:-/tmp}/md-create.XXXXXX")
+    rc=0; pl_import markdown "$body" "$tmp" "$id" "$title" "markdown $rel" || rc=$?
+    if [ "$rc" -ne 0 ]; then rm -f "$tmp"; exit "$rc"; fi
+    mkdir -p "$root/$tdir/in-progress"
+    { sed -n '1p' "$tmp"; printf '\n**Status:** in-progress\n'; sed '1d' "$tmp"; } > "$root/$rel"
+    rm -f "$tmp"
+    printf '%s\n' "$rel"
+    ;;
   import)
     [ $# -eq 3 ] || pl_usage 'markdown.sh import <task-file|TASK-ID> <out TASK.md>'
     ref=$2 out=$3
@@ -110,10 +129,16 @@ case "$op" in
     printf '%s\n' "$rel"
     ;;
   status)
-    [ $# -eq 3 ] || pl_usage 'markdown.sh status <TASK-ID> <backlog|todo|in-progress|done>'
+    { [ $# -eq 3 ] || [ $# -eq 4 ]; } || pl_usage 'markdown.sh status <TASK-ID> <backlog|todo|in-progress|done> [task-path]'
     id=$2 state=$3; pl_id "$id"
     case "$state" in backlog|todo|in-progress|done) ;; *) pl_die "unknown status: $state (backlog|todo|in-progress|done)" ;; esac
-    rel=$(find_task "$id") || pl_die "no task file for $id in $tdir"
+    if [ $# -eq 4 ]; then
+      rel=${4#./}
+      case "$rel" in "$tdir"/*) ;; *) pl_die "task path must be under $tdir: $rel" ;; esac
+      case "$rel" in *..*) pl_die "invalid task path: $rel" ;; esac
+      [ -f "$root/$rel" ] || pl_die "task file missing: $rel"
+      case "$(basename "$rel")" in "$id".md|"$id"-*.md) ;; *) pl_die "task path does not match $id: $rel" ;; esac
+    else rel=$(find_task "$id") || pl_die "no task file for $id in $tdir"; fi
     [ "$(run_task_path "$id")" != "$rel" ] || pl_die "$id has an active run bound to $rel; move the file, then use 'agent.sh task-source-relocate' and 'agent.sh task-source-status'"
     mkdir -p "$root/$tdir/$state"
     dest=$tdir/$state/$(basename "$rel")

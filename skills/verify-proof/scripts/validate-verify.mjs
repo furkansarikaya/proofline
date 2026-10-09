@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Validates VERIFY.md and recomputes the mechanical verdict. No dependencies.
-//   node validate-verify.mjs VERIFY.md [--task TASK.md] [--json]
+//   node validate-verify.mjs VERIFY.md [--task TASK.md] [--plan PLAN.md] [--json]
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error.
 //
 // Format:
 //   # Verification: <ID>
 //   ## Commands            - `cmd` | exit=N [| base_exit=M]     (indented `output:` line below)
-//   ## AC coverage         | AC | test | status | evidence |     status PASS|FAIL|MISSING
+//   ## AC coverage         | AC | test or command | status | evidence |     status PASS|FAIL|MISSING
 //   ## Scope               verify-scope: exit=N
 //   ## Design sync         design-sync: PASS|FAIL|SKIPPED (reason)
 //   ## Pre-existing failures   None | one line per command that failed at head AND base
@@ -16,6 +16,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseFrontMatter } from "../../plan-contract/scripts/validate-plan.mjs";
 
 const strip = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
 const PLACEHOLDER = /(<[A-Za-z][A-Za-z -]*>|\bTBD\b|\bTODO\b|\?\?\?)/;
@@ -31,7 +32,7 @@ function sections(text) {
   return out;
 }
 
-export function validateVerify(text, taskText) {
+export function validateVerify(text, taskText, planText) {
   const errors = [], reasons = [];
   const body = strip(text);
   const secs = sections(text);
@@ -40,9 +41,11 @@ export function validateVerify(text, taskText) {
 
   // commands
   const cmds = [];
+  let lastCommand;
   for (const line of secs.get("Commands") || []) {
     const m = /^- `([^`]+)` \| exit=(\d+)(?: \| base_exit=(\d+))?\s*$/.exec(line);
-    if (m) cmds.push({ cmd: m[1], exit: Number(m[2]), base: m[3] === undefined ? undefined : Number(m[3]) });
+    if (m) { lastCommand = { cmd: m[1], exit: Number(m[2]), base: m[3] === undefined ? undefined : Number(m[3]), outputs: [] }; cmds.push(lastCommand); }
+    else if (/^  output: \S/.test(line) && lastCommand) lastCommand.outputs.push(line.slice("  output: ".length));
     else if (/^- /.test(line)) errors.push(`malformed command line "${line.slice(0, 70)}" (expected "- \`cmd\` | exit=N[ | base_exit=M]")`);
   }
   if (secs.has("Commands") && !cmds.length) errors.push("no command lines under ## Commands");
@@ -56,11 +59,20 @@ export function validateVerify(text, taskText) {
 
   // AC coverage
   const rows = [];
+  const plan = planText === undefined ? null : parseFrontMatter(planText);
+  if (plan?.errors.length) errors.push(`invalid PLAN front matter: ${plan.errors.join("; ")}`);
   for (const line of secs.get("AC coverage") || []) {
     if (!/^\|/.test(line) || /^\|\s*-/.test(line) || /^\|\s*AC\s*\|/i.test(line)) continue;
     const c = line.split("|").slice(1, -1).map((x) => x.trim());
     if (c.length < 4 || !/^AC-\d+$/.test(c[0]) || !["PASS", "FAIL", "MISSING"].includes(c[2])) { errors.push(`malformed AC coverage row "${line.slice(0, 70)}"`); continue; }
-    if (c[2] === "PASS" && (!c[1] || !c[3])) errors.push(`${c[0]}: PASS needs a test reference and evidence`);
+    if (c[2] === "PASS" && (!c[1] || !c[3])) errors.push(`${c[0]}: PASS needs a test reference or verification command and evidence`);
+    if (c[2] === "PASS" && c[1].startsWith("command: ")) {
+      const mapped = plan?.scope.filter((s) => s.criteria?.includes(c[0])) || [];
+      if (!mapped.length || !mapped.every((s) => s.tdd_exemption)) errors.push(`${c[0]}: command proof requires tdd_exemption on every mapped PLAN scope path`);
+      const match = /^command: `([^`]+)`$/.exec(c[1]);
+      const command = match && cmds.find((x) => x.cmd === match[1] && x.exit === 0);
+      if (!command || !c[3].includes(`\`${match?.[1]}\` exit=0`) || !command.outputs.length || !command.outputs.some((output) => output.trim() && c[3].includes(output))) errors.push(`${c[0]}: command proof needs a recorded passing exact command, exit=0, and its demonstrating output line`);
+    }
     rows.push({ ac: c[0], status: c[2] });
     if (c[2] !== "PASS") reasons.push(`${c[0]} ${c[2]}`);
   }
@@ -107,9 +119,10 @@ export function validateVerify(text, taskText) {
 function main(argv) {
   const file = argv.find((a) => !a.startsWith("--") && argv[argv.indexOf(a) - 1] !== "--task");
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
-  if (!file) { console.error("usage: validate-verify.mjs VERIFY.md [--task TASK.md] [--json]"); return 2; }
+  if (!file) { console.error("usage: validate-verify.mjs VERIFY.md [--task TASK.md] [--plan PLAN.md] [--json]"); return 2; }
   const ti = argv.indexOf("--task");
-  const r = validateVerify(read(file), ti >= 0 ? read(argv[ti + 1]) : undefined);
+  const pi = argv.indexOf("--plan");
+  const r = validateVerify(read(file), ti >= 0 ? read(argv[ti + 1]) : undefined, pi >= 0 ? read(argv[pi + 1]) : undefined);
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2)); else r.errors.forEach((e) => console.error(`error: ${e}`));
   return r.valid ? 0 : 1;
 }

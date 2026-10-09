@@ -22,6 +22,8 @@
 | differs on the first run only | `BLOCKED` with reason "non-deterministic" (a flaky result is never a PASS) |
 | cannot run (tool, data, service or permission missing; timeout without result) | `BLOCKED` with the reason and what was tried |
 
+`execution: manual` scenarios are not run: the report line is `not-run (manual)` with the human instruction (`human-check:`) as evidence. They are not FAIL or BLOCKED and are not listed under Failures. An `auto` scenario that could not run is `BLOCKED`, never `not-run (manual)`.
+
 Evidence in the report line: what was observed, then the command and exit status in parentheses.
 
 ## Failures section

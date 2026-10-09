@@ -58,10 +58,13 @@ chmod +x "$a/scripts/agent.sh"
 cat > "$tmp/bin/fake-codex" <<'EOF'
 #!/bin/sh
 loc=$FAKE_LOC; printf '%s\n' "$@" > "$loc/codex.argv"; cat > "$loc/codex.stdin"; echo "$AGENT_ROLE" > "$loc/codex.role"
+printf '%s\n' "$HOME" > "$loc/codex.home"
+printf '%s\n' "${CODEX_HOME:-}" > "$loc/codex.codex_home"
 o=''; while [ $# -gt 0 ]; do [ "$1" = -o ] && o=$2; shift; done
 case "${FAKE_CODEX:-ok}" in
   ok) printf 'ROLE: %s\nTASK: T-1\nRESULT: DONE\nfrom codex\n' "$AGENT_ROLE" > "$o" ;;
   limit) echo "ERROR: You've hit your usage limit. Try again later." >&2; exit 1 ;;
+  network) echo 'workspace routing discovery failed: error sending request' >&2; exit 1 ;;
   fail) echo "error: tests failed in src/x" >&2; exit 1 ;;
   sleep) exec sleep 20 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'ROLE: %s\nTASK: T-1\nRESULT: PASS\n' "$AGENT_ROLE" > "$o" ;;
@@ -116,6 +119,9 @@ ck "codex path: AGENT_ROLE and stable prefix before task" '[ "$(cat "$loc/codex.
 ck "implementer bracketed by window-open/window-close" '[ "$(order)" = "decide window-open window-close record AGENT_ROLE=implementer " ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 0"'
 ck "record gets the final message, saved under results/" 'has "$loc/recorded.md" "from codex" && ls "$a/runs/T-1/results/" | grep -q "^dispatch-001-implementer-codex.md$"'
 
+reset; d PROOFLINE_CODEX_HOME_DIR="$tmp/isolated-home" T-1 implementer
+ck "codex uses isolated HOME and CODEX_HOME" '[ "$rc" -eq 0 ] && [ "$(cat "$loc/codex.home")" = "$tmp/isolated-home" ] && [ "$(cat "$loc/codex.codex_home")" = "$tmp/isolated-home/.codex" ]'
+
 reset; d T-1 reviewer --focus rules
 ck "claude path: exit 0, no window" '[ "$rc" -eq 0 ] && ! has "$loc/calls.log" window-open'
 ck "claude path: argv runs the role as an agent (--agents JSON from .agents/roles, default tools)" 'has "$loc/claude.argv" -p && has "$loc/claude.argv" sonnet && has "$loc/claude.argv" json && ! has "$loc/claude.argv" --append-system-prompt && grep -qx -- --agent "$loc/claude.argv" && grep -qx proofline-reviewer "$loc/claude.argv" && has "$loc/claude.argv" "\"proofline-reviewer\":{\"description\"" && has "$loc/claude.argv" STABLE-PREFIX-reviewer && has "$loc/claude.argv" "\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]"'
@@ -157,6 +163,9 @@ ck "missing binary fails over" '[ "$rc" -eq 0 ] && has "$loc/ledger.log" "reason
 
 reset; d FAKE_CODEX=fail T-1 implementer
 ck "task failure: exit 1, no failover, no record" '[ "$rc" -eq 1 ] && ! has "$loc/calls.log" record && [ ! -f "$loc/claude.argv" ]'
+
+reset; d FAKE_CODEX=network T-1 implementer
+ck "network failure: BLOCKED with runtime_unavailable:network guidance" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q "runtime_unavailable:network" && printf "%s" "$out" | grep -q "enable network access" && [ ! -f "$loc/claude.argv" ] && ! has "$loc/calls.log" record'
 
 mkcfg ask
 reset; d FAKE_CLAUDE=limit T-1 reviewer

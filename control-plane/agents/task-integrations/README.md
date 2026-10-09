@@ -22,6 +22,7 @@ script; provider logic (auth, API calls, formatting) stays inside it. A new adap
 <adapter>.sh verify   <TASK-ID> <receipt>            # re-read; exit 0 iff the published report is still there
 <adapter>.sh followup <TASK-ID> <waiver-file>        # create a follow-up task; print a receipt (path, key or URL)
 <adapter>.sh status   <TASK-ID> <backlog|todo|in-progress|done>
+markdown.sh create    <TASK-ID> <title> <body-file>  # create in-progress task for agent.sh start
 ```
 
 Exit codes: `0` ok, `1` failure (message on stderr), `2` usage, `3` import is incomplete.
@@ -29,7 +30,8 @@ Exit codes: `0` ok, `1` failure (message on stderr), `2` usage, `3` import is in
 What `agent.sh` calls today: `publish <ID> <run>/COMPLETION_REPORT.md` and `verify <ID> <receipt>` (the receipt
 recorded in `RUN.yaml` `completion_report.receipt`, passed back unmodified) from `publish-completion-report` /
 `verify-completion-report`; `followup <ID> <file>` from `waive` when `review.waiver_followup: task`. `import` and
-`status` are called by the task-author skill and the lead. As a convenience every adapter also accepts the report
+`status` are called by the task-author skill and the lead. `agent.sh start` calls markdown `create` for a
+stdin task body or `import` and `status` for a file under `tasks.dir`. As a convenience every adapter also accepts the report
 file in place of the receipt in `verify`.
 
 Receipts: markdown `<path>#<sha256 of report>`; github/jira/linear `<issue key or number>#<sha256 of report>`.
@@ -65,9 +67,12 @@ in-progress/ done/` with a `**Status:**` line, named `<ID>-<slug>.md`.
   `**Status:**` value, and restores the file byte for byte if anything else changed.
 - `import <task-file|ID>`: the file's `# Task: <ID> — <title>` line gives ID and title; `**Status:**` lines and a
   published Completion Report block are not imported.
+- `create <ID> <title> <body-file>` validates the body with the import engine and writes
+  `tasks.dir/in-progress/<ID>-<slug>.md` with `**Status:** in-progress`; incomplete input exits 3 without a task file.
 - `followup` creates `tasks.dir/backlog/<ID>-FU<n>.md` (`**Status:** backlog`) from the waiver file; sections the
   waiver does not carry are `TBD`, so importing the follow-up asks for them until the task-author completes it.
-- `status` moves the file to `tasks.dir/<state>/` and rewrites `**Status:**`. It refuses while a run's
+- `status` moves the file to `tasks.dir/<state>/` and rewrites `**Status:**`. An optional fourth argument
+  selects an exact task path under `tasks.dir`. It refuses while a run's
   `task_source.path` is that file: with an active run use `agent.sh task-source-relocate` and
   `task-source-status` instead (the run's frozen path and contract stay authoritative).
 

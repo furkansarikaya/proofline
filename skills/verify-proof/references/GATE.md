@@ -5,7 +5,7 @@
 | # | Condition | Recorded as |
 |---|---|---|
 | 1 | a command exits non-zero and has no `base_exit` (not re-run at base), or `base_exit=0` (regression) | `command failed: <cmd>` |
-| 2 | an `AC-n` row has status `FAIL` or `MISSING`, or an AC of the task has no row | `AC-n FAIL|MISSING` |
+| 2 | an `AC-n` row has status `FAIL` or `MISSING`, or an AC of the task has no row; PASS requires a passing test or command proof with every mapped PLAN scope path exempt and recorded command/output evidence | `AC-n FAIL|MISSING` or invalid PASS row |
 | 3 | `verify-scope` exit is non-zero (a changed path outside the plan's scope) | `verify-scope failed` |
 | 4 | design-sync verdict is `FAIL` | `design-sync drift` |
 | 5 | a dependency or contract check named in step 7 failed, or design-sync drift (also row 4) | each entry under `## Failures` |

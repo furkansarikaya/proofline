@@ -131,6 +131,7 @@ printf 'node_modules\n' > "$pre/.gitignore"
 mkdir -p "$pre/.claude" "$pre/.codex"
 printf '{"permissions":{"allow":["Bash(ls)"]},"model":"opus","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo mine"}]}]}}\n' > "$pre/.claude/settings.json"
 printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo codex-mine"}]}]},"extra":1}\n' > "$pre/.codex/hooks.json"
+printf 'model = "user-model"\n[sandbox_workspace_write]\ncustom = "mine"\nnetwork_access = false\n' > "$pre/.codex/config.toml"
 out=$(pl "$pre" init --yes --runtimes claude,codex 2>&1) || { LAST=$out; die "init into a project with existing files"; }
 [ "$(sed -n 1,2p "$pre/AGENTS.md")" = "$(printf '# My agents\nkeep me')" ] && grep -qx '<!-- proofline:begin -->' "$pre/AGENTS.md" && ok "AGENTS.md: user content first and intact, proofline block appended" || die "AGENTS.md overwritten"
 [ "$(sed -n 1p "$pre/CLAUDE.md")" = "my claude notes" ] && grep -qx '<!-- proofline:end -->' "$pre/CLAUDE.md" && ok "CLAUDE.md: user content kept, block appended" || die "CLAUDE.md overwritten"
@@ -138,6 +139,7 @@ grep -qx node_modules "$pre/.gitignore" && grep -qxF .agents/runs/ "$pre/.gitign
 jqe '.permissions.allow[0] == "Bash(ls)" and .model == "opus"' "$pre/.claude/settings.json" && ok ".claude/settings.json keeps the user's keys" || die "settings.json keys dropped"
 jqe '[.hooks.PreToolUse[].hooks[].command] | (index("echo mine") != null) and (map(select(contains("proofline-hook.sh"))) | length == 1)' "$pre/.claude/settings.json" && ok ".claude/settings.json keeps the user's hook and adds one proofline hook" || die "settings.json hooks wrong"
 jqe '.extra == 1 and ([.hooks.SessionStart[].hooks[].command] | index("echo codex-mine") != null)' "$pre/.codex/hooks.json" && jqe '.hooks.SubagentStop | length >= 1' "$pre/.codex/hooks.json" && ok ".codex/hooks.json is merged, not replaced" || die "codex hooks.json not merged"
+grep -Fqx 'network_access = true' "$pre/.codex/config.toml" && grep -Fqx 'custom = "mine"' "$pre/.codex/config.toml" && grep -Fqx 'model = "user-model"' "$pre/.codex/config.toml" && grep -Fq '# toml-.codex/config.toml:' "$pre/.agents/.proofline-manifest" && ok '.codex/config.toml enables network, keeps user keys, and is manifest-tracked' || die 'codex config.toml merge failed'
 s1=$(sig "$pre"); out=$(pl "$pre" init --yes --runtimes claude,codex 2>&1); [ "$s1" = "$(sig "$pre")" ] && ok "re-running init on a merged project changes nothing (no duplicated hooks or blocks)" || { LAST=$out; die "merged project not idempotent"; }
 printf '{ not json' > "$pre/.claude/settings.json"
 out=$(pl "$pre" init --yes --runtimes claude,codex 2>&1); [ "$(cat "$pre/.claude/settings.json")" = '{ not json' ] && expect "invalid settings.json is left alone with a warning" "$out" "not merged" || die "invalid settings.json overwritten"
@@ -145,6 +147,9 @@ out=$(pl "$pre" init --yes --runtimes claude,codex 2>&1); [ "$(cat "$pre/.claude
 # CLI-10: a codex-only install creates no .claude/ files
 cx=$(mkrepo codexonly); pl "$cx" init --yes --runtimes codex >/dev/null 2>&1 || die "codex-only init failed"
 [ ! -e "$cx/.claude" ] && [ ! -e "$cx/CLAUDE.md" ] && [ -f "$cx/.codex/hooks.json" ] && ok "a codex-only init creates no .claude/ and no CLAUDE.md" || die "codex-only init wrote .claude: $(ls -A "$cx")"
+grep -Fqx 'network_access = true' "$cx/.codex/config.toml" && ok 'codex-only init enables workspace-write network' || die 'codex-only network setting missing'
+cl=$(mkrepo claudeonly); pl "$cl" init --yes --runtimes claude >/dev/null 2>&1 || die 'claude-only init failed'
+[ ! -e "$cl/.codex/config.toml" ] && ok 'init without codex omits the network setting' || die 'claude-only init wrote codex config'
 
 # ---- init: dry run writes nothing ------------------------------------------------------------------------
 dry=$(mkrepo dry); s1=$(sig "$dry")

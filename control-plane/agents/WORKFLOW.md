@@ -13,7 +13,9 @@ TASK → CLASSIFY → BRANCH → BASELINE → DISCOVER → EVIDENCE → [ARCHITE
      lead diagnosis → fix round (max review.max_fix_rounds) → only non-passing gates run again
 ```
 
-`agent.sh next <ID>` prints the deterministic next step at any point. An interrupted step restarts from
+`agent.sh start <ID> [--title "<title>"] [--task-file <path>]` creates the task source and run through the
+markdown adapter. `agent.sh next` names this intake step when no run is active. `agent.sh next <ID>` prints
+the deterministic next step at any point. An interrupted step restarts from
 its beginning (`proofline resume` after a failover uses the same command).
 
 ## Sources of truth

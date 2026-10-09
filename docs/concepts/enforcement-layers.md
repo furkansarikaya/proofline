@@ -3,6 +3,14 @@
 proofline enforces its rules in three layers (D6). The foundation works with any agent; runtime hooks only
 block earlier and feed the foundation. Rules that nothing technical stands behind are listed as policy-only.
 
+Codex leads dispatch nested Codex runtimes. `proofline init` merges
+`[sandbox_workspace_write] network_access = true` into the project's `.codex/config.toml` when Codex is
+selected, preserving other project keys. The lead sandbox needs network access so workers can contact
+their runtime API; product code changes still pass the control plane's scope, lifecycle and gate checks.
+A Codex lead must also be able to write `.git` to create the task branch. In an interactive session,
+approve the required git commands; headless runs use `danger-full-access`. Product-code ownership remains
+enforced by proofline hooks and gates. Dispatched workers retain `workspace-write` and the run-directory grant.
+
 | Layer | Where | Works with |
 |---|---|---|
 | Control plane | `.agents/scripts/agent.sh`, `dispatch.sh`, git hooks in `.agents/githooks/` (`core.hooksPath`) | every runtime, humans |

@@ -35,7 +35,7 @@ function scenarios(lines, errors, secName) {
   for (const line of lines) {
     const head = /^- (QA-\d+) \((AC-\d+(?:,\s*AC-\d+)*)\)(?: \[([a-z-]+)\])?: (.+)$/.exec(line);
     if (head) { list.push({ id: head[1], acs: head[2].split(/,\s*/), category: head[3], title: head[4], kv: {} }); continue; }
-    const kv = /^\s+(input|expected|run): (.+)$/.exec(line);
+    const kv = /^\s+(input|expected|run|execution|reason|human-check): (.+)$/.exec(line);
     if (kv && list.length) { list[list.length - 1].kv[kv[1]] = kv[2].trim(); continue; }
     if (/^- /.test(line)) errors.push(`${secName}: malformed scenario line "${line.slice(0, 60)}" (expected "- QA-n (AC-k)[ [category]]: title")`);
   }
@@ -62,6 +62,9 @@ export function validatePlan(text, taskText) {
     if (seen.has(s.id)) errors.push(`duplicate scenario id ${s.id}`);
     seen.add(s.id);
     for (const k of ["input", "expected", "run"]) if (!s.kv[k]) errors.push(`${s.id}: missing "${k}:" line`);
+    if (!s.kv.execution) errors.push(`${s.id}: missing "execution: auto|manual" line`);
+    else if (!["auto", "manual"].includes(s.kv.execution)) errors.push(`${s.id}: execution must be auto or manual, got "${s.kv.execution}"`);
+    else if (s.kv.execution === "manual") for (const k of ["reason", "human-check"]) if (!s.kv[k]) errors.push(`${s.id}: manual scenario needs a "${k}:" line`);
   }
   for (const s of adv) if (!CATEGORIES.includes(s.category)) errors.push(`${s.id}: adversarial scenario needs a category from ${CATEGORIES.join("|")}`);
   for (const s of acc) if (s.category) errors.push(`${s.id}: acceptance scenarios carry no category`);
@@ -72,10 +75,11 @@ export function validatePlan(text, taskText) {
     for (const a of acs) if (!covered.has(a)) errors.push(`${a} has no acceptance scenario`);
     for (const s of [...acc, ...adv]) for (const a of s.acs) if (!acs.includes(a)) errors.push(`${s.id} references unknown ${a}`);
   }
-  return { valid: errors.length === 0, errors, id, acceptance: acc.map((s) => s.id), adversarial: adv.map((s) => s.id) };
+  return { valid: errors.length === 0, errors, id, acceptance: acc.map((s) => s.id), adversarial: adv.map((s) => s.id), manual: [...acc, ...adv].filter((s) => s.kv.execution === "manual").map((s) => s.id) };
 }
 
 // Gate rule (mechanical): any FAIL -> FAIL; else any BLOCKED -> BLOCKED; else PASS.
+// "not-run (manual)" results (execution: manual scenarios) never affect the verdict.
 export function computeVerdict(results) {
   if (results.some((r) => r === "FAIL")) return "FAIL";
   if (results.some((r) => r === "BLOCKED")) return "BLOCKED";
@@ -96,13 +100,13 @@ export function validateReport(text, planText) {
   if (!secs.has("Failures")) errors.push('missing section "## Failures"');
   const res = new Map();
   for (const line of secs.get("Scenarios") || []) {
-    const m = /^- (QA-\d+): (PASS|FAIL|BLOCKED)(?:\s+(?:—|--|-)\s*(.*))?$/.exec(line);
+    const m = /^- (QA-\d+): (PASS|FAIL|BLOCKED|not-run \(manual\))(?:\s+(?:—|--|-)\s*(.*))?$/.exec(line);
     if (!m) { if (/^- /.test(line)) errors.push(`malformed result line "${line.slice(0, 60)}"`); continue; }
     if (res.has(m[1])) errors.push(`duplicate result for ${m[1]}`);
     if (!m[3] || !m[3].trim()) errors.push(`${m[1]}: evidence (observed behaviour and command) is required after the dash`);
     res.set(m[1], m[2]);
   }
-  if (res.size === 0) errors.push("no scenario results: \"## Scenarios\" must list at least one `- QA-n: PASS|FAIL|BLOCKED — evidence` line");
+  if (res.size === 0) errors.push("no scenario results: \"## Scenarios\" must list at least one `- QA-n: PASS|FAIL|BLOCKED|not-run (manual) — evidence` line");
   const failures = (secs.get("Failures") || []).join("\n");
   for (const [id, r] of res) if ((r === "FAIL" || r === "BLOCKED") && !failures.includes(id)) errors.push(`${id} is ${r} but is not described in "## Failures"`);
   const computed = computeVerdict([...res.values()]);
@@ -112,6 +116,11 @@ export function validateReport(text, planText) {
     const ids = [...plan.acceptance, ...plan.adversarial];
     if (cited && cited !== sha256(planText)) errors.push("Plan sha256 does not match the QA_PLAN.md on disk (plan changed after freeze or report cites another plan)");
     for (const id of ids) if (!res.has(id)) errors.push(`no result for plan scenario ${id}`);
+    for (const id of ids) {
+      const manual = plan.manual.includes(id), r = res.get(id);
+      if (manual && r && r !== "not-run (manual)") errors.push(`${id} is execution: manual and must be reported as "not-run (manual)", not ${r}`);
+      if (!manual && r === "not-run (manual)") errors.push(`${id} is execution: auto; "not-run (manual)" is only for manual scenarios (use BLOCKED if it could not run)`);
+    }
     for (const id of res.keys()) if (!ids.includes(id)) errors.push(`result for ${id}, which is not in the plan`);
   }
   if (PLACEHOLDER.test(body.replace(/^# QA report:.*$/m, ""))) errors.push("unfilled placeholder remains");

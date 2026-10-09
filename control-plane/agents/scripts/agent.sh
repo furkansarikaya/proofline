@@ -36,6 +36,52 @@ require_full_lifecycle() { require_lead; }
 valid_task_id() { case "$1" in *[!A-Za-z0-9_-]*|'') return 1;; esac; }
 run_dir() { printf '%s/.agents/runs/%s\n' "$root" "$1"; }
 
+# A command holds its lock through the complete read/modify/write transaction. The
+# local lock also protects shared ACTIVE_RUN, approval consumption and metrics.
+held_locks=''
+record_tmp=''
+release_locks() {
+  [ -z "$record_tmp" ] || rm -rf "$record_tmp"
+  for rl_path in $held_locks; do
+    if [ -f "$rl_path/pid" ] && [ "$(cat "$rl_path/pid")" = "$$" ]; then
+      rm -f "$rl_path/pid"
+      rmdir "$rl_path" 2>/dev/null || :
+    fi
+  done
+}
+acquire_lock() {
+  al_path=$1
+  case " $held_locks " in *" $al_path "*) return 0 ;; esac
+  al_timeout=${PROOFLINE_LOCK_TIMEOUT:-120}
+  case "$al_timeout" in ''|*[!0-9]*) fail "invalid PROOFLINE_LOCK_TIMEOUT: $al_timeout"; return 1 ;; esac
+  al_tries=$((al_timeout * 5)) al_n=0 al_broke=''
+  while ! mkdir "$al_path" 2>/dev/null; do
+    if [ -f "$al_path/pid" ]; then
+      al_pid=$(cat "$al_path/pid" 2>/dev/null || :)
+      case "$al_pid" in ''|*[!0-9]*) ;; *)
+        if ! kill -0 "$al_pid" 2>/dev/null; then
+          # Another waiter may win after removal; mkdir is still the arbiter.
+          rm -f "$al_path/pid"
+          rmdir "$al_path" 2>/dev/null || :
+          al_broke=$al_pid
+          continue
+        fi ;;
+      esac
+    fi
+    [ "$al_n" -lt "$al_tries" ] || { fail "lock timeout after ${al_timeout}s: $al_path"; return 1; }
+    sleep 0.2
+    al_n=$((al_n + 1))
+  done
+  printf '%s\n' "$$" > "$al_path/pid"
+  held_locks="$al_path $held_locks"
+  case "$al_path" in "$agents"/runs/*/.lock)
+    if [ -n "$al_broke" ]; then
+      al_id=${al_path%/.lock}; al_id=${al_id##*/}
+      if gates_enforced "$al_id"; then ledger_append "$al_id" lock-break - - "stale lock holder pid=$al_broke"; fi
+    fi ;;
+  esac
+}
+
 # --- Config (.agents/config.yaml): indented YAML of scalars, read with awk. ---------
 # Prints "dotted.key=value" for every key; comments and surrounding quotes are stripped.
 config_lines() {
@@ -132,6 +178,62 @@ open_runs() {
   done
 }
 require_run() { valid_task_id "$1" || fail "invalid task id"; [ -d "$(run_dir "$1")" ] || fail "run not found: $1"; }
+
+start_run() { # ID [--title TITLE] [--task-file PATH]; otherwise read the task body on stdin
+  require_lead
+  sr_id=${1:-}; [ -n "$sr_id" ] || fail 'usage: agent.sh start <TASK-ID> [--title TITLE] [--task-file PATH]'
+  shift
+  valid_task_id "$sr_id" || fail "invalid task id: $sr_id"
+  case "$sr_id" in [!A-Za-z0-9]*|*..*) fail "invalid task id: $sr_id" ;; esac
+  sr_title='' sr_file=''
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || fail 'start option needs a value'
+    case "$1" in --title) sr_title=$2 ;; --task-file) sr_file=$2 ;; *) fail "unknown start option: $1" ;; esac
+    shift 2
+  done
+  sr_dir=$(run_dir "$sr_id")
+  [ ! -e "$sr_dir" ] || fail "run already exists: $sr_id"
+  sr_open=$(open_runs); [ -z "$sr_open" ] || fail "another open run exists in this worktree: $sr_open"
+  sr_active=$(active_run); [ -z "$sr_active" ] || fail "another active run exists: $sr_active"
+  sr_adapter=$(cfg tasks.adapter markdown)
+  sr_tool=$agents/task-integrations/markdown.sh
+  [ -f "$sr_tool" ] || fail 'markdown task adapter is missing'
+  sr_tasks=$(cfg tasks.dir .agents/tasks)
+  case "$sr_tasks" in /*|*..*) fail "tasks.dir must be project-relative: $sr_tasks" ;; esac
+  sr_tmp=$(mktemp "${TMPDIR:-/tmp}/agent-start.XXXXXX")
+  if [ -n "$sr_file" ]; then
+    case "$sr_file" in "$root"/*) sr_rel=${sr_file#"$root"/} ;; *) sr_rel=${sr_file#./} ;; esac
+    case "$sr_rel" in "$sr_tasks"/*) ;; *) rm -f "$sr_tmp"; fail "task file must be under tasks.dir ($sr_tasks): $sr_file" ;; esac
+    case "$sr_rel" in *..*) rm -f "$sr_tmp"; fail "invalid task path: $sr_file" ;; esac
+    [ -f "$root/$sr_rel" ] || { rm -f "$sr_tmp"; fail "task file missing: $sr_file"; }
+    sr_name=${sr_rel##*/}; case "$sr_name" in "$sr_id".md|"$sr_id"-*.md) ;; *) rm -f "$sr_tmp"; fail "task file name must start with $sr_id: $sr_file" ;; esac
+    sr_rc=0; sh "$sr_tool" import "$sr_rel" "$sr_tmp" || sr_rc=$?
+    if [ "$sr_rc" -ne 0 ]; then rm -f "$sr_tmp"; return "$sr_rc"; fi
+    [ "$(sed -n '1s/^# Task: \([^ ]*\) .*/\1/p' "$sr_tmp")" = "$sr_id" ] || { rm -f "$sr_tmp"; fail "task file ID does not match $sr_id"; }
+    sr_path=$(sh "$sr_tool" status "$sr_id" in-progress "$sr_rel") || { rm -f "$sr_tmp"; fail 'could not move task to in-progress'; }
+  else
+    cat > "$sr_tmp"
+    [ -n "$sr_title" ] || sr_title=$(sed -n '1s/^# Task: [^ ]* — //p' "$sr_tmp")
+    [ -n "$sr_title" ] || { printf 'MISSING title\n'; rm -f "$sr_tmp"; return 3; }
+    sr_rc=0; sr_path=$(sh "$sr_tool" create "$sr_id" "$sr_title" "$sr_tmp") || sr_rc=$?
+    if [ "$sr_rc" -ne 0 ]; then printf '%s\n' "$sr_path"; rm -f "$sr_tmp"; return "$sr_rc"; fi
+    sh "$sr_tool" import "$sr_path" "$sr_tmp" || { rm -f "$sr_tmp"; fail 'created task could not be imported'; }
+  fi
+  mkdir -p "$sr_dir" "$(dirname "$(active_run_file)")"
+  awk -v id="$sr_id" -v path="$sr_path" -v adapter="$sr_adapter" '
+    /^task:$/ { section="task" } /^task_source:$/ { section="task_source" } /^completion_report:$/ { section="completion_report" }
+    /^[^[:space:]#]/ && $0 !~ /^(task|task_source|completion_report):$/ { section="" }
+    section=="task" && /^  id:/ { print "  id: " id; next }
+    section=="task_source" && /^  type:/ { print "  type: local_markdown"; next }
+    section=="task_source" && /^  path:/ { print "  path: " path; next }
+    section=="completion_report" && /^  adapter:/ { print "  adapter: " adapter; next }
+    { print }
+  ' "$agents/templates/RUN.yaml" > "$sr_dir/RUN.yaml"
+  cp "$sr_tmp" "$sr_dir/TASK.md"; rm -f "$sr_tmp"
+  printf '%s\n' "$sr_id" > "$(active_run_file)"
+  ledger_append "$sr_id" start - PLANNED "task=$sr_path adapter=$sr_adapter"
+  echo "run started: $sr_id task=$sr_path"
+}
 
 effective() {
   task=${1:-}; [ -n "$task" ] || task=$(active_run); [ -z "$task" ] || require_run "$task"
@@ -856,7 +958,7 @@ known_control_artifact() {
   esac
   kc_rel=${path#.agents/runs/"$id"/}
   case "$kc_rel" in
-    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md) return 0 ;;
+    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md|.lock/pid) return 0 ;;
     amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|questions/*|approvals/*|waivers/*|security/*) return 0 ;;
     reviews/proof-review/plan/*|reviews/proof-review/rules/*|reviews/proof-review/small/*|reviews/test-trust/tests/*|reviews/test-trust/qa/*|reviews/data-design/*) return 0 ;;
     design/*.md|design/*.json) return 0 ;;
@@ -1458,6 +1560,7 @@ parse_findings() {
     /^\|/ {
       if ($0 ~ /^\|[-:| ]+\|?[[:space:]]*$/) next
       id = t($2); if (id == "id" || id == "") next
+      low = tolower(id); if (low == "(none)" || low == "none" || low == "-" || low == "n/a") { print "NO_FINDINGS_PLACEHOLDER"; next }
       if (NF < 7) { print "MALFORMED"; next }
       print id "|" t($3) "|" t($4) "|" t($5) "|" t($6)
     }' "$1"
@@ -1477,7 +1580,7 @@ record_result() {
   rr_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-record.XXXXXX")
   if [ -n "$rr_src" ]; then [ -f "$rr_src" ] || { rm -rf "$rr_tmp"; fail "result file not found: $rr_src"; }; cat "$rr_src" > "$rr_tmp/raw"; else cat > "$rr_tmp/raw"; fi
   # Plain statements on purpose: inside an `if` or `||`, `set -e` would not stop the nested checks.
-  trap 'rm -rf "$rr_tmp"' EXIT
+  record_tmp=$rr_tmp
   record_validate "$rr_id" "$rr_tmp"
   record_apply "$rr_id" "$rr_tmp"
 }
@@ -1532,13 +1635,22 @@ record_validate() {
   [ "$rv_fp" = "$rv_now" ] || { record_reject "stale: FINGERPRINT $rv_fp is not the current content fingerprint $rv_now"; return 1; }
   rv_art=$(hdr ARTIFACT "$rv_t/hdr"); rv_ap=${rv_art% *}; rv_as=${rv_art##* }
   [ "$rv_ap" != "$rv_art" ] || { record_reject "ARTIFACT needs '<run-relative path> <sha256>'"; return 1; }
-  case "$rv_ap" in ''|/*|*..*) record_reject "ARTIFACT path must be run-relative: $rv_ap"; return 1 ;; esac
+  case "$rv_ap" in
+    /*) rv_candidate=$rv_ap ;;
+    .agents/runs/"$rv_id"/*) rv_candidate=$root/$rv_ap ;;
+    ''|*..*) record_reject "ARTIFACT path must be run-relative: $rv_ap"; return 1 ;;
+    *) rv_candidate=$rv_d/$rv_ap ;;
+  esac
+  rv_real=$(realpath "$rv_candidate" 2>/dev/null) || { record_reject "ARTIFACT not found in the run: $rv_ap"; return 1; }
+  rv_run=$(realpath "$rv_d")
+  case "$rv_real" in "$rv_run"/*) rv_ap=${rv_real#"$rv_run"/} ;; *) record_reject "ARTIFACT path must be inside the run: $rv_ap"; return 1 ;; esac
   [ -f "$rv_d/$rv_ap" ] && [ ! -L "$rv_d/$rv_ap" ] || { record_reject "ARTIFACT not found in the run: $rv_ap"; return 1; }
   known_control_artifact "$rv_id" ".agents/runs/$rv_id/$rv_ap" || { record_reject "ARTIFACT is not a registered run artifact: $rv_ap"; return 1; }
   artifact_allowed "$rv_role" "$rv_kind" "$rv_focus" "$rv_ap" || { record_reject "ARTIFACT $rv_ap is outside the paths $rv_role${rv_focus:+ (FOCUS $rv_focus)} reports in: $(artifact_paths "$rv_role" "$rv_kind" "$rv_focus")"; return 1; }
   [ "$(hash_file "$rv_d/$rv_ap")" = "$rv_as" ] || { record_reject "ARTIFACT sha256 mismatch for $rv_ap"; return 1; }
   parse_findings "$rv_t/raw" > "$rv_t/findings"
   ! grep -qx MALFORMED "$rv_t/findings" || { record_reject "malformed findings row (want | id | severity | path:line | finding | evidence |)"; return 1; }
+  ! grep -qx NO_FINDINGS_PLACEHOLDER "$rv_t/findings" || { record_reject "no findings: omit rows, keep only the table header"; return 1; }
   rv_prefix=$rv_role; [ -z "$rv_gate" ] || rv_prefix=$rv_gate
   rv_badrow=$(awk -F'|' -v p="$rv_prefix" '{ if ($1 !~ ("^" p "-[0-9]+$")) { print "id " $1 " (want " p "-<n>)"; exit } if ($2 !~ /^(blocking|info)$/) { print "severity " $2; exit } }' "$rv_t/findings")
   [ -z "$rv_badrow" ] || { record_reject "invalid finding $rv_badrow"; return 1; }
@@ -2052,6 +2164,11 @@ next_step() {
     DONE) o "agent.sh request-approval $ns_id commit (delivery needs the user's approval)"; o "agent.sh cleanup $ns_id (after delivery)"; r "run DONE" ;;
   esac
 }
+next_without_run() {
+  nr_id=$(active_run)
+  if [ -n "$nr_id" ]; then next_step "$nr_id"; return; fi
+  printf 'task=none\nnext=agent.sh start <ID> [--title "<title>"] [--task-file <path>]\nreason=obtain a canonical task from task-author or an adapter import, then start it\n'
+}
 
 # --- Reopen a completed run (the only sanctioned way) ---------------------------------------
 amend_run() {
@@ -2301,11 +2418,25 @@ case "$execution_role" in
   implementer) cmd_allowed record worker-evidence handoff || fail "command denied for $execution_role: $command" ;;
   *) cmd_allowed record || fail "command denied for $execution_role: $command" ;;
 esac
+lock_command=yes
+case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
+[ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
+if [ "$lock_command" = yes ]; then
+  mkdir -p "$agents/local"
+  trap 'release_locks' 0
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  acquire_lock "$agents/local/.lock"
+  if [ "$command" != start ] && [ -n "${2:-}" ] && valid_task_id "$2" && [ -d "$(run_dir "$2")" ]; then
+    acquire_lock "$(run_dir "$2")/.lock"
+  fi
+fi
 usage() {
   cat >&2 <<'USAGE'
 usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   role | status | effective [ID] | fingerprint [ID] | config-get <dotted.key> | config-check [FILE]
-  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next <ID> | summary [ID]
+  start <ID> [--title TITLE] [--task-file PATH]
+  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID]
   branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
@@ -2331,10 +2462,11 @@ case "$command" in
   config-check) config_check "${2:-}" ;;
   baseline) require_lead; baseline "${2:?usage: agent.sh baseline <ID>}" ;;
   branch) require_lead; branch_setup "${2:?usage: agent.sh branch <ID>}" ;;
+  start) shift; start_run "$@" ;;
   classify) require_lead; classify "${2:?usage: agent.sh classify <ID> <CLASS> [review]}" "${3:?usage: agent.sh classify <ID> <CLASS> [review]}" "${4:-}" ;;
   pipeline) pipeline_show "${2:?usage: agent.sh pipeline <ID>}" ;;
   tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
-  next) next_step "${2:?usage: agent.sh next <ID>}" ;;
+  next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
   summary) summary_run "${2:-}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;

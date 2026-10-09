@@ -53,8 +53,8 @@ TASK: <TASK-ID>
 FOCUS: <plan|rules|tests|data|rules+tests>
 RESULT: <PASS|FAIL|BLOCKED>
 CONFIDENCE: <high|medium|low>
-FINGERPRINT: <git tree id>
-ARTIFACT: <report path of the focus, step 3> <sha256>
+FINGERPRINT: <exact output of `.agents/scripts/agent.sh fingerprint <TASK-ID>`, run right before you answer; never computed by hand>
+ARTIFACT: <run-relative path, e.g. reviews/proof-review/small/REPORT.md> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |

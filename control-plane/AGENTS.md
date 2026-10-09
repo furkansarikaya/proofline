@@ -18,8 +18,9 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
 4. As lead with an active task: `.agents/scripts/agent.sh next <TASK-ID>` prints the next step. After an
    interruption or a runtime switch (`proofline resume`), trust persisted work only after `freshness` and
    `verify-handoff` pass; the interrupted step restarts from its beginning.
-5. A new change request: create `.agents/runs/<TASK-ID>/` from `.agents/templates/`, write the id to
-   `.agents/local/ACTIVE_RUN`, then `classify`, `branch`, `baseline`, and follow `next`.
+5. A new change request: obtain a canonical task from task-author or a task adapter, then run
+   `.agents/scripts/agent.sh start <TASK-ID> [--title "<title>"] [--task-file <path>]` (stdin supplies
+   the task body when no file is given). Follow `next` for `classify`, `branch`, and `baseline`.
 
 ## Rules that always apply
 
@@ -34,3 +35,10 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
   path, a stale fingerprint, missing implementation evidence or a pending question. It grants no delivery
   right.
 - Never install anything into the project. Never touch global git configuration.
+
+## Codex lead
+
+A Codex lead needs `.git` write access to create the task branch. In interactive use, approve the git
+commands; in headless use, run the lead with `danger-full-access`. Dispatched workers retain
+`workspace-write` plus access to the run directory. Product-code ownership is still enforced by the
+proofline hooks and gates.

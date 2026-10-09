@@ -13,10 +13,11 @@ RESULT: <PASS|FAIL|BLOCKED>                    gate results: reviewer, security_
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>             task results: every other role, and qa's QA-plan step
 CONFIDENCE: <high|medium|low>
 FINGERPRINT: <output of agent.sh fingerprint <TASK-ID>>
-ARTIFACT: <run-relative path> <sha256>
+ARTIFACT: <run-relative path, e.g. reviews/proof-review/small/REPORT.md> <sha256>
 ```
 
 Then the findings table (header row always present, zero rows allowed), then optional lines:
+With no findings, output only the table header row.
 
 ```
 | id | severity | path:line | finding | evidence |
@@ -31,6 +32,8 @@ QUESTIONS:                                     with RESULT: NEEDS_INPUT (format 
 - Finding ids: `<GATE>-<n>` for gate results (`SECURITY-1`), `<role>-<n>` otherwise (`explorer-2`).
 - `FINGERPRINT` is the git tree id of the working tree including untracked files, excluding `.agents/runs/`
   and `.agents/local/`; any byte change produces another value.
+- `ARTIFACT` may use an absolute path or a project-relative `.agents/runs/<TASK-ID>/...` path that resolves inside the run directory; `record` normalizes it to a
+  run-relative path before checking role ownership and writing the gate record.
 
 ### Recording (`agent.sh record <ID> [--file F]`, else stdin)
 

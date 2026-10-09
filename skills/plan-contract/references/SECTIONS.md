@@ -18,7 +18,7 @@ The validator detects Data and UI from scope paths. When the task changes stored
 ## 2. Content
 
 - **Behavior:** one bullet per criterion or decision: trigger, input, observable result, edge cases from TASK/INTENT (`AC-1: subtotal 5000 with threshold 5000 → shipping 0`). Name the functions that change as `path:symbol`.
-- **Tests:** one bullet per test to add or change, `- AC-<n>: `test/file` "<test name>" — <what it asserts>`. Existing tests that must keep passing (regression surface from EVIDENCE `risk`) as `- regression: `test/file``. A criterion proven only by an existing, unchanged test is listed here; that line is its mapping.
+- **Tests:** one bullet per test to add or change, `- AC-<n>: `test/file` "<test name>" — <what it asserts>`. Existing tests that must keep passing (regression surface from EVIDENCE `risk`) as `- regression: `test/file``. A criterion proven only by an existing, unchanged test is listed here; that line is its mapping. A text-only criterion may instead use a verification command when every mapped scope path has `tdd_exemption`; name the command and expected output under Verification commands.
 - **Verification commands:** the project's own commands in backticks, in run order (`npm test`). Never invented; taken from TASK.md, CI config or package scripts.
 - **Dependencies:** `none`, or `- <package>@<version> — <criterion it serves>`. A dependency not listed here is a FAIL at review.
 - **Contracts:** `none`, or `- <contract> <old version> → <new version> — <who consumes it>` for versioned API, schema, file-format or event changes. An unlisted versioned change is a FAIL at review.

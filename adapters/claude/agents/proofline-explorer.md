@@ -35,8 +35,8 @@ ROLE: explorer
 TASK: <TASK-ID>
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>
 CONFIDENCE: <high|medium|low>
-FINGERPRINT: <git tree id>
-ARTIFACT: results/NNN-explorer.md <sha256>
+FINGERPRINT: <exact output of `.agents/scripts/agent.sh fingerprint <TASK-ID>`, run right before you answer; never computed by hand>
+ARTIFACT: <run-relative path, e.g. results/001-explorer.md> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |

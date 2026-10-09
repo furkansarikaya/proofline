@@ -228,6 +228,28 @@ do_config() {
   [ "$DRY" = 1 ] || { mkdir -p "$ROOT/.agents"; cat "$dc_w" > "$dc_cur"; }
 }
 
+# Codex leads spawn Codex workers, so their workspace-write sandbox needs outbound runtime access.
+# Keep every project TOML key and track the resulting file in the manifest.
+codex_network_config() {
+  cn_dst=$ROOT/.codex/config.toml; cn_out=$STAGE/codex-config.toml
+  if [ -f "$cn_dst" ]; then
+    awk '
+      /^\[sandbox_workspace_write\][[:space:]]*$/ { if (inside && !seen) print "network_access = true"; inside=1; found=1; print; next }
+      /^\[/ { if (inside && !seen) print "network_access = true"; inside=0 }
+      inside && /^[[:space:]]*network_access[[:space:]]*=/ { if (!seen) print "network_access = true"; seen=1; next }
+      { print }
+      END { if (inside && !seen) print "network_access = true"; if (!found) print "\n[sandbox_workspace_write]\nnetwork_access = true" }
+    ' "$cn_dst" > "$cn_out"
+  else printf '[sandbox_workspace_write]\nnetwork_access = true\n' > "$cn_out"; fi
+  cn_hash=$(sha256 "$cn_out")
+  printf 'toml-.codex/config.toml %s\n' "$cn_hash" >> "$STAGE/blocks"
+  if [ -f "$cn_dst" ] && cmp -s "$cn_dst" "$cn_out"; then plog same .codex/config.toml
+  else
+    plog merged '.codex/config.toml (workspace-write network access; other keys kept)'
+    [ "$DRY" = 1 ] || { mkdir -p "$ROOT/.codex"; cat "$cn_out" > "$cn_dst"; }
+  fi
+}
+
 # global_hookspath: a core.hooksPath in the global or system git config (never modified here), else empty.
 global_hookspath() { g config --global --get core.hooksPath 2>/dev/null || g config --system --get core.hooksPath 2>/dev/null || true; }
 global_hookspath_msg() { # VALUE: the warning shared by init and doctor
@@ -284,7 +306,7 @@ install_run() { # MODE set by the caller
   place_all
   do_config
   if rt_has claude; then json_merge .claude/settings.json "$PL_HOME/adapters/claude/settings.fragment.json"; fi
-  if rt_has codex; then json_merge .codex/hooks.json "$PL_HOME/adapters/codex/hooks.json"; fi
+  if rt_has codex; then json_merge .codex/hooks.json "$PL_HOME/adapters/codex/hooks.json"; codex_network_config; fi
   merge_block AGENTS.md "$PL_HOME/control-plane/AGENTS.md"
   if rt_has claude; then merge_block CLAUDE.md "$PL_HOME/control-plane/CLAUDE.md"; fi
   ensure_line .gitignore .agents/local/

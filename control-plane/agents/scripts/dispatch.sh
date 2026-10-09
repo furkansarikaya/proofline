@@ -141,6 +141,7 @@ run_timed() {
 
 # Runtime failure (D7: the runtime could not do the step) vs task failure (it ran and failed).
 runtime_failure_reason() { # LOG
+  tail -n 60 "$1" 2>/dev/null | grep -Eiq 'error sending request|workspace routing discovery failed|Reconnecting\.\.\. 5/5' && { echo runtime_unavailable:network; return; }
   tail -n 60 "$1" 2>/dev/null | grep -Eiq 'usage limit|rate[ _-]?limit|quota|too many requests|(^|[^0-9])429([^0-9]|$)|limit (reached|exceeded)|hit your limit|overloaded' && { echo limit; return; }
   tail -n 60 "$1" 2>/dev/null | grep -Eiq 'not logged in|unauthori[sz]ed|authentication (failed|error|required)|invalid api key|please (run )?.*login|(^|[^0-9])401([^0-9]|$)' && { echo auth; return; }
   echo none
@@ -240,7 +241,13 @@ attempt() {
   echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code" >&2
   status=0
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
-  else (cd "$root" && export AGENT_ROLE="$role" && run_timed "$timeout_s" "$log" "$input" "$@") || status=$?; fi
+  else (cd "$root" && export AGENT_ROLE="$role" &&
+    if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
+      HOME=$PROOFLINE_CODEX_HOME_DIR CODEX_HOME=$PROOFLINE_CODEX_HOME_DIR/.codex \
+        run_timed "$timeout_s" "$log" "$input" "$@"
+    else
+      run_timed "$timeout_s" "$log" "$input" "$@"
+    fi) || status=$?; fi
   if [ "$writes_code" = yes ]; then
     "$agent" window-close "$id" "$before" "$status" "$role" >&2 || { echo "dispatch: window-close failed (unattributed mutation?)" >&2; exit 1; }
   fi
@@ -272,6 +279,7 @@ a_runtime=$o_runtime
 attempt
 if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
   reason=$(runtime_failure_reason "$log"); [ "$status" -eq 127 ] && reason=missing_binary
+  [ "$reason" != runtime_unavailable:network ] || blocked "runtime_unavailable:network: $rt worker could not reach its API; enable network access for the lead workspace-write sandbox and retry this step"
   if [ "$reason" != none ]; then
     case "$rt" in claude) other=codex ;; codex) other=claude ;; *) other='' ;; esac
     mode=$(cfg failover); [ -n "$mode" ] || mode=auto

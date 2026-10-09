@@ -61,8 +61,8 @@ ROLE: implementer
 TASK: <TASK-ID>
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>
 CONFIDENCE: <high|medium|low>
-FINGERPRINT: <git tree id after the change>
-ARTIFACT: <worker-evidence/... last record, or results/NNN-debug.md> <sha256>
+FINGERPRINT: <exact output of `.agents/scripts/agent.sh fingerprint <TASK-ID>` after the change; never computed by hand>
+ARTIFACT: <run-relative path, e.g. results/001-debug.md> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |

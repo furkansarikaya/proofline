@@ -9,6 +9,7 @@ import { validateVerify } from "../../skills/verify-proof/scripts/validate-verif
 
 const SCRIPT = fileURLToPath(new URL("../../skills/verify-proof/scripts/validate-verify.mjs", import.meta.url));
 const TASK = "## Acceptance criteria\n- AC-1: returns 429\n- AC-2: resets counter\n";
+const PLAN = (exempt = true, second = false) => `---\nscope:\n  - path: docs/message.md\n    criteria: [AC-2]\n${exempt ? '    tdd_exemption: "Corrected text is confirmed by a direct content check"\n' : ''}${second ? '  - path: docs/other.md\n    criteria: [AC-2]\n' : ''}---\n`;
 
 const mk = (o = {}) => `# Verification: T-1
 
@@ -67,6 +68,17 @@ test("AC without a passing test forces FAIL; missing row rejected", () => {
   assert.match(e({ rows: "| AC-1 | | PASS | |\n| AC-2 | t | PASS | e |" }), /AC-1: PASS needs a test reference/);
 });
 
+test("command proof requires all mapped paths exempt and recorded passing output", () => {
+  const rows = "| AC-1 | tests/login.test.js::sixth attempt | PASS | `npm test` exit=0 |\n| AC-2 | command: `grep -n corrected docs/message.md` | PASS | `grep -n corrected docs/message.md` exit=0; output: 7:corrected text |";
+  const commands = "- `npm test` | exit=0\n  output: 12 pass\n- `grep -n corrected docs/message.md` | exit=0\n  output: 7:corrected text";
+  assert.equal(validateVerify(mk({ rows, commands }), TASK, PLAN()).errors.join(), "");
+  assert.match(validateVerify(mk({ rows, commands }), TASK).errors.join(), /requires tdd_exemption/);
+  assert.match(validateVerify(mk({ rows, commands }), TASK, PLAN(false)).errors.join(), /requires tdd_exemption/);
+  assert.match(validateVerify(mk({ rows, commands }), TASK, PLAN(true, true)).errors.join(), /requires tdd_exemption/);
+  assert.match(validateVerify(mk({ rows, commands: commands.replace("7:corrected text", "unrelated") }), TASK, PLAN()).errors.join(), /demonstrating output line/);
+  assert.match(validateVerify(mk({ rows, commands: commands.replace("exit=0\n  output: 7", "exit=1\n  output: 7") }), TASK, PLAN()).errors.join(), /recorded passing exact command/);
+});
+
 test("scope failure forces FAIL", () => {
   assert.match(e({ scope: "verify-scope: exit=1" }), /verify-scope failed/);
   assert.match(e({ scope: "scope ok" }), /verify-scope: exit=N/);
@@ -103,6 +115,11 @@ test("CLI", () => {
   assert.equal(run(join(d, "v.md"), "--task", join(d, "t.md")).status, 0);
   assert.equal(run(join(d, "bad.md")).status, 1);
   assert.equal(run(join(d, "nope.md")).status, 2);
+  const commandRow = "| AC-1 | tests/login.test.js::sixth attempt | PASS | `npm test` exit=0 |\n| AC-2 | command: `grep -n corrected docs/message.md` | PASS | `grep -n corrected docs/message.md` exit=0; output: 7:corrected text |";
+  writeFileSync(join(d, "command.md"), mk({ rows: commandRow, commands: "- `npm test` | exit=0\n  output: 12 pass\n- `grep -n corrected docs/message.md` | exit=0\n  output: 7:corrected text" }));
+  writeFileSync(join(d, "plan.md"), PLAN());
+  assert.equal(run(join(d, "command.md"), "--task", join(d, "t.md"), "--plan", join(d, "plan.md")).status, 0);
+  assert.equal(run(join(d, "command.md"), "--task", join(d, "t.md")).status, 1);
 });
 
 test("entries under ## Failures (dependency, contract, design drift) fail the computed verdict", () => {

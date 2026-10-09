@@ -74,7 +74,7 @@ RESULT: <PASS|FAIL|BLOCKED>                    result: gate
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>             result: task
 CONFIDENCE: <high|medium|low>
 FINGERPRINT: <output of agent.sh fingerprint <TASK-ID>>
-ARTIFACT: <run-relative path> <sha256>
+ARTIFACT: <run-relative path, e.g. reviews/proof-review/small/REPORT.md> <sha256>
 ```
 
 Then the findings table `| id | severity | path:line | finding | evidence |` (header row always present,

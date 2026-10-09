@@ -16,16 +16,19 @@ const PLAN = `# QA plan: T-1
 - QA-1 (AC-1): sixth failure is rejected
   input: 6 wrong passwords within 10 minutes
   expected: sixth response is HTTP 429
+  execution: auto
   run: \`npm test -- login\`
 - QA-2 (AC-2): success resets
   input: 3 failures then a correct password
   expected: next failure count is 1
+  execution: auto
   run: \`curl\` sequence in a scratch worktree
 
 ## Adversarial scenarios
 - QA-3 (AC-1) [concurrency]: parallel attempts
   input: 20 simultaneous wrong passwords
   expected: at most 5 are answered 401, the rest 429
+  execution: auto
   run: node script firing 20 requests
 
 ## Regression surface
@@ -151,4 +154,34 @@ test("report without --plan rejects zero scenario results (and a Scenarios secti
   writeFileSync(file, empty);
   assert.equal(spawnSync(process.execPath, [SCRIPT, "report", file]).status, 1);
   assert.equal(validateReport(report(PLAN)).valid, true);
+});
+
+const MAN = PLAN.replace("  execution: auto\n  run: `curl` sequence in a scratch worktree\n", "  execution: manual\n  reason: needs a real browser pager\n  human-check: page 2 link is highlighted\n  run: open /list and click page 2\n");
+
+test("plan: execution field is required and must be auto|manual", () => {
+  assert.match(perr(PLAN.replace("  execution: auto\n  run: `npm test -- login`", "  run: `npm test -- login`")), /QA-1: missing "execution/);
+  assert.match(perr(PLAN.replace("execution: auto\n  run: `npm", "execution: sometimes\n  run: `npm")), /execution must be auto or manual/);
+});
+
+test("plan: manual needs reason and human-check", () => {
+  assert.equal(validatePlan(MAN).valid, true, perr(MAN));
+  assert.deepEqual(validatePlan(MAN).manual, ["QA-2"]);
+  assert.match(perr(MAN.replace("  reason: needs a real browser pager\n", "")), /QA-2: manual scenario needs a "reason:"/);
+  assert.match(perr(MAN.replace("  human-check: page 2 link is highlighted\n", "")), /QA-2: manual scenario needs a "human-check:"/);
+});
+
+test("report: manual scenarios are not-run (manual) and never block the gate", () => {
+  const sc = "- QA-1: PASS — ok (cmd)\n- QA-2: not-run (manual) — human: click page 2, link highlighted\n- QA-3: PASS — fine (script)";
+  const r = validateReport(report(MAN, { scenarios: sc }), MAN);
+  assert.equal(r.valid, true, r.errors.join());
+  assert.equal(computeVerdict(["PASS", "not-run (manual)"]), "PASS");
+  assert.equal(computeVerdict(["FAIL", "not-run (manual)"]), "FAIL");
+});
+
+test("report: manual scenario cannot be reported run; auto cannot be not-run (manual); gate stays mechanical", () => {
+  const e = (plan, sc, b = {}) => validateReport(report(plan, { scenarios: sc, ...b }), plan).errors.join("\n");
+  assert.match(e(MAN, "- QA-1: PASS — a\n- QA-2: BLOCKED — no browser\n- QA-3: PASS — c", { verdict: "BLOCKED", failures: "QA-2: x" }), /QA-2 is execution: manual/);
+  assert.match(e(PLAN, "- QA-1: PASS — a\n- QA-2: not-run (manual) — human\n- QA-3: PASS — c"), /QA-2 is execution: auto/);
+  assert.match(e(MAN, "- QA-1: FAIL — a\n- QA-2: not-run (manual) — human\n- QA-3: PASS — c", { verdict: "PASS", failures: "QA-1" }), /contradicts the gate rule/);
+  assert.match(e(MAN, "- QA-1: PASS — a\n- QA-2: not-run (manual) — human\n- QA-3: BLOCKED — no db", { verdict: "PASS", failures: "QA-3" }), /contradicts the gate rule/);
 });

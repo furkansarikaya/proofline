@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "validate-verify.mjs --json output",
+  "title": "validate-verify.mjs --json output (--plan validates command proof eligibility)",
+  "$comment": "An AC PASS row may cite command: `exact command` only when all PLAN scope paths mapped to it have tdd_exemption and the Commands section records exit=0 plus demonstrating output.",
   "type": "object",
   "required": ["valid", "errors", "computed", "reasons"],
   "additionalProperties": false,

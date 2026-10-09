@@ -67,6 +67,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 10. **Ledger.** Each step's rows are written before the next step starts; the ledger is the resume point and never records what did not happen.
 11. **Language.** Files this skill writes for machines are English; reports to the user are in the user's language; identifiers, paths, commands and enum values are never translated.
 12. **Commit identity.** Never commit, push or tag on the user's behalf unless asked; never assume the user's global git identity.
+13. **Temporary files** only in a fresh `mktemp -d` directory outside the repository, removed after use; never inside the repository, `.agents/runs/` or `.agents/local/` (unknown files there block the run). Inside a run, the content fingerprint comes from `.agents/scripts/agent.sh fingerprint <TASK-ID>`.
 
 ### Inside a proofline run
 
@@ -74,6 +75,7 @@ When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the
 
 - Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - The final message starts with the result header from `.agents/PROTOCOL.md` (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`), then the compact findings table, then `BLOCKED_REASON` or `QUESTIONS` if any. Nothing else reaches the lead.
+- With no findings, output only the table header row.
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); resume when restarted with an `ANSWERS` block. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
 - Never spawn agents and never change task state; only the lead does.
 <!-- proofline:shared-rules:end -->
@@ -103,7 +105,7 @@ These are stricter or more specific than the shared floor above; they stay.
 
 All output goes to the output folder: `ledger.md`, `findings.json`, `REPORT.md`, `evidence/`.
 
-- **Inside a run:** `.agents/runs/<TASK-ID>/reviews/test-trust/tests/` (gate) or `.../reviews/test-trust/qa/` (QA role, never a gate artifact). The run owns the folder; it is deleted with the run.
+- **Inside a run:** `.agents/runs/<TASK-ID>/reviews/test-trust/tests/` (gate) or `.../reviews/test-trust/qa/` (QA role, never a gate artifact). The run owns the folder; it is deleted with the run. Mutations and repeated runs happen only in the throwaway worktree; a write to the project tree is denied by the proofline hook and leaves the gate unrecorded.
 - **Outside a run:** `.agents/local/test-trust/<scope-slug>/` at the audited repo's root. Make sure it is git-ignored without touching the project's `.gitignore`: if `git check-ignore -q .agents/local/` fails, create `.agents/local/.gitignore` containing the single line `*`. `local_state: off` in `.agents/config.yaml` keeps nothing after the run: the same files live in a `mktemp -d "${TMPDIR:-/tmp}/test-trust-out-XXXXXX"` folder that is deleted at the end (re-runs start from scratch).
 - **Raw evidence is deleted once the report is written** (`evidence/`, and outside a run `REPORT.md`, after it was shown to the user). Before deleting, validate `findings.json`, then set `"evidence_pruned": true` in it. Outside a run only `ledger.md` and `findings.json` remain. Inside a run `REPORT.md` remains too and is the `ARTIFACT`.
 - **Outside a run, a folder whose findings are all closed deletes itself:** when the final `findings.json` has no `confirmed` and no `needs_validation` finding (a re-run found everything fixed or cleared, or nothing was ever found), delete the whole scope folder and say so. Delete only the folder you resolved, only if it is not a symlink; every `rm` is its own command on a checked literal path.

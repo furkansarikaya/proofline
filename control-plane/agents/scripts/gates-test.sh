@@ -100,6 +100,10 @@ sc_record() {
   expect_msg "a finding id of another gate was accepted" 'want REVIEW_SMALL-<n>' AS reviewer record LC --file "$f"
   f=$(result_for REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|HIGH|impl.txt:1|real bug|traced')
   expect_msg "a severity outside blocking|info was accepted" 'severity' AS reviewer record LC --file "$f"
+  for placeholder in '(none)' none - 'n/a'; do
+    f=$(result_for REVIEW_SMALL PASS high "$placeholder|info|-|no findings|none")
+    expect_msg "a placeholder finding was accepted: $placeholder" 'no findings: omit rows, keep only the table header' AS reviewer record LC --file "$f"
+  done
   [ "$(n_gates)" = "$before" ] || die "a rejected result left a gate record"
   [ ! -d .agents/runs/LC/results ] || [ -z "$(ls .agents/runs/LC/results)" ] || die "a rejected result left a results file"
   # low confidence: recorded as pass_low and does not satisfy the gate
@@ -114,11 +118,59 @@ sc_record() {
   [ "$(cat .agents/runs/LC/results/005-explorer.md)" = '# explorer evidence' ]
   grep -q "^result_sha256: \"$(tsha .agents/runs/LC/results/006-reviewer.result.md)\"" .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "the gate does not bind the raw result sha256"
   grep -q 'event=record:reviewer:PASS .*sha256=' .agents/runs/LC/LEDGER.log || die "record is not ledgered with the raw sha256"
+  f=$(result_for REVIEW_SMALL PASS)
+  sed "s#^ARTIFACT: #ARTIFACT: $(pwd)/.agents/runs/LC/#" "$f" > "$base/r.md"
+  AS reviewer record LC --file "$base/r.md" >/dev/null
+  grep -q '^artifact: "reviews/proof-review/small/' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "absolute in-run artifact was not normalized"
+  sed 's#^ARTIFACT: #ARTIFACT: .agents/runs/LC/#' "$f" > "$base/r.md"
+  AS reviewer record LC --file "$base/r.md" >/dev/null
+  grep -q '^artifact: "reviews/proof-review/small/' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "project-relative in-run artifact was not normalized"
+  sed "s#^ARTIFACT: .*#ARTIFACT: .agents/runs/LC/../../../impl.txt $(tsha impl.txt)#" "$f" > "$base/r.md"
+  expect_msg 'project-relative artifact outside run was accepted' 'inside the run' AS reviewer record LC --file "$base/r.md"
+  mkdir -p "$base/outside"; printf 'Verdict: PASS\n' > "$base/outside/REPORT.md"
+  ln -s "$base/outside" .agents/runs/LC/reviews/proof-review/small/link
+  sed "s#^ARTIFACT: .*#ARTIFACT: reviews/proof-review/small/link/REPORT.md $(tsha "$base/outside/REPORT.md")#" "$f" > "$base/r.md"
+  expect_msg 'run-relative artifact resolving outside run was accepted' 'inside the run' AS reviewer record LC --file "$base/r.md"
+  rm .agents/runs/LC/reviews/proof-review/small/link
+  sed "s#^ARTIFACT: .*#ARTIFACT: $(pwd)/impl.txt $(tsha impl.txt)#" "$f" > "$base/r.md"
+  expect_msg "absolute artifact outside run was accepted" 'inside the run' AS reviewer record LC --file "$base/r.md"
   # qa task result (QA plan step) is a non-gate result
   printf 'ROLE: qa\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: QA_PLAN.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/QA_PLAN.md)" > "$base/qa.md"
   n=$(n_gates); AS qa record LC --file "$base/qa.md" >/dev/null; [ "$(n_gates)" = "$n" ] || die "a qa task result created a gate record"
   A handoff LC CODE_DONE >/dev/null
   ok "record: role, fingerprint, artifact, header, focus, findings, pass_low, result naming, qa task result"
+}
+
+sc_parallel_lock() {
+  scaffold orchestrated; implemented orchestrated
+  printf '# Completion Report: LC\n' > .agents/runs/LC/COMPLETION_REPORT.md
+  f=$(result_for REVIEW_SMALL PASS)
+  i=1 pids=''
+  while [ "$i" -le 8 ]; do
+    if [ $((i % 2)) -eq 0 ]; then A decide LC reviewer --focus rules+tests > "$base/parallel-$i.out" 2>&1 &
+    else A ledger-note LC "parallel-$i" > "$base/parallel-$i.out" 2>&1 & fi
+    pids="$pids $!"; i=$((i + 1))
+  done
+  i=9
+  while [ "$i" -le 10 ]; do
+    AS reviewer record LC --file "$f" > "$base/parallel-$i.out" 2>&1 &
+    pids="$pids $!"; i=$((i + 1))
+  done
+  for pid in $pids; do wait "$pid" || die "parallel command failed: $(cat "$base"/parallel-*.out)"; done
+  [ ! -e .agents/runs/LC/.lock ] && [ ! -e .agents/local/.lock ] || die 'record left a lock after exit'
+  A verify-seal LC >/dev/null; A validate LC >/dev/null
+  awk '{ s=$1; sub(/^seq=/, "", s); if (s != NR) exit 1 } END { if (NR < 10) exit 1 }' .agents/runs/LC/LEDGER.log || die 'parallel ledger sequence is broken'
+  [ "$(find .agents/runs/LC/decisions -type f -name '???-*' | wc -l | tr -d ' ')" -eq 4 ] || die 'parallel decisions collided'
+  [ "$(find .agents/runs/LC/results -type f -name '???-reviewer.result.md' | wc -l | tr -d ' ')" -eq 2 ] || die 'parallel results collided'
+  [ "$(find .agents/runs/LC/gates -type f -name '???-REVIEW_SMALL.yaml' | wc -l | tr -d ' ')" -eq 2 ] || die 'parallel gates collided'
+  mkdir .agents/runs/LC/.lock; printf '99999999\n' > .agents/runs/LC/.lock/pid
+  A ledger-note LC stale >/dev/null || die 'stale lock was not broken'
+  grep -q 'event=lock-break .*stale lock holder pid=99999999' .agents/runs/LC/LEDGER.log || die 'stale lock break was not ledgered'
+  mkdir .agents/runs/LC/.lock; printf '%s\n' "$$" > .agents/runs/LC/.lock/pid
+  expect_msg 'live lock did not time out' 'lock timeout after 1s' env PROOFLINE_LOCK_TIMEOUT=1 sh ./.agents/scripts/agent.sh ledger-note LC blocked
+  rm -f .agents/runs/LC/.lock/pid; rmdir .agents/runs/LC/.lock
+  A verify-seal LC >/dev/null; A validate LC >/dev/null
+  ok 'parallel decide, ledger-note and record; stale and live locks'
 }
 
 sc_fix_loop() {
@@ -479,10 +531,101 @@ sc_next_order() {
   A next NB | grep -q '^next=agent.sh baseline NB' || die "next after branch: $(A next NB)"
   ok "next: classify, branch, baseline in the order the commands accept"
 }
+sc_start() {
+  new_repo; RID=ST-1
+  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  git add -A; git commit -qm base
+  A next | grep -Fq 'next=agent.sh start <ID>' || die 'next did not guide intake'
+  expect_msg 'invalid task ID accepted' 'invalid task id' A start '../bad' --title bad
+  cat > "$base/start-body.md" <<'TASK'
+## Goal
+
+Record one task.
+
+## Context
+
+Fixture.
+
+## Acceptance criteria
+
+- AC-1: The task starts.
+
+## Out of scope
+
+- Other changes.
+
+## Constraints
+
+- POSIX sh.
+
+## Risks
+
+- Incorrect task state.
+
+## Suggested class
+
+TRIVIAL — documentation only.
+
+## Verification commands
+
+- `sh -n script.sh`
+TASK
+  A start ST-1 --title 'Record task' < "$base/start-body.md" >/dev/null
+  [ "$(rv task_source type)" = local_markdown ] && [ "$(rv completion_report adapter)" = markdown ] || die 'start did not set task source and adapter'
+  grep -Fq '**Status:** in-progress' .agents/tasks/in-progress/ST-1-record-task.md || die 'start task status missing'
+  grep -Fq 'event=start ' .agents/runs/ST-1/LEDGER.log || die 'start ledger missing'
+  expect_msg 'duplicate start accepted' 'run already exists' A start ST-1 --task-file .agents/tasks/in-progress/ST-1-record-task.md
+  expect_msg 'second open run accepted' 'another open run' A start ST-2 --title second
+  A classify ST-1 TRIVIAL >/dev/null; A branch ST-1 >/dev/null; A baseline ST-1 >/dev/null
+  cat > .agents/runs/ST-1/PLAN.md <<'PLAN'
+---
+scope:
+  - path: example.txt
+    new: true
+    criteria: [AC-1]
+---
+# Plan
+
+## Behavior
+
+Record task.
+
+## Tests
+
+Check the task.
+
+## Verification commands
+
+- `sh -n script.sh`
+PLAN
+  A freeze ST-1 >/dev/null || die 'start to freeze failed'
+  [ "$(rv task_source revision)" != PENDING ] || die 'freeze left task source revision pending'
+  new_repo; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  git add -A; git commit -qm base
+  sed '/## Risks/,$d' "$base/start-body.md" > "$base/incomplete.md"
+  rc=0; A start ST-3 --title incomplete < "$base/incomplete.md" > "$base/out" 2>&1 || rc=$?
+  [ "$rc" -eq 3 ] && grep -Fq 'MISSING risks' "$base/out" || die 'missing canonical field did not exit 3 and print field'
+  [ ! -e .agents/runs/ST-3 ] || die 'incomplete start created a run'
+  rc=0; A start ST-3 < "$base/start-body.md" > "$base/out" 2>&1 || rc=$?
+  [ "$rc" -eq 3 ] && grep -Fq 'MISSING title' "$base/out" || die 'missing task title did not exit 3 and print field'
+  mkdir -p .agents/tasks/backlog
+  { printf '# Task: ST-3 — Incomplete\n\n**Status:** backlog\n\n'; cat "$base/incomplete.md"; } > .agents/tasks/backlog/ST-3-incomplete.md
+  rc=0; A start ST-3 --task-file .agents/tasks/backlog/ST-3-incomplete.md > "$base/out" 2>&1 || rc=$?
+  [ "$rc" -eq 3 ] && grep -Fq 'MISSING risks' "$base/out" && [ ! -e .agents/runs/ST-3 ] || die 'incomplete task file did not exit 3 without a run'
+  mkdir -p .agents/tasks/backlog
+  { printf '# Task: ST-4 — Imported task\n\n**Status:** backlog\n\n'; cat "$base/start-body.md"; } > .agents/tasks/backlog/ST-4-imported-task.md
+  A start ST-4 --task-file .agents/tasks/backlog/ST-4-imported-task.md >/dev/null
+  [ -f .agents/tasks/in-progress/ST-4-imported-task.md ] && [ "$(cat .agents/local/ACTIVE_RUN)" = ST-4 ] || die 'existing task file was not moved and activated'
+  RID=ST-4
+  [ "$(rv task_source path)" = .agents/tasks/in-progress/ST-4-imported-task.md ] || die 'existing task path was not recorded'
+  expect_msg 'non-lead started a run' 'command denied for reviewer' AS reviewer start ST-5 --title denied
+  ok 'start: stdin, adapter task, ledger, classify/branch/baseline/freeze, duplicate/open/missing refusals'
+}
 
 run_sc sc_tier
 run_sc sc_tier_paths
 run_sc sc_record
+run_sc sc_parallel_lock
 run_sc sc_fix_loop
 run_sc sc_waiver
 run_sc sc_approvals
@@ -499,4 +642,5 @@ run_sc sc_waiver_rebind
 run_sc sc_open_runs
 run_sc sc_knowledge_secrets
 run_sc sc_next_order
+run_sc sc_start
 echo 'gates tests passed'

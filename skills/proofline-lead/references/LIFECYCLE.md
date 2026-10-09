@@ -24,14 +24,12 @@ Task id: the issue key (`GH-123` for GitHub issue 123, the Jira or Linear key as
 
 Run creation, in this order (an interrupted creation restarts from the first step):
 
-1. `mkdir .agents/runs/<ID>`; copy `.agents/templates/RUN.yaml` to `RUN.yaml`; set `task.id`,
-   `task_source.type` (`local_markdown` for a task file, `none` otherwise) and `task_source.path`. Set
-   `execution.autonomy: autonomous` only when the user said so for this task ("finish without asking"),
-   `supervised` only when the user asked for it. Leave every other field to `agent.sh`.
-2. Write `<ID>` to the active run file (`active_run_file`, default `.agents/local/ACTIVE_RUN`). Refuse when
-   another run is active in this worktree (one run per worktree, D4).
-3. `TASK.md`: imported, or written by `task_author` (its result `ARTIFACT: TASK.md`).
-4. `A classify <ID> <CLASS> [review]`, `A branch <ID>` (creates `<git.branch_prefix><ID>-<slug>` from the
+1. `A start <ID> --task-file <path>` for an existing canonical task under `tasks.dir`, or
+   `A start <ID> --title "<title>"` with the canonical TASK.md body on stdin. The markdown adapter
+   creates or moves the task file to `in-progress/`; `start` writes RUN.yaml, TASK.md, ACTIVE_RUN and the
+   start ledger entry. A second open run in the worktree is refused (D4). Missing required task fields
+   are printed and creation stops with exit 3.
+2. `A classify <ID> <CLASS> [review]`, `A branch <ID>` (creates `<git.branch_prefix><ID>-<slug>` from the
    canonical tip; `baseline` refuses before it), `A baseline <ID>`: the order `A next` prints.
 
 ## 2. Classification
@@ -91,7 +89,7 @@ QA plan (STANDARD and up): dispatch `qa` (task step, `RESULT: DONE`, `ARTIFACT: 
   autonomy). Each: `A request-approval <ID> <kind>`, relay verbatim, stop; after the user's reply
   `A approve <ID> <kind>`. `approve` fails when the reply holds no approval phrase and kind word: then the
   answer is a refusal or a change request; revise the plan and ask again.
-- `A freshness <ID>`, then `A freeze <ID>`.
+- `A freeze <ID>`, then `A freshness <ID>` (freshness checks a freeze that must exist).
 
 ## 6. Implement
 

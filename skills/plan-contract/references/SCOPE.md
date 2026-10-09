@@ -38,7 +38,7 @@ No other keys, no other top-level keys, no comments inside entries.
 
 ## 3. TDD exemptions
 
-Allowed only where a failing-then-passing test cannot exist for that file: data or config files read by tested code, documentation, generated metadata. The reason names what proves the behavior instead. "not needed", "config change", "trivial", "n/a" and similar are rejected: the validator strips stock phrases and requires at least 15 meaningful characters to remain, and at least 20 characters overall. A behavior-changing source file never gets an exemption.
+Allowed only where a failing-then-passing test cannot exist for that file: data or config files read by tested code, documentation, generated metadata. The reason names what proves the behavior instead. A verification command can prove an AC only when every scope path mapped to it has an exemption; the verifier records the exact command, exit code and demonstrating output lines. "not needed", "config change", "trivial", "n/a" and similar are rejected: the validator strips stock phrases and requires at least 15 meaningful characters to remain, and at least 20 characters overall. A behavior-changing source file never gets an exemption.
 
 ## 4. Validation rules
 

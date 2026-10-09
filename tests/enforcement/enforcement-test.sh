@@ -124,6 +124,8 @@ subagent_guard() {
   # owned paths (.agents/owns.conf) and hyphenated agent names
   mkdir -p .agents; printf 'reviewer reviews/proof-review/ reviews/test-trust/\nsecurity_reviewer security/\ndesigner design/ /DESIGN.md /docs/design/\nimplementer PRODUCT_SCOPE\n' > .agents/owns.conf
   allowed "reviewer writes its report (owns.conf)" "$(pre_edit Write .agents/runs/LC/reviews/proof-review/rules/REPORT.md proofline-reviewer)"
+  allowed "reviewer writes its report after cd into the run (relative path)" "$(pre_bash 'cd .agents/runs/LC && printf x > reviews/proof-review/rules/REPORT.md' proofline-reviewer)"
+  denied "reviewer cannot write product code after cd (relative path)" "$(pre_bash 'cd src && printf x > app.js' proofline-reviewer)"
   denied "reviewer writes product code" "$(pre_edit Write src/app.js proofline-reviewer)" "outside the paths role reviewer owns"
   denied "reviewer writes another role's artifact" "$(pre_edit Write .agents/runs/LC/security/REPORT.md proofline-reviewer)"
   allowed "security-reviewer (hyphenated, plugin prefix) writes security/" "$(pre_edit Write .agents/runs/LC/security/REPORT.md proofline:proofline-security-reviewer)"

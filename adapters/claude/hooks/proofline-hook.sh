@@ -183,7 +183,7 @@ path_ok() {
 #   B why    a git hook bypass; refused always
 scan_cmd() {
   awk 'BEGIN { RS = "\001" }
-  function out(k, v) { gsub(/\n/, "\002", v); print k "\t" v }
+  function out(k, v) { if (k == "W" && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
   function base(x) { sub(/.*\//, "", x); return x }
   function isassign(x) { return x ~ /^[A-Za-z_][A-Za-z0-9_]*=/ }
   function push(t, d) {
@@ -267,6 +267,14 @@ scan_cmd() {
     if (k > nw) { nw = 0; return }
     if (!L[k]) out("X", "the command word " w[k] " is not literal")
     c = base(w[k])
+    # cd: later relative write targets in this command line resolve against it (heuristic, like the rest)
+    if (c == "cd") {
+      cdkey = qn SUBSEP k SUBSEP nw SUBSEP w[k + 1]
+      if (cdkey != lastcd) {
+        lastcd = cdkey
+        if (k + 1 <= nw && L[k + 1] && w[k + 1] != "-") { d0 = w[k + 1]; cwdp = (substr(d0, 1, 1) == "/" || cwdp == "") ? d0 : cwdp "/" d0 } else cwdp = ""
+      }
+    }
     if (c == "eval") out("X", "eval runs an unparsed string")
     else if (c ~ /^(sh|bash|dash|zsh|ksh|ash|mksh|posh|yash)$/) {
       hasc = 0; hass = 0

@@ -1,0 +1,16 @@
+{
+  "name": "reading-list",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A small reading list service with a JSON API and a web page.",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node src/migrate.js",
+    "seed": "node src/seed.js",
+    "test": "node --test"
+  }
+}
