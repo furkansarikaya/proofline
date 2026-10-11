@@ -983,6 +983,22 @@ VCA_EOF
   [ -z "$bad" ] || { echo "unexpected run artifact:" >&2; printf '%s' "$bad" >&2; return 1; }
 }
 
+# --- Classification check (A31): the class is the lead's claim, the diff is the fact. -----------
+# TRIVIAL covers text and configuration changes. A TRIVIAL run whose diff changes an executable code file
+# (config review.executable_code, default below) must be reclassified before IMPLEMENTED and CODE_DONE.
+executable_code_default='*.go *.py *.pyw *.js *.mjs *.cjs *.jsx *.ts *.mts *.cts *.tsx *.java *.kt *.kts *.scala *.groovy *.rs *.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.cs *.fs *.vb *.rb *.php *.swift *.m *.mm *.dart *.lua *.pl *.pm *.r *.jl *.ex *.exs *.erl *.hs *.ml *.clj *.sh *.bash *.zsh *.fish *.ps1 *.bat *.cmd *.sql *.vue *.svelte *.gradle'
+verify_classification() { # ID
+  vc_id=$1
+  gates_enforced "$vc_id" && pipeline_class_valid "$(pipeline_class "$vc_id")" || return 0
+  [ "$(pipeline_class "$vc_id")" = TRIVIAL ] || return 0
+  vc_globs=$(cfg review.executable_code "$executable_code_default")
+  vc_hits=''
+  for vc_p in $(task_changed_paths "$vc_id"); do
+    ! path_matches "$vc_p" "$vc_globs" || vc_hits="$vc_hits $vc_p"
+  done
+  [ -z "$vc_hits" ] || fail "classification blocked: run $vc_id is TRIVIAL but its diff changes executable code:${vc_hits}. TRIVIAL covers text and configuration only. Reclassify: write the evidence and QA plan the new class requires, 'agent.sh classify $vc_id STANDARD' (or higher), then amend and 'agent.sh refreeze $vc_id <AMENDMENT>'."
+}
+
 # --- Handoff ladder: PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE ------------
 record_handoff() {
   id=$1 phase=$2; require_run "$id"; dir=$(run_dir "$id")
@@ -1005,6 +1021,7 @@ record_handoff() {
       esac ;;
     IMPLEMENTED)
       case "$current" in IMPLEMENTING|IMPLEMENTED) ;; *) fail "illegal handoff transition: $current -> $phase" ;; esac
+      verify_classification "$id"
       verify_worker_evidence "$id"
       verify_mutation_ownership "$id" 1
       verify_fix_bound "$id"
@@ -1013,6 +1030,7 @@ record_handoff() {
     CODE_DONE)
       case "$current" in IMPLEMENTED|CODE_DONE) ;; *) fail "illegal handoff transition: $current -> $phase";; esac
       [ "$(section_value "$dir" handoff implemented_patch_sha256)" = "$patch" ] || fail "CODE_DONE blocked: the application tree changed since IMPLEMENTED"
+      verify_classification "$id"
       [ "$(section_value "$dir" execution awaiting_input)" != true ] || fail "CODE_DONE blocked: questions are pending ('agent.sh questions $id')"
       if gates_enforced "$id"; then
         verify_mutation_ownership "$id"
