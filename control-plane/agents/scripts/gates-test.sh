@@ -357,9 +357,28 @@ sc_supervised_destructive() {
   approve_as_user plan 'approve the plan'
   expect_msg "destructive freeze without destructive approval" 'destructive approval' A freeze LC
   approve_as_user destructive 'approve the destructive migration'
+  expect_msg "a destructive plan with no expand/contract steps froze" 'without expand/contract steps' A freeze LC
+  A next LC | grep -q 'destructive plan without expand/contract steps' || die "next does not name the missing expand/contract steps"
+  # a one-release plan: the destructive step shares the expand phase
+  printf '\n| step | phase | operation | object | destructive | reversible | rollback | lock |\n|---|---|---|---|---|---|---|---|\n| S1 | expand | drop_column | books.legacy_notes | yes | no | restore from backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan, third time'; approve_as_user destructive 'approve the destructive migration, second time'
+  expect_msg "a one-release destructive plan froze" 'without expand/contract steps' A freeze LC
+  # expand then contract: accepted
+  sed '/^| S1 | expand | drop_column/d' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
+  printf '| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | contract | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan, fourth time'; approve_as_user destructive 'approve the destructive migration, third time'
   A freeze LC >/dev/null
   [ "$(pipe_val tier)" = full ]
-  ok "destructive plan: forced CRITICAL, plan + destructive approvals"
+  ok "destructive plan: forced CRITICAL, plan + destructive approvals, expand/contract steps required"
+  # an explicit single-step approval is the only way to a one-step destructive change
+  unfrozen STANDARD
+  printf '\n## Data\n\ndestructive: yes\nsingle_step: yes\n\ndrop books.legacy_notes in one migration\n' >> .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan, fifth time'; approve_as_user destructive 'approve the destructive migration, fourth time'
+  expect_msg "a single_step plan froze without the single-step approval" "single-step approval" A freeze LC
+  A next LC | grep -q '^next=agent.sh request-approval LC single_step' || die "next does not ask for the single_step approval"
+  approve_as_user single_step 'approve the migration as a single step'
+  A freeze LC >/dev/null || die "an approved single-step plan was refused"
+  ok "single_step: yes needs the user's single-step approval"
 }
 
 sc_questions() {

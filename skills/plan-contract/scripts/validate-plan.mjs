@@ -26,6 +26,24 @@ export const STOCK_PHRASES = [
   "no behavior change", "for this change", "this change", "this file", "in this case",
 ];
 
+// A destructive `## Data` section is accepted as expand/contract when its step table has a non-destructive
+// step in an early phase and every destructive step in a late phase; `single_step: yes` opts out (the control
+// plane then requires the user's single_step approval at freeze). Mirrors agent.sh plan_migration_shape.
+export function migrationShape(lines) {
+  let single = false, pre = false, early = false, late = false;
+  for (const l of lines) {
+    if (/^\s*(?:[-*]\s*)?single_step:\s*yes\s*$/i.test(l)) { single = true; continue; }
+    if (!l.startsWith("|")) continue;
+    const cells = l.split("|").map((c) => c.trim().toLowerCase());
+    if (cells.length < 8) continue;
+    const phase = cells[2], dest = cells[5];
+    if (!["expand", "backfill", "switch", "contract", "deferred"].includes(phase)) continue;
+    if (dest === "yes") { if (phase === "contract" || phase === "deferred") late = true; else early = true; }
+    else if (["expand", "backfill", "switch"].includes(phase)) pre = true;
+  }
+  return single ? "single_step" : pre && late && !early ? "expand_contract" : "missing";
+}
+
 export function exemptionProblem(text) {
   if (typeof text !== "string") return "must be a string";
   let norm = text.toLowerCase().replace(/\s+/g, " ").trim();
@@ -179,7 +197,11 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
     const first = data.find((l) => l.trim() !== "");
     const m = /^destructive: (yes|no)\s*$/.exec(first || "");
     if (!m) errors.push('section "## Data": first line must be "destructive: yes" or "destructive: no"');
-    else if (m[1] === "yes" && klass !== "CRITICAL") errors.push(`section "## Data": destructive: yes requires class CRITICAL (got ${klass})`);
+    else if (m[1] === "yes") {
+      if (klass !== "CRITICAL") errors.push(`section "## Data": destructive: yes requires class CRITICAL (got ${klass})`);
+      const shape = migrationShape(data);
+      if (shape === "missing") errors.push('section "## Data": destructive: yes needs expand/contract steps: a step table (`| step | phase | operation | object | destructive | reversible | rollback | lock |`) with a non-destructive step in phase expand, backfill or switch and every destructive step in phase contract or deferred (a separate, later migration); only the user\'s explicit single-step approval allows one step: add the line "single_step: yes" and request the single_step approval');
+    }
   }
   for (const s of ["Dependencies", "Contracts"]) {
     const c = (body.get(s) || []).filter((l) => l.trim() !== "");
