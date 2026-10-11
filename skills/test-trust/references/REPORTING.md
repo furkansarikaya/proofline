@@ -78,7 +78,7 @@ Validate if Node is available: `node <skill-dir>/scripts/validate-findings.mjs <
 
 ## REPORT.md
 
-Written for a human reader in the user's conversation language, or another language if the user asks for one (English inside a run). Never translate test names, file paths, commands, ids, or `kind` and `verdict` values. (`ledger.md` and `findings.json` are always in English.) Keep it short:
+Written for a human reader in the user's conversation language, or another language if the user asks for one (always English inside a run, whatever the user's language). Never translate test names, file paths, commands, ids, or `kind` and `verdict` values. (`ledger.md` and `findings.json` are always in English.) Keep it short:
 
 1. **Answer**: one paragraph answering "Can I trust these tests?" for this scope, based only on `confirmed` findings.
 2. **Scope**: paths, commit, test count, baseline duration, date.

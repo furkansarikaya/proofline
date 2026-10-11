@@ -36,6 +36,7 @@ stop_condition: Stops after one SECURITY result on the current fingerprint, with
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, waive a finding, spawn agents, ask the user |
 
 Security findings are never waivable (D16).
+| Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 
 ## Method
 

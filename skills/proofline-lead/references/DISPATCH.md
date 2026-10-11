@@ -57,7 +57,6 @@ FILES_CHANGED: <paths changed in the previous round>  fix rounds and gate re-run
 ANSWERS:                                              restart after NEEDS_INPUT only: the user's answers verbatim, numbered as the questions
 1. <user's answer text>
 STOP: <one sentence: when to stop and return>
-USER_LANGUAGE: <BCP 47 code of the user's language>
 ```
 
 Rules:
@@ -66,7 +65,8 @@ Rules:
   diff, file contents, or an opinion about the expected verdict. Artifacts are named, not pasted.
 - `FINDINGS` carries only table rows (never a reviewer's prose). A re-run gate role gets its own previous
   rows; the implementer gets the union of the failing gates' rows.
-- `USER_LANGUAGE` is always present: specialists write `QUESTIONS:` in it; every other line stays English.
+- An assignment is English throughout and carries no user language: a specialist writes every file, report and
+  question in English (A33); only the lead talks to the user, in the user's language.
 - Defaults per role (from the role sources):
 
 | Role | OBJECTIVE / WRITE / STOP default |

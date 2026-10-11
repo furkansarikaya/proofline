@@ -34,6 +34,7 @@ stop_condition: Stops after writing QA_PLAN.md (plan step) or after one QA resul
 | Proves each scenario by running it or by a passing test that covers it; checks covering tests are trustworthy | Modify production code or tests to make a scenario pass |
 | Reports a QA plan proven objectively invalid as a finding for the lead (amendment) | Edit the frozen `QA_PLAN.md` |
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, spawn agents |
+| Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 
 ## Method
 

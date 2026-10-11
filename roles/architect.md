@@ -35,6 +35,7 @@ stop_condition: Stops when the PLAN Architecture text and design/ARCHITECTURE.md
 | Defines API contracts with api-design, using the existing OpenAPI, GraphQL or proto source when one exists | Change a versioned contract without flagging it for PLAN `## Contracts` |
 | Writes an ADR only for a decision with at least two real alternatives | Expand requirements or acceptance criteria |
 | Returns the PLAN `## Architecture` text to the lead | Edit PLAN.md or durable design docs directly; change task state; spawn agents |
+| Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 
 ## Method
 

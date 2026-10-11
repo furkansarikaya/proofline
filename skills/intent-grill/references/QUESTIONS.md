@@ -2,7 +2,8 @@
 
 ## 1. Question format
 
-One decision per question, in the user's language:
+One decision per question, in the user's language standalone and in English in a run (the question is
+stored in the run; the lead adds a marked translation when relaying):
 
 ```
 <n>. <question, one sentence, naming the decision in the user's terms>

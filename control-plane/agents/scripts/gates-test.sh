@@ -178,6 +178,18 @@ sc_submit() {
   ok "submit: script-built header, normalized artifact, derived result, assigned ids, rejection status, BLOCKED report"
 }
 
+sc_language() {
+  scaffold orchestrated; implemented orchestrated
+  small=.agents/runs/LC/reviews/proof-review/small; mkdir -p "$small"
+  printf 'Bu rapor T\303\274rk\303\247e yaz\304\261ld\304\261: \303\247ok \305\237\303\266yle \304\237\303\274zel.\n' > "$small/REPORT.md"
+  expect_msg "a Turkish report was accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
+  printf 'The review is complete.\n\n> Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n\n```\n\305\237\303\266yle\n```\nJos\303\251 reviewed it.\n' > "$small/REPORT.md"
+  AS reviewer submit LC --focus rules+tests --confidence high >/dev/null || die "a quoted request / one accented name was refused"
+  printf 'blocking|impl.txt:1|de\304\237er \303\274retilmiyor \305\237\303\266yle|traced\n' > "$base/tr.rows"
+  expect_msg "Turkish findings were accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --findings "$base/tr.rows" --confidence high
+  ok "language: non-English report and findings are rejected at submit; blockquotes, fences and one accented name pass"
+}
+
 sc_parallel_lock() {
   scaffold orchestrated; implemented orchestrated
   printf '# Completion Report: LC\n' > .agents/runs/LC/COMPLETION_REPORT.md
@@ -682,6 +694,7 @@ run_sc sc_tier
 run_sc sc_tier_paths
 run_sc sc_record
 run_sc sc_submit
+run_sc sc_language
 run_sc sc_parallel_lock
 run_sc sc_fix_loop
 run_sc sc_waiver

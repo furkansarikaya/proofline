@@ -11,7 +11,9 @@ own questions (section 3) are stored the same way by `A ask`. `A next <ID>` then
 
 1. Run `A questions <ID>`.
 2. Print its output to the user unchanged, inside the lead status block's `QUESTIONS:` (or as is). The
-   specialist already wrote the questions in the user's language (`USER_LANGUAGE`).
+   questions are English, as every run artifact is. When the user's language is not English, add one line in
+   the user's language before the block and, after it, a translation of the block marked as a translation;
+   the translation is never stored and never replaces the verbatim block.
 3. STOP. Nothing else runs while a question is pending (`CODE_DONE` fails and `next` keeps pointing here).
 
 Never: answer it; choose the `recommended` option because the user is silent or "it is obvious"; summarise,
@@ -35,8 +37,8 @@ message; continue other steps of the run.
 Plan approval, destructive approval, scope change, waiver and commit/push use `A request-approval <ID>
 <kind>` (kinds `plan`, `destructive`, `scope`, `commit`, `push`, `waive:<FINDING-ID>`); its output is the
 question; relay it verbatim and STOP. A question the lead must ask without a `request-approval` kind
-(choosing between two plans, a scope change with options, opening a PR) is the same block, written in the
-user's language, stored with `A ask <ID>` (block on stdin, or `--file .agents/local/assignments/<ID>/<file>`):
+(choosing between two plans, a scope change with options, opening a PR) is the same block, written in
+English (it is stored in the run), stored with `A ask <ID>` (block on stdin, or `--file .agents/local/assignments/<ID>/<file>`):
 
 ```
 QUESTIONS:
