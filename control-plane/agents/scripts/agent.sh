@@ -1687,6 +1687,142 @@ record_apply() {
   metrics_step "$ra_id" "$ra_role" "$ra_focus" "$(printf '%s' "$ra_res" | tr "[:upper:]" "[:lower:]")"
   echo "result recorded: $ra_id $ra_raw ($ra_role $ra_res)"
 }
+# --- Submission: how a specialist's result enters a run (D12) ----------------------------------
+# `submit` takes facts (result, confidence, findings, artifact) and builds the protocol header itself: the
+# role, task, focus, content fingerprint and the artifact's run-relative path and sha256 are never typed by a
+# model. The assembled message goes through `record`, so every validation rule stays in one place; a rejection
+# is returned to the specialist immediately (exit 1). The outcome is also written to
+# .agents/local/submissions/<AGENT>.status so a runtime hook or dispatch.sh reads the record instead of
+# parsing a final message.
+submission_dir() { printf '%s/local/submissions\n' "$agents"; }
+# default_artifact ROLE RESULT FOCUS: where the role's report lives, when there is exactly one such place.
+default_artifact() {
+  case "$1:$2" in
+    qa:DONE) echo QA_PLAN.md ;;
+    reviewer:*|security_reviewer:*|qa:*|verifier:*) if gate_of "$1" "$3" >/dev/null 2>&1; then gate_default_artifact "$(gate_of "$1" "$3")"; fi ;;
+  esac
+}
+# normalize_artifact ID PATH -> run-relative path of an existing regular file inside the run; any of the
+# absolute, project-relative (.agents/runs/<ID>/...), ./-prefixed or run-relative spellings is accepted.
+normalize_artifact() {
+  na_id=$1 na_p=$2; na_d=$(run_dir "$na_id")
+  case "$na_p" in
+    "$na_d"/*) na_p=${na_p#"$na_d"/} ;;
+    .agents/runs/"$na_id"/*) na_p=${na_p#.agents/runs/"$na_id"/} ;;
+    ./.agents/runs/"$na_id"/*) na_p=${na_p#./.agents/runs/"$na_id"/} ;;
+    ./*) na_p=${na_p#./} ;;
+  esac
+  case "$na_p" in ''|/*|*..*) return 1 ;; esac
+  [ -f "$na_d/$na_p" ] && [ ! -L "$na_d/$na_p" ] || return 2
+  printf '%s\n' "$na_p"
+}
+# focus_from_artifact PATH -> reviewer focus whose report directory holds PATH
+focus_from_artifact() {
+  case "$1" in
+    reviews/proof-review/plan/*) echo plan ;; reviews/proof-review/rules/*) echo rules ;; reviews/proof-review/small/*) echo rules+tests ;;
+    reviews/test-trust/tests/*) echo tests ;; reviews/data-design/*) echo data ;;
+  esac
+}
+submit_status() { # TOKEN STATUS ID ROLE RESULT GATE RAW ERROR
+  [ -n "$1" ] || return 0
+  mkdir -p "$(submission_dir)" 2>/dev/null || return 0
+  printf 'status=%s\ntask=%s\nrole=%s\nresult=%s\ngate=%s\nraw=%s\nepoch=%s\nerror=%s\n' "$2" "$3" "$4" "$5" "$6" "$7" "$(now_epoch)" "$(one_line "$8")" \
+    > "$(submission_dir)/$1.status.tmp" && mv "$(submission_dir)/$1.status.tmp" "$(submission_dir)/$1.status"
+}
+submit_fail() { echo "submit rejected: $*" >&2; submit_status "$sb_agent" rejected "$sb_id" "$execution_role" "${sb_res:-}" '' '' "$*"; exit 1; }
+submit_result() {
+  sb_id=$1; shift
+  [ "$execution_role" != lead ] || fail "the lead never submits a specialist result"
+  require_run "$sb_id"
+  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_agent=${PROOFLINE_AGENT:-}
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || fail "usage: agent.sh submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--questions FILE] [--agent TOKEN]"
+    case "$1" in
+      --result) sb_res=$2 ;; --confidence) sb_conf=$2 ;; --focus) sb_focus=$2 ;; --artifact) sb_art=$2 ;;
+      --findings) sb_findings=$2 ;; --reason) sb_reason=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
+      *) fail "submit: unknown option $1" ;;
+    esac
+    shift 2
+  done
+  case "$sb_agent" in *[!A-Za-z0-9_.-]*) fail "submit: invalid --agent token" ;; esac
+  sb_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-submit.XXXXXX"); record_tmp=$sb_tmp
+  sb_d=$(run_dir "$sb_id")
+  case "$sb_conf" in high|medium|low) ;; *) submit_fail "--confidence must be high, medium or low" ;; esac
+  sb_gaterole=no; is_gate_role "$execution_role" && sb_gaterole=yes
+  # Findings: "severity|path:line|finding|evidence" (an optional leading id column and a markdown table
+  # border are tolerated); ids are assigned here.
+  : > "$sb_tmp/rows"
+  if [ -n "$sb_findings" ]; then
+    if [ "$sb_findings" = - ]; then cat > "$sb_tmp/findings.in"
+    else [ -f "$sb_findings" ] || submit_fail "findings file not found: $sb_findings"; cat "$sb_findings" > "$sb_tmp/findings.in"; fi
+    awk -F'|' '
+      function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+      /^[[:space:]]*(#|$)/ { next }
+      { line = $0; sub(/^[[:space:]]*\|/, "", line); sub(/\|[[:space:]]*$/, "", line); n = split(line, f, "|")
+        if (line ~ /^[-:| ]+$/) next
+        i = 1; if (tolower(t(f[1])) == "id" || tolower(t(f[1])) == "severity") next
+        if (t(f[1]) !~ /^(blocking|info)$/ && n >= 5) i = 2
+        sev = t(f[i]); loc = t(f[i + 1]); fnd = t(f[i + 2]); ev = ""
+        for (j = i + 3; j <= n; j++) ev = ev (ev == "" ? "" : " / ") t(f[j])
+        if (sev !~ /^(blocking|info)$/ || loc == "" || fnd == "" || ev == "") { print "BAD " NR ": want severity|path:line|finding|evidence with severity blocking or info"; bad = 1; next }
+        c++; printf "%s|%s|%s|%s\n", sev, loc, fnd, ev }
+      END { exit bad }' "$sb_tmp/findings.in" > "$sb_tmp/rows" || submit_fail "$(grep '^BAD' "$sb_tmp/rows" | head -1)"
+  fi
+  sb_blocking=$(awk -F'|' '$1 == "blocking"' "$sb_tmp/rows" | wc -l | tr -d ' ')
+  # A gate result follows from the findings (the skill's rule), never from a free choice.
+  sb_derive=$sb_gaterole
+  if [ "$execution_role" = qa ]; then case "$sb_res" in DONE|NEEDS_INPUT) sb_derive=no ;; esac; fi
+  if [ "$sb_derive" = yes ]; then
+    case "$sb_res" in
+      '') if [ "$sb_blocking" -gt 0 ]; then sb_res=FAIL; else sb_res=PASS; fi ;;
+      PASS) [ "$sb_blocking" = 0 ] || submit_fail "--result PASS contradicts $sb_blocking blocking finding(s); the result of a gate follows from the findings" ;;
+      FAIL) [ "$sb_blocking" -gt 0 ] || submit_fail "--result FAIL needs at least one blocking finding" ;;
+      BLOCKED) ;;
+      *) submit_fail "--result $sb_res is not valid for role $execution_role (gate roles: PASS FAIL BLOCKED, or omit it)" ;;
+    esac
+  fi
+  case "$sb_res" in PASS|FAIL|BLOCKED|DONE|NEEDS_INPUT) ;; *) submit_fail "--result is required (DONE, BLOCKED or NEEDS_INPUT for role $execution_role)" ;; esac
+  if [ "$execution_role" = reviewer ]; then
+    [ -n "$sb_focus" ] || { [ -z "$sb_art" ] || sb_focus=$(focus_from_artifact "$(normalize_artifact "$sb_id" "$sb_art" 2>/dev/null || true)"); }
+    case "$sb_focus" in plan|rules|tests|data|rules+tests) ;; *) submit_fail "reviewer submissions need --focus plan|rules|tests|data|rules+tests" ;; esac
+  else sb_focus=''
+  fi
+  sb_gate=''; sb_gate=$(gate_of "$execution_role" "$sb_focus" 2>/dev/null || true)
+  # Artifact: normalised and hashed here.
+  [ -n "$sb_art" ] || sb_art=$(default_artifact "$execution_role" "$sb_res" "$sb_focus")
+  if [ -z "$sb_art" ]; then submit_fail "--artifact is required: the run-relative path of your report (allowed: $(artifact_paths "$execution_role" task "$sb_focus"))"; fi
+  sb_nrc=0; sb_norm=$(normalize_artifact "$sb_id" "$sb_art") || sb_nrc=$?
+  if [ "$sb_nrc" = 2 ] && [ "$sb_res" = BLOCKED ]; then
+    # BLOCKED needs a report to point at; the reason is the honest content when none was written.
+    sb_norm=${sb_art#.agents/runs/"$sb_id"/}
+    case "$sb_norm" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
+    mkdir -p "$(dirname "$sb_d/$sb_norm")" && printf '# BLOCKED\n\n%s\n' "${sb_reason:-no reason given}" > "$sb_d/$sb_norm"
+  elif [ "$sb_nrc" = 1 ]; then submit_fail "--artifact must be a path inside the run directory: $sb_art"
+  elif [ "$sb_nrc" = 2 ]; then submit_fail "artifact not found in the run: $sb_art (write the report there first; expected location for your role: $(artifact_paths "$execution_role" "$([ "$sb_gaterole" = yes ] && echo gate || echo task)" "$sb_focus"))"
+  fi
+  {
+    printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
+    [ -z "$sb_focus" ] || [ "$execution_role" != reviewer ] || printf 'FOCUS: %s\n' "$sb_focus"
+    printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(content_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
+    printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
+    sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
+    awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
+    if [ "$sb_res" = BLOCKED ]; then printf '\nBLOCKED_REASON: %s\n' "$(one_line "${sb_reason:-see $sb_norm}")"; fi
+    if [ "$sb_res" = NEEDS_INPUT ]; then
+      printf '\nQUESTIONS:\n'
+      if [ -n "$sb_questions" ]; then [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions"
+      else printf '%s\n' "${sb_reason:-}"; fi
+    fi
+  } > "$sb_tmp/raw"
+  sb_rc=0; AGENT_ROLE=$execution_role sh "$scripts/agent.sh" record "$sb_id" --file "$sb_tmp/raw" > "$sb_tmp/out" 2> "$sb_tmp/err" || sb_rc=$?
+  if [ "$sb_rc" -ne 0 ]; then
+    sb_msg=$(sed 's/^record rejected: //' "$sb_tmp/err" "$sb_tmp/out" | tr '\n' ' ')
+    submit_fail "$sb_msg"
+  fi
+  sb_raw=$(sed -n 's/^result recorded: [^ ]* \([^ ]*\) .*/\1/p' "$sb_tmp/out" | head -1)
+  submit_status "$sb_agent" ok "$sb_id" "$execution_role" "$sb_res" "$sb_gate" "$sb_raw" ''
+  printf 'submitted: %s %s %s%s (%s)\n' "$sb_id" "$execution_role" "$sb_res" "${sb_gate:+ gate=$sb_gate}" "${sb_raw:-no raw}"
+}
 # Compatibility: `gate <ID> <GATE> pass|fail [ARTIFACT]` with the same rules as record (summary/findings on stdin).
 record_gate() {
   g_id=$1 g_gate=$2 g_result=$3 g_art=${4:-}; require_run "$g_id"; g_d=$(run_dir "$g_id")
@@ -2414,13 +2550,15 @@ read_only_commands='role status open-runs effective pipeline tier next questions
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
-  reviewer|security_reviewer|qa|verifier) cmd_allowed record gate || fail "command denied for $execution_role: $command" ;;
-  implementer) cmd_allowed record worker-evidence handoff || fail "command denied for $execution_role: $command" ;;
-  *) cmd_allowed record || fail "command denied for $execution_role: $command" ;;
+  reviewer|security_reviewer|qa|verifier) cmd_allowed record gate submit || fail "command denied for $execution_role: $command" ;;
+  implementer) cmd_allowed record submit worker-evidence handoff || fail "command denied for $execution_role: $command" ;;
+  *) cmd_allowed record submit || fail "command denied for $execution_role: $command" ;;
 esac
 lock_command=yes
 case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
+# submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
+if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 if [ "$lock_command" = yes ]; then
   mkdir -p "$agents/local"
   trap 'release_locks' 0
@@ -2441,6 +2579,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
   open-runs
+  submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--questions F] [--agent TOKEN]
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
   decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
   request-approval <ID> <KIND> | approve <ID> <KIND> | approval-consume <ID> <KIND> [FINGERPRINT]
@@ -2480,6 +2619,7 @@ case "$command" in
   delivery-check) require_lead; delivery_check "${2:?usage: agent.sh delivery-check <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
   verify-worker-evidence) verify_worker_evidence "${2:?usage: agent.sh verify-worker-evidence <ID>}" ;;
+  submit) sid=${2:?usage: agent.sh submit <ID> --confidence C [options]}; shift 2; submit_result "$sid" "$@" ;;
   record) rid=${2:?usage: agent.sh record <ID> [--file F]}; rfile=''; if [ "${3:-}" = --file ]; then rfile=${4:?usage: agent.sh record <ID> --file F}; fi; record_result "$rid" "$rfile" ;;
   gate) record_gate "${2:?usage: agent.sh gate <ID> <GATE> <pass|fail> [ARTIFACT]}" "${3:?usage: agent.sh gate <ID> <GATE> <pass|fail>}" "${4:?usage: agent.sh gate <ID> <GATE> <pass|fail>}" "${5:-}" ;;
   secret-scan) secret_scan "${2:?usage: agent.sh secret-scan <ID>}" ;;

@@ -23,8 +23,8 @@ who() { [ -z "${1:-}" ] || printf ',"agent_type":"%s","agent_id":"%s"' "$1" "${2
 pre_edit() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"$1\",\"tool_input\":{\"file_path\":\"$2\"}$(who "${3:-}" "${4:-}")}"; }
 pre_bash() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$(jstr "$1")\"}$(who "${2:-}" "${3:-}")}"; }
 sub_start() { H subagent-start "{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"s1\",\"cwd\":\"$PWD\"$(who "$1" "$2")}"; }
-sub_stop() { # AGENT_TYPE AGENT_ID MESSAGE-FILE
-  H subagent-stop "{\"hook_event_name\":\"SubagentStop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":false$(who "$1" "$2"),\"last_assistant_message\":\"$(jstr "$(cat "$3")")\"}"
+sub_stop() { # AGENT_TYPE AGENT_ID [STOP_HOOK_ACTIVE]: the final message is never read; the hook reads the submission status
+  H subagent-stop "{\"hook_event_name\":\"SubagentStop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${3:-false}$(who "$1" "$2"),\"last_assistant_message\":\"done\"}"
 }
 post() { H posttool "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Agent\",\"tool_input\":{},\"tool_response\":{}}"; }
 prompt() { H prompt "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"${2:-s1}\",\"cwd\":\"$PWD\",\"prompt\":\"$(jstr "$1")\"}"; }
@@ -40,11 +40,10 @@ task_branch() { # put the run on its own task branch, as `agent.sh branch` does
   awk '{ print } /^  base_sha:/ { print "  task_branch: proofline/LC-lookup" }' .agents/runs/LC/RUN.yaml > "$base/run.tmp" && mv "$base/run.tmp" .agents/runs/LC/RUN.yaml
   git checkout -q -b proofline/LC-lookup
 }
-needs_input() { # N -> a NEEDS_INPUT explorer result file
+needs_input() { # N TOKEN -> the explorer submits NEEDS_INPUT with its artifact and questions file
   art=.agents/runs/LC/results/00$1-explorer.md; mkdir -p .agents/runs/LC/results; printf '# explorer %s\nquestion needed\n' "$1" > "$art"
-  printf 'ROLE: explorer\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: results/00%s-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\nQUESTIONS:\n1. Which default does an empty key return?\n   options: nil | empty string\n   recommended: nil\n   why: AC-1 depends on it\n' \
-    "$(A fingerprint LC)" "$1" "$(tsha "$art")" > "$base/ni$1.md"
-  printf '%s\n' "$base/ni$1.md"
+  printf '1. Which default does an empty key return?\n   options: nil | empty string\n   recommended: nil\n   why: AC-1 depends on it\n' > "$base/q$1.txt"
+  AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high --artifact "results/00$1-explorer.md" --questions "$base/q$1.txt" >/dev/null
 }
 
 lead_edits() {
@@ -144,11 +143,14 @@ subagent_guard() {
   allowed "implementer records evidence as itself" "$(pre_bash 'AGENT_ROLE=implementer sh .agents/scripts/agent.sh worker-evidence LC RED fail' proofline-implementer a7)"
   denied "implementer writes worker evidence files directly" "$(pre_edit Write .agents/runs/LC/worker-evidence/RED-9.yaml proofline-implementer a7)"
   printf 'test: lookup returns the stored value\n' >> impl_test.txt; wev RED fail
-  printf 'done, no header\n' > "$base/m.txt"
-  sub_stop proofline:proofline-implementer a7 "$base/m.txt" >/dev/null
+  # no submission: the first stop is sent back (window stays open), the second is accepted and reported
+  out=$(sub_stop proofline:proofline-implementer a7)
+  printf '%s' "$out" | grep -q '"decision":"block"' && printf '%s' "$out" | grep -q 'submit' || die "a stop without a submission was not sent back: $out"
+  [ ! -f .agents/runs/LC/worker-evidence/WINDOW-1.yaml ] || die "the window closed while the specialist was sent back"
+  sub_stop proofline:proofline-implementer a7 true >/dev/null
   [ -f .agents/runs/LC/worker-evidence/WINDOW-1.yaml ] && [ ! -f .agents/local/windows/a7 ] || die "SubagentStop did not close the window"; ok "SubagentStop closes the implementer window (WINDOW-1)"
   out=$(post)
-  printf '%s' "$out" | grep -q 'additionalContext' && printf '%s' "$out" | grep -q 'missing header' || die "PostToolUse did not relay the outcome: $out"
+  printf '%s' "$out" | grep -q 'additionalContext' && printf '%s' "$out" | grep -q 'without a recorded result' || die "PostToolUse did not relay the outcome: $out"
   [ -z "$(post)" ] || die "outcome relayed twice"; ok "PostToolUse relays the record outcome to the lead once"
   # A headless specialist started by dispatch.sh carries AGENT_ROLE in the hook environment.
   allowed "dispatched implementer (env AGENT_ROLE) edits product code" "$(AGENT_ROLE=implementer pre_edit Edit impl.txt)"
@@ -166,18 +168,30 @@ verdicts() {
   sed 's/^ROLE: verifier/ROLE: lead/' "$base/verify.md" > "$base/lead.md"
   expect_msg "lead records a PASS under its own role" "the lead can never record a PASS verdict" A record LC --file "$base/lead.md"
   ok "agent.sh refuses lead-authored verdicts"
-  sub_stop proofline-explorer e1 "$base/verify.md" >/dev/null
-  out=$(post); printf '%s' "$out" | grep -q 'rejected' || die "spoofed record not reported: $out"
-  [ "$(pipe_val gate.VERIFY)" != pass ] || die "a spoofed verdict passed the gate"; ok "SubagentStop rejects a verdict whose ROLE is not the subagent's (lead sees rejected)"
-  sed 's/^TASK: LC/TASK: OTHER/' "$base/verify.md" > "$base/other.md"
-  sub_stop proofline-verifier v0 "$base/other.md" >/dev/null; post | grep -q 'not the active run' || die "foreign TASK not reported"; ok "SubagentStop rejects a result for another run"
-  sub_stop proofline:proofline-verifier v1 "$base/verify.md" >/dev/null
-  sub_stop proofline:proofline-verifier v1 "$base/verify.md" >/dev/null
-  [ "$(pipe_val gate.VERIFY)" = pass ] || die "SubagentStop did not record the verifier PASS"
+  denied "an explorer submits as the verifier" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent e1 --confidence high' proofline-explorer e1)" "does not match the caller's role"
+  denied "a submit without the agent token" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high' proofline-verifier v1)" "--agent v1"
+  denied "a submit with another agent's token" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent e1 --confidence high' proofline-verifier v1)" "--agent v1"
+  denied "a submit without the role prefix" "$(pre_bash 'sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)" "prefix AGENT_ROLE"
+  allowed "a verifier submits as itself" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
+  denied "the lead submits" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high')" "does not match the caller's role"
+  # an explorer that never submitted is sent back once, then reported as without a result
+  out=$(sub_stop proofline-explorer e1); printf '%s' "$out" | grep -q '"decision":"block"' || die "no-submission stop not sent back: $out"
+  sub_stop proofline-explorer e1 true >/dev/null
+  post | grep -q 'without a recorded result' || die "missing result not reported to the lead"; ok "SubagentStop sends a specialist without a submission back once, then reports it"
+  # a rejected submission is returned immediately to the specialist, and the hook sends it back with the reason
+  rm -rf .agents/runs/LC/VERIFY.md
+  expect_msg "a verifier submitted without a report" 'not found in the run' AS verifier submit LC --agent v0 --confidence high
+  out=$(sub_stop proofline-verifier v0); printf '%s' "$out" | grep -q 'last rejection: .*not found in the run' || die "rejection reason not given back to the specialist: $out"
+  ok "SubagentStop sends a rejected submitter back with the rejection"
+  f=$(result_for VERIFY PASS)
+  AS verifier submit LC --agent v1 --confidence high >/dev/null || die "verifier submit failed"
+  sub_stop proofline:proofline-verifier v1 >/dev/null
+  sub_stop proofline:proofline-verifier v1 >/dev/null
+  [ "$(pipe_val gate.VERIFY)" = pass ] || die "submit did not record the verifier PASS"
   [ "$(ls .agents/runs/LC/results/*-verifier.result.md | wc -l | tr -d ' ')" = 1 ] || die "duplicate hook layers recorded twice"
-  post | grep -q 'result recorded' || die "recorded outcome not relayed"; ok "SubagentStop records the verifier verdict once (gate.VERIFY=pass)"
+  post | grep -q 'submitted: verifier PASS gate=VERIFY' || die "recorded outcome not relayed"; ok "SubagentStop reads the verifier submission once (gate.VERIFY=pass)"
   printf '\n' >> impl.txt
-  sub_stop proofline-reviewer v2 "$(result_for REVIEW_RULES PASS)" >/dev/null
+  sub_stop proofline-reviewer v2 >/dev/null
   git checkout -q impl.txt 2>/dev/null || :
 }
 
@@ -222,12 +236,12 @@ second line'
 
 questions() {
   fixture
-  sub_stop proofline-explorer q1 "$(needs_input 1)" >/dev/null
-  [ -f .agents/runs/LC/questions/001.md ] || die "NEEDS_INPUT not recorded by SubagentStop"
+  needs_input 1 q1; sub_stop proofline-explorer q1 >/dev/null
+  [ -f .agents/runs/LC/questions/001.md ] || die "NEEDS_INPUT not recorded by submit"
   printf 'nil\n' | A answer LC 1 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/001.answer.md || die "an answer without a user prompt was not attributed to the lead"
   ok "NEEDS_INPUT answered without a user prompt -> answered_by lead"
-  sub_stop proofline-explorer q2 "$(needs_input 2)" >/dev/null
+  needs_input 2 q2; sub_stop proofline-explorer q2 >/dev/null
   prompt 'please use nil for the empty key'
   printf 'nil for the empty key\n' | A answer LC 2 >/dev/null
   grep -q '^answered_by: user' .agents/runs/LC/questions/002.answer.md || die "the user's captured answer was not attributed to the user"
@@ -350,7 +364,7 @@ EOF')"
   [ -s .agents/local/windows/d1 ] || die "SubagentStart did not open the designer window: $(cat .agents/local/records/d1.txt 2>/dev/null)"; ok "P1 SubagentStart opens the designer window"
   allowed "P1 designer writes DESIGN.md inside its window" "$(pre_edit Write DESIGN.md proofline-designer d1)"
   printf '# Design\n' > DESIGN.md
-  printf 'done, no header\n' > "$base/m.txt"; sub_stop proofline-designer d1 "$base/m.txt" >/dev/null
+  sub_stop proofline-designer d1 >/dev/null; sub_stop proofline-designer d1 true >/dev/null
   [ ! -f .agents/local/windows/d1 ] && grep -q 'role: "designer"' .agents/runs/LC/worker-evidence/WINDOW-*.yaml || die "SubagentStop did not close the designer window: $(post)"
   ok "P1 SubagentStop closes the designer window (WINDOW role designer)"
 }

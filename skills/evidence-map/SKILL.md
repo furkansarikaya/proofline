@@ -49,15 +49,12 @@ Talk to the user in their language. Evidence documents are English; identifiers,
 ## Team result
 
 ```
-ROLE: explorer
-TASK: <TASK-ID>
-RESULT: DONE | BLOCKED | NEEDS_INPUT
-CONFIDENCE: high | medium | low
-FINGERPRINT: <agent.sh fingerprint>
-ARTIFACT: <assigned result path> <sha256>
+AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token> --result DONE | BLOCKED | NEEDS_INPUT --confidence high|medium|low --artifact <assigned result path> [--findings FILE] [--reason T] [--questions FILE]
 ```
 
-Then the claims table exactly as in the artifact (`| id | severity | path:line | finding | evidence |`): ids `explorer-<n>`, severity `info` (`blocking` only for a `risk` or `conflict` row the lead must resolve; `agent.sh record` rejects any other id or severity). Something you could not determine is never a row (no `unknown` severity): it goes under `## Open questions` as text. `CONFIDENCE: high` only when `## Stop` is `objective met` and `## Open questions` is `none`; `low` when the live implementation could not be determined. BLOCKED when the allowed scope does not exist or verify-claims cannot pass with any claim kept.
+The script builds the header (`ROLE`, `TASK`, `FINGERPRINT`, the artifact's sha256); you supply the facts above.
+
+Then the claims as `--findings` rows (`severity|path:line|finding|evidence`, the artifact's claims table columns; ids `explorer-<n>` are assigned by the script), severity `info` (`blocking` only for a `risk` or `conflict` row the lead must resolve; `submit` rejects any other severity). Something you could not determine is never a row (no `unknown` severity): it goes under `## Open questions` as text. `CONFIDENCE: high` only when `## Stop` is `objective met` and `## Open questions` is `none`; `low` when the live implementation could not be determined. BLOCKED when the allowed scope does not exist or verify-claims cannot pass with any claim kept.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)
@@ -83,7 +80,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
 - Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
-- The final message starts with the result header from `.agents/PROTOCOL.md` (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`), then the compact findings table, then `BLOCKED_REASON` or `QUESTIONS` if any. Nothing else reaches the lead.
+- In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, output only the table header row.
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); resume when restarted with an `ANSWERS` block. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
 - Never spawn agents and never change task state; only the lead does.

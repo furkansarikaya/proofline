@@ -13,7 +13,7 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
 2. `.agents/scripts/agent.sh status` shows the active task (`.agents/local/ACTIVE_RUN`) and the effective
    policy. No active task: implementation is not allowed.
 3. Your role is `AGENT_ROLE` (default `lead`). A specialist obeys its row in WORKFLOW.md "Roles", works only
-   on its assignment, writes only the artifacts it owns, ends with the result header (PROTOCOL.md) and never
+   on its assignment, writes only the artifacts it owns, reports with `agent.sh submit` (PROTOCOL.md) and never
    runs state commands.
 4. As lead with an active task: `.agents/scripts/agent.sh next <TASK-ID>` prints the next step. After an
    interruption or a runtime switch (`proofline resume`), trust persisted work only after `freshness` and
@@ -25,7 +25,7 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
 ## Rules that always apply
 
 - The lead never writes product code under `orchestrated` topology and never records a verdict; verdicts
-  enter only through `agent.sh record`.
+  enter only through `agent.sh submit`.
 - Stop and ask the user (relay verbatim, PROTOCOL.md) for: a specialist's question, a destructive or
   irreversible operation, a scope change, commit, push or PR. Approvals are recorded with
   `agent.sh request-approval` / `approve`; nothing is approved on the user's behalf.

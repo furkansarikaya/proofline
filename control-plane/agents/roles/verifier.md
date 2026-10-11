@@ -25,19 +25,35 @@
 
 ## Output
 
+Report with `agent.sh submit`. You never type a result header, the fingerprint or a hash: the script builds
+and validates them, assigns finding ids and returns any rejection to you at once (fix what it names and submit
+again; a stop without a recorded submission is sent back once). Your final message is not parsed.
+
+```
+AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> \
+  --confidence <high|medium|low> [--artifact <path>] [--findings <rows file>] [--reason "<one line>"] [--questions <file>]
+```
+
+RESULT is derived from your findings (FAIL exactly when one `blocking` row exists, else PASS); pass `--result BLOCKED --reason "<one line>"` only when evaluation was impossible. `--artifact` is the run-relative path of your report (e.g. `VERIFY.md`); any path spelling is accepted and the script hashes it. It may be omitted: the default is the path above.
+
+The recorded header (built by the script from your facts; shown so you know what is checked):
+
 ```
 ROLE: verifier
 TASK: <TASK-ID>
 RESULT: <PASS|FAIL|BLOCKED>
 CONFIDENCE: <high|medium|low>
-FINGERPRINT: <exact output of `.agents/scripts/agent.sh fingerprint <TASK-ID>`, run right before you answer; never computed by hand>
+FINGERPRINT: <current content fingerprint>
 ARTIFACT: <run-relative path, e.g. VERIFY.md> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |
 |---|---|---|---|---|
 
-Ids are `VERIFY-<n>`. Severity: `blocking` for each gate-rule condition below, `info` for pre-existing
+`--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence`
+(no numbering, no header, no table). Zero rows is a clean result.
+
+Row ids are assigned by the script: `VERIFY-<n>`. Severity: `blocking` for each gate-rule condition below, `info` for pre-existing
 failures and notes. Evidence is the command, its exit status and the relevant output line. Then
 `BLOCKED_REASON: <one line>` when BLOCKED.
 

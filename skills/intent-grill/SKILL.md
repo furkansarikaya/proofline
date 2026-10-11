@@ -53,13 +53,10 @@ Talk to the user in their language. `INTENT.md` is English except the quoted req
 ## Team result
 
 ```
-ROLE: task_author
-TASK: <TASK-ID>
-RESULT: NEEDS_INPUT | DONE | BLOCKED
-CONFIDENCE: high | medium | low
-FINGERPRINT: <agent.sh fingerprint>
-ARTIFACT: design/INTENT.md <sha256>
+AGENT_ROLE=task_author sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token> --result NEEDS_INPUT | DONE | BLOCKED --confidence high|medium|low --artifact design/INTENT.md [--findings FILE] [--reason T] [--questions FILE]
 ```
+
+The script builds the header (`ROLE`, `TASK`, `FINGERPRINT`, the artifact's sha256); you supply the facts above.
 
 Findings table (`| id | severity | path:line | finding | evidence |`): one row per decision that is `deferred` or `decided_by: lead`. Row id is `task_author-<n>` (n = 1, 2, ... in table order); the decision id stays in the finding text (`D-3: <decision>`), evidence is the round (`round 2`). Severity is `blocking` only when the deferred or lead-decided decision blocks writing the task, else `info`. Example: `| task_author-1 | info | design/INTENT.md:14 | D-3: retention period (deferred by the user) | round 2 |`. Header only when none. `CONFIDENCE: high` only when no decision is `decided_by: lead`. BLOCKED only when the request is missing or unreadable.
 
@@ -87,7 +84,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
 - Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
-- The final message starts with the result header from `.agents/PROTOCOL.md` (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`), then the compact findings table, then `BLOCKED_REASON` or `QUESTIONS` if any. Nothing else reaches the lead.
+- In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, output only the table header row.
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); resume when restarted with an `ANSWERS` block. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
 - Never spawn agents and never change task state; only the lead does.
