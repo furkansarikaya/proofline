@@ -703,6 +703,56 @@ sc_scratch_worktrees() {
   A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the worktree was removed: $(A handoff LC CODE_DONE 2>&1)"
   ok "scratch worktrees must be removed before CODE_DONE"
 }
+sc_tests_findings() {
+  command -v node >/dev/null 2>&1 || { echo "skip tests_findings (node missing)"; return 0; }
+  SC_PLAN_EXTRA='
+## Tests
+
+- AC-1: `impl_test.txt` "lookup returns the stored value"' scaffold orchestrated; implemented orchestrated
+  mkdir -p .agents/skills; cp -R "$tl_agents/../../skills/test-trust" .agents/skills/test-trust
+  printf '.agents/skills/\n' >> .git/info/exclude
+  d=.agents/runs/LC; t=$d/reviews/test-trust/tests
+  mkdir -p "$t"; printf 'tests review of the whole current tree\n' > "$t/REPORT.md"
+  expect_msg "a tests review without findings.json" 'needs reviews/test-trust/tests/findings.json' AS reviewer submit LC --focus tests --confidence high --agent tf1
+  printf '%s\n' '{"mode":"diff","fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","evidence_pruned":true,"gate":{"result":"PASS","failing":[]},' \
+    '"scope":{"slug":"diff","paths":["."],"commit":"abc1234","diff":{"base":"abc1234","thresholds":{"repeat":5,"mutation_budget":20,"slow_ratio":3},"changed_units":["impl.txt:lookup"],"tests":["lookup returns the stored value"],"mutants_run":1,"not_examined":[]}},' \
+    '"findings":[]}' > "$t/findings.json"
+  expect_msg "a tests review without a claim for the criterion" 'no claim mutant for it' AS reviewer submit LC --focus tests --confidence high --agent tf2
+  printf '%s\n' '{"mode":"diff","fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","evidence_pruned":true,"gate":{"result":"PASS","failing":[]},' \
+    '"scope":{"slug":"diff","paths":["."],"commit":"abc1234","diff":{"base":"abc1234","thresholds":{"repeat":5,"mutation_budget":20,"slow_ratio":3},"changed_units":["impl.txt:lookup"],"tests":["lookup returns the stored value"],"mutants_run":1,"not_examined":[],' \
+    '"claims":[{"ac":"AC-1","test":"lookup returns the stored value","mutant":"lookup returns undefined for a stored key without throwing","outcome":"killed","failure":"assertion","killed_by":["lookup returns the stored value"]}]}},' \
+    '"findings":[]}' > "$t/findings.json"
+  # a proven claim passes the findings check; the small tier of this fixture does not require the gate itself
+  expect_msg "a proven claim passes the findings check" 'not a required gate' AS reviewer submit LC --focus tests --confidence high --agent tf3
+  ok "REVIEW_TESTS needs findings.json with a killed-by-assertion claim for every criterion of PLAN ## Tests"
+}
+sc_defect_scope() {
+  unfrozen STANDARD
+  d=.agents/runs/LC
+  printf '\n## Pre-existing defects\n\n- src/service.js:paginate: totalPages rounds down -- decision: fix\n' >> "$d/TASK.md"
+  expect_msg "a pre-existing defect fix without the user's scope approval" 'scope approval for this PLAN.md' A freeze LC
+  A next LC | grep -q '^next=agent.sh request-approval LC scope' || die "next does not ask for the scope approval: $(A next LC)"
+  approve_as_user scope 'approve the scope change: fix the paging defect'
+  A freeze LC >/dev/null || die "freeze refused with the scope approval: $(A freeze LC 2>&1)"
+  ok "a pre-existing defect marked decision: fix needs the user's scope approval at the first freeze"
+  # a decision: report entry never needs one
+  unfrozen STANDARD
+  printf '\n## Pre-existing defects\n\n- src/service.js:paginate: totalPages rounds down -- decision: report\n' >> "$d/TASK.md"
+  A freeze LC >/dev/null || die "a reported defect needed a scope approval: $(A freeze LC 2>&1)"
+  ok "a defect marked decision: report is only a finding"
+}
+sc_intent_provenance() {
+  unfrozen STANDARD
+  d=.agents/runs/LC; mkdir -p "$d/design" .agents/local/prompts/history
+  printf 'Use your recommended option for every open question.\n' > .agents/local/prompts/history/1-aaaaaaaa.txt
+  printf '%s\n' '# Intent: LC' '' '## Decision tree' '' '| id | branch | question | depends_on | status | decision | decided_by | source |' '|---|---|---|---|---|---|---|---|' \
+    '| D-12 | scope | Fix the paging defect in this change? | - | resolved | Fixed in this change | user | a) |' '' '## Rounds' '' '| round | asked | answer | answered_by |' '|---|---|---|---|' \
+    '| 1 | D-12 | a) fix the page count in this change (round up); AC-6 is in scope. | user |' > "$d/design/INTENT.md"
+  expect_msg "an answer recorded as the user's that the user never said" 'in no captured user prompt' A freeze LC
+  sed 's#^| 1 | D-12 | .*#| 1 | D-12 | Use your recommended option for every open question. | user |#' "$d/design/INTENT.md" > "$base/intent.md" && cp "$base/intent.md" "$d/design/INTENT.md"
+  A freeze LC >/dev/null || die "a verbatim blanket answer was refused: $(A freeze LC 2>&1)"
+  ok "an answer to a scope decision recorded as the user's must be in a captured user prompt"
+}
 sc_start() {
   new_repo; RID=ST-1
   cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
@@ -822,4 +872,7 @@ run_sc sc_qa_plan_bound
 run_sc sc_artifact_snapshots
 run_sc sc_debug_result
 run_sc sc_scratch_worktrees
+run_sc sc_tests_findings
+run_sc sc_defect_scope
+run_sc sc_intent_provenance
 echo 'gates tests passed'

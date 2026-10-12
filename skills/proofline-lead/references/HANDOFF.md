@@ -30,7 +30,9 @@ message; continue other steps of the run.
 2. A partial answer: answer the answered ones, re-print the rest (`A questions <ID>`), STOP.
 3. "Use the recommended one" / "you decide" from the user: that sentence is the answer text; the
    specialist applies the recommended option.
-4. Restart the same role on the same run with an `ANSWERS:` block (the user's text per question number)
+4. Restart the same role on the same run with an `ANSWERS:` block (the user's text per question number, pasted
+   as the user wrote it: no paraphrase, no line of your own, no option letter you chose; a blanket reply stays
+   that reply; the freeze compares recorded answers with the captured prompts)
    and the original assignment's other keys ([DISPATCH.md](DISPATCH.md#2-the-assignment)). The specialist
    resumes from its artifacts.
 

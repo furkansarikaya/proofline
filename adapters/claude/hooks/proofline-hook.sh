@@ -731,6 +731,8 @@ prompt)
   h=$(sha "$tmp/text")
   printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$local_dir/prompts/.$sess.tmp" &&
     mv "$local_dir/prompts/.$sess.tmp" "$local_dir/prompts/$sess.json"
+  # Every prompt is kept (raw text) so an answer recorded as the user's can be checked against what was said (A60).
+  mkdir -p "$local_dir/prompts/history" && cp "$tmp/text" "$local_dir/prompts/history/$(date +%s)-$(printf '%.8s' "$h").txt" 2>/dev/null || :
   # Approvals are recorded here, by the runtime, from the user's own reply (A41): every open request this
   # prompt satisfies (approval phrase and kind word, single-use) becomes an approval. The lead never runs
   # `agent.sh approve`; a prompt that approves nothing changes nothing.
