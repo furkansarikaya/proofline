@@ -414,13 +414,20 @@ pretool)
         A) lit=${v%%"$TAB"*} sc=${v#*"$TAB"}
           [ "$lit" = 1 ] || deny "agent.sh subcommand '$sc' is not literal"
           case "$sc" in
-            record|gate) deny "verdicts enter a run only through the SubagentStop hook or dispatch.sh (agent.sh $sc is never run by the lead or a subagent, D12)" ;;
+            record|gate) deny "verdicts enter a run only through agent.sh submit, recorded for the SubagentStop hook or dispatch.sh (agent.sh $sc is never run by the lead or a subagent, D12)" ;;
             window-open|window-close) deny "implementer and designer windows are opened and closed only by the runtime hooks and dispatch.sh" ;;
           esac
           if [ "$sub" = yes ] || [ "$role" != lead ]; then
             case "$sc" in approve|waive|answer) deny "a subagent never approves, waives or answers; only the user does, through the lead (D13, D16)" ;; esac
             case "$role:$sc" in
               *:status|*:pipeline|*:fingerprint|*:verify-*) ;;
+              *:submit)
+                [ "$role" != lead ] || deny "the lead never submits a specialist result (D12)"
+                [ "$has_role" = yes ] || deny "agent.sh submit runs as your role: prefix AGENT_ROLE=$role"
+                if [ -n "$aid" ]; then
+                  stok=$(printf '%s' "$cmd" | sed -n 's/.*--agent[ =]\{1,\}\([A-Za-z0-9_.-]*\).*/\1/p' | head -n 1)
+                  [ "$stok" = "$aidf" ] || deny "agent.sh submit needs your agent token: add --agent $aidf" 
+                fi ;;
               implementer:worker-evidence) [ "$has_role" = yes ] || deny "agent.sh worker-evidence runs only as the implementer: prefix AGENT_ROLE=implementer" ;;
               implementer:*) deny "the implementer runs only agent.sh worker-evidence status pipeline fingerprint verify-* (not $sc)" ;;
               *:next) ;;
@@ -463,30 +470,41 @@ subagent-start)
     if before=$(unset AGENT_ROLE; sh "$agent" window-open "$act" "$prole" 2>"$tmp/err"); then printf '%s\n' "$before" > "$local_dir/windows/$aidf"
     else printf 'proofline: window-open refused for proofline-%s (%s): %s\n' "$prole" "$aidf" "$(tr '\n' ' ' < "$tmp/err")" >> "$local_dir/records/$aidf.txt"; fi
   fi
-  ctx SubagentStart "proofline: active run $act (run dir .agents/runs/$act). You are role $prole. Prefix every state-changing agent.sh command with AGENT_ROLE=$prole. Start your final message with the result header (ROLE: $prole, TASK: $act, ...); the runtime hook records it, never run agent.sh record yourself." ;;
+  ctx SubagentStart "proofline: active run $act (run dir .agents/runs/$act). You are role $prole; your agent token is $aidf. Prefix every state-changing agent.sh command with AGENT_ROLE=$prole. Report your result with: AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] [--artifact <path of your report>] [--findings FILE] [--reason T] [--questions FILE]. The script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is free text; the result is the submission." ;;
 
 subagent-stop)
+  # The result is the specialist's `agent.sh submit` (its status file under .agents/local/submissions/);
+  # the final message is never parsed. A specialist that stops without a recorded submission is sent back
+  # once with the last rejection; the second stop is accepted and reported to the lead as "no result".
   [ "$parsed" = yes ] && [ -n "$prole" ] || exit 0
   [ -n "$act" ] && [ "$act" != INVALID ] || exit 0
-  rec=$local_dir/records; mkdir -p "$rec" "$local_dir/windows"
+  rec=$local_dir/records; sdir=$local_dir/submissions; mkdir -p "$rec" "$local_dir/windows" "$sdir"
+  st=$sdir/$aidf.status; out=$rec/$aidf.txt
+  state=$(sed -n 's/^status=//p' "$st" 2>/dev/null | head -n 1)
+  if [ "$state" != ok ]; then
+    err=$(sed -n 's/^error=//p' "$st" 2>/dev/null | head -n 1)
+    mark=$sdir/$aidf.retried; now=$(date +%s); prev=$(cat "$mark" 2>/dev/null || :)
+    case "$prev" in *[!0-9]*) prev='' ;; esac
+    # stop_hook_active is the runtime's "already sent back once"; a second hook layer firing for the same
+    # stop (within two seconds) gives the same answer.
+    if [ "$(jget stop_hook_active)" != true ] && { [ -z "$prev" ] || [ $((now - prev)) -le 2 ]; }; then
+      [ -n "$prev" ] || printf '%s\n' "$now" > "$mark"
+      reason="proofline: you stopped without a recorded result. Run AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] [--artifact <report path>] [--findings FILE] [--reason T] [--questions FILE]${err:+ (last rejection: $err)}, fix what it names, then finish."
+      printf '{"decision":"block","reason":"%s"}\n' "$(jesc "$reason")"
+      exit 0
+    fi
+    : > "$sdir/$aidf.final"
+  fi
   mkdir "$rec/$aidf.lock" 2>/dev/null || exit 0   # one record per subagent even when two hook layers fire
-  out=$rec/$aidf.txt
   if { [ "$prole" = implementer ] || [ "$prole" = designer ]; } && [ -f "$local_dir/windows/$aidf" ]; then
     if (unset AGENT_ROLE; sh "$agent" window-close "$act" "$(cat "$local_dir/windows/$aidf")" 0 "$prole") >"$tmp/o" 2>&1; then rm -f "$local_dir/windows/$aidf"
     else printf 'proofline: window-close rejected for proofline-%s: %s\n' "$prole" "$(tr '\n' ' ' < "$tmp/o")" >> "$out"; fi
   fi
-  jget last_assistant_message > "$tmp/msg" || :
-  if ! head -n 1 "$tmp/msg" | grep -q '^ROLE:'; then
-    printf 'proofline: proofline-%s returned no result header; nothing recorded (rejected: missing header)\n' "$prole" >> "$out"; exit 0
-  fi
-  task=$(sed -n 's/^TASK:[[:space:]]*//p' "$tmp/msg" | head -n 1 | tr -d ' \r')
-  if [ "$task" != "$act" ]; then
-    printf 'proofline: record of proofline-%s rejected: TASK %s is not the active run %s\n' "$prole" "${task:-<none>}" "$act" >> "$out"; exit 0
-  fi
-  if AGENT_ROLE=$prole sh "$agent" record "$act" --file "$tmp/msg" >"$tmp/o" 2>&1; then
-    printf 'proofline: proofline-%s %s\n' "$prole" "$(tr '\n' ' ' < "$tmp/o")" >> "$out"
+  if [ "$state" = ok ]; then
+    printf 'proofline: proofline-%s submitted: %s %s%s (%s)\n' "$prole" "$(sed -n 's/^role=//p' "$st" | head -n 1)" "$(sed -n 's/^result=//p' "$st" | head -n 1)" \
+      "$(g=$(sed -n 's/^gate=//p' "$st" | head -n 1); [ -z "$g" ] || printf ' gate=%s' "$g")" "$(sed -n 's/^raw=//p' "$st" | head -n 1)" >> "$out"
   else
-    printf 'proofline: record of proofline-%s rejected: %s\n' "$prole" "$(sed 's/^record rejected: //' "$tmp/o" | tr '\n' ' ')" >> "$out"
+    printf 'proofline: proofline-%s ended without a recorded result%s; nothing recorded (no valid agent.sh submit)\n' "$prole" "${err:+ (last rejection: $err)}" >> "$out"
   fi
   exit 0 ;;
 

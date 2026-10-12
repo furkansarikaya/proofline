@@ -74,7 +74,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
 - Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
-- The final message starts with the result header from `.agents/PROTOCOL.md` (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`), then the compact findings table, then `BLOCKED_REASON` or `QUESTIONS` if any. Nothing else reaches the lead.
+- In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, output only the table header row.
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); resume when restarted with an `ANSWERS` block. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
 - Never spawn agents and never change task state; only the lead does.

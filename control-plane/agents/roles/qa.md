@@ -30,35 +30,51 @@ Report step (once IMPLEMENTED):
 
 ## Output
 
-Plan step (not a gate result):
+Report with `agent.sh submit`. You never type a result header, the fingerprint or a hash: the script builds
+and validates them, assigns finding ids and returns any rejection to you at once (fix what it names and submit
+again; a stop without a recorded submission is sent back once). Your final message is not parsed.
+
+Plan step (a task result, not a gate):
+```
+AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --result <DONE|BLOCKED|NEEDS_INPUT> \
+  --confidence <high|medium|low> [--artifact QA_PLAN.md] [--findings <rows file>] [--reason "<one line>"] [--questions <file>]
+```
+
+Report step (the QA gate; the result is derived from your findings, FAIL exactly when a `blocking` row exists):
+```
+AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> \
+  --confidence <high|medium|low> [--artifact QA_REPORT.md] [--findings <rows file>]
+```
+
+The recorded header (built by the script from your facts; shown so you know what is checked):
+
 ```
 ROLE: qa
 TASK: <TASK-ID>
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>
 CONFIDENCE: <high|medium|low>
-FINGERPRINT: <exact output of `.agents/scripts/agent.sh fingerprint <TASK-ID>`, run right before you answer; never computed by hand>
+FINGERPRINT: <current content fingerprint>
 ARTIFACT: <run-relative path, e.g. QA_PLAN.md> <sha256>
 ```
 
-Report step:
 ```
 ROLE: qa
 TASK: <TASK-ID>
 RESULT: <PASS|FAIL|BLOCKED>
 CONFIDENCE: <high|medium|low>
-FINGERPRINT: <exact output of `.agents/scripts/agent.sh fingerprint <TASK-ID>`, run right before you answer; never computed by hand>
+FINGERPRINT: <current content fingerprint>
 ARTIFACT: <run-relative path, e.g. QA_REPORT.md> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |
 |---|---|---|---|---|
 
-Ids: plan step `qa-<n>` (a task result), report step `QA-<n>` (the gate). Severity: `blocking` (a scenario
-failed, not run or proven only by an untrustworthy test; in the plan step, a criterion that cannot be
-tested) or `info`. Then `BLOCKED_REASON: <one line>` when BLOCKED, and in the plan step only:
+`--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence`
+(no numbering, no header). Zero rows is a clean result. Ids are assigned by the script: plan step `qa-<n>` (a task result), report step `QA-<n>` (the gate). Severity: `blocking` (a scenario failed, not run or
+proven only by an untrustworthy test; in the plan step, a criterion that cannot be tested) or `info`.
+`--questions` (plan step only) is a file in this format:
 
 ```
-QUESTIONS:
 1. <question>
    options: <a> | <b>
    recommended: <one option>

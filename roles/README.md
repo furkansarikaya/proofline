@@ -58,13 +58,15 @@ Exactly three level-2 sections, in this order:
   instructions.
 - Only the lead changes task state or declares DONE. No specialist runs `agent.sh` state commands
   (`classify freeze refreeze handoff record gate approve waive answer terminate amend cleanup`).
-  Verdicts enter the run only through `agent.sh record`, called by the SubagentStop hook or `dispatch.sh`.
+  Results enter the run only through `agent.sh submit`, run by the specialist itself; the SubagentStop hook and
+  `dispatch.sh` read the submission and never parse a final message.
 - Evidence or nothing: a finding is reproduced (ran and observed) or traced (concrete input and path).
 - Never install anything. Code-modifying evidence runs in a separate git worktree.
 
 ## Result header (D12)
 
-The final message, and the result file, start with these lines in this order:
+`agent.sh submit` builds this header from the specialist's facts (result, confidence, findings, report path),
+stores it as `results/NNN-<role>.result.md` and validates it; nobody types it. Its lines, in this order:
 
 ```
 ROLE: <id>

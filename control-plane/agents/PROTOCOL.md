@@ -2,8 +2,9 @@
 
 ## Result
 
-Every specialist's final message, and its result file, starts with this header, one key per line, no
-blank line inside, in this order:
+A specialist reports its result with `agent.sh submit` (below); it never types the header. The script builds
+the header, stores the message as `results/NNN-<role>.result.md` and validates it with `record`'s rules, so a
+format error cannot be made. The header, one key per line, no blank line inside, in this order:
 
 ```
 ROLE: <role id>
@@ -35,11 +36,34 @@ QUESTIONS:                                     with RESULT: NEEDS_INPUT (format 
 - `ARTIFACT` may use an absolute path or a project-relative `.agents/runs/<TASK-ID>/...` path that resolves inside the run directory; `record` normalizes it to a
   run-relative path before checking role ownership and writing the gate record.
 
+### Submitting (`agent.sh submit <ID>`)
+
+```
+AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> [--focus F] [--result R] \
+  --confidence high|medium|low [--artifact PATH] [--findings FILE|-] [--reason TEXT] [--questions FILE]
+```
+
+- The script supplies `ROLE` (from `AGENT_ROLE`), `TASK`, `FINGERPRINT` (current content) and the artifact's
+  run-relative path and sha256. `--artifact` may be given as an absolute path, `.agents/runs/<ID>/...`,
+  `./...` or run-relative; it may be omitted where the role and focus have one report path
+  (reviewer focus, `SECURITY`, `QA`, `VERIFY`, the QA plan step).
+- `--findings` rows are `severity|path:line|finding|evidence` (an id column and a markdown table are
+  tolerated); ids are assigned (`<GATE>-<n>` or `<role>-<n>`). For a gate role `RESULT` follows from the
+  findings (FAIL exactly when a `blocking` row exists); a contradicting `--result` is rejected. `BLOCKED` takes
+  `--reason`; if the report does not exist the script writes the reason into it.
+- `--focus` is required for a reviewer unless the artifact's directory implies it (also `PROOFLINE_FOCUS`).
+- A rejection prints `submit rejected: <reason>` and exits 1 immediately, so the specialist fixes and submits
+  again. The outcome (ok or rejected, with the reason) is also written to
+  `.agents/local/submissions/<token>.status`; `<token>` is `--agent` or `PROOFLINE_AGENT`.
+- Runtime hooks and `dispatch.sh` read that status and never parse a final message. A specialist that stops
+  without a recorded submission is sent back once with the last rejection (Claude SubagentStop block;
+  `dispatch.sh` reruns the step once with the rejection in the prompt); a second miss is reported to the lead
+  as "no result" and nothing is recorded.
+
 ### Recording (`agent.sh record <ID> [--file F]`, else stdin)
 
-`record` is the only way a verdict enters a run. Callers: the Claude Code SubagentStop hook (from the
-subagent's last message, `AGENT_ROLE` from the subagent type `proofline-<role>`) and `dispatch.sh`; never the
-lead. It records nothing and exits non-zero when:
+`record` is the validator `submit` calls with the header it built; it is also the stable low-level interface
+for a message that already has the header. It is never the lead's. It records nothing and exits non-zero when:
 
 - the message does not start with the header, or the header has unknown or duplicate keys, or lacks a
   required key;

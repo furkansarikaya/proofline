@@ -1,6 +1,8 @@
 #!/bin/sh
 # Platform-independent specialist runner (D6, D7, D8). Runs ONE specialist step headless on the runtime
-# the execution policy resolves, then records its final message through `agent.sh record`.
+# the execution policy resolves. The specialist reports through `agent.sh submit` (the script builds the
+# header, fingerprint and hashes and records the result); dispatch.sh reads the submission status and never
+# parses the final message.
 #
 #   dispatch.sh <TASK-ID> <role> [--focus F] [--prompt-file F] [--model M] [--effort E] [--runtime RT]
 #
@@ -15,8 +17,10 @@
 #   minimum 30). The implementer, and the designer while handoff is IMPLEMENTING, are bracketed by
 #   `agent.sh window-open` / `window-close`; every other role must leave the product tree unchanged. A change
 #   to .git/config (e.g. core.hooksPath) or to HEAD during the step is BLOCKED for every role.
-# 4 the last message is saved as results/dispatch-<NNN>-<role>-<runtime>.md in the run and piped to
-#   `AGENT_ROLE=<role> agent.sh record <ID> --file <it>`; the raw runtime log goes to dispatch/.
+# 4 the last message is saved as results/dispatch-<NNN>-<role>-<runtime>.md in the run (a log, never parsed);
+#   the runtime gets PROOFLINE_AGENT (a per-attempt token) and PROOFLINE_FOCUS in its environment, so its
+#   `agent.sh submit` writes .agents/local/submissions/<token>.status. No valid submission: the step is run
+#   once more with the rejection in its prompt, then BLOCKED. The raw runtime log goes to dispatch/.
 # Failover (D7) on a runtime failure (limit/quota/rate limit/429, missing binary, auth error), never on a
 #   task failure: config `failover: auto` reruns the same step from its beginning on the other runtime
 #   when it is installed and meets the role's capability floor (ledgered via `agent.sh ledger-note`);
@@ -164,6 +168,8 @@ claude_result() {
     printf "%s\n", o }' "$1"
 }
 
+retry_note=''
+subdir=$root/.agents/local/submissions
 seq_n=$(find "$run/results" -name 'dispatch-*' 2>/dev/null | wc -l | tr -d ' '); seq_n=$((seq_n + 1))
 mkdir -p "$run/results" "$run/dispatch"
 work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX"); trap 'rm -rf "$work"' EXIT
@@ -188,13 +194,15 @@ attempt() {
 
   ins=$(role_instructions "$role") || die "no instructions for role $role (.agents/roles/$role.md, .claude/agents/proofline-$role.md or .codex/agents/proofline-$role.toml)"
   { printf 'TASK: %s\nROLE: %s\n' "$id" "$role"; [ -z "$focus" ] || printf 'FOCUS: %s\n' "$focus"
-    printf 'RUN_DIR: .agents/runs/%s\nStart your final message with the result protocol header.\n' "$id"
+    printf 'RUN_DIR: .agents/runs/%s\nReport your result with: AGENT_ROLE=%s sh .agents/scripts/agent.sh submit %s --confidence <high|medium|low> [--focus F] [--artifact <path of your report>] [--findings FILE] [--reason T] [--questions FILE]\nThe script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is not parsed.\n' "$id" "$role" "$id"
+    [ -z "$retry_note" ] || printf '\n%s\n' "$retry_note"
     [ -z "$prompt_file" ] || { printf '\n'; cat "$prompt_file"; }
   } > "$work/suffix"
   sb=$(wc -c < "$work/suffix" | tr -d ' ')
   [ "$sb" -le "$budget" ] || blocked "task prompt is $sb bytes, over the resolved context budget of $budget (trim it; it is never truncated)"
   { cat "$ins"; printf '\n=== TASK ===\n'; cat "$work/suffix"; } > "$work/full"
 
+  token=d$(printf '%03d' "$seq_n")-$role-$rt
   out=$run/results/dispatch-$(printf '%03d' "$seq_n")-$role-$rt.md
   log=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.log
   seq_n=$((seq_n + 1)); : > "$out"
@@ -241,7 +249,7 @@ attempt() {
   echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code" >&2
   status=0
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
-  else (cd "$root" && export AGENT_ROLE="$role" &&
+  else (cd "$root" && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" &&
     if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
       HOME=$PROOFLINE_CODEX_HOME_DIR CODEX_HOME=$PROOFLINE_CODEX_HOME_DIR/.codex \
         run_timed "$timeout_s" "$log" "$input" "$@"
@@ -307,9 +315,27 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
     fi
   fi
 fi
-if [ "$status" -eq 124 ]; then
-  note "dispatch timeout role=$role runtime=$rt after=${timeout_s}s" || true
-  echo "dispatch: $role on $rt timed out after ${timeout_s}s; log: ${log#"$root"/}" >&2; exit 124
-fi
-if [ "$status" -ne 0 ]; then echo "dispatch: $role on $rt failed (exit $status); log: ${log#"$root"/}" >&2; exit 1; fi
-AGENT_ROLE=$role "$agent" record "$id" --file "$out" || { echo "dispatch: record rejected the result of $role (${out#"$root"/})" >&2; exit 1; }
+submissions=0
+while :; do
+  if [ "$status" -eq 124 ]; then
+    note "dispatch timeout role=$role runtime=$rt after=${timeout_s}s" || true
+    echo "dispatch: $role on $rt timed out after ${timeout_s}s; log: ${log#"$root"/}" >&2; exit 124
+  fi
+  if [ "$status" -ne 0 ]; then echo "dispatch: $role on $rt failed (exit $status); log: ${log#"$root"/}" >&2; exit 1; fi
+  st=$subdir/$token.status
+  state=$(sed -n 's/^status=//p' "$st" 2>/dev/null | head -n 1)
+  if [ "$state" = ok ]; then
+    sr=$(sed -n 's/^result=//p' "$st" | head -n 1); sg=$(sed -n 's/^gate=//p' "$st" | head -n 1); sw=$(sed -n 's/^raw=//p' "$st" | head -n 1)
+    printf 'submitted: %s %s %s%s (%s)\n' "$id" "$role" "$sr" "${sg:+ gate=$sg}" "${sw:-no raw}"
+    exit 0
+  fi
+  err=$(sed -n 's/^error=//p' "$st" 2>/dev/null | head -n 1)
+  submissions=$((submissions + 1))
+  if [ "$submissions" -ge 2 ]; then
+    blocked "no valid submission from $role after one retry${err:+ (last rejection: $err)}; nothing recorded"
+  fi
+  note "dispatch resubmit role=$role runtime=$rt reason=${err:-no submission}" || true
+  retry_note="Your previous attempt ended without a recorded result${err:+ (last rejection: $err)}. Your report files may already exist: check them, fix what the rejection names, then submit. Do not redo finished work."
+  a_runtime=$rt; o_model=''
+  attempt
+done

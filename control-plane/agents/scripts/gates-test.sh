@@ -141,6 +141,43 @@ sc_record() {
   ok "record: role, fingerprint, artifact, header, focus, findings, pass_low, result naming, qa task result"
 }
 
+sc_submit() {
+  scaffold orchestrated; implemented orchestrated
+  small=.agents/runs/LC/reviews/proof-review/small
+  expect_msg "the lead submitted" 'lead never submits' A submit LC --confidence high
+  expect_msg "a missing confidence was accepted" '--confidence' AS reviewer submit LC --focus rules+tests
+  expect_msg "a reviewer without focus was accepted" 'need --focus' AS reviewer submit LC --confidence high
+  expect_msg "a missing report was accepted" 'not found in the run' AS reviewer submit LC --focus rules+tests --confidence high --agent ag0
+  grep -q '^status=rejected' .agents/local/submissions/ag0.status || die "a rejection was not written to the submission status"
+  mkdir -p "$small"; printf 'review of the whole current tree\n' > "$small/REPORT.md"
+  # no header, fingerprint or hash is typed: the script supplies them; any path spelling of the report works
+  out=$(AS reviewer submit LC --focus rules+tests --confidence high --agent ag1) || die "submit failed: $out"
+  [ "$(gate_st REVIEW_SMALL)" = pass ] || die "submit did not record a pass: $(gate_st REVIEW_SMALL)"
+  grep -q '^status=ok' .agents/local/submissions/ag1.status && grep -q '^gate=REVIEW_SMALL' .agents/local/submissions/ag1.status || die "submission status is not ok"
+  for art in "$(pwd)/$small/REPORT.md" ".agents/runs/LC/reviews/proof-review/small/REPORT.md" "./.agents/runs/LC/reviews/proof-review/small/REPORT.md" "reviews/proof-review/small/REPORT.md" "./reviews/proof-review/small/REPORT.md"; do
+    AS reviewer submit LC --artifact "$art" --confidence high >/dev/null || die "artifact spelling not accepted: $art"
+  done
+  grep -q '^artifact: "reviews/proof-review/small/REPORT.md"' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "artifact was not normalized"
+  expect_msg "an artifact outside the run was accepted" 'inside the run' AS reviewer submit LC --focus rules+tests --artifact ../../../impl.txt --confidence high
+  expect_msg "an artifact of another focus was accepted" 'outside the paths' AS reviewer submit LC --focus plan --artifact reviews/proof-review/small/REPORT.md --confidence high
+  # the result follows from the findings
+  printf 'blocking|impl.txt:1|lookup returns the wrong value for an empty key|traced: empty key -> nil\n' > "$base/f.rows"
+  expect_msg "PASS with a blocking finding was accepted" 'contradicts' AS reviewer submit LC --focus rules+tests --result PASS --findings "$base/f.rows" --confidence high
+  AS reviewer submit LC --focus rules+tests --findings "$base/f.rows" --confidence high >/dev/null
+  [ "$(gate_st REVIEW_SMALL)" = fail ] || die "blocking findings did not fail the gate"
+  grep -q '^finding: REVIEW_SMALL-1|blocking|impl.txt:1|' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "finding ids are not assigned by the script"
+  printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n| X-9 | info | impl.txt:2 | a note | seen |\n' > "$base/f.md"
+  AS reviewer submit LC --focus rules+tests --findings "$base/f.md" --confidence high >/dev/null
+  [ "$(gate_st REVIEW_SMALL)" = pass ] || die "a markdown table with info rows did not pass"
+  printf 'high|impl.txt:1|x|y\n' > "$base/bad.rows"
+  expect_msg "a bad severity was accepted" 'severity' AS reviewer submit LC --focus rules+tests --findings "$base/bad.rows" --confidence high
+  # BLOCKED carries its reason into a report the script creates when none exists
+  AS reviewer submit LC --focus plan --result BLOCKED --reason 'no test runner in the sandbox' --confidence high --agent ag2 >/dev/null || die "BLOCKED submit failed"
+  grep -q 'no test runner' .agents/runs/LC/reviews/proof-review/plan/REPORT.md || die "BLOCKED reason not written to the report"
+  [ "$(gate_st REVIEW_PLAN)" != pass ] || die "BLOCKED recorded a pass"
+  ok "submit: script-built header, normalized artifact, derived result, assigned ids, rejection status, BLOCKED report"
+}
+
 sc_parallel_lock() {
   scaffold orchestrated; implemented orchestrated
   printf '# Completion Report: LC\n' > .agents/runs/LC/COMPLETION_REPORT.md
@@ -625,6 +662,7 @@ PLAN
 run_sc sc_tier
 run_sc sc_tier_paths
 run_sc sc_record
+run_sc sc_submit
 run_sc sc_parallel_lock
 run_sc sc_fix_loop
 run_sc sc_waiver
