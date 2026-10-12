@@ -81,7 +81,13 @@ Plan: follow the plan-contract skill in team mode. Paste the returned sections u
 `node <plan-contract-skill-dir>/scripts/validate-plan.mjs .agents/runs/<ID>/PLAN.md .agents/runs/<ID>/TASK.md
 --class <CLASS> --repo .` exits 0; fix the plan, never the task.
 
-QA plan (STANDARD and up): dispatch `qa` (task step, `RESULT: DONE`, `ARTIFACT: QA_PLAN.md`).
+QA plan (STANDARD and up): only once PLAN.md is final (validated, every design section pasted), dispatch `qa`
+(task step, `RESULT: DONE`, `ARTIFACT: QA_PLAN.md`). The QA plan cites the sha256 of that PLAN.md; any later
+plan or contract change (an amendment included) means dispatching `qa` again. Before freeze,
+`A verify-qa-plan <ID>` checks the binding (it is repeated by `freeze` and `refreeze`): plan hash, every plan
+criterion has an acceptance scenario, no scenario for a criterion the plan lacks, no scenario that expects a
+term the plan's `## Contracts` removes or renames. A failure is fixed by re-deriving the QA plan, never by
+editing the hash.
 
 ## 5. Approvals and freeze
 

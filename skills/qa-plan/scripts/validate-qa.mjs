@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Validates QA_PLAN.md and QA_REPORT.md. No dependencies.
-//   node validate-qa.mjs plan   QA_PLAN.md   [--task TASK.md]
+//   node validate-qa.mjs plan   QA_PLAN.md   [--task TASK.md] [--plan PLAN.md]
 //   node validate-qa.mjs report QA_REPORT.md [--plan QA_PLAN.md]
 //   node validate-qa.mjs hash   QA_PLAN.md   (prints the sha256 the report must cite)
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error. --json prints the parsed result.
@@ -42,7 +42,25 @@ function scenarios(lines, errors, secName) {
   return list;
 }
 
-export function validatePlan(text, taskText) {
+// The PLAN.md the QA plan is derived from (A42): acceptance criteria are those of the scope and `## Behavior`.
+export function planAcs(planText) {
+  const t = strip(planText);
+  const out = new Set();
+  for (const m of t.matchAll(/^\s*criteria:\s*\[([^\]]*)\]/gm)) for (const a of m[1].match(/AC-\d+/g) || []) out.add(a);
+  const beh = sections(t).get("Behavior") || [];
+  for (const l of beh) { const m = /^(?:[-*]\s+)?(AC-\d+):/.exec(l); if (m) out.add(m[1]); }
+  return [...out];
+}
+// Terms the plan's `## Contracts` section removes, renames or drops: a scenario must not expect them back.
+const REMOVAL = /\b(remov|renam|drop|delet|no longer|deprecat)/i;
+const NEGATION = /\b(absent|removed|no longer|not|never|without|omitted|missing|undefined|gone|must not|rejected|404|ignored)\b/i;
+export function removedTerms(planText) {
+  const out = new Set();
+  for (const l of sections(planText).get("Contracts") || []) if (REMOVAL.test(l)) for (const m of l.matchAll(/`([A-Za-z_][\w.\-]*)`/g)) out.add(m[1]);
+  return [...out];
+}
+
+export function validatePlan(text, taskText, planText) {
   const errors = [];
   const secs = sections(text);
   const id = /^# QA plan: (\S+)/m.exec(strip(text))?.[1];
@@ -74,6 +92,20 @@ export function validatePlan(text, taskText) {
     const covered = new Set(acc.flatMap((s) => s.acs));
     for (const a of acs) if (!covered.has(a)) errors.push(`${a} has no acceptance scenario`);
     for (const s of [...acc, ...adv]) for (const a of s.acs) if (!acs.includes(a)) errors.push(`${s.id} references unknown ${a}`);
+  }
+  if (planText !== undefined) {
+    const cited = /^Plan sha256: ([0-9a-f]{64})\s*$/m.exec(strip(text))?.[1];
+    if (!cited) errors.push("missing `Plan sha256: <64 hex>` line (hash of the PLAN.md this QA plan is derived from; `validate-qa.mjs hash PLAN.md`)");
+    else if (cited !== sha256(planText)) errors.push("Plan sha256 does not match PLAN.md: the QA plan was derived from a different plan; re-derive it from the current PLAN.md");
+    const pacs = planAcs(planText);
+    const qacs = new Set([...acc, ...adv].flatMap((s) => s.acs));
+    for (const a of pacs) if (!acc.some((s) => s.acs.includes(a))) errors.push(`${a} is in PLAN.md but has no acceptance scenario`);
+    for (const a of qacs) if (pacs.length && !pacs.includes(a)) errors.push(`${a} is not a criterion of PLAN.md`);
+    const gone = removedTerms(planText);
+    for (const s of [...acc, ...adv]) {
+      const exp = s.kv.expected || "";
+      for (const g of gone) if (exp.includes(g) && !NEGATION.test(exp)) errors.push(`${s.id}: expects \`${g}\`, which PLAN.md ## Contracts removes or renames (state that it is absent, or follow the new contract)`);
+    }
   }
   return { valid: errors.length === 0, errors, id, acceptance: acc.map((s) => s.id), adversarial: adv.map((s) => s.id), manual: [...acc, ...adv].filter((s) => s.kv.execution === "manual").map((s) => s.id) };
 }
@@ -131,9 +163,9 @@ function main(argv) {
   const [mode, file] = argv;
   const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
-  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F | --plan F] [--json]"); return 2; }
+  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F] [--plan F] [--json]"); return 2; }
   if (mode === "hash") { console.log(sha256(read(file))); return 0; }
-  const r = mode === "plan" ? validatePlan(read(file), opt("--task") ? read(opt("--task")) : undefined) : validateReport(read(file), opt("--plan") ? read(opt("--plan")) : undefined);
+  const r = mode === "plan" ? validatePlan(read(file), opt("--task") ? read(opt("--task")) : undefined, opt("--plan") ? read(opt("--plan")) : undefined) : validateReport(read(file), opt("--plan") ? read(opt("--plan")) : undefined);
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2)); else r.errors.forEach((e) => console.error(`error: ${e}`));
   return r.valid ? 0 : 1;
 }

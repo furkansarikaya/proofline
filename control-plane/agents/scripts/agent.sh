@@ -762,6 +762,7 @@ freeze() {
     fz_mode=refreeze
   fi
   verify_scope_existence "$id" "$fz_mode"
+  if gates_enforced "$id"; then verify_qa_plan_bound "$id"; fi
   fz_lang=$(for fz_f in TASK.md PLAN.md EVIDENCE.md QA_PLAN.md; do [ ! -f "$dir/$fz_f" ] || printf '%s\n' "$dir/$fz_f"; done)
   # shellcheck disable=SC2086
   fz_hits=$(language_scan $fz_lang) || fail "$(language_fail_text "$(printf '%s' "$fz_hits" | tr '\n' ' ')")"
@@ -1090,6 +1091,42 @@ db_guard_check() { # ID: fails when a database file changed, appeared or vanishe
   [ "$dg_now" != "$dg_then" ] || return 0
   dg_diff=$(printf '%s\n%s\n' "$dg_then" "$dg_now" | sort | uniq -u | cut -d '|' -f1 | sort -u | tr '\n' ' ')
   fail "database guard: a database file changed during run $1 (${dg_diff% }). No agent touches a database that is not a test suite's own throwaway database, and no destructive step runs before the user's approval in any environment. Restore the file(s), then record the incident with 'agent.sh ledger-note $1 <TEXT>'; the run cannot continue until the baseline matches"
+}
+
+# --- QA plan bound to the plan (A42) -------------------------------------------------------------
+# The QA plan is derived from the final PLAN.md and cites its sha256 (`Plan sha256: <64 hex>`). Freeze and
+# refreeze refuse a QA plan derived from another plan, a plan criterion without an acceptance scenario, a
+# scenario for a criterion the plan lacks, and a scenario that expects a term PLAN.md `## Contracts` removes.
+qa_removed_terms() { # PLAN.md -> one backticked term per line from `## Contracts` lines that remove, rename or drop
+  awk '/^## / { i = ($0 ~ /^## Contracts[[:space:]]*$/); next }
+    i && tolower($0) ~ /(remov|renam|drop|delet|no longer|deprecat)/ { l = $0
+      while (match(l, /`[A-Za-z_][A-Za-z0-9_.-]*`/)) { print substr(l, RSTART + 1, RLENGTH - 2); l = substr(l, RSTART + RLENGTH) } }' "$1" | sort -u
+}
+verify_qa_plan_bound() { # ID
+  vq_id=$1; vq_d=$(run_dir "$vq_id")
+  [ "$(pipeline_needs "$vq_id" qa)" = yes ] || return 0
+  [ -f "$vq_d/QA_PLAN.md" ] && [ -f "$vq_d/PLAN.md" ] || return 0
+  vq_cited=$(sed -n 's/^Plan sha256: \([0-9a-f]\{64\}\)[[:space:]]*$/\1/p' "$vq_d/QA_PLAN.md" | head -n 1)
+  [ -n "$vq_cited" ] || fail "QA_PLAN.md must cite the plan it is derived from: a line 'Plan sha256: <64 hex>' (the sha256 of the final PLAN.md; 'node <qa-plan skill>/scripts/validate-qa.mjs hash PLAN.md'). Write the QA plan after PLAN.md is final"
+  [ "$vq_cited" = "$(hash_file "$vq_d/PLAN.md")" ] || fail "QA_PLAN.md was derived from a different PLAN.md (it cites $(printf '%.12s' "$vq_cited")..., PLAN.md is $(printf '%.12s' "$(hash_file "$vq_d/PLAN.md")")...): re-derive the QA plan from the current plan (dispatch qa) before freeze; a plan or contract change changes the scenarios"
+  vq_pacs=$( { awk '/^[[:space:]]*criteria:[[:space:]]*\[/ { l = $0; while (match(l, /AC-[0-9]+/)) { print substr(l, RSTART, RLENGTH); l = substr(l, RSTART + RLENGTH) } }' "$vq_d/PLAN.md"
+    awk '/^## / { i = ($0 ~ /^## Behavior[[:space:]]*$/); next } i && /^[-*][[:space:]]+AC-[0-9]+:/ { l = $0; match(l, /AC-[0-9]+/); print substr(l, RSTART, RLENGTH) }' "$vq_d/PLAN.md"; } | sort -u)
+  vq_qacs=$(awk '/^- QA-[0-9]+ \(AC-/ { l = $0; sub(/^- QA-[0-9]+ \(/, "", l); sub(/\).*/, "", l); n = split(l, a, /,[[:space:]]*/); for (i = 1; i <= n; i++) print a[i] }' "$vq_d/QA_PLAN.md" | sort -u)
+  vq_acc=$(awk '
+      /^## Adversarial scenarios[[:space:]]*$/ { skip = 1; next } /^## / { skip = 0 }
+      !skip && /^- QA-[0-9]+ \(AC-/ { l = $0; sub(/^- QA-[0-9]+ \(/, "", l); sub(/\).*/, "", l); n = split(l, a, /,[[:space:]]*/); for (i = 1; i <= n; i++) print a[i] }' "$vq_d/QA_PLAN.md" | sort -u)
+  for vq_a in $vq_pacs; do
+    printf '%s\n' "$vq_acc" | grep -Fxq "$vq_a" || fail "QA_PLAN.md has no acceptance scenario for $vq_a, a criterion of PLAN.md: derive the QA plan from the whole plan"
+  done
+  if [ -n "$vq_pacs" ]; then
+    for vq_a in $vq_qacs; do
+      printf '%s\n' "$vq_pacs" | grep -Fxq "$vq_a" || fail "QA_PLAN.md has a scenario for $vq_a, which PLAN.md does not contain: the QA plan contradicts the plan"
+    done
+  fi
+  for vq_t in $(qa_removed_terms "$vq_d/PLAN.md"); do
+    vq_bad=$(awk -v t="$vq_t" 'tolower($0) ~ /^[[:space:]]+expected:/ && index($0, t) && tolower($0) !~ /(absent|removed|no longer|not |never|without|omitted|missing|undefined|gone|must not|rejected|404|ignored)/ { print NR ": " $0; exit }' "$vq_d/QA_PLAN.md")
+    [ -z "$vq_bad" ] || fail "QA_PLAN.md expects \`$vq_t\` ($vq_bad), which PLAN.md ## Contracts removes or renames: state that it is absent, or follow the new contract; the QA plan must not contradict the plan"
+  done
 }
 
 # --- Defect tasks carry a debug-proof result (A35). ---------------------------------------------
@@ -2767,7 +2804,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help'
+read_only_commands='role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -2841,6 +2878,7 @@ case "$command" in
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
   delivery-check) require_lead; delivery_check "${2:?usage: agent.sh delivery-check <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
+  verify-qa-plan) require_run "${2:?usage: agent.sh verify-qa-plan <ID>}"; verify_qa_plan_bound "$2"; echo "QA plan bound to PLAN.md: $2" ;;
   verify-worker-evidence) verify_worker_evidence "${2:?usage: agent.sh verify-worker-evidence <ID>}" ;;
   submit) sid=${2:?usage: agent.sh submit <ID> --confidence C [options]}; shift 2; submit_result "$sid" "$@" ;;
   record) rid=${2:?usage: agent.sh record <ID> [--file F]}; rfile=''; if [ "${3:-}" = --file ]; then rfile=${4:?usage: agent.sh record <ID> --file F}; fi; record_result "$rid" "$rfile" ;;

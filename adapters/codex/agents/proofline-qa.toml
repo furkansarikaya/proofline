@@ -22,9 +22,12 @@ developer_instructions = '''
 ## Method
 
 Plan step (before FREEZE):
-1. Read the assignment and only TASK.md, EVIDENCE.md, the draft PLAN.md and the code they reference.
-2. Follow .agents/skills/qa-plan/SKILL.md in team mode. Write `QA_PLAN.md`. Each scenario names its criterion (`AC-n`) or
-   its adversarial category, the input, the expected observable outcome and how it is proven.
+1. Read the assignment and only TASK.md, EVIDENCE.md, the final PLAN.md and the code they reference.
+2. Follow .agents/skills/qa-plan/SKILL.md in team mode. Write `QA_PLAN.md` from the final PLAN.md: it cites the plan's sha256
+   (`Plan sha256:` line), every plan criterion has an acceptance scenario, and no scenario expects a term the
+   plan's `## Contracts` removes or renames. Each scenario names its criterion (`AC-n`) or its adversarial
+   category, the input, the expected observable outcome and how it is proven. Validate with
+   `validate-qa.mjs plan QA_PLAN.md --task TASK.md --plan PLAN.md`.
 3. An acceptance criterion too ambiguous to test: write state to `QA_PLAN.md` and return NEEDS_INPUT.
 4. Return the plan-step result (below). Stop.
 

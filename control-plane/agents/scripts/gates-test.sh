@@ -620,6 +620,31 @@ sc_next_order() {
   A next NB | grep -q '^next=agent.sh baseline NB' || die "next after branch: $(A next NB)"
   ok "next: classify, branch, baseline in the order the commands accept"
 }
+sc_qa_plan_bound() {
+  scaffold orchestrated no COMPLEX
+  d=.agents/runs/LC
+  A verify-qa-plan LC >/dev/null || die "a QA plan bound to its PLAN.md was refused"
+  ok "QA-bound: a QA plan citing the sha256 of the final PLAN.md passes"
+  cp "$d/PLAN.md" "$base/plan.keep"; cp "$d/QA_PLAN.md" "$base/qa.keep"
+  printf 'contract changed after the QA plan\n' >> "$d/PLAN.md"
+  expect_msg "QA plan derived from another plan" 'derived from a different PLAN.md' A verify-qa-plan LC
+  cp "$base/plan.keep" "$d/PLAN.md"
+  grep -v '^Plan sha256: ' "$base/qa.keep" > "$d/QA_PLAN.md"
+  expect_msg "QA plan without the plan hash" "must cite the plan" A verify-qa-plan LC
+  { cat "$base/qa.keep"; printf -- '- QA-9 (AC-7): a criterion the plan does not have\n  input: x\n'; } > "$d/QA_PLAN.md"
+  expect_msg "scenario for a criterion the plan lacks" 'which PLAN.md does not contain' A verify-qa-plan LC
+  cp "$base/qa.keep" "$d/QA_PLAN.md"
+  { sed 's/\[AC-1\]/[AC-1, AC-3]/' "$base/plan.keep" > "$d/PLAN.md"; }
+  qa_bind LC
+  expect_msg "plan criterion without an acceptance scenario" 'no acceptance scenario for AC-3' A verify-qa-plan LC
+  cp "$base/plan.keep" "$d/PLAN.md"
+  printf '\n## Contracts\n\n- the response no longer returns `legacyNotes` (removed)\n' >> "$d/PLAN.md"
+  { cat "$base/qa.keep"; printf -- '  expected: the response has `legacyNotes` with the stored value\n'; } > "$d/QA_PLAN.md"; qa_bind LC
+  expect_msg "scenario expects a term the plan's contracts remove" 'removes or renames' A verify-qa-plan LC
+  { cat "$base/qa.keep"; printf -- '  expected: the response has no `legacyNotes` key (absent)\n'; } > "$d/QA_PLAN.md"; qa_bind LC
+  A verify-qa-plan LC >/dev/null || die "an absence expectation of a removed term was refused"
+  ok "QA-bound: stale hash, missing hash, unknown or uncovered criterion and a removed term are refused; an absence expectation passes"
+}
 sc_start() {
   new_repo; RID=ST-1
   cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
@@ -735,4 +760,5 @@ run_sc sc_open_runs
 run_sc sc_knowledge_secrets
 run_sc sc_next_order
 run_sc sc_start
+run_sc sc_qa_plan_bound
 echo 'gates tests passed'
