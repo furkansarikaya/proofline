@@ -55,6 +55,8 @@ When a stop/defer-all reply settles several rows at once, each row's `source` is
 ## 4. What never happens
 
 - Applying the recommended answer without a reply that chooses it.
+- Recommending that a pre-existing defect be fixed in this change: the recommended option is always "report it, out of scope"; fixing it is a `scope` decision only the user's own words can make, and a blanket "use your recommended option" never does.
+- Recording as the user's answer anything but the user's own words: no paraphrase, no line the lead added; a blanket reply is recorded as that reply.
 - Asking two decisions in one message, or one decision twice after it was answered.
 - Asking about the implementation (libraries, endpoints, module layout, data structures).
 - Asking a question the request already answers, or a factual question the repository answers.

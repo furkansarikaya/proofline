@@ -52,6 +52,15 @@ Only the **changed units** from section 2 are mutated, never other code, even wh
 4. A mutant killed only by the compiler proves nothing; choose another mutation (it still counts against the budget).
 5. Count the mutants actually run in `scope.diff.mutants_run` (never above the budget).
 
+### 5a. Claim mutants: does the named test observe its criterion?
+
+Inside a run, PLAN `## Tests` names a test for each acceptance criterion (`- AC-n: <file> "<test name>"`). For **each** such criterion write one *claim mutant*: it removes the criterion's stated effect **while the operation still succeeds** (same status code, no exception), for example a cascade that deletes nothing without breaking the foreign key, a filter that returns everything, a value that is not stored. Run the **named test alone** against it.
+
+- It must fail **on an assertion**. A failure by an error (exception, 5xx, constraint violation, timeout) proves only that the operation broke; it is not a kill of the claim, exactly like a compiler kill.
+- A claim that survives, or dies only by error, is a `hollow` finding on the criterion's changed unit (`confirmed`), and the gate fails: the test does not observe what the plan says it proves.
+- Record each claim in `scope.diff.claims` (`ac`, `test`, `mutant`, `outcome`, `failure`, `killed_by`). Claim mutants count against `mutation_budget`; when the budget cannot cover every criterion, say so as `needs_validation` and `CONFIDENCE: low`.
+- Outside a run (no PLAN), claims are optional.
+
 ## 6. Slow: informational
 
 Slow uses the per-test durations of the baseline run and the isolated runs, and the `slow_ratio` threshold instead of the full-mode rule:

@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
-import { validate, missingEvidence, checkConsistency } from "../../skills/test-trust/scripts/validate-findings.mjs";
+import { validate, missingEvidence, checkConsistency, checkClaims } from "../../skills/test-trust/scripts/validate-findings.mjs";
 import { thresholds, computeGate } from "../../skills/test-trust/scripts/gate.mjs";
 
 const SCRIPT = new URL("../../skills/test-trust/scripts/validate-findings.mjs", import.meta.url).pathname;
@@ -258,4 +258,31 @@ test("SKILL.md result contract: REVIEW_TESTS rows, blocking|info, PASS|FAIL|BLOC
   const noShared = md.replace(/<!-- proofline:shared-rules:begin[\s\S]*?shared-rules:end -->/, "");
   assert.doesNotMatch(noShared, /becomes `RESULT: NEEDS_INPUT`|is `NEEDS_INPUT` inside a run|`NEEDS_INPUT` with the estimate/);
   assert.match(readFileSync(new URL("../../skills/test-trust/references/DIFF.md", import.meta.url), "utf8"), /first-build failure is `BLOCKED` inside a run/);
+});
+
+// ---- A59: claim mutants (the named test must observe its criterion) ----
+const withClaims = (claims, gate = { result: "PASS", failing: [] }) => {
+  const d = diffDoc(gate);
+  d.scope.diff.claims = claims;
+  return d;
+};
+const PLAN_TESTS = "# Plan\n\n## Tests\n\n- AC-8: `tests/tags.test.js` \"deleting a book removes its tag links\"\n- AC-2: `tests/tags.test.js` \"filters by tag\"\n\n## Verification commands\n\n- npm test\n";
+const claim = (ac, over = {}) => ({ ac, test: "t", mutant: "drops the cascade without an error", outcome: "killed", failure: "assertion", killed_by: ["t"], ...over });
+test("claims: the schema accepts them and every proven claim passes", () => {
+  const d = withClaims([claim("AC-8"), claim("AC-2")]);
+  assert.deepEqual(validate(schema, d), []);
+  assert.deepEqual(checkClaims(d, PLAN_TESTS), []);
+});
+test("claims: a kill by an error is not a kill, and an unproven claim needs a failing gate", () => {
+  const byError = withClaims([claim("AC-8", { failure: "error" }), claim("AC-2")]);
+  assert.match(checkClaims(byError, PLAN_TESTS).join("\n"), /AC-8: a kill by error is not a kill of the claim/);
+  const survived = withClaims([claim("AC-8", { outcome: "survived", failure: "none", killed_by: [] }), claim("AC-2")]);
+  assert.match(checkClaims(survived, PLAN_TESTS).join("\n"), /AC-8: the claim is not proven/);
+  const failed = withClaims([claim("AC-8", { outcome: "survived", failure: "none", killed_by: [] }), claim("AC-2")], { result: "FAIL", failing: ["F004"] });
+  assert.deepEqual(checkClaims(failed, PLAN_TESTS), []);
+});
+test("claims: every criterion of PLAN ## Tests needs a claim", () => {
+  const d = withClaims([claim("AC-2")]);
+  assert.match(checkClaims(d, PLAN_TESTS).join("\n"), /AC-8: PLAN ## Tests names a test for it but findings.json has no claim mutant/);
+  assert.deepEqual(checkClaims(d, undefined), []);
 });

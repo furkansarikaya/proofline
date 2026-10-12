@@ -37,6 +37,10 @@ Only what the user stated or the repository forces (language, existing API shape
 ## Risks
 What could make the task larger or wrong: unclear boundary, shared code, data that cannot be rolled back, missing tests around the area. Each risk names what it would change.
 
+## Pre-existing defects
+
+A defect the work runs into that the user did not ask about is never an acceptance criterion and never the recommended answer of a question. Write it under `## Pre-existing defects` as `decision: report` (leave it unchanged; the completion report names it). `decision: fix` is written only when the user's own words ask for the fix; the freeze then needs the user's `scope` approval. A criterion that cannot be met without the defect fixed is reworded to what can be observed without it, or asked as a question whose recommended option is "report it, out of scope".
+
 ## Suggested class
 See [CLASSES.md](CLASSES.md).
 

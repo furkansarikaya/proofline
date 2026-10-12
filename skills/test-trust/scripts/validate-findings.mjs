@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Validates a test-trust findings.json against ../schema/findings.schema.json,
 // then checks that every evidence file it cites exists. No dependencies.
-// Usage: node <skill-dir>/scripts/validate-findings.mjs <path-to-findings.json>
+// Usage: node <skill-dir>/scripts/validate-findings.mjs <path-to-findings.json> [--plan PLAN.md]
+// With --plan (diff mode), every acceptance criterion of the plan's "## Tests" section needs a claim
+// that its named test, run alone, killed a silent-removal mutant by an assertion (A59).
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error.
 
 import { readFileSync, existsSync, realpathSync } from "node:fs";
@@ -125,9 +127,34 @@ export function checkConsistency(doc) {
   return errors;
 }
 
+// Claim mutants (A59). A claim that is not killed-by-assertion must leave the gate FAIL; with the plan, every
+// AC of "## Tests" needs a claim.
+export function checkClaims(doc, planText) {
+  const errors = [];
+  if (doc.mode !== "diff") return errors;
+  const claims = doc.scope?.diff?.claims ?? [];
+  for (const c of claims) {
+    const proven = c.outcome === "killed" && c.failure === "assertion" && (c.killed_by ?? []).length > 0;
+    if (c.outcome === "killed" && c.failure !== "assertion") errors.push(`${c.ac}: a kill by ${c.failure} is not a kill of the claim: the named test must fail on an assertion`);
+    if (!proven && doc.gate?.result !== "FAIL") errors.push(`${c.ac}: the claim is not proven (${c.outcome}, ${c.failure}) but gate.result is ${doc.gate?.result}: a test that does not observe its criterion is hollow`);
+  }
+  if (planText !== undefined && (doc.scope?.diff?.tests ?? []).length > 0) {
+    const m = /^## Tests[^\n]*\n([\s\S]*?)(?=^## |\s*$(?![\s\S]))/m.exec(planText);
+    const acs = [...(m ? m[1] : "").matchAll(/^\s*[-*]\s+(AC-\d+):/gm)].map((x) => x[1]);
+    for (const ac of new Set(acs)) if (!claims.some((c) => c.ac === ac)) errors.push(`${ac}: PLAN ## Tests names a test for it but findings.json has no claim mutant for it (scope.diff.claims)`);
+  }
+  return errors;
+}
+
 function main(argv) {
+  const pi = argv.indexOf("--plan");
+  let planText;
+  if (pi >= 0) {
+    try { planText = readFileSync(resolve(argv[pi + 1]), "utf8"); } catch (e) { console.error(`Cannot read plan: ${e.message}`); return 2; }
+    argv = argv.filter((_, i) => i !== pi && i !== pi + 1);
+  }
   if (argv.length !== 1) {
-    console.error("Usage: node validate-findings.mjs <path-to-findings.json>");
+    console.error("Usage: node validate-findings.mjs <path-to-findings.json> [--plan PLAN.md]");
     return 2;
   }
   const file = resolve(argv[0]);
@@ -140,7 +167,7 @@ function main(argv) {
     return 2;
   }
   const errors = validate(schema, doc);
-  if (errors.length === 0) errors.push(...checkConsistency(doc), ...missingEvidence(doc, dirname(file)));
+  if (errors.length === 0) errors.push(...checkConsistency(doc), ...checkClaims(doc, planText), ...missingEvidence(doc, dirname(file)));
   if (errors.length) {
     console.error(`INVALID: ${file}`);
     for (const e of errors) console.error(`  ${e}`);

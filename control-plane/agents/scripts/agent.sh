@@ -692,6 +692,32 @@ authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 
 # Approvals a freeze needs (D3): plan (supervised), destructive (PLAN `## Data` destructive: yes),
 # scope (a refreeze that adds scope paths). Prints the approval files to consume, one per line.
+# A60: a task that lists a pre-existing defect with `decision: fix` changes behaviour nobody asked for: the freeze
+# needs the user's `scope` approval for the plan (the same kind an amendment adding paths needs). A defect with
+# `decision: report` is a finding, never a change. TASK.md `## Pre-existing defects`: `- <path:symbol>: <what> --
+# decision: report | fix`.
+task_defect_fixes() { # TASK.md -> the lines that say `decision: fix`
+  awk '/^## Pre-existing defects[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && tolower($0) ~ /decision:[[:space:]]*fix/ { print }' "$1" 2>/dev/null
+}
+# Answers recorded as the user's must be the user's words (A60): in INTENT.md `## Rounds`, a round answering a
+# `scope` decision with answered_by user must appear in a captured user prompt (.agents/local/prompts/history/).
+verify_intent_provenance() { # ID
+  vi_id=$1
+  vi_f=$(run_dir "$vi_id")/design/INTENT.md
+  [ -f "$vi_f" ] || vi_f=$root/$(cfg tasks.dir .agents/tasks)/$vi_id/design/INTENT.md
+  vi_h=$root/.agents/local/prompts/history
+  [ -f "$vi_f" ] && [ -d "$vi_h" ] || return 0
+  vi_all=$(cat "$vi_h"/* 2>/dev/null | tr -s ' \t\n' ' ')
+  vi_scope=$(awk -F'|' '/^## Decision tree/ { i = 1; next } /^## / { i = 0 }
+    i && NF >= 8 { id = $2; br = $3; gsub(/^[ \t]+|[ \t]+$/, "", id); gsub(/^[ \t]+|[ \t]+$/, "", br); if (br == "scope") print id }' "$vi_f")
+  awk -F'|' '/^## Rounds/ { i = 1; next } /^## / { i = 0 }
+    i && NF >= 5 { a = $3; t = $4; by = $5; gsub(/^[ \t]+|[ \t]+$/, "", a); gsub(/^[ \t]+|[ \t]+$/, "", t); gsub(/^[ \t]+|[ \t]+$/, "", by)
+      if (by == "user" && a ~ /^D-[0-9]+$/) print a "\t" t }' "$vi_f" | while IFS="$(printf '\t')" read -r vi_a vi_t; do
+    printf '%s\n' "$vi_scope" | grep -Fxq -- "$vi_a" || continue
+    vi_n=$(printf '%s' "$vi_t" | tr -s ' \t\n' ' ')
+    case "$vi_all" in *"$vi_n"*) ;; *) echo "$vi_a"; ;; esac
+  done
+}
 freeze_approvals() {
   fa_id=$1 fa_mode=$2; fa_d=$(run_dir "$1"); fa_plan=$(hash_file "$fa_d/PLAN.md")
   if [ "$(run_autonomy "$fa_id")" = supervised ]; then
@@ -709,6 +735,12 @@ freeze_approvals() {
       *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase deferred (a separate, later migration, not part of this change). Only the user's explicit single-step approval allows one step: add 'single_step: yes' and request it ('agent.sh request-approval $fa_id single_step')" ;;
     esac
   fi
+  if [ -n "$(task_defect_fixes "$fa_d/TASK.md")" ]; then
+    fa_f=$(find_approval "$fa_id" scope "$fa_plan") || fail "TASK.md lists a pre-existing defect with 'decision: fix': changing behaviour nobody asked for needs the user's scope approval for this PLAN.md ('agent.sh request-approval $fa_id scope'), or list it as 'decision: report' and leave it unchanged"
+    printf '%s\n' "$fa_f"
+  fi
+  fa_bad=$(verify_intent_provenance "$fa_id" | tr '\n' ' ')
+  [ -z "$fa_bad" ] || fail "INTENT.md records the user's answer to scope decision(s) $fa_bad, but those words are in no captured user prompt: an answer recorded as the user's must be what the user said (a blanket 'use your recommended option' is recorded as that)"
   # D15: an exhausted fix budget ends in `terminate FAILED`; a refreeze (which starts a fresh budget) needs
   # the user's explicit budget approval.
   if [ "$fa_mode" = refreeze ] && [ "$(fix_rounds_used "$fa_id")" -gt "$(max_fix_rounds)" ]; then
@@ -1131,6 +1163,21 @@ verify_qa_plan_bound() { # ID
     vq_bad=$(awk -v t="$vq_t" 'tolower($0) ~ /^[[:space:]]+expected:/ && index($0, t) && tolower($0) !~ /(absent|removed|no longer|not |never|without|omitted|missing|undefined|gone|must not|rejected|404|ignored)/ { print NR ": " $0; exit }' "$vq_d/QA_PLAN.md")
     [ -z "$vq_bad" ] || fail "QA_PLAN.md expects \`$vq_t\` ($vq_bad), which PLAN.md ## Contracts removes or renames: state that it is absent, or follow the new contract; the QA plan must not contradict the plan"
   done
+}
+
+# --- The tests review proves the plan's tests observe their criteria (A59) -------------------------
+# A REVIEW_TESTS submission (reviewer, focus tests) needs reviews/test-trust/tests/findings.json that passes the
+# test-trust validator against the frozen PLAN.md: every criterion of PLAN `## Tests` has a claim mutant its named
+# test killed by an assertion. Checked only where the skill and node are installed (a real install has both).
+verify_tests_findings() { # ID
+  vt_s=$root/.agents/skills/test-trust/scripts/validate-findings.mjs
+  [ -f "$vt_s" ] && command -v node >/dev/null 2>&1 || return 0
+  vt_d=$(run_dir "$1")
+  vt_f=$vt_d/reviews/test-trust/tests/findings.json
+  [ -f "$vt_f" ] || { echo "the tests review needs reviews/test-trust/tests/findings.json (test-trust diff mode, scope.diff.claims for every criterion of PLAN ## Tests); the report alone is not enough"; return 1; }
+  vt_p=''; [ ! -f "$vt_d/PLAN.md" ] || vt_p="--plan $vt_d/PLAN.md"
+  # shellcheck disable=SC2086
+  vt_out=$(node "$vt_s" "$vt_f" $vt_p 2>&1) || { printf '%s\n' "$vt_out" | tr '\n' ' '; return 1; }
 }
 
 # --- Scratch worktrees are removed before CODE_DONE (A53, C-18) -----------------------------------
@@ -2052,6 +2099,9 @@ submit_result() {
     else [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions" > "$sb_tmp/questions.in"; fi
     sb_questions=$sb_tmp/questions.in
   fi
+  if [ "$execution_role" = reviewer ] && [ "$sb_focus" = tests ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
+    sb_vt=$(verify_tests_findings "$sb_id") || submit_fail "findings.json of the tests review is not valid: $sb_vt"
+  fi
   # Run artifacts are English (A33): the report, the findings and the questions are scanned before recording.
   sb_lang_files="$sb_d/$sb_norm $sb_tmp/rows"; [ -z "$sb_questions" ] || sb_lang_files="$sb_lang_files $sb_questions"
   # shellcheck disable=SC2086
@@ -2274,7 +2324,7 @@ approval_why() {
     plan) echo 'supervised autonomy: the plan freezes only after user approval' ;;
     destructive) echo 'the plan declares a destructive data change' ;;
     single_step) echo 'the destructive change has no expand/contract steps: it would run as one step, with no point to stop between reading and dropping' ;;
-    scope) echo 'the amendment adds scope paths' ;;
+    scope) echo 'the amendment adds scope paths, or the task fixes a pre-existing defect nobody asked about' ;;
     budget) echo 'the fix rounds are exhausted: a refreeze would start a fresh fix budget' ;;
     commit|push) echo "delivery of content $2 needs explicit approval" ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
@@ -2555,8 +2605,9 @@ next_step() {
     ns_ph=$(hash_file "$ns_d/PLAN.md")
     ns_shape=$(plan_migration_shape "$ns_d/PLAN.md")
     if [ "$ns_shape" = missing ]; then o "fix PLAN.md ## Data: expand/contract steps (data-design), or single_step: yes with the user's approval"; r "destructive plan without expand/contract steps"; return 0; fi
-    for ns_k in plan destructive single_step; do
+    for ns_k in plan destructive single_step scope; do
       if [ "$ns_k" = plan ] && [ "$(run_autonomy "$ns_id")" != supervised ]; then continue; fi
+      if [ "$ns_k" = scope ] && [ -z "$(task_defect_fixes "$ns_d/TASK.md")" ]; then continue; fi
       if [ "$ns_k" = destructive ] && [ "$(plan_destructive "$ns_d/PLAN.md")" != yes ]; then continue; fi
       if [ "$ns_k" = single_step ] && [ "$ns_shape" != single_step ]; then continue; fi
       if ! find_approval "$ns_id" "$ns_k" "$ns_ph" >/dev/null; then

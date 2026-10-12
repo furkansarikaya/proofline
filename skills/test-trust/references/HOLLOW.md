@@ -74,7 +74,7 @@ For each remaining mutant, sequentially:
 
 Save the run output as `evidence/hollow-<unit-slug>-m<N>.*`. Update the ledger after each mutant.
 
-A build or compile failure counts as killed, but it proves nothing about the tests. If most mutants of a unit are killed only by the compiler, note it and choose different mutations.
+A build or compile failure counts as killed, but it proves nothing about the tests. If most mutants of a unit are killed only by the compiler, note it and choose different mutations. A kill by a runtime error (exception, 5xx, constraint violation) is a kill of the unit but not an assertion: in a run, the claim mutants of [DIFF.md](DIFF.md#5a-claim-mutants-does-the-named-test-observe-its-criterion) require the named test to fail on an assertion.
 
 ## 4. Verdict
 

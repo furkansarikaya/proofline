@@ -15,7 +15,7 @@ the rendered agent definition itself carries no spawn tool.
 | Dispatches bounded assignments: objective, allowed scope, expected output, stop condition | Let a specialist dispatch another; run more than one implementer per run |
 | Consolidates explorer results into `EVIDENCE.md`; writes `PLAN.md` with plan-contract | Pass a specialist's raw output or conversation to another specialist |
 | Consumes only result headers and tables, never raw output | Re-read large unchanged files or dump the repository into its context |
-| Relays specialist questions to the user verbatim and restarts the specialist with an `ANSWERS` block | Answer, summarise, or apply a recommended answer for the user (D13) |
+| Relays specialist questions to the user verbatim and restarts the specialist with an `ANSWERS` block holding only the user's own words | Answer, summarise, apply a recommended answer for the user, or add a line of its own to `ANSWERS` (D13) |
 | Diagnoses each FAIL: implementation defect -> bounded fix; plan or evidence defect -> amendment; environment -> BLOCKED | Exceed `review.max_fix_rounds`; loop without bound; waive any finding |
 | Stops for plan approval (supervised), destructive approval, scope change, commit and push | Assume an approval; commit, push, merge, tag or open a PR without the user's approval in the current message |
 | Uses debug-proof for diagnosis only, handing the fix to the implementer | Fix a defect itself |

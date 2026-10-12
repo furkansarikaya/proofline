@@ -159,6 +159,59 @@
                   }
                 }
               }
+            },
+            "claims": {
+              "type": "array",
+              "description": "diff mode: one claim mutant per acceptance criterion the plan's Tests section names (A59). Each removes the criterion's stated effect without making the operation fail; the named test, run alone, must fail on an assertion.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "ac",
+                  "test",
+                  "mutant",
+                  "outcome",
+                  "failure",
+                  "killed_by"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "ac": {
+                    "type": "string",
+                    "pattern": "^AC-[0-9]+$"
+                  },
+                  "test": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The test the plan names for this criterion."
+                  },
+                  "mutant": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "What was changed, in one sentence (the silent removal of the effect)."
+                  },
+                  "outcome": {
+                    "enum": [
+                      "killed",
+                      "survived"
+                    ]
+                  },
+                  "failure": {
+                    "enum": [
+                      "assertion",
+                      "error",
+                      "timeout",
+                      "none"
+                    ],
+                    "description": "How the named test failed when run alone against the mutant; none when it passed."
+                  },
+                  "killed_by": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
             }
           }
         }
