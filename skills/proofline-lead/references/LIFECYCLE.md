@@ -86,9 +86,10 @@ QA plan (STANDARD and up): dispatch `qa` (task step, `RESULT: DONE`, `ARTIFACT: 
 ## 5. Approvals and freeze
 
 - `next` asks for `plan` (supervised) and then `destructive` (any plan with `destructive: yes`, any
-  autonomy). Each: `A request-approval <ID> <kind>`, relay verbatim, stop; after the user's reply
-  `A approve <ID> <kind>`. `approve` fails when the reply holds no approval phrase and kind word: then the
-  answer is a refusal or a change request; revise the plan and ask again.
+  autonomy). Each: `A request-approval <ID> <kind>`, relay verbatim, stop. The lead never approves: the
+  runtime's prompt hook records the approval from the user's reply (approval phrase and kind word). After the
+  reply run `A next <ID>`; when it still asks for the approval, the answer was a refusal or a change request:
+  revise the plan and ask again.
 - `A freeze <ID>`, then `A freshness <ID>` (freshness checks a freeze that must exist).
 
 ## 6. Implement

@@ -96,7 +96,9 @@ the content fingerprint), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>
 
 1. `agent.sh request-approval <ID> <KIND>` records the request time and binding and prints the D13 question.
    The lead relays it verbatim.
-2. `agent.sh approve <ID> <KIND>` accepts the user's answer from:
+2. `agent.sh approve <ID> <KIND>` accepts the user's answer from (a model never runs it: the runtime hook denies
+   it for the lead and every subagent; the runtime's prompt hook runs `agent.sh approve-pending` right after it
+   stores the capture, which attempts `approve` for every open request; a terminal user may run it themselves):
    - an interactive terminal (stdin and stdout are TTYs): the typed line; or
    - the newest prompt capture `.agents/local/prompts/<session>.json`, written by a runtime hook on every
      user prompt, exactly one JSON object:

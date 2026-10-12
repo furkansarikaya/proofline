@@ -19,15 +19,15 @@ branch, the gated content and single-use approvals; the lead never bypasses them
    (`git.commit_format`, default Conventional Commits with the task id, e.g.
    `fix(lookup): return null for an empty key (LK-7)`) and the changed paths from `git status --short`. If
    `A baseline` recorded pre-existing user changes, say they will be part of the commit. STOP.
-2. Only when the user's **current** message approves the commit: `A approve <ID> commit`, then
-   `git add -A` (the run directory and `.agents/local/` are ignored) and `git commit -m "<message>"`. The
+2. Only when the user's **current** message approves the commit (the runtime records the approval from that
+   message; the lead never runs `approve`): `git add -A` (the run directory and `.agents/local/` are ignored) and `git commit -m "<message>"`. The
    pre-commit hook consumes the approval bound to that content fingerprint.
 3. A hook rejection is reported verbatim; never retried with other flags.
 
 ## 3. Push
 
 With `git.push_requires_approval: true` (default): `A request-approval <ID> push`, relay, STOP; after the
-user's approval in their current message `A approve <ID> push`, then `git push -u origin <task branch>`.
+user's approval in their current message (recorded by the runtime), `git push -u origin <task branch>`.
 Never `--force`, never another branch, never a tag.
 
 ## 4. Pull request

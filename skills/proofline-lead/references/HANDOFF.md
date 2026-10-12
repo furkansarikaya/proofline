@@ -53,6 +53,7 @@ QUESTIONS:
 Then `A questions <ID>`, relay verbatim, STOP; the user's reply is recorded with `A answer <ID> <N>` as in
 section 2.
 
-After the reply: `A approve <ID> <kind>` (it accepts only a captured prompt newer than the request with an
-approval phrase and a kind word, or a TTY line). A refused `approve` means the user did not approve: do
-not retry with other wording; ask what to change.
+After the reply the runtime's prompt hook records the approval (only a captured prompt newer than the request
+with an approval phrase and a kind word counts); the lead never runs `approve` (the hook denies it). Run
+`A next <ID>`: an approval still requested means the user did not approve: do not retry with other wording;
+ask what to change.

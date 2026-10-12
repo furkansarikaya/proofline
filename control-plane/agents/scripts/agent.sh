@@ -2155,6 +2155,26 @@ text_has_approval() {
 latest_request() { # ID KIND -> request file
   ls -1 "$(approvals_dir "$1")" 2>/dev/null | grep -E "^[0-9]{3}-request-$(kind_slug "$2")\.yaml\$" | sort | tail -1 | sed "s#^#$(approvals_dir "$1")/#" | grep . || return 1
 }
+# approve_pending [ID]: run by the runtime's prompt hook right after it stored the user's prompt capture
+# (A41). Every open approval request of the run (and of the no-run scope: commit, push) that this prompt
+# satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
+# kind is attempted in its own process, so a refusal ("no approval phrase") changes nothing.
+approve_pending() {
+  ap_run=${1:-}
+  for ap_t in $ap_run -; do
+    [ -n "$ap_t" ] || continue
+    [ "$ap_t" = - ] || [ -d "$(run_dir "$ap_t")" ] || continue
+    ap_dir=$(approvals_dir "$ap_t"); [ -d "$ap_dir" ] || continue
+    for ap_rf in "$ap_dir"/[0-9][0-9][0-9]-request-*.yaml; do
+      [ -f "$ap_rf" ] || continue
+      ap_k=$(gate_field "$ap_rf" kind)
+      valid_approval_kind "$ap_k" || continue
+      printf '%s %s\n' "$ap_t" "$ap_k"
+    done
+  done | sort -u | while read -r ap_t ap_k; do
+    sh "$scripts/agent.sh" approve "$ap_t" "$ap_k" 2>/dev/null || :
+  done
+}
 request_approval() {
   rq_id=$1 rq_kind=$2; require_lead; approval_target "$rq_id" "$rq_kind"
   rq_ad=$(approvals_dir "$rq_id"); mkdir -p "$rq_ad"; rq_n=$(next_num "$rq_ad")
@@ -2463,7 +2483,7 @@ next_step() {
       if [ "$ns_k" = single_step ] && [ "$ns_shape" != single_step ]; then continue; fi
       if ! find_approval "$ns_id" "$ns_k" "$ns_ph" >/dev/null; then
         ns_rq=$(latest_request "$ns_id" "$ns_k" 2>/dev/null || true)
-        if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then o "wait for the user's answer, then: agent.sh approve $ns_id $ns_k"
+        if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $ns_id"
         else o "agent.sh request-approval $ns_id $ns_k (relay verbatim)"; fi
         r "$ns_k approval required before freeze"; return 0
       fi
@@ -2759,6 +2779,8 @@ lock_command=yes
 case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
+# approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
+if [ "$command" = approve-pending ]; then lock_command=no; fi
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 if [ "$lock_command" = yes ]; then
   mkdir -p "$agents/local"
@@ -2826,6 +2848,7 @@ case "$command" in
   secret-scan) secret_scan "${2:?usage: agent.sh secret-scan <ID>}" ;;
   request-approval) request_approval "${2:?usage: agent.sh request-approval <ID> <KIND>}" "${3:?usage: agent.sh request-approval <ID> <KIND>}" ;;
   approve) approve "${2:?usage: agent.sh approve <ID> <KIND>}" "${3:?usage: agent.sh approve <ID> <KIND>}" ;;
+  approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) approval_consume "${2:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${3:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${4:-}" ;;
   waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
