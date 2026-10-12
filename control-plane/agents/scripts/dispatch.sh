@@ -262,6 +262,10 @@ attempt() {
     if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
       HOME=$PROOFLINE_CODEX_HOME_DIR CODEX_HOME=$PROOFLINE_CODEX_HOME_DIR/.codex \
         run_timed "$timeout_s" "$log" "$input" "$@"
+    elif [ "$rt" != codex ] && [ -n "${PROOFLINE_REAL_HOME:-}" ]; then
+      # A Codex lead runs with an isolated HOME (the end-to-end harness, A21); a Claude specialist started
+      # from it needs the operator's own HOME and login, or it fails with "not logged in" (failover run).
+      HOME=$PROOFLINE_REAL_HOME run_timed "$timeout_s" "$log" "$input" "$@"
     else
       run_timed "$timeout_s" "$log" "$input" "$@"
     fi) || status=$?; fi
