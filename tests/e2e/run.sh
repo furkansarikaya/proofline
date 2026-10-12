@@ -139,11 +139,10 @@ while [ "$replies" -lt "$max" ]; do
   [ -n "$line" ] || break
   pending=$(cd "$project" && sh .agents/scripts/agent.sh questions "$id" 2>/dev/null || true)
   last=$out/lead-$number.final.txt
-  # The lead stopped for the user: a pending question, a plan approval, or a question list before a run exists
-  # (the task author's). A delivery approval (commit, push) is never answered by the harness.
+  # The lead stopped and the run is not finished: any question, option list or request for a decision gets the
+  # next scripted reply. A delivery approval (commit, push) is never answered by the harness.
   asked=$(printf '%s\n' "$state $pending $(cat "$last")")
-  if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|delivery'; then break; fi
-  if ! printf '%s\n' "$asked" | grep -Eiq 'plan approval|required before freeze|=== QUESTION|approve.*plan|answer.*question|please answer|recommended:|answers? (before|from|to)|\?[[:space:]]*$'; then break; fi
+  if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|delivery|commit it|push it'; then break; fi
   replies=$((replies + 1)); printf '%s\n' "$line" >> "$out/replies.txt"
   number=$((number + 1))
   if [ "$scenario" = FAILOVER ]; then lead=codex; fi
