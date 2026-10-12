@@ -54,6 +54,7 @@ acquire_lock() {
   case " $held_locks " in *" $al_path "*) return 0 ;; esac
   al_timeout=${PROOFLINE_LOCK_TIMEOUT:-120}
   case "$al_timeout" in ''|*[!0-9]*) fail "invalid PROOFLINE_LOCK_TIMEOUT: $al_timeout"; return 1 ;; esac
+  [ -w "$(dirname "$al_path")" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
   al_tries=$((al_timeout * 5)) al_n=0 al_broke=''
   while ! mkdir "$al_path" 2>/dev/null; do
     if [ -f "$al_path/pid" ]; then
