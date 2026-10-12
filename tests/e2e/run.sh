@@ -42,7 +42,7 @@ baseline() {
   git -C "$project" update-ref refs/heads/main "$sha"
 }
 baseline 'chore: baseline'
-(cd "$project" && "$repo/bin/proofline" init --yes --runtimes "$runtimes" --lead "$lead" --worker "$worker" --reviewers "$reviewers" --profile economy --task-adapter markdown) > "$out/install.txt" 2>&1
+(cd "$project" && "$repo/bin/proofline" init --yes --runtimes "$runtimes" --lead "$lead" --worker "$worker" --reviewers "$reviewers" --profile "${E2E_PROFILE:-balanced}" --task-adapter markdown) > "$out/install.txt" 2>&1
 baseline 'chore: install proofline'
 (cd "$project" && "$repo/bin/proofline" doctor) > "$out/doctor.txt" 2>&1 || true
 if [ -f "$HOME/.codex/auth.json" ]; then ln -s "$HOME/.codex/auth.json" "$run/codexhome/.codex/auth.json"; fi
@@ -58,15 +58,15 @@ if [ "$dry" = yes ]; then
   echo "project=$project"
   echo "scenario=$scenario config=$config task=$task"
   echo 'prepared=baseline,install,doctor,codex-isolation'
-  echo "setup: cp -R '$repo/playground/.' '$project/'; git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '$repo/bin/proofline' init --yes --runtimes '$runtimes' --lead '$lead' --worker '$worker' --reviewers '$reviewers' --profile economy --task-adapter markdown; baseline 'chore: install proofline'; '$repo/bin/proofline' doctor"
+  echo "setup: cp -R '$repo/playground/.' '$project/'; git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '$repo/bin/proofline' init --yes --runtimes '$runtimes' --lead '$lead' --worker '$worker' --reviewers '$reviewers' --profile "${E2E_PROFILE:-balanced}" --task-adapter markdown; baseline 'chore: install proofline'; '$repo/bin/proofline' doctor"
   if [ "$lead" = claude ]; then
-    echo "lead: (cd '$project' && claude -p '<whole $task task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${E2E_LEAD_MODEL:-sonnet}' --output-format stream-json --verbose --max-turns '${E2E_MAX_TURNS:-250}') > '$out/lead-1.jsonl' 2> '$out/lead-1.err'"
+    echo "lead: (cd '$project' && claude -p '<whole $task task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${E2E_LEAD_MODEL:-opus}' --output-format stream-json --verbose --max-turns '${E2E_MAX_TURNS:-250}') > '$out/lead-1.jsonl' 2> '$out/lead-1.err'"
   else
     echo "lead: HOME='$run/codexhome' CODEX_HOME='$run/codexhome/.codex' codex exec --dangerously-bypass-hook-trust -C '$project' -s danger-full-access -c 'approval_policy=\"never\"' --json -o '$out/lead-1.last.txt' '<whole $task task file>' > '$out/lead-1.jsonl'"
     echo "lead resume: codex exec resume -c 'sandbox_mode=\"danger-full-access\"' -c 'approval_policy=\"never\"' <thread> <reply>"
   fi
   [ "$scenario" != FAILOVER ] || echo 'failover: poll implementer ledger every 10s; terminate Claude process group; resume under Codex with proofline resume'
-  echo "replies: up to ${E2E_MAX_REPLIES:-3} lines from '$reply_file' when a plan or question stop is pending"
+  echo "replies: up to ${E2E_MAX_REPLIES:-6} lines from '$reply_file' when a plan or question stop is pending"
   echo 'collect: git log/status/diff/branches, runs, metrics, agent status/next/pipeline, final messages, durations, exit codes, database probe'
   echo "doctor=$out/doctor.txt"
   exit 0
@@ -86,10 +86,10 @@ run_lead() { # runtime, number, message, resumed?
   if [ "$runtime" = claude ]; then
     if [ "$resumed" = yes ]; then
       # shellcheck disable=SC2016
-      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --resume "$session" --setting-sources project,local --permission-mode bypassPermissions --model "${E2E_LEAD_MODEL:-sonnet}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --resume "$session" --setting-sources project,local --permission-mode bypassPermissions --model "${E2E_LEAD_MODEL:-opus}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     else
       # shellcheck disable=SC2016
-      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --setting-sources project,local --permission-mode bypassPermissions --model "${E2E_LEAD_MODEL:-sonnet}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --setting-sources project,local --permission-mode bypassPermissions --model "${E2E_LEAD_MODEL:-opus}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     fi
   else
     if [ "$resumed" = yes ]; then
@@ -129,20 +129,28 @@ number=1
 if [ "$scenario" = FAILOVER ] && [ "$killed" = yes ]; then
   number=2; run_lead codex "$number" 'proofline resume' no
 fi
-max=${E2E_MAX_REPLIES:-3}; replies=0
+max=${E2E_MAX_REPLIES:-6}; replies=0
 while [ "$replies" -lt "$max" ]; do
   id=$(cd "$project" && sh .agents/scripts/agent.sh status 2>/dev/null | sed -n 's/^active_task=//p' | head -1)
   case $id in ''|none) id=none ;; esac
   state=$(cd "$project" && sh .agents/scripts/agent.sh next "$id" 2>/dev/null || true)
   printf '%s\n' "$state" | grep -Eiq 'state=(DONE|FAILED|TERMINATED)|run DONE|terminated' && break
-  line=$(sed -n "$((replies + 1))p" "$reply_file")
-  [ -n "$line" ] || break
   pending=$(cd "$project" && sh .agents/scripts/agent.sh questions "$id" 2>/dev/null || true)
   last=$out/lead-$number.final.txt
-  # The lead stopped and the run is not finished: any question, option list or request for a decision gets the
-  # next scripted reply. A delivery approval (commit, push) is never answered by the harness.
-  asked=$(printf '%s\n' "$state $pending $(cat "$last")")
-  if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|delivery|commit it|push it'; then break; fi
+  # Which approval is the run waiting for? `agent.sh next` names it. A plan approval is answered every time it
+  # is asked (a refreeze asks again); a destructive, single_step, scope, budget, commit, push or waive request
+  # is never answered by the harness. Any other stop of the lead (a question) gets the scripted question reply.
+  kind=$(printf '%s\n' "$state" | sed -n 's/.*request-approval [^ ]* \(plan\|destructive\|single_step\|scope\|budget\|commit\|push\|waive:[^ ]*\).*/\1/p; s/^reason=\(plan\|destructive\|single_step\|scope\|budget\|commit\|push\|waive:[^ ]*\) approval.*/\1/p' | head -n 1)
+  qline=$(sed -n 1p "$reply_file"); pline=$(sed -n 2p "$reply_file")
+  case $kind in
+    plan) line=$pline ;;
+    destructive|single_step|scope|budget|commit|push|waive:*) break ;;
+    *)
+      asked=$(printf '%s\n' "$state $pending $(cat "$last")")
+      if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|commit it|push it'; then break; fi
+      line=$qline ;;
+  esac
+  [ -n "$line" ] || break
   replies=$((replies + 1)); printf '%s\n' "$line" >> "$out/replies.txt"
   number=$((number + 1))
   if [ "$scenario" = FAILOVER ]; then lead=codex; fi
