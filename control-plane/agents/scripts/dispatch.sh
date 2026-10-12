@@ -17,7 +17,7 @@
 #   minimum 30). The implementer, and the designer while handoff is IMPLEMENTING, are bracketed by
 #   `agent.sh window-open` / `window-close`; every other role must leave the product tree unchanged. A change
 #   to .git/config (e.g. core.hooksPath) or to HEAD during the step is BLOCKED for every role.
-# 4 the last message is saved as results/dispatch-<NNN>-<role>-<runtime>.md in the run (a log, never parsed);
+# 4 the last message is saved as dispatch/<NNN>-<role>-<runtime>.md in the run (a log, never parsed; results/ holds recorded results only);
 #   the runtime gets PROOFLINE_AGENT (a per-attempt token) and PROOFLINE_FOCUS in its environment, so its
 #   `agent.sh submit` writes .agents/local/submissions/<token>.status. No valid submission: the step is run
 #   once more with the rejection in its prompt, then BLOCKED. The raw runtime log goes to dispatch/.
@@ -170,7 +170,7 @@ claude_result() {
 
 retry_note=''
 subdir=$root/.agents/local/submissions
-seq_n=$(find "$run/results" -name 'dispatch-*' 2>/dev/null | wc -l | tr -d ' '); seq_n=$((seq_n + 1))
+seq_n=$(find "$run/dispatch" -name '*.log' 2>/dev/null | wc -l | tr -d ' '); seq_n=$((seq_n + 1))
 mkdir -p "$run/results" "$run/dispatch"
 work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX"); trap 'rm -rf "$work"' EXIT
 
@@ -203,7 +203,7 @@ attempt() {
   { cat "$ins"; printf '\n=== TASK ===\n'; cat "$work/suffix"; } > "$work/full"
 
   token=d$(printf '%03d' "$seq_n")-$role-$rt
-  out=$run/results/dispatch-$(printf '%03d' "$seq_n")-$role-$rt.md
+  out=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.md
   log=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.log
   seq_n=$((seq_n + 1)); : > "$out"
   # Every role writes its owned artifacts in the run dir; only the implementer, and the designer during

@@ -134,7 +134,7 @@ ck "codex path: .git/worktrees is a writable root (evidence worktrees)" 'grep -q
 ck "codex path: the run folder and .agents/local are writable roots (submit records inside the sandbox)" 'grep -qx -- "$a/runs/T-1" "$loc/codex.argv" && grep -qx -- "$a/local" "$loc/codex.argv"'
 ck "codex path: AGENT_ROLE and stable prefix before task" '[ "$(cat "$loc/codex.role")" = implementer ] && [ "$(head -1 "$loc/codex.stdin")" = "You are the proofline implementer. STABLE-PREFIX-implementer" ] && has "$loc/codex.stdin" "TASK: T-1"'
 ck "implementer bracketed by window-open/window-close" '[ "$(order)" = "decide window-open submit AGENT_ROLE=implementer window-close " ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 0"'
-ck "the specialist's own submit is the record; the final message is only a log under results/" 'has "$loc/recorded.md" "role=implementer result=DONE" && has "$loc/recorded.md" "token=d001-implementer-codex" && printf "%s" "$out" | grep -q "^submitted: T-1 implementer DONE" && ls "$a/runs/T-1/results/" | grep -q "^dispatch-001-implementer-codex.md$"'
+ck "the specialist's own submit is the record; the final message is only a log under dispatch/" 'has "$loc/recorded.md" "role=implementer result=DONE" && has "$loc/recorded.md" "token=d001-implementer-codex" && printf "%s" "$out" | grep -q "^submitted: T-1 implementer DONE" && ls "$a/runs/T-1/dispatch/" | grep -q "^001-implementer-codex.md$" && ! ls "$a/runs/T-1/results/" | grep -q "^dispatch-"'
 
 reset; d PROOFLINE_CODEX_HOME_DIR="$tmp/isolated-home" T-1 implementer
 ck "codex uses isolated HOME and CODEX_HOME" '[ "$rc" -eq 0 ] && [ "$(cat "$loc/codex.home")" = "$tmp/isolated-home" ] && [ "$(cat "$loc/codex.codex_home")" = "$tmp/isolated-home/.codex" ]'
@@ -205,7 +205,7 @@ reset; dd if=/dev/zero bs=1000 count=60 2>/dev/null | tr '\0' x > "$tmp/big"; d 
 ck "prompt over the context budget is BLOCKED, not truncated" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ]'
 
 reset; d T-1 reviewer --runtime mycli
-ck "command_template runtime (D8)" '[ "$rc" -eq 0 ] && has "$a/runs/T-1/results/dispatch-001-reviewer-mycli.md" "model=m2" && [ "$(sed -n 2p "$a/runs/T-1/results/dispatch-001-reviewer-mycli.md")" = 1 ]'
+ck "command_template runtime (D8)" '[ "$rc" -eq 0 ] && has "$a/runs/T-1/dispatch/001-reviewer-mycli.md" "model=m2" && [ "$(sed -n 2p "$a/runs/T-1/dispatch/001-reviewer-mycli.md")" = 1 ]'
 
 reset; d FAKE_CODEX=nosubmit T-1 reviewer --runtime codex
 ck "a final message with a header is never recorded: rerun once, then BLOCKED" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q "no valid submission" && [ "$(grep -c "^decide" "$loc/calls.log")" -eq 2 ] && has "$loc/ledger.log" "dispatch resubmit role=reviewer"'

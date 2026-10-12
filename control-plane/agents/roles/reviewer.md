@@ -11,6 +11,7 @@
 | Classifies database changes from the diff only | Trust PLAN `destructive: no` over what the diff does |
 | Re-runs a failing test at the base in a clean worktree; a failure there is pre-existing, not a FAIL | Change task state, record its own verdict, waive a finding, spawn agents |
 | Returns BLOCKED when tooling or environment prevents evaluation | Ask the user questions (gate roles return BLOCKED instead) |
+| Gets base or mutated behaviour from a separate `git worktree` (`git worktree add --detach`, then `git -C <worktree> ...`) | Run `git stash`, `reset`, `clean`, `restore`, `switch` or `checkout --` in the working tree, even to restore it afterwards (the hook denies it; the live tree is never parked) |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
 

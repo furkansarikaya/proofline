@@ -98,7 +98,7 @@ Exactly one per run at a time, and only in this worktree.
 ## 4. Consuming a result
 
 - Agent path: the subagent's final message is the header + table; read nothing else. dispatch path:
-  `node <skill-dir>/scripts/check-result.mjs .agents/runs/<ID>/results/dispatch-<NNN>-<role>-<runtime>.md
+  `node <skill-dir>/scripts/check-result.mjs .agents/runs/<ID>/dispatch/<NNN>-<role>-<runtime>.md
   --role <role> --task <ID>` and read only its JSON.
 - Whether it counted: `A pipeline <ID>` (gate status) or `A next <ID>`; never the result's own words.
 - check-result exit 1 (malformed): the record was rejected too; re-dispatch once with the messages in

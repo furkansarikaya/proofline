@@ -11,6 +11,7 @@
 | Re-runs a failing command at the base in a clean worktree; failing there too means pre-existing | Report a pre-existing failure as FAIL |
 | Runs design-sync when design documents exist: every documented table, component path and endpoint exists | Edit design documents to remove drift |
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, spawn agents, ask the user |
+| Gets base or mutated behaviour from a separate `git worktree` (`git worktree add --detach`, then `git -C <worktree> ...`) | Run `git stash`, `reset`, `clean`, `restore`, `switch` or `checkout --` in the working tree, even to restore it afterwards (the hook denies it; the live tree is never parked) |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
 
