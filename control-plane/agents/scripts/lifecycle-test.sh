@@ -318,6 +318,19 @@ scenario_pipeline_trivial() {
   ok "TRIVIAL pipeline"
 }
 
+# A31: the class is a claim, the diff the fact: a TRIVIAL run that changes executable code is reclassified.
+scenario_classification_diff() {
+  scaffold standalone no TRIVIAL manual
+  awk '/^  - path: impl.txt$/ { print "  - path: app.go"; print "    new: true"; next } { print }' .agents/runs/LC/PLAN.md > "$base/plan" && cp "$base/plan" .agents/runs/LC/PLAN.md
+  A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  solo RED fail impl_test.txt 'test: lookup returns the stored value' app.go,impl_test.txt
+  solo GREEN pass app.go 'package x' app.go,impl_test.txt
+  expect_msg "a TRIVIAL run with an executable code change reached IMPLEMENTED" 'is TRIVIAL but its diff changes executable code: app.go' A handoff LC IMPLEMENTED
+  expect_msg "the message names the way out" "agent.sh classify LC STANDARD" A handoff LC IMPLEMENTED
+  expect_state handoff state IMPLEMENTING
+  ok "classification check: TRIVIAL + executable code blocks IMPLEMENTED, with the way out named"
+}
+
 # STANDARD: evidence + frozen QA plan; QA gate; review only by opt-in or by the diff's tier.
 scenario_pipeline_standard() {
   scaffold standalone no STANDARD
@@ -555,6 +568,7 @@ run_sc scenario_fix_scope_format
 run_sc scenario_amendment_fresh_budget
 run_sc scenario_terminal
 run_sc scenario_pipeline_trivial
+run_sc scenario_classification_diff
 run_sc scenario_pipeline_standard
 run_sc scenario_classification
 run_sc scenario_amend_plan_change
