@@ -3,7 +3,7 @@
 # The foundation stays agent.sh and the git hooks; this script never decides a gate, it only blocks tool
 # calls early and feeds agent.sh. Normative description: docs/concepts/enforcement-layers.md.
 #
-#   proofline-hook.sh <pretool|posttool|subagent-start|subagent-stop|prompt|session> [claude|codex]
+#   proofline-hook.sh <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]
 #
 # stdin: the runtime's hook JSON. JSON is read with jq, else node (PROOFLINE_JSON=jq|node|none overrides,
 # for tests). Unparsable input while a run is active: PreToolUse denies (fail closed); everything else and
@@ -673,6 +673,33 @@ prompt)
   case "$act" in INVALID) ;; *) (unset AGENT_ROLE; sh "$agent" approve-pending "$act" >/dev/null 2>&1) || : ;; esac
   exit 0 ;;
 
+stop)
+  # The final report to the user carries the run's state, class and gate names verbatim (A44, TR-2): they are
+  # identifiers, never translated. Checked once per reporting state; a rewrite that carries them satisfies it,
+  # and a second stop (stop_hook_active) is always accepted.
+  [ "$parsed" = yes ] && [ "$sub" = no ] && [ "$role" = lead ] || exit 0
+  [ -n "$act" ] && [ "$act" != INVALID ] || exit 0
+  need=$(unset AGENT_ROLE; sh "$agent" report-tokens "$act" 2>/dev/null) || exit 0
+  [ -n "$need" ] || exit 0
+  msg=$(jget last_assistant_message)
+  if [ -z "$msg" ]; then
+    tp=$(jget transcript_path)
+    if [ -n "$tp" ] && [ -f "$tp" ] && command -v jq >/dev/null 2>&1; then
+      msg=$(jq -rs '[.[] | select(.type == "assistant")] | last | .message.content | if type == "array" then map(select(.type == "text") | .text) | join("\n") else . end' "$tp" 2>/dev/null) || msg=''
+    fi
+  fi
+  [ -n "$msg" ] || exit 0
+  state=$(printf '%s\n' "$need" | head -n 1)
+  mkdir -p "$local_dir/report-check" 2>/dev/null || exit 0
+  mark=$local_dir/report-check/$act.$state
+  [ ! -f "$mark" ] || exit 0
+  missing=''
+  for tk in $need; do printf '%s' "$msg" | grep -Fq -- "$tk" || missing="$missing $tk"; done
+  if [ -z "$missing" ]; then : > "$mark"; exit 0; fi
+  [ "$(jget stop_hook_active)" != true ] || exit 0
+  printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: the final report must carry these identifiers verbatim, untranslated, in any language:$missing. Gate names, the class, the state and result values are never translated; write the prose around them in the user's language, or paste the lines of 'agent.sh summary $act'. Then finish.")"
+  exit 0 ;;
+
 session)
   [ "$role" = lead ] && [ "$sub" = no ] || exit 0
   case "$rt" in
@@ -684,5 +711,5 @@ session)
   else nxt="no active run: start one with the proofline-lead skill"; fi
   ctx SessionStart "proofline installed; you are the lead; use the proofline-lead skill ($skill); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}" ;;
 
-*) echo "usage: proofline-hook.sh <pretool|posttool|subagent-start|subagent-stop|prompt|session> [claude|codex]" >&2; exit 0 ;;
+*) echo "usage: proofline-hook.sh <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]" >&2; exit 0 ;;
 esac
