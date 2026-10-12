@@ -113,7 +113,7 @@ mkcfg() { # FAILOVER [CODEX-LADDER]
           -e "s/^      models: gpt-6-luna gpt-6-sol gpt-6-astra\$/      models: ${2:-gpt-6-luna gpt-6-sol gpt-6-astra}/" > "$a/config.yaml"
   printf 'execution_policy:\n  providers:\n    mycli:\n      models: m1 m2 m3\n      efforts: low medium high\n' >> "$a/config.yaml"
 }
-reset() { rm -rf "$loc"/*; rm -rf "$a/runs/T-1/results" "$a/runs/T-1/dispatch"; }
+reset() { rm -rf "${loc:?}"/*; rm -rf "$a/runs/T-1/results" "$a/runs/T-1/dispatch"; }
 # d [VAR=VALUE]... ARGS... (leading assignments apply to this call only)
 d() {
   d_env=''; while [ $# -gt 0 ]; do case "$1" in [A-Z]*=*) d_env="$d_env $1"; shift ;; *) break ;; esac; done

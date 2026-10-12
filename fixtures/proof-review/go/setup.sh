@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 usage() { echo "usage: bash setup.sh <target-dir> [--working-tree]" >&2; exit 2; }
 [ $# -ge 1 ] && [ $# -le 2 ] || usage
@@ -24,12 +24,11 @@ git config core.autocrlf false
 
 # $1 = ISO date, message read from stdin
 do_commit() {
-  local msgfile
-  msgfile=$(mktemp "${TMPDIR:-/tmp}/fixture-msg.XXXXXX")
-  cat > "$msgfile"
+  dc_msgfile=$(mktemp "${TMPDIR:-/tmp}/fixture-msg.XXXXXX")
+  cat > "$dc_msgfile"
   git add -A
-  GIT_AUTHOR_DATE=$1 GIT_COMMITTER_DATE=$1 git commit -q -F "$msgfile"
-  rm -f "$msgfile"
+  GIT_AUTHOR_DATE=$1 GIT_COMMITTER_DATE=$1 git commit -q -F "$dc_msgfile"
+  rm -f "$dc_msgfile"
 }
 
 # --- base files ---

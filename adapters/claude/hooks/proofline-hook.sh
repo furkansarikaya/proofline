@@ -433,9 +433,10 @@ scratch_path() {
 # db_is_path TOKEN: does TOKEN name a database file (config database.paths)?
 db_is_path() {
   for dp_g in $db_paths; do
+    # shellcheck disable=SC2254 # config database.paths entries are glob patterns on purpose
     case "$dp_g" in
       */*) case "$1" in $dp_g|*/$dp_g) return 0 ;; esac ;;
-      *) case "${1##*/}" in $dp_g) return 0 ;; esac ;;
+      *)case "${1##*/}" in $dp_g) return 0 ;; esac ;;
     esac
   done
   return 1
@@ -524,6 +525,7 @@ scratch_guard() {
     sg_k=${sg_rec%%"$TAB"*}; sg_v=$(printf '%s' "${sg_rec#*"$TAB"}" | tr '\002' '\n')
     case "$sg_k" in
       W)
+        # shellcheck disable=SC2016 # literal $TMPDIR in the command text
         case "$sg_v" in '$TMPDIR'/*|'${TMPDIR}'/*) sg_v=$sg_t/${sg_v#*/} ;; esac
         sg_n=${sg_v#/private}
         case "$sg_n" in

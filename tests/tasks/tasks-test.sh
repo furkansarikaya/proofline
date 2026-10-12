@@ -262,7 +262,13 @@ gh_reset; : > "$fx/argv.log"
 GH_AUTH_RC=1 sh $GHS publish GH-42 "$base/grep.md" 2> "$base/err" && die "publish ran unauthenticated"
 grep -Fq 'not authenticated' "$base/err" || die "no auth message: $(cat "$base/err")"
 grep -Fq 'issue comment' "$fx/argv.log" && die "unauthenticated run still commented"
-mkdir -p "$base/nogh"; PATH=$base/nogh:/usr/bin:/bin; sh $GHS import 42 "$base/x.md" 2> "$base/err" && die "ran without gh"
+# A PATH with the basic tools and no gh at all (a CI runner has an unauthenticated gh in /usr/bin).
+mkdir -p "$base/nogh"
+for nogh_t in sh awk sed grep cat tr date mktemp rm mkdir printf dirname basename sort head tail cut env wc mv cp ls find uniq expr test git; do
+  nogh_p=$(PATH=$PATH_ORIG command -v "$nogh_t" 2>/dev/null) && [ -x "$nogh_p" ] && ln -sf "$nogh_p" "$base/nogh/$nogh_t"
+done
+# shellcheck disable=SC2123 # the point is a PATH without gh
+PATH=$base/nogh; sh $GHS import 42 "$base/x.md" 2> "$base/err" && die "ran without gh"
 grep -Fq 'gh CLI is not installed' "$base/err" || die "no missing-gh message: $(cat "$base/err")"
 PATH=$PATH_ORIG; PATH=$fb:$PATH
 if grep -Eq 'GH_TOKEN|GITHUB_TOKEN|hosts\.yml|auth token' .agents/task-integrations/github.sh .agents/task-integrations/_lib.sh; then die "github adapter touches tokens"; fi

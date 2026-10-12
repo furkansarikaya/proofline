@@ -15,6 +15,7 @@ here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
 pl_name='github adapter'
 # shellcheck source=_lib.sh
+# shellcheck source-path=SCRIPTDIR
 . "$here/_lib.sh"
 
 op=${1:-}
