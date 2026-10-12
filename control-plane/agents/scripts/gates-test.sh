@@ -672,7 +672,15 @@ STANDARD — behavioural bug fix in one module with tests.' scaffold orchestrate
   expect_msg "a defect named only in Suggested class needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
   mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
   A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED"
-  ok "defect words are read from the title, Goal, Context and Suggested class; reports/NNN-debug.md unblocks IMPLEMENTED"
+  ok "a bug named in Suggested class needs reports/NNN-debug.md, which unblocks IMPLEMENTED"
+  # a defect word in the Suggested class prose is not a defect task ("its own step drops nothing")
+  SC_TASK_EXTRA='
+## Suggested class
+
+CRITICAL — the first step is additive and its own step drops nothing.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a defect word in Suggested class prose blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
+  ok "a defect word inside Suggested class prose does not make a task a defect fix"
 }
 sc_start() {
   new_repo; RID=ST-1

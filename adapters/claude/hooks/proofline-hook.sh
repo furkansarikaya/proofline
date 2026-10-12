@@ -400,8 +400,8 @@ stray_tmp_path() {
   return 0
 }
 
-# --- database guard (A40) ---------------------------------------------------------------------
-# While a run is open no agent (lead included) reads, copies, queries or writes a database file, runs a SQL
+# --- database guard (A40, A50) -----------------------------------------------------------------
+# Whenever proofline is installed (a run open or not: a task author or an explorer works before any run) no agent (lead included) reads, copies, queries or writes a database file, runs a SQL
 # client against one, or runs a migration/seed command; destructive steps run in no environment before the
 # user's approval. The only database an agent may meet is a test suite's own throwaway database: in memory or a
 # scratch file under $TMPDIR/tmp outside the project. Paths, clients and migrate commands come from the config
@@ -531,8 +531,9 @@ pretool)
         W) ! always_protected "$(relpath "$v")" || deny "the command writes '$v', which wires the git hooks; it is never changed by an agent (git hook bypass)" ;;
       esac
     done < "$tmp/scan"
-    [ -n "$act" ] || exit 0
+    # The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
     db_guard_cmd "$cmd"
+    [ -n "$act" ] || exit 0
     has_role=no; grep -q "^R$TAB" "$tmp/scan" && has_role=yes
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
@@ -590,7 +591,6 @@ pretool)
       jget tool_input | grep -Eo '\*\*\* (Add|Update|Delete) File: [^\\"]+|\*\*\* Move to: [^\\"]+' | sed 's/^\*\*\* [A-Za-z ]*: //' > "$tmp/targets" || : ;;
   esac
   while IFS= read -r tg; do ! always_protected "$(relpath "$tg")" || deny "$tool $tg wires the git hooks; it is never changed by an agent"; done < "$tmp/targets"
-  [ -n "$act" ] || exit 0
   case "$tool" in
     Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|*[Pp]atch*)
       db_load; set -f
@@ -598,6 +598,7 @@ pretool)
       while IFS= read -r tg; do [ -z "$tg" ] || db_check_token "$tg" "$tool"; done < "$tmp/dbt"
       set +f ;;
   esac
+  [ -n "$act" ] || exit 0
   while IFS= read -r tg; do why=$(target_ok "$tg") || deny "$tool $tg: $why"; done < "$tmp/targets"
   exit 0 ;;
 
