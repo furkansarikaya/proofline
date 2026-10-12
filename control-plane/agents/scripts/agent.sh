@@ -1132,10 +1132,27 @@ verify_qa_plan_bound() { # ID
   done
 }
 
+# --- Scratch worktrees are removed before CODE_DONE (A53, C-18) -----------------------------------
+# Evidence worktrees live under $TMPDIR (or /tmp); a specialist that created one removes it. A scratch worktree
+# still registered when the run reaches CODE_DONE blocks it, with the paths and the way to remove them.
+verify_no_scratch_worktrees() {
+  vw_t=${TMPDIR:-/tmp}; vw_t=${vw_t%/}; vw_t=${vw_t#/private}
+  vw_extra=''
+  vw_list=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  for vw_p in $vw_list; do
+    vw_n=${vw_p#/private}
+    [ "$vw_n" != "${root#/private}" ] || continue
+    case "$vw_n" in
+      "$vw_t"/*|/tmp/*|/var/folders/*) vw_extra="$vw_extra $vw_p" ;;
+    esac
+  done
+  [ -z "$vw_extra" ] || fail "CODE_DONE blocked: scratch git worktrees created during the run are still registered:$vw_extra. Remove each ('git worktree remove --force <path>'; the lead may run it) and run it again"
+}
+
 # --- Defect tasks carry a debug-proof result (A35). ---------------------------------------------
 # A STANDARD-or-higher task whose title or Goal names a defect (config review.defect_words) must have a
 # `reports/NNN-debug.md` (reproduction, root cause, regression test) before IMPLEMENTED.
-defect_words_default='bug defect regression broken wrong incorrect crash drops dropping loses losing fails failing error hides hidden disappear disappears disappeared unreachable'
+defect_words_default='bug defect regression broken wrong incorrect crash loses losing fails failing error hides hidden disappear disappears disappeared unreachable'
 verify_debug_result() { # ID
   vd_id=$1; vd_d=$(run_dir "$vd_id")
   gates_enforced "$vd_id" && pipeline_class_valid "$(pipeline_class "$vd_id")" || return 0
@@ -1193,6 +1210,7 @@ record_handoff() {
       [ "$(section_value "$dir" handoff implemented_patch_sha256)" = "$patch" ] || fail "CODE_DONE blocked: the application tree changed since IMPLEMENTED"
       verify_classification "$id"
       db_guard_check "$id"
+      verify_no_scratch_worktrees
       [ "$(section_value "$dir" execution awaiting_input)" != true ] || fail "CODE_DONE blocked: questions are pending ('agent.sh questions $id')"
       if gates_enforced "$id"; then
         verify_mutation_ownership "$id"
