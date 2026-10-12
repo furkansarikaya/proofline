@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Validates a tdd-proof tdd.json (see ../schema/tdd.schema.json).
-// Usage: node validate-tdd.mjs <tdd.json | result.md> [--scope <path,path,...>]
+// Usage: node validate-tdd.mjs <tdd.json | result.md> [--scope <path[:AC-1+AC-2],path,...>]
+// One cycle per behaviour: a path may have several cycles, one for each acceptance criterion it carries. With
+// `path:AC-1+AC-2` in --scope every listed criterion must have its own cycle at that path.
 // A .md input is read through its first ```json fenced block (team mode embeds the ledger in the result file).
 // Exit: 0 valid, 1 invalid, 2 usage/read error. No dependencies.
 import { readFileSync } from "node:fs";
@@ -15,7 +17,9 @@ const STOCK = /^(test (fails?|failed)|not implemented|fails as expected|assertio
 export const specific = (s) => isStr(s) && s.trim().length >= 20 && !STOCK.test(s.trim());
 const KEYS = ["schema_version", "mode", "task", "cycles", "exemptions"];
 
-export function validate(doc, { scope = null } = {}) {
+const acsOf = (s) => (isStr(s) ? (s.match(/AC-\d+/g) || [s.trim()]) : []);
+
+export function validate(doc, { scope = null, criteria = null } = {}) {
   const errors = [];
   const err = (p, m) => errors.push(`${p}: ${m}`);
   if (!isObj(doc)) return ["$: expected object"];
@@ -25,6 +29,7 @@ export function validate(doc, { scope = null } = {}) {
   if (!["team", "standalone"].includes(doc.mode)) err("$.mode", "must be team or standalone");
   if (!isStr(doc.task)) err("$.task", "expected non-empty string");
   const covered = new Set();
+  const proved = new Map();   // path -> Set of criteria with a cycle
   const cycles = Array.isArray(doc.cycles) ? doc.cycles : (err("$.cycles", "expected array"), []);
   const num = (v) => Number.isInteger(v);
 
@@ -32,8 +37,16 @@ export function validate(doc, { scope = null } = {}) {
     const p = `$.cycles[${i}]`;
     if (!isObj(c)) return err(p, "expected object");
     if (!safeRel(c.path)) err(`${p}.path`, "expected repo-relative path without ..");
-    else if (covered.has(c.path)) err(`${p}.path`, `duplicate cycle for ${c.path}`);
-    else covered.add(c.path);
+    else {
+      const seen = proved.get(c.path) || new Set();
+      const mine = acsOf(c.criterion);
+      const dup = mine.find((a) => seen.has(a));
+      if (dup !== undefined) err(`${p}.criterion`, `duplicate cycle for ${c.path} and ${dup}: one cycle per criterion`);
+      if (seen.size && !mine.length) err(`${p}.criterion`, `a second cycle for ${c.path} must name its own criterion`);
+      mine.forEach((a) => seen.add(a));
+      proved.set(c.path, seen);
+      covered.add(c.path);
+    }
     if (!isStr(c.criterion)) err(`${p}.criterion`, "name the acceptance criterion this cycle proves");
     if (!isObj(c.test) || !isStr(c.test.file) || !isStr(c.test.name)) err(`${p}.test`, "expected {file, name}");
 
@@ -88,6 +101,12 @@ export function validate(doc, { scope = null } = {}) {
     for (const s of scope) if (!covered.has(s)) err("$.cycles", `scope path ${s} has neither a cycle nor an exemption`);
     for (const c of covered) if (!scope.includes(c)) err("$.cycles", `${c} is outside the scope`);
   }
+  if (criteria) {
+    for (const [path, acs] of criteria) {
+      if (!proved.has(path)) continue;   // exempt or missing paths are reported above
+      for (const a of acs) if (!proved.get(path).has(a)) err("$.cycles", `${path} carries ${a} but no cycle proves it: one cycle per criterion`);
+    }
+  }
   return errors;
 }
 
@@ -102,11 +121,13 @@ export function loadDoc(file) {
 const main = () => {
   const args = process.argv.slice(2);
   const i = args.indexOf("--scope");
-  const scope = i >= 0 ? args.splice(i, 2)[1].split(",").map((s) => s.trim()).filter(Boolean) : null;
-  if (args.length !== 1) { console.error("usage: validate-tdd.mjs <tdd.json|result.md> [--scope <path,path,...>]"); process.exit(2); }
+  const entries = i >= 0 ? args.splice(i, 2)[1].split(",").map((s) => s.trim()).filter(Boolean) : null;
+  const scope = entries ? entries.map((e) => e.replace(/:AC-.*$/, "")) : null;
+  const criteria = entries ? new Map(entries.filter((e) => /:AC-/.test(e)).map((e) => [e.replace(/:AC-.*$/, ""), e.replace(/^.*?:(?=AC-)/, "").split("+").filter(Boolean)])) : null;
+  if (args.length !== 1) { console.error("usage: validate-tdd.mjs <tdd.json|result.md> [--scope <path[:AC-1+AC-2],path,...>]"); process.exit(2); }
   let doc;
   try { doc = loadDoc(args[0]); } catch (e) { console.error(`cannot read JSON: ${e.message}`); process.exit(2); }
-  const errors = validate(doc, { scope });
+  const errors = validate(doc, { scope, criteria });
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
   console.log("valid");
 };

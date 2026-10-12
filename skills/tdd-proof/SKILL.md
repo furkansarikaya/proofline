@@ -43,7 +43,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
 
 1. **Scope.** Read the assignment: scope paths with criteria, exemptions, verification commands. Discover the exact single-test command ([RED.md](references/RED.md#2-run-one-test)) and measure its duration (timeout = 3x, at least 30 seconds). Copy [ledger-template.md](assets/ledger-template.md).
 2. **Baseline.** Run the suite once untouched; record exit code. Pre-existing failures are listed, never fixed, and excluded from "nothing else broke" by name.
-3. **For each non-exempt scope path, one cycle:**
+3. **For each non-exempt scope path and each acceptance criterion the plan maps to it, one cycle** (a path with two criteria gets two cycles, each with its own test and criterion):
    1. Write the test for the criterion. Stub the unit if needed to compile ([RED.md](references/RED.md#3-stub-first)).
    2. Run it; classify the output (`node <skill-dir>/scripts/classify-red.mjs`). Not `assertion` -> fix the cause and re-run; never record it as RED. Record RED.
    3. Implement the minimum production change.
@@ -51,7 +51,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
    5. Hollow check in a worktree ([HOLLOW.md](references/HOLLOW.md)). Passing test there -> back to 3.1.
    6. Record GREEN. Optionally refactor with the suite green and record REFACTOR.
 4. **Ledger and `tdd.json`** ([schema](schema/tdd.schema.json)) are written per cycle, before the next cycle starts.
-5. **Validate.** `node <skill-dir>/scripts/validate-tdd.mjs <tdd.json> --scope <path,path,...>`; exit 0 required. Without Node, check [RED.md](references/RED.md#5-validation-rules) by hand and say so.
+5. **Validate.** `node <skill-dir>/scripts/validate-tdd.mjs <tdd.json> --scope <path:AC-1+AC-2,path,...>` (criteria after the path, from the plan's scope); exit 0 required. Without Node, check [RED.md](references/RED.md#5-validation-rules) by hand and say so.
 6. **Clean up** the worktree (path recorded before use; removed on resume), verify the user's tree holds only scope changes.
 7. **Report.** Per path: test, RED reason (one line), GREEN command, hollow-check result, refactor note. Final question or the result header.
 
