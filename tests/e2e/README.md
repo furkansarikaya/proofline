@@ -20,6 +20,37 @@ For each of TRIVIAL, STANDARD, STANDARD.tr, COMPLEX, and CRITICAL, run all three
 
 Each run prints its directory and writes `out/summary.txt`, lead transcripts and final messages, Git snapshots, agent state, runs, metrics, and a read-only database probe. The reply files allow plan approval only. The harness never answers a destructive, commit, push, scope, or waiver request. The `out/` directory is the evaluator input; use `tests/e2e/evaluate.md` with `expected/COMMON.md`, the scenario file, `FACTS.md`, and `RUNTIME_MATRIX.md`.
 
+## Results after the A40-A53 rounds (2026-10-12, final)
+
+Claude configuration, `--profile economy`, lead model Sonnet, copies of `playground/` outside the repository,
+installed with `proofline init`, run headless; evaluators were separate Sonnet sessions that never saw the runner,
+scoring every item strictly as written. Fixes between rounds are decisions A40-A53 (`docs/decisions.md`); no
+EXPECTED file was changed. Cells are `met/applicable`. A round whose evaluator was not given is marked `-`.
+
+| Scenario | R1 | R2 | R3 | R4 | R5 | R6 | R7 | Verdict | What still fails in the last round |
+|---|---|---|---|---|---|---|---|---|---|
+| TRIVIAL | 40/40 | - | - | 46/46 | - | 43/43 | 41/41 | **PASS** (four runs, all green) | - |
+| STANDARD.tr | 42/42 | - | - | 42/44 | - | 43/44 | 45/46 | PASS in R1; fixed items since (push in the report, A51) | C-18 scratch files under `$TMPDIR` (user decision, below) |
+| STANDARD | 34/36 | 45/49 | - | 35/36 | - | 33/36 | 36/37 | FAIL | C-18: a QA worktree was left behind (fixed afterwards: CODE_DONE is blocked while a scratch worktree exists, A53) and scratch files (user decision) |
+| COMPLEX | - (harness) | 50/64 | - | 37/43 | - | 46/50 | 31/39 | FAIL | R7: REVIEW_PLAN/RULES/TESTS and QA failed on real findings (tag-filter listener registered per load), the fix round needed a second plan approval the harness does not grant; one `book_tags` table instead of tag + join tables (X-5); paginate fixed without a `scope` approval (X-13) |
+| CRITICAL | 28/35 | 27/35 | 27/35 | - (harness) | 24/35 | 31/35 | 24/35 | FAIL | K-3, K-6, K-7, K-8, K-14, C-14: the plan keeps the drop out (`destructive: no`), so there is no destructive stop (user decision, below). **K-9 and K-13 (no database touched, no migration run) were met in every evaluated round from R5 on; after A50 and A52 no agent opened, queried, copied or ran destructive SQL on any database.** |
+
+| Configuration | Result |
+|---|---|
+| Codex-only TRIVIAL | 36/38: C-9 dispatch logs in `results/` (fixed, A48), M-4 read-only roles run `workspace-write` (user decision) |
+| Codex-only STANDARD, STANDARD.tr, COMPLEX, CRITICAL | not tested: the Codex usage limit ended the runs (four concurrent runs consumed it) |
+| Mixed (Claude lead + Codex worker), all five | not tested (Codex usage limit) |
+| FAILOVER (Claude to Codex) | not tested (Codex usage limit); the isolated-HOME problem is fixed (A46) and covered by a dispatch test |
+
+### Items that wait for a user decision (EXPECTED contradicts a stated design)
+
+1. **CRITICAL K-3/K-6/K-7/K-8/K-12/K-14, C-14.** `data-design` (rule 2, `validate-data.mjs` D08, its test) makes a plan whose only destructive step is `deferred` `destructive: no`, so no destructive stop exists; EXPECTED requires `destructive: yes` and a stop before IMPLEMENT for that plan. Choose (a) any destructive step in any phase makes the plan `destructive: yes` (the rule and its test change) or (b) relax those items. Decision A48.
+2. **COMMON C-18.** EXPECTED allows `$TMPDIR` worktrees only; the roles' scratch rule (A36) puts scratch files under `$TMPDIR`. Choose which one changes.
+3. **COMMON C-9 (gate records).** Gate records are YAML with the recorded result file carrying the D12 header; EXPECTED asks for the header in the record. Evaluators differed.
+4. **STANDARD S-6.** `results/NNN-debug.md` versus `reports/NNN-debug.md` (A35 keeps `results/` for recorded results, C-9).
+5. **Runtime matrix M-4.** Read-only roles under Codex: A13 gives every artifact-writing role `workspace-write` and checks the product tree by fingerprint.
+6. **COMPLEX X-13.** A scope-change question answered by the user is recorded as an answer, not as a `scope` approval kind (that kind is for amendments that add paths).
+
 ## Results after the deterministic-submission rounds (2026-10-12)
 
 Claude configuration, `--profile economy`, lead model Sonnet, copies of `playground/` outside the repository,
