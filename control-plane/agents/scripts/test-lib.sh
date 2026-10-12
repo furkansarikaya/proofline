@@ -15,7 +15,15 @@ trap 'chmod -R u+w "$base" 2>/dev/null; rm -rf "$base"' EXIT
 RID=LC
 
 if command -v shasum >/dev/null 2>&1; then tsha() { shasum -a 256 "$1" | awk '{print $1}'; }; else tsha() { sha256sum "$1" | awk '{print $1}'; }; fi
-A() { sh ./.agents/scripts/agent.sh "$@"; }
+# qa_bind ID: derive the QA plan's "Plan sha256" line from the current PLAN.md, as the qa role does (A42).
+# A() does it before freeze and refreeze; QA_NO_BIND=1 leaves the plan as the test wrote it.
+qa_bind() {
+  qb_q=.agents/runs/$1/QA_PLAN.md; qb_p=.agents/runs/$1/PLAN.md
+  [ -f "$qb_q" ] && [ -f "$qb_p" ] || return 0
+  qb_h=$(tsha "$qb_p")
+  { sed -n 1p "$qb_q"; printf '\nPlan sha256: %s\n' "$qb_h"; sed '1d' "$qb_q" | grep -v '^Plan sha256: '; } > "$qb_q.tmp" && mv "$qb_q.tmp" "$qb_q"
+}
+A() { case "${1:-}" in freeze|refreeze) [ -n "${QA_NO_BIND:-}" ] || qa_bind "${2:-}" ;; esac; sh ./.agents/scripts/agent.sh "$@"; }
 AS() { as_r=$1; shift; AGENT_ROLE=$as_r sh ./.agents/scripts/agent.sh "$@"; }
 ok() { printf 'ok %s\n' "$1"; }
 die() { echo "FAIL: $*" >&2; exit 1; }

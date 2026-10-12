@@ -210,6 +210,8 @@ printf '# QA plan\n\n- QA-1 (AC-1): lookup("") returns null\n- QA-2 (AC-2): a st
   printf '%s\n' '## Behavior' '' '- AC-1: `src/lookup.js:lookup` returns null for ""' '' '## Tests' '' '- AC-1: `test/lookup.test.js` "empty key"' '' \
     '## Verification commands' '' '- `npm test`' '' '## Dependencies' '' 'none' '' '## Contracts' '' 'none'
 } > "$D/PLAN.md"
+# The QA plan is derived from the final PLAN.md and cites its hash (A42).
+{ sed -n 1p "$D/QA_PLAN.md"; printf '\nPlan sha256: %s\n' "$(sha "$D/PLAN.md")"; sed '1d' "$D/QA_PLAN.md"; } > "$D/QA_PLAN.md.tmp" && mv "$D/QA_PLAN.md.tmp" "$D/QA_PLAN.md"
 
 if [ "$STATE" = destructive-approval ]; then
   grant plan 'I approve the plan'

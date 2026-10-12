@@ -1,5 +1,7 @@
 # QA plan: <TASK-ID>
 
+Plan sha256: <plan hash>
+
 ## Acceptance scenarios
 
 - QA-1 (AC-1): <behaviour from the criterion>

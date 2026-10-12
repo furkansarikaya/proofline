@@ -185,3 +185,29 @@ test("report: manual scenario cannot be reported run; auto cannot be not-run (ma
   assert.match(e(MAN, "- QA-1: FAIL — a\n- QA-2: not-run (manual) — human\n- QA-3: PASS — c", { verdict: "PASS", failures: "QA-1" }), /contradicts the gate rule/);
   assert.match(e(MAN, "- QA-1: PASS — a\n- QA-2: not-run (manual) — human\n- QA-3: BLOCKED — no db", { verdict: "PASS", failures: "QA-3" }), /contradicts the gate rule/);
 });
+
+// A42: the QA plan is bound to the final PLAN.md.
+const PLAN_MD = "---\nscope:\n  - path: src/a.js\n    criteria: [AC-1, AC-2]\n---\n# Plan: T-1\n\n## Behavior\n\n- AC-1: a\n- AC-2: b\n\n## Contracts\n\nnone\n";
+const bound = (plan, body) => `# QA plan: T-1\n\nPlan sha256: ${sha256(plan)}\n${body}`;
+const BODY = "\n## Acceptance scenarios\n\n- QA-1 (AC-1): a\n  input: x\n  expected: y\n  execution: auto\n  run: node t\n- QA-2 (AC-2): b\n  input: x\n  expected: y\n  execution: auto\n  run: node t\n\n## Adversarial scenarios\n\nNone applicable: trivial\n\n## Regression surface\n\nnone\n";
+test("plan binding: a QA plan citing the sha256 of PLAN.md passes", () => {
+  const r = validatePlan(bound(PLAN_MD, BODY), undefined, PLAN_MD);
+  assert.equal(r.valid, true, r.errors.join("\n"));
+});
+test("plan binding: a missing or stale hash is refused", () => {
+  assert.match(validatePlan(bound(PLAN_MD, BODY).replace(/^Plan sha256:.*\n/m, ""), undefined, PLAN_MD).errors.join("\n"), /missing `Plan sha256/);
+  assert.match(validatePlan(bound(PLAN_MD, BODY), undefined, PLAN_MD + "changed\n").errors.join("\n"), /does not match PLAN.md/);
+});
+test("plan binding: criteria must agree with the plan", () => {
+  const more = PLAN_MD.replace("[AC-1, AC-2]", "[AC-1, AC-2, AC-3]");
+  assert.match(validatePlan(bound(more, BODY), undefined, more).errors.join("\n"), /AC-3 is in PLAN.md but has no acceptance scenario/);
+  const fewer = PLAN_MD.replace("[AC-1, AC-2]", "[AC-1]").replace("- AC-2: b\n", "");
+  assert.match(validatePlan(bound(fewer, BODY), undefined, fewer).errors.join("\n"), /AC-2 is not a criterion of PLAN.md/);
+});
+test("plan binding: a scenario must not expect a term the contracts remove", () => {
+  const plan = PLAN_MD.replace("none\n", "- the Book response no longer returns `legacyNotes`\n");
+  const back = BODY.replace("expected: y", "expected: the response includes `legacyNotes`");
+  assert.match(validatePlan(bound(plan, back), undefined, plan).errors.join("\n"), /expects `legacyNotes`/);
+  const gone = BODY.replace("expected: y", "expected: the response has no `legacyNotes` (absent)");
+  assert.equal(validatePlan(bound(plan, gone), undefined, plan).valid, true);
+});

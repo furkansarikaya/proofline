@@ -17,7 +17,7 @@ Phase 1 (`plan`) turns acceptance criteria into scenarios nobody can bend later.
 
 ## Hard rules
 
-1. **Plan before code.** Phase 1 reads only the task, the frozen plan/evidence it is given, and the pre-change repository. It must not read the implementation diff. If a diff already exists, say so in the ledger and read only the base revision (`git show <base>:<path>`).
+1. **Plan before code, from the final plan.** Inside a run the QA plan is derived from the final `PLAN.md` (the one that will be frozen) and cites its hash on a `Plan sha256: <64 hex>` line (`validate-qa.mjs hash PLAN.md`); a plan or contract change after that means the QA plan is re-derived, never patched by hand. Phase 1 reads only the task, the frozen plan/evidence it is given, and the pre-change repository. It must not read the implementation diff. If a diff already exists, say so in the ledger and read only the base revision (`git show <base>:<path>`).
 2. **Every acceptance criterion has at least one acceptance scenario** with concrete input and concrete expected observable output (a value, a status, a message, a stored row). "Works" is not an expectation.
 3. **Adversarial scenarios only where a category applies**, tied to a criterion. Categories: `boundaries`, `invalid-input`, `concurrency`, `idempotency`, `permissions`, `persistence`, `ui-states`, `error-paths` ([SCENARIOS.md](references/SCENARIOS.md)). A category that does not apply is not padded; if none applies, write `None applicable: <reason>`.
 4. **Every scenario states how it is executed** (`run:`) and declares `execution: auto | manual`. `auto` = runnable with tools available in the repo or on the machine (a command, a test selector, a script you will write); prefer a headless check (run the server and assert on HTML/JS output with node, or call the API) over a browser. `manual` only when no automated way exists; it must carry `reason:` (why) and `human-check:` (what a human observes). Nothing is silently dropped.
@@ -55,7 +55,7 @@ Standalone use: `plan` on a task or a list of criteria the user gives; `report` 
 3. **Acceptance scenarios**, one or more per criterion, per [SCENARIOS.md](references/SCENARIOS.md#acceptance).
 4. **Adversarial scenarios** per rule 3.
 5. **Regression surface**: behaviour that must not change, each with a test or command.
-6. **Validate**: `node <skill-dir>/scripts/validate-qa.mjs plan QA_PLAN.md --task TASK.md` must exit 0. Fix and re-run.
+6. **Validate**: `node <skill-dir>/scripts/validate-qa.mjs plan QA_PLAN.md --task TASK.md --plan PLAN.md` must exit 0 (inside a run; standalone without `--plan`). It checks the cited plan hash, that every plan criterion has an acceptance scenario and no scenario names a criterion the plan lacks, and that no scenario expects a term the plan's `## Contracts` removes or renames. Fix and re-run. `agent.sh freeze` and `refreeze` repeat the same checks.
 7. **Return** (see Output).
 
 ## Flow - report
