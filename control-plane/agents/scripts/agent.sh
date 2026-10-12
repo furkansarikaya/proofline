@@ -438,6 +438,26 @@ run_autonomy() { # ID -> supervised|autonomous (RUN.yaml execution.autonomy, els
 }
 
 # PLAN.md sections. `## Data` carries `destructive: yes|no` as its first non-blank line.
+# plan_migration_shape PLAN -> expand_contract | single_step | missing | none (not destructive). A destructive
+# plan carries the data-design step table in `## Data` (`| step | phase | operation | object | destructive | ...`):
+# expand_contract = a non-destructive step in phase expand|backfill|switch, every destructive step in phase
+# contract|deferred (a separate, later migration). single_step = the plan says `single_step: yes`, which the
+# freeze accepts only with the user's `single_step` approval (A32).
+plan_migration_shape() {
+  [ "$(plan_destructive "$1")" = yes ] || { echo none; return 0; }
+  awk -F'|' '
+    function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return tolower(s) }
+    /^## / { inside = ($0 ~ /^## Data[[:space:]]*$/); next }
+    !inside { next }
+    /^[[:space:]]*(-|\*)?[[:space:]]*single_step:[[:space:]]*yes[[:space:]]*$/ { single = 1; next }
+    /^\|/ && NF >= 7 {
+      ph = t($3); dest = t($6)
+      if (ph !~ /^(expand|backfill|switch|contract|deferred)$/) next
+      if (dest == "yes") { if (ph ~ /^(contract|deferred)$/) late = 1; else early = 1 }
+      else if (ph ~ /^(expand|backfill|switch)$/) pre = 1
+    }
+    END { if (single) print "single_step"; else if (pre && late && !early) print "expand_contract"; else print "missing" }' "$1"
+}
 plan_section_present() { grep -q "^## $2[[:space:]]*\$" "$1"; }
 plan_destructive() { # PLAN -> yes|no|invalid|absent
   plan_section_present "$1" Data || { echo absent; return 0; }
@@ -663,6 +683,13 @@ freeze_approvals() {
   if [ "$(plan_destructive "$fa_d/PLAN.md")" = yes ]; then
     fa_f=$(find_approval "$fa_id" destructive "$fa_plan") || fail "PLAN.md declares a destructive data change: a destructive approval for this PLAN.md is required before IMPLEMENT ('agent.sh request-approval $fa_id destructive')"
     printf '%s\n' "$fa_f"
+    case "$(plan_migration_shape "$fa_d/PLAN.md")" in
+      expand_contract) ;;
+      single_step)
+        fa_f=$(find_approval "$fa_id" single_step "$fa_plan") || fail "PLAN.md '## Data' declares single_step: yes: a destructive migration without expand/contract steps needs the user's explicit single-step approval for this PLAN.md ('agent.sh request-approval $fa_id single_step')"
+        printf '%s\n' "$fa_f" ;;
+      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase contract or deferred (a separate, later migration). Only the user's explicit single-step approval allows one step: add 'single_step: yes' and request it ('agent.sh request-approval $fa_id single_step')" ;;
+    esac
   fi
   # D15: an exhausted fix budget ends in `terminate FAILED`; a refreeze (which starts a fresh budget) needs
   # the user's explicit budget approval.
@@ -1896,7 +1923,7 @@ secret_scan() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|scope|budget|commit|push) return 0 ;;
+    plan|destructive|single_step|scope|budget|commit|push) return 0 ;;
     waive:*) case "${1#waive:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -1905,7 +1932,7 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then printf '%s/.agents/local/approvals\n' "$root"; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|scope|budget|commit|push|waive:<FINDING-ID>)"
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|commit|push|waive:<FINDING-ID>)"
   if [ "$1" = - ]; then case "$2" in commit|push) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"; require_open_run "$1"
 }
@@ -1915,13 +1942,14 @@ ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; 
 approval_bound() { # ID KIND
   case "$2" in
     commit|push) content_fingerprint ;;
-    plan|destructive|scope|budget) hash_file "$(run_dir "$1")/PLAN.md" ;;
+    plan|destructive|single_step|scope|budget) hash_file "$(run_dir "$1")/PLAN.md" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
   esac
 }
 kind_words() {
   case "$1" in
     destructive) echo 'destructive migration delete drop' ;;
+    single_step) echo 'single step single-step one step tek adım tek adim' ;;
     budget) echo 'budget round rounds' ;;
     waive:*) printf '%s\n' "${1#waive:}" | tr '[:upper:]' '[:lower:]' ;;
     *) printf '%s\n' "$1" ;;
@@ -1996,6 +2024,7 @@ approval_why() {
   case "$1" in
     plan) echo 'supervised autonomy: the plan freezes only after user approval' ;;
     destructive) echo 'the plan declares a destructive data change' ;;
+    single_step) echo 'the destructive change has no expand/contract steps: it would run as one step, with no point to stop between reading and dropping' ;;
     scope) echo 'the amendment adds scope paths' ;;
     budget) echo 'the fix rounds are exhausted: a refreeze would start a fresh fix budget' ;;
     commit|push) echo "delivery of content $2 needs explicit approval" ;;
@@ -2275,9 +2304,12 @@ next_step() {
     if [ "$(pipeline_needs "$ns_id" architect)" = yes ] && ! plan_section_present "$ns_d/PLAN.md" Architecture; then o "dispatch.sh $ns_id architect (PLAN.md ## Architecture)"; r "the $ns_class pipeline needs an Architecture section"; return 0; fi
     if [ "$(pipeline_needs "$ns_id" qa)" = yes ] && [ ! -f "$ns_d/QA_PLAN.md" ]; then o "dispatch.sh $ns_id qa (QA_PLAN.md)"; r "QA_PLAN.md missing"; return 0; fi
     ns_ph=$(hash_file "$ns_d/PLAN.md")
-    for ns_k in plan destructive; do
+    ns_shape=$(plan_migration_shape "$ns_d/PLAN.md")
+    if [ "$ns_shape" = missing ]; then o "fix PLAN.md ## Data: expand/contract steps (data-design), or single_step: yes with the user's approval"; r "destructive plan without expand/contract steps"; return 0; fi
+    for ns_k in plan destructive single_step; do
       if [ "$ns_k" = plan ] && [ "$(run_autonomy "$ns_id")" != supervised ]; then continue; fi
       if [ "$ns_k" = destructive ] && [ "$(plan_destructive "$ns_d/PLAN.md")" != yes ]; then continue; fi
+      if [ "$ns_k" = single_step ] && [ "$ns_shape" != single_step ]; then continue; fi
       if ! find_approval "$ns_id" "$ns_k" "$ns_ph" >/dev/null; then
         ns_rq=$(latest_request "$ns_id" "$ns_k" 2>/dev/null || true)
         if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then o "wait for the user's answer, then: agent.sh approve $ns_id $ns_k"
