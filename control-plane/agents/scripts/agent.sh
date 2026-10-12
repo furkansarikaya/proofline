@@ -619,6 +619,7 @@ pipeline_show() {
   ps_fp=$(content_fingerprint)
   for ps_g in $ps_gates; do printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" strict "$ps_fp")"; done
 }
+class_rank() { case "$1" in TRIVIAL) echo 0 ;; STANDARD) echo 1 ;; COMPLEX) echo 2 ;; CRITICAL) echo 3 ;; *) echo 0 ;; esac; }
 classify() {
   id=$1 class=$2 opt=${3:-}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   gates_enforced "$id" || fail "classify requires the lifecycle_gates policy"
@@ -626,6 +627,13 @@ classify() {
   require_open_run "$id"
   [ "$(run_state "$dir")" != CODE_DONE ] || fail "cannot reclassify a completed run: $id"
   pipeline_class_valid "$class" || fail "invalid classification: $class (want TRIVIAL|STANDARD|COMPLEX|CRITICAL)"
+  # A61: a class below the task's own Suggested class is refused: the task author reads the request, a lower class
+  # skips the evidence and QA plan and was only caught after IMPLEMENT (STANDARD.tr, C-4). Change the task's
+  # Suggested class (a task change) or classify at least that.
+  cl_sug=$(awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$dir/TASK.md" 2>/dev/null)
+  if [ -n "$cl_sug" ] && [ "$(class_rank "$class")" -lt "$(class_rank "$cl_sug")" ]; then
+    fail "classification refused: TASK.md suggests $cl_sug and $class is lower. Classify at least $cl_sug, or change the task's '## Suggested class' with the reason (a task change before freeze)"
+  fi
   # CLASSIFY precedes BRANCH (WORKFLOW.md): the branch is enforced once it is established.
   case "$(section_value "$dir" repository task_branch)" in ''|PENDING) ;; *) enforce_task_branch "$id" ;; esac
   verify_seal "$id"
@@ -1200,7 +1208,7 @@ verify_no_scratch_worktrees() {
 # --- Defect tasks carry a debug-proof result (A35). ---------------------------------------------
 # A STANDARD-or-higher task whose title or Goal names a defect (config review.defect_words) must have a
 # `reports/NNN-debug.md` (reproduction, root cause, regression test) before IMPLEMENTED.
-defect_words_default='bug defect regression broken wrong incorrect crash loses losing fails failing error hides hidden disappear disappears disappeared unreachable'
+defect_words_default='bug defect regression broken wrong incorrect crash loses losing fails failing error fix fixes fixed hides hidden disappear disappears disappeared unreachable'
 verify_debug_result() { # ID
   vd_id=$1; vd_d=$(run_dir "$vd_id")
   gates_enforced "$vd_id" && pipeline_class_valid "$(pipeline_class "$vd_id")" || return 0

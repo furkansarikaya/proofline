@@ -678,7 +678,7 @@ STANDARD — behavioural bug fix in one module with tests.' scaffold orchestrate
   SC_TASK_EXTRA='
 ## Suggested class
 
-CRITICAL — the first step is additive and its own step drops nothing.' scaffold orchestrated no STANDARD
+STANDARD — the first step is additive and its own step drops nothing.' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a defect word in Suggested class prose blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "a defect word inside Suggested class prose does not make a task a defect fix"
@@ -752,6 +752,16 @@ sc_intent_provenance() {
   sed 's#^| 1 | D-12 | .*#| 1 | D-12 | Use your recommended option for every open question. | user |#' "$d/design/INTENT.md" > "$base/intent.md" && cp "$base/intent.md" "$d/design/INTENT.md"
   A freeze LC >/dev/null || die "a verbatim blanket answer was refused: $(A freeze LC 2>&1)"
   ok "an answer to a scope decision recorded as the user's must be in a captured user prompt"
+}
+sc_class_floor() {
+  new_repo; RID=LC; mkdir -p .agents/runs/LC tasks
+  printf '# Task: LC — lookup\n\n## Acceptance criteria\n\n- AC-1: x\n\n## Suggested class\n\nSTANDARD — one module\n' > .agents/runs/LC/TASK.md
+  sed 's/<TASK-ID>/LC/; s#<REPOSITORY-RELATIVE-TASK-FILE.md>#tasks/LC.md#' .agents/templates/RUN.yaml > .agents/runs/LC/RUN.yaml
+  printf '# LC task\n' > tasks/LC.md; printf 'LC\n' > .agents/local/ACTIVE_RUN; git add -A; git commit -qm base
+  expect_msg "a class below the task's suggested class" 'suggests STANDARD and TRIVIAL is lower' A classify LC TRIVIAL
+  A classify LC STANDARD >/dev/null || die "the suggested class was refused: $(A classify LC STANDARD 2>&1)"
+  A classify LC COMPLEX >/dev/null || die "a higher class was refused"
+  ok "classify refuses a class below the task's Suggested class and accepts the class or a higher one"
 }
 sc_start() {
   new_repo; RID=ST-1
@@ -875,4 +885,5 @@ run_sc sc_scratch_worktrees
 run_sc sc_tests_findings
 run_sc sc_defect_scope
 run_sc sc_intent_provenance
+run_sc sc_class_floor
 echo 'gates tests passed'

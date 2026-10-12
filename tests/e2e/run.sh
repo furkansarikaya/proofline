@@ -144,7 +144,7 @@ while [ "$replies" -lt "$max" ]; do
   # Which approval is the run waiting for? `agent.sh next` names it. A plan approval is answered every time it
   # is asked (a refreeze asks again); a destructive, single_step, scope, budget, commit, push or waive request
   # is never answered by the harness. Any other stop of the lead (a question) gets the scripted question reply.
-  kind=$(printf '%s\n' "$state" | sed -n 's/.*request-approval [^ ]* \(plan\|destructive\|single_step\|scope\|budget\|commit\|push\|waive:[^ ]*\).*/\1/p; s/^reason=\(plan\|destructive\|single_step\|scope\|budget\|commit\|push\|waive:[^ ]*\) approval.*/\1/p' | head -n 1)
+  kind=$(printf '%s\n' "$state" | sh "$here/pending-kind.sh")
   qline=$(sed -n 1p "$reply_file"); pline=$(sed -n 2p "$reply_file")
   case $kind in
     plan) line=$pline ;;
