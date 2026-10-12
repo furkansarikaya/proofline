@@ -379,6 +379,23 @@ scan_cmd() {
   { qn = 1; qs[1] = $0; qd[1] = 0; for (qi = 1; qi <= qn; qi++) { dep = qd[qi]; parse(qs[qi]) } }'
 }
 
+# tmp_is_scratch_root: true when $TMPDIR itself is /tmp (then /tmp is the scratch space and nothing is denied).
+tmp_is_scratch_root() {
+  case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) return 0 ;; esac
+  return 1
+}
+# stray_tmp_path TEXT: the first /tmp (or /private/tmp) path in TEXT that is not inside the project root.
+stray_tmp_path() {
+  printf '%s' "$1" | grep -Eo '(/private)?/tmp(/[^[:space:]"'"'"';|&)<>]*)?' > "$tmp/tmp-paths" || :
+  while IFS= read -r sp_p; do
+    sp_q=${sp_p#/private}
+    sp_r=${root#/private}
+    case "$sp_q" in "$sp_r"|"$sp_r"/*) continue ;; esac
+    printf '%s\n' "$sp_p"; return 0
+  done < "$tmp/tmp-paths"
+  return 0
+}
+
 # --- events -----------------------------------------------------------------------------------
 case "$ev" in
 pretool)
@@ -399,14 +416,12 @@ pretool)
        && ! printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+-C[[:space:]]|git[[:space:]]+worktree|--work-tree'; then
       deny "git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it"
     fi
-    # Scratch space is $TMPDIR (the runtime's private temp dir), never /tmp directly: a specialist's files outside
-    # the project and $TMPDIR are what a run must not leave behind.
-    case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) ;; *)
-      if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } \
-         && printf '%s' "$cmd" | grep -Eq '(^|[[:space:]=:"'"'"'(])(/private)?/tmp(/|[[:space:]]|$)'; then
-        deny "scratch files and worktrees go under \$TMPDIR (${TMPDIR}), never /tmp directly"
-      fi ;;
-    esac
+    # Scratch space is $TMPDIR (the runtime's private temp dir), never /tmp directly: files outside the project
+    # and $TMPDIR are what a run must not leave behind. A project that itself lives under /tmp is not scratch.
+    if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } && ! tmp_is_scratch_root; then
+      stray=$(stray_tmp_path "$cmd")
+      [ -z "$stray" ] || deny "scratch files and worktrees go under \$TMPDIR (${TMPDIR:-unset}), never $stray directly"
+    fi
     printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
     # Hook and gate bypasses: never, for anyone, while proofline is installed.
     while IFS= read -r rec; do

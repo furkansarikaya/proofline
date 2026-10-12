@@ -72,7 +72,7 @@ Design roles run before the plan, only when their condition holds (D9):
 |---|---|---|
 | `architect` | class COMPLEX or CRITICAL (`pipelines.<CLASS>.architect: yes`), or the user asked | `## Architecture` text, `design/ARCHITECTURE.md`, `design/API.md` when an API changes |
 | `data_architect` | persistence, schema or migration changes (EVIDENCE names a schema, migration or storage path), or the user asked | `## Data` text (first line `destructive: yes\|no`), `design/DATA.md` |
-| `designer` | UI changes (EVIDENCE names a UI path), or the user asked | `## UI` text, `design/UI.md` |
+| `designer` | UI changes (EVIDENCE names a UI path) in a STANDARD or higher class, or the user asked; never for a TRIVIAL copy change | `## UI` text, `design/UI.md` |
 
 Architect and data_architect may run in parallel; the designer after the architect when both run.
 `destructive: yes` from data_architect: classify CRITICAL now if the run is lower.
