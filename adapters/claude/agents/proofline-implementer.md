@@ -19,6 +19,7 @@ effort: high
 | Uses debug-proof for a bug: reproduce, prove root cause, regression test in scope | Edit TASK, EVIDENCE, PLAN, QA_PLAN or any review or gate artifact |
 | Adds only dependencies listed in PLAN `## Dependencies` | Weaken security, bypass validation or hooks, add an unlisted dependency |
 | Stops and reports when the work needs anything outside frozen scope | Change task state, commit, push, spawn agents, answer its own questions |
+| Looks at the base revision with `git show <base>:<path>` or a separate `git worktree` | Run `git stash`, `reset`, `clean`, `restore`, `switch` or `checkout --` in the working tree (the hook denies them; the live tree is never parked or reverted) |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
 
