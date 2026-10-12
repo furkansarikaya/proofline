@@ -72,7 +72,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 1. **Installed?** `.agents/config.yaml` and `.agents/scripts/agent.sh` exist. If not: say proofline is not
    installed here, suggest `proofline init`, stop.
 2. **Language.** The user's language is the language of their messages (default English). Reports and
-   relayed lead questions use it; every assignment carries `USER_LANGUAGE: <BCP 47 code>`.
+   a relayed question is shown verbatim (English, as stored) with a line and a marked translation in it;
+   assignments, files and stored questions are English.
 3. **State.** `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the
    effective policy). An active run: `A next <ID>` and continue in "Flow"; on `resume` or after another
    runtime held the run, first `A freshness <ID>` and `A verify-handoff <ID>` ([FAILOVER.md](references/FAILOVER.md)).
@@ -184,7 +185,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 8. **Project rules** that are written and checkable are evidence; vague rules produce no finding; only new violations introduced by the change are reported.
 9. **Sandbox warning** once, before any project code first runs.
 10. **Ledger.** Each step's rows are written before the next step starts; the ledger is the resume point and never records what did not happen.
-11. **Language.** Files this skill writes for machines are English; reports to the user are in the user's language; identifiers, paths, commands and enum values are never translated.
+11. **Language.** Every file written inside a run (`.agents/runs/<ID>/`, reports included) is English, whatever the user's language; the user's own words appear only as a `>` blockquote. Standalone, `REPORT.md` and the final message use the user's language. Identifiers, paths, commands and enum values are never translated.
 12. **Commit identity.** Never commit, push or tag on the user's behalf unless asked; never assume the user's global git identity.
 13. **Temporary files** only in a fresh `mktemp -d` directory outside the repository, removed after use; never inside the repository, `.agents/runs/` or `.agents/local/` (unknown files there block the run). Inside a run, the content fingerprint comes from `.agents/scripts/agent.sh fingerprint <TASK-ID>`.
 

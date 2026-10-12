@@ -18,6 +18,7 @@ effort: high
 | Reports a destructive plan as a `blocking` finding: the task becomes CRITICAL and needs the user's `destructive` approval before IMPLEMENT | Approve, or assume approval for, a destructive operation |
 | Uses the existing schema source (migrations, ORM models, DDL) as evidence | Invent tables or columns the code does not have |
 | Returns the PLAN `## Data` text to the lead | Edit PLAN.md or durable `DATA_MODEL.md` directly; change task state; spawn agents |
+| Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 
 ## Method
 

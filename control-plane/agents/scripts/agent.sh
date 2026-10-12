@@ -747,6 +747,9 @@ freeze() {
     fz_mode=refreeze
   fi
   verify_scope_existence "$id" "$fz_mode"
+  fz_lang=$(for fz_f in TASK.md PLAN.md EVIDENCE.md QA_PLAN.md; do [ ! -f "$dir/$fz_f" ] || printf '%s\n' "$dir/$fz_f"; done)
+  # shellcheck disable=SC2086
+  fz_hits=$(language_scan $fz_lang) || fail "$(language_fail_text "$(printf '%s' "$fz_hits" | tr '\n' ' ')")"
   fz_approvals=''
   if gates_enforced "$id"; then fz_approvals=$(freeze_approvals "$id" "$fz_mode"); fi
   tmp=$dir/RUN.yaml.tmp; replace_hashes "$dir" "$tmp"
@@ -1067,6 +1070,7 @@ record_handoff() {
     DONE)
       case "$current" in CODE_DONE|DONE) ;; *) fail "illegal handoff transition: $current -> $phase";; esac
       [ "$(section_value "$dir" handoff code_done_patch_sha256)" = "$patch" ] || fail "DONE blocked: CODE_DONE stale or missing"
+      verify_run_language "$id"
       verify_knowledge_scope "$id"
       scan_knowledge_secrets "$id"
       verify_lifecycle_gates "$id"
@@ -1732,6 +1736,34 @@ record_apply() {
   metrics_step "$ra_id" "$ra_role" "$ra_focus" "$(printf '%s' "$ra_res" | tr "[:upper:]" "[:lower:]")"
   echo "result recorded: $ra_id $ra_raw ($ra_role $ra_res)"
 }
+# --- Language check (A33): run artifacts are English. -----------------------------------------
+# Heuristic: three or more letters outside ASCII and the common typographic symbols (UTF-8 lead bytes of
+# Latin letters C3 C4 C5, Greek CE CF, Cyrillic D0-D4, CJK E3-E9) in one file are non-English text; one or
+# two (a name such as "José") are tolerated. Lines inside a `>` blockquote or a fenced code block are
+# exempt: the user's own words, quoted.
+# language_scan FILE... -> prints "file:line" (where the third such letter appears) per offending file; exit 1.
+language_scan() {
+  ls_rc=0
+  for ls_f in "$@"; do
+    [ -f "$ls_f" ] || continue
+    ls_hit=$(LC_ALL=C awk '
+      /^[[:space:]]*```/ { fence = !fence; next }
+      fence || /^[[:space:]]*>/ { next }
+      { c = gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&")
+        if (c > 0) { total += c; if (total >= 3 && !at) at = NR } }
+      END { if (at) print at }' "$ls_f")
+    if [ -n "$ls_hit" ]; then printf '%s:%s\n' "${ls_f#"$root"/}" "$ls_hit"; ls_rc=1; fi
+  done
+  return "$ls_rc"
+}
+language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text (put the user's own words in a > blockquote, write everything else in English)" "$1"; }
+# verify_run_language ID: every run artifact a person or role wrote; raw runtime logs are exempt.
+verify_run_language() {
+  vrl_d=$(run_dir "$1"); vrl_files=$(find "$vrl_d" -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.json' \) ! -path "$vrl_d/dispatch/*" ! -path "$vrl_d/gates/*" ! -name 'dispatch-*' ! -name 'LEDGER.log' | sort)
+  # shellcheck disable=SC2086
+  vrl_hits=$(language_scan $vrl_files) || fail "$(language_fail_text "$(printf '%s' "$vrl_hits" | tr '\n' ' ')")"
+}
+
 # --- Submission: how a specialist's result enters a run (D12) ----------------------------------
 # `submit` takes facts (result, confidence, findings, artifact) and builds the protocol header itself: the
 # role, task, focus, content fingerprint and the artifact's run-relative path and sha256 are never typed by a
@@ -1845,6 +1877,10 @@ submit_result() {
   elif [ "$sb_nrc" = 1 ]; then submit_fail "--artifact must be a path inside the run directory: $sb_art"
   elif [ "$sb_nrc" = 2 ]; then submit_fail "artifact not found in the run: $sb_art (write the report there first; expected location for your role: $(artifact_paths "$execution_role" "$([ "$sb_gaterole" = yes ] && echo gate || echo task)" "$sb_focus"))"
   fi
+  # Run artifacts are English (A33): the report, the findings and the questions are scanned before recording.
+  sb_lang_files="$sb_d/$sb_norm $sb_tmp/rows"; [ -z "$sb_questions" ] || sb_lang_files="$sb_lang_files $sb_questions"
+  # shellcheck disable=SC2086
+  sb_hits=$(language_scan $sb_lang_files) || submit_fail "$(language_fail_text "$(printf '%s' "$sb_hits" | tr '\n' ' ' | sed "s#$sb_tmp/rows#your findings#")")"
   {
     printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
     [ -z "$sb_focus" ] || [ "$execution_role" != reviewer ] || printf 'FOCUS: %s\n' "$sb_focus"

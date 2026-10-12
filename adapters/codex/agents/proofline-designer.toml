@@ -19,6 +19,7 @@ developer_instructions = '''
 
 It writes design documents only: `design/UI.md` in the run and `DESIGN.md` at the project root (its `owns:`).
 Writes outside them are denied by the PreToolUse hook; its writes are bracketed like the implementer's.
+| Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 
 ## Method
 
