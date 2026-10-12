@@ -167,3 +167,21 @@ test("validate CLI reads the fenced json block of a .md result", () => {
   writeFileSync(m, "nothing");
   assert.equal(spawnSync("node", [vScript, m]).status, 2);
 });
+
+test("validate: one cycle per criterion; a path may have several cycles, one for each criterion", () => {
+  const d = good();
+  const second = structuredClone(d.cycles[0]); second.criterion = "AC-2"; second.test.name = "second behaviour";
+  d.cycles.push(second);
+  assert.deepEqual(errs(d), []);
+  const noName = structuredClone(d); noName.cycles[1].criterion = "second behaviour";
+  assert.deepEqual(errs(noName), []);   // a named criterion without an AC id is its own criterion
+  const dupe = structuredClone(d); dupe.cycles[1].criterion = "AC-1"; has(errs(dupe), "one cycle per criterion");
+});
+test("validate: --scope path:AC-1+AC-2 needs a cycle for every listed criterion", () => {
+  const f = join(mkdtempSync(join(tmpdir(), "tddc-")), "tdd.json");
+  writeFileSync(f, JSON.stringify(good()));
+  assert.equal(spawnSync("node", [vScript, f, "--scope", "src/parse.js:AC-1,docs/guide.md"]).status, 0);
+  const r = spawnSync("node", [vScript, f, "--scope", "src/parse.js:AC-1+AC-2,docs/guide.md"], { encoding: "utf8" });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /carries AC-2 but no cycle proves it/);
+});
