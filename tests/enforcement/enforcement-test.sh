@@ -502,6 +502,13 @@ EOF")"
     grep -q '"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob"' "$ENF_REPO/$wf" || die "DB-33b the PreToolUse matcher of $wf does not reach Read, Grep and Glob"
   done
   ok "DB-33b the Claude PreToolUse matchers include Read, Grep and Glob"
+  # A50: not run-scoped: a task author or an explorer works before any run exists
+  mv .agents/local/ACTIVE_RUN "$base/ACTIVE_RUN.keep"
+  denied "DB-42 no run is open: sqlite3 -readonly on the live database" "$(pre_bash "sqlite3 -readonly data/app.db 'select count(*) from books'" proofline-task-author a9)" "data/app.db"
+  denied "DB-43 no run is open: a node sqlite read of the database" "$(pre_bash "node -e \"new (require('node:sqlite').DatabaseSync)('data/app.db', { readOnly: true })\"" proofline-explorer a8)" "database file"
+  denied "DB-44 no run is open: the Read tool on the database" "$(pre_edit Read "$PWD/data/app.db")" "database file"
+  allowed "DB-45 no run is open: a plain command" "$(pre_bash 'npm test')"
+  mv "$base/ACTIVE_RUN.keep" .agents/local/ACTIVE_RUN
   # config: the patterns and commands come from .agents/config.yaml
   awk '/^  paths:/ { print "  paths: \"*.store\""; next } { print }' .agents/config.yaml > "$base/cfg.tmp" && mv "$base/cfg.tmp" .agents/config.yaml
   denied "DB-34 a configured database pattern" "$(pre_bash 'cat data/x.store')" "database file"

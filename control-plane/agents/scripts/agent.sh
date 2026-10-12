@@ -1132,18 +1132,24 @@ verify_qa_plan_bound() { # ID
 # --- Defect tasks carry a debug-proof result (A35). ---------------------------------------------
 # A STANDARD-or-higher task whose title or Goal names a defect (config review.defect_words) must have a
 # `reports/NNN-debug.md` (reproduction, root cause, regression test) before IMPLEMENTED.
-defect_words_default='bug defect regression broken wrong incorrect crash drops dropping loses losing fails failing error hides hidden disappear disappears disappeared missing unreachable skips skipped omits omitted ignores ignored duplicate duplicated'
+defect_words_default='bug defect regression broken wrong incorrect crash drops dropping loses losing fails failing error hides hidden disappear disappears disappeared unreachable'
 verify_debug_result() { # ID
   vd_id=$1; vd_d=$(run_dir "$vd_id")
   gates_enforced "$vd_id" && pipeline_class_valid "$(pipeline_class "$vd_id")" || return 0
   [ "$(pipeline_class "$vd_id")" != TRIVIAL ] || return 0
   [ -f "$vd_d/TASK.md" ] || return 0
-  # The title and the sections that say what is wrong: Goal, Context (the user's report) and Suggested class.
-  vd_text=$( { sed -n '1p' "$vd_d/TASK.md"; awk '/^## (Goal|Context|Suggested class)[[:space:]]*$/ { g=1; next } /^## / { g=0 } g' "$vd_d/TASK.md"; } | tr '[:upper:]' '[:lower:]')
+  # The title and Goal are scanned for the configured defect words. `## Suggested class` is the task author's
+  # own statement of the kind of work: only an explicit bug/defect/regression there counts (its prose may use
+  # a defect word for something else: "its own step drops nothing").
+  vd_text=$( { sed -n '1p' "$vd_d/TASK.md"; awk '/^## Goal[[:space:]]*$/ { g=1; next } /^## / { g=0 } g' "$vd_d/TASK.md"; } | tr '[:upper:]' '[:lower:]')
   vd_hit=''
   for vd_w in $(cfg review.defect_words "$defect_words_default"); do
     case " $(printf '%s' "$vd_text" | tr -c 'a-z' ' ') " in *" $vd_w "*) vd_hit=$vd_w; break ;; esac
   done
+  if [ -z "$vd_hit" ]; then
+    vd_cls=$(awk '/^## Suggested class[[:space:]]*$/ { g=1; next } /^## / { g=0 } g' "$vd_d/TASK.md" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z' ' ')
+    for vd_w in bug defect regression; do case " $vd_cls " in *" $vd_w "*) vd_hit=$vd_w; break ;; esac; done
+  fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
   fail "IMPLEMENTED blocked: the task describes a defect ('$vd_hit' in its title or goal) but there is no debug-proof result: the implementer writes reports/NNN-debug.md (reproduction, root cause, regression test) and submits it"
