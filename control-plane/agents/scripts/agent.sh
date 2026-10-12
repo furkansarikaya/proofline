@@ -124,7 +124,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database)$/) { bad("unknown top-level key: " top); next }
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
       else if (k ~ /^runtime\.(lead|worker|reviewers)$/ || k ~ /^runtime\.roles\./) en(k, v, "claude|codex")
@@ -233,6 +233,7 @@ start_run() { # ID [--title TITLE] [--task-file PATH]; otherwise read the task b
   cp "$sr_tmp" "$sr_dir/TASK.md"; rm -f "$sr_tmp"
   printf '%s\n' "$sr_id" > "$(active_run_file)"
   ledger_append "$sr_id" start - PLANNED "task=$sr_path adapter=$sr_adapter"
+  db_guard_baseline "$sr_id"
   echo "run started: $sr_id task=$sr_path"
 }
 
@@ -738,7 +739,7 @@ verify_scope_existence() { # ID freeze|refreeze
   done
 }
 freeze() {
-  id=$1; require_run "$id"; dir=$(run_dir "$id"); for f in TASK.md PLAN.md RUN.yaml; do [ -f "$dir/$f" ] || fail "missing $f"; done
+  id=$1; require_run "$id"; db_guard_check "$id"; dir=$(run_dir "$id"); for f in TASK.md PLAN.md RUN.yaml; do [ -f "$dir/$f" ] || fail "missing $f"; done
   require_open_run "$id"
   [ "$(run_state "$dir")" != CODE_DONE ] || fail "cannot freeze completed run: $id"; [ "$(baseline_status "$dir")" = captured ] || fail "baseline required before freeze: $id"
   enforce_task_branch "$id"
@@ -1043,6 +1044,54 @@ verify_classification() { # ID
   [ -z "$vc_hits" ] || fail "classification blocked: run $vc_id is TRIVIAL but its diff changes executable code:${vc_hits}. TRIVIAL covers text and configuration only. Reclassify: write the evidence and QA plan the new class requires, 'agent.sh classify $vc_id STANDARD' (or higher), then amend and 'agent.sh refreeze $vc_id <AMENDMENT>'."
 }
 
+# --- Database guard (A40) -----------------------------------------------------------------------
+# No agent touches a database file that is not a test suite's own throwaway database: not to read, copy,
+# query or write it, and no migration, seed or SQL client runs against anything. The runtime hook denies the
+# commands and file-tool calls (proofline-hook.sh asks `agent.sh db-config`); this is the after-the-fact check:
+# the project's database files (config database.paths) are listed with size and mtime when a run starts and
+# compared before freeze, IMPLEMENTED, CODE_DONE and DONE. A changed, new or removed file blocks the handoff.
+db_paths_default='*.db *.sqlite *.sqlite3 *.db3 *.s3db *.sdb *.mdb *.accdb *.ldb *.mv.db *.duckdb *.rdb *.db-wal *.db-shm *.db-journal *.sqlite-wal *.sqlite-shm *.sqlite-journal'
+db_clients_default='sqlite3 sqlite duckdb litecli psql pgcli pg_dump pg_dumpall pg_restore createdb dropdb mysql mysqldump mysqlsh mycli mariadb mongosh mongo mongodump mongorestore redis-cli sqlcmd sqlplus sqlite-utils usql clickhouse-client cockroach cqlsh'
+db_migrate_default='(npm|pnpm|yarn|bun)( run)? (migrate|migration|migrations|seed|seeds|db[:-])[A-Za-z0-9:_-]*( |$), (^| )(npx|pnpm exec|bunx|yarn dlx) (prisma|drizzle-kit|knex|sequelize|sequelize-cli|typeorm|mikro-orm|db-migrate|node-pg-migrate)( |$), (^| )prisma (migrate|db) , (^| )drizzle-kit (push|migrate|drop), (^| )(knex|sequelize|sequelize-cli|typeorm|mikro-orm|umzug|db-migrate|node-pg-migrate) .*(migrat|seed|db:|schema:), (^| )alembic (upgrade|downgrade|stamp), (^| )flask( .*)? db (upgrade|downgrade|stamp|migrate), (manage\.py|django-admin)( .*)? (migrate|flush|sqlflush|loaddata|dbshell), (^| )(rails|rake|bin/rails)( .*)? db:, (^| )artisan (migrate|db:), (^| )(flyway|liquibase|dbmate|goose|atlas|sqitch|tern|phinx|diesel|sqlx|sea-orm-cli)( .*)? (migrate|up|down|apply|deploy|update|run|push|revert|redo|reset|drop|seed), (^| )dotnet ef (database|migrations) , (^| )mix ecto\.(migrate|rollback|reset|drop|setup|load), (^| )migrate( .*)? (up|down|goto|drop|force), (^| )db(:| )(seed|migrate|reset|drop|push|setup)'
+db_config() { # paths | clients | migrate_commands | all
+  case "$1" in
+    paths) cfg database.paths "$db_paths_default" ;;
+    clients) cfg database.clients "$db_clients_default" ;;
+    migrate_commands) cfg database.migrate_commands "$db_migrate_default" ;;
+    all) printf 'paths=%s\nclients=%s\nmigrate_commands=%s\n' "$(db_config paths)" "$(db_config clients)" "$(db_config migrate_commands)" ;;
+    *) fail "usage: agent.sh db-config <paths|clients|migrate_commands|all>" ;;
+  esac
+}
+db_file_meta() { stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1" 2>/dev/null || echo unknown; }
+db_snapshot() { # "path|size mtime" per database file inside the project, sorted
+  ds_globs=$(db_config paths)
+  set -f; set --
+  for ds_g in $ds_globs; do
+    case "$ds_g" in */*) set -- "$@" -o -path "$root/${ds_g#\*\*/}" ;; *) set -- "$@" -o -name "$ds_g" ;; esac
+  done
+  set +f
+  [ $# -gt 0 ] || return 0
+  shift
+  find "$root" \( -name .git -o -name node_modules -o -name .agents \) -prune -o -type f \( "$@" \) -print 2>/dev/null | sort |
+    while IFS= read -r ds_f; do
+      [ -n "$ds_f" ] || continue
+      printf '%s|%s\n' "${ds_f#"$root"/}" "$(db_file_meta "$ds_f")"
+    done
+}
+db_baseline_file() { printf '%s/.agents/local/db/%s.snapshot\n' "$root" "$1"; }
+db_guard_baseline() { # ID
+  dg_f=$(db_baseline_file "$1"); mkdir -p "$(dirname "$dg_f")" 2>/dev/null || return 0
+  db_snapshot > "$dg_f.tmp" 2>/dev/null && mv "$dg_f.tmp" "$dg_f"
+}
+db_guard_check() { # ID: fails when a database file changed, appeared or vanished since the run started
+  dg_f=$(db_baseline_file "$1")
+  [ -f "$dg_f" ] || return 0   # a run started before the guard has no baseline
+  dg_now=$(db_snapshot); dg_then=$(cat "$dg_f")
+  [ "$dg_now" != "$dg_then" ] || return 0
+  dg_diff=$(printf '%s\n%s\n' "$dg_then" "$dg_now" | sort | uniq -u | cut -d '|' -f1 | sort -u | tr '\n' ' ')
+  fail "database guard: a database file changed during run $1 (${dg_diff% }). No agent touches a database that is not a test suite's own throwaway database, and no destructive step runs before the user's approval in any environment. Restore the file(s), then record the incident with 'agent.sh ledger-note $1 <TEXT>'; the run cannot continue until the baseline matches"
+}
+
 # --- Defect tasks carry a debug-proof result (A35). ---------------------------------------------
 # A STANDARD-or-higher task whose title or Goal names a defect (config review.defect_words) must have a
 # `reports/NNN-debug.md` (reproduction, root cause, regression test) before IMPLEMENTED.
@@ -1085,6 +1134,7 @@ record_handoff() {
     IMPLEMENTED)
       case "$current" in IMPLEMENTING|IMPLEMENTED) ;; *) fail "illegal handoff transition: $current -> $phase" ;; esac
       verify_classification "$id"
+      db_guard_check "$id"
       verify_debug_result "$id"
       verify_worker_evidence "$id"
       verify_mutation_ownership "$id" 1
@@ -1095,6 +1145,7 @@ record_handoff() {
       case "$current" in IMPLEMENTED|CODE_DONE) ;; *) fail "illegal handoff transition: $current -> $phase";; esac
       [ "$(section_value "$dir" handoff implemented_patch_sha256)" = "$patch" ] || fail "CODE_DONE blocked: the application tree changed since IMPLEMENTED"
       verify_classification "$id"
+      db_guard_check "$id"
       [ "$(section_value "$dir" execution awaiting_input)" != true ] || fail "CODE_DONE blocked: questions are pending ('agent.sh questions $id')"
       if gates_enforced "$id"; then
         verify_mutation_ownership "$id"
@@ -1104,6 +1155,7 @@ record_handoff() {
     DONE)
       case "$current" in CODE_DONE|DONE) ;; *) fail "illegal handoff transition: $current -> $phase";; esac
       [ "$(section_value "$dir" handoff code_done_patch_sha256)" = "$patch" ] || fail "DONE blocked: CODE_DONE stale or missing"
+      db_guard_check "$id"
       verify_run_language "$id"
       verify_knowledge_scope "$id"
       scan_knowledge_secrets "$id"
@@ -2794,6 +2846,8 @@ case "$command" in
   publish-completion-report) publish_completion_report "${2:?usage: agent.sh publish-completion-report <ID> [ADAPTER]}" "${3:-}" ;;
   verify-completion-report) verify_completion_report "${2:?usage: agent.sh verify-completion-report <ID>}" ;;
   validate) validate_run "${2:?usage: agent.sh validate <ID>}" ;;
+  db-config) db_config "${2:-all}" ;;
+  db-check) require_run "${2:?usage: agent.sh db-check <ID>}"; db_guard_check "$2"; echo "database guard: unchanged ($2)" ;;
   test) require_lead; run_suites ;;
   help) usage; exit 0 ;;
   *) usage; exit 2 ;;

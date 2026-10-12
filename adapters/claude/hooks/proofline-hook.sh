@@ -181,6 +181,7 @@ path_ok() {
 #   X why    refused while a run is active (non-literal command word or script, eval, env -S, a shell
 #            reading stdin, indirect AGENT_ROLE, nesting beyond one level, copies of agent.sh)
 #   B why    a git hook bypass; refused always
+#   C word args   every simple command: its command word and its arguments joined with \003 (database guard)
 scan_cmd() {
   awk 'BEGIN { RS = "\001" }
   function out(k, v) { if (k == "W" && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
@@ -194,7 +195,7 @@ scan_cmd() {
   function mparen(s, p,   d, c2, m) { d = 0; m = length(s); for (; p <= m; p++) { c2 = substr(s, p, 1); if (c2 == "(") d++; else if (c2 == ")") { d--; if (!d) return p } } return m }
   function endword() {
     if (!have) return
-    if (redir) { out("W", cur); redir = 0 } else if (inredir) { if (inredir == 2) hd = cur; inredir = 0 } else if (dup) { dup = 0 } else { w[++nw] = cur; L[nw] = lit }
+    if (redir) { out("W", cur); redir = 0 } else if (inredir) { if (inredir == 2) hd = cur; else out("C", "<\t" cur); inredir = 0 } else if (dup) { dup = 0 } else { w[++nw] = cur; L[nw] = lit }
     cur = ""; have = 0; lit = 1
   }
   function takesval(wr, x) {
@@ -242,6 +243,7 @@ scan_cmd() {
       x = w[j]
       if (isassign(x)) {
         c = x; sub(/=.*/, "", c)
+        out("C", "env\t" x)
         if (c == "AGENT_ROLE") out("R", substr(x, 12))
         if (c ~ /^GIT_CONFIG/ || c == "GIT_DIR" || c == "GIT_COMMON_DIR" || c == "GIT_EXEC_PATH") out("B", "setting " c " can disable or redirect the git hooks")
         continue
@@ -267,6 +269,8 @@ scan_cmd() {
     if (k > nw) { nw = 0; return }
     if (!L[k]) out("X", "the command word " w[k] " is not literal")
     c = base(w[k])
+    ca = ""; for (j = k + 1; j <= nw; j++) ca = ca (j > k + 1 ? "\003" : "") w[j]
+    out("C", c "\t" ca)
     # cd: later relative write targets in this command line resolve against it (heuristic, like the rest)
     if (c == "cd") {
       cdkey = qn SUBSEP k SUBSEP nw SUBSEP w[k + 1]
@@ -396,6 +400,101 @@ stray_tmp_path() {
   return 0
 }
 
+# --- database guard (A40) ---------------------------------------------------------------------
+# While a run is open no agent (lead included) reads, copies, queries or writes a database file, runs a SQL
+# client against one, or runs a migration/seed command; destructive steps run in no environment before the
+# user's approval. The only database an agent may meet is a test suite's own throwaway database: in memory or a
+# scratch file under $TMPDIR/tmp outside the project. Paths, clients and migrate commands come from the config
+# (`agent.sh db-config`, language-independent defaults). A heuristic like the rest: token and command-word
+# matching on the command text; a script that opens a database by itself is caught after the fact by
+# `agent.sh db-check` (size and mtime of every database file, compared at freeze and each handoff).
+db_loaded=no
+db_load() {
+  [ "$db_loaded" = no ] || return 0
+  db_loaded=yes
+  sh "$agent" db-config all > "$tmp/dbconf" 2>/dev/null || : > "$tmp/dbconf"
+  db_paths=$(sed -n 's/^paths=//p' "$tmp/dbconf" | head -n 1)
+  db_clients=$(sed -n 's/^clients=//p' "$tmp/dbconf" | head -n 1)
+  db_migrate=$(sed -n 's/^migrate_commands=//p' "$tmp/dbconf" | head -n 1)
+  [ -n "$db_paths" ] || db_paths='*.db *.sqlite *.sqlite3 *.db3'
+}
+# scratch_path P: a throwaway location (the runtime's $TMPDIR or /tmp) outside the project root; a project that
+# itself lives under /tmp is not scratch.
+scratch_path() {
+  sc_p=${1#/private}; sc_r=${root#/private}
+  case "$sc_p" in "$sc_r"|"$sc_r"/*) return 1 ;; esac
+  # shellcheck disable=SC2016 # literal $TMPDIR in the command text
+  case "$sc_p" in /tmp/*|/var/folders/*|'$TMPDIR'/*|'${TMPDIR}'/*) return 0 ;; esac
+  if [ -n "${TMPDIR:-}" ]; then sc_t=${TMPDIR%/}; sc_t=${sc_t#/private}; case "$sc_p" in "$sc_t"/*) return 0 ;; esac; fi
+  return 1
+}
+# db_is_path TOKEN: does TOKEN name a database file (config database.paths)?
+db_is_path() {
+  for dp_g in $db_paths; do
+    case "$dp_g" in
+      */*) case "$1" in $dp_g|*/$dp_g) return 0 ;; esac ;;
+      *) case "${1##*/}" in $dp_g) return 0 ;; esac ;;
+    esac
+  done
+  return 1
+}
+# db_check_token TOKEN WHAT: deny unless TOKEN is no database file or a scratch one.
+db_check_token() {
+  db_is_path "$1" || return 0
+  scratch_path "$1" && return 0
+  deny "$2 names the database file '$1'. No agent reads, copies, queries or writes a database file while a run is open (a test suite's own throwaway database under \$TMPDIR is the only exception). Existing rows are evidence only through the project's seed files and the test suite; record what you could not check as an open point in EVIDENCE.md"
+}
+# db_guard_cmd: the command text ($1) and its scan records ($tmp/scan).
+db_guard_cmd() {
+  db_load
+  set -f
+  # Every word the command passes (command words, arguments, redirection targets; heredoc bodies are not
+  # commands and are skipped), split at separators so --db=x.db, URLs and code strings are caught.
+  while IFS= read -r dg_rec; do
+    case "${dg_rec%%"$TAB"*}" in C|W) ;; *) continue ;; esac
+    printf '%s\n' "${dg_rec#*"$TAB"}" | tr -s '[:space:]\003\002;|&()<>"`'"'"'=,:' '\n'
+  done < "$tmp/scan" > "$tmp/dbtoks"
+  while IFS= read -r dg_t; do
+    [ -n "$dg_t" ] || continue
+    db_check_token "$dg_t" "the command"
+  done < "$tmp/dbtoks"
+  while IFS= read -r dg_rec; do
+    [ "${dg_rec%%"$TAB"*}" = C ] || continue
+    dg_rest=${dg_rec#*"$TAB"}; dg_cw=${dg_rest%%"$TAB"*}
+    dg_args=$(printf '%s' "${dg_rest#*"$TAB"}" | tr '\003' '\n')
+    case " $db_clients " in *" $dg_cw "*)
+      case "$dg_cw" in
+        sqlite3|sqlite|duckdb|litecli)
+          dg_first=''; dg_skip=0
+          while IFS= read -r dg_a; do
+            if [ "$dg_skip" = 1 ]; then dg_skip=0; continue; fi
+            case "$dg_a" in -init|-cmd|-separator|-newline|-nullvalue|-vfs|-mmap|-A) dg_skip=1; continue ;; -*) continue ;; esac
+            dg_first=$dg_a; break
+          done <<DBARGS
+$dg_args
+DBARGS
+          case "$dg_first" in
+            ''|:memory:|file::memory:*) ;;
+            *) scratch_path "$dg_first" || deny "$dg_cw would open '$dg_first'. A SQL client runs only against :memory: or a scratch file under \$TMPDIR outside the project (a test suite's own throwaway database); never against a project or environment database" ;;
+          esac ;;
+        *) deny "$dg_cw is a database client; no agent connects to a database while a run is open (a test suite builds its own throwaway database)" ;;
+      esac ;;
+    esac
+    dg_joined="$dg_cw $(printf '%s' "$dg_args" | tr '\n' ' ')"
+    dg_res=$(printf '%s' "$db_migrate" | tr ',' '\n')
+    while IFS= read -r dg_re; do
+      dg_re=$(printf '%s' "$dg_re" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+      [ -n "$dg_re" ] || continue
+      if printf '%s\n' "$dg_joined" | grep -Eq -- "$dg_re"; then
+        deny "'$dg_cw' runs a migration, seed or schema command (matches database.migrate_commands). No agent runs one in any environment: the project's test command exercises migrations on the suite's own throwaway database, and applying a destructive step is the user's decision after the destructive approval"
+      fi
+    done <<DBRES
+$dg_res
+DBRES
+  done < "$tmp/scan"
+  set +f
+}
+
 # --- events -----------------------------------------------------------------------------------
 case "$ev" in
 pretool)
@@ -432,6 +531,7 @@ pretool)
       esac
     done < "$tmp/scan"
     [ -n "$act" ] || exit 0
+    db_guard_cmd "$cmd"
     has_role=no; grep -q "^R$TAB" "$tmp/scan" && has_role=yes
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
@@ -490,6 +590,13 @@ pretool)
   esac
   while IFS= read -r tg; do ! always_protected "$(relpath "$tg")" || deny "$tool $tg wires the git hooks; it is never changed by an agent"; done < "$tmp/targets"
   [ -n "$act" ] || exit 0
+  case "$tool" in
+    Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|*[Pp]atch*)
+      db_load; set -f
+      { cat "$tmp/targets"; for dk in tool_input.file_path tool_input.notebook_path tool_input.path tool_input.pattern; do jget "$dk"; printf '\n'; done; } > "$tmp/dbt"
+      while IFS= read -r tg; do [ -z "$tg" ] || db_check_token "$tg" "$tool"; done < "$tmp/dbt"
+      set +f ;;
+  esac
   while IFS= read -r tg; do why=$(target_ok "$tg") || deny "$tool $tg: $why"; done < "$tmp/targets"
   exit 0 ;;
 

@@ -416,8 +416,80 @@ live_claude() {
   ok "live Claude Code: the main session's product edit was denied (impl.txt unchanged): $(tr '\n' ' ' < "$base/live.out" | cut -c1-160)"
 }
 
+# A40: no agent touches a database file, runs a SQL client or a migration/seed command; the control plane
+# detects a changed database file at freeze and each handoff.
+database_guard() {
+  fixture
+  mkdir -p data; : > data/app.db
+  allowed "DB-1 a plain test command is not a database command" "$(pre_bash 'npm test')"
+  allowed "DB-2 listing a directory that holds a database" "$(pre_bash 'ls data; git status --short')"
+  allowed "DB-3 an in-memory SQLite session" "$(pre_bash "sqlite3 :memory: 'select 1'")"
+  allowed "DB-4 a scratch database under \$TMPDIR outside the project" "$(pre_bash "sqlite3 \$TMPDIR/own.db 'create table t(x)'")"
+  allowed "DB-5 a scratch database by absolute path outside the project" "$(pre_bash "sqlite3 $base/own.db 'create table t(x)'")"
+  allowed "DB-6 a heredoc that only names the database file in text" "$(pre_bash "cat > .agents/runs/LC/PLAN.md <<'EOF'
+drop column in data/app.db
+EOF")"
+  allowed "DB-7 the Write tool for a scratch database file" "$(pre_edit Write "$base/own2.db")"
+  denied "DB-8 reading a database file" "$(pre_bash 'cat data/app.db')" "database file"
+  denied "DB-9 copying a database file" "$(pre_bash "cp data/app.db $base/copy.db")" "database file"
+  denied "DB-10 hashing a database file" "$(pre_bash 'shasum data/app.db')" "database file"
+  denied "DB-11 sqlite3 on the project database" "$(pre_bash "sqlite3 data/app.db 'select count(*) from books'")" "database file"
+  denied "DB-12 sqlite3 on an extensionless database path" "$(pre_bash "sqlite3 data/books 'drop table x'")" "would open"
+  denied "DB-13 a database named in a nested shell string" "$(pre_bash "sh -c 'sqlite3 data/app.db .tables'")" "database file"
+  denied "DB-14 a database opened from a code string" "$(pre_bash "python3 -c \"import sqlite3; sqlite3.connect('data/app.db')\"")" "database file"
+  denied "DB-15 a database given as a connection URL assignment" "$(pre_bash 'DATABASE_URL=sqlite:///data/app.db node server.js')" "database file"
+  denied "DB-16 a database glob" "$(pre_bash 'ls data/*.db')" "database file"
+  denied "DB-17 a redirection from a database file" "$(pre_bash 'strings < data/app.db')" "database file"
+  denied "DB-18 a server database client" "$(pre_bash "psql -c 'drop table books'")" "database client"
+  denied "DB-19 mysql client" "$(pre_bash 'mysql -e "delete from books"')" "database client"
+  denied "DB-20 npm run migrate" "$(pre_bash 'npm run migrate')" "migration, seed or schema command"
+  denied "DB-21 npm run seed" "$(pre_bash 'npm run seed')" "migration, seed or schema command"
+  denied "DB-22 prisma migrate" "$(pre_bash 'npx prisma migrate deploy')" "migration, seed or schema command"
+  denied "DB-23 alembic upgrade" "$(pre_bash 'alembic upgrade head')" "migration, seed or schema command"
+  denied "DB-24 rails db:migrate" "$(pre_bash 'bundle exec rails db:migrate')" "migration, seed or schema command"
+  denied "DB-25 django migrate" "$(pre_bash 'python manage.py migrate')" "migration, seed or schema command"
+  denied "DB-26 dotnet ef database update" "$(pre_bash 'dotnet ef database update')" "migration, seed or schema command"
+  denied "DB-27 goose up" "$(pre_bash 'goose -dir migrations sqlite3 x.db up')" "database file"
+  denied "DB-28 migrate in a pipeline" "$(pre_bash 'cd app && npm run migrate | tee out.txt')" "migration, seed or schema command"
+  denied "DB-29 the Read tool on a database file" "$(pre_edit Read "$PWD/data/app.db")" "database file"
+  denied "DB-30 the Write tool on a project database file" "$(pre_edit Write data/new.sqlite)" "database file"
+  denied "DB-31 the Grep tool on a database file" "$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD\",\"tool_name\":\"Grep\",\"tool_input\":{\"pattern\":\"legacy\",\"path\":\"data/app.db\"}}")" "database file"
+  denied "DB-32 an implementer subagent is bound too" "$(pre_bash 'cat data/app.db' proofline-implementer a1)" "database file"
+  denied "DB-33 a Codex apply_patch on a database file" "$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD\",\"tool_name\":\"apply_patch\",\"tool_input\":{\"input\":\"*** Begin Patch\\n*** Update File: data/app.db\\n*** End Patch\"}}" codex)" "database file"
+  # config: the patterns and commands come from .agents/config.yaml
+  awk '/^  paths:/ { print "  paths: \"*.store\""; next } { print }' .agents/config.yaml > "$base/cfg.tmp" && mv "$base/cfg.tmp" .agents/config.yaml
+  denied "DB-34 a configured database pattern" "$(pre_bash 'cat data/x.store')" "database file"
+  allowed "DB-35 a default pattern replaced by the config" "$(pre_bash 'ls data/app.db')"
+  # one source of defaults: the config.yaml block equals the built-in defaults of agent.sh
+  awk '/^database:/ { skip = 1; next } skip && /^[^ #]/ { skip = 0 } !skip { print }' "$ENF_REPO/control-plane/agents/config.yaml" > "$base/nodb.yaml"
+  cp .agents/config.yaml "$base/cfg.keep"; cp "$base/nodb.yaml" .agents/config.yaml; builtin=$(sh .agents/scripts/agent.sh db-config all)
+  cp "$ENF_REPO/control-plane/agents/config.yaml" .agents/config.yaml; shipped=$(sh .agents/scripts/agent.sh db-config all)
+  cp "$base/cfg.keep" .agents/config.yaml
+  [ "$builtin" = "$shipped" ] || die "DB-36 config.yaml database defaults differ from the built-in defaults"; ok "DB-36 config.yaml database block equals the built-in defaults"
+  # control plane: a changed, new or removed database file blocks the next handoff
+  new_repo
+  mkdir -p data .agents/task-integrations; printf 'x' > data/app.db; printf 'data/\n' >> .gitignore
+  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  git add -A; git commit -qm base
+  printf '%s\n' '# Task: DB-1 — Guard' '' '## Goal' '' 'Demonstrate the database guard.' '' '## Acceptance criteria' '' '- AC-1: nothing changes.' '' \
+    '## Out of scope' '' '- Other changes.' '' '## Constraints' '' '- POSIX sh.' '' '## Risks' '' '- None.' '' '## Suggested class' '' 'TRIVIAL — documentation only.' '' \
+    '## Verification commands' '' '- `sh -n script.sh`' > "$base/dbtask.md"
+  sh .agents/scripts/agent.sh start DB-1 --title Guard < "$base/dbtask.md" > "$base/start.out" 2>&1 || die "DB-37 start failed: $(cat "$base/start.out")"
+  [ -f .agents/local/db/DB-1.snapshot ] && grep -q '^data/app.db|' .agents/local/db/DB-1.snapshot || die "DB-37 start did not record the database baseline"
+  ok "DB-37 start records the database baseline"
+  sh .agents/scripts/agent.sh db-check DB-1 >/dev/null || die "DB-38 unchanged database reported as changed"; ok "DB-38 unchanged database passes"
+  sleep 1; printf 'changed' >> data/app.db
+  out=$(sh .agents/scripts/agent.sh db-check DB-1 2>&1) && die "DB-39 changed database not detected"
+  printf '%s' "$out" | grep -q 'database guard: a database file changed' || die "DB-39 message: $out"; ok "DB-39 a changed database file is detected"
+  out=$(sh .agents/scripts/agent.sh freeze DB-1 2>&1) && die "DB-40 freeze accepted a changed database"
+  printf '%s' "$out" | grep -q 'database guard' || die "DB-40 freeze refused for another reason: $out"; ok "DB-40 freeze is refused while a database file differs from the baseline"
+  : > data/other.sqlite
+  out=$(sh .agents/scripts/agent.sh db-check DB-1 2>&1) || :
+  printf '%s' "$out" | grep -q 'other.sqlite' || die "DB-41 a new database file is not named: $out"; ok "DB-41 a new database file is named in the refusal"
+}
+
 fails=0
-for sc in lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers questions not_installed live_claude; do
+for sc in lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers questions database_guard not_installed live_claude; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done
 [ "$fails" = 0 ] || { echo "enforcement tests: $fails scenario(s) failed"; exit 1; }
