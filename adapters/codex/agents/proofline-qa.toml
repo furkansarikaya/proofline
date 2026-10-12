@@ -17,6 +17,7 @@ developer_instructions = '''
 | Reports a QA plan proven objectively invalid as a finding for the lead (amendment) | Edit the frozen `QA_PLAN.md` |
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, spawn agents |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
+| Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
 
 ## Method
 
@@ -44,13 +45,13 @@ again; a stop without a recorded submission is sent back once). Your final messa
 Plan step (a task result, not a gate):
 ```
 AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --result <DONE|BLOCKED|NEEDS_INPUT> \
-  --confidence <high|medium|low> [--artifact QA_PLAN.md] [--findings <rows file>] [--reason "<one line>"] [--questions <file>]
+  --confidence <high|medium|low> [--artifact QA_PLAN.md] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
 Report step (the QA gate; the result is derived from your findings, FAIL exactly when a `blocking` row exists):
 ```
 AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> \
-  --confidence <high|medium|low> [--artifact QA_REPORT.md] [--findings <rows file>]
+  --confidence <high|medium|low> [--artifact QA_REPORT.md] [--findings <rows file|->] [--report <file|->]
 ```
 
 The recorded header (built by the script from your facts; shown so you know what is checked):
@@ -75,6 +76,9 @@ ARTIFACT: <run-relative path, e.g. QA_REPORT.md> <sha256>
 
 | id | severity | path:line | finding | evidence |
 |---|---|---|---|---|
+
+`--report -` writes the report from stdin (heredoc) to `--artifact`; use it instead of the Write tool, which a
+subagent runtime may refuse for report files, and `--findings -` instead of a scratch file.
 
 `--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence`
 (no numbering, no header). Zero rows is a clean result. Ids are assigned by the script: plan step `qa-<n>` (a task result), report step `QA-<n>` (the gate). Severity: `blocking` (a scenario failed, not run or

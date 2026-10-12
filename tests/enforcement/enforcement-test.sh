@@ -172,6 +172,9 @@ verdicts() {
   denied "a submit without the agent token" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high' proofline-verifier v1)" "--agent v1"
   denied "a submit with another agent's token" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent e1 --confidence high' proofline-verifier v1)" "--agent v1"
   denied "a submit without the role prefix" "$(pre_bash 'sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)" "prefix AGENT_ROLE"
+  denied "a specialist stashes the live tree" "$(pre_bash 'git stash -q -- src/service.js; git stash pop -q' proofline-reviewer r1)" "separate worktree"
+  denied "a specialist resets the live tree" "$(pre_bash 'git reset --hard HEAD' proofline-implementer a7)" "separate worktree"
+  allowed "a specialist mutates inside its own worktree" "$(pre_bash 'git -C "$TMPDIR/wt" checkout -- src/service.js' proofline-reviewer r1)"
   allowed "a verifier submits as itself" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
   denied "the lead submits" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high')" "does not match the caller's role"
   # an explorer that never submitted is sent back once, then reported as without a result

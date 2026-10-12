@@ -192,11 +192,11 @@ scenario_bounded_fix() {
   scaffold orchestrated
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
-  gfail REVIEW_SMALL impl.txt; A handoff LC IMPLEMENTING >/dev/null
-  cp impl_test.txt "$base/test.keep"
-  worker FIX pass impl_test.txt 'test: tweak outside the finding'
+  gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
+  cp impl.txt "$base/impl.keep"
+  worker FIX pass impl.txt 'impl: tweak outside the finding'
   expect_msg "fix outside the finding's fix_scope reached IMPLEMENTED" "outside the finding's fix_scope" A handoff LC IMPLEMENTED
-  wopen; cp "$base/test.keep" impl_test.txt; printf 'impl: default for an empty key\n' >> impl.txt; wev FIX pass impl.txt; wclose
+  wopen; cp "$base/impl.keep" impl.txt; printf 'test: default for an empty key\n' >> impl_test.txt; wev FIX pass impl_test.txt; wclose
   A handoff LC IMPLEMENTED >/dev/null                                             # round 1
   gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null                         # round 2: any gate's finding counts
   expect_fail "IMPLEMENTED with no change since the finding" A handoff LC IMPLEMENTED
@@ -235,8 +235,8 @@ scenario_fix_scope_format() {
   A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl_test.txt 'test: empty key returns the documented default'
   A handoff LC IMPLEMENTED >/dev/null
-  gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
-  worker FIX pass impl_test.txt 'test: a path that the finding did not list'
+  gfail QA impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'impl: a path that the finding did not list'
   expect_msg "a fix outside the listed fix_scope reached IMPLEMENTED" "outside the finding's fix_scope" A handoff LC IMPLEMENTED
   ok "fix_scope union and info rows"
 }

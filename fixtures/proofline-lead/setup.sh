@@ -206,7 +206,7 @@ printf '# QA plan\n\n- QA-1 (AC-1): lookup("") returns null\n- QA-2 (AC-2): a st
   printf '%s\n' '---' 'scope:' '  - path: src/lookup.js' '    criteria: [AC-1, AC-2]' '  - path: src/store.js' '    criteria: [AC-1]' '  - path: test/lookup.test.js' '    criteria: [AC-1, AC-2]'
   [ "$STATE" != destructive-approval ] || printf '%s\n' '  - path: db/migrations/002_drop_legacy_keys.sql' '    new: true' '    criteria: [AC-1]'
   printf '%s\n' '---' "# Plan: $ID" '' '## Architecture' '' '- one storage map; lookup maps a missing empty key to null' ''
-  [ "$STATE" != destructive-approval ] || printf '%s\n' '## Data' '' 'destructive: yes' '' '| step | phase | operation | object | destructive | reversible | rollback | lock |' '|---|---|---|---|---|---|---|---|' '| S1 | expand | switch_reads | legacy_keys | no | yes | redeploy the previous release | none |' '| S2 | contract | drop_table | legacy_keys | yes | no | restore from the pre-drop backup | table drop |' ''
+  [ "$STATE" != destructive-approval ] || printf '%s\n' '## Data' '' 'destructive: yes' '' '| step | phase | operation | object | destructive | reversible | rollback | lock |' '|---|---|---|---|---|---|---|---|' '| S1 | expand | switch_reads | legacy_keys | no | yes | redeploy the previous release | none |' '| S2 | deferred | drop_table | legacy_keys | yes | no | restore from the pre-drop backup | table drop |' ''
   printf '%s\n' '## Behavior' '' '- AC-1: `src/lookup.js:lookup` returns null for ""' '' '## Tests' '' '- AC-1: `test/lookup.test.js` "empty key"' '' \
     '## Verification commands' '' '- `npm test`' '' '## Dependencies' '' 'none' '' '## Contracts' '' 'none'
 } > "$D/PLAN.md"

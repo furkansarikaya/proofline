@@ -29,7 +29,7 @@ When persistence or schema changes (data_architect). The first non-blank line is
 `destructive: no`. Then: model change, invariants, migration plan (expand/contract, backfill,
 reversibility, lock risk, rollback). `destructive: yes` forces class CRITICAL at freeze and needs a
 `destructive` approval, and the step table must separate expand from contract: a non-destructive step in
-phase `expand`, `backfill` or `switch`, every destructive step in phase `contract` or `deferred`. Only the
+phase `expand`, `backfill` or `switch`, every destructive step in phase `deferred`. Only the
 user's explicit single-step approval allows one step: the line `single_step: yes` plus a `single_step` approval. Delete the section when nothing persistent changes.
 
 ## UI

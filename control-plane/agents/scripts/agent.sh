@@ -382,7 +382,7 @@ content_fingerprint() {
       GIT_INDEX_FILE=$cf_tmp/index; export GIT_INDEX_FILE
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
       git -C "$root" add -A -- . >/dev/null 2>&1
-      git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents/runs .agents/local >/dev/null 2>&1
+      git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents/runs .agents/local "$(cfg tasks.dir .agents/tasks)" >/dev/null 2>&1
       git -C "$root" write-tree); then rm -rf "$cf_tmp"; printf '%s\n' "$cf_out"
   else rm -rf "$cf_tmp"; fail "could not compute the content fingerprint"; fi
 }
@@ -441,7 +441,7 @@ run_autonomy() { # ID -> supervised|autonomous (RUN.yaml execution.autonomy, els
 # plan_migration_shape PLAN -> expand_contract | single_step | missing | none (not destructive). A destructive
 # plan carries the data-design step table in `## Data` (`| step | phase | operation | object | destructive | ...`):
 # expand_contract = a non-destructive step in phase expand|backfill|switch, every destructive step in phase
-# contract|deferred (a separate, later migration). single_step = the plan says `single_step: yes`, which the
+# deferred (a separate, later migration: a destructive step in this change's own phases is one step). single_step = the plan says `single_step: yes`, which the
 # freeze accepts only with the user's `single_step` approval (A32).
 plan_migration_shape() {
   [ "$(plan_destructive "$1")" = yes ] || { echo none; return 0; }
@@ -453,7 +453,7 @@ plan_migration_shape() {
     /^\|/ && NF >= 7 {
       ph = t($3); dest = t($6)
       if (ph !~ /^(expand|backfill|switch|contract|deferred)$/) next
-      if (dest == "yes") { if (ph ~ /^(contract|deferred)$/) late = 1; else early = 1 }
+      if (dest == "yes") { if (ph == "deferred") late = 1; else early = 1 }
       else if (ph ~ /^(expand|backfill|switch)$/) pre = 1
     }
     END { if (single) print "single_step"; else if (pre && late && !early) print "expand_contract"; else print "missing" }' "$1"
@@ -688,7 +688,7 @@ freeze_approvals() {
       single_step)
         fa_f=$(find_approval "$fa_id" single_step "$fa_plan") || fail "PLAN.md '## Data' declares single_step: yes: a destructive migration without expand/contract steps needs the user's explicit single-step approval for this PLAN.md ('agent.sh request-approval $fa_id single_step')"
         printf '%s\n' "$fa_f" ;;
-      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase contract or deferred (a separate, later migration). Only the user's explicit single-step approval allows one step: add 'single_step: yes' and request it ('agent.sh request-approval $fa_id single_step')" ;;
+      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase deferred (a separate, later migration, not part of this change). Only the user's explicit single-step approval allows one step: add 'single_step: yes' and request it ('agent.sh request-approval $fa_id single_step')" ;;
     esac
   fi
   # D15: an exhausted fix budget ends in `terminate FAILED`; a refreeze (which starts a fresh budget) needs
@@ -1460,7 +1460,11 @@ verify_fix_bound() {
   g_delta=$( { cat "${g_f%.yaml}.manifest"; patch_manifest "$g_id"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u )
   g_bad=''
   for g_p in $g_delta; do
-    printf '%s\n' "$g_scope" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -Fxq -- "$g_p" || g_bad="$g_bad $g_p"
+    printf '%s\n' "$g_scope" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -Fxq -- "$g_p" && continue
+    # A fix needs its regression test (tdd): a test path of the frozen scope is always inside the fix.
+    if printf '%s\n' "$(section_value "$(run_dir "$g_id")" freeze scope_paths)" | tr ',' '\n' | grep -Fxq -- "$g_p" \
+       && path_matches "$g_p" '**/test/** **/tests/** **/__tests__/** **/spec/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'; then continue; fi
+    g_bad="$g_bad $g_p"
   done
   [ -z "$g_bad" ] || fail "fix changed paths outside the finding's fix_scope (${g_f##*/}):$g_bad"
 }
@@ -1811,12 +1815,12 @@ submit_result() {
   sb_id=$1; shift
   [ "$execution_role" != lead ] || fail "the lead never submits a specialist result"
   require_run "$sb_id"
-  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_agent=${PROOFLINE_AGENT:-}
+  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_report='' sb_agent=${PROOFLINE_AGENT:-}
   while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || fail "usage: agent.sh submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--questions FILE] [--agent TOKEN]"
     case "$1" in
       --result) sb_res=$2 ;; --confidence) sb_conf=$2 ;; --focus) sb_focus=$2 ;; --artifact) sb_art=$2 ;;
-      --findings) sb_findings=$2 ;; --reason) sb_reason=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
+      --findings) sb_findings=$2 ;; --report) sb_report=$2 ;; --reason) sb_reason=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
       *) fail "submit: unknown option $1" ;;
     esac
     shift 2
@@ -1865,8 +1869,21 @@ submit_result() {
   else sb_focus=''
   fi
   sb_gate=''; sb_gate=$(gate_of "$execution_role" "$sb_focus" 2>/dev/null || true)
-  # Artifact: normalised and hashed here.
+  # Artifact: normalised and hashed here. --report FILE|-: the script writes the artifact from that text, so a
+  # specialist never needs the Write tool (a subagent runtime may refuse report files) or a scratch file.
   [ -n "$sb_art" ] || sb_art=$(default_artifact "$execution_role" "$sb_res" "$sb_focus")
+  if [ -n "$sb_report" ]; then
+    [ -n "$sb_art" ] || submit_fail "--report needs --artifact: the run-relative path to write"
+    sb_rp=${sb_art#.agents/runs/"$sb_id"/}; sb_rp=${sb_rp#./}
+    case "$sb_rp" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
+    sb_rk=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_rk=gate; fi
+    artifact_allowed "$execution_role" "$sb_rk" "$sb_focus" "$sb_rp" || submit_fail "artifact $sb_rp is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_rk" "$sb_focus")"
+    if [ "$sb_report" = - ]; then cat > "$sb_tmp/report.in"
+    else [ -f "$sb_report" ] || submit_fail "report file not found: $sb_report"; cat "$sb_report" > "$sb_tmp/report.in"; fi
+    [ -s "$sb_tmp/report.in" ] || submit_fail "the report is empty"
+    mkdir -p "$(dirname "$sb_d/$sb_rp")" && cp "$sb_tmp/report.in" "$sb_d/$sb_rp" || submit_fail "could not write $sb_rp"
+    sb_art=$sb_rp
+  fi
   if [ -z "$sb_art" ]; then submit_fail "--artifact is required: the run-relative path of your report (allowed: $(artifact_paths "$execution_role" task "$sb_focus"))"; fi
   sb_nrc=0; sb_norm=$(normalize_artifact "$sb_id" "$sb_art") || sb_nrc=$?
   if [ "$sb_nrc" = 2 ] && [ "$sb_res" = BLOCKED ]; then
@@ -1876,6 +1893,11 @@ submit_result() {
     mkdir -p "$(dirname "$sb_d/$sb_norm")" && printf '# BLOCKED\n\n%s\n' "${sb_reason:-no reason given}" > "$sb_d/$sb_norm"
   elif [ "$sb_nrc" = 1 ]; then submit_fail "--artifact must be a path inside the run directory: $sb_art"
   elif [ "$sb_nrc" = 2 ]; then submit_fail "artifact not found in the run: $sb_art (write the report there first; expected location for your role: $(artifact_paths "$execution_role" "$([ "$sb_gaterole" = yes ] && echo gate || echo task)" "$sb_focus"))"
+  fi
+  if [ -n "$sb_questions" ]; then
+    if [ "$sb_questions" = - ]; then cat > "$sb_tmp/questions.in"
+    else [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions" > "$sb_tmp/questions.in"; fi
+    sb_questions=$sb_tmp/questions.in
   fi
   # Run artifacts are English (A33): the report, the findings and the questions are scanned before recording.
   sb_lang_files="$sb_d/$sb_norm $sb_tmp/rows"; [ -z "$sb_questions" ] || sb_lang_files="$sb_lang_files $sb_questions"
@@ -1891,7 +1913,7 @@ submit_result() {
     if [ "$sb_res" = BLOCKED ]; then printf '\nBLOCKED_REASON: %s\n' "$(one_line "${sb_reason:-see $sb_norm}")"; fi
     if [ "$sb_res" = NEEDS_INPUT ]; then
       printf '\nQUESTIONS:\n'
-      if [ -n "$sb_questions" ]; then [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions"
+      if [ -n "$sb_questions" ]; then cat "$sb_tmp/questions.in"
       else printf '%s\n' "${sb_reason:-}"; fi
     fi
   } > "$sb_tmp/raw"
@@ -2053,8 +2075,15 @@ request_approval() {
   rq_bound=$(approval_bound "$rq_id" "$rq_kind")
   printf 'kind: "%s"\nbound: "%s"\nrequested_at: %s\n' "$rq_kind" "$rq_bound" "$(now_epoch)" > "$rq_ad/$rq_n-request-$(kind_slug "$rq_kind").yaml"
   ledger_if "$rq_id" approval-request - - "$rq_kind bound=$rq_bound"
-  printf 'QUESTIONS:\n1. Approve %s for %s?\n   options: approve | reject\n   recommended: none (the user decides)\n   why: %s\n' "$rq_kind" "$rq_id" \
-    "$(approval_why "$rq_kind" "$rq_bound")"
+  rq_steps=''
+  if [ "$rq_kind" = destructive ]; then
+    rq_steps=$(awk -F'|' 'function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+      /^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next }
+      i && /^\|/ && NF >= 7 && tolower(t($6)) == "yes" { printf "   destructive step %s (%s): %s on %s; rollback: %s\n", t($2), t($3), t($4), t($5), t($8) }' "$(run_dir "$rq_id")/PLAN.md")
+  fi
+  printf 'QUESTIONS:\n1. Approve %s for %s?\n' "$rq_kind" "$rq_id"
+  [ -z "$rq_steps" ] || printf '%s\n' "$rq_steps"
+  printf '   options: approve | reject\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_why "$rq_kind" "$rq_bound")"
 }
 approval_why() {
   case "$1" in
@@ -2665,7 +2694,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
   open-runs
-  submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--questions F] [--agent TOKEN]
+  submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
   decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
   request-approval <ID> <KIND> | approve <ID> <KIND> | approval-consume <ID> <KIND> [FINGERPRINT]

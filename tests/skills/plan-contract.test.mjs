@@ -101,7 +101,7 @@ test("persistence and UI scope paths require ## Data and ## UI", () => {
 
 const STEPS_HEAD = ["| step | phase | operation | object | destructive | reversible | rollback | lock |", "|---|---|---|---|---|---|---|---|"];
 const EXPAND = "| S1 | expand | switch_reads | books.legacy_fee | no | yes | redeploy the previous release | none |";
-const CONTRACT = "| S2 | contract | drop_column | books.legacy_fee | yes | no | restore from the backup | table rewrite |";
+const CONTRACT = "| S2 | deferred | drop_column | books.legacy_fee | yes | no | restore from the backup | table rewrite |";
 
 test("destructive: yes requires CRITICAL", () => {
   const body = { ...BODY, Data: ["destructive: yes", "", ...STEPS_HEAD, EXPAND, CONTRACT] };
@@ -116,6 +116,7 @@ test("destructive: yes needs expand/contract steps unless the plan says single_s
   has(crit(["destructive: yes", "", ...STEPS_HEAD, CONTRACT]), MSG);                         // no preceding non-destructive step
   has(crit(["destructive: yes", "", ...STEPS_HEAD, "| S1 | expand | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG); // one release
   has(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | expand | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG);
+  has(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | contract | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG); // contract in this change is one step
   assert.deepEqual(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | deferred | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), []);
   assert.deepEqual(crit(["destructive: yes", "single_step: yes", "", "drop books.legacy_fee in one migration"]), []);
   // a non-destructive plan is not subject to the check

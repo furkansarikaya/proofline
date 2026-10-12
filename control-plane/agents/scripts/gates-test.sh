@@ -190,6 +190,18 @@ sc_language() {
   ok "language: non-English report and findings are rejected at submit; blockquotes, fences and one accented name pass"
 }
 
+sc_report_stdin() {
+  scaffold orchestrated; implemented orchestrated
+  printf 'review of the whole current tree\n' | AS reviewer submit LC --focus rules+tests --confidence high --report - >/dev/null || die "submit --report - failed"
+  [ "$(cat .agents/runs/LC/reviews/proof-review/small/REPORT.md)" = 'review of the whole current tree' ] || die "the report was not written from stdin"
+  [ "$(gate_st REVIEW_SMALL)" = pass ] || die "report on stdin did not record a pass"
+  printf 'x\n' | expect_msg "a report outside the role's paths" 'outside the paths' AS reviewer submit LC --focus rules+tests --confidence high --artifact reviews/proof-review/plan/REPORT.md --report -
+  # the task-source file is bookkeeping: the control plane edits it after the gates
+  fp=$(A fingerprint LC); mkdir -p .agents/tasks; printf 'changed bookkeeping\n' > .agents/tasks/LC-task.md
+  [ "$(A fingerprint LC)" = "$fp" ] || die "the tasks directory changed the content fingerprint"
+  ok "submit --report -: written by the script, role paths enforced; the tasks directory is outside the fingerprint"
+}
+
 sc_parallel_lock() {
   scaffold orchestrated; implemented orchestrated
   printf '# Completion Report: LC\n' > .agents/runs/LC/COMPLETION_REPORT.md
@@ -377,7 +389,7 @@ sc_supervised_destructive() {
   expect_msg "a one-release destructive plan froze" 'without expand/contract steps' A freeze LC
   # expand then contract: accepted
   sed '/^| S1 | expand | drop_column/d' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
-  printf '| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | contract | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
+  printf '| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
   approve_as_user plan 'approve the plan, fourth time'; approve_as_user destructive 'approve the destructive migration, third time'
   A freeze LC >/dev/null
   [ "$(pipe_val tier)" = full ]
@@ -695,6 +707,7 @@ run_sc sc_tier_paths
 run_sc sc_record
 run_sc sc_submit
 run_sc sc_language
+run_sc sc_report_stdin
 run_sc sc_parallel_lock
 run_sc sc_fix_loop
 run_sc sc_waiver

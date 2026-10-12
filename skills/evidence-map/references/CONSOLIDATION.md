@@ -1,6 +1,6 @@
 # Consolidating Explorer results into EVIDENCE.md (lead)
 
-The lead runs this after every Explorer of the run returned `DONE`. Input: the claims tables from the result headers' artifacts (never re-reading the repository beyond running the verifier). Output: `EVIDENCE.md` in the run folder ([template](../assets/EVIDENCE.template.md)).
+The lead runs this after every Explorer of the run returned `DONE`. Input: the claims tables from the result headers' artifacts (never re-reading the repository beyond running the verifier). Every path or symbol TASK.md names (references, context, out-of-scope notes) becomes a claim or an explicit `not found` row, so a reference the task states cannot silently drop out. Output: `EVIDENCE.md` in the run folder ([template](../assets/EVIDENCE.template.md)).
 
 ## Format
 
