@@ -433,9 +433,10 @@ scratch_path() {
 # db_is_path TOKEN: does TOKEN name a database file (config database.paths)?
 db_is_path() {
   for dp_g in $db_paths; do
+    # shellcheck disable=SC2254 # config database.paths entries are glob patterns on purpose
     case "$dp_g" in
       */*) case "$1" in $dp_g|*/$dp_g) return 0 ;; esac ;;
-      *) case "${1##*/}" in $dp_g) return 0 ;; esac ;;
+      *)case "${1##*/}" in $dp_g) return 0 ;; esac ;;
     esac
   done
   return 1

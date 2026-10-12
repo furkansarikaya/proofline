@@ -1212,9 +1212,11 @@ verify_debug_result() { # ID
   vd_text=$( { sed -n '1p' "$vd_d/TASK.md"; awk '/^## Goal[[:space:]]*$/ { g=1; next } /^## / { g=0 } g' "$vd_d/TASK.md"; } | tr '[:upper:]' '[:lower:]')
   vd_hit=''
   for vd_w in $(cfg review.defect_words "$defect_words_default"); do
+    # shellcheck disable=SC2018 # ASCII a-z is intended: non-ASCII letters must stay word separators
     case " $(printf '%s' "$vd_text" | tr -c 'a-z' ' ') " in *" $vd_w "*) vd_hit=$vd_w; break ;; esac
   done
   if [ -z "$vd_hit" ]; then
+    # shellcheck disable=SC2018 # ASCII a-z is intended (see above)
     vd_cls=$(awk '/^## Suggested class[[:space:]]*$/ { g=1; next } /^## / { g=0 } g' "$vd_d/TASK.md" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z' ' ')
     for vd_w in bug defect regression; do case " $vd_cls " in *" $vd_w "*) vd_hit=$vd_w; break ;; esac; done
   fi
