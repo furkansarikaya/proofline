@@ -33,7 +33,7 @@ Order the steps so that every deployed version of the code works against every s
 | `backfill` | filling new structures from old data | batched, idempotent, resumable (section 3) |
 | `switch` | constraints that need backfilled data (added unvalidated, then validated), deploy that reads the new shape (`switch_reads`), `verify` (counts/invariant queries) | only after the backfill is complete and verified |
 | `contract` | `backup` of what will be lost, then drops, renames, type narrowing, NOT NULL | only after no deployed code reads or writes the old shape |
-| `deferred` | contract steps a later task performs | not drafted, never in this change's diff |
+| `deferred` | contract steps a later task performs (still part of the plan: a destructive one makes the plan `destructive: yes`) | not drafted, never in this change's diff |
 
 - A rename is `add new` + `dual_write` + `backfill` + `switch_reads` + `drop old`, not `RENAME`, unless the
   task proves a single deploy with downtime is acceptable (quote the acceptance criterion).

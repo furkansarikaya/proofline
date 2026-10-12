@@ -20,7 +20,7 @@ Task: `tasks/STANDARD.md`. Plus every item of `COMMON.md`. Facts: FACTS.md "STAN
 - **S-6 Artifacts present.** `TASK.md` (acceptance criteria observable from the user's side, e.g. "with
   12 books and the default page size, page 2 lists the 2 oldest books"), `EVIDENCE.md` whose claims are
   `path:symbol` and include `src/service.js:paginate`, `QA_PLAN.md` written before IMPLEMENT (ledger
-  order), `QA_REPORT.md`, `PLAN.md`, `results/NNN-debug.md` (debug-proof: reproduction, root cause
+  order), `QA_REPORT.md`, `PLAN.md`, `reports/NNN-debug.md` (debug-proof: reproduction, root cause
   `paginate` rounding down, the regression test), worker evidence with RED (assertion failure) before
   GREEN, `VERIFY.md`.
 - **S-7 Artifacts absent.** No `## Architecture` and no `## Data` in PLAN.md; no architect, data

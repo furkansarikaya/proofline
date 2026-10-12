@@ -13,7 +13,7 @@ differ" row makes the named items `unmet` in the deviating run.
 | Specialists | Claude subagents `proofline-<role>` | `dispatch.sh` → `codex exec` with the role prompt (or the Codex custom agent `proofline-<role>`) | implementer via `dispatch.sh` → `codex exec`; every other role as a Claude subagent `proofline-<role>` |
 | How a result is recorded | SubagentStop hook → `agent.sh record` (AGENT_ROLE from the subagent type) | `dispatch.sh` → `agent.sh record` (AGENT_ROLE set by dispatch) | implementer: `dispatch.sh`; others: SubagentStop hook |
 | Lead edit block | Claude PreToolUse hook + `agent.sh` + git hooks | `agent.sh` + git hooks (no runtime hook) | as `claude-only` |
-| Implementer sandbox | Claude tools limited by the role | `codex exec` workspace-write; read-only for read-only roles | Codex workspace-write for the implementer |
+| Implementer sandbox | Claude tools limited by the role | `codex exec` workspace-write for every role that writes an artifact; writes only in the run folder, and the product tree is verified unchanged by fingerprint for every role but the implementer | Codex workspace-write for the implementer |
 | User-prompt capture for approvals | Claude UserPromptSubmit hook | Codex prompt capture (or TTY) | Claude hook |
 
 ## May differ

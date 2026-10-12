@@ -42,14 +42,14 @@ EXPECTED file was changed. Cells are `met/applicable`. A round whose evaluator w
 | Mixed (Claude lead + Codex worker), all five | not tested (Codex usage limit) |
 | FAILOVER (Claude to Codex) | not tested (Codex usage limit); the isolated-HOME problem is fixed (A46) and covered by a dispatch test |
 
-### Items that wait for a user decision (EXPECTED contradicts a stated design)
+### User decisions of 2026-10-13 (all applied, decisions A55-A57)
 
-1. **CRITICAL K-3/K-6/K-7/K-8/K-12/K-14, C-14.** `data-design` (rule 2, `validate-data.mjs` D08, its test) makes a plan whose only destructive step is `deferred` `destructive: no`, so no destructive stop exists; EXPECTED requires `destructive: yes` and a stop before IMPLEMENT for that plan. Choose (a) any destructive step in any phase makes the plan `destructive: yes` (the rule and its test change) or (b) relax those items. Decision A48.
-2. **COMMON C-18.** EXPECTED allows `$TMPDIR` worktrees only; the roles' scratch rule (A36) puts scratch files under `$TMPDIR`. Choose which one changes.
-3. **COMMON C-9 (gate records).** Gate records are YAML with the recorded result file carrying the D12 header; EXPECTED asks for the header in the record. Evaluators differed.
-4. **STANDARD S-6.** `results/NNN-debug.md` versus `reports/NNN-debug.md` (A35 keeps `results/` for recorded results, C-9).
-5. **Runtime matrix M-4.** Read-only roles under Codex: A13 gives every artifact-writing role `workspace-write` and checks the product tree by fingerprint.
-6. **COMPLEX X-13.** A scope-change question answered by the user is recorded as an answer, not as a `scope` approval kind (that kind is for amendments that add paths).
+1. A destructive step in any phase makes the plan `destructive: yes` (CRITICAL K-3, K-6, K-7 stay as written).
+2. Scratch files go under `.agents/runs/<ID>/scratch/`; `$TMPDIR` is only for worktrees (C-18 stays as written).
+3. C-9: gate records are bound by hash to the result file that carries the header (wording updated).
+4. S-6: `reports/NNN-debug.md` (wording updated).
+5. Runtime matrix: writes only in the run folder, product tree verified by fingerprint (wording updated).
+6. COMPLEX X-13: unrequested scope needs a recorded `scope` approval (applied in the control plane; EXPECTED unchanged).
 
 ## Results after the deterministic-submission rounds (2026-10-12)
 

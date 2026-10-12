@@ -67,8 +67,9 @@ export function checkPlanSection(text) {
       lastPhase = Math.max(lastPhase, p);
     }
   }
-  // deferred steps run in a later task; they do not make this task destructive
-  const anyDestructive = rows.some((r) => r.destructive === "yes" && r.phase !== "deferred");
+  // A destructive step in any phase, a deferred one included, makes the plan destructive: the user approves the
+  // destructive plan before IMPLEMENT even when the drop itself is a later, separate migration (A55).
+  const anyDestructive = rows.some((r) => r.destructive === "yes");
   if (dm && (dm[1] === "yes") !== anyDestructive)
     fail("D08", `header says destructive: ${dm[1]} but ${anyDestructive ? "a step is" : "no step is"} destructive`);
   return { errors, rows, destructive: dm && dm[1] };

@@ -122,6 +122,8 @@ path_ok() {
   if always_protected "$po"; then echo "$po wires the git hooks; it is never changed by an agent"; return 1; fi
   # The lead writes dispatch assignments (DISPATCH.md); nothing else under .agents/local/.
   case "$role:$po" in lead:.agents/local/assignments/*) return 0 ;; esac
+  # Scratch files live in the run folder (D10, A56): writable by every role, never gate input.
+  case "$po" in "$run"/scratch/*) return 0 ;; esac
   case "$po" in
     .claude/settings.json|.claude/settings.local.json|.codex/hooks.json|.codex/config.toml|.agents/hooks|.agents/hooks/*)
       echo "$po holds the runtime hooks; it is never edited during a run"; return 1 ;;
@@ -510,6 +512,42 @@ DBRES
   set +f
 }
 
+# scratch_guard: scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/);
+# $TMPDIR is only for git worktrees (D10, A56). A write whose target is under $TMPDIR or /tmp and not inside a
+# registered worktree is refused, and so is `mktemp` without a template outside them. Heuristic, like the rest.
+scratch_guard() {
+  sg_t=${TMPDIR:-}; sg_t=${sg_t%/}
+  [ -n "$sg_t" ] || sg_t=/tmp
+  sg_tn=${sg_t#/private}
+  sg_wts=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  while IFS= read -r sg_rec; do
+    sg_k=${sg_rec%%"$TAB"*}; sg_v=$(printf '%s' "${sg_rec#*"$TAB"}" | tr '\002' '\n')
+    case "$sg_k" in
+      W)
+        case "$sg_v" in '$TMPDIR'/*|'${TMPDIR}'/*) sg_v=$sg_t/${sg_v#*/} ;; esac
+        sg_n=${sg_v#/private}
+        case "$sg_n" in
+          "$sg_tn"/*|/tmp/*|/var/folders/*) ;;
+          *) continue ;;
+        esac
+        sg_in=no
+        for sg_w in $sg_wts; do
+          [ "${sg_w#/private}" != "${root#/private}" ] || continue
+          case "$sg_n" in "${sg_w#/private}"/*) sg_in=yes ;; esac
+        done
+        [ "$sg_in" = yes ] || deny "the command writes '$sg_v'. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); \$TMPDIR is only for git worktrees. Create the folder there and write inside it" ;;
+      C)
+        sg_rest=${sg_rec#*"$TAB"}; sg_cw=${sg_rest%%"$TAB"*}
+        if [ "$sg_cw" = mktemp ]; then
+          sg_a=$(printf '%s' "${sg_rest#*"$TAB"}" | tr '\003' ' ')
+          case "$sg_a" in
+            *scratch/*) ;;
+            *) deny "mktemp would create its file or folder under \$TMPDIR. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); \$TMPDIR is only for git worktrees: mkdir there and name the path" ;;
+          esac
+        fi ;;
+    esac
+  done < "$tmp/scan"
+}
 # lead_tmp_check: the lead (and any session without a run, the intake roles included) keeps scratch files out of
 # /tmp too (A52). Runs after the specific checks so their reasons win.
 lead_tmp_check() {
@@ -556,7 +594,7 @@ pretool)
     done < "$tmp/scan"
     # The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
     db_guard_cmd "$cmd"
-    [ -n "$act" ] || { lead_tmp_check; exit 0; }
+    [ -n "$act" ] || { scratch_guard; lead_tmp_check; exit 0; }
     has_role=no; grep -q "^R$TAB" "$tmp/scan" && has_role=yes
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
@@ -602,6 +640,7 @@ pretool)
           why=$(target_ok "$v") || deny "the command writes '$v': $why" ;;
       esac
     done < "$tmp/scan"
+    scratch_guard
     lead_tmp_check
     exit 0
   fi

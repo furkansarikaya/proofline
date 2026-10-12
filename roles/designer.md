@@ -38,7 +38,7 @@ stop_condition: Stops when design/UI.md and the PLAN UI section text cover every
 It writes design documents only: `design/UI.md` in the run and `DESIGN.md` at the project root (its `owns:`).
 Writes outside them are denied by the PreToolUse hook; its writes are bracketed like the implementer's.
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
-| Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
+| Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 
 ## Method
 

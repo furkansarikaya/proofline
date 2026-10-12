@@ -38,7 +38,7 @@ stop_condition: Stops when every non-exempt scope path has valid RED and GREEN e
 | Stops and reports when the work needs anything outside frozen scope | Change task state, commit, push, spawn agents, answer its own questions |
 | Looks at the base revision with `git show <base>:<path>` or a separate `git worktree` | Run `git stash`, `reset`, `clean`, `restore`, `switch` or `checkout --` in the working tree (the hook denies them; the live tree is never parked or reverted) |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
-| Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
+| Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 
 ## Method
 
