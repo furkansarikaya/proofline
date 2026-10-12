@@ -26,7 +26,8 @@ this `SKILL.md`.
    `scripts/classify-migration.mjs` over the drafted (plan mode) or changed (review mode) statements, never by
    judgement, never by looking at production data. `destructive`/`unknown` output means destructive. The
    kinds and the rules behind them are in [MIGRATION.md](references/MIGRATION.md#1-classification).
-2. **Destructive means CRITICAL and a stop.** Any non-deferred destructive step: the plan's first line is
+2. **Destructive means CRITICAL and a stop.** Any destructive step in any phase, a `deferred` one included
+   (the drop of an expand/contract plan is still the plan's destructive step): the plan's first line is
    `destructive: yes`, the task class is raised to CRITICAL (state it in the findings table), and the skill
    stops with NEEDS_INPUT asking the user to approve the destructive steps by id. It never returns DONE for a
    destructive plan without an `ANSWERS` block that approves it, and that answer is not the binding approval:
@@ -99,7 +100,8 @@ this `SKILL.md`.
    [REVIEW.md](references/REVIEW.md#2-gate-rule) by hand and say so (`CONFIDENCE: medium` at most).
 7. **Destructive stop.** First line `destructive: yes` -> NEEDS_INPUT (rule 2) with the question in
    [MIGRATION.md](references/MIGRATION.md#5-the-approval-question). Resume on `ANSWERS`: approve -> DONE;
-   "defer" -> move the destructive steps to phase `deferred`, re-validate, DONE with `destructive: no`;
+   "defer" -> remove the destructive steps from this plan's table (they become a follow-up task with its own
+   approval), re-validate, DONE with `destructive: no`;
    cancel -> BLOCKED with the reason.
 8. **Report.** Findings table rows: class change (`CRITICAL` when destructive), each destructive step, each
    lock note longer than the task's stated tolerance, each unresolved risk. Standalone: the steps table, the

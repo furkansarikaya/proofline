@@ -18,7 +18,7 @@ developer_instructions = '''
 | Writes an ADR only for a decision with at least two real alternatives | Expand requirements or acceptance criteria |
 | Returns the PLAN `## Architecture` text to the lead | Edit PLAN.md or durable design docs directly; change task state; spawn agents |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
-| Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
+| Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 
 ## Method
 

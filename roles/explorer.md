@@ -36,7 +36,7 @@ stop_condition: Stops when the assignment's expected output is complete or its s
 | Returns compact findings; the lead consolidates them into `EVIDENCE.md` | Write `EVIDENCE.md`, change task state, spawn agents |
 | Takes evidence of stored data from seed files, fixtures and migrations, and says that the live database was not inspected | Open, query, copy or run a migration against a database (the hook denies it; no agent touches one) |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
-| Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
+| Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 
 ## Method
 

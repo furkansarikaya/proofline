@@ -75,7 +75,12 @@ EOF")"
   denied "lead append with 2>&1 and >>" "$(pre_bash 'make 2>&1 >> impl.txt')"
   denied "lead rm of the active-run selector" "$(pre_bash 'rm -f .agents/local/ACTIVE_RUN')"
   denied "lead write to an unresolvable target" "$(pre_bash 'echo x > "$F"')"
-  allowed "lead read-only shell with quoted > and fd dups" "$(pre_bash 'grep ">" impl.txt 2>&1 >/dev/null; ls >&2; echo ok > $TMPDIR/x')"
+  allowed "lead read-only shell with quoted > and fd dups" "$(pre_bash 'grep ">" impl.txt 2>&1 >/dev/null; ls >&2; echo ok > .agents/runs/LC/scratch/x')"
+  denied "A56 a write under \$TMPDIR that is not a worktree" "$(pre_bash 'echo x > $TMPDIR/notes.txt')" "Scratch files go under"
+  denied "A56 mktemp without a template in the run's scratch folder" "$(pre_bash 'mktemp -d')" "mktemp would create"
+  allowed "A56 mktemp with a template inside the run's scratch folder" "$(pre_bash 'mktemp -d .agents/runs/LC/scratch/rv.XXXXXX')"
+  allowed "A56 scratch file written in the run's scratch folder" "$(pre_bash 'printf x > .agents/runs/LC/scratch/findings.txt')"
+  allowed "A56 the Write tool in the run's scratch folder" "$(pre_edit Write .agents/runs/LC/scratch/probe.mjs)"
   case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) : ;; *)
     denied "A52 the lead writes a task file directly under /tmp" "$(pre_bash 'printf x > /tmp/T-1-task.md')" "TMPDIR" ;;
   esac

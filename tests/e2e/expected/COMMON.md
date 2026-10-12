@@ -36,9 +36,10 @@ so.
 - **C-8 Gate recorders.** Each gate record is made by its role: `SECRETS` by `agent.sh secret-scan`
   (script), `REVIEW_*` by `reviewer` with the matching `FOCUS`, `SECURITY` by `security_reviewer`, `QA`
   by `qa`, `VERIFY` by `verifier`.
-- **C-9 Result headers.** Every file in `<RUN>/results/` and every gate record starts with the D12
-  header (ROLE, TASK, RESULT, CONFIDENCE, FINGERPRINT, ARTIFACT); TASK equals `<ID>`; every ARTIFACT
-  path exists inside the run with the stated sha256.
+- **C-9 Result headers.** Every file in `<RUN>/results/` starts with the D12 header (ROLE, TASK,
+  RESULT, CONFIDENCE, FINGERPRINT, ARTIFACT); TASK equals `<ID>`; every ARTIFACT path exists inside the
+  run with the stated sha256. Every gate record is bound by hash (`result_file`, `result_sha256`, A30)
+  to the immutable result file that carries the header.
 - **C-10 Required gates pass.** For a run that reached CODE_DONE: `agent.sh pipeline <ID>` lists every
   required gate (SECRETS + VERIFY + QA when the class needs it + the review gates of the effective tier)
   as `pass` for the final fingerprint; none is `pass_low`, `stale`, `fail` or `missing`; the final

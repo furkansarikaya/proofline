@@ -1009,6 +1009,7 @@ known_control_artifact() {
   case "$kc_rel" in
     TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md|.lock/pid) return 0 ;;
     amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|reports/*|questions/*|approvals/*|waivers/*|security/*) return 0 ;;
+    scratch/*) return 0 ;;
     reviews/proof-review/plan/*|reviews/proof-review/rules/*|reviews/proof-review/small/*|reviews/test-trust/tests/*|reviews/test-trust/qa/*|reviews/data-design/*) return 0 ;;
     design/*.md|design/*.json) return 0 ;;
     EVIDENCE.md) [ "$(pipeline_needs "$id" evidence)" = yes ] && return 0 ;;
@@ -1915,7 +1916,7 @@ language_scan() {
 language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text (put the user's own words in a > blockquote, write everything else in English)" "$1"; }
 # verify_run_language ID: every run artifact a person or role wrote; raw runtime logs are exempt.
 verify_run_language() {
-  vrl_d=$(run_dir "$1"); vrl_files=$(find "$vrl_d" -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.json' \) ! -path "$vrl_d/dispatch/*" ! -path "$vrl_d/gates/*" ! -name 'dispatch-*' ! -name 'LEDGER.log' | sort)
+  vrl_d=$(run_dir "$1"); vrl_files=$(find "$vrl_d" -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.json' \) ! -path "$vrl_d/dispatch/*" ! -path "$vrl_d/scratch/*" ! -path "$vrl_d/gates/*" ! -name 'dispatch-*' ! -name 'LEDGER.log' | sort)
   # shellcheck disable=SC2086
   vrl_hits=$(language_scan $vrl_files) || fail "$(language_fail_text "$(printf '%s' "$vrl_hits" | tr '\n' ' ')")"
 }

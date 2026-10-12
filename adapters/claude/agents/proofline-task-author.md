@@ -20,7 +20,7 @@ effort: medium
 | Asks once, with NEEDS_INPUT, for what is ambiguous | Explore beyond what the request needs; change task state; spawn agents |
 | For a request to remove stored data, writes criteria for this change's non-destructive step (the app stops reading, writing and returning it; the values are preserved or exported) and names the drop as a follow-up | Write a criterion that needs the irreversible drop inside this change |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
-| Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
+| Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 
 ## Method
 

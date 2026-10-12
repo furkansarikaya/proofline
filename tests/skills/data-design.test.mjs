@@ -266,11 +266,14 @@ test("draft statements that disagree with the table fail (undeclared and mis-dec
   assert.ok(checkDataDoc(dataDoc({ draft: lie })).errors.some((e) => e.startsWith("draft M2")));
 });
 
-test("deferred contract steps make the task non-destructive and must not be drafted", () => {
-  const plan = PLAN_SECTION.replace("destructive: yes", "destructive: no").replace(/\| S(9|10|11) \| contract \|/g, "| S$1 | deferred |");
+test("deferred destructive steps keep the plan destructive: yes and must not be drafted (A55)", () => {
+  const plan = PLAN_SECTION.replace(/\| S(9|10|11) \| contract \|/g, "| S$1 | deferred |");
   const draft = DRAFT.replace("ALTER TABLE users DROP COLUMN first_name;\nALTER TABLE users DROP COLUMN last_name;\n", "");
   assert.deepEqual(checkDataDoc(dataDoc({ plan, draft })).errors, []);
   assert.ok(checkDataDoc(dataDoc({ plan })).errors.some((e) => e.startsWith("draft M4")));
+  // a header that says "no" while a deferred step is destructive is refused (D08)
+  const lie = plan.replace("destructive: yes", "destructive: no");
+  assert.ok(checkDataDoc(dataDoc({ plan: lie, draft })).errors.some((e) => e.includes("D08")), "destructive: no with a deferred destructive step");
 });
 
 // ---------- review gate (frozen PLAN.md vs the implemented migrations) ----------
@@ -300,7 +303,7 @@ const GATE = [
   ["M1 undeclared destructive statement", { ...IMPL, "009_cleanup.sql": "DELETE FROM sessions;\n" }, PLAN_SECTION, "M1"],
   ["M2 destructive statement declared non-destructive", { ...IMPL, "006_backfill.sql": "UPDATE users SET full_name = first_name;\n" }, PLAN_SECTION, "M2"],
   ["M3 planned step missing", { ...IMPL, "005_index.sql": "SELECT 1;\n" }, PLAN_SECTION, "M3"],
-  ["M4 deferred step present", IMPL, PLAN_SECTION.replace("destructive: yes", "destructive: no").replace(/\| S(9|10|11) \| contract \|/g, "| S$1 | deferred |"), "M4"],
+  ["M4 deferred step present", IMPL, PLAN_SECTION.replace(/\| S(9|10|11) \| contract \|/g, "| S$1 | deferred |"), "M4"],
   ["D05 missing rollback for a reversible step", IMPL, PLAN_SECTION.replace("| DROP INDEX CONCURRENTLY users_email_lower_idx |", "|  |"), "D05"],
 ];
 for (const [name, migrations, plan, code] of GATE) {
