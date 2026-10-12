@@ -377,14 +377,27 @@ content_fingerprint() {
   cf_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-fp.XXXXXX")
   cf_idx=$(git -C "$root" rev-parse --git-path index)
   case "$cf_idx" in /*) ;; *) cf_idx=$root/$cf_idx ;; esac
-  [ ! -f "$cf_idx" ] || cp "$cf_idx" "$cf_tmp/index"
-  if cf_out=$(
+  cf_objs=$(git -C "$root" rev-parse --git-path objects)
+  case "$cf_objs" in /*) ;; *) cf_objs=$root/$cf_objs ;; esac
+  # cf_try OBJECT-DIR: the tree id of the working tree in a private index; "" uses the repository's own object
+  # database. A read-only .git (a Codex workspace-write sandbox) cannot take new objects, so the retry writes
+  # them into a private directory and reads the repository's objects through an alternate: the tree id is
+  # content-addressed, so it is the same value either way.
+  cf_try() {
+    [ ! -f "$cf_idx" ] || cp "$cf_idx" "$cf_tmp/index"
+    (
       GIT_INDEX_FILE=$cf_tmp/index; export GIT_INDEX_FILE
+      if [ -n "$1" ]; then GIT_OBJECT_DIRECTORY=$1; GIT_ALTERNATE_OBJECT_DIRECTORIES=$cf_objs; export GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; fi
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
-      git -C "$root" add -A -- . >/dev/null 2>&1
+      git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
       git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents/runs .agents/local "$(cfg tasks.dir .agents/tasks)" >/dev/null 2>&1
-      git -C "$root" write-tree); then rm -rf "$cf_tmp"; printf '%s\n' "$cf_out"
-  else rm -rf "$cf_tmp"; fail "could not compute the content fingerprint"; fi
+      git -C "$root" write-tree 2>/dev/null
+    )
+  }
+  if cf_out=$(cf_try '') && [ -n "$cf_out" ]; then rm -rf "$cf_tmp"; printf '%s\n' "$cf_out"; return 0; fi
+  mkdir -p "$cf_tmp/objects"
+  if cf_out=$(cf_try "$cf_tmp/objects") && [ -n "$cf_out" ]; then rm -rf "$cf_tmp"; printf '%s\n' "$cf_out"; return 0; fi
+  rm -rf "$cf_tmp"; fail "could not compute the content fingerprint"
 }
 
 # --- Path globs (gitignore-like: ** spans directories, * and ? stay in one segment,
