@@ -247,7 +247,7 @@ final_report_tokens() {
   to_code_done orchestrated
   stop_ev() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${2:-false},\"last_assistant_message\":\"$(jstr "$1")\"}"; }
   need=$(A report-tokens LC | tr '\n' ' ')
-  case "$need" in "CODE_DONE COMPLEX "*) ;; *) die "A44-1 report-tokens: $need" ;; esac
+  case "$need" in "CODE_DONE COMPLEX "*" commit push ") ;; *) die "A44-1 report-tokens: $need" ;; esac
   ok "A44-1 report-tokens names the state, the class and every required gate: $need"
   out=$(stop_ev "Tüm kapılar geçti: gizli taraması, küçük inceleme ve doğrulama tamam. Teslim onayınızı bekliyorum.")
   printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-2 a translated report was accepted: $out"
@@ -255,6 +255,11 @@ final_report_tokens() {
   ok "A44-2 a report that translated the gate names is sent back once, naming the identifiers"
   out=$(stop_ev "Tüm kapılar geçti." true)
   [ -z "$out" ] || die "A44-3 the second stop was blocked again: $out"; ok "A44-3 the second stop (stop_hook_active) is accepted"
+  out=$(stop_ev "Tüm kapılar geçti: SECRETS REVIEW_SMALL QA VERIFY, durum CODE_DONE, sınıf COMPLEX. Commit onayınızı bekliyorum.")
+  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-4b a report that never says push awaits approval was accepted: $out"
+  printf '%s' "$out" | grep -q 'push' || die "A44-4b the refusal does not name push: $out"
+  ok "A44-4b a report that omits push is sent back, naming it"
+  out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Teslim onayınızı bekliyorum.")
   out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Teslim onayınızı bekliyorum.")
   [ -z "$out" ] || die "A44-4 a report with the identifiers was blocked: $out"; ok "A44-4 a report that carries the identifiers verbatim is accepted"
   out=$(stop_ev "Başka bir soru: commit mesajı ne olsun?")

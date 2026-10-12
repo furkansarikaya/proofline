@@ -2804,13 +2804,16 @@ branch_setup() {
 ua() { if [ -n "$1" ]; then printf '%s' "$1"; else printf unavailable; fi; }
 # report_tokens ID (A44, TR-2): the tokens a final report to the user must carry verbatim, one per line, only
 # while the run is at a reporting state (CODE_DONE, DONE, FAILED, BLOCKED): the state, the class and every
-# required gate name. Gate names, classes, states and result values are never translated, in any language.
+# required gate name, plus `commit` and `push` once the run is CODE_DONE or DONE (the delivery stop). Gate names,
+# classes, states and result values are never translated, in any language.
 report_tokens() {
   rt_id=$1; require_run "$rt_id"; rt_d=$(run_dir "$rt_id")
   case "$(run_state "$rt_d")" in CODE_DONE|DONE|FAILED|BLOCKED) ;; *) return 0 ;; esac
   gates_enforced "$rt_id" && pipeline_class_valid "$(pipeline_class "$rt_id")" || return 0
   run_state "$rt_d"; pipeline_class "$rt_id"
   required_gates "$rt_id" | tr ' ' '\n' | grep .
+  # A finished run is delivered only by the user: the report says that commit and push each await approval.
+  case "$(run_state "$rt_d")" in CODE_DONE|DONE) printf '%s\n' commit push ;; esac
 }
 summary_run() {
   sm_id=${1:-}; [ -n "$sm_id" ] || sm_id=$(active_run); [ -n "$sm_id" ] || fail "no active task: pass a TASK-ID"; require_run "$sm_id"; sm_d=$(run_dir "$sm_id")
