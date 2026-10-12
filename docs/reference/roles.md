@@ -170,7 +170,7 @@ Writes the acceptance and adversarial QA plan before implementation and evaluate
 - Agent: proofline-qa
 - Dispatched: class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED
 - Reads: TASK.md EVIDENCE.md PLAN.md QA_PLAN.md diff repo
-- Owns: QA_PLAN.md QA_REPORT.md reviews/test-trust/qa/ reports/NNN-qa.md
+- Owns: QA_PLAN.md QA_REPORT.md reviews/test-trust/qa/ reports/NNN-qa.md reports/qa-evidence/
 - Skills: qa-plan test-trust
 - Gates: QA
 - Result protocol: gate

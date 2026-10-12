@@ -176,7 +176,8 @@ verdicts() {
   denied "a specialist resets the live tree" "$(pre_bash 'git reset --hard HEAD' proofline-implementer a7)" "separate worktree"
   allowed "a specialist mutates inside its own worktree" "$(pre_bash 'git -C "$TMPDIR/wt" checkout -- src/service.js' proofline-reviewer r1)"
   case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) : ;; *)
-    denied "a specialist writes scratch under /tmp" "$(pre_bash 'git worktree add /private/tmp/t1-base-wt HEAD' proofline-reviewer r1)" "TMPDIR" ;;
+    denied "a specialist writes scratch under /tmp" "$(pre_bash 'git worktree add /tmp/t1-base-wt HEAD' proofline-reviewer r1)" "TMPDIR"
+    allowed "a specialist writes under its own project path" "$(pre_bash "cat $PWD/src/service.js" proofline-reviewer r1)" ;;
   esac
   allowed "a verifier submits as itself" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
   denied "the lead submits" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high')" "does not match the caller's role"

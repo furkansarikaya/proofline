@@ -4,7 +4,7 @@ name: QA
 purpose: Writes the acceptance and adversarial QA plan before implementation and evaluates the implementation against the frozen plan after it.
 conditional: class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED
 reads: TASK.md EVIDENCE.md PLAN.md QA_PLAN.md diff repo
-owns: QA_PLAN.md QA_REPORT.md reviews/test-trust/qa/ reports/NNN-qa.md
+owns: QA_PLAN.md QA_REPORT.md reviews/test-trust/qa/ reports/NNN-qa.md reports/qa-evidence/
 skills: qa-plan test-trust
 gate: QA
 result: gate

@@ -176,7 +176,8 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
   const required = [...BASE_SECTIONS];
   if (ARCHITECTURE_CLASSES.includes(klass)) required.push("Architecture");
   if (scopePaths.some((p) => DATA_PATH.test(p))) required.push("Data");
-  if (scopePaths.some((p) => UI_PATH.test(p))) required.push("UI");
+  // A TRIVIAL change is text or configuration: a copy edit in a UI file needs no `## UI` section (and no designer).
+  if (klass !== "TRIVIAL" && scopePaths.some((p) => UI_PATH.test(p))) required.push("UI");
   for (const s of required) if (!body.has(s)) errors.push(`section "## ${s}" is required${s === "Architecture" ? ` for ${klass}` : s === "Data" ? " (scope touches persistence)" : s === "UI" ? " (scope touches UI)" : ""}`);
   for (const [name, content] of body) if (content && isPlaceholder(content)) errors.push(`section "## ${name}" is empty or a placeholder`);
 

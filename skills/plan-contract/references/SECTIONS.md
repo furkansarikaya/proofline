@@ -6,7 +6,7 @@
 |---|---|---|
 | `## Architecture` | class COMPLEX or CRITICAL | Architect (system-design / api-design text), pasted by the lead |
 | `## Data` | a scope path is persistence (`migrations/`, `schema`, `db/`, `*.sql`, `prisma`), or the task changes stored data | Data Architect (data-design text) |
-| `## UI` | a scope path is UI (`*.html`, `*.css`, `*.jsx`, `*.tsx`, `*.vue`, `*.svelte`, `components/`, `pages/`, `views/`, `templates/`), or the task changes what a user sees | Designer (ui-design text) |
+| `## UI` | (not for TRIVIAL) a scope path is UI (`*.html`, `*.css`, `*.jsx`, `*.tsx`, `*.vue`, `*.svelte`, `components/`, `pages/`, `views/`, `templates/`), or the task changes what a user sees | Designer (ui-design text) |
 | `## Behavior` | always | lead |
 | `## Tests` | always | lead |
 | `## Verification commands` | always | lead |

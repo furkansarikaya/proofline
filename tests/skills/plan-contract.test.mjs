@@ -103,6 +103,14 @@ const STEPS_HEAD = ["| step | phase | operation | object | destructive | reversi
 const EXPAND = "| S1 | expand | switch_reads | books.legacy_fee | no | yes | redeploy the previous release | none |";
 const CONTRACT = "| S2 | deferred | drop_column | books.legacy_fee | yes | no | restore from the backup | table rewrite |";
 
+test("TRIVIAL copy change in a UI file needs no ## UI section", () => {
+  const scope = ["  - path: public/index.html", "    criteria: [AC-1]"];
+  const body = { Behavior: ["- AC-1: `public/index.html` tagline reads library"], Tests: ["- AC-1: `public/index.html` tagline"], "Verification commands": ["- `npm test`"], Dependencies: ["none"], Contracts: ["none"] };
+  const e = errs(plan({ scope, body }), { cls: "TRIVIAL" });
+  assert.ok(!e.some((x) => x.includes('section "## UI"')), JSON.stringify(e));
+  has(errs(plan({ scope, body }), { cls: "STANDARD" }), 'section "## UI" is required');
+});
+
 test("destructive: yes requires CRITICAL", () => {
   const body = { ...BODY, Data: ["destructive: yes", "", ...STEPS_HEAD, EXPAND, CONTRACT] };
   has(errs(plan({ body })), "destructive: yes requires class CRITICAL");

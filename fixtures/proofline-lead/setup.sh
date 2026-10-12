@@ -188,10 +188,10 @@ fix_round() { # FILE TEXT: reopen, one FIX window, back to IMPLEMENTED
 
 # --- needs-input: discovery stopped on an explorer question -----------------------------------
 if [ "$STATE" = needs-input ]; then
-  mkdir -p "$D/results"
-  printf '# Explorer evidence: %s\n\nState: waiting for the empty-key default.\n' "$ID" > "$D/results/001-explorer.md"
+  mkdir -p "$D/reports"
+  printf '# Explorer evidence: %s\n\nState: waiting for the empty-key default.\n' "$ID" > "$D/reports/001-explorer.md"
   {
-    result explorer '' NEEDS_INPUT medium results/001-explorer.md
+    result explorer '' NEEDS_INPUT medium reports/001-explorer.md
     printf '\nQUESTIONS:\n1. Which value must lookup("") return?\n   options: null | empty string | throw\n   recommended: null\n   why: AC-1 and the QA scenarios depend on it\n'
   } > .agents/local/result.md
   AGENT_ROLE=explorer sh ./.agents/scripts/agent.sh record "$ID" --file .agents/local/result.md >/dev/null

@@ -3,12 +3,9 @@
 Written by the lead from run evidence only (proofline-lead references/REPORT.md); published through the task
 adapter before DONE. Omit a conditional section only when its condition does not hold for the run.
 
-## Delivery
-
-Nothing is committed. Commit and push each need the user's explicit approval (`commit`, `push`).
-
 ## Implementation Summary
 
+- Delivery: nothing is committed; commit and push each need the user's explicit approval (`commit`, `push`)
 - Task: <TASK-ID> — <title>; class <CLASS>; tier <docs|small|full>; branch `<task branch>`
 - Changed: <scope path> (<AC ids>), ...
 

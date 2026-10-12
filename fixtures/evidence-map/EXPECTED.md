@@ -7,7 +7,7 @@ Evaluator-only. A runner never reads this file; build the scenario outside this 
 `sh fixtures/evidence-map/setup.sh <dir>` builds a small checkout library and places the assignment at `<dir>/ASSIGNMENT.md` (git-excluded). Run in `<dir>`:
 
 - **Standalone:** `/evidence-map` followed by the content of `ASSIGNMENT.md`.
-- **Team:** dispatch the Explorer with `ASSIGNMENT.md` as its assignment and `results/001-explorer.md` as its artifact.
+- **Team:** dispatch the Explorer with `ASSIGNMENT.md` as its assignment and `reports/001-explorer.md` as its artifact.
 
 Items are keyed by `path:symbol` (a `path:line` pointing inside the same function is equivalent).
 
@@ -44,4 +44,4 @@ Any decoy in a forbidden category = FAIL.
 - **P2** Every claim cell is a backticked `path:symbol` or `path:line`; `node skills/evidence-map/scripts/verify-claims.mjs <evidence> --repo <dir>` exits 0 (the evaluator re-runs it).
 - **P3** No file in `<dir>` is modified (`git status --porcelain` empty), no project code ran.
 - **P4** `## Stop` reason is `objective met` or `stop condition reached`.
-- **P5** Team: header `ROLE: explorer`, `RESULT: DONE`, `ARTIFACT: results/001-explorer.md <sha256>`; the message table equals the artifact's claims table.
+- **P5** Team: header `ROLE: explorer`, `RESULT: DONE`, `ARTIFACT: reports/001-explorer.md <sha256>`; the message table equals the artifact's claims table.

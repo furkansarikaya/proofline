@@ -137,7 +137,7 @@ test("CLI", () => {
 test("team mode ids: qa-<n> for the plan step, QA-<n> for gate findings, qa/ dir for test-trust", () => {
   const md = readFileSync(new URL("../../skills/qa-plan/SKILL.md", import.meta.url), "utf8");
   assert.match(md, /\| qa-<n> \| info \|/);
-  assert.match(md, /results\/qa-evidence\//);
+  assert.match(md, /reports\/qa-evidence\//);
   assert.match(md, /\| QA-<n> \| blocking \|/);
   assert.match(md, /reviews\/test-trust\/qa\//);
 });
