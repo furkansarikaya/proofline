@@ -10,8 +10,6 @@ This document records the decisions made in the initial design (grilling) sessio
 
 `test-trust` is a language- and framework-agnostic agent skill that audits how far a test suite can be trusted, using runnable evidence rather than opinion. It answers one question: "Can I trust these tests?"
 
-Inspirations: [mattpocock/skills](https://github.com/mattpocock/skills) (small, composable skills; grilling), [ersinkoc/evidence-audit](https://github.com/ersinkoc/evidence-audit) (proof-first findings, ledger, toolchain detection from the repo), [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) (verdict categories, schema-validated findings, independent verification).
-
 ## Decisions
 
 ### Scope and behaviour
@@ -20,7 +18,7 @@ Inspirations: [mattpocock/skills](https://github.com/mattpocock/skills) (small, 
 2. **Audit only, never fix.** The skill produces evidence-backed findings. Fixing is a separate, user-chosen step (or a future separate skill). Rationale: an agent asked to make tests green tends to weaken them.
 3. **Explicit scope.** Invoked as `/test-trust <scope>`. Without a scope, the skill lists candidate scopes and lets the user choose. It never audits the whole suite on its own initiative.
 4. **User-invoked only.** `disable-model-invocation: true`. The audit is long, runs many commands, and temporarily mutates code.
-   *Note (implementation):* `disable-model-invocation` is a Claude Code field outside the Agent Skills standard; it stays in the frontmatter. For Codex, `skills/test-trust/agents/openai.yaml` sets `policy.allow_implicit_invocation: false` (plus `interface.display_name` and `interface.short_description`), following mattpocock/skills and evidence-audit. The README documents how invocation works in each agent.
+   *Note (implementation):* `disable-model-invocation` is a Claude Code field outside the Agent Skills standard; it stays in the frontmatter. For Codex, `skills/test-trust/agents/openai.yaml` sets `policy.allow_implicit_invocation: false` (plus `interface.display_name` and `interface.short_description`). The README documents how invocation works in each agent.
 5. **Portable.** Follows the [Agent Skills standard](https://agentskills.io/specification). Platform features such as sub-agents are written as "use if available, otherwise do sequentially".
 6. **Optional helper script.** The core flow works with plain shell commands. A dependency-free Node script optionally validates `findings.json` against the schema; if Node is missing, that step is skipped. Never install Node for it.
    *Note (implementation):* bundled paths (`references/`, `assets/`, `scripts/`) resolve relative to the directory containing `SKILL.md`, never relative to the audited repo. The validate command uses the script's full path inside the installed skill directory.

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Deterministic result submission (`agent.sh submit`), class verified against the diff, expand/contract rule for destructive plans, English run artifacts, and the fixes of five end-to-end rounds (decisions A30–A39).
+- Database guard: no agent touches a database file, runs a SQL client or a migration/seed command; the control plane detects changed database files (A40).
+- The lead never approves: the runtime records the user's reply as the approval (A41).
+- The QA plan is derived from the final plan and verified against it before freeze (A42); results cite immutable artifact snapshots (A43); a Stop hook keeps gate names, classes and states untranslated in the final report (A44).
+- tdd-proof validates one cycle per criterion (A45); Claude specialists under an isolated-HOME Codex lead get the operator's HOME (A46).
+- `SECURITY.md` and `CONTRIBUTING.md`; the Acknowledgments section is removed and D33 states that no third-party project is named.
+
 ## 0.0.1 — 2026-10-09
 
 First release. Full scope, not yet proven on real projects.

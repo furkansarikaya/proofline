@@ -118,15 +118,10 @@ FAIL for that reason. See [tests/e2e/README.md](tests/e2e/README.md) for every r
 Other agents are added through small adapters. See [adapters/README.md](adapters/README.md) and
 [writing an adapter](docs/guides/writing-an-adapter.md). Untested adapters must be labelled "not tested". PRs welcome.
 
-## Acknowledgments
-
-Ideas only; no code or text was copied. Thanks to [mattpocock/skills](https://github.com/mattpocock/skills),
-[RBraga01/a-team](https://github.com/RBraga01/a-team), [ersinkoc/evidence-audit](https://github.com/ersinkoc/evidence-audit),
-[cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill), and the author's own
-[deterministic-agent-workflow-example](https://github.com/furkansarikaya/deterministic-agent-workflow-example).
-
 ## Status and license
 
 Version **0.0.1**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.
