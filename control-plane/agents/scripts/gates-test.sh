@@ -406,6 +406,7 @@ sc_supervised_destructive() {
   # an explicit single-step approval is the only way to a one-step destructive change
   unfrozen STANDARD
   printf '\n## Data\n\ndestructive: yes\nsingle_step: yes\n\ndrop books.legacy_notes in one migration\n' >> .agents/runs/LC/PLAN.md
+  printf '\nThe user wants this migration as a single step.\n' >> .agents/runs/LC/TASK.md
   approve_as_user plan 'approve the plan, fifth time'; approve_as_user destructive 'approve the destructive migration, fourth time'
   expect_msg "a single_step plan froze without the single-step approval" "single-step approval" A freeze LC
   A next LC | grep -q '^next=agent.sh request-approval LC single_step' || die "next does not ask for the single_step approval"

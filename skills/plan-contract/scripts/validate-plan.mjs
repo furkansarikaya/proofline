@@ -200,8 +200,10 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
     if (!m) errors.push('section "## Data": first line must be "destructive: yes" or "destructive: no"');
     else if (m[1] === "yes") {
       if (klass !== "CRITICAL") errors.push(`section "## Data": destructive: yes requires class CRITICAL (got ${klass})`);
-      const shape = migrationShape(data);
-      if (shape === "missing") errors.push('section "## Data": destructive: yes needs expand/contract steps: a step table (`| step | phase | operation | object | destructive | reversible | rollback | lock |`) with a non-destructive step in phase expand, backfill or switch and every destructive step in phase deferred (a separate, later migration, not part of this change); only the user\'s explicit single-step approval allows one step: add the line "single_step: yes" and request the single_step approval');
+      let shape = migrationShape(data);
+      // `single_step: yes` is only offered when the task states that the user wants one step (A52).
+      if (shape === "single_step" && !/single[- ]step|one[- ]step|one migration|tek ad[ıi]m/i.test(taskMd || "")) shape = "missing";
+      if (shape === "missing") errors.push('section "## Data": destructive: yes needs expand/contract steps: a step table (`| step | phase | operation | object | destructive | reversible | rollback | lock |`) with a non-destructive step in phase expand, backfill or switch and every destructive step in phase deferred (a separate, later migration, not part of this change); a single step is possible only when the task itself states that the user wants one step (then add the line "single_step: yes" and request the single_step approval); otherwise plan the drop as a deferred step');
     }
   }
   for (const s of ["Dependencies", "Contracts"]) {

@@ -445,6 +445,7 @@ db_check_token() {
   deny "$2 names the database file '$1'. No agent reads, copies, queries or writes a database file while a run is open (a test suite's own throwaway database under \$TMPDIR is the only exception). Existing rows are evidence only through the project's seed files and the test suite; record what you could not check as an open point in EVIDENCE.md"
 }
 # db_guard_cmd: the command text ($1) and its scan records ($tmp/scan).
+dg_dsql='(^|[^a-z_])(drop[[:space:]]+(table|column|index|view|schema|database|trigger)|alter[[:space:]]+table[^;]*[[:space:]]drop[[:space:]]|truncate[[:space:]]+(table[[:space:]]+)?[a-z_"`]|delete[[:space:]]+from[[:space:]])'
 db_guard_cmd() {
   db_load
   set -f
@@ -462,6 +463,20 @@ db_guard_cmd() {
     [ "${dg_rec%%"$TAB"*}" = C ] || continue
     dg_rest=${dg_rec#*"$TAB"}; dg_cw=${dg_rest%%"$TAB"*}
     dg_args=$(printf '%s' "${dg_rest#*"$TAB"}" | tr '\003' '\n')
+    # Destructive SQL runs in no environment, a scratch or in-memory database included (A52): the argument of a
+    # SQL client, inline code of a script interpreter, or a SQL file fed to either through `<`.
+    dg_isql=no
+    case " $db_clients " in *" $dg_cw "*) dg_isql=yes ;; esac
+    case "$dg_cw" in node|nodejs|deno|bun|python|python3|ruby|php|perl) case " $(printf '%s' "$dg_args" | tr '\n' ' ') " in *" -e "*|*" -c "*|*" -p "*|*" --eval "*|*" -r "*) dg_isql=yes ;; esac ;; esac
+    if [ "$dg_isql" = yes ] && printf '%s\n' "$dg_args" | grep -Eiq "$dg_dsql"; then
+      deny "$dg_cw would run a destructive SQL statement (drop, alter ... drop, truncate, delete from). Destructive steps run in no environment, in-memory or scratch databases included; the project's tests exercise migrations, and the user's destructive approval gates the plan, not an agent's command"
+    fi
+    if [ "$dg_cw" = "<" ]; then
+      dg_src=$(printf '%s' "$dg_args" | head -n 1)
+      if [ -f "$dg_src" ] && grep -Eiq "$dg_dsql" "$dg_src" 2>/dev/null; then
+        deny "the command feeds '$dg_src', which holds a destructive SQL statement, to a program. Destructive steps run in no environment, in-memory or scratch databases included"
+      fi
+    fi
     case " $db_clients " in *" $dg_cw "*)
       case "$dg_cw" in
         sqlite3|sqlite|duckdb|litecli)
@@ -493,6 +508,14 @@ $dg_res
 DBRES
   done < "$tmp/scan"
   set +f
+}
+
+# lead_tmp_check: the lead (and any session without a run, the intake roles included) keeps scratch files out of
+# /tmp too (A52). Runs after the specific checks so their reasons win.
+lead_tmp_check() {
+  tmp_is_scratch_root && return 0
+  lt_p=$(stray_tmp_path "$cmd")
+  [ -z "$lt_p" ] || deny "scratch files and worktrees go under \$TMPDIR (${TMPDIR:-unset}), never $lt_p directly"
 }
 
 # --- events -----------------------------------------------------------------------------------
@@ -533,7 +556,7 @@ pretool)
     done < "$tmp/scan"
     # The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
     db_guard_cmd "$cmd"
-    [ -n "$act" ] || exit 0
+    [ -n "$act" ] || { lead_tmp_check; exit 0; }
     has_role=no; grep -q "^R$TAB" "$tmp/scan" && has_role=yes
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
@@ -579,6 +602,7 @@ pretool)
           why=$(target_ok "$v") || deny "the command writes '$v': $why" ;;
       esac
     done < "$tmp/scan"
+    lead_tmp_check
     exit 0
   fi
   : > "$tmp/targets"
@@ -695,7 +719,7 @@ stop)
   mark=$local_dir/report-check/$act.$state
   [ ! -f "$mark" ] || exit 0
   missing=''
-  for tk in $need; do printf '%s' "$msg" | grep -Fq -- "$tk" || missing="$missing $tk"; done
+  for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
   if [ -z "$missing" ]; then : > "$mark"; exit 0; fi
   [ "$(jget stop_hook_active)" != true ] || exit 0
   printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: the final report must carry these identifiers verbatim, untranslated, in any language:$missing. Gate names, the class, the state and result values are never translated; write the prose around them in the user's language, or paste the lines of 'agent.sh summary $act'. Then finish.")"
