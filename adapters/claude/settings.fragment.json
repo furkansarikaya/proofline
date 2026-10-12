@@ -24,7 +24,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob",
         "hooks": [
           {
             "type": "command",
@@ -64,6 +64,17 @@
             "type": "command",
             "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" subagent-stop claude'",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" stop claude'",
+            "timeout": 30
           }
         ]
       }

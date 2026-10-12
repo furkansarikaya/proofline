@@ -74,7 +74,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 
 1. **Installed?** `.agents/config.yaml` and `.agents/scripts/agent.sh` exist. If not: say proofline is not
    installed here, suggest `proofline init`, stop.
-2. **Language.** The user's language is the language of their messages (default English). Gate names (`SECRETS`, `REVIEW_SMALL`, ...), classes, states and results stay verbatim inside it. Reports and
+2. **Language.** The user's language is the language of their messages (default English). Gate names (`SECRETS`, `REVIEW_SMALL`, ...), classes, states and results stay verbatim inside it: the runtime's Stop hook checks that a final report carries the state, class and every gate name from `A report-tokens <ID>` (paste the lines of `A summary <ID>`; translate only the prose around them). Reports and
    a relayed question is shown verbatim (English, as stored) with a line and a marked translation in it;
    assignments, files and stored questions are English.
 3. **State.** `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the

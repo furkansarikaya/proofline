@@ -2795,6 +2795,16 @@ branch_setup() {
 
 # --- Read-only summary --------------------------------------------------------------------
 ua() { if [ -n "$1" ]; then printf '%s' "$1"; else printf unavailable; fi; }
+# report_tokens ID (A44, TR-2): the tokens a final report to the user must carry verbatim, one per line, only
+# while the run is at a reporting state (CODE_DONE, DONE, FAILED, BLOCKED): the state, the class and every
+# required gate name. Gate names, classes, states and result values are never translated, in any language.
+report_tokens() {
+  rt_id=$1; require_run "$rt_id"; rt_d=$(run_dir "$rt_id")
+  case "$(run_state "$rt_d")" in CODE_DONE|DONE|FAILED|BLOCKED) ;; *) return 0 ;; esac
+  gates_enforced "$rt_id" && pipeline_class_valid "$(pipeline_class "$rt_id")" || return 0
+  run_state "$rt_d"; pipeline_class "$rt_id"
+  required_gates "$rt_id" | tr ' ' '\n' | grep .
+}
 summary_run() {
   sm_id=${1:-}; [ -n "$sm_id" ] || sm_id=$(active_run); [ -n "$sm_id" ] || fail "no active task: pass a TASK-ID"; require_run "$sm_id"; sm_d=$(run_dir "$sm_id")
   printf 'STATUS: %s (handoff %s, knowledge %s)\n' "$(ua "$(run_state "$sm_d")")" "$(ua "$(section_value "$sm_d" handoff state)")" "$(ua "$(section_value "$sm_d" execution knowledge_state)")"
@@ -2816,7 +2826,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan'
+read_only_commands='role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan report-tokens'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -2879,6 +2889,7 @@ case "$command" in
   tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
   summary) summary_run "${2:-}" ;;
+  report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;
   refreeze) require_lead; freeze "${2:?usage: agent.sh refreeze <ID> <AMENDMENT>}" refreeze "${3:?usage: agent.sh refreeze <ID> <AMENDMENT>}" ;;

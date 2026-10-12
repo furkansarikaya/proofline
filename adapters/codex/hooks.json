@@ -67,6 +67,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" stop codex'",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }

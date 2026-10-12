@@ -241,6 +241,26 @@ second line'
   ok "SECURITY is never waivable; a waiver needs the user's captured approval (capture accepted by agent.sh)"
 }
 
+# A44 (TR-2): the final report carries the state, class and gate names verbatim, whatever the user's language.
+final_report_tokens() {
+  fixture
+  to_code_done orchestrated
+  stop_ev() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${2:-false},\"last_assistant_message\":\"$(jstr "$1")\"}"; }
+  need=$(A report-tokens LC | tr '\n' ' ')
+  case "$need" in "CODE_DONE COMPLEX "*) ;; *) die "A44-1 report-tokens: $need" ;; esac
+  ok "A44-1 report-tokens names the state, the class and every required gate: $need"
+  out=$(stop_ev "Tüm kapılar geçti: gizli taraması, küçük inceleme ve doğrulama tamam. Teslim onayınızı bekliyorum.")
+  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-2 a translated report was accepted: $out"
+  printf '%s' "$out" | grep -q 'SECRETS' || die "A44-2 the refusal does not name the missing identifiers: $out"
+  ok "A44-2 a report that translated the gate names is sent back once, naming the identifiers"
+  out=$(stop_ev "Tüm kapılar geçti." true)
+  [ -z "$out" ] || die "A44-3 the second stop was blocked again: $out"; ok "A44-3 the second stop (stop_hook_active) is accepted"
+  out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Teslim onayınızı bekliyorum.")
+  [ -z "$out" ] || die "A44-4 a report with the identifiers was blocked: $out"; ok "A44-4 a report that carries the identifiers verbatim is accepted"
+  out=$(stop_ev "Başka bir soru: commit mesajı ne olsun?")
+  [ -z "$out" ] || die "A44-5 a later message was checked again: $out"; ok "A44-5 once reported, later messages of the same state are not checked"
+}
+
 # A41: the lead never approves; the runtime's prompt hook records an approval from the user's own reply.
 runtime_approvals() {
   fixture
@@ -478,6 +498,10 @@ EOF")"
   denied "DB-31 the Grep tool on a database file" "$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD\",\"tool_name\":\"Grep\",\"tool_input\":{\"pattern\":\"legacy\",\"path\":\"data/app.db\"}}")" "database file"
   denied "DB-32 an implementer subagent is bound too" "$(pre_bash 'cat data/app.db' proofline-implementer a1)" "database file"
   denied "DB-33 a Codex apply_patch on a database file" "$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD\",\"tool_name\":\"apply_patch\",\"tool_input\":{\"input\":\"*** Begin Patch\\n*** Update File: data/app.db\\n*** End Patch\"}}" codex)" "database file"
+  for wf in adapters/claude/settings.fragment.json adapters/claude/hooks/hooks.json; do
+    grep -q '"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob"' "$ENF_REPO/$wf" || die "DB-33b the PreToolUse matcher of $wf does not reach Read, Grep and Glob"
+  done
+  ok "DB-33b the Claude PreToolUse matchers include Read, Grep and Glob"
   # config: the patterns and commands come from .agents/config.yaml
   awk '/^  paths:/ { print "  paths: \"*.store\""; next } { print }' .agents/config.yaml > "$base/cfg.tmp" && mv "$base/cfg.tmp" .agents/config.yaml
   denied "DB-34 a configured database pattern" "$(pre_bash 'cat data/x.store')" "database file"
@@ -511,7 +535,7 @@ EOF")"
 }
 
 fails=0
-for sc in lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard not_installed live_claude; do
+for sc in lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens not_installed live_claude; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done
 [ "$fails" = 0 ] || { echo "enforcement tests: $fails scenario(s) failed"; exit 1; }
