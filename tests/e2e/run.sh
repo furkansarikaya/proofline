@@ -48,6 +48,9 @@ baseline 'chore: install proofline'
 if [ -f "$HOME/.codex/auth.json" ]; then ln -s "$HOME/.codex/auth.json" "$run/codexhome/.codex/auth.json"; fi
 printf '[projects."%s"]\ntrust_level = "trusted"\n' "$project" > "$run/codexhome/.codex/config.toml"
 export PROOFLINE_CODEX_HOME_DIR="$run/codexhome"
+# The Codex lead runs with HOME=$run/codexhome; a Claude specialist it dispatches (failover, mixed teams) must
+# get the operator's own HOME back, or it is "not logged in" (dispatch.sh restores it from this variable).
+export PROOFLINE_REAL_HOME="$HOME"
 request=$(cat "$here/tasks/$task.md"; printf '.')
 request=${request%.}
 if [ "$dry" = yes ]; then

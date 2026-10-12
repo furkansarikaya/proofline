@@ -88,7 +88,7 @@ esac
 EOF
 cat > "$tmp/bin/fake-claude" <<'EOF'
 #!/bin/sh
-loc=$FAKE_LOC; printf '%s\n' "$@" > "$loc/claude.argv"; cat > "$loc/claude.stdin"; echo "$AGENT_ROLE" > "$loc/claude.role"
+loc=$FAKE_LOC; printf '%s\n' "$@" > "$loc/claude.argv"; cat > "$loc/claude.stdin"; echo "$AGENT_ROLE" > "$loc/claude.role"; echo "${HOME:-}" > "$loc/claude.home"
 case "${FAKE_CLAUDE:-ok}" in
   ok) sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result PASS >/dev/null
       printf '{"type":"result","subtype":"success","is_error":false,"result":"said \\"hi\\" \\\\ ok","session_id":"x"}\n' ;;
@@ -138,6 +138,9 @@ ck "the specialist's own submit is the record; the final message is only a log u
 
 reset; d PROOFLINE_CODEX_HOME_DIR="$tmp/isolated-home" T-1 implementer
 ck "codex uses isolated HOME and CODEX_HOME" '[ "$rc" -eq 0 ] && [ "$(cat "$loc/codex.home")" = "$tmp/isolated-home" ] && [ "$(cat "$loc/codex.codex_home")" = "$tmp/isolated-home/.codex" ]'
+
+reset; d HOME="$tmp/isolated-home" PROOFLINE_REAL_HOME="$tmp/real-home" T-1 reviewer --focus rules
+ck "a Claude specialist started from an isolated-HOME Codex lead gets the operator's HOME back (failover)" '[ "$rc" -eq 0 ] && [ "$(cat "$loc/claude.home")" = "$tmp/real-home" ]'
 
 reset; d T-1 reviewer --focus rules
 ck "claude path: exit 0, no window" '[ "$rc" -eq 0 ] && ! has "$loc/calls.log" window-open'
