@@ -30,7 +30,7 @@ Talk to the user in their language. Evidence documents are English; identifiers,
 ## Modes
 
 - **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the user's question becomes the assignment; ask once for any of objective, scope or stop condition that cannot be derived from it. Output `.agents/local/evidence-map/<slug>/evidence.md` (nothing kept with `local_state: off`; then the document is shown in chat only). Finish with the claims table and the question "Shall I widen the scope or go deeper on one claim?".
-- **Team** (dispatched by the lead): read only the assignment and the repository; write only the result artifact the assignment names (contract: `results/NNN-explorer.md` in the run folder). Return the result header, the claims table, and `QUESTIONS:` when the assignment itself is ambiguous (`NEEDS_INPUT`). Never `NEEDS_INPUT` for something the repository answers.
+- **Team** (dispatched by the lead): read only the assignment and the repository; write only the result artifact the assignment names (contract: `reports/NNN-explorer.md` in the run folder). Return the result header, the claims table, and `QUESTIONS:` when the assignment itself is ambiguous (`NEEDS_INPUT`). Never `NEEDS_INPUT` for something the repository answers.
 
 ## Flow
 

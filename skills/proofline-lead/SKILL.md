@@ -40,7 +40,9 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    `D <ID> <role> [--focus F] --prompt-file .agents/local/assignments/<ID>/<file>`, which decides and records
    itself (never `A decide` before `D`). Never both for one step. `.agents/local/assignments/<ID>/` is the
    only place under `.agents/local/` the lead writes (the runtime hook allows exactly that directory).
-5. **Questions verbatim (D13)** ([HANDOFF.md](references/HANDOFF.md)). `A questions <ID>` output goes to the
+5. **No re-asking.** A decision TASK.md, INTENT.md or the user's answers already record (an `Out of scope`
+   item, a constraint, an answered question) is never asked again; a defect found next to the task that the
+   task does not require stays out of scope and is reported, not asked about. **Questions verbatim (D13)** ([HANDOFF.md](references/HANDOFF.md)). `A questions <ID>` output goes to the
    user unchanged. Never answer, summarise, translate, reorder or pick the recommended option. `A answer`
    gets only the user's own words.
 6. **Stop points (D3).** Stop and wait for the user at: a pending question; plan approval (supervised);

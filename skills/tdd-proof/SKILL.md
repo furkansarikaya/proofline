@@ -36,7 +36,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
   printf 'command: <exact test command>\ntarget: <comma-separated scope paths>\nexpected_failure: <RED only: the specific assertion that fails>\n' \
     | AGENT_ROLE=implementer .agents/scripts/agent.sh worker-evidence <TASK-ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   ```
-  RED is recorded `fail` with a specific `expected_failure` (at least 20 characters, naming the behaviour, never a stock phrase); GREEN/REFACTOR/FIX `pass`. A rejected recording is fixed, not bypassed. Embed the `tdd.json` content as a fenced `json` block in the result file `results/NNN-implementer.md` named by the assignment (the validator reads it from there) and finish with the result header, then the findings table (open problems), then BLOCKED_REASON or QUESTIONS.
+  RED is recorded `fail` with a specific `expected_failure` (at least 20 characters, naming the behaviour, never a stock phrase); GREEN/REFACTOR/FIX `pass`. A rejected recording is fixed, not bypassed. Embed the `tdd.json` content as a fenced `json` block in the result file `reports/NNN-implementer.md` named by the assignment (the validator reads it from there) and finish with the result header, then the findings table (open problems), then BLOCKED_REASON or QUESTIONS.
 - **Standalone**: keep the ledger and `tdd.json` under `.agents/local/tdd-proof/<target>/` (nothing kept with `local_state: off`); report in the user's language and end with the next step.
 
 ## Flow

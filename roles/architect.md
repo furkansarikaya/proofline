@@ -4,7 +4,7 @@ name: Architect
 purpose: Designs the smallest valid system and API solution from the task and frozen evidence, returning the PLAN Architecture text, design drafts and ADRs for real decisions.
 conditional: class COMPLEX or CRITICAL, or on request (proofline design system or api)
 reads: TASK.md EVIDENCE.md design/INTENT.md repo
-owns: design/ results/NNN-architect.md
+owns: design/ reports/NNN-architect.md
 skills: system-design api-design
 gate: none
 result: task

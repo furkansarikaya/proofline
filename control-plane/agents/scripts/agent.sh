@@ -989,7 +989,7 @@ known_control_artifact() {
   kc_rel=${path#.agents/runs/"$id"/}
   case "$kc_rel" in
     TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md|.lock/pid) return 0 ;;
-    amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|questions/*|approvals/*|waivers/*|security/*) return 0 ;;
+    amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|reports/*|questions/*|approvals/*|waivers/*|security/*) return 0 ;;
     reviews/proof-review/plan/*|reviews/proof-review/rules/*|reviews/proof-review/small/*|reviews/test-trust/tests/*|reviews/test-trust/qa/*|reviews/data-design/*) return 0 ;;
     design/*.md|design/*.json) return 0 ;;
     EVIDENCE.md) [ "$(pipeline_needs "$id" evidence)" = yes ] && return 0 ;;
@@ -1029,6 +1029,25 @@ verify_classification() { # ID
   [ -z "$vc_hits" ] || fail "classification blocked: run $vc_id is TRIVIAL but its diff changes executable code:${vc_hits}. TRIVIAL covers text and configuration only. Reclassify: write the evidence and QA plan the new class requires, 'agent.sh classify $vc_id STANDARD' (or higher), then amend and 'agent.sh refreeze $vc_id <AMENDMENT>'."
 }
 
+# --- Defect tasks carry a debug-proof result (A35). ---------------------------------------------
+# A STANDARD-or-higher task whose title or Goal names a defect (config review.defect_words) must have a
+# `reports/NNN-debug.md` (reproduction, root cause, regression test) before IMPLEMENTED.
+defect_words_default='bug defect regression broken wrong incorrect crash drops dropping loses losing fails failing error'
+verify_debug_result() { # ID
+  vd_id=$1; vd_d=$(run_dir "$vd_id")
+  gates_enforced "$vd_id" && pipeline_class_valid "$(pipeline_class "$vd_id")" || return 0
+  [ "$(pipeline_class "$vd_id")" != TRIVIAL ] || return 0
+  [ -f "$vd_d/TASK.md" ] || return 0
+  vd_text=$( { sed -n '1p' "$vd_d/TASK.md"; awk '/^## Goal[[:space:]]*$/ { g=1; next } /^## / { g=0 } g' "$vd_d/TASK.md"; } | tr '[:upper:]' '[:lower:]')
+  vd_hit=''
+  for vd_w in $(cfg review.defect_words "$defect_words_default"); do
+    case " $(printf '%s' "$vd_text" | tr -c 'a-z' ' ') " in *" $vd_w "*) vd_hit=$vd_w; break ;; esac
+  done
+  [ -n "$vd_hit" ] || return 0
+  ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
+  fail "IMPLEMENTED blocked: the task describes a defect ('$vd_hit' in its title or goal) but there is no debug-proof result: the implementer writes reports/NNN-debug.md (reproduction, root cause, regression test) and submits it"
+}
+
 # --- Handoff ladder: PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE ------------
 record_handoff() {
   id=$1 phase=$2; require_run "$id"; dir=$(run_dir "$id")
@@ -1052,6 +1071,7 @@ record_handoff() {
     IMPLEMENTED)
       case "$current" in IMPLEMENTING|IMPLEMENTED) ;; *) fail "illegal handoff transition: $current -> $phase" ;; esac
       verify_classification "$id"
+      verify_debug_result "$id"
       verify_worker_evidence "$id"
       verify_mutation_ownership "$id" 1
       verify_fix_bound "$id"
@@ -1646,13 +1666,13 @@ artifact_paths() { # ROLE KIND FOCUS
     reviewer:*:rules+tests) echo reviews/proof-review/small/ ;; reviewer:*:tests) echo reviews/test-trust/tests/ ;;
     reviewer:*:data) echo reviews/data-design/ ;; reviewer:*) echo reviews/proof-review/ ;;
     security_reviewer:*) echo security/ ;;
-    qa:gate:*) echo QA_REPORT.md ;; qa:*) echo 'QA_PLAN.md results/ reviews/test-trust/qa/' ;;
+    qa:gate:*) echo QA_REPORT.md ;; qa:*) echo 'QA_PLAN.md reports/ reviews/test-trust/qa/' ;;
     verifier:*) echo 'VERIFY.md design/SYNC.md' ;;
-    implementer:*) echo 'results/ worker-evidence/' ;;
-    task_author:*) echo 'TASK.md design/INTENT.md results/' ;;
-    explorer:*) echo results/ ;;
-    architect:*|data_architect:*|designer:*) echo 'design/ results/' ;;
-    *) echo 'results/ TASK.md PLAN.md EVIDENCE.md' ;;
+    implementer:*) echo 'reports/ worker-evidence/' ;;
+    task_author:*) echo 'TASK.md design/INTENT.md reports/' ;;
+    explorer:*) echo reports/ ;;
+    architect:*|data_architect:*|designer:*) echo 'design/ reports/' ;;
+    *) echo 'reports/ TASK.md PLAN.md EVIDENCE.md' ;;
   esac
 }
 artifact_allowed() { # ROLE KIND FOCUS PATH
@@ -1723,7 +1743,7 @@ record_apply() {
   ra_id=$1 ra_t=$2; ra_d=$(run_dir "$1"); m() { sed -n "s/^$1=//p" "$ra_t/meta"; }
   ra_role=$(m role) ra_res=$(m result) ra_kind=$(m kind) ra_gate=$(m gate) ra_focus=$(m focus) ra_conf=$(m confidence)
   ra_rd=$(results_dir "$ra_id"); mkdir -p "$ra_rd"; ra_n=$(next_num "$ra_rd")
-  # The raw final message, verbatim; skills own results/NNN-<role>.md, so record never writes that name.
+  # The raw final message, verbatim; skills own reports/NNN-<role>.md, so record never writes that name.
   ra_raw=results/$ra_n-$ra_role.result.md
   cp "$ra_t/raw" "$ra_d/$ra_raw"
   ra_sha=$(hash_file "$ra_d/$ra_raw")

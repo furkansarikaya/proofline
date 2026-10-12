@@ -25,7 +25,7 @@
 3. Per scope path follow .agents/skills/tdd-proof/SKILL.md in team mode: write the test, run it, record RED with
    `expected_failure`; implement; record GREEN; refactor only if useful and record it.
 4. For a defect (TASK.md describes a bug, a wrong result or a regression; or a FAIL finding naming a bug),
-   follow .agents/skills/debug-proof/SKILL.md in team mode: reproduce, prove the root cause, write `results/NNN-debug.md`
+   follow .agents/skills/debug-proof/SKILL.md in team mode: reproduce, prove the root cause, write `reports/NNN-debug.md`
    and keep the regression test inside scope.
 5. Run the plan's `## Verification commands` that apply to the changed paths. Report pre-existing failures,
    do not fix them.
@@ -44,7 +44,7 @@ AGENT_ROLE=implementer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <tok
   --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
-`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report (e.g. `results/001-debug.md`); any path spelling is accepted and the script hashes it.
+`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report (e.g. `reports/001-debug.md`); any path spelling is accepted and the script hashes it.
 
 The recorded header (built by the script from your facts; shown so you know what is checked):
 
@@ -54,7 +54,7 @@ TASK: <TASK-ID>
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>
 CONFIDENCE: <high|medium|low>
 FINGERPRINT: <current content fingerprint>
-ARTIFACT: <run-relative path, e.g. results/001-debug.md> <sha256>
+ARTIFACT: <run-relative path, e.g. reports/001-debug.md> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |

@@ -3,7 +3,7 @@
 ## Repository
 
 - Base SHA: <RUN.yaml repository.base_sha>
-- Explorer results: <results/NNN-explorer.md sha256, comma-separated>
+- Explorer results: <reports/NNN-explorer.md sha256, comma-separated>
 
 ## Claims
 

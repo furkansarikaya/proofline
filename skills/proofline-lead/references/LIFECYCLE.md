@@ -56,7 +56,7 @@ Skipped for TRIVIAL (`next` goes straight to `write PLAN.md`).
    (STANDARD 1, COMPLEX 2, CRITICAL 3), each with one objective and a disjoint allowed scope (evidence-map
    assignment fields: objective, allowed scope, expected output, stop condition).
 2. Dispatch them in parallel ([DISPATCH.md](DISPATCH.md)). Each returns `RESULT: DONE` with
-   `ARTIFACT: results/NNN-explorer.md`.
+   `ARTIFACT: reports/NNN-explorer.md`.
 3. Consolidate: follow evidence-map `references/CONSOLIDATION.md` (title `# Evidence: <ID>`, sections
    `## Repository`, `## Claims`, `## Not found`, `## Open questions`, `## Derived constraints`), reading only
    the claims tables of the explorer artifacts. Write `EVIDENCE.md`.

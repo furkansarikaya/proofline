@@ -41,9 +41,9 @@ task_branch() { # put the run on its own task branch, as `agent.sh branch` does
   git checkout -q -b proofline/LC-lookup
 }
 needs_input() { # N TOKEN -> the explorer submits NEEDS_INPUT with its artifact and questions file
-  art=.agents/runs/LC/results/00$1-explorer.md; mkdir -p .agents/runs/LC/results; printf '# explorer %s\nquestion needed\n' "$1" > "$art"
+  art=.agents/runs/LC/reports/00$1-explorer.md; mkdir -p .agents/runs/LC/reports; printf '# explorer %s\nquestion needed\n' "$1" > "$art"
   printf '1. Which default does an empty key return?\n   options: nil | empty string\n   recommended: nil\n   why: AC-1 depends on it\n' > "$base/q$1.txt"
-  AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high --artifact "results/00$1-explorer.md" --questions "$base/q$1.txt" >/dev/null
+  AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high --artifact "reports/00$1-explorer.md" --questions "$base/q$1.txt" >/dev/null
 }
 
 lead_edits() {
@@ -119,7 +119,7 @@ subagent_guard() {
   denied "non-proofline subagent state command" "$(pre_bash 'sh .agents/scripts/agent.sh handoff LC IMPLEMENTED' Explore g2)"
   denied "read-only role writes product code" "$(pre_edit Write impl.txt proofline-explorer)" "outside the paths role explorer owns"
   denied "read-only role writes a gate record" "$(pre_edit Write .agents/runs/LC/gates/009-VERIFY.yaml proofline-verifier)"
-  allowed "read-only role writes its run artifact" "$(pre_edit Write .agents/runs/LC/results/001-explorer.md proofline-explorer)"
+  allowed "read-only role writes its run artifact" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md proofline-explorer)"
   # owned paths (.agents/owns.conf) and hyphenated agent names
   mkdir -p .agents; printf 'reviewer reviews/proof-review/ reviews/test-trust/\nsecurity_reviewer security/\ndesigner design/ /DESIGN.md /docs/design/\nimplementer PRODUCT_SCOPE\n' > .agents/owns.conf
   allowed "reviewer writes its report (owns.conf)" "$(pre_edit Write .agents/runs/LC/reviews/proof-review/rules/REPORT.md proofline-reviewer)"
@@ -175,6 +175,9 @@ verdicts() {
   denied "a specialist stashes the live tree" "$(pre_bash 'git stash -q -- src/service.js; git stash pop -q' proofline-reviewer r1)" "separate worktree"
   denied "a specialist resets the live tree" "$(pre_bash 'git reset --hard HEAD' proofline-implementer a7)" "separate worktree"
   allowed "a specialist mutates inside its own worktree" "$(pre_bash 'git -C "$TMPDIR/wt" checkout -- src/service.js' proofline-reviewer r1)"
+  case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) : ;; *)
+    denied "a specialist writes scratch under /tmp" "$(pre_bash 'git worktree add /private/tmp/t1-base-wt HEAD' proofline-reviewer r1)" "TMPDIR" ;;
+  esac
   allowed "a verifier submits as itself" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
   denied "the lead submits" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high')" "does not match the caller's role"
   # an explorer that never submitted is sent back once, then reported as without a result
@@ -352,11 +355,11 @@ EOF')"
   done
   denied "L1 a reviewer never writes an assignment" "$(pre_edit Write .agents/local/assignments/LC/003-reviewer.md proofline-reviewer)"
   # P2: NNN tokens from the generated owns.conf
-  allowed "P2 explorer writes results/001-explorer.md" "$(pre_edit Write .agents/runs/LC/results/001-explorer.md proofline-explorer)"
-  allowed "P2 qa writes results/002-qa.md" "$(pre_edit Write .agents/runs/LC/results/002-qa.md proofline-qa)"
-  denied "P2 explorer writes another role's result" "$(pre_edit Write .agents/runs/LC/results/001-reviewer.md proofline-explorer)" "outside the paths"
+  allowed "P2 explorer writes reports/001-explorer.md" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md proofline-explorer)"
+  allowed "P2 qa writes reports/002-qa.md" "$(pre_edit Write .agents/runs/LC/reports/002-qa.md proofline-qa)"
+  denied "P2 explorer writes another role's result" "$(pre_edit Write .agents/runs/LC/reports/001-reviewer.md proofline-explorer)" "outside the paths"
   denied "P2 explorer writes results/01-explorer.md" "$(pre_edit Write .agents/runs/LC/results/01-explorer.md proofline-explorer)" "outside the paths"
-  denied "P2 explorer writes results/001-explorer.md.sh" "$(pre_edit Write .agents/runs/LC/results/001-explorer.md.sh proofline-explorer)" "outside the paths"
+  denied "P2 explorer writes reports/001-explorer.md.sh" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md.sh proofline-explorer)" "outside the paths"
   # P1: exact file tokens; directory tokens stay prefixes
   denied "P1 reviewer writes a sibling of an exact token" "$(pre_edit Write .agents/runs/LC/reviews/data-design/REVIEW.mdx proofline-reviewer)" "outside the paths"
   allowed "P1 reviewer writes below a directory token" "$(pre_edit Write .agents/runs/LC/reviews/proof-review/rules/REPORT.md proofline-reviewer)"
