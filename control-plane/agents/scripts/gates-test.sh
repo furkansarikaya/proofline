@@ -678,7 +678,7 @@ STANDARD — behavioural bug fix in one module with tests.' scaffold orchestrate
   SC_TASK_EXTRA='
 ## Suggested class
 
-CRITICAL — the first step is additive and its own step drops nothing.' scaffold orchestrated no STANDARD
+STANDARD — the first step is additive and its own step drops nothing.' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a defect word in Suggested class prose blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "a defect word inside Suggested class prose does not make a task a defect fix"
