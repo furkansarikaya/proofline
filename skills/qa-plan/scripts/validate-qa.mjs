@@ -111,7 +111,8 @@ export function validatePlan(text, taskText, planText) {
 }
 
 // Gate rule (mechanical): any FAIL -> FAIL; else any BLOCKED -> BLOCKED; else PASS.
-// "not-run (manual)" results (execution: manual scenarios) never affect the verdict.
+// "not-run (manual)" results (execution: manual scenarios) and PRE-EXISTING results (the scenario fails
+// identically on the pre-change revision, so the change did not cause it) never affect the verdict.
 export function computeVerdict(results) {
   if (results.some((r) => r === "FAIL")) return "FAIL";
   if (results.some((r) => r === "BLOCKED")) return "BLOCKED";
@@ -132,13 +133,14 @@ export function validateReport(text, planText) {
   if (!secs.has("Failures")) errors.push('missing section "## Failures"');
   const res = new Map();
   for (const line of secs.get("Scenarios") || []) {
-    const m = /^- (QA-\d+): (PASS|FAIL|BLOCKED|not-run \(manual\))(?:\s+(?:—|--|-)\s*(.*))?$/.exec(line);
+    const m = /^- (QA-\d+): (PASS|FAIL|BLOCKED|PRE-EXISTING|not-run \(manual\))(?:\s+(?:—|--|-)\s*(.*))?$/.exec(line);
     if (!m) { if (/^- /.test(line)) errors.push(`malformed result line "${line.slice(0, 60)}"`); continue; }
     if (res.has(m[1])) errors.push(`duplicate result for ${m[1]}`);
     if (!m[3] || !m[3].trim()) errors.push(`${m[1]}: evidence (observed behaviour and command) is required after the dash`);
+    if (m[2] === "PRE-EXISTING" && !/\b(base|baseline|pre-change)\b/i.test(m[3] || "")) errors.push(`${m[1]}: PRE-EXISTING needs the pre-change run as evidence (name the base revision and its observed failure)`);
     res.set(m[1], m[2]);
   }
-  if (res.size === 0) errors.push("no scenario results: \"## Scenarios\" must list at least one `- QA-n: PASS|FAIL|BLOCKED|not-run (manual) — evidence` line");
+  if (res.size === 0) errors.push("no scenario results: \"## Scenarios\" must list at least one `- QA-n: PASS|FAIL|BLOCKED|PRE-EXISTING|not-run (manual) — evidence` line");
   const failures = (secs.get("Failures") || []).join("\n");
   for (const [id, r] of res) if ((r === "FAIL" || r === "BLOCKED") && !failures.includes(id)) errors.push(`${id} is ${r} but is not described in "## Failures"`);
   const computed = computeVerdict([...res.values()]);

@@ -35,7 +35,7 @@ Over the scenario results, in this order:
 2. else any `auto` scenario `BLOCKED` (could not run) -> `BLOCKED` (with the reason per scenario);
 3. else `PASS`.
 
-`manual` scenarios are reported as `not-run (manual)` with the human instruction and never make the gate `BLOCKED` or `FAIL`; they are carried into the completion report as follow-ups.
+`manual` scenarios are reported as `not-run (manual)` with the human instruction and never make the gate `BLOCKED` or `FAIL`; a scenario that fails identically on the base revision is `PRE-EXISTING` and does not either; they are carried into the completion report as follow-ups.
 
 `validate-qa.mjs report` recomputes this and rejects a verdict that disagrees. An adversarial scenario that ran and found no defect is `PASS`. A defect that is only suspected is not `FAIL`; list it under Failures as a suspicion without changing the verdict.
 
@@ -63,7 +63,7 @@ Standalone use: `plan` on a task or a list of criteria the user gives; `report` 
 1. **Verify freeze.** `validate-qa.mjs plan QA_PLAN.md` exits 0 and `validate-qa.mjs hash QA_PLAN.md` is the hash you will cite. In a run, the plan's freeze is checked by the lead's script; a plan changed since freeze is BLOCKED.
 2. **Sandbox warning** once, then **baseline run**: the project's test command on the unmodified tree, recorded (a failing baseline is noted so its failures are not blamed on the change).
 3. **Execute scenarios in plan order**, each in the ledger before the next ([EXECUTION.md](references/EXECUTION.md)): the exact command, exit status, the relevant output. Timeouts per shared rule 5.
-4. **Result per scenario**: `execution: manual` -> `not-run (manual)` (not executed; the `human-check:` is the evidence); otherwise `PASS` (observed matches expected), `FAIL` (observed differs; recorded with expected vs actual and the smallest reproduction), `BLOCKED` (could not run; the reason, what was tried).
+4. **Result per scenario**: `execution: manual` -> `not-run (manual)` (not executed; the `human-check:` is the evidence); otherwise `PASS` (observed matches expected), `FAIL` (observed differs; recorded with expected vs actual and the smallest reproduction), `BLOCKED` (could not run; the reason, what was tried). `PRE-EXISTING`: the same scenario, run on the base revision in a worktree (step 2), fails identically, so the change did not cause it; the evidence names the base run. It never makes the gate `FAIL` or `BLOCKED`; it is listed under `## Failures` as a pre-existing defect for the lead's follow-up and carried into the completion report, and the changed code is judged on every other scenario.
 5. **Write `QA_REPORT.md`** from [assets/QA_REPORT.template.md](assets/QA_REPORT.template.md): verdict by the gate rule, `Plan sha256`, one result line per plan scenario with evidence (`not-run (manual)` for manual ones), `## Failures` describing every `FAIL` and `BLOCKED` scenario with `fix_scope` (paths) and the fix instruction, and suspicions separately.
 6. **Validate**: `validate-qa.mjs report QA_REPORT.md --plan QA_PLAN.md` must exit 0.
 7. **Clean up** worktrees recorded in the ledger; keep the report and evidence the run needs.
