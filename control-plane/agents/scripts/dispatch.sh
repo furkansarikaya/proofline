@@ -225,6 +225,11 @@ attempt() {
         # owns.conf (PreToolUse hook) and the fingerprint check below.
         mkdir -p "$run/worker-evidence" "$run/reports" "$root/.agents/local"
         set -- "$@" --add-dir "$run" --add-dir "$root/.agents/local"
+        # Mutation and base-run evidence needs `git worktree add` (a separate worktree, D10): .git is read-only in
+        # this sandbox, so the worktree administration directory is granted (verified against the real sandbox).
+        cd_gitdir=$(git -C "$root" rev-parse --git-common-dir 2>/dev/null || true)
+        case "$cd_gitdir" in '') ;; /*) ;; *) cd_gitdir=$root/$cd_gitdir ;; esac
+        if [ -n "$cd_gitdir" ] && mkdir -p "$cd_gitdir/worktrees" 2>/dev/null; then set -- "$@" --add-dir "$cd_gitdir/worktrees"; fi
         set -- "$@" - ;;
       claude)
         an=$(agent_name "$role"); af=$root/.claude/agents/$an.md
