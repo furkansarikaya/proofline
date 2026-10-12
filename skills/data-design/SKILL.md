@@ -30,7 +30,7 @@ this `SKILL.md`.
    `destructive: yes`, the task class is raised to CRITICAL (state it in the findings table), and the skill
    stops with NEEDS_INPUT asking the user to approve the destructive steps by id. It never returns DONE for a
    destructive plan without an `ANSWERS` block that approves it, and that answer is not the binding approval:
-   the lead still needs `agent.sh approve <ID> destructive` from the user's own message before IMPLEMENT.
+   the lead still needs the user's own `destructive` approval (recorded by the runtime from their reply) before IMPLEMENT.
 3. **The real engine, proven.** Discover the database engine and the migration tool from the repository
    ([MODEL.md](references/MODEL.md#1-engine-discovery)) and cite the evidence. Lock and transaction notes
    follow that engine ([LOCKS.md](references/LOCKS.md)). Conflicting or missing evidence is NEEDS_INPUT,

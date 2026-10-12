@@ -66,8 +66,8 @@ against the hook-captured user prompt.
    The lead never proposes a waiver as a way out and never waives on its own; it only runs `A waive`.
 2. Refuse at once for any `SECRETS-*` or `SECURITY-*` finding (never waivable) and for a finding that is not
    a blocking finding of a `fail` gate on the current content.
-3. `A request-approval <ID> waive:<FINDING-ID>`, relay verbatim; after the reply `A approve <ID>
-   waive:<FINDING-ID>`; then `A waive <ID> <FINDING-ID> --reason "<the user's reason, at least 20 characters>"`.
+3. `A request-approval <ID> waive:<FINDING-ID>`, relay verbatim; the runtime records the approval from
+   the reply (the lead never runs `approve`); then `A waive <ID> <FINDING-ID> --reason "<the user's reason, at least 20 characters>"`.
 4. A gate counts as `waived` only when every blocking finding of its record is waived; one unwaived
    finding keeps it closed. Every waiver goes into `## Waivers` of the completion report; with
    `review.waiver_followup: task` agent.sh writes a follow-up task.

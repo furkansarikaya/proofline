@@ -14,9 +14,10 @@ One rule: **`agent.sh next` decides what happens; the lead only carries it out.*
 Role: Lead (the main session; role id `lead`, alias `full_lifecycle`). Owns: the run directory's `RUN.yaml`
 (through `agent.sh` only), `TASK.md` when imported, `EVIDENCE.md`, `PLAN.md`, `COMPLETION_REPORT.md`,
 `amendments/`. Never edits product code or tests, never writes a gate, result, approval, waiver or question
-answer file by hand, never runs `agent.sh record` or `gate`. It may run `A approve`, `A answer`, `A waive`
+answer file by hand, never runs `agent.sh record` or `gate`. It may run `A answer`, `A waive`
 and `A request-approval`; each succeeds only when a hook-captured user prompt backs it, so the lead
-cannot approve, answer or waive on its own. Its own questions go through `A ask` (rule 6).
+cannot answer or waive on its own. It never runs `A approve`: the runtime's prompt hook records an approval
+from the user's reply, and the runtime hook denies the lead the command. Its own questions go through `A ask` (rule 6).
 
 All commands below are relative to the project root: `A` = `.agents/scripts/agent.sh`, `D` =
 `.agents/scripts/dispatch.sh`. Talk to the user in their language; run files are English.
@@ -47,7 +48,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    gets only the user's own words.
 6. **Stop points (D3).** Stop and wait for the user at: a pending question; plan approval (supervised);
    any destructive operation (always, whatever the autonomy); a scope change; commit, push, PR. Approvals
-   go through `A request-approval` / `A approve`; nothing is approved on the user's behalf. Any other
+   go through `A request-approval`, recorded by the runtime from the user's reply; the lead never approves. Any other
    question of the lead (a choice between plans, a scope change with options, opening a PR) is stored with
    `A ask <ID>` (the D13 block on stdin, [HANDOFF.md](references/HANDOFF.md#3-the-leads-own-questions)), then
    relayed from `A questions <ID>`; `next` stops on it like on a specialist's question.
@@ -55,7 +56,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    `pipeline` status is not `pass`/`waived` re-run. `pass_low` re-runs with escalation. At most
    `review.max_fix_rounds` fix rounds; then `A terminate <ID> FAILED`. The lead never waives on its own;
    `A waive` needs the user's explicit instruction naming the finding, with a reason (the hook-captured
-   prompt is what `approve`/`waive` verify), and is never possible for `SECRETS` or `SECURITY`.
+   prompt is what the approval and `waive` verify), and is never possible for `SECRETS` or `SECURITY`.
 8. **Delivery needs the user (D19, D34)** ([DELIVERY.md](references/DELIVERY.md)). Commit, push and PR only
    with the user's explicit approval in the current message and every required gate passing for the
    current content. Never merge, tag, force-push, or touch a protected branch.
@@ -111,7 +112,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 | `write PLAN.md` | Design roles when their conditions hold, then plan-contract and `validate-plan.mjs` exit 0 ([LIFECYCLE.md](references/LIFECYCLE.md#4-design-and-plan)). |
 | `dispatch.sh <ID> architect` / `qa` | Dispatch that role; paste a returned section into PLAN.md unchanged. |
 | `agent.sh request-approval <ID> <kind>` | Run it, relay its question verbatim, STOP. |
-| `wait for the user's answer` | After the user's reply: `A approve <ID> <kind>`; a refusal or change request goes back to the plan. |
+| `wait for the user's answer` | Never run `approve` (the hook denies it): the runtime records the approval from the user's reply. After the reply run `A next <ID>`; no approval recorded means a refusal or a change request: back to the plan. |
 | `agent.sh freeze` | `A freeze <ID>`, then `A freshness <ID>` (freshness checks a freeze that must exist). |
 | `agent.sh handoff <ID> IMPLEMENTING` (no fix round) | Run it. |
 | `dispatch.sh <ID> implementer` | IMPLEMENT: one implementer, tdd-proof evidence; then `A handoff <ID> IMPLEMENTED`, `A tier <ID>`, `A pipeline <ID>`. |

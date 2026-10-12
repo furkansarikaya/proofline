@@ -527,6 +527,7 @@ pretool)
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
       case "$k" in
         B) deny "git hook bypass is never allowed ($v); the git hooks enforce identity, gates and approvals" ;;
+        A) case "${v#*"$TAB"}" in approve|approve-pending) deny "no model runs agent.sh ${v#*"$TAB"}: an approval is the user's. The runtime records it from the user's reply (the prompt hook) and agent.sh refuses it without that reply; wait for the user's answer, then run agent.sh next" ;; esac ;;
         W) ! always_protected "$(relpath "$v")" || deny "the command writes '$v', which wires the git hooks; it is never changed by an agent (git hook bypass)" ;;
       esac
     done < "$tmp/scan"
@@ -666,6 +667,10 @@ prompt)
   h=$(sha "$tmp/text")
   printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$local_dir/prompts/.$sess.tmp" &&
     mv "$local_dir/prompts/.$sess.tmp" "$local_dir/prompts/$sess.json"
+  # Approvals are recorded here, by the runtime, from the user's own reply (A41): every open request this
+  # prompt satisfies (approval phrase and kind word, single-use) becomes an approval. The lead never runs
+  # `agent.sh approve`; a prompt that approves nothing changes nothing.
+  case "$act" in INVALID) ;; *) (unset AGENT_ROLE; sh "$agent" approve-pending "$act" >/dev/null 2>&1) || : ;; esac
   exit 0 ;;
 
 session)

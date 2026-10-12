@@ -112,7 +112,7 @@ subagent_guard() {
   allowed "subagent read-only agent.sh without a role" "$(pre_bash 'sh .agents/scripts/agent.sh fingerprint LC' proofline-explorer)"
   denied "subagent state command without its role" "$(pre_bash 'sh .agents/scripts/agent.sh freeze LC' proofline-explorer)" "read-only agent.sh"
   denied "subagent runs agent.sh record" "$(pre_bash 'AGENT_ROLE=reviewer sh .agents/scripts/agent.sh record LC' proofline:proofline-reviewer)" "SubagentStop hook"
-  denied "subagent approves" "$(pre_bash 'AGENT_ROLE=reviewer sh .agents/scripts/agent.sh approve LC commit' proofline-reviewer)" "never approves"
+  denied "subagent approves" "$(pre_bash 'AGENT_ROLE=reviewer sh .agents/scripts/agent.sh approve LC commit' proofline-reviewer)" "no model runs"
   denied "subagent waives" "$(pre_bash 'AGENT_ROLE=reviewer sh .agents/scripts/agent.sh waive LC REVIEW_RULES-1 --reason x' proofline-reviewer)"
   denied "subagent answers" "$(pre_bash 'printf nil | sh .agents/scripts/agent.sh answer LC 1' proofline-explorer)"
   denied "non-proofline subagent edits product code" "$(pre_edit Edit impl.txt general-purpose g1)"
@@ -236,9 +236,31 @@ waivers() {
   A request-approval LC waive:REVIEW_RULES-1 >/dev/null; sleep 1
   prompt 'I "approve" the waiver of REVIEW_RULES-1 \ onaylıyorum
 second line'
-  A approve LC waive:REVIEW_RULES-1 >/dev/null || die "approval from the hook capture refused (capture format or sha256)"
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-waive-REVIEW_RULES-1.yaml >/dev/null 2>&1 || die "the prompt hook did not record the approval from the capture (capture format or sha256)"
   A waive LC REVIEW_RULES-1 --reason "accepted risk for this lookup fixture only" >/dev/null || die "approved waiver refused"
   ok "SECURITY is never waivable; a waiver needs the user's captured approval (capture accepted by agent.sh)"
+}
+
+# A41: the lead never approves; the runtime's prompt hook records an approval from the user's own reply.
+runtime_approvals() {
+  fixture
+  denied "A41-1 the lead runs agent.sh approve" "$(pre_bash 'sh .agents/scripts/agent.sh approve LC plan')" "no model runs"
+  denied "A41-2 the lead runs agent.sh approve-pending" "$(pre_bash './.agents/scripts/agent.sh approve-pending LC')" "no model runs"
+  denied "A41-3 approve inside a nested shell string" "$(pre_bash "sh -c 'sh .agents/scripts/agent.sh approve LC plan'")" "no model runs"
+  A request-approval LC plan >/dev/null; sleep 1
+  prompt 'looks fine, thanks'
+  ! ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 || die "A41-4 a prompt without an approval phrase was recorded as an approval"
+  ok "A41-4 a user reply without an approval phrase approves nothing"
+  prompt 'plan approved, go ahead'
+  ap=$(ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml 2>/dev/null | head -n 1)
+  [ -n "$ap" ] || die "A41-5 the prompt hook did not record the plan approval"
+  grep -q 'source: "prompt_capture"' "$ap" && grep -q 'answered_by: "user"' "$ap" || die "A41-5 approval not attributed to the user's prompt: $(cat "$ap")"
+  ok "A41-5 the prompt hook records the plan approval from the user's reply"
+  prompt 'plan approved, go ahead'
+  [ "$(ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml | wc -l | tr -d ' ')" = 1 ] || die "A41-6 one prompt granted the same approval twice"
+  ok "A41-6 an approval is single-use per prompt"
+  AGENT_ROLE=reviewer prompt 'plan approved' s9
+  ok "A41-7 a specialist's prompt is not a capture (existing rule kept)"
 }
 
 questions() {
@@ -489,7 +511,7 @@ EOF")"
 }
 
 fails=0
-for sc in lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers questions database_guard not_installed live_claude; do
+for sc in lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard not_installed live_claude; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done
 [ "$fails" = 0 ] || { echo "enforcement tests: $fails scenario(s) failed"; exit 1; }
