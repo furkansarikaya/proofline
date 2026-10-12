@@ -157,7 +157,7 @@ sc_submit() {
   for art in "$(pwd)/$small/REPORT.md" ".agents/runs/LC/reviews/proof-review/small/REPORT.md" "./.agents/runs/LC/reviews/proof-review/small/REPORT.md" "reviews/proof-review/small/REPORT.md" "./reviews/proof-review/small/REPORT.md"; do
     AS reviewer submit LC --artifact "$art" --confidence high >/dev/null || die "artifact spelling not accepted: $art"
   done
-  grep -q '^artifact: "reviews/proof-review/small/REPORT.md"' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "artifact was not normalized"
+  grep -q '^artifact: "reports/snapshots/[0-9a-f]\{12\}-reviewer-reviews_proof-review_small_REPORT.md"' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "artifact was not normalized to its immutable snapshot"
   expect_msg "an artifact outside the run was accepted" 'inside the run' AS reviewer submit LC --focus rules+tests --artifact ../../../impl.txt --confidence high
   expect_msg "an artifact of another focus was accepted" 'outside the paths' AS reviewer submit LC --focus plan --artifact reviews/proof-review/small/REPORT.md --confidence high
   # the result follows from the findings
@@ -645,6 +645,24 @@ sc_qa_plan_bound() {
   A verify-qa-plan LC >/dev/null || die "an absence expectation of a removed term was refused"
   ok "QA-bound: stale hash, missing hash, unknown or uncovered criterion and a removed term are refused; an absence expectation passes"
 }
+sc_artifact_snapshots() {
+  scaffold orchestrated; implemented orchestrated
+  small=.agents/runs/LC/reviews/proof-review/small
+  mkdir -p "$small"; printf 'round one report\n' > "$small/REPORT.md"
+  AS reviewer submit LC --focus rules+tests --confidence high --agent s1 >/dev/null || die "first submit failed"
+  printf 'round two report, same path\n' > "$small/REPORT.md"
+  AS reviewer submit LC --focus rules+tests --confidence high --agent s2 >/dev/null || die "second submit failed"
+  n=0
+  for r in .agents/runs/LC/results/*-reviewer.result.md; do
+    art=$(sed -n 's/^ARTIFACT: \([^ ]*\) \([0-9a-f]*\)$/\1 \2/p' "$r"); p=${art% *}; h=${art#* }
+    [ -f ".agents/runs/LC/$p" ] && [ "$(tsha ".agents/runs/LC/$p")" = "$h" ] || die "C-9: $r cites $p with a stale or missing sha256"
+    n=$((n + 1))
+  done
+  [ "$n" = 2 ] || die "expected two recorded reviewer results, saw $n"
+  [ "$(ls .agents/runs/LC/reports/snapshots | wc -l | tr -d ' ')" = 2 ] || die "two different reports did not make two snapshots"
+  A verify-scope LC >/dev/null 2>&1 || die "verify-scope refuses the snapshots: $(A verify-scope LC 2>&1)"
+  ok "C-9: results of two rounds that wrote the same report path both cite an existing artifact with the stated sha256"
+}
 sc_start() {
   new_repo; RID=ST-1
   cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
@@ -761,4 +779,5 @@ run_sc sc_knowledge_secrets
 run_sc sc_next_order
 run_sc sc_start
 run_sc sc_qa_plan_bound
+run_sc sc_artifact_snapshots
 echo 'gates tests passed'

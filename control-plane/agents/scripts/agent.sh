@@ -1779,6 +1779,7 @@ artifact_paths() { # ROLE KIND FOCUS
   esac
 }
 artifact_allowed() { # ROLE KIND FOCUS PATH
+  case "$4" in reports/snapshots/*) return 0 ;; esac   # immutable copies made by `submit` (A43)
   for aa_t in $(artifact_paths "$1" "$2" "$3"); do
     case "$aa_t" in */) case "$4" in "$aa_t"*) return 0 ;; esac ;; *) [ "$4" != "$aa_t" ] || return 0 ;; esac
   done
@@ -2026,6 +2027,17 @@ submit_result() {
   sb_lang_files="$sb_d/$sb_norm $sb_tmp/rows"; [ -z "$sb_questions" ] || sb_lang_files="$sb_lang_files $sb_questions"
   # shellcheck disable=SC2086
   sb_hits=$(language_scan $sb_lang_files) || submit_fail "$(language_fail_text "$(printf '%s' "$sb_hits" | tr '\n' ' ' | sed "s#$sb_tmp/rows#your findings#")")"
+  # A43: the result cites an immutable copy of the artifact (reports/snapshots/<sha12>-<role>-<path>), never the
+  # live path. A later round that writes the same report path (REPORT.md, VERIFY.md, QA_REPORT.md) then cannot
+  # make an earlier result's ARTIFACT sha256 stale. The original path is checked against the role's paths here.
+  sb_kind=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_kind=gate; fi
+  artifact_allowed "$execution_role" "$sb_kind" "$sb_focus" "$sb_norm" || submit_fail "artifact $sb_norm is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_kind" "$sb_focus")"
+  case "$sb_norm" in reports/snapshots/*) ;; *)
+    sb_h=$(hash_file "$sb_d/$sb_norm")
+    sb_sn=reports/snapshots/$(printf '%.12s' "$sb_h")-$execution_role-$(printf '%s' "$sb_norm" | tr '/' '_')
+    mkdir -p "$sb_d/reports/snapshots" && cp "$sb_d/$sb_norm" "$sb_d/$sb_sn" || submit_fail "could not snapshot $sb_norm"
+    sb_norm=$sb_sn ;;
+  esac
   {
     printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
     [ -z "$sb_focus" ] || [ "$execution_role" != reviewer ] || printf 'FOCUS: %s\n' "$sb_focus"
