@@ -62,7 +62,7 @@ if [ "$dry" = yes ]; then
   echo "project=$project"
   echo "scenario=$scenario config=$config task=$task"
   echo 'prepared=baseline,install,doctor,codex-isolation'
-  echo "setup: cp -R '$repo/playground/.' '$project/'; git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '$repo/bin/proofline' init --yes --runtimes '$runtimes' --lead '$lead' --worker '$worker' --reviewers '$reviewers' --profile "${E2E_PROFILE:-balanced}" --task-adapter markdown; baseline 'chore: install proofline'; '$repo/bin/proofline' doctor"
+  echo "setup: cp -R '$repo/playground/.' '$project/'; git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '$repo/bin/proofline' init --yes --runtimes '$runtimes' --lead '$lead' --worker '$worker' --reviewers '$reviewers' --profile $profile --task-adapter markdown; baseline 'chore: install proofline'; '$repo/bin/proofline' doctor"
   if [ "$lead" = claude ]; then
     echo "lead: (cd '$project' && claude -p '<whole $task task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${lead_model}' --output-format stream-json --verbose --max-turns '${E2E_MAX_TURNS:-250}') > '$out/lead-1.jsonl' 2> '$out/lead-1.err'"
   else

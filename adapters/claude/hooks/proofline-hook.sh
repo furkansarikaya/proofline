@@ -525,6 +525,7 @@ scratch_guard() {
     sg_k=${sg_rec%%"$TAB"*}; sg_v=$(printf '%s' "${sg_rec#*"$TAB"}" | tr '\002' '\n')
     case "$sg_k" in
       W)
+        # shellcheck disable=SC2016 # literal $TMPDIR in the command text
         case "$sg_v" in '$TMPDIR'/*|'${TMPDIR}'/*) sg_v=$sg_t/${sg_v#*/} ;; esac
         sg_n=${sg_v#/private}
         case "$sg_n" in
