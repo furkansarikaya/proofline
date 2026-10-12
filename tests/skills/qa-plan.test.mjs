@@ -211,3 +211,17 @@ test("plan binding: a scenario must not expect a term the contracts remove", () 
   const gone = BODY.replace("expected: y", "expected: the response has no `legacyNotes` (absent)");
   assert.equal(validatePlan(bound(plan, gone), undefined, plan).valid, true);
 });
+
+const REPORT_WITH_PRE = [
+  "# QA report: T-1", "", "Verdict: PASS", "", `Plan sha256: ${"a".repeat(64)}`, "", "## Scenarios", "",
+  "- QA-1: PASS — got 429 on request 6 (curl sequence)",
+  "- QA-2: PRE-EXISTING — fails identically on base d6fef45 (npm test -- login, exit 1)", "",
+  "## Failures", "", "QA-2 is a pre-existing defect: it fails on the base revision too.", "",
+].join("\n");
+test("report: PRE-EXISTING (fails identically on the base revision) never affects the verdict and needs the base run as evidence", () => {
+  const ok = validateReport(REPORT_WITH_PRE, undefined);
+  assert.equal(ok.valid, true, ok.errors.join("\n"));
+  assert.equal(ok.computed, "PASS");
+  const bad = validateReport(REPORT_WITH_PRE.replace("fails identically on base d6fef45 (npm test -- login, exit 1)", "fails (npm test -- login, exit 1)"), undefined);
+  assert.match(bad.errors.join("\n"), /PRE-EXISTING needs the pre-change run/);
+});
