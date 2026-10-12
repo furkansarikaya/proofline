@@ -223,6 +223,9 @@ q A handoff "$ID" IMPLEMENTING
 worker RED fail test/lookup.test.js 'test("empty key", () => assert.equal(lookup(""), null));'
 worker GREEN pass src/lookup.js 'export const EMPTY_DEFAULT = null;'
 worker REFACTOR pass src/store.js '// empty key handled in lookup'
+# A defect task needs the implementer's debug-proof result before IMPLEMENTED (A35, A47).
+mkdir -p "$D/reports"
+printf '# Debug: %s\n\nReproduction: lookup("") returned undefined. Root cause: the store map had no default. Regression test: test/lookup.test.js "empty key".\n' "$ID" > "$D/reports/001-debug.md"
 q A handoff "$ID" IMPLEMENTED
 
 case "$STATE" in
