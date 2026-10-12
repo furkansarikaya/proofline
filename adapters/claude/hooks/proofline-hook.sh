@@ -392,6 +392,13 @@ pretool)
   case "$tool" in Bash|shell|local_shell|exec_command|unified_exec) cmd=$(jget tool_input.command tool_input.cmd) ;; esac
   TAB=$(printf '\t')
   if [ -n "$cmd" ]; then
+    # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
+    # mutation evidence runs in a separate worktree (`git worktree add`, then `git -C <worktree> ...`).
+    if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } \
+       && printf '%s' "$cmd" | grep -Eq '(^|[;&|(]|[[:space:]])git[[:space:]]+(stash|reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout[[:space:]]+--)([[:space:]]|$)' \
+       && ! printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+-C[[:space:]]|git[[:space:]]+worktree|--work-tree'; then
+      deny "git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it"
+    fi
     printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
     # Hook and gate bypasses: never, for anyone, while proofline is installed.
     while IFS= read -r rec; do

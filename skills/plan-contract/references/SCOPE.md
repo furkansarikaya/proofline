@@ -54,6 +54,6 @@ Allowed only where a failing-then-passing test cannot exist for that file: data 
 - an invalid `tdd_exemption`;
 - a missing title `# Plan: <TASK-ID>` or one naming another task; no criteria in TASK.md; an invalid class;
 - a required section missing ([SECTIONS.md](SECTIONS.md)), a section twice, an empty or placeholder section (`TBD`, `TODO`, `...`, `<...>`);
-- `## Data` whose first line is not `destructive: yes|no`, or `destructive: yes` with a class other than CRITICAL, or `destructive: yes` whose step table has no non-destructive `expand`/`backfill`/`switch` step before the destructive steps (all in `contract`/`deferred`) and no `single_step: yes` line;
+- `## Data` whose first line is not `destructive: yes|no`, or `destructive: yes` with a class other than CRITICAL, or `destructive: yes` whose step table has no non-destructive `expand`/`backfill`/`switch` step before the destructive steps (all in `deferred`) and no `single_step: yes` line;
 - `## Dependencies` or `## Contracts` that is neither `none` nor a `- ` list;
 - `## Verification commands` without a command in backticks or a code block.

@@ -11,6 +11,7 @@
 | Marks what it could not determine as unknown | Redefine requirements, propose a design, choose a solution |
 | Returns compact findings; the lead consolidates them into `EVIDENCE.md` | Write `EVIDENCE.md`, change task state, spawn agents |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
+| Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
 
 ## Method
 
@@ -30,7 +31,7 @@ again; a stop without a recorded submission is sent back once). Your final messa
 
 ```
 AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --result <DONE|BLOCKED|NEEDS_INPUT> \
-  --confidence <high|medium|low> [--artifact <path>] [--findings <rows file>] [--reason "<one line>"] [--questions <file>]
+  --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
 `--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report (e.g. `results/001-explorer.md`); any path spelling is accepted and the script hashes it.
@@ -48,6 +49,9 @@ ARTIFACT: <run-relative path, e.g. results/001-explorer.md> <sha256>
 
 | id | severity | path:line | finding | evidence |
 |---|---|---|---|---|
+
+`--report -` writes the report from stdin (heredoc) to `--artifact`; use it instead of the Write tool, which a
+subagent runtime may refuse for report files, and `--findings -` instead of a scratch file.
 
 `--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence`
 (no numbering, no header, no table). Zero rows is a clean result.

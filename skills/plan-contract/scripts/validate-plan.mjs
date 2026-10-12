@@ -38,7 +38,7 @@ export function migrationShape(lines) {
     if (cells.length < 8) continue;
     const phase = cells[2], dest = cells[5];
     if (!["expand", "backfill", "switch", "contract", "deferred"].includes(phase)) continue;
-    if (dest === "yes") { if (phase === "contract" || phase === "deferred") late = true; else early = true; }
+    if (dest === "yes") { if (phase === "deferred") late = true; else early = true; }
     else if (["expand", "backfill", "switch"].includes(phase)) pre = true;
   }
   return single ? "single_step" : pre && late && !early ? "expand_contract" : "missing";
@@ -200,7 +200,7 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
     else if (m[1] === "yes") {
       if (klass !== "CRITICAL") errors.push(`section "## Data": destructive: yes requires class CRITICAL (got ${klass})`);
       const shape = migrationShape(data);
-      if (shape === "missing") errors.push('section "## Data": destructive: yes needs expand/contract steps: a step table (`| step | phase | operation | object | destructive | reversible | rollback | lock |`) with a non-destructive step in phase expand, backfill or switch and every destructive step in phase contract or deferred (a separate, later migration); only the user\'s explicit single-step approval allows one step: add the line "single_step: yes" and request the single_step approval');
+      if (shape === "missing") errors.push('section "## Data": destructive: yes needs expand/contract steps: a step table (`| step | phase | operation | object | destructive | reversible | rollback | lock |`) with a non-destructive step in phase expand, backfill or switch and every destructive step in phase deferred (a separate, later migration, not part of this change); only the user\'s explicit single-step approval allows one step: add the line "single_step: yes" and request the single_step approval');
     }
   }
   for (const s of ["Dependencies", "Contracts"]) {

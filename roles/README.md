@@ -62,6 +62,7 @@ Exactly three level-2 sections, in this order:
   `dispatch.sh` read the submission and never parse a final message.
 - Language: every file a role writes in a run is English, whatever the user's language; the user's own words
   appear only as a `>` blockquote. `agent.sh submit` and the freeze reject non-English text in run artifacts.
+- Scratch files only under `$TMPDIR` (or the run folder); never `/tmp` directly, never outside the project.
 - Evidence or nothing: a finding is reproduced (ran and observed) or traced (concrete input and path).
 - Never install anything. Code-modifying evidence runs in a separate git worktree.
 
