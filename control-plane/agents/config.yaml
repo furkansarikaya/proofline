@@ -69,6 +69,19 @@ budgets:
   max_escalations: 2
   max_parallel_reviewers: 5
 
+# Database guard (A40; enforced by the runtime hook and checked by agent.sh). No agent reads, copies, queries or
+# writes a database file, runs a SQL client, or runs a migration/seed command; the only database an agent may
+# meet is a test suite's own throwaway database (under $TMPDIR, outside the project, or in memory). Empty =
+# the built-in language-independent default. Lists are space-separated except migrate_commands (comma-separated
+# extended regular expressions, matched against each command word and its arguments).
+database:
+  # Database files, by basename glob (or project-relative glob when it contains /).
+  paths: "*.db *.sqlite *.sqlite3 *.db3 *.s3db *.sdb *.mdb *.accdb *.ldb *.mv.db *.duckdb *.rdb *.db-wal *.db-shm *.db-journal *.sqlite-wal *.sqlite-shm *.sqlite-journal"
+  # SQL/database command-line clients. sqlite-family clients are allowed only against :memory: or a scratch file.
+  clients: "sqlite3 sqlite duckdb litecli psql pgcli pg_dump pg_dumpall pg_restore createdb dropdb mysql mysqldump mysqlsh mycli mariadb mongosh mongo mongodump mongorestore redis-cli sqlcmd sqlplus sqlite-utils usql clickhouse-client cockroach cqlsh"
+  # Migration, seed and schema-push commands of the common ecosystems; add the project's own.
+  migrate_commands: "(npm|pnpm|yarn|bun)( run)? (migrate|migration|migrations|seed|seeds|db[:-])[A-Za-z0-9:_-]*( |$), (^| )(npx|pnpm exec|bunx|yarn dlx) (prisma|drizzle-kit|knex|sequelize|sequelize-cli|typeorm|mikro-orm|db-migrate|node-pg-migrate)( |$), (^| )prisma (migrate|db) , (^| )drizzle-kit (push|migrate|drop), (^| )(knex|sequelize|sequelize-cli|typeorm|mikro-orm|umzug|db-migrate|node-pg-migrate) .*(migrat|seed|db:|schema:), (^| )alembic (upgrade|downgrade|stamp), (^| )flask( .*)? db (upgrade|downgrade|stamp|migrate), (manage\.py|django-admin)( .*)? (migrate|flush|sqlflush|loaddata|dbshell), (^| )(rails|rake|bin/rails)( .*)? db:, (^| )artisan (migrate|db:), (^| )(flyway|liquibase|dbmate|goose|atlas|sqitch|tern|phinx|diesel|sqlx|sea-orm-cli)( .*)? (migrate|up|down|apply|deploy|update|run|push|revert|redo|reset|drop|seed), (^| )dotnet ef (database|migrations) , (^| )mix ecto\.(migrate|rollback|reset|drop|setup|load), (^| )migrate( .*)? (up|down|goto|drop|force), (^| )db(:| )(seed|migrate|reset|drop|push|setup)"
+
 # --- Inherited from the source workflow --------------------------------------------------
 default_mode: deterministic
 # The active-run selector (local state, git-ignored). Absent or empty: no active task.
