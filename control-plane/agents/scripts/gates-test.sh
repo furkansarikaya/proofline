@@ -682,6 +682,26 @@ CRITICAL — the first step is additive and its own step drops nothing.' scaffol
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a defect word in Suggested class prose blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "a defect word inside Suggested class prose does not make a task a defect fix"
+  # "dropping the column is a follow-up" in the Goal is data removal wording, not a defect report (A53)
+  SC_TASK_EXTRA='
+## Goal
+
+Stop using the column; dropping the column is a separate follow-up.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "dropping in a Goal sentence blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
+  ok "drop/dropping are no defect words (data removal wording)"
+}
+sc_scratch_worktrees() {
+  scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  pass_all
+  wt=$(mktemp -d "${TMPDIR:-/tmp}/scratch-wt.XXXXXX"); rmdir "$wt"
+  git worktree add -q --detach "$wt" HEAD
+  expect_msg "a scratch worktree still registered blocks CODE_DONE" 'scratch git worktrees' A handoff LC CODE_DONE
+  git worktree remove --force "$wt"
+  A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the worktree was removed: $(A handoff LC CODE_DONE 2>&1)"
+  ok "scratch worktrees must be removed before CODE_DONE"
 }
 sc_start() {
   new_repo; RID=ST-1
@@ -801,4 +821,5 @@ run_sc sc_start
 run_sc sc_qa_plan_bound
 run_sc sc_artifact_snapshots
 run_sc sc_debug_result
+run_sc sc_scratch_worktrees
 echo 'gates tests passed'
