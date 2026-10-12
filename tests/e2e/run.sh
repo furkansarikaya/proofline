@@ -17,6 +17,10 @@ esac
 dry=no keep=no
 for arg do case $arg in --dry-run) dry=yes ;; --keep) keep=yes ;; *) usage ;; esac; done
 task=$scenario; [ "$task" != FAILOVER ] || task=STANDARD
+# Reference profile (D5): balanced with an Opus lead for COMPLEX, CRITICAL and FAILOVER; economy with a Sonnet lead
+# for TRIVIAL, STANDARD and STANDARD.tr. E2E_PROFILE / E2E_LEAD_MODEL override.
+case $scenario in COMPLEX|CRITICAL|FAILOVER) def_profile=balanced; def_model=opus ;; *) def_profile=economy; def_model=sonnet ;; esac
+profile=${E2E_PROFILE:-$def_profile}; lead_model=${E2E_LEAD_MODEL:-$def_model}
 reply_file=$here/replies/$scenario.txt
 [ -f "$here/tasks/$task.md" ] && [ -f "$reply_file" ] || { echo 'task or reply file missing' >&2; exit 2; }
 root=${E2E_ROOT:-${TMPDIR:-/tmp}/proofline-e2e}
@@ -42,7 +46,7 @@ baseline() {
   git -C "$project" update-ref refs/heads/main "$sha"
 }
 baseline 'chore: baseline'
-(cd "$project" && "$repo/bin/proofline" init --yes --runtimes "$runtimes" --lead "$lead" --worker "$worker" --reviewers "$reviewers" --profile "${E2E_PROFILE:-balanced}" --task-adapter markdown) > "$out/install.txt" 2>&1
+(cd "$project" && "$repo/bin/proofline" init --yes --runtimes "$runtimes" --lead "$lead" --worker "$worker" --reviewers "$reviewers" --profile "$profile" --task-adapter markdown) > "$out/install.txt" 2>&1
 baseline 'chore: install proofline'
 (cd "$project" && "$repo/bin/proofline" doctor) > "$out/doctor.txt" 2>&1 || true
 if [ -f "$HOME/.codex/auth.json" ]; then ln -s "$HOME/.codex/auth.json" "$run/codexhome/.codex/auth.json"; fi
@@ -60,7 +64,7 @@ if [ "$dry" = yes ]; then
   echo 'prepared=baseline,install,doctor,codex-isolation'
   echo "setup: cp -R '$repo/playground/.' '$project/'; git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '$repo/bin/proofline' init --yes --runtimes '$runtimes' --lead '$lead' --worker '$worker' --reviewers '$reviewers' --profile "${E2E_PROFILE:-balanced}" --task-adapter markdown; baseline 'chore: install proofline'; '$repo/bin/proofline' doctor"
   if [ "$lead" = claude ]; then
-    echo "lead: (cd '$project' && claude -p '<whole $task task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${E2E_LEAD_MODEL:-opus}' --output-format stream-json --verbose --max-turns '${E2E_MAX_TURNS:-250}') > '$out/lead-1.jsonl' 2> '$out/lead-1.err'"
+    echo "lead: (cd '$project' && claude -p '<whole $task task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${lead_model}' --output-format stream-json --verbose --max-turns '${E2E_MAX_TURNS:-250}') > '$out/lead-1.jsonl' 2> '$out/lead-1.err'"
   else
     echo "lead: HOME='$run/codexhome' CODEX_HOME='$run/codexhome/.codex' codex exec --dangerously-bypass-hook-trust -C '$project' -s danger-full-access -c 'approval_policy=\"never\"' --json -o '$out/lead-1.last.txt' '<whole $task task file>' > '$out/lead-1.jsonl'"
     echo "lead resume: codex exec resume -c 'sandbox_mode=\"danger-full-access\"' -c 'approval_policy=\"never\"' <thread> <reply>"
@@ -86,10 +90,10 @@ run_lead() { # runtime, number, message, resumed?
   if [ "$runtime" = claude ]; then
     if [ "$resumed" = yes ]; then
       # shellcheck disable=SC2016
-      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --resume "$session" --setting-sources project,local --permission-mode bypassPermissions --model "${E2E_LEAD_MODEL:-opus}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --resume "$session" --setting-sources project,local --permission-mode bypassPermissions --model "${lead_model}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     else
       # shellcheck disable=SC2016
-      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --setting-sources project,local --permission-mode bypassPermissions --model "${E2E_LEAD_MODEL:-opus}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --setting-sources project,local --permission-mode bypassPermissions --model "${lead_model}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     fi
   else
     if [ "$resumed" = yes ]; then
