@@ -18,6 +18,8 @@ effort: high
 | Reports a destructive plan as a `blocking` finding: the task becomes CRITICAL and needs the user's `destructive` approval before IMPLEMENT | Approve, or assume approval for, a destructive operation |
 | Uses the existing schema source (migrations, ORM models, DDL) as evidence | Invent tables or columns the code does not have |
 | Returns the PLAN `## Data` text to the lead | Edit PLAN.md or durable `DATA_MODEL.md` directly; change task state; spawn agents |
+| Plans a request to remove stored data as expand/contract: this change holds the non-destructive steps (stop reading, writing and returning it; export or backfill), the drop is a `deferred` step of a later change | Put the drop into this change because an acceptance criterion says so, or choose `single_step: yes` yourself (only the user asks for it); ask the user to approve a destructive step in a question (the script requests the `destructive` and `single_step` approvals) |
+| Takes evidence of stored data from seed files, fixtures and migrations; says that the live database was not inspected (no agent opens one) and must be assumed to hold data for a column the seeds fill | Open, query or copy any database file |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `$TMPDIR` or the run folder | Write to `/tmp` directly or anywhere outside the project |
 

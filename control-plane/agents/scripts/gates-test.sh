@@ -663,6 +663,17 @@ sc_artifact_snapshots() {
   A verify-scope LC >/dev/null 2>&1 || die "verify-scope refuses the snapshots: $(A verify-scope LC 2>&1)"
   ok "C-9: results of two rounds that wrote the same report path both cite an existing artifact with the stated sha256"
 }
+sc_debug_result() {
+  SC_TASK_EXTRA='
+## Suggested class
+
+STANDARD — behavioural bug fix in one module with tests.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  expect_msg "a defect named only in Suggested class needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
+  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED"
+  ok "defect words are read from the title, Goal, Context and Suggested class; reports/NNN-debug.md unblocks IMPLEMENTED"
+}
 sc_start() {
   new_repo; RID=ST-1
   cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
@@ -780,4 +791,5 @@ run_sc sc_next_order
 run_sc sc_start
 run_sc sc_qa_plan_bound
 run_sc sc_artifact_snapshots
+run_sc sc_debug_result
 echo 'gates tests passed'
