@@ -10,7 +10,7 @@
 #   (key=value lines incl. runtime, model, effort, context_bytes). Nothing here re-decides them.
 # 2 prompt: stable prefix = the role's instructions (role_instructions), then the task-specific suffix
 #   (header + --prompt-file), which must fit the decision's context_bytes (never truncated).
-# 3 run: codex `exec` (`-s workspace-write`, `--add-dir` the run or worker-evidence), claude `-p` running the
+# 3 run: codex `exec` (`-s workspace-write`, `--add-dir` the run folder and .agents/local), claude `-p` running the
 #   generated agent (`--agent proofline-<role>` from .claude/agents/, else `--agents` JSON built from
 #   .agents/roles/<role>.md and .agents/tools.conf; never the Agent/Task tools), or config
 #   dispatch.command_template.<runtime> (D8), with a timeout (config dispatch.timeout_seconds, default 1800,
@@ -219,8 +219,12 @@ attempt() {
     case "$rt" in
       codex)
         set -- "${PROOFLINE_CODEX_BIN:-codex}" exec -C "$root" -s workspace-write -m "$model" -c "model_reasoning_effort=$effort" -c 'approval_policy="never"' --dangerously-bypass-hook-trust -o "$out"
-        if [ "$role" = implementer ]; then mkdir -p "$run/worker-evidence"; set -- "$@" --add-dir "$run/worker-evidence"
-        else set -- "$@" --add-dir "$run"; fi
+        # The specialist runs `agent.sh submit` itself, which writes its report, the recorded result, the gate
+        # record and ledger (the run folder) and its status and locks (.agents/local). Codex's workspace-write
+        # sandbox keeps .agents read-only, so both are granted explicitly; what a role may write stays decided by
+        # owns.conf (PreToolUse hook) and the fingerprint check below.
+        mkdir -p "$run/worker-evidence" "$run/reports" "$root/.agents/local"
+        set -- "$@" --add-dir "$run" --add-dir "$root/.agents/local"
         set -- "$@" - ;;
       claude)
         an=$(agent_name "$role"); af=$root/.claude/agents/$an.md
