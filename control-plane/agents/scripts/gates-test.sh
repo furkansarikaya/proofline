@@ -200,6 +200,15 @@ sc_report_stdin() {
   fp=$(A fingerprint LC); mkdir -p .agents/tasks; printf 'changed bookkeeping\n' > .agents/tasks/LC-task.md
   [ "$(A fingerprint LC)" = "$fp" ] || die "the tasks directory changed the content fingerprint"
   ok "submit --report -: written by the script, role paths enforced; the tasks directory is outside the fingerprint"
+  # a read-only object database (a Codex workspace-write sandbox) still yields the same fingerprint
+  fp=$(A fingerprint LC); printf 'new content\n' >> impl.txt; fp2=$(A fingerprint LC)
+  chmod -R a-w .git/objects
+  fp_ro=$(A fingerprint LC) || { chmod -R u+w .git/objects; die "fingerprint failed with a read-only object database"; }
+  chmod -R u+w .git/objects
+  [ "$fp_ro" = "$fp2" ] || die "read-only object database changed the fingerprint ($fp_ro vs $fp2)"
+  [ "$fp2" != "$fp" ] || die "a content change did not change the fingerprint"
+  ok "fingerprint: same value with a read-only object database"
+
 }
 
 sc_parallel_lock() {
