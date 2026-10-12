@@ -126,7 +126,10 @@ test("destructive: yes needs expand/contract steps unless the plan says single_s
   has(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | expand | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG);
   has(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | contract | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG); // contract in this change is one step
   assert.deepEqual(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | deferred | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), []);
-  assert.deepEqual(crit(["destructive: yes", "single_step: yes", "", "drop books.legacy_fee in one migration"]), []);
+  // single_step is offered only when the task states that the user wants one step (A52)
+  has(crit(["destructive: yes", "single_step: yes", "", "drop books.legacy_fee in one migration"]), MSG);
+  const withUser = (Data) => validate(plan({ body: { Architecture: ["- one module"], ...BODY, Data } }), TASK + "\nThe user wants this as a single step.\n", { root: repo, cls: "CRITICAL" });
+  assert.deepEqual(withUser(["destructive: yes", "single_step: yes", "", "drop books.legacy_fee in one migration"]), []);
   // a non-destructive plan is not subject to the check
   assert.deepEqual(crit(["destructive: no", "", "- add a nullable column"]), []);
 });

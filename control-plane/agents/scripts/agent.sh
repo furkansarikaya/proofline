@@ -460,7 +460,7 @@ run_autonomy() { # ID -> supervised|autonomous (RUN.yaml execution.autonomy, els
 # freeze accepts only with the user's `single_step` approval (A32).
 plan_migration_shape() {
   [ "$(plan_destructive "$1")" = yes ] || { echo none; return 0; }
-  awk -F'|' '
+  pms=$(awk -F'|' '
     function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return tolower(s) }
     /^## / { inside = ($0 ~ /^## Data[[:space:]]*$/); next }
     !inside { next }
@@ -471,7 +471,10 @@ plan_migration_shape() {
       if (dest == "yes") { if (ph == "deferred") late = 1; else early = 1 }
       else if (ph ~ /^(expand|backfill|switch)$/) pre = 1
     }
-    END { if (single) print "single_step"; else if (pre && late && !early) print "expand_contract"; else print "missing" }' "$1"
+    END { if (single) print "single_step"; else if (pre && late && !early) print "expand_contract"; else print "missing" }' "$1")
+  # A52: `single_step: yes` is only offered when the task states that the user wants one step.
+  if [ "$pms" = single_step ] && ! grep -Eiq 'single[- ]step|one[- ]step|one migration|tek ad[ıi]m' "$(dirname "$1")/TASK.md" 2>/dev/null; then pms=missing; fi
+  echo "$pms"
 }
 plan_section_present() { grep -q "^## $2[[:space:]]*\$" "$1"; }
 plan_destructive() { # PLAN -> yes|no|invalid|absent
