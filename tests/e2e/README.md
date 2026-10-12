@@ -20,7 +20,43 @@ For each of TRIVIAL, STANDARD, STANDARD.tr, COMPLEX, and CRITICAL, run all three
 
 Each run prints its directory and writes `out/summary.txt`, lead transcripts and final messages, Git snapshots, agent state, runs, metrics, and a read-only database probe. The reply files allow plan approval only. The harness never answers a destructive, commit, push, scope, or waiver request. The `out/` directory is the evaluator input; use `tests/e2e/evaluate.md` with `expected/COMMON.md`, the scenario file, `FACTS.md`, and `RUNTIME_MATRIX.md`.
 
-## Results for 0.0.1 (2026-10-09)
+## Results after the deterministic-submission rounds (2026-10-12)
+
+Claude configuration, `--profile economy`, lead model Sonnet, copies of `playground/` outside the repository,
+installed with `proofline init`, run headless. An independent evaluator compared each run with its EXPECTED file
+(runners never saw them). At most three rounds per scenario; fixes between rounds were made in proofline (see
+`docs/decisions.md` A30–A39), never in the fixtures or EXPECTED files. A run that never started because the
+account's session limit was reached is not counted as a round.
+
+| Scenario | Config | Round 1 | Round 2 | Round 3 | Verdict | What still fails in the last round |
+|---|---|---|---|---|---|---|
+| TRIVIAL | claude | 37/45 | 32/33 | 33/36 | FAIL | designer dispatched for a copy change (fixed afterwards: class-aware `## UI`); stale ARTIFACT hash after a re-run |
+| STANDARD | claude | 40/51 | 29/36 | 30/39 | FAIL | stalled at IMPLEMENTING: a hook rule of the previous round denied commands inside a project under `/tmp` (fixed afterwards) |
+| STANDARD.tr | claude | 43/49 | 46/49 | 44/45 | FAIL | gate names translated in the Turkish chat report (TR-2) |
+| COMPLEX | claude | 32/44 | 25/44 | 42/57 | FAIL | QA plan contradicts the approved plan after a contract change; lead ran `agent.sh approve` (C-7 wording vs the design); stale hashes after a fix round |
+| CRITICAL | claude | 30/36 | 21/35 | 42/53 | FAIL | `single_step: yes` plan accepted by the architect; a copy of the live database was altered before approval; plan reply consumed by a specialist's question |
+| TRIVIAL | codex | — | — | 39/43 | FAIL | first Codex run to reach CODE_DONE; reviewer could not create its worktree (fixed afterwards: `.git/worktrees` granted) |
+| STANDARD | codex | 30/41 | 28/36 | — | FAIL | reviewers BLOCKED on the worktree (fixed); then the Codex usage limit ended the run at IMPLEMENTED |
+| STANDARD.tr, COMPLEX, CRITICAL | codex | — | — | — | not tested | Codex usage limit |
+| all five | mixed (Claude lead + Codex worker) | — | — | — | not tested | Codex usage limit |
+| FAILOVER | claude → codex | — | — | — | not tested | Codex usage limit; also the isolated HOME of the harness made the Claude failover "not logged in" |
+
+No end-to-end scenario passes. The structural causes of the first round (results not recorded because a model
+typed a machine format by hand) are gone: every Claude run recorded its results through `agent.sh submit`. The
+remaining failures are listed in the last column; fixes made after a scenario's third round are covered by
+self-tests (selftest 11/11, skill tests 462/462, fixtures 32/32) but not by an end-to-end run.
+
+### Skills run on their own fixtures with a model (2026-10-12)
+
+Each skill was run by a separate model session that never saw its EXPECTED file; an independent evaluator then
+compared. `data-design` 16/16, `verify-proof` 11/11, `tdd-proof` 10/10 pass. `proofline-lead` 16/18 (the fix-round
+dispatch could not run because the runner session had no implementer subagent), `plan-contract` 16/17 (the runner
+skipped the closing approval question), `exploit-proof` 11/12 (REPORT.md does not state that a SECURITY finding is
+not waivable). Inconsistencies the runs exposed: the tdd-proof validator allows one cycle per path while the
+skill asks for one behaviour per cycle; the verify-proof fixture's `PLAN.md` carries a `task:` line the plan
+validator rejects.
+
+## Results for 0.0.1 (2026-10-09), superseded
 
 Runs were made with `--profile economy`, lead model Sonnet, in copies of `playground/` outside the repository,
 installed with `proofline init` and run headless. An independent evaluator compared each run with its EXPECTED
