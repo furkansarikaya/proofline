@@ -407,7 +407,7 @@ scenario_hardening() {
     expect_fail "stray $f reached a gate" gpass VERIFY
     rm ".agents/runs/LC/$f"
   done
-  for f in design/INTENT.md design/API.json design/adr/0001-x.md results/001-explorer.md results/dispatch-001-reviewer-claude.md dispatch/001-reviewer-claude.log reviews/proof-review/plan/REPORT.md reviews/proof-review/rules/ledger.md reviews/proof-review/small/findings.json reviews/test-trust/tests/REPORT.md reviews/test-trust/qa/REPORT.md reviews/data-design/REVIEW.md security/evidence/poc.txt; do
+  for f in design/INTENT.md design/API.json design/adr/0001-x.md results/001-explorer.md dispatch/001-reviewer-claude.md dispatch/001-reviewer-claude.log reviews/proof-review/plan/REPORT.md reviews/proof-review/rules/ledger.md reviews/proof-review/small/findings.json reviews/test-trust/tests/REPORT.md reviews/test-trust/qa/REPORT.md reviews/data-design/REVIEW.md security/evidence/poc.txt; do
     mkdir -p ".agents/runs/LC/$(dirname "$f")"; printf 'x\n' > ".agents/runs/LC/$f"
   done
   A verify-scope LC >/dev/null
