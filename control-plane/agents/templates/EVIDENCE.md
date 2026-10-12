@@ -1,6 +1,6 @@
 # Evidence: <TASK-ID>
 
-Owner: lead, consolidating explorer results (`results/NNN-explorer.md`) into this one file. Not produced for
+Owner: lead, consolidating explorer results (`reports/NNN-explorer.md`) into this one file. Not produced for
 TRIVIAL. Every claim is a verified `path:symbol` reference; never pasted source.
 
 ## Repository

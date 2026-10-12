@@ -399,6 +399,14 @@ pretool)
        && ! printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+-C[[:space:]]|git[[:space:]]+worktree|--work-tree'; then
       deny "git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it"
     fi
+    # Scratch space is $TMPDIR (the runtime's private temp dir), never /tmp directly: a specialist's files outside
+    # the project and $TMPDIR are what a run must not leave behind.
+    case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) ;; *)
+      if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } \
+         && printf '%s' "$cmd" | grep -Eq '(^|[[:space:]=:"'"'"'(])(/private)?/tmp(/|[[:space:]]|$)'; then
+        deny "scratch files and worktrees go under \$TMPDIR (${TMPDIR}), never /tmp directly"
+      fi ;;
+    esac
     printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
     # Hook and gate bypasses: never, for anyone, while proofline is installed.
     while IFS= read -r rec; do

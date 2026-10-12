@@ -36,7 +36,7 @@ Talk to the user in their language. Machine files (`debug.json`, `ledger.md`) ar
 
 ## Standalone vs team
 
-- **Team** (dispatched by the lead inside a run): read the assignment and named run artifacts; write `results/NNN-debug.md` (result header, findings table, then the ledger summary and a fenced `json` block with the `debug.json` content) and the regression test in scope. Record RED/GREEN for the regression test through `agent.sh worker-evidence`. Questions to the user go as NEEDS_INPUT.
+- **Team** (dispatched by the lead inside a run): read the assignment and named run artifacts; write `reports/NNN-debug.md` (result header, findings table, then the ledger summary and a fenced `json` block with the `debug.json` content) and the regression test in scope. Record RED/GREEN for the regression test through `agent.sh worker-evidence`. Questions to the user go as NEEDS_INPUT.
 - **Standalone** (`/proofline debug` or invoked directly): ledger, `debug.json` and the report live in `.agents/local/debug-proof/<target>/` (nothing kept with `local_state: off`); the user's language for the report; the fix lands in the working tree only after the user agrees, and no commit is made.
 
 ## Flow

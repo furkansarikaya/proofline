@@ -26,7 +26,7 @@ Designs the smallest valid system and API solution from the task and frozen evid
 - Agent: proofline-architect
 - Dispatched: class COMPLEX or CRITICAL, or on request (proofline design system or api)
 - Reads: TASK.md EVIDENCE.md design/INTENT.md repo
-- Owns: design/ results/NNN-architect.md
+- Owns: design/ reports/NNN-architect.md
 - Skills: system-design api-design
 - Gates: none
 - Result protocol: task
@@ -50,7 +50,7 @@ Designs the data model change and its migration plan, returning the PLAN Data se
 - Agent: proofline-data-architect
 - Dispatched: when persistence, schema or stored data changes, or on request (proofline design data)
 - Reads: TASK.md EVIDENCE.md design/INTENT.md design/ARCHITECTURE.md repo
-- Owns: design/ results/NNN-data_architect.md
+- Owns: design/ reports/NNN-data_architect.md
 - Skills: data-design
 - Gates: none
 - Result protocol: task
@@ -98,7 +98,7 @@ Investigates one bounded assignment and returns compact evidence where every cla
 - Agent: proofline-explorer
 - Dispatched: class STANDARD and up, in parallel up to the class max_explorers bound for independent objectives
 - Reads: TASK.md repo
-- Owns: results/NNN-explorer.md
+- Owns: reports/NNN-explorer.md
 - Skills: evidence-map
 - Gates: none
 - Result protocol: task
@@ -122,7 +122,7 @@ Implements the frozen plan inside its scope with recorded RED, GREEN and REFACTO
 - Agent: proofline-implementer
 - Dispatched: always, the only role that writes product code, one per run
 - Reads: TASK.md EVIDENCE.md PLAN.md QA_PLAN.md repo
-- Owns: PRODUCT_SCOPE results/NNN-debug.md
+- Owns: PRODUCT_SCOPE reports/NNN-debug.md
 - Skills: tdd-proof debug-proof
 - Gates: none
 - Result protocol: task
@@ -170,7 +170,7 @@ Writes the acceptance and adversarial QA plan before implementation and evaluate
 - Agent: proofline-qa
 - Dispatched: class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED
 - Reads: TASK.md EVIDENCE.md PLAN.md QA_PLAN.md diff repo
-- Owns: QA_PLAN.md QA_REPORT.md reviews/test-trust/qa/ results/NNN-qa.md
+- Owns: QA_PLAN.md QA_REPORT.md reviews/test-trust/qa/ reports/NNN-qa.md
 - Skills: qa-plan test-trust
 - Gates: QA
 - Result protocol: gate
@@ -242,7 +242,7 @@ Turns a one-sentence request or an imported issue into a standard task with test
 - Agent: proofline-task-author
 - Dispatched: when no task exists, or an imported task lacks canonical fields, intent-grill first for COMPLEX or CRITICAL requests or on request
 - Reads: request repo
-- Owns: TASK.md design/INTENT.md results/NNN-task_author.md /.agents/tasks/
+- Owns: TASK.md design/INTENT.md reports/NNN-task_author.md /.agents/tasks/
 - Skills: task-author intent-grill
 - Gates: none
 - Result protocol: task

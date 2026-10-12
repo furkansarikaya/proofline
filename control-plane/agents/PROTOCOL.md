@@ -3,7 +3,7 @@
 ## Result
 
 A specialist reports its result with `agent.sh submit` (below); it never types the header. The script builds
-the header, stores the message as `results/NNN-<role>.result.md` and validates it with `record`'s rules, so a
+the header, stores the message as `reports/NNN-<role>.result.md` and validates it with `record`'s rules, so a
 format error cannot be made. The header, one key per line, no blank line inside, in this order:
 
 ```
@@ -75,15 +75,15 @@ for a message that already has the header. It is never the lead's. It records no
   the role and focus (reviewer `plan` -> `reviews/proof-review/plan/`, `rules` -> `reviews/proof-review/rules/`,
   `rules+tests` -> `reviews/proof-review/small/`, `tests` -> `reviews/test-trust/tests/`, `data` ->
   `reviews/data-design/`; security_reviewer -> `security/`; qa gate -> `QA_REPORT.md`, qa task ->
-  `QA_PLAN.md`, `results/`, `reviews/test-trust/qa/`; verifier -> `VERIFY.md`, `design/SYNC.md`; implementer
-  -> `results/`, `worker-evidence/`; task_author -> `TASK.md`, `design/INTENT.md`, `results/`; explorer ->
-  `results/`; architect, data_architect, designer -> `design/`, `results/`), so one focus never voids another;
+  `QA_PLAN.md`, `reports/`, `reviews/test-trust/qa/`; verifier -> `VERIFY.md`, `design/SYNC.md`; implementer
+  -> `reports/`, `worker-evidence/`; task_author -> `TASK.md`, `design/INTENT.md`, `reports/`; explorer ->
+  `reports/`; architect, data_architect, designer -> `design/`, `reports/`), so one focus never voids another;
 - a finding row is malformed, has another id prefix or severity, or ids repeat; a FAIL has no blocking row; a
   PASS has a blocking row; BLOCKED has no `BLOCKED_REASON`; NEEDS_INPUT has no `QUESTIONS:` block;
 - a gate result does not meet the gate preconditions (open run, required gate, handoff IMPLEMENTED,
   freshness, scope, seal, attested tree).
 
-On success it keeps the raw message as `results/NNN-<role>.result.md` (skills own `results/NNN-<role>.md`),
+On success it keeps the raw message as `reports/NNN-<role>.result.md` (skills own `reports/NNN-<role>.md`),
 and:
 
 | Result | Effect |

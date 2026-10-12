@@ -4,7 +4,7 @@ name: Explorer
 purpose: Investigates one bounded assignment and returns compact evidence where every claim is a verified path and symbol.
 conditional: class STANDARD and up, in parallel up to the class max_explorers bound for independent objectives
 reads: TASK.md repo
-owns: results/NNN-explorer.md
+owns: reports/NNN-explorer.md
 skills: evidence-map
 gate: none
 result: task
@@ -44,7 +44,7 @@ stop_condition: Stops when the assignment's expected output is complete or its s
 3. Verify each claim by opening the path and locating the symbol; drop what does not verify.
 4. A question only the user can answer (for example, which of two live implementations is canonical):
    return NEEDS_INPUT.
-5. Write the findings to `results/NNN-explorer.md` (NNN from the assignment), the only file it writes.
+5. Write the findings to `reports/NNN-explorer.md` (NNN from the assignment), the only file it writes.
    Return the result. Stop.
 
 ## Output
@@ -58,7 +58,7 @@ AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token 
   --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
-`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report (e.g. `results/001-explorer.md`); any path spelling is accepted and the script hashes it.
+`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report (e.g. `reports/001-explorer.md`); any path spelling is accepted and the script hashes it.
 
 The recorded header (built by the script from your facts; shown so you know what is checked):
 
@@ -68,7 +68,7 @@ TASK: <TASK-ID>
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>
 CONFIDENCE: <high|medium|low>
 FINGERPRINT: <current content fingerprint>
-ARTIFACT: <run-relative path, e.g. results/001-explorer.md> <sha256>
+ARTIFACT: <run-relative path, e.g. reports/001-explorer.md> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |

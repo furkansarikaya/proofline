@@ -9,7 +9,7 @@ The lead runs this after every Explorer of the run returned `DONE`. Input: the c
 
 ## Repository
 - Base SHA: <RUN.yaml repository.base_sha>
-- Explorer results: results/001-explorer.md <sha256>, results/002-explorer.md <sha256>
+- Explorer results: reports/001-explorer.md <sha256>, reports/002-explorer.md <sha256>
 
 ## Claims
 | id | severity | path:line | finding | evidence |

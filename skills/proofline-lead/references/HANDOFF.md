@@ -14,7 +14,9 @@ own questions (section 3) are stored the same way by `A ask`. `A next <ID>` then
    questions are English, as every run artifact is. When the user's language is not English, add one line in
    the user's language before the block and, after it, a translation of the block marked as a translation;
    the translation is never stored and never replaces the verbatim block.
-3. STOP. Nothing else runs while a question is pending (`CODE_DONE` fails and `next` keeps pointing here).
+3. A question from a specialist that ran before the run existed (task author, intent-grill) is not stored: relay
+   its `QUESTIONS:` block verbatim, end with the single line `Please answer the questions above.`, and STOP;
+   restart the same specialist with an `ANSWERS` block. STOP. Nothing else runs while a question is pending (`CODE_DONE` fails and `next` keeps pointing here).
 
 Never: answer it; choose the `recommended` option because the user is silent or "it is obvious"; summarise,
 shorten, merge, reorder, translate or reformat the questions; add the lead's own opinion in the same

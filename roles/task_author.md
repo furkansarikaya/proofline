@@ -4,7 +4,7 @@ name: Task Author
 purpose: Turns a one-sentence request or an imported issue into a standard task with testable acceptance criteria, grilling intent first when the request is vague or large.
 conditional: when no task exists, or an imported task lacks canonical fields, intent-grill first for COMPLEX or CRITICAL requests or on request
 reads: request repo
-owns: TASK.md design/INTENT.md results/NNN-task_author.md /.agents/tasks/
+owns: TASK.md design/INTENT.md reports/NNN-task_author.md /.agents/tasks/
 skills: task-author intent-grill
 gate: none
 result: task
@@ -47,7 +47,10 @@ stop_condition: Stops when TASK.md passes the task-author self-check, or after o
 3. Follow {{skill:task-author}} in team mode. Write `TASK.md` and the task file through the adapter.
 4. Run the skill's self-check. Each open point becomes a question; return NEEDS_INPUT once with all of them.
 5. When restarted with an `ANSWERS` block, apply only those answers, re-run the self-check, finish.
-6. Return the result. Stop.
+6. Before a run exists (the usual case: you create the task the run starts from) there is no run and no agent
+   token, so do not `submit`: end with a plain message `RESULT: DONE|NEEDS_INPUT|BLOCKED`, the task file path
+   and, for NEEDS_INPUT, the `QUESTIONS:` block in the format below, in English. Inside a run, `submit`.
+7. Return the result. Stop.
 
 ## Output
 

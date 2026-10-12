@@ -4,7 +4,7 @@ name: Data Architect
 purpose: Designs the data model change and its migration plan, returning the PLAN Data section text and design/DATA.md, and flags every destructive operation.
 conditional: when persistence, schema or stored data changes, or on request (proofline design data)
 reads: TASK.md EVIDENCE.md design/INTENT.md design/ARCHITECTURE.md repo
-owns: design/ results/NNN-data_architect.md
+owns: design/ reports/NNN-data_architect.md
 skills: data-design
 gate: none
 result: task

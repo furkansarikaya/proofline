@@ -407,8 +407,8 @@ sc_supervised_destructive() {
 
 sc_questions() {
   scaffold orchestrated
-  mkdir -p .agents/runs/LC/results; printf '# explorer notes\n' > .agents/runs/LC/results/001-explorer.md
-  q() { printf 'ROLE: explorer\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: results/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/results/001-explorer.md)" "$1" > "$base/q.md"; AS explorer record LC --file "$base/q.md"; }
+  mkdir -p .agents/runs/LC/reports; printf '# explorer notes\n' > .agents/runs/LC/reports/001-explorer.md
+  q() { printf 'ROLE: explorer\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" "$1" > "$base/q.md"; AS explorer record LC --file "$base/q.md"; }
   expect_msg "NEEDS_INPUT without questions" 'QUESTIONS' q ''
   q 'QUESTIONS:
 1. Which default should an empty key return?
@@ -496,8 +496,8 @@ sc_decide() {
   # metrics: one line per recorded specialist step with runtime and model from the decision
   grep -q "$(printf '\tLC\treviewer\tclaude\tsonnet\t')" .agents/local/metrics/history.tsv || die "metrics line missing: $(cat .agents/local/metrics/history.tsv)"
   sed 's/^metrics: on/metrics: off/' .agents/config.yaml > "$base/c.yaml"; cp "$base/c.yaml" .agents/config.yaml; rm -rf .agents/local/metrics
-  mkdir -p .agents/runs/LC/results; printf '# e\n' > .agents/runs/LC/results/090-explorer.md
-  printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: results/090-explorer.md %s\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/results/090-explorer.md)" > "$base/e.md"
+  mkdir -p .agents/runs/LC/reports; printf '# e\n' > .agents/runs/LC/reports/090-explorer.md
+  printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: reports/090-explorer.md %s\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/090-explorer.md)" > "$base/e.md"
   AS explorer record LC --file "$base/e.md" >/dev/null
   [ ! -e .agents/local/metrics/history.tsv ] || die "metrics: off still wrote metrics"
   ok "decide: signals, overrides, escalations-used, persisted and ledgered; metrics on/off"

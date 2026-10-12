@@ -5,6 +5,7 @@ adapter before DONE. Omit a conditional section only when its condition does not
 
 ## Implementation Summary
 
+- Delivery: nothing is committed; commit and push each need the user's explicit approval (`commit`, `push`)
 - Task: <TASK-ID> — <title>; class <CLASS>; tier <docs|small|full>; branch `<task branch>`
 - Changed: <scope path> (<AC ids>), ...
 

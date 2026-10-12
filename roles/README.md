@@ -69,7 +69,7 @@ Exactly three level-2 sections, in this order:
 ## Result header (D12)
 
 `agent.sh submit` builds this header from the specialist's facts (result, confidence, findings, report path),
-stores it as `results/NNN-<role>.result.md` and validates it; nobody types it. Its lines, in this order:
+stores it as `reports/NNN-<role>.result.md` and validates it; nobody types it. Its lines, in this order:
 
 ```
 ROLE: <id>
