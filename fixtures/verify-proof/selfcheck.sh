@@ -11,6 +11,13 @@ trap 'rm -rf "$tmp"' EXIT
 grep -q "^base_sha: $(git rev-parse base)$" .agents/runs/FX-VP/RUN.yaml || fail "RUN.yaml base_sha"
 [ "$(git rev-parse --abbrev-ref HEAD)" = "proofline/FX-VP-username-rules" ] || fail "not on the task branch"
 
+# The planted PLAN.md is a valid plan-contract plan (no `task:` key, every required section).
+here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+if command -v node >/dev/null 2>&1; then
+  node "$here/../../skills/plan-contract/scripts/validate-plan.mjs" .agents/runs/FX-VP/PLAN.md .agents/runs/FX-VP/TASK.md --class STANDARD --repo . >/dev/null \
+    || fail "PLAN.md does not pass validate-plan.mjs"
+fi
+
 # Changed files: exactly the three scoped paths plus src/config.js (out of scope).
 changed=$(git diff --name-only base HEAD | tr '\n' ' ')
 [ "$changed" = "src/config.js src/username.js test/username-case.test.js test/username.test.js " ] \

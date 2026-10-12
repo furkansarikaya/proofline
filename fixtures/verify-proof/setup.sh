@@ -153,7 +153,6 @@ STANDARD (new validation module, one behaviour per criterion)
 X
 cat > "$run/PLAN.md" <<'X'
 ---
-task: FX-VP
 scope:
   - path: src/username.js
     criteria: [AC-1, AC-2, AC-3]
@@ -175,7 +174,10 @@ scope:
 - `node --test`
 
 ## Dependencies
-None.
+none
+
+## Contracts
+none
 X
 {
   echo "task_id: FX-VP"
