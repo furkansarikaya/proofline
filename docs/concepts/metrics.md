@@ -83,10 +83,14 @@ gate records and the recorded results the ledger binds. It is read-only: it neve
 file, ledger or metrics file, and it never applies its own suggestions (A89). It works from a read-only checkout.
 
 **Cost.** One row per run, one per role and model, one per model, and totals: duration, runtime-reported tokens,
-retries, and (from the `run` record) delegations and fix rounds. A token cell is the sum of the recorded values only.
+retries, and (from the `run` record) delegations and fix rounds. Tokens are shown as in, out and total, because a
+Codex-style record carries only `tokens_total` (in and out null) while a Claude-style record carries all three; the
+total is never derived from in and out here. A token cell is the sum of the recorded values only.
 `n/a` means none was recorded; `6000 (2/3)` means two of three dispatches reported. A null is never shown as zero and
 nothing is estimated. Durations of `dispatch` records (cost of a call, retries included) and of `run` records (the
-whole run) are different measures and are reported separately, never added together.
+whole run) are different measures and are reported separately, never added together. If a task has more than one
+`run` record (a retried write), only the first counts and the report says how many were ignored. Blank lines are
+skipped silently; a non-JSON line and a record of another `schema` are counted and named separately.
 
 **Recurring failures.** A pattern needs at least two occurrences; each is printed with its count, the run ids and a
 plain-language suggestion:

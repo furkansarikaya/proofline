@@ -10,12 +10,17 @@ before=$(sig)
 out=$(sh "$PL" insights) || fail "insights failed"
 has() { printf '%s\n' "$out" | grep -Eq -- "$1" || { printf '%s\n' "$out" >&2; fail "missing: $1"; }; }
 no() { if printf '%s\n' "$out" | grep -Eq -- "$1"; then printf '%s\n' "$out" >&2; fail "unexpected: $1"; fi; }
-has '^  RUN-A +done +900s +3 +6000 \(2/3\) +1000 \(2/3\) +1 +4 +1$'
-has '^  RUN-B +failed +500s +2 +2000 \(1/2\) +300 \(1/2\) +0 +2 +0$'
-has '^  RUN-C +open +n/a +1 +n/a +n/a +0 +n/a +n/a$'
-has '^  reviewer +sonnet +3 +300s +3000 \(2/3\) +500 \(2/3\) +1$'
-has 'total over 6 dispatch\(es\): duration 700s, tokens in 8000 \(3/6\), tokens out 1300 \(3/6\), retries 1'
+has '^  RUN-A +done +900s +3 +6000 \(2/3\) +1000 \(2/3\) +7000 \(2/3\) +1 +4 +1$'
+has '^  RUN-B +failed +500s +3 +2000 \(1/3\) +300 \(1/3\) +6300 \(2/3\) +0 +2 +0$'
+has '^  RUN-C +open +n/a +1 +n/a +n/a +n/a +0 +n/a +n/a$'
+has '^  reviewer +sonnet +3 +300s +3000 \(2/3\) +500 \(2/3\) +3500 \(2/3\) +1$'
+has '^  implementer +gpt-5 +2 +350s +5000 \(1/2\) +800 \(1/2\) +9800 +0$'
+has 'total over 7 dispatch\(es\): duration 750s, tokens in 8000 \(3/7\), tokens out 1300 \(3/7\), tokens total 13300 \(4/7\), retries 1'
 has 'total over 2 finished run\(s\): duration 1400s, delegations 6, fix rounds 1'
+has '1 non-JSON line\(s\) ignored'
+has '1 duplicate run record\(s\) ignored'
+has '1 with an unknown schema skipped'
+no '777777'
 no '999999'
 has 'repeated-finding x3: REVIEW_RULES src/a\.go: Error from Close is ignored'
 has 'runs: RUN-A,RUN-B$'

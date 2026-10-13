@@ -61,9 +61,9 @@ cmd_insights() {
       sub(/[,}].*/, "", r); return (r == "null") ? "" : r
     }
     function isnum(v) { return v ~ /^[0-9]+$/ }
-    function add(g, key, w1, w2, w3, w4,   i, v) {
+    function add(g, key, w1, w2, w3, w4, w5,   i, v) {
       C[g, key]++
-      for (i = 1; i <= 4; i++) { v = (i == 1) ? w1 : (i == 2) ? w2 : (i == 3) ? w3 : w4; if (isnum(v)) { S[g, key, i] += v; N[g, key, i]++ } }
+      for (i = 1; i <= 5; i++) { v = (i == 1) ? w1 : (i == 2) ? w2 : (i == 3) ? w3 : (i == 4) ? w4 : w5; if (isnum(v)) { S[g, key, i] += v; N[g, key, i]++ } }
     }
     # a sum is shown only over recorded values; "n/a" when none was recorded; "(k/n)" when only k of n were
     function cell(g, key, i,   n, c) {
@@ -94,17 +94,19 @@ cmd_insights() {
     BEGIN { FS = "\t" }
     $1 == "M" {
       j = substr($0, 3)
+      if (j !~ /^[ \t]*\{/) { if (j ~ /[^ \t]/) nonjson++; next }
       if (jv(j, "schema") != "proofline.metrics/1") { skipped++; next }
       t = jv(j, "task"); if (t == "" || (only != "" && t != only)) next
       nrec++; known[t] = 1
       kd = jv(j, "kind"); ro = jv(j, "role"); mo = jv(j, "model"); if (mo == "") mo = "n/a"; if (ro == "") ro = "n/a"
       if (kd == "dispatch") {
-        d = jv(j, "duration_s"); ti = jv(j, "tokens_in"); to = jv(j, "tokens_out"); re = jv(j, "retries")
-        add("run", t, d, ti, to, re); add("rm", ro "|" mo, d, ti, to, re); add("model", mo, d, ti, to, re); add("all", "all", d, ti, to, re)
+        d = jv(j, "duration_s"); ti = jv(j, "tokens_in"); to = jv(j, "tokens_out"); tt = jv(j, "tokens_total"); re = jv(j, "retries")
+        add("run", t, d, ti, to, re, tt); add("rm", ro "|" mo, d, ti, to, re, tt); add("model", mo, d, ti, to, re, tt); add("all", "all", d, ti, to, re, tt)
         rm_seen[ro "|" mo] = 1; md_seen[mo] = 1; ndisp++
       } else if (kd == "run") {
+        if (t in hasrun) { dupruns++; next }   # one run record per run: the first counts
         hasrun[t] = 1; rres[t] = jv(j, "result"); rdur[t] = jv(j, "duration_s"); rdel[t] = jv(j, "delegations"); rfix[t] = jv(j, "fix_rounds")
-        add("runrec", "all", rdur[t], rdel[t], rfix[t], "")
+        add("runrec", "all", rdur[t], rdel[t], rfix[t], "", "")
       }
       next
     }
@@ -177,22 +179,22 @@ cmd_insights() {
       nd = 0; for (k in md_seen) mdl[++nd] = k; isort(mdl, nd)
 
       if (json == 1) {
-        printf "{\"schema\":\"proofline.insights/1\",\"run\":%s,\"metrics\":{\"records\":%d,\"skipped_unknown_schema\":%d,\"off\":%s},\n", (only == "" ? "null" : "\"" jesc(only) "\""), nrec + 0, skipped + 0, (off == 1 ? "true" : "false")
+        printf "{\"schema\":\"proofline.insights/1\",\"run\":%s,\"metrics\":{\"records\":%d,\"skipped_unknown_schema\":%d,\"skipped_non_json\":%d,\"duplicate_run_records\":%d,\"off\":%s},\n", (only == "" ? "null" : "\"" jesc(only) "\""), nrec + 0, skipped + 0, nonjson + 0, dupruns + 0, (off == 1 ? "true" : "false")
         printf " \"runs\":["
         for (i = 1; i <= nr; i++) { r = rl[i]
-          printf "%s{\"run\":\"%s\",\"result\":%s,\"duration_s\":%s,\"dispatches\":%d,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"retries\":%s,\"delegations\":%s,\"fix_rounds\":%s}",
+          printf "%s{\"run\":\"%s\",\"result\":%s,\"duration_s\":%s,\"dispatches\":%d,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"tokens_total\":%s,\"tokens_total_reported\":%d,\"retries\":%s,\"delegations\":%s,\"fix_rounds\":%s}",
             (i > 1 ? "," : ""), jesc(r), (hasrun[r] && rres[r] != "" ? "\"" jesc(rres[r]) "\"" : "null"), (isnum(rdur[r]) ? rdur[r] : "null"), C["run", r] + 0,
-            jcell("run", r, 2), N["run", r, 2] + 0, jcell("run", r, 3), N["run", r, 3] + 0, jcell("run", r, 4), (isnum(rdel[r]) ? rdel[r] : "null"), (isnum(rfix[r]) ? rfix[r] : "null") }
+            jcell("run", r, 2), N["run", r, 2] + 0, jcell("run", r, 3), N["run", r, 3] + 0, jcell("run", r, 5), N["run", r, 5] + 0, jcell("run", r, 4), (isnum(rdel[r]) ? rdel[r] : "null"), (isnum(rfix[r]) ? rfix[r] : "null") }
         printf "],\n \"by_role_model\":["
         for (i = 1; i <= nm; i++) { k = rml[i]; split(k, q, "|")
-          printf "%s{\"role\":\"%s\",\"model\":\"%s\",\"dispatches\":%d,\"duration_s\":%s,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"retries\":%s}",
-            (i > 1 ? "," : ""), jesc(q[1]), jesc(q[2]), C["rm", k] + 0, jcell("rm", k, 1), jcell("rm", k, 2), N["rm", k, 2] + 0, jcell("rm", k, 3), N["rm", k, 3] + 0, jcell("rm", k, 4) }
+          printf "%s{\"role\":\"%s\",\"model\":\"%s\",\"dispatches\":%d,\"duration_s\":%s,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"tokens_total\":%s,\"tokens_total_reported\":%d,\"retries\":%s}",
+            (i > 1 ? "," : ""), jesc(q[1]), jesc(q[2]), C["rm", k] + 0, jcell("rm", k, 1), jcell("rm", k, 2), N["rm", k, 2] + 0, jcell("rm", k, 3), N["rm", k, 3] + 0, jcell("rm", k, 5), N["rm", k, 5] + 0, jcell("rm", k, 4) }
         printf "],\n \"by_model\":["
         for (i = 1; i <= nd; i++) { k = mdl[i]
-          printf "%s{\"model\":\"%s\",\"dispatches\":%d,\"duration_s\":%s,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"retries\":%s}",
-            (i > 1 ? "," : ""), jesc(k), C["model", k], jcell("model", k, 1), jcell("model", k, 2), N["model", k, 2] + 0, jcell("model", k, 3), N["model", k, 3] + 0, jcell("model", k, 4) }
-        printf "],\n \"totals\":{\"dispatches\":%d,\"dispatch_duration_s\":%s,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"retries\":%s,\"run_duration_s\":%s,\"run_records\":%d,\"delegations\":%s,\"fix_rounds\":%s},\n",
-          C["all", "all"] + 0, jcell("all", "all", 1), jcell("all", "all", 2), N["all", "all", 2] + 0, jcell("all", "all", 3), N["all", "all", 3] + 0, jcell("all", "all", 4),
+          printf "%s{\"model\":\"%s\",\"dispatches\":%d,\"duration_s\":%s,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"tokens_total\":%s,\"tokens_total_reported\":%d,\"retries\":%s}",
+            (i > 1 ? "," : ""), jesc(k), C["model", k], jcell("model", k, 1), jcell("model", k, 2), N["model", k, 2] + 0, jcell("model", k, 3), N["model", k, 3] + 0, jcell("model", k, 5), N["model", k, 5] + 0, jcell("model", k, 4) }
+        printf "],\n \"totals\":{\"dispatches\":%d,\"dispatch_duration_s\":%s,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"tokens_total\":%s,\"tokens_total_reported\":%d,\"retries\":%s,\"run_duration_s\":%s,\"run_records\":%d,\"delegations\":%s,\"fix_rounds\":%s},\n",
+          C["all", "all"] + 0, jcell("all", "all", 1), jcell("all", "all", 2), N["all", "all", 2] + 0, jcell("all", "all", 3), N["all", "all", 3] + 0, jcell("all", "all", 5), N["all", "all", 5] + 0, jcell("all", "all", 4),
           jcell("runrec", "all", 1), C["runrec", "all"] + 0, jcell("runrec", "all", 2), jcell("runrec", "all", 3)
         printf " \"patterns\":["
         for (i = 1; i <= po; i++) { x = pord[ordk[i]]
@@ -206,33 +208,33 @@ cmd_insights() {
       print "proofline insights (read-only report: nothing was changed)"
       if (only != "") print "run filter: " only
       if (nrec == 0) print "metrics: no metrics recorded" (off ? " (metrics: off)" : "") " (.agents/local/metrics/records.jsonl)"
-      else print "metrics: " nrec " record(s)" (off ? " (metrics: off now; earlier records are shown)" : "") (skipped ? ", " skipped " with an unknown schema skipped" : "")
+      else print "metrics: " nrec " record(s)" (off ? " (metrics: off now; earlier records are shown)" : "") (skipped ? ", " skipped " with an unknown schema skipped" : "") (nonjson ? ", " nonjson " non-JSON line(s) ignored" : "") (dupruns ? ", " dupruns " duplicate run record(s) ignored (the first counts)" : "")
       print "runs: " nr
       print ""
       print "COST (tokens are what the runtime reported; n/a = none recorded, never estimated; (k/n) = k of n dispatches reported)"
       if (nr == 0) print "  no runs and no metrics to report"
       else {
-        printf "  %-22s %-12s %9s %5s %-14s %-14s %7s %6s %5s\n", "RUN", "RESULT", "DURATION", "DISP", "TOKENS_IN", "TOKENS_OUT", "RETRIES", "DELEG", "FIX"
+        printf "  %-22s %-12s %9s %5s %-16s %-16s %-16s %7s %6s %5s\n", "RUN", "RESULT", "DURATION", "DISP", "TOKENS_IN", "TOKENS_OUT", "TOKENS_TOTAL", "RETRIES", "DELEG", "FIX"
         for (i = 1; i <= nr; i++) { r = rl[i]
           res = (hasrun[r] && rres[r] != "") ? rres[r] : (hasdir[r] ? "open" : "n/a")
-          printf "  %-22s %-12s %9s %5d %-14s %-14s %7s %6s %5s\n", r, res, (isnum(rdur[r]) ? rdur[r] "s" : "n/a"), C["run", r] + 0, cell("run", r, 2), cell("run", r, 3), cell("run", r, 4), (isnum(rdel[r]) ? rdel[r] : "n/a"), (isnum(rfix[r]) ? rfix[r] : "n/a")
+          printf "  %-22s %-12s %9s %5d %-16s %-16s %-16s %7s %6s %5s\n", r, res, (isnum(rdur[r]) ? rdur[r] "s" : "n/a"), C["run", r] + 0, cell("run", r, 2), cell("run", r, 3), cell("run", r, 5), cell("run", r, 4), (isnum(rdel[r]) ? rdel[r] : "n/a"), (isnum(rfix[r]) ? rfix[r] : "n/a")
         }
       }
       if (nm > 0) {
         print ""
-        printf "  %-18s %-18s %5s %9s %-14s %-14s %7s\n", "ROLE", "MODEL", "DISP", "DURATION", "TOKENS_IN", "TOKENS_OUT", "RETRIES"
+        printf "  %-18s %-18s %5s %9s %-16s %-16s %-16s %7s\n", "ROLE", "MODEL", "DISP", "DURATION", "TOKENS_IN", "TOKENS_OUT", "TOKENS_TOTAL", "RETRIES"
         for (i = 1; i <= nm; i++) { k = rml[i]; split(k, q, "|")
           d = cell("rm", k, 1); if (d != "n/a") sub(/^[0-9]+/, "&s", d)
-          printf "  %-18s %-18s %5d %9s %-14s %-14s %7s\n", q[1], q[2], C["rm", k], d, cell("rm", k, 2), cell("rm", k, 3), cell("rm", k, 4) }
+          printf "  %-18s %-18s %5d %9s %-16s %-16s %-16s %7s\n", q[1], q[2], C["rm", k], d, cell("rm", k, 2), cell("rm", k, 3), cell("rm", k, 5), cell("rm", k, 4) }
         print ""
-        printf "  %-35s %5s %9s %-14s %-14s %7s\n", "MODEL", "DISP", "DURATION", "TOKENS_IN", "TOKENS_OUT", "RETRIES"
+        printf "  %-35s %5s %9s %-16s %-16s %-16s %7s\n", "MODEL", "DISP", "DURATION", "TOKENS_IN", "TOKENS_OUT", "TOKENS_TOTAL", "RETRIES"
         for (i = 1; i <= nd; i++) { k = mdl[i]
           d = cell("model", k, 1); if (d != "n/a") sub(/^[0-9]+/, "&s", d)
-          printf "  %-35s %5d %9s %-14s %-14s %7s\n", k, C["model", k], d, cell("model", k, 2), cell("model", k, 3), cell("model", k, 4) }
+          printf "  %-35s %5d %9s %-16s %-16s %-16s %7s\n", k, C["model", k], d, cell("model", k, 2), cell("model", k, 3), cell("model", k, 5), cell("model", k, 4) }
         print ""
         d = cell("all", "all", 1); if (d != "n/a") sub(/^[0-9]+/, "&s", d)
         rd = cell("runrec", "all", 1); if (rd != "n/a") sub(/^[0-9]+/, "&s", rd)
-        printf "  total over %d dispatch(es): duration %s, tokens in %s, tokens out %s, retries %s\n", C["all", "all"], d, cell("all", "all", 2), cell("all", "all", 3), cell("all", "all", 4)
+        printf "  total over %d dispatch(es): duration %s, tokens in %s, tokens out %s, tokens total %s, retries %s\n", C["all", "all"], d, cell("all", "all", 2), cell("all", "all", 3), cell("all", "all", 5), cell("all", "all", 4)
         printf "  total over %d finished run(s): duration %s, delegations %s, fix rounds %s\n", C["runrec", "all"] + 0, rd, cell("runrec", "all", 2), cell("runrec", "all", 3)
       }
       print ""

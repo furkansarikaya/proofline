@@ -60,19 +60,25 @@ printf '%s\n' '| QA-1 | blocking | - | UNSUPPORTED: no headless browser installe
 row RUN-C 2 "record:qa:BLOCKED" "results/001-qa.result.md sha256=$H gate=QA"
 
 R=.agents/local/metrics/records.jsonl
-rec() { # KIND TASK ROLE FOCUS GATE MODEL DUR TIN TOUT RETRIES DELEG FIX RESULT  (null is the word null; strings are bare words)
+rec() { # KIND TASK ROLE FOCUS GATE MODEL DUR TIN TOUT TOTAL RETRIES DELEG FIX RESULT  (null is the word null; strings are bare words)
   s() { case "$1" in null) printf null ;; *) printf '"%s"' "$1" ;; esac; }
-  printf '{"schema":"proofline.metrics/1","kind":"%s","time":"2026-10-13T10:00:00Z","task":"%s","role":%s,"focus":%s,"gate":%s,"runtime":"claude","model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":null,"turns":null,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s}\n' \
-    "$1" "$2" "$(s "$3")" "$(s "$4")" "$(s "$5")" "$(s "$6")" "$7" "$8" "$9" "${10}" "${11}" "${12}" "$(s "${13}")" >> "$R"
+  printf '{"schema":"proofline.metrics/1","kind":"%s","time":"2026-10-13T10:00:00Z","task":"%s","role":%s,"focus":%s,"gate":%s,"runtime":"claude","model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":%s,"turns":null,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s}\n' \
+    "$1" "$2" "$(s "$3")" "$(s "$4")" "$(s "$5")" "$(s "$6")" "$7" "$8" "$9" "${10}" "${11}" "${12}" "${13}" "$(s "${14}")" >> "$R"
 }
-rec dispatch RUN-A reviewer rules REVIEW_RULES sonnet 100 1000 200 0 null null submitted
-rec dispatch RUN-A reviewer rules REVIEW_RULES sonnet 120 null null 1 null null submitted
-rec dispatch RUN-A implementer null null gpt-5 300 5000 800 0 null null submitted
-rec step     RUN-A reviewer rules REVIEW_RULES sonnet 110 null null null null null fail
-rec run      RUN-A lead null null null 900 null null null 4 1 "done"
-rec dispatch RUN-B reviewer rules REVIEW_RULES sonnet 80 2000 300 0 null null submitted
-rec dispatch RUN-B security_reviewer null SECURITY opus 60 null null 0 null null submitted
-rec run      RUN-B lead null null null 500 null null null 2 0 failed
-rec dispatch RUN-C explorer null null null 40 null null 0 null null blocked
+# Claude-style records carry in, out and total = in + out; a Codex-style record carries only tokens_total
+rec dispatch RUN-A reviewer rules REVIEW_RULES sonnet 100 1000 200 1200 0 null null submitted
+rec dispatch RUN-A reviewer rules REVIEW_RULES sonnet 120 null null null 1 null null submitted
+rec dispatch RUN-A implementer null null gpt-5 300 5000 800 5800 0 null null submitted
+rec step     RUN-A reviewer rules REVIEW_RULES sonnet 110 null null null null null null fail
+rec run      RUN-A lead null null null 900 null null null null 4 1 "done"
+rec dispatch RUN-B reviewer rules REVIEW_RULES sonnet 80 2000 300 2300 0 null null submitted
+rec dispatch RUN-B security_reviewer null SECURITY opus 60 null null null 0 null null submitted
+rec dispatch RUN-B implementer null null gpt-5 50 null null 4000 0 null null submitted
+rec run      RUN-B lead null null null 500 null null null null 2 0 failed
+# trap: a second run record for the same run (a retried write); only the first counts
+rec run      RUN-B lead null null null 777777 null null null null 9 9 "done"
+rec dispatch RUN-C explorer null null null 40 null null null 0 null null blocked
 # a record of another schema version is skipped, not guessed at
 printf '{"schema":"proofline.metrics/9","kind":"dispatch","task":"RUN-A","role":"reviewer","duration_s":999999}\n' >> "$R"
+# a blank line and a non-JSON line are ignored and not called an unknown schema
+printf '\nnot json at all\n' >> "$R"

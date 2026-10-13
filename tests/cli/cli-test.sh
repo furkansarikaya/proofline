@@ -342,8 +342,8 @@ check "insights fixture builds" sh "$repo/fixtures/insights/setup.sh" "$ins"
 out=$(pl "$ins" insights 2>&1) || { LAST=$out; die "insights exits 0"; }
 ok "insights runs on planted records"
 expect "insights: a run with some null tokens shows the sum of the reported ones and how many reported" "$out" "6000 (2/3)"
-expect "insights: no token data at all is n/a, not zero" "$out" "RUN-C                  open               n/a     1 n/a"
-expect "insights: totals sum only recorded tokens" "$out" "tokens in 8000 (3/6), tokens out 1300 (3/6)"
+expect "insights: no token data at all is n/a, not zero" "$out" "RUN-C                  open               n/a     1 n/a              n/a              n/a"
+expect "insights: totals sum only recorded tokens" "$out" "tokens in 8000 (3/7), tokens out 1300 (3/7), tokens total 13300 (4/7)"
 reject "insights: a record of another schema version is not read" "$out" "999999"
 expect "insights: the same finding on shifted lines across rounds and runs is one pattern (x3)" "$out" "repeated-finding x3: REVIEW_RULES src/a.go: Error from Close is ignored"
 reject "insights: a different finding with similar text is not merged in" "$out" "Error from Open is ignored"
@@ -354,7 +354,7 @@ expect "insights: every pattern carries a suggestion" "$out" "suggestion:"
 check "insights fixture selfcheck (known answers, files unchanged)" sh "$repo/fixtures/insights/selfcheck.sh" "$ins"
 out=$(pl "$ins" insights --json 2>&1); LAST=$out
 printf '%s' "$out" | jq -e '.schema == "proofline.insights/1"' >/dev/null 2>&1 && ok "insights --json is valid JSON" || die "insights --json is not valid JSON"
-printf '%s' "$out" | jq -e '(.runs[] | select(.run == "RUN-C") | .tokens_in) == null and .totals.tokens_in == 8000 and .totals.tokens_in_reported == 3 and ([.patterns[] | select(.kind == "repeated-finding")] | length == 1)' >/dev/null 2>&1 \
+printf '%s' "$out" | jq -e '(.runs[] | select(.run == "RUN-C") | .tokens_in) == null and .totals.tokens_in == 8000 and .totals.tokens_in_reported == 3 and .totals.tokens_total == 13300 and .totals.tokens_total_reported == 4 and .metrics.duplicate_run_records == 1 and .metrics.skipped_non_json == 1 and ([.patterns[] | select(.kind == "repeated-finding")] | length == 1)' >/dev/null 2>&1 \
   && ok "insights --json: null tokens stay null, totals and one repeated-finding pattern" || die "insights --json content"
 out=$(pl "$ins" insights --run RUN-B 2>&1)
 expect "insights --run limits the report to one run" "$out" "RUN-B"
