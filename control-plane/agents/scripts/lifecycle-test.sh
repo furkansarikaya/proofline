@@ -136,9 +136,12 @@ scenario_orchestrated_loop() {
   expect_fail "amend without an authorizer" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' impl.txt 'trim the key before lookup and add a regression test for it' ''
   expect_fail "amend with a generic reason" amend_as lead 'not needed' impl.txt 'trim the key before lookup and add a regression test for it' 'the user'
   expect_fail "amend with fix_scope outside the frozen plan" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' outside.txt 'trim the key before lookup and add a regression test for it' 'the user'
-  amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' impl.txt 'trim the key before lookup and add a regression test for it' 'the user (explicit reopen request)' >/dev/null
+  expect_msg "amend with a symbol-only fix_scope" "fix_scope has no path" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' ':lookupKey' 'trim the key before lookup and add a regression test for it' 'the user'
+  expect_msg "amend with a path:symbol fix_scope outside the frozen plan" "outside the frozen scope" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' outside.txt:lookupKey 'trim the key before lookup and add a regression test for it' 'the user'
+  amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' impl.txt:lookupKey 'trim the key before lookup and add a regression test for it' 'the user (explicit reopen request)' >/dev/null
   expect_state execution state AMENDING; expect_state handoff state IMPLEMENTING; expect_state completion_report published false
   grep -q '^previous_handoff_state: "DONE"' .agents/runs/LC/gates/*-REOPEN.yaml
+  grep -q '^fix_scope: impl.txt$' .agents/runs/LC/gates/*-REOPEN.yaml || die "REOPEN record kept the symbol of a path:symbol fix_scope"
   ls .agents/runs/LC/gates/*-REOPEN.completion-report.md >/dev/null
   expect_fail "DONE straight after reopen" A handoff LC DONE
   printf 'lead hot-fix\n' >> impl.txt
@@ -239,6 +242,22 @@ scenario_fix_scope_format() {
   worker FIX pass impl.txt 'impl: a path that the finding did not list'
   expect_msg "a fix outside the listed fix_scope reached IMPLEMENTED" "outside the finding's fix_scope" A handoff LC IMPLEMENTED
   ok "fix_scope union and info rows"
+}
+
+# A77: a fix_scope entry `path:symbol` (gate row or amendment) scopes to its path; a path outside still fails.
+scenario_fix_scope_symbol() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:TestLookup|hollow assertion|traced'
+  grep -q '^fix_scope: impl_test.txt$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "fix_scope kept the symbol of a path:symbol finding"
+  A handoff LC IMPLEMENTING >/dev/null
+  cp impl.txt "$base/impl.keep"
+  worker FIX pass impl.txt 'impl: a path that the finding did not list'
+  expect_msg "a fix outside a path:symbol fix_scope reached IMPLEMENTED" "outside the finding's fix_scope" A handoff LC IMPLEMENTED
+  wopen; cp "$base/impl.keep" impl.txt; printf 'test: the symbol named in the finding asserts the value\n' >> impl_test.txt; wev FIX pass impl_test.txt; wclose
+  A handoff LC IMPLEMENTED >/dev/null
+  ok "fix_scope path:symbol scopes to its path"
 }
 
 # An amendment that changes any frozen artifact starts a fresh fix budget.
@@ -580,6 +599,7 @@ run_sc scenario_orchestrated_loop
 run_sc scenario_attribution
 run_sc scenario_bounded_fix
 run_sc scenario_fix_scope_format
+run_sc scenario_fix_scope_symbol
 run_sc scenario_amendment_fresh_budget
 run_sc scenario_terminal
 run_sc scenario_pipeline_trivial

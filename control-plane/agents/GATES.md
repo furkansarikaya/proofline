@@ -61,7 +61,8 @@ After CODE_DONE the knowledge step and the report publication change the tree, s
   since the last reopen). `handoff <ID> IMPLEMENTING` from IMPLEMENTED (lead only) opens it while
   rounds used ≤ `review.max_fix_rounds` (default 2).
 - The fix MUST change the tree and stay inside the union `fix_scope` of the failing content's records
-  (finding paths; a finding without a path allows any frozen scope path).
+  (finding paths; a finding without a path allows any frozen scope path). An entry `path:line`, `path:line-line`
+  or `path:symbol` scopes to its path part; comparison uses the path.
 - Round 2 sets `escalation=yes` in `pipeline` and the `fix_round_2` signal in `decide`.
 - After the last round with open findings: only `terminate <ID> FAILED` (stdin `reason`, `evidence`).
   Commit and push stay locked because the gates never pass. Nothing resets the budget on the lead's

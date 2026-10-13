@@ -54,6 +54,11 @@ test("a FAIL yields blocking ids and the fix scope without lines", () => {
   assert.equal(s.counts, false);
 });
 
+test("a path:symbol row scopes to its path; a symbol without a path is not widened", () => {
+  const s = ok(result({ res: "FAIL", rows: ["| REVIEW_RULES-1 | blocking | src/lookup.js:setTagFilter | wrong filter | traced |", "| REVIEW_RULES-2 | blocking | :setTagFilter | no path | traced |"] }));
+  assert.deepEqual(s.fix_scope, ["src/lookup.js"]);
+});
+
 test("reviewer focus rules+tests maps to REVIEW_SMALL; aliases are canonical", () => {
   const s = ok(result({ role: "independent_reviewer", focus: "rules+tests", rows: [] }));
   assert.equal(s.role, "reviewer"); assert.equal(s.gate, "REVIEW_SMALL");
