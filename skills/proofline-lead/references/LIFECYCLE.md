@@ -5,8 +5,8 @@ lead takes. This file says how to carry out each one.
 
 ```
 intake -> classify -> branch -> baseline -> DISCOVER -> EVIDENCE -> [architect | data_architect | designer]
-  -> PLAN (plan-contract) -> [QA_PLAN] -> [plan approval] -> [destructive approval] -> freeze
-  -> IMPLEMENTING -> implementer -> IMPLEMENTED -> tier -> SECRETS + gate roles -> [fix loop]
+  -> PLAN (plan-contract) -> [QA_PLAN] -> [plan approval] -> freeze
+  -> [destructive approval] -> IMPLEMENTING -> implementer -> IMPLEMENTED -> tier -> SECRETS + gate roles -> [fix loop]
   -> CODE_DONE -> knowledge -> COMPLETION_REPORT -> DONE -> delivery-check -> [commit/push approval] -> cleanup
 ```
 
@@ -91,16 +91,22 @@ editing the hash.
 
 ## 5. Approvals and freeze
 
-- `next` asks for `plan` (supervised) and then `destructive` (any plan with `destructive: yes`, any
-  autonomy). Each: `A request-approval <ID> <kind>`, relay verbatim, stop. The lead never approves: the
-  runtime's prompt hook records the approval from the user's reply (approval phrase and kind word). After the
-  reply run `A next <ID>`; when it still asks for the approval, the answer was a refusal or a change request:
-  revise the plan and ask again.
+- Before the freeze `next` asks for `plan` (supervised) and `scope` when it applies. Each:
+  `A request-approval <ID> <kind>`, relay verbatim, stop. The lead never approves: the runtime's prompt hook
+  records the approval from the user's reply (approval phrase and kind word). After the reply run
+  `A next <ID>`; when it still asks for the approval, the answer was a refusal or a change request: revise
+  the plan and ask again.
 - `A freeze <ID>`, then `A freshness <ID>` (freshness checks a freeze that must exist).
+- A plan with `destructive: yes` stops again AFTER the freeze, before IMPLEMENT: `next` asks for
+  `destructive` (then `single_step` when the plan is one step), reason `destructive approval required before
+  IMPLEMENT`. Same procedure: `A request-approval <ID> destructive`, relay verbatim, stop. The approval is
+  bound to the sha256 of the frozen PLAN.md and consumed by `A handoff <ID> IMPLEMENTING`, which refuses
+  without it. A refreeze changes the hash: an earlier destructive or single_step approval no longer counts,
+  ask again.
 
 ## 6. Implement
 
-1. `A handoff <ID> IMPLEMENTING`.
+1. `A handoff <ID> IMPLEMENTING` (a destructive plan: only after the destructive approval, section 5).
 2. Dispatch exactly one implementer ([DISPATCH.md](DISPATCH.md#implementer)); the assignment names
    tdd-proof (RED for the right reason, GREEN, REFACTOR) and the frozen scope.
 3. `A handoff <ID> IMPLEMENTED` (fails without RED/GREEN evidence per scope path or an attested window),

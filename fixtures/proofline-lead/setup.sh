@@ -8,7 +8,7 @@
 # <target-dir> itself. States (run LK-7 in every project):
 #   review-rules-fail     COMPLEX, tier full, every gate passes except REVIEW_RULES (fix round 1 not opened)
 #   needs-input           STANDARD, the explorer returned NEEDS_INPUT; a question is pending
-#   destructive-approval  CRITICAL plan with `destructive: yes`; plan approved, destructive approval missing
+#   destructive-approval  CRITICAL plan with `destructive: yes`; plan approved and frozen, destructive approval missing
 #   security-pass-low     COMPLEX, tier full, every gate passes, SECURITY passed with CONFIDENCE: low
 #   fix-rounds-exhausted  COMPLEX, tier full, both fix rounds used, REVIEW_RULES fails again
 # Everything goes through the real control plane (agent.sh, exec-policy.sh, secret-scan.sh); verdicts enter
@@ -215,6 +215,7 @@ printf '# QA plan\n\n- QA-1 (AC-1): lookup("") returns null\n- QA-2 (AC-2): a st
 
 if [ "$STATE" = destructive-approval ]; then
   grant plan 'I approve the plan'
+  q A freeze "$ID"
   exit 0
 fi
 

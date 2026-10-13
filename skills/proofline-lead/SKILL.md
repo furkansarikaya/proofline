@@ -46,8 +46,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    task does not require stays out of scope and is reported, not asked about. **Questions verbatim (D13)** ([HANDOFF.md](references/HANDOFF.md)). `A questions <ID>` output goes to the
    user unchanged. Never answer, summarise, translate, reorder or pick the recommended option. `A answer`
    gets only the user's own words.
-6. **Stop points (D3).** Stop and wait for the user at: a pending question; plan approval (supervised);
-   any destructive operation (always, whatever the autonomy); a scope change; commit, push, PR. Approvals
+6. **Stop points (D3).** Stop and wait for the user at: a pending question; plan approval (supervised, before freeze);
+   the destructive approval of a `destructive: yes` plan (always, whatever the autonomy; after the freeze, before IMPLEMENT); a scope change; commit, push, PR. Approvals
    go through `A request-approval`, recorded by the runtime from the user's reply; the lead never approves. Any other
    question of the lead (a choice between plans, a scope change with options, opening a PR) is stored with
    `A ask <ID>` (the D13 block on stdin, [HANDOFF.md](references/HANDOFF.md#3-the-leads-own-questions)), then

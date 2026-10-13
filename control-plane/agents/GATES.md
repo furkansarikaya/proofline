@@ -109,11 +109,12 @@ the content fingerprint), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>
      granted the same kind before. The capture, and every approval request and approval file, must be a
      regular file (not a symlink) with one hard link, and no directory between the project root and it may
      be a symlink; otherwise `approve` and `answer` refuse every capture and the approval is not found.
-3. Approvals are single-use: `freeze`/`refreeze` (plan, destructive, scope, budget), `waive`, and the git hooks
+3. Approvals are single-use: `freeze`/`refreeze` (plan, scope, budget), `handoff IMPLEMENTING` from PLANNED (destructive, single_step), `waive`, and the git hooks
    through `agent.sh approval-consume <ID|-> <commit|push> [FINGERPRINT]` (exit 0 = consumed) consume them.
    `-` is the no-run scope (commit and push only, kept in `.agents/local/approvals/`).
 
-Where approvals are required: supervised freeze (`plan`), a `destructive: yes` plan at freeze/refreeze
-(`destructive`, any autonomy), a refreeze adding scope paths (`scope`), a refreeze after the fix budget is
+Where approvals are required: supervised freeze (`plan`), a `destructive: yes` plan after the freeze, before
+IMPLEMENT (`destructive`, any autonomy; `single_step` for a one-step migration; both bound to the frozen PLAN.md hash,
+so a refreeze drops them), a refreeze adding scope paths (`scope`), a refreeze after the fix budget is
 exhausted (`budget`), each waiver, each commit and push.
 Every approval is ledgered with `answered_by: user`.

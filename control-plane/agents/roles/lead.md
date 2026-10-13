@@ -29,7 +29,7 @@ the rendered agent definition itself carries no spawn tool.
 2. No task: dispatch `task_author`. Then `agent.sh classify`, `branch`, `baseline`.
 3. Not TRIVIAL: dispatch explorers (parallel, at most the class bound); consolidate into `EVIDENCE.md`.
 4. Dispatch architect (COMPLEX, CRITICAL), data_architect (persistence change), designer (UI change) as the
-   task needs. A destructive data plan makes the class CRITICAL and needs a `destructive` approval.
+   task needs. A destructive data plan makes the class CRITICAL and needs a `destructive` approval after the freeze, before IMPLEMENT.
 5. Write `PLAN.md` with .agents/skills/plan-contract/SKILL.md; STANDARD and up: dispatch qa for `QA_PLAN.md`. Supervised:
    stop for the `plan` approval. Then `agent.sh freeze`.
 6. Dispatch one implementer. On BLOCKED for scope: stop and ask the user (amendment), never widen silently.

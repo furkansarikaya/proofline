@@ -235,13 +235,18 @@ test("fixture: selfcheck.sh passes on the built states and the branch is the tas
   assert.equal(br.stdout.trim(), "proofline/LK-7-empty-key-default");
 });
 
-test("fixture: the pending question is stored verbatim and the destructive plan is not frozen", () => {
+test("fixture: the pending question is stored verbatim and the frozen destructive plan is not implemented", () => {
   const q = agent("needs-input", "questions", "LK-7");
   assert.equal(q.status, 0, q.stderr);
   assert.match(q.stdout, /1\. Which value must lookup\(""\) return\?\n {3}options: null \| empty string \| throw\n {3}recommended: null/);
   const p = agent("destructive-approval", "pipeline", "LK-7").stdout;
   assert.match(p, /^classification=CRITICAL$/m);
-  assert.notEqual(agent("destructive-approval", "freeze", "LK-7").status, 0, "freeze must be refused without a destructive approval");
+  const n = agent("destructive-approval", "next", "LK-7").stdout;
+  assert.match(n, /^handoff=PLANNED$/m);
+  assert.match(n, /^reason=destructive approval required before IMPLEMENT$/m);
+  const h = agent("destructive-approval", "handoff", "LK-7", "IMPLEMENTING");
+  assert.notEqual(h.status, 0, "IMPLEMENTING must be refused without a destructive approval");
+  assert.match(h.stdout + h.stderr, /destructive approval/);
 });
 
 // These two change run state: keep them last.
