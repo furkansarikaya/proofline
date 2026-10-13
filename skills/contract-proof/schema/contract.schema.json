@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/furkansarikaya/proofline/skills/contract-proof/schema/contract.schema.json",
   "title": "contract-proof contract.json",
-  "description": "Cross-field rules (rule id exists and fixes the classification, a covered change cites a plan bullet that names the element and states versioning/migration/deprecation, a breaking or needs-review change has its consumers searched, tool evidence names a used tool, the gate result) are enforced by scripts/validate-contract.mjs. scripts/diff-contract.mjs writes the draft.",
+  "description": "Cross-field rules (rule id exists and fixes the classification, only a CP-U01 is reclassified, a covered change cites a plan bullet that names the element and states versioning/migration/deprecation, a breaking or needs-review change has its consumers searched, tool evidence names a used tool, the gate result) are enforced by scripts/validate-contract.mjs. scripts/diff-contract.mjs writes the draft.",
   "type": "object",
   "required": ["schema_version", "target", "tools", "plan", "files", "judged"],
   "$defs": {
@@ -17,6 +17,8 @@
         "element": { "$ref": "#/$defs/text", "description": "the name a plan bullet must use to cover the change" },
         "side": { "enum": ["request", "response", "both"] },
         "rule": { "type": "string", "pattern": "^CP-(B|N|U)[0-9]{2}$" },
+        "original_rule": { "type": "string", "pattern": "^CP-(B|N|U)[0-9]{2}$", "description": "the differ's rule; only a CP-U01 may differ from `rule` (traced reclassification)" },
+        "line_file": { "type": "string", "description": "the external $ref fragment the line is in, when not the file itself" },
         "classification": { "enum": ["breaking", "non-breaking", "needs-review"] },
         "before": { "type": ["string", "null"] },
         "after": { "type": ["string", "null"] },
@@ -81,6 +83,8 @@
           "change": { "enum": ["added", "modified", "deleted", "unchanged"] },
           "status": { "enum": ["compared", "unsupported"] },
           "reason": { "type": "string" },
+          "via": { "type": "array", "items": { "type": "string" }, "description": "a fragment file: the root contracts whose $ref reaches it and where its changes are reported" },
+          "fragments": { "type": "array", "items": { "type": "string" }, "description": "external $ref files this root contract loaded" },
           "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
         }
       }

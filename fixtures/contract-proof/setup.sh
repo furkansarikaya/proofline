@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the contract-proof fixture repository in an empty directory given as $1.
 # Deterministic, no network, no installs. Two commits: the first is the base contract set and PLAN.md,
-# the second changes seven contract files, so `--base HEAD~1` has the known answer in EXPECTED.md.
+# the second changes nine contract-related files, so `--base HEAD~1` has the known answer in EXPECTED.md.
 set -eu
 [ $# -eq 1 ] || { echo "usage: sh setup.sh <target-dir>" >&2; exit 2; }
 TARGET=$1
@@ -16,7 +16,7 @@ git config user.name Fixture
 git config user.email fixture@example.invalid
 git config commit.gpgsign false
 git config core.hooksPath .git/hooks
-mkdir -p api schemas events graphql proto src/client
+mkdir -p api/fragments api/examples schemas events graphql proto src/client
 
 cat > package.json <<'EOF'
 { "name": "shop-contracts-fixture", "private": true, "type": "module" }
@@ -62,8 +62,10 @@ Contract cleanup across the shop APIs.
 ## Contracts
 
 - `api/openapi.yaml`: the order response schema moved to `components/schemas/Order` (refactor, no consumer-visible change).
-- `api/billing.json` `currency`: new request field, defaults to EUR.
-- `schemas/shipment.schema.json` `status` value `LOST` removed: migration rewrites stored LOST shipments to RETURNED; deprecation window of 90 days announced to consumers.
+- `api/openapi.yaml` `Order.customerEmail`: removed; bump info.version.
+- `api/billing.json` `POST /invoices.currency`: new required request field, defaults to EUR; no versioning or migration needed.
+- `schemas/shipment.schema.json` `status.LOST` removed: migration rewrites stored LOST shipments to RETURNED; deprecation window of 90 days announced to consumers.
+- `proto/inventory.proto` `Order.quantity` renumbered: versioned under a new package.
 EOF
 
 # ---- base contracts -----------------------------------------------------------------------------
@@ -100,6 +102,9 @@ paths:
                   customerEmail:
                     type: string
                     format: email
+                  createdAt:
+                    type: string
+                    format: date-time
         "404":
           description: Not found
   /customers/{id}/address:
@@ -131,6 +136,9 @@ components:
       properties:
         street:
           type: string
+        country:
+          type: string
+          enum: [DE, FR]
         zip:
           type: string
 EOF
@@ -265,6 +273,39 @@ message StockRequest {
 }
 EOF
 
+# catalog.yaml is a root contract that is NOT changed; its response schema lives in a fragment file.
+cat > api/catalog.yaml <<'EOF'
+openapi: 3.0.3
+info:
+  title: Catalog
+  version: 1.1.0
+paths:
+  /items/{id}:
+    get:
+      operationId: getItem
+      responses:
+        "200":
+          description: The item
+          content:
+            application/json:
+              schema:
+                $ref: './fragments/item.yaml'
+EOF
+
+cat > api/fragments/item.yaml <<'EOF'
+type: object
+required: [sku]
+properties:
+  sku:
+    type: string
+  name:
+    type: string
+EOF
+
+cat > api/examples/order-example.json <<'EOF'
+{ "id": "o-1", "status": "placed" }
+EOF
+
 git add -A
 git commit -q -m "base contracts"
 
@@ -329,12 +370,18 @@ components:
         status:
           type: string
           enum: [placed, shipped]
+        createdAt:
+          type: string
+          format: date
     Address:
       type: object
       required: [street]
       properties:
         street:
           type: string
+        country:
+          type: string
+          enum: [DE, FR, NL]
         zip:
           type: string
           deprecated: true
@@ -488,6 +535,23 @@ service Inventory {
 message StockRequest {
   string sku = 1;
 }
+EOF
+
+# item.yaml (a fragment of the unchanged catalog.yaml): sku becomes an integer, a breaking response change
+# found only by following the external $ref. order-example.json is changed, under api/, and referenced by
+# nothing: it must be reported UNSUPPORTED, never silently skipped.
+cat > api/fragments/item.yaml <<'EOF'
+type: object
+required: [sku]
+properties:
+  sku:
+    type: integer
+  name:
+    type: string
+EOF
+
+cat > api/examples/order-example.json <<'EOF'
+{ "id": "o-1", "status": "shipped" }
 EOF
 
 git add -A

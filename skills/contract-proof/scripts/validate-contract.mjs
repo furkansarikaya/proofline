@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 // Validates a contract-proof report (contract.json, schema ../schema/contract.schema.json) and derives
 // the gate result mechanically.
-// Usage: node validate-contract.mjs <contract.json> [--table]
+// Usage: node validate-contract.mjs <contract.json> [--table] [--plan PLAN.md] [--repo DIR --base REF]
+//   --plan       re-derives every change's coverage from PLAN.md `## Contracts`; without it no change counts
+//                as covered (the report's own `covered: true` is never trusted)
+//   --repo/--base re-runs diff-contract.mjs and requires every change it finds, with the same rule (only a
+//                CP-U01 may have been reclassified, with traced evidence)
 //   valid   -> exit 0; prints "RESULT: PASS|FAIL|UNSUPPORTED", "CONFIDENCE: high|medium|low" and, for
 //              UNSUPPORTED, "REASON: ..."; --table also prints the `agent.sh submit --findings` rows.
 //   invalid -> exit 1 with one error per line; unreadable input or usage error -> exit 2.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { RULES, BLOCKING_CLASSES, COVER_KEYWORD } from "./diff-contract.mjs";
+import { RULES, BLOCKING_CLASSES, COVER_KEYWORD, coverage, planBullets, hasToken, run } from "./diff-contract.mjs";
 
 export const FORMATS = ["openapi", "asyncapi", "jsonschema", "graphql", "proto", "json", "yaml", "avro", "thrift", "raml", "wsdl", "xsd", "unknown"];
 export const SIDES = ["request", "response", "both"];
@@ -16,7 +20,7 @@ export const CONSUMER_SOURCES = ["impact", "search", "not-searched"];
 const isInt = (n) => Number.isInteger(n) && n >= 1;
 const str = (s) => typeof s === "string" && s.trim() !== "";
 
-export function validate(doc) {
+export function validate(doc, { bullets = null, regenerated = null } = {}) {
   const e = [];
   if (!doc || typeof doc !== "object") return ["report is not an object"];
   if (doc.schema_version !== 1) e.push("schema_version must be 1");
@@ -53,13 +57,24 @@ export function validate(doc) {
       if (!str(ev.source)) e.push(`${w}: evidence.source required`);
       else if (ev.source.startsWith("tool:") && !used.has(ev.source.slice(5))) e.push(`${w}: evidence from ${ev.source} but that tool is not in tools.used`);
       if (ev.class === "traced" && !str(ev.detail)) e.push(`${w}: traced evidence needs detail (what was read, where)`);
+      if (ev.source === "diff-contract.mjs" && !RULES[c.original_rule]) e.push(`${w}: a differ change keeps original_rule`);
+      if (c.original_rule !== undefined && c.original_rule !== c.rule) {
+        if (c.original_rule !== "CP-U01") e.push(`${w}: rule ${c.original_rule} was rewritten to ${c.rule}; only a CP-U01 may be reclassified`);
+        else if (ev.class !== "traced") e.push(`${w}: a reclassified CP-U01 needs traced evidence`);
+      }
+      if (str(c.line_file) && c.line_file.startsWith("/")) e.push(`${w}: line_file is a repository-relative path`);
       const cv = c.coverage;
       if (!cv || typeof cv.covered !== "boolean") e.push(`${w}: coverage.covered required`);
       else if (cv.covered) {
         if (!BLOCKING_CLASSES.includes(c.classification)) e.push(`${w}: only a breaking or needs-review change is covered by the plan`);
         if (!isInt(cv.plan_line) || !str(cv.text)) e.push(`${w}: a covered change cites plan_line and the bullet text`);
         else if (!COVER_KEYWORD.test(cv.text)) e.push(`${w}: the cited bullet states no versioning, migration or deprecation`);
-        else if (!cv.text.includes(c.element)) e.push(`${w}: the cited bullet does not name ${c.element}`);
+        else if (!hasToken(cv.text, c.element)) e.push(`${w}: the cited bullet does not name ${c.element} as a whole name`);
+        else if (!hasToken(cv.text, f.path)) e.push(`${w}: the cited bullet does not name ${f.path}`);
+      }
+      if (bullets && cv && typeof cv.covered === "boolean") {
+        const want = coverage(f.path, c, bullets);
+        if (want.covered !== cv.covered || (want.covered && want.plan_line !== cv.plan_line)) e.push(`${w}: coverage disagrees with PLAN.md (covered there: ${want.covered}${want.covered ? ` at line ${want.plan_line}` : ""})`);
       }
       const co = c.consumers;
       if (!co || !CONSUMER_SOURCES.includes(co.source) || !Array.isArray(co.in_repo)) e.push(`${w}: consumers.source (${CONSUMER_SOURCES.join("|")}) and consumers.in_repo required`);
@@ -67,6 +82,21 @@ export function validate(doc) {
         if (co.outside_repo !== "unknown") e.push(`${w}: consumers.outside_repo must be "unknown" (consumers outside the repository cannot be known)`);
         if (BLOCKING_CLASSES.includes(c.classification) && co.source === "not-searched") e.push(`${w}: a ${c.classification} change needs its in-repo consumers searched (impact report or search)`);
         for (const r of co.in_repo) if (!str(r.path) || !isInt(r.line)) e.push(`${w}: consumer rows need path and line`);
+      }
+    }
+  }
+  if (regenerated) {
+    const byPath = new Map(doc.files.map((f) => [f.path, f]));
+    const toolsUsed = Array.isArray(doc.tools?.used) && doc.tools.used.length > 0;
+    for (const g of regenerated.files) {
+      const f = byPath.get(g.path);
+      if (!f) { e.push(`${g.path}: the differ reports this file; the report dropped it`); continue; }
+      if (g.status === "unsupported" && f.status !== "unsupported" && !toolsUsed) e.push(`${g.path}: the differ cannot parse it; only a used tool's result may make it compared`);
+      const left = [...(f.changes || [])];
+      for (const c of g.changes) {
+        const i = left.findIndex((x) => x.location === c.location && (x.rule === c.rule || (c.rule === "CP-U01" && x.evidence?.class === "traced")));
+        if (i < 0) e.push(`${g.path} ${c.location}: the differ finds ${c.rule}; the report has no change with that rule (only a CP-U01 may be reclassified)`);
+        else left.splice(i, 1);
       }
     }
   }
@@ -78,10 +108,11 @@ export function validate(doc) {
   return e;
 }
 
-const loc = (f, c) => `${f.path}:${c.line}`;
+const loc = (f, c) => `${c.line_file || f.path}:${c.line}`;
 // one findings row; a | or newline inside a field would split it
 const row = (...f) => f.map((x) => String(x).replace(/[|\n]/g, "/")).join("|");
-export function gate(doc) {
+// `trustCoverage` is true only when validate() re-derived coverage from the plan (--plan)
+export function gate(doc, { trustCoverage = false } = {}) {
   const rows = [];
   const unsupported = doc.files.filter((f) => f.status === "unsupported");
   for (const f of doc.files) for (const c of f.changes) {
@@ -89,31 +120,45 @@ export function gate(doc) {
     const what = `${c.rule} ${c.classification} (${c.side}) ${c.element}: ${RULES[c.rule][1]}`;
     const ev = `${c.evidence.class} by ${c.evidence.source}${c.line_in === "base" ? " (base line)" : ""}: ${c.before ?? "absent"} -> ${c.after ?? "absent"}`;
     if (BLOCKING_CLASSES.includes(c.classification)) {
-      if (c.coverage.covered) rows.push(row("info", loc(f, c), `${what}; covered by PLAN.md:${c.coverage.plan_line}`, `${ev}; ${cons}`));
+      if (trustCoverage && c.coverage.covered) rows.push(row("info", loc(f, c), `${what}; covered by PLAN.md:${c.coverage.plan_line}`, `${ev}; ${cons}`));
       else rows.push(row("blocking", loc(f, c), `${what}; not covered by versioning, migration or deprecation in PLAN.md ## Contracts`, `${ev}; ${cons}`));
     } else if (c.rule === "CP-N04" || c.rule === "CP-N07") rows.push(row("info", loc(f, c), what, `${ev}; ${cons}`));
   }
   for (const j of doc.judged) rows.push(row(j.criterion ? "blocking" : "info", j.location, `judged: ${j.text}${j.criterion ? `; violates: ${j.criterion}` : ""}`, "judged"));
   const blocking = rows.some((r) => r.startsWith("blocking|"));
   if (blocking) for (const f of unsupported) rows.push(row("blocking", `${f.path}:1`, `UNSUPPORTED ${f.format}: ${f.reason}`, "no compatibility proof for this file"));
-  const result = blocking ? "FAIL" : unsupported.length ? "UNSUPPORTED" : "PASS";
-  const reason = unsupported.length ? unsupported.map((f) => `${f.path} (${f.format}): ${f.reason}`).join("; ") : null;
+  // nothing recognized while the focus runs (a contract signal or flag selected it) proves nothing
+  const empty = doc.files.length === 0;
+  const result = blocking ? "FAIL" : unsupported.length || empty ? "UNSUPPORTED" : "PASS";
+  const reason = unsupported.length ? unsupported.map((f) => `${f.path} (${f.format}): ${f.reason}`).join("; ")
+    : empty ? "no changed contract file was recognized; pass the signalled files with --path" : null;
   const searched = doc.files.flatMap((f) => f.changes).filter((c) => BLOCKING_CLASSES.includes(c.classification));
-  const confidence = unsupported.length ? "low" : searched.some((c) => c.consumers.source !== "impact") ? "medium" : "high";
+  const confidence = unsupported.length || empty ? "low" : searched.some((c) => c.consumers.source !== "impact") ? "medium" : "high";
   return { result, confidence, reason, rows };
 }
 
 function main(args) {
-  const table = args.includes("--table");
-  const files = args.filter((a) => a !== "--table");
-  if (files.length !== 1) { console.error("usage: validate-contract.mjs <contract.json> [--table]"); process.exit(2); }
-  let doc;
-  try { doc = JSON.parse(readFileSync(files[0], "utf8")); } catch (err) { console.error(`cannot read input: ${err.message}`); process.exit(2); }
-  const errors = validate(doc);
+  const usage = () => { console.error("usage: validate-contract.mjs <contract.json> [--table] [--plan PLAN.md] [--repo DIR --base REF]"); process.exit(2); };
+  const o = { files: [] };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--table") o.table = true;
+    else if (a === "--plan" || a === "--repo" || a === "--base") { if (args[i + 1] === undefined) usage(); o[a.slice(2)] = args[++i]; }
+    else if (a.startsWith("-")) usage();
+    else o.files.push(a);
+  }
+  if (o.files.length !== 1 || !o.repo !== !o.base || (o.base && o.base.startsWith("-"))) usage();
+  let doc, bullets = null, regenerated = null;
+  try {
+    doc = JSON.parse(readFileSync(o.files[0], "utf8"));
+    if (o.plan) bullets = planBullets(readFileSync(o.plan, "utf8"));
+    if (o.repo) regenerated = run({ repo: o.repo, base: o.base, paths: [], plan: null, impact: null });
+  } catch (err) { console.error(`cannot read input: ${err.message}`); process.exit(2); }
+  const errors = validate(doc, { bullets, regenerated });
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
-  const g = gate(doc);
+  const g = gate(doc, { trustCoverage: bullets !== null });
   console.log(`RESULT: ${g.result}\nCONFIDENCE: ${g.confidence}`);
   if (g.result === "UNSUPPORTED") console.log(`REASON: ${g.reason}`);
-  if (table && g.rows.length) console.log(g.rows.join("\n"));
+  if (o.table && g.rows.length) console.log(g.rows.join("\n"));
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv.slice(2));

@@ -13,7 +13,7 @@
 // Exit 0 on success, 2 on a usage error or an unreadable input.
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, basename, extname, delimiter } from "node:path";
+import { join, basename, dirname, extname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // ---- rules (RULES.md is the prose; this table is what the scripts enforce) ------------------------
@@ -137,7 +137,9 @@ function yamlFlow(s, ln) {
     if (s[i] === "{") {
       i++; const o = {}; skip(); if (s[i] === "}") { i++; return o; }
       for (;;) {
-        const k = String(item(":,}")); skip(); if (s[i] !== ":") unsup(`bad flow mapping at line ${ln}`); i++;
+        const k = String(item(":,}")); skip();
+        // `{x:1}` is one plain scalar in YAML, not a pair: refuse instead of guessing
+        if (s[i] !== ":" || !(i + 1 >= s.length || " ,}]".includes(s[i + 1]))) unsup(`bad flow mapping at line ${ln}`); i++;
         o[k] = item(",}"); setLine(o, k, ln); skip();
         if (s[i] === ",") { i++; continue; } if (s[i] === "}") { i++; return o; } unsup(`bad flow mapping at line ${ln}`);
       }
@@ -193,6 +195,8 @@ export function parseYaml(text) {
       out.push(rawT.slice(bi)); p++;
     }
     while (out.length && out[out.length - 1] === "") out.pop();
+    // folded paragraphs and more-indented folded lines have their own rules; refused, not approximated
+    if (head[0] === ">" && out.some((x) => x === "" || /^\s/.test(x))) unsup(`folded block scalar with paragraphs or indented lines at line ${ln}`);
     return head[0] === "|" ? out.join("\n") : out.join(" ");
   };
   const node = (minInd) => {
@@ -252,7 +256,10 @@ export function parseYaml(text) {
 }
 
 // ---- format detection ---------------------------------------------------------------------------
-const CONTRACT_TEXT = /^(openapi|asyncapi|swagger)\s*:|"(openapi|asyncapi|swagger|\$schema)"\s*:|^syntax\s*=\s*"proto/m;
+const CONTRACT_TEXT = /^(openapi|asyncapi|swagger)\s*:|"(openapi|asyncapi|swagger|\$schema)"\s*:|^\s*\$schema\s*:|^syntax\s*=\s*"proto/m;
+// config-free default: a changed .json/.yaml/.yml here is a contract or a contract fragment until proven
+// otherwise; when it is neither diffed nor reached from a recognized contract it is UNSUPPORTED, never dropped
+export const CONTRACT_PATH = /((^|\/)(openapi|swagger|asyncapi)[^/]*|schema[^/]*)\.(ya?ml|json)$|(^|\/)(apis?|contracts?|specs?|schemas?|openapi|asyncapi|swagger|events|graphql|proto)\/(.+\/)?[^/]+\.(ya?ml|json)$/i;
 const SDL_EXT = [".graphql", ".graphqls", ".gql"];
 const OTHER_CONTRACT_EXT = { ".avsc": "avro", ".avdl": "avro", ".thrift": "thrift", ".raml": "raml", ".wsdl": "wsdl", ".xsd": "xsd" };
 function kindOf(doc) {
@@ -262,6 +269,12 @@ function kindOf(doc) {
   if ("$schema" in doc || ("type" in doc && ("properties" in doc || "items" in doc)) || "$defs" in doc || "definitions" in doc) return "jsonschema";
   return null;
 }
+const parseData = (path, text) => {
+  const ext = extname(path).toLowerCase();
+  if (ext === ".json") return parseJson(text);
+  if (ext === ".yaml" || ext === ".yml") return parseYaml(text);
+  return unsup(`no built-in parser for ${ext || path}`);
+};
 // Returns { format, model } or { format, unsupported: reason } or null when the file is not a contract.
 export function load(path, text, { explicit = false } = {}) {
   const ext = extname(path).toLowerCase();
@@ -271,7 +284,7 @@ export function load(path, text, { explicit = false } = {}) {
     if (ext === ".proto") return { format: "proto", model: parseProto(text) };
     if (OTHER_CONTRACT_EXT[ext]) return { format: OTHER_CONTRACT_EXT[ext], unsupported: `no built-in rules for ${OTHER_CONTRACT_EXT[ext]}` };
     if (ext === ".json" || ext === ".yaml" || ext === ".yml") {
-      const doc = ext === ".json" ? parseJson(text) : parseYaml(text);
+      const doc = parseData(path, text);
       const k = kindOf(doc);
       if (!k) return explicit ? { format: ext === ".json" ? "json" : "yaml", unsupported: "not an OpenAPI, AsyncAPI or JSON Schema document" } : null;
       return { format: k, model: doc };
@@ -279,10 +292,64 @@ export function load(path, text, { explicit = false } = {}) {
     return explicit || CONTRACT_TEXT.test(text) ? { format: "unknown", unsupported: `no built-in parser for ${ext || "this file"}` } : null;
   } catch (e) {
     if (!(e instanceof Unsupported) && !(e instanceof SyntaxError)) throw e;
-    if (!explicit && !CONTRACT_TEXT.test(text) && !SDL_EXT.includes(ext) && ext !== ".proto") return null;
+    if (!explicit && !CONTRACT_TEXT.test(text) && !CONTRACT_PATH.test(path) && !SDL_EXT.includes(ext) && ext !== ".proto") return null;
     const fmt = SDL_EXT.includes(ext) ? "graphql" : ext === ".proto" ? "proto" : ext === ".json" ? "json" : "yaml";
     return { format: fmt, unsupported: `cannot parse: ${e.message}` };
   }
+}
+
+// ---- external $ref bundling -------------------------------------------------------------------------
+// Relative external references (`paths/orders.yaml#/get`) are loaded through `loadDoc(path)` and inlined
+// under EXT_KEY, their own references rewritten, so a change inside a fragment file is classified where the
+// root contract uses it. URLs, absolute paths and paths leaving the repository stay text (compared as text).
+export const EXT_KEY = "x-contract-proof-external";
+const FILE_OF = new WeakMap();
+const posixJoin = (dir, rel) => {
+  const out = [];
+  for (const part of (dir ? dir.split("/") : []).concat(rel.split("/"))) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") { if (!out.length || out[out.length - 1] === "..") out.push(".."); else out.pop(); } else out.push(part);
+  }
+  return out.join("/");
+};
+const dirOf = (p) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+export function bundle(root, rootPath, loadDoc) {
+  const files = new Set(), unresolved = new Map();
+  if (!root || typeof root !== "object") return { files, unresolved };
+  const store = new Map();
+  const seen = new WeakSet();
+  const visit = (v, file) => {
+    if (!v || typeof v !== "object" || seen.has(v)) return;
+    seen.add(v);
+    if (Array.isArray(v)) { v.forEach((x) => visit(x, file)); return; }
+    FILE_OF.set(v, file);
+    if (typeof v.$ref === "string") {
+      const r = v.$ref, h = r.indexOf("#");
+      const fpart = h < 0 ? r : r.slice(0, h), frag = h < 0 ? "" : r.slice(h + 1);
+      if (frag !== "" && !frag.startsWith("/")) { /* anchor fragment: compared as text */ }
+      else if (fpart === "") { if (file !== rootPath) v.$ref = `#/${EXT_KEY}/${esc(file)}${frag}`; }
+      else if (!/^[a-z][a-z0-9+.-]*:/i.test(fpart) && !fpart.startsWith("/")) {
+        const target = posixJoin(dirOf(file), fpart);
+        if (!target.startsWith("..")) {
+          if (!store.has(target)) {
+            let d = null, why = null;
+            try { d = loadDoc(target); if (d === null || d === undefined) { d = null; why = "file not found"; } } catch (e) {
+              if (!(e instanceof Unsupported) && !(e instanceof SyntaxError)) throw e;
+              why = `cannot parse: ${e.message}`;
+            }
+            store.set(target, d);
+            if (d !== null) { files.add(target); if (target !== rootPath) visit(d, target); } else unresolved.set(target, why);
+          }
+          if (store.get(target) !== null) v.$ref = target === rootPath ? `#${frag}` : `#/${EXT_KEY}/${esc(target)}${frag}`;
+        }
+      }
+    }
+    for (const k of Object.keys(v)) if (k !== "$ref") visit(v[k], file);
+  };
+  visit(root, rootPath);
+  const loaded = [...store].filter(([p, d]) => d !== null && p !== rootPath);
+  if (loaded.length && !Array.isArray(root)) root[EXT_KEY] = Object.fromEntries(loaded);
+  return { files, unresolved };
 }
 
 // ---- JSON / YAML structural diff ----------------------------------------------------------------
@@ -290,7 +357,8 @@ const DOC_KEYS = new Set(["description", "summary", "title", "example", "example
 const METHODS = new Set(["get", "put", "post", "delete", "patch", "options", "head", "trace"]);
 // keyword -> +1 when a larger value narrows (minimum), -1 when a smaller value narrows (maximum)
 const NUMERIC = { maxLength: -1, maxItems: -1, maxProperties: -1, maximum: -1, exclusiveMaximum: -1, minLength: 1, minItems: 1, minProperties: 1, minimum: 1, exclusiveMinimum: 1 };
-const CHANGED_NARROWS = new Set(["pattern", "format", "multipleOf", "const"]);
+// added -> narrows, removed -> relaxes, changed -> neither is known: breaking on every side
+const VALUE_CONSTRAINTS = new Set(["pattern", "format", "multipleOf", "const"]);
 const esc = (s) => String(s).replace(/~/g, "~0").replace(/\//g, "~1");
 const ptr = (segs) => "/" + segs.map(esc).join("/");
 const brief = (v) => { if (v === undefined) return null; const s = typeof v === "string" ? v : JSON.stringify(v); return s.length > 120 ? s.slice(0, 117) + "..." : s; };
@@ -305,23 +373,20 @@ const hasRef = (v) => {
   const r = (isObj(v) && typeof v.$ref === "string") || Object.values(v).some(hasRef);
   REFS.set(v, r); return r;
 };
-
-function elementOf(segs) {
-  for (let i = segs.length - 1; i >= 0; i--) {
-    const prev = segs[i - 1];
-    if (prev === "properties" || prev === "channels" || prev === "responses" || prev === "enum" || prev === "parameters" || prev === "headers") return String(segs[i]);
-    if (prev === "paths") return String(segs[i]);
-    if (i >= 2 && segs[i - 2] === "paths" && METHODS.has(segs[i])) return `${String(segs[i]).toUpperCase()} ${segs[i - 1]}`;
-  }
-  return String(segs[segs.length - 1] ?? "/");
-}
 // side-dependent rule pick: [request, response]; side both takes the stricter (breaking first)
 function pick(side, req, resp) {
   if (side === "request") return req;
   if (side === "response") return resp;
   return RULES[req][0] !== "non-breaking" ? req : resp;
 }
-
+const unptr = (r) => r.slice(2).split("/").map((x) => x.replace(/~1/g, "/").replace(/~0/g, "~"));
+// the name of a schema a reference points to (`#/components/schemas/Order` -> Order), else null
+function schemaName(ref) {
+  const s = unptr(ref);
+  if (s[0] === EXT_KEY) s.splice(0, 2);
+  if ((s[0] === "components" && s.length === 3 && s[1] !== "parameters" && s[1] !== "responses") || ((s[0] === "definitions" || s[0] === "$defs") && s.length === 2)) return s[s.length - 1];
+  return null;
+}
 function derefFactory(root) {
   return (node, stack) => {
     let n = node; const seen = [...stack];
@@ -329,7 +394,7 @@ function derefFactory(root) {
       const r = n.$ref;
       if (!r.startsWith("#/") || seen.includes(r)) return { node: n, ref: r, opaque: true, stack: seen };
       seen.push(r);
-      let t = root; for (const s of r.slice(2).split("/").map((x) => x.replace(/~1/g, "/").replace(/~0/g, "~"))) t = t?.[s];
+      let t = root; for (const s of unptr(r)) t = t?.[s];
       if (t === undefined) return { node: n, ref: r, opaque: true, stack: seen };
       n = t;
     }
@@ -345,161 +410,185 @@ function reachedRefs(root) {
     if (!isObj(v)) return;
     if (typeof v.$ref === "string" && v.$ref.startsWith("#/") && !out.has(v.$ref)) {
       out.add(v.$ref);
-      let t = root; for (const s of v.$ref.slice(2).split("/").map((x) => x.replace(/~1/g, "/").replace(/~0/g, "~"))) t = t?.[s];
+      let t = root; for (const s of unptr(v.$ref)) t = t?.[s];
       walk(t, depth + 1);
     }
     for (const k of Object.keys(v)) walk(v[k], depth + 1);
   };
-  if (isObj(root)) for (const k of Object.keys(root)) if (!["components", "definitions", "$defs"].includes(k)) walk(root[k], 0);
+  if (isObj(root)) for (const k of Object.keys(root)) if (!["components", "definitions", "$defs", EXT_KEY].includes(k)) walk(root[k], 0);
   return out;
 }
 
-export function diffDocs(base, head, kind) {
+// `q` is the qualified name of the place being compared: the named schema (Order), the operation
+// (GET /orders/{id}) or the channel, then property names. A change's `element` is q joined by "." plus
+// what changed; plan coverage needs that whole name, so `Order.id` never covers `User.id`.
+export function diffDocs(base, head, kind, rootPath = null) {
   const changes = [];
   const dB = derefFactory(base || {}), dH = derefFactory(head || {});
   const reached = new Set([...reachedRefs(base || {}), ...reachedRefs(head || {})]);
-  const add = (rule, segs, side, before, after, line, extra = {}) => {
-    changes.push({ location: ptr(segs), element: extra.element ?? elementOf(segs), side, rule, classification: RULES[rule][0], before: brief(before), after: brief(after), line: line?.n ?? 1, line_in: line?.in ?? "head" });
+  const el = (q, last) => [...q, ...(last === undefined ? [] : [String(last)])].join(".") || String(last ?? "/");
+  const add = (rule, segs, side, before, after, line, element) => {
+    const c = { location: ptr(segs), element, side, rule, classification: RULES[rule][0], before: brief(before), after: brief(after), line: line?.n ?? 1, line_in: line?.in ?? "head" };
+    if (line?.file && line.file !== rootPath) c.line_file = line.file;
+    changes.push(c);
   };
-  const L = (pa, pb, k) => { const h = lineOf(pb, k); if (h) return { n: h, in: "head" }; const b = lineOf(pa, k); return b ? { n: b, in: "base" } : undefined; };
+  const L = (pa, pb, k) => {
+    const h = lineOf(pb, k); if (h) return { n: h, in: "head", file: FILE_OF.get(pb) };
+    const b = lineOf(pa, k); return b ? { n: b, in: "base", file: FILE_OF.get(pa) } : undefined;
+  };
+  // a named schema reached through the references just followed renames the place
+  const requal = (q, sa0, ra, sb0, rb) => {
+    for (const [st, s0] of [[rb.stack, sb0], [ra.stack, sa0]]) for (let i = st.length - 1; i >= s0.length; i--) { const n = schemaName(st[i]); if (n) return [n]; }
+    return q;
+  };
 
-  const walk = (a, b, segs, side, sa, sb, pa, pb, key) => {
+  const walk = (a, b, segs, side, sa, sb, pa, pb, key, q) => {
     const ra = dB(a, sa), rb = dH(b, sb);
     a = ra.node; b = rb.node;
-    if (ra.opaque || rb.opaque) { if (!deq(a, b)) add("CP-U01", segs, side, a, b, L(pa, pb, key)); return; }
+    q = requal(q, sa, ra, sb, rb);
+    if (ra.opaque || rb.opaque) { if (!deq(a, b)) add("CP-U01", segs, side, a, b, L(pa, pb, key), el(q)); return; }
     if (deq(a, b) && !hasRef(a) && !hasRef(b)) return;
     if (!isObj(a) || !isObj(b)) {
-      if (Array.isArray(a) && Array.isArray(b) && a.length === b.length) { a.forEach((x, i) => walk(x, b[i], [...segs, i], side, ra.stack, rb.stack, a, b, i)); return; }
-      add("CP-U01", segs, side, a, b, L(pa, pb, key)); return;
+      if (Array.isArray(a) && Array.isArray(b) && a.length === b.length) { a.forEach((x, i) => walk(x, b[i], [...segs, i], side, ra.stack, rb.stack, a, b, i, q)); return; }
+      add("CP-U01", segs, side, a, b, L(pa, pb, key), el(q)); return;
     }
     const top = segs.length === 0;
     const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
     for (const k of keys) {
       const va = a[k], vb = b[k], s = [...segs, k], ln = L(a, b, k);
-      if (k === "properties") { diffProps(a, b, s, side, ra.stack, rb.stack); continue; } // before the equality skip: `required` may differ
+      if (top && k === EXT_KEY) continue; // fragments are compared where the contract references them
+      if (k === "properties") { diffProps(a, b, s, side, ra.stack, rb.stack, q); continue; } // before the equality skip: `required` may differ
       if (deq(va, vb) && !hasRef(va) && !hasRef(vb)) continue;
       if (top && (k === "components" || k === "definitions" || k === "$defs") && isObj(va ?? {}) && isObj(vb ?? {})) {
         // only the definitions no path, channel or root schema reaches; reached ones are diffed where used
         const sects = k === "components" ? [...new Set([...Object.keys(va || {}), ...Object.keys(vb || {})])] : [null];
         for (const sec of sects) {
           const ca = (sec ? va?.[sec] : va) || {}, cb = (sec ? vb?.[sec] : vb) || {};
-          if (!isObj(ca) || !isObj(cb)) { if (!deq(ca, cb)) add("CP-U01", sec ? [k, sec] : [k], "both", ca, cb, ln); continue; }
+          if (!isObj(ca) || !isObj(cb)) { if (!deq(ca, cb)) add("CP-U01", sec ? [k, sec] : [k], "both", ca, cb, ln, el([k], sec ?? undefined)); continue; }
           for (const n of new Set([...Object.keys(ca), ...Object.keys(cb)])) {
             const ref = "#/" + [k, ...(sec ? [sec] : []), n].map(esc).join("/");
             if (reached.has(ref)) continue;
             const ss = [k, ...(sec ? [sec] : []), n], l2 = L(ca, cb, n);
-            if (!(n in cb)) add("CP-B01", ss, "both", "present", undefined, l2, { element: n });
-            else if (!(n in ca)) add("CP-N02", ss, "both", undefined, "present", l2, { element: n });
-            else walk(ca[n], cb[n], ss, "both", ra.stack, rb.stack, ca, cb, n);
+            if (!(n in cb)) add("CP-B01", ss, "both", "present", undefined, l2, n);
+            else if (!(n in ca)) add("CP-N02", ss, "both", undefined, "present", l2, n);
+            else walk(ca[n], cb[n], ss, "both", ra.stack, rb.stack, ca, cb, n, [n]);
           }
         }
         continue;
       }
-      if (DOC_KEYS.has(k) && !(k === "title" && isObj(va ?? vb)) && !(segs[segs.length - 1] === "properties")) { if (!deq(va, vb)) add("CP-N05", s, side, va, vb, ln, { element: segs.length ? elementOf(segs) : k }); continue; }
-      if (k === "deprecated") { add("CP-N08", s, side, va, vb, ln, { element: elementOf(segs) }); continue; }
-      if (k === "paths" || k === "channels") { diffNamed(va || {}, vb || {}, s, side, "CP-B01", "CP-N02", ra.stack, rb.stack); continue; }
+      if (DOC_KEYS.has(k) && !(k === "title" && isObj(va ?? vb))) { if (!deq(va, vb)) add("CP-N05", s, side, va, vb, ln, top ? k : el(q)); continue; }
+      if (k === "deprecated") { add("CP-N08", s, side, va, vb, ln, el(q)); continue; }
+      if (k === "paths" || k === "channels") { diffNamed(va || {}, vb || {}, s, side, "CP-B01", "CP-N02", ra.stack, rb.stack, (n) => [n]); continue; }
       if (segs[segs.length - 2] === "paths" && METHODS.has(k)) {
-        if (va === undefined) add("CP-N02", s, side, undefined, "present", ln);
-        else if (vb === undefined) add("CP-B01", s, side, "present", undefined, ln);
-        else walk(va, vb, s, side, ra.stack, rb.stack, a, b, k);
+        const op = [`${k.toUpperCase()} ${segs[segs.length - 1]}`];
+        if (va === undefined) add("CP-N02", s, side, undefined, "present", ln, op[0]);
+        else if (vb === undefined) add("CP-B01", s, side, "present", undefined, ln, op[0]);
+        else walk(va, vb, s, side, ra.stack, rb.stack, a, b, k, op);
         continue;
       }
-      if (k === "parameters" && (Array.isArray(va) || Array.isArray(vb))) { diffParams(va || [], vb || [], s, ra.stack, rb.stack); continue; }
+      if (k === "parameters" && (Array.isArray(va) || Array.isArray(vb))) { diffParams(va || [], vb || [], s, ra.stack, rb.stack, q); continue; }
       if (k === "requestBody") {
         if (va === undefined || vb === undefined) {
           const rq = (vb && dH(vb, rb.stack).node?.required) === true;
-          add(va === undefined ? (rq ? "CP-B05" : "CP-N01") : "CP-B07", s, "request", va === undefined ? undefined : "present", vb === undefined ? undefined : "present", ln);
-        } else walk(va, vb, s, "request", ra.stack, rb.stack, a, b, k);
+          add(va === undefined ? (rq ? "CP-B05" : "CP-N01") : "CP-B07", s, "request", va === undefined ? undefined : "present", vb === undefined ? undefined : "present", ln, el(q, "requestBody"));
+        } else walk(va, vb, s, "request", ra.stack, rb.stack, a, b, k, q);
         continue;
       }
-      if (k === "responses" && segs.length && METHODS.has(segs[segs.length - 1])) { diffNamed(va || {}, vb || {}, s, "response", "CP-B08", "CP-N07", ra.stack, rb.stack); continue; }
+      if (k === "responses" && segs.length && METHODS.has(segs[segs.length - 1])) { diffNamed(va || {}, vb || {}, s, "response", "CP-B08", "CP-N07", ra.stack, rb.stack, null, q); continue; }
       if (k === "content" || k === "headers") {
-        diffNamed(va || {}, vb || {}, s, side, k === "content" ? "CP-B03" : "CP-B07", "CP-N01", ra.stack, rb.stack); continue;
+        diffNamed(va || {}, vb || {}, s, side, k === "content" ? "CP-B03" : "CP-B07", "CP-N01", ra.stack, rb.stack, null, q); continue;
       }
       if (k === "required" && Array.isArray(va ?? vb)) {
-        if (!("properties" in a) && !("properties" in b)) add("CP-U01", s, side, va, vb, ln);
+        if (!("properties" in a) && !("properties" in b)) add("CP-U01", s, side, va, vb, ln, el(q));
         continue; // handled with properties
       }
       if (k === "required" && (typeof va === "boolean" || typeof vb === "boolean")) {
         const was = va === true, now = vb === true;
-        if (was !== now) add(now ? pick(side, "CP-B04", "CP-N06") : pick(side, "CP-N06", "CP-B04"), s, side, va, vb, ln, { element: elementOf(segs) });
+        if (was !== now) add(now ? pick(side, "CP-B04", "CP-N06") : pick(side, "CP-N06", "CP-B04"), s, side, va, vb, ln, el(q));
         continue;
       }
-      if (k === "enum") { diffEnum(va || [], vb || [], s, side, a, b); continue; }
-      if (k === "type") { diffType(va, vb, s, side, ln); continue; }
-      if (k === "nullable") { const now = vb === true, was = va === true; if (now !== was) add(now ? pick(side, "CP-N06", "CP-B09") : pick(side, "CP-B09", "CP-N06"), s, side, va, vb, ln, { element: elementOf(segs) }); continue; }
+      if (k === "enum") { diffEnum(va || [], vb || [], s, side, a, b, q); continue; }
+      if (k === "type") { diffType(va, vb, s, side, ln, q); continue; }
+      if (k === "nullable") { const now = vb === true, was = va === true; if (now !== was) add(now ? pick(side, "CP-N06", "CP-B09") : pick(side, "CP-B09", "CP-N06"), s, side, va, vb, ln, el(q)); continue; }
       if (k in NUMERIC && (typeof (va ?? 0) === "number") && (typeof (vb ?? 0) === "number")) {
         const dir = NUMERIC[k];
         const narrows = va === undefined ? true : vb === undefined ? false : (vb - va) * dir > 0;
-        add(narrows ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, { element: elementOf(segs) }); continue;
+        add(narrows ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, el(q)); continue;
       }
-      if (CHANGED_NARROWS.has(k)) { add(vb === undefined ? pick(side, "CP-N06", "CP-B09") : pick(side, "CP-B09", "CP-N06"), s, side, va, vb, ln, { element: elementOf(segs) }); continue; }
+      if (VALUE_CONSTRAINTS.has(k)) {
+        // a changed pattern/format/const accepts different values: no side can tolerate it
+        const rule = va === undefined ? pick(side, "CP-B09", "CP-N06") : vb === undefined ? pick(side, "CP-N06", "CP-B09") : "CP-B09";
+        add(rule, s, side, va, vb, ln, el(q)); continue;
+      }
       if (k === "additionalProperties" && typeof (va ?? true) === "boolean" && typeof (vb ?? true) === "boolean") {
-        const narrows = vb === false; add(narrows ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, { element: elementOf(segs) }); continue;
+        const narrows = vb === false; add(narrows ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, el(q)); continue;
       }
-      if (k === "uniqueItems") { add(vb === true ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, { element: elementOf(segs) }); continue; }
+      if (k === "uniqueItems") { add(vb === true ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, el(q)); continue; }
       if (va === undefined || vb === undefined) {
-        if (isObj(va ?? vb)) { walk(va ?? {}, vb ?? {}, s, side, ra.stack, rb.stack, a, b, k); continue; }
-        add("CP-U01", s, side, va, vb, ln); continue;
+        if (isObj(va ?? vb)) { walk(va ?? {}, vb ?? {}, s, side, ra.stack, rb.stack, a, b, k, q); continue; }
+        add("CP-U01", s, side, va, vb, ln, el(q, k)); continue;
       }
-      walk(va, vb, s, side, ra.stack, rb.stack, a, b, k);
+      walk(va, vb, s, side, ra.stack, rb.stack, a, b, k, q);
     }
   };
-  const diffNamed = (A, B, segs, side, removed, added, sa, sb) => {
+  // named children (paths, channels, status codes, media types, headers); `rename(n)` gives the child's q
+  const diffNamed = (A, B, segs, side, removed, added, sa, sb, rename, q = []) => {
     A = dB(A, sa).node; B = dH(B, sb).node;
-    if (!isObj(A) || !isObj(B)) { add("CP-U01", segs, side, A, B, undefined); return; }
+    if (!isObj(A) || !isObj(B)) { add("CP-U01", segs, side, A, B, undefined, el(q)); return; }
     for (const n of new Set([...Object.keys(A), ...Object.keys(B)])) {
-      const s = [...segs, n], ln = L(A, B, n);
-      if (!(n in B)) add(removed, s, side, "present", undefined, ln);
-      else if (!(n in A)) add(added, s, side, undefined, "present", ln);
-      else walk(A[n], B[n], s, side, sa, sb, A, B, n);
+      const s = [...segs, n], ln = L(A, B, n), name = rename ? el(rename(n)) : el(q, n);
+      if (!(n in B)) add(removed, s, side, "present", undefined, ln, name);
+      else if (!(n in A)) add(added, s, side, undefined, "present", ln, name);
+      else walk(A[n], B[n], s, side, sa, sb, A, B, n, rename ? rename(n) : q);
     }
   };
-  const diffParams = (A, B, segs, sa, sb) => {
+  const diffParams = (A, B, segs, sa, sb, q) => {
     const keyed = (arr, d, st) => { const m = new Map(); arr.forEach((p, i) => { const r = d(p, st).node; m.set(isObj(r) ? `${r.in}:${r.name}` : `#${i}`, { p, r, i, arr }); }); return m; };
     const mA = keyed(A, dB, sa), mB = keyed(B, dH, sb);
     for (const k of new Set([...mA.keys(), ...mB.keys()])) {
       const x = mA.get(k), y = mB.get(k); const name = (y || x).r?.name ?? k;
       const s = [...segs, name];
-      const ln = y ? { n: lineOf(y.arr, y.i) ?? 1, in: "head" } : { n: lineOf(x.arr, x.i) ?? 1, in: "base" };
-      if (!y) add("CP-B07", s, "request", "present", undefined, ln, { element: name });
-      else if (!x) add(y.r?.required === true ? "CP-B05" : "CP-N01", s, "request", undefined, "present", ln, { element: name });
-      else walk(x.p, y.p, s, "request", sa, sb, x.arr, y.arr, x.i);
+      const ln = y ? { n: lineOf(y.arr, y.i) ?? 1, in: "head", file: FILE_OF.get(y.arr) } : { n: lineOf(x.arr, x.i) ?? 1, in: "base", file: FILE_OF.get(x.arr) };
+      if (!y) add("CP-B07", s, "request", "present", undefined, ln, el(q, name));
+      else if (!x) add(y.r?.required === true ? "CP-B05" : "CP-N01", s, "request", undefined, "present", ln, el(q, name));
+      else walk(x.p, y.p, s, "request", sa, sb, x.arr, y.arr, x.i, [...q, name]);
     }
   };
-  const diffProps = (a, b, segs, side, sa, sb) => {
+  const diffProps = (a, b, segs, side, sa, sb, q) => {
     const A = dB(a.properties || {}, sa).node, B = dH(b.properties || {}, sb).node;
     const rA = new Set(Array.isArray(a.required) ? a.required : []), rB = new Set(Array.isArray(b.required) ? b.required : []);
     for (const n of new Set([...Object.keys(A), ...Object.keys(B)])) {
-      const s = [...segs, n], ln = L(A, B, n);
-      if (!(n in B)) { add("CP-B02", s, side, "present", undefined, ln); continue; }
-      if (!(n in A)) { add(rB.has(n) ? pick(side, "CP-B05", "CP-N01") : "CP-N01", s, side, undefined, rB.has(n) ? "required" : "optional", ln); continue; }
-      if (rA.has(n) !== rB.has(n)) add(rB.has(n) ? pick(side, "CP-B04", "CP-N06") : pick(side, "CP-N06", "CP-B04"), s, side, rA.has(n) ? "required" : "optional", rB.has(n) ? "required" : "optional", ln);
-      walk(A[n], B[n], s, side, sa, sb, A, B, n);
+      const s = [...segs, n], ln = L(A, B, n), name = el(q, n);
+      if (!(n in B)) { add("CP-B02", s, side, "present", undefined, ln, name); continue; }
+      if (!(n in A)) { add(rB.has(n) ? pick(side, "CP-B05", "CP-N01") : "CP-N01", s, side, undefined, rB.has(n) ? "required" : "optional", ln, name); continue; }
+      if (rA.has(n) !== rB.has(n)) add(rB.has(n) ? pick(side, "CP-B04", "CP-N06") : pick(side, "CP-N06", "CP-B04"), s, side, rA.has(n) ? "required" : "optional", rB.has(n) ? "required" : "optional", ln, name);
+      walk(A[n], B[n], s, side, sa, sb, A, B, n, [...q, n]);
     }
   };
-  const diffEnum = (A, B, segs, side, pa, pb) => {
+  const diffEnum = (A, B, segs, side, pa, pb, q) => {
     const key = (v) => JSON.stringify(v);
     const kA = new Map(A.map((v, i) => [key(v), i])), kB = new Map(B.map((v, i) => [key(v), i]));
-    for (const [k, i] of kA) if (!kB.has(k)) add("CP-B06", [...segs, A[i]], side, A[i], undefined, { n: lineOf(A, i) ?? lineOf(pa, "enum") ?? 1, in: "base" }, { element: String(A[i]) });
-    for (const [k, i] of kB) if (!kA.has(k)) add(side === "request" ? "CP-N03" : "CP-N04", [...segs, B[i]], side, undefined, B[i], { n: lineOf(B, i) ?? lineOf(pb, "enum") ?? 1, in: "head" }, { element: String(B[i]) });
+    for (const [k, i] of kA) if (!kB.has(k)) add("CP-B06", [...segs, A[i]], side, A[i], undefined, { n: lineOf(A, i) ?? lineOf(pa, "enum") ?? 1, in: "base", file: FILE_OF.get(pa) }, el(q, A[i]));
+    for (const [k, i] of kB) if (!kA.has(k)) add(side === "request" ? "CP-N03" : "CP-N04", [...segs, B[i]], side, undefined, B[i], { n: lineOf(B, i) ?? lineOf(pb, "enum") ?? 1, in: "head", file: FILE_OF.get(pb) }, el(q, B[i]));
   };
-  const diffType = (va, vb, segs, side, ln) => {
+  const diffType = (va, vb, segs, side, ln, q) => {
     const A = new Set([].concat(va ?? [])), B = new Set([].concat(vb ?? []));
-    if (va === undefined || vb === undefined) { add(va === undefined ? pick(side, "CP-B03", "CP-N06") : pick(side, "CP-N06", "CP-B03"), segs, side, va, vb, ln, { element: elementOf(segs.slice(0, -1)) }); return; }
+    if (va === undefined || vb === undefined) { add(va === undefined ? pick(side, "CP-B03", "CP-N06") : pick(side, "CP-N06", "CP-B03"), segs, side, va, vb, ln, el(q)); return; }
     const lost = [...A].some((t) => !B.has(t) && !(t === "integer" && B.has("number")));
     const gained = [...B].some((t) => !A.has(t) && !(t === "integer" && A.has("number")));
     const rule = lost && gained ? "CP-B03" : lost ? pick(side, "CP-B03", "CP-N06") : pick(side, "CP-N06", "CP-B03");
-    add(rule, segs, side, va, vb, ln, { element: elementOf(segs.slice(0, -1)) });
+    add(rule, segs, side, va, vb, ln, el(q));
   };
   void kind; // every root starts on side both; requestBody/parameters/responses set the side below
-  walk(base || {}, head || {}, [], "both", [], [], null, null, null);
+  if (rootPath) { FILE_OF.set(base || {}, rootPath); FILE_OF.set(head || {}, rootPath); }
+  walk(base || {}, head || {}, [], "both", [], [], null, null, null, []);
   return changes;
 }
 
 // ---- GraphQL SDL (line level) -------------------------------------------------------------------
-// shortcut: one field or argument list per line; multi-line argument lists and single-line type bodies
-// are UNSUPPORTED; upgrade with a tokenizer when a project needs them.
+// shortcut: one field or argument list per line; a single-line body (`type A { a: Int }`, `enum E { A B }`)
+// is split, anything more (multi-line argument lists, several fields on one line) is UNSUPPORTED; upgrade
+// with a tokenizer when a project needs it.
 export function parseGraphql(text) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   // blank out block strings, strings and comments, keeping line numbers
@@ -517,8 +606,16 @@ export function parseGraphql(text) {
   });
   const T = {}; let cur = null;
   const dirs = (s) => (s || "").trim();
+  const stmts = [];
   clean.forEach((t, n) => {
-    const line = n + 1;
+    const m = /^((?:extend\s+)?(?:type|input|interface|enum)\s+[A-Za-z_]\w*[^{]*|schema\s*)\{(.*)\}$/.exec(t);
+    if (!m) { stmts.push([t, n + 1]); return; }
+    stmts.push([`${m[1].trim()} {`, n + 1]);
+    const inner = m[2].trim();
+    if (inner) for (const x of /^enum\s/.test(m[1]) ? inner.split(/[\s,]+/) : [inner]) stmts.push([x, n + 1]);
+    stmts.push(["}", n + 1]);
+  });
+  stmts.forEach(([t, line]) => {
     if (t === "" || /^"([^"\\]|\\.)*"$/.test(t)) return;
     if (cur) {
       if (t === "}") { cur = null; return; }
@@ -573,7 +670,7 @@ const deprecOnly = (a, b) => a.replace(/@deprecated(\([^)]*\))?/g, "").trim() ==
 export function diffGraphql(A, B) {
   const ch = [];
   const add = (rule, location, element, side, before, after, line, lineIn) => ch.push({ location, element, side, rule, classification: RULES[rule][0], before: brief(before), after: brief(after), line, line_in: lineIn });
-  const dirChange = (loc, el, side, a, b, line) => { if (a === b) return; add(deprecOnly(a, b) ? "CP-N08" : "CP-U01", loc, el, side, a || null, b || null, line, "head"); };
+  const dirChange = (loc, el, side, a, b, line) => { if (a === b) return; add(deprecOnly(a, b) ? "CP-N08" : "CP-U01", `${loc} directives`, el, side, a || null, b || null, line, "head"); };
   for (const n of new Set([...Object.keys(A), ...Object.keys(B)])) {
     const x = A[n], y = B[n];
     if (!y) { add("CP-B01", n, n, "both", x.kind, null, x.line, "base"); continue; }
@@ -583,48 +680,61 @@ export function diffGraphql(A, B) {
     const fside = x.kind === "input" ? "request" : "response";
     for (const f of new Set([...Object.keys(x.fields), ...Object.keys(y.fields)])) {
       const p = x.fields[f], q = y.fields[f], loc = `${n}.${f}`;
-      if (!q) { add("CP-B02", loc, f, fside, p.type, null, p.line, "base"); continue; }
+      if (!q) { add("CP-B02", loc, loc, fside, p.type, null, p.line, "base"); continue; }
       if (!p) {
         const r = fside === "request" ? (q.type.endsWith("!") ? (q.default !== null ? "CP-N10" : "CP-B05") : "CP-N01") : "CP-N01";
-        add(r, loc, f, fside, null, q.type, q.line, "head"); continue;
+        add(r, loc, loc, fside, null, q.type, q.line, "head"); continue;
       }
-      if (p.type !== q.type) add(gqlTypeRule(p.type, q.type, fside), loc, f, fside, p.type, q.type, q.line, "head");
-      if (p.default !== q.default) add("CP-U01", `${loc} default`, f, fside, p.default, q.default, q.line, "head");
-      dirChange(loc, f, fside, p.directives, q.directives, q.line);
+      if (p.type !== q.type) add(gqlTypeRule(p.type, q.type, fside), loc, loc, fside, p.type, q.type, q.line, "head");
+      if (p.default !== q.default) add("CP-U01", `${loc} default`, loc, fside, p.default, q.default, q.line, "head");
+      dirChange(loc, loc, fside, p.directives, q.directives, q.line);
       for (const g of new Set([...Object.keys(p.args), ...Object.keys(q.args)])) {
         const u = p.args[g], v = q.args[g], al = `${loc}(${g})`;
-        if (!v) { add("CP-B07", al, g, "request", u.type, null, u.line, "base"); continue; }
-        if (!u) { add(v.type.endsWith("!") ? (v.default !== null ? "CP-N10" : "CP-B05") : "CP-N01", al, g, "request", null, v.type, v.line, "head"); continue; }
-        if (u.type !== v.type) add(gqlTypeRule(u.type, v.type, "request"), al, g, "request", u.type, v.type, v.line, "head");
-        if (u.default !== v.default) add("CP-U01", `${al} default`, g, "request", u.default, v.default, v.line, "head");
-        dirChange(al, g, "request", u.directives, v.directives, v.line);
+        if (!v) { add("CP-B07", al, al, "request", u.type, null, u.line, "base"); continue; }
+        if (!u) { add(v.type.endsWith("!") ? (v.default !== null ? "CP-N10" : "CP-B05") : "CP-N01", al, al, "request", null, v.type, v.line, "head"); continue; }
+        if (u.type !== v.type) add(gqlTypeRule(u.type, v.type, "request"), al, al, "request", u.type, v.type, v.line, "head");
+        if (u.default !== v.default) add("CP-U01", `${al} default`, al, "request", u.default, v.default, v.line, "head");
+        dirChange(al, al, "request", u.directives, v.directives, v.line);
       }
     }
     for (const v of new Set([...Object.keys(x.values), ...Object.keys(y.values)])) {
       const p = x.values[v], q = y.values[v], loc = `${n}.${v}`;
-      if (!q) add("CP-B06", loc, v, "both", v, null, p.line, "base");
-      else if (!p) add("CP-N04", loc, v, "both", null, v, q.line, "head");
-      else dirChange(loc, v, "both", p.directives, q.directives, q.line);
+      if (!q) add("CP-B06", loc, loc, "both", v, null, p.line, "base");
+      else if (!p) add("CP-N04", loc, loc, "both", null, v, q.line, "head");
+      else dirChange(loc, loc, "both", p.directives, q.directives, q.line);
     }
   }
   return ch;
 }
 
 // ---- protobuf (line level) ----------------------------------------------------------------------
-// shortcut: one statement per line; `extend`, groups, multi-line options and rpc bodies with options are
-// UNSUPPORTED; upgrade with a tokenizer when a project needs them.
+// Statements are split at `{`, `;` and `}` (outside strings), so `message A { string a = 1; }` parses.
+// shortcut: a statement spanning lines, `extend` and groups are UNSUPPORTED; upgrade with a tokenizer
+// when a project needs them.
 export function parseProto(text) {
   let s = text.replace(/\r\n?/g, "\n");
   s = s.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
-  const lines = s.split("\n").map((l) => l.replace(/\/\/.*$/, "").trim());
+  const stmts = [];
+  s.split("\n").forEach((l, i) => {
+    let cur = "", q = null;
+    const flush = (x) => { const t = (cur + x).trim(); if (t !== "" && t !== ";") stmts.push([t, i + 1]); cur = ""; };
+    for (let j = 0; j < l.length; j++) {
+      const c = l[j];
+      if (q) { cur += c; if (c === "\\") { cur += l[++j] ?? ""; } else if (c === q) q = null; continue; }
+      if (c === '"' || c === "'") { q = c; cur += c; continue; }
+      if (c === "/" && l[j + 1] === "/") break;
+      if (c === "{" || c === ";") flush(c);
+      else if (c === "}") { flush(""); stmts.push(["}", i + 1]); }
+      else cur += c;
+    }
+    if (cur.trim() !== "") unsup(`statement continues past line ${i + 1}`);
+  });
   const M = { meta: {}, options: [], messages: {}, enums: {}, services: {} };
   const stack = [];
   const scopeName = (n) => [...stack.filter((x) => x.kind !== "oneof").map((x) => x.name), n].join(".");
-  lines.forEach((t, i) => {
-    const line = i + 1;
-    if (t === "") return;
+  stmts.forEach(([t, line]) => {
     const top = stack[stack.length - 1];
-    if (t === "}" || t === "};") { if (!stack.length) unsup(`unbalanced } at line ${line}`); stack.pop(); return; }
+    if (t === "}") { if (!stack.length) unsup(`unbalanced } at line ${line}`); stack.pop(); return; }
     let m;
     if ((m = /^syntax\s*=\s*"([^"]+)"\s*;$/.exec(t))) { M.meta.syntax = { v: m[1], line }; return; }
     if ((m = /^package\s+([\w.]+)\s*;$/.exec(t))) { M.meta.package = { v: m[1], line }; return; }
@@ -636,9 +746,11 @@ export function parseProto(text) {
     if ((m = /^oneof\s+(\w+)\s*\{$/.exec(t))) { if (top?.kind !== "message") unsup(`oneof outside a message at line ${line}`); stack.push({ kind: "oneof", name: m[1], node: top.node, oneof: m[1] }); return; }
     if ((m = /^reserved\s+(.+);$/.exec(t))) { if (!top || top.kind === "service") unsup(`reserved outside a message at line ${line}`); for (const r of m[1].split(",")) (top.node.reserved || (top.node.reserved = new Set())).add(r.trim()); return; }
     if (top?.kind === "service") {
-      m = /^rpc\s+(\w+)\s*\(\s*(stream\s+)?([\w.]+)\s*\)\s*returns\s*\(\s*(stream\s+)?([\w.]+)\s*\)\s*(;|\{\s*\})$/.exec(t);
+      m = /^rpc\s+(\w+)\s*\(\s*(stream\s+)?([\w.]+)\s*\)\s*returns\s*\(\s*(stream\s+)?([\w.]+)\s*\)\s*(;|\{)$/.exec(t);
       if (!m) unsup(`cannot parse rpc at line ${line}`);
-      top.node.rpcs[m[1]] = { req: `${m[2] ? "stream " : ""}${m[3]}`, resp: `${m[4] ? "stream " : ""}${m[5]}`, line }; return;
+      const rpc = top.node.rpcs[m[1]] = { req: `${m[2] ? "stream " : ""}${m[3]}`, resp: `${m[4] ? "stream " : ""}${m[5]}`, options: [], line };
+      if (m[6] === "{") stack.push({ kind: "rpc", name: m[1], node: rpc });
+      return;
     }
     if (top?.kind === "enum") {
       m = /^(\w+)\s*=\s*(-?\d+)\s*(\[(.*)\])?\s*;$/.exec(t);
@@ -675,36 +787,40 @@ export function diffProto(A, B) {
   named(A.messages, B.messages, "message", (n, x, y) => {
     for (const f of new Set([...Object.keys(x.fields), ...Object.keys(y.fields)])) {
       const p = x.fields[f], q = y.fields[f], loc = `${n}.${f}`;
-      if (!q) { add("CP-B02", loc, f, `${p.type} = ${p.number}`, null, p.line, "base"); continue; }
-      if (!p) { add(q.label === "required" ? "CP-B05" : "CP-N01", loc, f, null, `${q.type} = ${q.number}`, q.line, "head"); continue; }
-      if (p.number !== q.number) add("CP-B10", loc, f, p.number, q.number, q.line, "head");
-      if (p.type !== q.type) add("CP-B03", loc, f, p.type, q.type, q.line, "head");
-      if (p.label !== q.label) add((p.label === "repeated") !== (q.label === "repeated") ? "CP-B03" : p.label === "required" || q.label === "required" ? "CP-B04" : "CP-U01", loc, f, p.label || "(none)", q.label || "(none)", q.line, "head");
-      if (p.oneof !== q.oneof) add("CP-U01", `${loc} oneof`, f, p.oneof, q.oneof, q.line, "head");
-      if (p.opts !== q.opts) add(optDeprecOnly(p.opts, q.opts) ? "CP-N08" : "CP-U01", `${loc} options`, f, p.opts || null, q.opts || null, q.line, "head");
+      if (!q) { add("CP-B02", loc, loc, `${p.type} = ${p.number}`, null, p.line, "base"); continue; }
+      if (!p) { add(q.label === "required" ? "CP-B05" : "CP-N01", loc, loc, null, `${q.type} = ${q.number}`, q.line, "head"); continue; }
+      if (p.number !== q.number) add("CP-B10", loc, loc, p.number, q.number, q.line, "head");
+      if (p.type !== q.type) add("CP-B03", loc, loc, p.type, q.type, q.line, "head");
+      if (p.label !== q.label) add((p.label === "repeated") !== (q.label === "repeated") ? "CP-B03" : p.label === "required" || q.label === "required" ? "CP-B04" : "CP-U01", loc, loc, p.label || "(none)", q.label || "(none)", q.line, "head");
+      if (p.oneof !== q.oneof) add("CP-U01", `${loc} oneof`, loc, p.oneof, q.oneof, q.line, "head");
+      if (p.opts !== q.opts) add(optDeprecOnly(p.opts, q.opts) ? "CP-N08" : "CP-U01", `${loc} options`, loc, p.opts || null, q.opts || null, q.line, "head");
     }
     for (const r of new Set([...x.reserved, ...y.reserved])) {
-      if (!x.reserved.has(r)) add("CP-N09", `${n}.reserved(${r})`, r, null, r, y.line, "head");
-      else if (!y.reserved.has(r)) add("CP-U01", `${n}.reserved(${r})`, r, r, null, x.line, "base");
+      if (!x.reserved.has(r)) add("CP-N09", `${n}.reserved(${r})`, `${n}.reserved(${r})`, null, r, y.line, "head");
+      else if (!y.reserved.has(r)) add("CP-U01", `${n}.reserved(${r})`, `${n}.reserved(${r})`, r, null, x.line, "base");
     }
   });
   named(A.enums, B.enums, "enum", (n, x, y) => {
     for (const v of new Set([...Object.keys(x.values), ...Object.keys(y.values)])) {
       const p = x.values[v], q = y.values[v], loc = `${n}.${v}`;
-      if (!q) add("CP-B06", loc, v, p.number, null, p.line, "base");
-      else if (!p) add("CP-N04", loc, v, null, q.number, q.line, "head");
+      if (!q) add("CP-B06", loc, loc, p.number, null, p.line, "base");
+      else if (!p) add("CP-N04", loc, loc, null, q.number, q.line, "head");
       else {
-        if (p.number !== q.number) add("CP-B10", loc, v, p.number, q.number, q.line, "head");
-        if (p.opts !== q.opts) add(optDeprecOnly(p.opts, q.opts) ? "CP-N08" : "CP-U01", `${loc} options`, v, p.opts || null, q.opts || null, q.line, "head");
+        if (p.number !== q.number) add("CP-B10", loc, loc, p.number, q.number, q.line, "head");
+        if (p.opts !== q.opts) add(optDeprecOnly(p.opts, q.opts) ? "CP-N08" : "CP-U01", `${loc} options`, loc, p.opts || null, q.opts || null, q.line, "head");
       }
     }
   });
   named(A.services, B.services, "service", (n, x, y) => {
     for (const r of new Set([...Object.keys(x.rpcs), ...Object.keys(y.rpcs)])) {
       const p = x.rpcs[r], q = y.rpcs[r], loc = `${n}.${r}`;
-      if (!q) add("CP-B01", loc, r, `${p.req} -> ${p.resp}`, null, p.line, "base");
-      else if (!p) add("CP-N02", loc, r, null, `${q.req} -> ${q.resp}`, q.line, "head");
-      else if (p.req !== q.req || p.resp !== q.resp) add("CP-B03", loc, r, `${p.req} -> ${p.resp}`, `${q.req} -> ${q.resp}`, q.line, "head");
+      if (!q) add("CP-B01", loc, loc, `${p.req} -> ${p.resp}`, null, p.line, "base");
+      else if (!p) add("CP-N02", loc, loc, null, `${q.req} -> ${q.resp}`, q.line, "head");
+      else {
+        if (p.req !== q.req || p.resp !== q.resp) add("CP-B03", loc, loc, `${p.req} -> ${p.resp}`, `${q.req} -> ${q.resp}`, q.line, "head");
+        const oa = [...p.options].sort().join("; "), ob = [...q.options].sort().join("; ");
+        if (oa !== ob) add(optDeprecOnly(oa.replace(/;/g, ","), ob.replace(/;/g, ",")) ? "CP-N08" : "CP-U01", `${loc} options`, loc, oa || null, ob || null, q.line, "head");
+      }
     }
   });
   return ch;
@@ -712,18 +828,33 @@ export function diffProto(A, B) {
 
 // ---- one file -----------------------------------------------------------------------------------
 const EMPTY = { graphql: {}, proto: { meta: {}, options: [], messages: {}, enums: {}, services: {} } };
-export function diffFile(path, baseText, headText, { explicit = false } = {}) {
+const DATA_EXT = /\.(ya?ml|json)$/i;
+// Returns { row, fragments, unresolved } or null when the file is not a contract. `loadBase`/`loadHead`
+// load a repository-relative path of that side (text or null) for external $ref fragments.
+export function diffFile(path, baseText, headText, { explicit = false, loadBase = null, loadHead = null } = {}) {
   const b = baseText === null ? null : load(path, baseText, { explicit });
   const h = headText === null ? null : load(path, headText, { explicit });
   if (!b && !h) return null;
   const change = baseText === null ? "added" : headText === null ? "deleted" : "modified";
   const bad = [b, h].find((x) => x && x.unsupported);
   const format = (h && h.format) || (b && b.format);
-  if (bad) return { path, format: bad.format, change, status: "unsupported", reason: bad.unsupported, changes: [] };
-  if (b && h && b.format !== h.format) return { path, format, change, status: "unsupported", reason: `format changed from ${b.format} to ${h.format}`, changes: [] };
+  const none = { fragments: new Set(), unresolved: new Map() };
+  if (bad) return { row: { path, format: bad.format, change, status: "unsupported", reason: bad.unsupported, changes: [] }, ...none };
+  if (b && h && b.format !== h.format) return { row: { path, format, change, status: "unsupported", reason: `format changed from ${b.format} to ${h.format}`, changes: [] }, ...none };
   const bm = b ? b.model : (EMPTY[format] ?? {}), hm = h ? h.model : (EMPTY[format] ?? {});
-  const changes = format === "graphql" ? diffGraphql(bm, hm) : format === "proto" ? diffProto(bm, hm) : diffDocs(bm, hm, format);
-  return { path, format, change, status: "compared", changes };
+  const fragments = new Set(), unresolved = new Map();
+  if (format !== "graphql" && format !== "proto") {
+    for (const [m, ld] of [[bm, loadBase], [hm, loadHead]]) {
+      if (!ld) continue;
+      const r = bundle(m, path, (p) => { const t = ld(p); return t === null ? null : parseData(p, t); });
+      for (const f of r.files) fragments.add(f);
+      for (const [f, why] of r.unresolved) unresolved.set(f, why);
+    }
+  }
+  const changes = format === "graphql" ? diffGraphql(bm, hm) : format === "proto" ? diffProto(bm, hm) : diffDocs(bm, hm, format, path);
+  const row = { path, format, change, status: "compared", changes };
+  if (fragments.size) row.fragments = [...fragments].filter((f) => f !== path).sort();
+  return { row, fragments, unresolved };
 }
 
 // ---- PLAN.md ## Contracts coverage --------------------------------------------------------------
@@ -735,21 +866,32 @@ export function planBullets(text) {
   });
   return out;
 }
-const hasToken = (text, tok) => {
+// a whole token: not glued to a longer path, name or qualified name (`b/openapi.yaml` is not
+// `openapi.yaml`, `User.id` is not `id`); a sentence-ending dot is allowed after it
+export const hasToken = (text, tok) => {
   const e = String(tok).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^A-Za-z0-9_])${e}([^A-Za-z0-9_]|$)`).test(text);
+  return new RegExp(`(^|[^A-Za-z0-9_./{}-])${e}(?=$|[^A-Za-z0-9_./{}-]|\\.(\\s|$))`).test(text);
 };
-// A bullet covers a change when it names the file (path or basename), the element, and versioning,
-// migration or deprecation.
+const NEGATED = /\b(no|not|without|never|none|unversioned|skip(ped)?)\b[^.;]*\b(version|migrat|deprecat)|\b(version\w*|migrat\w*|deprecat\w*)\b[^.;]*\b(not|no|unnecessary|needless|none|skipped)\b/i;
+// The coverage rule (RULES.md#coverage-by-the-plan): the bullet names the exact repository path, the whole
+// qualified element, and states versioning, migration or deprecation that is not negated and is not just
+// `info.version`.
 export function coverage(path, change, bullets) {
-  if (!BLOCKING_CLASSES.includes(change.classification)) return { covered: false, plan_line: null, text: null };
-  const b = bullets.find((x) => (x.text.includes(path) || hasToken(x.text, basename(path))) && hasToken(x.text, change.element) && COVER_KEYWORD.test(x.text));
-  return b ? { covered: true, plan_line: b.line, text: b.text } : { covered: false, plan_line: null, text: null };
+  const none = { covered: false, plan_line: null, text: null };
+  if (!BLOCKING_CLASSES.includes(change.classification)) return none;
+  const b = bullets.find((x) => {
+    const words = x.text.replace(/info\.version/gi, " ");
+    return hasToken(x.text, path) && hasToken(x.text, change.element) && COVER_KEYWORD.test(words) && !NEGATED.test(words);
+  });
+  return b ? { covered: true, plan_line: b.line, text: b.text } : none;
 }
 
 // ---- consumers from an evidence-map impact report -----------------------------------------------
+// the identifier code uses: `Order.customerEmail` -> customerEmail, `Customer.orders(status)` -> status
+export const leafOf = (element) => String(element).replace(/\)$/, "").split(/[.(\s]/).filter(Boolean).pop() || String(element);
 export function consumersFrom(impact, element) {
-  const syms = (impact?.symbols || []).filter((s) => s.name === element || String(s.name).endsWith(`.${element}`));
+  const leaf = leafOf(element);
+  const syms = (impact?.symbols || []).filter((s) => s.name === leaf || String(s.name).endsWith(`.${leaf}`));
   if (!syms.length) return { source: "not-searched", in_repo: [], outside_repo: "unknown" };
   const seen = new Set(), in_repo = [];
   for (const s of syms) for (const r of s.references || []) {
@@ -762,10 +904,10 @@ export function consumersFrom(impact, element) {
 
 // ---- tools already present (detected, never installed, never run by this script) ----------------
 export function detectTools(repo) {
-  const dirs = [...(process.env.PATH || "").split(delimiter), ...(repo ? [join(repo, "node_modules", ".bin")] : [])];
+  const dirs = [...(process.env.PATH || "").split(delimiter), ...(repo ? [join(repo, "node_modules", ".bin")] : [])].filter((d) => d !== "");
   const found = [];
   for (const t of TOOLS) for (const d of dirs) {
-    try { const f = join(d, t.name); if (d && existsSync(f) && statSync(f).isFile()) { found.push({ name: t.name, path: f, formats: t.formats }); break; } } catch { /* unreadable PATH entry */ }
+    try { const f = join(d, t.name); if (existsSync(f) && statSync(f).isFile()) { found.push({ name: t.name, path: f, formats: t.formats }); break; } } catch { /* unreadable PATH entry */ }
   }
   return found;
 }
@@ -784,27 +926,73 @@ export function changedPaths(repo, base) {
   for (const p of git(repo, ["ls-files", "--others", "--exclude-standard"]).split("\n").filter(Boolean)) out.set(p, { base: null, head: p });
   return out;
 }
+// JSON/YAML files of the working tree that look like a contract root (they may reference a changed fragment)
+function contractRoots(repo) {
+  const all = [...git(repo, ["ls-files"]).split("\n"), ...git(repo, ["ls-files", "--others", "--exclude-standard"]).split("\n")];
+  return all.filter((p) => DATA_EXT.test(p)).filter((p) => {
+    try { if (statSync(join(repo, p)).size > 4 << 20) return false; } catch { return false; }
+    const t = readHead(repo, p); return t !== null && CONTRACT_TEXT.test(t);
+  }).sort();
+}
 export function run(opts) {
-  const files = [];
+  const rows = new Map();
   const bullets = opts.plan ? planBullets(readFileSync(opts.plan, "utf8")) : [];
   const impact = opts.impact ? JSON.parse(readFileSync(opts.impact, "utf8")) : null;
   if (opts.baseFile || opts.headFile) {
     const p = opts.name || basename(opts.headFile || opts.baseFile);
-    const r = diffFile(p, opts.baseFile ? readFileSync(opts.baseFile, "utf8") : null, opts.headFile ? readFileSync(opts.headFile, "utf8") : null, { explicit: true });
-    if (r) files.push(r);
+    const side = (f) => (f ? (rel) => { try { return readFileSync(join(dirname(f), rel), "utf8"); } catch { return null; } } : null);
+    const r = diffFile(p, opts.baseFile ? readFileSync(opts.baseFile, "utf8") : null, opts.headFile ? readFileSync(opts.headFile, "utf8") : null,
+      { explicit: true, loadBase: side(opts.baseFile), loadHead: side(opts.headFile) });
+    if (r) rows.set(p, r.row);
   } else {
     const changed = changedPaths(opts.repo, opts.base);
-    const want = opts.paths.length ? opts.paths : [...changed.keys()];
+    const explicit = opts.paths.length > 0;
+    const want = explicit ? opts.paths : [...changed.keys()];
+    const loadBase = (p) => show(opts.repo, opts.base, p), loadHead = (p) => readHead(opts.repo, p);
+    const fragOf = new Map(), unresolved = new Map();
+    const diffRoot = (p, c, isExplicit) => {
+      const r = diffFile(p, c.base ? show(opts.repo, opts.base, c.base) : null, c.head ? readHead(opts.repo, c.head) : null, { explicit: isExplicit, loadBase, loadHead });
+      if (!r) return null;
+      for (const f of r.fragments) if (f !== p) (fragOf.get(f) || fragOf.set(f, new Set()).get(f)).add(p);
+      for (const [f, why] of r.unresolved) if (!unresolved.has(f)) unresolved.set(f, `${why} (referenced from ${p})`);
+      return r;
+    };
+    const unknown = [];
     for (const p of [...want].sort()) {
       const c = changed.get(p);
-      if (!c) { if (opts.paths.length) files.push({ path: p, format: "unknown", change: "unchanged", status: "compared", changes: [] }); continue; }
-      const r = diffFile(p, c.base ? show(opts.repo, opts.base, c.base) : null, c.head ? readHead(opts.repo, c.head) : null, { explicit: opts.paths.length > 0 });
-      if (r) files.push(r);
+      if (!c) { if (explicit) rows.set(p, { path: p, format: "unknown", change: "unchanged", status: "compared", changes: [] }); continue; }
+      const r = diffRoot(p, c, explicit);
+      if (r) rows.set(p, r.row); else if (DATA_EXT.test(p)) unknown.push(p);
     }
+    // a changed standalone-looking schema may really be a fragment of a root contract: check those too
+    const maybeFragment = [...unknown, ...[...rows.values()].filter((r) => r.format === "jsonschema" && changed.has(r.path)).map((r) => r.path)];
+    if (maybeFragment.length) {
+      // an unchanged root contract whose external $ref reaches a changed file is compared too
+      for (const p of contractRoots(opts.repo)) {
+        if (rows.has(p) || unknown.includes(p)) continue;
+        const r = diffRoot(p, changed.get(p) || { base: p, head: p }, false);
+        if (r && r.row.format !== "jsonschema" && maybeFragment.some((u) => r.fragments.has(u))) { if (!changed.has(p)) r.row.change = "unchanged"; rows.set(p, r.row); }
+      }
+      // a changed schema reached from a compared root is classified there, with that root's sides
+      for (const u of maybeFragment) {
+        if (unknown.includes(u)) continue;
+        const roots = [...(fragOf.get(u) || [])].filter((r) => rows.has(r) && r !== u && rows.get(r).format !== "jsonschema");
+        if (roots.length) { const old = rows.get(u); rows.set(u, { path: u, format: old.format, change: old.change, status: "compared", via: roots.sort(), changes: [] }); }
+      }
+      for (const u of unknown) {
+        const c = changed.get(u), fmt = /\.json$/i.test(u) ? "json" : "yaml", change = c.base === null ? "added" : c.head === null ? "deleted" : "modified";
+        const roots = [...(fragOf.get(u) || [])].filter((r) => rows.has(r));
+        if (roots.length) rows.set(u, { path: u, format: fmt, change, status: "compared", via: roots.sort(), changes: [] });
+        else if (CONTRACT_PATH.test(u)) rows.set(u, { path: u, format: fmt, change, status: "unsupported", reason: "not recognized as a contract and no recognized contract references it; pass its root contract with --path or classify it by hand", changes: [] });
+      }
+    }
+    for (const [f, why] of unresolved) if (!rows.has(f)) rows.set(f, { path: f, format: /\.json$/i.test(f) ? "json" : /\.ya?ml$/i.test(f) ? "yaml" : "unknown", change: "unchanged", status: "unsupported", reason: `external $ref fragment not diffed: ${why}`, changes: [] });
   }
+  const files = [...rows.values()].sort((a, b) => a.path.localeCompare(b.path));
   let n = 0;
   for (const f of files) for (const c of f.changes) {
     c.id = `C-${++n}`;
+    c.original_rule = c.rule;
     c.evidence = { class: "measured", source: "diff-contract.mjs" };
     c.coverage = coverage(f.path, c, bullets);
     c.consumers = impact ? consumersFrom(impact, c.element) : { source: "not-searched", in_repo: [], outside_repo: "unknown" };
@@ -836,6 +1024,7 @@ function main(argv) {
     else usage(`unknown argument ${a}`);
   }
   if (!(o.repo && o.base) && !(o.baseFile || o.headFile)) usage("need --repo DIR --base REF, or --base-file/--head-file");
+  if (o.base !== undefined && (o.base.startsWith("-") || /\s|:/.test(o.base))) usage(`--base must be a revision, not ${JSON.stringify(o.base)}`);
   let doc;
   try { doc = run(o); } catch (e) { console.error(`diff-contract: ${e.message}`); process.exit(2); }
   const text = JSON.stringify(doc, null, 2) + "\n";

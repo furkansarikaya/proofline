@@ -17,12 +17,14 @@ for (const p of paths) {
   const f = got.get(p), e = exp.files[p];
   if (!f) continue;
   if (f.status !== e.status) errors.push(`${p}: status ${f.status}, want ${e.status}`);
+  if (e.via && !sameSet(f.via || [], e.via)) errors.push(`${p}: via ${f.via}, want ${e.via}`);
   const changes = f.changes.map((c) => `${c.rule} ${c.side} ${c.element}`);
   if (!sameSet(changes, e.changes)) errors.push(`${p}: changes\n  got  ${[...changes].sort().join(" | ")}\n  want ${[...e.changes].sort().join(" | ")}`);
   for (const c of f.changes) {
     const key = `${p} ${c.element}`;
     if (c.coverage.covered !== (key in exp.covered)) errors.push(`${key}: covered ${c.coverage.covered}`);
     if (c.coverage.covered && c.coverage.plan_line !== exp.covered[key]) errors.push(`${key}: plan_line ${c.coverage.plan_line}, want ${exp.covered[key]}`);
+    if ((c.line_file || null) !== (exp.line_files[c.element] || null)) errors.push(`${key}: line_file ${c.line_file}, want ${exp.line_files[c.element]}`);
     const ec = exp.consumers[c.element];
     if (ec && c.classification !== "non-breaking") {
       const gc = c.consumers.in_repo.map((r) => `${r.path}:${r.line}`);
@@ -36,7 +38,9 @@ if (result !== want.result) errors.push(`RESULT ${result}, want ${want.result}`)
 const blocking = out.split("\n").filter((l) => l.startsWith("blocking|")).map((l) => {
   const [, loc, finding] = l.split("|");
   const path = loc.replace(/:\d+$/, "");
-  return finding.startsWith("UNSUPPORTED") ? `${path} UNSUPPORTED` : `${path} ${finding.split(" ")[3].replace(/:$/, "")}`;
+  if (finding.startsWith("UNSUPPORTED")) return `${path} UNSUPPORTED`;
+  const m = /^\S+ \S+ \(\w+\) (.+?): /.exec(finding);
+  return `${path} ${m ? m[1] : finding}`;
 });
 if (!sameSet(blocking, want.blocking)) errors.push(`blocking rows: got ${blocking.sort().join(", ")}, want ${[...want.blocking].sort().join(", ")}`);
 if (errors.length) { console.error(errors.join("\n")); process.exit(1); }

@@ -21,8 +21,10 @@ Compatibility depends on which side of the contract a change sits on.
   stricter of the request and response rule applies, so loosening *and* tightening a constraint are both
   breaking there.
 
-A `$ref` is resolved before comparing (local `#/...` references; a cycle or an external reference is compared
-as the reference text). A schema reached from an operation is classified where the operation uses it, with
+A `$ref` is resolved before comparing: local `#/...` references and relative external ones
+(`./fragments/item.yaml#/Item`, loaded from the same side of the diff). A cycle, a URL, an absolute path or a
+path leaving the repository is compared as the reference text; a relative target that cannot be loaded is
+reported UNSUPPORTED. A schema reached from an operation is classified where the operation uses it, with
 that operation's side; moving an inline schema into `components` and pointing a `$ref` at it is no change
 at all unless the resolved shape differs.
 
@@ -38,7 +40,7 @@ at all unless the resolved shape differs.
 | `CP-B06` | enum value or union member removed | any side (a request caller still sends it; a producer of a `both` message may still emit it) |
 | `CP-B07` | parameter, header or argument removed; a `requestBody` removed | |
 | `CP-B08` | response status code removed | consumers branch on it |
-| `CP-B09` | constraint narrowed on the request side or relaxed on the response side | `maxLength`, `maxItems`, `maxProperties`, `maximum`, `exclusiveMaximum` down; their `min` counterparts up; `pattern`, `format`, `multipleOf`, `const` added or changed; `additionalProperties: false`; `uniqueItems: true`; `nullable` removed (request) or added (response); a GraphQL response field made nullable |
+| `CP-B09` | constraint narrowed on the request side or relaxed on the response side; a `pattern`, `format`, `multipleOf` or `const` **changed** on any side | `maxLength`, `maxItems`, `maxProperties`, `maximum`, `exclusiveMaximum` down; their `min` counterparts up; `pattern`, `format`, `multipleOf`, `const` added (request) or removed (response), and changed anywhere (a different value set is neither narrower nor wider); `additionalProperties: false`; `uniqueItems: true`; `nullable` removed (request) or added (response); a GraphQL response field made nullable |
 | `CP-B10` | protobuf field number or enum number changed | wire-breaking even when the name is kept |
 
 ## Non-breaking
@@ -66,20 +68,38 @@ at all unless the resolved shape differs.
 both versions and either keeps `CP-U01` or replaces it by the matching rule above with `evidence.class:
 traced` and `evidence.detail` naming what was read (never by the reviewer's preference).
 
+## Parser limits (UNSUPPORTED, never guessed)
+
+YAML: anchors, aliases, tags, merge keys, complex keys, multi-documents, multi-line plain or flow scalars,
+folded `>` blocks with blank-line paragraphs or more-indented lines, flow pairs without a space after the colon
+(`{x:1}`). GraphQL: multi-line argument lists, several fields on one line, `extend`. Protobuf: a statement
+spanning lines, `extend`, groups.
+
 ## Not compared (documentation by definition)
 
 GraphQL descriptions (`"..."`, `"""..."""`) and comments, protobuf comments, YAML comments and `import`
 lines in protobuf are not compared; they cannot change what a consumer receives.
 
+## Elements
+
+A change's `element` is a qualified name: the named schema a `$ref` led to (`Order`), else the operation
+(`GET /orders/{id}`) or channel (`order.placed`), then the property path (`Order.customerEmail`,
+`Address.country.NL` for an enum value); a standalone JSON Schema starts at its root properties
+(`status.LOST`); GraphQL `Type.field`, `Type.field(arg)`, `Enum.VALUE`; protobuf `Message.field`,
+`Enum.VALUE`, `Service.rpc`.
+
 ## Coverage by the plan
 
 A `breaking` or `needs-review` change is **covered** when one bullet of PLAN.md `## Contracts`
 
-1. names the contract file (its path or its file name),
-2. names the changed element (property, parameter, enum value, status code, path, `Type.field`, message
-   field; the `element` of the change, as a whole word), and
+1. names the contract file by its exact repository path (`api/openapi.yaml`; `b/openapi.yaml` or a bare
+   `openapi.yaml` does not name it),
+2. names the whole element (`Order.id`; `Order.id` does not cover `User.id`, `id` alone covers nothing),
+   and
 3. states versioning, migration or deprecation (`version`, `versioned`, `versioning`, `migrate`,
-   `migration`, `deprecate`, `deprecation`, ...).
+   `migration`, `deprecate`, `deprecation`, ...) that is not negated ("no versioning needed", "migration not
+   required") and is not only `info.version` ("bump info.version" moves a number, it gives consumers no path).
 
-A bullet that mentions the change without one of the three ("refactor, no consumer-visible change", "new
-field, defaults to EUR") covers nothing. An uncovered breaking or needs-review change is a `blocking` row.
+A bullet that misses one of the three ("refactor, no consumer-visible change", "new field, defaults to EUR")
+covers nothing. An uncovered breaking or needs-review change is a `blocking` row. `validate-contract.mjs
+--plan` re-derives coverage from the plan; a report's own `covered: true` is never trusted.

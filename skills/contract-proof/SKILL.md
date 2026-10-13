@@ -37,7 +37,14 @@ this `SKILL.md`.
   A judged item never closes the gate alone; it is `blocking` only when it violates a criterion written in
   the spec or PLAN.md, and that criterion is quoted.
 - A file the differ cannot parse and no existing tool covers is `status: unsupported` with the reason:
-  never a pass, never silently skipped.
+  never a pass, never silently skipped. So is a changed `.json`/`.yaml`/`.yml` under a contract path
+  (`openapi*`, `asyncapi*`, `swagger*`, `*schema*`, or inside `api/`, `apis/`, `contract(s)/`, `spec(s)/`,
+  `schema(s)/`, `events/`, `graphql/`, `proto/`) that is neither a contract nor reached by one, and an
+  external `$ref` target that cannot be loaded. A run in which no changed contract file is recognized at all
+  is UNSUPPORTED too (the focus was selected by a contract signal or flag; nothing proven is not a pass).
+- Every change has a qualified `element`: the named schema, operation or channel, then the property
+  (`Order.customerEmail`, `POST /invoices.currency`, `status.LOST`, `Customer.orders(status)`,
+  `StockLevel.quantity`). Plan coverage needs that whole name, so `Order.id` never covers `User.id`.
 - "No consumer found" means none found statically in this repository; consumers outside it are always
   `unknown`.
 
@@ -67,16 +74,24 @@ output folder) before starting the next step.
 
    It finds changed contract files itself (OpenAPI/Swagger, AsyncAPI and JSON Schema in `.json`/`.yaml`/`.yml`,
    GraphQL `.graphql`/`.graphqls`/`.gql`, `.proto`; Avro, Thrift, RAML, WSDL and XSD are reported
-   unsupported), reads the base with `git show`, resolves local `$ref`s, classifies every change, marks the
-   plan coverage, and lists compatibility tools it found on `PATH` or in `node_modules/.bin` under
-   `tools.detected` (never installs or runs them). `--path <file>` (repeatable) limits it to named files; a
-   contract file the risk signal matched but the differ skipped is passed with `--path`. Ledger: one row per
-   file.
-3. **Consumers.** For the `element` of every breaking or needs-review change, use the evidence-map impact
-   report (decision A85) when the evidence-map skill is installed beside this one:
+   unsupported), reads the base with `git show`, resolves local `$ref`s and relative external `$ref`s
+   (`./fragments/item.yaml#/Item`: loaded from the same side, compared where the root contract uses them, the
+   line cited in the fragment as `line_file`; URLs and paths leaving the repository are compared as text), also
+   compares an unchanged root contract whose fragment changed (the fragment's row says `via`), classifies every
+   change, marks the plan coverage, keeps each change's `original_rule`, and lists compatibility tools it found
+   on `PATH` or in `node_modules/.bin` under `tools.detected` (never installs or runs them). `--path <file>`
+   (repeatable) limits it to named files; a contract file the risk signal matched but the differ skipped is
+   passed with `--path`. The YAML subset refuses (UNSUPPORTED) anchors, aliases, tags, merge keys,
+   multi-documents, multi-line plain or flow scalars, folded `>` blocks with paragraphs or indented lines and
+   flow pairs without a space (`{x:1}`); GraphQL and protobuf need one statement per line, except simple
+   single-line bodies (`type A { a: Int }`, `enum E { A B }`, `message A { string a = 1; }`). Ledger: one row
+   per file.
+3. **Consumers.** For every breaking or needs-review change, use the evidence-map impact report (decision
+   A85) when the evidence-map skill is installed beside this one, with the element's last name (`customerEmail`
+   for `Order.customerEmail`, `status` for `Customer.orders(status)`):
 
    ```
-   node <evidence-map-dir>/scripts/impact.mjs --repo <repo> --symbol <element> [--symbol <element>]... --out <scratch>/impact.json
+   node <evidence-map-dir>/scripts/impact.mjs --repo <repo> --symbol <name> [--symbol <name>]... --out <scratch>/impact.json
    node <evidence-map-dir>/scripts/validate-impact.mjs <scratch>/impact.json --repo <repo>     # exit 0 before use
    node <skill-dir>/scripts/diff-contract.mjs <same arguments as step 2> --impact <scratch>/impact.json
    ```
@@ -89,19 +104,28 @@ output folder) before starting the next step.
    `outside_repo` is always `"unknown"`. Re-running the differ rewrites `contract.json`, so this step comes
    before any hand edit.
 4. **Existing tool** (only when `tools.detected` lists one for a changed format: `oasdiff`, `openapi-diff`,
-   `buf`, `graphql-inspector`, `asyncapi`). Write the base version to `scratch/` with `git show`, run the
+   `buf`, `graphql-inspector`, `asyncapi`; a binary from the project's `node_modules/.bin` only when the
+   project's own test, lint or CI commands already run it, never a stray dependency). Write the base version to `scratch/` with `git show`, run the
    tool on base and head with a timeout, save its output, and add it to `tools.used` (`name`, `command`,
    `exit_code`, `output_excerpt`). A change the tool reports and the differ missed becomes a change with
    `evidence.source: "tool:<name>"`, the rule from RULES.md that matches (CP-U01 when none does) and its
    consumers taken from the impact report of step 3. When the tool and the differ disagree, the stricter
-   classification stays. A file the differ marked unsupported
-   becomes `compared` only through a tool's result. Never install a tool; never use a network service.
+   classification stays. A file the differ marked unsupported becomes `compared` only through a tool's
+   result. Never install a tool; never use a network service.
 5. **Reclassify needs-review.** For each `CP-U01`, read both versions; keep it, or replace the rule with the
-   matching one and set `evidence: { class: "traced", source: "read", detail: "<base path:line> -> <head path:line>: ..." }`.
+   matching one and set `evidence: { class: "traced", source: "read", detail: "<base path:line> -> <head
+   path:line>: ..." }`. `original_rule` stays; no other rule is ever rewritten (the validator refuses it).
 6. **Judged.** Add judged observations with `criterion` set only when a written spec or plan criterion is
    violated.
-7. **Validate and report.** `node <skill-dir>/scripts/validate-contract.mjs <out>/contract.json --table`. Fix
-   the document (never the evidence, never the rules) until it exits 0; it prints `RESULT`, `CONFIDENCE`,
+7. **Validate and report.**
+
+   ```
+   node <skill-dir>/scripts/validate-contract.mjs <out>/contract.json --table --plan <PLAN.md> --repo <repo> --base <base>
+   ```
+
+   `--plan` re-derives every coverage from PLAN.md (without it nothing counts as covered); `--repo/--base`
+   re-runs the differ and refuses a dropped file or change or a rewritten rule. Both are required in team mode.
+   Fix the document (never the evidence, never the rules) until it exits 0; it prints `RESULT`, `CONFIDENCE`,
    `REASON` (UNSUPPORTED only) and the findings rows. Then write `REPORT.md` from
    [REPORT.template.md](assets/REPORT.template.md). Node unavailable: the review cannot run (`BLOCKED`, or
    UNSUPPORTED in a run: "node not available for contract-proof").
@@ -117,15 +141,16 @@ line>"`. The script builds the header, fingerprint and hash.
 
 Mechanical, from `validate-contract.mjs`:
 
-- a `breaking` or `needs-review` change not covered by a PLAN.md `## Contracts` bullet (the file, the
-  element, and versioning, migration or deprecation; [RULES.md](references/RULES.md#coverage-by-the-plan)) ->
+- a `breaking` or `needs-review` change not covered by a PLAN.md `## Contracts` bullet (the exact file path,
+  the whole element, and versioning, migration or deprecation that is not negated and is not just
+  `info.version`; [RULES.md](references/RULES.md#coverage-by-the-plan)) ->
   one `blocking` row; RESULT `FAIL`. A judged item with a written criterion it violates is `blocking` too.
 - a covered breaking change, a `CP-N04` new enum value and a `CP-N07` new status code -> `info` rows with
   their in-repo consumers.
-- no blocking row and at least one unsupported file -> RESULT `UNSUPPORTED` (blocking, waivable only by the
+- no blocking row and at least one unsupported file, or no contract file recognized at all -> RESULT `UNSUPPORTED` (blocking, waivable only by the
   user, listed under `## Unsupported Checks` in the completion report). With blocking rows, each unsupported
   file is one more blocking row.
-- otherwise PASS. CONFIDENCE `low` with an unsupported file, `medium` when consumers came from a plain
+- otherwise PASS. CONFIDENCE `low` with an unsupported file or none recognized, `medium` when consumers came from a plain
   search, else `high`.
 - The pipeline (A78) also records a blocking finding when a contract file changed and PLAN.md lacks
   `contract_change: yes`; contract-proof still runs and reports.
