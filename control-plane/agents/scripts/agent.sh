@@ -2714,6 +2714,19 @@ ask_question() {
   if gates_enforced "$aq_id"; then ledger_append "$aq_id" ask - - "$(ledger_token "questions/$aq_n.md" "$aq_id")"; fi
   echo "question recorded: $aq_id $aq_n (relay it verbatim with 'agent.sh questions $aq_id')"
 }
+# assumption_prompt_accepts PROMPT ID: the user's captured prompt accepts assumption ID (A79) only when it STARTS with
+# `accept <id>` (several leading `accept AS-n` clauses are allowed, joined by , ; & and) and the rest of the prompt
+# holds no negation or condition word. A substring match would take "do not accept AS-1" or "never said accept AS-1".
+assumption_prompt_accepts() {
+  apa_p=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' | sed 's/^ //')
+  apa_rest=$(printf '%s' "$apa_p" | sed -E 's/^((accept|accepted) as-[0-9]+( *(,|;|&|and) *)?)+//')
+  [ "$apa_rest" != "$apa_p" ] || return 1
+  apa_head=${apa_p%"$apa_rest"}
+  printf '%s' "$apa_head" | grep -Eq "(accept|accepted) $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')([^0-9]|\$)" || return 1
+  # negations and conditions (English, Turkish): the prompt is then not a plain acceptance
+  if printf ' %s ' "$apa_rest" | grep -Eq "(^|[^[:alpha:]])(not|never|no|nope|n't|don't|dont|do not|only if|if|unless|but|except|until|yet|wait|without|maybe|değil|degil|hayır|hayir|olmasın|olmasin|sadece eğer|sadece eger|ama|eğer|eger)([^[:alpha:]]|$)"; then return 1; fi
+  return 0
+}
 answer() {
   an_id=$1 an_n=$2; require_run "$an_id"; require_lead; an_d=$(run_dir "$an_id")
   case "$an_n" in ''|*[!0-9]*) fail "question number must be numeric" ;; esac
@@ -2724,6 +2737,8 @@ answer() {
   grep -q '[^[:space:]]' "$an_t" || { rm -f "$an_t"; fail "empty answer"; }
   # answered_by user only when the newest prompt capture is not older than the question (epoch seconds), its sha256 matches its
   # text, and the trimmed answer (at least 3 characters) is contained in it.
+  # A79: a question bound to an assumption: acceptance is stricter than a substring (assumption_prompt_accepts).
+  an_tok=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/\1/p' "$an_q" | head -1); an_acc=no
   an_by=lead an_asked=$(gate_field "$an_q" asked_at); case "$an_asked" in ''|*[!0-9]*) an_asked='' ;; esac
   an_norm=$(tr -s '[:space:]' ' ' < "$an_t" | sed 's/^ //; s/ $//')
   if [ -n "$an_asked" ] && [ "${#an_norm}" -ge 3 ] && an_cap=$(latest_capture); then
@@ -2733,8 +2748,14 @@ answer() {
     if [ "$an_ctime" -ge "$an_asked" ] && [ "$(hash_file "$an_ct")" = "$(capture_field "$an_cap" sha256 2>/dev/null || true)" ]; then
       an_cnorm=$(tr -s '[:space:]' ' ' < "$an_ct")
       case "$an_cnorm" in *"$an_norm"*) an_by=user ;; esac
+      if [ "$an_by" = user ] && [ -n "$an_tok" ] && assumption_prompt_accepts "$an_cnorm" "${an_tok%@*}"; then an_acc=yes; fi
     fi
     rm -f "$an_ct"
+  fi
+  # An accept the user's prompt does not carry (negated, conditional, not at its start) is the lead's, never the user's;
+  # the user's accept is stored normalized as exactly `accept <id>`.
+  if [ -n "$an_tok" ] && printf '%s' "$an_norm" | grep -Eiq '^accept'; then
+    if [ "$an_acc" = yes ]; then printf 'accept %s\n' "${an_tok%@*}" > "$an_t"; else an_by=lead; fi
   fi
   { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
@@ -2744,7 +2765,7 @@ answer() {
   an_as=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/ assumption=\1/p' "$an_q" | head -1)
   if gates_enforced "$an_id"; then ledger_append "$an_id" answer - - "$(basename "$an_q") answered_by=$an_by$an_as"; fi
   echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by"
-  if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not the user's own words (answered_by=$an_by), so the assumption stays unaccepted"; fi
+  if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
 }
 
 # --- Execution policy (D5): decide persists and ledgers one resolved decision ---------------
