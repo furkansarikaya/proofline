@@ -573,7 +573,7 @@ assumption_state() {
 # unverified (low/medium, listed) | blocked (high; ref = "<none|pending|declined> [file]").
 assumption_states() {
   ast_id=$1
-  assumption_register "$ast_id" | while IFS="$(printf '\t')" read -r ast_a ast_r ast_s ast_t ast_x; do
+  assumption_register "$ast_id" | while IFS="$(printf '\t')" read -r ast_a ast_r ast_s ast_t _; do
     if [ "$ast_s" = verified ]; then printf '%s\t%s\tverified\t-\t%s\n' "$ast_a" "$ast_r" "$ast_t"; continue; fi
     ast_st=$(assumption_state "$ast_id" "$(assumption_token "$ast_a" "$ast_t")")
     case "$ast_st" in
@@ -596,7 +596,7 @@ verify_assumptions() {
   va_blocked=$(printf '%s\n' "$va_all" | awk -F'\t' '$3 == "blocked"')
   if [ -z "$va_blocked" ]; then echo "assumptions verified: $va_id"; return 0; fi
   va_msg=''
-  while IFS="$(printf '\t')" read -r va_a va_r va_s va_ref va_t; do
+  while IFS="$(printf '\t')" read -r va_a _ _ va_ref va_t; do
     va_ask=no
     case "$va_ref" in
       pending*) va_msg="$va_msg $va_a: its question ${va_ref#pending } is unanswered (relay it: 'agent.sh questions $va_id'; the user answers 'accept $va_a' or gives the corrected fact);" ;;
