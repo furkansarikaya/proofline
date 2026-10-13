@@ -41,7 +41,7 @@ Besides class and tier, deterministic risk signals choose extra checks, each a f
 migrations, UI files, dependency manifests, config and env files), from text the diff adds (optional, off by
 default), or from a flag the architect or data architect writes into PLAN.md (`## Risk`: `contract_change`,
 `concurrency`, `performance_critical`; `## Data`; `## UI`). The checks: REVIEW focuses `contract`,
-`concurrency`, `performance`, `config`; REVIEW_DATA `migration`; QA `visual`; SECURITY `dependencies`.
+`concurrency`, `performance`, `config`; REVIEW_DATA `migration`; QA `visual` (the visual-proof skill, A82); SECURITY `dependencies`.
 
 - `agent.sh pipeline <ID>` shows every signal, its source, the check it triggers and why. Before FREEZE the
   signals of the planned scope are visible, so the right design role declares the flag.

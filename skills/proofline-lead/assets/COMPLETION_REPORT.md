@@ -43,6 +43,7 @@ Fix rounds used: <n> of <review.max_fix_rounds>.
 ## QA Result
 
 (STANDARD and up) QA: <PASS|FAIL> (<confidence>); scenarios <passed>/<total>.
+Visual (when the `visual` focus ran): <the `SUMMARY:` line of `reviews/visual-proof/REPORT.md`>.
 
 ## Waivers
 

@@ -1,0 +1,29 @@
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #1a1a1a; background: #ffffff; }
+.top, .search, main { padding: 0 16px; }
+h1 { font-size: 28px; margin: 16px 0 8px; }
+
+/* Visually hidden until focused: the standard skip-link pattern (intended). */
+.skip-link { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip-link:focus { position: static; width: auto; height: auto; clip: auto; display: inline-block; padding: 8px 12px; background: #1a1a1a; color: #ffffff; }
+
+/* Fixed width: wider than a 360px phone (planted). */
+.promo-banner { width: 400px; padding: 8px 12px; background: #fff4d6; color: #1a1a1a; }
+
+.search-row { display: flex; gap: 0; align-items: center; }
+#q { flex: 1; min-width: 0; height: 40px; padding: 0 8px; border: 1px solid #555555; }
+/* 16px icon button directly against its neighbours (planted). */
+#clear-search { width: 16px; height: 16px; padding: 0; border: 0; background: #e0e0e0; color: #1a1a1a; line-height: 16px; }
+#search-btn { height: 40px; padding: 0 16px; border: 0; background: #0b57d0; color: #ffffff; }
+/* Light grey on white (planted). */
+.hint { color: #aaaaaa; font-size: 14px; margin: 4px 0; }
+.field-error { color: #b3261e; margin: 4px 0; }
+
+.state-msg { padding: 24px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #d0d0d0; }
+
+/* Horizontally scrollable on purpose: cards wider than the screen inside a scroll container (intended). */
+.carousel { display: flex; gap: 12px; overflow-x: auto; padding: 8px 0 16px; scroll-snap-type: x mandatory; }
+.card { flex: 0 0 240px; padding: 12px; border: 1px solid #d0d0d0; scroll-snap-align: start; }
+.card a { display: inline-block; padding: 8px 0; color: #0b57d0; }

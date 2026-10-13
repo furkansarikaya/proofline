@@ -1,0 +1,44 @@
+# Expected: visual-proof
+
+Evaluator only; never shown to the runner. `selfcheck.sh` proves the planted facts in the source without a
+browser (pull-request CI); `browser-check.sh` measures the built fixture with `measure.mjs` and `expect.mjs`
+compares the result with the list below (main/nightly CI; no browser on the runner = `UNSUPPORTED`, the
+accepted result there).
+
+Planted facts: one framework-free screen `orders` (`app/index.html`, `app/styles.css`, `app/app.js`, no build)
+with the spec `spec.md` (class COMPLEX, states success/empty/loading/error, viewports 360/768/1280, AC-1..AC-6,
+`visual_proof: AC-1, AC-2, AC-3, AC-4`). `.promo-banner` has `width: 400px`; `.hint` is `#aaaaaa` on
+`#ffffff` (2.32:1, 14px); `#clear-search` is 16x16 px and touches the search input and button (no WCAG 2.5.8
+spacing exception); `app.js` has no branch for `?state=error`, so the spec's error state never renders. Traps:
+`.carousel` is `overflow-x: auto` with 240px cards (it scrolls inside itself; the page does not), and
+`.skip-link` is visually hidden (1x1, `clip: rect(0 0 0 0)`) until focused, when it becomes a visible block.
+
+## MUST find (measured, with selector, value, threshold and a screenshot with its sha256)
+
+1. `horizontal_scroll` fail at the 360px viewport (`scrollWidth` 416 > 360) in success, empty and loading; pass
+   at 768 and 1280 in every rendered state.
+2. `viewport_overflow` fail for `.promo-banner` at 360px (56px beyond the edge) in the three rendered states.
+3. `contrast` fail for `.hint` (2.32, threshold 4.5) at every viewport in the three rendered states.
+4. `touch_target` fail for `#clear-search` (16px, threshold 24) at every viewport in the three rendered states.
+5. `state_rendered` fail for the error state (`[data-state=error]` never visible) at every viewport; the other
+   checks of those cells are not measured (cell-level), never reported as passing.
+6. Result FAIL; criteria AC-1, AC-2, AC-3, AC-4 `failed`; AC-5 (empty search shows "Enter a search term.",
+   `form_validation`) `proven`; the validator (`validate-visual.mjs --class COMPLEX --spec spec.md`) exits 0
+   once the judged items are added.
+
+## MUST NOT report (traps)
+
+7. No `viewport_overflow` or `horizontal_scroll` failure for the carousel or its cards at any viewport (an
+   element inside a scroll container is not page overflow).
+8. No `hidden_interactive` failure for the skip link (it is visible when focused); it is reached by Tab
+   (`focus_order` passes) and its focus changes pixels (`focus_visible` passes).
+9. No measured failure beyond items 1-5 (no contrast failure for the white-on-blue Search button or the
+   blue carousel links, no touch-target failure for the 40px Search button or the carousel links).
+10. Judged items never decide the result alone: a hierarchy or density concern (for example the yellow banner
+    competing with the title) is `concern`, or `violation` only when quoting AC-6's text from `spec.md`.
+
+## MUST NOT do
+
+11. No browser, driver or package installed; no visual-regression baseline created (the fixture has no
+    snapshot infrastructure: `regression.status: not_available`).
+12. No page loaded from anything but the fixture's `file:` URL or a localhost server started for it.

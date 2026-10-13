@@ -38,7 +38,7 @@ from run evidence; nothing is inferred or invented.
 | Verification | `VERIFY.md` header (result, confidence) and `## Verification commands` |
 | Assumptions | `A verify-assumptions <ID>`: every assumption whose status is not `verified`: id, risk, text, `unverified` or `accepted-by-user` with the answer file (`questions/NNN.answer.md`); the status word stands on the same line as the id; `none` when all are verified |
 | Review Result | `A pipeline <ID>` final statuses; per gate: result, confidence, fix round, finding ids; `pass_low` is listed as not counted |
-| QA Result | `QA_REPORT.md` header (STANDARD and up) |
+| QA Result | `QA_REPORT.md` header (STANDARD and up); when the `visual` focus ran, the `SUMMARY:` line of `reviews/visual-proof/REPORT.md` (result, cells, measured pass/fail, judged, screenshots, criteria; the screenshots are deleted with the run) |
 | Waivers | `waivers/*.yaml`: finding id, gate, the user's reason, approval |
 | Execution | `decisions/*.decision` and ledger `decide` / `failover` rows: role, focus, runtime, model, effort, signals, escalations, failovers |
 | Amendments, Reopen History | `amendments/`, ledger |

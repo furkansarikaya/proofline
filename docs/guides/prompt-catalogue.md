@@ -43,6 +43,7 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | Review a branch against its intent | `/proofline review this branch; the intent is in the PR description` |
 | How far can I trust the tests? | `/proofline audit` |
 | Debug with proof | `/proofline debug the checkout total is wrong when a coupon and gift card are combined` |
+| Prove a UI change in a browser (measured; UNSUPPORTED without one) | `Use the visual-proof skill to check the orders screen against design/UI.md` |
 
 ## During a run
 

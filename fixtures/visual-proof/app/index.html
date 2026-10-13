@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orders</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to orders</a>
+  <header class="top">
+    <h1>Orders</h1>
+    <div class="promo-banner">Free shipping on every order this week</div>
+  </header>
+  <form class="search" id="search" novalidate>
+    <label for="q">Search orders</label>
+    <div class="search-row">
+      <input id="q" name="q" type="search">
+      <button id="clear-search" type="button" aria-label="Clear search">&times;</button>
+      <button id="search-btn" type="submit">Search</button>
+    </div>
+    <p class="hint">Search by order number or customer name.</p>
+    <p id="search-error" class="field-error" hidden>Enter a search term.</p>
+  </form>
+  <main id="main" tabindex="-1"></main>
+  <script src="app.js"></script>
+</body>
+</html>

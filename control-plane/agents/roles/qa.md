@@ -36,11 +36,14 @@ Report step (once IMPLEMENTED):
 4. Apply the gate rule, compute the sha256 of `QA_REPORT.md`, return the result. Stop.
 
 Visual focus (A78; when `agent.sh pipeline <ID>` lists `focus.QA.visual`, from a UI path or the PLAN `## UI`
-section): a separate assignment with FOCUS `visual` in the same QA gate. Run the visual check (visual-proof skill)
-with the project's own browser tooling only and write `reviews/visual-proof/REPORT.md`. When the skill or a
-browser is not available, submit `--focus visual --result UNSUPPORTED --reason "<what is missing>"`: it is
-recorded as a blocking `UNSUPPORTED` finding, never a PASS; only the user may waive it and the completion report
-lists it. Never install a tool.
+section): a separate assignment with FOCUS `visual` in the same QA gate. Follow .agents/skills/visual-proof/SKILL.md (A82) with
+the project's own browser tooling or an installed headless browser only: measured checks per changed screen,
+state and viewport (STANDARD: default state x 2 viewports, measured only; COMPLEX/CRITICAL: every spec state x 3
+viewports, measured and judged), screenshots with sha256 in `reviews/visual-proof/`, `report.json` validated by
+`validate-visual.mjs`, and `reviews/visual-proof/REPORT.md`. Its RESULT maps to the submission: PASS or FAIL with
+the printed rows; INCONCLUSIVE -> `--result BLOCKED`; no browser tooling (UNSUPPORTED) -> `--result UNSUPPORTED
+--reason "<what is missing>"`, recorded as a blocking `UNSUPPORTED` finding, never a PASS; only the user may
+waive it and the completion report lists it. Never install a tool, never create a visual baseline.
 
 ## Output
 

@@ -43,6 +43,7 @@ English: [../prompt-catalogue.md](../prompt-catalogue.md).
 | Bir branch'i niyetine göre incele | `/proofline review bu branch; niyet PR açıklamasında` |
 | Testlere ne kadar güvenebilirim? | `/proofline audit` |
 | Kanıtla debug et | `/proofline debug kupon ve hediye kartı birlikte kullanılınca checkout toplamı yanlış` |
+| Bir UI değişikliğini tarayıcıda kanıtla (ölçülü; tarayıcı yoksa UNSUPPORTED) | `visual-proof skill'i ile sipariş ekranını design/UI.md'ye göre kontrol et` |
 
 ## Run sırasında
 

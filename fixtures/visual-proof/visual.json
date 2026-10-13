@@ -1,0 +1,40 @@
+{
+  "schema": "visual-proof.config/1",
+  "class": "COMPLEX",
+  "base_url": "file:///FIXTURE_ROOT/app/",
+  "viewports": [
+    { "name": "phone", "width": 360, "height": 740 },
+    { "name": "tablet", "width": 768, "height": 1024 },
+    { "name": "desktop", "width": 1280, "height": 800 }
+  ],
+  "touch_target_min": 24,
+  "screens": [
+    {
+      "id": "orders",
+      "path": "index.html",
+      "states": [
+        { "name": "success", "path": "index.html", "ready": "[data-state=success]" },
+        { "name": "empty", "path": "index.html?state=empty", "ready": "[data-state=empty]" },
+        { "name": "loading", "path": "index.html?state=loading", "ready": "[data-state=loading]" },
+        { "name": "error", "path": "index.html?state=error", "ready": "[data-state=error]" }
+      ]
+    }
+  ],
+  "interactions": [
+    {
+      "name": "empty-search",
+      "check": "form_validation",
+      "screen": "orders",
+      "state": "success",
+      "steps": [{ "fill": "#q", "text": "" }, { "click": "#search-btn" }],
+      "expect": [{ "visible": "#search-error" }, { "text_contains": ["#search-error", "Enter a search term."] }]
+    }
+  ],
+  "criteria": [
+    { "id": "AC-1", "required": true, "checks": ["horizontal_scroll", "viewport_overflow"] },
+    { "id": "AC-2", "required": true, "checks": ["contrast"] },
+    { "id": "AC-3", "required": true, "checks": ["state_rendered"] },
+    { "id": "AC-4", "required": true, "checks": ["touch_target"] },
+    { "id": "AC-5", "required": false, "checks": ["form_validation"] }
+  ]
+}

@@ -11,7 +11,7 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 | `architect` | System and API design, ADRs | system-design, api-design | COMPLEX, CRITICAL or on request |
 | `data_architect` | Data model and migration plan | data-design | persistence changes or on request |
 | `designer` | UI design and `DESIGN.md`; marks which criteria need visual proof; never approves its own design (A81) | ui-design | UI changes or on request |
-| `qa` | QA plan before, QA report after | qa-plan, test-trust | STANDARD and up |
+| `qa` | QA plan before, QA report after; the visual focus on UI runs | qa-plan, test-trust, visual-proof | STANDARD and up |
 | `implementer` | The frozen plan with RED/GREEN evidence | tdd-proof, debug-proof | always |
 | `reviewer` | One focus: plan, rules, tests, data (or rules+tests on the small tier), or a risk focus (contract, concurrency, performance, config, migration) | proof-review, test-trust, data-design, concurrency-proof | per tier |
 | `security_reviewer` | Exploitable findings only | exploit-proof | full tier |

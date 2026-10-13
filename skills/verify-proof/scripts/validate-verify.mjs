@@ -32,6 +32,17 @@ function sections(text) {
   return out;
 }
 
+// The frozen PLAN `## UI` line `visual_proof: AC-1, AC-3` (or `none`) written by ui-design (A81).
+export function visualProofIds(planText) {
+  let inUi = false;
+  for (const line of strip(planText).split(/\r?\n/)) {
+    if (/^## /.test(line)) { inUi = /^## UI\s*$/.test(line); continue; }
+    const m = inUi && /^\s*(?:[-*]\s+)?`?visual_proof:\s*([^`]*)`?\s*$/.exec(line);
+    if (m) return /^none$/i.test(m[1].trim()) ? [] : m[1].split(",").map((x) => x.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export function validateVerify(text, taskText, planText) {
   const errors = [], reasons = [];
   const body = strip(text);
@@ -61,6 +72,7 @@ export function validateVerify(text, taskText, planText) {
   const rows = [];
   const plan = planText === undefined ? null : parseFrontMatter(planText);
   if (plan?.errors.length) errors.push(`invalid PLAN front matter: ${plan.errors.join("; ")}`);
+  const visual = planText === undefined ? [] : visualProofIds(planText);
   for (const line of secs.get("AC coverage") || []) {
     if (!/^\|/.test(line) || /^\|\s*-/.test(line) || /^\|\s*AC\s*\|/i.test(line)) continue;
     const c = line.split("|").slice(1, -1).map((x) => x.trim());
@@ -73,6 +85,8 @@ export function validateVerify(text, taskText, planText) {
       const command = match && cmds.find((x) => x.cmd === match[1] && x.exit === 0);
       if (!command || !c[3].includes(`\`${match?.[1]}\` exit=0`) || !command.outputs.length || !command.outputs.some((output) => output.trim() && c[3].includes(output))) errors.push(`${c[0]}: command proof needs a recorded passing exact command, exit=0, and its demonstrating output line`);
     }
+    // A82: a criterion on the PLAN `## UI` line `visual_proof:` needs visual evidence besides its test.
+    if (c[2] === "PASS" && visual.includes(c[0]) && !new RegExp(`visual-proof: ${c[0]} proven\\b`).test(c[3])) errors.push(`${c[0]}: marked visual_proof in PLAN.md; PASS needs the visual evidence \`visual-proof: ${c[0]} proven\` (otherwise MISSING)`);
     rows.push({ ac: c[0], status: c[2] });
     if (c[2] !== "PASS") reasons.push(`${c[0]} ${c[2]}`);
   }
