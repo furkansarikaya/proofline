@@ -169,3 +169,19 @@ test("validate-config rejects any secret pattern in a hand-written document, gen
   c.items[0].detail = 'api_key: "Zp4Kq9Wm2Xc7Vb5Nn8Lr3Tj6"';
   assert.ok(validate(c).some((m) => /secret pattern/.test(m)));
 });
+
+test("buckets: env files by any prefix, terraform and hcl files are config", () => {
+  for (const f of ["config.env.production", "app.env.local", "deploy/.env.staging", "prod.env"]) assert.equal(bucket(f), "envfile", f);
+  for (const f of ["infra/main.tf", "prod.tfvars", "vault.hcl"]) assert.equal(bucket(f), "config", f);
+  assert.equal(bucket("config.env.example"), "example");
+  assert.equal(bucket("src/env.js"), "code");
+  assert.equal(bucket("src/app.env.js"), "code");
+});
+
+test("secrets are found in terraform and prefixed env files", () => {
+  const secret = "Qw8Er3Ty6Ui1Op4As7Df2Gh5";
+  const r = repoWith({ "a.txt": "x" }, { "infra/main.tf": `variable "db" {\n  password = "${secret}"\n}\n`, "config.env.staging": "KEY_X=abc\n", "prod.tfvars": `api_token = "${secret}"\n` });
+  const d = buildDocument({ repo: r, base: "HEAD", planText: null });
+  assert.deepEqual(sum(d, "blocking"), ["secret_plaintext:KEY_X", "secret_plaintext:password", "secret_plaintext:token"]);
+  assert.ok(!JSON.stringify(d).includes(secret));
+});

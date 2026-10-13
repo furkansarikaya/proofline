@@ -17,7 +17,7 @@ const MAX_BYTES = 1024 * 1024, MAX_FILES = 5000;
 const AMBIENT = new Set(["PATH", "HOME", "USER", "USERNAME", "LOGNAME", "SHELL", "PWD", "OLDPWD", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM", "HOSTNAME", "TZ", "EDITOR", "CI", "NODE_ENV", "DEBUG", "COLUMNS", "LINES", "NO_COLOR", "FORCE_COLOR"]);
 const DOC_EXT = new Set([".md", ".mdx", ".rst", ".adoc"]);
 const CODE_EXT = new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte", ".py", ".go", ".rs", ".rb", ".php", ".java", ".kt", ".kts", ".scala", ".cs", ".swift", ".ex", ".exs"]);
-const CONFIG_EXT = new Set([".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf", ".properties", ".xml", ".env"]);
+const CONFIG_EXT = new Set([".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf", ".properties", ".xml", ".env", ".hcl", ".tf", ".tfvars"]);
 const SKIP_DIR = /(^|\/)(node_modules|vendor|dist|build|target|\.git|coverage|\.venv|__pycache__)\//;
 const LOCKISH = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|composer\.lock|packages\.lock\.json|[^/]*\.lock|go\.sum|pnpm-lock\.yaml)$/;
 
@@ -26,7 +26,7 @@ export function bucket(path) {
   const b = basename(path), e = extname(path).toLowerCase();
   if (SKIP_DIR.test(path) || LOCKISH.test(path)) return "skip";
   if (/(^|\.)(example|sample|template|dist)(\.|$)/i.test(b)) return "example";
-  if (b === ".env" || /^\.env\./.test(b) || /\.env$/.test(b)) return "envfile";
+  if (b === ".env" || /^\.env\./.test(b) || /\.env$/.test(b) || (/\.env\.[A-Za-z0-9_-]+$/.test(b) && !CODE_EXT.has(e))) return "envfile"; // .env, .env.*, *.env, config.env.*, *.env.*
   if (DOC_EXT.has(e)) return "doc";
   if (CODE_EXT.has(e)) return "code";
   if (CONFIG_EXT.has(e) || /^(appsettings.*|docker-compose.*|compose.*)\.(json|ya?ml)$/.test(b)) return "config";

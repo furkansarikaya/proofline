@@ -24,6 +24,12 @@ Branch `feature/dep-update` (PLAN-fail.md declares `uuid-lite`, `git-tool`, `fmt
 | `[target.'cfg(unix)'.dependencies.unixcrate]` added | `Cargo.toml` | table form under a target, declared: note |
 | `platform("org.acme:bom:1.0")` added | `build.gradle` | platform notation, declared: note |
 | `group: 'org.evil', name: 'lib', version: '1.2'` added | `build.gradle` | map notation, undeclared |
+| `renamed = { package = "evil-crate", version = "1" }` added | `Cargo.toml` | a rename: recorded under the real crate `evil-crate` (alias `renamed` kept, flag `alias`), undeclared |
+| `"al": "npm:evilnpm@1.0.0"` added | `package.json` | an npm alias: recorded under `evilnpm` (alias `al`, flag `alias`), undeclared |
+| `-r deps/extra.pip`, then `evilreq==1.0` added to `deps/extra.pip` | `requirements.txt`, `deps/extra.pip` | an included file with a name no pattern matches is still read: `evilreq` is undeclared |
+| `--extra-index-url https://pkgs.evil.example/simple` added | `requirements.txt` | a non-default package index: entry `index:pkgs.evil.example`, undeclared (`--index-url https://pypi.org/simple` is the default and not reported) |
+| `markerpkg>=1.0;python_version<"3.9"` added | `requirements.txt` | version is `>=1.0` (marker removed), flagged `unpinned`, undeclared |
+| `nested[a[b]]==2.0` added | `requirements.txt` | nested extras: version `==2.0`, undeclared |
 | `ms 2.1.2 -> 2.1.3` | `package-lock.json` only | lockfile-only transitive change (decoy): note |
 | `inner-helper 0.3.1` added | `package-lock.json` only, `hasInstallScript` | transitive, flagged `install_script`: note, not a finding |
 
@@ -32,12 +38,13 @@ bumps `ms` in the lockfile. Everything is declared.
 
 ## MUST find
 
-1. `feature/dep-update` has exactly six blocking changes: `undeclared_dependency` for `quick-json`, `evilpy`,
-   `evilcrate` and `org.evil:lib`, `undeclared_install_script` for `scripts.postinstall`, `license_denied` for
+1. `feature/dep-update` has exactly twelve blocking changes: `undeclared_dependency` for `quick-json`, `evilpy`,
+   `evilcrate`, `evil-crate`, `evilnpm`, `evilreq`, `markerpkg`, `nested` and `org.evil:lib`, `undeclared_index` for
+   `pkgs.evil.example`, `undeclared_install_script` for `scripts.postinstall`, `license_denied` for
    `copyleft-lib` (`package-lock.json`, license read from the lockfile). Result FAIL.
 2. The license policy is reported as configured; without the config (`--config /dev/null`) the license check is
-   reported as "not configured" and the `copyleft-lib` finding disappears (the plan declares it), the other five
-   remain (four undeclared dependencies and the hook).
+   reported as "not configured" and the `copyleft-lib` finding disappears (the plan declares it), the other eleven
+   remain.
 3. With no audit tool run, the report says so explicitly: an `info` row "known vulnerabilities not checked";
    confidence `medium`, never `high`.
 4. A detected audit tool whose result is missing (`audit.status: not_run`) is rejected by the validator.

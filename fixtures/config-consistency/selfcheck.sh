@@ -26,14 +26,14 @@ summary() {
 
 # --- feature/config-drift ---------------------------------------------------------------------------
 node "$SCRIPTS/check-config.mjs" --base main --plan .agents/runs/CC-1/PLAN-drift.md --out "$tmp/drift.json"
-want="env_undocumented:MAIL_FROM env_undocumented:QUEUE_URL env_undocumented:SMTP_HOST flag_default_on:new_checkout flag_removed_referenced:old_search secret_plaintext:api_key"
+want="env_undocumented:MAIL_FROM env_undocumented:QUEUE_URL env_undocumented:SMTP_HOST flag_default_on:new_checkout flag_removed_referenced:old_search secret_plaintext:STAGING_KEY secret_plaintext:api_key secret_plaintext:password"
 [ "$(summary "$tmp/drift.json" blocking)" = "$want" ] || fail "blocking set differs: $(summary "$tmp/drift.json" blocking)"
 want="env_documented_unused:OLD_TIMEOUT flag_default_off:beta_banner flag_default_on_planned:dark_mode secret_allowlisted:token"
 [ "$(summary "$tmp/drift.json" note)" = "$want" ] || fail "note set differs: $(summary "$tmp/drift.json" note)"
 out=$(node "$SCRIPTS/validate-config.mjs" "$tmp/drift.json" --table) || fail "validator rejected the document"
 echo "$out" | grep -qx 'RESULT: FAIL' || fail "expected RESULT: FAIL"
 # the secret values are masked everywhere
-if grep -q -e 'k3J9xQ2m' -e 'fakeT0ken' "$tmp/drift.json"; then fail "a secret value leaked into the document"; fi
+if grep -q -e 'k3J9xQ2m' -e 'fakeT0ken' -e 'Qw8Er3Ty6Ui1' "$tmp/drift.json"; then fail "a secret value leaked into the document"; fi
 # traps never reported: pre-existing PORT, ambient NODE_ENV, documented SMTP_PORT, README-only QUEUE_WORKERS, ${DB_PASSWORD}
 for t in PORT NODE_ENV SMTP_PORT QUEUE_WORKERS DB_PASSWORD; do
   if grep -q "\"subject\": \"$t\"" "$tmp/drift.json"; then fail "trap reported: $t"; fi

@@ -79,6 +79,9 @@ dependencies {
     implementation 'org.acme:base-lib:1.0'
 }
 EOF
+mkdir -p deps
+printf 'requests==2.0\n' > requirements.txt
+printf 'safe-lib==1.0\n' > deps/extra.pip
 git add -A
 commit 2026-01-01T10:00:00Z "billing: initial"
 
@@ -122,6 +125,7 @@ cat > package.json <<'EOF'
   "private": true,
   "scripts": { "test": "node --test", "postinstall": "node scripts/setup.js" },
   "dependencies": {
+    "al": "npm:evilnpm@1.0.0",
     "copyleft-lib": "1.0.0",
     "date-utils": "^2.2.0",
     "fmt-lite": "*",
@@ -170,6 +174,7 @@ version = "0.1.0"
 
 [dependencies]
 serde = "1"
+renamed = { package = "evil-crate", version = "1" }
 
 [dependencies.evilcrate]
 version = "0.3"
@@ -183,6 +188,19 @@ dependencies {
     implementation platform("org.acme:bom:1.0")
     implementation group: 'org.evil', name: 'lib', version: '1.2'
 }
+EOF
+# requirements: an include of a file with any name, a non-default index (the default one is not a finding)
+cat > requirements.txt <<'EOF'
+requests==2.0
+-r deps/extra.pip
+--index-url https://pypi.org/simple
+--extra-index-url https://pkgs.evil.example/simple
+markerpkg>=1.0;python_version<"3.9"
+nested[a[b]]==2.0
+EOF
+cat > deps/extra.pip <<'EOF'
+safe-lib==1.0
+evilreq==1.0
 EOF
 git add -A
 commit 2026-01-02T10:00:00Z "billing: dependency update"

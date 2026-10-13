@@ -121,6 +121,9 @@ features:
   new_checkout: true
   beta_banner: false
 EOF
+mkdir -p infra
+printf 'resource "x" "y" {\n  password = "%s"\n}\n' "Qw8Er3Ty6Ui1Op4As7Df2Gh5" > infra/main.tf
+printf 'STAGING_KEY=abc\n' > config.env.staging
 git add -A
 commit 2026-01-02T10:00:00Z "billing: receipt mail, flags"
 

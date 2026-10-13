@@ -34,6 +34,11 @@ plan and reports flag defaults as notes (confidence `medium`).
 
 ### Environment variables
 
+Config-like files scanned for secrets: `.yaml .yml .json .toml .ini .cfg .conf .properties .xml .env .hcl .tf
+.tfvars`, `appsettings*.json`, compose files, and env files named `.env`, `.env.*`, `*.env`, `config.env.*` or
+`*.env.*` (code files such as `env.js` are never env files). Example, sample, template and dist variants are
+examples.
+
 Matched reads (literal names): `process.env.X`, `process.env["X"]`, `import.meta.env.X`, `Deno.env.get("X")`,
 `os.environ["X"]`, `os.environ.get("X")`, `os.getenv("X")`, `os.Getenv("X")`, `os.LookupEnv("X")`,
 `env::var("X")`, `env!("X")`, `ENV["X"]`, `ENV.fetch("X")`, `getenv('X')`, `$_ENV['X']`, `System.getenv("X")`,

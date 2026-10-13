@@ -16,6 +16,8 @@ Branch `feature/config-drift` (PLAN-drift.md names `SMTP_PORT` and `dark_mode`):
 | `api_key: "<24 characters>"` | `config/app.yaml:4` | plain-text secret in a config file |
 | `new_checkout: true` | `config/flags.yaml:3` | a new flag defaulting to on that the plan does not name |
 | `old_search` removed | `config/flags.yaml` | still referenced at `src/search.js:2` |
+| `password = "<24 characters>"` | `infra/main.tf:2` | plain-text secret in a Terraform file |
+| `STAGING_KEY=abc` | `config.env.staging:1` | a committed env file with a value, named `config.env.*` |
 | `OLD_TIMEOUT=30` | `.env.example:5` | documented, read nowhere: note only |
 | `"token": "<fake>"`, `proofline:allow-secret` | `test/fixtures/auth.json:1` | test-fixture fake secret, recognized by the project's allow marker: note |
 | `dark_mode: true` | `config/flags.yaml:2` | default on, named by the plan: note |
@@ -31,8 +33,8 @@ Branch `feature/config-clean`: adds `SMTP_HOST` to `.env.example` and the mailer
 
 ## MUST find
 
-1. `feature/config-drift` has exactly six blocking items: `env_undocumented` `SMTP_HOST`, `MAIL_FROM` and `QUEUE_URL`,
-   `secret_plaintext` `api_key`, `flag_default_on` `new_checkout`, `flag_removed_referenced` `old_search`.
+1. `feature/config-drift` has exactly eight blocking items: `env_undocumented` `SMTP_HOST`, `MAIL_FROM` and `QUEUE_URL`,
+   `secret_plaintext` `api_key`, `password` and `STAGING_KEY`, `flag_default_on` `new_checkout`, `flag_removed_referenced` `old_search`.
    Result FAIL.
 2. The secret value appears nowhere in the report or the document: rule, key and length only.
 3. The four notes are present: `env_documented_unused` `OLD_TIMEOUT`, `secret_allowlisted` `token`,

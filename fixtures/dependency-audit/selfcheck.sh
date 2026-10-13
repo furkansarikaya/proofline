@@ -36,12 +36,12 @@ summary() {
 # --- feature/dep-update with the policy and the plan --------------------------------------------
 node "$SCRIPTS/diff-manifests.mjs" --base main --plan .agents/runs/DA-1/PLAN-fail.md --out "$tmp/fail.raw.json"
 record_audit "$tmp/fail.raw.json" "$tmp/fail.json"
-want="license_denied:copyleft-lib undeclared_dependency:evilcrate undeclared_dependency:evilpy undeclared_dependency:org.evil:lib undeclared_dependency:quick-json undeclared_install_script:scripts.postinstall"
+want="license_denied:copyleft-lib undeclared_dependency:evil-crate undeclared_dependency:evilcrate undeclared_dependency:evilnpm undeclared_dependency:evilpy undeclared_dependency:evilreq undeclared_dependency:markerpkg undeclared_dependency:nested undeclared_dependency:org.evil:lib undeclared_dependency:quick-json undeclared_index:index:pkgs.evil.example undeclared_install_script:scripts.postinstall"
 [ "$(summary "$tmp/fail.json")" = "$want" ] || fail "blocking set differs: $(summary "$tmp/fail.json")"
 out=$(node "$SCRIPTS/validate-dependencies.mjs" "$tmp/fail.json" --table) || fail "validator rejected the document"
 echo "$out" | grep -qx 'RESULT: FAIL' || fail "expected RESULT: FAIL"
 echo "$out" | grep -qx 'CONFIDENCE: medium' || fail "expected CONFIDENCE: medium (audit tool unavailable)"
-[ "$(echo "$out" | grep -c '| blocking |')" -eq 6 ] || fail "expected 6 blocking rows"
+[ "$(echo "$out" | grep -c '| blocking |')" -eq 12 ] || fail "expected 12 blocking rows"
 echo "$out" | grep -q 'known vulnerabilities not checked' || fail "tool-unavailable is not stated"
 # decoys: declared / flagged-but-declared / lockfile-only are notes, never blocking
 node -e '
@@ -52,6 +52,17 @@ node -e '
   note("pyproject.toml", "foo");          // extras in the name: "foo[bar]>=1.0" is read, and evilpy after it is not hidden
   note("Cargo.toml", "unixcrate");        // target table form, declared
   note("build.gradle", "org.acme:bom");   // platform(...) notation, declared
+  const by2 = (f, n) => d.changes.find((c) => c.file === f && c.name === n);
+  const ren = by2("Cargo.toml", "evil-crate");            // renamed crate: the real name, alias kept
+  if (!ren || ren.alias !== "renamed" || !ren.flags.includes("alias")) { console.error("cargo rename not recorded under the real name"); process.exit(1); }
+  const al = by2("package.json", "evilnpm");               // npm alias
+  if (!al || al.alias !== "al" || !al.flags.includes("alias")) { console.error("npm alias not recorded under the real name"); process.exit(1); }
+  if (!by2("deps/extra.pip", "evilreq")) { console.error("include target with any file name not read"); process.exit(1); }
+  if (d.changes.some((c) => c.name === "index:pypi.org")) { console.error("the default index was reported"); process.exit(1); }
+  const mk = by2("requirements.txt", "markerpkg");        // env marker without a space is not part of the version
+  if (!mk || mk.to[0] !== ">=1.0" || !mk.flags.includes("unpinned")) { console.error("env marker handling: " + JSON.stringify(mk)); process.exit(1); }
+  const ne = by2("requirements.txt", "nested");            // nested extras
+  if (!ne || ne.to[0] !== "==2.0") { console.error("nested extras: " + JSON.stringify(ne)); process.exit(1); }
   note("package.json", "date-utils");
   if (!note("package.json", "git-tool").flags.includes("git_url")) process.exit(1);
   if (!note("package.json", "fmt-lite").flags.includes("unpinned")) process.exit(1);
@@ -62,7 +73,7 @@ node -e '
 # --- the same change without a license policy: not configured, never a PASS ------------------
 node "$SCRIPTS/diff-manifests.mjs" --base main --plan .agents/runs/DA-1/PLAN-fail.md --config /dev/null --out "$tmp/nopolicy.raw.json"
 record_audit "$tmp/nopolicy.raw.json" "$tmp/nopolicy.json"
-[ "$(summary "$tmp/nopolicy.json")" = "undeclared_dependency:evilcrate undeclared_dependency:evilpy undeclared_dependency:org.evil:lib undeclared_dependency:quick-json undeclared_install_script:scripts.postinstall" ] || fail "no-policy blocking set differs"
+[ "$(summary "$tmp/nopolicy.json")" = "undeclared_dependency:evil-crate undeclared_dependency:evilcrate undeclared_dependency:evilnpm undeclared_dependency:evilpy undeclared_dependency:evilreq undeclared_dependency:markerpkg undeclared_dependency:nested undeclared_dependency:org.evil:lib undeclared_dependency:quick-json undeclared_index:index:pkgs.evil.example undeclared_install_script:scripts.postinstall" ] || fail "no-policy blocking set differs"
 node "$SCRIPTS/validate-dependencies.mjs" "$tmp/nopolicy.json" --table | grep -q 'license policy not configured' || fail "not-configured license check is not stated"
 
 # --- an audit tool detected and not run is rejected (silence is not a result) ---------------
