@@ -1,0 +1,6 @@
+interface:
+  display_name: "concurrency-proof"
+  short_description: "Concurrency review of a change: only traced or reproduced interleavings; PASS means no proven problem."
+  default_prompt: "Review the current change for concurrency problems with concurrency-proof."
+policy:
+  allow_implicit_invocation: false
