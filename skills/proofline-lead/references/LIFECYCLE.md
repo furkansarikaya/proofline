@@ -101,8 +101,9 @@ editing the hash.
   `destructive` (then `single_step` when the plan is one step), reason `destructive approval required before
   IMPLEMENT`. Same procedure: `A request-approval <ID> destructive`, relay verbatim, stop. The approval is
   bound to the sha256 of the frozen PLAN.md and consumed by `A handoff <ID> IMPLEMENTING`, which refuses
-  without it. A refreeze changes the hash: an earlier destructive or single_step approval no longer counts,
-  ask again.
+  without it. A refreeze that changes PLAN.md changes the hash: the run returns to PLANNED (also from
+  IMPLEMENTING or IMPLEMENTED), the implementer cannot work and IMPLEMENTED is unreachable until `next` is
+  followed again: ask for `destructive` (and `single_step`) for the new hash.
 
 ## 6. Implement
 

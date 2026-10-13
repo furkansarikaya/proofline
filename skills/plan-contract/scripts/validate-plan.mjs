@@ -28,7 +28,7 @@ export const STOCK_PHRASES = [
 
 // A destructive `## Data` section is accepted as expand/contract when its step table has a non-destructive
 // step in an early phase and every destructive step in a late phase; `single_step: yes` opts out (the control
-// plane then requires the user's single_step approval at freeze). Mirrors agent.sh plan_migration_shape.
+// plane then requires the user's single_step approval after the freeze, before IMPLEMENT). Mirrors agent.sh plan_migration_shape.
 export function migrationShape(lines) {
   let single = false, pre = false, early = false, late = false;
   for (const l of lines) {

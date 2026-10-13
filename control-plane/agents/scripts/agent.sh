@@ -822,19 +822,22 @@ freeze() {
   fz_hits=$(language_scan $fz_lang) || fail "$(language_fail_text "$(printf '%s' "$fz_hits" | tr '\n' ' ')")"
   fz_approvals=''
   if gates_enforced "$id"; then fz_approvals=$(freeze_approvals "$id" "$fz_mode"); fi
+  fz_oldplan=$(section_value "$dir" freeze plan_sha256)
   tmp=$dir/RUN.yaml.tmp; replace_hashes "$dir" "$tmp"
   if [ "$fz_mode" = refreeze ] && gates_enforced "$id"; then
     [ "$(sed -n '/^freeze:$/,/^[^ ]/p' "$dir/RUN.yaml" | grep -v scope_paths)" != "$(sed -n '/^freeze:$/,/^[^ ]/p' "$tmp" | grep -v scope_paths)" ] || { rm -f "$tmp"; fail "refreeze changes nothing: an amendment must change the task, evidence, plan, QA plan or classification"; }
   fi
   mv "$tmp" "$dir/RUN.yaml"; sv_reset; set_task_source_revision "$dir"
   if gates_enforced "$id"; then
-    if [ "$fz_mode" = refreeze ]; then refreeze_lifecycle "$id" "$3"
+    if [ "$fz_mode" = refreeze ]; then refreeze_lifecycle "$id" "$3" "$fz_oldplan"
     else ledger_append "$id" freeze "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$(section_value "$dir" freeze pipeline)"; fi
     for fz_a in $fz_approvals; do consume_approval "$id" "$fz_a"; done
   fi
   echo "freeze recorded: $id"
   if [ "$fz_mode" = refreeze ] && gates_enforced "$id" && [ "$(plan_destructive "$dir/PLAN.md")" = yes ]; then
-    echo "refreeze: PLAN.md has a new hash; an earlier destructive / single_step approval was bound to the old one and no longer counts: request it again before IMPLEMENT ('agent.sh request-approval $id destructive')"
+    if [ "$(section_value "$dir" handoff state)" = PLANNED ] && [ "$fz_oldplan" != "$(section_value "$dir" freeze plan_sha256)" ]; then
+      echo "refreeze: PLAN.md has a new hash; an earlier destructive / single_step approval was bound to the old one and no longer counts. The run is back at PLANNED: the implementer cannot work, and IMPLEMENTED/CODE_DONE are unreachable, until a destructive approval for this PLAN.md exists ('agent.sh request-approval $id destructive', then 'agent.sh handoff $id IMPLEMENTING')"
+    fi
   fi
 }
 
@@ -1723,14 +1726,27 @@ reopen_for_fix() {
   set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
   set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
 }
+# K-6: a refreeze that changes PLAN.md of a destructive plan while the run is IMPLEMENTING or IMPLEMENTED sends
+# the run back to PLANNED, so the one gate (PLANNED -> IMPLEMENTING, implement_approvals) asks again for the
+# destructive (and single_step) approval bound to the new hash. Nothing else changes: the fix budget and the
+# worker evidence follow the existing refreeze rules (evidence bound to the old plan hash no longer counts).
 refreeze_lifecycle() {
-  g_id=$1 g_amend=$2; g_d=$(run_dir "$g_id"); g_hs=$(section_value "$g_d" handoff state); g_to=$g_hs
+  g_id=$1 g_amend=$2 g_oldplan=${3:-}; g_d=$(run_dir "$g_id"); g_hs=$(section_value "$g_d" handoff state); g_to=$g_hs
   case "$g_hs" in
     IMPLEMENTED)
       set_run_value "$g_id" handoff state IMPLEMENTING
       set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
       set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
       g_to=IMPLEMENTING ;;
+  esac
+  case "$g_to" in
+    IMPLEMENTING)
+      if [ "$(plan_destructive "$g_d/PLAN.md")" = yes ] && [ "$g_oldplan" != "$(section_value "$g_d" freeze plan_sha256)" ]; then
+        set_run_value "$g_id" handoff state PLANNED
+        set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
+        set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
+        g_to=PLANNED
+      fi ;;
   esac
   ledger_append "$g_id" refreeze "$g_hs" "$g_to" "amendment $g_amend"
 }
@@ -1764,6 +1780,7 @@ window_open() { # ID [ROLE]
   g_id=$1; window_role "${2:-}" >/dev/null; require_run "$g_id"; gates_enforced "$g_id" || return 0
   require_open_run "$g_id"
   g_d=$(run_dir "$g_id"); [ "$(resolve_topology "$g_d")" = orchestrated ] || return 0
+  [ "$(section_value "$g_d" handoff state)" != PLANNED ] || [ "$(plan_destructive "$g_d/PLAN.md")" != yes ] || fail "worker windows are opened only while handoff state is IMPLEMENTING: this destructive plan is frozen at PLANNED and needs a destructive approval bound to the current PLAN.md first ('agent.sh next $g_id', 'agent.sh request-approval $g_id destructive', then 'agent.sh handoff $g_id IMPLEMENTING')"
   [ "$(section_value "$g_d" handoff state)" = IMPLEMENTING ] || fail "worker windows are opened only while handoff state is IMPLEMENTING"
   verify_seal "$g_id"; verify_mutation_ownership "$g_id" 1
   task_patch_fingerprint "$g_id"

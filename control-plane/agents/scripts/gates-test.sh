@@ -445,6 +445,64 @@ sc_supervised_destructive() {
   ok "single_step: yes needs the user's single-step approval before IMPLEMENT"
 }
 
+# K-6: a refreeze that changes the PLAN.md of a destructive plan while the run is IMPLEMENTING or IMPLEMENTED
+# sends it back to PLANNED: the implementer cannot work and IMPLEMENTED is unreachable until a destructive
+# approval for the new hash exists. A fix-round reopen (same hash) does not ask again.
+dest_data='
+## Data
+
+destructive: yes
+
+| step | phase | operation | object | destructive | reversible | rollback | lock |
+|---|---|---|---|---|---|---|---|
+| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |
+| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |
+'
+amend_plan() { # N TEXT: write amendment N and append TEXT to PLAN.md
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment %s: destructive migration added to the plan\n' "$1" > ".agents/runs/LC/amendments/$1.md"
+  printf '%s\n' "$2" >> .agents/runs/LC/PLAN.md
+}
+sc_destructive_refreeze() {
+  for dr_from in IMPLEMENTING IMPLEMENTED; do
+    scaffold orchestrated
+    if [ "$dr_from" = IMPLEMENTED ]; then worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'; A handoff LC IMPLEMENTED >/dev/null; fi
+    amend_plan 001 "$dest_data"
+    A refreeze LC 001.md | grep -q 'back at PLANNED' || die "$dr_from: the refreeze does not say the run is back at PLANNED"
+    expect_state handoff state PLANNED
+    expect_state pipeline classification CRITICAL
+    expect_msg "$dr_from: window-open without the destructive approval" 'destructive approval' A window-open LC
+    expect_msg "$dr_from: IMPLEMENTED without the destructive approval" 'illegal handoff transition' A handoff LC IMPLEMENTED
+    expect_msg "$dr_from: IMPLEMENTING without the destructive approval" 'agent.sh request-approval LC destructive' A handoff LC IMPLEMENTING
+    A next LC | grep -q '^next=agent.sh request-approval LC destructive' || die "$dr_from: next does not ask for the destructive approval"
+    A next LC | grep -q '^reason=destructive approval required before IMPLEMENT' || die "$dr_from: next reason is not 'destructive approval required before IMPLEMENT'"
+    approve_as_user destructive 'approve the destructive migration'
+    A handoff LC IMPLEMENTING >/dev/null || die "$dr_from: IMPLEMENTING refused with the approval for the new hash"
+    wopen
+    wclose
+    # the approval was consumed and is bound to this hash: a second plan change asks again
+    amend_plan 002 'amended again: second plan change'
+    A refreeze LC 002.md >/dev/null
+    expect_state handoff state PLANNED
+    expect_msg "$dr_from: a consumed approval reused for another hash" 'agent.sh request-approval LC destructive' A handoff LC IMPLEMENTING
+    expect_msg "$dr_from: window-open on a consumed approval" 'destructive approval' A window-open LC
+  done
+  ok "a refreeze of a destructive plan from IMPLEMENTING or IMPLEMENTED returns to PLANNED until the new hash is approved"
+  # a fix-round reopen keeps the hash: no new approval
+  scaffold orchestrated
+  amend_plan 001 "$dest_data"
+  A refreeze LC 001.md >/dev/null
+  approve_as_user destructive 'approve the destructive migration'
+  A handoff LC IMPLEMENTING >/dev/null
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  A secret-scan LC >/dev/null; gfail REVIEW_RULES impl.txt
+  A handoff LC IMPLEMENTING >/dev/null || die "the fix-round reopen asked for a new destructive approval"
+  expect_state handoff state IMPLEMENTING
+  wopen
+  wclose
+  ok "a fix-round reopen (same PLAN.md hash) does not ask for the destructive approval again"
+}
+
 sc_questions() {
   scaffold orchestrated
   mkdir -p .agents/runs/LC/reports; printf '# explorer notes\n' > .agents/runs/LC/reports/001-explorer.md
@@ -908,6 +966,7 @@ run_sc sc_fix_loop
 run_sc sc_waiver
 run_sc sc_approvals
 run_sc sc_supervised_destructive
+run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
 run_sc sc_ask
 run_sc sc_questions

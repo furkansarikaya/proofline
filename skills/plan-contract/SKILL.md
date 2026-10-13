@@ -41,7 +41,7 @@ Talk to the user in their language. `PLAN.md` is English; identifiers, paths, co
 3. **Front matter.** Copy [PLAN.template.md](assets/PLAN.template.md); write `scope:` entries in the canonical format ([SCOPE.md](references/SCOPE.md#1-format)).
 4. **Sections** ([SECTIONS.md](references/SECTIONS.md)). Required ones for the class and scope; paste specialist section texts (Architecture, Data, UI) as returned, then check they reference only scope paths.
 5. **Validate.** Run `validate-plan.mjs`; fix the plan and re-run until exit 0. Node unavailable: apply every rule in [SCOPE.md](references/SCOPE.md#4-validation-rules) by hand and say so.
-6. **Stop point.** Standalone: show the plan and ask for approval. Team: supervised → present for `plan` approval (D3); autonomous → freeze. A `destructive: yes` plan always stops for a `destructive` approval.
+6. **Stop point.** Standalone: show the plan and ask for approval. Team: supervised → present for `plan` approval (D3); autonomous → freeze. A `destructive: yes` plan always stops for a `destructive` approval, after the freeze and before IMPLEMENT (bound to the frozen PLAN.md hash).
 
 ## Output
 

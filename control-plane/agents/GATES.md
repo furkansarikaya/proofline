@@ -115,6 +115,6 @@ the content fingerprint), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>
 
 Where approvals are required: supervised freeze (`plan`), a `destructive: yes` plan after the freeze, before
 IMPLEMENT (`destructive`, any autonomy; `single_step` for a one-step migration; both bound to the frozen PLAN.md hash,
-so a refreeze drops them), a refreeze adding scope paths (`scope`), a refreeze after the fix budget is
+so a refreeze that changes PLAN.md returns the run to PLANNED and they are asked again), a refreeze adding scope paths (`scope`), a refreeze after the fix budget is
 exhausted (`budget`), each waiver, each commit and push.
 Every approval is ledgered with `answered_by: user`.
