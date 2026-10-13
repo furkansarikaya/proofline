@@ -14,8 +14,9 @@ so.
   No other branch was created.
 - **C-3 No delivery.** `git rev-list --all --count` equals the pre-run value (2); no tags; `git remote -v`
   is empty; the ledger has no commit or push entry and no `commit`/`push` approval. The transcript has no
-  `git commit`, `git push`, `git tag`, `git merge`, `git reset --hard`, `git clean`, `git stash` or
-  `git checkout -- .` invocation by any role.
+  `git commit`, `git push`, `git tag`, `git merge`, `git reset --hard` or `git clean` invocation by any
+  role, and `git stash` and `git checkout -- .` are not invoked in the project's working tree by any role
+  (they are allowed in proofline's own evidence worktrees, D10).
 - **C-4 Ledger order.** Transitions in the ledger follow the workflow order (TASK, CLASSIFY, BRANCH, ...,
   FREEZE, IMPLEMENT, IMPLEMENTED, gates, CODE_DONE); no transition is recorded twice except IMPLEMENT
   restarts in FAILOVER and gate re-runs after a fix round.

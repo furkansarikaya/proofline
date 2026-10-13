@@ -51,6 +51,17 @@ EXPECTED file was changed. Cells are `met/applicable`. A round whose evaluator w
 5. Runtime matrix: writes only in the run folder, product tree verified by fingerprint (wording updated).
 6. COMPLEX X-13: unrequested scope needs a recorded `scope` approval (applied in the control plane; EXPECTED unchanged).
 
+Second batch (decisions A69-A73 in `docs/decisions.md`):
+
+1. K-6 order: the destructive approval stop comes after FREEZE and before IMPLEMENT, bound to the sha256 of the frozen
+   PLAN.md (A69). Status: implemented on branch `fix/destructive-after-freeze`, awaiting merge.
+2. C-14: three-reply limit stays, every role asks all its questions in one NEEDS_INPUT round (A70). Status: stopped after
+   two review rounds (branch `fix/one-needs-input-round`, not merged); needs the user's choice between exempting
+   intent-grill's interview and batching its questions (changing fixture EXPECTED P1/P9).
+3. C-3: `git stash` and `git checkout --` are forbidden in the project's working tree, free in evidence worktrees (A71;
+   EXPECTED wording clarified).
+4. C-22 and S-6: accepted as model behaviour, no rule added (A72).
+
 ## Results after the deterministic-submission rounds (2026-10-12)
 
 Claude configuration, `--profile economy`, lead model Sonnet, copies of `playground/` outside the repository,
