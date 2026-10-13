@@ -20,7 +20,13 @@ sh tests/shared/check-shared.sh              # shared skill sections have not dr
 ```
 
 `SELFTEST_ONLY=<suite>` runs one self-test suite; `LC_ONLY=<substring>` runs matching scenarios inside a suite.
-CI additionally runs `shellcheck -s sh` over every shell script. End-to-end team runs are described in
+The self-tests split every suite into scenario units and run them on all cores; `SELFTEST_JOBS=<n>` sets the
+core count and `SELFTEST_SHARD=<i>/<n>` runs one slice (CI uses four).
+CI additionally runs `shellcheck -s sh` over every shell script. A pull request that changes only plain
+documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png` and `.svg` files under `docs/` except `docs/reference/`) skips the
+test jobs but still runs shellcheck and the sync checks; Markdown under `skills/`, `roles/`, `control-plane/`
+and `adapters/` counts as code. Pull requests run Linux only; macOS runs on pushes to `main` and nightly.
+End-to-end team runs are described in
 [tests/e2e/README.md](tests/e2e/README.md); they use real agents and are not required for a pull request.
 
 ## Rules

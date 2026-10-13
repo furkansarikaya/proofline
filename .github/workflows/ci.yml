@@ -1,13 +1,49 @@
 name: ci
+# A76: pull requests run the Linux checks only, split into parallel jobs and shards; pushes to main and the
+# nightly schedule also run macOS. A pull request that changes only plain documentation skips the heavy test
+# jobs (tests/ci/classify.sh) but still runs shellcheck and the sync checks. The `checks` job always reports.
 on:
   push:
+    branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  # one group per pull request; every other event gets its own group so queued main runs are never displaced
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  checks:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        run: |
+          code=true
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" > changed.txt
+            code=$(sh tests/ci/classify.sh < changed.txt | sed 's/^code=//')
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code=$code"
+
+  static:
+    needs: [changes]
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS runs on pushes to main, the nightly schedule and manual runs; pull requests run Linux only.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -24,14 +60,6 @@ jobs:
           # (SC2015 `A && B || C` on guard lines) are style, warnings and errors fail the step
           shellcheck -x -s sh -S warning $files
 
-      - name: script self-tests
-        run: |
-          if [ -f tests/selftest.sh ]; then sh tests/selftest.sh
-          else echo "SKIPPED: tests/selftest.sh does not exist yet"; fi
-
-      - name: generator tests
-        run: sh tests/generator/generator-test.sh
-
       - name: generated files in sync
         run: |
           if ls roles/*.md >/dev/null 2>&1; then sh tests/generator/role-conformance.sh roles; fi
@@ -46,16 +74,71 @@ jobs:
           if [ -f tests/shared/check-shared.sh ]; then sh tests/shared/check-shared.sh
           else echo "SKIPPED: tests/shared/check-shared.sh does not exist yet"; fi
 
+      - name: generator tests
+        if: needs.changes.outputs.code == 'true'
+        run: sh tests/generator/generator-test.sh
+
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: 22
 
       - name: skill tests
+        if: needs.changes.outputs.code == 'true'
         run: |
           if ls tests/skills/*.test.mjs >/dev/null 2>&1; then node --test tests/skills/
           else echo "SKIPPED: no tests/skills/*.test.mjs yet"; fi
 
+  fixtures:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs on pushes to main, the nightly schedule and manual runs; pull requests run Linux only.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: fixtures
         run: |
           if [ -f tests/fixtures/check-fixtures.sh ]; then sh tests/fixtures/check-fixtures.sh
           else echo "SKIPPED: tests/fixtures/check-fixtures.sh does not exist yet"; fi
+
+  # The self-test suites are split into scenario units and spread over four shards; inside a shard the units
+  # run on every core (tests/selftest.sh).
+  selftest:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs on pushes to main, the nightly schedule and manual runs; pull requests run Linux only.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
+        shard: [1, 2, 3, 4]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: script self-tests (shard ${{ matrix.shard }}/4)
+        run: |
+          if [ -f tests/selftest.sh ]; then SELFTEST_SHARD=${{ matrix.shard }}/4 sh tests/selftest.sh
+          else echo "SKIPPED: tests/selftest.sh does not exist yet"; fi
+
+  # One stable check name for branch protection: skipped jobs (documentation-only pull request) count as
+  # passed, a failed or cancelled job fails it.
+  checks:
+    if: always()
+    needs: [changes, static, fixtures, selftest]
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "a CI job failed or was cancelled"
+          exit 1
+      - run: echo "all jobs passed or were skipped"

@@ -7,6 +7,7 @@
 - The lead never approves: the runtime records the user's reply as the approval (A41).
 - The QA plan is derived from the final plan and verified against it before freeze (A42); results cite immutable artifact snapshots (A43); a Stop hook keeps gate names, classes and states untranslated in the final report (A44).
 - tdd-proof validates one cycle per criterion (A45); Claude specialists under an isolated-HOME Codex lead get the operator's HOME (A46).
+- Faster CI (A76): self-test suites run as parallel scenario units in four shards, pull requests run Linux only (macOS on `main` and nightly), documentation-only pull requests skip the test jobs, and the `checks` job always reports.
 - `SECURITY.md` and `CONTRIBUTING.md`; the Acknowledgments section is removed and D33 states that no third-party project is named.
 
 ## 0.0.1 — 2026-10-09
