@@ -764,7 +764,12 @@ stop)
   missing=''
   for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
   if [ -z "$missing" ]; then : > "$mark"; exit 0; fi
-  [ "$(jget stop_hook_active)" != true ] || exit 0
+  # Sent back up to three times per reporting state: a rewrite that drops an identifier the first draft had is
+  # checked again (stop_hook_active alone would accept the second draft unchecked).
+  tries=$(cat "$mark.tries" 2>/dev/null || echo 0)
+  case "$tries" in *[!0-9]*) tries=0 ;; esac
+  [ "$tries" -lt 3 ] || exit 0
+  printf '%s\n' $((tries + 1)) > "$mark.tries"
   printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: the final report must carry these identifiers verbatim, untranslated, in any language:$missing. Gate names, the class, the state and result values are never translated; write the prose around them in the user's language, or paste the lines of 'agent.sh summary $act'. Then finish.")"
   exit 0 ;;
 

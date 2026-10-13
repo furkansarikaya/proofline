@@ -26,7 +26,8 @@ this `SKILL.md`.
    `scripts/classify-migration.mjs` over the drafted (plan mode) or changed (review mode) statements, never by
    judgement, never by looking at production data. `destructive`/`unknown` output means destructive. The
    kinds and the rules behind them are in [MIGRATION.md](references/MIGRATION.md#1-classification).
-2. **Destructive means CRITICAL and a stop.** Any destructive step in any phase, a `deferred` one included
+2. **Destructive means CRITICAL and a stop; the stop says how much data is at risk.** The PLAN `## Data` text of a destructive plan has a `rows:` line (the count of rows holding a value in the affected column, from seed files and fixtures, "live database not inspected"), which the destructive approval question repeats.
+   **Destructive means CRITICAL and a stop.** Any destructive step in any phase, a `deferred` one included
    (the drop of an expand/contract plan is still the plan's destructive step): the plan's first line is
    `destructive: yes`, the task class is raised to CRITICAL (state it in the findings table), and the skill
    stops with NEEDS_INPUT asking the user to approve the destructive steps by id. It never returns DONE for a
