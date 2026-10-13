@@ -276,7 +276,10 @@ final_report_tokens() {
   out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Teslim onayınızı bekliyorum.")
   [ -z "$out" ] || die "A44-4 a report with the identifiers was blocked: $out"; ok "A44-4 a report that carries the identifiers verbatim is accepted"
   out=$(stop_ev "Başka bir soru: commit mesajı ne olsun?")
-  [ -z "$out" ] || die "A44-5 a later message was checked again: $out"; ok "A44-5 once reported, later messages of the same state are not checked"
+  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-5 a later final message without the identifiers was accepted: $out"
+  out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Commit ve push onayınızı bekliyorum.")
+  [ -z "$out" ] || die "A44-5 a later final message with the identifiers was blocked: $out"
+  ok "A44-5 every final message of the state is checked; one that carries the identifiers passes"
 }
 
 # A41: the lead never approves; the runtime's prompt hook records an approval from the user's own reply.

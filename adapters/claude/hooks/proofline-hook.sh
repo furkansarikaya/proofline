@@ -760,12 +760,12 @@ stop)
   state=$(printf '%s\n' "$need" | head -n 1)
   mkdir -p "$local_dir/report-check" 2>/dev/null || exit 0
   mark=$local_dir/report-check/$act.$state
-  [ ! -f "$mark" ] || exit 0
   missing=''
   for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
-  if [ -z "$missing" ]; then : > "$mark"; exit 0; fi
-  # Sent back up to three times per reporting state: a rewrite that drops an identifier the first draft had is
-  # checked again (stop_hook_active alone would accept the second draft unchecked).
+  # Every final message of a reporting state is checked (the last one is what the user reads); a message that
+  # carries the identifiers resets the counter. A message is sent back at most three times in a row, then accepted
+  # (never an endless loop).
+  if [ -z "$missing" ]; then rm -f "$mark.tries"; exit 0; fi
   tries=$(cat "$mark.tries" 2>/dev/null || echo 0)
   case "$tries" in *[!0-9]*) tries=0 ;; esac
   [ "$tries" -lt 3 ] || exit 0
