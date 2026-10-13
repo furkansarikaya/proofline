@@ -44,6 +44,9 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | How far can I trust the tests? | `/proofline audit` |
 | Debug with proof | `/proofline debug the checkout total is wrong when a coupon and gift card are combined` |
 | Prove a UI change in a browser (measured; UNSUPPORTED without one) | `Use the visual-proof skill to check the orders screen against design/UI.md` |
+| Check an API or schema change for breaking changes (UNSUPPORTED for a format it cannot parse) | `Use the contract-proof skill on the changes to openapi.yaml` |
+| Look for races and double processing in changed code (proven problems only; PASS never means safe) | `Use the concurrency-proof skill on the payment retry change` |
+| Measure a performance regression against the base (UNSUPPORTED without a benchmark command) | `Use the performance-proof skill on the search change` |
 
 ## During a run
 
@@ -54,6 +57,8 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | A gate failed, let it fix | `continue` (the fix loop runs up to 2 rounds) |
 | Waive one non-security finding | `I approve waiving RULES-3 because the legacy module is replaced next sprint` (finding id and a specific reason; security and secret findings cannot be waived) |
 | Allow more fix rounds after exhaustion | `I approve another round` |
+| Answer a high-risk assumption the plan could not verify | start the message with `accept AS-1` (the id from the question; several: `accept AS-1 and AS-2`), with no "not", "if", "unless" or "but" after it; or say what is true instead. Nothing else accepts it |
+| A check came back UNSUPPORTED | install the missing tool yourself and re-run, or waive it explicitly: `I approve waiving the visual check because there is no browser on this machine` |
 | Pick up after the runtime hit its limit | `/proofline resume` in the other runtime |
 | Why is it blocked? | `/proofline status` and `proofline doctor` |
 

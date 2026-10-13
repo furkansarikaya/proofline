@@ -44,6 +44,9 @@ English: [../prompt-catalogue.md](../prompt-catalogue.md).
 | Testlere ne kadar güvenebilirim? | `/proofline audit` |
 | Kanıtla debug et | `/proofline debug kupon ve hediye kartı birlikte kullanılınca checkout toplamı yanlış` |
 | Bir UI değişikliğini tarayıcıda kanıtla (ölçülü; tarayıcı yoksa UNSUPPORTED) | `visual-proof skill'i ile sipariş ekranını design/UI.md'ye göre kontrol et` |
+| Bir API veya şema değişikliğinde breaking change var mı (ayrıştıramadığı format UNSUPPORTED) | `openapi.yaml değişikliklerini contract-proof skill'i ile kontrol et` |
+| Değişen kodda yarış durumu ve çift işleme ara (sadece kanıtlanmış sorunlar; PASS asla güvenli demek değildir) | `ödeme retry değişikliğini concurrency-proof skill'i ile incele` |
+| Performans regresyonunu base ile karşılaştırarak ölç (benchmark komutu yoksa UNSUPPORTED) | `arama değişikliğini performance-proof skill'i ile ölç` |
 
 ## Run sırasında
 
@@ -54,6 +57,8 @@ English: [../prompt-catalogue.md](../prompt-catalogue.md).
 | Gate FAIL oldu, düzeltsin | `devam et` (fix loop en fazla 2 tur çalışır) |
 | Güvenlik dışı tek bir bulguyu waive et | `RULES-3 waive edilsin, onaylıyorum, çünkü legacy modül gelecek sprint değişiyor` (bulgu id'si ve somut gerekçe; güvenlik ve secret bulguları waive edilemez) |
 | Tur hakkı bittikten sonra ek tur | `Bir round daha onaylıyorum` |
+| Plan'ın doğrulayamadığı yüksek riskli bir varsayımı cevapla | mesajı `accept AS-1` ile başlat (id sorudaki id'dir; birden fazla: `accept AS-1 and AS-2`), devamında "not", "if", "unless", "but" ya da Türkçe karşılıkları olmasın; ya da doğrusunu yaz. Başka hiçbir şey onu kabul etmez |
+| Bir kontrol UNSUPPORTED döndü | eksik aracı kendin kur ve yeniden çalıştır, ya da açıkça waive et: `görsel kontrol waive edilsin, onaylıyorum, çünkü bu makinede tarayıcı yok` |
 | Runtime limiti dolduktan sonra devam | diğer runtime'da `/proofline resume` |
 | Neden bloke? | `/proofline status` ve `proofline doctor` |
 

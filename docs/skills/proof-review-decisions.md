@@ -62,7 +62,7 @@ It is a sibling of [test-trust](https://github.com/furkansarikaya/test-trust) an
     - Sharing: a copy of the report is written somewhere else only when the user asks, and only where they say.
     - The report's file path is still given in one line at the end, even though the user has already seen the report in chat.
     - Re-runs are additive: findings in unchanged code are carried forward, findings in changed code are re-verified, and findings claimed as fixed have their reproductions re-run. This supports the "fix, then review again" loop (decision 8).
-    - **Follow-up for test-trust:** move test-trust to the same output model in a later version (0.1.0, because behaviour changes) so the two skills stay consistent.
+    - **Follow-up for test-trust:** move test-trust to the same output model in a later change (a behaviour change) so the two skills stay consistent.
 14. **Finding records in `findings.json`.**
     - **Intent claims** (`C001`…): claim text, source (`user`, `pr_description`, `issue`, `commit`), status (`done`, `partial`, `missing`), location (file and line), and for `partial` the missing part.
     - **Unrequested changes** (`U001`…): affected files and a one-sentence description.

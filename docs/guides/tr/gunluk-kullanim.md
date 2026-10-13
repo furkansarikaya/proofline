@@ -34,5 +34,7 @@ Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` 
 - Bir gate FAIL olursa fix loop çalışsın (varsayılan 2 tur). Waiver için bulgu başına açık mesajın gerekir; güvenlik ve secret bulguları waive edilemez.
 - Runtime limiti dolunca diğer runtime'ı aç ve `proofline resume` çalıştır. Bkz. [failover](../../concepts/failover.md).
 - Config değiştirdikten veya yükselttikten sonra `proofline doctor` çalıştır.
+- Completion report'taki `## Unsupported Checks` ve `## Assumptions` bölümlerini oku: UNSUPPORTED bir kontrol asla geçmiş sayılmadı, doğrulanmamış bir varsayım ya kabul ettiğin ya da hâlâ taşıdığın bir risktir. Kanıt sınıfları: [evidence](../../concepts/evidence.md).
+- Ara sıra `proofline insights` çalıştır: maliyetin ve tekrar eden başarısızlıkların nerede toplandığını gösterir, hiçbir şeyi değiştirmez.
 
 Daha fazla örnek: [prompt-katalogu.md](prompt-katalogu.md). Kavramlar: [workflow](../../concepts/workflow.md), [gates](../../concepts/gates.md).
