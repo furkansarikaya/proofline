@@ -111,7 +111,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 | `dispatch.sh <ID> explorer` | DISCOVER: split into at most `max_explorers` bounded assignments; dispatch in parallel; consolidate `EVIDENCE.md` with evidence-map's CONSOLIDATION format; verify it ([LIFECYCLE.md](references/LIFECYCLE.md#3-discover)). |
 | `write PLAN.md` | Design roles when their conditions hold, then plan-contract and `validate-plan.mjs` exit 0 ([LIFECYCLE.md](references/LIFECYCLE.md#4-design-and-plan)). |
 | `dispatch.sh <ID> architect` / `qa` | Dispatch that role; paste a returned section into PLAN.md unchanged. |
-| `agent.sh request-approval <ID> <kind>` | Run it, relay its question verbatim, STOP. |
+| `agent.sh request-approval <ID> <kind>` | Run it, relay its question (the prose in the user's language; the kind, ids, hashes and options exactly as printed), STOP. |
 | `wait for the user's answer` | Never run `approve` (the hook denies it): the runtime records the approval from the user's reply. After the reply run `A next <ID>`; no approval recorded means a refusal or a change request: back to the plan. |
 | `agent.sh freeze` | `A freeze <ID>`, then `A freshness <ID>` (freshness checks a freeze that must exist). |
 | `agent.sh handoff <ID> IMPLEMENTING` (no fix round) | Run it. |

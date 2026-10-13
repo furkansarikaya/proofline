@@ -262,7 +262,12 @@ final_report_tokens() {
   printf '%s' "$out" | grep -q 'SECRETS' || die "A44-2 the refusal does not name the missing identifiers: $out"
   ok "A44-2 a report that translated the gate names is sent back once, naming the identifiers"
   out=$(stop_ev "Tüm kapılar geçti." true)
-  [ -z "$out" ] || die "A44-3 the second stop was blocked again: $out"; ok "A44-3 the second stop (stop_hook_active) is accepted"
+  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-3 a second draft that still lacks them was accepted: $out"
+  out=$(stop_ev "Tüm kapılar geçti." true)
+  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-3 the third draft was accepted: $out"
+  out=$(stop_ev "Tüm kapılar geçti." true)
+  [ -z "$out" ] || die "A44-3 the fourth stop was blocked again (no endless loop): $out"; ok "A44-3 a draft is checked up to three times, then accepted"
+  rm -f .agents/local/report-check/LC.CODE_DONE.tries
   out=$(stop_ev "Tüm kapılar geçti: SECRETS REVIEW_SMALL QA VERIFY, durum CODE_DONE, sınıf COMPLEX. Commit onayınızı bekliyorum.")
   printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-4b a report that never says push awaits approval was accepted: $out"
   printf '%s' "$out" | grep -q 'push' || die "A44-4b the refusal does not name push: $out"

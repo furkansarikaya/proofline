@@ -2325,8 +2325,15 @@ request_approval() {
       /^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next }
       i && /^\|/ && NF >= 7 && tolower(t($6)) == "yes" { printf "   destructive step %s (%s): %s on %s; rollback: %s\n", t($2), t($3), t($4), t($5), t($8) }' "$(run_dir "$rq_id")/PLAN.md")
   fi
+  rq_rows=''
+  if [ "$rq_kind" = destructive ]; then
+    # A62: the plan's `## Data` carries a `rows:` line (the data at risk, from seed files and fixtures; no agent
+    # opens a database): the user's question says how much data the step destroys.
+    rq_rows=$(awk '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print "   data at risk: " substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
+  fi
   printf 'QUESTIONS:\n1. Approve %s for %s?\n' "$rq_kind" "$rq_id"
   [ -z "$rq_steps" ] || printf '%s\n' "$rq_steps"
+  [ -z "$rq_rows" ] || printf '%s\n' "$rq_rows"
   printf '   options: approve | reject\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_why "$rq_kind" "$rq_bound")"
 }
 approval_why() {
