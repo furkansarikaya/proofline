@@ -90,10 +90,10 @@ run_lead() { # runtime, number, message, resumed?
   if [ "$runtime" = claude ]; then
     if [ "$resumed" = yes ]; then
       # shellcheck disable=SC2016
-      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --resume "$session" --setting-sources project,local --permission-mode bypassPermissions --model "${lead_model}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group sh -c 'cd "$1" && shift && exec env CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 "$@"' sh "$project" claude -p "$message" --resume "$session" --setting-sources project,local --permission-mode bypassPermissions --model "${lead_model}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     else
       # shellcheck disable=SC2016
-      start_group sh -c 'cd "$1" && shift && exec "$@"' sh "$project" claude -p "$message" --setting-sources project,local --permission-mode bypassPermissions --model "${lead_model}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group sh -c 'cd "$1" && shift && exec env CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 "$@"' sh "$project" claude -p "$message" --setting-sources project,local --permission-mode bypassPermissions --model "${lead_model}" --output-format stream-json --verbose --max-turns "${E2E_MAX_TURNS:-250}" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     fi
   else
     if [ "$resumed" = yes ]; then

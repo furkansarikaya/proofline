@@ -763,6 +763,19 @@ sc_class_floor() {
   A classify LC COMPLEX >/dev/null || die "a higher class was refused"
   ok "classify refuses a class below the task's Suggested class and accepts the class or a higher one"
 }
+sc_design_sync() {
+  SC_PLAN_EXTRA='
+## Contracts
+
+- `GET /api/books` gains `tags`' scaffold orchestrated no STANDARD; implemented orchestrated
+  mkdir -p docs/design; printf '# api\n' > docs/design/API.md; printf 'docs/\n' >> .git/info/exclude
+  d=.agents/runs/LC; printf '# VERIFY\n\nall criteria proven\n' > "$d/VERIFY.md"
+  expect_msg "a verification of a contract change without design/SYNC.md" 'design/SYNC.md' AS verifier submit LC --confidence high --agent vs1
+  printf '# VERIFY\n\nall criteria proven\ndesign-sync: SKIPPED (the document was read and needs no change)\n' > "$d/VERIFY.md"
+  out=$(AS verifier submit LC --confidence high --agent vs2 2>&1) || :
+  printf '%s' "$out" | grep -q 'design/SYNC.md' && die "a recorded SKIPPED line was not accepted: $out"
+  ok "design-sync is written or skipped on the record when the plan changes what a design document describes"
+}
 sc_start() {
   new_repo; RID=ST-1
   cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
@@ -886,4 +899,5 @@ run_sc sc_tests_findings
 run_sc sc_defect_scope
 run_sc sc_intent_provenance
 run_sc sc_class_floor
+run_sc sc_design_sync
 echo 'gates tests passed'
