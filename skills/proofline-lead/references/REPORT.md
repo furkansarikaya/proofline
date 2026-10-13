@@ -45,13 +45,14 @@ from run evidence; nothing is inferred or invented.
 
 ### Root cause (defect tasks)
 
-When the task fixes a defect (TASK.md or PLAN.md carries a defect word, the same check as the implementer's
-debug-proof, A35/A61/A67), `COMPLETION_REPORT.md` has a `## Root cause` section of exactly one sentence that
-names the function or symbol at fault and what it did wrong (for example: `paginate` rounds the page count
-with `Math.floor` where `Math.ceil` is needed). The sentence comes from the debug-proof result, not from the
-diff. The regression test and the gates stay in their own sections. The final message to the user repeats the
-same sentence, then the regression test, the gates, and that commit and push await the user's approval.
-`A publish-completion-report` requires the section when `reports/NNN-debug.md` exists.
+When `reports/NNN-debug.md` exists (the implementer's debug-proof result, A35: the task fixes a defect),
+`COMPLETION_REPORT.md` has a `## Root cause` section of exactly one sentence that names the function or
+symbol at fault and what it did wrong (for example: `parse_range` treats the end index as exclusive where
+the caller passes an inclusive one). The sentence comes from the debug-proof result, not from the diff; the
+report is English. The regression test and the gates stay in their own sections. The final message to the
+user repeats the same sentence in the user's language (symbol names untranslated), then the regression
+test, the gates, and that commit and push await the user's approval. `A publish-completion-report` requires
+the section when `reports/NNN-debug.md` exists.
 
 ## 3. Final report to the user
 

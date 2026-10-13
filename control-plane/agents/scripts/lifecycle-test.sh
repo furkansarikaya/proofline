@@ -490,6 +490,21 @@ scenario_task_contract_relocate() {
   A task-source-relocate LC tasks/moved.md >/dev/null; expect_state task_source path tasks/moved.md
   ok "task-source relocation checks"
 }
+# A74: a defect task (a debug-proof result exists) must carry a ## Root cause section in its completion report.
+scenario_report_root_cause() {
+  scaffold standalone yes; to_code_done standalone
+  A knowledge-done LC not_applicable >/dev/null; write_report
+  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
+  expect_msg "a defect run's report without ## Root cause was published" 'missing required section: ## Root cause' A publish-completion-report LC markdown
+  expect_state completion_report published false
+  write_report '' '## Root cause' '`lookup` compares the untrimmed key where the trimmed key is needed.'
+  A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
+  ok "a defect run's completion report needs ## Root cause"
+  scaffold standalone yes; to_code_done standalone
+  A knowledge-done LC not_applicable >/dev/null; write_report
+  A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
+  ok "a run without a debug-proof result publishes without ## Root cause"
+}
 scenario_task_contract_adapter() {
   scaffold standalone yes; to_code_done standalone; frozen=$(rv task_source revision)
   cp tasks/in-progress/LC.md "$base/pre-publish.md"
@@ -580,6 +595,7 @@ run_sc scenario_task_contract_edit orchestrated
 run_sc scenario_task_contract_laundering
 run_sc scenario_task_contract_relocate
 run_sc scenario_task_contract_adapter
+run_sc scenario_report_root_cause
 run_sc scenario_task_contract_projection
 run_sc scenario_task_source_status
 run_sc scenario_cleanup_after_delivery

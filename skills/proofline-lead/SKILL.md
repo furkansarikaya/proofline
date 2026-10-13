@@ -166,6 +166,8 @@ Specialist results that stop the flow:
 - **Completion report:** [assets/COMPLETION_REPORT.md](assets/COMPLETION_REPORT.md), from run evidence only:
   which role ran on which runtime and model (from `decisions/` and the ledger), gates, fix rounds,
   findings, waivers, failovers.
+  A defect task (`reports/NNN-debug.md` exists) also has a one-sentence `## Root cause`, repeated in the final
+  message: [REPORT.md](references/REPORT.md#root-cause-defect-tasks).
 
 ## Gate rule
 
