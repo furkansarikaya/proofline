@@ -34,7 +34,7 @@ put(join(fx, "gamma/EXPECTED.md"), "# gamma\n\n## Process expectations\n\n- **P1
 
 const verdicts = {
   // found 1 and 3 -> 2 is missed; tripped N2 and one extra finding -> 2 false positives; one change outside scope.
-  alpha: { found: ["1", "3"], tripped: ["N2"], extra: ["invented bug in util.js"], planned_scope: ["src/a.js", "docs/"], changed_paths: ["src/a.js", "docs/x.md", "src/b.js"], duration_s: 90, tokens_total: 1234 },
+  alpha: { evaluator: "planted", found: ["1", "3"], tripped: ["N2"], extra: ["invented bug in util.js"], planned_scope: ["src/a.js", "docs/"], changed_paths: ["src/a.js", "docs/x.md", "src/b.js"], duration_s: 90, tokens_total: 1234 },
 };
 
 test("parser takes numbered, table and bold-id items by section and guesses nothing else", () => {
@@ -54,13 +54,17 @@ test("planted miss and planted false positive are counted exactly", () => {
   assert.equal(a.duration_s, 90);
   assert.equal(r.fixtures.find((f) => f.skill === "beta").status, "not measurable");
   assert.equal(r.fixtures.find((f) => f.skill === "gamma").status, "not scored");
-  assert.deepEqual(r.totals, { measured: 1, not_scored: 1, not_measurable: 1, expected: 3, found: 2, missed: 1, false_positives: 2 });
+  assert.deepEqual(r.totals, { measured: 1, not_scored: 1, not_measurable: 1, expected: 3, found: 2, missed: 1, false_positives: 2, validators_failed: 0 });
   assert.match(toMarkdown(r), /\| alpha \| measured \| 3 \| 2 \| 2 \| 1 \| 2 \|/);
 });
 
 test("a verdict id that is not in EXPECTED.md is an error, not a guess", () => {
-  assert.throws(() => build({ fixturesDir: fx, verdicts: { alpha: { found: ["9"] } } }), /not an expected finding/);
-  assert.throws(() => build({ fixturesDir: fx, verdicts: { alpha: { tripped: ["1"] } } }), /not a trap/);
+  assert.throws(() => build({ fixturesDir: fx, verdicts: { alpha: { evaluator: "x", found: ["9"] } } }), /not an expected finding/);
+  assert.throws(() => build({ fixturesDir: fx, verdicts: { alpha: { evaluator: "x", tripped: ["1"] } } }), /not a trap/);
+  assert.throws(() => build({ fixturesDir: fx, verdicts: { alpha: { found: ["1"] } } }), /needs an "evaluator"/);
+  // per-id evidence is an alternative to "evaluator"; an empty verdict is not scored
+  assert.equal(build({ fixturesDir: fx, verdicts: { alpha: { found: ["1"], evidence: { 1: "out/DESIGN.md:12" } } } }).fixtures[0].status, "measured");
+  assert.equal(build({ fixturesDir: fx, verdicts: { alpha: {} } }).fixtures[0].status, "not scored");
   assert.throws(() => build({ fixturesDir: fx, verdicts: { nope: {} } }), /unknown fixture/);
 });
 

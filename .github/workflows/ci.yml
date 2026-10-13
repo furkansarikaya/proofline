@@ -88,7 +88,7 @@ jobs:
         run: |
           if ls tests/skills/*.test.mjs >/dev/null 2>&1; then node --test tests/skills/
           else echo "SKIPPED: no tests/skills/*.test.mjs yet"; fi
-          node --test tests/benchmark/
+          node --test tests/benchmark/benchmark.test.mjs
 
   fixtures:
     needs: [changes]

@@ -50,7 +50,11 @@ export function scopeOf(planned, changed) {
 export function scoreFixture(name, items, v) {
   const r = { skill: name, expected: items.filter((i) => i.kind === "expect").length, traps: items.filter((i) => i.kind === "trap").length };
   if (r.expected + r.traps === 0) return { ...r, status: "not measurable", reason: "EXPECTED.md has no parseable expected-findings" };
-  if (!v) return { ...r, status: "not scored", reason: "no verdict recorded" };
+  if (!v || !["found", "tripped", "extra"].some((k) => k in v)) return { ...r, status: "not scored", reason: "no verdict recorded" };
+  // The verdict file is trusted input; it must at least name who judged or give evidence for every found id.
+  const ev = v.evidence || {};
+  if (!(typeof v.evaluator === "string" && v.evaluator.trim()) && !(v.found || []).every((id) => typeof ev[id] === "string" && ev[id].trim()))
+    throw new Error(`${name}: verdict needs an "evaluator" string or a non-empty "evidence" entry for every found id`);
   const kindOf = new Map(items.map((i) => [i.id, i.kind]));
   const found = v.found || [], tripped = v.tripped || [], extra = v.extra || [];
   for (const id of found) if (kindOf.get(id) !== "expect") throw new Error(`${name}: found id ${id} is not an expected finding of EXPECTED.md`);
@@ -213,6 +217,7 @@ export function build({ fixturesDir = join(repo, "fixtures"), verdicts = {}, e2e
     totals: {
       measured: m.length, not_scored: fx.filter((f) => f.status === "not scored").length, not_measurable: fx.filter((f) => f.status === "not measurable").length,
       expected: sum("expected"), found: sum("found"), missed: sum("missed"), false_positives: sum("false_positives"),
+      validators_failed: fx.filter((f) => ["fail", "setup-failed"].includes(f.selfcheck) || f.skill_tests === "fail").length,
     },
   };
 }
@@ -235,6 +240,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       mkdirSync(outDir, { recursive: true });
       writeFileSync(join(outDir, "benchmark.md"), md + "\n");
       writeFileSync(join(outDir, "benchmark.json"), JSON.stringify(rep, null, 2) + "\n");
+      if (rep.totals.validators_failed) console.error(`benchmark: WARNING ${rep.totals.validators_failed} fixture validator(s) not passing (non-gating; see the selfcheck and skill tests columns)`);
       console.log(`benchmark: ${rep.totals.measured} measured, ${rep.totals.not_measurable} not measurable; wrote ${join(outDir, "benchmark.md")} and benchmark.json`);
     } else console.log(md);
   } catch (e) {

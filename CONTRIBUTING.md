@@ -14,7 +14,7 @@ cd proofline
 sh tests/selftest.sh                         # control-plane, enforcement, generator, CLI and task suites (a few minutes)
 node --test tests/skills/                    # skill validators and fixtures' known answers
 sh tests/fixtures/check-fixtures.sh          # builds every fixtures/*/setup.sh and runs its selfcheck
-node --test tests/benchmark/                 # benchmark report known-answer test (seconds)
+node --test tests/benchmark/benchmark.test.mjs            # benchmark report known-answer test (seconds)
 sh adapters/generate.sh --check              # generated agent files match roles/
 sh docs/reference/generate-skills.sh --check # docs/reference/skills.md matches the skills
 sh tests/shared/check-shared.sh              # shared skill sections have not drifted
