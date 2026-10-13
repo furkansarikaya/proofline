@@ -47,6 +47,7 @@ freeze:
   policy_sha256: PENDING
   pipeline: PENDING
   scope_paths: PENDING
+  risk_sha256: PENDING
 
 handoff:
   state: PLANNED

@@ -32,7 +32,12 @@ effort: high
 5. A requirement-level choice the task and evidence do not settle: write state to `design/ARCHITECTURE.md`
    and return NEEDS_INPUT. Questions about the architecture, the API and data retention all go in this one round (the
    two questions of a decision pair too). Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
-6. Return the result with the PLAN `## Architecture` text (and `## Contracts` entries) after the table. Stop.
+6. Return the result with the PLAN `## Architecture` text (and `## Contracts` entries) after the table, plus the
+   PLAN `## Risk` flags the design implies, one line each: `contract_change: yes|no` (an API, event or schema
+   contract changes), `concurrency: yes|no` (shared state, locks, retries, ordering, idempotency),
+   `performance_critical: yes|no` (a stated latency, throughput or resource bound). They are frozen with the plan
+   and select the REVIEW focuses `contract`, `concurrency` and `performance`; a contract file changed without
+   `contract_change: yes` is a blocking finding (A78; `agent.sh pipeline <ID>` lists the signals). Stop.
 
 ## Output
 

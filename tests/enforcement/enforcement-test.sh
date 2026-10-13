@@ -55,6 +55,8 @@ lead_edits() {
   denied "lead Write of a prompt capture" "$(pre_edit Write .agents/local/prompts/forged.json)"
   denied "lead Write of RUN.yaml" "$(pre_edit Edit .agents/runs/LC/RUN.yaml)"
   denied "lead Edit of the runtime hook settings" "$(pre_edit Edit .claude/settings.json)"
+  denied "lead Edit of the risk signal mapping in the config (A78)" "$(pre_edit Edit "$PWD/.agents/config.yaml")" "the lead writes only run artifacts"
+  denied "lead shell write to the config (A78)" "$(pre_bash "sed -i.bak 's/check: contract/check: rules/' .agents/config.yaml")"
   denied "lead NotebookEdit of product code" "$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD\",\"tool_name\":\"NotebookEdit\",\"tool_input\":{\"notebook_path\":\"$PWD/src/n.ipynb\"}}")"
   allowed "lead Write of PLAN.md" "$(pre_edit Write "$PWD/.agents/runs/LC/PLAN.md")"
   allowed "lead Write of an amendment" "$(pre_edit Write .agents/runs/LC/amendments/001.md)"

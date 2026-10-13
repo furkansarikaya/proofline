@@ -122,14 +122,19 @@ report_path() {
     SECURITY) echo security/REPORT.md ;; QA) echo QA_REPORT.md ;; VERIFY) echo VERIFY.md ;; esac
 }
 # result_for GATE RESULT [CONFIDENCE] [ROW...] -> path of a result file (rows "id|severity|path:line|finding|evidence")
+# RF_FOCUS=<risk focus> (A78): the result is that focus's, reported under its own directory.
+risk_report() { case "$1" in contract) echo reviews/contract-proof/REPORT.md ;; concurrency) echo reviews/concurrency-proof/REPORT.md ;; performance) echo reviews/performance-proof/REPORT.md ;;
+  config) echo reviews/proof-review/config/REPORT.md ;; migration) echo reviews/data-migration/REPORT.md ;; visual) echo reviews/visual-proof/REPORT.md ;; dependencies) echo security/dependencies/REPORT.md ;; esac; }
 result_for() {
   rf_g=$1 rf_r=$2 rf_c=${3:-high}; shift 2; [ $# -eq 0 ] || shift
-  rf_art=$(report_path "$rf_g"); mkdir -p ".agents/runs/$RID/$(dirname "$rf_art")"
+  rf_art=$(report_path "$rf_g"); rf_fc=$(gate_focus "$rf_g")
+  if [ -n "${RF_FOCUS:-}" ]; then rf_art=$(risk_report "$RF_FOCUS"); rf_fc=$RF_FOCUS; fi
+  mkdir -p ".agents/runs/$RID/$(dirname "$rf_art")"
   printf '# %s report\n\nVerdict: %s\n\nJudged the whole current tree.\n' "$rf_g" "$rf_r" > ".agents/runs/$RID/$rf_art"
   rf_f=$base/result.$$.md
   {
     printf 'ROLE: %s\nTASK: %s\n' "$(gate_owner "$rf_g")" "$RID"
-    [ -z "$(gate_focus "$rf_g")" ] || printf 'FOCUS: %s\n' "$(gate_focus "$rf_g")"
+    [ -z "$rf_fc" ] || printf 'FOCUS: %s\n' "$rf_fc"
     printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$rf_r" "$rf_c" "$(A fingerprint "$RID")" "$rf_art" "$(tsha ".agents/runs/$RID/$rf_art")"
     printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
     for rf_row in "$@"; do printf '| %s |\n' "$(printf '%s' "$rf_row" | sed 's/|/ | /g')"; done
@@ -145,6 +150,8 @@ pass_all() {
   for pa_g in $(required); do
     if [ "$pa_g" = SECRETS ]; then A secret-scan "$RID" >/dev/null; else gpass "$pa_g"; fi
   done
+  # every risk focus a gate carries (A78)
+  A pipeline "$RID" | sed -n 's/^focus\.\([A-Z_]*\)\.\([a-z]*\)=.*/\1 \2/p' | while read -r pa_g pa_f; do RF_FOCUS=$pa_f gpass "$pa_g"; done
 }
 
 # --- implementation helpers ------------------------------------------------------------------
@@ -200,7 +207,7 @@ scaffold() {
   printf '%s\n' 'task:' '  id: LC' 'repository:' '  base_sha: PENDING' "${SC_BRANCH:+  canonical_branch: PENDING}" "${SC_BRANCH:+  task_branch: PENDING}" 'task_source:' '  type: local_markdown' "  path: $tpath" '  revision: PENDING' \
     'execution:' '  mode: deterministic' '  profile: PENDING' "  autonomy: $auto" "  topology: $topo" '  state: PLANNING' '  knowledge_state: not_started' '  awaiting_input: false' \
     'pipeline:' '  classification: PENDING' '  review: PENDING' '  tier: PENDING' \
-    'freeze:' '  task_sha256: PENDING' '  evidence_sha256: PENDING' '  plan_sha256: PENDING' '  qa_plan_sha256: PENDING' '  policy_sha256: PENDING' '  pipeline: PENDING' '  scope_paths: PENDING' \
+    'freeze:' '  task_sha256: PENDING' '  evidence_sha256: PENDING' '  plan_sha256: PENDING' '  qa_plan_sha256: PENDING' '  policy_sha256: PENDING' '  pipeline: PENDING' '  scope_paths: PENDING' '  risk_sha256: PENDING' \
     'baseline:' '  status: pending' \
     'handoff:' '  state: PLANNED' '  implemented_patch_sha256: PENDING' '  code_done_patch_sha256: PENDING' \
     'worker_evidence:' '  required: true' 'tdd:' '  required: true' \

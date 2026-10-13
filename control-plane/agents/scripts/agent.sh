@@ -124,7 +124,16 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk)$/) { bad("unknown top-level key: " top); next }
+      if (top == "risk" && p[3] != "") {
+        if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
+        else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies")
+        else if (p[3] == "flag") en(k, v, "contract_change|concurrency|performance_critical|data_change|destructive|ui")
+        else if (p[3] == "design_role") en(k, v, "architect|data_architect|designer")
+        else if (p[3] != "paths" && p[3] != "content") bad("unknown risk key: " k)
+        if ((p[3] == "paths" || p[3] == "content") && v != "") sig[p[2]] = 1
+        if (p[3] == "check" && v != "") chk[p[2]] = 1
+      }
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
       else if (k ~ /^runtime\.(lead|worker|reviewers)$/ || k ~ /^runtime\.roles\./) en(k, v, "claude|codex")
@@ -147,6 +156,7 @@ config_check() {
     END {
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
+      for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
       exit n > 0
     }') && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
   printf '%s\n' "$cc_out" >&2; fail "config invalid: ${cc_file#"$root"/}"
@@ -404,8 +414,7 @@ content_fingerprint() {
 
 # --- Path globs (gitignore-like: ** spans directories, * and ? stay in one segment,
 # a pattern without / matches at any depth). ----------------------------------------
-path_matches() { # PATH "GLOB GLOB ..."
-  printf '%s\n' "$1" | awk -v pats="$2" '
+g2re_awk='
     function g2re(p,   r, i, c, n) {
       if (index(p, "/") == 0) p = "**/" p
       r = ""; n = length(p)
@@ -419,7 +428,9 @@ path_matches() { # PATH "GLOB GLOB ..."
         else r = r c
       }
       return "^" r "$"
-    }
+    }'
+path_matches() { # PATH "GLOB GLOB ..."
+  printf '%s\n' "$1" | awk -v pats="$2" "$g2re_awk"'
     { n = split(pats, a, " "); for (j = 1; j <= n; j++) if (a[j] != "" && $0 ~ g2re(a[j])) { found = 1; exit } }
     END { exit !found }'
 }
@@ -653,15 +664,19 @@ diff_stats() { # ID -> "files lines"
 }
 tier_compute() {
   tc_id=$1
+  if [ "${rs_cache_id:-}" = "$tc_id" ] && [ -n "${rs_tier:-}" ]; then printf '%s\n' "$rs_tier"; return 0; fi   # risk_prime
   [ "$(pipeline_class "$tc_id")" != CRITICAL ] || { echo full; return 0; }
   tc_docs=yes tc_risky=no tc_files=0 tc_lines=0
   tc_cl=$(cfg review.code_like_markdown '.agents/** skills/** roles/** adapters/** .claude/** .codex/** AGENTS.md CLAUDE.md **/SKILL.md **/*.prompt.md')
   tc_rp=$(cfg review.risky_paths '')
+  # A78: a path signal checked by the migration focus is risky too, so REVIEW_DATA exists to carry the check.
+  tc_mg=''; for tc_n in $(risk_names); do [ "$(cfg "risk.$tc_n.check")" != migration ] || tc_mg="$tc_mg $(cfg "risk.$tc_n.paths")"; done
   # Risky paths and code-like markdown are checked first; only a plain-documentation extension is docs
   # (a directory such as docs/ never makes code documentation).
   for tc_p in $(task_changed_paths "$tc_id"); do
     tc_files=$((tc_files + 1)); tc_lines=$((tc_lines + $(path_changed_lines "$tc_id" "$tc_p")))
     if [ -n "$tc_rp" ] && path_matches "$tc_p" "$tc_rp"; then tc_risky=yes; tc_docs=no
+    elif [ -n "${tc_mg# }" ] && path_matches "$tc_p" "$tc_mg" && ! path_matches "$tc_p" '*.md *.mdx *.rst *.adoc'; then tc_risky=yes; tc_docs=no
     elif path_matches "$tc_p" "$tc_cl" || ! path_matches "$tc_p" '*.md *.mdx *.rst *.adoc *.txt'; then tc_docs=no; fi
   done
   if [ "$tc_docs" = yes ]; then tc_t=docs
@@ -686,6 +701,117 @@ tier_record() {
   printf '%s\n' "$tr_t"
 }
 
+# --- Risk signals (A78): deterministic signals select extra focuses inside the existing gates. -------------
+# A signal comes from a changed path (diff), a PLAN.md scope path (scope; visible before FREEZE), the content
+# added by the diff (diff, `content`), or a PLAN.md flag (plan). Config `risk.<name>.paths|content|flag|check|
+# design_role` maps it to a focus (`check`) and the design role that declares it; the block is frozen
+# (freeze.risk_sha256) and the lead never edits .agents/config.yaml during a run. A diff signal whose `flag` is
+# not `yes` in PLAN.md is a blocking finding of its focus, added by `record` (the focus still runs).
+risk_plan_flags='contract_change concurrency performance_critical'   # PLAN.md `## Risk`: `<flag>: yes|no`
+risk_flags="$risk_plan_flags data_change destructive ui"            # data_change/destructive: `## Data`; ui: `## UI`
+# The focus set is fixed here; config only chooses which focus a signal triggers. Its gate follows from it.
+risk_focus_role() { case "$1" in contract|concurrency|performance|config|migration) echo reviewer ;; visual) echo qa ;; dependencies) echo security_reviewer ;; *) return 1 ;; esac; }
+risk_focus_on_gate() { # FOCUS GATE
+  case "$1:$2" in contract:REVIEW_RULES|concurrency:REVIEW_RULES|performance:REVIEW_RULES|config:REVIEW_RULES) return 0 ;;
+    contract:REVIEW_SMALL|concurrency:REVIEW_SMALL|performance:REVIEW_SMALL|config:REVIEW_SMALL) return 0 ;;
+    migration:REVIEW_DATA|visual:QA|dependencies:SECURITY) return 0 ;; *) return 1 ;; esac
+}
+risk_focus_report() { case "$1" in contract) echo reviews/contract-proof/ ;; concurrency) echo reviews/concurrency-proof/ ;; performance) echo reviews/performance-proof/ ;;
+  config) echo reviews/proof-review/config/ ;; migration) echo reviews/data-migration/ ;; visual) echo reviews/visual-proof/ ;; dependencies) echo security/dependencies/ ;; esac; }
+plan_flag() { # PLAN FLAG -> yes|no
+  [ -f "$1" ] || { echo no; return 0; }
+  case "$2" in
+    data_change) if plan_section_present "$1" Data; then echo yes; else echo no; fi ;;
+    ui) if plan_section_present "$1" UI; then echo yes; else echo no; fi ;;
+    destructive) if [ "$(plan_destructive "$1")" = yes ]; then echo yes; else echo no; fi ;;
+    *) awk -v f="$2" '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ ("^" f ":[[:space:]]*yes([[:space:]]|$)")) y = 1 } END { print (y ? "yes" : "no") }' "$1" ;;
+  esac
+}
+plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]`
+  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
+}
+risk_config() { printf '%s' "$cfg_cache" | grep '^risk\.' || true; }
+risk_names() { risk_config | awk -F= '$1 ~ /^risk\.[a-z_]+\.(paths|content)$/ && $2 != "" { split($1, p, "."); print p[2] }' | sort -u; }
+# risk_compute ID -> "name|source|path|why" lines (source diff|scope|plan). Plain documentation (.md .mdx .rst
+# .adoc) never carries a path or content signal: a guide named like a migration is not one.
+risk_compute() {
+  rc_d=$(run_dir "$1"); rc_base=$(repository_base_sha "$rc_d"); case "$rc_base" in ''|PENDING) rc_base=HEAD ;; esac
+  rc_changed=$(task_changed_paths "$1" | grep -v -E '\.(md|mdx|rst|adoc)$|^\.agents/' || true)
+  rc_scope=$(scope_mappings "$rc_d/PLAN.md" 2>/dev/null | cut -d'|' -f1 | grep -v -E '\.(md|mdx|rst|adoc)$' || true)
+  for rc_n in $(risk_names); do
+    rc_g=$(cfg "risk.$rc_n.paths")
+    if [ -n "$rc_g" ]; then
+      { [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; } |
+        awk -v n="$rc_n" -v pats="$rc_g" "$g2re_awk"'
+          { src = $1; p = substr($0, length(src) + 2); c = split(pats, a, " ")
+            for (j = 1; j <= c; j++) if (a[j] != "" && p ~ g2re(a[j])) { print n "|" src "|" p "|" a[j]; break } }'
+    fi
+    rc_c=$(cfg "risk.$rc_n.content")
+    [ -n "$rc_c" ] && [ -n "$rc_changed" ] || continue
+    printf '%s\n' "$rc_changed" | while IFS= read -r rc_p; do
+      if [ -n "$rc_g" ] && path_matches "$rc_p" "$rc_g"; then continue; fi   # already a path signal
+      if git -C "$root" cat-file -e "$rc_base:$rc_p" 2>/dev/null; then git -C "$root" diff --no-renames "$rc_base" -- "$rc_p" | sed -n 's/^+//p' | grep -v '^++ '
+      elif [ -f "$root/$rc_p" ]; then cat "$root/$rc_p"; fi | grep -Eq -- "$rc_c" && printf '%s|diff|%s|content /%s/\n' "$rc_n" "$rc_p" "$(printf '%s' "$rc_c" | tr '|' '/')" || true
+    done
+  done
+  for rc_f in $risk_flags; do
+    [ -n "$(cfg "risk.$rc_f.check")" ] && [ "$(plan_flag "$rc_d/PLAN.md" "$rc_f")" = yes ] || continue
+    case "$rc_f" in data_change) rc_w='## Data section' ;; destructive) rc_w='## Data destructive: yes' ;; ui) rc_w='## UI section' ;; *) rc_w="## Risk $rc_f: yes" ;; esac
+    printf '%s|plan|PLAN.md|%s\n' "$rc_f" "$rc_w"
+  done
+  return 0
+}
+# risk_signals ID: risk_compute, cached for the process after risk_prime (subshells inherit the cache).
+# The cache also holds the computed tier: within one command the tree does not change.
+risk_prime() { rs_cache_id=''; rs_tier=$(tier_compute "$1"); rs_cache=$(risk_compute "$1"); rs_focuses=$(risk_focuses_of "$1"); rs_cache_id=$1; }
+risk_signals() { if [ "${rs_cache_id:-}" = "$1" ]; then [ -z "$rs_cache" ] || printf '%s\n' "$rs_cache"; else risk_compute "$1"; fi; }
+risk_focuses_of() { risk_signals "$1" | cut -d'|' -f1 | sort -u | while IFS= read -r rfo_n; do cfg "risk.$rfo_n.check"; done | sed '/^$/d' | sort -u; }
+risk_gate_focuses() { # ID GATE -> the risk focuses the gate carries for this run
+  if [ "${rs_cache_id:-}" = "$1" ]; then rgf_all=$rs_focuses; else rgf_all=$(risk_focuses_of "$1"); fi
+  for rgf_f in $rgf_all; do if risk_focus_on_gate "$rgf_f" "$2"; then printf '%s\n' "$rgf_f"; fi; done
+}
+# risk_missing_flags ID [FOCUS] -> "name|source|path|flag" for each path signal (of FOCUS) whose flag is not yes.
+risk_missing_flags() {
+  rmf_plan=$(run_dir "$1")/PLAN.md
+  risk_signals "$1" | while IFS='|' read -r rmf_n rmf_src rmf_p _; do
+    [ "$rmf_src" != plan ] || continue
+    [ -z "${2:-}" ] || [ "$(cfg "risk.$rmf_n.check")" = "$2" ] || continue
+    rmf_fl=$(cfg "risk.$rmf_n.flag"); [ -n "$rmf_fl" ] || continue
+    [ "$(plan_flag "$rmf_plan" "$rmf_fl")" != yes ] || continue
+    printf '%s|%s|%s|%s\n' "$rmf_n" "$rmf_src" "$rmf_p" "$rmf_fl"
+  done
+}
+# risk_show ID: the signal lines of `pipeline` (A78).
+risk_show() {
+  rsh_sig=$(risk_signals "$1"); rsh_req=$(required_gates "$1")
+  printf 'signals=%s\n' "$(printf '%s\n' "$rsh_sig" | cut -d'|' -f1 | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  for rsh_n in $(printf '%s\n' "$rsh_sig" | cut -d'|' -f1 | sed '/^$/d' | sort -u); do
+    rsh_src=$(printf '%s\n' "$rsh_sig" | awk -F'|' -v n="$rsh_n" '$1 == n { s = s (s == "" ? "" : ",") $2 ":" $3 "(" $4 ")" } END { print s }')
+    rsh_f=$(cfg "risk.$rsh_n.check"); rsh_g=''
+    for rsh_x in $rsh_req; do if risk_focus_on_gate "$rsh_f" "$rsh_x"; then rsh_g=$rsh_x; fi; done
+    rsh_fl=$(cfg "risk.$rsh_n.flag"); [ -z "$rsh_fl" ] || rsh_fl="$rsh_fl:$(plan_flag "$(run_dir "$1")/PLAN.md" "$rsh_fl")"
+    printf 'signal.%s=source=%s check=%s:%s%s flag=%s design_role=%s\n' "$rsh_n" "$rsh_src" "${rsh_g:--}" "$rsh_f" \
+      "$([ -n "$rsh_g" ] || printf ' (no required gate carries it for this class and tier)')" "${rsh_fl:--}" "$(cfg "risk.$rsh_n.design_role" -)"
+  done
+  risk_missing_flags "$1" | while IFS='|' read -r rsh_n rsh_src rsh_p rsh_fl; do
+    printf 'missing_flag.%s=%s:%s needs PLAN.md %s: yes (%s)\n' "$rsh_n" "$rsh_src" "$rsh_p" "$rsh_fl" \
+      "$([ "$rsh_src" = diff ] && echo "a blocking finding of focus $(cfg "risk.$rsh_n.check"); the check still runs" || echo "declare it before FREEZE")"
+  done
+  for rsh_r in architect data_architect designer; do
+    rsh_by=$(printf '%s\n' "$rsh_sig" | cut -d'|' -f1 | sed '/^$/d' | sort -u | while IFS= read -r rsh_n; do [ "$(cfg "risk.$rsh_n.design_role")" != "$rsh_r" ] || printf '%s ' "$rsh_n"; done)
+    [ -z "$rsh_by" ] || printf 'design_role.%s=%s\n' "$rsh_r" "${rsh_by% }"
+  done
+}
+# risk_unsupported ID -> "GATE:focus|finding" for each UNSUPPORTED finding of a current focus record (never a PASS).
+risk_unsupported() {
+  for ru_g in $(required_gates "$1"); do
+    for ru_f in $(risk_gate_focuses "$1" "$ru_g"); do
+      ru_r=$(gate_latest_file "$1" "$ru_g" "$ru_f"); [ -n "$ru_r" ] || continue
+      sed -n 's/^finding: [^|]*|blocking|[^|]*|\(UNSUPPORTED [^|]*\)|.*/\1/p' "$ru_r" | sed "s#^#$ru_g:$ru_f|#"
+    done
+  done
+}
+
 # --- Gates (D14): SECRETS, REVIEW_SMALL, REVIEW_PLAN, REVIEW_RULES, REVIEW_TESTS, REVIEW_DATA, SECURITY, QA, VERIFY.
 required_gates() { # ID [TIER]
   pipeline_declared "$1" && pipeline_class_valid "$(pipeline_class "$1")" || return 0
@@ -694,7 +820,8 @@ required_gates() { # ID [TIER]
   case "$rg_tier" in
     small) echo REVIEW_SMALL ;;
     full) echo REVIEW_PLAN; echo REVIEW_RULES; echo REVIEW_TESTS
-      if [ -f "$(run_dir "$1")/PLAN.md" ] && plan_section_present "$(run_dir "$1")/PLAN.md" Data; then echo REVIEW_DATA; fi
+      # A78: a migration signal needs REVIEW_DATA even when PLAN.md has no `## Data` (the missing flag is a finding there).
+      if { [ -f "$(run_dir "$1")/PLAN.md" ] && plan_section_present "$(run_dir "$1")/PLAN.md" Data; } || [ -n "$(risk_gate_focuses "$1" REVIEW_DATA)" ]; then echo REVIEW_DATA; fi
       echo SECURITY ;;
   esac
   if [ "$(pipeline_needs "$1" qa)" = yes ]; then echo QA; fi
@@ -702,10 +829,12 @@ required_gates() { # ID [TIER]
 }
 gate_owner() { case "$1" in REVIEW_*) echo reviewer ;; SECURITY) echo security_reviewer ;; QA) echo qa ;; VERIFY) echo verifier ;; SECRETS) echo secret-scan ;; esac; }
 gate_focus() { case "$1" in REVIEW_SMALL) echo rules+tests ;; REVIEW_PLAN) echo plan ;; REVIEW_RULES) echo rules ;; REVIEW_TESTS) echo tests ;; REVIEW_DATA) echo data ;; esac; }
-gate_of() { # ROLE [FOCUS]
+gate_of() { # ROLE [FOCUS] [ID]: a rules-gate risk focus (A78) lands on REVIEW_SMALL when the run's tier is small
   case "$1:${2:-}" in
     reviewer:plan) echo REVIEW_PLAN ;; reviewer:rules) echo REVIEW_RULES ;; reviewer:tests) echo REVIEW_TESTS ;;
-    reviewer:data) echo REVIEW_DATA ;; reviewer:rules+tests) echo REVIEW_SMALL ;;
+    reviewer:data|reviewer:migration) echo REVIEW_DATA ;; reviewer:rules+tests) echo REVIEW_SMALL ;;
+    reviewer:contract|reviewer:concurrency|reviewer:performance|reviewer:config)
+      if [ -n "${3:-}" ] && required_gates "$3" | grep -Fxq REVIEW_SMALL; then echo REVIEW_SMALL; else echo REVIEW_RULES; fi ;;
     security_reviewer:*) echo SECURITY ;; qa:*) echo QA ;; verifier:*) echo VERIFY ;; *) return 1 ;;
   esac
 }
@@ -733,6 +862,8 @@ pipeline_check() {
     plan_section_present "$dir/PLAN.md" Architecture || fail "the $class pipeline requires an '## Architecture' section in PLAN.md (the Architect's contribution)"
   fi
   [ "$(plan_destructive "$dir/PLAN.md")" != invalid ] || fail "PLAN.md '## Data' must start with 'destructive: yes' or 'destructive: no'"
+  pc_bad=$(plan_risk_invalid "$dir/PLAN.md")
+  [ -z "$pc_bad" ] || fail "PLAN.md '## Risk' holds only flag lines '<flag>: yes|no' (flags: $risk_plan_flags); not one: $pc_bad"
   pc_max=$(pipeline_value "$class" max_scope_paths)
   if [ -n "$pc_max" ]; then
     pc_n=$(scope_mappings "$dir/PLAN.md" | wc -l | tr -d ' ')
@@ -745,6 +876,7 @@ pipeline_show() {
   id=$1; require_run "$id"; dir=$(run_dir "$id")
   pipeline_declared "$id" || fail "run $id has no pipeline block"
   class=$(pipeline_class "$id"); pipeline_class_valid "$class" || fail "run $id is not classified yet"
+  risk_prime "$id"
   ps_tier=$(tier_effective "$id"); ps_gates=$(required_gates "$id" "$ps_tier" | tr '\n' ' ' | sed 's/ $//')
   ps_art='TASK.md PLAN.md'
   [ "$(pipeline_needs "$id" evidence)" != yes ] || ps_art="$ps_art EVIDENCE.md"
@@ -757,6 +889,12 @@ pipeline_show() {
     "$( [ "$ps_round" -ge 2 ] && echo yes || echo no )" "$ps_gates"
   ps_fp=$(content_fingerprint)
   for ps_g in $ps_gates; do printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" strict "$ps_fp")"; done
+  # A78: risk signals, the focus each one adds to a gate, the per-focus status and the design roles to dispatch.
+  for ps_g in $ps_gates; do
+    for ps_f in $(risk_gate_focuses "$id" "$ps_g"); do printf 'focus.%s.%s=%s\n' "$ps_g" "$ps_f" "$(gate_focus_status "$id" "$ps_g" "$ps_f" strict "$ps_fp")"; done
+  done
+  risk_show "$id"
+  risk_unsupported "$id" | while IFS='|' read -r ps_k ps_t; do printf 'unsupported.%s=%s\n' "$ps_k" "$ps_t"; done
 }
 class_rank() { case "$1" in TRIVIAL) echo 0 ;; STANDARD) echo 1 ;; COMPLEX) echo 2 ;; CRITICAL) echo 3 ;; *) echo 0 ;; esac; }
 classify() {
@@ -795,7 +933,7 @@ replace_hashes() {
   evidence_hash=not_required; [ "$(pipeline_needs "$id" evidence)" != yes ] || evidence_hash=$(hash_file "$dir/EVIDENCE.md")
   qa_plan_hash=not_required; [ "$(pipeline_needs "$id" qa)" != yes ] || qa_plan_hash=$(hash_file "$dir/QA_PLAN.md")
   scope_paths=$(scope_mappings "$dir/PLAN.md" | cut -d '|' -f1 | tr '\n' ',' | sed 's/,$//')
-  awk -v a="$task_hash" -v b="$evidence_hash" -v c="$plan_hash" -v d="$policy_hash" -v e="$qa_plan_hash" -v f="$(pipeline_signature "$id")" -v s="$scope_paths" '
+  awk -v a="$task_hash" -v b="$evidence_hash" -v c="$plan_hash" -v d="$policy_hash" -v e="$qa_plan_hash" -v f="$(pipeline_signature "$id")" -v s="$scope_paths" -v r="$(risk_config | sha256)" '
     /^freeze:$/ { i=1; print; next } i && /^[^[:space:]#]/ { i=0 }
     i && /^  task_sha256:/ { print "  task_sha256: \"" a "\""; next }
     i && /^  evidence_sha256:/ { print "  evidence_sha256: \"" b "\""; next }
@@ -804,6 +942,7 @@ replace_hashes() {
     i && /^  policy_sha256:/ { print "  policy_sha256: \"" d "\""; next }
     i && /^  pipeline:/ && f != "" { print "  pipeline: \"" f "\""; next }
     i && /^  scope_paths:/ { print "  scope_paths: \"" s "\""; next }
+    i && /^  risk_sha256:/ { print "  risk_sha256: \"" r "\""; next }
     { print }
   ' "$dir/RUN.yaml" > "$target"
 }
@@ -822,6 +961,10 @@ verify_freeze() {
   done
   if gates_enforced "$id"; then
     [ "$(section_value "$dir" freeze pipeline)" = "$(pipeline_signature "$id")" ] || fail "freeze mismatch: pipeline (the classification changed or was removed after freeze; an amendment and refreeze are required)"
+  fi
+  # A78: the risk signal mapping (config `risk:`) is frozen with the plan; it never changes under a frozen run.
+  if section_key_present "$dir" freeze risk_sha256; then
+    [ "$(section_value "$dir" freeze risk_sha256)" = "$(risk_config | sha256)" ] || fail "freeze mismatch: risk (the risk: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
   fi
   stored=$(section_value "$dir" freeze policy_sha256); actual=$(hash_file "$agents/modes/$mode.yaml")
   [ -n "$stored" ] && [ "$stored" = "$actual" ] || fail "freeze mismatch: policy"
@@ -1210,6 +1353,7 @@ known_control_artifact() {
     amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|reports/*|questions/*|approvals/*|waivers/*|security/*) return 0 ;;
     scratch/*) return 0 ;;
     reviews/proof-review/plan/*|reviews/proof-review/rules/*|reviews/proof-review/small/*|reviews/test-trust/tests/*|reviews/test-trust/qa/*|reviews/data-design/*) return 0 ;;
+    reviews/proof-review/config/*|reviews/contract-proof/*|reviews/concurrency-proof/*|reviews/performance-proof/*|reviews/data-migration/*|reviews/visual-proof/*) return 0 ;;   # A78
     design/*.md|design/*.json) return 0 ;;
     EVIDENCE.md) [ "$(pipeline_needs "$id" evidence)" = yes ] && return 0 ;;
     QA_PLAN.md|QA_REPORT.md) [ "$(pipeline_needs "$id" qa)" = yes ] && return 0 ;;
@@ -1792,28 +1936,35 @@ blocking_finding_ids() { sed -n 's/^finding: \([^|]*\)|\([a-z]*\)|.*/\1 \2/p' "$
 # gate_status ID GATE [strict|patch] [NOW]: pass | pass_low | waived | fail | stale | missing.
 # strict binds the content fingerprint (any byte); patch binds the task-owned patch (after CODE_DONE,
 # when knowledge and report bookkeeping legitimately change the tree).
+# A gate is the worst status over its own focus and every risk focus it carries for the run (A78), so a gate
+# is never satisfied while a required focus result is missing, stale, failing or UNSUPPORTED.
 gate_status() {
   gs_id=$1 gs_gate=$2 gs_mode=${3:-strict} gs_now=${4:-}
-  if [ "$gs_mode" = strict ]; then gs_key=fingerprint; [ -n "$gs_now" ] || gs_now=$(content_fingerprint)
-  else gs_key=patch_sha256; [ -n "$gs_now" ] || gs_now=$(task_patch_fingerprint "$gs_id"); fi
-  gs_reopen=$(last_reopen_seq "$gs_id"); gs_last=''
-  for gs_n in $(gate_names "$gs_id"); do
-    gs_f=$(gates_dir "$gs_id")/$gs_n
-    [ "$(gate_field "$gs_f" gate)" = "$gs_gate" ] || continue
-    [ "$(gate_field "$gs_f" seq)" -gt "$gs_reopen" ] || continue
-    gs_last=$gs_f
+  if [ "$gs_mode" = strict ]; then [ -n "$gs_now" ] || gs_now=$(content_fingerprint)
+  else [ -n "$gs_now" ] || gs_now=$(task_patch_fingerprint "$gs_id"); fi
+  gs_worst=pass
+  for gs_fc in - $(risk_gate_focuses "$gs_id" "$gs_gate"); do
+    gs_s=$(gate_focus_status "$gs_id" "$gs_gate" "$gs_fc" "$gs_mode" "$gs_now")
+    if [ "$(status_rank "$gs_s")" -gt "$(status_rank "$gs_worst")" ]; then gs_worst=$gs_s; fi
   done
-  [ -n "$gs_last" ] || { echo missing; return 0; }
-  if [ "$(gate_field "$gs_last" "$gs_key")" != "$gs_now" ] || ! valid_gate_file "$gs_id" "$gs_last"; then echo stale; return 0; fi
-  case "$(gate_field "$gs_last" result)" in
+  printf '%s\n' "$gs_worst"
+}
+status_rank() { case "$1" in pass) echo 0 ;; waived) echo 1 ;; pass_low) echo 2 ;; missing) echo 3 ;; stale) echo 4 ;; *) echo 5 ;; esac; }
+# gate_focus_status ID GATE FOCUS MODE NOW: the latest record of that gate and focus ('-' = the gate's own focus).
+gate_focus_status() {
+  gfs_id=$1 gfs_gate=$2; gfs_key=fingerprint; [ "$4" = strict ] || gfs_key=patch_sha256
+  gfs_last=$(gate_latest_file "$gfs_id" "$gfs_gate" "$3")
+  [ -n "$gfs_last" ] || { echo missing; return 0; }
+  if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] || ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
+  case "$(gate_field "$gfs_last" result)" in
     pass) echo pass ;; pass_low) echo pass_low ;;
-    fail) if fail_fully_waived "$gs_id" "$gs_last"; then echo waived; else echo fail; fi ;;
+    fail) if fail_fully_waived "$gfs_id" "$gfs_last"; then echo waived; else echo fail; fi ;;
     *) echo stale ;;
   esac
 }
 gate_satisfied() { case "$1" in pass|waived) return 0 ;; *) return 1 ;; esac; }
 verify_required_gates() { # ID strict|patch MESSAGE
-  vrg_now=''; [ "$2" != strict ] || vrg_now=$(content_fingerprint)
+  vrg_now=''; [ "$2" != strict ] || vrg_now=$(content_fingerprint); risk_prime "$1"
   for vrg_g in $(required_gates "$1"); do
     vrg_s=$(gate_status "$1" "$vrg_g" "$2" "$vrg_now")
     gate_satisfied "$vrg_s" || fail "$3: required gate $vrg_g of $1 is $vrg_s for the current content (see 'agent.sh pipeline $1')"
@@ -2060,9 +2211,11 @@ artifact_paths() { # ROLE KIND FOCUS
   case "$1:$2:$3" in
     reviewer:*:plan) echo reviews/proof-review/plan/ ;; reviewer:*:rules) echo reviews/proof-review/rules/ ;;
     reviewer:*:rules+tests) echo reviews/proof-review/small/ ;; reviewer:*:tests) echo reviews/test-trust/tests/ ;;
-    reviewer:*:data) echo reviews/data-design/ ;; reviewer:*) echo reviews/proof-review/ ;;
+    reviewer:*:data) echo reviews/data-design/ ;;
+    reviewer:*:contract|reviewer:*:concurrency|reviewer:*:performance|reviewer:*:config|reviewer:*:migration) risk_focus_report "$3" ;;
+    reviewer:*) echo reviews/proof-review/ ;;
     security_reviewer:*) echo security/ ;;
-    qa:gate:*) echo QA_REPORT.md ;; qa:*) echo 'QA_PLAN.md reports/ reviews/test-trust/qa/' ;;
+    qa:gate:visual) echo reviews/visual-proof/ ;; qa:gate:*) echo QA_REPORT.md ;; qa:*) echo 'QA_PLAN.md reports/ reviews/test-trust/qa/' ;;
     verifier:*) echo 'VERIFY.md design/SYNC.md' ;;
     implementer:*) echo 'reports/ worker-evidence/' ;;
     task_author:*) echo 'TASK.md design/INTENT.md reports/' ;;
@@ -2080,6 +2233,7 @@ artifact_allowed() { # ROLE KIND FOCUS PATH
 }
 record_validate() {
   rv_id=$1 rv_t=$2; rv_d=$(run_dir "$1")
+  risk_prime "$rv_id"
   parse_header "$rv_t/raw" > "$rv_t/hdr" || { record_reject "malformed header (expected ROLE/TASK/[FOCUS]/RESULT/CONFIDENCE/FINGERPRINT/ARTIFACT lines first)"; return 1; }
   for rv_k in ROLE TASK RESULT CONFIDENCE FINGERPRINT ARTIFACT; do [ -n "$(hdr "$rv_k" "$rv_t/hdr")" ] || { record_reject "malformed header: missing $rv_k"; return 1; }; done
   rv_role=$(canon_role "$(hdr ROLE "$rv_t/hdr")"); rv_res=$(hdr RESULT "$rv_t/hdr"); rv_focus=$(hdr FOCUS "$rv_t/hdr"); rv_conf=$(hdr CONFIDENCE "$rv_t/hdr")
@@ -2089,7 +2243,14 @@ record_validate() {
   case "$rv_conf" in high|medium|low) ;; *) record_reject "invalid CONFIDENCE: $rv_conf"; return 1 ;; esac
   # The RESULT value set decides gate result versus task result, validated against the role.
   rv_kind=''
+  # A78: FOCUS names the gate's own focus or a risk focus of this role; UNSUPPORTED is a risk-focus gate result.
+  if [ -n "$rv_focus" ] && [ "$rv_role" != reviewer ]; then
+    [ "$(risk_focus_role "$rv_focus" 2>/dev/null)" = "$rv_role" ] || { record_reject "FOCUS $rv_focus is not a focus of role $rv_role"; return 1; }
+  fi
   case "$rv_res" in
+    UNSUPPORTED) if is_gate_role "$rv_role" && risk_focus_role "$rv_focus" >/dev/null 2>&1; then rv_kind=gate; else record_reject "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"; return 1; fi
+      [ "$rv_focus" != dependencies ] || { record_reject "the dependencies focus always has a tool-free check (the manifest diff against PLAN ## Dependencies); UNSUPPORTED is not available"; return 1; }
+      grep -q '^UNSUPPORTED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)"; return 1; } ;;
     PASS|FAIL) is_gate_role "$rv_role" && rv_kind=gate ;;
     BLOCKED) if is_gate_role "$rv_role" && [ "$rv_role" != qa ]; then rv_kind=gate; else rv_kind=task; fi ;;
     DONE|NEEDS_INPUT) case "$rv_role" in reviewer|security_reviewer|verifier) ;; *) rv_kind=task ;; esac ;;
@@ -2098,8 +2259,11 @@ record_validate() {
   [ -n "$rv_kind" ] || { record_reject "RESULT $rv_res is not valid for role $rv_role"; return 1; }
   rv_gate=''
   if [ "$rv_kind" = gate ]; then
-    if [ "$rv_role" = reviewer ]; then case "$rv_focus" in plan|rules|tests|data|rules+tests) ;; *) record_reject "reviewer results need FOCUS plan|rules|tests|data|rules+tests"; return 1 ;; esac; fi
-    rv_gate=$(gate_of "$rv_role" "$rv_focus")
+    if [ "$rv_role" = reviewer ]; then case "$rv_focus" in plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration) ;; *) record_reject "reviewer results need FOCUS plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration"; return 1 ;; esac; fi
+    rv_gate=$(gate_of "$rv_role" "$rv_focus" "$rv_id")
+    if risk_focus_role "$rv_focus" >/dev/null 2>&1; then
+      risk_gate_focuses "$rv_id" "$rv_gate" | grep -Fxq -- "$rv_focus" || { record_reject "focus $rv_focus is not required on $rv_gate of $rv_id: no risk signal triggers it (see 'agent.sh pipeline $rv_id')"; return 1; }
+    fi
   fi
   rv_fp=$(hdr FINGERPRINT "$rv_t/hdr"); rv_now=$(content_fingerprint)
   [ "$rv_fp" = "$rv_now" ] || { record_reject "stale: FINGERPRINT $rv_fp is not the current content fingerprint $rv_now"; return 1; }
@@ -2148,6 +2312,24 @@ record_validate() {
   rv_blocking=$(awk -F'|' '$2 != "info"' "$rv_t/findings" | wc -l | tr -d ' ')
   if [ "$rv_res" = FAIL ] && [ "$rv_blocking" = 0 ]; then record_reject "FAIL needs at least one blocking finding"; return 1; fi
   if [ "$rv_res" = PASS ] && [ "$rv_blocking" != 0 ]; then record_reject "PASS cannot carry blocking findings"; return 1; fi
+  if [ "$rv_res" = UNSUPPORTED ] && [ "$rv_blocking" != 0 ]; then record_reject "UNSUPPORTED cannot carry blocking findings (a check that ran is PASS or FAIL)"; return 1; fi
+  # A78: the script's own findings. UNSUPPORTED becomes one blocking row (never a PASS; the user may waive it);
+  # a diff signal of this focus without its PLAN.md flag becomes one blocking row per path. Either makes it FAIL.
+  rv_added=0
+  if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ] && risk_focus_role "$rv_focus" >/dev/null 2>&1; then
+    rv_next=$(awk -F'|' '{ n = $1; sub(/.*-/, "", n); if (n + 0 > m) m = n + 0 } END { print m + 1 }' "$rv_t/findings")
+    if [ "$rv_res" = UNSUPPORTED ]; then
+      printf '%s-%s|blocking|-|UNSUPPORTED %s: %s|%s\n' "$rv_gate" "$rv_next" "$rv_focus" "$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1 | tr '|' '/')" "$rv_ap" >> "$rv_t/findings"
+      rv_next=$((rv_next + 1)); rv_added=$((rv_added + 1))
+    fi
+    for rv_m in $(risk_missing_flags "$rv_id" "$rv_focus" | awk -F'|' '$2 == "diff" { print $1 "|" $3 "|" $4 }'); do
+      rv_mn=${rv_m%%|*} rv_mfl=${rv_m##*|}; rv_mp=${rv_m#*|}; rv_mp=${rv_mp%|*}
+      printf '%s-%s|blocking|%s|risk signal %s without PLAN.md flag %s: the change touches it but the plan does not declare it (A78)|agent.sh pipeline %s: %s matches risk.%s and PLAN.md has no %s yes\n' \
+        "$rv_gate" "$rv_next" "$rv_mp" "$rv_mn" "$rv_mfl" "$rv_id" "$rv_mp" "$rv_mn" "$rv_mfl" >> "$rv_t/findings"
+      rv_next=$((rv_next + 1)); rv_added=$((rv_added + 1))
+    done
+    if [ "$rv_added" -gt 0 ]; then rv_res=FAIL; fi
+  fi
   if [ "$rv_res" = BLOCKED ] && ! grep -q '^BLOCKED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw"; then record_reject "BLOCKED needs a BLOCKED_REASON line"; return 1; fi
   if [ "$rv_res" = NEEDS_INPUT ]; then
     awk '/^QUESTIONS:[[:space:]]*$/ { q=1; next } q && /^BLOCKED_REASON:/ { exit } q { print }' "$rv_t/raw" > "$rv_t/questions"
@@ -2155,6 +2337,7 @@ record_validate() {
   fi
   if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ]; then gate_preconditions "$rv_id" "$rv_gate"; fi
   printf 'role=%s\nresult=%s\nkind=%s\ngate=%s\nfocus=%s\nconfidence=%s\nartifact=%s\nfingerprint=%s\ngrill=%s\n' "$rv_role" "$rv_res" "$rv_kind" "$rv_gate" "$rv_focus" "$rv_conf" "$rv_ap" "$rv_fp" "$rv_grill" > "$rv_t/meta"
+  printf 'added=%s\n' "$rv_added" >> "$rv_t/meta"
 }
 record_apply() {
   ra_id=$1 ra_t=$2; ra_d=$(run_dir "$1"); m() { sed -n "s/^$1=//p" "$ra_t/meta"; }
@@ -2175,6 +2358,7 @@ record_apply() {
   fi
   if gates_enforced "$ra_id"; then ledger_append "$ra_id" "record:$ra_role:$ra_res" - - "$ra_raw sha256=$ra_sha${ra_gate:+ gate=$ra_gate}"; fi
   metrics_step "$ra_id" "$ra_role" "$ra_focus" "$(printf '%s' "$ra_res" | tr "[:upper:]" "[:lower:]")"
+  [ "$(m added)" = 0 ] || echo "risk: $(m added) script finding(s) added to $ra_gate focus $ra_focus (UNSUPPORTED or a risk signal without its PLAN.md flag, A78); the result is FAIL"
   echo "result recorded: $ra_id $ra_raw ($ra_role $ra_res)"
 }
 # --- Language check (A33): run artifacts are English. -----------------------------------------
@@ -2215,6 +2399,7 @@ verify_run_language() {
 submission_dir() { printf '%s/local/submissions\n' "$agents"; }
 # default_artifact ROLE RESULT FOCUS: where the role's report lives, when there is exactly one such place.
 default_artifact() {
+  if [ -n "${3:-}" ] && risk_focus_role "$3" >/dev/null; then printf '%sREPORT.md\n' "$(risk_focus_report "$3")"; return 0; fi
   case "$1:$2" in
     qa:DONE) echo QA_PLAN.md ;;
     reviewer:*|security_reviewer:*|qa:*|verifier:*) if gate_of "$1" "$3" >/dev/null 2>&1; then gate_default_artifact "$(gate_of "$1" "$3")"; fi ;;
@@ -2239,6 +2424,8 @@ focus_from_artifact() {
   case "$1" in
     reviews/proof-review/plan/*) echo plan ;; reviews/proof-review/rules/*) echo rules ;; reviews/proof-review/small/*) echo rules+tests ;;
     reviews/test-trust/tests/*) echo tests ;; reviews/data-design/*) echo data ;;
+    reviews/proof-review/config/*) echo config ;; reviews/contract-proof/*) echo contract ;; reviews/concurrency-proof/*) echo concurrency ;;
+    reviews/performance-proof/*) echo performance ;; reviews/data-migration/*) echo migration ;;
   esac
 }
 submit_status() { # TOKEN STATUS ID ROLE RESULT GATE RAW ERROR
@@ -2296,16 +2483,20 @@ submit_result() {
       PASS) [ "$sb_blocking" = 0 ] || submit_fail "--result PASS contradicts $sb_blocking blocking finding(s); the result of a gate follows from the findings" ;;
       FAIL) [ "$sb_blocking" -gt 0 ] || submit_fail "--result FAIL needs at least one blocking finding" ;;
       BLOCKED) ;;
-      *) submit_fail "--result $sb_res is not valid for role $execution_role (gate roles: PASS FAIL BLOCKED, or omit it)" ;;
+      # A78: a risk focus whose tool or skill is missing; recorded as a blocking UNSUPPORTED finding, never a PASS.
+      UNSUPPORTED) [ "$sb_blocking" = 0 ] || submit_fail "--result UNSUPPORTED cannot carry blocking findings (a check that ran is PASS or FAIL)"
+        [ -n "$sb_reason" ] || submit_fail "--result UNSUPPORTED needs --reason naming the missing tool or skill" ;;
+      *) submit_fail "--result $sb_res is not valid for role $execution_role (gate roles: PASS FAIL BLOCKED UNSUPPORTED, or omit it)" ;;
     esac
   fi
-  case "$sb_res" in PASS|FAIL|BLOCKED|DONE|NEEDS_INPUT) ;; *) submit_fail "--result is required (DONE, BLOCKED or NEEDS_INPUT for role $execution_role)" ;; esac
+  case "$sb_res" in PASS|FAIL|BLOCKED|UNSUPPORTED|DONE|NEEDS_INPUT) ;; *) submit_fail "--result is required (DONE, BLOCKED or NEEDS_INPUT for role $execution_role)" ;; esac
   if [ "$execution_role" = reviewer ]; then
     [ -n "$sb_focus" ] || { [ -z "$sb_art" ] || sb_focus=$(focus_from_artifact "$(normalize_artifact "$sb_id" "$sb_art" 2>/dev/null || true)"); }
-    case "$sb_focus" in plan|rules|tests|data|rules+tests) ;; *) submit_fail "reviewer submissions need --focus plan|rules|tests|data|rules+tests" ;; esac
+    case "$sb_focus" in plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration) ;; *) submit_fail "reviewer submissions need --focus plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration" ;; esac
+  elif [ -n "$sb_focus" ] && [ "$(risk_focus_role "$sb_focus" 2>/dev/null)" = "$execution_role" ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then :
   else sb_focus=''
   fi
-  sb_gate=''; sb_gate=$(gate_of "$execution_role" "$sb_focus" 2>/dev/null || true)
+  sb_gate=''; sb_gate=$(gate_of "$execution_role" "$sb_focus" "$sb_id" 2>/dev/null || true)
   # Artifact: normalised and hashed here. --report FILE|-: the script writes the artifact from that text, so a
   # specialist never needs the Write tool (a subagent runtime may refuse report files) or a scratch file.
   [ -n "$sb_art" ] || sb_art=$(default_artifact "$execution_role" "$sb_res" "$sb_focus")
@@ -2359,12 +2550,13 @@ submit_result() {
   esac
   {
     printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
-    [ -z "$sb_focus" ] || [ "$execution_role" != reviewer ] || printf 'FOCUS: %s\n' "$sb_focus"
+    [ -z "$sb_focus" ] || printf 'FOCUS: %s\n' "$sb_focus"
     printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(content_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
     printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
     sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
     awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
     if [ "$sb_res" = BLOCKED ]; then printf '\nBLOCKED_REASON: %s\n' "$(one_line "${sb_reason:-see $sb_norm}")"; fi
+    if [ "$sb_res" = UNSUPPORTED ]; then printf '\nUNSUPPORTED_REASON: %s\n' "$(one_line "$sb_reason")"; fi
     if [ "$sb_res" = NEEDS_INPUT ]; then
       printf '\nQUESTIONS:\n'
       if [ -n "$sb_questions" ]; then cat "$sb_tmp/questions.in"
@@ -2377,6 +2569,9 @@ submit_result() {
     submit_fail "$sb_msg"
   fi
   sb_raw=$(sed -n 's/^result recorded: [^ ]* \([^ ]*\) .*/\1/p' "$sb_tmp/out" | head -1)
+  # record may turn the result into FAIL (A78 script findings); the recorded result is the one reported.
+  sb_final=$(sed -n 's/^result recorded: .* ([^ ]* \([A-Z_]*\))$/\1/p' "$sb_tmp/out" | head -1); sb_res=${sb_final:-$sb_res}
+  sed -n 's/^risk: /risk: /p' "$sb_tmp/out"
   submit_status "$sb_agent" ok "$sb_id" "$execution_role" "$sb_res" "$sb_gate" "$sb_raw" ''
   printf 'submitted: %s %s %s%s (%s)\n' "$sb_id" "$execution_role" "$sb_res" "${sb_gate:+ gate=$sb_gate}" "${sb_raw:-no raw}"
 }
@@ -2642,11 +2837,14 @@ approval_consume() { # ID KIND [FINGERPRINT] — for the git hooks; exit 0 iff a
 }
 
 # --- Waivers (D16) -------------------------------------------------------------------------
-gate_latest_file() { # ID GATE -> latest record after the last reopen
+gate_latest_file() { # ID GATE [FOCUS] -> latest record after the last reopen (of that focus; '-' = the gate's own)
   gl_reopen=$(last_reopen_seq "$1"); gl_last=''
+  gl_fc=${3:-}; [ "$gl_fc" != - ] || gl_fc=$(gate_focus "$2")
   for gl_n in $(gate_names "$1"); do
     gl_f=$(gates_dir "$1")/$gl_n
-    [ "$(gate_field "$gl_f" gate)" = "$2" ] && [ "$(gate_field "$gl_f" seq)" -gt "$gl_reopen" ] && gl_last=$gl_f
+    [ "$(gate_field "$gl_f" gate)" = "$2" ] && [ "$(gate_field "$gl_f" seq)" -gt "$gl_reopen" ] || continue
+    [ -z "${3:-}" ] || [ "$(gate_field "$gl_f" focus)" = "$gl_fc" ] || continue
+    gl_last=$gl_f
   done
   printf '%s\n' "$gl_last"
 }
@@ -2655,9 +2853,11 @@ gate_latest_file() { # ID GATE -> latest record after the last reopen
 waive_target() {
   wt_now=${3:-$(content_fingerprint)} wt_rec=''
   for wt_g in $(required_gates "$1"); do
-    [ "$(gate_status "$1" "$wt_g" strict "$wt_now")" = fail ] || continue
-    wt_f=$(gate_latest_file "$1" "$wt_g")
-    if blocking_finding_ids "$wt_f" | grep -Fxq -- "$2"; then wt_rec=$wt_f; fi
+    for wt_fc in - $(risk_gate_focuses "$1" "$wt_g"); do
+      [ "$(gate_focus_status "$1" "$wt_g" "$wt_fc" strict "$wt_now")" = fail ] || continue
+      wt_f=$(gate_latest_file "$1" "$wt_g" "$wt_fc")
+      if blocking_finding_ids "$wt_f" | grep -Fxq -- "$2"; then wt_rec=$wt_f; fi
+    done
   done
   # explicit returns: callers use it inside || where `set -e` is off
   [ -n "$wt_rec" ] || { fail "no open blocking finding $2 on the current content of $1"; return 1; }
@@ -2793,8 +2993,8 @@ decide() {
   [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
   dc_stats=$(diff_stats "$dc_id"); if [ "${dc_stats% *}" -gt 15 ] || [ "${dc_stats#* }" -gt 400 ]; then dc_sig="$dc_sig large_diff"; fi
   [ "$(fix_rounds_used "$dc_id")" -lt 2 ] || dc_sig="$dc_sig fix_round_2"
-  if dc_gate=$(gate_of "$dc_role" "$dc_focus" 2>/dev/null); then
-    dc_lf=$(gate_latest_file "$dc_id" "$dc_gate")
+  if dc_gate=$(gate_of "$dc_role" "$dc_focus" "$dc_id" 2>/dev/null); then
+    dc_lf=$(gate_latest_file "$dc_id" "$dc_gate" "${dc_focus:--}")
     if [ -n "$dc_lf" ]; then
       case "$(gate_field "$dc_lf" result)" in fail) dc_sig="$dc_sig recent_fail_same_focus" ;; pass_low) dc_sig="$dc_sig low_confidence_pass" ;; esac
     fi
@@ -2881,7 +3081,7 @@ metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURN
 
 # --- next (deterministic next step; an interrupted step restarts from its beginning) -------
 next_step() {
-  ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id")
+  ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id"); risk_prime "$ns_id"
   ns_st=$(run_state "$ns_d"); ns_hs=$(section_value "$ns_d" handoff state)
   printf 'task=%s\nstate=%s\nhandoff=%s\n' "$ns_id" "$ns_st" "$ns_hs"
   o() { printf 'next=%s\n' "$*"; }
@@ -2898,6 +3098,13 @@ next_step() {
     if [ "$(pipeline_needs "$ns_id" evidence)" = yes ] && [ ! -f "$ns_d/EVIDENCE.md" ]; then o "dispatch.sh $ns_id explorer (one per bounded assignment, at most $(pipeline_value "$ns_class" max_explorers)); then consolidate EVIDENCE.md"; r "EVIDENCE.md missing"; return 0; fi
     [ -f "$ns_d/PLAN.md" ] || { o "write PLAN.md (plan-contract)"; r "PLAN.md missing"; return 0; }
     if [ "$(pipeline_needs "$ns_id" architect)" = yes ] && ! plan_section_present "$ns_d/PLAN.md" Architecture; then o "dispatch.sh $ns_id architect (PLAN.md ## Architecture)"; r "the $ns_class pipeline needs an Architecture section"; return 0; fi
+    # A78: a risk signal of the planned scope (or the diff so far) without its PLAN.md flag: the design role declares it.
+    ns_mf=$(risk_missing_flags "$ns_id" | head -1)
+    if [ -n "$ns_mf" ]; then
+      ns_mn=${ns_mf%%|*}; ns_mfl=${ns_mf##*|}; ns_mp=${ns_mf#*|*|}; ns_mp=${ns_mp%|*}
+      o "dispatch.sh $ns_id $(cfg "risk.$ns_mn.design_role" architect) (declare $ns_mfl in PLAN.md for risk signal $ns_mn: $ns_mp; see agent.sh pipeline $ns_id)"
+      r "risk signal $ns_mn without its plan flag $ns_mfl (A78): after IMPLEMENT it is a blocking finding"; return 0
+    fi
     if [ "$(pipeline_needs "$ns_id" qa)" = yes ] && [ ! -f "$ns_d/QA_PLAN.md" ]; then o "dispatch.sh $ns_id qa (QA_PLAN.md)"; r "QA_PLAN.md missing"; return 0; fi
     ns_ph=$(hash_file "$ns_d/PLAN.md")
     ns_shape=$(plan_migration_shape "$ns_d/PLAN.md")
@@ -2940,13 +3147,33 @@ next_step() {
       done
       if [ -n "$ns_fail" ]; then
         ns_used=$(fix_rounds_used "$ns_id")
+        # A78: script findings are not fixed by the implementer: a missing flag is a plan amendment, UNSUPPORTED the user's call.
+        for ns_g in $ns_fail; do
+          for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
+            ns_lf=$(gate_latest_file "$ns_id" "$ns_g" "$ns_fc"); [ -n "$ns_lf" ] || continue
+            # shellcheck disable=SC2013 # finding ids contain no whitespace
+            for ns_fid in $(sed -n 's/^finding: \([^|]*\)|blocking|[^|]*|UNSUPPORTED .*/\1/p' "$ns_lf"); do
+              finding_waived "$ns_id" "$ns_lf" "$ns_fid" || o "agent.sh request-approval $ns_id waive:$ns_fid (UNSUPPORTED $ns_fc: never a PASS; the user decides whether to accept the gap, listed in the completion report)"
+            done
+            # shellcheck disable=SC2013 # finding ids contain no whitespace
+            for ns_fid in $(sed -n 's/^finding: \([^|]*\)|blocking|[^|]*|risk signal .*/\1/p' "$ns_lf"); do
+              finding_waived "$ns_id" "$ns_lf" "$ns_fid" || o "amend PLAN.md to declare the flag of $ns_fid (dispatch the design role), then agent.sh refreeze $ns_id <amendment>; or the user waives $ns_fid"
+            done
+          done
+        done
         if [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"
         else o "agent.sh terminate $ns_id FAILED (reason and evidence on stdin)"; fi
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
         for ns_x in $ns_todo; do
           ns_g=${ns_x%%:*}
-          case "$ns_g" in SECRETS) o "agent.sh secret-scan $ns_id" ;; REVIEW_*) o "dispatch.sh $ns_id reviewer --focus $(gate_focus "$ns_g")" ;; *) o "dispatch.sh $ns_id $(gate_owner "$ns_g")" ;; esac
+          case "$ns_g" in SECRETS) o "agent.sh secret-scan $ns_id" ;; *)
+            for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
+              gate_satisfied "$(gate_focus_status "$ns_id" "$ns_g" "$ns_fc" strict "$ns_fp")" && continue
+              if [ "$ns_fc" = - ]; then case "$ns_g" in REVIEW_*) o "dispatch.sh $ns_id reviewer --focus $(gate_focus "$ns_g")" ;; *) o "dispatch.sh $ns_id $(gate_owner "$ns_g")" ;; esac
+              else o "dispatch.sh $ns_id $(gate_owner "$ns_g") --focus $ns_fc"; fi
+            done ;;
+          esac
         done
         r "gates not passing:$ns_todo"
       else o "agent.sh handoff $ns_id CODE_DONE"; r "every required gate passes"; fi ;;
@@ -3023,6 +3250,7 @@ required_report_headings() {
   if ls "$dir"/gates/*-REOPEN.yaml >/dev/null 2>&1; then printf '## Reopen History\n'; fi
   if ls "$dir"/waivers/*.yaml >/dev/null 2>&1; then printf '## Waivers\n'; fi
   if [ -n "$(decision_files "$id")" ]; then printf '## Execution\n'; fi
+  if [ -n "$(risk_unsupported "$id")" ]; then printf '## Unsupported Checks\n'; fi
   return 0
 }
 validate_completion_report_structure() {
@@ -3044,6 +3272,10 @@ validate_completion_report_structure() {
     [ "$vc_s" != accepted-by-user ] || printf '%s\n' "$vc_sec" | grep -Fq "$(basename "$vc_ref")" || echo "$vc_a(answer $vc_ref)"
   done | tr '\n' ' ')
   [ -z "$vc_miss" ] || fail "completion report: '## Assumptions' does not list: $vc_miss (every unverified assumption by id with its status word, unverified or accepted-by-user; an accepted one with its answer file)"
+  # A78: every UNSUPPORTED check is named (GATE:focus) in the report; it was never a PASS.
+  for vc_u in $(risk_unsupported "$id" | cut -d'|' -f1 | sort -u); do
+    grep -Fq "$vc_u" "$report" || fail "completion report must name the UNSUPPORTED check $vc_u under '## Unsupported Checks'"
+  done
 }
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
 publish_completion_report() {
