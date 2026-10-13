@@ -65,6 +65,7 @@ known-answer EXPECTED files, which no run has fully met yet.
 cd your-project
 proofline init            # asks runtimes, profile, task adapter, protected branches, push approval
 proofline doctor          # live probes: hooks, runtimes, config, commit identity, every enforced rule
+proofline insights        # later: cost and recurring failures across runs (read-only report)
 ```
 
 Give the agent a task in plain words, or write it first:

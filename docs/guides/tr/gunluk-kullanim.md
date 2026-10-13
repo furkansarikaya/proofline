@@ -25,6 +25,7 @@ Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` 
 | `proofline review`, `audit`, `debug` | proof-review, test-trust ve debug-proof tek başına |
 | `proofline deliver <TASK>` | teslim kontrolü; asla commit atmaz |
 | `proofline clean [--yes]` | `.agents/local` durumunu ve biten run'ları sil |
+| `proofline insights [--run ID] [--json]` | salt okunur rapor: run, rol ve model bazında maliyet (token sadece runtime bildirdiyse) ve tekrar eden başarısızlıklar, öneriler; hiçbir şeyi değiştirmez |
 
 ## İyi alışkanlıklar
 
