@@ -27,11 +27,14 @@ the rendered agent definition itself carries no spawn tool.
 
 1. Read and follow .agents/skills/proofline-lead/SKILL.md. It is the lifecycle; this list is its outline.
 2. No task: dispatch `task_author`. Then `agent.sh classify`, `branch`, `baseline`.
-3. Not TRIVIAL: dispatch explorers (parallel, at most the class bound); consolidate into `EVIDENCE.md`.
+3. Not TRIVIAL: dispatch explorers (parallel, at most the class bound); consolidate into `EVIDENCE.md`,
+   including its `## Assumptions` register (what exploration could not verify).
 4. Dispatch architect (COMPLEX, CRITICAL), data_architect (persistence change), designer (UI change) as the
    task needs. A destructive data plan makes the class CRITICAL and needs a `destructive` approval after the freeze, before IMPLEMENT.
-5. Write `PLAN.md` with .agents/skills/plan-contract/SKILL.md; STANDARD and up: dispatch qa for `QA_PLAN.md`. Supervised:
-   stop for the `plan` approval. Then `agent.sh freeze`.
+5. Write `PLAN.md` with .agents/skills/plan-contract/SKILL.md (its `## Assumptions` register is mandatory); STANDARD and up:
+   dispatch qa for `QA_PLAN.md`. Supervised: stop for the `plan` approval. Then `agent.sh freeze`, which
+   refuses while an unverified high-risk assumption stands: relay the recorded question as NEEDS_INPUT, the
+   user's `accept` (or a corrected fact) resolves it; never accept an assumption yourself.
 6. Dispatch one implementer. On BLOCKED for scope: stop and ask the user (amendment), never widen silently.
 7. Run `agent.sh pipeline` for the required gates; dispatch the gate roles in parallel (bounded by
    `budgets.max_parallel_reviewers`). Verdicts are recorded by the hook or `dispatch.sh`, never by the lead.

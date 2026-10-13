@@ -125,15 +125,42 @@ test("consolidated EVIDENCE.md: base sha and derived constraints cite known ids"
     "| id | severity | path:line | finding | evidence |", "|---|---|---|---|---|", ...ROWS.map((r) => r.replace(/explorer-(\d)/, "E-$1")), "",
     "## Not found", "", "- dependency: none — 001: no dependencies", "", "## Open questions", "", "- none", "",
     "## Derived constraints", "", "- C-1: Amounts stay integer cents (E-4, E-5)", "",
+    "## Assumptions", "", "none", "",
   ].join("\n");
   assert.deepEqual(errs(md), []);
   has(md.replace("(E-4, E-5)", "(E-42)"), "unknown claim id E-42");
   has(md.replace("- Base SHA: 0123abcd", "- Base SHA: main"), "Base SHA");
 });
 
+// A79: the consolidated EVIDENCE.md carries the mandatory assumption register; Explorer results do not.
+test("consolidated EVIDENCE.md: the ## Assumptions register is mandatory and checked", () => {
+  const md = [
+    "# Evidence: T-1", "", "## Repository", "", "- Base SHA: 0123abcd", "", "## Claims", "",
+    "| id | severity | path:line | finding | evidence |", "|---|---|---|---|---|", ...ROWS.map((r) => r.replace(/explorer-(\d)/, "E-$1")), "",
+    "## Not found", "", "- dependency: none — 001: no dependencies", "", "## Open questions", "", "- none", "",
+    "## Derived constraints", "", "- none", "",
+  ];
+  const table = (...rows) => [...md, "## Assumptions", "", "| id | assumption | source | risk | verification | status | decisions |", "|---|---|---|---|---|---|---|", ...rows, ""].join("\n");
+  const row = (id, risk, method, status) => `| ${id} | legacy rows may exist | TASK.md | ${risk} | ${method} | ${status} | AC-2 |`;
+  has(md.join("\n"), 'section "## Assumptions" is missing');
+  has([...md, "## Assumptions", "", ""].join("\n"), 'section "## Assumptions" is empty');
+  assert.deepEqual(errs([...md, "## Assumptions", "", "none", ""].join("\n")), []);
+  assert.deepEqual(errs(table(row("AS-1", "low", "none", "unverified"), row("AS-2", "high", "count the rows in the staging copy", "unverified"), row("AS-3", "medium", "E-4 shows the guard", "verified"))), []);
+  // the trap: high risk marked verified without a method is rejected; a low-risk unverified row passes
+  has(table(row("AS-1", "high", "none", "verified")), "verified without a verification method");
+  has(table(row("AS-1", "high", "-", "unverified")), "a high-risk assumption needs a verification method");
+  has(table(row("AS-1", "low", "none", "accepted-by-user")), "status must be verified|unverified");
+  has(table(row("AS-1", "low", "x", "verified"), row("AS-1", "low", "x", "verified")), "duplicate id");
+  has(table(row("1", "low", "x", "verified")), "id must match AS-<n>");
+  // an Explorer result is not required to carry the section
+  assert.deepEqual(errs(evidence()), []);
+});
+
 test("enums agree with the schema", () => {
   assert.deepEqual(SCHEMA.properties.claims.items.properties.category.enum, CATEGORIES);
   assert.deepEqual(SCHEMA.properties.claims.items.properties.severity.enum, SEVERITIES);
+  assert.deepEqual(SCHEMA.properties.assumptions.items.properties.risk.enum, ["low", "medium", "high"]);
+  assert.deepEqual(SCHEMA.properties.assumptions.items.properties.status.enum, ["verified", "unverified"]);
 });
 
 test("CLI exit codes: 0 valid, 1 invalid, 2 usage", () => {

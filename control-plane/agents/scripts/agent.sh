@@ -482,6 +482,144 @@ plan_destructive() { # PLAN -> yes|no|invalid|absent
   awk '/^## Data[[:space:]]*$/ { i=1; next } i && /^[[:space:]]*$/ { next } i { v=$0; if (v ~ /^destructive:[[:space:]]*(yes|no)[[:space:]]*$/) { sub(/^destructive:[[:space:]]*/, "", v); sub(/[[:space:]]*$/, "", v); print v } else print "invalid"; exit }' "$1" | grep . || echo invalid
 }
 
+# --- Assumption register (A79) ------------------------------------------------------------------
+# PLAN.md and a consolidated EVIDENCE.md carry `## Assumptions`: `none`, or the table
+# `| id | assumption | source | risk | verification | status | decisions |` (id AS-<n>, risk low|medium|high,
+# status verified|unverified). Freeze refuses an unverified high-risk assumption unless the user answered the
+# question bound to it (`ASSUMPTION: <id>@<12 hex of sha256(text)>` in the question) with `accept...`; the run then
+# reports it as accepted-by-user with the answer file as reference. Mirrors validate-plan.mjs / verify-claims.mjs.
+# assumption_scan FILE -> NOSECTION | ERR<TAB>message | ROW<TAB>id risk status text source method decisions
+assumption_scan() {
+  awk '
+    function t(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    function nomethod(s) { s = tolower(t(s)); return s == "" || s ~ /^(none|n\/a|-|tbd|todo|unknown)$/ }
+    function err(m) { printf "ERR\t%s\n", m }
+    BEGIN { FS = "|" }
+    /^## / { inside = ($0 ~ /^## Assumptions[ \t]*$/); if (inside) found++; next }
+    !inside || found > 1 { next }
+    /^[ \t]*$/ { next }
+    tolower(t($0)) == "none" { none = 1; next }
+    /^[ \t]*\|.*\|[ \t]*$/ {
+      if (!hdr) {
+        hdr = 1
+        if (NF != 9 || tolower(t($2) "|" t($3) "|" t($4) "|" t($5) "|" t($6) "|" t($7) "|" t($8)) != "id|assumption|source|risk|verification|status|decisions") err("Assumptions: header must be | id | assumption | source | risk | verification | status | decisions |")
+        next
+      }
+      if (t($2) ~ /^:?-+:?$/) next
+      rows++
+      id = t($2); risk = t($5); st = t($7)
+      if (NF != 9) { err("Assumptions " id ": expected 7 columns"); next }
+      if (id !~ /^AS-[0-9]+$/) err("Assumptions " id ": id must match AS-<n>")
+      if (id in seen) err("Assumptions " id ": duplicate id")
+      seen[id] = 1
+      if (t($3) == "") err("Assumptions " id ": assumption text is empty")
+      if (t($4) == "") err("Assumptions " id ": source is empty")
+      if (risk != "low" && risk != "medium" && risk != "high") err("Assumptions " id ": risk must be low|medium|high")
+      if (st != "verified" && st != "unverified") err("Assumptions " id ": status must be verified|unverified (accepted-by-user is recorded by the run, not written here)")
+      if (st == "verified" && nomethod($6)) err("Assumptions " id ": verified without a verification method")
+      if (risk == "high" && nomethod($6)) err("Assumptions " id ": a high-risk assumption needs a verification method")
+      if (t($8) == "") err("Assumptions " id ": decisions is empty")
+      printf "ROW\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", id, risk, st, t($3), t($4), t($6), t($8)
+      next
+    }
+    { err("Assumptions: \"" t($0) "\" is not a table row (write none or the table)") }
+    END {
+      if (found == 0) { print "NOSECTION"; exit }
+      if (found > 1) err("section \"## Assumptions\" appears more than once")
+      else if (none && rows) err("Assumptions: \"none\" together with rows")
+      else if (!none && !rows) err("section \"## Assumptions\" has no rows: write none or the table")
+    }' "$1"
+}
+# assumption_shape_errors ID -> one problem per line (PLAN.md always, EVIDENCE.md when the pipeline needs it)
+assumption_shape_errors() {
+  ase_d=$(run_dir "$1")
+  for ase_f in PLAN.md EVIDENCE.md; do
+    if [ "$ase_f" = EVIDENCE.md ] && { [ ! -f "$ase_d/EVIDENCE.md" ] || [ "$(pipeline_needs "$1" evidence)" != yes ]; }; then continue; fi
+    [ -f "$ase_d/$ase_f" ] || continue
+    assumption_scan "$ase_d/$ase_f" | while IFS="$(printf '\t')" read -r ase_k ase_m; do
+      case "$ase_k" in NOSECTION) echo "$ase_f: the mandatory '## Assumptions' section is missing (write 'none' or the register table)" ;; ERR) echo "$ase_f: $ase_m" ;; esac
+    done
+  done
+}
+# assumption_register ID -> merged register, one line per id: id risk status text source method decisions (TAB).
+# An id present in PLAN.md and EVIDENCE.md is one assumption: the higher risk and the less verified status win.
+assumption_register() {
+  ar_d=$(run_dir "$1")
+  { assumption_scan "$ar_d/PLAN.md"; [ ! -f "$ar_d/EVIDENCE.md" ] || assumption_scan "$ar_d/EVIDENCE.md"; } | awk -F'\t' '
+    $1 != "ROW" { next }
+    { rank = ($3 == "high") ? 3 : ($3 == "medium") ? 2 : 1
+      if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2; risk[$2] = $3; rr[$2] = rank; st[$2] = $4; line[$2] = $5 "\t" $6 "\t" $7 "\t" $8 }
+      else { if (rank > rr[$2]) { rr[$2] = rank; risk[$2] = $3 } if ($4 == "unverified") st[$2] = "unverified" } }
+    END { for (i = 1; i <= n; i++) { id = order[i]; printf "%s\t%s\t%s\t%s\n", id, risk[id], st[id], line[id] } }'
+}
+assumption_token() { printf '%s@%s\n' "$1" "$(printf '%s' "$2" | sha256 | cut -c1-12)"; } # ID TEXT
+# assumption_state ID TOKEN -> accepted <answer file> | pending <question file> | declined <answer file> | none
+assumption_state() {
+  as_d=$(run_dir "$1"); as_pend='' as_decl=''
+  for as_q in "$as_d"/questions/[0-9][0-9][0-9].md; do
+    [ -e "$as_q" ] || continue
+    grep -Eq "^[[:space:]]*ASSUMPTION: $2[[:space:]]*\$" "$as_q" || continue
+    as_a=${as_q%.md}.answer.md
+    if [ ! -e "$as_a" ]; then as_pend=questions/$(basename "$as_q"); continue; fi
+    if [ "$(gate_field "$as_a" answered_by)" = user ] && sed '1,/^---$/d' "$as_a" | tr -s '[:space:]' ' ' | sed 's/^ //' | grep -Eiq '^accept(ed)?([^[:alpha:]]|$)'; then
+      echo "accepted questions/$(basename "$as_a")"; return 0
+    fi
+    as_decl=questions/$(basename "$as_a")
+  done
+  if [ -n "$as_pend" ]; then echo "pending $as_pend"; elif [ -n "$as_decl" ]; then echo "declined $as_decl"; else echo none; fi
+}
+# assumption_states ID -> id risk state ref text (TAB). state: verified | accepted-by-user (ref = the answer) |
+# unverified (low/medium, listed) | blocked (high; ref = "<none|pending|declined> [file]").
+assumption_states() {
+  ast_id=$1
+  assumption_register "$ast_id" | while IFS="$(printf '\t')" read -r ast_a ast_r ast_s ast_t ast_x; do
+    if [ "$ast_s" = verified ]; then printf '%s\t%s\tverified\t-\t%s\n' "$ast_a" "$ast_r" "$ast_t"; continue; fi
+    ast_st=$(assumption_state "$ast_id" "$(assumption_token "$ast_a" "$ast_t")")
+    case "$ast_st" in
+      accepted*) printf '%s\t%s\taccepted-by-user\t%s\t%s\n' "$ast_a" "$ast_r" "${ast_st#accepted }" "$ast_t" ;;
+      *) if [ "$ast_r" = high ]; then printf '%s\t%s\tblocked\t%s\t%s\n' "$ast_a" "$ast_r" "$ast_st" "$ast_t"
+         else printf '%s\t%s\tunverified\t-\t%s\n' "$ast_a" "$ast_r" "$ast_t"; fi ;;
+    esac
+  done
+}
+assumption_blocked() { assumption_states "$1" | awk -F'\t' '$3 == "blocked"'; }
+# verify_assumptions ID [ask]: shape of both registers, then every unverified high-risk assumption must be
+# answered `accept` by the user. With `ask` (freeze) each one without a question gets its NEEDS_INPUT question.
+verify_assumptions() {
+  va_id=$1; require_run "$va_id"; va_d=$(run_dir "$va_id")
+  [ -f "$va_d/PLAN.md" ] || fail "missing PLAN.md"
+  va_err=$(assumption_shape_errors "$va_id" | tr '\n' ';')
+  [ -z "$va_err" ] || fail "invalid '## Assumptions': $va_err"
+  va_all=$(assumption_states "$va_id")
+  [ -z "$va_all" ] || printf '%s\n' "$va_all" | awk -F'\t' '$3 != "verified" { printf "%s risk=%s status=%s", $1, $2, $3; if ($4 != "-") printf " ref=%s", $4; printf "\n" }'
+  va_blocked=$(printf '%s\n' "$va_all" | awk -F'\t' '$3 == "blocked"')
+  if [ -z "$va_blocked" ]; then echo "assumptions verified: $va_id"; return 0; fi
+  va_msg=''
+  while IFS="$(printf '\t')" read -r va_a va_r va_s va_ref va_t; do
+    va_ask=no
+    case "$va_ref" in
+      pending*) va_msg="$va_msg $va_a: its question ${va_ref#pending } is unanswered (relay it: 'agent.sh questions $va_id'; the user answers 'accept' or gives the corrected fact);" ;;
+      declined*)
+        if [ "${2:-}" = ask ]; then va_ask=yes; va_msg="$va_msg $va_a: the answer ${va_ref#declined } did not accept it (not the user's own accept, or a corrected fact: change the plan or verify the assumption);"
+        else va_msg="$va_msg $va_a: the answer ${va_ref#declined } did not accept it (verify it or change the decisions it affects in the plan, then freeze again);"; fi ;;
+      *)
+        if [ "${2:-}" = ask ]; then va_ask=yes
+        else va_msg="$va_msg $va_a: no question bound to it yet ('agent.sh freeze $va_id' records one);"; fi ;;
+    esac
+    if [ "$va_ask" = yes ]; then
+      va_row=$(assumption_register "$va_id" | awk -F'\t' -v i="$va_a" '$1 == i')
+      va_q=$(mktemp "${TMPDIR:-/tmp}/proofline-assumption.XXXXXX")
+      printf '1. High-risk assumption %s is unverified: %s\n   source: %s; verification: %s; affects: %s\n   ASSUMPTION: %s\n   options: "accept" (proceed on this assumption; recorded as accepted-by-user with your answer) | the corrected fact (the plan is changed and the assumption checked again)\n   recommended: the corrected fact when it can be checked, otherwise accept\n   why: freeze refuses an unverified high-risk assumption; it is never accepted silently\n' \
+        "$va_a" "$va_t" "$(printf '%s' "$va_row" | cut -f5)" "$(printf '%s' "$va_row" | cut -f6)" "$(printf '%s' "$va_row" | cut -f7)" "$(assumption_token "$va_a" "$va_t")" > "$va_q"
+      ask_question "$va_id" "$va_q" >/dev/null; rm -f "$va_q"
+      va_msg="$va_msg $va_a: question recorded (relay it: 'agent.sh questions $va_id');"
+    fi
+  done <<EOF
+$va_blocked
+EOF
+  fail "unverified high-risk assumption(s) block the freeze; they are never accepted silently, the user answers each:$va_msg"
+}
+
 # --- Tier (D14): computed from the task-owned diff, recorded, never decreasing. ------
 tier_rank() { case "$1" in docs) echo 0 ;; small) echo 1 ;; full) echo 2 ;; *) echo -1 ;; esac; }
 tier_max() { if [ "$(tier_rank "$1")" -ge "$(tier_rank "$2")" ]; then echo "$1"; else echo "$2"; fi; }
@@ -816,6 +954,9 @@ freeze() {
     fz_mode=refreeze
   fi
   verify_scope_existence "$id" "$fz_mode"
+  # A79: the mandatory `## Assumptions` registers are well-formed and no unverified high-risk assumption stands
+  # without the user's `accept` answer (the missing ones are recorded as NEEDS_INPUT questions).
+  verify_assumptions "$id" ask >/dev/null
   if gates_enforced "$id"; then verify_qa_plan_bound "$id"; fi
   fz_lang=$(for fz_f in TASK.md PLAN.md EVIDENCE.md QA_PLAN.md; do [ ! -f "$dir/$fz_f" ] || printf '%s\n' "$dir/$fz_f"; done)
   # shellcheck disable=SC2086
@@ -2597,8 +2738,12 @@ answer() {
   { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
-  if gates_enforced "$an_id"; then ledger_append "$an_id" answer - - "$(basename "$an_q") answered_by=$an_by"; fi
+  # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is
+  # derived from the answer file (answered_by user, starts with "accept") by verify-assumptions.
+  an_as=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/ assumption=\1/p' "$an_q" | head -1)
+  if gates_enforced "$an_id"; then ledger_append "$an_id" answer - - "$(basename "$an_q") answered_by=$an_by$an_as"; fi
   echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by"
+  if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not the user's own words (answered_by=$an_by), so the assumption stays unaccepted"; fi
 }
 
 # --- Execution policy (D5): decide persists and ledgers one resolved decision ---------------
@@ -2735,6 +2880,9 @@ next_step() {
     ns_ph=$(hash_file "$ns_d/PLAN.md")
     ns_shape=$(plan_migration_shape "$ns_d/PLAN.md")
     if [ "$ns_shape" = missing ]; then o "fix PLAN.md ## Data: expand/contract steps (data-design), or single_step: yes with the user's approval"; r "destructive plan without expand/contract steps"; return 0; fi
+    ns_ae=$(assumption_shape_errors "$ns_id" | tr '\n' ';')
+    if [ -n "$ns_ae" ]; then o "fix the '## Assumptions' section of PLAN.md / EVIDENCE.md (none, or the register table): $ns_ae"; r "assumption register invalid"; return 0; fi
+    if [ -n "$(assumption_blocked "$ns_id")" ]; then o "agent.sh verify-assumptions $ns_id; verify each unverified high-risk assumption (update the register), or: agent.sh freeze $ns_id (records one NEEDS_INPUT question per assumption; relay it, the user answers accept or gives the corrected fact)"; r "unverified high-risk assumption blocks the freeze"; return 0; fi
     for ns_k in plan scope; do
       if [ "$ns_k" = plan ] && [ "$(run_autonomy "$ns_id")" != supervised ]; then continue; fi
       if [ "$ns_k" = scope ] && [ -z "$(task_defect_fixes "$ns_d/TASK.md")" ]; then continue; fi
@@ -2843,7 +2991,7 @@ amend_run() {
 # --- Completion report (task-system agnostic; adapters in .agents/task-integrations/) ------
 required_report_headings() {
   dir=$1 id=$(basename "$1")
-  printf '## Implementation Summary\n## Verification\n## Known Limitations / Follow-up\n'
+  printf '## Implementation Summary\n## Verification\n## Assumptions\n## Known Limitations / Follow-up\n'
   rh_g=$(required_gates "$id")
   if printf '%s\n' "$rh_g" | grep -Eq '^(REVIEW_|SECURITY)'; then printf '## Review Result\n'; fi
   if printf '%s\n' "$rh_g" | grep -Fxq QA; then printf '## QA Result\n'; fi
@@ -2863,6 +3011,15 @@ validate_completion_report_structure() {
     vc_h=$(printf '## %s' "$vc_h" | tr '_' ' ')
     grep -Fq "$vc_h" "$report" || fail "completion report missing required section: $vc_h"
   done
+  # A79: every assumption that is not verified is listed in `## Assumptions` (an accepted-by-user one with the
+  # answer file that accepted it); a run with none writes "none".
+  vc_sec=$(awk '/^## Assumptions[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
+  printf '%s\n' "$vc_sec" | grep -q '[^[:space:]]' || fail "completion report: the '## Assumptions' section is empty (list every unverified and accepted-by-user assumption, or write none)"
+  vc_miss=$(assumption_states "$id" | awk -F'\t' '$3 != "verified" { print $1 "\t" $3 "\t" $4 }' | while IFS="$(printf '\t')" read -r vc_a vc_s vc_ref; do
+    printf '%s\n' "$vc_sec" | grep -Eq "(^|[^A-Za-z0-9-])$vc_a([^0-9]|\$)" || { echo "$vc_a"; continue; }
+    [ "$vc_s" != accepted-by-user ] || printf '%s\n' "$vc_sec" | grep -Fq "$(basename "$vc_ref")" || echo "$vc_a(answer $vc_ref)"
+  done | tr '\n' ' ')
+  [ -z "$vc_miss" ] || fail "completion report: '## Assumptions' does not list: $vc_miss (every unverified assumption by id, an accepted-by-user one with its answer file)"
 }
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
 publish_completion_report() {
@@ -3054,7 +3211,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan report-tokens'
+read_only_commands='role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan report-tokens verify-assumptions'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -3099,6 +3256,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
+  verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
   test
 USAGE
 }
@@ -3130,6 +3288,7 @@ case "$command" in
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
   delivery-check) require_lead; delivery_check "${2:?usage: agent.sh delivery-check <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
+  verify-assumptions) verify_assumptions "${2:?usage: agent.sh verify-assumptions <ID>}" ;;
   verify-qa-plan) require_run "${2:?usage: agent.sh verify-qa-plan <ID>}"; verify_qa_plan_bound "$2"; echo "QA plan bound to PLAN.md: $2" ;;
   verify-worker-evidence) verify_worker_evidence "${2:?usage: agent.sh verify-worker-evidence <ID>}" ;;
   submit) sid=${2:?usage: agent.sh submit <ID> --confidence C [options]}; shift 2; submit_result "$sid" "$@" ;;

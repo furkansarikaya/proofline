@@ -24,6 +24,12 @@ The lead runs this after every Explorer of the run returned `DONE`. Input: the c
 
 ## Derived constraints
 - C-1: Amounts stay integer cents (E-4, E-5)
+
+## Assumptions
+| id | assumption | source | risk | verification | status | decisions |
+|---|---|---|---|---|---|---|
+| AS-1 | The shipping threshold is read from config, never hard-coded elsewhere | 001 explorer-2 | low | grep -rn "THRESHOLD" src/ finds one definition (E-3) | verified | AC-2, C-1 |
+| AS-2 | Orders created before this change keep the old rounding | TASK.md Context | high | none yet: needs a data owner's answer | unverified | AC-3 |
 ```
 
 ## Rules
@@ -34,4 +40,5 @@ The lead runs this after every Explorer of the run returned `DONE`. Input: the c
 4. **Not found** keeps a category's `none` line only when no Explorer has a row for it; otherwise drop the line.
 5. **Derived constraints** are the rules PLAN must respect, each citing claim ids (`C-<n>: <rule> (E-<n>[, E-<n>])`). Nothing that no claim supports.
 6. **Verify** with `node <skill-dir>/scripts/verify-claims.mjs <run>/EVIDENCE.md --repo <repo>` before freeze; exit 0 is required. A claim that fails (the code changed since exploration) is dropped and its Explorer's question re-dispatched.
-7. No prose summaries, no pasted code, no wiki copies: EVIDENCE.md is a table plus short lists.
+7. **Assumptions** (`## Assumptions`, mandatory, A79): every fact the plan will have to take as true that no verified claim supports (an Explorer's open question, an unmeasured behavior, a statement from the task or the user that the repository could not confirm) is one row: id `AS-<n>`, text, source (result number and id, TASK.md, user), risk `low|medium|high` (what breaks if it is wrong: `high` = data loss, security, a public contract or most of the change), verification (the check that was run, citing a claim id or command, or the one that could be run), status `verified|unverified`, and the decisions it affects. `verified` needs a named check; `high` needs a method in both statuses. No assumptions: the section is the single line `none`. An unverified `high` row stops the freeze until the user answers it; it is never accepted by the lead and never written as `accepted-by-user` here (the run records the user's answer). The same assumption keeps its id when PLAN.md repeats it.
+8. No prose summaries, no pasted code, no wiki copies: EVIDENCE.md is a table plus short lists.

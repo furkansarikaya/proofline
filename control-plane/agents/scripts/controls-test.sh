@@ -11,8 +11,8 @@ set -eu
 # layer_run ID SCOPE-PATH... : a run directory with a RUN.yaml of the base layer; extra blocks via $EXTRA.
 layer_run() {
   lr_id=$1; shift; d=.agents/runs/$lr_id; mkdir -p "$d"; printf '%s\n' "$lr_id" > .agents/local/ACTIVE_RUN
-  printf '# Task: %s\n\n## Acceptance criteria\n\n- AC-1: behaviour\n' "$lr_id" > "$d/TASK.md"; printf '# Evidence\n' > "$d/EVIDENCE.md"
-  { printf '%s\n' '---' 'scope:'; for lr_p in "$@"; do printf '  - path: %s\n    criteria: [AC-1]\n' "$lr_p"; done; printf '%s\n' "${PLAN_EXTRA:-}" '---' '# Plan'; } | sed '/^$/d' > "$d/PLAN.md"
+  printf '# Task: %s\n\n## Acceptance criteria\n\n- AC-1: behaviour\n' "$lr_id" > "$d/TASK.md"; printf '%s\n' '# Evidence' '' '## Assumptions' 'none' '' '## Claims' > "$d/EVIDENCE.md"
+  { printf '%s\n' '---' 'scope:'; for lr_p in "$@"; do printf '  - path: %s\n    criteria: [AC-1]\n' "$lr_p"; done; printf '%s\n' "${PLAN_EXTRA:-}" '---' '# Plan' '## Assumptions' 'none' '## Behavior' 'unchanged'; } | sed '/^$/d' > "$d/PLAN.md"
   printf '%s\n' 'task:' "  id: $lr_id" 'repository:' '  base_sha: PENDING' "${REPO_EXTRA:-}" 'task_source:' "${SOURCE:-  type: none}" "${SOURCE_REV:-  revision: not_applicable}" \
     'execution:' '  mode: deterministic' '  state: PLANNING' '  knowledge_state: not_started' "  topology: ${TOPO:-orchestrated}" \
     'freeze:' '  task_sha256: PENDING' '  evidence_sha256: PENDING' '  plan_sha256: PENDING' '  policy_sha256: PENDING' \
@@ -30,7 +30,7 @@ completion_report:
   receipt: PENDING'
 report() {
   printf '%s\n' "# Completion Report: $1" '' '## Implementation Summary' 'impl.txt gained Find(); config.txt is a constant, TDD-exempt.' '' \
-    '## TDD Evidence' 'RED failed for the expected reason; GREEN passed.' '' '## Verification' 'go test ./... passed.' '' '## Known Limitations / Follow-up' 'None.' > ".agents/runs/$1/COMPLETION_REPORT.md"
+    '## TDD Evidence' 'RED failed for the expected reason; GREEN passed.' '' '## Verification' 'go test ./... passed.' '' '## Assumptions' 'none' '' '## Known Limitations / Follow-up' 'None.' > ".agents/runs/$1/COMPLETION_REPORT.md"
 }
 ev() { # ROLE ID PHASE RESULT TARGET
   ev_ef=''; [ "$3" = RED ] && ev_ef='expected_failure: TestImpl fails: Find() does not exist yet, specifically'

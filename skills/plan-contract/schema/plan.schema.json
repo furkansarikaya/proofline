@@ -23,5 +23,5 @@
       }
     }
   },
-  "$comment": "Classes: TRIVIAL STANDARD COMPLEX CRITICAL. Sections always required: Behavior, Tests, Verification commands, Dependencies, Contracts; Architecture for COMPLEX and CRITICAL."
+  "$comment": "Classes: TRIVIAL STANDARD COMPLEX CRITICAL. Sections always required: Behavior, Tests, Verification commands, Dependencies, Contracts, Assumptions (A79: none, or the register table of SECTIONS.md); Architecture for COMPLEX and CRITICAL."
 }

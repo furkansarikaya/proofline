@@ -15,6 +15,11 @@ requires the sections that apply to the run; a missing one FAILS `publish-comple
 
 ## Verification
 
+## Assumptions
+
+- <AS-n> (<low|medium|high>): <assumption text> — <unverified | accepted-by-user, answer `questions/NNN.answer.md`>
+- or "none" when every assumption is verified (`agent.sh verify-assumptions <ID>`)
+
 ## Review Result
 
 (when a review or SECURITY gate was required) gate, result, fix rounds.

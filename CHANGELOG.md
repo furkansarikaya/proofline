@@ -11,6 +11,7 @@
 - A `fix_scope` entry `path:symbol` (or `path:line`) scopes to its path, so a fix round no longer stalls at IMPLEMENTING on a symbol-qualified scope (A77).
 - Every role asks all its questions in one NEEDS_INPUT round, enforced by `submit` and `record`; intent-grill's multi-round interview (the task author's `design/INTENT.md` rounds) is exempt (A70, A75).
 - Metrics and cost (A80): versioned JSON records in `.agents/local/metrics/records.jsonl` with duration per dispatch, runtime-reported tokens (null when not reported, never estimated), turns, retries, delegations and the result per gate; `metrics: off` still disables everything.
+- Assumption register (A79): a mandatory `## Assumptions` section in PLAN.md and EVIDENCE.md, checked by both validators; `agent.sh freeze`/`refreeze` refuse an unverified high-risk assumption until the user answers it (recorded as `accepted-by-user`), `agent.sh verify-assumptions` shows the register, and the completion report lists every unverified or accepted-by-user assumption.
 - `SECURITY.md` and `CONTRIBUTING.md`; the Acknowledgments section is removed and D33 states that no third-party project is named.
 
 ## 0.0.1 — 2026-10-09

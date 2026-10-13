@@ -25,6 +25,11 @@ adapter before DONE. Omit a conditional section only when its condition does not
 
 - VERIFY: <PASS|FAIL> (<confidence>); commands: `<command>`, ...
 
+## Assumptions
+
+- <AS-n> (<low|medium|high>): <assumption text> — <unverified | accepted-by-user, answer `questions/NNN.answer.md`>
+- or "none" when every assumption is verified (`agent.sh verify-assumptions <ID>`)
+
 ## Review Result
 
 (when a review or SECURITY gate was required)

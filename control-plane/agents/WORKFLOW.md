@@ -94,7 +94,11 @@ Any other file in the run directory is an unexpected artifact and FAILS `verify-
 
 - **Evidence, plan, QA plan freeze**: `agent.sh freeze` hashes TASK, EVIDENCE, PLAN, QA_PLAN, the mode
   policy and the classification. `verify-freeze` FAILS on any change. A path without `new: true` must exist at
-  freeze; a `new: true` path must not.
+  freeze; a `new: true` path must not. PLAN.md (and EVIDENCE.md where the class has one) carries the mandatory
+  `## Assumptions` register; the freeze refuses a malformed one and an unverified high-risk assumption the
+  user has not answered `accept` (it records one NEEDS_INPUT question per such assumption; the answer file is
+  the `accepted-by-user` reference; `agent.sh verify-assumptions <ID>` is the read-only view). The completion
+  report lists every unverified and accepted-by-user assumption.
 - **Scope freeze**: a changed path outside `scope:` blocks every transition. The implementer stops and reports.
 - **Amendment**: `amendments/<file>` + `agent.sh refreeze <ID> <file>`. One amendment authorizes one
   refreeze; a no-change refreeze FAILS. Added scope paths need a `scope` approval. A refreeze from

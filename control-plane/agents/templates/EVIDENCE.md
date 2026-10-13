@@ -14,3 +14,9 @@ Base: `repository.base_sha` from RUN.yaml.
 ## Regression surface
 
 ## Derived constraints
+
+## Assumptions
+
+`none`, or the register table (mandatory section), `| id | assumption | source | risk | verification | status |
+decisions |`, id `AS-<n>`, risk `low|medium|high`, status `verified|unverified`. An unverified high-risk
+assumption blocks the freeze until the user answers it.

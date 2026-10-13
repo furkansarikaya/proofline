@@ -209,7 +209,7 @@ if [ "$STATE" = needs-input ]; then
 fi
 
 # --- planning artifacts (EVIDENCE, PLAN, QA_PLAN) ----------------------------------------------
-printf '# Evidence: %s\n\n- E-1 `src/lookup.js:lookup` reads the store directly\n' "$ID" > "$D/EVIDENCE.md"
+printf '# Evidence: %s\n\n- E-1 `src/lookup.js:lookup` reads the store directly\n\n## Assumptions\n\nnone\n' "$ID" > "$D/EVIDENCE.md"
 printf '# QA plan\n\n- QA-1 (AC-1): lookup("") returns null\n- QA-2 (AC-2): a stored key keeps its value\n' > "$D/QA_PLAN.md"
 {
   printf '%s\n' '---' 'scope:' '  - path: src/lookup.js' '    criteria: [AC-1, AC-2]' '  - path: src/store.js' '    criteria: [AC-1]' '  - path: test/lookup.test.js' '    criteria: [AC-1, AC-2]'
@@ -217,7 +217,7 @@ printf '# QA plan\n\n- QA-1 (AC-1): lookup("") returns null\n- QA-2 (AC-2): a st
   printf '%s\n' '---' "# Plan: $ID" '' '## Architecture' '' '- one storage map; lookup maps a missing empty key to null' ''
   [ "$STATE" != destructive-approval ] || printf '%s\n' '## Data' '' 'destructive: yes' '' '| step | phase | operation | object | destructive | reversible | rollback | lock |' '|---|---|---|---|---|---|---|---|' '| S1 | expand | switch_reads | legacy_keys | no | yes | redeploy the previous release | none |' '| S2 | deferred | drop_table | legacy_keys | yes | no | restore from the pre-drop backup | table drop |' ''
   printf '%s\n' '## Behavior' '' '- AC-1: `src/lookup.js:lookup` returns null for ""' '' '## Tests' '' '- AC-1: `test/lookup.test.js` "empty key"' '' \
-    '## Verification commands' '' '- `npm test`' '' '## Dependencies' '' 'none' '' '## Contracts' '' 'none'
+    '## Verification commands' '' '- `npm test`' '' '## Dependencies' '' 'none' '' '## Contracts' '' 'none' '' '## Assumptions' '' 'none'
 } > "$D/PLAN.md"
 # The QA plan is derived from the final PLAN.md and cites its hash (A42).
 { sed -n 1p "$D/QA_PLAN.md"; printf '\nPlan sha256: %s\n' "$(sha "$D/PLAN.md")"; sed '1d' "$D/QA_PLAN.md"; } > "$D/QA_PLAN.md.tmp" && mv "$D/QA_PLAN.md.tmp" "$D/QA_PLAN.md"

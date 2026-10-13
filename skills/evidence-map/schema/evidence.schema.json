@@ -50,6 +50,24 @@
       }
     },
     "open_questions": { "type": "array", "items": { "type": "string" } },
+    "assumptions": {
+      "description": "A79: the consolidated document's `## Assumptions` register (consolidated kind only; an empty array is the literal `none`). `accepted-by-user` is never written here: the run records the user's answer.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "assumption", "source", "risk", "verification", "status", "decisions"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^AS-\\d+$" },
+          "assumption": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "risk": { "enum": ["low", "medium", "high"] },
+          "verification": { "type": "string" },
+          "status": { "enum": ["verified", "unverified"] },
+          "decisions": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "stop_reason": { "enum": ["objective met", "stop condition reached", "scope exhausted"] }
   }
 }

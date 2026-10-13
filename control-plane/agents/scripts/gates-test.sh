@@ -369,6 +369,88 @@ sc_ask() {
   ok "ask: the lead's question is pending, verbatim, ledgered, answered like a specialist's"
 }
 
+# A79: the assumption register. Freeze checks the shape of both registers, refuses an unverified high-risk
+# assumption until the user answered its bound question with `accept`, never accepts one silently, and the
+# completion report lists every unverified or accepted-by-user assumption.
+sc_assumptions() {
+  unfrozen STANDARD
+  d=.agents/runs/LC
+  put_assumptions() { # FILE TEXT: replace the body of ## Assumptions (TEXT empty: drop the section)
+    awk '/^## Assumptions[ \t]*$/ { skip = 1; next } /^## / { skip = 0 } !skip' "$1" > "$base/pa.tmp"
+    [ -z "$2" ] || printf '\n## Assumptions\n\n%s\n' "$2" >> "$base/pa.tmp"
+    cp "$base/pa.tmp" "$1"
+  }
+  head='| id | assumption | source | risk | verification | status | decisions |
+|---|---|---|---|---|---|---|'
+  low='| AS-3 | the cache is warm at startup | TASK.md | low | none | unverified | AC-1 |'
+  p1='| AS-1 | the legacy key table is empty | TASK.md | high | count the rows in the staging copy | unverified | AC-1 |'
+  p2='| AS-2 | no consumer reads the removed field | explorer-4 | high | search the consumer repositories | unverified | AC-1 |'
+  # shape: the section is mandatory in both files; the trap (high risk, verified, no method) is rejected
+  put_assumptions $d/PLAN.md ''
+  expect_msg "a PLAN.md without the section froze" "PLAN.md: the mandatory '## Assumptions' section is missing" A freeze LC
+  A next LC | grep -q '^reason=assumption register invalid' || die "next does not report the invalid register"
+  put_assumptions $d/PLAN.md 'none'
+  put_assumptions $d/EVIDENCE.md ''
+  expect_msg "an EVIDENCE.md without the section froze" "EVIDENCE.md: the mandatory '## Assumptions' section is missing" A freeze LC
+  put_assumptions $d/EVIDENCE.md "$head
+| AS-2 | no consumer reads the removed field | explorer-4 | high | none | verified | AC-1 |"
+  expect_msg "a high-risk assumption marked verified without a method froze" 'verified without a verification method' A freeze LC
+  # a low-risk unverified assumption passes and does not block; verify-assumptions (read-only) lists it
+  put_assumptions $d/EVIDENCE.md "$head
+$low"
+  A verify-assumptions LC | grep -Fq 'AS-3 risk=low status=unverified' || die "verify-assumptions does not list the low-risk unverified assumption"
+  [ "$(AS reviewer verify-assumptions LC | tail -1)" = 'assumptions verified: LC' ] || die "a read-only role could not run verify-assumptions"
+  # high-risk, unverified: freeze refuses and records one NEEDS_INPUT question per assumption, bound to its id
+  put_assumptions $d/PLAN.md "$head
+$p1"
+  put_assumptions $d/EVIDENCE.md "$head
+$p2
+$low"
+  expect_msg "an unverified high-risk assumption froze" 'unverified high-risk assumption' A freeze LC
+  [ "$(ls $d/questions/*.md | wc -l | tr -d ' ')" = 2 ] || die "freeze did not record one question per high-risk assumption"
+  grep -q '^ *ASSUMPTION: AS-1@[0-9a-f]\{12\}$' $d/questions/001.md || die "question 001 is not bound to AS-1"
+  grep -q '^ *ASSUMPTION: AS-2@[0-9a-f]\{12\}$' $d/questions/002.md || die "question 002 is not bound to AS-2"
+  expect_state execution awaiting_input true
+  A next LC | grep -q '^next=agent.sh questions LC' || die "next does not stop for the assumption questions"
+  expect_msg "verify-assumptions listed a blocked register as fine" 'never accepted silently' A verify-assumptions LC
+  [ "$(ls $d/questions/*.md | wc -l | tr -d ' ')" = 2 ] || die "the read-only verify-assumptions recorded a question"
+  expect_msg "a second freeze did not point at the pending question" 'is unanswered' A freeze LC
+  [ "$(ls $d/questions/*.md | wc -l | tr -d ' ')" = 2 ] || die "a second freeze duplicated a pending question"
+  # the lead's own answer (no user prompt) does not accept; a user answer that is not `accept` does not either
+  printf 'accept\n' | A answer LC 1 >/dev/null
+  grep -q '^answered_by: lead' $d/questions/001.answer.md || die "an answer without a user capture was recorded as the user's"
+  capture 'no, the table still has rows'; printf 'no, the table still has rows\n' | A answer LC 2 >/dev/null
+  grep -q '^answered_by: user' $d/questions/002.answer.md || die "the user's answer was not recorded as the user's"
+  grep -q 'event=answer .*002.md answered_by=user assumption=AS-2@' $d/LEDGER.log || die "the answer row does not name the assumption"
+  expect_msg "a declined assumption froze" 'did not accept it' A freeze LC
+  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 4 ] || die "freeze did not ask again after a non-accepting answer"
+  # the user accepts both (question 3 = AS-1 again, question 4 = AS-2 again)
+  capture 'accept'; printf 'accept\n' | A answer LC 3 >/dev/null; printf 'accept\n' | A answer LC 4 >/dev/null
+  A verify-assumptions LC | grep -Fq 'AS-1 risk=high status=accepted-by-user ref=questions/003.answer.md' || die "AS-1 is not accepted-by-user with its answer"
+  A verify-assumptions LC | grep -Fq 'AS-2 risk=high status=accepted-by-user ref=questions/004.answer.md' || die "AS-2 is not accepted-by-user with its answer"
+  # a changed assumption text is a new assumption: the old answer does not carry over
+  cp $d/PLAN.md "$base/plan.keep"
+  sed 's/the legacy key table is empty/the legacy key table has no live rows/' "$base/plan.keep" > $d/PLAN.md
+  expect_msg "an answer for another text of the assumption was reused" 'unverified high-risk assumption' A freeze LC
+  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 5 ] || die "a changed assumption text was not asked again"
+  cp "$base/plan.keep" $d/PLAN.md
+  printf 'accept\n' | A answer LC 5 >/dev/null   # the question of the reverted wording is moot; CODE_DONE needs none pending
+  A freeze LC >/dev/null || die "freeze refused after the user accepted both assumptions"
+  A verify-freeze LC >/dev/null
+  ok "assumptions: shape, trap, low-risk pass, bound question, no silent accept, user accept, text change, freeze"
+
+  # the completion report lists every unverified and accepted-by-user assumption (ids; accepted ones with the answer)
+  A handoff LC IMPLEMENTING >/dev/null
+  to_code_done standalone
+  A knowledge-done LC not_applicable >/dev/null; write_report
+  expect_msg "a report that omits the assumptions was published" 'does not list: AS-1 AS-2 AS-3' A publish-completion-report LC markdown
+  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user' '- AS-2 (high): accepted-by-user, questions/004.answer.md' '- AS-3 (low): unverified'
+  expect_msg "an accepted assumption without its answer reference was published" 'does not list: AS-1(answer questions/003.answer.md)' A publish-completion-report LC markdown
+  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/003.answer.md' '- AS-2 (high): accepted-by-user, questions/004.answer.md' '- AS-3 (low): unverified'
+  A publish-completion-report LC markdown >/dev/null || die "a report listing every assumption was refused"
+  ok "assumptions: completion report lists unverified and accepted-by-user assumptions"
+}
+
 sc_supervised_destructive() {
   unfrozen COMPLEX
   expect_msg "supervised freeze without plan approval" 'plan approval' A freeze LC
@@ -694,11 +776,11 @@ sc_config_scope_misc() {
   expect_msg "config-check accepted an unknown top-level key" 'unknown top-level key: surprise' A config-check "$base/bad.yaml"
   # scope `new: true`
   unfrozen STANDARD
-  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl.txt.new' '    criteria: [AC-1]' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl.txt.new' '    criteria: [AC-1]' '---' '# Plan' '' '## Assumptions' 'none' '' '## Behavior' 'unchanged' > .agents/runs/LC/PLAN.md
   expect_msg "a missing path without new: true" 'does not exist' A freeze LC
-  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' '' '## Assumptions' 'none' '' '## Behavior' 'unchanged' > .agents/runs/LC/PLAN.md
   expect_msg "an existing path marked new: true" 'already exists' A freeze LC
-  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: src/new.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: src/new.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' '' '## Assumptions' 'none' '' '## Behavior' 'unchanged' > .agents/runs/LC/PLAN.md
   A freeze LC >/dev/null
   A handoff LC IMPLEMENTING >/dev/null; A verify-scope LC >/dev/null
   A ledger-note LC 'failover from=claude to=codex reason=limit' >/dev/null
@@ -1006,6 +1088,10 @@ scope:
 ---
 # Plan
 
+## Assumptions
+
+none
+
 ## Behavior
 
 Record task.
@@ -1056,6 +1142,7 @@ run_sc sc_supervised_destructive
 run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
 run_sc sc_ask
+run_sc sc_assumptions
 run_sc sc_questions
 run_sc sc_questions_keys
 run_sc sc_questions_grill

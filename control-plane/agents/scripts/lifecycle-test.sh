@@ -328,7 +328,7 @@ scenario_pipeline_trivial() {
   expect_msg "a QA_PLAN.md on a TRIVIAL run passed verify-scope" 'unexpected run artifact' A verify-scope LC
   rm .agents/runs/LC/QA_PLAN.md
   A knowledge-done LC not_applicable >/dev/null
-  printf '%s\n' '# Completion Report: LC' '' '## Implementation Summary' 'impl.txt and impl_test.txt changed under the TRIVIAL pipeline.' '' '## TDD Evidence' 'RED then GREEN recorded by the lead.' '' '## Verification' 'The VERIFY gate passed on the final tree.' '' '## Review Result' 'REVIEW_SMALL passed.' '' '## Known Limitations / Follow-up' 'None.' > .agents/runs/LC/COMPLETION_REPORT.md
+  printf '%s\n' '# Completion Report: LC' '' '## Implementation Summary' 'impl.txt and impl_test.txt changed under the TRIVIAL pipeline.' '' '## TDD Evidence' 'RED then GREEN recorded by the lead.' '' '## Verification' 'The VERIFY gate passed on the final tree.' '' '## Assumptions' 'none' '' '## Review Result' 'REVIEW_SMALL passed.' '' '## Known Limitations / Follow-up' 'None.' > .agents/runs/LC/COMPLETION_REPORT.md
   A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
   A validate LC >/dev/null; A delivery-check LC >/dev/null
   printf '# stray\n' > .agents/runs/LC/EVIDENCE.md
@@ -387,7 +387,7 @@ scenario_classification() {
   A classify LC TRIVIAL >/dev/null
   expect_fail "TRIVIAL froze with EVIDENCE.md and QA_PLAN.md present" A refreeze LC 004.md
   rm .agents/runs/LC/EVIDENCE.md .agents/runs/LC/QA_PLAN.md
-  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl_test.txt' '    criteria: [AC-1]' '  - path: tasks/LC.md' '    criteria: [AC-1]' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl_test.txt' '    criteria: [AC-1]' '  - path: tasks/LC.md' '    criteria: [AC-1]' '---' '# Plan' '' '## Assumptions' 'none' '' '## Behavior' 'unchanged' > .agents/runs/LC/PLAN.md
   expect_fail "TRIVIAL froze a plan with three scope paths" A refreeze LC 004.md
   scaffold standalone
   to_code_done standalone
@@ -403,7 +403,7 @@ scenario_amend_plan_change() {
   printf 'reason: the review found a missing helper file the plan did not cover\nfix_scope: extra.txt\nfix_instruction: add extra.txt with the helper and cover it with a test\nauthorized_by: the user\nplan_change: yes\n' | A amend LC >/dev/null
   expect_fail "plain freeze on a reopened run" A freeze LC
   mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: add extra.txt to scope\n' > .agents/runs/LC/amendments/001.md
-  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl_test.txt' '    criteria: [AC-1]' '  - path: extra.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' '' '## Architecture' 'amended: one helper file' > .agents/runs/LC/PLAN.md
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl_test.txt' '    criteria: [AC-1]' '  - path: extra.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'amended: one helper file' > .agents/runs/LC/PLAN.md
   expect_msg "a scope-adding refreeze without a scope approval" 'scope approval' A refreeze LC 001.md
   approve_as_user scope 'approve the scope change to add extra.txt'
   A refreeze LC 001.md >/dev/null; expect_state handoff state IMPLEMENTING
