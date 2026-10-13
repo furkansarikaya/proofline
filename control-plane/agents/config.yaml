@@ -64,6 +64,12 @@ test_trust:
   repeat: 5
   mutation_budget: 20
   slow_ratio: 3
+# performance-proof (A87): regression threshold on the median in percent, noise threshold (relative MAD) in
+# percent, minimum runs per side (at least 5). A relative budget stated in PLAN.md wins over these values.
+performance:
+  regression_pct: 10
+  noise_pct: 5
+  min_runs: 10
 budgets:
   max_advisor_calls: 3
   max_escalations: 2

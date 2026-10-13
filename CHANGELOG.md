@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New skill `performance-proof` (A87) for the REVIEW `performance` focus (`performance_critical`): the project's own benchmark command runs in a base and a change worktree, interleaved (`run-bench.sh`), with the environment recorded; `compare-bench.mjs` reports median, MAD, IQR and a seeded bootstrap interval and decides PASS, FAIL or INCONCLUSIVE by a rule calibrated with a seeded simulation (default threshold 10 % on the median; `.agents/config.yaml` `performance:`, frozen with the plan, or the plan's `budget_pct` overrides it); noise is INCONCLUSIVE, never FAIL or PASS; no benchmark command is UNSUPPORTED; `validate-performance.mjs` recomputes every status (and, with `--config`/`--plan`, the thresholds) and refuses performance claims without a measurement or against its direction; fixture with known answers.
 - Deterministic result submission (`agent.sh submit`), class verified against the diff, expand/contract rule for destructive plans, English run artifacts, and the fixes of five end-to-end rounds (decisions A30–A39).
 - Database guard: no agent touches a database file, runs a SQL client or a migration/seed command; the control plane detects changed database files (A40).
 - The lead never approves: the runtime records the user's reply as the approval (A41).

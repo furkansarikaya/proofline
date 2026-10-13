@@ -164,15 +164,26 @@ sc_unsupported() {
 # Flags are frozen with PLAN.md; the mapping is frozen with risk_sha256; config-check refuses foreign checks.
 sc_frozen() {
   rrun COMPLEX 'api/openapi.yaml'; frozen
-  printf '\n## Risk\n\ncontract_change: yes\n' >> .agents/runs/LC/PLAN.md
+  printf '\n## Risk\n\ncontract_change: yes\nperformance_critical: yes budget_pct=5\n' >> .agents/runs/LC/PLAN.md
   expect_msg "a flag changed after freeze" 'freeze mismatch: plan' A verify-freeze LC
   mkdir -p .agents/runs/LC/amendments; printf '# Amendment 1\n\nDeclare the contract change.\n' > .agents/runs/LC/amendments/001.md
   approve_as_user plan 'approved: the amended plan'
   A refreeze LC 001.md >/dev/null; A verify-freeze LC >/dev/null
   snap; has 'signal.contract_change=source=plan'
+  # A87: the performance budget on the flag line is frozen with PLAN.md: raising it after freeze breaks the freeze
+  cp .agents/runs/LC/PLAN.md "$base/plan.keep"
+  sed 's/^performance_critical: yes budget_pct=5$/performance_critical: yes budget_pct=50/' "$base/plan.keep" > .agents/runs/LC/PLAN.md
+  grep -q 'budget_pct=50' .agents/runs/LC/PLAN.md
+  expect_msg "a performance budget raised after freeze" 'freeze mismatch: plan' A verify-freeze LC
+  cp "$base/plan.keep" .agents/runs/LC/PLAN.md; A verify-freeze LC >/dev/null
   # the mapping: any edit of the risk block after freeze breaks the freeze
   sed 's/^    check: contract$/    check: rules/' .agents/config.yaml > "$base/cfg"; cp .agents/config.yaml "$base/cfg.keep"; cp "$base/cfg" .agents/config.yaml
   expect_msg "a mapping change after freeze" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
+  # A87: the performance thresholds are frozen too: raising regression_pct mid-run breaks the freeze
+  sed 's/^  regression_pct: 10$/  regression_pct: 500/' .agents/config.yaml > "$base/cfg3"; grep -q '^  regression_pct: 500$' "$base/cfg3"
+  cp "$base/cfg3" .agents/config.yaml
+  expect_msg "a performance threshold change after freeze" 'freeze mismatch: risk' A verify-freeze LC
   cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
   expect_msg "a check outside the focus set" 'invalid value for risk.contract_file.check' A config-check "$base/cfg"
   awk '/^  ui_path:/ { print; print "    paths: \"*.html\""; print "    check: VISUAL_GATE"; skip = 1; next } skip && /^  [a-z]/ { skip = 0 } !skip { print }' .agents/config.yaml > "$base/cfg2"
@@ -188,7 +199,7 @@ sc_frozen() {
   sed 's/^  audit_command:.*$/  audit_command: make audit/' "$base/cfg.keep" > .agents/config.yaml
   expect_msg "an audit command edit after freeze" 'freeze mismatch: risk' A verify-freeze LC
   cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
-  ok "frozen: flags need a refreeze, the mapping is bound by risk_sha256, config-check refuses foreign checks"
+  ok "frozen: flags need a refreeze, the mapping, the performance thresholds and the security policy are bound by risk_sha256, config-check refuses foreign checks"
 }
 
 # Before FREEZE: a planned contract path without its flag sends `next` to the architect.

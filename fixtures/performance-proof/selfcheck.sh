@@ -1,0 +1,51 @@
+#!/bin/sh
+# Proves the planted facts of the performance-proof fixture built in $1 (EXPECTED.md items 1-9; the traps
+# 10-14 are the same cases: a status other than the expected one is the trap firing).
+set -eu
+cd "$1"
+fail() { echo "selfcheck: $*" >&2; exit 1; }
+cmp=$(cd "$(dirname "$0")/../../skills/performance-proof/scripts" && pwd)/compare-bench.mjs
+val=$(dirname "$cmp")/validate-performance.mjs
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+printf '%s\n' 'os=Linux 6.8.0 x86_64' cpu_count=8 'load_avg_before=0.4' 'command=synthetic' warmup_runs=1 runs=12 order=interleaved \
+  timer=date base_rev=b change_rev=c started_at=2026-10-13T10:00:00Z finished_at=2026-10-13T10:01:00Z > "$tmp/env.txt"
+
+# expect CASE STATUS [compare-bench options...]: the report's status, and the report validates.
+expect() {
+  c=$1 want=$2; shift 2
+  b=samples/$c-base.json; [ -f "$b" ] || b=samples/$c-base.csv
+  ch=samples/$c-change.json; [ -f "$ch" ] || ch=samples/$c-change.csv
+  node "$cmp" --base "$b" --change "$ch" --command "synthetic" --tool-source "fixture" "$@" > "$tmp/r.json" || fail "$c: compare-bench exited $?"
+  got=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).status)' "$tmp/r.json")
+  [ "$got" = "$want" ] || fail "$c $*: want $want, got $got"
+}
+
+expect c1 FAIL
+expect c2 INCONCLUSIVE
+expect c3 PASS
+expect c4 PASS
+expect c5 INCONCLUSIVE
+expect c6 INCONCLUSIVE
+if node "$cmp" --base samples/c7-base.json --change samples/c7-change.json > "$tmp/c7.out" 2> "$tmp/c7.err"; then fail "c7: unit mismatch was compared"; else rc=$?; fi
+[ "$rc" = 2 ] && [ ! -s "$tmp/c7.out" ] && grep -q 'unit mismatch' "$tmp/c7.err" || fail "c7: want exit 2 with 'unit mismatch' and no report"
+expect c8 FAIL
+expect c8 PASS --plan PLAN-20.md
+src=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).thresholds.source)' "$tmp/r.json")
+[ "$src" = plan ] || fail "c8 --plan: source $src, want plan"
+expect c8 PASS --config .agents/config.yaml
+expect c8 FAIL --config .agents/config.yaml --plan PLAN-12.md
+# A budget given on the command line is a what-if: PASS, but source `cli (unverified)` and never a valid report.
+expect c8 PASS --budget-pct 20 --env "$tmp/env.txt"
+grep -q '"source": "cli (unverified)"' "$tmp/r.json" || fail "c8 --budget-pct: source is not cli (unverified)"
+if node "$val" "$tmp/r.json" > /dev/null 2>&1; then fail "a cli budget report validated"; fi
+# An unparseable plan budget is a note in the report and refused by the validator.
+expect c8 FAIL --plan PLAN-abc.md
+grep -q 'budget_pct=abc is not a number' "$tmp/r.json" || fail "c8 PLAN-abc: no note about the unparseable budget"
+if node "$val" "$tmp/r.json" --plan PLAN-abc.md > /dev/null 2>&1; then fail "a plan with an unparseable budget_pct validated"; fi
+expect c9 FAIL --direction higher
+
+# A compare-bench report without an environment block is not a valid report.
+expect c1 FAIL
+if node "$val" "$tmp/r.json" > /dev/null 2>&1; then fail "a report without environment validated"; fi
+echo "selfcheck: performance-proof ok"

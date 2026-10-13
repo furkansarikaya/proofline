@@ -55,7 +55,8 @@ Versioned API or schema contract changes, or `none`. A contract change not liste
 ## Risk
 
 Flags the design implies (architect, A78), one line each and nothing else: `contract_change: yes|no`,
-`concurrency: yes|no`, `performance_critical: yes|no`. They are frozen with the plan and select REVIEW focuses.
+`concurrency: yes|no`, `performance_critical: yes|no` (optionally `budget_pct=<n>` on that line: the relative
+regression budget performance-proof uses, A87). They are frozen with the plan and select REVIEW focuses.
 Delete the section when no flag applies.
 
 ## Assumptions

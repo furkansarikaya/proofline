@@ -54,6 +54,12 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
   more actors, `file:line` per step) or a concurrent reproduction in the project's own test runner; PASS
   means no proven problem, never that the code is free of races; unproven risks are listed separately, and a
   reproduction the project cannot run is stated as UNSUPPORTED inside the result.
+- The `performance` focus (performance-proof skill, A87) measures: the project's own benchmark command runs
+  repeatedly in a base and a change worktree, interleaved, and a script decides from the median and a bootstrap
+  interval (default threshold 10 %, `.agents/config.yaml` `performance:`, the plan's stated budget wins). A
+  regression beyond the threshold is a FAIL; noise or too few runs is INCONCLUSIVE, submitted as UNSUPPORTED
+  (not a FAIL, never a PASS: the user re-runs or waives it); no benchmark command in the project is UNSUPPORTED.
+  Patterns read from the code (an N+1 query) are judged and fail only against a written criterion.
 - The mapping lives in `.agents/config.yaml` and is frozen with the plan; the lead cannot change it during a run.
 
 Two of these focuses are tool-free (decision A88):
