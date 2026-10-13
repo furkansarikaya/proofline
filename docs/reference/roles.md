@@ -12,7 +12,7 @@ Generated from roles/ — do not edit.
 | [`explorer`](#explorer) | Investigates one bounded assignment and returns compact evidence where every claim is a verified path and symbol. | class STANDARD and up, in parallel up to the class max_explorers bound for independent objectives | task | none | evidence-map | no | workspace-write | 1 |
 | [`implementer`](#implementer) | Implements the frozen plan inside its scope with recorded RED, GREEN and REFACTOR evidence, and fixes bounded findings. | always, the only role that writes product code, one per run | task | none | tdd-proof debug-proof | yes | workspace-write | 2 |
 | [`lead`](#lead) | Owns the task lifecycle as the main session, classifying, freezing, dispatching bounded specialists, consolidating their results, driving gates and the fix loop, and stopping before delivery. | always, the main session (alias full_lifecycle) | task | none | proofline-lead plan-contract debug-proof | no | workspace-write | 2 |
-| [`qa`](#qa) | Writes the acceptance and adversarial QA plan before implementation and evaluates the implementation against the frozen plan after it. | class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED | gate | QA | qa-plan test-trust | no | workspace-write | 1 |
+| [`qa`](#qa) | Writes the acceptance and adversarial QA plan before implementation and evaluates the implementation against the frozen plan after it. | class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED | gate | QA | qa-plan test-trust visual-proof | no | workspace-write | 1 |
 | [`reviewer`](#reviewer) | Independently reviews the task-owned diff for one focus (plan, rules, tests, data, rules+tests, or a risk focus contract, concurrency, performance, config, migration) and returns an evidence-based gate result. | per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78) | gate | REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA REVIEW_SMALL | proof-review test-trust data-design concurrency-proof | no | workspace-write | 2 |
 | [`security_reviewer`](#security_reviewer) | Reviews the task-owned diff as an attacker and reports only exploitable findings, each reproduced or traced from source to sink. | full tier (D14), always for CRITICAL class | gate | SECURITY | exploit-proof | no | workspace-write | 3 |
 | [`task_author`](#task_author) | Turns a one-sentence request or an imported issue into a standard task with testable acceptance criteria, grilling intent first when the request is vague or large. | when no task exists, or an imported task lacks canonical fields, intent-grill first for COMPLEX or CRITICAL requests or on request | task | none | task-author intent-grill | no | workspace-write | 1 |
@@ -171,7 +171,7 @@ Writes the acceptance and adversarial QA plan before implementation and evaluate
 - Dispatched: class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED
 - Reads: TASK.md EVIDENCE.md PLAN.md QA_PLAN.md diff repo
 - Owns: QA_PLAN.md QA_REPORT.md reviews/test-trust/qa/ reports/NNN-qa.md reports/qa-evidence/ reviews/visual-proof/
-- Skills: qa-plan test-trust
+- Skills: qa-plan test-trust visual-proof
 - Gates: QA
 - Result protocol: gate
 - Tools: Read Grep Glob Bash Write Edit
@@ -265,7 +265,7 @@ Proves mechanically that the frozen plan is implemented and that design document
 - Name: Verifier
 - Agent: proofline-verifier
 - Dispatched: always, every class, once the run is IMPLEMENTED
-- Reads: TASK.md PLAN.md QA_PLAN.md worker-evidence/ diff repo
+- Reads: TASK.md PLAN.md QA_PLAN.md worker-evidence/ reviews/visual-proof/ diff repo
 - Owns: VERIFY.md design/SYNC.md
 - Skills: verify-proof design-sync
 - Gates: VERIFY

@@ -159,3 +159,18 @@ test("SKILL.md team mode: VERIFY-<n> rows, blocking|info, PASS|FAIL|BLOCKED, no 
   assert.match(md, /Missing criteria: standalone, ask the user and stop; in a run -> `RESULT: BLOCKED`/);
   assert.doesNotMatch(md.replace(/<!-- proofline:shared-rules:begin[\s\S]*?shared-rules:end -->/, ""), /-> NEEDS_INPUT/);
 });
+
+test("A82: a criterion on the PLAN visual_proof line is unproven without visual-proof evidence", () => {
+  const plan = `${PLAN()}\n## UI\n\nOrders screen.\nvisual_proof: AC-1\n`;
+  // the test passes, but the criterion needs visual evidence: PASS is rejected, MISSING is the honest row
+  assert.match(validateVerify(mk(), TASK, plan).errors.join(), /AC-1: marked visual_proof in PLAN\.md; PASS needs/);
+  const missing = "| AC-1 | tests/login.test.js::sixth attempt | MISSING | no visual-proof report |\n| AC-2 | tests/login.test.js::reset | PASS | `npm test` exit=0 |";
+  assert.equal(validateVerify(mk({ rows: missing, verdict: "Verdict: FAIL" }), TASK, plan).errors.join(), "");
+  const cited = "| AC-1 | tests/login.test.js::sixth attempt | PASS | `npm test` exit=0; visual-proof: AC-1 proven (reviews/visual-proof/report.json) |\n| AC-2 | tests/login.test.js::reset | PASS | `npm test` exit=0 |";
+  assert.equal(validateVerify(mk({ rows: cited }), TASK, plan).errors.join(), "");
+  // an unproven citation, or another criterion's, does not count
+  assert.match(validateVerify(mk({ rows: cited.replace("AC-1 proven", "AC-1 unproven") }), TASK, plan).errors.join(), /PASS needs/);
+  assert.match(validateVerify(mk({ rows: cited.replace("AC-1 proven", "AC-10 proven") }), TASK, plan).errors.join(), /PASS needs/);
+  // `none`, no line, or the line outside ## UI: unchanged behaviour
+  for (const p of [`${PLAN()}\n## UI\nvisual_proof: none\n`, PLAN(), `${PLAN()}\n## Notes\nvisual_proof: AC-1\n`]) assert.equal(validateVerify(mk(), TASK, p).errors.join(), "");
+});

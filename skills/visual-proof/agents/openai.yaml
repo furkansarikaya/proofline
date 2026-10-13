@@ -1,0 +1,6 @@
+interface:
+  display_name: "visual-proof"
+  short_description: "Measured visual proof of a UI change with the browser tooling that already exists."
+  default_prompt: "Prove the current UI change visually with visual-proof."
+policy:
+  allow_implicit_invocation: false

@@ -112,6 +112,12 @@ jobs:
       - name: benchmark report
         if: github.event_name != 'pull_request'
         run: node tests/benchmark/benchmark.mjs --run-validators --out "$RUNNER_TEMP/benchmark"
+      # A82: the visual-proof fixture measured in a real headless browser, main/nightly only (pull requests run
+      # the browser-less validator tests in tests/skills). A runner without a Chromium-family browser prints
+      # UNSUPPORTED and passes: that is the accepted result there, never a measured pass.
+      - name: visual-proof browser measurement
+        if: github.event_name != 'pull_request'
+        run: sh fixtures/visual-proof/browser-check.sh --no-sandbox
 
   # The self-test suites are split into scenario units and spread over four shards; inside a shard the units
   # run on every core (tests/selftest.sh).

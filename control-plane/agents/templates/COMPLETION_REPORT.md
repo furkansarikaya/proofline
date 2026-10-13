@@ -26,7 +26,7 @@ requires the sections that apply to the run; a missing one FAILS `publish-comple
 
 ## QA Result
 
-(STANDARD and up)
+(STANDARD and up) QA result; when the `visual` focus ran, the visual-proof `SUMMARY:` line.
 
 ## Waivers
 
