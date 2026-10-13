@@ -57,7 +57,7 @@ English: [../prompt-catalogue.md](../prompt-catalogue.md).
 | Gate FAIL oldu, düzeltsin | `devam et` (fix loop en fazla 2 tur çalışır) |
 | Güvenlik dışı tek bir bulguyu waive et | `RULES-3 waive edilsin, onaylıyorum, çünkü legacy modül gelecek sprint değişiyor` (bulgu id'si ve somut gerekçe; güvenlik ve secret bulguları waive edilemez) |
 | Tur hakkı bittikten sonra ek tur | `Bir round daha onaylıyorum` |
-| Plan'ın doğrulayamadığı yüksek riskli bir varsayımı cevapla | `accept <id>`, id sorudaki varsayım id'sidir (ya da doğrusunu yaz); başka hiçbir şey onu kabul etmez |
+| Plan'ın doğrulayamadığı yüksek riskli bir varsayımı cevapla | mesajı `accept AS-1` ile başlat (id sorudaki id'dir; birden fazla: `accept AS-1 and AS-2`), devamında "not", "if", "unless", "but" ya da Türkçe karşılıkları olmasın; ya da doğrusunu yaz. Başka hiçbir şey onu kabul etmez |
 | Bir kontrol UNSUPPORTED döndü | eksik aracı kendin kur ve yeniden çalıştır, ya da açıkça waive et: `görsel kontrol waive edilsin, onaylıyorum, çünkü bu makinede tarayıcı yok` |
 | Runtime limiti dolduktan sonra devam | diğer runtime'da `/proofline resume` |
 | Neden bloke? | `/proofline status` ve `proofline doctor` |

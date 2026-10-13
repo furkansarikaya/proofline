@@ -36,7 +36,7 @@ parser for a contract format) reports `UNSUPPORTED`. proofline installs nothing 
 `EVIDENCE.md` and `PLAN.md` carry a mandatory `## Assumptions` section: `none`, or one row per assumption with its
 text, source, risk (low, medium, high), verification method, status (verified, unverified) and the decisions it
 affects. An unverified high-risk assumption stops the freeze: the lead asks the user (NEEDS_INPUT) and the assumption
-is accepted only by the user's own answer, then listed as `accepted-by-user`. Unverified and accepted assumptions
+is accepted only by the user's own prompt starting with `accept AS-<n>` (see [workflow](workflow.md#assumptions)), then listed as `accepted-by-user`. Unverified and accepted assumptions
 appear in the completion report. See [workflow](workflow.md#assumptions).
 
 ## Risk-adaptive checks
