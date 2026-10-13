@@ -1,0 +1,50 @@
+{
+  "files": {
+    "api/openapi.yaml": { "status": "compared", "changes": [
+      "CP-N05 both info",
+      "CP-N05 both GET /orders/{id}",
+      "CP-B02 response customerEmail",
+      "CP-N01 request postalCode",
+      "CP-N08 request zip",
+      "CP-N05 request zip"
+    ] },
+    "api/billing.json": { "status": "compared", "changes": [
+      "CP-N06 request note",
+      "CP-B05 request currency",
+      "CP-N07 response 422"
+    ] },
+    "api/legacy.yaml": { "status": "unsupported", "changes": [] },
+    "schemas/shipment.schema.json": { "status": "compared", "changes": [
+      "CP-B06 both LOST",
+      "CP-N04 both RETURNED"
+    ] },
+    "events/asyncapi.yaml": { "status": "compared", "changes": [
+      "CP-N05 both order.placed",
+      "CP-N05 both total"
+    ] },
+    "graphql/schema.graphql": { "status": "compared", "changes": [
+      "CP-N08 response fullName",
+      "CP-N01 response displayName",
+      "CP-N10 request status",
+      "CP-N01 response customers"
+    ] },
+    "proto/inventory.proto": { "status": "compared", "changes": [
+      "CP-B10 both quantity",
+      "CP-N08 both location",
+      "CP-N01 both warehouse",
+      "CP-N09 both 2"
+    ] }
+  },
+  "covered": { "schemas/shipment.schema.json LOST": 11 },
+  "consumers": {
+    "customerEmail": ["src/client/orders.js:2"],
+    "currency": ["src/client/billing.js:1", "src/client/billing.js:2"],
+    "quantity": ["src/client/stock.js:2"],
+    "LOST": ["src/client/orders.js:6"]
+  },
+  "runs": {
+    "all": { "result": "FAIL", "blocking": ["api/billing.json currency", "api/legacy.yaml UNSUPPORTED", "api/openapi.yaml customerEmail", "proto/inventory.proto quantity"] },
+    "covered": { "paths": ["schemas/shipment.schema.json", "events/asyncapi.yaml", "graphql/schema.graphql"], "result": "PASS", "blocking": [] },
+    "legacy": { "paths": ["api/legacy.yaml"], "result": "UNSUPPORTED", "blocking": [] }
+  }
+}

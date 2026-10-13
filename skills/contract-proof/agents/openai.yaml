@@ -1,0 +1,6 @@
+interface:
+  display_name: "contract-proof"
+  short_description: "Proves backward and forward compatibility of changed API, event and data contracts; an unplanned breaking change fails."
+  default_prompt: "Check the compatibility of the contract changes in the current change with contract-proof."
+policy:
+  allow_implicit_invocation: false

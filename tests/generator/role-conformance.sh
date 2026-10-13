@@ -11,7 +11,7 @@ case ${1:-} in
 esac
 fail=0
 keys="id name purpose conditional reads owns skills gate result tools writes_code sandbox model effort tier_floor timeout_seconds stop_condition"
-skills_all="proofline-lead task-author intent-grill evidence-map plan-contract system-design api-design data-design ui-design qa-plan tdd-proof debug-proof test-trust proof-review exploit-proof verify-proof design-sync concurrency-proof visual-proof performance-proof"
+skills_all="proofline-lead task-author intent-grill evidence-map plan-contract system-design api-design data-design ui-design qa-plan tdd-proof debug-proof test-trust proof-review exploit-proof verify-proof design-sync concurrency-proof visual-proof performance-proof contract-proof"
 gates_all="REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA REVIEW_SMALL SECURITY QA VERIFY"
 for f in "$d"/*.md; do
   b=$(basename "$f" .md); [ "$b" = README ] && continue

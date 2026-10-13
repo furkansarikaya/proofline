@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/furkansarikaya/proofline/skills/contract-proof/schema/contract.schema.json",
+  "title": "contract-proof contract.json",
+  "description": "Cross-field rules (rule id exists and fixes the classification, a covered change cites a plan bullet that names the element and states versioning/migration/deprecation, a breaking or needs-review change has its consumers searched, tool evidence names a used tool, the gate result) are enforced by scripts/validate-contract.mjs. scripts/diff-contract.mjs writes the draft.",
+  "type": "object",
+  "required": ["schema_version", "target", "tools", "plan", "files", "judged"],
+  "$defs": {
+    "text": { "type": "string", "pattern": "\\S" },
+    "line": { "type": "integer", "minimum": 1 },
+    "change": {
+      "type": "object",
+      "required": ["id", "location", "element", "side", "rule", "classification", "before", "after", "line", "line_in", "evidence", "coverage", "consumers"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^C-[0-9]+$" },
+        "location": { "$ref": "#/$defs/text", "description": "JSON pointer of the usage (OpenAPI, AsyncAPI, JSON Schema; an enum value is appended as text) or Type.field / Type.field(arg) / Message.field (GraphQL, protobuf)" },
+        "element": { "$ref": "#/$defs/text", "description": "the name a plan bullet must use to cover the change" },
+        "side": { "enum": ["request", "response", "both"] },
+        "rule": { "type": "string", "pattern": "^CP-(B|N|U)[0-9]{2}$" },
+        "classification": { "enum": ["breaking", "non-breaking", "needs-review"] },
+        "before": { "type": ["string", "null"] },
+        "after": { "type": ["string", "null"] },
+        "line": { "$ref": "#/$defs/line" },
+        "line_in": { "enum": ["head", "base"] },
+        "evidence": {
+          "type": "object",
+          "required": ["class", "source"],
+          "properties": {
+            "class": { "enum": ["measured", "traced"] },
+            "source": { "$ref": "#/$defs/text", "description": "diff-contract.mjs, tool:<name> (listed in tools.used), or read" },
+            "detail": { "type": "string" }
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "required": ["covered", "plan_line", "text"],
+          "properties": {
+            "covered": { "type": "boolean" },
+            "plan_line": { "type": ["integer", "null"], "minimum": 1 },
+            "text": { "type": ["string", "null"] }
+          }
+        },
+        "consumers": {
+          "type": "object",
+          "required": ["source", "in_repo", "outside_repo"],
+          "properties": {
+            "source": { "enum": ["impact", "search", "not-searched"] },
+            "in_repo": {
+              "type": "array",
+              "items": { "type": "object", "required": ["path", "line"], "properties": { "path": { "$ref": "#/$defs/text" }, "line": { "$ref": "#/$defs/line" }, "kind": { "type": "string" } } }
+            },
+            "outside_repo": { "const": "unknown" }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": { "const": 1 },
+    "target": { "type": "object", "properties": { "base": { "type": ["string", "null"] }, "head": { "type": ["string", "null"] } } },
+    "tools": {
+      "type": "object",
+      "required": ["detected", "used"],
+      "properties": {
+        "detected": { "type": "array", "items": { "type": "object", "required": ["name", "path"] } },
+        "used": {
+          "type": "array",
+          "items": { "type": "object", "required": ["name", "command", "exit_code", "output_excerpt"], "properties": { "name": { "$ref": "#/$defs/text" }, "command": { "$ref": "#/$defs/text" }, "exit_code": { "type": "integer" }, "output_excerpt": { "type": "string" } } }
+        }
+      }
+    },
+    "plan": { "type": "object", "properties": { "path": { "type": ["string", "null"] }, "contracts_bullets": { "type": "integer", "minimum": 0 } } },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "format", "status", "changes"],
+        "properties": {
+          "path": { "$ref": "#/$defs/text" },
+          "format": { "enum": ["openapi", "asyncapi", "jsonschema", "graphql", "proto", "json", "yaml", "avro", "thrift", "raml", "wsdl", "xsd", "unknown"] },
+          "change": { "enum": ["added", "modified", "deleted", "unchanged"] },
+          "status": { "enum": ["compared", "unsupported"] },
+          "reason": { "type": "string" },
+          "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
+        }
+      }
+    },
+    "judged": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "location", "text", "criterion"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^J-[0-9]+$" },
+          "location": { "$ref": "#/$defs/text" },
+          "text": { "$ref": "#/$defs/text" },
+          "criterion": { "type": ["string", "null"], "description": "the spec or plan criterion the observation violates (then blocking), or null" }
+        }
+      }
+    }
+  }
+}

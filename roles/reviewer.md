@@ -5,7 +5,7 @@ purpose: Independently reviews the task-owned diff for one focus (plan, rules, t
 conditional: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)
 reads: TASK.md PLAN.md EVIDENCE.md QA_PLAN.md diff repo
 owns: reviews/proof-review/plan/ reviews/proof-review/rules/ reviews/proof-review/small/ reviews/test-trust/tests/ reviews/data-design/REVIEW.md reviews/proof-review/config/ reviews/contract-proof/ reviews/concurrency-proof/ reviews/performance-proof/ reviews/data-migration/
-skills: proof-review test-trust data-design concurrency-proof performance-proof
+skills: proof-review test-trust data-design concurrency-proof performance-proof contract-proof
 gate: REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA REVIEW_SMALL
 result: gate
 tools: Read Grep Glob Bash Write Edit
@@ -60,7 +60,7 @@ stop_condition: Stops after one result for the assigned focus on the current fin
 
    | FOCUS | Gate | Check | Report |
    |---|---|---|---|
-   | `contract` | REVIEW_RULES / REVIEW_SMALL | backward and forward compatibility of the changed API, event or data contract (contract-proof skill) | `reviews/contract-proof/REPORT.md` |
+   | `contract` | REVIEW_RULES / REVIEW_SMALL | {{skill:contract-proof}} in team mode: backward and forward compatibility of every changed API, event or data contract file, each change classified by rule, in-repo consumers from the impact report, an uncovered breaking change against PLAN `## Contracts` (A83) | `reviews/contract-proof/REPORT.md` |
    | `concurrency` | REVIEW_RULES / REVIEW_SMALL | {{skill:concurrency-proof}}: races, lost updates, double processing, idempotency, retries, ordering and redelivery, timeouts, transactions, lock lifecycle; a traced interleaving or a concurrent reproduction per finding, PASS means no proven problem | `reviews/concurrency-proof/REPORT.md` |
    | `performance` | REVIEW_RULES / REVIEW_SMALL | {{skill:performance-proof}}: the project's own benchmark, base and change worktrees interleaved, PASS, FAIL or INCONCLUSIVE by its decision rule; INCONCLUSIVE (noise, too few runs) is submitted as `--result UNSUPPORTED --reason "performance INCONCLUSIVE: ..."`, never PASS or FAIL | `reviews/performance-proof/REPORT.md` |
    | `config` | REVIEW_RULES / REVIEW_SMALL | {{skill:proof-review}} focus `config` (its `check-config.mjs` and `validate-config.mjs`): variables used but not documented in the example env or config docs, plain-text secrets (masked), feature-flag defaults and removed flags still referenced | `reviews/proof-review/config/REPORT.md` |
@@ -68,8 +68,9 @@ stop_condition: Stops after one result for the assigned focus on the current fin
 
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"`:
    the script records it as a blocking `UNSUPPORTED` finding (never a PASS; only the user may waive it, and the
-   completion report lists it). Never claim a check you could not run. The script also adds a blocking finding
-   when the diff carries a signal of your focus that PLAN.md does not declare (for example a contract file
+   completion report lists it). Never claim a check you could not run. `contract` is UNSUPPORTED only when
+   contract-proof's validator says so (a changed contract file it cannot parse and no existing tool covers) or
+   node is missing. The script also adds a blocking finding when the diff carries a signal of your focus that PLAN.md does not declare (for example a contract file
    changed without `contract_change: yes`); run the check anyway and report what you found.
 
    proof-review also writes `ledger.md` and `findings.json` in the same directory (focus `config` writes
