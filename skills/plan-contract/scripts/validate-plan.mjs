@@ -272,6 +272,22 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
   } catch { /* the config is optional */ }
   const vc = (body.get("Verification commands") || []).join("\n");
   if (body.has("Verification commands") && !/`[^`]+`|^```/m.test(vc)) errors.push('section "## Verification commands": no command in backticks or a code block');
+  // A81: the designer's `visual_proof: <AC ids|none>` line names the criteria that need visual evidence; visual-proof
+  // and verify-proof read it from the frozen plan. Validated when present, required for COMPLEX/CRITICAL plans with UI.
+  const ui = body.get("UI");
+  if (ui) {
+    const vp = ui.map((l) => /^\s*(?:[-*]\s*)?visual_proof:\s*(.*?)\s*$/.exec(l)).filter(Boolean);
+    if (vp.length > 1) errors.push('section "## UI": more than one visual_proof line');
+    else if (vp.length === 0 && ARCHITECTURE_CLASSES.includes(klass)) errors.push(`section "## UI": the line "visual_proof: <AC ids|none>" is required for ${klass} (the designer marks the criteria that need visual evidence)`);
+    else if (vp.length === 1 && !/^none$/i.test(vp[0][1])) {
+      const ids = vp[0][1].split(",").map((s) => s.trim());
+      if (new Set(ids).size !== ids.length) errors.push('section "## UI": visual_proof lists a criterion twice');
+      for (const id of ids) {
+        if (!/^AC-\d+$/.test(id)) errors.push(`section "## UI": visual_proof "${id}" is not an AC-<n> id (write the ids comma-separated, or none)`);
+        else if (!task.criteria.includes(id)) errors.push(`section "## UI": visual_proof names unknown criterion ${id}`);
+      }
+    }
+  }
   return errors;
 }
 

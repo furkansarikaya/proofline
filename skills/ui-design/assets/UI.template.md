@@ -2,6 +2,16 @@
 
 UI languages: <list> | Design system: <DESIGN.md path>
 
+## Creative direction
+Basis: <conform|redesign (task quote; user approval: question id)|new>
+Visual character / Typography / Layout / Content hierarchy: <each with its reason>
+Rationale: <grounded in the users, the task and the existing system>
+Avoided (new only): <generic defaults rejected, and why>
+
+## UX patterns
+| Decision | Options | Chosen | Density | Flow | Rationale |
+|---|---|---|---|---|---|
+
 ## Reused
 | Kind | Name | Path |
 |---|---|---|
@@ -27,6 +37,20 @@ UI languages: <list> | Design system: <DESIGN.md path>
 Keyboard: <tab order, focus management, shortcuts>
 Screen reader: <roles, labels, live regions, announcements>
 Responsive: <per breakpoint: reflow, hidden items, target size>
+
+## Criteria and visual proof
+visual_proof: <AC ids that need visual evidence, comma-separated, or none>
+
+| Criterion | Screens | Visual proof | Evidence target (states, viewports, what must show) |
+|---|---|---|---|
+
+## Self-critique
+Hierarchy / Density / Consistency / Legibility: <what was checked and changed>
+
+| Anti-pattern | Result (clear/fixed/accepted) | Note |
+|---|---|---|
+
+Not a quality approval: the design is judged independently (QA visual focus, reviewers).
 
 ## Open questions
 - <question> or "none"

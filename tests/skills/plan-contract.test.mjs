@@ -138,7 +138,22 @@ test("persistence and UI scope paths require ## Data and ## UI", () => {
   has(e, 'section "## UI" is required');
 });
 
-const STEPS_HEAD = ["| step | phase | operation | object | destructive | reversible | rollback | lock |", "|---|---|---|---|---|---|---|---|"];
+test("A81: ## UI visual_proof line is checked when present and required for COMPLEX/CRITICAL", () => {
+  const ui = (lines) => plan({ body: { ...BODY, UI: ["Screens S1 with all states.", ...lines] } });
+  const arch = { Architecture: ["One module, no boundary change."] };
+  const strong = (lines) => plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", ...lines] } });
+  assert.deepEqual(errs(ui([])), []);
+  assert.deepEqual(errs(ui(["visual_proof: AC-1, AC-4"])), []);
+  assert.deepEqual(errs(ui(["visual_proof: none"])), []);
+  has(errs(ui(["visual_proof: AC-1, AC-9"])), "visual_proof names unknown criterion AC-9");
+  has(errs(ui(["visual_proof: AC-1, AC-1"])), "lists a criterion twice");
+  has(errs(ui(["visual_proof: yes"])), "is not an AC-<n> id");
+  has(errs(ui(["visual_proof: AC-1", "visual_proof: none"])), "more than one visual_proof line");
+  has(errs(strong([]), { cls: "COMPLEX" }), '"visual_proof: <AC ids|none>" is required for COMPLEX');
+  assert.deepEqual(errs(strong(["- visual_proof: AC-4"]), { cls: "CRITICAL" }), []);
+});
+
+const STEPS_HEAD =["| step | phase | operation | object | destructive | reversible | rollback | lock |", "|---|---|---|---|---|---|---|---|"];
 const EXPAND = "| S1 | expand | switch_reads | books.legacy_fee | no | yes | redeploy the previous release | none |";
 const CONTRACT = "| S2 | deferred | drop_column | books.legacy_fee | yes | no | restore from the backup | table rewrite |";
 

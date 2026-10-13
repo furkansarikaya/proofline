@@ -34,7 +34,9 @@ user's explicit single-step approval allows one step: the line `single_step: yes
 
 ## UI
 
-When the UI changes (designer): screens, flows, states, accessibility. Delete otherwise.
+When the UI changes (designer): screens, flows, states, accessibility, and the line
+`visual_proof: <AC ids|none>` naming the criteria that need visual evidence (required for COMPLEX/CRITICAL).
+Delete otherwise.
 
 ## Behavior
 

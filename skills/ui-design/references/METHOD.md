@@ -38,3 +38,18 @@ Per screen: `keyboard` (tab order; every pointer action has a keyboard equivalen
 ## 5. Validation rules
 
 The validator enforces: `schema_version` 1; `mode` `task|reverse`; `design_system.file` non-empty and, with `--root`, existing when `exists: true`; `reused[]` entries have kind, name, and existing path (with `--root`); `new[]` entries have kind, name, `reason`, `reuse_rejected`, and a name not equal to any reused name; mode task has at least one screen; screen ids unique; each screen has all six states, each with (`copy` and `behavior` non-empty, no placeholder text) or `not_applicable`; `keyboard`, `screen_reader`, `responsive` non-empty arrays of non-empty strings; flows reference known screens; `ui_languages` non-empty. With `--design-md`: the six required headings exist and have content, no placeholder text, and every backticked repo-looking path exists under `--root`.
+
+A81 additions (optional keys, validated whenever present; all four mandatory in mode task when the class is COMPLEX or CRITICAL, taken from `--class` or the `## Suggested class` of `--task <TASK.md>`; without a class they stay optional, so a spec written before A81 still validates):
+- `creative_direction`: `basis` `conform|redesign|new` plus non-empty `visual_character`, `typography`, `layout`, `hierarchy`, `rationale`. `new` is rejected when `design_system.exists` is true and needs a non-empty `avoided`; `redesign` needs `redesign.task_quote` (with `--task`, found verbatim in TASK.md, whitespace and case ignored) and `redesign.user_approval` that does not name the designer, an assumption or an implication.
+- `ux_patterns`: non-empty; each with `decision`, at least two distinct `options`, `chosen` one of them, `density`, `flow`, `rationale`.
+- `self_critique`: `hierarchy`, `density`, `consistency`, `legibility` and a non-empty `anti_patterns` list (`check`, `result` `clear|fixed|accepted`, a `note` for fixed and accepted). Approval wording ("approved", "sign-off", "LGTM", "ready to ship", "final verdict") in a pass or a check is a self-approval claim and fails; so does any top-level key naming an approval, sign-off or verdict.
+- `criteria`: non-empty; unique `id` `AC-<n>` (with `--task`, an acceptance criterion of the task), `screens` known screen ids, `visual_proof` `required|not_required`, `evidence` non-empty when required.
+
+## 6. Criteria and visual proof
+
+The designer marks every UI-facing acceptance criterion: `visual_proof: required` when the criterion can only be shown with visual evidence (layout, visibility, overflow, contrast, a rendered state), otherwise `not_required`. `evidence` names the screens, states and viewports and what the screenshot or measurement must show; it is a target for QA, not proof.
+
+Interface for the proof skills (stable; consumers read it, they never import this script):
+- **Run-frozen source:** the PLAN `## UI` text carries exactly one line `visual_proof: AC-1, AC-3` (comma-separated ids) or `visual_proof: none`. plan-contract's validator checks the ids against TASK.md and requires the line for COMPLEX/CRITICAL plans with a `## UI` section. verify-proof and visual-proof read this line from the frozen PLAN.md.
+- **Design artifact:** `design/ui.json` `criteria[]` (per criterion: screens, evidence target). `node <skill-dir>/scripts/validate-ui.mjs design/ui.json --task TASK.md --list-visual-proof` validates and prints `{"schema":"ui-design.visual-proof/1","required":["AC-1","AC-3"]}` (exit 1 with errors when invalid). The PLAN line and this list must name the same ids.
+- **Meaning for the gates:** a criterion marked required whose visual evidence is missing is unproven (A82 consumes this; nothing here changes verify-proof).

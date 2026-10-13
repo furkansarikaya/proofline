@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "mode": "task",
+  "ui_languages": [
+    "en"
+  ],
+  "design_system": {
+    "file": "DESIGN.md",
+    "exists": true
+  },
+  "reused": [
+    {
+      "kind": "component",
+      "name": "Select",
+      "path": "src/ui/components/Select.js"
+    },
+    {
+      "kind": "component",
+      "name": "TextInput",
+      "path": "src/ui/components/TextInput.js"
+    },
+    {
+      "kind": "component",
+      "name": "EmptyState",
+      "path": "src/ui/components/EmptyState.js"
+    },
+    {
+      "kind": "component",
+      "name": "Button",
+      "path": "src/ui/components/Button.js"
+    },
+    {
+      "kind": "token",
+      "name": "--color-focus",
+      "path": "src/ui/styles/tokens.css"
+    }
+  ],
+  "new": [],
+  "screens": [
+    {
+      "id": "S1",
+      "name": "Project list with filters",
+      "route": "src/ui/pages/ProjectList.js",
+      "states": {
+        "empty": {
+          "copy": "No projects match these filters. [Clear filters]",
+          "behavior": "EmptyState with a secondary Button that resets status to all and clears the search"
+        },
+        "loading": {
+          "copy": "Loading projects",
+          "behavior": "existing Spinner; filters disabled until the list arrives"
+        },
+        "error": {
+          "copy": "Could not load projects.",
+          "behavior": "existing Alert tone danger; filters hidden"
+        },
+        "success": {
+          "copy": "Projects (12)",
+          "behavior": "list filtered as the user types; count updates"
+        },
+        "partial": {
+          "not_applicable": "the list loads in one response; there is no paging"
+        },
+        "permission-denied": {
+          "not_applicable": "every signed-in user may see the project list"
+        }
+      },
+      "keyboard": [
+        "Tab order: search, status select, results; Escape in the search clears it; focus ring --color-focus"
+      ],
+      "screen_reader": [
+        "Both controls keep their visible <label>; the count sits in a role=status region (polite)"
+      ],
+      "responsive": [
+        "< 640px: filters stack above the list; controls at least 44px high"
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "F1",
+      "name": "Filter projects",
+      "steps": [
+        "type a name",
+        "pick a status",
+        "read the count"
+      ],
+      "screens": [
+        "S1"
+      ]
+    }
+  ],
+  "creative_direction": {
+    "basis": "conform",
+    "visual_character": "quiet utility page; filters must not outweigh the list",
+    "typography": "existing --font-size-md for labels and rows, --font-size-sm for the count",
+    "layout": "one filter row above the list, --space-3 gap, same width as the list",
+    "hierarchy": "page title, then filters, then the count, then the list",
+    "rationale": "DESIGN.md defines a small token set and plain DOM components; the task adds filtering, not a new look"
+  },
+  "ux_patterns": [
+    {
+      "decision": "how the status filter is offered",
+      "options": [
+        "native select",
+        "segmented buttons"
+      ],
+      "chosen": "native select",
+      "density": "one control for three values keeps the filter row to one line",
+      "flow": "Tab to the select, arrow keys choose, the list updates on change",
+      "rationale": "Select.js already exists with a visible label; segmented buttons would need Chip.js, which DESIGN.md deprecates"
+    }
+  ],
+  "self_critique": {
+    "hierarchy": "count placed under the filters so the change is seen next to the control that caused it",
+    "density": "filters on one line at desktop; no extra panel",
+    "consistency": "only existing components and tokens; same Button variant as other empty states",
+    "legibility": "count uses --color-text-muted on --color-surface, the existing secondary-text pair",
+    "anti_patterns": [
+      {
+        "check": "placeholder text as the only label",
+        "result": "clear"
+      },
+      {
+        "check": "state shown by colour alone",
+        "result": "clear"
+      },
+      {
+        "check": "focus lost after clearing filters",
+        "result": "fixed",
+        "note": "focus moves to the search field after Clear filters"
+      }
+    ]
+  },
+  "criteria": [
+    {
+      "id": "AC-1",
+      "screens": [
+        "S1"
+      ],
+      "visual_proof": "required",
+      "evidence": "S1 success at 375 and 1280 px: both controls visible, labelled, focus ring visible on each"
+    },
+    {
+      "id": "AC-2",
+      "screens": [
+        "S1"
+      ],
+      "visual_proof": "required",
+      "evidence": "S1 empty (no match) at 375 px: message and Clear filters button rendered"
+    },
+    {
+      "id": "AC-3",
+      "screens": [
+        "S1"
+      ],
+      "visual_proof": "not_required"
+    },
+    {
+      "id": "AC-7",
+      "screens": [
+        "S1"
+      ],
+      "visual_proof": "required",
+      "evidence": "S1 success at 1280 px: filter row aligned with the list"
+    }
+  ]
+}
