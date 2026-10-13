@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "evidence-map impact report",
+  "description": "Output of scripts/impact.mjs. Checked by scripts/validate-impact.mjs (which also enforces the cross-list consistency and the mandatory limits that this schema cannot express).",
+  "type": "object",
+  "required": ["version", "kind", "tool", "repo", "inputs", "analysis", "limits", "changed_files", "symbols", "files_affected", "modules", "contracts", "tests", "unknown", "summary"],
+  "properties": {
+    "version": { "const": 1 },
+    "kind": { "const": "impact-report" },
+    "tool": { "const": "evidence-map/impact" },
+    "repo": { "type": "object", "properties": { "head": { "type": ["string", "null"] }, "base": { "type": ["string", "null"] } } },
+    "inputs": { "type": "object", "properties": { "symbols": { "type": "array", "items": { "type": "string" } }, "files": { "type": "array", "items": { "type": "string" } }, "base": { "type": ["string", "null"] } } },
+    "analysis": {
+      "type": "object",
+      "required": ["method", "tools"],
+      "properties": {
+        "method": { "type": "string" },
+        "resolution_languages": { "type": "array", "items": { "type": "string" } },
+        "tools": { "type": "object", "required": ["detected", "used"], "properties": { "detected": { "type": "array" }, "used": { "type": "array" }, "note": { "type": "string" } } }
+      }
+    },
+    "limits": {
+      "description": "Always lists dynamic-dispatch, reflection, string-built-names, generated-code, cross-repo-consumers, unresolved-imports, language-coverage and lexing.",
+      "type": "array",
+      "items": { "type": "object", "required": ["id", "text"], "properties": { "id": { "type": "string" }, "text": { "type": "string" } } }
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "change", "symbols", "dependents"],
+        "properties": {
+          "path": { "type": "string" },
+          "change": { "enum": ["modified", "added", "deleted"] },
+          "symbols": { "type": "array", "items": { "type": "string" } },
+          "file_level_change": { "type": "boolean" },
+          "dependents": { "type": "array", "items": { "type": "string" } },
+          "contract": { "enum": ["openapi", "asyncapi", "json-schema", "protobuf", "graphql", "avro", "thrift"] }
+        }
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "change", "defined_in", "references", "excluded_homonyms", "files", "modules", "contracts", "tests"],
+        "properties": {
+          "name": { "type": "string" },
+          "change": { "enum": ["modified", "added", "removed", "deleted", "requested"] },
+          "defined_in": { "type": "array", "items": { "type": "object", "required": ["path", "line"], "properties": { "path": { "type": "string" }, "line": { "type": "integer", "minimum": 1 } } } },
+          "truncated": { "type": "boolean" },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "line", "kind", "role", "text"],
+              "properties": {
+                "path": { "type": "string" },
+                "line": { "type": "integer", "minimum": 1 },
+                "kind": { "enum": ["exact", "textual", "heuristic"] },
+                "role": { "enum": ["definition", "import", "reexport", "call", "reference", "comment", "string", "doc"] },
+                "text": { "type": "string", "description": "the trimmed source line, at most 160 characters" },
+                "via": { "type": "array", "items": { "type": "string" }, "description": "re-exporting files the binding went through" },
+                "local": { "type": "string", "description": "the alias the symbol is bound to in this file" },
+                "generated": { "const": true },
+                "note": { "type": "string" }
+              }
+            }
+          },
+          "excluded_homonyms": { "type": "array", "items": { "type": "object", "required": ["path", "line", "reason"], "properties": { "path": { "type": "string" }, "line": { "type": "integer" }, "text": { "type": "string" }, "reason": { "type": "string" }, "defined_in": { "type": ["string", "null"] } } } },
+          "files": { "type": "array", "items": { "type": "object", "required": ["path", "module", "reasons", "kind"], "properties": { "path": { "type": "string" }, "module": { "type": "string" }, "reasons": { "type": "array", "items": { "enum": ["defines", "references-symbol", "imports-defining-module"] } }, "kind": { "enum": ["exact", "textual", "heuristic"] } } } },
+          "modules": { "type": "array", "items": { "type": "string" } },
+          "contracts": { "type": "array", "items": { "type": "object", "required": ["path", "format", "kind", "line"], "properties": { "path": { "type": "string" }, "format": { "type": "string" }, "kind": { "enum": ["textual", "heuristic"] }, "line": { "type": "integer" }, "text": { "type": "string" } } } },
+          "tests": { "type": "array", "items": { "type": "object", "required": ["path", "relation", "kind"], "properties": { "path": { "type": "string" }, "relation": { "enum": ["references-symbol", "imports-defining-module", "covers-affected-file"] }, "kind": { "enum": ["exact", "textual", "heuristic"] }, "lines": { "type": "array", "items": { "type": "integer" } } } } }
+        }
+      }
+    },
+    "files_affected": { "type": "array", "items": { "type": "object", "required": ["path", "module", "symbols", "kind"], "properties": { "path": { "type": "string" }, "module": { "type": "string" }, "symbols": { "type": "array", "items": { "type": "string" } }, "kind": { "enum": ["exact", "textual", "heuristic"] } } } },
+    "modules": { "type": "array", "items": { "type": "object", "required": ["path", "files"], "properties": { "path": { "type": "string" }, "files": { "type": "array", "items": { "type": "string" } } } } },
+    "contracts": { "type": "array", "items": { "type": "object", "required": ["path", "format", "changed", "symbols"], "properties": { "path": { "type": "string" }, "format": { "enum": ["openapi", "asyncapi", "json-schema", "protobuf", "graphql", "avro", "thrift"] }, "changed": { "type": "boolean" }, "symbols": { "type": "array", "items": { "type": "object", "required": ["name", "kind", "line"] } } } } },
+    "tests": { "type": "array", "items": { "type": "object", "required": ["path", "relation", "kind", "symbols"], "properties": { "path": { "type": "string" }, "relation": { "enum": ["references-symbol", "imports-defining-module", "covers-affected-file"] }, "kind": { "enum": ["exact", "textual", "heuristic"] }, "symbols": { "type": "array", "items": { "type": "string" } } } } },
+    "unknown": { "type": "array", "items": { "type": "object", "required": ["id", "status", "text"], "properties": { "id": { "type": "string" }, "status": { "const": "unknown" }, "text": { "type": "string" }, "sites": { "type": "array", "items": { "type": "object", "required": ["path", "line", "signal"] } } } } },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "object", "required": ["symbols", "references", "files", "modules", "contracts", "tests"] }
+  }
+}

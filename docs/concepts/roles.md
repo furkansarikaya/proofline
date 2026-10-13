@@ -7,7 +7,7 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 |---|---|---|---|
 | `lead` | Owns the lifecycle; the only role that changes task state or declares DONE | proofline-lead, plan-contract, debug-proof | always (the main session) |
 | `task_author` | Turns a request into a standard task | task-author, intent-grill | no task exists |
-| `explorer` | Bounded investigation, compact verified evidence | evidence-map | not TRIVIAL |
+| `explorer` | Bounded investigation, compact verified evidence; impact mode: what a change reaches | evidence-map | not TRIVIAL |
 | `architect` | System and API design, ADRs | system-design, api-design | COMPLEX, CRITICAL or on request |
 | `data_architect` | Data model and migration plan | data-design | persistence changes or on request |
 | `designer` | UI design and `DESIGN.md` | ui-design | UI changes or on request |

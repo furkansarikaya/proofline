@@ -1,6 +1,6 @@
 ---
 name: evidence-map
-description: Bounded codebase investigation that returns compact, verified evidence. Takes one assignment (objective, allowed scope, expected output, stop condition) and maps the live implementation, its callers, tests, patterns to follow, dependencies, constraints, affected files, regression risk and conflicting or dead duplicate implementations. Every claim is a `path:symbol` or `path:line` checked by reading or grepping; unverifiable statements are dropped or listed as open questions. A bundled script mechanically re-verifies every claim before the result is returned. Also defines how the lead consolidates several Explorer results into EVIDENCE.md. Use before planning a change in unfamiliar code, or when the proofline lead dispatches an Explorer.
+description: Bounded codebase investigation that returns compact, verified evidence. Takes one assignment (objective, allowed scope, expected output, stop condition) and maps the live implementation, its callers, tests, patterns to follow, dependencies, constraints, affected files, regression risk and conflicting or dead duplicate implementations. Every claim is a `path:symbol` or `path:line` checked by reading or grepping; unverifiable statements are dropped or listed as open questions. A bundled script mechanically re-verifies every claim before the result is returned. Also defines how the lead consolidates several Explorer results into EVIDENCE.md. `impact` mode: a JSON report of what changed symbols reach (references, modules, contracts, tests) with stated limits. Use before planning a change in unfamiliar code, or when the proofline lead dispatches an Explorer.
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -32,6 +32,15 @@ Talk to the user in their language. Evidence documents are English; identifiers,
 
 - **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the user's question becomes the assignment; ask once for any of objective, scope or stop condition that cannot be derived from it. Output `.agents/local/evidence-map/<slug>/evidence.md` (nothing kept with `local_state: off`; then the document is shown in chat only). Finish with the claims table and the question "Shall I widen the scope or go deeper on one claim?".
 - **Team** (dispatched by the lead): read only the assignment and the repository; write only the result artifact the assignment names (contract: `reports/NNN-explorer.md` in the run folder). Return the result header, the claims table, and `QUESTIONS:` when the assignment itself is ambiguous (`NEEDS_INPUT`). Never `NEEDS_INPUT` for something the repository answers.
+
+## Impact mode (A85)
+
+Same role, same read-only rules; used when the assignment (or the user) asks what a change reaches: the changed symbols or files come from the diff or the plan scope. Run `scripts/impact.mjs` and `scripts/validate-impact.mjs` ([IMPACT.md](references/IMPACT.md)): per symbol, references marked `exact | textual | heuristic`, affected files and modules, contracts and tests, plus the limits of static analysis and what is `unknown` (cross-repo consumers always). Rules on top of the hard rules above:
+
+- "No references found" is reported as "none found statically", never as safe. The `limits` and `unknown` sections are never trimmed.
+- A `textual` occurrence (comment, string, prose, contract spelling) and an excluded homonym are never claimed as a dependency; a `heuristic` one is claimed only as `risk` or `affected` with the word "unresolved" in the finding.
+- A language server or analysis tool that already exists on the machine is only recorded in `analysis.tools`; nothing is installed to improve the result.
+- The report is consumed by plan scope, test-trust diff mode, verify-proof and contract-proof through the interface in [IMPACT.md](references/IMPACT.md#consumption-interface); the report file is not a claims document and `verify-claims.mjs` does not read it.
 
 ## Flow
 

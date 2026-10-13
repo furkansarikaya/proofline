@@ -1,0 +1,57 @@
+{
+  "args": ["--base", "HEAD~1"],
+  "symbols": ["reserveStock"],
+  "not_symbols": ["releaseStock"],
+  "references": [
+    "exact definition src/stock/reserve.js:4",
+    "exact reexport src/stock/index.js:1",
+    "exact import src/orders/place.js:1",
+    "exact call src/orders/place.js:4",
+    "exact import src/api/handlers.js:1",
+    "exact call src/api/handlers.js:4",
+    "exact import src/gen/client.generated.js:2",
+    "exact call src/gen/client.generated.js:4",
+    "exact import test/reserve.test.js:3",
+    "exact call test/reserve.test.js:6",
+    "exact import test/stock-barrel.test.js:3",
+    "exact reference test/stock-barrel.test.js:6",
+    "textual comment src/notes.js:1",
+    "textual string src/notes.js:3",
+    "textual doc README.md:3",
+    "textual string test/reserve.test.js:5",
+    "textual string test/stock-barrel.test.js:5"
+  ],
+  "generated": ["src/gen/client.generated.js:2", "src/gen/client.generated.js:4"],
+  "excluded_homonyms": [
+    "src/legacy/report.js:1",
+    "src/legacy/report.js:4",
+    "src/legacy/warehouse.js:2",
+    "test/legacy.test.js:3",
+    "test/legacy.test.js:5",
+    "test/legacy.test.js:6"
+  ],
+  "files": [
+    "src/api/handlers.js",
+    "src/gen/client.generated.js",
+    "src/orders/place.js",
+    "src/plugins/dispatch.js",
+    "src/stock/index.js",
+    "src/stock/reserve.js"
+  ],
+  "not_files": ["src/orders/cancel.js", "src/legacy/warehouse.js", "src/legacy/report.js"],
+  "modules": ["src/api", "src/gen", "src/orders", "src/plugins", "src/stock"],
+  "tests": [
+    "test/orders.test.js covers-affected-file heuristic",
+    "test/reserve.test.js references-symbol exact",
+    "test/stock-barrel.test.js references-symbol exact"
+  ],
+  "not_tests": ["test/legacy.test.js", "test/cancel.test.js"],
+  "contracts": [
+    "openapi.yaml textual changed",
+    "proto/warehouse.proto heuristic unchanged",
+    "schemas/reservation.schema.json heuristic unchanged"
+  ],
+  "not_contracts": ["openapi-billing.yaml"],
+  "dynamic_sites": ["src/plugins/dispatch.js:5"],
+  "files_mode_symbols": ["releaseStock", "reserveStock"]
+}

@@ -13,6 +13,7 @@
 - Benchmark report (A90): `node tests/benchmark/benchmark.mjs` scores recorded results of the existing fixtures and e2e runs per skill (correct, missed, false positives, scope adherence, duration, tokens); no new scenarios, no model calls.
 - Metrics and cost (A80): versioned JSON records in `.agents/local/metrics/records.jsonl` with duration per dispatch, runtime-reported tokens (null when not reported, never estimated), turns, retries, delegations and the result per gate; `metrics: off` still disables everything.
 - Assumption register (A79): a mandatory `## Assumptions` section in PLAN.md and EVIDENCE.md, checked by both validators; `agent.sh freeze`/`refreeze` refuse an unverified high-risk assumption until the user answers it (recorded as `accepted-by-user`), `agent.sh verify-assumptions` shows the register, and the completion report lists every unverified or accepted-by-user assumption.
+- evidence-map `impact` mode (A85): the Explorer produces a versioned JSON impact report for changed symbols, files or a base ref (references marked exact, textual or heuristic, homonyms excluded, affected modules, contracts, tests) with the limits of static analysis and the unknown cross-repo consumers stated, plus a validator that re-checks every cited line; plan scope, test-trust diff mode, verify-proof and contract-proof read it through the documented interface.
 - `SECURITY.md` and `CONTRIBUTING.md`; the Acknowledgments section is removed and D33 states that no third-party project is named.
 
 ## 0.0.1 — 2026-10-09
