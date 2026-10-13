@@ -257,7 +257,7 @@ export function analyze(repoArg, opts = {}) {
   for (const s of opts.symbols || []) { const [name, at] = s.split("@"); reqSymbols.push({ name, path: at || null, change: "requested" }); }
   const note = [];
   if (base) {
-    const dif = git(repo, ["diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", base]);
+    const dif = git(repo, ["diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", base]);
     if (dif === null) throw new Error(`git diff against ${base} failed (not a git repository, or unknown ref)`);
     let cur = null;
     for (const line of dif.split("\n")) {
@@ -283,7 +283,7 @@ export function analyze(repoArg, opts = {}) {
   for (const [p, c] of [...changed].sort((a, b) => a[0].localeCompare(b[0]))) {
     const row = { path: p, change: c.path === null ? "deleted" : c.old === null ? "added" : "modified", symbols: [], file_level_change: false, dependents: [] };
     const fi = c.path ? load(c.path) : null;
-    const baseSrc = c.old && base ? git(repo, ["show", `${base}:${c.old}`]) : null;
+    const baseSrc = c.old && base ? git(repo, ["show", "--no-textconv", `${base}:${c.old}`]) : null;
     const oldFi = baseSrc !== null ? { ext: extOf(c.old), code: C_STYLE.has(extOf(c.old)) || HASH_STYLE.has(extOf(c.old)), src: baseSrc } : null;
     if (fi && fi.code) {
       const dm = [...decls(c.path)].sort((a, b) => a[1] - b[1]);

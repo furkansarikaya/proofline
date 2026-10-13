@@ -17,7 +17,7 @@ node <skill-dir>/scripts/validate-impact.mjs <impact.json> --repo <repo>        
 - Inputs combine. With `--base`, the diff is the working tree against `<ref>`: the symbols are the declarations whose span a changed line falls in, symbols that existed at `<ref>` and are gone now (`removed`, `deleted`), and new files. Changed lines outside every declaration set `file_level_change` on the file row.
 - `--select` prints one path per line (shell consumers, `xargs`); the JSON is the contract.
 - The report is deterministic: no timestamp, sorted lists. The same repository state and inputs give a byte-identical file, so a consumer may regenerate it instead of trusting a stored one.
-- Where the Explorer writes it: standalone, `.agents/local/evidence-map/<slug>/impact.json` (nothing kept with `local_state: off`); in a run, under the run's scratch folder (`.agents/runs/<ID>/scratch/impact.json`; the result artifact stays the one `reports/NNN-explorer.md`). The result's claims rows cite the report's `affected`, `test` and `risk` rows as usual; the report itself is never pasted.
+- Where the Explorer writes it: standalone, `.agents/local/evidence-map/<slug>/impact.json` (nothing kept with `local_state: off`: use `--select` or stdout then); in a run, `--out .agents/runs/<ID>/scratch/impact.json`, the role's scratch folder (the result artifact stays the one `reports/NNN-explorer.md`). The result's claims rows cite the report's `affected`, `test` and `risk` rows as usual; the report itself is never pasted.
 
 ## What it reports
 
@@ -40,6 +40,10 @@ node <skill-dir>/scripts/validate-impact.mjs <impact.json> --repo <repo>        
 - **textual**: the identifier text in a comment, a string, prose, or a contract (exact spelling). Never evidence that code depends on it.
 
 A `textual` role is `comment`, `string` or `doc`; the validator rejects an `exact` comment. `homonyms` are never references.
+
+## What the validator proves
+
+`validate-impact.mjs` proves the shape, the mandatory limits, and that each cited `path:line` exists with the recorded text. It does **not** prove the classification: that a `kind` is right, that a homonym really is another definition, or that nothing was missed. When classification matters (a gate, a plan scope), the consumer regenerates the report with `impact.mjs` (deterministic: the same inputs give a byte-identical file) and compares, or reads the cited lines itself.
 
 ## Limits (always in the report)
 
