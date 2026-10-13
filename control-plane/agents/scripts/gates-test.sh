@@ -682,6 +682,13 @@ STANDARD — the first step is additive and its own step drops nothing.' scaffol
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a defect word in Suggested class prose blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "a defect word inside Suggested class prose does not make a task a defect fix"
+  # the user's own words in a blockquote count, in English and Turkish (A67)
+  SC_TASK_EXTRA='
+## Context
+
+> Kitaplarımdan bazıları kayboldu, sayfa 2 boş geliyor.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  expect_msg "a Turkish defect report in the user's quote needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
   # "dropping the column is a follow-up" in the Goal is data removal wording, not a defect report (A53)
   SC_TASK_EXTRA='
 ## Goal
