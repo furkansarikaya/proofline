@@ -39,7 +39,7 @@ message; continue other steps of the run.
    it decides with the recommended option it offered and says so, or returns BLOCKED. The rule is enforced by
    the script for results submitted inside a run (after `agent.sh start`); the pre-run intake (task author,
    intent-grill's own interview rounds) is bound only by its own protocol. Inside a run intent-grill's interview
-   (artifact `design/INTENT.md`) is exempt from the one-round rule and may ask one question per round for as many
+   (the task author's NEEDS_INPUT with `--artifact design/INTENT.md`; no other role) is exempt from the one-round rule and may ask one question per round for as many
    rounds as the tree needs (A75).
 
 ## 3. The lead's own questions

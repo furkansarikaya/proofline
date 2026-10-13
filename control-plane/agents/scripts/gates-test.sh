@@ -592,15 +592,20 @@ sc_questions_keys() {
 sc_questions_grill() {
   scaffold orchestrated
   mkdir -p .agents/runs/LC/reports .agents/runs/LC/design; printf '# notes\n' > .agents/runs/LC/reports/001-task_author.md; printf '# intent\n' > .agents/runs/LC/design/INTENT.md
-  q() { printf 'ROLE: task_author\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\nQUESTIONS:\n1. Proceed?\n' "$(A fingerprint LC)" "$1" "$(tsha .agents/runs/LC/$1)" > "$base/q.md"; AS task_author record LC --file "$base/q.md"; }
-  # A75: intent-grill's interview (artifact design/INTENT.md) is multi-round and never limited
-  q design/INTENT.md >/dev/null || die "intent-grill's first round was refused"
-  q design/INTENT.md >/dev/null || die "intent-grill's second round was refused"
-  q design/INTENT.md >/dev/null || die "intent-grill's third round was refused"
+  printf '1. Proceed?\n   options: yes | no\n   recommended: yes\n   why: it unblocks the tree\n' > "$base/gq.txt"
+  # sg ROLE ARTIFACT TOKEN: a NEEDS_INPUT through the real `submit` (which snapshots the artifact before `record`)
+  sg() { AS "$1" submit LC --result NEEDS_INPUT --confidence medium --artifact "$2" --questions "$base/gq.txt" --agent "$3"; }
+  # A75: intent-grill's interview (the task author, artifact design/INTENT.md) is multi-round and never limited
+  sg task_author design/INTENT.md g1 >/dev/null || die "intent-grill's first round was refused"
+  sg task_author design/INTENT.md g2 >/dev/null || die "intent-grill's second round was refused"
+  sg task_author design/INTENT.md g3 >/dev/null || die "intent-grill's third round was refused"
   # its rounds do not use up the role's own round; a non-grill second round is refused (C-14)
-  q reports/001-task_author.md >/dev/null || die "the task author's own first round was refused after intent-grill rounds"
-  expect_msg "a second non-grill NEEDS_INPUT from the same role" 'already asked its questions in this run' q reports/001-task_author.md
-  ok "questions: intent-grill's interview rounds are exempt (A75); a non-grill second round is refused (C-14)"
+  sg task_author reports/001-task_author.md t1 >/dev/null || die "the task author's own first round was refused after intent-grill rounds"
+  expect_msg "a second non-grill NEEDS_INPUT from the same role" 'already asked its questions in this run' sg task_author reports/001-task_author.md t2
+  # the exemption is the task author's: another role under design/ with the same artifact is bound by C-14
+  sg architect design/INTENT.md a1 >/dev/null || die "the architect's first round was refused"
+  expect_msg "an architect NEEDS_INPUT with design/INTENT.md was exempt" 'already asked its questions in this run' sg architect design/INTENT.md a2
+  ok "questions: through submit, the task author's intent-grill rounds are exempt (A75); a non-grill second round and an architect with design/INTENT.md are refused (C-14)"
 }
 
 sc_next() {
