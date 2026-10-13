@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { validateReport, thresholdHolds, planVisualProof, requiredCells, CORE } from "../../skills/visual-proof/scripts/validate-visual.mjs";
-import { detect, checkConfig, assemble, PROBE } from "../../skills/visual-proof/scripts/measure.mjs";
+import { detect, checkConfig, assemble, pageUrl, PROBE } from "../../skills/visual-proof/scripts/measure.mjs";
 
 const VALIDATE = fileURLToPath(new URL("../../skills/visual-proof/scripts/validate-visual.mjs", import.meta.url));
 const MEASURE = fileURLToPath(new URL("../../skills/visual-proof/scripts/measure.mjs", import.meta.url));
@@ -225,7 +225,22 @@ test("config: only local targets, enough viewports, every state reachable; TRIVI
   assert.match(checkConfig({ ...base, class: "TRIVIAL" }).join(), /TRIVIAL has no visual focus/);
   assert.match(checkConfig({ ...base, class: "COMPLEX" }).join(), /needs at least 3 viewports/);
   assert.match(checkConfig({ ...base, screens: [{ id: "s", path: "/", states: [{ name: "error" }] }] }).join(), /ready/);
-  assert.deepEqual(checkConfig({ ...base, base_url: "file:///tmp/app/" }), []);
+  assert.deepEqual(checkConfig({ ...base, base_url: "file:///tmp/app/", screens: [{ id: "s", path: "index.html", states: [{ name: "success", ready: "#list" }] }] }), []);
+  // every screen and state path stays on the code under review
+  const screen = (path, statePath) => ({ ...base, screens: [{ id: "s", path, states: [{ name: "success", ready: "#x", ...(statePath ? { path: statePath } : {}) }] }] });
+  assert.match(checkConfig(screen("http://example.com/")).join(), /path http:\/\/example\.com\/ leaves base_url/);
+  assert.match(checkConfig(screen("/", "http://127.0.0.1:9999/admin")).join(), /leaves base_url/);
+  assert.match(checkConfig({ ...screen("../../etc/hosts"), base_url: "file:///tmp/app/" }).join(), /leaves base_url/);
+  assert.deepEqual(checkConfig({ ...screen("index.html", "sub/page.html?state=error"), base_url: "file:///tmp/app/" }), []);
+});
+
+test("pageUrl confines file: pages to the base folder and http(s) pages to the localhost origin", () => {
+  assert.equal(pageUrl("file:///tmp/app/", "index.html?state=error"), "file:///tmp/app/index.html?state=error");
+  assert.equal(pageUrl("file:///tmp/app/index.html", "log.html"), "file:///tmp/app/log.html");
+  for (const p of ["../../etc/hosts", "/etc/hosts", "file:///etc/hosts", "%2e%2e/secret.html", "http://example.com/", "file://host/tmp/app/x.html"]) assert.equal(pageUrl("file:///tmp/app/", p), null, p);
+  assert.equal(pageUrl("http://127.0.0.1:5173/", "/orders?state=empty"), "http://127.0.0.1:5173/orders?state=empty");
+  for (const p of ["http://example.com/", "http://127.0.0.1:9999/", "//evil.test/x", "file:///etc/hosts"]) assert.equal(pageUrl("http://127.0.0.1:5173/", p), null, p);
+  assert.equal(pageUrl("https://staging.example.com/", "/"), null);
 });
 
 test("detect: a browser on PATH, a declared project tool, or none (never installed)", () => {

@@ -21,6 +21,9 @@ grep -q '"name": "error"' visual.json || fail "config must measure the error sta
 grep -q '^\.carousel { display: flex; gap: 12px; overflow-x: auto;' app/styles.css || fail "scrollable carousel trap missing"
 grep -q '^\.skip-link { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);' app/styles.css || fail "visually hidden skip link trap missing"
 grep -q '^\.skip-link:focus { position: static;' app/styles.css || fail "skip link must become visible on focus"
+[ "$(grep -o 'class="back"\|<pre class="log"' app/log.html | tr '\n' ' ')" = 'class="back" <pre class="log" class="back" ' ] \
+  || fail "log page must be link, scrollable pre, link (focusable-scroller trap)"
+grep -q '^\.log { overflow-x: auto;' app/styles.css || fail "log block must scroll horizontally"
 
 # The planted contrast, computed with the WCAG 2.2 formula: #aaaaaa on #ffffff is 2.32:1.
 node -e '

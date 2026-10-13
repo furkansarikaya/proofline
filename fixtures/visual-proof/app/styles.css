@@ -27,3 +27,7 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #d0d0d0; }
 .carousel { display: flex; gap: 12px; overflow-x: auto; padding: 8px 0 16px; scroll-snap-type: x mandatory; }
 .card { flex: 0 0 240px; padding: 12px; border: 1px solid #d0d0d0; scroll-snap-align: start; }
 .card a { display: inline-block; padding: 8px 0; color: #0b57d0; }
+
+/* Log page: a scrollable block with its own Tab stop, then a link (intended). */
+.log { overflow-x: auto; padding: 8px; background: #f4f4f4; color: #1a1a1a; font-size: 14px; }
+.back { display: inline-block; padding: 8px 0; color: #0b57d0; }

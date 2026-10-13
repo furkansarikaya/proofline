@@ -25,11 +25,14 @@ for (const [check, state, viewport, frag] of planted) {
 for (const m of fails) {
   if (!planted.some(([c, s, v, f]) => m.check === c && m.state === s && m.viewport === v && m.selector.includes(f))) problems.push(`unexpected failure (false positive): ${m.id} ${m.check} ${m.state}/${m.viewport} ${m.selector}`);
 }
-// Traps (EXPECTED.md 6-8): the carousel and the skip link are correct.
+// Traps (EXPECTED.md 7-8): the carousel and the skip link are correct.
 for (const vp of ["tablet", "desktop"]) {
   if (!report.measured.some((m) => m.check === "horizontal_scroll" && m.state === "success" && m.viewport === vp && m.status === "pass")) problems.push(`trap: success/${vp} must measure horizontal_scroll as pass (the carousel scrolls inside itself)`);
 }
 if (fails.some((m) => /carousel|card|skip-link/.test(m.selector))) problems.push("trap flagged: carousel or skip link reported as a failure");
+// Trap (EXPECTED.md 9): a focusable scroller between two links is an extra Tab stop, not a focus-order failure.
+if (fails.some((m) => m.screen === "log")) problems.push("trap flagged: the log page (link, scroller, link) reported a failure");
+if (report.measured.filter((m) => m.screen === "log" && m.check === "focus_order" && m.status === "pass").length !== VPS.length) problems.push("trap: log page focus_order must pass at every viewport");
 if (!report.measured.some((m) => m.check === "hidden_interactive" && m.status === "pass")) problems.push("trap: hidden_interactive must pass (the skip link becomes visible on focus)");
 const want = { "AC-1": "failed", "AC-2": "failed", "AC-3": "failed", "AC-4": "failed", "AC-5": "proven" };
 for (const c of report.criteria) if (want[c.id] !== c.status) problems.push(`criterion ${c.id}: ${c.status}, expected ${want[c.id]}`);

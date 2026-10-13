@@ -4,7 +4,7 @@ const state = new URLSearchParams(location.search).get('state') || 'success';
 const orders = [['1001', 'Ada Lovelace', 'Shipped'], ['1002', 'Alan Turing', 'Pending'], ['1003', 'Grace Hopper', 'Delivered']];
 
 if (state === 'loading') {
-  main.innerHTML = '<p class="state-msg" data-state="loading" role="status">Loading orders…</p>';
+  main.innerHTML = '<p class="state-msg" data-state="loading" role="status">Loading orders...</p>';
 } else if (state === 'empty') {
   main.innerHTML = '<p class="state-msg" data-state="empty">No orders yet. New orders appear here.</p>';
 } else {

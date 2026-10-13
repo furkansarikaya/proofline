@@ -2,13 +2,16 @@
 
 Screen `orders` (`index.html`). Class COMPLEX. Viewports: 360x740 (phone), 768x1024 (tablet), 1280x800 (desktop).
 
+Screen `log` (`log.html`): one state (success, marker `#log-main`): a "Back to orders" link, the shipping log as a
+horizontally scrollable block, a "Download log" link.
+
 ## States
 
 | State | How to reach it | Visible marker | Copy |
 |---|---|---|---|
 | success | `index.html` | `[data-state=success]` | "Recent orders" table and "Recommended" carousel |
 | empty | `index.html?state=empty` | `[data-state=empty]` | "No orders yet. New orders appear here." |
-| loading | `index.html?state=loading` | `[data-state=loading]` | "Loading orders…" (`role=status`) |
+| loading | `index.html?state=loading` | `[data-state=loading]` | "Loading orders..." (`role=status`) |
 | error | `index.html?state=error` | `[data-state=error]` | "Orders could not be loaded. Try again." with a Retry button |
 | partial | not applicable | - | one request loads the whole list |
 | permission-denied | not applicable | - | the page is public |

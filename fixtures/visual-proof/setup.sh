@@ -13,7 +13,7 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$TARGET/app"
 TARGET=$(cd "$TARGET" && pwd -P)
-cp "$here/app/index.html" "$here/app/styles.css" "$here/app/app.js" "$TARGET/app/"
+cp "$here/app/index.html" "$here/app/log.html" "$here/app/styles.css" "$here/app/app.js" "$TARGET/app/"
 cp "$here/spec.md" "$TARGET/spec.md"
 # The config names the app by an absolute file: URL; the placeholder keeps the committed copy machine-independent.
 awk -v root="$TARGET" '{ gsub(/\/FIXTURE_ROOT/, root); print }' "$here/visual.json" > "$TARGET/visual.json"

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shipping log</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="log-main" class="top" data-state="success">
+    <h1>Shipping log</h1>
+    <a class="back" href="index.html">Back to orders</a>
+    <!-- A horizontally scrollable block without focusable content: the browser gives it its own Tab stop
+         (intended). It is followed by a link, which must still be reached by Tab. -->
+    <pre class="log">2026-10-01 08:00 order 1001 handed to carrier, tracking 0000000000000000000000000000000000000000000000000000
+2026-10-01 09:30 order 1002 waiting for stock, expected restock date to be confirmed by the warehouse team later today</pre>
+    <a class="back" id="download-log" href="#log-main">Download log</a>
+  </main>
+</body>
+</html>

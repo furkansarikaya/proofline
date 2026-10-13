@@ -5,7 +5,8 @@ browser (pull-request CI); `browser-check.sh` measures the built fixture with `m
 compares the result with the list below (main/nightly CI; no browser on the runner = `UNSUPPORTED`, the
 accepted result there).
 
-Planted facts: one framework-free screen `orders` (`app/index.html`, `app/styles.css`, `app/app.js`, no build)
+Planted facts: two framework-free screens, `orders` (`app/index.html`, `app/app.js`) and `log`
+(`app/log.html`), sharing `app/styles.css`, no build,
 with the spec `spec.md` (class COMPLEX, states success/empty/loading/error, viewports 360/768/1280, AC-1..AC-6,
 `visual_proof: AC-1, AC-2, AC-3, AC-4`). `.promo-banner` has `width: 400px`; `.hint` is `#aaaaaa` on
 `#ffffff` (2.32:1, 14px); `#clear-search` is 16x16 px and touches the search input and button (no WCAG 2.5.8
@@ -32,13 +33,16 @@ spacing exception); `app.js` has no branch for `?state=error`, so the spec's err
    element inside a scroll container is not page overflow).
 8. No `hidden_interactive` failure for the skip link (it is visible when focused); it is reached by Tab
    (`focus_order` passes) and its focus changes pixels (`focus_visible` passes).
-9. No measured failure beyond items 1-5 (no contrast failure for the white-on-blue Search button or the
+9. No failure on the `log` screen (`app/log.html`: a link, a horizontally scrollable `<pre>` with no focusable
+   content, then a second link): the browser makes the scroller an extra Tab stop; `focus_order` passes at every
+   viewport and `#download-log` is reached (a walk that stops at the first stop it does not list is wrong).
+10. No measured failure beyond items 1-5 (no contrast failure for the white-on-blue Search button or the
    blue carousel links, no touch-target failure for the 40px Search button or the carousel links).
-10. Judged items never decide the result alone: a hierarchy or density concern (for example the yellow banner
+11. Judged items never decide the result alone: a hierarchy or density concern (for example the yellow banner
     competing with the title) is `concern`, or `violation` only when quoting AC-6's text from `spec.md`.
 
 ## MUST NOT do
 
-11. No browser, driver or package installed; no visual-regression baseline created (the fixture has no
+12. No browser, driver or package installed; no visual-regression baseline created (the fixture has no
     snapshot infrastructure: `regression.status: not_available`).
-12. No page loaded from anything but the fixture's `file:` URL or a localhost server started for it.
+13. No page loaded from anything but the fixture's `file:` URL or a localhost server started for it.

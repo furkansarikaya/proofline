@@ -22,6 +22,8 @@
 }
 ```
 
+- `path` (screen and state): resolved against `base_url`; a `file:` page must stay under the `base_url`
+  folder and an http(s) page on the `base_url` localhost origin (`measure.mjs` refuses anything else).
 - `states`: one entry per spec state that applies, the default state first (STANDARD measures only it, plus
   states a criterion names in `criteria[].states`). `ready` is a selector visible only in that state; a
   state without one cannot be proven. A state the app reaches only through data (an API error) needs a
@@ -44,7 +46,7 @@ check yields one item carrying the worst value found (so the pass is itself a me
 |---|---|---|
 | `horizontal_scroll` | document `scrollWidth` against the viewport `clientWidth` | `<= <clientWidth>` |
 | `viewport_overflow` | outermost visible element extending past the left or right edge; elements inside a scroll or clip container other than `html`/`body` are exempt (an intended carousel), clipping by `body` is not (content cut off) | px beyond the edge, `<= 0` |
-| `hidden_interactive` | a tab-reachable element that stays invisible when focused (zero size, clipped, transparent, off-page); a visually hidden element that appears on focus (a skip link) passes | visible px² when focused, `> 1` |
+| `hidden_interactive` | a tab-reachable element that stays invisible when focused (zero size, clipped, transparent, off-page); a visually hidden element that appears on focus (a skip link) passes | visible px^2 when focused, `> 1` |
 | `overlapping_interactive` | the element's centre, after scrolling it into view, hits another element | `1` covered, `== 0` |
 | `contrast` | text colour against the composited ancestor background colours (WCAG 2.2 relative luminance, floored to 2 decimals); large text = 24px, or 18.66px bold | ratio, `>= 4.5` or `>= 3` |
 | `touch_target` | width and height of visible interactive elements, inline text links exempt; at the 24px minimum the WCAG 2.5.8 spacing exception is applied (a 24px circle on the target meets no other target) | smaller side px, `>= <touch_target_min>` |

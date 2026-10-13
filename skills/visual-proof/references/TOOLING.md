@@ -33,7 +33,8 @@ script in the page, press Tab and take a screenshot can drive them:
 2. Per cell (screen x state x viewport): set the viewport, load the state's URL, run its `setup`, wait until
    `__vp.visible(<ready selector>)`, save a full-page PNG under `screenshots/`, then evaluate the probe and
    `__vp.measure({ touchTargetMin })` (returns `{ items, not_measured }`). Focus: `__vp.tabbables()`, then press
-   Tab and read `__vp.activeIndex()` until it repeats; compare a screenshot of `__vp.clipOf(i)` focused and
+   Tab and read `__vp.step()` until it returns `"end"` (focus back on the document or on a stop already
+   visited; `-1` is a stop that is not a listed tabbable, such as a focusable scroller: keep going); compare a screenshot of `__vp.clipOf(i)` focused and
    unfocused for each stop (any pixel change is a visible indicator). Record `focus_order` and
    `focus_visible` items in the same shape as `measure.mjs` does ([MEASURE.md](MEASURE.md#checks)).
 3. Write `raw.json` `{ "tool": { "kind": "project-tool" | "runtime-adapter", "name": ... }, "config": <visual.json>,

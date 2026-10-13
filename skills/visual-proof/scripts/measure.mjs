@@ -113,9 +113,16 @@ function probeSource() {
   window.__vp = {
     sel,
     T: [],
-    tabbables() { this.T = tabbables(); return this.T.length; },
+    tabbables() { this.T = tabbables(); this.seen = new Set(); return this.T.length; },
+    // One Tab stop: "end" when focus is back on the document or on an element already visited; otherwise the
+    // stop's index in T, or -1 for a stop T does not list (a keyboard-focusable scroller, an iframe).
+    step() {
+      const a = document.activeElement;
+      if (!a || a === document.body || a === document.documentElement || this.seen.has(a)) return "end";
+      this.seen.add(a);
+      return this.T.indexOf(a);
+    },
     positive() { return [...document.querySelectorAll("[tabindex]")].filter((e) => e.tabIndex > 0).map(sel); },
-    activeIndex() { return this.T.indexOf(document.activeElement); },
     selectorOf(i) { return sel(this.T[i]); },
     clipOf(i) {
       const el = this.T[i];
@@ -225,15 +232,33 @@ async function launch(path, timeoutMs, noSandbox) {
     "--metrics-recording-only", "--disable-gpu", "--hide-scrollbars", "--mute-audio", "about:blank"];
   // root in a container, or a CI kernel without unprivileged namespaces, cannot use the sandbox
   if (noSandbox || process.getuid?.() === 0) args.push("--no-sandbox");
-  const proc = spawn(path, args, { stdio: ["ignore", "ignore", "pipe"] });
-  const ws = await new Promise((ok, fail) => {
-    let buf = "";
-    const t = setTimeout(() => fail(new Error(`browser did not start within ${timeoutMs} ms`)), timeoutMs);
-    proc.stderr.on("data", (d) => { buf += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf); if (m) { clearTimeout(t); ok(m[1]); } });
-    proc.on("exit", (c) => { clearTimeout(t); fail(new Error(`browser exited (${c}): ${buf.slice(-300)}`)); });
-  });
-  const sock = new WebSocket(ws);
-  await new Promise((ok, fail) => { sock.onopen = ok; sock.onerror = () => fail(new Error("cannot connect to the DevTools socket")); });
+  // detached: the browser gets its own process group, so close() also ends its helper processes
+  const proc = spawn(path, args, { stdio: ["ignore", "ignore", "pipe"], detached: true });
+  const exited = new Promise((ok) => proc.once("exit", ok));
+  const kill = (sig) => { try { process.kill(-proc.pid, sig); } catch { /* group already gone */ } };
+  let sock, send;
+  // Never throws: Browser.close, then SIGTERM/SIGKILL to the group, then the profile is removed.
+  const close = async () => {
+    if (send) await Promise.race([send("Browser.close").catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+    try { sock?.close(); } catch { /* already closed */ }
+    if (proc.exitCode === null && proc.signalCode === null) { kill("SIGTERM"); await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]); }
+    kill("SIGKILL");
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch (e) { console.error(`measure: could not remove ${profile}: ${e.message}`); }
+  };
+  try {
+    const ws = await new Promise((ok, fail) => {
+      let buf = "";
+      const t = setTimeout(() => fail(new Error(`browser did not start within ${timeoutMs} ms`)), timeoutMs);
+      proc.stderr.on("data", (d) => { buf += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf); if (m) { clearTimeout(t); ok(m[1]); } });
+      proc.on("exit", (c) => { clearTimeout(t); fail(new Error(`browser exited (${c}): ${buf.slice(-300)}`)); });
+      proc.on("error", (e) => { clearTimeout(t); fail(e); });
+    });
+    sock = new WebSocket(ws);
+    await new Promise((ok, fail) => { sock.onopen = ok; sock.onerror = () => fail(new Error("cannot connect to the DevTools socket")); });
+    return connected();
+  } catch (e) { await close(); throw e; }
+
+  async function connected() {
   let next = 0;
   const pending = new Map(), waiters = [];
   sock.onmessage = (e) => {
@@ -241,16 +266,16 @@ async function launch(path, timeoutMs, noSandbox) {
     if (msg.id && pending.has(msg.id)) { const p = pending.get(msg.id); pending.delete(msg.id); msg.error ? p.fail(new Error(`${p.method}: ${msg.error.message}`)) : p.ok(msg.result); }
     else if (msg.method) for (const w of [...waiters]) if (w.method === msg.method && w.sessionId === msg.sessionId) { waiters.splice(waiters.indexOf(w), 1); w.ok(msg.params); }
   };
-  const send = (method, params = {}, sessionId) => new Promise((ok, fail) => {
+  send = (method, params = {}, sessionId) => new Promise((ok, fail) => {
     const id = ++next;
     const t = setTimeout(() => { pending.delete(id); fail(new Error(`${method} timed out`)); }, timeoutMs);
     pending.set(id, { method, ok: (r) => { clearTimeout(t); ok(r); }, fail: (e) => { clearTimeout(t); fail(e); } });
     sock.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
   const once = (method, sessionId) => new Promise((ok) => waiters.push({ method, sessionId, ok }));
-  const close = () => { try { sock.close(); } catch { /* already closed */ } proc.kill(); rmSync(profile, { recursive: true, force: true }); };
   const version = (await send("Browser.getVersion")).product;
   return { send, once, close, version };
+  }
 }
 
 const KEYS = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, " ": 32 };
@@ -319,10 +344,15 @@ async function focusChecks(p, limit = 40) {
   for (let i = 0; i < m; i++) before.push((await p.shot(await p.ev(`window.__vp.clipOf(${i})`))).toString("base64"));
   await p.ev("window.__vp.blur(); window.scrollTo(0, 0)");
   const reached = new Set(), invisible = [];
-  for (let k = 0; k < n + 2; k++) {
+  let stops = 0;
+  // bounded: every tabbable once plus up to 50 stops T does not list
+  for (let k = 0; k < n + 50; k++) {
     await p.key("Tab");
-    const i = await p.ev("window.__vp.activeIndex()");
-    if (i < 0 || reached.has(i)) { if (reached.size) break; continue; }
+    const i = await p.ev("window.__vp.step()");
+    // the first Tab may land on the document (the navigation starting point is not always the top): go on
+    if (i === "end") { if (stops) break; continue; }
+    stops++;
+    if (i < 0) continue;
     reached.add(i);
     if (i < m) {
       const after = (await p.shot(await p.ev(`window.__vp.clipOf(${i})`))).toString("base64");
@@ -359,6 +389,19 @@ async function interaction(p, it) {
 }
 
 // --- config ------------------------------------------------------------------------------------------------
+const LOCAL = ["localhost", "127.0.0.1", "[::1]"];
+// A screen or state path resolved against base_url, or null when it leaves the code under review: a file: page
+// stays under the base_url folder, an http(s) page on the base_url origin (itself localhost).
+export function pageUrl(base, path) {
+  let b, u;
+  try { b = new URL(base); u = new URL(path, b); } catch { return null; }
+  if (b.protocol === "file:") {
+    const dir = decodeURIComponent(b.pathname.replace(/[^/]*$/, ""));
+    return u.protocol === "file:" && !u.host && decodeURIComponent(u.pathname).startsWith(dir) ? u.href : null;
+  }
+  return /^https?:$/.test(b.protocol) && LOCAL.includes(b.hostname) && u.origin === b.origin ? u.href : null;
+}
+
 export function checkConfig(c) {
   const e = [];
   if (!c || typeof c !== "object") return ["config must be a JSON object"];
@@ -366,7 +409,7 @@ export function checkConfig(c) {
   let u;
   try { u = new URL(c.base_url); } catch { e.push("base_url must be a URL"); }
   // Only the code under review: a local file or a server the QA started on this machine.
-  if (u && !(u.protocol === "file:" || (/^https?:$/.test(u.protocol) && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)))) e.push("base_url must be file: or http(s) on localhost/127.0.0.1/[::1]");
+  if (u && !(u.protocol === "file:" || (/^https?:$/.test(u.protocol) && LOCAL.includes(u.hostname)))) e.push("base_url must be file: or http(s) on localhost/127.0.0.1/[::1]");
   const vps = Array.isArray(c.viewports) ? c.viewports : [];
   if (vps.length < (MIN_VIEWPORTS[c.class] || 2)) e.push(`class ${c.class} needs at least ${MIN_VIEWPORTS[c.class] || 2} viewports`);
   for (const v of vps) if (!v?.name || !Number.isInteger(v.width) || !Number.isInteger(v.height)) e.push("each viewport needs name, width, height");
@@ -374,6 +417,9 @@ export function checkConfig(c) {
   for (const s of c.screens || []) {
     if (!s?.id || !s.path || !Array.isArray(s.states) || !s.states.length) { e.push("each screen needs id, path and states"); continue; }
     for (const st of s.states) if (!st?.name || !st.ready) e.push(`screen ${s.id}: each state needs name and ready (a selector visible only in that state)`);
+    for (const path of [s.path, ...s.states.map((st) => st?.path).filter(Boolean)]) {
+      if (u && !pageUrl(c.base_url, path)) e.push(`screen ${s.id}: path ${path} leaves base_url (a file: page stays under its folder, an http(s) page on its localhost origin)`);
+    }
   }
   for (const it of c.interactions || []) if (!it?.name || !INTERACTION_CHECKS.includes(it.check) || !it.screen || !it.state) e.push(`interaction ${it?.name}: needs name, check (${INTERACTION_CHECKS.join("|")}), screen, state`);
   for (const k of c.criteria || []) if (!/^AC-\d+$/.test(k?.id || "") || !Array.isArray(k.checks)) e.push("each criterion needs id AC-<n> and checks[]");
@@ -455,7 +501,7 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
   raw.tool.version = b.version;
   const axe = tool.a11y_scanner ? readFileSync(tool.a11y_scanner.path, "utf8") : null;
   if (axe) raw.a11y_scanner = { status: "run", tool: "axe-core", source: "project node_modules" };
-  const url = (path) => new URL(path, config.base_url).href;
+  const url = (path) => { const u = pageUrl(config.base_url, path); if (!u) throw new Error(`path leaves base_url: ${path}`); return u; };
   const file = (...parts) => `screenshots/${parts.join("-").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`;
   try {
     const p = await page(b, timeoutMs);
@@ -499,7 +545,7 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
         } catch (e) { raw.interactions.push({ name: it.name, viewport: vp.name, error: e.message }); }
       }
     }
-  } finally { b.close(); }
+  } finally { await b.close(); }
   return raw;
 }
 

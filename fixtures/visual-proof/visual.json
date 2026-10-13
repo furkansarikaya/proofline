@@ -18,6 +18,11 @@
         { "name": "loading", "path": "index.html?state=loading", "ready": "[data-state=loading]" },
         { "name": "error", "path": "index.html?state=error", "ready": "[data-state=error]" }
       ]
+    },
+    {
+      "id": "log",
+      "path": "log.html",
+      "states": [{ "name": "success", "path": "log.html", "ready": "#log-main" }]
     }
   ],
   "interactions": [

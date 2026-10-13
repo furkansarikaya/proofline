@@ -1,6 +1,6 @@
 # Visual proof: <target name>
 
-**Result:** <PASS|FAIL|INCONCLUSIVE|UNSUPPORTED> · **Confidence:** <high|medium|low>
+**Result:** <PASS|FAIL|INCONCLUSIVE|UNSUPPORTED> | **Confidence:** <high|medium|low>
 
 `SUMMARY: <the line printed by validate-visual.mjs>`
 
