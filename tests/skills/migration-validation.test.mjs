@@ -98,7 +98,7 @@ test("data: counts, missing rows, changed values, dropped and renamed columns", 
 
 // ---------- report validator ----------
 
-const report = ({ status = "PASS", db = "yes", down = "yes", applied = "yes", destructive = "no", over = {} } = {}) => {
+const report = ({ status = "PASS", db = "yes", down = "yes", applied = "yes", destructive = "no", harness = "test/helpers/temp-db.mjs:8", extra = "", over = {} } = {}) => {
   const rows = {
     schema_diff: ["measured", "pass", "diff equals the plan"],
     rollback: ["measured", "pass", "restores_schema true"],
@@ -115,9 +115,10 @@ status: ${status}
 
 ## Capability
 throwaway_db: ${db}
-${db === "yes" ? "harness: test/helpers/temp-db.mjs:8" : "reason: no test helper creates a temporary database"}
+${db === "yes" ? `harness: ${harness}` : "reason: no test helper creates a temporary database"}
 engine: postgres (README.md)
 down_migration: ${down}
+${extra}
 
 ## Migrations
 | file | applied | destructive | note |
@@ -203,4 +204,35 @@ test("skill wiring: SKILL.md and reviewer role point at the migration validation
   assert.match(role, /UNSUPPORTED/);
   for (const f of ["claude/agents/proofline-reviewer.md", "codex/agents/proofline-reviewer.toml"])
     assert.match(readFileSync(join(ROOT, "adapters", f), "utf8"), /MIGRATION-VALIDATION\.md/);
+});
+
+test("report: PASS with every check na and empty evidence is rejected (F1)", () => {
+  const na = Object.fromEntries(["schema_diff", "rollback", "data_preservation", "lock_risk", "long_running", "patterns", "mixed_version"].map((id) => [id, ["judged", "na", ""]]));
+  const c = codesOf(report({ status: "PASS", over: na }));
+  assert.ok(c.includes("V12"), c.join());
+  const withReason = Object.fromEntries(Object.keys(na).map((id) => [id, ["judged", "na", "nothing to check"]]));
+  assert.ok(codesOf(report({ status: "PASS", down: "no", over: withReason })).includes("V14"));
+  assert.ok(codesOf(report({ status: "PASS", over: { data_preservation: ["measured", "na", "no seed rows"] } })).includes("V14"));
+  assert.deepEqual(checkReport(report({ status: "UNSUPPORTED", over: { data_preservation: ["measured", "na", "no seed rows"] } })), []);
+});
+
+test("report: a destructive down migration is not executed unless the project's own test runs it (F3)", () => {
+  const extra = "down_destructive: yes";
+  assert.ok(codesOf(report({ extra })).includes("V15"));
+  const over = { rollback: ["measured", "unsupported", "not executed (destructive statement)"] };
+  assert.deepEqual(checkReport(report({ status: "UNSUPPORTED", extra, over })), []);
+  assert.ok(codesOf(report({ status: "UNSUPPORTED", extra, over: { rollback: ["measured", "unsupported", "skipped"] } })).includes("V15"));
+  assert.deepEqual(checkReport(report({ extra: "down_destructive: yes\ndown_run_by: test/migrations.test.mjs:40" })), []);
+});
+
+test("report: connection strings and DSN fragments are refused (F4)", () => {
+  for (const bad of ["sqlite:///data/app.db", "mssql://sa:x@h/db", "oracle:thin:@h:1521", "amqp://u:p@h", "clickhouse+http://h:8123", "password=hunter2", "host=db.internal", "jdbc:postgresql://h/db"])
+    assert.ok(codesOf(report({ over: { patterns: ["traced", "pass", `scan: ${bad}`] } })).includes("V13"), bad);
+});
+
+test("report: empty criterion and non-path harness are rejected (F5, F6)", () => {
+  assert.ok(codesOf(report({ status: "FAIL", over: { lock_risk: ["judged", "fail", "criterion: ; rewrite"] } })).includes("V08"));
+  assert.ok(codesOf(report({ status: "FAIL", over: { lock_risk: ["judged", "fail", "criterion:"] } })).includes("V08"));
+  assert.ok(codesOf(report({ harness: "createTestDb" })).includes("V03"));
+  assert.deepEqual(checkReport(report({ harness: "test/helpers/temp-db.mjs" })), []);
 });

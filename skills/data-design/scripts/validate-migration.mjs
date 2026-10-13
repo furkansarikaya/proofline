@@ -12,7 +12,9 @@ const MEASURED_ONLY = ["schema_diff", "rollback", "data_preservation"]; // need 
 const CLASSES = ["measured", "reproduced", "traced", "judged"];
 const RESULTS = ["pass", "fail", "warn", "na", "unsupported"];
 const STATUSES = ["PASS", "FAIL", "UNSUPPORTED", "BLOCKED"];
-const CONN = /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|sqlserver|jdbc:[a-z]+):\/\/\S+/i;
+// Connection strings and DSN fragments: URL schemes of any database or broker, and key=value DSN parts.
+const CONN = /\b(?:jdbc:[a-z0-9]+:|[a-z][a-z0-9+.-]*:\/\/)\S|\b(?:sqlite3?|mssql|oracle|amqps?):\S|\b(?:password|passwd|pwd|host|server|user id|uid)\s*=\s*\S/i;
+const HARNESS = /^`?[\w@.\/-]+\.[A-Za-z0-9]+(?::\d+)?`?(?:\s|$)/; // path or path:line, first token
 const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 
 function sections(md) {
@@ -41,10 +43,16 @@ export function checkReport(md) {
   const cap = sec.get("Capability");
   const db = kv(cap, "throwaway_db");
   if (!["yes", "no"].includes(db)) fail("V03", "Capability needs throwaway_db: yes|no");
-  if (db === "yes" && !kv(cap, "harness")) fail("V03", "throwaway_db: yes needs harness: <path:line or command of the test infrastructure that creates it>");
+  const harness = kv(cap, "harness");
+  if (db === "yes" && !(harness && HARNESS.test(harness))) fail("V03", "throwaway_db: yes needs harness: <path or path:line of the test helper that creates the database> first (a command may follow); the validator cannot prove the trial run");
   if (db === "no" && !kv(cap, "reason")) fail("V03", "throwaway_db: no needs reason: <what the project lacks>");
   const down = kv(cap, "down_migration");
   if (!["yes", "no"].includes(down)) fail("V03", "Capability needs down_migration: yes|no");
+
+  const downDestructive = kv(cap, "down_destructive") === "yes";
+  const downRun = kv(cap, "down_run_by");
+  if (kv(cap, "down_destructive") !== null && !["yes", "no"].includes(kv(cap, "down_destructive"))) fail("V03", "down_destructive must be yes or no");
+  if (downRun && !HARNESS.test(downRun)) fail("V03", "down_run_by must be the path[:line] of the project's own test that runs the down migration");
 
   const mig = table(sec.get("Migrations"));
   if (!mig.rows.length) fail("V04", "Migrations table has no rows");
@@ -68,7 +76,7 @@ export function checkReport(md) {
 
   for (const [id, r] of byId) {
     const ev = r.evidence || "";
-    if (r.result === "fail" && r.class === "judged" && !/criterion:/i.test(ev))
+    if (r.result === "fail" && r.class === "judged" && !/criterion:\s*[^\s|]{3,}/i.test(ev))
       fail("V08", `${id}: a judged finding fails the gate only when it cites the written spec/plan criterion it violates ("criterion: ..."); otherwise result warn`);
     if (MEASURED_ONLY.includes(id) && ["pass", "fail"].includes(r.result)) {
       if (db !== "yes") fail("V05", `${id}: ${r.result} needs a throwaway database; without one the result is unsupported`);
@@ -78,8 +86,12 @@ export function checkReport(md) {
       fail("V09", `${id}: class measured needs a measured duration in evidence; an estimate is judged`);
     if (id === "rollback" && r.result === "na" && down !== "no") fail("V11", "rollback: na only when down_migration: no (a rollback is then a new forward migration, say so)");
     if (id === "rollback" && r.result === "pass" && down !== "yes") fail("V11", "rollback: pass needs down_migration: yes");
+    if (id === "rollback" && down === "yes" && downDestructive && !downRun && r.result !== "unsupported")
+      fail("V15", 'rollback: the down migration has destructive statements, which the agent never executes; result must be unsupported with "not executed (destructive statement)" unless the project\'s own test runs it (down_run_by: path[:line])');
+    if (id === "rollback" && r.result === "unsupported" && downDestructive && !downRun && !/not executed \(destructive statement\)/i.test(ev))
+      fail("V15", 'rollback: evidence must say "not executed (destructive statement)"');
     if (r.result === "unsupported" && !ev) fail("V12", `${id}: unsupported needs the missing capability or the "not executed" reason as evidence`);
-    if (!ev && r.result !== "na") fail("V12", `${id}: evidence is required`);
+    if (!ev || /^(-|none|n\/a|tbd|todo)$/i.test(ev)) fail("V12", `${id}: evidence is required, for na and unsupported the reason`);
   }
   if (db === "no") for (const id of MEASURED_ONLY) {
     const r = byId.get(id);
@@ -89,9 +101,10 @@ export function checkReport(md) {
 
   const results = [...byId.values()].map((r) => r.result);
   const derived = results.includes("fail") ? "FAIL"
-    : db === "no" || results.includes("unsupported") || mig.rows.some((r) => r.applied === "no") ? "UNSUPPORTED" : "PASS";
+    : db === "no" || results.includes("unsupported") || mig.rows.some((r) => r.applied === "no") ||
+      byId.get("schema_diff").result !== "pass" || byId.get("data_preservation").result !== "pass" ? "UNSUPPORTED" : "PASS";
   if (status === "BLOCKED") { if (!kv(md.split(/^## /m)[0], "blocked_reason")) fail("V01", "status BLOCKED needs a blocked_reason: line"); }
-  else if (status !== derived) fail("V14", `status ${status} does not follow from the checks and migrations: expected ${derived} (any fail -> FAIL; no throwaway database, an unsupported check or a migration not applied -> UNSUPPORTED; never PASS)`);
+  else if (status !== derived) fail("V14", `status ${status} does not follow from the checks and migrations: expected ${derived} (any fail -> FAIL; no throwaway database, an unsupported or na schema_diff/data_preservation, an unsupported check or a migration not applied -> UNSUPPORTED; never PASS)`);
   return errors;
 }
 

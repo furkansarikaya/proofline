@@ -34,7 +34,7 @@ test that uses it), not by reading names.
 | finding | result |
 |---|---|
 | harness proven | `throwaway_db: yes`, apply and measure (section 3) |
-| none found, or found but its trial failed | `throwaway_db: no`, `reason:` names what is missing; status **UNSUPPORTED** |
+| none found, found but its trial failed, or the hook denied the test command | `throwaway_db: no`, `reason:` names what is missing or quotes the denial; status **UNSUPPORTED** |
 
 UNSUPPORTED is never PASS (shared rule 2: nothing is installed to obtain a capability). With
 `throwaway_db: no` the static scan (`migration-check.mjs scan`) still runs and its findings are reported:
@@ -43,25 +43,37 @@ lists the check under `## Unsupported Checks` (A78).
 
 ## 3. Method (with a throwaway database)
 
-1. **Plan the order.** Changed migrations in file-name order; the unchanged earlier ones are applied first by
-   the project's own mechanism in the throwaway database. Run the scan first
-   (`migration-check.mjs scan`): destructive statements are excluded from step 3.
-2. **Seed.** Insert seed rows with the project's own seed/fixture data or a few rows the check writes through
-   the harness; export rows per touched table to `seed-before.json` (`{ "tables": { "<t>": [ {row}, ... ] } }`).
-3. **Snapshot before.** Dump the schema (the engine's own schema dump through the harness, or a JSON snapshot
-   as described in the script header) to `before.sql`.
-4. **Apply** the non-destructive migrations. Record the exact command, the exit status and the elapsed time.
-   A failing apply is the finding (measured), with the engine's error line.
-5. **Snapshot after, export rows after** (`after.sql`, `seed-after.json`).
-6. **Roll back** when a down migration exists (`down_migration: yes`); snapshot again (`after-rollback.sql`).
-   Without a down file the rollback is a new forward migration: `down_migration: no`, check result `na`.
-7. **Compare.**
+The runtime hook denies, in every environment, any command matching `database.migrate_commands` (migrate,
+seed, schema, rollback, up/down commands of the common tools) and any SQL client or database file access
+that is not the test suite's own. So the agent never issues a migrate, dump, seed or rollback command
+itself. Applying, dumping and rolling back happen **only inside the project's own test command**, which
+creates the throwaway database, runs the migration code and writes the snapshot and row files. The agent
+runs that test command and reads the files it wrote.
+
+1. **Plan the order.** Changed migrations in file-name order. Run the scan first (`migration-check.mjs scan`):
+   statements it lists under `not_executable` are never applied, by the agent or by a test it writes.
+2. **Find the project's test that does the work.** An existing test (or test mode) that creates the temp
+   database, applies the pending migrations, and can export the schema and the seed rows. If no existing
+   test applies the pending migration and exposes before/after snapshots, there is no usable capability:
+   `throwaway_db: no`, status UNSUPPORTED (the agent does not write a new harness, install one, or call a
+   migrate command to get one).
+3. **Run that test command** with its own timeout; record the command, exit status and elapsed time. A
+   failing apply is the finding (measured), with the engine's error line. A hook denial of that command is
+   not worked around: it is the reason for `throwaway_db: no` / UNSUPPORTED, recorded verbatim.
+4. **Collect** `before.sql`, `after.sql`, `seed-before.json`, `seed-after.json` (and `after-rollback.sql`)
+   from the files the test wrote.
+5. **Rollback.** Only when a down migration exists and the project's own test runs it. A down migration
+   containing destructive statements (`DROP COLUMN`, `DROP TABLE`, `TRUNCATE`, `DELETE` ...) is never
+   executed by the agent (hard rule 3): the rollback check is `unsupported` with "not executed (destructive
+   statement)" unless the project's own test runs it (name it as `down_run_by: path[:line]`). Without a down
+   file the rollback is a new forward migration: `down_migration: no`, check result `na` with that reason.
+6. **Compare.**
    - `migration-check.mjs diff before.sql after.sql [--rollback after-rollback.sql]`: tables, columns (type,
      NOT NULL, default), indexes, constraints and other objects added, removed or changed; `rollback.restores_schema`
      must be true for the rollback check to pass; the same output carries the mixed-version lists.
    - `migration-check.mjs data seed-before.json seed-after.json [--key table=column]`: row counts, rows
      missing, values changed, columns dropped, columns renamed (values moved unchanged to a new name).
-8. **Write the report** ([section 5](#5-report)) and run `scripts/validate-migration.mjs REPORT.md`.
+7. **Write the report** ([section 5](#5-report)) and run `scripts/validate-migration.mjs REPORT.md`.
 
 ## 4. What is reported and how it is classified
 
@@ -113,10 +125,12 @@ blocked_reason: <only with BLOCKED>
 
 ## Capability
 throwaway_db: yes | no
-harness: <path:line of the test helper, and the trial command with its exit status>   (yes)
+harness: <path[:line] of the test helper, then the trial command and its exit status>   (yes)
 reason: <what the project lacks>                                                        (no)
 engine: <engine and evidence>
 down_migration: yes | no
+down_destructive: yes | no                 (optional, default no: the down file holds destructive statements)
+down_run_by: <path[:line] of the project's own test that runs it>   (optional)
 
 ## Migrations
 | file | applied | destructive | note |
@@ -135,15 +149,20 @@ Result values: `pass`, `fail`, `warn`, `na`, `unsupported`.
 
 Gate rule (checked by `validate-migration.mjs`, exit 0 `OK` / 1 `FAIL <code>` / 2 usage):
 
-- any `fail` -> FAIL; no throwaway database, any `unsupported` check, or any migration not applied ->
-  UNSUPPORTED; otherwise PASS. The `status:` line must equal this derivation (V14).
+- any `fail` -> FAIL; no throwaway database, any `unsupported` check, `schema_diff` or `data_preservation`
+  not `pass`, or any migration not applied -> UNSUPPORTED; otherwise PASS. The `status:` line must equal this derivation (V14).
 - A `fail` is `measured`, `reproduced` or `traced`. A `judged` finding is `warn`; it fails only when its
   evidence cites the written spec or plan criterion it violates (`criterion: <text>`, V08).
 - `schema_diff`, `rollback`, `data_preservation` results `pass`/`fail` need a throwaway database and class
   `measured` or `reproduced` (V05, V09); without one they are `unsupported`.
 - `lock_risk` and `long_running` are `measured` only with a measured duration in the evidence (V09).
-- `rollback` is `na` only with `down_migration: no`; `pass` only with `down_migration: yes` (V11).
-- A destructive migration is never `applied: yes` (V10); no connection string anywhere (V13).
+- `rollback` is `na` only with `down_migration: no`; `pass` only with `down_migration: yes` (V11); a down
+  migration with destructive statements is `unsupported` ("not executed (destructive statement)") unless
+  `down_run_by` names the project's own test that runs it (V15).
+- `na` and `unsupported` always carry the reason as evidence (V12); `harness:` starts with a path[:line] (V03);
+  `criterion:` needs text (V08).
+- A destructive migration is never `applied: yes` (V10); no connection string, URL scheme or DSN fragment
+  (`password=`, `host=`) anywhere (V13).
 
 Submit: `--focus migration`, `--artifact reviews/data-migration/REPORT.md`; result PASS or FAIL from the
 gate rule, `--result UNSUPPORTED --reason "<what the project lacks>"` when status is UNSUPPORTED (a FAIL
@@ -158,3 +177,6 @@ non-destructive migration was applied and compared; `medium` when some were stat
 - Reader detection is a word-boundary text match in the paths given; other services and repositories that read
   the schema are unknown.
 - A snapshot comparison sees what the dump contains (the dump tool decides: functions, triggers, privileges).
+- The validator checks the report's shape and consistency, not the world: it cannot prove that the harness
+  trial ran, that the snapshots came from the throwaway database, or that the cited evidence is true. The
+  reviewer's ledger (commands and output) is the proof; a report without it is judged `CONFIDENCE: low`.
