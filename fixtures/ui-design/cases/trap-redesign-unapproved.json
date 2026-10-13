@@ -98,7 +98,7 @@
     "hierarchy": "page title, then filters, then the count, then the list",
     "rationale": "DESIGN.md defines a small token set and plain DOM components; the task adds filtering, not a new look",
     "redesign": {
-      "task_quote": "modernise the look of the project list"
+      "task_quote": "restyle the project list"
     }
   },
   "ux_patterns": [

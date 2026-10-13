@@ -114,17 +114,26 @@ const strong = () => ({
 const task = parseTask(TASK);
 test("existing spec stays valid without class; COMPLEX/CRITICAL require the new sections", () => {
   assert.deepEqual(errs(good()), []);
-  assert.deepEqual(errs(good(), { root: repo, cls: "STANDARD" }), []);
-  const e = errs(good(), { root: repo, cls: "CRITICAL" });
+  assert.deepEqual(errs(good(), { root: repo, cls: "STANDARD", task }), []);
+  const e = errs(good(), { root: repo, cls: "CRITICAL", task });
   for (const k of ["creative_direction", "ux_patterns", "self_critique", "criteria"]) has(e, `missing "${k}"`);
   has(errs(good(), { root: repo, task }), 'missing "creative_direction": required for a COMPLEX');
-  const r = good(); r.mode = "reverse"; r.screens = []; r.flows = []; assert.deepEqual(errs(r, { root: repo, cls: "COMPLEX" }), []);
+  const r = good(); r.mode = "reverse"; r.screens = []; r.flows = []; assert.deepEqual(errs(r, { root: repo, cls: "COMPLEX", task }), []);
   assert.deepEqual(errs(strong(), { root: repo, task }), []);
-  has(errs(good(), { root: repo, cls: "HUGE" }), "is not one of");
+  has(errs(good(), { root: repo, cls: "HUGE", task }), "is not one of");
+  has(errs(good(), { root: repo, cls: "COMPLEX" }), "a class needs the task");
+});
+test("reverse mode rejects task design content", () => {
+  const r = strong(); r.mode = "reverse"; const e = errs(r);
+  has(e, "$.criteria: mode reverse"); has(e, "$.creative_direction: mode reverse"); has(e, "$.screens: mode reverse has no screens");
+});
+test("design_system.exists false while the file exists is rejected", () => {
+  const d = good(); d.design_system.exists = false; has(errs(d), "DESIGN.md exists: set exists true");
+  d.design_system.file = "docs/DESIGN.md"; assert.deepEqual(errs(d), []);
 });
 test("creative direction: new is invalid when DESIGN.md exists; new needs avoided", () => {
   const d = strong(); d.creative_direction.basis = "new"; has(errs(d), "DESIGN.md exists");
-  d.design_system.exists = false; has(errs(d), "avoided");
+  d.design_system = { file: "docs/DESIGN.md", exists: false }; has(errs(d), "avoided");
   d.creative_direction.avoided = ["gradient hero: an internal tool has no landing page"]; assert.deepEqual(errs(d), []);
 });
 test("creative direction: redesign needs the task's request and the user's approval", () => {
@@ -132,7 +141,14 @@ test("creative direction: redesign needs the task's request and the user's appro
   d.creative_direction.redesign = { task_quote: "redesign the orders page", user_approval: "" }; has(errs(d), "user's approval");
   d.creative_direction.redesign.user_approval = "assumed from the task"; has(errs(d), "must come from the user");
   d.creative_direction.redesign.user_approval = "Q-2 answered_by user: yes, redesign"; assert.deepEqual(errs(d, { root: repo, task }), []);
-  d.creative_direction.redesign.task_quote = "make it modern"; has(errs(d, { root: repo, task }), "not found in TASK.md");
+  d.creative_direction.redesign.user_approval = "the user said yes in chat"; has(errs(d), "reference the recorded answer");
+  for (const ref of ["questions/002.answer.md", "Q3", "design/INTENT.md#D-4"]) {
+    d.creative_direction.redesign.user_approval = `user approved: ${ref}`; assert.deepEqual(errs(d, { root: repo, task }), [], ref);
+  }
+  d.creative_direction.redesign.user_approval = "I approve, Q-1"; has(errs(d), "must come from the user");
+  d.creative_direction.redesign.task_quote = "make it modern"; const m = errs(d, { root: repo, task });
+  has(m, "not found in TASK.md"); has(m, "does not ask for a visual change");
+  d.creative_direction.redesign.task_quote = "orders page"; has(errs(d), "does not ask for a visual change");
   const c = strong(); c.creative_direction.redesign = { task_quote: "x", user_approval: "y" }; has(errs(c), "only with basis redesign");
 });
 test("ux patterns: two options, chosen among them", () => {
@@ -146,6 +162,20 @@ test("self-critique: checklist results and no self-approval", () => {
   const a = strong(); a.self_critique.hierarchy = "Design approved, ready to ship"; has(errs(a), "self-approval");
   const k = strong(); k.quality_approval = "approved by designer"; has(errs(k), "never gives final quality approval");
   const u = strong(); u.self_critique.anti_patterns[0] = { check: "infinite scroll", result: "accepted", note: "the user approved it in Q-3" }; assert.deepEqual(errs(u), []);
+});
+test("self-approval: domain words pass, verdict phrasing in any free-text field fails", () => {
+  const fp = strong();
+  fp.creative_direction.rationale = "the approval button stays primary because reviewers approve orders all day";
+  fp.ux_patterns[0].rationale = "not approved items are hidden behind a filter, matching the existing list";
+  fp.criteria[0].evidence = "S1 success: the Approve button and the approval status column are visible at 375 and 1280 px";
+  assert.deepEqual(errs(fp), []);
+  for (const [set, where] of [
+    [(d) => { d.creative_direction.rationale = "This design is approved."; }, "$.creative_direction.rationale: self-approval"],
+    [(d) => { d.ux_patterns[0].rationale = "table chosen; the layout is production ready"; }, "$.ux_patterns[0].rationale: self-approval"],
+    [(d) => { d.criteria[0].evidence = "meets all criteria, no issues remain"; }, "$.criteria[0].evidence: self-approval"],
+    [(d) => { d.self_critique.anti_patterns[0].note = "fixed; LGTM"; }, "$.self_critique.anti_patterns[0].note: self-approval"],
+    [(d) => { d.self_critique.consistency = "I sign off on consistency"; }, "$.self_critique.consistency: self-approval"],
+  ]) { const d = strong(); set(d); has(errs(d), where); }
 });
 test("criteria: visual_proof marker, known criterion and screen, evidence", () => {
   const d = strong(); d.criteria[0].id = "AC-9"; has(errs(d, { root: repo, task }), "AC-9 is not an acceptance criterion");
@@ -163,7 +193,8 @@ test("CLI: --task, --class and --list-visual-proof", () => {
   assert.equal(out.status, 0, out.stderr);
   assert.deepEqual(JSON.parse(out.stdout), { schema: "ui-design.visual-proof/1", required: ["AC-1"] });
   assert.equal(spawnSync("node", [script, g, "--task", t]).status, 1);
-  assert.equal(spawnSync("node", [script, g, "--class", "STANDARD"]).status, 0);
+  assert.equal(spawnSync("node", [script, g, "--class", "STANDARD", "--task", t]).status, 0);
+  assert.equal(spawnSync("node", [script, g, "--class", "STANDARD"]).status, 2);
   assert.equal(spawnSync("node", [script, "--list-visual-proof", "--design-md", t]).status, 2);
   assert.equal(spawnSync("node", [script, g, "--bogus"]).status, 2);
 });

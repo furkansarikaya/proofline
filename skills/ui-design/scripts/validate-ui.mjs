@@ -21,9 +21,15 @@ const KEYS = ["schema_version", "mode", "ui_languages", "design_system", "reused
 const OPTIONAL_KEYS = ["creative_direction", "ux_patterns", "self_critique", "criteria"];
 export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
 export const STRONG_CLASSES = ["COMPLEX", "CRITICAL"];
-// The designer never gives final quality approval of its own design; approval wording in the critique is a claim.
-const SELF_APPROVAL = /\b(approved?|approves|approval|sign(ed)?[- ]?off|lgtm|ready to (ship|merge|release)|final (quality )?(verdict|approval)|quality (is )?(confirmed|guaranteed))\b/i;
-const NOT_USER = /\b(designer|self|myself|assum\w*|implied|implicit|agent)\b/i;
+// The designer never gives final quality approval of its own design. Verdict and first-person phrasing only, so
+// domain words ("approval button", "not approved items") are not claims. Heuristic: a word list, not understanding.
+const SELF_APPROVAL = /\b((this|the|my|our) (design|spec|ui|layout|screen)s?( \w+)? (is|are|has been|have been) (approved|signed[- ]off|final|done and good)|signed[- ]off|sign[- ]off given|lgtm|ready to (ship|merge|release)|production[- ]ready|no (issues|problems|defects|flaws) remain|meets all (the )?(acceptance )?criteria|approved by (the )?designer|final (quality )?(verdict|approval)|quality (is )?(confirmed|guaranteed))\b|\bI (approve|sign off|certify)\b/i;
+// A redesign approval must come from the user: never the designer, an assumption or an implication.
+const NOT_USER = /\b(the designer|by designer|myself|self[- ]approved|assum\w*|implied|implicit)\b|\bI (approve|approved|decided|assume)\b/i;
+// A recorded answer: a run answer file, a question number of the NEEDS_INPUT round, or an intent-grill decision anchor.
+const ANSWER_REF = /(\bquestions\/\d{3}\.answer\.md\b|\bQ-?\d+\b|\bINTENT\.md#[\w-]+)/;
+// The task's quote must ask for a visual change, not just mention the page. Heuristic.
+const REDESIGN_INTENT = /\b(re-?design\w*|re-?styl\w*|re-?them\w*|new (look|visual\w*|style|theme|design)|visual (overhaul|refresh|redesign)|(rework|refresh|revamp|overhaul|change) (the |its )?(look|visuals?|visual (style|design)|style|theme|design))\b/i;
 const norm = (t) => String(t).replace(/\s+/g, " ").trim().toLowerCase();
 
 // TASK.md: "## Acceptance criteria" lines "AC-<n>: ...", "## Suggested class". Copied from plan-contract's
@@ -62,8 +68,15 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   }
   const klass = cls || task?.cls || null;
   if (klass !== null && !CLASSES.includes(klass)) err("class", `"${klass}" is not one of ${CLASSES.join("|")}`);
+  // A class implies a task: without TASK.md the criteria and the redesign quote cannot be checked.
+  if (cls && !task && doc.mode === "task") err("class", "a class needs the task: pass --task <TASK.md> with --class");
   if (doc.mode === "task" && STRONG_CLASSES.includes(klass)) {
     for (const k of OPTIONAL_KEYS) if (!(k in doc)) err("$", `missing "${k}": required for a ${klass} task with UI`);
+  }
+  // Reverse mode only describes the existing system (DESIGN.md); task design content there skips the task checks.
+  if (doc.mode === "reverse") {
+    for (const k of OPTIONAL_KEYS) if (k in doc) err(`$.${k}`, "mode reverse describes the existing system; task design belongs in mode task");
+    if (Array.isArray(doc.screens) && doc.screens.length > 0) err("$.screens", "mode reverse has no screens; task design belongs in mode task");
   }
   if (doc.schema_version !== 1) err("$.schema_version", "must be 1");
   if (!["task", "reverse"].includes(doc.mode)) err("$.mode", "must be task or reverse");
@@ -71,6 +84,7 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   const ds = doc.design_system;
   if (!isObj(ds) || !safeRel(ds.file) || typeof ds.exists !== "boolean") err("$.design_system", "expected {file: relative path, exists: boolean}");
   else if (root && ds.exists && !existsSync(resolve(root, ds.file))) err("$.design_system.file", `${ds.file} does not exist`);
+  else if (root && !ds.exists && existsSync(resolve(root, ds.file))) err("$.design_system.exists", `${ds.file} exists: set exists true and conform to it`);
 
   const names = new Set();
   const chk = (p, path) => {
@@ -133,6 +147,7 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   if ("ux_patterns" in doc) uxPatterns(doc.ux_patterns, err);
   if ("self_critique" in doc) selfCritique(doc.self_critique, err);
   if ("criteria" in doc) criteriaList(doc.criteria, sid, task, err);
+  approvalClaims(doc, err);
   return errors;
 }
 
@@ -154,9 +169,13 @@ function creativeDirection(cd, designExists, task, err) {
   if (!isObj(r)) return err(q, "a redesign needs {task_quote, user_approval}: the task's request and the user's approval");
   onlyKeys(r, ["task_quote", "user_approval"], q, err);
   if (!isStr(r.task_quote)) err(`${q}.task_quote`, "quote the task's own words asking for the redesign");
-  else if (task && !norm(task.text).includes(norm(r.task_quote))) err(`${q}.task_quote`, "not found in TASK.md: the task does not ask for this redesign");
+  else {
+    if (task && !norm(task.text).includes(norm(r.task_quote))) err(`${q}.task_quote`, "not found in TASK.md: the task does not ask for this redesign");
+    if (!REDESIGN_INTENT.test(r.task_quote)) err(`${q}.task_quote`, "does not ask for a visual change (redesign, restyle, re-theme, new look, visual overhaul, ...)");
+  }
   if (!isStr(r.user_approval)) err(`${q}.user_approval`, "a redesign needs the user's approval (the answered question); ask with NEEDS_INPUT and conform meanwhile");
   else if (NOT_USER.test(r.user_approval)) err(`${q}.user_approval`, "the approval must come from the user, not from the designer or an assumption");
+  else if (!ANSWER_REF.test(r.user_approval)) err(`${q}.user_approval`, "reference the recorded answer: questions/<NNN>.answer.md, Q<n> of the NEEDS_INPUT round, or INTENT.md#<decision>");
 }
 
 function uxPatterns(list, err) {
@@ -179,7 +198,6 @@ function selfCritique(sc, err) {
   if (!isObj(sc)) return err(p, "expected object");
   onlyKeys(sc, [...CRITIQUE, "anti_patterns"], p, err);
   reqStr(sc, CRITIQUE, p, err);
-  const texts = CRITIQUE.map((k) => [`${p}.${k}`, sc[k]]);
   if (!Array.isArray(sc.anti_patterns) || sc.anti_patterns.length === 0) err(`${p}.anti_patterns`, "expected the anti-pattern checklist (references/SELF-CRITIQUE.md)");
   else sc.anti_patterns.forEach((a, i) => {
     const q = `${p}.anti_patterns[${i}]`;
@@ -189,9 +207,19 @@ function selfCritique(sc, err) {
     if (!["clear", "fixed", "accepted"].includes(a.result)) err(`${q}.result`, "must be clear, fixed or accepted");
     if ("note" in a && typeof a.note !== "string") err(`${q}.note`, "expected string");
     else if (["fixed", "accepted"].includes(a.result) && !isStr(a.note)) err(`${q}.note`, `${a.result} needs a note (what changed, or why it stays and who decided)`);
-    texts.push([`${q}.check`, a.check]); // a note may say the user approved an accepted item; the check and passes may not claim approval
   });
-  for (const [q, t] of texts) if (typeof t === "string" && SELF_APPROVAL.test(t)) err(q, "self-approval claim: the designer never gives final quality approval of its own design; the critique lists what was checked and changed");
+}
+
+// Free-text fields where a designer could claim its own design is approved.
+function approvalClaims(doc, err) {
+  const texts = [];
+  const add = (p, o, keys) => { if (isObj(o)) for (const k of keys) texts.push([`${p}.${k}`, o[k]]); };
+  add("$.creative_direction", doc.creative_direction, ["visual_character", "typography", "layout", "hierarchy", "rationale"]);
+  if (Array.isArray(doc.ux_patterns)) doc.ux_patterns.forEach((d, i) => add(`$.ux_patterns[${i}]`, d, ["density", "flow", "rationale"]));
+  add("$.self_critique", doc.self_critique, CRITIQUE);
+  if (isObj(doc.self_critique) && Array.isArray(doc.self_critique.anti_patterns)) doc.self_critique.anti_patterns.forEach((a, i) => add(`$.self_critique.anti_patterns[${i}]`, a, ["check", "note"]));
+  if (Array.isArray(doc.criteria)) doc.criteria.forEach((c, i) => add(`$.criteria[${i}]`, c, ["evidence"]));
+  for (const [q, t] of texts) if (typeof t === "string" && SELF_APPROVAL.test(t)) err(q, "self-approval claim: the designer never gives final quality approval of its own design; state what was checked and changed");
 }
 
 function criteriaList(list, sid, task, err) {
@@ -250,7 +278,8 @@ const main = () => {
   const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args.splice(i, 2)[1] : null; };
   const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? (args.splice(i, 1), true) : false; };
   const root = opt("--root"), dm = opt("--design-md"), taskPath = opt("--task"), cls = opt("--class"), list = flag("--list-visual-proof");
-  if (args.length > 1 || (args.length === 0 && !dm) || (list && !args[0]) || args.some((a) => a.startsWith("--"))) {
+  if (args.length > 1 || (args.length === 0 && !dm) || (list && !args[0]) || (cls && !taskPath) || args.some((a) => a.startsWith("--"))) {
+    if (cls && !taskPath) console.error("--class needs --task <TASK.md>: a class implies a task");
     console.error("usage: validate-ui.mjs [<ui.json>] [--design-md <DESIGN.md>] [--root <repo>] [--task <TASK.md>] [--class C] [--list-visual-proof]");
     process.exit(2);
   }

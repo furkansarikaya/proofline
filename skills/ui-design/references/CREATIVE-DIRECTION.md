@@ -9,7 +9,7 @@ There is no style catalogue here on purpose. A direction is derived from the pro
 | Situation | `basis` | What you may do |
 |---|---|---|
 | `DESIGN.md` exists | `conform` | Work inside it: its tokens, type scale, spacing, components and tone. The direction describes how this screen applies the system, not a new look. |
-| `DESIGN.md` exists and the task explicitly asks for a redesign | `redesign` | Only with both: the task's own words asking for it (`redesign.task_quote`, copied verbatim from TASK.md) and the user's approval (`redesign.user_approval`: the answered question that approved it). Without the approval, ask (NEEDS_INPUT) and design under `conform` meanwhile. |
+| `DESIGN.md` exists and the task explicitly asks for a redesign | `redesign` | Only with both: the task's own words asking for a visual change (`redesign.task_quote`, copied verbatim from TASK.md) and the user's approval (`redesign.user_approval`: a reference to the recorded answer, `questions/<NNN>.answer.md`, `Q<n>` or `INTENT.md#<decision>`). Without the approval, ask (NEEDS_INPUT) and design under `conform` meanwhile. |
 | No `DESIGN.md`, but UI code exists | `conform` | Reverse-engineer `DESIGN.md` first (METHOD.md section 1), then conform to what the code already does. |
 | No `DESIGN.md` and no UI yet (new project) | `new` | Set an original direction (below) and record the generic defaults you rejected in `avoided`. |
 

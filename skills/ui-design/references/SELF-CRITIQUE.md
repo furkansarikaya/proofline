@@ -2,7 +2,7 @@
 
 Read after the screens are drafted and before validation. Output: `self_critique` in `ui.json` and the "Self-critique" section of `UI.md`. Required for COMPLEX and CRITICAL tasks; optional (validated when present) otherwise.
 
-The self-critique finds and fixes weaknesses in your own spec. It is not an approval. **The designer never gives final quality approval of its own design**: whether the built UI is good is judged independently (QA's visual focus and the reviewers). Never write "approved", "signed off", "LGTM", "ready to ship" or a final quality verdict in the critique; the validator rejects it.
+The self-critique finds and fixes weaknesses in your own spec. It is not an approval. **The designer never gives final quality approval of its own design**: whether the built UI is good is judged independently (QA's visual focus and the reviewers). Never write a verdict about your own design ("this design is approved", "signed off", "LGTM", "ready to ship", "production ready", "no issues remain", "meets all criteria") anywhere in the spec; the validator rejects it. Naming the product's own approval features, or that the user approved an `accepted` item in Q3, is fine.
 
 ## The four passes
 
