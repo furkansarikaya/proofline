@@ -2,11 +2,13 @@
 // Validates a concurrency-proof concurrency.json (see ../schema/concurrency.schema.json) and computes the
 // REVIEW `concurrency` focus result mechanically.
 // Usage: node validate-concurrency.mjs <concurrency.json> [--repo DIR] [--base REF] [--report REPORT.md] [--rows]
-//   --repo DIR     re-read every cited file:line in DIR (file exists, line exists, `code` is on that line,
+//   --repo DIR     re-read every cited file:line in DIR (file exists, line exists, `code` is required on every
+//                  trace step and is on that line,
 //                  an `accepted_by.quote` is on its line)
 //   --base REF     with --repo: every non pre_existing finding has a trace step on a line the diff
 //                  REF..working tree adds or changes (untracked files count as added)
-//   --report FILE  also checks the `## Verdict` and `## Summary` sections of REPORT.md for safety claims
+//   --report FILE  also checks the Verdict and Summary sections of REPORT.md: no safety claim, and a PASS/FAIL
+//                  word in the Verdict section equals the computed result
 //   --rows         prints only the submit rows (`blocking|path:line|finding|evidence`, `info|...`)
 //   valid   -> exit 0; prints "RESULT: PASS|FAIL", "CONFIDENCE: ..." and "REPRODUCTION: ...".
 //   invalid -> exit 1; one line per problem on stderr.
@@ -29,12 +31,19 @@ const TOP = ["schema_version", "skill_version", "target", "scope", "reproduction
 const FINDING = ["id", "category", "title", "status", "location", "shared_state", "evidence", "trace", "reproduction", "why_not_reproduced", "accepted_by", "recheck"];
 const REPRO = ["command", "runs", "failures", "observed", "saved_copy"];
 
-// A safety claim: the words below outside code. Code is removed first: fenced blocks, `inline code` and
-// "double-quoted" text (quoted code or quoted identifiers). Identifiers such as safeParse, is_safe or
-// thread_safe never match (no word boundary); "unsafe" and "safety" never match. Negated forms ("not safe")
-// are rejected too: the report states what was proven, never a safety property (say "no proven problem").
-export const SAFETY_CLAIM = /\b(?:thread[- ]safe|race[- ]free|deadlock[- ]free|concurrency[- ]safe|safe(?:ly)?)\b/i;
-export const stripCode = (s) => String(s).replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ").replace(/"[^"\n]*"/g, " ");
+// A safety claim: the phrases below outside code. Code is removed first: fenced blocks, `inline code` and a
+// "double-quoted" single token without spaces (a quoted identifier); a quoted phrase with spaces is still
+// prose and is scanned. Identifiers such as safeParse, is_safe or thread_safe never match (no word
+// boundary); "unsafe" and "safety" never match. Negated forms ("not safe") are rejected too: the report
+// states what was proven, never a safety property (say "no proven problem").
+export const SAFETY_CLAIM = new RegExp([
+  String.raw`thread[- ]?safe`, String.raw`race[- ]free`, String.raw`deadlock[- ]free`, String.raw`concurrency[- ]safe`,
+  String.raw`race[- ]condition[- ]free`, String.raw`safe(?:ly)?`,
+  String.raw`free of (?:data )?(?:races?|deadlocks?|race conditions?)`,
+  String.raw`(?:can ?not|can't|cannot|impossible to) (?:race|deadlock)`,
+  String.raw`no (?:data )?races?`, String.raw`guaranteed (?:correct|safe)`, String.raw`no concurrency (?:issues|problems)`,
+].map((a) => String.raw`\b${a}\b`).join("|"), "i");
+export const stripCode = (s) => String(s).replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ").replace(/"[^"\s]*"/g, " ");
 export const safetyClaim = (s) => { const m = stripCode(s).match(SAFETY_CLAIM); return m ? m[0] : null; };
 
 export function validate(doc) {
@@ -229,7 +238,10 @@ export function checkRepo(doc, repo, base) {
   (doc.findings || []).forEach((f, i) => {
     const p = `findings[${i}]`;
     const steps = (f.trace && f.trace.steps) || [];
-    steps.forEach((st, j) => at(st.file, st.line, `${p}.trace.steps[${j}]`, st.code));
+    steps.forEach((st, j) => {
+      if (!isStr(st.code)) errors.push(`${p}.trace.steps[${j}].code: required with --repo (the text on the cited line)`);
+      at(st.file, st.line, `${p}.trace.steps[${j}]`, st.code);
+    });
     if (f.accepted_by) at(f.accepted_by.file, f.accepted_by.line, `${p}.accepted_by`, f.accepted_by.quote);
     if (changedLines && f.status !== "pre_existing" && !steps.some((st) => changedLines.get(st.file)?.has(st.line))) {
       errors.push(`${p}: no trace step is on a line changed since ${base}: a problem outside the change is pre_existing`);
@@ -263,17 +275,22 @@ export function diffLines(root, base) {
   return map;
 }
 
-// The `## Verdict` and `## Summary` sections of REPORT.md must not assert safety either.
-export function checkReport(text) {
+// The Verdict and Summary sections of REPORT.md (any heading level, any case, trailing colon allowed) must
+// not assert safety; with the computed result, a PASS or FAIL word in the Verdict section must equal it.
+export function checkReport(text, result) {
   const errors = [];
   let sec = null;
-  const body = { Verdict: "", Summary: "" };
+  const body = { verdict: "", summary: "" };
   for (const l of String(text).split("\n")) {
-    const h = /^##\s+(.+?)\s*$/.exec(l);
-    if (h) { sec = h[1] in body ? h[1] : null; continue; }
+    const h = /^#{1,6}\s+(.+?)\s*$/.exec(l);
+    if (h) { const m = /^(verdict|summary)\b\s*:?\s*$/i.exec(h[1]); sec = m ? m[1].toLowerCase() : null; continue; }
     if (sec) body[sec] += l + "\n";
   }
-  for (const [k, b] of Object.entries(body)) { const w = safetyClaim(b); if (w) errors.push(`REPORT.md ## ${k}: asserts safety ("${w}"): state what was proven`); }
+  for (const [k, b] of Object.entries(body)) { const w = safetyClaim(b); if (w) errors.push(`REPORT.md ${k}: asserts safety ("${w}"): state what was proven`); }
+  if (result) {
+    const words = new Set((stripCode(body.verdict).match(/\b(PASS|FAIL)\b/g) || []));
+    for (const w of words) if (w !== result) errors.push(`REPORT.md verdict: says ${w} but the computed result is ${result}`);
+  }
   return errors;
 }
 
@@ -324,7 +341,7 @@ const main = () => {
   if (!errors.length && opt.repo) {
     try { errors.push(...checkRepo(doc, opt.repo, opt.base)); } catch (e) { console.error(`cannot read the repository diff: ${e.message.split("\n")[0]}`); process.exit(2); }
   }
-  if (report !== undefined) errors.push(...checkReport(report));
+  if (report !== undefined) errors.push(...checkReport(report, errors.length ? null : gate(doc).result));
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
   if (opt.rows) { const r = rows(doc); if (r) console.log(r); return; } // rows only, ready for `submit --findings -`
   const g = gate(doc);

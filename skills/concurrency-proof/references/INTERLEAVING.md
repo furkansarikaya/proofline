@@ -24,7 +24,7 @@ goes wrong at the end. It is the proof on paper and the plan for the reproductio
    `attempt 2`, `consumer B`, `cron job`), not "thread".
 2. **Steps numbered 1..n in schedule order.** The order is the claim: it is the order in which the actions
    happen in time, across actors.
-3. **Every step has a `file:line` that exists** at the head state (`--repo`), and `code`, when given, is text
+3. **Every step has a `file:line` that exists** at the head state (`--repo`), and `code` (required with `--repo`) is the text
    on that line. Cite the line where the action happens, not the function header.
 4. **The finding's `location` is one of the steps**: the line where the bad outcome is produced (usually the
    second write, the second side effect, the retry call).

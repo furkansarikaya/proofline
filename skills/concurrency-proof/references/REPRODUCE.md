@@ -2,7 +2,9 @@
 
 A reproduction drives the traced schedule with the project's existing test runner and helpers. It never
 installs anything (no race detector, stress tool or load generator that is not already in the project), and
-it never touches a database the test setup did not create (A50, A52).
+it never touches a database the test setup did not create (A50, A52): do not run migrations or point the
+test at a configured database; only the project's own test command in the worktree against throwaway or
+in-memory data.
 
 ## 1. Can it run? (decide `reproduction.status`)
 

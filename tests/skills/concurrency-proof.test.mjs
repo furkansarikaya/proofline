@@ -16,7 +16,15 @@ const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "cp-test-")); dirs.pu
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 // The known answer for the fixture, written from its planted facts (fixtures/concurrency-proof/EXPECTED.md).
-const step = (n, actor, file, line, action, code) => ({ n, actor, file, line, action, ...(code ? { code } : {}) });
+// The text on each cited fixture line (required with --repo).
+const CODE = {
+  "src/wallet.js:3": "const account = await store.get(accountId);", "src/wallet.js:5": "await store.put(accountId, { ...account, balance });",
+  "src/orders.js:3": "const order = await store.get(orderId);", "src/orders.js:4": "if (order.status === 'shipped')",
+  "src/orders.js:5": "await shipper.ship(orderId, order.address);", "src/payments.js:5": "gateway.charge({ cents, reference:",
+  "src/retry.js:13": "return await withTimeout(operation(), timeoutMs * attempt);",
+  "src/gateway.js:9": "if (idempotencyKey !== undefined && seen.has(idempotencyKey))",
+};
+const step = (n, actor, file, line, action, code = CODE[`${file}:${line}`]) => ({ n, actor, file, line, action, ...(code ? { code } : {}) });
 const lostUpdate = () => ({
   id: "C001", category: "lost_update", title: "Concurrent deposits overwrite each other", status: "open",
   location: { file: "src/wallet.js", line: 5 }, shared_state: "account row balance", evidence: "traced",
@@ -195,15 +203,32 @@ test("judged fails only with a cited criterion", () => {
 });
 
 test("safety claims rejected; quoted code, identifiers, unsafe and safety are not claims", () => {
-  for (const s of ["The change is safe.", "The code is thread-safe.", "Race-free after review.", "deadlock free", "Runs safely under load.", "Not proven safe either.", "concurrency-safe"]) {
+  for (const s of ["The change is safe.", "The code is thread-safe.", "It is thread safe.", "threadsafe now", "Race-free after review.", "deadlock free",
+    "Runs safely under load.", "Not proven safe either.", "concurrency-safe", "race-condition-free", "race condition free",
+    "The code is free of races.", "free of data races", "free of deadlocks", "free of race conditions",
+    "The workers cannot race.", "they can not deadlock", "it can't race", "impossible to deadlock",
+    "There are no races.", "no data race", "guaranteed correct", "guaranteed safe", "no concurrency issues", "No concurrency problems.",
+    "The reviewer says \"this is thread-safe now\"."]) {
     assert.ok(safetyClaim(s), s);
     bad(doc([], { verdict: { summary: s } }), /asserts safety/);
   }
-  for (const s of ["No proven problem; `isSafe()` and `thread_safe` were read.", "The helper \"safe\" is a function name.", "unsafe publication was examined", "No safety property is claimed.", "safeParse and is_safe are called", "```\nconst safe = 1;\n```\nNo proven problem."]) {
+  for (const s of ["No proven problem; `isSafe()` and `thread_safe` were read.", "The helper \"safe\" is a function name.", "unsafe publication was examined",
+    "No safety property is claimed.", "safeParse and is_safe are called", "```\nconst safe = 1;\n```\nNo proven problem.", "No proven race or deadlock.",
+    "Three proven problems: a lost update, a double shipment and a duplicate charge."]) {
     assert.equal(safetyClaim(s), null, s);
   }
   assert.deepEqual(checkReport("# r\n## Summary\nNo proven problem; `safe()` is called.\n## Findings\nthe lock looks safe\n## Verdict\nRESULT: PASS\n"), []);
-  assert.match(checkReport("## Verdict\nRESULT: PASS. The code is race-free.\n").join(), /## Verdict: asserts safety \("race-free"\)/);
+  assert.match(checkReport("## Verdict\nRESULT: PASS. The code is race-free.\n").join(), /verdict: asserts safety \("race-free"\)/);
+  for (const h of ["# Verdict", "### verdict:", "###### VERDICT", "## Summary:", "#### summary"]) {
+    assert.match(checkReport(`${h}\nThe change is safe.\n`).join(), /asserts safety/, h);
+  }
+  assert.deepEqual(checkReport("## Verdicts and more\nsafe\n## Summary of tools\nsafe\n"), []);
+});
+
+test("report verdict word must match the computed result", () => {
+  assert.deepEqual(checkReport("## Verdict\nRESULT: FAIL, CONFIDENCE: medium.\n", "FAIL"), []);
+  assert.match(checkReport("## Verdict\nRESULT: PASS\n", "FAIL").join(), /says PASS but the computed result is FAIL/);
+  assert.deepEqual(checkReport("## Verdict\nRESULT: PASS. The `FAIL` path was examined.\n", "PASS"), []);
 });
 
 test("unknown keys and duplicate ids rejected", () => {
@@ -222,6 +247,9 @@ test("repo and base: the fixture's known answer passes; bad citations fail", () 
   assert.match(checkRepo(d, repo).join(), /does not contain/);
   d = doc(); d.findings[0].trace.steps[0].file = "src/missing.js";
   assert.match(checkRepo(d, repo).join(), /does not exist/);
+  d = doc(); delete d.findings[1].trace.steps[2].code;
+  assert.match(checkRepo(d, repo).join(), /findings\[1\]\.trace\.steps\[2\]\.code: required with --repo/);
+  assert.deepEqual(validate(d), [], "code stays optional without --repo");
   // A schedule entirely on base lines (gateway.js is unchanged) is not a finding in the change.
   d = doc([doubleCharge()]);
   d.findings[0].trace.steps = [step(1, "attempt 1", "src/gateway.js", 9, "a"), step(2, "attempt 2", "src/gateway.js", 9, "b")];
@@ -247,6 +275,12 @@ test("CLI: exit codes, result lines, rows only, report check", () => {
   r = runCli(VALIDATE, [f, "--report", rep]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /asserts safety/);
+  writeFileSync(rep, "## Verdict\nRESULT: PASS\n");
+  r = runCli(VALIDATE, [f, "--report", rep]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says PASS but the computed result is FAIL/);
+  writeFileSync(rep, "## Summary\nThree proven problems.\n## Verdict\nRESULT: FAIL\n");
+  assert.equal(runCli(VALIDATE, [f, "--repo", repo, "--base", "base", "--report", rep]).status, 0);
   const b = doc(); b.findings[0].trace.actors = ["one"];
   assert.equal(runCli(VALIDATE, [writeDoc(b)]).status, 1);
   assert.equal(runCli(VALIDATE, [writeDoc("{ nope")]).status, 2);

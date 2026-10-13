@@ -40,9 +40,11 @@ this `SKILL.md`.
 - Only problems whose schedule passes through a line the diff adds or changes are in scope. A proven problem
   the change does not touch is `pre_existing` (an `info` row).
 - **Never assert safety.** PASS means "no proven problem", never "safe". The verdict summary and the
-  `## Verdict` and `## Summary` sections of `REPORT.md` never use `safe`, `safely`, `thread-safe`,
-  `race-free`, `deadlock-free` or `concurrency-safe` outside code (negated forms included; code in backticks,
-  fenced blocks or double quotes is not prose). The validator rejects them.
+  Verdict and Summary sections of `REPORT.md` never claim safety outside code: `safe`, `safely`,
+  `thread-safe`, `race-free`, `deadlock-free`, `free of races`, `cannot race`, `no races`, `guaranteed
+  correct`, `no concurrency issues` and the like (full list in [REPORTING.md](references/REPORTING.md);
+  negated forms included; code in backticks, fenced blocks or a double-quoted single token is not prose).
+  The validator rejects them, and a PASS/FAIL word in the Verdict that differs from the computed result.
 
 ## Reproduction status (always stated)
 

@@ -26,14 +26,20 @@ Categories: `race`, `deadlock`, `lost_update`, `double_processing`, `idempotency
   the finding's `location` is a step; a finding in changed code has its file in `scope.changed_files`;
 - `reproduced`: reproduction status `ran`, `runs` >= 2, 1 <= `failures` <= `runs`, observed output, a copy
   under `evidence/`; `traced`: `why_not_reproduced`, no reproduction;
-- `--repo`: every cited file exists inside the repository, the line exists, `code` and `accepted_by.quote`
-  are on their lines;
+- `--repo`: every cited file exists inside the repository, the line exists, every trace step has `code`
+  (required with `--repo`) and it and `accepted_by.quote` are on their lines;
 - `--base`: each non `pre_existing` finding has a trace step on a line changed since `REF` (untracked files
   count as changed);
-- no safety claim in `verdict.summary` or in the `## Verdict` and `## Summary` sections of REPORT.md
-  (`--report`): the words `safe`, `safely`, `thread-safe`, `race-free`, `deadlock-free`, `concurrency-safe`,
-  case-insensitive, as whole words, after removing fenced code blocks, `inline code` and "double-quoted"
-  text. `unsafe`, `safety` and identifiers such as `safeParse`, `is_safe` or `thread_safe` never match.
+- no safety claim in `verdict.summary` or in the Verdict and Summary sections of REPORT.md (`--report`;
+  headings of any level and case, a trailing colon allowed). Case-insensitive whole-word phrases: `safe`,
+  `safely`, `thread-safe`/`thread safe`/`threadsafe`, `race-free`, `deadlock-free`, `concurrency-safe`,
+  `race-condition-free`, `free of (data) races / deadlocks / race conditions`, `cannot / can not / can't /
+  impossible to race / deadlock`, `no (data) race(s)`, `guaranteed correct / safe`, `no concurrency issues /
+  problems`. Removed first: fenced code blocks, `inline code`, and a "double-quoted" single token without
+  spaces (a quoted identifier); a quoted phrase with spaces is still scanned. `unsafe`, `safety` and
+  identifiers such as `safeParse`, `is_safe` or `thread_safe` never match. Write "No race was proven"
+  as "No proven race";
+- with `--report`, a `PASS` or `FAIL` word in the Verdict section that differs from the computed result.
 
 Exit 0 prints `RESULT`, `CONFIDENCE` and `REPRODUCTION` (`ran`, `UNSUPPORTED (<reason>)` or
 `none_needed (<reason>)`); `--rows` prints only the submit rows. Exit 1 lists the problems; exit 2 is a usage
