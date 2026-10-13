@@ -25,6 +25,7 @@ Inside Claude Code the same commands are `/proofline status`, `/proofline run <T
 | `proofline review`, `audit`, `debug` | proof-review, test-trust and debug-proof standalone |
 | `proofline deliver <TASK>` | delivery check; never commits |
 | `proofline clean [--yes]` | remove `.agents/local` state and finished runs |
+| `proofline insights [--run ID] [--json]` | read-only report: cost per run, role and model (tokens only where the runtime reported them) and recurring failures with suggestions; changes nothing |
 
 ## Good habits
 

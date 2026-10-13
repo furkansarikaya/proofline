@@ -336,6 +336,47 @@ else ok "claude plugin validate skipped (claude is not installed): not tested"; 
 check "the proofline skill carries the shared-rules block verbatim" sh "$repo/tests/shared/check-shared.sh" proofline
 grep -q '^name: proofline$' "$repo/skills/proofline/SKILL.md" && grep -q 'ARGUMENTS' "$repo/skills/proofline/SKILL.md" && grep -q 'proofline init' "$repo/skills/proofline/SKILL.md" && ok "the proofline skill routes \$ARGUMENTS and documents the init requirement" || die "proofline skill content"
 
+# ---- insights (A89): read-only cost and recurring-failure report -------------------------------------------
+ins=$T/ins
+check "insights fixture builds" sh "$repo/fixtures/insights/setup.sh" "$ins"
+out=$(pl "$ins" insights 2>&1) || { LAST=$out; die "insights exits 0"; }
+ok "insights runs on planted records"
+expect "insights: a run with some null tokens shows the sum of the reported ones and how many reported" "$out" "6000 (2/3)"
+expect "insights: no token data at all is n/a, not zero" "$out" "RUN-C                  open               n/a     1 n/a              n/a              n/a"
+expect "insights: totals sum only recorded tokens" "$out" "tokens in 8000 (3/7), tokens out 1300 (3/7), tokens total 13300 (4/7)"
+reject "insights: a record of another schema version is not read" "$out" "999999"
+expect "insights: the same finding on shifted lines across rounds and runs is one pattern (x3)" "$out" "repeated-finding x3: REVIEW_RULES src/a.go: Error from Close is ignored"
+reject "insights: a different finding with similar text is not merged in" "$out" "Error from Open is ignored"
+expect "insights: repeated gate FAILs by gate" "$out" "gate-fail x3: REVIEW_RULES"
+expect "insights: repeated UNSUPPORTED checks" "$out" "unsupported x2:"
+expect "insights: approvals asked more often than granted" "$out" "approval x2: plan"
+expect "insights: every pattern carries a suggestion" "$out" "suggestion:"
+check "insights fixture selfcheck (known answers, files unchanged)" sh "$repo/fixtures/insights/selfcheck.sh" "$ins"
+out=$(pl "$ins" insights --json 2>&1); LAST=$out
+printf '%s' "$out" | jq -e '.schema == "proofline.insights/1"' >/dev/null 2>&1 && ok "insights --json is valid JSON" || die "insights --json is not valid JSON"
+printf '%s' "$out" | jq -e '(.runs[] | select(.run == "RUN-C") | .tokens_in) == null and .totals.tokens_in == 8000 and .totals.tokens_in_reported == 3 and .totals.tokens_total == 13300 and .totals.tokens_total_reported == 4 and .metrics.duplicate_run_records == 1 and .metrics.skipped_non_json == 1 and ([.patterns[] | select(.kind == "repeated-finding")] | length == 1)' >/dev/null 2>&1 \
+  && ok "insights --json: null tokens stay null, totals and one repeated-finding pattern" || die "insights --json content"
+out=$(pl "$ins" insights --run RUN-B 2>&1)
+expect "insights --run limits the report to one run" "$out" "RUN-B"
+reject "insights --run: other runs are not listed" "$out" "RUN-A"
+nocheck "insights --run of an unknown run fails" pl "$ins" insights --run NOPE-9
+nocheck "insights --run with a path-like id is refused" pl "$ins" insights --run ../x
+nocheck "insights with an unknown argument fails" pl "$ins" insights --frobnicate
+before=$(sig "$ins")
+chmod -R a-w "$ins/.agents"
+if [ "$(id -u)" != 0 ]; then
+  out=$(pl "$ins" insights --json 2>&1) && printf '%s' "$out" | jq -e .patterns >/dev/null 2>&1 && ok "insights works on a read-only checkout" || { LAST=$out; die "insights on a read-only checkout"; }
+else ok "read-only checkout case skipped (running as root): not tested"; fi
+chmod -R u+w "$ins/.agents"
+[ "$before" = "$(sig "$ins")" ] && ok "insights leaves every file byte-identical (rules, skills, config, ledger, metrics)" || die "insights changed a file"
+noruns=$(mkrepo noruns); mkdir -p "$noruns/.agents/scripts"; printf 'metrics: off\n' > "$noruns/.agents/config.yaml"; : > "$noruns/.agents/scripts/agent.sh"
+out=$(pl "$noruns" insights 2>&1) || { LAST=$out; die "insights with no runs and metrics off exits 0"; }
+expect "insights with metrics off says no metrics recorded" "$out" "no metrics recorded (metrics: off)"
+expect "insights with no runs says so" "$out" "no runs and no metrics to report"
+expect "insights with no data finds no recurring failure" "$out" "none found"
+out=$(pl "$noruns" insights --json 2>&1); printf '%s' "$out" | jq -e '.metrics.off == true and .runs == [] and .patterns == []' >/dev/null 2>&1 && ok "insights --json with no data is empty and valid" || { LAST=$out; die "insights --json empty"; }
+out=$(sh "$PL" help); expect "help lists insights" "$out" "insights [--run ID] [--json]"
+
 # ---- static analysis ----------------------------------------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
   out=$(cd "$repo" && shellcheck -s sh -x bin/proofline bin/lib/*.sh adapters/codex/install.sh tests/cli/cli-test.sh 2>&1) && ok "shellcheck -s sh: bin/, installer and this suite are clean" || { LAST=$out; die "shellcheck"; }

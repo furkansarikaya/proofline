@@ -9,7 +9,7 @@ Two files:
 - `history.tsv` — one flat line per recorded specialist step and per finished run
   (`time task role runtime model duration_s outcome`). Kept for simple readers.
 - `records.jsonl` — versioned records, one JSON object per line. This is the schema consumed by
-  `proofline insights` (intended; not implemented yet).
+  `proofline insights` (see below).
 
 ## Who writes a record
 
@@ -75,3 +75,38 @@ record carries cost, the `step` record carries the gate verdict.
 - **Metrics never change a decision.** The execution policy (`exec-policy.sh`) does not read them (A80):
   routing stays a pure function of class, tier, profile, role and signals, and quality and security rules cannot be
   traded for cost.
+
+## Reading it: `proofline insights`
+
+`proofline insights [--run <ID>] [--json]` prints a report from `records.jsonl` and, per run, `LEDGER.log`, the
+gate records and the recorded results the ledger binds. It is read-only: it never changes a rule, skill, config
+file, ledger or metrics file, and it never applies its own suggestions (A89). It works from a read-only checkout.
+
+**Cost.** One row per run, one per role and model, one per model, and totals: duration, runtime-reported tokens,
+retries, and (from the `run` record) delegations and fix rounds. Tokens are shown as in, out and total, because a
+Codex-style record carries only `tokens_total` (in and out null) while a Claude-style record carries all three; the
+total is never derived from in and out here. A token cell is the sum of the recorded values only.
+`n/a` means none was recorded; `6000 (2/3)` means two of three dispatches reported. A null is never shown as zero and
+nothing is estimated. Durations of `dispatch` records (cost of a call, retries included) and of `run` records (the
+whole run) are different measures and are reported separately, never added together. If a task has more than one
+`run` record (a retried write), only the first counts and the report says how many were ignored. Blank lines are
+skipped silently; a non-JSON line and a record of another `schema` are counted and named separately.
+
+**Recurring failures.** A pattern needs at least two occurrences; each is printed with its count, the run ids and a
+plain-language suggestion:
+
+| Pattern | Source | Counted when |
+|---|---|---|
+| `repeated-finding` | gate records bound in the ledger | the same blocking finding (same gate, same file, identical text after whitespace is collapsed) appears in two or more gate records, across fix rounds or runs. Line numbers are ignored; similar but different text is a different finding; `info` findings are not counted |
+| `gate-fail` | ledger `gate:<GATE>:fail` | the same gate failed two or more times |
+| `scope` | gate findings | blocking findings whose text names a scope violation (out of scope, outside the frozen scope, unmapped path), two or more |
+| `unsupported` | recorded results | the same line naming `UNSUPPORTED` appears in two or more recorded results |
+| `approval` | ledger `approval-request` and `approval` | per run and kind, a request was made at least twice and was granted fewer times than asked |
+
+Limits, stated in the report: a refused command (a blocked scope check, a rejected approval phrase) leaves no
+ledger entry, so scope and approval patterns come from what findings and request/grant rows state, not from every
+attempt. `scope` is a text match on findings, a judged signal, not a measurement. Gate records and results count
+only when a ledger row binds them, as in the control plane itself. `metrics: off` writes no records, so the cost
+part reports "no metrics recorded"; the failure part still reads the ledgers.
+
+`--json` prints the same data as one object, `proofline.insights/1`.
