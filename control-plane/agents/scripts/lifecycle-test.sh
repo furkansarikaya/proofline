@@ -136,10 +136,12 @@ scenario_orchestrated_loop() {
   expect_fail "amend without an authorizer" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' impl.txt 'trim the key before lookup and add a regression test for it' ''
   expect_fail "amend with a generic reason" amend_as lead 'not needed' impl.txt 'trim the key before lookup and add a regression test for it' 'the user'
   expect_fail "amend with fix_scope outside the frozen plan" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' outside.txt 'trim the key before lookup and add a regression test for it' 'the user'
-  expect_fail "amend with a path:symbol fix_scope outside the frozen plan" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' outside.txt:lookupKey 'trim the key before lookup and add a regression test for it' 'the user'
+  expect_msg "amend with a symbol-only fix_scope" "fix_scope has no path" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' ':lookupKey' 'trim the key before lookup and add a regression test for it' 'the user'
+  expect_msg "amend with a path:symbol fix_scope outside the frozen plan" "outside the frozen scope" amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' outside.txt:lookupKey 'trim the key before lookup and add a regression test for it' 'the user'
   amend_as lead 'post-DONE review found the key handling is still wrong for whitespace' impl.txt:lookupKey 'trim the key before lookup and add a regression test for it' 'the user (explicit reopen request)' >/dev/null
   expect_state execution state AMENDING; expect_state handoff state IMPLEMENTING; expect_state completion_report published false
   grep -q '^previous_handoff_state: "DONE"' .agents/runs/LC/gates/*-REOPEN.yaml
+  grep -q '^fix_scope: impl.txt$' .agents/runs/LC/gates/*-REOPEN.yaml || die "REOPEN record kept the symbol of a path:symbol fix_scope"
   ls .agents/runs/LC/gates/*-REOPEN.completion-report.md >/dev/null
   expect_fail "DONE straight after reopen" A handoff LC DONE
   printf 'lead hot-fix\n' >> impl.txt

@@ -1842,7 +1842,7 @@ write_gate() {
   wg_name=$(printf '%03d-%s' "$wg_seq" "$wg_gate")
   wg_scope=''
   if [ "$wg_res" = fail ]; then
-    wg_scope=$(awk -F'|' '$2 != "info" { p = $3; sub(/:.*$/, "", p); gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); if (p == "" || p == "-") p = "*"; print p }' "$wg_findings" | sort -u | tr '\n' ',' | sed 's/,$//')
+    wg_scope=$(awk -F'|' '$2 != "info" { p = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); if (p == "" || p == "-") p = "*"; else { sub(/:.*$/, "", p); gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); if (p == "") next }; print p }' "$wg_findings" | sort -u | tr '\n' ',' | sed 's/,$//')
   fi
   patch_manifest "$wg_id" > "$wg_gd/$wg_name.manifest" || fail "could not write gate manifest"
   {
@@ -2240,7 +2240,7 @@ record_gate() {
   g_rows=$(mktemp "${TMPDIR:-/tmp}/agent-gate-rows.XXXXXX")
   if [ "$g_result" = fail ]; then
     reject_generic_justification "$g_findings" || { rm -f "$g_rows"; fail "a failing gate requires specific findings (>=20 chars)"; }
-    [ -n "$g_fscope" ] || { rm -f "$g_rows"; fail "a failing gate requires fix_scope (comma-separated paths the fix may touch)"; }
+    [ -n "$(scope_entry_paths "$g_fscope")" ] || { rm -f "$g_rows"; fail "a failing gate requires fix_scope with at least one path (comma-separated paths the fix may touch)"; }
     g_i=0; for g_p in $(printf '%s' "$g_fscope" | tr ',' ' '); do g_i=$((g_i + 1)); printf '%s-%s|blocking|%s|%s|%s\n' "$g_gate" "$g_i" "$g_p" "$(one_line "$g_findings")" "$g_art" >> "$g_rows"; done
   fi
   write_gate "$g_id" "$g_gate" "$g_result" "$execution_role" high "$(gate_focus "$g_gate")" "$g_art" "$g_rows" '' "$(content_fingerprint)"
@@ -2770,6 +2770,7 @@ amend_run() {
     for g_p in $(scope_entry_paths "$g_fscope"); do authorized_path "$g_maps" "$g_p" || fail "fix_scope names a path outside the frozen scope: $g_p (add 'plan_change: yes' and follow with an amendment + refreeze if the plan itself must change)"; done
   fi
   g_fscope=$(scope_entry_paths "$g_fscope" | paste -sd, -)
+  [ -n "$g_fscope" ] || fail "fix_scope has no path (an entry must start with a repo path: path, path:line or path:symbol)"
   g_patch=$(task_patch_fingerprint "$g_id"); g_seq=$(next_gate_seq "$g_id"); g_name=$(printf '%03d-REOPEN' "$g_seq"); g_gd=$(gates_dir "$g_id"); mkdir -p "$g_gd"
   patch_manifest "$g_id" > "$g_gd/$g_name.manifest" || fail "could not write reopen manifest"
   if [ -f "$g_d/COMPLETION_REPORT.md" ]; then cp "$g_d/COMPLETION_REPORT.md" "$g_gd/$g_name.completion-report.md"; fi

@@ -53,8 +53,9 @@ export function parseFindings(lines) {
 }
 
 const pathOf = (p) => {
-  const s = p.replace(/:.*$/, "").trim();
-  return s === "" || s === "-" ? "*" : s;
+  const t = p.trim();
+  if (t === "" || t === "-") return "*";
+  return t.replace(/:.*$/, "").trim(); // "" for ":symbol": no path, never widened to *
 };
 
 export function check(text, { role: wantRole, task: wantTask } = {}) {
@@ -122,7 +123,7 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
       counts: kind === "gate" && res === "PASS" && h.CONFIDENCE !== "low",
       fingerprint: h.FINGERPRINT, artifact: { path: artPath, sha256: artSha },
       blocking: blocking.map((r) => r[0]),
-      fix_scope: res === "FAIL" ? [...new Set(blocking.map((r) => pathOf(r[2])))].sort() : [],
+      fix_scope: res === "FAIL" ? [...new Set(blocking.map((r) => pathOf(r[2])).filter((p) => p !== ""))].sort() : [],
       info_count: rows.length - blocking.length,
       blocked_reason: reason ? reason[1].trim() : null,
       questions: qLines.filter((l) => /^\d+\.\s/.test(l)).length,
