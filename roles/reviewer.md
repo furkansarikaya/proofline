@@ -5,7 +5,7 @@ purpose: Independently reviews the task-owned diff for one focus (plan, rules, t
 conditional: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)
 reads: TASK.md PLAN.md EVIDENCE.md QA_PLAN.md diff repo
 owns: reviews/proof-review/plan/ reviews/proof-review/rules/ reviews/proof-review/small/ reviews/test-trust/tests/ reviews/data-design/REVIEW.md reviews/proof-review/config/ reviews/contract-proof/ reviews/concurrency-proof/ reviews/performance-proof/ reviews/data-migration/
-skills: proof-review test-trust data-design
+skills: proof-review test-trust data-design concurrency-proof
 gate: REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA REVIEW_SMALL
 result: gate
 tools: Read Grep Glob Bash Write Edit
@@ -61,7 +61,7 @@ stop_condition: Stops after one result for the assigned focus on the current fin
    | FOCUS | Gate | Check | Report |
    |---|---|---|---|
    | `contract` | REVIEW_RULES / REVIEW_SMALL | backward and forward compatibility of the changed API, event or data contract (contract-proof skill) | `reviews/contract-proof/REPORT.md` |
-   | `concurrency` | REVIEW_RULES / REVIEW_SMALL | races, lost updates, double processing, retries, ordering, lock lifecycle (concurrency-proof skill) | `reviews/concurrency-proof/REPORT.md` |
+   | `concurrency` | REVIEW_RULES / REVIEW_SMALL | {{skill:concurrency-proof}}: races, lost updates, double processing, idempotency, retries, ordering and redelivery, timeouts, transactions, lock lifecycle; a traced interleaving or a concurrent reproduction per finding, PASS means no proven problem | `reviews/concurrency-proof/REPORT.md` |
    | `performance` | REVIEW_RULES / REVIEW_SMALL | measured base-versus-change regression (performance-proof skill) | `reviews/performance-proof/REPORT.md` |
    | `config` | REVIEW_RULES / REVIEW_SMALL | {{skill:proof-review}} config consistency: variables used but not documented in the example env or config docs, plain-text secrets, feature-flag defaults | `reviews/proof-review/config/REPORT.md` |
    | `migration` | REVIEW_DATA | {{skill:data-design}} migration validation (`references/MIGRATION-VALIDATION.md`): apply and roll back only on the test suite's own throwaway database and only through the project's own test command (you issue no migrate command), compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |

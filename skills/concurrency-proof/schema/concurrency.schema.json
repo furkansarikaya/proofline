@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "concurrency-proof concurrency.json",
+  "description": "Checked by scripts/validate-concurrency.mjs, which also enforces the cross-field rules (trace actors and order, location among the steps, evidence-specific fields, cited lines, safety claims).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "skill_version", "target", "scope", "reproduction", "findings", "unproven_risks", "judged", "verdict"],
+  "$defs": {
+    "path": { "type": "string", "minLength": 1 },
+    "loc": {
+      "type": "object", "additionalProperties": false, "required": ["file", "line"],
+      "properties": { "file": { "$ref": "#/$defs/path" }, "line": { "type": "integer", "minimum": 1 } }
+    },
+    "cite": {
+      "type": "object", "additionalProperties": false, "required": ["file", "line", "quote"],
+      "properties": { "file": { "$ref": "#/$defs/path" }, "line": { "type": "integer", "minimum": 1 }, "quote": { "type": "string", "minLength": 1 } }
+    },
+    "category": { "enum": ["race", "deadlock", "lost_update", "double_processing", "idempotency", "retry_side_effect", "ordering", "redelivery", "timeout", "transaction_boundary", "lock_lifecycle"] }
+  },
+  "properties": {
+    "schema_version": { "const": 1 },
+    "skill_version": { "type": "string", "minLength": 1 },
+    "target": {
+      "type": "object", "additionalProperties": false, "required": ["type", "name", "base", "head"],
+      "properties": {
+        "type": { "enum": ["working_tree", "branch", "pull_request", "run"] },
+        "name": { "type": "string", "minLength": 1 },
+        "base": { "type": "string", "minLength": 1 },
+        "head": { "type": ["string", "null"] }
+      }
+    },
+    "scope": {
+      "type": "object", "additionalProperties": false, "required": ["changed_files", "candidates", "not_reviewed"],
+      "properties": {
+        "changed_files": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } },
+        "candidates": { "type": "integer", "minimum": 0 },
+        "not_reviewed": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": false, "required": ["path", "reason"], "properties": { "path": { "$ref": "#/$defs/path" }, "reason": { "type": "string", "minLength": 1 } } }
+        }
+      }
+    },
+    "reproduction": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": {
+        "status": { "enum": ["ran", "unsupported", "none_needed"] },
+        "runner": { "type": "string", "minLength": 1 },
+        "worktree": { "type": "string", "pattern": "concurrency-proof-[^/]+$" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "category", "title", "status", "location", "shared_state", "evidence", "trace"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^C\\d{3}$" },
+          "category": { "$ref": "#/$defs/category" },
+          "title": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["open", "accepted", "closed", "pre_existing"] },
+          "location": { "$ref": "#/$defs/loc" },
+          "shared_state": { "type": "string", "minLength": 1 },
+          "evidence": { "enum": ["traced", "reproduced"] },
+          "trace": {
+            "type": "object", "additionalProperties": false, "required": ["actors", "steps", "outcome"],
+            "properties": {
+              "actors": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+              "steps": {
+                "type": "array", "minItems": 2,
+                "items": {
+                  "type": "object", "additionalProperties": false, "required": ["n", "actor", "file", "line", "action"],
+                  "properties": {
+                    "n": { "type": "integer", "minimum": 1 },
+                    "actor": { "type": "string", "minLength": 1 },
+                    "file": { "$ref": "#/$defs/path" },
+                    "line": { "type": "integer", "minimum": 1 },
+                    "code": { "type": "string", "minLength": 1 },
+                    "action": { "type": "string", "minLength": 1 }
+                  }
+                }
+              },
+              "outcome": { "type": "string", "minLength": 1 }
+            }
+          },
+          "reproduction": {
+            "type": "object", "additionalProperties": false, "required": ["command", "runs", "failures", "observed", "saved_copy"],
+            "properties": {
+              "command": { "type": "string", "minLength": 1 },
+              "runs": { "type": "integer", "minimum": 2 },
+              "failures": { "type": "integer", "minimum": 1 },
+              "observed": { "type": "string", "minLength": 1 },
+              "saved_copy": { "type": "string", "pattern": "^evidence/" }
+            }
+          },
+          "why_not_reproduced": { "type": "string", "minLength": 1 },
+          "accepted_by": { "$ref": "#/$defs/cite" },
+          "recheck": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "unproven_risks": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "category", "location", "reason", "why_unproven"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^U\\d{3}$" },
+          "category": { "$ref": "#/$defs/category" },
+          "location": { "$ref": "#/$defs/loc" },
+          "reason": { "type": "string", "minLength": 1 },
+          "why_unproven": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "judged": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "location", "note"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^J\\d{3}$" },
+          "location": { "$ref": "#/$defs/loc" },
+          "note": { "type": "string", "minLength": 1 },
+          "violates": { "$ref": "#/$defs/cite" }
+        }
+      }
+    },
+    "verdict": {
+      "type": "object", "additionalProperties": false, "required": ["summary"],
+      "properties": { "summary": { "type": "string", "minLength": 1 } }
+    }
+  }
+}

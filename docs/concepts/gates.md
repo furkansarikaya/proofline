@@ -50,6 +50,10 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
 - A gate passes only when its own focus and every risk focus it carries pass.
 - A check whose skill or tool is missing is `UNSUPPORTED`: never a PASS, waivable only by the user, and listed
   in the completion report.
+- The `concurrency` focus runs the concurrency-proof skill (A86): a finding is a traced interleaving (two or
+  more actors, `file:line` per step) or a concurrent reproduction in the project's own test runner; PASS
+  means no proven problem, never that the code is free of races; unproven risks are listed separately, and a
+  reproduction the project cannot run is stated as UNSUPPORTED inside the result.
 - The mapping lives in `.agents/config.yaml` and is frozen with the plan; the lead cannot change it during a run.
 
 Other FAIL rules: a failing test that also fails at the base in a clean worktree is reported as pre-existing;
