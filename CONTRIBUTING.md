@@ -14,6 +14,7 @@ cd proofline
 sh tests/selftest.sh                         # control-plane, enforcement, generator, CLI and task suites (a few minutes)
 node --test tests/skills/                    # skill validators and fixtures' known answers
 sh tests/fixtures/check-fixtures.sh          # builds every fixtures/*/setup.sh and runs its selfcheck
+node --test tests/benchmark/                 # benchmark report known-answer test (seconds)
 sh adapters/generate.sh --check              # generated agent files match roles/
 sh docs/reference/generate-skills.sh --check # docs/reference/skills.md matches the skills
 sh tests/shared/check-shared.sh              # shared skill sections have not drifted
@@ -28,6 +29,8 @@ test jobs but still runs shellcheck and the sync checks; Markdown under `skills/
 and `adapters/` counts as code. Pull requests run Linux only; macOS runs on pushes to `main` and nightly.
 End-to-end team runs are described in
 [tests/e2e/README.md](tests/e2e/README.md); they use real agents and are not required for a pull request.
+The benchmark report (`node tests/benchmark/benchmark.mjs`, see [tests/benchmark/README.md](tests/benchmark/README.md))
+scores recorded fixture and e2e results per skill; pull requests run only its own test.
 
 ## Rules
 

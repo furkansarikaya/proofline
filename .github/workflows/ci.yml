@@ -88,6 +88,7 @@ jobs:
         run: |
           if ls tests/skills/*.test.mjs >/dev/null 2>&1; then node --test tests/skills/
           else echo "SKIPPED: no tests/skills/*.test.mjs yet"; fi
+          node --test tests/benchmark/
 
   fixtures:
     needs: [changes]
@@ -107,6 +108,10 @@ jobs:
         run: |
           if [ -f tests/fixtures/check-fixtures.sh ]; then sh tests/fixtures/check-fixtures.sh
           else echo "SKIPPED: tests/fixtures/check-fixtures.sh does not exist yet"; fi
+      # A90: the full benchmark report (fixture selfchecks and skill tests) is main/nightly only, not a gate.
+      - name: benchmark report
+        if: github.event_name != 'pull_request'
+        run: node tests/benchmark/benchmark.mjs --run-validators --out "$RUNNER_TEMP/benchmark"
 
   # The self-test suites are split into scenario units and spread over four shards; inside a shard the units
   # run on every core (tests/selftest.sh).
