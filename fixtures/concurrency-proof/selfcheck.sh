@@ -79,4 +79,37 @@ await Promise.all(Array.from({ length: 50 }, () => rates.convert(s, 'a', 'USD', 
 check(rates.lookupCount() === 1, `trap cache: ${rates.lookupCount()} lookups`);
 X
 node "$tmp/facts.mjs" "$PWD" || fail "planted facts not shown"
+
+# MUST reject (EXPECTED.md 12-15): the agent's own labels never close the traced lost update.
+scripts=$(cd "$(dirname "$0")/../../skills/concurrency-proof/scripts" && pwd)
+cat > "$tmp/docs.mjs" <<'X'
+import { writeFileSync } from "node:fs";
+const [scripts, out] = process.argv.slice(2);
+const { scan } = await import(`${scripts}/find-shared-state.mjs`);
+const n = scan({ repo: ".", base: "base" }).candidates.length;
+const read = "const account = await store.get(accountId);", write = "await store.put(accountId, { ...account, balance });";
+const st = (k, actor, line, code) => ({ n: k, actor, file: "src/wallet.js", line, code, action: "step" });
+const c001 = (over) => ({ id: "C001", category: "lost_update", title: "lost update", status: "open", location: { file: "src/wallet.js", line: 5 },
+  shared_state: "balance", evidence: "traced", why_not_reproduced: "selfcheck",
+  trace: { actors: ["A", "B"], steps: [st(1, "A", 3, read), st(2, "B", 3, read), st(3, "A", 5, write), st(4, "B", 5, write)], outcome: "120 instead of 130" }, ...over });
+const doc = (f, candidates = n) => ({ schema_version: 1, skill_version: "0.0.1", target: { type: "branch", name: "fx", base: "base", head: "HEAD" },
+  scope: { changed_files: ["src/inventory.js", "src/orders.js", "src/payments.js", "src/rates.js", "src/refunds.js", "src/retry.js", "src/wallet.js", "test/features.test.js"], candidates, not_reviewed: [] },
+  reproduction: { status: "unsupported", reason: "selfcheck" }, findings: [f], unproven_risks: [], judged: [], verdict: { summary: "One proven problem." } });
+const docs = {
+  open: doc(c001({})),
+  pre_existing: doc(c001({ status: "pre_existing" })),
+  closed_text: doc(c001({ status: "closed", recheck: "looked again" })),
+  closed_own_step: doc(c001({ status: "closed", recheck: { kind: "fix", file: "src/wallet.js", line: 5, code: write } })),
+  accepted_code: doc(c001({ status: "accepted", accepted_by: { file: "src/wallet.js", line: 5, quote: write } })),
+  accepted_noplan: doc(c001({ status: "accepted", accepted_by: { file: "PLAN.md", line: 1, quote: "Deposits are serialised" } })),
+  candidates: doc(c001({}), n + 3),
+};
+for (const [k, d] of Object.entries(docs)) writeFileSync(`${out}/${k}.json`, JSON.stringify(d));
+X
+node "$tmp/docs.mjs" "$scripts" "$tmp" || fail "could not write the validator documents"
+node "$scripts/validate-concurrency.mjs" "$tmp/open.json" --repo . --base base > "$tmp/open.out" 2>&1 || fail "the honest C001 document must validate: $(cat "$tmp/open.out")"
+grep -qx 'RESULT: FAIL' "$tmp/open.out" || fail "the honest C001 document must FAIL"
+for k in pre_existing closed_text closed_own_step accepted_code accepted_noplan candidates; do
+  if node "$scripts/validate-concurrency.mjs" "$tmp/$k.json" --repo . --base base > /dev/null 2>&1; then fail "$k: the relabelled C001 document validated"; fi
+done
 echo "selfcheck: concurrency-proof ok"

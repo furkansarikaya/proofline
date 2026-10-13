@@ -47,6 +47,7 @@ function report(cls = "STANDARD") {
     screens: [{ id: "orders", path: "index.html", states }], interactions: [],
     cells: [], measured: [], not_measured: [], judged: [],
     a11y_scanner: { status: "not_available" }, regression: { status: "not_available", reason: "no snapshot infrastructure" },
+    network: { interception: "on", blocked: [] },
     criteria: [{ id: "AC-1", required: true, status: "proven" }],
   };
   let n = 0;
@@ -269,7 +270,7 @@ test("assemble: a state that does not render is a measured failure and nothing e
     screens: [{ id: "orders", path: "index.html", states: [{ name: "error", path: "index.html?state=error", ready: "[data-state=error]" }] }],
     criteria: [{ id: "AC-3", required: true, checks: ["state_rendered"] }] };
   const cells = VP3.slice(0, 2).map((v) => ({ screen: "orders", state: "error", viewport: v.name, screenshot: shot(`e-${v.name}`).path, rendered: false, items: [], not_measured: [] }));
-  const rep = assemble({ tool: { kind: "headless-browser", name: "chromium" }, config, cells }, dir);
+  const rep = assemble({ tool: { kind: "headless-browser", name: "chromium" }, config, cells, network: { interception: "on", blocked: [] } }, dir);
   assert.equal(rep.result, "FAIL");
   assert.equal(rep.measured.filter((m) => m.check === "state_rendered" && m.status === "fail").length, 2);
   assert.equal(rep.not_measured.filter((n) => n.scope === "cell" && n.reason === "state not rendered").length, 2 * (CORE.length - 1));
@@ -309,4 +310,78 @@ test("SKILL.md states the boundaries: existing tooling only, UNSUPPORTED never P
   assert.match(md, /COMPLEX and CRITICAL: every spec state/);
   assert.match(md, /FAIL the gate only when they violate a criterion written in the spec or plan/);
   assert.match(md, /never create or update a baseline/);
+});
+
+// --- review round 2 (A93): pinned thresholds, not_applicable, network guard, INCONCLUSIVE submission ----------
+const { thresholdError, NOT_APPLICABLE, submitReason } = await import("../../skills/visual-proof/scripts/validate-visual.mjs");
+const { allowRequest } = await import("../../skills/visual-proof/scripts/measure.mjs");
+// The fixture's planted failures, edited to pass in every way a report can be edited without re-measuring.
+const planted = (r) => { const m = failOne(r); r.result = "FAIL"; return m; };
+
+test("H3: a failure edited to pass, to not_applicable or behind a loosened or non-numeric threshold is rejected", () => {
+  const { r, dir } = report();
+  const ok = clone(r); planted(ok); assert.equal(check(ok, dir).valid, true, errs(ok, dir));
+  const edit = (f) => { const x = clone(r); const m = planted(x); f(m, x); x.result = "PASS"; return errs(x, dir); };
+  assert.match(edit((m) => { m.status = "pass"; }), /status pass contradicts value 2.32 >= 4.5/);
+  assert.match(edit((m) => { m.status = "not_applicable"; }), /not_applicable contrast needs selector body and the reason "no visible text"/);
+  assert.match(edit((m) => { Object.assign(m, { status: "not_applicable", value: "n/a", threshold: "n/a" }); }), /threshold "n\/a" is not numeric/);
+  assert.match(edit((m) => { Object.assign(m, { status: "pass", threshold: ">= 2" }); }), /threshold >= 2 is weaker than or unlike the documented >= 4.5 for contrast/);
+  assert.match(edit((m) => { Object.assign(m, { status: "pass", threshold: ">= 3" }); }), /contrast >= 3 is for large text only/);
+  assert.match(edit((m) => { Object.assign(m, { status: "pass", value: "fine" }); }), /a pass item needs a numeric value/);
+  // the measure.mjs not_applicable item, forged in next to a real contrast item, or for a check that has none
+  const both = clone(r); both.measured.push({ ...clone(r.measured.find((m) => m.check === "contrast")), id: "M-999", selector: "body", value: "no visible text", status: "not_applicable" });
+  assert.match(errs(both, dir), /not_applicable contrast next to another contrast item/);
+  const sr = clone(r); Object.assign(sr.measured.find((m) => m.check === "state_rendered"), { status: "not_applicable", value: "no state" });
+  assert.match(errs(sr, dir), /not_applicable is not allowed for state_rendered/);
+  const fo = clone(r); Object.assign(fo.measured.find((m) => m.check === "focus_order"), { status: "not_applicable", value: "no focusable element" });
+  assert.match(errs(fo, dir), /"no focusable element" holds for hidden_interactive, focus_order and focus_visible together/);
+});
+test("H3: thresholds are the documented ones or stricter; touch target, overflow, scroll width", () => {
+  const vp = { name: "phone", width: 360, height: 740 };
+  assert.equal(thresholdError({ check: "touch_target", threshold: ">= 44" }, vp), null, "stricter is allowed");
+  assert.match(thresholdError({ check: "touch_target", threshold: ">= 10" }, vp), /weaker/);
+  assert.equal(thresholdError({ check: "horizontal_scroll", threshold: "<= 345" }, vp), null);
+  assert.match(thresholdError({ check: "horizontal_scroll", threshold: "<= 500" }, vp), /weaker/);
+  assert.match(thresholdError({ check: "viewport_overflow", threshold: "<= 56" }, vp), /weaker/);
+  assert.match(thresholdError({ check: "state_rendered", threshold: ">= 0" }, vp), /unlike the documented == 1/);
+  assert.equal(thresholdError({ check: "contrast", threshold: ">= 3", note: "#000 on rgb(255, 255, 255), 24px, large text" }, vp), null);
+  assert.equal(thresholdError({ check: "hidden_interactive", threshold: "> 1" }, vp), null);
+  assert.match(checkConfig({ class: "STANDARD", base_url: "file:///tmp/app/", viewports: VP3.slice(0, 2), touch_target_min: 10, screens: [{ id: "s", path: "index.html", states: [{ name: "success", ready: "#x" }] }] }).join(), /touch_target_min must be a number >= 24/);
+  assert.deepEqual(Object.keys(NOT_APPLICABLE).sort(), ["contrast", "focus_order", "focus_visible", "hidden_interactive", "overlapping_interactive", "touch_target"]);
+});
+test("H3: SUMMARY counts not_applicable apart from passes", () => {
+  const { r, dir } = report();
+  const x = clone(r);
+  for (const m of x.measured.filter((m) => ["hidden_interactive", "focus_order", "focus_visible"].includes(m.check) && m.viewport === "phone")) Object.assign(m, { selector: "body", value: "no focusable element", status: "not_applicable" });
+  const v = check(x, dir);
+  assert.equal(v.valid, true, v.errors.join("\n"));
+  assert.match(v.summary, /measured=15\/18 pass, 0 fail, 3 not_applicable; blocked_requests=0;/);
+});
+test("M2: requests outside the page's origin are blocked; the report must carry the network record", () => {
+  assert.equal(allowRequest("file:///tmp/app/", "file:///tmp/app/styles.css"), true);
+  assert.equal(allowRequest("file:///tmp/app/", "data:image/png;base64,AA"), true);
+  for (const u of ["http://127.0.0.1:9/api/orders", "https://cdn.example.com/x.js", "file:///etc/passwd"]) assert.equal(allowRequest("file:///tmp/app/", u), false, u);
+  assert.equal(allowRequest("http://127.0.0.1:5173/", "http://127.0.0.1:5173/api/orders"), true);
+  for (const u of ["http://127.0.0.1:8080/api", "http://localhost:5173/x", "https://api.example.com/"]) assert.equal(allowRequest("http://127.0.0.1:5173/", u), false, u);
+  const { r, dir } = report();
+  const a = clone(r); delete a.network; assert.match(errs(a, dir), /network\.interception must be on for a headless-browser report/);
+  const b = clone(r); b.network.blocked = ["http://x"]; assert.match(errs(b, dir), /network\.blocked must be a list of \{url, type\}/);
+  const c = clone(r); c.network.blocked = [{ url: "http://127.0.0.1:9/api/orders", type: "Fetch" }];
+  assert.match(check(c, dir).summary, /blocked_requests=1/);
+  const md = readFileSync(new URL("../../skills/visual-proof/SKILL.md", import.meta.url), "utf8");
+  assert.match(md, /\*\*Databases \(A50\/A52\)\.\*\* Never exercise a page, a form step or an interaction against a backend that uses\s+a real database/);
+  assert.match(md, /Fetch\.requestPaused/);
+});
+test("L1: INCONCLUSIVE is submitted as UNSUPPORTED with a `visual INCONCLUSIVE:` reason", () => {
+  const { r, dir } = report();
+  const a = clone(r); a.measured = a.measured.filter((m) => !(m.check === "focus_visible" && m.viewport === "tablet"));
+  a.not_measured.push({ scope: "cell", check: "focus_visible", screen: "orders", state: "success", viewport: "tablet", reason: "browser crashed" });
+  a.result = "INCONCLUSIVE";
+  assert.match(submitReason(check(a, dir)), /^visual INCONCLUSIVE: not measured: focus_visible at orders\/success\/tablet; not a FAIL; /);
+  writeFileSync(join(dir, "inc.json"), JSON.stringify(a));
+  const out = spawnSync(process.execPath, [VALIDATE, join(dir, "inc.json"), "--rows"], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^SUBMIT: --result UNSUPPORTED --reason "visual INCONCLUSIVE: /m);
+  const md = readFileSync(new URL("../../skills/visual-proof/SKILL.md", import.meta.url), "utf8");
+  assert.doesNotMatch(md, /--result BLOCKED --reason "<what could not be measured>"/);
 });

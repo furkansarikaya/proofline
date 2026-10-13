@@ -190,13 +190,13 @@ function probeSource() {
         const ratio = Math.floor(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)) * 100) / 100;
         const size = parseFloat(cs.fontSize), large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
         const t = large ? 3 : 4.5;
-        if (ratio < t) { contrastBad++; add("contrast", el, ratio, `>= ${t}`, false, { note: `${cs.color} on rgb(${bg.color.slice(0, 3).map(Math.round).join(", ")}), ${size}px` }); }
+        if (ratio < t) { contrastBad++; add("contrast", el, ratio, `>= ${t}`, false, { note: `${cs.color} on rgb(${bg.color.slice(0, 3).map(Math.round).join(", ")}), ${size}px${large ? ", large text" : ""}` }); }
         else if (!groups[t] || ratio < groups[t].value) groups[t] = { value: ratio, selector: sel(el) };
       }
       if (!contrastBad) {
         const g = Object.entries(groups);
         if (!g.length) items.push({ check: "contrast", selector: "body", value: "no visible text", threshold: ">= 4.5", status: "not_applicable" });
-        for (const [t, v] of g) add("contrast", v.selector, v.value, `>= ${t}`, true);
+        for (const [t, v] of g) add("contrast", v.selector, v.value, `>= ${t}`, true, t === "3" ? { note: "large text" } : {});
       }
 
       const min = opts.touchTargetMin || 24;
@@ -267,11 +267,14 @@ async function launch(path, timeoutMs, noSandbox) {
 
   async function connected() {
   let next = 0;
-  const pending = new Map(), waiters = [];
+  const pending = new Map(), waiters = [], listeners = [];
   sock.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.id && pending.has(msg.id)) { const p = pending.get(msg.id); pending.delete(msg.id); msg.error ? p.fail(new Error(`${p.method}: ${msg.error.message}`)) : p.ok(msg.result); }
-    else if (msg.method) for (const w of [...waiters]) if (w.method === msg.method && w.sessionId === msg.sessionId) { waiters.splice(waiters.indexOf(w), 1); w.ok(msg.params); }
+    else if (msg.method) {
+      for (const w of [...waiters]) if (w.method === msg.method && w.sessionId === msg.sessionId) { waiters.splice(waiters.indexOf(w), 1); w.ok(msg.params); }
+      for (const l of listeners) if (l.method === msg.method && l.sessionId === msg.sessionId) l.fn(msg.params);
+    }
   };
   send = (method, params = {}, sessionId) => new Promise((ok, fail) => {
     const id = ++next;
@@ -280,16 +283,27 @@ async function launch(path, timeoutMs, noSandbox) {
     sock.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
   const once = (method, sessionId) => new Promise((ok) => waiters.push({ method, sessionId, ok }));
+  const on = (method, sessionId, fn) => listeners.push({ method, sessionId, fn });
   const version = (await send("Browser.getVersion")).product;
-  return { send, once, close, version };
+  return { send, once, on, close, version };
   }
 }
 
 const KEYS = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, " ": 32 };
-async function page(b, timeoutMs) {
+// M2 (A50/A52): every request the page makes is paused; only the page's own origin (the base_url folder for file:,
+// the base_url localhost origin for http) and inline data:/blob: URLs continue. Anything else (a configured
+// backend, a third-party script, an API on another port) fails with BlockedByClient and is recorded.
+export const allowRequest = (base, url) => /^(data|blob|about):/.test(String(url)) || pageUrl(base, url) !== null;
+async function page(b, timeoutMs, base, blocked) {
   const { targetId } = await b.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await b.send("Target.attachToTarget", { targetId, flatten: true });
   const s = (m, p) => b.send(m, p, sessionId);
+  b.on("Fetch.requestPaused", sessionId, (q) => {
+    if (allowRequest(base, q.request.url)) return s("Fetch.continueRequest", { requestId: q.requestId }).catch(() => {});
+    if (!blocked.some((x) => x.url === q.request.url)) blocked.push({ url: q.request.url, type: q.resourceType || "Other" });
+    return s("Fetch.failRequest", { requestId: q.requestId, errorReason: "BlockedByClient" }).catch(() => {});
+  });
+  await s("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
   await s("Page.enable");
   await s("Runtime.enable");
   await s("Emulation.setFocusEmulationEnabled", { enabled: true });
@@ -422,6 +436,7 @@ export function checkConfig(c) {
   const vps = Array.isArray(c.viewports) ? c.viewports : [];
   if (vps.length < (MIN_VIEWPORTS[c.class] || 2)) e.push(`class ${c.class} needs at least ${MIN_VIEWPORTS[c.class] || 2} viewports`);
   for (const v of vps) if (!v?.name || !Number.isInteger(v.width) || !Number.isInteger(v.height)) e.push("each viewport needs name, width, height");
+  if (c.touch_target_min !== undefined && !(typeof c.touch_target_min === "number" && c.touch_target_min >= 24)) e.push("touch_target_min must be a number >= 24 (WCAG 2.5.8; a stricter value is allowed, a weaker one never)");
   if (!Array.isArray(c.screens) || !c.screens.length) e.push("screens must list at least one screen");
   for (const s of c.screens || []) {
     if (!s?.id || !s.path || !Array.isArray(s.states) || !s.states.length) { e.push("each screen needs id, path and states"); continue; }
@@ -449,13 +464,14 @@ export function assemble(raw, outDir) {
     interactions: (c.interactions || []).map(({ name, check, screen, state, viewports }) => ({ name, check, screen, state, ...(viewports ? { viewports } : {}) })),
     cells: [], measured: [], not_measured: [], judged: [],
     a11y_scanner: raw.a11y_scanner || { status: "not_available" },
+    network: raw.network || { interception: "none", blocked: [] },
     regression: raw.regression || { status: "not_available", reason: "not checked by measure.mjs; QA records the project's own snapshot command, if any" },
     criteria: [],
   };
   if (raw.tool.kind === "none") {
     Object.assign(report, { result: "UNSUPPORTED", unsupported_reason: raw.tool.reason || "no browser tooling" });
     for (const k of ["cells", "screens", "interactions"]) report[k] = [];
-    delete report.regression; delete report.a11y_scanner;
+    delete report.regression; delete report.a11y_scanner; delete report.network;
     report.criteria = (c.criteria || []).map((k) => ({ id: k.id, required: !!k.required, status: "unproven" }));
     return report;
   }
@@ -513,7 +529,8 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
   const url = (path) => { const u = pageUrl(config.base_url, path); if (!u) throw new Error(`path leaves base_url: ${path}`); return u; };
   const file = (...parts) => `screenshots/${parts.join("-").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`;
   try {
-    const p = await page(b, timeoutMs);
+    raw.network = { interception: "on", allowed: "base_url origin only (file: folder or localhost origin), data:, blob:", blocked: [] };
+    const p = await page(b, timeoutMs, config.base_url, raw.network.blocked);
     const deep = config.class !== "STANDARD";
     const wanted = new Set(requiredCells({ class: config.class, viewports: config.viewports, screens: config.screens.map((s) => ({ id: s.id, states: s.states.map((x) => x.name) })) }).map((x) => `${x.screen}|${x.state}`));
     for (const k of config.criteria || []) for (const s of config.screens) if (!k.screens || k.screens.includes(s.id)) for (const st of k.states || []) wanted.add(`${s.id}|${st}`);

@@ -5,8 +5,13 @@
 // (references/DECISION.md).
 //
 //   node compare-bench.mjs --base FILE --change FILE [--env FILE] [--config .agents/config.yaml]
-//        [--plan PLAN.md | --budget-pct N] [--direction lower|higher] [--metric NAME] [--id M1] [--seed N]
+//        [--plan PLAN.md | --budget-pct N] [--direction lower|higher] [--metric NAME] [--id M1]
 //        [--command CMD] [--tool-source TEXT]
+//
+// The bootstrap constants (seed 1, 2000 resamples, 95 % confidence) are fixed: there is no --seed, and the
+// validator refuses any other value, so an interval cannot be shopped for. --direction follows the unit: a time
+// unit (ms, s, us, µs, ns, also per operation such as ns/op) is lower-is-better and refuses `higher`; a rate
+// (ops/s, req/s, MB/s) is higher-is-better and refuses `lower`; omitted, it is taken from the unit (else lower).
 //
 // --plan reads the budget from PLAN.md `## Risk`: `performance_critical: yes budget_pct=<n>` (0 < n <= 100); an
 // unparseable budget_pct there is a note in the report, never silently ignored. --budget-pct is a local what-if
@@ -29,6 +34,17 @@ export const RESAMPLES = 2000;
 export const SEED = 1;
 const RANK = { PASS: 0, INCONCLUSIVE: 1, FAIL: 2 };
 
+// Unit semantics: the only direction a unit allows, or null when the unit does not say (a score, a count).
+const TIME_UNIT = /^(ns|us|µs|ms|s|sec|min)(\/[A-Za-z_]+)?$/;
+const RATE_UNIT = /^[^/\s]+\/(ns|us|µs|ms|s|sec|min)$/;
+// shortcut: a metric named as a duration (wall_time, latency_p99) is a time even under a neutral unit name.
+const TIME_METRIC = /(^|_)(time|latency|duration)(_|$)/i;
+export function unitDirection(unit, metric = "") {
+  if (TIME_UNIT.test(String(unit)) || TIME_METRIC.test(String(metric))) return "lower";
+  if (RATE_UNIT.test(String(unit))) return "higher";
+  return null;
+}
+
 export const r4 = (x) => Math.round(x * 1e4) / 1e4;
 
 // Flat YAML: a top-level `performance:` block with indented `key: integer` lines. Invalid values fall back to
@@ -46,7 +62,8 @@ export function thresholds(yamlText = "", budgetPct = null, budgetSource = "plan
     if (!m || !(m[1] in DEFAULTS) || m[2] === "") continue;
     const v = Number(m[2]);
     const floor = m[1] === "min_runs" ? MIN_RUNS_FLOOR : 1;
-    if (/^\d+$/.test(m[2]) && v >= floor) { out[m[1]] = v; if (m[1] === "regression_pct") source = "config"; }
+    // Percent thresholds are bounded to (0, 100] like the plan budget; min_runs has only its floor.
+    if (/^\d+$/.test(m[2]) && v >= floor && (m[1] === "min_runs" || v <= 100)) { out[m[1]] = v; if (m[1] === "regression_pct") source = "config"; }
     else notes.push(`performance.${m[1]}=${m[2]} is invalid; ${out[m[1]]} used`);
   }
   if (budgetPct !== null) { out.regression_pct = budgetPct; source = budgetSource; }
@@ -170,19 +187,16 @@ function main(argv) {
   const opt = {};
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
-    if (!/^--(base|change|env|config|plan|budget-pct|direction|metric|id|seed|command|tool-source)$/.test(k) || i + 1 >= argv.length) {
-      console.error("usage: compare-bench.mjs --base FILE --change FILE [--env FILE] [--config FILE] [--plan PLAN.md | --budget-pct N] [--direction lower|higher] [--metric NAME] [--id M1] [--seed N] [--command CMD] [--tool-source TEXT]");
+    if (!/^--(base|change|env|config|plan|budget-pct|direction|metric|id|command|tool-source)$/.test(k) || i + 1 >= argv.length) {
+      console.error("usage: compare-bench.mjs --base FILE --change FILE [--env FILE] [--config FILE] [--plan PLAN.md | --budget-pct N] [--direction lower|higher] [--metric NAME] [--id M1] [--command CMD] [--tool-source TEXT]");
       return 2;
     }
     opt[k.slice(2)] = argv[++i];
   }
   try {
     if (!opt.base || !opt.change) throw new Error("--base and --change are required");
-    const direction = opt.direction ?? "lower";
-    if (!["lower", "higher"].includes(direction)) throw new Error("--direction must be lower or higher");
+    if (opt.direction !== undefined && !["lower", "higher"].includes(opt.direction)) throw new Error("--direction must be lower or higher");
     if ("budget-pct" in opt && !validBudget(opt["budget-pct"])) throw new Error("--budget-pct must be a number in (0, 100]");
-    const seed = opt.seed === undefined ? SEED : Number(opt.seed);
-    if (!Number.isInteger(seed)) throw new Error("--seed must be an integer");
     let yaml = "";
     if (opt.config) { try { yaml = readFileSync(resolve(opt.config), "utf8"); } catch { /* absent config: defaults */ } }
     if (opt.plan && "budget-pct" in opt) throw new Error("--plan and --budget-pct are exclusive (the plan's budget is the budget)");
@@ -192,10 +206,14 @@ function main(argv) {
     for (const n of th.notes) console.error(`note: ${n}`);
     const b = readSamples(resolve(opt.base)), c = readSamples(resolve(opt.change));
     if (b.unit !== c.unit) throw new Error(`unit mismatch: base ${b.unit}, change ${c.unit}; units are never converted or compared across, re-measure or convert the samples first`);
+    const metric = opt.metric ?? (b.unit === "ms" ? "wall_time" : "value");
+    const must = unitDirection(b.unit, metric);
+    const direction = opt.direction ?? must ?? "lower";
+    if (must && direction !== must) throw new Error(`--direction ${direction} contradicts unit ${b.unit} (metric ${metric}): a time is lower-is-better, a rate higher-is-better`);
     const env = opt.env ? readEnv(readFileSync(resolve(opt.env), "utf8")) : null;
-    const r = compare(b.samples, c.samples, { th, direction, seed });
+    const r = compare(b.samples, c.samples, { th, direction });
     const m = {
-      id: opt.id ?? "M1", metric: opt.metric ?? (b.unit === "ms" ? "wall_time" : "value"), unit: b.unit, direction,
+      id: opt.id ?? "M1", metric, unit: b.unit, direction,
       base: { samples: b.samples, ...r.base }, change: { samples: c.samples, ...r.change },
       delta: r.delta, noise_pct: r.noise_pct, status: r.status, reason: r.reason,
     };

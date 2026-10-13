@@ -29,7 +29,8 @@ goes wrong at the end. It is the proof on paper and the plan for the reproductio
 4. **The finding's `location` is one of the steps**: the line where the bad outcome is produced (usually the
    second write, the second side effect, the retry call).
 5. **The schedule touches the change**: with `--base`, at least one step is on a line the diff adds or
-   changes. Otherwise the problem is `pre_existing`.
+   changes. Otherwise the problem is `pre_existing`, which the validator accepts only with `--repo --base`
+   proving that no step is on a changed line.
 6. **`outcome` is observable**: a wrong value, a duplicate effect, a stuck lock, a message processed twice,
    with the concrete numbers of the schedule.
 

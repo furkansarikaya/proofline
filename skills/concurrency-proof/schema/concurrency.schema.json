@@ -95,7 +95,16 @@
           },
           "why_not_reproduced": { "type": "string", "minLength": 1 },
           "accepted_by": { "$ref": "#/$defs/cite" },
-          "recheck": { "type": "string", "minLength": 1 }
+          "recheck": {
+            "oneOf": [
+              { "type": "object", "additionalProperties": false, "required": ["kind", "command", "runs", "failures", "observed", "saved_copy"],
+                "properties": { "kind": { "const": "reproduction" }, "command": { "type": "string", "minLength": 1 }, "runs": { "type": "integer", "minimum": 2 },
+                  "failures": { "const": 0 }, "observed": { "type": "string", "minLength": 1 }, "saved_copy": { "type": "string", "pattern": "^evidence/" } } },
+              { "type": "object", "additionalProperties": false, "required": ["kind", "file", "line", "code"],
+                "properties": { "kind": { "const": "fix" }, "file": { "type": "string", "minLength": 1 }, "line": { "type": "integer", "minimum": 1 },
+                  "code": { "type": "string", "minLength": 1 } } }
+            ]
+          }
         }
       }
     },

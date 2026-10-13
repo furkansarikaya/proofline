@@ -39,7 +39,11 @@
 ## Checks
 
 Every cell (screen x state x viewport) accounts for each core check: a measured item, or a cell-level
-`not_measured` entry with the reason. A failing check yields one item per offending element; a passing
+`not_measured` entry with the reason. The thresholds below are the documented ones: a report may use a
+stricter value (a larger `touch_target_min`), never a weaker one, and `touch_target_min` below 24 is refused.
+`not_applicable` is written only when the page has nothing of that kind (`no focusable element` for
+`hidden_interactive`, `focus_order` and `focus_visible` together, `no visible interactive element`,
+`no visible text`, `no non-exempt target`); every other gap is a `not_measured` entry. A failing check yields one item per offending element; a passing
 check yields one item carrying the worst value found (so the pass is itself a measurement).
 
 | Check | Measures | Value / threshold |
@@ -48,7 +52,7 @@ check yields one item carrying the worst value found (so the pass is itself a me
 | `viewport_overflow` | outermost visible element extending past the left or right edge; elements inside a scroll or clip container other than `html`/`body` are exempt (an intended carousel), clipping by `body` is not (content cut off) | px beyond the edge, `<= 0` |
 | `hidden_interactive` | a tab-reachable element that stays invisible when focused (zero size, clipped, transparent, off-page); a visually hidden element that appears on focus (a skip link) passes | visible px^2 when focused, `> 1` |
 | `overlapping_interactive` | the element's centre, after scrolling it into view, hits another element | `1` covered, `== 0` |
-| `contrast` | text colour against the composited ancestor background colours (WCAG 2.2 relative luminance, floored to 2 decimals); large text = 24px, or 18.66px bold | ratio, `>= 4.5` or `>= 3` |
+| `contrast` | text colour against the composited ancestor background colours (WCAG 2.2 relative luminance, floored to 2 decimals); large text = 24px, or 18.66px bold | ratio, `>= 4.5`, or `>= 3` with note `large text` |
 | `touch_target` | width and height of visible interactive elements, inline text links exempt; at the 24px minimum the WCAG 2.5.8 spacing exception is applied (a 24px circle on the target meets no other target) | smaller side px, `>= <touch_target_min>` |
 | `state_rendered` | the state's `ready` selector visible within 5 s of load | `1`/`0`, `== 1` |
 | `focus_order` | real Tab presses from the top: every tabbable element is reached; no positive `tabindex` | `1` per offender, `== 0` |

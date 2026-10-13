@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -262,7 +262,7 @@ test("repo and base: the fixture's known answer passes; bad citations fail", () 
 
 test("CLI: exit codes, result lines, rows only, report check", () => {
   const repo = fixture();
-  const f = writeDoc(doc());
+  const f = writeDoc(doc(undefined, { scope: { changed_files: CHANGED, candidates: scan({ repo, base: "base" }).candidates.length, not_reviewed: [] } }));
   let r = runCli(VALIDATE, [f, "--repo", repo, "--base", "base"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^RESULT: FAIL\nCONFIDENCE: medium\nREPRODUCTION: UNSUPPORTED \(test only\)$/m);
@@ -323,4 +323,84 @@ test("find-shared-state patterns: languages, comments skipped, identifiers", () 
   assert.deepEqual(cats("// retry with a lock and a timeout"), []);
   assert.deepEqual(cats("# lock the queue"), []);
   assert.deepEqual(cats("const blockSize = 4"), []);
+});
+
+// --- review round 2 (A93): the agent's own labels never close a traced or reproduced finding ------------------
+const { checkLabels } = await import("../../skills/concurrency-proof/scripts/validate-concurrency.mjs");
+const truthful = (repo, findings) => doc(findings, { scope: { changed_files: CHANGED, candidates: scan({ repo, base: "base" }).candidates.length, not_reviewed: [] } });
+const labels = (d, opts) => checkLabels(d, { docDir: mktmp(), ...opts });
+
+test("H6: pre_existing is valid only when --repo --base shows no trace step on a changed line", () => {
+  const repo = fixture();
+  const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "pre_existing";
+  assert.deepEqual(validate(d), []);
+  assert.match(labels(d, { repo, base: "base" }).join(), /pre_existing, but trace step 1 \(src\/wallet\.js:3\) is on a line changed since base/);
+  assert.match(labels(d, {}).join(), /pre_existing needs --repo and --base/);
+  assert.match(labels(d, { repo }).join(), /pre_existing needs --repo and --base/);
+  const g = truthful(repo, [doubleCharge()]);
+  g.findings[0].trace.steps = [step(1, "attempt 1", "src/gateway.js", 9, "a"), step(2, "attempt 2", "src/gateway.js", 9, "b")];
+  g.findings[0].location = { file: "src/gateway.js", line: 9 }; g.findings[0].status = "pre_existing";
+  assert.deepEqual(labels(g, { repo, base: "base" }), []);
+});
+
+test("H6: closed needs a recheck the validator re-checks, never a sentence", () => {
+  const repo = fixture();
+  const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "closed";
+  d.findings[0].recheck = "looked again";
+  assert.ok(validate(d).some((e) => /recheck: a closed finding needs a recheck \{kind: reproduction\|fix/.test(e)));
+  // a fix line: changed, in a traced file, with its code, and not one of the traced steps (the bug line itself)
+  d.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line: 5, code: "await store.put(accountId, { ...account, balance });" };
+  assert.deepEqual(validate(d), []);
+  assert.match(labels(d, { repo, base: "base" }).join(), /is a step of the traced schedule, not a fix/);
+  assert.match(labels(d, {}).join(), /a fix recheck needs --repo and --base/);
+  d.findings[0].recheck = { kind: "fix", file: "src/gateway.js", line: 9, code: "if (idempotencyKey" };
+  const e = labels(d, { repo, base: "base" }).join();
+  assert.match(e, /src\/gateway\.js is not a file of the traced schedule/); assert.match(e, /src\/gateway\.js:9 is not a line changed since base/);
+  // a re-run reproduction: 0 failures and its saved copy next to concurrency.json
+  d.findings[0].recheck = { kind: "reproduction", command: "node --test test/race.test.js", runs: 10, failures: 2, observed: "ok", saved_copy: "evidence/C001-recheck.txt" };
+  assert.ok(validate(d).some((x) => /failures: a recheck that closes a finding has 0 failing runs/.test(x)));
+  d.findings[0].recheck.failures = 0;
+  d.reproduction = { status: "ran", runner: "node --test", worktree: "/tmp/concurrency-proof-x" };
+  const dir = mktmp();
+  assert.match(checkLabels(d, { docDir: dir }).join(), /evidence\/C001-recheck\.txt does not exist next to concurrency\.json/);
+  mkdirSync(join(dir, "evidence")); writeFileSync(join(dir, "evidence/C001-recheck.txt"), "10/10 runs: balance 130\n");
+  assert.deepEqual(checkLabels(d, { docDir: dir }), []);
+  d.reproduction = { status: "unsupported", reason: "x" };
+  assert.match(checkLabels(d, { docDir: dir }).join(), /a reproduction recheck needs reproduction\.status ran/);
+  const o = truthful(repo, [lostUpdate()]); o.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line: 5, code: "x" };
+  assert.ok(validate(o).some((x) => /only a closed finding carries a recheck/.test(x)));
+});
+
+test("H6: accepted_by cites the plan or spec verbatim (--plan/--spec), never the changed code", () => {
+  const repo = fixture();
+  const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "accepted";
+  d.findings[0].accepted_by = { file: "src/wallet.js", line: 5, quote: "await store.put(accountId, { ...account, balance });" };
+  assert.deepEqual(validate(d), []);
+  assert.match(labels(d, { repo }).join(), /cites src\/wallet\.js, which is changed code/);
+  const plan = join(mktmp(), "PLAN.md");
+  writeFileSync(plan, "# Plan\n\n## Risk\n\nconcurrency: yes\n- Deposits are serialised by the caller (one request per account).\n");
+  const p = truthful(repo, [lostUpdate()]); p.findings[0].status = "accepted";
+  p.findings[0].accepted_by = { file: "PLAN.md", line: 6, quote: "Deposits are serialised by the caller" };
+  assert.match(labels(p, { repo }).join(), /pass --plan or --spec/);
+  const copy = join(repo, "PLAN.md"); writeFileSync(copy, readFileSync(plan, "utf8"));
+  try {
+    assert.deepEqual(labels(p, { repo, refs: [{ path: copy, text: readFileSync(copy, "utf8") }] }), []);
+    assert.match(labels(p, { repo, refs: [{ path: plan, text: readFileSync(plan, "utf8") }] }).join(), /PLAN\.md is not one of the --plan\/--spec files/);
+    p.findings[0].accepted_by.quote = "duplicates are tolerated";
+    assert.match(labels(p, { repo, refs: [{ path: copy, text: readFileSync(copy, "utf8") }] }).join(), /does not contain the quote verbatim/);
+    const w = join(repo, "src/wallet.js");
+    assert.match(labels(d, { repo, refs: [{ path: w, text: readFileSync(w, "utf8") }] }).join(), /src\/wallet\.js is in scope\.changed_files/);
+  } finally { rmSync(copy); }
+});
+
+test("L7: scope.candidates must equal a fresh find-shared-state count with --repo --base", () => {
+  const repo = fixture();
+  const n = scan({ repo, base: "base" }).candidates.length;
+  const d = truthful(repo, []); d.reproduction = { status: "ran", runner: "node --test", worktree: "/tmp/concurrency-proof-x" }; d.unproven_risks = [];
+  assert.deepEqual(labels(d, { repo, base: "base" }), []);
+  d.scope.candidates = n + 5;
+  assert.match(labels(d, { repo, base: "base" }).join(), new RegExp(`scope\\.candidates: ${n + 5}, but find-shared-state\\.mjs --base base finds ${n}`));
+  const f = writeDoc(d);
+  const r = runCli(VALIDATE, [f, "--repo", repo, "--base", "base"]);
+  assert.equal(r.status, 1); assert.match(r.stderr, /scope\.candidates/);
 });

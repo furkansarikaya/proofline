@@ -46,3 +46,16 @@ spacing exception); `app.js` has no branch for `?state=error`, so the spec's err
 12. No browser, driver or package installed; no visual-regression baseline created (the fixture has no
     snapshot infrastructure: `regression.status: not_available`).
 13. No page loaded from anything but the fixture's `file:` URL or a localhost server started for it.
+14. No request outside the page's origin leaves the browser: `app.js` calls `http://127.0.0.1:9/api/orders` (a
+    stand-in for an app backend with a database, A50/A52). `measure.mjs` blocks it (`BlockedByClient`) and the
+    report lists it under `network.blocked` (`network.interception: on`); it is not a measured failure.
+
+## MUST reject (validator, on the measured report)
+
+15. The report with the 27 planted failures (items 1-5) edited to `pass`: the status contradicts the value and
+    the documented threshold.
+16. The same failures edited to `not_applicable`, or with a loosened threshold (contrast `>= 2`, touch target
+    `>= 10`, horizontal scroll `<= 500`), or a non-numeric threshold (`n/a`): `not_applicable` is only the
+    fixed "nothing of that kind on the page" item, and thresholds are the documented ones or stricter.
+17. The report without its `network` record (`network.interception` missing).
+

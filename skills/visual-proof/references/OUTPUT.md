@@ -13,13 +13,17 @@
 | `measured[]` | `id` `M-n`, `check`, `screen`, `state`, `viewport`, `selector`, `value`, `threshold`, `status` `pass|fail|not_applicable`, `evidence {path, sha256}`, optional `criteria`, `note`, `interaction` |
 | `not_measured[]` | `scope` `cell` (a required check of a cell: makes the result INCONCLUSIVE) or `element` (one element a check could not read: a limit, no effect), `check`, the cell keys, `selector` (element), `reason` |
 | `judged[]` | [JUDGED.md](JUDGED.md) |
+| `network` | `interception` (`on` for measure.mjs, `none` for an adapter), `blocked[]` `{url, type}`: requests outside the page's origin that were failed, never sent |
 | `a11y_scanner` | `{status: run, tool}` or `{status: not_available}`; when run, it is a core check of every cell |
 | `regression` | `{status: not_available, reason}` or `{status: run, command, exit, baselines: existing}`; `baselines_created` is never true |
 | `criteria[]` | `id`, `required`, `status` `proven|failed|unproven` (recomputed) |
 
 Validator checks (`validate-visual.mjs`): every screenshot path is relative to the report folder, exists and
-has the recorded sha256; every measured item has all its keys and a status consistent with its numeric value
-and threshold; every cell the class requires exists and accounts for every core check; STANDARD has no
+has the recorded sha256; every measured item has all its keys, a pass or fail item a numeric value and the
+documented threshold of its check or a stricter one (contrast `>= 3` only with a `large text` note), and a
+status consistent with value and threshold; `not_applicable` only as the fixed item measure.mjs writes when
+the page has nothing of that kind (selector `body`, the reason as value, alone for its check in the cell),
+counted apart from passes in `SUMMARY`; a `headless-browser` report carries `network.interception: on`; every cell the class requires exists and accounts for every core check; STANDARD has no
 judged items and at least 2 viewports; COMPLEX/CRITICAL have 3 viewports, every state and a judged item per
 aspect; a judged violation quotes a criterion found in `--spec`/`--plan`; with `--plan`, every id on the
 `visual_proof:` line is a required criterion.
@@ -40,7 +44,8 @@ Write `REPORT.md` from [OUTPUT.template.md](../assets/OUTPUT.template.md): the `
 selector, value, threshold and screenshot, the criteria table, the judged section, what was not measured and
 the limits that apply. Team mode: `agent.sh submit --focus visual --artifact reviews/visual-proof/REPORT.md`
 with the rows `validate-visual.mjs --rows` printed (`blocking|<screen path>:<selector>|...|measured; <png>
-sha256:<12>`); replace the location with the source `path:line` of the rule once you located it (it becomes
+sha256:<12>`); INCONCLUSIVE is submitted as `--result UNSUPPORTED` with the reason the `SUBMIT:` line prints
+(`visual INCONCLUSIVE: ...`); replace the location with the source `path:line` of the rule once you located it (it becomes
 the fix scope). The `SUMMARY` line goes into the completion report's `## QA Result`.
 
 ## verify-proof interface

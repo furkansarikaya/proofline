@@ -46,3 +46,10 @@ Planted facts (12 runs per side unless stated; `samples/` after `setup.sh`):
 12. c6 reported as PASS because the medians are equal.
 13. c7 reported as PASS because 0.13 looks smaller than 100.
 14. c9 reported as PASS because the change's number is smaller.
+15. c1 (`ms`) compared with `--direction higher`, turning the +30 % time regression into PASS: a time unit is
+    lower-is-better, so compare-bench refuses `higher` (exit 2), and a report recomputed that way is invalid.
+16. c9 (`ops/s`) compared with `--direction lower`: a rate is higher-is-better, so it is refused (exit 2).
+17. A report whose bootstrap seed or resample count differs from the pinned seed 1 and 2000 resamples
+    validates (shopping for a seed whose interval clears the threshold).
+18. A PASS report validated without both `--config` and `--plan` submitted as PASS: `--rows` submits it as
+    `UNSUPPORTED` (`performance UNSUPPORTED: thresholds unverified ...`), blocking.

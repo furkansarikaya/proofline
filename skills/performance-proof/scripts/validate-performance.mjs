@@ -4,9 +4,14 @@
 //        [--plan PLAN.md] [--rows]
 // A .md input is read through its first ```json fenced block.
 // --config/--plan recompute the thresholds (and their source) the report must carry; the budget is trusted only
-// from the PLAN.md flag line (a plan whose flag line carries an unparseable budget_pct is refused). Without them the thresholds are self-declared: the result says "thresholds unverified" and the reviewer's
-// CONFIDENCE is at most medium. --rows prints the gate submission (findings rows, or the UNSUPPORTED reason
-// that starts `performance INCONCLUSIVE:` / `performance UNSUPPORTED:`) for a valid report.
+// from the PLAN.md flag line (a plan whose flag line carries an unparseable budget_pct is refused). Without both
+// the thresholds are self-declared: the result says "thresholds unverified", and --rows never submits PASS for
+// such a report (it submits UNSUPPORTED `performance UNSUPPORTED: thresholds unverified ...`, blocking).
+// --rows prints the gate submission (findings rows, or the UNSUPPORTED reason that starts
+// `performance INCONCLUSIVE:` / `performance UNSUPPORTED:`) for a valid report.
+// The bootstrap constants are pinned (seed, resamples, confidence from compare-bench.mjs) and every measurement
+// is recomputed with them; a report carrying other values is invalid. The direction must match the unit (a time
+// is lower-is-better, a rate higher-is-better; compare-bench.mjs unitDirection).
 // Every measurement's statistics and status are recomputed from its samples with compare-bench.mjs, so a
 // status that does not follow from the numbers, a PASS on too few runs or on noise, and a performance claim
 // in the summary that cites no measured row are rejected. INCONCLUSIVE and UNSUPPORTED are never PASS.
@@ -14,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compare, worst, thresholds, planBudget, MIN_RUNS_FLOOR } from "./compare-bench.mjs";
+import { compare, worst, thresholds, planBudget, unitDirection, MIN_RUNS_FLOOR, SEED, RESAMPLES, CONFIDENCE } from "./compare-bench.mjs";
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isStr = (v) => typeof v === "string" && v.trim() !== "";
@@ -74,9 +79,10 @@ export function validate(doc, { expected = null } = {}) {
       if (!isObj(e.tool_versions)) err("$.environment.tool_versions", "expected object");
     }
     const th = doc.thresholds;
-    const thOk = isObj(th) && th.regression_pct > 0 && th.noise_pct > 0 && Number.isInteger(th.min_runs) && th.min_runs >= MIN_RUNS_FLOOR
-      && th.confidence > 0.5 && th.confidence < 1 && ["default", "config", "plan"].includes(th.source);
-    if (!thOk) err("$.thresholds", `needs regression_pct > 0, noise_pct > 0, integer min_runs >= ${MIN_RUNS_FLOOR}, confidence in (0.5, 1) and source default|config|plan`);
+    const pct = (v) => typeof v === "number" && v > 0 && v <= 100;
+    const thOk = isObj(th) && pct(th.regression_pct) && pct(th.noise_pct) && Number.isInteger(th.min_runs) && th.min_runs >= MIN_RUNS_FLOOR
+      && th.confidence === CONFIDENCE && ["default", "config", "plan"].includes(th.source);
+    if (!thOk) err("$.thresholds", `needs regression_pct and noise_pct in (0, 100], integer min_runs >= ${MIN_RUNS_FLOOR}, confidence ${CONFIDENCE} (pinned) and source default|config|plan`);
     else if (expected) for (const k of ["regression_pct", "noise_pct", "min_runs", "source"])
       if (th[k] !== expected[k]) err(`$.thresholds.${k}`, `is ${th[k]}, the project's config and plan give ${expected[k]}`);
     if (!ms.length) err("$.measurements", `${doc.status} needs at least one measurement (no performance claim without a measurement)`);
@@ -87,16 +93,17 @@ export function validate(doc, { expected = null } = {}) {
       ids.add(m.id);
       if (!isStr(m.unit)) err(`${p}.unit`, "expected non-empty string");
       if (!["lower", "higher"].includes(m.direction)) err(`${p}.direction`, "must be lower or higher");
+      else if (unitDirection(m.unit, m.metric) && m.direction !== unitDirection(m.unit, m.metric))
+        err(`${p}.direction`, `is ${m.direction}, but unit ${m.unit} (metric ${m.metric}) is ${unitDirection(m.unit, m.metric)}-is-better: a time is lower, a rate higher`);
       const ok = (s) => isObj(s) && Array.isArray(s.samples) && s.samples.length > 0 && s.samples.every((x) => typeof x === "number" && Number.isFinite(x) && x > 0);
       if (!ok(m.base)) err(`${p}.base.samples`, "base samples are required (positive numbers)");
       if (!ok(m.change)) err(`${p}.change.samples`, "change samples are required (positive numbers)");
       for (const side of ["base", "change"]) if (isObj(m[side]) && "unit" in m[side] && m[side].unit !== m.unit) err(`${p}.${side}.unit`, "unit mismatch: units are never compared across");
       const d = m.delta;
-      if (!ok(m.base) || !ok(m.change) || !thOk || !isObj(d) || !Number.isInteger(d.seed) || !Number.isInteger(d.resamples) || d.resamples < 1000) {
-        if (!isObj(d) || !Number.isInteger(d.seed) || !Number.isInteger(d.resamples) || d.resamples < 1000) err(`${p}.delta`, "needs integer seed and resamples >= 1000");
-        return;
-      }
-      const r = compare(m.base.samples, m.change.samples, { th, direction: m.direction, seed: d.seed, resamples: d.resamples });
+      const pinned = isObj(d) && d.seed === SEED && d.resamples === RESAMPLES && d.confidence === CONFIDENCE;
+      if (!pinned) err(`${p}.delta`, `needs seed ${SEED}, resamples ${RESAMPLES} and confidence ${CONFIDENCE} (pinned; another seed or resample count is interval shopping)`);
+      if (!ok(m.base) || !ok(m.change) || !thOk || !pinned) return;
+      const r = compare(m.base.samples, m.change.samples, { th, direction: m.direction, seed: SEED, resamples: RESAMPLES });
       for (const k of ["median", "mad", "n"]) for (const side of ["base", "change"]) if (m[side][k] !== r[side][k]) err(`${p}.${side}.${k}`, `is ${m[side][k]}, the samples give ${r[side][k]}`);
       for (const k of ["regression_pct", "ci_low_pct", "ci_high_pct", "ci99_high_pct"]) if (d[k] !== r.delta[k]) err(`${p}.delta.${k}`, `is ${d[k]}, the samples give ${r.delta[k]}`);
       if (m.status !== r.status) err(`${p}.status`, `is ${m.status}, the samples and thresholds give ${r.status} (${r.reason})`);
@@ -137,7 +144,8 @@ export function loadDoc(file) {
 
 const one = (s) => String(s ?? "").replace(/[|\n]/g, "/").trim();
 // The gate submission for a valid report (team mode): `blocking|...` / `info|...` rows, or the UNSUPPORTED reason.
-export function submission(doc, artifact = "reviews/performance-proof/REPORT.md") {
+// verified: the thresholds were recomputed from the project's config and plan; an unverified PASS is no PASS.
+export function submission(doc, artifact = "reviews/performance-proof/REPORT.md", { verified = true } = {}) {
   if (doc.status === "UNSUPPORTED") return { result: "UNSUPPORTED", reason: `performance UNSUPPORTED: ${one(doc.unsupported_reason)}; never a PASS; ${one(doc.next_step)}` };
   if (doc.status === "INCONCLUSIVE") {
     const why = doc.measurements.filter((m) => m.status === "INCONCLUSIVE").map((m) => `${m.id} ${one(m.reason)}`).join("; ");
@@ -146,6 +154,8 @@ export function submission(doc, artifact = "reviews/performance-proof/REPORT.md"
   const rows = doc.measurements.filter((m) => m.status === "FAIL")
     .map((m) => `blocking|-|${m.id} ${one(m.metric)}: ${one(m.reason)}|${artifact}`);
   for (const j of doc.judged) rows.push(`${j.violates_criterion ? "blocking" : "info"}|${one(j.path) || "-"}|${j.id} judged: ${one(j.text)}${j.violates_criterion ? ` (violates: ${one(j.criterion)})` : ""}|${artifact}`);
+  if (doc.status === "PASS" && !verified)
+    return { result: "UNSUPPORTED", reason: "performance UNSUPPORTED: thresholds unverified (validated without --config and --plan); never a PASS; re-run validate-performance.mjs with --config .agents/config.yaml --plan <run>/PLAN.md --rows", rows };
   return { result: doc.status, rows };
 }
 
@@ -172,10 +182,10 @@ const main = () => {
   } catch (e) { console.error(`cannot read input: ${e.message}`); process.exit(2); }
   const errors = validate(doc, { expected });
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
-  const verified = expected || doc.status === "UNSUPPORTED";
-  console.log(`valid: ${doc.status}${verified ? "" : " (thresholds unverified: pass --config and --plan; CONFIDENCE at most medium)"}`);
+  const verified = Boolean(opt.config && opt.plan) || doc.status === "UNSUPPORTED";
+  console.log(`valid: ${doc.status}${verified ? "" : " (thresholds unverified: pass --config and --plan; never a gate PASS)"}`);
   if (opt.rows) {
-    const s = submission(doc);
+    const s = submission(doc, undefined, { verified });
     console.log(`result: ${s.result}`);
     if (s.reason) console.log(`reason: ${s.reason}`);
     for (const r of s.rows ?? []) console.log(r);

@@ -54,3 +54,16 @@ anything concurrently. JavaScript runs on a single-threaded event loop: only `aw
 
 11. No product code in the working tree changed, no commit, nothing installed; any reproduction runs in a
     throwaway worktree that is removed at the end.
+
+## MUST reject (validator, A93)
+
+On a `concurrency.json` that carries the traced lost update (C001, `src/wallet.js:3` and `:5`), checked with
+`--repo` and `--base base`:
+
+12. C001 relabelled `pre_existing`: its steps are on lines the change adds.
+13. C001 relabelled `closed` with the recheck "looked again", or with a "fix" line that is one of its own
+    steps (`src/wallet.js:5`).
+14. C001 relabelled `accepted` with `accepted_by` citing the changed code (`src/wallet.js:5`), or citing a plan
+    line without `--plan`.
+15. `scope.candidates` that differs from what `find-shared-state.mjs --base base` finds.
+

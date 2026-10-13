@@ -27,21 +27,31 @@ Talk to the user in their language. Files written for machines (`report.json`, `
    found: the result is `UNSUPPORTED` with the reason; it is never a PASS and only the user can waive it.
 2. **Only the code under review.** Pages load from `file:` or a server you started from the project's own
    command on `localhost`/`127.0.0.1`/`[::1]` (`measure.mjs` refuses any other host). Never a deployed
-   environment, never a third-party URL.
-3. **Measured and judged stay apart.** Measured items ([MEASURE.md](references/MEASURE.md)) have a check id,
+   environment, never a third-party URL. `measure.mjs` pauses every request the page makes (DevTools
+   `Fetch.requestPaused`) and lets through only the page's own origin (the `base_url` folder for `file:`, the
+   `base_url` localhost origin for http) plus `data:`/`blob:`; anything else (an API on another port, a
+   configured backend, a third-party script) fails with `BlockedByClient` and is listed in `network.blocked`.
+3. **Databases (A50/A52).** Never exercise a page, a form step or an interaction against a backend that uses
+   a real database (development, shared, staging or production). Only `file:` or static pages, or a
+   project-provided test server whose data is throwaway or in memory (created by the project's own test
+   setup and discarded). No such server: measure the static pages only, and list the states that need the
+   backend as cell-level `not_measured`.
+4. **Measured and judged stay apart.** Measured items ([MEASURE.md](references/MEASURE.md)) have a check id,
    viewport, element selector, value, threshold and the screenshot path with sha256; only they can close the
-   gate. Judged items ([JUDGED.md](references/JUDGED.md)) cite a screenshot and the spec section, sit in their
+   gate. Thresholds are the documented ones ([MEASURE.md](references/MEASURE.md#checks)) or stricter, never
+   weaker; `not_applicable` is only the fixed "nothing of that kind on the page" item `measure.mjs` writes,
+   counted apart from passes. Judged items ([JUDGED.md](references/JUDGED.md)) cite a screenshot and the spec section, sit in their
    own list and FAIL the gate only when they violate a criterion written in the spec or plan, quoted verbatim.
-4. **Depth by class.** TRIVIAL: no visual focus. STANDARD: the changed screens in their default state x 2
+5. **Depth by class.** TRIVIAL: no visual focus. STANDARD: the changed screens in their default state x 2
    viewports, measured only (no judged items). COMPLEX and CRITICAL: every spec state (empty, loading, error,
    success, partial, permission-denied, each one the spec does not mark not applicable) x 3 viewports,
    measured and judged (at least one judged item per aspect). The validator enforces both.
-5. **A state is proven only by rendering it.** Each state needs a way to reach it (a URL, query or setup
+6. **A state is proven only by rendering it.** Each state needs a way to reach it (a URL, query or setup
    script) and a selector visible only in that state. A state that does not render is a measured failure;
    the other checks of that cell are not measured (nothing else is claimed about a state that is not there).
-6. **Visual regression only with the project's own snapshot infrastructure** (existing baselines and the
+7. **Visual regression only with the project's own snapshot infrastructure** (existing baselines and the
    project's command). Record its command and exit; never create or update a baseline.
-7. **Screenshots are run artifacts.** They live next to `report.json` (`screenshots/`), each referenced with
+8. **Screenshots are run artifacts.** They live next to `report.json` (`screenshots/`), each referenced with
    its sha256, and are deleted with the run (team) or the output folder (standalone). Never commit them.
 
 ## Interfaces
@@ -70,6 +80,8 @@ rows before the next step.
    snapshot infrastructure ([TOOLING.md](references/TOOLING.md#snapshot-infrastructure)).
 3. **Serve.** Static pages: a `file:` URL. Otherwise start the project's own dev or preview command (from
    its scripts, CI config or README) on localhost with a timeout, after the sandbox warning; stop it at the end.
+   Only a server whose data is throwaway or in memory (hard rule 3); a server wired to a real database is
+   never started.
 4. **Config.** Write `visual.json` ([MEASURE.md](references/MEASURE.md#config)): class, base URL, viewports
    (phone 360x740, tablet 768x1024, desktop 1280x800 unless the spec names its breakpoints; STANDARD uses
    two), screens with each state's path and ready selector, interactions the spec describes (form validation,
@@ -92,12 +104,12 @@ of the run folder, standalone in `.agents/local/visual-proof/<slug>/`. Rules in 
 |---|---|
 | PASS | the rows printed (none blocking); PASS |
 | FAIL (a measured failure, a judged violation of a written criterion, a failing regression run) | each printed `blocking` row; FAIL |
-| INCONCLUSIVE (a required cell not measured, a required criterion unproven, no failure) | `--result BLOCKED --reason "<what could not be measured>"` |
+| INCONCLUSIVE (a required cell not measured, a required criterion unproven, no failure) | `--result UNSUPPORTED --reason "visual INCONCLUSIVE: <what could not be measured>; not a FAIL; ..."` (the `SUBMIT:` line `--rows` prints; same mapping as performance-proof): blocking, never a PASS, re-measured or waived only by the user, listed under `## Unsupported Checks` |
 | UNSUPPORTED (no tooling) | `--result UNSUPPORTED --reason "<what is missing>"` |
 
 `CONFIDENCE`: `high` when every required cell was measured, `medium` when element-level `not_measured`
 entries exist, `low` otherwise. The completion report's `## QA Result` carries the `SUMMARY` line;
-`## Unsupported Checks` names `QA:visual` when it was UNSUPPORTED.
+`## Unsupported Checks` names `QA:visual` when it was UNSUPPORTED or INCONCLUSIVE.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)

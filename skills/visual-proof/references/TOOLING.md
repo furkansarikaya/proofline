@@ -12,6 +12,15 @@
 browser exits (like a git worktree, it is the tool's state, not a scratch file); it never uses the user's
 browser profile.
 
+**Network guard (A50/A52).** Every request of the page is paused (`Fetch.enable` with pattern `*`, then
+`Fetch.requestPaused`): the page's own origin (the `base_url` folder for `file:`, the `base_url` localhost origin
+for http) and `data:`/`blob:` continue; any other origin, another localhost port included, fails with
+`BlockedByClient` and is recorded in `report.json` `network` (`interception: on`, `blocked: [{url, type}]`).
+The validator refuses a `headless-browser` report without `network.interception: on`. An adapter (below) has no
+such guard: drive it only against `file:` pages or a test server with throwaway or in-memory data, never a
+backend with a real database (development, shared, staging or production), and record
+`network: {interception: none, blocked: []}`.
+
 `project_tool` also reports a declared tool that is not installed (that alone is still `none`: installing it
 is the user's decision). `a11y_scanner` is set when the project has `axe-core` in `node_modules`; `measure.mjs`
 then injects that copy and records its violations as `a11y_scanner` items. Another scanner the project runs

@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 // Validates a concurrency-proof concurrency.json (see ../schema/concurrency.schema.json) and computes the
 // REVIEW `concurrency` focus result mechanically.
-// Usage: node validate-concurrency.mjs <concurrency.json> [--repo DIR] [--base REF] [--report REPORT.md] [--rows]
+// Usage: node validate-concurrency.mjs <concurrency.json> [--repo DIR] [--base REF] [--plan PLAN.md] [--spec FILE]...
+//        [--report REPORT.md] [--rows]
 //   --repo DIR     re-read every cited file:line in DIR (file exists, line exists, `code` is required on every
 //                  trace step and is on that line,
 //                  an `accepted_by.quote` is on its line)
 //   --base REF     with --repo: every non pre_existing finding has a trace step on a line the diff
 //                  REF..working tree adds or changes (untracked files count as added)
+//                  and scope.candidates equals a fresh find-shared-state.mjs --repo DIR --base REF count
+//   --plan/--spec  the only files an `accepted_by` may cite (verbatim quote on the cited line)
+//   The agent's own labels never close a traced or reproduced finding (A93): `pre_existing` needs --repo --base
+//   showing no trace step on a changed line; `closed` needs a recheck the validator re-checks (a reproduction
+//   run with 0 failures whose saved copy exists next to concurrency.json, or a fix line the diff changes, in a
+//   traced file, with its code); `accepted` needs a --plan/--spec citation, never the changed code.
 //   --report FILE  also checks the Verdict and Summary sections of REPORT.md: no safety claim, and a PASS/FAIL
 //                  word in the Verdict section equals the computed result
 //   --rows         prints only the submit rows (`blocking|path:line|finding|evidence`, `info|...`)
@@ -18,6 +25,7 @@ import { readFileSync, existsSync, realpathSync, statSync } from "node:fs";
 import { resolve, isAbsolute, basename, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { scan } from "./find-shared-state.mjs";
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isStr = (v) => typeof v === "string" && v.trim() !== "";
@@ -172,7 +180,8 @@ export function validate(doc) {
     } else err(`${p}.evidence`, "expected traced|reproduced (anything else is an unproven risk)");
     if (f.status === "accepted") cite(f.accepted_by, `${p}.accepted_by`);
     else if ("accepted_by" in f) err(`${p}.accepted_by`, "only an accepted finding cites the plan or spec");
-    if (f.status === "closed" && !isStr(f.recheck)) err(`${p}.recheck`, "a closed finding needs the re-check that closed it");
+    if (f.status === "closed") recheckShape(f.recheck, `${p}.recheck`, err);
+    else if ("recheck" in f) err(`${p}.recheck`, "only a closed finding carries a recheck");
   });
 
   const unproven = Array.isArray(doc.unproven_risks) ? doc.unproven_risks : (err("unproven_risks", "expected array"), []);
@@ -206,6 +215,82 @@ export function validate(doc) {
     keys(v, ["summary"], "verdict");
     if (!isStr(v.summary)) err("verdict.summary", "expected non-empty string");
     else { const w = safetyClaim(v.summary); if (w) err("verdict.summary", `asserts safety ("${w}"): PASS means no proven problem; state what was proven`); }
+  }
+  return errors;
+}
+
+// A closed finding's recheck: evidence the validator can re-check, never a sentence ("looked again").
+//   {kind: "reproduction", command, runs >= 2, failures: 0, observed, saved_copy: "evidence/..."}
+//   {kind: "fix", file, line, code}: the changed line that removes the schedule (checked with --repo --base)
+const RECHECK = { reproduction: ["kind", "command", "runs", "failures", "observed", "saved_copy"], fix: ["kind", "file", "line", "code"] };
+function recheckShape(rc, p, err) {
+  if (!isObj(rc) || !(rc.kind in RECHECK)) return err(p, "a closed finding needs a recheck {kind: reproduction|fix, ...}: the re-run that no longer fails, or the fix line in the changed code");
+  for (const k of Object.keys(rc)) if (!RECHECK[rc.kind].includes(k)) err(p, `unexpected "${k}"`);
+  if (rc.kind === "reproduction") {
+    if (!isStr(rc.command)) err(`${p}.command`, "expected the command that was re-run");
+    if (!Number.isInteger(rc.runs) || rc.runs < 2) err(`${p}.runs`, "expected an integer >= 2");
+    if (rc.failures !== 0) err(`${p}.failures`, "a recheck that closes a finding has 0 failing runs");
+    if (!isStr(rc.observed)) err(`${p}.observed`, "expected the observed output excerpt");
+    if (!safeRel(rc.saved_copy) || !/^evidence\//.test(rc.saved_copy)) err(`${p}.saved_copy`, "expected a path under evidence/");
+  } else {
+    if (!safeRel(rc.file)) err(`${p}.file`, "expected a repository-relative path");
+    if (!posInt(rc.line)) err(`${p}.line`, "expected an integer >= 1");
+    if (!isStr(rc.code)) err(`${p}.code`, "expected the code text on the fix line");
+  }
+}
+
+// The agent's own labels never close a finding (A93). opts: docDir (the folder of concurrency.json), repo, base,
+// refs [{path, text}] (the --plan/--spec files an acceptance may cite).
+export function checkLabels(doc, { docDir = ".", repo = null, base = null, refs = [] } = {}) {
+  const errors = [];
+  const root = repo ? realpathSync(repo) : null;
+  const changedLines = root && base ? diffLines(root, base) : null;
+  const changed = new Set(doc.scope?.changed_files || []);
+  const real = (p) => { try { return realpathSync(p); } catch { return null; } };
+  const refReal = refs.map((r) => ({ ...r, real: real(r.path) }));
+  const fileText = (rel) => { try { return readFileSync(join(root, rel), "utf8").split("\n"); } catch { return null; } };
+  const onChanged = (st) => changedLines?.get(st.file)?.has(st.line);
+  (doc.findings || []).forEach((f, i) => {
+    const p = `findings[${i}]`;
+    const steps = (f.trace && f.trace.steps) || [];
+    if (f.status === "pre_existing") {
+      if (!changedLines) errors.push(`${p}.status: pre_existing needs --repo and --base to show that no trace step is on a changed line`);
+      else if (steps.some(onChanged)) errors.push(`${p}.status: pre_existing, but trace step ${steps.find(onChanged).n} (${steps.find(onChanged).file}:${steps.find(onChanged).line}) is on a line changed since ${base}`);
+    }
+    if (f.status === "closed" && isObj(f.recheck)) {
+      const rc = f.recheck;
+      if (rc.kind === "reproduction") {
+        if (doc.reproduction?.status !== "ran") errors.push(`${p}.recheck: a reproduction recheck needs reproduction.status ran`);
+        const saved = safeRel(rc.saved_copy) ? join(docDir, rc.saved_copy) : null;
+        if (!saved || !existsSync(saved)) errors.push(`${p}.recheck.saved_copy: ${rc.saved_copy} does not exist next to concurrency.json`);
+      } else if (rc.kind === "fix") {
+        if (!changedLines) errors.push(`${p}.recheck: a fix recheck needs --repo and --base (the fix line must be in the diff)`);
+        else {
+          if (!steps.some((st) => st.file === rc.file)) errors.push(`${p}.recheck.file: ${rc.file} is not a file of the traced schedule`);
+          if (steps.some((st) => st.file === rc.file && st.line === rc.line)) errors.push(`${p}.recheck: ${rc.file}:${rc.line} is a step of the traced schedule, not a fix (cite the changed line that removes the interleaving)`);
+          if (!changedLines.get(rc.file)?.has(rc.line)) errors.push(`${p}.recheck: ${rc.file}:${rc.line} is not a line changed since ${base}`);
+          const ls = fileText(rc.file);
+          if (!ls || !ls[rc.line - 1]?.includes(String(rc.code).trim())) errors.push(`${p}.recheck: ${rc.file}:${rc.line} does not contain ${JSON.stringify(String(rc.code).trim())}`);
+        }
+      }
+    }
+    if (f.status === "accepted" && isObj(f.accepted_by)) {
+      const a = f.accepted_by;
+      if (changed.has(a.file)) { errors.push(`${p}.accepted_by: cites ${a.file}, which is changed code: only the plan or spec accepts a problem`); return; }
+      if (!refReal.length) { errors.push(`${p}.accepted_by: pass --plan or --spec; an acceptance cites the plan or spec verbatim`); return; }
+      const target = real(resolve(root ?? process.cwd(), a.file));
+      const ref = refReal.find((r) => r.real && r.real === target);
+      if (!ref) { errors.push(`${p}.accepted_by.file: ${a.file} is not one of the --plan/--spec files`); return; }
+      const norm = (s) => String(s).replace(/\s+/g, " ").trim();
+      const line = ref.text.split("\n")[a.line - 1];
+      if (line === undefined || !norm(line).includes(norm(a.quote))) errors.push(`${p}.accepted_by: ${a.file}:${a.line} does not contain the quote verbatim`);
+    }
+  });
+  for (const r of refReal) if (r.real && root && [...changed].some((c) => real(join(root, c)) === r.real)) errors.push(`--plan/--spec ${r.path} is in scope.changed_files: changed code never accepts a problem`);
+  // L7: the candidate count is the scanner's, re-run here.
+  if (root && base && Number.isInteger(doc.scope?.candidates)) {
+    const n = scan({ repo: root, base }).candidates.length;
+    if (doc.scope.candidates !== n) errors.push(`scope.candidates: ${doc.scope.candidates}, but find-shared-state.mjs --base ${base} finds ${n}`);
   }
   return errors;
 }
@@ -329,17 +414,23 @@ const main = () => {
     const a = args[i];
     if (a === "--rows") opt.rows = true;
     else if (a === "--repo" || a === "--base" || a === "--report") { if (i + 1 >= args.length) { console.error(`${a} needs a value`); process.exit(2); } opt[a.slice(2)] = args[++i]; }
+    else if (a === "--plan" || a === "--spec") { if (i + 1 >= args.length) { console.error(`${a} needs a value`); process.exit(2); } (opt.refs ??= []).push(args[++i]); }
     else if (a.startsWith("--")) { console.error(`unknown option ${a}`); process.exit(2); }
     else files.push(a);
   }
-  if (files.length !== 1 || (opt.base && !opt.repo)) { console.error("usage: validate-concurrency.mjs <concurrency.json> [--repo DIR [--base REF]] [--report REPORT.md] [--rows]"); process.exit(2); }
+  if (files.length !== 1 || (opt.base && !opt.repo)) { console.error("usage: validate-concurrency.mjs <concurrency.json> [--repo DIR [--base REF]] [--plan PLAN.md] [--spec FILE]... [--report REPORT.md] [--rows]"); process.exit(2); }
   let doc, report;
   try { doc = JSON.parse(readFileSync(files[0], "utf8")); } catch (e) { console.error(`cannot read input: ${e.message}`); process.exit(2); }
   if (opt.report) { try { report = readFileSync(opt.report, "utf8"); } catch (e) { console.error(`cannot read report: ${e.message}`); process.exit(2); } }
   if (opt.repo && !existsSync(opt.repo)) { console.error(`no such repository: ${opt.repo}`); process.exit(2); }
+  let refs = [];
+  try { refs = (opt.refs || []).map((p) => ({ path: p, text: readFileSync(p, "utf8") })); } catch (e) { console.error(`cannot read plan/spec: ${e.message}`); process.exit(2); }
   const errors = validate(doc);
   if (!errors.length && opt.repo) {
     try { errors.push(...checkRepo(doc, opt.repo, opt.base)); } catch (e) { console.error(`cannot read the repository diff: ${e.message.split("\n")[0]}`); process.exit(2); }
+  }
+  if (!errors.length) {
+    try { errors.push(...checkLabels(doc, { docDir: resolve(files[0], ".."), repo: opt.repo, base: opt.base, refs })); } catch (e) { console.error(`cannot read the repository diff: ${e.message.split("\n")[0]}`); process.exit(2); }
   }
   if (report !== undefined) errors.push(...checkReport(report, errors.length ? null : gate(doc).result));
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
