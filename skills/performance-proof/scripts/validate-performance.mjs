@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compare, worst, thresholds, planBudget, unitDirection, MIN_RUNS_FLOOR, SEED, RESAMPLES, CONFIDENCE } from "./compare-bench.mjs";
+import { compare, worst, thresholds, planBudget, planDirection, unitDirection, MIN_RUNS_FLOOR, SEED, RESAMPLES, CONFIDENCE } from "./compare-bench.mjs";
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isStr = (v) => typeof v === "string" && v.trim() !== "";
@@ -33,7 +33,8 @@ const NEGATED = /\b(no|not|without|never)\b/i;
 const QUANT = /\d+(?:\.\d+)?\s*(?:%|ms\b|ns\b|µs|us\b|s\b|x\b|×|ops\/s|req\/s)/i;
 
 // expected: thresholds() recomputed from the project's config and the plan's budget, or null (unverified).
-export function validate(doc, { expected = null } = {}) {
+// planDir: the direction PLAN.md declares (planDirection), null when it declares none, undefined without --plan.
+export function validate(doc, { expected = null, planDir = undefined } = {}) {
   const errors = [];
   const err = (p, m) => errors.push(`${p}: ${m}`);
   if (!isObj(doc)) return ["$: expected object"];
@@ -93,8 +94,10 @@ export function validate(doc, { expected = null } = {}) {
       ids.add(m.id);
       if (!isStr(m.unit)) err(`${p}.unit`, "expected non-empty string");
       if (!["lower", "higher"].includes(m.direction)) err(`${p}.direction`, "must be lower or higher");
-      else if (unitDirection(m.unit, m.metric) && m.direction !== unitDirection(m.unit, m.metric))
-        err(`${p}.direction`, `is ${m.direction}, but unit ${m.unit} (metric ${m.metric}) is ${unitDirection(m.unit, m.metric)}-is-better: a time is lower, a rate higher`);
+      else if (unitDirection(m.unit, m.metric)) {
+        if (m.direction !== unitDirection(m.unit, m.metric)) err(`${p}.direction`, `is ${m.direction}, but unit ${m.unit} (metric ${m.metric}) is ${unitDirection(m.unit, m.metric)}-is-better: a time is lower, a rate higher`);
+      } else if (!planDir) err(`${p}.direction`, `unit ${m.unit} has no known direction: declare direction=lower|higher on the PLAN.md performance_critical line and validate with --plan`);
+      else if (m.direction !== planDir) err(`${p}.direction`, `is ${m.direction}, but PLAN.md declares direction=${planDir}`);
       const ok = (s) => isObj(s) && Array.isArray(s.samples) && s.samples.length > 0 && s.samples.every((x) => typeof x === "number" && Number.isFinite(x) && x > 0);
       if (!ok(m.base)) err(`${p}.base.samples`, "base samples are required (positive numbers)");
       if (!ok(m.change)) err(`${p}.change.samples`, "change samples are required (positive numbers)");
@@ -169,18 +172,19 @@ const main = () => {
     else files.push(args[i]);
   }
   if (files.length !== 1 || files[0].startsWith("--")) { console.error("usage: validate-performance.mjs <performance.json|REPORT.md> [--config FILE] [--plan PLAN.md] [--rows]"); process.exit(2); }
-  let doc, expected = null;
+  let doc, expected = null, planDir;
   try {
     doc = loadDoc(files[0]);
     if (opt.config || opt.plan) {
       let yaml = "";
       if (opt.config) { try { yaml = readFileSync(resolve(opt.config), "utf8"); } catch { /* absent config: defaults */ } }
       const pb = opt.plan ? planBudget(readFileSync(resolve(opt.plan), "utf8")) : { budget: null, note: null };
+      if (opt.plan) planDir = planDirection(readFileSync(resolve(opt.plan), "utf8"));
       if (pb.note) { console.error(`$.thresholds: ${pb.note}; fix the plan's flag line (amendment and refreeze)`); process.exit(1); }
       expected = thresholds(yaml, pb.budget);
     }
   } catch (e) { console.error(`cannot read input: ${e.message}`); process.exit(2); }
-  const errors = validate(doc, { expected });
+  const errors = validate(doc, { expected, planDir });
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
   const verified = Boolean(opt.config && opt.plan) || doc.status === "UNSUPPORTED";
   console.log(`valid: ${doc.status}${verified ? "" : " (thresholds unverified: pass --config and --plan; never a gate PASS)"}`);

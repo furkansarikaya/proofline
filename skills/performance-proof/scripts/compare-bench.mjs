@@ -34,14 +34,30 @@ export const RESAMPLES = 2000;
 export const SEED = 1;
 const RANK = { PASS: 0, INCONCLUSIVE: 1, FAIL: 2 };
 
-// Unit semantics: the only direction a unit allows, or null when the unit does not say (a score, a count).
-const TIME_UNIT = /^(ns|us|µs|ms|s|sec|min)(\/[A-Za-z_]+)?$/;
-const RATE_UNIT = /^[^/\s]+\/(ns|us|µs|ms|s|sec|min)$/;
-// shortcut: a metric named as a duration (wall_time, latency_p99) is a time even under a neutral unit name.
+// Unit semantics: the only direction a unit allows, or null when the unit does not say (a score, a count, a
+// custom unit): then the plan declares it (`direction=lower|higher` on the performance_critical flag line).
+// Case-insensitive; µ (micro sign) and μ (Greek mu) read as u.
+const TIME = "ns|nsec|nsecs|nanos?|nanoseconds?|us|usec|usecs|micros?|microseconds?|ms|msec|msecs|millis?|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?";
+const TIME_UNIT = new RegExp(`^(?:${TIME})(?:\\s*(?:/|per\\s+)\\s*[a-z_]+)?$`);
+const RATE_UNIT = new RegExp(`^[^/\\s]+\\s*(?:/|per\\s+)\\s*(?:${TIME})$|^(?:ops|rps|qps|tps|fps|hz|khz|mhz|iops)$`);
+// A metric named as a duration (wall_time, latency_p99) is a time even under a neutral unit name.
 const TIME_METRIC = /(^|_)(time|latency|duration)(_|$)/i;
+const normUnit = (u) => String(u ?? "").trim().toLowerCase().replace(/[\u00b5\u03bc]/g, "u");
 export function unitDirection(unit, metric = "") {
-  if (TIME_UNIT.test(String(unit)) || TIME_METRIC.test(String(metric))) return "lower";
-  if (RATE_UNIT.test(String(unit))) return "higher";
+  const u = normUnit(unit);
+  if (TIME_UNIT.test(u) || TIME_METRIC.test(String(metric))) return "lower";
+  if (RATE_UNIT.test(u)) return "higher";
+  return null;
+}
+// The direction the plan declares on its flag line in `## Risk` (`performance_critical: yes direction=higher`),
+// or null.
+export function planDirection(planText = "") {
+  let inRisk = false;
+  for (const line of String(planText).split(/\r?\n/)) {
+    if (/^## /.test(line)) { inRisk = /^## Risk\s*$/.test(line); continue; }
+    const m = inRisk && /^[-*]?\s*performance_critical:\s*yes\b.*\bdirection=(lower|higher)\b/.exec(line);
+    if (m) return m[1];
+  }
   return null;
 }
 
@@ -207,9 +223,12 @@ function main(argv) {
     const b = readSamples(resolve(opt.base)), c = readSamples(resolve(opt.change));
     if (b.unit !== c.unit) throw new Error(`unit mismatch: base ${b.unit}, change ${c.unit}; units are never converted or compared across, re-measure or convert the samples first`);
     const metric = opt.metric ?? (b.unit === "ms" ? "wall_time" : "value");
-    const must = unitDirection(b.unit, metric);
-    const direction = opt.direction ?? must ?? "lower";
-    if (must && direction !== must) throw new Error(`--direction ${direction} contradicts unit ${b.unit} (metric ${metric}): a time is lower-is-better, a rate higher-is-better`);
+    const byUnit = unitDirection(b.unit, metric), byPlan = opt.plan ? planDirection(readFileSync(resolve(opt.plan), "utf8")) : null;
+    if (byUnit && byPlan && byUnit !== byPlan) throw new Error(`PLAN.md direction=${byPlan} contradicts unit ${b.unit} (metric ${metric}), which is ${byUnit}-is-better`);
+    const must = byUnit ?? byPlan;
+    if (!must) throw new Error(`unit ${b.unit} has no known direction: declare direction=lower|higher on the PLAN.md performance_critical line and pass --plan`);
+    const direction = opt.direction ?? must;
+    if (direction !== must) throw new Error(`--direction ${direction} contradicts unit ${b.unit} (metric ${metric}): ${byUnit ? "a time is lower-is-better, a rate higher-is-better" : `the plan declares direction=${must}`}`);
     const env = opt.env ? readEnv(readFileSync(resolve(opt.env), "utf8")) : null;
     const r = compare(b.samples, c.samples, { th, direction });
     const m = {

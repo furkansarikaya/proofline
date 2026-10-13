@@ -49,6 +49,10 @@ spacing exception); `app.js` has no branch for `?state=error`, so the spec's err
 14. No request outside the page's origin leaves the browser: `app.js` calls `http://127.0.0.1:9/api/orders` (a
     stand-in for an app backend with a database, A50/A52). `measure.mjs` blocks it (`BlockedByClient`) and the
     report lists it under `network.blocked` (`network.interception: on`); it is not a measured failure.
+18. A WebSocket to another port (`ws://127.0.0.1:9/live`) and a worker's call to the backend
+    (`http://127.0.0.1:9/api/worker`) are blocked and listed under `network.blocked`; `network.unguarded` is
+    empty. `network-check.mjs` proves on a local server that no request, worker request or WebSocket
+    handshake reaches it (`hits reaching the server: []`).
 
 ## MUST reject (validator, on the measured report)
 
@@ -58,4 +62,6 @@ spacing exception); `app.js` has no branch for `?state=error`, so the spec's err
     `>= 10`, horizontal scroll `<= 500`), or a non-numeric threshold (`n/a`): `not_applicable` is only the
     fixed "nothing of that kind on the page" item, and thresholds are the documented ones or stricter.
 17. The report without its `network` record (`network.interception` missing).
+19. The same report with a contrast item moved to `>= 3` while its `font_size_px`/`font_weight` are not large
+    text, or a horizontal-scroll bound above the viewport width.
 

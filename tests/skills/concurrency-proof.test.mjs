@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { validate, checkRepo, checkReport, gate, rows, safetyClaim, CATEGORIES } from "../../skills/concurrency-proof/scripts/validate-concurrency.mjs";
 import { scan, scanText } from "../../skills/concurrency-proof/scripts/find-shared-state.mjs";
 
@@ -348,7 +349,6 @@ test("H6: closed needs a recheck the validator re-checks, never a sentence", () 
   const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "closed";
   d.findings[0].recheck = "looked again";
   assert.ok(validate(d).some((e) => /recheck: a closed finding needs a recheck \{kind: reproduction\|fix/.test(e)));
-  // a fix line: changed, in a traced file, with its code, and not one of the traced steps (the bug line itself)
   d.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line: 5, code: "await store.put(accountId, { ...account, balance });" };
   assert.deepEqual(validate(d), []);
   assert.match(labels(d, { repo, base: "base" }).join(), /is a step of the traced schedule, not a fix/);
@@ -356,41 +356,94 @@ test("H6: closed needs a recheck the validator re-checks, never a sentence", () 
   d.findings[0].recheck = { kind: "fix", file: "src/gateway.js", line: 9, code: "if (idempotencyKey" };
   const e = labels(d, { repo, base: "base" }).join();
   assert.match(e, /src\/gateway\.js is not a file of the traced schedule/); assert.match(e, /src\/gateway\.js:9 is not a line changed since base/);
-  // a re-run reproduction: 0 failures and its saved copy next to concurrency.json
-  d.findings[0].recheck = { kind: "reproduction", command: "node --test test/race.test.js", runs: 10, failures: 2, observed: "ok", saved_copy: "evidence/C001-recheck.txt" };
-  assert.ok(validate(d).some((x) => /failures: a recheck that closes a finding has 0 failing runs/.test(x)));
-  d.findings[0].recheck.failures = 0;
-  d.reproduction = { status: "ran", runner: "node --test", worktree: "/tmp/concurrency-proof-x" };
-  const dir = mktmp();
-  assert.match(checkLabels(d, { docDir: dir }).join(), /evidence\/C001-recheck\.txt does not exist next to concurrency\.json/);
-  mkdirSync(join(dir, "evidence")); writeFileSync(join(dir, "evidence/C001-recheck.txt"), "10/10 runs: balance 130\n");
-  assert.deepEqual(checkLabels(d, { docDir: dir }), []);
-  d.reproduction = { status: "unsupported", reason: "x" };
-  assert.match(checkLabels(d, { docDir: dir }).join(), /a reproduction recheck needs reproduction\.status ran/);
   const o = truthful(repo, [lostUpdate()]); o.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line: 5, code: "x" };
   assert.ok(validate(o).some((x) => /only a closed finding carries a recheck/.test(x)));
 });
+test("H6 re-review: a fix line is code inside the traced function and carries a synchronisation token", () => {
+  // a fixed copy of the fixture: wallet.js gets a lock line in deposit, a comment trick and an unrelated function
+  const repo = join(mktmp(), "fx"); assert.equal(spawnSync("sh", [SETUP, repo]).status, 0);
+  writeFileSync(join(repo, "src/wallet.js"), [
+    "// Deposits add to an account balance.", "export async function deposit(store, accountId, cents) {",
+    "  const account = await store.get(accountId);", "  await mutex.lock(accountId); const balance = account.balance + cents;",
+    "  await store.put(accountId, { ...account, balance });", "  return balance; // lock released by the caller", "}",
+    "// lock the account first", "export function unrelated() { return mutex.lock(); }", ""].join("\n"));
+  const d = doc([lostUpdate()]); d.findings[0].status = "closed";
+  const fix = (line, code, extra = {}) => { d.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line, code, ...extra }; return labels(d, { repo, base: "base" }).filter((x) => !/scope\.candidates/.test(x)).join("\n"); };
+  assert.equal(fix(4, "await mutex.lock(accountId);"), "");
+  assert.equal(fix(4, "await mutex.lock(accountId);", { fix_token: "mutex.lock" }), "");
+  assert.match(fix(4, "await mutex.lock(accountId);", { fix_token: "serialise(" }), /not the stated fix_token "serialise\("/);
+  assert.match(fix(6, "return balance;"), /has no synchronisation token/);
+  assert.match(fix(8, "// lock the account first"), /is a comment or blank, not a fix/);
+  assert.match(fix(9, "return mutex.lock();"), /is not inside a function of the traced schedule/);
+});
+test("H6 re-review: a reproduction recheck re-runs the original command, with its hash and observed text", () => {
+  const rep = { command: "node --test test/race.test.js", runs: 10, failures: 4, observed: "balance 120 != 130", saved_copy: "evidence/C001.test.txt" };
+  const d = doc([{ ...lostUpdate(), evidence: "reproduced", reproduction: rep, why_not_reproduced: undefined }]);
+  delete d.findings[0].why_not_reproduced;
+  d.reproduction = { status: "ran", runner: "node --test", worktree: "/tmp/concurrency-proof-x" };
+  d.findings[0].status = "closed";
+  const dir = mktmp(); mkdirSync(join(dir, "evidence"));
+  const out = "10/10 runs passed\nbalance 130 == 130\n"; writeFileSync(join(dir, "evidence/C001-recheck.txt"), out);
+  const sha = createHash("sha256").update(out).digest("hex");
+  const rc = { kind: "reproduction", command: rep.command, runs: 10, failures: 0, observed: "balance 130 == 130", saved_copy: "evidence/C001-recheck.txt", sha256: sha };
+  d.findings[0].recheck = { ...rc };
+  assert.deepEqual(validate(d), []);
+  assert.deepEqual(checkLabels(d, { docDir: dir }), []);
+  const bad = (over, re) => { d.findings[0].recheck = { ...rc, ...over }; assert.match([...validate(d), ...checkLabels(d, { docDir: dir })].join("\n"), re); };
+  bad({ failures: 2 }, /0 failing runs/);
+  bad({ sha256: undefined }, /sha256 of the saved copy/);
+  bad({ sha256: "0".repeat(64) }, /sha256: does not match/);
+  bad({ observed: "all good" }, /observed: the text is not in/);
+  bad({ command: "node --test test/other.test.js" }, /must be the original reproduction command/);
+  bad({ runs: 3 }, /3 < the original 10 runs/);
+  bad({ saved_copy: "evidence/missing.txt" }, /does not exist next to concurrency\.json/);
+  // a traced finding is closed by a fix, not by a new test the validator cannot relate to the schedule
+  const t = doc([lostUpdate()]); t.findings[0].status = "closed"; t.reproduction = d.reproduction; t.findings[0].recheck = { ...rc };
+  assert.match(checkLabels(t, { docDir: dir }).join(), /a traced finding is closed by a fix recheck/);
+  d.reproduction = { status: "unsupported", reason: "x" }; d.findings[0].recheck = { ...rc };
+  assert.match(checkLabels(d, { docDir: dir }).join(), /a reproduction recheck needs reproduction\.status ran/);
+});
 
-test("H6: accepted_by cites the plan or spec verbatim (--plan/--spec), never the changed code", () => {
+test("H6: accepted_by cites the frozen plan or spec verbatim, names the finding, never the changed code", () => {
   const repo = fixture();
   const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "accepted";
   d.findings[0].accepted_by = { file: "src/wallet.js", line: 5, quote: "await store.put(accountId, { ...account, balance });" };
   assert.deepEqual(validate(d), []);
   assert.match(labels(d, { repo }).join(), /cites src\/wallet\.js, which is changed code/);
-  const plan = join(mktmp(), "PLAN.md");
-  writeFileSync(plan, "# Plan\n\n## Risk\n\nconcurrency: yes\n- Deposits are serialised by the caller (one request per account).\n");
+  const text = "# Plan\n\n## Risk\n\nconcurrency: yes\n- C001 (src/wallet.js:5): deposits are serialised by the caller (one request per account).\n- Deposits are serialised by the caller.\n";
+  const runDir = join(repo, ".agents/runs/T1"); mkdirSync(runDir, { recursive: true });
+  const plan = join(runDir, "PLAN.md"); writeFileSync(plan, text);
+  const ref = () => [{ path: plan, text: readFileSync(plan, "utf8") }];
   const p = truthful(repo, [lostUpdate()]); p.findings[0].status = "accepted";
-  p.findings[0].accepted_by = { file: "PLAN.md", line: 6, quote: "Deposits are serialised by the caller" };
-  assert.match(labels(p, { repo }).join(), /pass --plan or --spec/);
-  const copy = join(repo, "PLAN.md"); writeFileSync(copy, readFileSync(plan, "utf8"));
+  p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 6, quote: "deposits are serialised by the caller" };
   try {
-    assert.deepEqual(labels(p, { repo, refs: [{ path: copy, text: readFileSync(copy, "utf8") }] }), []);
-    assert.match(labels(p, { repo, refs: [{ path: plan, text: readFileSync(plan, "utf8") }] }).join(), /PLAN\.md is not one of the --plan\/--spec files/);
-    p.findings[0].accepted_by.quote = "duplicates are tolerated";
-    assert.match(labels(p, { repo, refs: [{ path: copy, text: readFileSync(copy, "utf8") }] }).join(), /does not contain the quote verbatim/);
+    assert.match(labels(p, { repo }).join(), /pass --plan or --spec/);
+    assert.deepEqual(labels(p, { repo, refs: ref() }), []);
+    // the line must name the finding (id, path:line or a symbol of its steps)
+    p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 7, quote: "Deposits are serialised by the caller." };
+    assert.match(labels(p, { repo, refs: ref() }).join(), /does not name the finding \(C001, src\/wallet\.js:5/);
+    p.findings[0].accepted_by.symbol = "store.put";
+    assert.match(labels(p, { repo, refs: ref() }).join(), /does not name the finding/, "the symbol must be on the cited line");
+    p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 6, quote: "duplicates are tolerated" };
+    assert.match(labels(p, { repo, refs: ref() }).join(), /does not contain the quote verbatim/);
+    // a run PLAN.md must be the frozen one
+    p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 6, quote: "deposits are serialised by the caller" };
+    writeFileSync(join(runDir, "RUN.yaml"), `freeze:\n  plan_sha256: "${"0".repeat(64)}"\n`);
+    assert.match(labels(p, { repo, refs: ref() }).join(), /is not the frozen PLAN\.md/);
+    writeFileSync(join(runDir, "RUN.yaml"), `freeze:\n  plan_sha256: "${createHash("sha256").update(text).digest("hex")}"\n`);
+    assert.deepEqual(labels(p, { repo, refs: ref() }), []);
+    // outside a run folder the plan read is pinned by sha256
+    const loose = join(repo, "PLAN.md"); writeFileSync(loose, text);
+    p.findings[0].accepted_by = { file: "PLAN.md", line: 6, quote: "deposits are serialised by the caller" };
+    const lref = [{ path: loose, text }];
+    assert.match(labels(p, { repo, refs: lref }).join(), /is not a run artifact .*accepted_by\.sha256 must pin the file read/);
+    p.findings[0].accepted_by.sha256 = createHash("sha256").update(text).digest("hex");
+    assert.deepEqual(labels(p, { repo, refs: lref }), []);
+    assert.match(labels(p, { repo, refs: ref() }).join(), /PLAN\.md is not one of the --plan\/--spec files/);
+    rmSync(loose);
     const w = join(repo, "src/wallet.js");
     assert.match(labels(d, { repo, refs: [{ path: w, text: readFileSync(w, "utf8") }] }).join(), /src\/wallet\.js is in scope\.changed_files/);
-  } finally { rmSync(copy); }
+  } finally { rmSync(join(repo, ".agents"), { recursive: true, force: true }); rmSync(join(repo, "PLAN.md"), { force: true }); }
 });
 
 test("L7: scope.candidates must equal a fresh find-shared-state count with --repo --base", () => {

@@ -13,14 +13,14 @@
 | `measured[]` | `id` `M-n`, `check`, `screen`, `state`, `viewport`, `selector`, `value`, `threshold`, `status` `pass|fail|not_applicable`, `evidence {path, sha256}`, optional `criteria`, `note`, `interaction` |
 | `not_measured[]` | `scope` `cell` (a required check of a cell: makes the result INCONCLUSIVE) or `element` (one element a check could not read: a limit, no effect), `check`, the cell keys, `selector` (element), `reason` |
 | `judged[]` | [JUDGED.md](JUDGED.md) |
-| `network` | `interception` (`on` for measure.mjs, `none` for an adapter), `blocked[]` `{url, type}`: requests outside the page's origin that were failed, never sent |
+| `network` | `interception` (`on` for measure.mjs and a guarded adapter, else `none`: at most INCONCLUSIVE), `blocked[]` `{url, type}`: requests outside the page's origin, WebSockets and service-worker registrations that were failed, never sent; `same_origin_writes[]` `{method, url}` (POST/PUT/PATCH/DELETE to the page's own origin: at most INCONCLUSIVE without a `visual_writes:` line in the plan or spec); `unguarded[]` (child targets without the guard: at most INCONCLUSIVE) |
 | `a11y_scanner` | `{status: run, tool}` or `{status: not_available}`; when run, it is a core check of every cell |
 | `regression` | `{status: not_available, reason}` or `{status: run, command, exit, baselines: existing}`; `baselines_created` is never true |
 | `criteria[]` | `id`, `required`, `status` `proven|failed|unproven` (recomputed) |
 
 Validator checks (`validate-visual.mjs`): every screenshot path is relative to the report folder, exists and
 has the recorded sha256; every measured item has all its keys, a pass or fail item a numeric value and the
-documented threshold of its check or a stricter one (contrast `>= 3` only with a `large text` note), and a
+documented threshold of its check or a stricter one (contrast `>= 3` only for large text, recomputed from `font_size_px` and `font_weight`), and a
 status consistent with value and threshold; `not_applicable` only as the fixed item measure.mjs writes when
 the page has nothing of that kind (selector `body`, the reason as value, alone for its check in the cell),
 counted apart from passes in `SUMMARY`; a `headless-browser` report carries `network.interception: on`; every cell the class requires exists and accounts for every core check; STANDARD has no

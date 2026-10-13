@@ -9,9 +9,11 @@ and for the change against the base:
 
 - `regression_pct`: the relative change of the median in percent, positive when worse. Lower is better by
   default (`(change - base) / base`); with `--direction higher` (throughput) it is `(base - change) / base`.
-  The direction is fixed by the unit, not chosen: a time (`ms`, `s`, `us`, `ns`, `ns/op`, or a metric named as a
-  time, latency or duration) is lower-is-better, a rate (`ops/s`, `req/s`) higher-is-better; compare-bench
-  refuses a contradicting `--direction` and the validator refuses a report that carries one.
+  The direction is fixed by the unit, not chosen (case-insensitive, with aliases: `msec`, `milliseconds`,
+  `sec`, `seconds`, `usec`, `µs`/`μs`, `nsec`, per-operation forms): a time, or a metric named as a time, latency or
+  duration, is lower-is-better; a rate (`ops/s`, `req/sec`, `fps`, `Hz`) higher-is-better. A unit that names no
+  direction needs `direction=lower|higher` on the plan's `performance_critical: yes` line. compare-bench refuses
+  a contradicting or undeclared direction and the validator refuses a report that carries one.
 - `ci_low_pct`..`ci_high_pct`: the 95 % percentile bootstrap interval of `regression_pct`, and
   `ci99_high_pct`, the upper end of the 99 % interval. Each of 2000 resamples draws both sides with
   replacement and takes the medians; the random numbers come from a seeded generator (mulberry32, seed 1), so

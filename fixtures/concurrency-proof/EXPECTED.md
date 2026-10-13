@@ -66,4 +66,6 @@ On a `concurrency.json` that carries the traced lost update (C001, `src/wallet.j
 14. C001 relabelled `accepted` with `accepted_by` citing the changed code (`src/wallet.js:5`), or citing a plan
     line without `--plan`.
 15. `scope.candidates` that differs from what `find-shared-state.mjs --base base` finds.
+16. C001 relabelled `closed` with a "fix" line that is a comment (`src/wallet.js:1`), or with a reproduction
+    recheck although C001 was only traced (no original reproduction to re-run).
 

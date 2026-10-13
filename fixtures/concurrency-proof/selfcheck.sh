@@ -80,7 +80,7 @@ check(rates.lookupCount() === 1, `trap cache: ${rates.lookupCount()} lookups`);
 X
 node "$tmp/facts.mjs" "$PWD" || fail "planted facts not shown"
 
-# MUST reject (EXPECTED.md 12-15): the agent's own labels never close the traced lost update.
+# MUST reject (EXPECTED.md 12-16): the agent's own labels never close the traced lost update.
 scripts=$(cd "$(dirname "$0")/../../skills/concurrency-proof/scripts" && pwd)
 cat > "$tmp/docs.mjs" <<'X'
 import { writeFileSync } from "node:fs";
@@ -103,13 +103,15 @@ const docs = {
   accepted_code: doc(c001({ status: "accepted", accepted_by: { file: "src/wallet.js", line: 5, quote: write } })),
   accepted_noplan: doc(c001({ status: "accepted", accepted_by: { file: "PLAN.md", line: 1, quote: "Deposits are serialised" } })),
   candidates: doc(c001({}), n + 3),
+  closed_comment: doc(c001({ status: "closed", recheck: { kind: "fix", file: "src/wallet.js", line: 1, code: "// Deposits add to an account balance." } })),
+  closed_repro_traced: doc(c001({ status: "closed", recheck: { kind: "reproduction", command: "node --test", runs: 10, failures: 0, observed: "ok", saved_copy: "evidence/x.txt", sha256: "0".repeat(64) } })),
 };
 for (const [k, d] of Object.entries(docs)) writeFileSync(`${out}/${k}.json`, JSON.stringify(d));
 X
 node "$tmp/docs.mjs" "$scripts" "$tmp" || fail "could not write the validator documents"
 node "$scripts/validate-concurrency.mjs" "$tmp/open.json" --repo . --base base > "$tmp/open.out" 2>&1 || fail "the honest C001 document must validate: $(cat "$tmp/open.out")"
 grep -qx 'RESULT: FAIL' "$tmp/open.out" || fail "the honest C001 document must FAIL"
-for k in pre_existing closed_text closed_own_step accepted_code accepted_noplan candidates; do
+for k in pre_existing closed_text closed_own_step closed_comment closed_repro_traced accepted_code accepted_noplan candidates; do
   if node "$scripts/validate-concurrency.mjs" "$tmp/$k.json" --repo . --base base > /dev/null 2>&1; then fail "$k: the relabelled C001 document validated"; fi
 done
 echo "selfcheck: concurrency-proof ok"

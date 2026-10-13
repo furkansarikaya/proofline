@@ -41,9 +41,13 @@ this `SKILL.md`.
   the change does not touch is `pre_existing` (an `info` row), valid only when `--repo --base` shows no
   trace step on a changed line.
 - **Your own labels never close a finding.** `closed` needs a `recheck` the validator re-checks: a re-run of
-  the reproduction with 0 failing runs and its output saved under `evidence/`, or the fix line (a changed line
-  in a file of the schedule, not one of its steps, with its `code`). `accepted` needs a plan or spec line
-  quoted verbatim, passed with `--plan`/`--spec`; a citation of the changed code is refused.
+  a reproduced finding's own command (at least as many runs, 0 failing, its output saved under `evidence/`
+  with its sha256 and the observed text in it), or the fix line (a changed code line inside the traced
+  function, not one of its steps, carrying a synchronisation token or the stated `fix_token`). `accepted`
+  needs a line of the frozen plan or spec (`.agents/runs/<ID>/PLAN.md`, or pinned by `accepted_by.sha256`
+  outside a run), passed with `--plan`/`--spec`, quoted verbatim and naming the finding (its id, its
+  `path:line`, or `accepted_by.symbol`); a citation of the changed code is refused
+  ([REPORTING.md](references/REPORTING.md)).
 - **Never assert safety.** PASS means "no proven problem", never "safe". The verdict summary and the
   Verdict and Summary sections of `REPORT.md` never claim safety outside code: `safe`, `safely`,
   `thread-safe`, `race-free`, `deadlock-free`, `free of races`, `cannot race`, `no races`, `guaranteed

@@ -35,7 +35,11 @@ Talk to the user in their language. Files written for machines (`report.json`, `
    a real database (development, shared, staging or production). Only `file:` or static pages, or a
    project-provided test server whose data is throwaway or in memory (created by the project's own test
    setup and discarded). No such server: measure the static pages only, and list the states that need the
-   backend as cell-level `not_measured`.
+   backend as cell-level `not_measured`. Form steps and interactions with side effects target only such a
+   test server. `measure.mjs` records every allowed request with a side-effect method (POST, PUT, PATCH,
+   DELETE) in `network.same_origin_writes`; without a `visual_writes: <how the data is thrown away>` line in
+   the plan's `## UI` section or the spec, a report with such writes is at most INCONCLUSIVE. WebSockets and
+   service workers are blocked, and workers get the same request guard.
 4. **Measured and judged stay apart.** Measured items ([MEASURE.md](references/MEASURE.md)) have a check id,
    viewport, element selector, value, threshold and the screenshot path with sha256; only they can close the
    gate. Thresholds are the documented ones ([MEASURE.md](references/MEASURE.md#checks)) or stricter, never
@@ -53,6 +57,14 @@ Talk to the user in their language. Files written for machines (`report.json`, `
    project's command). Record its command and exit; never create or update a baseline.
 8. **Screenshots are run artifacts.** They live next to `report.json` (`screenshots/`), each referenced with
    its sha256, and are deleted with the run (team) or the output folder (standalone). Never commit them.
+
+**Limits.** The validator checks a report's consistency: statuses against values and the documented
+thresholds, screenshot hashes, coverage and the network record. It cannot detect a report fabricated
+wholesale, with passing numbers and hashes of real files. The control plane never runs the validators
+(by design); the reviewer and verifier roles re-check the evidence, so the verifier opens the screenshots
+and `report.json` before it cites `visual-proof: <AC-n> proven`. A project tool or runtime adapter that does
+not apply the same request guard (`network.interception` other than `on`) never gives PASS: the result is at
+most INCONCLUSIVE, submitted as UNSUPPORTED with the reason `network interception not applied`.
 
 ## Interfaces
 

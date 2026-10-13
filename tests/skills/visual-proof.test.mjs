@@ -344,7 +344,11 @@ test("H3: thresholds are the documented ones or stricter; touch target, overflow
   assert.match(thresholdError({ check: "horizontal_scroll", threshold: "<= 500" }, vp), /weaker/);
   assert.match(thresholdError({ check: "viewport_overflow", threshold: "<= 56" }, vp), /weaker/);
   assert.match(thresholdError({ check: "state_rendered", threshold: ">= 0" }, vp), /unlike the documented == 1/);
-  assert.equal(thresholdError({ check: "contrast", threshold: ">= 3", note: "#000 on rgb(255, 255, 255), 24px, large text" }, vp), null);
+  assert.equal(thresholdError({ check: "contrast", threshold: ">= 3", font_size_px: 24, font_weight: 400 }, vp), null);
+  assert.equal(thresholdError({ check: "contrast", threshold: ">= 3", font_size_px: 18.66, font_weight: 700 }, vp), null);
+  assert.match(thresholdError({ check: "contrast", threshold: ">= 3", note: "large text" }, vp), /needs font_size_px and font_weight/);
+  assert.match(thresholdError({ check: "contrast", threshold: ">= 3", font_size_px: 18.66, font_weight: 400, note: "large text" }, vp), /18\.66px weight 400 is not large/);
+  assert.match(thresholdError({ check: "contrast", threshold: ">= 3", font_size_px: 16, font_weight: 700 }, vp), /is not large/);
   assert.equal(thresholdError({ check: "hidden_interactive", threshold: "> 1" }, vp), null);
   assert.match(checkConfig({ class: "STANDARD", base_url: "file:///tmp/app/", viewports: VP3.slice(0, 2), touch_target_min: 10, screens: [{ id: "s", path: "index.html", states: [{ name: "success", ready: "#x" }] }] }).join(), /touch_target_min must be a number >= 24/);
   assert.deepEqual(Object.keys(NOT_APPLICABLE).sort(), ["contrast", "focus_order", "focus_visible", "hidden_interactive", "overlapping_interactive", "touch_target"]);
@@ -384,4 +388,36 @@ test("L1: INCONCLUSIVE is submitted as UNSUPPORTED with a `visual INCONCLUSIVE:`
   assert.match(out.stdout, /^SUBMIT: --result UNSUPPORTED --reason "visual INCONCLUSIVE: /m);
   const md = readFileSync(new URL("../../skills/visual-proof/SKILL.md", import.meta.url), "utf8");
   assert.doesNotMatch(md, /--result BLOCKED --reason "<what could not be measured>"/);
+});
+
+test("re-review M5/M6: same-origin writes, adapters without the guard and unguarded workers cap the result", () => {
+  const { r, dir } = report();
+  const w = clone(r); w.network.same_origin_writes = [{ method: "POST", url: "http://127.0.0.1:5173/api/orders" }];
+  assert.match(errs(w, dir), /computed INCONCLUSIVE: 1 same-origin write\(s\) without a visual_writes allowance/);
+  w.result = "INCONCLUSIVE"; assert.equal(check(w, dir).valid, true);
+  assert.match(check(w, dir).summary, /same_origin_writes=1;/);
+  const plan = "## UI\nvisual_proof: AC-1\nvisual_writes: the project's test server (npm run test:server) uses an in-memory store\n";
+  w.result = "PASS";
+  const ok = check(w, dir, { planText: plan }); assert.equal(ok.valid, true, ok.errors.join("\n")); assert.match(ok.summary, /same_origin_writes=1 \(allowed\)/);
+  const bad = clone(r); bad.network.same_origin_writes = [{ url: "x" }]; assert.match(errs(bad, dir), /same_origin_writes must be a list of \{method, url\}/);
+  for (const kind of ["project-tool", "runtime-adapter"]) {
+    const a = clone(r); a.tool.kind = kind; a.network = { interception: "none", blocked: [] };
+    assert.match(errs(a, dir), /computed INCONCLUSIVE: network interception not applied/, kind);
+    delete a.network; assert.match(errs(a, dir), /network interception not applied/, kind);
+    a.network = { interception: "on", blocked: [] }; assert.equal(check(a, dir).computed, "PASS", kind);
+  }
+  const u = clone(r); u.network.unguarded = [{ url: "blob:x", type: "worker", reason: "Fetch.enable failed" }];
+  assert.match(errs(u, dir), /1 child target\(s\) ran without the network guard/);
+  const f = clone(r); failOne(f); f.result = "FAIL"; f.network.interception = "none"; f.tool.kind = "runtime-adapter";
+  assert.equal(check(f, dir).computed, "FAIL", "a measured failure still FAILs");
+  const md = readFileSync(new URL("../../skills/visual-proof/SKILL.md", import.meta.url), "utf8");
+  assert.match(md, /visual_writes:/); assert.match(md, /\*\*Limits\.\*\*/);
+});
+test("re-review: horizontal_scroll's bound is the recorded client_width, capped by the viewport (980 on a phone without viewport meta)", () => {
+  const phone = { name: "phone", width: 360, height: 740 }, tablet = { name: "tablet", width: 768, height: 1024 };
+  assert.equal(thresholdError({ check: "horizontal_scroll", threshold: "<= 980", client_width: 980 }, phone), null);
+  assert.match(thresholdError({ check: "horizontal_scroll", threshold: "<= 1200", client_width: 1200 }, phone), /client_width 1200 exceeds 980/);
+  assert.match(thresholdError({ check: "horizontal_scroll", threshold: "<= 980", client_width: 980 }, tablet), /exceeds 768/);
+  assert.match(thresholdError({ check: "horizontal_scroll", threshold: "<= 980", client_width: 360 }, phone), /weaker/);
+  assert.equal(thresholdError({ check: "horizontal_scroll", threshold: "<= 345" }, phone), null);
 });

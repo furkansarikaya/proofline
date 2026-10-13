@@ -48,11 +48,19 @@ export function thresholdError(m, viewport) {
   const op = t[1], v = Number(t[2]);
   let want = THRESHOLDS[m.check];
   if (m.check === "horizontal_scroll") {
+    // The bound is the measured clientWidth: at most the viewport width, or Chrome's 980px layout width for a
+    // phone viewport (<= 480px, emulated as mobile) when the page has no viewport meta tag.
     if (!Number.isInteger(viewport?.width)) return "horizontal_scroll needs a listed viewport (its bound is the viewport width)";
-    want = ["<=", viewport.width];
+    const cap = viewport.width <= 480 ? Math.max(viewport.width, 980) : viewport.width;
+    const cw = m.client_width ?? viewport.width;
+    if (!Number.isInteger(cw) || cw < 1 || cw > cap) return `horizontal_scroll client_width ${m.client_width} exceeds ${cap} (the viewport width, or 980 on a phone viewport without a viewport meta tag)`;
+    want = ["<=", cw];
   }
   if (m.check === "contrast" && op === ">=" && v === 3) {
-    return /large text/.test(String(m.note ?? "")) ? null : "contrast >= 3 is for large text only (24px, or 18.66px bold): the item's note must say `large text`";
+    // Large text (WCAG): >= 24px, or >= 18.66px bold, recomputed from the item's measured font facts.
+    const size = m.font_size_px, weight = m.font_weight;
+    if (typeof size !== "number" || typeof weight !== "number") return "contrast >= 3 is for large text only: the item needs font_size_px and font_weight (else the threshold is >= 4.5)";
+    return size >= 24 || (size >= 18.66 && weight >= 700) ? null : `contrast >= 3 is for large text only: ${size}px weight ${weight} is not large (>= 24px, or >= 18.66px bold); the threshold is >= 4.5`;
   }
   if (!want) return null;
   const [wop, wv] = want;
@@ -147,6 +155,12 @@ export function validateReport(report, opt = {}) {
   const net = isObj(report.network) ? report.network : null;
   if (tool.kind === "headless-browser" && net?.interception !== "on") err("network.interception must be on for a headless-browser report (measure.mjs blocks requests outside the page's origin)");
   if (net && (!Array.isArray(net.blocked) || !net.blocked.every((b) => isObj(b) && str(b.url)))) err("network.blocked must be a list of {url, type}");
+  const writes = Array.isArray(net?.same_origin_writes) ? net.same_origin_writes : [];
+  if (net && net.same_origin_writes !== undefined && !(Array.isArray(net.same_origin_writes) && writes.every((w) => isObj(w) && str(w.method) && str(w.url)))) err("network.same_origin_writes must be a list of {method, url}");
+  if (net && net.unguarded !== undefined && !(Array.isArray(net.unguarded) && net.unguarded.every(isObj))) err("network.unguarded must be a list");
+  // A write the page sent to its own origin is allowed only when the plan or spec says the server's data is
+  // throwaway: a `visual_writes: <how>` line (A50/A52).
+  const writesAllowed = [...(opt.specTexts || []), opt.planText ?? ""].some((t) => /^\s*(?:[-*]\s*)?`?visual_writes:\s*\S/m.test(String(t)));
 
   // --- depth ---------------------------------------------------------------------------------------------
   const min = MIN_VIEWPORTS[report.class];
@@ -289,6 +303,10 @@ export function validateReport(report, opt = {}) {
     if (reasons.length) computed = "FAIL";
     else {
       for (const n of notMeasured) if (n.scope === "cell") reasons.push(`not measured: ${n.check} at ${key(n)}`);
+      // A93 caps: no PASS without the network guard, with a write lacking an allowance, or with an unguarded worker.
+      if (net?.interception !== "on") reasons.push("network interception not applied (the adapter must block requests outside the page's origin)");
+      if (writes.length && !writesAllowed) reasons.push(`${writes.length} same-origin write(s) without a visual_writes allowance in the plan or spec: ${writes.slice(0, 3).map((w) => `${w.method} ${w.url}`).join(", ")}`);
+      if (Array.isArray(net?.unguarded) && net.unguarded.length) reasons.push(`${net.unguarded.length} child target(s) ran without the network guard`);
       for (const c of criteria) if (c?.required && computedCriteria[c.id] === "unproven") reasons.push(`${c.id} unproven`);
       computed = reasons.length ? "INCONCLUSIVE" : "PASS";
     }
@@ -299,7 +317,8 @@ export function validateReport(report, opt = {}) {
   const fails = measured.filter((m) => m.status === "fail");
   const na = measured.filter((m) => m.status === "not_applicable").length;
   const blocked = Array.isArray(net?.blocked) ? net.blocked.length : 0;
-  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked}; judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}`;
+  const writesNote = writes.length ? ` same_origin_writes=${writes.length}${writesAllowed ? " (allowed)" : ""};` : "";
+  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}`;
   return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged) };
 }
 

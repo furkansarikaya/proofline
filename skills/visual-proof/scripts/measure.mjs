@@ -139,7 +139,7 @@ function probeSource() {
       const add = (check, el, value, threshold, ok, extra = {}) => items.push({ check, selector: typeof el === "string" ? el : sel(el), value, threshold, status: ok ? "pass" : "fail", ...extra });
       const x0 = scrollX, y0 = scrollY;
 
-      add("horizontal_scroll", "html", de.scrollWidth, `<= ${cw}`, de.scrollWidth <= cw);
+      add("horizontal_scroll", "html", de.scrollWidth, `<= ${cw}`, de.scrollWidth <= cw, { client_width: cw });
 
       const offenders = [];
       for (const el of [...document.body.querySelectorAll("*")].slice(0, 5000)) {
@@ -190,13 +190,14 @@ function probeSource() {
         const ratio = Math.floor(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)) * 100) / 100;
         const size = parseFloat(cs.fontSize), large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
         const t = large ? 3 : 4.5;
-        if (ratio < t) { contrastBad++; add("contrast", el, ratio, `>= ${t}`, false, { note: `${cs.color} on rgb(${bg.color.slice(0, 3).map(Math.round).join(", ")}), ${size}px${large ? ", large text" : ""}` }); }
-        else if (!groups[t] || ratio < groups[t].value) groups[t] = { value: ratio, selector: sel(el) };
+        const font = { font_size_px: size, font_weight: Number(cs.fontWeight) || 400 };
+        if (ratio < t) { contrastBad++; add("contrast", el, ratio, `>= ${t}`, false, { note: `${cs.color} on rgb(${bg.color.slice(0, 3).map(Math.round).join(", ")}), ${size}px${large ? ", large text" : ""}`, ...font }); }
+        else if (!groups[t] || ratio < groups[t].value) groups[t] = { value: ratio, selector: sel(el), font };
       }
       if (!contrastBad) {
         const g = Object.entries(groups);
         if (!g.length) items.push({ check: "contrast", selector: "body", value: "no visible text", threshold: ">= 4.5", status: "not_applicable" });
-        for (const [t, v] of g) add("contrast", v.selector, v.value, `>= ${t}`, true, t === "3" ? { note: "large text" } : {});
+        for (const [t, v] of g) add("contrast", v.selector, v.value, `>= ${t}`, true, { ...(t === "3" ? { note: "large text" } : {}), ...v.font });
       }
 
       const min = opts.touchTargetMin || 24;
@@ -293,18 +294,53 @@ const KEYS = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, " ": 3
 // M2 (A50/A52): every request the page makes is paused; only the page's own origin (the base_url folder for file:,
 // the base_url localhost origin for http) and inline data:/blob: URLs continue. Anything else (a configured
 // backend, a third-party script, an API on another port) fails with BlockedByClient and is recorded.
+// Child targets are auto-attached paused and get the same guard before they run (a dedicated worker has no
+// Fetch domain: its requests are paused by the page's own interception, measured; it gets the WebSocket block).
+// WebSockets (ws:, wss:, same origin included: a live connection is not needed to render a state) are blocked
+// in the page and in every worker before it runs (the WebSocket constructor throws; the attempt is recorded).
+// Network.setBlockedURLs does not stop a WebSocket handshake, measured; a WebSocket that still opens is reported
+// by Network.webSocketCreated as unguarded (the result is capped). Service-worker registration and shared
+// workers are refused in the page. Allowed requests
+// with a side-effect method (POST, PUT, PATCH, DELETE) are recorded as same_origin_writes.
 export const allowRequest = (base, url) => /^(data|blob|about):/.test(String(url)) || pageUrl(base, url) !== null;
-async function page(b, timeoutMs, base, blocked) {
+// The refusals report through a console marker (Runtime.consoleAPICalled), so a worker that ends early is recorded.
+const NO_WS = `try { const g = globalThis; const rec = (u, t) => console.debug("__vp_blocked", String(new URL(u, g.location.href)), t);
+  g.WebSocket = function (u) { rec(u, "WebSocket"); throw new DOMException("WebSocket blocked by visual-proof", "SecurityError"); };
+} catch (e) {}`;
+const NO_SW = `try { const rec = (u, t) => console.debug("__vp_blocked", String(new URL(u, location.href)), t);
+  if (navigator.serviceWorker) navigator.serviceWorker.register = function (u) { rec(u, "ServiceWorker"); return Promise.reject(new DOMException("service worker blocked by visual-proof", "SecurityError")); };
+  if (window.SharedWorker) window.SharedWorker = function (u) { rec(u, "SharedWorker"); throw new DOMException("shared worker blocked by visual-proof", "SecurityError"); };
+} catch (e) {}`;
+async function page(b, timeoutMs, base, net) {
   const { targetId } = await b.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await b.send("Target.attachToTarget", { targetId, flatten: true });
   const s = (m, p) => b.send(m, p, sessionId);
-  b.on("Fetch.requestPaused", sessionId, (q) => {
-    if (allowRequest(base, q.request.url)) return s("Fetch.continueRequest", { requestId: q.requestId }).catch(() => {});
-    if (!blocked.some((x) => x.url === q.request.url)) blocked.push({ url: q.request.url, type: q.resourceType || "Other" });
-    return s("Fetch.failRequest", { requestId: q.requestId, errorReason: "BlockedByClient" }).catch(() => {});
+  const record = (list, item) => { if (!list.some((x) => x.url === item.url && x.type === item.type && x.method === item.method)) list.push(item); };
+  const guard = async (sid, type = "page") => {
+    b.on("Fetch.requestPaused", sid, (q) => {
+      if (allowRequest(base, q.request.url)) {
+        if (!/^(GET|HEAD|OPTIONS)$/i.test(q.request.method)) record(net.same_origin_writes, { method: q.request.method, url: q.request.url });
+        return b.send("Fetch.continueRequest", { requestId: q.requestId }, sid).catch(() => {});
+      }
+      record(net.blocked, { url: q.request.url, type: q.resourceType || "Other" });
+      return b.send("Fetch.failRequest", { requestId: q.requestId, errorReason: "BlockedByClient" }, sid).catch(() => {});
+    });
+    b.on("Network.webSocketCreated", sid, (q) => record(net.unguarded, { url: q.url, type: "WebSocket", reason: "a WebSocket opened despite the guard" }));
+    b.on("Runtime.consoleAPICalled", sid, (q) => { const a = q.args || []; if (a[0]?.value === "__vp_blocked") record(net.blocked, { url: String(a[1]?.value), type: String(a[2]?.value) }); });
+    await b.send("Runtime.enable", {}, sid);
+    await b.send("Network.enable", {}, sid);
+    if (type === "worker") await b.send("Runtime.evaluate", { expression: NO_WS }, sid); // before the worker runs
+    try { await b.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] }, sid); }
+    catch (e) { if (type !== "worker") throw e; }
+  };
+  b.on("Target.attachedToTarget", sessionId, async (q) => {
+    try { await guard(q.sessionId, q.targetInfo?.type); } catch (e) { record(net.unguarded, { url: q.targetInfo?.url || "", type: q.targetInfo?.type || "target", reason: e.message }); }
+    finally { b.send("Runtime.runIfWaitingForDebugger", {}, q.sessionId).catch(() => {}); }
   });
-  await s("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+  await guard(sessionId);
+  await s("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
   await s("Page.enable");
+  await s("Page.addScriptToEvaluateOnNewDocument", { source: NO_WS + "\n" + NO_SW });
   await s("Runtime.enable");
   await s("Emulation.setFocusEmulationEnabled", { enabled: true });
   const ev = async (expression, awaitPromise = false) => {
@@ -322,11 +358,13 @@ async function page(b, timeoutMs, base, blocked) {
       await ev(PROBE);
       if (setup) await ev(setup, true);
       const until = Date.now() + Math.min(timeoutMs, 5000);
+      let shown;
       for (;;) {
-        if (!ready || await ev(`window.__vp.visible(${JSON.stringify(ready)})`)) return true;
-        if (Date.now() > until) return false;
+        if (!ready || await ev(`window.__vp.visible(${JSON.stringify(ready)})`)) { shown = true; break; }
+        if (Date.now() > until) { shown = false; break; }
         await new Promise((r) => setTimeout(r, 100));
       }
+      return shown;
     },
     async key(k) {
       const code = KEYS[k];
@@ -464,7 +502,7 @@ export function assemble(raw, outDir) {
     interactions: (c.interactions || []).map(({ name, check, screen, state, viewports }) => ({ name, check, screen, state, ...(viewports ? { viewports } : {}) })),
     cells: [], measured: [], not_measured: [], judged: [],
     a11y_scanner: raw.a11y_scanner || { status: "not_available" },
-    network: raw.network || { interception: "none", blocked: [] },
+    network: raw.network || { interception: "none", blocked: [], same_origin_writes: [] },
     regression: raw.regression || { status: "not_available", reason: "not checked by measure.mjs; QA records the project's own snapshot command, if any" },
     criteria: [],
   };
@@ -529,8 +567,8 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
   const url = (path) => { const u = pageUrl(config.base_url, path); if (!u) throw new Error(`path leaves base_url: ${path}`); return u; };
   const file = (...parts) => `screenshots/${parts.join("-").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`;
   try {
-    raw.network = { interception: "on", allowed: "base_url origin only (file: folder or localhost origin), data:, blob:", blocked: [] };
-    const p = await page(b, timeoutMs, config.base_url, raw.network.blocked);
+    raw.network = { interception: "on", allowed: "base_url origin only (file: folder or localhost origin), data:, blob:; no WebSocket, no service worker", blocked: [], same_origin_writes: [], unguarded: [] };
+    const p = await page(b, timeoutMs, config.base_url, raw.network);
     const deep = config.class !== "STANDARD";
     const wanted = new Set(requiredCells({ class: config.class, viewports: config.viewports, screens: config.screens.map((s) => ({ id: s.id, states: s.states.map((x) => x.name) })) }).map((x) => `${x.screen}|${x.state}`));
     for (const k of config.criteria || []) for (const s of config.screens) if (!k.screens || k.screens.includes(s.id)) for (const st of k.states || []) wanted.add(`${s.id}|${st}`);

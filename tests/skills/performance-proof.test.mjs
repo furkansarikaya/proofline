@@ -311,3 +311,43 @@ test("L2: percent thresholds are bounded to (0, 100] in config and report", () =
   assert.equal(thresholds("performance:\n  regression_pct: 100\n").regression_pct, 100);
   const r = report("c3"); r.thresholds.noise_pct = 1000; has(validate(r), "in (0, 100]");
 });
+
+// --- re-review (A93): unit aliases; a unit without a known direction needs the plan's direction ---------------
+const { planDirection } = await import(join(scripts, "compare-bench.mjs"));
+test("unit aliases are times or rates in any case; µ/μ read as u", () => {
+  for (const u of ["milliseconds", "msec", "MS", "Ms", "seconds", "sec", "usec", "nsec", "μs", "µs", "ns/op", "ms per op", "Minutes"]) assert.equal(cbUnitDirection(u), "lower", u);
+  for (const u of ["ops/sec", "req/s", "fps", "Hz", "MB/s", "ops per second"]) assert.equal(cbUnitDirection(u), "higher", u);
+  for (const u of ["score", "points", "bytes", "custom"]) assert.equal(cbUnitDirection(u), null, u);
+  // an alias with --direction higher is refused like ms
+  const w = (n, unit, xs) => { const p = join(tmp, n); writeFileSync(p, JSON.stringify({ unit, samples: xs })); return p; };
+  const base = readSamples(join(samples, "c1-base.json")).samples, change = readSamples(join(samples, "c1-change.json")).samples;
+  for (const unit of ["milliseconds", "MS", "μs"]) {
+    const r = cli("--base", w(`b-${unit}.json`, unit, base), "--change", w(`c-${unit}.json`, unit, change), "--metric", "value", "--direction", "higher");
+    assert.equal(r.status, 2, unit); assert.match(r.stderr, /contradicts unit/, unit);
+  }
+  const t = reshop(report("c1"), { direction: "higher" }); t.measurements[0].unit = "MSEC"; t.measurements[0].metric = "value";
+  has(validate(t), "unit MSEC (metric value) is lower-is-better");
+});
+test("a unit without a known direction needs direction= on the plan's flag line, in compare-bench and the validator", () => {
+  assert.equal(planDirection("## Risk\n\nperformance_critical: yes budget_pct=5 direction=higher\n"), "higher");
+  assert.equal(planDirection("## Notes\nperformance_critical: yes direction=higher\n"), null);
+  const w = (n, xs) => { const p = join(tmp, n); writeFileSync(p, JSON.stringify({ unit: "score", samples: xs })); return p; };
+  const base = readSamples(join(samples, "c9-base.json")).samples, change = readSamples(join(samples, "c9-change.json")).samples;
+  const b = w("score-b.json", base), c = w("score-c.json", change);
+  for (const d of [[], ["--direction", "lower"], ["--direction", "higher"]]) {
+    const r = cli("--base", b, "--change", c, ...d); assert.equal(r.status, 2, d.join(" ")); assert.match(r.stderr, /has no known direction/);
+  }
+  const plan = join(tmp, "PLAN-dir.md"); writeFileSync(plan, "## Risk\n\nperformance_critical: yes direction=higher\n");
+  const r = cli("--base", b, "--change", c, "--plan", plan, "--env", join(tmp, "env.txt"), "--tool-source", "package.json");
+  assert.equal(r.status, 0, r.stderr);
+  const doc = JSON.parse(r.stdout); assert.equal(doc.measurements[0].direction, "higher"); assert.equal(doc.status, "FAIL");
+  assert.equal(cli("--base", b, "--change", c, "--plan", plan, "--direction", "lower").status, 2);
+  has(validate(doc), "unit score has no known direction");
+  assert.deepEqual(validate(doc, { planDir: "higher" }), []);
+  has(validate(doc, { planDir: "lower" }), "PLAN.md declares direction=lower");
+  const cfg = join(tmp, "cfg-dir.yaml"); writeFileSync(cfg, "");
+  const v = vcli(save("score.json", doc), "--config", cfg, "--plan", plan);
+  assert.equal(v.status, 0, v.stderr);
+  const bad = join(tmp, "PLAN-ms-higher.md"); writeFileSync(bad, "## Risk\n\nperformance_critical: yes direction=higher\n");
+  assert.match(cli("--base", join(samples, "c1-base.json"), "--change", join(samples, "c1-change.json"), "--plan", bad).stderr, /contradicts unit ms/);
+});

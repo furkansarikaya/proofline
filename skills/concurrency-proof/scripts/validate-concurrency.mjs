@@ -25,7 +25,8 @@ import { readFileSync, existsSync, realpathSync, statSync } from "node:fs";
 import { resolve, isAbsolute, basename, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { scan } from "./find-shared-state.mjs";
+import { createHash } from "node:crypto";
+import { scan, COMMENT } from "./find-shared-state.mjs";
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isStr = (v) => typeof v === "string" && v.trim() !== "";
@@ -64,9 +65,9 @@ export function validate(doc) {
     if (!safeRel(l.file)) err(`${path}.file`, "expected a repository-relative path");
     if (!posInt(l.line)) err(`${path}.line`, "expected an integer >= 1");
   };
-  const cite = (c, path) => {
+  const cite = (c, path, extra = []) => {
     if (!isObj(c)) return err(path, "expected {file, line, quote}");
-    keys(c, ["file", "line", "quote"], path);
+    keys(c, ["file", "line", "quote", ...extra], path);
     if (!safeRel(c.file)) err(`${path}.file`, "expected a repository-relative path");
     if (!posInt(c.line)) err(`${path}.line`, "expected an integer >= 1");
     if (!isStr(c.quote)) err(`${path}.quote`, "expected the cited text");
@@ -178,7 +179,11 @@ export function validate(doc) {
       if ("reproduction" in f) err(`${p}.reproduction`, "a traced finding carries no reproduction");
       if (!isStr(f.why_not_reproduced)) err(`${p}.why_not_reproduced`, "expected why the schedule was not reproduced (e.g. reproduction UNSUPPORTED)");
     } else err(`${p}.evidence`, "expected traced|reproduced (anything else is an unproven risk)");
-    if (f.status === "accepted") cite(f.accepted_by, `${p}.accepted_by`);
+    if (f.status === "accepted") {
+      cite(f.accepted_by, `${p}.accepted_by`, ["symbol", "sha256"]);
+      if (isObj(f.accepted_by) && "symbol" in f.accepted_by && !isStr(f.accepted_by.symbol)) err(`${p}.accepted_by.symbol`, "expected the symbol the plan names");
+      if (isObj(f.accepted_by) && "sha256" in f.accepted_by && !/^[0-9a-f]{64}$/.test(f.accepted_by.sha256)) err(`${p}.accepted_by.sha256`, "expected 64 lowercase hex");
+    }
     else if ("accepted_by" in f) err(`${p}.accepted_by`, "only an accepted finding cites the plan or spec");
     if (f.status === "closed") recheckShape(f.recheck, `${p}.recheck`, err);
     else if ("recheck" in f) err(`${p}.recheck`, "only a closed finding carries a recheck");
@@ -222,7 +227,7 @@ export function validate(doc) {
 // A closed finding's recheck: evidence the validator can re-check, never a sentence ("looked again").
 //   {kind: "reproduction", command, runs >= 2, failures: 0, observed, saved_copy: "evidence/..."}
 //   {kind: "fix", file, line, code}: the changed line that removes the schedule (checked with --repo --base)
-const RECHECK = { reproduction: ["kind", "command", "runs", "failures", "observed", "saved_copy"], fix: ["kind", "file", "line", "code"] };
+const RECHECK = { reproduction: ["kind", "command", "runs", "failures", "observed", "saved_copy", "sha256"], fix: ["kind", "file", "line", "code", "fix_token"] };
 function recheckShape(rc, p, err) {
   if (!isObj(rc) || !(rc.kind in RECHECK)) return err(p, "a closed finding needs a recheck {kind: reproduction|fix, ...}: the re-run that no longer fails, or the fix line in the changed code");
   for (const k of Object.keys(rc)) if (!RECHECK[rc.kind].includes(k)) err(p, `unexpected "${k}"`);
@@ -232,12 +237,22 @@ function recheckShape(rc, p, err) {
     if (rc.failures !== 0) err(`${p}.failures`, "a recheck that closes a finding has 0 failing runs");
     if (!isStr(rc.observed)) err(`${p}.observed`, "expected the observed output excerpt");
     if (!safeRel(rc.saved_copy) || !/^evidence\//.test(rc.saved_copy)) err(`${p}.saved_copy`, "expected a path under evidence/");
+    if (!/^[0-9a-f]{64}$/.test(rc.sha256 ?? "")) err(`${p}.sha256`, "expected the sha256 of the saved copy (64 lowercase hex)");
   } else {
+    if ("fix_token" in rc && !isStr(rc.fix_token)) err(`${p}.fix_token`, "expected the synchronisation token the fix line adds");
     if (!safeRel(rc.file)) err(`${p}.file`, "expected a repository-relative path");
     if (!posInt(rc.line)) err(`${p}.line`, "expected an integer >= 1");
     if (!isStr(rc.code)) err(`${p}.code`, "expected the code text on the fix line");
   }
 }
+
+// Synchronisation tokens a fix line carries (case-insensitive, whole words).
+export const SYNC_TOKEN = /\b(?:lock\w*|unlock|mutex\w*|rwlock|semaphore|synchronized|atomic\w*|transaction\w*|withtransaction|begin|commit|compareandset|compare_and_set|compareandswap|compare_and_swap|cas|setnx|incrby|incr|for update|on conflict|unique|upsert|idempoten\w*|idempotency_?key|serializ\w*|acquire|release|dedup\w*|version)\b/i;
+// The code part of a line: a trailing // or # comment removed (shortcut: no string-literal awareness).
+const codePart = (l) => String(l).replace(/\s(?:\/\/|#).*$/, "");
+// The nearest line at or above n that opens a function (0 = module level); a heuristic, language-independent.
+const FUNC = /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\b|^\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|\w+\s*=>)|^\s*(?:async\s+)?def\s+\w+|^\s*func\s|^\s*(?:pub\s+)?(?:async\s+)?fn\s+\w+|^\s*(?!(?:if|for|while|switch|catch|with|return|else)\b)(?:(?:public|private|protected|static|internal|async|override)\s+)*[A-Za-z_][\w<>,\[\]\s]*\([^;]*\)\s*(?:throws\s[^{]*)?\{\s*$/;
+export function funcStart(lines, n) { for (let k = n; k >= 1; k--) if (FUNC.test(lines[k - 1] ?? "")) return k; return 0; }
 
 // The agent's own labels never close a finding (A93). opts: docDir (the folder of concurrency.json), repo, base,
 // refs [{path, text}] (the --plan/--spec files an acceptance may cite).
@@ -261,8 +276,19 @@ export function checkLabels(doc, { docDir = ".", repo = null, base = null, refs 
       const rc = f.recheck;
       if (rc.kind === "reproduction") {
         if (doc.reproduction?.status !== "ran") errors.push(`${p}.recheck: a reproduction recheck needs reproduction.status ran`);
+        const orig = f.evidence === "reproduced" && isObj(f.reproduction) ? f.reproduction : null;
+        if (!orig) errors.push(`${p}.recheck: a reproduction recheck re-runs the finding's reproduction; a traced finding is closed by a fix recheck`);
+        else {
+          if (rc.command !== orig.command) errors.push(`${p}.recheck.command: must be the original reproduction command ${JSON.stringify(orig.command)}`);
+          if (!(rc.runs >= orig.runs)) errors.push(`${p}.recheck.runs: ${rc.runs} < the original ${orig.runs} runs`);
+        }
         const saved = safeRel(rc.saved_copy) ? join(docDir, rc.saved_copy) : null;
         if (!saved || !existsSync(saved)) errors.push(`${p}.recheck.saved_copy: ${rc.saved_copy} does not exist next to concurrency.json`);
+        else {
+          const bytes = readFileSync(saved);
+          if (createHash("sha256").update(bytes).digest("hex") !== rc.sha256) errors.push(`${p}.recheck.sha256: does not match ${rc.saved_copy}`);
+          if (!bytes.toString("utf8").includes(String(rc.observed).trim())) errors.push(`${p}.recheck.observed: the text is not in ${rc.saved_copy}`);
+        }
       } else if (rc.kind === "fix") {
         if (!changedLines) errors.push(`${p}.recheck: a fix recheck needs --repo and --base (the fix line must be in the diff)`);
         else {
@@ -270,7 +296,15 @@ export function checkLabels(doc, { docDir = ".", repo = null, base = null, refs 
           if (steps.some((st) => st.file === rc.file && st.line === rc.line)) errors.push(`${p}.recheck: ${rc.file}:${rc.line} is a step of the traced schedule, not a fix (cite the changed line that removes the interleaving)`);
           if (!changedLines.get(rc.file)?.has(rc.line)) errors.push(`${p}.recheck: ${rc.file}:${rc.line} is not a line changed since ${base}`);
           const ls = fileText(rc.file);
-          if (!ls || !ls[rc.line - 1]?.includes(String(rc.code).trim())) errors.push(`${p}.recheck: ${rc.file}:${rc.line} does not contain ${JSON.stringify(String(rc.code).trim())}`);
+          const text = ls?.[rc.line - 1];
+          if (text === undefined || !text.includes(String(rc.code).trim())) errors.push(`${p}.recheck: ${rc.file}:${rc.line} does not contain ${JSON.stringify(String(rc.code).trim())}`);
+          else {
+            const code = codePart(text);
+            if (COMMENT.test(text) || !code.trim()) errors.push(`${p}.recheck: ${rc.file}:${rc.line} is a comment or blank, not a fix`);
+            else if (rc.fix_token ? !code.includes(rc.fix_token) : !SYNC_TOKEN.test(code)) errors.push(`${p}.recheck: ${rc.file}:${rc.line} has no synchronisation token (lock, mutex, atomic, transaction, compare-and-set, idempotency key, unique constraint, ...)${rc.fix_token ? ` and not the stated fix_token ${JSON.stringify(rc.fix_token)}` : "; name it in fix_token when the project spells it differently"}`);
+            const fs = funcStart(ls, rc.line);
+            if (!steps.some((st) => st.file === rc.file && funcStart(ls, st.line) === fs)) errors.push(`${p}.recheck: ${rc.file}:${rc.line} is not inside a function of the traced schedule`);
+          }
         }
       }
     }
@@ -284,6 +318,21 @@ export function checkLabels(doc, { docDir = ".", repo = null, base = null, refs 
       const norm = (s) => String(s).replace(/\s+/g, " ").trim();
       const line = ref.text.split("\n")[a.line - 1];
       if (line === undefined || !norm(line).includes(norm(a.quote))) errors.push(`${p}.accepted_by: ${a.file}:${a.line} does not contain the quote verbatim`);
+      // The cited line names this finding: its id, its location path:line, or a symbol on one of its steps.
+      else {
+        const loc = isObj(f.location) ? `${f.location.file}:${f.location.line}` : null;
+        const sym = isStr(a.symbol) && line.includes(a.symbol) && steps.some((st) => String(st.code ?? "").includes(a.symbol));
+        if (!line.includes(f.id) && !(loc && line.includes(loc)) && !sym) errors.push(`${p}.accepted_by: ${a.file}:${a.line} does not name the finding (${f.id}, ${loc}, or a symbol of its steps in accepted_by.symbol)`);
+      }
+      // Frozen: a run artifact (.agents/runs/<ID>/...; PLAN.md matched against RUN.yaml freeze plan_sha256), or,
+      // outside a run, accepted_by.sha256 pins the version of the plan or spec that was read.
+      const sha = createHash("sha256").update(ref.text).digest("hex");
+      const rel = root && ref.real.startsWith(root + sep) ? ref.real.slice(root.length + 1) : null;
+      const run = rel && /^\.agents\/runs\/[^/]+\//.exec(rel);
+      if (run) {
+        const frozen = basename(rel) === "PLAN.md" && /^freeze:[\s\S]*?^ {2}plan_sha256:\s*"?([0-9a-f]{64})"?/m.exec((() => { try { return readFileSync(join(root, run[0], "RUN.yaml"), "utf8"); } catch { return ""; } })());
+        if (frozen && frozen[1] !== sha) errors.push(`${p}.accepted_by: ${a.file} is not the frozen PLAN.md (sha256 differs from RUN.yaml freeze plan_sha256)`);
+      } else if (a.sha256 !== sha) errors.push(`${p}.accepted_by: ${a.file} is not a run artifact (.agents/runs/<ID>/): accepted_by.sha256 must pin the file read (${sha})`);
     }
   });
   for (const r of refReal) if (r.real && root && [...changed].some((c) => real(join(root, c)) === r.real)) errors.push(`--plan/--spec ${r.path} is in scope.changed_files: changed code never accepts a problem`);
