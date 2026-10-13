@@ -86,6 +86,7 @@ database:
 # space-separated SPDX ids checked against the license a lockfile records for a new or changed dependency; both
 # empty (the default) means the license check is reported as "not configured", never as passed. `audit_command` is
 # the project's own audit command, if it has one; nothing is installed and the focus runs only tools that exist.
+# A non-empty `security.*` value is bound by the freeze (with the `risk:` block): editing it mid-run is refused.
 security:
   licenses:
     allow:

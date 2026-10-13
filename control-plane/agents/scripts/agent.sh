@@ -730,7 +730,10 @@ plan_flag() { # PLAN FLAG -> yes|no
 plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]`
   awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
 }
-risk_config() { printf '%s' "$cfg_cache" | grep '^risk\.' || true; }
+# The block the freeze binds: the risk mapping and every non-empty security.* key (A88: license policy, audit
+# command), so a mid-run edit of either is refused. Empty security keys are left out, so a config that does not
+# set them hashes as before.
+risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|security\..*=.)' || true; }
 risk_names() { risk_config | awk -F= '$1 ~ /^risk\.[a-z_]+\.(paths|content)$/ && $2 != "" { split($1, p, "."); print p[2] }' | sort -u; }
 # risk_compute ID -> "name|source|path|why" lines (source diff|scope|plan). Plain documentation (.md .mdx .rst
 # .adoc) never carries a path or content signal: a guide named like a migration is not one.

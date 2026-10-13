@@ -43,7 +43,7 @@ export function validate(doc) {
     if (!isObj(it.location) || !isStr(it.location.file) || isAbsolute(it.location.file) || it.location.file.split("/").includes("..") || !Number.isInteger(it.location.line) || it.location.line < 1) err(`${p}.location`, "expected {file (repository-relative), line >= 1}");
     if (!isStr(it.subject) || !isStr(it.detail)) err(p, "subject and detail are required");
     // A secret value never appears in the report.
-    for (const k of ["subject", "detail"]) if (isStr(it[k]) && scanLine(it[k], "x").some((h) => h.rule !== "generic_secret")) err(`${p}.${k}`, "contains something that matches a secret pattern; mask it");
+    for (const k of ["subject", "detail"]) if (isStr(it[k]) && scanLine(it[k], "x").length > 0) err(`${p}.${k}`, "contains something that matches a secret pattern (any rule, including generic_secret); mask it");
   });
   return errors;
 }

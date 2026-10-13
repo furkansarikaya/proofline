@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
-import { envUsages, envDefaultOn, scanLine, flagFromLine, planMentions, bucket, buildDocument } from "../../skills/proof-review/scripts/check-config.mjs";
+import { destructuredEnv, envUsages, envDefaultOn, scanLine, flagFromLine, planMentions, bucket, buildDocument } from "../../skills/proof-review/scripts/check-config.mjs";
 import { validate, gate, tableRows } from "../../skills/proof-review/scripts/validate-config.mjs";
 import { FORBIDDEN_BY_FOCUS, FOCUSES, RUN_DIR } from "../../skills/proof-review/scripts/gate.mjs";
 
@@ -145,4 +145,27 @@ test("CLI: validate-config exit codes", () => {
   assert.match(v.stdout, /^RESULT: FAIL\n/);
   assert.equal(spawnSync("node", [C], { encoding: "utf8" }).status, 2);
   assert.equal(spawnSync("node", [V], { encoding: "utf8" }).status, 2);
+});
+
+test("destructuring the environment, bare environ, os.ExpandEnv", () => {
+  const d = destructuredEnv('const { A, B = "x", C: renamed, ...rest } = process.env;\nconst {\n  M1,\n  NODE_ENV,\n} = import.meta.env;\n');
+  assert.deepEqual(d.map((x) => [x.name, x.line]), [["A", 1], ["B", 1], ["C", 1], ["M1", 3]]);
+  assert.deepEqual(destructuredEnv("const { a } = obj;"), []);
+  assert.deepEqual(envUsages('from os import environ\nx = environ["PY_BARE"]', "code"), ["PY_BARE"]);
+  assert.deepEqual(envUsages('p := os.ExpandEnv("${GO_DIR}/x")', "code"), ["GO_DIR"]);
+});
+
+test("destructured reads are found when the change adds them", () => {
+  const r = repoWith({ ".env.example": "KNOWN=1\n" }, { "src/c.js": 'const {\n  KNOWN,\n  NEWVAR = "d",\n} = process.env;\n' });
+  const d = buildDocument({ repo: r, base: "HEAD", planText: null });
+  assert.deepEqual(sum(d, "blocking"), ["env_undocumented:NEWVAR"]);
+  assert.equal(d.items[0].location.line, 3);
+});
+
+test("validate-config rejects any secret pattern in a hand-written document, generic included", () => {
+  const r = repoWith({ "a.txt": "x" }, { "src/a.js": "process.env.UNDOC_X;\n" });
+  const d = buildDocument({ repo: r, base: "HEAD", planText: "## Behavior\n" });
+  const c = JSON.parse(JSON.stringify(d));
+  c.items[0].detail = 'api_key: "Zp4Kq9Wm2Xc7Vb5Nn8Lr3Tj6"';
+  assert.ok(validate(c).some((m) => /secret pattern/.test(m)));
 });

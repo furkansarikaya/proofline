@@ -26,7 +26,7 @@ summary() {
 
 # --- feature/config-drift ---------------------------------------------------------------------------
 node "$SCRIPTS/check-config.mjs" --base main --plan .agents/runs/CC-1/PLAN-drift.md --out "$tmp/drift.json"
-want="env_undocumented:QUEUE_URL env_undocumented:SMTP_HOST flag_default_on:new_checkout flag_removed_referenced:old_search secret_plaintext:api_key"
+want="env_undocumented:MAIL_FROM env_undocumented:QUEUE_URL env_undocumented:SMTP_HOST flag_default_on:new_checkout flag_removed_referenced:old_search secret_plaintext:api_key"
 [ "$(summary "$tmp/drift.json" blocking)" = "$want" ] || fail "blocking set differs: $(summary "$tmp/drift.json" blocking)"
 want="env_documented_unused:OLD_TIMEOUT flag_default_off:beta_banner flag_default_on_planned:dark_mode secret_allowlisted:token"
 [ "$(summary "$tmp/drift.json" note)" = "$want" ] || fail "note set differs: $(summary "$tmp/drift.json" note)"

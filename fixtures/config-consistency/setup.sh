@@ -99,6 +99,8 @@ export const smtp = {
   mode: process.env.NODE_ENV,
   workers: Number(process.env.QUEUE_WORKERS ?? 2),
 };
+const { MAIL_FROM = "noreply@example.invalid", NODE_ENV: mode2 } = process.env;
+export { MAIL_FROM, mode2 };
 EOF
 cat > src/worker.py <<'EOF'
 import os

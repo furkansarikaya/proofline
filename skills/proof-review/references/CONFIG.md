@@ -54,6 +54,8 @@ The document never contains a value: only the rule name, the key name and the va
 document in which any text matches a secret pattern. A line containing `proofline:allow-secret` (the same
 convention the SECRETS gate honors) is a note: use it for test fixtures with fake credentials.
 
+The validator rejects a document in which any rule, `generic_secret` included, matches the subject or detail text.
+
 A plain-text secret is also found by the SECRETS gate, which is never waivable; this focus adds the context
 (which config file, which key) inside the review.
 
@@ -76,8 +78,14 @@ checks", never that the configuration is correct.
 
 ## Limits
 
-- Variable reads are matched by literal name in the idioms above; a computed name, a wrapper function
-  (`getConfig("X")`), a framework binding (`@Value("${x}")`, `Config.get`) and shell scripts are not matched.
+- Variable reads are matched by literal name in the idioms above, plus JavaScript destructuring of the
+  environment (`const { A, B = "x", C: c } = process.env`, one or several lines, also `import.meta.env`), Python
+  `from os import environ`, and Go `os.ExpandEnv`. Not matched: a computed name, an alias of the environment
+  object (`const env = process.env; env.X`), a wrapper function (`getConfig("X")`), a framework binding
+  (`@Value("${x}")`, `Config.get`, a config library reading `X`), a Rust or Go struct filled from the
+  environment by a derive or tag, and shell scripts.
+- A line that already exists elsewhere in the same file (moved or re-indented) counts as not new, so a duplicated
+  line is not reported twice.
 - Documentation is name based: a name in a README sentence counts as documented even when it says nothing useful.
 - Secrets: the scan is regex and entropy based, so a low-entropy password, a value split over lines or an
   encoded blob is missed, and a random-looking non-secret can be reported (use `proofline:allow-secret` for a

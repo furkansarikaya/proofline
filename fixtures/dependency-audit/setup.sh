@@ -59,6 +59,26 @@ cat > package-lock.json <<'EOF'
   }
 }
 EOF
+cat > pyproject.toml <<'EOF'
+[project]
+name = "billing-tools"
+dependencies = [
+  "requests>=2.0",
+]
+EOF
+cat > Cargo.toml <<'EOF'
+[package]
+name = "billing-core"
+version = "0.1.0"
+
+[dependencies]
+serde = "1"
+EOF
+cat > build.gradle <<'EOF'
+dependencies {
+    implementation 'org.acme:base-lib:1.0'
+}
+EOF
 git add -A
 commit 2026-01-01T10:00:00Z "billing: initial"
 
@@ -80,6 +100,9 @@ cat > .agents/runs/DA-1/PLAN-fail.md <<'EOF'
 - fmt-lite: number formatting helper
 - copyleft-lib: report export
 - date-utils: bump to ^2.2.0 for the time zone fix
+- foo: http client wrapper (python tools)
+- unixcrate: unix sockets (rust core)
+- org.acme:bom: bill of materials (jvm)
 EOF
 cat > .agents/runs/DA-1/PLAN-ok.md <<'EOF'
 # Plan: DA-1
@@ -127,6 +150,38 @@ cat > package-lock.json <<'EOF'
     "node_modules/test-helper": { "version": "1.2.0", "license": "MIT", "dev": true },
     "node_modules/uuid-lite": { "version": "2.0.0", "license": "MIT" }
   }
+}
+EOF
+# the other ecosystems: constructs a shallow reader would miss (extras containing ], table-form crates,
+# platform() and map notation)
+cat > pyproject.toml <<'EOF'
+[project]
+name = "billing-tools"
+dependencies = [
+  "foo[bar]>=1.0",
+  "requests>=2.0",
+  "evilpy==1.0",
+]
+EOF
+cat > Cargo.toml <<'EOF'
+[package]
+name = "billing-core"
+version = "0.1.0"
+
+[dependencies]
+serde = "1"
+
+[dependencies.evilcrate]
+version = "0.3"
+
+[target.'cfg(unix)'.dependencies.unixcrate]
+version = "1.1"
+EOF
+cat > build.gradle <<'EOF'
+dependencies {
+    implementation 'org.acme:base-lib:1.0'
+    implementation platform("org.acme:bom:1.0")
+    implementation group: 'org.evil', name: 'lib', version: '1.2'
 }
 EOF
 git add -A

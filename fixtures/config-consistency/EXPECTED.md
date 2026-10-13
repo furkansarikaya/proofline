@@ -11,6 +11,7 @@ Branch `feature/config-drift` (PLAN-drift.md names `SMTP_PORT` and `dark_mode`):
 | Added or removed | Where | Planted fact |
 |---|---|---|
 | `process.env.SMTP_HOST` | `src/mailer.js:2` | read, defined in no example file or document |
+| `const { MAIL_FROM = "...", NODE_ENV: mode2 } = process.env` | `src/mailer.js:7` | read through destructuring, defined nowhere (`NODE_ENV` in the same pattern is ambient) |
 | `os.environ["QUEUE_URL"]` | `src/worker.py:3` | read, defined nowhere (a second language) |
 | `api_key: "<24 characters>"` | `config/app.yaml:4` | plain-text secret in a config file |
 | `new_checkout: true` | `config/flags.yaml:3` | a new flag defaulting to on that the plan does not name |
@@ -30,7 +31,7 @@ Branch `feature/config-clean`: adds `SMTP_HOST` to `.env.example` and the mailer
 
 ## MUST find
 
-1. `feature/config-drift` has exactly five blocking items: `env_undocumented` `SMTP_HOST` and `QUEUE_URL`,
+1. `feature/config-drift` has exactly six blocking items: `env_undocumented` `SMTP_HOST`, `MAIL_FROM` and `QUEUE_URL`,
    `secret_plaintext` `api_key`, `flag_default_on` `new_checkout`, `flag_removed_referenced` `old_search`.
    Result FAIL.
 2. The secret value appears nowhere in the report or the document: rule, key and length only.

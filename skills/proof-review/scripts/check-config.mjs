@@ -40,6 +40,7 @@ const USAGE = [
   new RegExp(`import\\.meta\\.env\\.${ID}`, "g"), new RegExp(`Deno\\.env\\.get\\(\\s*['"]${ID}['"]`, "g"),
   new RegExp(`os\\.environ\\[\\s*['"]${ID}['"]\\s*\\]`, "g"), new RegExp(`os\\.environ\\.get\\(\\s*['"]${ID}['"]`, "g"),
   new RegExp(`os\\.getenv\\(\\s*['"]${ID}['"]`, "g"),
+  new RegExp(`(?<![\\w.])environ(?:\\.get\\(\\s*|\\[\\s*)['"]${ID}['"]`, "g"), // from os import environ
   new RegExp(`os\\.(?:Getenv|LookupEnv)\\(\\s*"${ID}"`, "g"),
   new RegExp(`env::var(?:_os)?\\(\\s*"${ID}"`, "g"), new RegExp(`env!\\(\\s*"${ID}"`, "g"),
   new RegExp(`\\bENV\\[\\s*['"]${ID}['"]\\s*\\]`, "g"), new RegExp(`\\bENV\\.fetch\\(\\s*['"]${ID}['"]`, "g"),
@@ -48,9 +49,25 @@ const USAGE = [
 ];
 const CONFIG_REF = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?[-?+][^}]*)?\}/g; // ${VAR}, ${VAR:-default}
 const FALSY = /^(false|off|no|disabled|0)$/i;
+// `const { A, B = "x", C: renamed } = process.env` (also import.meta.env), possibly over several lines. Returns
+// [{name, line}] for the whole text; the caller keeps the names whose line the change added.
+export function destructuredEnv(text) {
+  const out = [];
+  for (const m of text.matchAll(/\{([^{}]*)\}\s*=\s*(?:process\.env|import\.meta\.env)\b/g)) {
+    let off = m.index + 1;
+    for (const part of m[1].split(",")) {
+      const t = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:[:=]|$)/.exec(part);
+      if (t && !part.trim().startsWith("...")) out.push({ name: t[1], line: text.slice(0, off + part.indexOf(t[1])).split("\n").length });
+      off += part.length + 1;
+    }
+  }
+  return out.filter((d) => !AMBIENT.has(d.name));
+}
 export function envUsages(line, kind) {
   const out = [];
   if (kind === "code") for (const re of USAGE) for (const m of line.matchAll(re)) out.push(m[1]);
+  // Go: os.ExpandEnv("${X}/path"), os.Expand
+  if (kind === "code" && /\bos\.Expand(?:Env)?\(/.test(line)) for (const m of line.matchAll(CONFIG_REF)) out.push(m[1]);
   if (kind === "config" || kind === "example") for (const m of line.matchAll(CONFIG_REF)) out.push(m[1]);
   return [...new Set(out)].filter((n) => !AMBIENT.has(n));
 }
@@ -190,6 +207,7 @@ export function buildDocument({ repo, base, planText }) {
     // A line the base file already had (moved or re-indented) is not a new line.
     const baseLines = isTracked ? (baseText(repo, base, path) ?? "").split("\n") : [];
     const baseSet = new Set(baseLines.map((l) => l.trim()).filter(Boolean));
+    const destructured = k === "code" && head ? destructuredEnv(head) : [];
 
     for (const ln of added) {
       const line = lines[ln - 1]; if (line == null) continue;
@@ -204,6 +222,11 @@ export function buildDocument({ repo, base, planText }) {
           }
           if (k === "code" && FLAG_NAME.test(name) && envDefaultOn(line, name)) flagCandidates.push({ name, path, ln, source: "env default" });
         }
+      }
+      for (const d of destructured) {
+        if (d.line !== ln || seenEnv.has(d.name + "\0" + path)) continue;
+        seenEnv.add(d.name + "\0" + path);
+        if (!docSet().has(d.name)) add({ check: "env_undocumented", class: "blocking", location: { file: path, line: ln }, subject: d.name, detail: `${d.name} is read here (destructured from the environment) but defined in no example env file, config sample or documentation` });
       }
       // 2. plain-text secrets in config files
       if (k === "config" || k === "envfile" || k === "example") {
