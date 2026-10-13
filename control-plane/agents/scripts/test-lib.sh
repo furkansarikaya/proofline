@@ -103,10 +103,14 @@ esac
 STUB
   chmod +x "$1/.agents/scripts/"*.sh "$1/.agents/task-integrations/markdown.sh"
 }
+# The fixture repository is built once per process and copied for every new_repo (A76).
 new_repo() { # -> cwd inside a fresh fixture repository with the control plane installed (nothing committed)
-  fx=$(mktemp -d "$base/fx.XXXXXX"); install_control_plane "$fx"; cd "$fx" || exit 1
-  git init -q -b main
-  printf '.agents/runs/\n.agents/local/\n' > .gitignore
+  if [ ! -d "$base/template" ]; then
+    mkdir "$base/template"; install_control_plane "$base/template"
+    git -C "$base/template" init -q -b main
+    printf '.agents/runs/\n.agents/local/\n' > "$base/template/.gitignore"
+  fi
+  fx=$(mktemp -d "$base/fx.XXXXXX"); cp -R "$base/template/." "$fx/"; cd "$fx" || exit 1
 }
 
 # --- gate results through the D12 protocol ----------------------------------------------------
@@ -224,5 +228,10 @@ to_code_done() {
   fi
   A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
 }
-# LC_ONLY=<substring> runs only matching scenarios.
-run_sc() { if [ -z "${LC_ONLY:-}" ] || printf '%s' "$*" | grep -q -- "$LC_ONLY"; then ( "$@" ); fi; }
+# LC_ONLY=<substring> runs only matching scenarios. LC_EXACT="name [arg]" runs only the scenario called exactly
+# so (tests/selftest.sh splits a suite into one process per scenario this way, A76).
+run_sc() {
+  if [ -n "${LC_EXACT:-}" ]; then [ "$LC_EXACT" = "$*" ] || return 0
+  elif [ -n "${LC_ONLY:-}" ]; then printf '%s' "$*" | grep -q -- "$LC_ONLY" || return 0; fi
+  ( "$@" )
+}

@@ -27,8 +27,17 @@ ID=LK-7
 D=.agents/runs/$ID
 
 if [ $# -eq 1 ]; then
-  for s in $STATES; do sh "$0" "$1/$s" "$s"; done
-  exit 0
+  # The states are independent projects: build them in parallel (A76), output kept per state, any failure fails.
+  mkdir -p "$1"; tmpout=$(mktemp -d "${TMPDIR:-/tmp}/proofline-lead-states.XXXXXX")
+  for s in $STATES; do ( sh "$0" "$1/$s" "$s" > "$tmpout/$s.out" 2>&1; echo $? > "$tmpout/$s.rc" ) & done
+  wait
+  rc=0
+  for s in $STATES; do
+    cat "$tmpout/$s.out"
+    [ "$(cat "$tmpout/$s.rc" 2>/dev/null || echo 1)" = 0 ] || { echo "error: state $s failed" >&2; rc=1; }
+  done
+  rm -rf "$tmpout"
+  exit $rc
 fi
 TARGET=$1 STATE=$2
 case " $STATES " in *" $STATE "*) ;; *) echo "unknown state: $STATE (one of: $STATES)" >&2; exit 2 ;; esac

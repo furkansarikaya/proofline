@@ -568,7 +568,8 @@ EOF")"
 }
 
 fails=0
-for sc in lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens not_installed live_claude; do
+scenarios='lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens not_installed live_claude'
+for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done
 [ "$fails" = 0 ] || { echo "enforcement tests: $fails scenario(s) failed"; exit 1; }
