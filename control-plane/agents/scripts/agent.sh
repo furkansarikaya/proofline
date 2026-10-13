@@ -486,7 +486,8 @@ plan_destructive() { # PLAN -> yes|no|invalid|absent
 # PLAN.md and a consolidated EVIDENCE.md carry `## Assumptions`: `none`, or the table
 # `| id | assumption | source | risk | verification | status | decisions |` (id AS-<n>, risk low|medium|high,
 # status verified|unverified). Freeze refuses an unverified high-risk assumption unless the user answered the
-# question bound to it (`ASSUMPTION: <id>@<12 hex of sha256(text)>` in the question) with `accept...`; the run then
+# question bound to it (`ASSUMPTION: <id>@<12 hex of sha256(text)>` in the question) with `accept <id>` (the id
+# is part of the phrase and, as the answer must be words of the user's own captured prompt, of what the user said); the run then
 # reports it as accepted-by-user with the answer file as reference. Mirrors validate-plan.mjs / verify-claims.mjs.
 # assumption_scan FILE -> NOSECTION | ERR<TAB>message | ROW<TAB>id risk status text source method decisions
 assumption_scan() {
@@ -561,7 +562,7 @@ assumption_state() {
     grep -Eq "^[[:space:]]*ASSUMPTION: $2[[:space:]]*\$" "$as_q" || continue
     as_a=${as_q%.md}.answer.md
     if [ ! -e "$as_a" ]; then as_pend=questions/$(basename "$as_q"); continue; fi
-    if [ "$(gate_field "$as_a" answered_by)" = user ] && sed '1,/^---$/d' "$as_a" | tr -s '[:space:]' ' ' | sed 's/^ //' | grep -Eiq '^accept(ed)?([^[:alpha:]]|$)'; then
+    if [ "$(gate_field "$as_a" answered_by)" = user ] && sed '1,/^---$/d' "$as_a" | tr -s '[:space:]' ' ' | sed 's/^ //' | grep -Eiq "^accept(ed)?[[:space:]]+${2%@*}([^0-9]|\$)"; then
       echo "accepted questions/$(basename "$as_a")"; return 0
     fi
     as_decl=questions/$(basename "$as_a")
@@ -598,7 +599,7 @@ verify_assumptions() {
   while IFS="$(printf '\t')" read -r va_a va_r va_s va_ref va_t; do
     va_ask=no
     case "$va_ref" in
-      pending*) va_msg="$va_msg $va_a: its question ${va_ref#pending } is unanswered (relay it: 'agent.sh questions $va_id'; the user answers 'accept' or gives the corrected fact);" ;;
+      pending*) va_msg="$va_msg $va_a: its question ${va_ref#pending } is unanswered (relay it: 'agent.sh questions $va_id'; the user answers 'accept $va_a' or gives the corrected fact);" ;;
       declined*)
         if [ "${2:-}" = ask ]; then va_ask=yes; va_msg="$va_msg $va_a: the answer ${va_ref#declined } did not accept it (not the user's own accept, or a corrected fact: change the plan or verify the assumption);"
         else va_msg="$va_msg $va_a: the answer ${va_ref#declined } did not accept it (verify it or change the decisions it affects in the plan, then freeze again);"; fi ;;
@@ -609,8 +610,8 @@ verify_assumptions() {
     if [ "$va_ask" = yes ]; then
       va_row=$(assumption_register "$va_id" | awk -F'\t' -v i="$va_a" '$1 == i')
       va_q=$(mktemp "${TMPDIR:-/tmp}/proofline-assumption.XXXXXX")
-      printf '1. High-risk assumption %s is unverified: %s\n   source: %s; verification: %s; affects: %s\n   ASSUMPTION: %s\n   options: "accept" (proceed on this assumption; recorded as accepted-by-user with your answer) | the corrected fact (the plan is changed and the assumption checked again)\n   recommended: the corrected fact when it can be checked, otherwise accept\n   why: freeze refuses an unverified high-risk assumption; it is never accepted silently\n' \
-        "$va_a" "$va_t" "$(printf '%s' "$va_row" | cut -f5)" "$(printf '%s' "$va_row" | cut -f6)" "$(printf '%s' "$va_row" | cut -f7)" "$(assumption_token "$va_a" "$va_t")" > "$va_q"
+      printf '1. High-risk assumption %s is unverified: %s\n   source: %s; verification: %s; affects: %s\n   ASSUMPTION: %s\n   options: "accept %s" (the id is part of the phrase; proceed on this assumption, recorded as accepted-by-user with your answer) | the corrected fact (the plan is changed and the assumption checked again)\n   recommended: the corrected fact when it can be checked, otherwise accept\n   why: freeze refuses an unverified high-risk assumption; it is never accepted silently\n' \
+        "$va_a" "$va_t" "$(printf '%s' "$va_row" | cut -f5)" "$(printf '%s' "$va_row" | cut -f6)" "$(printf '%s' "$va_row" | cut -f7)" "$(assumption_token "$va_a" "$va_t")" "$va_a" > "$va_q"
       ask_question "$va_id" "$va_q" >/dev/null; rm -f "$va_q"
       va_msg="$va_msg $va_a: question recorded (relay it: 'agent.sh questions $va_id');"
     fi
@@ -2739,7 +2740,7 @@ answer() {
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
   # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is
-  # derived from the answer file (answered_by user, starts with "accept") by verify-assumptions.
+  # derived from the answer file (answered_by user, starting "accept <id>") by verify-assumptions.
   an_as=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/ assumption=\1/p' "$an_q" | head -1)
   if gates_enforced "$an_id"; then ledger_append "$an_id" answer - - "$(basename "$an_q") answered_by=$an_by$an_as"; fi
   echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by"
@@ -2882,7 +2883,7 @@ next_step() {
     if [ "$ns_shape" = missing ]; then o "fix PLAN.md ## Data: expand/contract steps (data-design), or single_step: yes with the user's approval"; r "destructive plan without expand/contract steps"; return 0; fi
     ns_ae=$(assumption_shape_errors "$ns_id" | tr '\n' ';')
     if [ -n "$ns_ae" ]; then o "fix the '## Assumptions' section of PLAN.md / EVIDENCE.md (none, or the register table): $ns_ae"; r "assumption register invalid"; return 0; fi
-    if [ -n "$(assumption_blocked "$ns_id")" ]; then o "agent.sh verify-assumptions $ns_id; verify each unverified high-risk assumption (update the register), or: agent.sh freeze $ns_id (records one NEEDS_INPUT question per assumption; relay it, the user answers accept or gives the corrected fact)"; r "unverified high-risk assumption blocks the freeze"; return 0; fi
+    if [ -n "$(assumption_blocked "$ns_id")" ]; then o "agent.sh verify-assumptions $ns_id; verify each unverified high-risk assumption (update the register), or: agent.sh freeze $ns_id (records one NEEDS_INPUT question per assumption; relay it, the user answers 'accept <id>' or gives the corrected fact)"; r "unverified high-risk assumption blocks the freeze"; return 0; fi
     for ns_k in plan scope; do
       if [ "$ns_k" = plan ] && [ "$(run_autonomy "$ns_id")" != supervised ]; then continue; fi
       if [ "$ns_k" = scope ] && [ -z "$(task_defect_fixes "$ns_d/TASK.md")" ]; then continue; fi
@@ -3017,9 +3018,11 @@ validate_completion_report_structure() {
   printf '%s\n' "$vc_sec" | grep -q '[^[:space:]]' || fail "completion report: the '## Assumptions' section is empty (list every unverified and accepted-by-user assumption, or write none)"
   vc_miss=$(assumption_states "$id" | awk -F'\t' '$3 != "verified" { print $1 "\t" $3 "\t" $4 }' | while IFS="$(printf '\t')" read -r vc_a vc_s vc_ref; do
     printf '%s\n' "$vc_sec" | grep -Eq "(^|[^A-Za-z0-9-])$vc_a([^0-9]|\$)" || { echo "$vc_a"; continue; }
+    # the line naming the id states its status (unverified | accepted-by-user): "AS-1 verified" does not pass
+    printf '%s\n' "$vc_sec" | grep -E "(^|[^A-Za-z0-9-])$vc_a([^0-9]|\$)" | grep -Eq "(^|[^A-Za-z-])$vc_s([^A-Za-z-]|\$)" || { echo "$vc_a($vc_s)"; continue; }
     [ "$vc_s" != accepted-by-user ] || printf '%s\n' "$vc_sec" | grep -Fq "$(basename "$vc_ref")" || echo "$vc_a(answer $vc_ref)"
   done | tr '\n' ' ')
-  [ -z "$vc_miss" ] || fail "completion report: '## Assumptions' does not list: $vc_miss (every unverified assumption by id, an accepted-by-user one with its answer file)"
+  [ -z "$vc_miss" ] || fail "completion report: '## Assumptions' does not list: $vc_miss (every unverified assumption by id with its status word, unverified or accepted-by-user; an accepted one with its answer file)"
 }
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
 publish_completion_report() {

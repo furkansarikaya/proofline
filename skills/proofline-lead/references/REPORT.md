@@ -36,7 +36,7 @@ from run evidence; nothing is inferred or invented.
 | Root cause | the implementer's `reports/NNN-debug.md` (defect tasks only) |
 | TDD Evidence | `worker-evidence/` (RED/GREEN per scope path, exemptions from PLAN.md) |
 | Verification | `VERIFY.md` header (result, confidence) and `## Verification commands` |
-| Assumptions | `A verify-assumptions <ID>`: every assumption whose status is not `verified`: id, risk, text, `unverified` or `accepted-by-user` with the answer file (`questions/NNN.answer.md`); `none` when all are verified |
+| Assumptions | `A verify-assumptions <ID>`: every assumption whose status is not `verified`: id, risk, text, `unverified` or `accepted-by-user` with the answer file (`questions/NNN.answer.md`); the status word stands on the same line as the id; `none` when all are verified |
 | Review Result | `A pipeline <ID>` final statuses; per gate: result, confidence, fix round, finding ids; `pass_low` is listed as not counted |
 | QA Result | `QA_REPORT.md` header (STANDARD and up) |
 | Waivers | `waivers/*.yaml`: finding id, gate, the user's reason, approval |

@@ -103,7 +103,7 @@ editing the hash.
   the plan and ask again.
 - An unverified `high`-risk assumption blocks the freeze (A79). `A freeze <ID>` refuses and records one
   question per such assumption (`ASSUMPTION: <id>@<hash>`, the D13 `ask` machinery); relay it verbatim
-  (`A questions <ID>`, RESULT NEEDS_INPUT). The user answers `accept` (the answer is recorded as theirs,
+  (`A questions <ID>`, RESULT NEEDS_INPUT). The user answers `accept <id>` (for example `accept AS-1`; the answer is recorded as theirs,
   the assumption becomes `accepted-by-user` with that answer file as reference) or gives the corrected fact
   (change the plan, or verify the assumption and update its row, then freeze again). The lead never
   answers for the user: an answer that is not the user's own words does not accept anything. A lower-risk

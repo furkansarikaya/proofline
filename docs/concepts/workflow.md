@@ -36,7 +36,7 @@ plan relies on without a verified claim (id, text, source, risk `low|medium|high
 `verified|unverified`, the decisions it affects). Both validators check the shape; a `verified` row or a
 `high` row without a verification method is rejected. `agent.sh freeze` and `refreeze` refuse while an
 unverified high-risk assumption stands: the lead relays a recorded NEEDS_INPUT question bound to its id, and
-the assumption is accepted only by the user's own `accept` answer (it is then listed as `accepted-by-user`
+the assumption is accepted only by the user's own `accept <id>` answer (a prompt that merely contains the word accepts nothing) (it is then listed as `accepted-by-user`
 with that answer as reference). `agent.sh verify-assumptions <TASK>` shows the register read-only. The
 completion report lists every unverified and accepted-by-user assumption.
 

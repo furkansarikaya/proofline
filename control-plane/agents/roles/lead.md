@@ -34,7 +34,7 @@ the rendered agent definition itself carries no spawn tool.
 5. Write `PLAN.md` with .agents/skills/plan-contract/SKILL.md (its `## Assumptions` register is mandatory); STANDARD and up:
    dispatch qa for `QA_PLAN.md`. Supervised: stop for the `plan` approval. Then `agent.sh freeze`, which
    refuses while an unverified high-risk assumption stands: relay the recorded question as NEEDS_INPUT, the
-   user's `accept` (or a corrected fact) resolves it; never accept an assumption yourself.
+   user's `accept <id>` (or a corrected fact) resolves it; never accept an assumption yourself.
 6. Dispatch one implementer. On BLOCKED for scope: stop and ask the user (amendment), never widen silently.
 7. Run `agent.sh pipeline` for the required gates; dispatch the gate roles in parallel (bounded by
    `budgets.max_parallel_reviewers`). Verdicts are recorded by the hook or `dispatch.sh`, never by the lead.

@@ -417,7 +417,7 @@ $low"
   expect_msg "a second freeze did not point at the pending question" 'is unanswered' A freeze LC
   [ "$(ls $d/questions/*.md | wc -l | tr -d ' ')" = 2 ] || die "a second freeze duplicated a pending question"
   # the lead's own answer (no user prompt) does not accept; a user answer that is not `accept` does not either
-  printf 'accept\n' | A answer LC 1 >/dev/null
+  printf 'accept AS-1\n' | A answer LC 1 >/dev/null
   grep -q '^answered_by: lead' $d/questions/001.answer.md || die "an answer without a user capture was recorded as the user's"
   capture 'no, the table still has rows'; printf 'no, the table still has rows\n' | A answer LC 2 >/dev/null
   grep -q '^answered_by: user' $d/questions/002.answer.md || die "the user's answer was not recorded as the user's"
@@ -425,16 +425,25 @@ $low"
   expect_msg "a declined assumption froze" 'did not accept it' A freeze LC
   [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 4 ] || die "freeze did not ask again after a non-accepting answer"
   # the user accepts both (question 3 = AS-1 again, question 4 = AS-2 again)
-  capture 'accept'; printf 'accept\n' | A answer LC 3 >/dev/null; printf 'accept\n' | A answer LC 4 >/dev/null
-  A verify-assumptions LC | grep -Fq 'AS-1 risk=high status=accepted-by-user ref=questions/003.answer.md' || die "AS-1 is not accepted-by-user with its answer"
-  A verify-assumptions LC | grep -Fq 'AS-2 risk=high status=accepted-by-user ref=questions/004.answer.md' || die "AS-2 is not accepted-by-user with its answer"
+  # a prompt that merely contains the word (or "acceptance") never accepts: the lead cannot forge the phrase
+  capture 'the acceptance criteria look fine, accept the plan'; printf 'accept AS-1\n' | A answer LC 3 >/dev/null
+  grep -q '^answered_by: lead' $d/questions/003.answer.md || die "an accept AS-1 absent from the user's prompt was recorded as the user's"
+  A verify-assumptions LC | grep -Fq 'AS-1 risk=high status=blocked' || die "a forged accept accepted AS-1"
+  capture 'accept'; printf 'accept\n' | A answer LC 4 >/dev/null
+  grep -q '^answered_by: user' $d/questions/004.answer.md || die "the bare word was not the user's"
+  A verify-assumptions LC | grep -Fq 'AS-2 risk=high status=blocked' || die "a bare accept (no id) accepted AS-2"
+  expect_msg "a forged or bare accept froze" 'did not accept it' A freeze LC
+  # freeze asked again for both (questions 5 and 6); the user names the ids
+  capture 'accept AS-1 and accept AS-2'; printf 'accept AS-1\n' | A answer LC 5 >/dev/null; printf 'accept AS-2\n' | A answer LC 6 >/dev/null
+  A verify-assumptions LC | grep -Fq 'AS-1 risk=high status=accepted-by-user ref=questions/005.answer.md' || die "AS-1 is not accepted-by-user with its answer"
+  A verify-assumptions LC | grep -Fq 'AS-2 risk=high status=accepted-by-user ref=questions/006.answer.md' || die "AS-2 is not accepted-by-user with its answer"
   # a changed assumption text is a new assumption: the old answer does not carry over
   cp $d/PLAN.md "$base/plan.keep"
   sed 's/the legacy key table is empty/the legacy key table has no live rows/' "$base/plan.keep" > $d/PLAN.md
   expect_msg "an answer for another text of the assumption was reused" 'unverified high-risk assumption' A freeze LC
-  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 5 ] || die "a changed assumption text was not asked again"
+  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 7 ] || die "a changed assumption text was not asked again"
   cp "$base/plan.keep" $d/PLAN.md
-  printf 'accept\n' | A answer LC 5 >/dev/null   # the question of the reverted wording is moot; CODE_DONE needs none pending
+  printf 'accept AS-1\n' | A answer LC 7 >/dev/null   # the question of the reverted wording is moot; CODE_DONE needs none pending
   A freeze LC >/dev/null || die "freeze refused after the user accepted both assumptions"
   A verify-freeze LC >/dev/null
   ok "assumptions: shape, trap, low-risk pass, bound question, no silent accept, user accept, text change, freeze"
@@ -444,9 +453,11 @@ $low"
   to_code_done standalone
   A knowledge-done LC not_applicable >/dev/null; write_report
   expect_msg "a report that omits the assumptions was published" 'does not list: AS-1 AS-2 AS-3' A publish-completion-report LC markdown
-  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user' '- AS-2 (high): accepted-by-user, questions/004.answer.md' '- AS-3 (low): unverified'
-  expect_msg "an accepted assumption without its answer reference was published" 'does not list: AS-1(answer questions/003.answer.md)' A publish-completion-report LC markdown
-  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/003.answer.md' '- AS-2 (high): accepted-by-user, questions/004.answer.md' '- AS-3 (low): unverified'
+  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): unverified'
+  expect_msg "an accepted assumption without its answer reference was published" 'does not list: AS-1(answer questions/005.answer.md)' A publish-completion-report LC markdown
+  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/005.answer.md' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): verified'
+  expect_msg "an unverified assumption reported as verified was published" 'AS-3(unverified)' A publish-completion-report LC markdown
+  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/005.answer.md' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): unverified'
   A publish-completion-report LC markdown >/dev/null || die "a report listing every assumption was refused"
   ok "assumptions: completion report lists unverified and accepted-by-user assumptions"
 }
