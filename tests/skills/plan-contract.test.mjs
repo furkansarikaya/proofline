@@ -151,6 +151,9 @@ test("A81: ## UI visual_proof line is checked when present and required for COMP
   has(errs(ui(["visual_proof: AC-1", "visual_proof: none"])), "more than one visual_proof line");
   has(errs(strong([]), { cls: "COMPLEX" }), '"visual_proof: <AC ids|none>" is required for COMPLEX');
   assert.deepEqual(errs(strong(["- visual_proof: AC-4"]), { cls: "CRITICAL" }), []);
+  // The template's section set (Assumptions, Risk, UI with the visual_proof line) validates together.
+  const full = plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", "visual_proof: AC-1"], Risk: ["contract_change: no", "concurrency: no", "performance_critical: no"] } });
+  assert.deepEqual(errs(full, { cls: "COMPLEX" }), []);
 });
 
 const STEPS_HEAD =["| step | phase | operation | object | destructive | reversible | rollback | lock |", "|---|---|---|---|---|---|---|---|"];

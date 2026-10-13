@@ -38,6 +38,10 @@ none
 
 none
 
+## Risk
+
+<Only the flags the design implies, one line each (the architect's text, A78): `contract_change: yes|no`, `concurrency: yes|no`, `performance_critical: yes|no`. Delete the section when no flag applies.>
+
 ## Assumptions
 
 <`none`, or the register: one row per fact the plan relies on without a verified claim. risk is low|medium|high, status verified|unverified (never accepted-by-user: the run records the user's answer). A verified row names the check; a high-risk unverified row stops the freeze until the user answers it.>

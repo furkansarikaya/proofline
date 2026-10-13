@@ -52,6 +52,12 @@ New dependencies with version and reason, or `none`. A dependency not listed her
 
 Versioned API or schema contract changes, or `none`. A contract change not listed here is a FAIL.
 
+## Risk
+
+Flags the design implies (architect, A78), one line each and nothing else: `contract_change: yes|no`,
+`concurrency: yes|no`, `performance_critical: yes|no`. They are frozen with the plan and select REVIEW focuses.
+Delete the section when no flag applies.
+
 ## Assumptions
 
 `none`, or the register table (mandatory section): one row per fact the plan relies on without a verified
