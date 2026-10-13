@@ -11,7 +11,7 @@
 - Eleven **roles** (lead, task author, explorer, architect, data architect, designer, QA, implementer, reviewer, security reviewer, verifier). Only the lead dispatches; specialists never spawn agents.
 - Twenty-one method **skills** plus the `/proofline` command entry skill, each usable on its own, each producing runnable or traceable evidence.
 - Independent **gates** (secrets, reviews, security, QA, verify) judged by scripts on the exact content, never by the lead.
-- **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script; tested by the control-plane self-tests and the `risk-signals` fixture. The `dependencies` focus (manifest diff, license policy, the project's own audit tool when it exists; fixture `dependency-audit`) and the `config` focus (fixture `config-consistency`) have tool-free checks. The `concurrency` focus runs the concurrency-proof skill (tested: skill tests and the `concurrency-proof` fixture). The migration focus is data-design's migration validation (throwaway database of the project's own test suite, otherwise UNSUPPORTED); its helpers and report validator are tested by the `migration-validation` fixture and `tests/skills`. The QA `visual` focus runs the `visual-proof` skill (measured checks in a browser the machine or project already has; without one UNSUPPORTED): its report validator and depth rules are tested in every pull request, and the browser measurement of its fixture was run locally with headless Chrome and is wired into main/nightly CI, not yet observed on a CI runner. The `performance` focus runs the performance-proof skill (base against change with the project's own benchmark, interleaved runs, median and bootstrap interval; noise is INCONCLUSIVE, never a FAIL or a pass); its decision rule, validator and runner are tested by the `performance-proof` fixture and `tests/skills`, not on a real benchmark in CI. The `contract` focus runs contract-proof (tested: skill tests and the `contract-proof` fixture). Every risk focus now has its skill; a check that cannot run reports UNSUPPORTED, which is never a pass and only the user can waive.
+- **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script; tested by the control-plane self-tests and the `risk-signals` fixture. The `dependencies` focus (manifest diff, license policy, the project's own audit tool when it exists; fixture `dependency-audit`) and the `config` focus (fixture `config-consistency`) have tool-free checks. The `concurrency` focus runs the concurrency-proof skill (tested: skill tests and the `concurrency-proof` fixture). The migration focus is data-design's migration validation (throwaway database of the project's own test suite, otherwise UNSUPPORTED); its helpers and report validator are tested by the `migration-validation` fixture and `tests/skills`. The QA `visual` focus runs the `visual-proof` skill (measured checks in a browser the machine or project already has; without one UNSUPPORTED): its report validator and depth rules are tested in every pull request, and the browser measurement of its fixture is run by a main/nightly CI step and is UNSUPPORTED where no browser is found. The `performance` focus runs the performance-proof skill (base against change with the project's own benchmark, interleaved runs, median and bootstrap interval; noise is INCONCLUSIVE, never a FAIL or a pass); its decision rule, validator and runner are tested by the `performance-proof` fixture and `tests/skills`, not on a real benchmark in CI. The `contract` focus runs contract-proof (tested: skill tests and the `contract-proof` fixture). Every risk focus now has its skill; a check that cannot run reports UNSUPPORTED, which is never a pass and only the user can waive.
 - **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
 - Runs on Claude Code and Codex; any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier.
 
@@ -62,7 +62,7 @@ known-answer EXPECTED files, which no run has fully met yet.
 
 ## Capabilities and what tests them
 
-"Tested" below means a test that runs in CI or in `sh tests/selftest.sh`. "Tested on fixtures" means the check is
+"Tested" below means a test that runs in CI (on every code pull request; documentation-only pull requests skip the test jobs) or in `sh tests/selftest.sh`. "Tested on fixtures" means the check is
 exercised by planted data with known answers (`fixtures/*/EXPECTED.md`) and its validator or helper scripts, not by
 a model-driven team run in a real project. **No end-to-end team run has exercised any capability listed here yet**
 (the end-to-end results predate them); see [tests/e2e/README.md](tests/e2e/README.md).
@@ -74,14 +74,14 @@ a model-driven team run in a real project. **No end-to-end team run has exercise
 | Metrics (`records.jsonl`) and `proofline insights` | tested (self-tests, CLI test, `insights` fixture); tokens only where a runtime reports them |
 | evidence-map `impact` mode | tested on fixtures (`impact-map`, skill tests); static analysis limits stated in every report |
 | ui-design (creative direction, UX comparison, self-critique, `visual_proof` criteria) | tested on fixtures (`ui-design`, skill tests) |
-| visual-proof, report validator and depth rules | tested (skill tests on every pull request) |
-| visual-proof, browser measurement | tested locally with headless Chrome; a step on main/nightly CI (`fixtures/visual-proof/browser-check.sh`) that prints UNSUPPORTED on a runner without a Chromium-family browser |
+| visual-proof, report validator and depth rules | tested (skill tests on every code pull request) |
+| visual-proof, browser measurement | run by the main/nightly CI step (`fixtures/visual-proof/browser-check.sh`); UNSUPPORTED where no browser is found |
 | contract-proof | tested on fixtures (`contract-proof`, skill tests); compatibility tools of real projects not exercised |
 | concurrency-proof | tested on fixtures (`concurrency-proof`, skill tests); a concurrent reproduction in a real project's test runner not exercised |
 | performance-proof | tested on fixtures (`performance-proof`, skill tests); not run against a real benchmark in CI |
 | data-design migration validation | tested on fixtures (`migration-validation`, skill tests); applying migrations to a project's own throwaway database not exercised |
 | SECURITY `dependencies` and REVIEW `config` | tested on fixtures (`dependency-audit`, `config-consistency`); a project's own audit tool not exercised |
-| Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every pull request; full report on main/nightly CI) |
+| Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
 Skills and roles are counted from `skills/` (twenty-one method skills plus the `/proofline` entry skill) and
 `roles/` (eleven roles); `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep
