@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "mode": "task",
+  "ui_languages": [
+    "en"
+  ],
+  "design_system": {
+    "file": "DESIGN.md",
+    "exists": true
+  },
+  "reused": [
+    {
+      "kind": "component",
+      "name": "Select",
+      "path": "src/ui/components/Select.js"
+    },
+    {
+      "kind": "component",
+      "name": "TextInput",
+      "path": "src/ui/components/TextInput.js"
+    },
+    {
+      "kind": "component",
+      "name": "EmptyState",
+      "path": "src/ui/components/EmptyState.js"
+    },
+    {
+      "kind": "component",
+      "name": "Button",
+      "path": "src/ui/components/Button.js"
+    },
+    {
+      "kind": "token",
+      "name": "--color-focus",
+      "path": "src/ui/styles/tokens.css"
+    }
+  ],
+  "new": [],
+  "screens": [
+    {
+      "id": "S1",
+      "name": "Project list with filters",
+      "route": "src/ui/pages/ProjectList.js",
+      "states": {
+        "empty": {
+          "copy": "No projects match these filters. [Clear filters]",
+          "behavior": "EmptyState with a secondary Button that resets status to all and clears the search"
+        },
+        "loading": {
+          "copy": "Loading projects",
+          "behavior": "existing Spinner; filters disabled until the list arrives"
+        },
+        "error": {
+          "copy": "Could not load projects.",
+          "behavior": "existing Alert tone danger; filters hidden"
+        },
+        "success": {
+          "copy": "Projects (12)",
+          "behavior": "list filtered as the user types; count updates"
+        },
+        "partial": {
+          "not_applicable": "the list loads in one response; there is no paging"
+        },
+        "permission-denied": {
+          "not_applicable": "every signed-in user may see the project list"
+        }
+      },
+      "keyboard": [
+        "Tab order: search, status select, results; Escape in the search clears it; focus ring --color-focus"
+      ],
+      "screen_reader": [
+        "Both controls keep their visible <label>; the count sits in a role=status region (polite)"
+      ],
+      "responsive": [
+        "< 640px: filters stack above the list; controls at least 44px high"
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "F1",
+      "name": "Filter projects",
+      "steps": [
+        "type a name",
+        "pick a status",
+        "read the count"
+      ],
+      "screens": [
+        "S1"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: ui-design
-description: Designs UI work. Reverse-engineers a DESIGN.md design system (tokens, typography, spacing, colour roles, components, accessibility baseline) from the existing UI when it is absent, and writes the per-task UI spec (screens, flows, every state including empty, loading, error, success, partial and permission-denied, copy, keyboard and screen-reader behaviour, responsive rules) that goes into PLAN "## UI" and design/UI.md. Reuses existing tokens and components, verified by path, before inventing new ones. Use when a task changes UI, or on "/proofline design ui".
+description: Designs UI work. Reverse-engineers a DESIGN.md design system (tokens, typography, spacing, colour roles, components, accessibility baseline) from the existing UI when it is absent, and writes the per-task UI spec (screens, flows, every state including empty, loading, error, success, partial and permission-denied, copy, keyboard and screen-reader behaviour, responsive rules) that goes into PLAN "## UI" and design/UI.md. Reuses existing tokens and components, verified by path, before inventing new ones. Adds a grounded creative direction (conform to DESIGN.md; redesign only on the task's request with the user's approval), a UX pattern comparison, a spec self-critique and a per-criterion visual-proof marking; never approves its own design. Use when a task changes UI, or on "/proofline design ui".
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -26,6 +26,9 @@ Talk to the user in their language. Machine files (`ui.json`, `ledger.md`) are E
 5. **Responsive rules are explicit** (breakpoints from the existing system, what reflows, what hides, minimum touch target), not "should be responsive".
 6. **Copy is specified, not placeholder.** Every user-visible string in each state is written out (or its i18n key plus the default text), consistent with the product's tone found in the repo. "Lorem ipsum" and "TBD" are rejected.
 7. **Never decide for the user.** Product choices the task does not settle (what to show a user without permission, destructive-action wording) are NEEDS_INPUT with numbered questions.
+8. **Direction, patterns, critique** (required for COMPLEX/CRITICAL, validated whenever present): a creative direction grounded in the users and the existing system ([CREATIVE-DIRECTION.md](references/CREATIVE-DIRECTION.md)); an existing `DESIGN.md` is conformed to, and a redesign happens only when the task asks for it and the user approved it; no style catalogue. UX pattern alternatives compared ([UX-PATTERNS.md](references/UX-PATTERNS.md)). A self-critique of the spec ([SELF-CRITIQUE.md](references/SELF-CRITIQUE.md)).
+9. **Visual proof marking.** Each UI-facing acceptance criterion is listed in `criteria` with `visual_proof: required` (needs visual evidence: screenshot or measurement) or `not_required`, and the PLAN `## UI` text carries the line `visual_proof: <AC ids|none>` ([METHOD.md](references/METHOD.md#6-criteria-and-visual-proof)).
+10. **The designer never gives final quality approval of its own design.** DONE means the spec is complete and valid, not that the design is good; quality is judged independently (QA's visual focus, reviewers). An approval claim in `ui.json` fails validation.
 
 ## Modes
 
@@ -42,16 +45,16 @@ Talk to the user in their language. Machine files (`ui.json`, `ledger.md`) are E
 1. **Scope.** Read the assignment; list the screens, flows and acceptance criteria that touch UI. Copy [ledger-template.md](assets/ledger-template.md) to `ledger.md` in the output folder (team: `design/ui-ledger.md`).
 2. **Design system.** Read or reverse-engineer `DESIGN.md` ([METHOD.md](references/METHOD.md#1-reverse-engineer-designmd)). Reverse mode ends after step 7 with `DESIGN.md` only.
 3. **Inventory** existing components/tokens relevant to the task with verified paths ([METHOD.md](references/METHOD.md#2-inventory-for-a-task)).
-4. **Screens and flows** ([METHOD.md](references/METHOD.md#3-screens-flows-states)): per screen all six states with copy and behaviour; flows as ordered steps referencing screens.
-5. **Accessibility and responsive** per screen ([METHOD.md](references/METHOD.md#4-accessibility-and-responsive)).
-6. **New items** only where the inventory has no fit; each with `reason` and `reuse_rejected`.
+4. **Screens and flows** ([METHOD.md](references/METHOD.md#3-screens-flows-states)): first the creative direction and UX pattern decisions (rule 8), then per screen all six states with copy and behaviour; flows as ordered steps referencing screens.
+5. **Accessibility and responsive** per screen ([METHOD.md](references/METHOD.md#4-accessibility-and-responsive)); then the criteria with their `visual_proof` marking (rule 9).
+6. **New items** only where the inventory has no fit; each with `reason` and `reuse_rejected`. Then the self-critique (rule 8); fix what it finds.
 7. **Write** `ui.json` ([schema](schema/ui.schema.json)) and `UI.md` ([template](assets/UI.template.md)); for `DESIGN.md` use [DESIGN.template.md](assets/DESIGN.template.md).
-8. **Validate.** `node <skill-dir>/scripts/validate-ui.mjs <ui.json> --root <repo> [--design-md <DESIGN.md>]`; fix until exit 0. Without Node, check [METHOD.md](references/METHOD.md#5-validation-rules) by hand and say so.
+8. **Validate.** `node <skill-dir>/scripts/validate-ui.mjs <ui.json> --root <repo> [--task <TASK.md>] [--class <class>] [--design-md <DESIGN.md>]` (in a run always with `--task` and the run's class); fix until exit 0. Without Node, check [METHOD.md](references/METHOD.md#5-validation-rules) by hand and say so.
 9. **Report.** Compact: reused vs new, screens with states covered, open questions. Final question or the result header.
 
 ## Gate rule
 
-No gate recorded. DONE requires validator exit 0. A screen missing a state (without `not_applicable`), a reused path that does not exist, or a `new` item without `reuse_rejected` is BLOCKED, never DONE.
+No gate recorded. DONE requires validator exit 0. A screen missing a state (without `not_applicable`), a reused path that does not exist, or a `new` item without `reuse_rejected` is BLOCKED, never DONE. DONE is never a quality approval of the design (rule 10).
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)

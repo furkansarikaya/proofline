@@ -75,6 +75,69 @@
           "steps": { "$ref": "#/$defs/strings" }, "screens": { "$ref": "#/$defs/strings" }
         }
       }
+    },
+    "creative_direction": {
+      "$comment": "A81. Optional; required for COMPLEX/CRITICAL in mode task (validator --class/--task). basis new is invalid when design_system.exists; basis redesign needs redesign.task_quote (found in TASK.md) and redesign.user_approval; basis new needs avoided.",
+      "type": "object", "additionalProperties": false,
+      "required": ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale"],
+      "properties": {
+        "basis": { "enum": ["conform", "redesign", "new"] },
+        "visual_character": { "type": "string", "minLength": 1 },
+        "typography": { "type": "string", "minLength": 1 },
+        "layout": { "type": "string", "minLength": 1 },
+        "hierarchy": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "avoided": { "$ref": "#/$defs/strings" },
+        "redesign": {
+          "type": "object", "additionalProperties": false, "required": ["task_quote", "user_approval"],
+          "properties": { "task_quote": { "type": "string", "minLength": 1 }, "user_approval": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "ux_patterns": {
+      "$comment": "A81. chosen must be one of options.",
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["decision", "options", "chosen", "density", "flow", "rationale"],
+        "properties": {
+          "decision": { "type": "string", "minLength": 1 },
+          "options": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "chosen": { "type": "string", "minLength": 1 },
+          "density": { "type": "string", "minLength": 1 },
+          "flow": { "type": "string", "minLength": 1 },
+          "rationale": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "self_critique": {
+      "$comment": "A81. Never an approval: approval wording in the passes or checks is rejected (the designer never gives final quality approval of its own design).",
+      "type": "object", "additionalProperties": false, "required": ["hierarchy", "density", "consistency", "legibility", "anti_patterns"],
+      "properties": {
+        "hierarchy": { "type": "string", "minLength": 1 },
+        "density": { "type": "string", "minLength": 1 },
+        "consistency": { "type": "string", "minLength": 1 },
+        "legibility": { "type": "string", "minLength": 1 },
+        "anti_patterns": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["check", "result"],
+            "properties": { "check": { "type": "string", "minLength": 1 }, "result": { "enum": ["clear", "fixed", "accepted"] }, "note": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "criteria": {
+      "$comment": "A81. One entry per UI-facing acceptance criterion. visual_proof required = needs visual evidence; ids must be TASK criteria (validator --task). Listed by validate-ui.mjs --list-visual-proof.",
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "screens", "visual_proof"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-[0-9]+$" },
+          "screens": { "$ref": "#/$defs/strings" },
+          "visual_proof": { "enum": ["required", "not_required"] },
+          "evidence": { "type": "string" }
+        }
+      }
     }
   }
 }

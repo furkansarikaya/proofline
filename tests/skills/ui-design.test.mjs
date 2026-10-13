@@ -100,6 +100,112 @@ test("CLI exit codes incl. --design-md", () => {
   assert.equal(spawnSync("node", [script, f, "--design-md", m]).status, 1);
   assert.equal(spawnSync("node", [script]).status, 2);
 });
+// A81: creative direction, UX patterns, self-critique, criteria with visual_proof.
+const { parseTask, visualProofList } = await import(script);
+const TASK = "# Task: T-1\n## Acceptance criteria\n- AC-1: list shows orders\n- AC-2: errors offer retry\n## Suggested class\nCOMPLEX\n## Goal\nPlease redesign the orders page to the new layout.\n";
+const strong = () => ({
+  ...good(),
+  creative_direction: { basis: "conform", visual_character: "calm, dense operator tool", typography: "existing 14/20 body scale", layout: "12-column grid, fixed filter bar", hierarchy: "count, then table, then create", rationale: "operators scan orders all day (TASK goal); DESIGN.md is dense" },
+  ux_patterns: [{ decision: "order list display", options: ["table", "cards"], chosen: "table", density: "20 rows per viewport", flow: "filter, scan, open", rationale: "columns compared across rows; existing lists use tables" }],
+  self_critique: { hierarchy: "one primary action (Create)", density: "kept 20 rows", consistency: "same Button and tokens", legibility: "contrast 7.1:1",
+    anti_patterns: [{ check: "state by colour alone", result: "fixed", note: "status text added next to the colour dot" }, { check: "placeholder as label", result: "clear" }] },
+  criteria: [{ id: "AC-1", screens: ["S1"], visual_proof: "required", evidence: "S1 success and empty at 375 and 1280 px" }, { id: "AC-2", screens: ["S1"], visual_proof: "not_required" }],
+});
+const task = parseTask(TASK);
+test("existing spec stays valid without class; COMPLEX/CRITICAL require the new sections", () => {
+  assert.deepEqual(errs(good()), []);
+  assert.deepEqual(errs(good(), { root: repo, cls: "STANDARD", task }), []);
+  const e = errs(good(), { root: repo, cls: "CRITICAL", task });
+  for (const k of ["creative_direction", "ux_patterns", "self_critique", "criteria"]) has(e, `missing "${k}"`);
+  has(errs(good(), { root: repo, task }), 'missing "creative_direction": required for a COMPLEX');
+  const r = good(); r.mode = "reverse"; r.screens = []; r.flows = []; assert.deepEqual(errs(r, { root: repo, cls: "COMPLEX", task }), []);
+  assert.deepEqual(errs(strong(), { root: repo, task }), []);
+  has(errs(good(), { root: repo, cls: "HUGE", task }), "is not one of");
+  has(errs(good(), { root: repo, cls: "COMPLEX" }), "a class needs the task");
+});
+test("reverse mode rejects task design content", () => {
+  const r = strong(); r.mode = "reverse"; const e = errs(r);
+  has(e, "$.criteria: mode reverse"); has(e, "$.creative_direction: mode reverse"); has(e, "$.screens: mode reverse has no screens");
+});
+test("design_system.exists false while the file exists is rejected", () => {
+  const d = good(); d.design_system.exists = false; has(errs(d), "DESIGN.md exists: set exists true");
+  d.design_system.file = "docs/DESIGN.md"; assert.deepEqual(errs(d), []);
+});
+test("creative direction: new is invalid when DESIGN.md exists; new needs avoided", () => {
+  const d = strong(); d.creative_direction.basis = "new"; has(errs(d), "DESIGN.md exists");
+  d.design_system = { file: "docs/DESIGN.md", exists: false }; has(errs(d), "avoided");
+  d.creative_direction.avoided = ["gradient hero: an internal tool has no landing page"]; assert.deepEqual(errs(d), []);
+});
+test("creative direction: redesign needs the task's request and the user's approval", () => {
+  const d = strong(); d.creative_direction.basis = "redesign"; has(errs(d), "redesign needs");
+  d.creative_direction.redesign = { task_quote: "redesign the orders page", user_approval: "" }; has(errs(d), "user's approval");
+  d.creative_direction.redesign.user_approval = "assumed from the task"; has(errs(d), "must come from the user");
+  d.creative_direction.redesign.user_approval = "Q-2 answered_by user: yes, redesign"; assert.deepEqual(errs(d, { root: repo, task }), []);
+  d.creative_direction.redesign.user_approval = "the user said yes in chat"; has(errs(d), "reference the recorded answer");
+  for (const ref of ["questions/002.answer.md", "Q3", "design/INTENT.md#D-4"]) {
+    d.creative_direction.redesign.user_approval = `user approved: ${ref}`; assert.deepEqual(errs(d, { root: repo, task }), [], ref);
+  }
+  d.creative_direction.redesign.user_approval = "I approve, Q-1"; has(errs(d), "must come from the user");
+  d.creative_direction.redesign.task_quote = "make it modern"; const m = errs(d, { root: repo, task });
+  has(m, "not found in TASK.md"); has(m, "does not ask for a visual change");
+  d.creative_direction.redesign.task_quote = "orders page"; has(errs(d), "does not ask for a visual change");
+  const c = strong(); c.creative_direction.redesign = { task_quote: "x", user_approval: "y" }; has(errs(c), "only with basis redesign");
+});
+test("ux patterns: two options, chosen among them", () => {
+  const d = strong(); d.ux_patterns[0].options = ["table"]; has(errs(d), "at least two");
+  const c = strong(); c.ux_patterns[0].chosen = "tree"; has(errs(c), "one of options");
+  const e = strong(); e.ux_patterns = []; has(errs(e), "non-empty array");
+});
+test("self-critique: checklist results and no self-approval", () => {
+  const d = strong(); d.self_critique.anti_patterns[0].result = "ok"; has(errs(d), "clear, fixed or accepted");
+  const n = strong(); delete n.self_critique.anti_patterns[0].note; has(errs(n), "needs a note");
+  const a = strong(); a.self_critique.hierarchy = "Design approved, ready to ship"; has(errs(a), "self-approval");
+  const k = strong(); k.quality_approval = "approved by designer"; has(errs(k), "never gives final quality approval");
+  const u = strong(); u.self_critique.anti_patterns[0] = { check: "infinite scroll", result: "accepted", note: "the user approved it in Q-3" }; assert.deepEqual(errs(u), []);
+});
+test("self-approval: domain words pass, verdict phrasing in any free-text field fails", () => {
+  const fp = strong();
+  fp.creative_direction.rationale = "the approval button stays primary because reviewers approve orders all day";
+  fp.ux_patterns[0].rationale = "not approved items are hidden behind a filter, matching the existing list";
+  fp.criteria[0].evidence = "S1 success: the Approve button and the approval status column are visible at 375 and 1280 px";
+  assert.deepEqual(errs(fp), []);
+  for (const [set, where] of [
+    [(d) => { d.creative_direction.rationale = "This design is approved."; }, "$.creative_direction.rationale: self-approval"],
+    [(d) => { d.ux_patterns[0].rationale = "table chosen; the layout is production ready"; }, "$.ux_patterns[0].rationale: self-approval"],
+    [(d) => { d.criteria[0].evidence = "meets all criteria, no issues remain"; }, "$.criteria[0].evidence: self-approval"],
+    [(d) => { d.self_critique.anti_patterns[0].note = "fixed; LGTM"; }, "$.self_critique.anti_patterns[0].note: self-approval"],
+    [(d) => { d.self_critique.consistency = "I sign off on consistency"; }, "$.self_critique.consistency: self-approval"],
+  ]) { const d = strong(); set(d); has(errs(d), where); }
+});
+test("criteria: visual_proof marker, known criterion and screen, evidence", () => {
+  const d = strong(); d.criteria[0].id = "AC-9"; has(errs(d, { root: repo, task }), "AC-9 is not an acceptance criterion");
+  const s = strong(); s.criteria[0].screens = ["S7"]; has(errs(s), "unknown screen S7");
+  const v = strong(); v.criteria[0].visual_proof = "yes"; has(errs(v), "required or not_required");
+  const e = strong(); delete e.criteria[0].evidence; has(errs(e), "visual_proof required");
+  const u = strong(); u.criteria.push({ ...u.criteria[1] }); has(errs(u), "duplicate criterion");
+  assert.deepEqual(visualProofList(strong()), ["AC-1"]);
+  assert.deepEqual(visualProofList(good()), []);
+});
+test("CLI: --task, --class and --list-visual-proof", () => {
+  const f = join(repo, "strong.json"), t = join(repo, "TASK.md"), g = join(repo, "good.json");
+  writeFileSync(f, JSON.stringify(strong())); writeFileSync(t, TASK); writeFileSync(g, JSON.stringify(good()));
+  const out = spawnSync("node", [script, f, "--root", repo, "--task", t, "--list-visual-proof"], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(JSON.parse(out.stdout), { schema: "ui-design.visual-proof/1", required: ["AC-1"] });
+  assert.equal(spawnSync("node", [script, g, "--task", t]).status, 1);
+  assert.equal(spawnSync("node", [script, g, "--class", "STANDARD", "--task", t]).status, 0);
+  assert.equal(spawnSync("node", [script, g, "--class", "STANDARD"]).status, 2);
+  assert.equal(spawnSync("node", [script, "--list-visual-proof", "--design-md", t]).status, 2);
+  assert.equal(spawnSync("node", [script, g, "--bogus"]).status, 2);
+});
+test("SKILL.md points to the A81 references; the references exist", () => {
+  const t = readFileSync(join(skill, "SKILL.md"), "utf8");
+  for (const r of ["CREATIVE-DIRECTION.md", "UX-PATTERNS.md", "SELF-CRITIQUE.md"]) {
+    assert.ok(t.includes(`references/${r}`), r);
+    readFileSync(join(skill, "references", r));
+  }
+  assert.match(t, /never gives? final quality approval/i);
+});
 test("SKILL.md frontmatter and schema", () => {
   const t = readFileSync(join(skill, "SKILL.md"), "utf8");
   assert.match(t, /^---\nname: ui-design\n/);

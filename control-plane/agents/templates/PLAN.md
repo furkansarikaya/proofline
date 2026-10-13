@@ -34,7 +34,9 @@ user's explicit single-step approval allows one step: the line `single_step: yes
 
 ## UI
 
-When the UI changes (designer): screens, flows, states, accessibility. Delete otherwise.
+When the UI changes (designer): screens, flows, states, accessibility, and the line
+`visual_proof: <AC ids|none>` naming the criteria that need visual evidence (required for COMPLEX/CRITICAL).
+Delete otherwise.
 
 ## Behavior
 
@@ -49,6 +51,12 @@ New dependencies with version and reason, or `none`. A dependency not listed her
 ## Contracts
 
 Versioned API or schema contract changes, or `none`. A contract change not listed here is a FAIL.
+
+## Risk
+
+Flags the design implies (architect, A78), one line each and nothing else: `contract_change: yes|no`,
+`concurrency: yes|no`, `performance_critical: yes|no`. They are frozen with the plan and select REVIEW focuses.
+Delete the section when no flag applies.
 
 ## Assumptions
 

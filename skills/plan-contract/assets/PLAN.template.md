@@ -16,7 +16,7 @@ scope:
 
 ## UI
 
-<Only when UI changes: the Designer's text. Delete the section otherwise.>
+<Only when UI changes: the Designer's text, including the line "visual_proof: <AC ids|none>" (required for COMPLEX/CRITICAL). Delete the section otherwise.>
 
 ## Behavior
 
@@ -37,6 +37,10 @@ none
 ## Contracts
 
 none
+
+## Risk
+
+<Only the flags the design implies, one line each (the architect's text, A78): `contract_change: yes|no`, `concurrency: yes|no`, `performance_critical: yes|no`. Delete the section when no flag applies.>
 
 ## Assumptions
 
