@@ -53,7 +53,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    `A ask <ID>` (the D13 block on stdin, [HANDOFF.md](references/HANDOFF.md#3-the-leads-own-questions)), then
    relayed from `A questions <ID>`; `next` stops on it like on a specialist's question.
 7. **Gates are bounded (D14-D16)** ([GATES-AND-FIXES.md](references/GATES-AND-FIXES.md)). Only gates whose
-   `pipeline` status is not `pass`/`waived` re-run. `pass_low` re-runs with escalation. At most
+   `pipeline` status is not `pass`/`waived` re-run, each risk focus (`focus.<GATE>.<focus>`, A78) as its own
+   dispatch with `--focus`; an `UNSUPPORTED` focus is never a pass and goes to the user. `pass_low` re-runs with escalation. At most
    `review.max_fix_rounds` fix rounds; then `A terminate <ID> FAILED`. The lead never waives on its own;
    `A waive` needs the user's explicit instruction naming the finding, with a reason (the hook-captured
    prompt is what the approval and `waive` verify), and is never possible for `SECRETS` or `SECURITY`.

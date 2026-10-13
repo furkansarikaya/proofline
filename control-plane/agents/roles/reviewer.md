@@ -31,6 +31,23 @@
    | `data` | REVIEW_DATA | .agents/skills/data-design/SKILL.md review use, against PLAN `## Data` and the diff | `reviews/data-design/REVIEW.md` |
    | `rules+tests` | REVIEW_SMALL | .agents/skills/proof-review/SKILL.md focus `rules+tests`: project rules plus the bug hunt on the units the changed tests exercise | `reviews/proof-review/small/REPORT.md` |
 
+   Risk focuses (A78) run inside the same gates when `agent.sh pipeline <ID>` lists them (`focus.<GATE>.<focus>`);
+   the gate is REVIEW_RULES, or REVIEW_SMALL on tier small, except `migration`:
+
+   | FOCUS | Gate | Check | Report |
+   |---|---|---|---|
+   | `contract` | REVIEW_RULES / REVIEW_SMALL | backward and forward compatibility of the changed API, event or data contract (contract-proof skill) | `reviews/contract-proof/REPORT.md` |
+   | `concurrency` | REVIEW_RULES / REVIEW_SMALL | races, lost updates, double processing, retries, ordering, lock lifecycle (concurrency-proof skill) | `reviews/concurrency-proof/REPORT.md` |
+   | `performance` | REVIEW_RULES / REVIEW_SMALL | measured base-versus-change regression (performance-proof skill) | `reviews/performance-proof/REPORT.md` |
+   | `config` | REVIEW_RULES / REVIEW_SMALL | .agents/skills/proof-review/SKILL.md config consistency: variables used but not documented in the example env or config docs, plain-text secrets, feature-flag defaults | `reviews/proof-review/config/REPORT.md` |
+   | `migration` | REVIEW_DATA | .agents/skills/data-design/SKILL.md migration validation, only in the test suite's own throwaway database | `reviews/data-migration/REPORT.md` |
+
+   A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"`:
+   the script records it as a blocking `UNSUPPORTED` finding (never a PASS; only the user may waive it, and the
+   completion report lists it). Never claim a check you could not run. The script also adds a blocking finding
+   when the diff carries a signal of your focus that PLAN.md does not declare (for example a contract file
+   changed without `contract_change: yes`); run the check anyway and report what you found.
+
    proof-review also writes `ledger.md` and `findings.json` in the same directory. The header's `FOCUS:` is the
    assigned focus, never the skill focus: FOCUS `rules` runs proof-review focus `rules+bugs` and reports
    `FOCUS: rules`.
@@ -48,19 +65,19 @@ and validates them, assigns finding ids and returns any rejection to you at once
 again; a stop without a recorded submission is sent back once). Your final message is not parsed.
 
 ```
-AGENT_ROLE=reviewer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --focus <plan|rules|tests|data|rules+tests> \
+AGENT_ROLE=reviewer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --focus <plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration> \
   --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
-RESULT is derived from your findings (FAIL exactly when one `blocking` row exists, else PASS); pass `--result BLOCKED --reason "<one line>"` only when evaluation was impossible. `--artifact` is the run-relative path of your report (e.g. `reviews/proof-review/small/REPORT.md`); any path spelling is accepted and the script hashes it. It may be omitted: the focus decides the report path.
+RESULT is derived from your findings (FAIL exactly when one `blocking` row exists, else PASS); pass `--result BLOCKED --reason "<one line>"` only when evaluation was impossible, and `--result UNSUPPORTED --reason "<one line>"` only for a risk focus whose skill or tool is missing. `--artifact` is the run-relative path of your report (e.g. `reviews/proof-review/small/REPORT.md`); any path spelling is accepted and the script hashes it. It may be omitted: the focus decides the report path.
 
 The recorded header (built by the script from your facts; shown so you know what is checked):
 
 ```
 ROLE: reviewer
 TASK: <TASK-ID>
-FOCUS: <plan|rules|tests|data|rules+tests>
-RESULT: <PASS|FAIL|BLOCKED>
+FOCUS: <plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration>
+RESULT: <PASS|FAIL|BLOCKED|UNSUPPORTED>
 CONFIDENCE: <high|medium|low>
 FINGERPRINT: <current content fingerprint>
 ARTIFACT: <run-relative path, e.g. reviews/proof-review/small/REPORT.md> <sha256>
@@ -89,6 +106,8 @@ exists, else PASS. Suspicions, slow tests and other notes are `info` rows and ne
 - `data`: a destructive or irreversible operation in the diff while PLAN `## Data` says `destructive: no`; a
   migration step without the plan's rollback or reversibility; a schema change the plan does not name; a
   broken invariant from `design/DATA.md`.
+- `contract`, `concurrency`, `performance`, `config`, `migration`: the skill's own rule; a measured, reproduced
+  or traced violation is `blocking`, a judged one only when it breaks a criterion written in the spec or plan.
 - A pre-existing failure (also fails at the base) is `info`, never `blocking`.
 - PASS with `CONFIDENCE: low` does not satisfy the gate; report it honestly, the focus re-runs stronger.
 - BLOCKED records no gate: tooling, environment or a missing artifact prevented evaluation.

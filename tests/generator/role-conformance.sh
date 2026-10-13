@@ -32,7 +32,7 @@ for f in "$d"/*.md; do
       cur=k; val[k]=v; if (v ~ /#/) print "hash in " k; if (k!="model" && k!="effort" && v=="") print "empty " k
       next }
     fm==1 { body=body $0 "\n"; if ($0 ~ /^## /) h[++hn]=$0
-      if ($0 ~ /^RESULT: /) { if ($0==GATE_RES) rg=1; else if ($0==TASK_RES) rt=1; else print "bad RESULT line " $0 }
+      if ($0 ~ /^RESULT: /) { if ($0==GATE_RES || (base=="reviewer" && $0=="RESULT: <PASS|FAIL|BLOCKED|UNSUPPORTED>")) rg=1; else if ($0==TASK_RES) rt=1; else print "bad RESULT line " $0 }
       # severity: exactly blocking | info
       if ($0 ~ /(^|[^A-Za-z_])(INFO|HIGH|MEDIUM|LOW)([^A-Za-z_]|$)/) print "old severity word: " $0
       if (tolower($0) ~ /severity/ && $0 !~ /^\| id \| severity/) {
@@ -89,7 +89,7 @@ for f in "$d"/*.md; do
   else [ "$(model "$f" economy)" = opus ] && out="$out economy-opus"; fi
   [ "$(model "$f" max)" = opus ] || out="$out max-not-opus"
   grep -q '^FOCUS:' "$f" && [ "$b" != reviewer ] && out="$out stray-FOCUS"
-  [ "$b" = reviewer ] && { grep -q '^FOCUS: <plan|rules|tests|data|rules+tests>$' "$f" || out="$out no-FOCUS"; }
+  [ "$b" = reviewer ] && { grep -q '^FOCUS: <plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration>$' "$f" || out="$out no-FOCUS"; }
   n=$(wc -l < "$f"); { [ "$n" -lt 60 ] || [ "$n" -gt 160 ]; } && out="$out lines=$n"
   if [ -n "$out" ]; then echo "FAIL $b:$out" | tr '\n' ' '; echo; fail=1; else echo "ok $b ($n lines)"; fi
 done

@@ -82,6 +82,62 @@ database:
   # Migration, seed and schema-push commands of the common ecosystems; add the project's own.
   migrate_commands: "(npm|pnpm|yarn|bun)( run)? (migrate|migration|migrations|seed|seeds|db[:-])[A-Za-z0-9:_-]*( |$), (^| )(npx|pnpm exec|bunx|yarn dlx) (prisma|drizzle-kit|knex|sequelize|sequelize-cli|typeorm|mikro-orm|db-migrate|node-pg-migrate)( |$), (^| )prisma (migrate|db) , (^| )drizzle-kit (push|migrate|drop), (^| )(knex|sequelize|sequelize-cli|typeorm|mikro-orm|umzug|db-migrate|node-pg-migrate) .*(migrat|seed|db:|schema:), (^| )alembic (upgrade|downgrade|stamp), (^| )flask( .*)? db (upgrade|downgrade|stamp|migrate), (manage\.py|django-admin)( .*)? (migrate|flush|sqlflush|loaddata|dbshell), (^| )(rails|rake|bin/rails)( .*)? db:, (^| )artisan (migrate|db:), (^| )(flyway|liquibase|dbmate|goose|atlas|sqitch|tern|phinx|diesel|sqlx|sea-orm-cli)( .*)? (migrate|up|down|apply|deploy|update|run|push|revert|redo|reset|drop|seed), (^| )dotnet ef (database|migrations) , (^| )mix ecto\.(migrate|rollback|reset|drop|setup|load), (^| )migrate( .*)? (up|down|goto|drop|force), (^| )db(:| )(seed|migrate|reset|drop|push|setup)"
 
+# Risk-adaptive pipeline (A78; `agent.sh pipeline <ID>` shows what fired and why). A signal comes from a changed
+# or planned path (`paths`, globs as in risky_paths), from text the diff adds (`content`, an extended regular
+# expression; empty = off), or from a PLAN.md flag. `check` is the focus it adds inside an existing gate:
+# contract, concurrency, performance, config (REVIEW_RULES, or REVIEW_SMALL on tier small), migration
+# (REVIEW_DATA), visual (QA), dependencies (SECURITY); a check runs only when its gate is required. `flag` is
+# the PLAN.md flag that must declare a path signal (contract_change, concurrency, performance_critical in
+# `## Risk`; data_change = a `## Data` section; ui = a `## UI` section); a diff signal without it is a blocking
+# finding of its focus. `design_role` declares it before FREEZE. Plain documentation never carries a signal.
+# The block is frozen with the plan (freeze.risk_sha256); the lead never edits it during a run.
+risk:
+  contract_file:
+    paths: "**/openapi*.yaml **/openapi*.yml **/openapi*.json **/swagger*.yaml **/swagger*.yml **/swagger*.json **/asyncapi*.yaml **/asyncapi*.yml **/asyncapi*.json *.proto *.graphql *.graphqls *.gql *.avsc *.schema.json"
+    # A contract under any other name: an OpenAPI/AsyncAPI/Swagger root key, a JSON Schema, a proto file header.
+    content: ^(openapi|asyncapi|swagger):|"\$schema"|^syntax = "proto
+    flag: contract_change
+    check: contract
+    design_role: architect
+  migration:
+    paths: "**/migrations/** **/migration/** **/db/migrate/** **/alembic/versions/** *.sql"
+    flag: data_change
+    check: migration
+    design_role: data_architect
+  ui_path:
+    paths: "*.html *.htm *.css *.scss *.sass *.less *.jsx *.tsx *.vue *.svelte"
+    flag: ui
+    check: visual
+    design_role: designer
+  dependency_manifest:
+    paths: "package.json package-lock.json yarn.lock pnpm-lock.yaml go.mod go.sum Cargo.toml Cargo.lock requirements*.txt pyproject.toml poetry.lock uv.lock Pipfile Pipfile.lock Gemfile Gemfile.lock pom.xml build.gradle build.gradle.kts *.csproj Directory.Packages.props packages.lock.json composer.json composer.lock mix.exs mix.lock conanfile.txt vcpkg.json"
+    check: dependencies
+  config_env:
+    paths: ".env .env.* *.env **/config/*.yaml **/config/*.yml **/config/*.json **/config/*.toml **/config/*.ini *.ini *.properties appsettings*.json"
+    check: config
+  # Optional and language-specific, so off by default: set `content` to the project's own idioms.
+  concurrency_hint:
+    content:
+    flag: concurrency
+    check: concurrency
+    design_role: architect
+  performance_hint:
+    content:
+    flag: performance_critical
+    check: performance
+    design_role: architect
+  # Plan flags: a flag set in PLAN.md adds its check even without a matching path.
+  contract_change:
+    check: contract
+  concurrency:
+    check: concurrency
+  performance_critical:
+    check: performance
+  destructive:
+    check: migration
+  ui:
+    check: visual
+
 # --- Inherited from the source workflow --------------------------------------------------
 default_mode: deterministic
 # The active-run selector (local state, git-ignored). Absent or empty: no active task.

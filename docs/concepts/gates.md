@@ -26,13 +26,31 @@ come from `review.risky_paths`. Code-like Markdown (`.agents/**`, `skills/**`, `
 | `SECRETS` | always | `agent.sh secret-scan` (script) |
 | `REVIEW_SMALL` | tier small | reviewer |
 | `REVIEW_PLAN`, `REVIEW_RULES`, `REVIEW_TESTS` | tier full | reviewer |
-| `REVIEW_DATA` | tier full and plan has `## Data` | reviewer |
+| `REVIEW_DATA` | tier full and plan has `## Data`, or a migration in the diff | reviewer |
 | `SECURITY` | tier full | security reviewer |
 | `QA` | class STANDARD and up | QA |
 | `VERIFY` | always | verifier |
 
 Status per gate: `pass`, `pass_low` (a PASS with `CONFIDENCE: low` does not count; re-run with a stronger model),
 `waived`, `fail`, `stale`, `missing`. `agent.sh pipeline <ID>` prints them.
+
+## Risk signals
+
+Besides class and tier, deterministic risk signals choose extra checks, each a focus inside an existing gate
+(decision A78; table in `.agents/GATES.md`). A signal comes from a changed or planned path (contract files,
+migrations, UI files, dependency manifests, config and env files), from text the diff adds (optional, off by
+default), or from a flag the architect or data architect writes into PLAN.md (`## Risk`: `contract_change`,
+`concurrency`, `performance_critical`; `## Data`; `## UI`). The checks: REVIEW focuses `contract`,
+`concurrency`, `performance`, `config`; REVIEW_DATA `migration`; QA `visual`; SECURITY `dependencies`.
+
+- `agent.sh pipeline <ID>` shows every signal, its source, the check it triggers and why. Before FREEZE the
+  signals of the planned scope are visible, so the right design role declares the flag.
+- A signal in the diff without its plan flag (a contract file changed, `contract_change` not set) is a
+  blocking finding of that focus, and the check still runs.
+- A gate passes only when its own focus and every risk focus it carries pass.
+- A check whose skill or tool is missing is `UNSUPPORTED`: never a PASS, waivable only by the user, and listed
+  in the completion report.
+- The mapping lives in `.agents/config.yaml` and is frozen with the plan; the lead cannot change it during a run.
 
 Other FAIL rules: a failing test that also fails at the base in a clean worktree is reported as pre-existing;
 a new dependency not named in the plan is a FAIL; so is a change to a versioned contract the plan does not name.

@@ -24,7 +24,7 @@ whose content is unchanged).
 | `SECRETS` | always | `agent.sh secret-scan <ID>` (script; never waivable) |
 | `REVIEW_SMALL` | tier small | reviewer, FOCUS `rules+tests` |
 | `REVIEW_PLAN`, `REVIEW_RULES`, `REVIEW_TESTS` | tier full | reviewer, FOCUS `plan`, `rules`, `tests` |
-| `REVIEW_DATA` | tier full and PLAN.md has `## Data` | reviewer, FOCUS `data` |
+| `REVIEW_DATA` | tier full and PLAN.md has `## Data`, or a `migration` risk signal | reviewer, FOCUS `data` |
 | `SECURITY` | tier full | security_reviewer (never waivable) |
 | `QA` | class STANDARD and up | qa (RESULT PASS/FAIL) |
 | `VERIFY` | always | verifier |
@@ -48,6 +48,44 @@ Provenance: a gate record, waiver or approval counts only when the command that 
 `secret-scan`, `amend`, `waive`, `approve`) bound `<dir>/<file>@<sha256>` in a ledger entry of its own event.
 A hand-written or later edited file is ignored by every evaluation; `validate` names unbound gate records and
 waivers.
+
+## Risk signals and focuses (A78)
+
+Deterministic risk signals add focuses inside the gates above; they never add a gate type. Config `risk:`
+(`.agents/config.yaml`) maps each signal to one focus:
+
+| Signal | Source | Declared by (PLAN.md) | Focus | Gate |
+|---|---|---|---|---|
+| `contract_file` | changed or planned path (OpenAPI, AsyncAPI, Swagger, proto, GraphQL, Avro, JSON Schema files), or added text `^(openapi\|asyncapi\|swagger):`, `"$schema"`, `^syntax = "proto` | `## Risk` `contract_change: yes` | `contract` | REVIEW_RULES (REVIEW_SMALL on tier small) |
+| `migration` | path under `migrations/`, `migration/`, `db/migrate/`, `alembic/versions/`, or `*.sql` | a `## Data` section | `migration` | REVIEW_DATA |
+| `ui_path` | `*.html *.css *.scss *.jsx *.tsx *.vue *.svelte` and similar | a `## UI` section | `visual` | QA |
+| `dependency_manifest` | a dependency manifest or lock file | none (`## Dependencies` is checked by the focus) | `dependencies` | SECURITY |
+| `config_env` | `.env*`, `config/*.yaml`, `*.ini`, `*.properties`, `appsettings*.json` | none | `config` | REVIEW_RULES / REVIEW_SMALL |
+| `concurrency_hint`, `performance_hint` | text the diff adds (`content`, off by default) | `concurrency: yes`, `performance_critical: yes` | `concurrency`, `performance` | REVIEW_RULES / REVIEW_SMALL |
+| flags `contract_change`, `concurrency`, `performance_critical`, `destructive`, `ui` | PLAN.md | itself | as above (`destructive` adds `migration`) | as above |
+
+Plain documentation (`.md .mdx .rst .adoc`) and `.agents/` never carry a path or content signal. A check runs
+only when its gate is required for the class and tier (TRIVIAL has no QA gate, so no `visual` check). A
+migration path signal is a risky path, so the tier is full and REVIEW_DATA exists to carry it. A flag set to
+`yes` requires its check whether or not the diff carries the signal.
+
+- **Pipeline.** `agent.sh pipeline <ID>` prints `signals=`, one `signal.<name>=source=<diff|scope|plan>:<what>(<why>)
+  check=<GATE>:<focus> flag=<flag>:<yes|no> design_role=<role>` per signal, `missing_flag.<name>=` lines,
+  `focus.<GATE>.<focus>=<status>` per risk focus, `design_role.<role>=` and `unsupported.<GATE>:<focus>=` lines.
+  Signals are computed from the PLAN.md scope before FREEZE, so `next` dispatches the design role
+  (architect, data_architect, designer) that must declare a flag.
+- **Gate status.** A gate is the worst status over its own focus and every risk focus it carries; it cannot
+  be `pass` while a required focus result is missing, stale, failing or UNSUPPORTED.
+- **Missing flag.** A diff signal whose flag PLAN.md does not set to `yes` makes `record` add a blocking finding
+  (`risk signal <name> without PLAN.md flag <flag>`) to that focus's result, whatever the reviewer found; the
+  check still runs. Fix: amend PLAN.md (the design role declares the flag) and refreeze, or the user waives it.
+- **UNSUPPORTED.** A risk focus whose skill or tool is missing is submitted with `--result UNSUPPORTED --reason
+  "<what is missing>"`. It is recorded as a blocking `UNSUPPORTED <focus>: <reason>` finding: never a PASS;
+  only the user can waive it (never for SECURITY); the completion report needs `## Unsupported Checks` naming
+  each such `<GATE>:<focus>`. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED.
+- **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block with `freeze.risk_sha256`. A
+  change of either after FREEZE fails `verify-freeze` until an amendment and refreeze. The lead never writes
+  `.agents/config.yaml` during a run (runtime hook).
 
 ## CODE_DONE and after
 

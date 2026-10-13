@@ -7,6 +7,7 @@
 | `## Architecture` | class COMPLEX or CRITICAL | Architect (system-design / api-design text), pasted by the lead |
 | `## Data` | a scope path is persistence (`migrations/`, `schema`, `db/`, `*.sql`, `prisma`), or the task changes stored data | Data Architect (data-design text) |
 | `## UI` | (not for TRIVIAL) a scope path is UI (`*.html`, `*.css`, `*.jsx`, `*.tsx`, `*.vue`, `*.svelte`, `components/`, `pages/`, `views/`, `templates/`), or the task changes what a user sees | Designer (ui-design text) |
+| `## Risk` | optional: only flag lines `contract_change: yes\|no`, `concurrency: yes\|no`, `performance_critical: yes\|no` (a trailing note after a space is allowed). In a proofline team run they are frozen with the plan and select extra review checks; a contract file changed without `contract_change: yes` fails review | Architect, pasted by the lead |
 | `## Behavior` | always | lead |
 | `## Tests` | always | lead |
 | `## Verification commands` | always | lead |

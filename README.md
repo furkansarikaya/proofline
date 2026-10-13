@@ -11,6 +11,7 @@
 - Eleven **roles** (lead, task author, explorer, architect, data architect, designer, QA, implementer, reviewer, security reviewer, verifier). Only the lead dispatches; specialists never spawn agents.
 - Seventeen method **skills** plus the `/proofline` command entry skill, each usable on its own, each producing runnable or traceable evidence.
 - Independent **gates** (secrets, reviews, security, QA, verify) judged by scripts on the exact content, never by the lead.
+- **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script; tested by the control-plane self-tests and the `risk-signals` fixture. The contract, concurrency, performance and visual focuses have no skill yet; they report UNSUPPORTED, which is never a pass and only the user can waive.
 - **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
 - Runs on Claude Code and Codex; any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier.
 

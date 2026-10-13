@@ -42,6 +42,13 @@ Report step (once IMPLEMENTED):
    evidence for `QA_REPORT.md`, never a gate artifact. Write `QA_REPORT.md`.
 4. Apply the gate rule, compute the sha256 of `QA_REPORT.md`, return the result. Stop.
 
+Visual focus (A78; when `agent.sh pipeline <ID>` lists `focus.QA.visual`, from a UI path or the PLAN `## UI`
+section): a separate assignment with FOCUS `visual` in the same QA gate. Run the visual check (visual-proof skill)
+with the project's own browser tooling only and write `reviews/visual-proof/REPORT.md`. When the skill or a
+browser is not available, submit `--focus visual --result UNSUPPORTED --reason "<what is missing>"`: it is
+recorded as a blocking `UNSUPPORTED` finding, never a PASS; only the user may waive it and the completion report
+lists it. Never install a tool.
+
 ## Output
 
 Report with `agent.sh submit`. You never type a result header, the fingerprint or a hash: the script builds
@@ -58,6 +65,13 @@ Report step (the QA gate; the result is derived from your findings, FAIL exactly
 ```
 AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> \
   --confidence <high|medium|low> [--artifact QA_REPORT.md] [--findings <rows file|->] [--report <file|->]
+```
+
+Visual focus (FOCUS `visual`, report `reviews/visual-proof/REPORT.md`; `--result UNSUPPORTED --reason "<one line>"`
+when the skill or browser is missing):
+```
+AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --focus visual \
+  --confidence <high|medium|low> [--result UNSUPPORTED --reason "<one line>"] [--artifact reviews/visual-proof/REPORT.md] [--findings <rows file|->] [--report <file|->]
 ```
 
 The recorded header (built by the script from your facts; shown so you know what is checked):
