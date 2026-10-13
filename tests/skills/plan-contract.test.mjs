@@ -144,6 +144,9 @@ test("A81: ## UI visual_proof line is checked when present and required for COMP
   const strong = (lines) => plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", ...lines] } });
   assert.deepEqual(errs(ui([])), []);
   assert.deepEqual(errs(ui(["visual_proof: AC-1, AC-4"])), []);
+  // A94: the same line shape as verify-proof reads (spacing and backtick variants; a bullet marker needs a space)
+  for (const l of ["- visual_proof: AC-1", "* visual_proof:   AC-1  ", "`visual_proof: AC-1`", "- `visual_proof: AC-1`"]) assert.deepEqual(errs(ui([l])), [], l);
+  assert.deepEqual(errs(ui(["-visual_proof: AC-1"])), [], "not a visual_proof line for either validator");
   assert.deepEqual(errs(ui(["visual_proof: none"])), []);
   has(errs(ui(["visual_proof: AC-1, AC-9"])), "visual_proof names unknown criterion AC-9");
   has(errs(ui(["visual_proof: AC-1, AC-1"])), "lists a criterion twice");

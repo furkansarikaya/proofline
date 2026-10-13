@@ -565,6 +565,18 @@ export function diffDocs(base, head, kind, rootPath = null) {
         const narrows = vb === false; add(narrows ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, el(q)); continue;
       }
       if (k === "uniqueItems") { add(vb === true ? pick(side, "CP-B09", "CP-N06") : pick(side, "CP-N06", "CP-B09"), s, side, va, vb, ln, el(q)); continue; }
+      if ((k === "oneOf" || k === "anyOf") && Array.isArray(va) && Array.isArray(vb) && va.length !== vb.length) {
+        // union membership (A94): a removed member is CP-B06 on any side, an added one CP-N03 (request) or CP-N04
+        const nm = (m, i) => `${k}[${isObj(m) && typeof m.$ref === "string" ? m.$ref.split("/").pop() : i}]`;
+        const used = new Set();
+        va.forEach((m, i) => {
+          const j = vb.findIndex((x, jj) => !used.has(jj) && deq(m, x));
+          if (j >= 0) used.add(j);
+          else add("CP-B06", [...s, i], side, m, undefined, { n: lineOf(va, i) ?? ln?.n ?? 1, in: "base", file: FILE_OF.get(a) }, el(q, nm(m, i)));
+        });
+        vb.forEach((m, j) => { if (!used.has(j) && !va.some((x) => deq(x, m))) add(side === "request" ? "CP-N03" : "CP-N04", [...s, j], side, undefined, m, { n: lineOf(vb, j) ?? ln?.n ?? 1, in: "head", file: FILE_OF.get(b) }, el(q, nm(m, j))); });
+        continue;
+      }
       if (va === undefined || vb === undefined) {
         if (isObj(va ?? vb)) { walk(va ?? {}, vb ?? {}, s, side, ra.stack, rb.stack, a, b, k, q); continue; }
         add("CP-U01", s, side, va, vb, ln, el(q, k)); continue;
@@ -928,7 +940,7 @@ export const hasToken = (text, tok) => {
   return new RegExp(`(^|[^A-Za-z0-9_./{}-])${e}(?=$|[^A-Za-z0-9_./{}-]|\\.(\\s|$))`).test(text);
 };
 // a negation anywhere in the clause that carries the element and the keyword voids it
-const NEGATION = /\b(no|not|never|none|nothing|neither|nor|without|cannot|lacks?|unnecessary|needless|skip(ped|s)?|avoid(s|ed|ing)?|defer(s|red|ring)?|pending|tbd|reject(s|ed|ing)?|forgo(es|ne|ing)?|drop(s|ped|ping)?|revert(s|ed|ing)?|except)\b|\binstead of\b|\bout of scope\b|n't\b|\b(non|un)-?(version|migrat|deprecat)|[=:]\s*false\b|\?/i;
+const NEGATION = /(?<![\w@/.-])(no|not|never|none|nothing|neither|nor|without|cannot|lacks?|unnecessary|needless|skip(ped|s)?|avoid(s|ed|ing)?|defer(s|red|ring)?|pending|tbd|todo|reject(s|ed|ing)?|forgo(es|ne|ing)?|drop(s|ped|ping)?|revert(s|ed|ing)?|except|impossible|later|unknown|nil)(?![\w@/-]|\.\w)|\bn\/?a\b|\bw\/o\b|\bout[- ]of[- ]scope\b|\bas[- ]is\b|[=:]\s*(0|no|nil|null|off)\b|\binstead of\b|\bout of scope\b|n't\b|\b(non|un)-?(version|migrat|deprecat)|[=:]\s*false\b|\?/i;
 // clauses end at `;` or at a sentence dot (`Order.id` and `openapi.yaml` keep theirs)
 const clauses = (t) => t.split(/;|\.(?=\s|$)/);
 // a bare element (`id`, `name`, an enum value) only counts as a code span, never as any word
@@ -941,7 +953,9 @@ export function coverage(path, change, bullets) {
   if (!BLOCKING_CLASSES.includes(change.classification)) return none;
   const b = bullets.find((x) => hasToken(x.text, path) && clauses(x.text).some((c) => {
     const words = c.replace(/info\.version/gi, " ");
-    return namesElement(c, change.element) && COVER_KEYWORD.test(words) && !NEGATION.test(words);
+    // the element's own name (`skip-list`, `no-case`) is not a negation of it
+    const bare = words.split("`" + change.element + "`").join(" ").split(change.element).join(" ");
+    return namesElement(c, change.element) && COVER_KEYWORD.test(words) && !NEGATION.test(bare);
   }));
   return b ? { covered: true, plan_line: b.line, text: b.text } : none;
 }
@@ -1038,8 +1052,9 @@ export function run(opts) {
     if (r) rows.set(p, r.row);
   } else {
     const changed = changedPaths(opts.repo, opts.base);
-    const explicit = opts.paths.length > 0;
-    const want = explicit ? opts.paths : [...changed.keys()];
+    // A94: --path is additive to discovery; a named path must be a changed file or it is UNSUPPORTED
+    const named = new Set(opts.paths.map((p) => p.replace(/^\.\//, "")));
+    const want = [...new Set([...changed.keys(), ...named])];
     const loadBase = (p) => show(opts.repo, opts.base, p), loadHead = (p) => readHead(opts.repo, p);
     const fragOf = new Map(), unresolved = new Map();
     const diffRoot = (p, c, isExplicit) => {
@@ -1053,7 +1068,12 @@ export function run(opts) {
     Object.assign(settings, contractSettings(opts.repo));
     for (const p of [...want].sort()) {
       const c = changed.get(p);
-      if (!c) { if (explicit) rows.set(p, { path: p, format: "unknown", change: "unchanged", status: "compared", changes: [] }); continue; }
+      const explicit = named.has(p);
+      if (!c) {
+        const exists = show(opts.repo, opts.base, p) !== null || readHead(opts.repo, p) !== null;
+        rows.set(p, { path: p, format: "unknown", change: "unchanged", status: "unsupported", reason: exists ? "named by --path but not changed against the base: nothing was compared" : "named by --path but not found at the base or in the working tree (mistyped?)", changes: [] });
+        continue;
+      }
       // parse first: a file on the not-a-contract list or under contract.ignore is skipped only when it is
       // not a contract; a recognized contract is always compared (`.github/openapi.yaml` too)
       const forced = globMatch(p, settings.paths);

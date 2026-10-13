@@ -32,12 +32,15 @@ function sections(text) {
   return out;
 }
 
+// Shared rule, duplicated in plan-contract's validate-plan.mjs (skills share no files; tests pin both): an optional
+// bullet marker followed by a space, optional backticks, `visual_proof:` and the value.
+const VISUAL_PROOF_LINE = /^\s*(?:[-*]\s+)?`?visual_proof:\s*([^`]*?)\s*`?\s*$/;
 // The frozen PLAN `## UI` line `visual_proof: AC-1, AC-3` (or `none`) written by ui-design (A81).
 export function visualProofIds(planText) {
   let inUi = false;
   for (const line of strip(planText).split(/\r?\n/)) {
     if (/^## /.test(line)) { inUi = /^## UI\s*$/.test(line); continue; }
-    const m = inUi && /^\s*(?:[-*]\s+)?`?visual_proof:\s*([^`]*)`?\s*$/.exec(line);
+    const m = inUi && VISUAL_PROOF_LINE.exec(line);
     if (m) return /^none$/i.test(m[1].trim()) ? [] : m[1].split(",").map((x) => x.trim()).filter(Boolean);
   }
   return [];

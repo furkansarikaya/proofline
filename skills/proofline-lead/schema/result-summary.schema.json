@@ -5,14 +5,14 @@
   "description": "The compact JSON scripts/check-result.mjs prints for one valid D12 specialist result.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["role", "task", "kind", "gate", "focus", "result", "confidence", "pass_low", "counts", "fingerprint", "artifact", "blocking", "fix_scope", "info_count", "blocked_reason", "questions"],
+  "required": ["role", "task", "kind", "gate", "focus", "result", "confidence", "pass_low", "counts", "fingerprint", "artifact", "blocking", "fix_scope", "info_count", "blocked_reason", "unsupported_reason", "questions"],
   "properties": {
     "role": { "enum": ["lead", "task_author", "explorer", "architect", "data_architect", "designer", "qa", "implementer", "reviewer", "security_reviewer", "verifier"] },
     "task": { "type": "string", "minLength": 1 },
     "kind": { "enum": ["gate", "task"] },
     "gate": { "enum": ["REVIEW_SMALL", "REVIEW_PLAN", "REVIEW_RULES", "REVIEW_TESTS", "REVIEW_DATA", "SECURITY", "QA", "VERIFY", null] },
-    "focus": { "enum": ["plan", "rules", "tests", "data", "rules+tests", null] },
-    "result": { "enum": ["PASS", "FAIL", "BLOCKED", "DONE", "NEEDS_INPUT"] },
+    "focus": { "enum": ["plan", "rules", "tests", "data", "rules+tests", "contract", "concurrency", "performance", "config", "migration", "visual", "dependencies", null] },
+    "result": { "enum": ["PASS", "FAIL", "BLOCKED", "DONE", "NEEDS_INPUT", "UNSUPPORTED"] },
     "confidence": { "enum": ["high", "medium", "low"] },
     "pass_low": { "type": "boolean", "description": "PASS with CONFIDENCE low: recorded as pass_low, never satisfies the gate" },
     "counts": { "type": "boolean", "description": "a gate PASS that satisfies the gate once recorded on the current content" },
@@ -27,6 +27,7 @@
     "fix_scope": { "type": "array", "items": { "type": "string" }, "description": "FAIL only: unique finding paths without the line or symbol; * = any frozen scope path" },
     "info_count": { "type": "integer", "minimum": 0 },
     "blocked_reason": { "type": ["string", "null"] },
+    "unsupported_reason": { "type": ["string", "null"], "description": "UNSUPPORTED only: the UNSUPPORTED_REASON line (the tool or skill that is missing)" },
     "questions": { "type": "integer", "minimum": 0, "description": "numbered questions in the QUESTIONS: block" }
   }
 }

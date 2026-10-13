@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { validateVerify } from "../../skills/verify-proof/scripts/validate-verify.mjs";
+import { validateVerify, visualProofIds } from "../../skills/verify-proof/scripts/validate-verify.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../skills/verify-proof/scripts/validate-verify.mjs", import.meta.url));
 const TASK = "## Acceptance criteria\n- AC-1: returns 429\n- AC-2: resets counter\n";
@@ -173,4 +173,13 @@ test("A82: a criterion on the PLAN visual_proof line is unproven without visual-
   assert.match(validateVerify(mk({ rows: cited.replace("AC-1 proven", "AC-10 proven") }), TASK, plan).errors.join(), /PASS needs/);
   // `none`, no line, or the line outside ## UI: unchanged behaviour
   for (const p of [`${PLAN()}\n## UI\nvisual_proof: none\n`, PLAN(), `${PLAN()}\n## Notes\nvisual_proof: AC-1\n`]) assert.equal(validateVerify(mk(), TASK, p).errors.join(), "");
+});
+
+test("visual_proof line: spacing and backtick variants parse; the plan validator reads the same shape (A94)", () => {
+  const plan = (l) => `## UI\n\n${l}\n`;
+  for (const l of ["visual_proof: AC-1, AC-3", "- visual_proof: AC-1, AC-3", "* visual_proof:   AC-1, AC-3  ", "`visual_proof: AC-1, AC-3`", "- `visual_proof: AC-1, AC-3`"]) {
+    assert.deepEqual(visualProofIds(plan(l)), ["AC-1", "AC-3"], l);
+  }
+  assert.deepEqual(visualProofIds(plan("-visual_proof: AC-1")), [], "no space after the bullet marker is not a line");
+  assert.deepEqual(visualProofIds(plan("visual_proof: none")), []);
 });

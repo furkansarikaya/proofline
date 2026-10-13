@@ -37,7 +37,7 @@ at all unless the resolved shape differs.
 | `CP-B03` | type changed; on request a type narrowed, on response a type widened; a media type removed; protobuf `repeated` toggled; an rpc's request or response type changed | `integer` -> `number` widens |
 | `CP-B04` | optional became required on the **request** side, or required became optional on the **response** side | also a non-null GraphQL argument or input field made from a nullable one; a `both` side always takes this rule |
 | `CP-B05` | new required request field, parameter or `requestBody` (also a name added to `required` that has no property schema), or a new non-null GraphQL argument / input field without a default; a new protobuf `required` field | **A `default` does not help in OpenAPI or JSON Schema**: `required` rejects an absent value before any default is applied, so `required` + `default` is `CP-B05`. GraphQL is different: a non-null argument with a default may be omitted (`CP-N10`). |
-| `CP-B06` | enum value or union member removed | any side (a request caller still sends it; a producer of a `both` message may still emit it) |
+| `CP-B06` | enum value or union member removed | any side (a request caller still sends it; a producer of a `both` message may still emit it). A `oneOf`/`anyOf` whose length changed is compared member by member: a member no longer present is `CP-B06`, a new one `CP-N03` (request) or `CP-N04` (response, both); a member edited in place is classified by its own changes. |
 | `CP-B07` | parameter, header or argument removed; a `requestBody` removed | |
 | `CP-B08` | response status code removed | consumers branch on it |
 | `CP-B09` | constraint narrowed on the request side or relaxed on the response side; a `pattern`, `format`, `multipleOf` or `const` **changed** on any side | `maxLength`, `maxItems`, `maxProperties`, `maximum`, `exclusiveMaximum` down; their `min` counterparts up; `pattern`, `format`, `multipleOf`, `const` added (request) or removed (response), and changed anywhere (a different value set is neither narrower nor wider); `additionalProperties: false`; `uniqueItems: true`; `nullable` removed (request) or added (response); a GraphQL response field made nullable |
@@ -62,7 +62,7 @@ at all unless the resolved shape differs.
 
 | Rule | Change |
 |---|---|
-| `CP-U01` | anything else: a keyword the rules do not know (`default`, `readOnly`, `x-*` extensions, `servers`, `operationId`, composition `allOf`/`oneOf`/`anyOf` whose length changed, a changed `$ref` target that cannot be resolved, protobuf `package`, `syntax`, `option`, `oneof` membership or a removed `reserved` entry, GraphQL directives other than `@deprecated`, `implements`, a changed default value, a type that tightens one marker and loosens another). |
+| `CP-U01` | anything else: a keyword the rules do not know (`default`, `readOnly`, `x-*` extensions, `servers`, `operationId`, composition `allOf` whose length changed, a changed `$ref` target that cannot be resolved, protobuf `package`, `syntax`, `option`, `oneof` membership or a removed `reserved` entry, GraphQL directives other than `@deprecated`, `implements`, a changed default value, a type that tightens one marker and loosens another). |
 
 `needs-review` counts as **breaking** for the gate until it is classified. To classify it, the reviewer reads
 both versions and either keeps `CP-U01` or replaces it by the matching rule above with `evidence.class:

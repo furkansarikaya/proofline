@@ -42,6 +42,19 @@ test("parser takes numbered, table and bold-id items by section and guesses noth
   assert.deepEqual(items.map((i) => `${i.kind}:${i.id}`), ["expect:1", "expect:2", "trap:X1"]);
 });
 
+test("structured fallback (A94): traps, planted facts and must-hold sections give positional ids; prose alone stays unmeasurable", () => {
+  const md = "# x\n\n## Scenario\n\n- a build step that is not a fact\n\n## Planted facts\n\n| Where | Kind |\n|---|---|\n| a.js:1 | exact |\n| b.js:2 | textual |\n\nTraps, none of which may be a reference:\n\n- c.js declares its own\n- d.js is a comment\n\n## Must hold\n\n- no database is touched\n";
+  const items = parseExpected(md);
+  assert.deepEqual(items.map((i) => `${i.kind}:${i.id}`), ["expect:F1", "expect:F2", "trap:T1", "trap:T2", "expect:F3"]);
+  assert.deepEqual(parseExpected("# beta\n\n## Notes\n\nThe skill should do something sensible.\n- a bullet in a plain section\n"), []);
+  // an id-keyed file keeps its ids; the fallback never runs on it
+  assert.deepEqual(parseExpected("## MUST\n\n1. a\n\n## Traps\n\n- t\n").map((i) => i.id), ["1"]);
+  for (const name of ["contract-proof", "impact-map", "insights", "migration-validation"]) {
+    const real = parseExpected(readFileSync(join(dirname(script), "../../fixtures", name, "EXPECTED.md"), "utf8"));
+    assert.ok(real.some((i) => i.kind === "expect") && real.some((i) => i.kind === "trap" || name === "migration-validation"), name);
+  }
+});
+
 test("planted miss and planted false positive are counted exactly", () => {
   const r = build({ fixturesDir: fx, verdicts });
   const a = r.fixtures.find((f) => f.skill === "alpha");

@@ -138,15 +138,60 @@ test("repository mode: parse first; a contract under a not-a-contract name is co
   bad({ ...r, ignored: [...r.ignored, { path: "data/x.json", reason: "mine" }] }, /neither on the not-a-contract list nor under contract.ignore/);
   bad({ ...r, settings: { paths: [], ignore: ["**"] } }, /differ from the repository's contract.paths/, { regenerated: runRepo(dir) });
 });
-test("validator --path: a report made with --path validates with --repo/--base and the same paths", () => {
+test("validator --path: --path is additive to discovery and the validator re-runs it with the same paths", () => {
   const out = join(base, "subset.json");
   let r = spawnSync("node", [DIFF, "--repo", repo, "--base", "HEAD~1", "--path", "graphql/schema.graphql", "--out", out], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
+  const d = JSON.parse(readFileSync(out, "utf8"));
+  assert.ok(d.files.some((f) => f.path === "api/openapi.yaml"), "auto-discovered contracts stay in the report");
   r = spawnSync("node", [VALIDATE, out, "--repo", repo, "--base", "HEAD~1", "--path", "graphql/schema.graphql"], { encoding: "utf8" });
-  assert.equal(r.status, 0, r.stderr);
-  r = spawnSync("node", [VALIDATE, out, "--repo", repo, "--base", "HEAD~1"], { encoding: "utf8" });
-  assert.equal(r.status, 1, "without the same --path the whole diff is required");
+  assert.doesNotMatch(r.stderr, /dropped it|differ/, "same paths: nothing missing (only the unsearched consumers are reported)");
+  writeFileSync(join(base, "hand-subset.json"), JSON.stringify({ ...d, files: d.files.filter((f) => f.path === "graphql/schema.graphql") }));
+  r = spawnSync("node", [VALIDATE, join(base, "hand-subset.json"), "--repo", repo, "--base", "HEAD~1"], { encoding: "utf8" });
+  assert.match(r.stderr, /the report dropped it/, "a hand-filtered report is not the whole diff");
   assert.equal(spawnSync("node", [VALIDATE, out, "--path", "x"]).status, 2, "--path needs --repo");
+});
+test("--path: a mistyped or unchanged path is UNSUPPORTED, never a compared PASS, and discovered changes stay", () => {
+  const spec = (props) => JSON.stringify({ openapi: "3.0.3", info: { title: "T", version: "1" }, paths: {}, components: { schemas: { O: { type: "object", properties: props } } } });
+  const dir = mini("pathtypo", { "api/openapi.json": spec({ a: { type: "string" }, b: { type: "string" } }), "api/other.json": spec({ a: { type: "string" } }) },
+    { "api/openapi.json": spec({ a: { type: "string" } }) });
+  const r = run({ repo: dir, base: "HEAD~1", paths: ["api/openapi.jsn", "api/other.json"], plan: null, impact: null });
+  const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
+  assert.equal(by["api/openapi.jsn"].status, "unsupported");
+  assert.match(by["api/openapi.jsn"].reason, /mistyped/);
+  assert.equal(by["api/other.json"].status, "unsupported");
+  assert.match(by["api/other.json"].reason, /not changed/);
+  assert.ok(by["api/openapi.json"].changes.some((c) => c.rule === "CP-B02"), "the auto-discovered breaking change is still reported");
+  const full = { ...r, files: r.files.map((f) => ({ ...f, changes: f.changes.map((c) => ({ ...c, consumers: { source: "impact", in_repo: [], outside_repo: "unknown" } })) })) };
+  assert.equal(gate(full).result, "FAIL");
+  const only = run({ repo: dir, base: "HEAD~1", paths: ["api/openapi.jsn"], plan: null, impact: null });
+  assert.ok(only.files.every((f) => f.path !== "api/openapi.jsn" || f.status === "unsupported"));
+});
+test("a made-up tools.used entry cannot turn an UNSUPPORTED file into compared", () => {
+  const un = { path: "l.yaml", format: "yaml", status: "unsupported", reason: "anchor", changes: [] };
+  const regen = { settings: { paths: [], ignore: [] }, ignored: [], files: [un], tools: { detected: [] } };
+  const claimed = doc([file([], { path: "l.yaml", format: "yaml" })], { tools: { detected: [], used: [{ name: "oasdiff", command: "oasdiff changelog", exit_code: 0, output_excerpt: "ok" }] } });
+  bad(claimed, /not a detected tool/, { regenerated: regen });
+  const detected = doc([file([], { path: "l.yaml", format: "yaml" })], { tools: { detected: [{ name: "oasdiff", formats: ["openapi"] }], used: [{ name: "oasdiff", command: "oasdiff changelog", exit_code: 0, output_excerpt: "ok" }] } });
+  bad(detected, /handles yaml/, { regenerated: { ...regen, tools: { detected: [{ name: "oasdiff", formats: ["openapi"] }] } } });
+  bad(doc([], { tools: { detected: [{ name: "oasdiff", formats: ["openapi"] }], used: [{ name: "oasdiff", command: "true", exit_code: 0, output_excerpt: "" }] } }), /needs its command/);
+});
+test("plan coverage: N/A, none, not applicable, skip and similar negations never cover", () => {
+  const ch = { element: "Order.x", classification: "breaking" };
+  for (const t of ["migration: N/A", "migration: n/a", "migration: none", "migration not applicable", "migration: skip", "migration out-of-scope", "migration impossible", "w/o migration", "migration=0", "ship as-is, migration later"]) {
+    const b = planBullets(`## Contracts\n- \`o.yaml\` \`Order.x\` ${t}\n`);
+    assert.equal(coverage("o.yaml", ch, b).covered, false, t);
+  }
+  assert.equal(coverage("o.yaml", ch, planBullets("## Contracts\n- `o.yaml` `Order.x` removed: migration in place\n")).covered, true);
+});
+test("a removed oneOf/anyOf member is CP-B06 (any side); an added one is CP-N03 request or CP-N04 response", () => {
+  const sch = (members) => JSON.stringify({ openapi: "3.0.3", info: { title: "T", version: "1" }, paths: { "/x": { post: { requestBody: { content: { "application/json": { schema: { oneOf: members } } } }, responses: { "200": { description: "ok", content: { "application/json": { schema: { anyOf: members } } } } } } } } });
+  const A = { type: "string" }, B = { type: "integer" }, C = { type: "boolean" };
+  const rm = changes("o.json", sch([A, B, C]), sch([A, B]));
+  assert.deepEqual(rm.changes.map((c) => [c.side, c.rule]).sort(), [["request", "CP-B06"], ["response", "CP-B06"]]);
+  assert.ok(rm.changes.every((c) => c.line >= 1));
+  const add = changes("o.json", sch([A, B]), sch([A, B, C]));
+  assert.deepEqual(add.changes.map((c) => [c.side, c.rule]).sort(), [["request", "CP-N03"], ["response", "CP-N04"]]);
 });
 test("the not-a-contract list covers config files only", () => {
   for (const p of ["package.json", "web/package-lock.json", "tsconfig.base.json", ".eslintrc.json", "composer.json", ".github/workflows/ci.yml", "docker-compose.override.yml", "pnpm-lock.yaml"]) assert.ok(NOT_A_CONTRACT.test(p), p);

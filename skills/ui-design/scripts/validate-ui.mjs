@@ -27,7 +27,15 @@ const SELF_APPROVAL = /\b((this|the|my|our) (design|spec|ui|layout|screen)s?( \w
 // A redesign approval must come from the user: never the designer, an assumption or an implication.
 const NOT_USER = /\b(the designer|by designer|myself|self[- ]approved|assum\w*|implied|implicit)\b|\bI (approve|approved|decided|assume)\b/i;
 // A recorded answer: a run answer file, a question number of the NEEDS_INPUT round, or an intent-grill decision anchor.
-const ANSWER_REF = /(\bquestions\/\d{3}\.answer\.md\b|\bQ-?\d+\b|\bINTENT\.md#[\w-]+)/;
+// A Q token is a question number only when it is not a quarter or sprint label of a meeting ("Q3 planning review").
+const STRONG_REF = /(\bquestions\/\d{3}\.answer\.md\b|\bINTENT\.md#[\w-]+)/;
+const Q_REF = /\bQ-?\d+\b(?!\s+(planning|review|meeting|sync|stand-?up|roadmap|kick-?off|retro\w*|offsite|okrs?|budget|sprint|workshop|demo|call)\b)/i;
+// An approval that names a meeting or a review without a recorded answer is a rumour, not an answer.
+const MEETING = /\b(meetings?|reviews?|planning|sync|stand-?up|workshop|retro\w*|kick-?off|calls?|discussions?|sessions?|committee|board|roadmap|offsite|demo)\b/i;
+// A bare `Q<n>` is also a quarter label ("Q4 launch"): it counts only with round wording that makes it the
+// NEEDS_INPUT question number ("Q2 of the NEEDS_INPUT round", "Q-2 answered by the user").
+const ROUND_WORDING = /\b(needs_input|round|answer(?:s|ed)?)(?![A-Za-z])/i;
+const ANSWER_REF = { test: (t) => STRONG_REF.test(t) || (Q_REF.test(t) && ROUND_WORDING.test(t) && !MEETING.test(t)) };
 // The task's quote must ask for a visual change, not just mention the page. Heuristic.
 const REDESIGN_INTENT = /\b(re-?design\w*|re-?styl\w*|re-?them\w*|new (look|visual\w*|style|theme|design)|visual (overhaul|refresh|redesign)|(rework|refresh|revamp|overhaul|change) (the |its )?(look|visuals?|visual (style|design)|style|theme|design))\b/i;
 const norm = (t) => String(t).replace(/\s+/g, " ").trim().toLowerCase();
@@ -175,7 +183,7 @@ function creativeDirection(cd, designExists, task, err) {
   }
   if (!isStr(r.user_approval)) err(`${q}.user_approval`, "a redesign needs the user's approval (the answered question); ask with NEEDS_INPUT and conform meanwhile");
   else if (NOT_USER.test(r.user_approval)) err(`${q}.user_approval`, "the approval must come from the user, not from the designer or an assumption");
-  else if (!ANSWER_REF.test(r.user_approval)) err(`${q}.user_approval`, "reference the recorded answer: questions/<NNN>.answer.md, Q<n> of the NEEDS_INPUT round, or INTENT.md#<decision>");
+  else if (!ANSWER_REF.test(r.user_approval)) err(`${q}.user_approval`, "reference the recorded answer: questions/<NNN>.answer.md, Q<n> of the NEEDS_INPUT round (not a meeting or review), or INTENT.md#<decision>");
 }
 
 function uxPatterns(list, err) {

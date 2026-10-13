@@ -12,7 +12,7 @@
 import { readFileSync, readdirSync, statSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { splitStatements, classifyStatement, learnTypes, isWidening, baseName } from "./classify-migration.mjs";
+import { splitStatements, classifyStatement, learnTypes, isWidening, baseName, scanNonSql, unanalyzedReason, downRanges, inRanges } from "./classify-migration.mjs";
 
 // ---------- scan: DDL hazards ----------
 
@@ -66,15 +66,38 @@ export function scanMigrations(files, opts = {}) {
   const ctx = { created: new Set(), types };
   const hazards = [];
   const statements = [];
+  const unanalyzed = [];
   for (const file of files) {
-    if (!/\.sql$/i.test(file)) { statements.push({ file, line: 0, sql: false }); continue; }
-    for (const st of splitStatements(read(file))) {
+    if (!/\.sql$/i.test(file)) {
+      // A94: ORM and document-store migrations (python, js/ts, ruby, go, ...) are token-scanned, never skipped.
+      // An action that is destructive or unknown is not executable; a file the scan cannot understand is
+      // listed under `unanalyzed` and makes the migration check UNSUPPORTED for it.
+      const src = read(file);
+      const acts = scanNonSql(src);
+      const why = unanalyzedReason(src, acts);
+      if (why) unanalyzed.push({ file, reason: why });
+      for (const a of acts) {
+        const at = { file, line: a.line, statement: a.statement, kind: a.kind, object: a.object };
+        statements.push({ ...at, class: a.class, executable: a.class === "safe" || a.class === "breaking", method: "token-scan", ...(a.path === "down" ? { path: "down" } : {}) });
+        if (a.path !== "down" && (a.kind === "drop_column" || a.kind === "drop_table" || a.kind === "rename_column" || a.kind === "rename_table")) {
+          const name = a.object === "?" ? null : a.object.split(".").pop();
+          const hits = name && readerFiles.length ? findReaders(name, readerFiles, read) : [];
+          hazards.push({ code: "H05", hazard: a.kind, evidence_class: hits.length ? "traced" : "judged", severity: hits.length ? "blocking" : "warn", ...at,
+            message: hits.length ? `${a.kind.replace("_", " ")} ${a.object}: the running app still references "${name}" (${hits[0].path}:${hits[0].line})`
+              : `${a.kind.replace("_", " ")} ${a.object}: no reader found in the given paths (token scan of a non-SQL migration); consumers outside the repository are unknown`, readers: hits });
+        }
+      }
+      continue;
+    }
+    const sqlSrc = read(file), sqlDown = downRanges(sqlSrc);
+    for (const st of splitStatements(sqlSrc)) {
       const actions = classifyStatement(st.masked, ctx);
       const createdBefore = new Set(ctx.created);
       learnTypes([st], types);
       for (const a of actions) {
         const at = { file, line: st.line, statement: st.text.slice(0, 200), kind: a.kind, object: a.object };
-        statements.push({ ...at, class: a.class, executable: a.class === "safe" || a.class === "breaking" });
+        statements.push({ ...at, class: a.class, executable: a.class === "safe" || a.class === "breaking", ...(inRanges(sqlDown, st.line) ? { path: "down" } : {}) });
+        if (inRanges(sqlDown, st.line)) continue; // no hazards for the rollback path
         const table = a.object.split(".")[0];
         const col = a.object.split(".")[1];
         const fresh = createdBefore.has(table);
@@ -129,9 +152,12 @@ export function scanMigrations(files, opts = {}) {
   const dedupe = new Set();
   const uniq = hazards.filter((h) => { const k = `${h.code}|${h.file}|${h.line}|${h.object}`; if (dedupe.has(k)) return false; dedupe.add(k); return true; });
   return {
-    schema_version: 1, engine, files, statements, hazards: uniq,
-    not_executable: statements.filter((s) => s.executable === false).map(({ file, line, statement }) => ({ file, line, statement, reason: "destructive or unknown statement: never executed in any database (A52)" })),
+    schema_version: 1, engine, files, statements, hazards: uniq, unanalyzed,
+    // the down path is recorded apart (A84: a destructive down migration is never executed by the agent either)
+    down_destructive: statements.filter((s) => s.path === "down" && s.executable === false).map(({ file, line, statement }) => ({ file, line, statement })),
+    not_executable: statements.filter((s) => s.executable === false && s.path !== "down").map(({ file, line, statement }) => ({ file, line, statement, reason: "destructive or unknown statement: never executed in any database (A52)" })),
     limits: ["static text only; row counts, lock durations and real run time are not measured",
+      "non-SQL migrations are token scanned (drop/remove/rename operations and SQL string literals); a file with run-time built SQL or no recognised operation is listed under unanalyzed and is never executed",
       "reader search is a word-boundary text match in the given paths; dynamic names and other repositories are unknown"],
   };
 }

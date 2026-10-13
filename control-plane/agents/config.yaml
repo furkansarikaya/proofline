@@ -133,7 +133,7 @@ risk:
     check: visual
     design_role: designer
   dependency_manifest:
-    paths: "package.json package-lock.json yarn.lock pnpm-lock.yaml go.mod go.sum Cargo.toml Cargo.lock requirements*.txt pyproject.toml poetry.lock uv.lock Pipfile Pipfile.lock Gemfile Gemfile.lock pom.xml build.gradle build.gradle.kts *.csproj Directory.Packages.props packages.lock.json composer.json composer.lock mix.exs mix.lock conanfile.txt vcpkg.json"
+    paths: "package.json package-lock.json yarn.lock pnpm-lock.yaml go.mod go.sum Cargo.toml Cargo.lock requirements*.txt pyproject.toml poetry.lock uv.lock Pipfile Pipfile.lock Gemfile Gemfile.lock pom.xml build.gradle build.gradle.kts *.csproj Directory.Packages.props packages.lock.json composer.json composer.lock mix.exs mix.lock conanfile.txt vcpkg.json npm-shrinkwrap.json requirements*.in **/requirements/*.txt **/requirements/*.in setup.py setup.cfg *.versions.toml .npmrc .yarnrc .yarnrc.yml pip.conf packages.config environment.yml environment.yaml deno.json deno.jsonc deno.lock nuget.config NuGet.Config Package.swift Package.resolved pubspec.yaml pubspec.lock Podfile Podfile.lock build.sbt"
     check: dependencies
   config_env:
     paths: ".env .env.* *.env **/config/*.yaml **/config/*.yml **/config/*.json **/config/*.toml **/config/*.ini *.ini *.properties appsettings*.json"

@@ -107,6 +107,33 @@ test("rejects role, task and result mismatches", () => {
   bad(result({ focus: "style" }), "reviewer results need FOCUS");
 });
 
+// --- A94: risk-focus and UNSUPPORTED results mirror agent.sh record_validate ----------------------
+for (const focus of ["contract", "concurrency", "performance", "config"]) {
+  test(`reviewer focus ${focus} is a valid gate result on REVIEW_RULES or REVIEW_SMALL`, () => {
+    assert.equal(ok(result({ focus })).gate, "REVIEW_RULES");
+    ok(result({ focus, res: "FAIL", rows: ["| REVIEW_SMALL-1 | blocking | src/a.js:1 | f | traced |"] }));
+  });
+  test(`reviewer focus ${focus} may be UNSUPPORTED with a reason`, () => {
+    const s = ok(result({ focus, res: "UNSUPPORTED", rows: [ROW_INFO], extra: [] , tail: ["UNSUPPORTED_REASON: no compat tool on PATH"] }));
+    assert.equal(s.result, "UNSUPPORTED"); assert.equal(s.counts, false); assert.equal(s.unsupported_reason, "no compat tool on PATH");
+  });
+}
+test("reviewer focus migration lands on REVIEW_DATA; visual is qa; dependencies is security_reviewer", () => {
+  assert.equal(ok(result({ focus: "migration" })).gate, "REVIEW_DATA");
+  assert.equal(ok(result({ role: "qa", focus: "visual", art: `reviews/visual-proof/R.md ${SHA}` })).gate, "QA");
+  assert.equal(ok(result({ role: "security_reviewer", focus: "dependencies", art: `security/dependencies/R.md ${SHA}` })).gate, "SECURITY");
+  ok(result({ role: "qa", focus: "visual", res: "UNSUPPORTED", art: `reviews/visual-proof/R.md ${SHA}`, tail: ["UNSUPPORTED_REASON: no browser"] }));
+});
+test("UNSUPPORTED is rejected where agent.sh rejects it", () => {
+  const T = ["UNSUPPORTED_REASON: x"];
+  bad(result({ focus: "rules", res: "UNSUPPORTED", tail: T }), "risk focus only");
+  bad(result({ focus: "contract", res: "UNSUPPORTED" }), "needs an UNSUPPORTED_REASON");
+  bad(result({ focus: "contract", res: "UNSUPPORTED", rows: [ROW_FAIL], tail: T }), "cannot carry blocking findings");
+  bad(result({ role: "security_reviewer", focus: "dependencies", res: "UNSUPPORTED", art: `security/dependencies/R.md ${SHA}`, tail: T }), "dependencies focus always");
+  bad(result({ role: "explorer", focus: "", res: "UNSUPPORTED", tail: T }), "risk focus only");
+  bad(result({ role: "qa", focus: "contract", art: `QA_REPORT.md ${SHA}` }), "not a focus of role qa");
+});
+
 test("rejects artifact problems", () => {
   bad(result({ art: "reviews/proof-review/rules/REPORT.md" }), "ARTIFACT needs");
   bad(result({ art: `/etc/passwd ${SHA}` }), "must be run-relative");

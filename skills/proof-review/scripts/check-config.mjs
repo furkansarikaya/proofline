@@ -126,6 +126,8 @@ export function flagFromLine(lines, idx) {
   if (!(FLAG_NAME.test(name) || parentKeys(lines, idx).some((p) => FLAG_PARENT.test(p)))) return null;
   return { name, on: !FALSY.test(m[2]) };
 }
+// The flag's identity in its file: parent keys plus the leaf, so `a.enabled` and `b.enabled` are two flags.
+export const flagQName = (lines, idx, name) => [...parentKeys(lines, idx).reverse(), name].join(".");
 
 // --- plan ---------------------------------------------------------------------------------------------------
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -204,9 +206,10 @@ export function buildDocument({ repo, base, planText }) {
     if (head != null && !isText(head)) continue;
     const { added, removed } = diffLines(repo, base, path, isTracked);
     const lines = (head ?? "").split("\n");
-    // A line the base file already had (moved or re-indented) is not a new line.
+    // A line that the same diff also removed (moved or re-indented) is not a new line. Position matters: the same
+    // text elsewhere in the file does not hide a new line (a flag flipped to `enabled: true` next to another one).
     const baseLines = isTracked ? (baseText(repo, base, path) ?? "").split("\n") : [];
-    const baseSet = new Set(baseLines.map((l) => l.trim()).filter(Boolean));
+    const baseSet = new Set(removed.map((n) => (baseLines[n - 1] ?? "").trim()).filter(Boolean));
     const destructured = k === "code" && head ? destructuredEnv(head) : [];
 
     for (const ln of added) {
@@ -238,22 +241,26 @@ export function buildDocument({ repo, base, planText }) {
       // 3. feature flags
       if (k === "config" || k === "envfile" || k === "example") {
         const f = flagFromLine(lines, ln - 1);
-        if (f) { addedFlagNames.add(f.name); flagCandidates.push({ ...f, path, ln, source: "config" }); }
+        if (f) { const qname = flagQName(lines, ln - 1, f.name); addedFlagNames.add(qname); flagCandidates.push({ ...f, qname, path, ln, source: "config" }); }
       }
       // documented but unused (example env files)
       if (k === "example") { const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line); if (m) exampleDefined.push({ name: m[1], path, ln }); }
     }
 
     if (k === "config" || k === "envfile" || k === "example") {
-      const stillDefined = new Set(lines.map((_, i) => flagFromLine(lines, i)?.name).filter(Boolean));
-      for (const ln of removed) { const f = baseLines[ln - 1] != null ? flagFromLine(baseLines, ln - 1) : null; if (f && !stillDefined.has(f.name)) removedFlags.push({ name: f.name, path, ln }); }
+      const stillDefined = new Set(lines.map((_, i) => { const g = flagFromLine(lines, i); return g ? flagQName(lines, i, g.name) : null; }).filter(Boolean));
+      for (const ln of removed) {
+        const f = baseLines[ln - 1] != null ? flagFromLine(baseLines, ln - 1) : null;
+        const q = f ? flagQName(baseLines, ln - 1, f.name) : null;
+        if (f && !stillDefined.has(q)) removedFlags.push({ name: f.name, qname: q, path, ln });
+      }
     }
   }
 
   // flag decisions
   const seenFlag = new Set();
   for (const f of flagCandidates) {
-    const key = f.name + "\0" + f.path; if (seenFlag.has(key)) continue; seenFlag.add(key);
+    const key = (f.qname ?? f.name) + "\0" + f.path; if (seenFlag.has(key)) continue; seenFlag.add(key);
     const loc = { file: f.path, line: f.ln };
     if (f.on === false) { add({ check: "flag_default_off", class: "note", location: loc, subject: f.name, detail: `flag ${f.name} is set to off by the change` }); continue; }
     const planned = planKnown && planMentions(planText, f.name);
@@ -263,10 +270,10 @@ export function buildDocument({ repo, base, planText }) {
   }
   const seenRm = new Set();
   for (const r of removedFlags) {
-    if (seenRm.has(r.name) || addedFlagNames.has(r.name)) continue; seenRm.add(r.name);
+    if (seenRm.has(r.qname) || addedFlagNames.has(r.qname)) continue; seenRm.add(r.qname);
     const re = new RegExp(`(^|[^A-Za-z0-9_])${esc(r.name)}(?![A-Za-z0-9_])`);
     const hits = [];
-    for (const f of fileTexts()) { if (f.path === r.path && !re.test(f.text)) continue; const ls = f.text.split("\n"); for (let i = 0; i < ls.length && hits.length < 5; i++) if (re.test(ls[i])) hits.push({ file: f.path, line: i + 1 }); }
+    for (const f of fileTexts()) { if (f.path === r.path && !re.test(f.text)) continue; const ls = f.text.split("\n"); for (let i = 0; i < ls.length && hits.length < 5; i++) if (re.test(ls[i]) && !(f.path === r.path && flagFromLine(ls, i))) hits.push({ file: f.path, line: i + 1 }); }
     if (hits.length) add({ check: "flag_removed_referenced", class: "blocking", location: hits[0], subject: r.name, detail: `flag ${r.name} was removed from ${r.path} but is still referenced at ${hits.map((h) => `${h.file}:${h.line}`).join(", ")}` });
   }
   const seenEx = new Set();

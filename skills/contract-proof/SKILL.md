@@ -89,8 +89,9 @@ output folder) before starting the next step.
    by parsing every JSON/YAML file, whose fragment changed (the fragment's row says `via`), classifies every
    change, marks the plan coverage, keeps each change's `original_rule`, and lists compatibility tools it found
    on `PATH` or in `node_modules/.bin` under `tools.detected` (never installs or runs them). `--path <file>`
-   (repeatable) limits it to named files; a contract file the risk signal matched but the differ skipped is
-   passed with `--path`. The YAML subset refuses (UNSUPPORTED) anchors, aliases, tags, merge keys,
+   (repeatable) adds named files to the discovered set (it never narrows it); a named file that is not
+   changed against the base, or does not exist, is UNSUPPORTED, never a compared PASS. A contract file the
+   risk signal matched but the differ skipped is passed with `--path`. The YAML subset refuses (UNSUPPORTED) anchors, aliases, tags, merge keys,
    multi-documents, multi-line plain or flow scalars, folded `>` blocks with paragraphs or indented lines,
    flow pairs without a space (`{x:1}`), duplicate keys, YAML 1.1 booleans (`yes`/`no`/`on`/`off`/`y`/`n`),
    octal-looking and beyond-2^53 integers, and `|+` or indentation indicators; GraphQL and protobuf need one statement per line, except simple

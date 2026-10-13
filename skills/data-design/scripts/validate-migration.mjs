@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 // Validates a migration-validation report (references/MIGRATION-VALIDATION.md): shape, evidence classes, and that
 // the status follows from the checks (UNSUPPORTED is never PASS).
-//   node validate-migration.mjs <REPORT.md>
+//   node validate-migration.mjs <REPORT.md> [--repo DIR]
+//   --repo re-classifies every cited migration file with the scanner (A94): a destructive or unknown action in a
+//   migration marked `destructive: no`, an unanalyzable file marked applied, a missing file, or a blocking hazard
+//   under a `patterns: pass` is refused. Without it only the report's own consistency is checked.
 // Prints one "FAIL <code>: <message>" line per problem, or "OK". Exit: 0 valid, 1 invalid, 2 usage/read error.
 
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { resolve, sep } from "node:path";
+import { classifyFiles } from "./classify-migration.mjs";
+import { scanMigrations } from "./migration-check.mjs";
 
 export const CHECKS = ["schema_diff", "rollback", "data_preservation", "lock_risk", "long_running", "patterns", "mixed_version"];
 const MEASURED_ONLY = ["schema_diff", "rollback", "data_preservation"]; // need the throwaway database
@@ -30,7 +36,7 @@ const table = (text) => {
 };
 const kv = (text, k) => { const m = new RegExp(`^${k}:[ \\t]*(.*)$`, "im").exec(text); return m ? m[1].trim() : null; };
 
-export function checkReport(md) {
+export function checkReport(md, { repo = null } = {}) {
   const errors = [];
   const fail = (c, m) => errors.push(`${c}: ${m}`);
   const sec = sections(md);
@@ -63,6 +69,31 @@ export function checkReport(md) {
     if (db === "no" && r.applied === "yes") fail("V05", `${r.file}: applied: yes without a throwaway database`);
   }
 
+  let blockingHazards = [];
+  if (repo) {
+    const root = resolve(repo);
+    const cited = [];
+    for (const r of mig.rows) {
+      const abs = resolve(root, r.file || "");
+      if (!r.file || !abs.startsWith(root + sep) || !existsSync(abs)) { fail("V17", `${r.file}: the cited migration was not found under --repo`); continue; }
+      cited.push([r, abs]);
+    }
+    if (cited.length) {
+      let cls = null;
+      try { cls = classifyFiles(cited.map(([, a]) => a)); } catch (e) { fail("V17", `cannot scan the cited migrations: ${e.message}`); }
+      if (cls) for (const [r, abs] of cited) {
+        const bad = cls.actions.filter((a) => a.file === abs && a.path !== "down" && (a.class === "destructive" || a.class === "unknown"));
+        // a destructive down path is not a destructive migration; it is the capability's down_destructive (A84)
+        const downBad = cls.actions.some((a) => a.file === abs && a.path === "down" && (a.class === "destructive" || a.class === "unknown"));
+        if (downBad && kv(cap, "down_destructive") !== "yes") fail("V18", `${r.file}: the down path has destructive statements; Capability must say down_destructive: yes (and the rollback is not executed unless down_run_by names the project's own test)`);
+        const un = (cls.unanalyzed || []).find((u) => u.file === abs);
+        if (bad.length && r.destructive !== "yes") fail("V16", `${r.file}: the scanner classifies line ${bad[0].line} as ${bad[0].class} (${bad[0].kind} ${bad[0].object}); destructive must be yes`);
+        if (un && r.applied === "yes") fail("V17", `${r.file}: the scanner cannot analyze this file (${un.reason}); it is never applied, so applied must be no`);
+      }
+      try { blockingHazards = scanMigrations(cited.map(([, a]) => a)).hazards.filter((h) => h.severity === "blocking"); } catch { /* unreadable: reported above */ }
+    }
+  }
+
   const chk = table(sec.get("Checks"));
   const byId = new Map();
   for (const r of chk.rows) {
@@ -91,6 +122,7 @@ export function checkReport(md) {
       fail("V15", 'rollback: the down migration has destructive statements, which the agent never executes; result must be unsupported with "not executed (destructive statement)" unless the project\'s own test runs it (down_run_by: path[:line])');
     if (id === "rollback" && r.result === "unsupported" && downDestructive && !downRun && !/not executed \(destructive statement\)/i.test(ev))
       fail("V15", 'rollback: evidence must say "not executed (destructive statement)"');
+    if (id === "patterns" && r.result === "pass" && blockingHazards.length) fail("V16", `patterns: pass, but the scanner traced a blocking hazard (${blockingHazards[0].code} ${blockingHazards[0].message})`);
     if (r.result === "unsupported" && !ev) fail("V12", `${id}: unsupported needs the missing capability or the "not executed" reason as evidence`);
     if (!ev || /^(-|none|n\/a|tbd|todo)$/i.test(ev)) fail("V12", `${id}: evidence is required, for na and unsupported the reason`);
   }
@@ -102,7 +134,7 @@ export function checkReport(md) {
 
   const results = [...byId.values()].map((r) => r.result);
   const derived = results.includes("fail") ? "FAIL"
-    : db === "no" || results.includes("unsupported") || mig.rows.some((r) => r.applied === "no") ||
+    : db === "no" || results.includes("unsupported") || (down === "yes" && byId.get("rollback").result !== "pass") || mig.rows.some((r) => r.applied === "no") ||
       byId.get("schema_diff").result !== "pass" || byId.get("data_preservation").result !== "pass" ? "UNSUPPORTED" : "PASS";
   if (status === "BLOCKED") { if (!kv(md.split(/^## /m)[0], "blocked_reason")) fail("V01", "status BLOCKED needs a blocked_reason: line"); }
   else if (status !== derived) fail("V14", `status ${status} does not follow from the checks and migrations: expected ${derived} (any fail -> FAIL; no throwaway database, an unsupported or na schema_diff/data_preservation, an unsupported check or a migration not applied -> UNSUPPORTED; never PASS)`);
@@ -110,12 +142,20 @@ export function checkReport(md) {
 }
 
 function main(argv) {
-  if (argv.length !== 1) { process.stderr.write("usage: validate-migration.mjs <REPORT.md>\n"); return 2; }
+  const args = [...argv];
+  let repo = null;
+  const ri = args.indexOf("--repo");
+  if (ri !== -1) { repo = args[ri + 1]; args.splice(ri, 2); }
+  if (args.length !== 1 || repo === undefined || repo === "") { process.stderr.write("usage: validate-migration.mjs <REPORT.md> [--repo DIR]\n"); return 2; }
   let md;
-  try { md = readFileSync(argv[0], "utf8"); } catch (e) { process.stderr.write(`error: ${e.message}\n`); return 2; }
-  const errors = checkReport(md);
+  try { md = readFileSync(args[0], "utf8"); } catch (e) { process.stderr.write(`error: ${e.message}\n`); return 2; }
+  const errors = checkReport(md, { repo });
   for (const e of errors) process.stdout.write(`FAIL ${e}\n`);
-  if (!errors.length) process.stdout.write("OK\n");
+  if (!errors.length) {
+    process.stdout.write("OK\n");
+    if (!repo) process.stdout.write("WARN no --repo: destructive and hazard claims are self-attested; confidence capped at medium\nCONFIDENCE: medium\n");
+    else process.stdout.write("CONFIDENCE: high\n");
+  }
   return errors.length ? 1 : 0;
 }
 

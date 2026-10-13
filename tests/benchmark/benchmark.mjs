@@ -21,7 +21,50 @@ const repo = resolve(here, "../..");
 // Anything else (prose, a table keyed by `#` only) is not an item; nothing is guessed.
 const TRAP = /must not|decoy|never asked|forbidden/i;
 const EXPECT = /\bmust\b|process expectations|required scope/i;
+// A94 fallback: a file with no id-keyed items but with a planted-facts, traps, must-hold or known-answers
+// heading (contract-proof, impact-map, insights, migration-validation) is read structurally: table rows
+// and bullets of its sections, plus bullets after a "Traps ...:" lead-in, become items with positional ids
+// (F1.. expected, T1.. traps). Prose is never an item; the scenario/setup sections are skipped.
+const FALLBACK_SIGNAL = /^#{1,4}\s+.*\b(traps?|planted facts?|must hold|known answers)\b/im;
+const META_SECTION = /^(scenario|setup|overview|background|build|how to run|running)\b/i;
+function parseStructured(md) {
+  const items = [];
+  let section = "", inFence = false, trapLead = false, expectTable = false, headerSeen = false;
+  const push = (kind, text) => {
+    const n = items.filter((i) => i.kind === kind).length + 1;
+    items.push({ id: `${kind === "trap" ? "T" : "F"}${n}`, kind, text: text.replace(/\*\*/g, "").replace(/\s+/g, " ").trim().slice(0, 120) });
+  };
+  for (const line of md.split("\n")) {
+    if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const h = /^(#{1,4})\s+(.*)/.exec(line);
+    if (h) { section = h[2]; trapLead = false; headerSeen = false; expectTable = false; continue; }
+    if (!section || META_SECTION.test(section)) continue;
+    const sectionTrap = TRAP.test(section) || /\btraps?\b/i.test(section);
+    if (/^\s*$/.test(line)) { headerSeen = false; expectTable = false; continue; }
+    if (/^\|/.test(line)) {
+      if (/^\|[-:| ]+\|?\s*$/.test(line)) { expectTable = true; continue; }
+      if (!expectTable) { headerSeen = true; continue; }
+      const cell = (line.split("|")[1] ?? "").trim();
+      if (cell) push(sectionTrap || trapLead ? "trap" : "expect", line.replace(/^\||\|$/g, "").split("|").map((c) => c.trim()).join(" | "));
+      continue;
+    }
+    if (/^(?:\*\*)?traps?\b[^:]*:\s*$/i.test(line)) { trapLead = true; continue; }
+    const t = /^\s*(?:\*\*)?traps?\b[^:]*:\s*(\S.*)$/i.exec(line);
+    if (t && !/^\s*[-*]\s/.test(line)) { push("trap", t[1]); continue; }
+    const b = /^(?:[-*])\s+(.*)/.exec(line);
+    if (b) {
+      const trapBullet = /^(?:\*\*)?traps?\b[^:]*:/i.test(b[1]);
+      push(sectionTrap || trapLead || trapBullet ? "trap" : "expect", b[1].replace(/^(?:\*\*)?traps?\b[^:]*:\s*/i, ""));
+    }
+  }
+  return items;
+}
 export function parseExpected(md) {
+  const items = parseIdKeyed(md);
+  return items.length === 0 && FALLBACK_SIGNAL.test(md) ? parseStructured(md) : items;
+}
+function parseIdKeyed(md) {
   const items = [];
   const seen = new Set();
   let kind = null;

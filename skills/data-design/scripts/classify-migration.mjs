@@ -284,9 +284,9 @@ function classifyAlterAction(table, a, ctx) {
 // ---------- non-SQL migrations (ORM, document stores) ----------
 
 const TOKENS = [
-  [/\b(dropTable|drop_table|DropTable|DeleteModel|dropTableIfExists|deleteTable|dropCollection)\b|\.drop\(\s*\)/, "drop_table"],
+  [/\b(dropTable|drop_table|DropTable|DeleteModel|dropTableIfExists|deleteTable|dropCollection|drop_join_table|dropView|drop_view|dropIfExists|drop_table_if_exists)\b|<dropTable\b|\.drop\(\s*\)/, "drop_table"],
   [/\b(dropDatabase|dropSchema|drop_schema|DropSchema)\b/, "drop_schema"],
-  [/\b(dropColumn|dropColumns|drop_column|remove_column|remove_columns|removeColumn|DropColumn|RemoveField)\b|\$unset\b/, "drop_column"],
+  [/\b(dropColumn|dropColumns|drop_column|remove_column|remove_columns|removeColumn|DropColumn|RemoveField|remove_reference|remove_belongs_to|removeColumns|drop_columns)\b|\$unset\b|<dropColumn\b|\bdrop\s+column\b/i, "drop_column"],
   [/\b(renameColumn|rename_column|RenameColumn|RenameField)\b/, "rename_column"],
   [/\b(renameTable|rename_table|RenameTable|RenameModel|renameCollection)\b/, "rename_table"],
   [/\b(changeColumn|change_column|AlterColumn|AlterField|change_column_null)\b|\.alter\(\s*\)/, "alter_column_type"],
@@ -302,18 +302,87 @@ function stripCodeComments(src) {
     .replace(/^[ \t]*#(?![!{]).*$/gm, (m) => " ".repeat(m.length));
 }
 
-export function scanNonSql(src) {
+// Operations whose presence shows a migration file was understood even when nothing destructive is in it
+// (A94): without one of these, or with an SQL string built at run time, a non-SQL file is `unanalyzed`.
+const KNOWN_OPS = /\b(createTable|create_table|createTableIfNotExists|addColumn|add_column|addColumns|createIndex|create_index|add_index|addIndex|createCollection|createIndexes|CreateModel|AddField|CreateTable|AddColumn|CreateIndex|add_reference|add_foreign_key|addForeignKey|addConstraint|add_constraint|changeColumn|alter_column|AlterField|renameColumn|rename_column|insert|bulkInsert|seed)\b|<(createTable|addColumn|createIndex)\b/;
+const SQL_VERB = /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|RENAME|COMMENT|GRANT|REVOKE|SET|BEGIN|COMMIT|WITH|REPLACE|MERGE|CALL|LOCK|VACUUM|ANALYZE|REINDEX|REFRESH)\b/i;
+const EXEC_CALL = /\b(execute|exec|raw|query|queryRaw|run_sql|RunSQL|Exec|ExecContext)\b[ \t]*\(?[ \t]*/g;
+const HEREDOC = /^<<[~-]?(['"]?)([A-Za-z_]\w*)\1[^\n]*\n([\s\S]*?)\n[ \t]*\2[ \t]*(?:\n|$)/;
+const LITERAL = /^(?:(?:sa\.|sqlalchemy\.)?text\(\s*)?(?:[rRfFbBuU]{1,2})?("""|'''|"|'|`)([\s\S]*?)\1/;
+// The SQL an execute-like call hands over: a heredoc, a (triple-)quoted literal, or null for anything computed.
+function execArgument(rest) {
+  const h = HEREDOC.exec(rest);
+  if (h) return h[3];
+  const l = LITERAL.exec(rest);
+  return l ? l[2] : null;
+}
+export function unanalyzedReason(src, actions) {
   const code = stripCodeComments(src);
-  const lines = code.split("\n");
+  for (const m of code.matchAll(EXEC_CALL)) {
+    const rest = code.slice(m.index + m[0].length);
+    if (/^[=.:,)]|^(?:do|if|unless|end)\b/.test(rest) || /^\s*$/.test(rest.split("\n")[0])) continue; // not a call with an argument on this line
+    const arg = execArgument(rest);
+    if (arg === null) return `SQL or an operation is built at run time (a non-literal argument to ${m[1]}): the statement cannot be read statically`;
+    if (!SQL_VERB.test(arg)) return `${m[1]} receives a string that is not a recognised SQL statement: it cannot be classified`;
+  }
+  if (!actions.length && !KNOWN_OPS.test(code)) return "no recognised migration operation (no schema token and no SQL literal): the file was not understood";
+  return null;
+}
+
+// Lines (1-based, inclusive) of the down path of a migration: python/ruby `def downgrade|down`, JavaScript and
+// Go `down` / `Down` bodies; SQL markers (`-- +goose Down`, `-- +migrate Down`, `-- migrate:down`) start a tail.
+export function downRanges(src) {
+  const lines = src.split("\n"), out = [];
+  const indent = (l) => l.match(/^[ \t]*/)[0].length;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*--\s*(\+goose\s+Down|\+migrate\s+Down|migrate:down)\b/i.test(l)) { out.push([i + 1, lines.length]); break; }
+    if (/^\s*(?:async\s+)?def\s+(?:downgrade|down)\b/.test(l)) {
+      let j = i + 1; const ind = indent(l);
+      while (j < lines.length && (!lines[j].trim() || indent(lines[j]) > ind)) j++;
+      out.push([i + 1, j]); i = j - 1; continue;
+    }
+    if (/(?:\bexports\.down\b|\bmodule\.exports\.down\b|^\s*(?:async\s+)?down\s*[:(=]|\bdown\s*:\s*(?:async\s*)?(?:function|\()|\bfunc\s+(?:\([^)]*\)\s*)?Down\w*\s*\(|\bexport\s+(?:async\s+)?function\s+down\b|\bconst\s+down\s*=)/.test(l)) {
+      let depth = 0, seen = false, j = i;
+      for (; j < lines.length; j++) {
+        for (const c of lines[j].replace(/(["'`])(?:\\.|(?!\1).)*\1/g, "")) { if (c === "{") { depth++; seen = true; } else if (c === "}") depth--; }
+        if (seen ? depth <= 0 : /;\s*$/.test(lines[j])) break;
+      }
+      out.push([i + 1, j + 1]); i = j;
+    }
+  }
+  return out;
+}
+export const inRanges = (ranges, line) => ranges.some(([a, b]) => line >= a && line <= b);
+
+export function scanNonSql(src) {
+  let code = stripCodeComments(src);
   const actions = [];
-  lines.forEach((ln, idx) => {
+  const lineAt = (idx) => code.slice(0, idx).split("\n").length;
+  // heredoc and triple-quoted bodies are SQL when they open with a statement verb; blank them afterwards so the
+  // quote scan below does not pair their apostrophes
+  const blocks = [];
+  for (const m of code.matchAll(/<<[~-]?(['"]?)([A-Za-z_]\w*)\1[^\n]*\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)|("""|''')([\s\S]*?)\4/g)) {
+    const body = m[3] ?? m[5];
+    if (SQL_VERB.test(body)) blocks.push({ index: m.index + m[0].indexOf(body), len: body.length, body });
+  }
+  for (const b of blocks) {
+    const baseLine = lineAt(b.index);
+    for (const st of splitStatements(b.body)) {
+      const ctx = { created: new Set(), types: new Map() };
+      for (const a of classifyStatement(st.masked, ctx)) actions.push({ line: baseLine + st.line - 1, statement: st.text.slice(0, 300), ...a });
+    }
+  }
+  for (const b of blocks) code = code.slice(0, b.index) + b.body.replace(/[^\n]/g, " ") + code.slice(b.index + b.len);
+  const srcLines = src.split("\n");
+  code.split("\n").forEach((ln, idx) => {
     for (const [re, kind] of TOKENS) {
       const g = new RegExp(re.source, "g");
       let m;
       while ((m = g.exec(ln))) {
-        const arg = /^\s*\(\s*['"`]([\w.]+)['"`]/.exec(ln.slice(m.index + m[0].length)) ||
+        const arg = /^\s*\(?\s*['"`:]([\w.]+)['"`]?/.exec(ln.slice(m.index + m[0].length)) ||
           /^\(\s*['"`]([\w.]+)['"`]/.exec(ln.slice(m.index + m[0].length - 1));
-        actions.push({ line: idx + 1, statement: src.split("\n")[idx].trim().slice(0, 300), kind,
+        actions.push({ line: idx + 1, statement: (srcLines[idx] ?? "").trim().slice(0, 300), kind,
           object: arg ? arg[1].toLowerCase() : "?",
           class: BREAKING_TOKENS.has(kind) ? "breaking" : "destructive",
           reason: `token "${m[0].replace(/^\./, "")}" (${kind})` });
@@ -325,13 +394,15 @@ export function scanNonSql(src) {
   let m;
   while ((m = strRe.exec(code))) {
     if (!/^\s*(ALTER|DROP|TRUNCATE|DELETE|UPDATE|INSERT|CREATE|RENAME|REPLACE|MERGE)\s/i.test(m[2])) continue;
-    const baseLine = code.slice(0, m.index).split("\n").length;
+    const baseLine = lineAt(m.index);
     for (const st of splitStatements(m[2])) {
       const ctx = { created: new Set(), types: new Map() };
       for (const a of classifyStatement(st.masked, ctx))
         actions.push({ line: baseLine + st.line - 1, statement: st.text.slice(0, 300), ...a });
     }
   }
+  const down = downRanges(src);
+  for (const a of actions) if (inRanges(down, a.line)) a.path = "down"; // present only on the down path
   return actions.sort((a, b) => a.line - b.line);
 }
 
@@ -347,17 +418,25 @@ export function classifyFiles(files, contextFiles = [], read = (f) => readFileSy
     if (/\.sql$/i.test(file)) {
       out.files.push({ file, method: "sql" });
       const stmts = splitStatements(src);
+      const down = downRanges(src);
       for (const st of stmts) {
         for (const a of classifyStatement(st.masked, ctx))
-          out.actions.push({ file, line: st.line, statement: st.text.slice(0, 300), ...a });
+          out.actions.push({ file, line: st.line, statement: st.text.slice(0, 300), ...a, ...(inRanges(down, st.line) ? { path: "down" } : {}) });
         learnTypes([st], ctx.types); // later statements see types defined earlier in the change
       }
     } else {
       out.files.push({ file, method: "token-scan" });
-      for (const a of scanNonSql(src)) out.actions.push({ file, ...a });
+      const acts = scanNonSql(src);
+      for (const a of acts) out.actions.push({ file, ...a });
+      const why = unanalyzedReason(src, acts);
+      if (why) { out.unanalyzed = out.unanalyzed || []; out.unanalyzed.push({ file, reason: why }); }
     }
   }
-  if (out.actions.some((a) => a.class === "destructive" || a.class === "unknown")) out.destructive = "yes";
+  const bad = (a) => a.class === "destructive" || a.class === "unknown";
+  // A94: only the up path decides `destructive`; a destructive down path is recorded as `down_destructive`
+  // (never executed by the agent either, A84) so a reversible additive migration is not forced destructive: yes
+  if (out.actions.some((a) => bad(a) && a.path !== "down") || out.unanalyzed) out.destructive = "yes";
+  if (out.actions.some((a) => bad(a) && a.path === "down")) out.down_destructive = "yes"; // present only when yes
   return out;
 }
 
