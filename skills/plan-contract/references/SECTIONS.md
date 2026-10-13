@@ -12,6 +12,7 @@
 | `## Verification commands` | always | lead |
 | `## Dependencies` | always (`none` when none) | lead |
 | `## Contracts` | always (`none` when none) | lead |
+| `## Assumptions` | always (`none` when none) | lead |
 
 The validator detects Data and UI from scope paths. When the task changes stored data or UI through a path the pattern does not catch, add the section anyway; the reviewer checks it against the diff. A section that does not apply is omitted, never left as a placeholder.
 
@@ -22,6 +23,7 @@ The validator detects Data and UI from scope paths. When the task changes stored
 - **Verification commands:** the project's own commands in backticks, in run order (`npm test`). Never invented; taken from TASK.md, CI config or package scripts. Every command must exit 0 when the change is right: an absence check is written `! grep -rn libary . --exclude-dir=.agents` (plain `grep` exits 1 when nothing matches, the verifier records a failed command and the run needs an amendment).
 - **Dependencies:** `none`, or `- <package>@<version> — <criterion it serves>`. A dependency not listed here is a FAIL at review.
 - **Contracts:** `none`, or `- <contract> <old version> → <new version> — <who consumes it>` for versioned API, schema, file-format or event changes. An unlisted versioned change is a FAIL at review.
+- **Assumptions** (A79): `none`, or the table `| id | assumption | source | risk | verification | status | decisions |`, one row per fact the plan relies on that no verified EVIDENCE claim or TASK criterion supports. `id` is `AS-<n>` (an assumption EVIDENCE.md already registers keeps its id); `risk` is `low|medium|high` (what breaks if it is wrong: `high` = data loss, security, a public contract, or most of the change); `verification` is the check that was run (a claim id, a command) or the one that could be run; `status` is `verified` or `unverified` (never `accepted-by-user`: the run records that when the user answers); `decisions` names the criteria or sections it affects. A `verified` row needs a named check, a `high` row needs a method in either status. An unverified `high` row stops `agent.sh freeze` until the user answers the question the lead raises for it (`accept` or the corrected fact); it is never accepted silently, and the completion report lists every unverified or accepted-by-user assumption.
 - **Data:** first line `destructive: yes` or `destructive: no`, then the migration plan (expand/contract steps, backfill, reversibility, lock risk, rollback). `yes` when any step drops, truncates or rewrites existing data irreversibly.
 - **Architecture / UI:** the specialist's text, unchanged except removing anything that references paths outside scope (which instead becomes a scope question).
 

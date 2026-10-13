@@ -37,3 +37,11 @@ none
 ## Contracts
 
 none
+
+## Assumptions
+
+<`none`, or the register: one row per fact the plan relies on without a verified claim. risk is low|medium|high, status verified|unverified (never accepted-by-user: the run records the user's answer). A verified row names the check; a high-risk unverified row stops the freeze until the user answers it.>
+
+| id | assumption | source | risk | verification | status | decisions |
+|---|---|---|---|---|---|---|
+| AS-1 | <what is taken as true> | <E-n, TASK.md, INTENT.md or user> | <low\|medium\|high> | <the check that was or can be run> | <verified\|unverified> | <AC-n or section it affects> |

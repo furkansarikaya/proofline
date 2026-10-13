@@ -37,6 +37,7 @@ const BODY = {
   "Verification commands": ["- `npm test`"],
   Dependencies: ["none"],
   Contracts: ["none"],
+  Assumptions: ["none"],
 };
 function plan({ scope = SCOPE, body = BODY, title = "# Plan: T-7" } = {}) {
   const parts = ["---", "scope:", ...scope, "---", "", title, ""];
@@ -88,6 +89,44 @@ test("sections required by class", () => {
   has(errs(plan({ body: without("Dependencies") })), 'section "## Dependencies" is required');
 });
 
+// A79: the mandatory assumption register.
+const AHEAD = ["| id | assumption | source | risk | verification | status | decisions |", "|---|---|---|---|---|---|---|"];
+const withAssumptions = (...lines) => errs(plan({ body: { ...BODY, Assumptions: lines } }));
+const ROW = (o = {}) => { const r = { id: "AS-1", text: "the threshold is stored in cents", source: "E-3", risk: "low", method: "`src/config.js:loadConfig` reads it as an integer", status: "verified", decisions: "AC-1", ...o }; return `| ${r.id} | ${r.text} | ${r.source} | ${r.risk} | ${r.method} | ${r.status} | ${r.decisions} |`; };
+
+test("## Assumptions is mandatory: missing, empty and free text are rejected", () => {
+  has(errs(plan({ body: without("Assumptions") })), 'section "## Assumptions" is required');
+  has(withAssumptions(), 'section "## Assumptions" is empty');
+  has(withAssumptions("the threshold is probably in cents"), "is not a table row");
+  has(withAssumptions(...AHEAD), "has no assumption rows");
+  assert.deepEqual(withAssumptions("none"), []);
+});
+
+test("assumption rows: valid register passes, every shape error is named", () => {
+  assert.deepEqual(withAssumptions(...AHEAD, ROW(), ROW({ id: "AS-2", risk: "high", status: "unverified", method: "ask the data owner whether legacy rows exist" })), []);
+  has(withAssumptions(...AHEAD, ROW({ id: "A1" })), "id must match AS-<n>");
+  has(withAssumptions(...AHEAD, ROW(), ROW()), "duplicate id");
+  has(withAssumptions(...AHEAD, ROW({ risk: "critical" })), "risk must be low|medium|high");
+  has(withAssumptions(...AHEAD, ROW({ status: "accepted-by-user" })), "status must be verified|unverified");
+  has(withAssumptions(...AHEAD, ROW({ decisions: "" })), "decisions is empty");
+  has(withAssumptions(...AHEAD, ROW({ source: "" })), "source is empty");
+  has(withAssumptions("| id | text | risk |", "|---|---|---|", "| AS-1 | x | low |"), "header must be");
+});
+
+test("trap: a high-risk assumption marked verified without a method is rejected; a low-risk unverified one passes", () => {
+  const trap = withAssumptions(...AHEAD, ROW({ risk: "high", status: "verified", method: "none" }));
+  has(trap, "verified without a verification method");
+  has(trap, "a high-risk assumption needs a verification method");
+  has(withAssumptions(...AHEAD, ROW({ risk: "high", status: "unverified", method: "-" })), "a high-risk assumption needs a verification method");
+  has(withAssumptions(...AHEAD, ROW({ risk: "low", status: "verified", method: "" })), "verified without a verification method");
+  assert.deepEqual(withAssumptions(...AHEAD, ROW({ risk: "low", status: "unverified", method: "none" })), []);
+  assert.deepEqual(withAssumptions(...AHEAD, ROW({ risk: "medium", status: "unverified", method: "n/a" })), []);
+});
+
+test("the known-bad fixture plan reports no Assumptions section", () => {
+  has(errs(readFileSync(join(fixture, "bad/PLAN.md"), "utf8")), 'section "## Assumptions" is required');
+});
+
 test("TRIVIAL allows at most two scope paths", () => {
   has(errs(plan(), { cls: "TRIVIAL" }), "TRIVIAL allows at most 2 paths");
 });
@@ -105,7 +144,7 @@ const CONTRACT = "| S2 | deferred | drop_column | books.legacy_fee | yes | no | 
 
 test("TRIVIAL copy change in a UI file needs no ## UI section", () => {
   const scope = ["  - path: public/index.html", "    criteria: [AC-1]"];
-  const body = { Behavior: ["- AC-1: `public/index.html` tagline reads library"], Tests: ["- AC-1: `public/index.html` tagline"], "Verification commands": ["- `npm test`"], Dependencies: ["none"], Contracts: ["none"] };
+  const body = { Behavior: ["- AC-1: `public/index.html` tagline reads library"], Tests: ["- AC-1: `public/index.html` tagline"], "Verification commands": ["- `npm test`"], Dependencies: ["none"], Contracts: ["none"], Assumptions: ["none"] };
   const e = errs(plan({ scope, body }), { cls: "TRIVIAL" });
   assert.ok(!e.some((x) => x.includes('section "## UI"')), JSON.stringify(e));
   has(errs(plan({ scope, body }), { cls: "STANDARD" }), 'section "## UI" is required');

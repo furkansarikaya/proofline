@@ -49,3 +49,10 @@ New dependencies with version and reason, or `none`. A dependency not listed her
 ## Contracts
 
 Versioned API or schema contract changes, or `none`. A contract change not listed here is a FAIL.
+
+## Assumptions
+
+`none`, or the register table (mandatory section): one row per fact the plan relies on without a verified
+claim, `| id | assumption | source | risk | verification | status | decisions |`, id `AS-<n>`, risk
+`low|medium|high`, status `verified|unverified`. A verified row names the check; an unverified high-risk
+assumption blocks the freeze until the user answers it (`agent.sh verify-assumptions <ID>`).

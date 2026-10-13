@@ -29,6 +29,17 @@ starts with `destructive: yes` makes the task CRITICAL at freeze.
 criterion. Freezing hashes the task contract and the plan. Changing scope afterwards needs an amendment and a
 refreeze (and a `scope` approval when paths are added).
 
+### Assumptions
+
+`EVIDENCE.md` and `PLAN.md` each carry a mandatory `## Assumptions` section: `none`, or one row per fact the
+plan relies on without a verified claim (id, text, source, risk `low|medium|high`, verification method, status
+`verified|unverified`, the decisions it affects). Both validators check the shape; a `verified` row or a
+`high` row without a verification method is rejected. `agent.sh freeze` and `refreeze` refuse while an
+unverified high-risk assumption stands: the lead relays a recorded NEEDS_INPUT question bound to its id, and
+the assumption is accepted only by the user's own `accept <id>` answer (a prompt that merely contains the word accepts nothing) (it is then listed as `accepted-by-user`
+with that answer as reference). `agent.sh verify-assumptions <TASK>` shows the register read-only. The
+completion report lists every unverified and accepted-by-user assumption.
+
 ## Implementation
 
 One implementer per run, inside an attested window, writes each scope path test-first with recorded RED

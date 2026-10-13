@@ -162,7 +162,7 @@ solo() { # phase result file line [target] — standalone: the lead implements a
 }
 write_report() {
   printf '%s\n' "# Completion Report: $RID" '' '## Implementation Summary' 'impl.txt and impl_test.txt changed under the lifecycle gates.' '' \
-    '## TDD Evidence' 'RED then GREEN recorded by the expected implementation owner.' '' '## Verification' 'All gates passed on the final tree.' '' \
+    '## TDD Evidence' 'RED then GREEN recorded by the expected implementation owner.' '' '## Verification' 'All gates passed on the final tree.' '' '## Assumptions' 'none' '' \
     '## Review Result' 'Approved on the final tree.' '' '## QA Result' 'Every frozen QA scenario passed on the final tree.' '' \
     '## Execution' 'Not applicable in fixtures.' '' '## Known Limitations / Follow-up' 'None.' "$@" > ".agents/runs/$RID/COMPLETION_REPORT.md"
 }
@@ -194,8 +194,8 @@ scaffold() {
   printf 'LC\n' > .agents/local/ACTIVE_RUN
   printf '# Task: LC — lookup\n\n## Acceptance criteria\n\n- AC-1: lookup behavior\n' > "$d/TASK.md"
   [ -z "${SC_TASK_EXTRA:-}" ] || printf '%s\n' "$SC_TASK_EXTRA" >> "$d/TASK.md"
-  case "$class" in TRIVIAL) ;; *) printf '# Evidence\n' > "$d/EVIDENCE.md"; printf '# QA plan\n\n- QA-1 (AC-1): lookup returns the stored value\n' > "$d/QA_PLAN.md" ;; esac
-  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl_test.txt' '    criteria: [AC-1]' '---' '# Plan' '' '## Architecture' 'one storage map; no new module' > "$d/PLAN.md"
+  case "$class" in TRIVIAL) ;; *) printf '%s\n' '# Evidence' '' '## Assumptions' 'none' '' '## Claims' > "$d/EVIDENCE.md"; printf '# QA plan\n\n- QA-1 (AC-1): lookup returns the stored value\n' > "$d/QA_PLAN.md" ;; esac
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl_test.txt' '    criteria: [AC-1]' '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'one storage map; no new module' > "$d/PLAN.md"
   [ -z "${SC_PLAN_EXTRA:-}" ] || printf '%s\n' "$SC_PLAN_EXTRA" >> "$d/PLAN.md"
   printf '%s\n' 'task:' '  id: LC' 'repository:' '  base_sha: PENDING' "${SC_BRANCH:+  canonical_branch: PENDING}" "${SC_BRANCH:+  task_branch: PENDING}" 'task_source:' '  type: local_markdown' "  path: $tpath" '  revision: PENDING' \
     'execution:' '  mode: deterministic' '  profile: PENDING' "  autonomy: $auto" "  topology: $topo" '  state: PLANNING' '  knowledge_state: not_started' '  awaiting_input: false' \

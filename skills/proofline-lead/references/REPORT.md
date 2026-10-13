@@ -36,12 +36,21 @@ from run evidence; nothing is inferred or invented.
 | Root cause | the implementer's `reports/NNN-debug.md` (defect tasks only) |
 | TDD Evidence | `worker-evidence/` (RED/GREEN per scope path, exemptions from PLAN.md) |
 | Verification | `VERIFY.md` header (result, confidence) and `## Verification commands` |
+| Assumptions | `A verify-assumptions <ID>`: every assumption whose status is not `verified`: id, risk, text, `unverified` or `accepted-by-user` with the answer file (`questions/NNN.answer.md`); the status word stands on the same line as the id; `none` when all are verified |
 | Review Result | `A pipeline <ID>` final statuses; per gate: result, confidence, fix round, finding ids; `pass_low` is listed as not counted |
 | QA Result | `QA_REPORT.md` header (STANDARD and up) |
 | Waivers | `waivers/*.yaml`: finding id, gate, the user's reason, approval |
 | Execution | `decisions/*.decision` and ledger `decide` / `failover` rows: role, focus, runtime, model, effort, signals, escalations, failovers |
 | Amendments, Reopen History | `amendments/`, ledger |
 | Known Limitations / Follow-up | open `info` findings, follow-up tasks from waivers |
+
+### Assumptions (A79)
+
+`## Assumptions` is always present. It lists, from `A verify-assumptions <ID>`, each assumption of PLAN.md and
+EVIDENCE.md that is not `verified`: `unverified` ones (low and medium risk, which did not block) and
+`accepted-by-user` ones (high risk, accepted by the user's answer, with its `questions/NNN.answer.md`
+reference), one line each with id, risk and text; `none` when every assumption is verified. A listed one is
+never described as verified. `A publish-completion-report` rejects a report that omits an id.
 
 ### Root cause (defect tasks)
 

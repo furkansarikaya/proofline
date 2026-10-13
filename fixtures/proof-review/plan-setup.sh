@@ -160,6 +160,10 @@ Coupon codes are normalized in one place. Case folding may use golang.org/x/text
 ## Contracts
 
 None.
+
+## Assumptions
+
+none
 EOF
 else
   cat > "$run/TASK.md" <<'EOF'
@@ -211,6 +215,10 @@ Keys are claimed before the order is saved. Key shapes may be validated with zod
 ## Contracts
 
 None.
+
+## Assumptions
+
+none
 EOF
 fi
 echo "fixture ready: $target ($lang, run FIX-1 on $feature, base $base)"

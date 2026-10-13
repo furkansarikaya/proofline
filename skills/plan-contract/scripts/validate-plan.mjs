@@ -2,7 +2,8 @@
 // Validates a proofline PLAN.md against its TASK.md and the repository (see ../references/).
 // Checks: canonical `scope:` front matter, path <-> criterion mapping in both directions,
 // scope paths exist (or are `new: true`), no globs, no duplicates, tdd_exemption quality,
-// sections required by class, `## Data` first line, no placeholder sections. No dependencies.
+// sections required by class, `## Data` first line, `## Assumptions` register shape, no placeholder sections.
+// No dependencies.
 // Usage: node <skill-dir>/scripts/validate-plan.mjs <PLAN.md> <TASK.md> [--class C] [--repo <dir>]
 // Exit codes: 0 valid, 1 invalid (one message per line), 2 usage or read error.
 
@@ -11,7 +12,7 @@ import { resolve, sep, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
-export const BASE_SECTIONS = ["Behavior", "Tests", "Verification commands", "Dependencies", "Contracts"];
+export const BASE_SECTIONS = ["Behavior", "Tests", "Verification commands", "Dependencies", "Contracts", "Assumptions"];
 export const ARCHITECTURE_CLASSES = ["COMPLEX", "CRITICAL"];
 export const MAX_SCOPE_PATHS = { TRIVIAL: 2 };
 export const SCOPE_KEYS = ["path", "criteria", "new", "tdd_exemption"];
@@ -25,6 +26,47 @@ export const STOCK_PHRASES = [
   "configuration change", "config change", "config only", "documentation only", "docs only", "no logic",
   "no behavior change", "for this change", "this change", "this file", "in this case",
 ];
+
+// A79 assumption register: `## Assumptions` is `none` or a table with exactly these columns. The status written
+// in the artifact is verified|unverified; `accepted-by-user` is recorded by the run (the user's answer), never here.
+// Mirrors agent.sh assumption_scan and the evidence-map validator (skills are standalone, so the code is copied).
+export const ASSUMPTION_COLUMNS = ["id", "assumption", "source", "risk", "verification", "status", "decisions"];
+const NO_METHOD = /^(none|n\/a|-|tbd|todo|unknown)?$/i;
+export function assumptionProblems(lines) {
+  const out = [];
+  const content = lines.filter((l) => l.trim() !== "");
+  if (content.length === 0) return ['section "## Assumptions" is empty: write "none" or the assumption table'];
+  if (content.length === 1 && /^none\s*$/i.test(content[0].trim())) return out;
+  const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  const ids = new Set();
+  let header = false, rows = 0;
+  for (const l of content) {
+    if (!/^\s*\|.*\|\s*$/.test(l)) { out.push(`Assumptions: "${l.trim()}" is not a table row (write "none" or the table)`); continue; }
+    const c = cells(l);
+    if (!header) {
+      header = true;
+      if (c.join("|").toLowerCase() !== ASSUMPTION_COLUMNS.join("|")) out.push(`Assumptions: header must be | ${ASSUMPTION_COLUMNS.join(" | ")} |`);
+      continue;
+    }
+    if (/^:?-+:?$/.test(c[0])) continue;
+    rows++;
+    const [id, text, source, risk, method, status, decisions] = c;
+    const at = `Assumptions ${id || "(no id)"}`;
+    if (c.length !== 7) { out.push(`${at}: expected 7 columns`); continue; }
+    if (!/^AS-\d+$/.test(id)) out.push(`${at}: id must match AS-<n>`);
+    if (ids.has(id)) out.push(`${at}: duplicate id`);
+    ids.add(id);
+    if (!text) out.push(`${at}: assumption text is empty`);
+    if (!source) out.push(`${at}: source is empty`);
+    if (!["low", "medium", "high"].includes(risk)) out.push(`${at}: risk must be low|medium|high`);
+    if (!["verified", "unverified"].includes(status)) out.push(`${at}: status must be verified|unverified (accepted-by-user is recorded by the run, not written here)`);
+    if (status === "verified" && NO_METHOD.test(method)) out.push(`${at}: verified without a verification method (name what was checked, for example a claim id or a command)`);
+    if (risk === "high" && NO_METHOD.test(method)) out.push(`${at}: a high-risk assumption needs a verification method`);
+    if (!decisions) out.push(`${at}: decisions is empty (name what the assumption affects)`);
+  }
+  if (rows === 0) out.push('section "## Assumptions" has no assumption rows: write "none" or the table');
+  return out;
+}
 
 // A destructive `## Data` section is accepted as expand/contract when its step table has a non-destructive
 // step in an early phase and every destructive step in a late phase; `single_step: yes` opts out (the control
@@ -179,7 +221,8 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
   // A TRIVIAL change is text or configuration: a copy edit in a UI file needs no `## UI` section (and no designer).
   if (klass !== "TRIVIAL" && scopePaths.some((p) => UI_PATH.test(p))) required.push("UI");
   for (const s of required) if (!body.has(s)) errors.push(`section "## ${s}" is required${s === "Architecture" ? ` for ${klass}` : s === "Data" ? " (scope touches persistence)" : s === "UI" ? " (scope touches UI)" : ""}`);
-  for (const [name, content] of body) if (content && isPlaceholder(content)) errors.push(`section "## ${name}" is empty or a placeholder`);
+  for (const [name, content] of body) if (content && name !== "Assumptions" && isPlaceholder(content)) errors.push(`section "## ${name}" is empty or a placeholder`);
+  if (body.get("Assumptions")) errors.push(...assumptionProblems(body.get("Assumptions")));
 
   const tests = body.get("Tests") || [];
   for (const l of tests) {

@@ -58,8 +58,10 @@ Skipped for TRIVIAL (`next` goes straight to `write PLAN.md`).
 2. Dispatch them in parallel ([DISPATCH.md](DISPATCH.md)). Each returns `RESULT: DONE` with
    `ARTIFACT: reports/NNN-explorer.md`.
 3. Consolidate: follow evidence-map `references/CONSOLIDATION.md` (title `# Evidence: <ID>`, sections
-   `## Repository`, `## Claims`, `## Not found`, `## Open questions`, `## Derived constraints`), reading only
-   the claims tables of the explorer artifacts. Write `EVIDENCE.md`.
+   `## Repository`, `## Claims`, `## Not found`, `## Open questions`, `## Derived constraints`,
+   `## Assumptions`), reading only the claims tables of the explorer artifacts. Write `EVIDENCE.md`. The
+   mandatory `## Assumptions` register (`none` or the table) lists what the exploration could not verify
+   (A79).
 4. Verify: `node <evidence-map-skill-dir>/scripts/verify-claims.mjs .agents/runs/<ID>/EVIDENCE.md` exits 0.
    A failing claim is dropped or re-explored, never kept.
 5. An open question that changes scope or behaviour goes to the user in the D13 format ([HANDOFF.md](HANDOFF.md)).
@@ -79,7 +81,10 @@ Architect and data_architect may run in parallel; the designer after the archite
 
 Plan: follow the plan-contract skill in team mode. Paste the returned sections unchanged. Then
 `node <plan-contract-skill-dir>/scripts/validate-plan.mjs .agents/runs/<ID>/PLAN.md .agents/runs/<ID>/TASK.md
---class <CLASS> --repo .` exits 0; fix the plan, never the task.
+--class <CLASS> --repo .` exits 0; fix the plan, never the task. `PLAN.md` carries the mandatory
+`## Assumptions` register (`none` or the table): what the plan relies on without a verified claim, carrying
+over EVIDENCE.md's rows by id. Verify what can be verified now (update the row's method and status); leave
+the rest `unverified`. `A verify-assumptions <ID>` (read-only) lists the register and what blocks the freeze.
 
 QA plan (STANDARD and up): only once PLAN.md is final (validated, every design section pasted), dispatch `qa`
 (task step, `RESULT: DONE`, `ARTIFACT: QA_PLAN.md`). The QA plan cites the sha256 of that PLAN.md; any later
@@ -96,6 +101,14 @@ editing the hash.
   records the approval from the user's reply (approval phrase and kind word). After the reply run
   `A next <ID>`; when it still asks for the approval, the answer was a refusal or a change request: revise
   the plan and ask again.
+- An unverified `high`-risk assumption blocks the freeze (A79). `A freeze <ID>` refuses and records one
+  question per such assumption (`ASSUMPTION: <id>@<hash>`, the D13 `ask` machinery); relay it verbatim
+  (`A questions <ID>`, RESULT NEEDS_INPUT). The user answers `accept <id>` (for example `accept AS-1`; the answer is recorded as theirs,
+  the assumption becomes `accepted-by-user` with that answer file as reference) or gives the corrected fact
+  (change the plan, or verify the assumption and update its row, then freeze again). The lead never
+  answers for the user: an answer that is not the user's own words does not accept anything. A lower-risk
+  unverified assumption does not block; every unverified and accepted-by-user one is listed in the
+  completion report's `## Assumptions`.
 - `A freeze <ID>`, then `A freshness <ID>` (freshness checks a freeze that must exist).
 - A plan with `destructive: yes` stops again AFTER the freeze, before IMPLEMENT: `next` asks for
   `destructive` (then `single_step` when the plan is one step), reason `destructive approval required before

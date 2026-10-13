@@ -178,6 +178,9 @@ none
 
 ## Contracts
 none
+
+## Assumptions
+none
 X
 {
   echo "task_id: FX-VP"

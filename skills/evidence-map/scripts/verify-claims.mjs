@@ -17,6 +17,46 @@ const SYMBOL = /^[A-Za-z_$][\w$]*(?:(?:\.|#|::)[A-Za-z_$][\w$]*)*$/;
 // Explorer rows use the result protocol id `explorer-<n>` (agent.sh record); the lead's consolidated rows are renumbered `E-<n>`.
 const ROW_ID = { explorer: /^explorer-\d+$/, consolidated: /^E-\d+$/ };
 
+// A79 assumption register: a consolidated EVIDENCE.md carries `## Assumptions` (`none` or the table below). The
+// status written here is verified|unverified; `accepted-by-user` is recorded by the run. Same rules as
+// plan-contract's validate-plan.mjs and agent.sh assumption_scan (skills are standalone, so the code is copied).
+export const ASSUMPTION_COLUMNS = ["id", "assumption", "source", "risk", "verification", "status", "decisions"];
+const NO_METHOD = /^(none|n\/a|-|tbd|todo|unknown)?$/i;
+export function assumptionProblems(lines) {
+  const out = [];
+  const content = lines.filter((l) => l.trim() !== "");
+  if (content.length === 0) return ['section "## Assumptions" is empty: write "none" or the assumption table'];
+  if (content.length === 1 && /^none\s*$/i.test(content[0].trim())) return out;
+  const ids = new Set();
+  let header = false, rows = 0;
+  for (const l of content) {
+    if (!/^\s*\|.*\|\s*$/.test(l)) { out.push(`Assumptions: "${l.trim()}" is not a table row (write "none" or the table)`); continue; }
+    const c = cells(l);
+    if (!header) {
+      header = true;
+      if (c.join("|").toLowerCase() !== ASSUMPTION_COLUMNS.join("|")) out.push(`Assumptions: header must be | ${ASSUMPTION_COLUMNS.join(" | ")} |`);
+      continue;
+    }
+    if (/^:?-+:?$/.test(c[0])) continue;
+    rows++;
+    const [id, text, source, risk, method, status, decisions] = c;
+    const at = `Assumptions ${id || "(no id)"}`;
+    if (c.length !== 7) { out.push(`${at}: expected 7 columns`); continue; }
+    if (!/^AS-\d+$/.test(id)) out.push(`${at}: id must match AS-<n>`);
+    if (ids.has(id)) out.push(`${at}: duplicate id`);
+    ids.add(id);
+    if (!text) out.push(`${at}: assumption text is empty`);
+    if (!source) out.push(`${at}: source is empty`);
+    if (!["low", "medium", "high"].includes(risk)) out.push(`${at}: risk must be low|medium|high`);
+    if (!["verified", "unverified"].includes(status)) out.push(`${at}: status must be verified|unverified (accepted-by-user is recorded by the run, not written here)`);
+    if (status === "verified" && NO_METHOD.test(method)) out.push(`${at}: verified without a verification method (name what was checked, for example a claim id or a command)`);
+    if (risk === "high" && NO_METHOD.test(method)) out.push(`${at}: a high-risk assumption needs a verification method`);
+    if (!decisions) out.push(`${at}: decisions is empty (name what the assumption affects)`);
+  }
+  if (rows === 0) out.push('section "## Assumptions" has no assumption rows: write "none" or the table');
+  return out;
+}
+
 // A claim is `<path>:<locator>`; the path never contains whitespace or a colon.
 export function parseClaim(text) {
   const m = /^([^\s:`]+):([^\s`]+)$/.exec(text.trim());
@@ -97,8 +137,9 @@ export function validate(md, { root }) {
   if (!doc.kind) { errors.push('title: must be "# Explorer evidence: <target> — <assignment>" or "# Evidence: <TASK-ID>"'); return errors; }
   const required = doc.kind === "explorer"
     ? ["Assignment", "Claims", "Not found", "Open questions", "Stop"]
-    : ["Repository", "Claims", "Not found", "Open questions", "Derived constraints"];
+    : ["Repository", "Claims", "Not found", "Open questions", "Derived constraints", "Assumptions"];
   for (const s of required) if (!doc.sections.has(s)) errors.push(`section "## ${s}" is missing`);
+  if (doc.kind === "consolidated" && doc.sections.has("Assumptions")) errors.push(...assumptionProblems(doc.sections.get("Assumptions")));
   if (doc.kind === "explorer") {
     const a = (doc.sections.get("Assignment") || []).join("\n");
     for (const k of ["Objective", "Allowed scope", "Expected output", "Stop condition"]) {
