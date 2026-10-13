@@ -56,6 +56,21 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
   reproduction the project cannot run is stated as UNSUPPORTED inside the result.
 - The mapping lives in `.agents/config.yaml` and is frozen with the plan; the lead cannot change it during a run.
 
+Two of these focuses are tool-free (decision A88):
+
+- **SECURITY `dependencies`** (exploit-proof). A manifest diff of the changed manifests and lockfiles
+  (`skills/exploit-proof/scripts/diff-manifests.mjs`) is checked against PLAN `## Dependencies`: an undeclared new
+  or changed direct dependency or install hook is blocking, lockfile-only and transitive changes are notes, git or
+  URL sources and unpinned ranges are flagged. The license policy comes from `security.licenses.allow|deny` in
+  `.agents/config.yaml` (unset: "not configured", never a pass). The project's own audit tool is used only if it
+  already exists (never installed); known vulnerabilities come only from its output, a tool that cannot run
+  (for example no network) is recorded `tool_unavailable`. Without a tool the report says "manifest diff and plan
+  check only" and the confidence is `medium`. Never UNSUPPORTED, never waivable.
+- **REVIEW `config`** (proof-review). `skills/proof-review/scripts/check-config.mjs` judges only the lines the
+  change adds: a variable read in code or `${VAR}` in config that no example env file, config sample or document
+  defines; a secret in plain text in a config file (masked, `proofline:allow-secret` marks a deliberate fake);
+  a feature flag added with default on that the plan does not name; a flag removed while still referenced.
+
 Other FAIL rules: a failing test that also fails at the base in a clean worktree is reported as pre-existing;
 a new dependency not named in the plan is a FAIL; so is a change to a versioned contract the plan does not name.
 

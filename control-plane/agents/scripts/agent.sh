@@ -124,7 +124,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies")
@@ -730,7 +730,10 @@ plan_flag() { # PLAN FLAG -> yes|no
 plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]`
   awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
 }
-risk_config() { printf '%s' "$cfg_cache" | grep '^risk\.' || true; }
+# The block the freeze binds: the risk mapping and every non-empty security.* key (A88: license policy, audit
+# command), so a mid-run edit of either is refused. Empty security keys are left out, so a config that does not
+# set them hashes as before.
+risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|security\..*=.)' || true; }
 risk_names() { risk_config | awk -F= '$1 ~ /^risk\.[a-z_]+\.(paths|content)$/ && $2 != "" { split($1, p, "."); print p[2] }' | sort -u; }
 # risk_compute ID -> "name|source|path|why" lines (source diff|scope|plan). Plain documentation (.md .mdx .rst
 # .adoc) never carries a path or content signal: a guide named like a migration is not one.

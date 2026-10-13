@@ -177,6 +177,17 @@ sc_frozen() {
   expect_msg "a check outside the focus set" 'invalid value for risk.contract_file.check' A config-check "$base/cfg"
   awk '/^  ui_path:/ { print; print "    paths: \"*.html\""; print "    check: VISUAL_GATE"; skip = 1; next } skip && /^  [a-z]/ { skip = 0 } !skip { print }' .agents/config.yaml > "$base/cfg2"
   expect_msg "a new gate type in the mapping" 'invalid value for risk.ui_path.check' A config-check "$base/cfg2"
+  # A88: the shipped config carries the `security:` block (license policy, audit command) and config-check accepts it
+  grep -q '^security:' .agents/config.yaml || die "shipped config has no security block"
+  A config-check >/dev/null
+  # the license policy and audit command are bound by the freeze too: a mid-run edit is refused, restoring it passes
+  cp .agents/config.yaml "$base/cfg.keep"
+  sed 's/^    deny:.*$/    deny: GPL-3.0-only/' "$base/cfg.keep" > .agents/config.yaml
+  grep -q '^    deny: GPL-3.0-only$' .agents/config.yaml || die "the test edit did not apply"
+  expect_msg "a license policy edit after freeze" 'freeze mismatch: risk' A verify-freeze LC
+  sed 's/^  audit_command:.*$/  audit_command: make audit/' "$base/cfg.keep" > .agents/config.yaml
+  expect_msg "an audit command edit after freeze" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
   ok "frozen: flags need a refreeze, the mapping is bound by risk_sha256, config-check refuses foreign checks"
 }
 

@@ -82,6 +82,17 @@ database:
   # Migration, seed and schema-push commands of the common ecosystems; add the project's own.
   migrate_commands: "(npm|pnpm|yarn|bun)( run)? (migrate|migration|migrations|seed|seeds|db[:-])[A-Za-z0-9:_-]*( |$), (^| )(npx|pnpm exec|bunx|yarn dlx) (prisma|drizzle-kit|knex|sequelize|sequelize-cli|typeorm|mikro-orm|db-migrate|node-pg-migrate)( |$), (^| )prisma (migrate|db) , (^| )drizzle-kit (push|migrate|drop), (^| )(knex|sequelize|sequelize-cli|typeorm|mikro-orm|umzug|db-migrate|node-pg-migrate) .*(migrat|seed|db:|schema:), (^| )alembic (upgrade|downgrade|stamp), (^| )flask( .*)? db (upgrade|downgrade|stamp|migrate), (manage\.py|django-admin)( .*)? (migrate|flush|sqlflush|loaddata|dbshell), (^| )(rails|rake|bin/rails)( .*)? db:, (^| )artisan (migrate|db:), (^| )(flyway|liquibase|dbmate|goose|atlas|sqitch|tern|phinx|diesel|sqlx|sea-orm-cli)( .*)? (migrate|up|down|apply|deploy|update|run|push|revert|redo|reset|drop|seed), (^| )dotnet ef (database|migrations) , (^| )mix ecto\.(migrate|rollback|reset|drop|setup|load), (^| )migrate( .*)? (up|down|goto|drop|force), (^| )db(:| )(seed|migrate|reset|drop|push|setup)"
 
+# Security extension (A88), read by the SECURITY `dependencies` focus. `licenses.allow` / `licenses.deny` are
+# space-separated SPDX ids checked against the license a lockfile records for a new or changed dependency; both
+# empty (the default) means the license check is reported as "not configured", never as passed. `audit_command` is
+# the project's own audit command, if it has one; nothing is installed and the focus runs only tools that exist.
+# A non-empty `security.*` value is bound by the freeze (with the `risk:` block): editing it mid-run is refused.
+security:
+  licenses:
+    allow:
+    deny:
+  audit_command:
+
 # Risk-adaptive pipeline (A78; `agent.sh pipeline <ID>` shows what fired and why). A signal comes from a changed
 # or planned path (`paths`, globs as in risky_paths), from text the diff adds (`content`, an extended regular
 # expression; empty = off), or from a PLAN.md flag. `check` is the focus it adds inside an existing gate:
