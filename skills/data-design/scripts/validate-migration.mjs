@@ -77,7 +77,7 @@ export function checkReport(md) {
 
   for (const [id, r] of byId) {
     const ev = r.evidence || "";
-    if (r.result === "fail" && r.class === "judged" && !/criterion:\s*[^|]*?[A-Za-z]{3,}/i.test(ev))
+    if (r.result === "fail" && r.class === "judged" && !/criterion:\s*[A-Za-z0-9][^|]*?[A-Za-z]{3,}/i.test(ev))
       fail("V08", `${id}: a judged finding fails the gate only when it cites the written spec/plan criterion it violates ("criterion: ..."); otherwise result warn`);
     if (MEASURED_ONLY.includes(id) && ["pass", "fail"].includes(r.result)) {
       if (db !== "yes") fail("V05", `${id}: ${r.result} needs a throwaway database; without one the result is unsupported`);
