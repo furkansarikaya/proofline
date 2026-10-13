@@ -37,7 +37,7 @@ Talk to the user in their language. `PLAN.md` is English; identifiers, paths, co
 ## Flow
 
 1. **Inputs.** Read TASK.md (criteria, constraints, suggested class), then EVIDENCE.md and INTENT.md if present. Determine the class: the run's classification, else TASK.md `## Suggested class`.
-2. **Candidate paths** ([SCOPE.md](references/SCOPE.md#2-deriving-scope)). For each criterion, list the files that must change and the test that proves it. Verify each existing path with `git ls-files`; for a new file, verify its parent directory exists and that no existing file already serves the purpose.
+2. **Candidate paths** ([SCOPE.md](references/SCOPE.md#2-deriving-scope)). When an impact report is available, use it as in SCOPE.md rule 6. For each criterion, list the files that must change and the test that proves it. Verify each existing path with `git ls-files`; for a new file, verify its parent directory exists and that no existing file already serves the purpose.
 3. **Front matter.** Copy [PLAN.template.md](assets/PLAN.template.md); write `scope:` entries in the canonical format ([SCOPE.md](references/SCOPE.md#1-format)).
 4. **Sections** ([SECTIONS.md](references/SECTIONS.md)). Required ones for the class and scope; paste specialist section texts (Architecture, Data, UI) as returned, then check they reference only scope paths.
 5. **Validate.** Run `validate-plan.mjs`; fix the plan and re-run until exit 0. Node unavailable: apply every rule in [SCOPE.md](references/SCOPE.md#4-validation-rules) by hand and say so.
