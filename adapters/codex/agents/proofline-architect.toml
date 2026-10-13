@@ -34,7 +34,8 @@ developer_instructions = '''
 6. Return the result with the PLAN `## Architecture` text (and `## Contracts` entries) after the table, plus the
    PLAN `## Risk` flags the design implies, one line each: `contract_change: yes|no` (an API, event or schema
    contract changes), `concurrency: yes|no` (shared state, locks, retries, ordering, idempotency),
-   `performance_critical: yes|no` (a stated latency, throughput or resource bound). They are frozen with the plan
+   `performance_critical: yes|no` (a stated latency, throughput or resource bound; a relative regression budget
+   goes on the same line as `budget_pct=<n>`, A87). They are frozen with the plan
    and select the REVIEW focuses `contract`, `concurrency` and `performance`; a contract file changed without
    `contract_change: yes` is a blocking finding (A78; `agent.sh pipeline <ID>` lists the signals). Stop.
 

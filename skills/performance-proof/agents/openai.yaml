@@ -1,0 +1,7 @@
+interface:
+  display_name: "Performance Proof"
+  short_description: "Measure base versus change with the project's own benchmark; FAIL, PASS or INCONCLUSIVE by a stated rule"
+  default_prompt: "Use $performance-proof to measure whether this change regresses performance: "
+
+policy:
+  allow_implicit_invocation: false

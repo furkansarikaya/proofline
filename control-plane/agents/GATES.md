@@ -83,7 +83,7 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   "<what is missing>"`. It is recorded as a blocking `UNSUPPORTED <focus>: <reason>` finding: never a PASS;
   only the user can waive it (never for SECURITY); the completion report needs `## Unsupported Checks` naming
   each such `<GATE>:<focus>`. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED.
-- **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block with `freeze.risk_sha256`. A
+- **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block and the performance thresholds (`performance:`, A87) with `freeze.risk_sha256`. A
   change of either after FREEZE fails `verify-freeze` until an amendment and refreeze. The lead never writes
   `.agents/config.yaml` during a run (runtime hook).
 
