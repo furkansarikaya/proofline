@@ -1249,6 +1249,14 @@ verify_debug_result() { # ID
     vd_cls=$(awk '/^## Suggested class[[:space:]]*$/ { g=1; next } /^## / { g=0 } g' "$vd_d/TASK.md" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z' ' ')
     for vd_w in bug defect regression; do case " $vd_cls " in *" $vd_w "*) vd_hit=$vd_w; break ;; esac; done
   fi
+  if [ -z "$vd_hit" ]; then
+    # The user's own words (`>` blockquote lines, A33): the defect words of the config and Turkish stems (A67).
+    vd_q=$(grep -E '^[[:space:]]*>' "$vd_d/TASK.md" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    # shellcheck disable=SC2018 # ASCII a-z is intended (see above)
+    vd_qw=" $(printf '%s' "$vd_q" | tr -c 'a-z' ' ') "
+    for vd_w in $(cfg review.defect_words "$defect_words_default"); do case "$vd_qw" in *" $vd_w "*) vd_hit=quote; break ;; esac; done
+    if [ -z "$vd_hit" ] && printf '%s\n' "$vd_q" | grep -Eq 'hata|bozuk|kayb|kayıp|kaybol|görünm|çalışm|yanlış'; then vd_hit=quote; fi
+  fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
   fail "IMPLEMENTED blocked: the task describes a defect ('$vd_hit' in its title or goal) but there is no debug-proof result: the implementer writes reports/NNN-debug.md (reproduction, root cause, regression test) and submits it"
