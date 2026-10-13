@@ -8,8 +8,13 @@
   "properties": {
     "schema_version": { "const": 1 },
     "destructive": {
-      "description": "yes when any action is destructive or unknown",
+      "description": "yes when any action is destructive or unknown, or a file could not be analyzed",
       "enum": ["yes", "no"]
+    },
+    "unanalyzed": {
+      "description": "non-SQL files the token scan could not understand (run-time built SQL, no recognised operation): never silently skipped, the check is UNSUPPORTED for them",
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": false, "required": ["file", "reason"], "properties": { "file": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 } } }
     },
     "files": {
       "type": "array",

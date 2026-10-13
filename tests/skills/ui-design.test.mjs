@@ -136,6 +136,15 @@ test("creative direction: new is invalid when DESIGN.md exists; new needs avoide
   d.design_system = { file: "docs/DESIGN.md", exists: false }; has(errs(d), "avoided");
   d.creative_direction.avoided = ["gradient hero: an internal tool has no landing page"]; assert.deepEqual(errs(d), []);
 });
+test("creative direction: an approval naming a meeting or review without a recorded answer is refused (A94)", () => {
+  const d = strong(); d.creative_direction.basis = "redesign";
+  d.creative_direction.redesign = { task_quote: "redesign the orders page", user_approval: "" };
+  for (const t of ["approved in the Q3 planning review", "the user approved it in the Q2 review meeting", "agreed in the design sync (Q4 planning)", "approved at the roadmap review"]) {
+    d.creative_direction.redesign.user_approval = t; has(errs(d, { root: repo, task }), "reference the recorded answer");
+  }
+  d.creative_direction.redesign.user_approval = "approved in the Q3 planning review, recorded in questions/004.answer.md";
+  assert.deepEqual(errs(d, { root: repo, task }), []);
+});
 test("creative direction: redesign needs the task's request and the user's approval", () => {
   const d = strong(); d.creative_direction.basis = "redesign"; has(errs(d), "redesign needs");
   d.creative_direction.redesign = { task_quote: "redesign the orders page", user_approval: "" }; has(errs(d), "user's approval");

@@ -252,7 +252,27 @@ sc_migration_small() {
   ok "migration at tier small: escalated to full, REVIEW_DATA carries the migration check, tier never decreases"
 }
 
+# Every manifest and lockfile the exploit-proof diff parses (or lists unparsed) is a dependency signal (A94).
+sc_dependency_manifests() {
+  scaffold standalone no CRITICAL manual
+  mkdir -p requirements gradle docs
+  for dm_f in npm-shrinkwrap.json requirements-dev.txt requirements.in requirements/base.txt requirements/prod.in setup.py setup.cfg gradle/libs.versions.toml \
+      .npmrc packages.config environment.yml deno.json Package.swift go.sum Gemfile.lock composer.lock pom.xml build.gradle.kts app.csproj yarn.lock pnpm-lock.yaml poetry.lock; do
+    printf 'x\n' > "$dm_f"
+  done
+  printf '# Requirements\n' > docs/requirements.md      # trap: documentation about requirements
+  printf 'x\n' > setup.pyc                              # trap: not a manifest
+  snap
+  for dm_f in npm-shrinkwrap.json requirements-dev.txt requirements.in requirements/base.txt requirements/prod.in setup.py setup.cfg gradle/libs.versions.toml \
+      .npmrc packages.config environment.yml deno.json Package.swift go.sum Gemfile.lock composer.lock pom.xml build.gradle.kts app.csproj yarn.lock pnpm-lock.yaml poetry.lock; do
+    has "diff:$dm_f("
+  done
+  hasnt 'docs/requirements.md'; hasnt 'setup.pyc'
+  ok "dependency manifests: every manifest and lockfile the dependency diff reads is a SECURITY:dependencies signal; documentation is not"
+}
+
 run_sc sc_mapping
+run_sc sc_dependency_manifests
 run_sc sc_contract_content
 run_sc sc_migration_small
 run_sc sc_flags

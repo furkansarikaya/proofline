@@ -165,6 +165,41 @@ test("enums and limits agree with the schema", () => {
   assert.equal(SCHEMA.properties.version.const, report.version);
 });
 
+// ---- A94: CommonJS export forms, single-file components, files over the size limit ----------------------
+test("CommonJS declarations: exports.X =, module.exports.X = and module.exports = { ... } are declarations", () => {
+  const dir = mini("cjs", {
+    "lib/a.js": "exports.alpha = function () { return 1; };\n",
+    "lib/b.js": "module.exports.beta = () => 2;\n",
+    "lib/c.js": "function gamma() {}\nfunction hidden() {}\nmodule.exports = { gamma, delta: gamma, epsilon() { return 3; } };\n",
+    "app.js": "const { alpha } = require('./lib/a');\nconst { beta } = require('./lib/b');\nconst c = require('./lib/c');\nalpha(); beta(); c.gamma(); c.epsilon();\n",
+  });
+  const r = analyze(dir, { files: ["lib/a.js", "lib/b.js", "lib/c.js"] });
+  assert.deepEqual(r.symbols.map((s) => s.name).sort(), ["alpha", "beta", "delta", "epsilon", "gamma"]);
+  const alpha = r.symbols.find((s) => s.name === "alpha");
+  assert.ok(alpha.references.some((x) => x.path === "app.js" && x.kind === "exact"), "the import of an exports.X declaration resolves");
+  assert.deepEqual(validate(r), []);
+});
+test("a .vue file is searched as code: script block lexed, template references are code", () => {
+  const dir = mini("vue", {
+    "src/util.ts": "export function formatPrice(n: number) { return String(n); }\n",
+    "src/Cart.vue": "<template>\n  <p>{{ formatPrice(total) }}</p>\n</template>\n<script lang=\"ts\">\nimport { formatPrice } from '../src/util';\n// formatPrice is also mentioned in a comment\nexport default { methods: { formatPrice } };\n</script>\n",
+  });
+  const r = analyze(dir, { symbols: ["formatPrice@src/util.ts"] });
+  const refs = r.symbols[0].references.filter((x) => x.path === "src/Cart.vue");
+  assert.ok(refs.some((x) => x.role === "import" && x.kind === "exact"));
+  assert.ok(refs.some((x) => x.role === "comment" && x.kind === "textual"));
+  assert.ok(refs.some((x) => x.line === 2 && x.kind !== "textual"), "template call is a code reference");
+});
+test("a readable file over 1 MiB is listed under unknown skipped_large, never dropped silently", () => {
+  const big = "// padding\n".repeat(100000) + "export const hugeUser = lookupThing();\n";
+  const dir = mini("big", { "src/lib.js": "export function lookupThing() {}\n", "src/huge.js": big });
+  const r = analyze(dir, { symbols: ["lookupThing@src/lib.js"] });
+  const u = r.unknown.find((x) => x.id === "skipped_large");
+  assert.deepEqual(u.files, ["src/huge.js"]);
+  assert.equal(u.status, "unknown");
+  assert.deepEqual(validate(r), []);
+});
+
 test("SKILL.md points at the impact mode and stays within the limits", () => {
   const md = readFileSync(join(skill, "SKILL.md"), "utf8");
   assert.match(md, /scripts\/impact\.mjs/);

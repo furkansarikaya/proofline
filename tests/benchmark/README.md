@@ -29,6 +29,11 @@ verdict that names an id EXPECTED does not have.
 A fixture whose `EXPECTED.md` has no parseable items is `not measurable`; a parseable fixture without a verdict
 is `not scored`. Nothing is guessed from prose.
 
+A file with no id-keyed items but with a `Traps`, `Planted facts`, `Must hold` or `known answers` heading is read
+structurally: table rows and bullets of its sections are items with positional ids (`F1`, `F2`, ... expected;
+`T1`, `T2`, ... traps, in file order), bullets after a `Traps ...:` lead-in or starting `Trap:` are traps, and the
+`Scenario`/setup sections and every prose paragraph are skipped. A verdict names these ids.
+
 ## Verdict file
 
 One JSON object, keyed by fixture name. Written by whoever compared the run with `EXPECTED.md` (the existing

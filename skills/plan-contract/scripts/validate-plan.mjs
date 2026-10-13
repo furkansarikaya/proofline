@@ -11,6 +11,10 @@ import { readFileSync, realpathSync, statSync, existsSync } from "node:fs";
 import { resolve, sep, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Shared rule, duplicated in verify-proof's validate-verify.mjs (skills share no files; tests pin both): an
+// optional bullet marker followed by a space, optional backticks, `visual_proof:` and the value.
+const VISUAL_PROOF_LINE = /^\s*(?:[-*]\s+)?`?visual_proof:\s*([^`]*?)\s*`?\s*$/;
+
 export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
 export const BASE_SECTIONS = ["Behavior", "Tests", "Verification commands", "Dependencies", "Contracts", "Assumptions"];
 export const ARCHITECTURE_CLASSES = ["COMPLEX", "CRITICAL"];
@@ -276,7 +280,7 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
   // and verify-proof read it from the frozen plan. Validated when present, required for COMPLEX/CRITICAL plans with UI.
   const ui = body.get("UI");
   if (ui) {
-    const vp = ui.map((l) => /^\s*(?:[-*]\s*)?visual_proof:\s*(.*?)\s*$/.exec(l)).filter(Boolean);
+    const vp = ui.map((l) => VISUAL_PROOF_LINE.exec(l)).filter(Boolean);
     if (vp.length > 1) errors.push('section "## UI": more than one visual_proof line');
     else if (vp.length === 0 && ARCHITECTURE_CLASSES.includes(klass)) errors.push(`section "## UI": the line "visual_proof: <AC ids|none>" is required for ${klass} (the designer marks the criteria that need visual evidence)`);
     else if (vp.length === 1 && !/^none$/i.test(vp[0][1])) {

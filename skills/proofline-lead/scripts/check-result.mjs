@@ -14,11 +14,15 @@ export const ROLES = ["lead", "task_author", "explorer", "architect", "data_arch
 export const ALIASES = { full_lifecycle: "lead", implementation_worker: "implementer", independent_reviewer: "reviewer", independent_qa: "qa", independent_verifier: "verifier" };
 const GATE_ROLES = ["reviewer", "security_reviewer", "qa", "verifier"];
 const FOCUS_GATE = { plan: "REVIEW_PLAN", rules: "REVIEW_RULES", tests: "REVIEW_TESTS", data: "REVIEW_DATA", "rules+tests": "REVIEW_SMALL" };
+// A78 risk focuses and the role that owns each (agent.sh risk_focus_role). The rules-gate focuses land on
+// REVIEW_SMALL on tier small, so either row prefix is accepted for them (the tier is not known here).
+export const RISK_FOCUS_ROLE = { contract: "reviewer", concurrency: "reviewer", performance: "reviewer", config: "reviewer", migration: "reviewer", visual: "qa", dependencies: "security_reviewer" };
+const RULES_RISK = ["contract", "concurrency", "performance", "config"];
 
 export const canonRole = (r) => ALIASES[r] ?? r;
 
 export function gateOf(role, focus) {
-  if (role === "reviewer") return FOCUS_GATE[focus] ?? null;
+  if (role === "reviewer") return FOCUS_GATE[focus] ?? (focus === "migration" ? "REVIEW_DATA" : RULES_RISK.includes(focus) ? "REVIEW_RULES" : null);
   return { security_reviewer: "SECURITY", qa: "QA", verifier: "VERIFY" }[role] ?? null;
 }
 
@@ -75,14 +79,20 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   const res = h.RESULT;
   const gateRole = GATE_ROLES.includes(role);
   let kind = null;
-  if (res === "PASS" || res === "FAIL") kind = gateRole ? "gate" : null;
+  const riskFocus = RISK_FOCUS_ROLE[h.FOCUS] === role;
+  if (h.FOCUS && role !== "reviewer" && !riskFocus) return { errors: [...errors, `FOCUS ${h.FOCUS} is not a focus of role ${role}`] };
+  if (res === "UNSUPPORTED") {
+    if (!gateRole || !riskFocus) return { errors: [...errors, "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"] };
+    if (h.FOCUS === "dependencies") return { errors: [...errors, "the dependencies focus always has a tool-free check; UNSUPPORTED is not available"] };
+    kind = "gate";
+  } else if (res === "PASS" || res === "FAIL") kind = gateRole ? "gate" : null;
   else if (res === "BLOCKED") kind = gateRole && role !== "qa" ? "gate" : "task";
   else if (res === "DONE" || res === "NEEDS_INPUT") kind = ["reviewer", "security_reviewer", "verifier"].includes(role) ? null : "task";
   if (!kind) return { errors: [...errors, `RESULT ${res} is not valid for role ${role}`] };
 
   let gate = null;
   if (kind === "gate") {
-    if (role === "reviewer" && !FOCUS_GATE[h.FOCUS]) return { errors: [...errors, "reviewer results need FOCUS plan|rules|tests|data|rules+tests"] };
+    if (role === "reviewer" && !FOCUS_GATE[h.FOCUS] && !riskFocus) return { errors: [...errors, "reviewer results need FOCUS plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration"] };
     gate = gateOf(role, h.FOCUS);
   }
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(h.FINGERPRINT)) errors.push(`FINGERPRINT is not a git tree id: ${h.FINGERPRINT}`);
@@ -96,7 +106,8 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   const rows = parseFindings(lines);
   if (rows.includes("MALFORMED")) return { errors: [...errors, "malformed findings row (want | id | severity | path:line | finding | evidence |)"] };
   const prefix = gate ?? role;
-  const idRe = new RegExp(`^${prefix}-[0-9]+$`);
+  const prefixes = RULES_RISK.includes(h.FOCUS) && gate ? ["REVIEW_RULES", "REVIEW_SMALL"] : [prefix];
+  const idRe = new RegExp(`^(${prefixes.join("|")})-[0-9]+$`);
   for (const [id, sev] of rows) {
     if (!idRe.test(id)) { errors.push(`invalid finding id ${id} (want ${prefix}-<n>)`); break; }
     if (sev !== "blocking" && sev !== "info") { errors.push(`invalid finding severity ${sev} (want blocking|info)`); break; }
@@ -106,6 +117,10 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   const blocking = rows.filter((r) => r[1] !== "info");
   if (res === "FAIL" && blocking.length === 0) errors.push("FAIL needs at least one blocking finding");
   if (res === "PASS" && blocking.length > 0) errors.push("PASS cannot carry blocking findings");
+  if (res === "UNSUPPORTED") {
+    if (blocking.length > 0) errors.push("UNSUPPORTED cannot carry blocking findings (a check that ran is PASS or FAIL)");
+    if (!lines.some((l) => /^UNSUPPORTED_REASON:\s*\S/.test(l))) errors.push("UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)");
+  }
 
   const reason = lines.map((l) => /^BLOCKED_REASON:\s*(\S.*)$/.exec(l)).find(Boolean);
   if (res === "BLOCKED" && !reason) errors.push("BLOCKED needs a BLOCKED_REASON line");
@@ -120,6 +135,7 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
     summary: {
       role, task: h.TASK, kind, gate, focus: h.FOCUS ?? null, result: res, confidence: h.CONFIDENCE,
       pass_low: res === "PASS" && h.CONFIDENCE === "low",
+      unsupported_reason: res === "UNSUPPORTED" ? lines.map((l) => /^UNSUPPORTED_REASON:\s*(\S.*)$/.exec(l)).find(Boolean)[1].trim() : null,
       counts: kind === "gate" && res === "PASS" && h.CONFIDENCE !== "low",
       fingerprint: h.FINGERPRINT, artifact: { path: artPath, sha256: artSha },
       blocking: blocking.map((r) => r[0]),

@@ -30,7 +30,7 @@ node <skill-dir>/scripts/validate-impact.mjs <impact.json> --repo <repo>        
 | `symbols[].tests[]`, top-level `tests[]` | test files with `relation` `references-symbol`, `imports-defining-module`, or `covers-affected-file` |
 | `changed_files[]` | per changed file: `change`, symbols, `dependents` (files importing it), `contract` format |
 | `limits[]` | the stated limits of static analysis (always all of them) |
-| `unknown[]` | what cannot be known: `cross-repo-consumers` always; `dynamic-sites` (path:line of eval, reflection, computed names) when present |
+| `unknown[]` | what cannot be known: `cross-repo-consumers` always; `dynamic-sites` (path:line of eval, reflection, computed names) when present; `skipped_large` (`files`: readable files over 1 MiB that were not searched) when present |
 | `analysis.tools` | language servers or analysis tools detected on the machine (`tsc`, `pyright`, `gopls`, `rust-analyzer`; project `node_modules/.bin` included); `used` is always `[]`: they are detected, never installed, never invoked and never required |
 
 ### Kind (how sure)

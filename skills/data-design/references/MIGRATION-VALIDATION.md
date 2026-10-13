@@ -73,7 +73,12 @@ runs that test command and reads the files it wrote.
      must be true for the rollback check to pass; the same output carries the mixed-version lists.
    - `migration-check.mjs data seed-before.json seed-after.json [--key table=column]`: row counts, rows
      missing, values changed, columns dropped, columns renamed (values moved unchanged to a new name).
-7. **Write the report** ([section 5](#5-report)) and run `scripts/validate-migration.mjs REPORT.md`.
+7. **Write the report** ([section 5](#5-report)) and run `scripts/validate-migration.mjs REPORT.md --repo .`
+   (`--repo` re-classifies every cited migration: V16 a drop or unknown action marked `destructive: no` or a
+   `patterns: pass` over a traced blocking hazard, V17 a file the scanner cannot analyze marked applied or a
+   cited file that is missing). Non-SQL migrations (python, JavaScript, TypeScript, Ruby, Go, XML) are token
+   scanned; a file with run-time built SQL or no recognised operation is listed under `unanalyzed` and is never
+   applied.
 
 ## 4. What is reported and how it is classified
 
@@ -150,7 +155,8 @@ Result values: `pass`, `fail`, `warn`, `na`, `unsupported`.
 Gate rule (checked by `validate-migration.mjs`, exit 0 `OK` / 1 `FAIL <code>` / 2 usage):
 
 - any `fail` -> FAIL; no throwaway database, any `unsupported` check, `schema_diff` or `data_preservation`
-  not `pass`, or any migration not applied -> UNSUPPORTED; otherwise PASS. The `status:` line must equal this derivation (V14).
+  not `pass`, a `rollback` that is not a `pass` while `down_migration: yes`, or any migration not applied ->
+  UNSUPPORTED; otherwise PASS. The `status:` line must equal this derivation (V14).
 - A `fail` is `measured`, `reproduced` or `traced`. A `judged` finding is `warn`; it fails only when its
   evidence cites the written spec or plan criterion it violates (`criterion: <text>`, V08).
 - `schema_diff`, `rollback`, `data_preservation` results `pass`/`fail` need a throwaway database and class

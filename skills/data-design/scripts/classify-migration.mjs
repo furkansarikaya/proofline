@@ -284,9 +284,9 @@ function classifyAlterAction(table, a, ctx) {
 // ---------- non-SQL migrations (ORM, document stores) ----------
 
 const TOKENS = [
-  [/\b(dropTable|drop_table|DropTable|DeleteModel|dropTableIfExists|deleteTable|dropCollection)\b|\.drop\(\s*\)/, "drop_table"],
+  [/\b(dropTable|drop_table|DropTable|DeleteModel|dropTableIfExists|deleteTable|dropCollection|drop_join_table|dropView|drop_view|dropIfExists|drop_table_if_exists)\b|<dropTable\b|\.drop\(\s*\)/, "drop_table"],
   [/\b(dropDatabase|dropSchema|drop_schema|DropSchema)\b/, "drop_schema"],
-  [/\b(dropColumn|dropColumns|drop_column|remove_column|remove_columns|removeColumn|DropColumn|RemoveField)\b|\$unset\b/, "drop_column"],
+  [/\b(dropColumn|dropColumns|drop_column|remove_column|remove_columns|removeColumn|DropColumn|RemoveField|remove_reference|remove_belongs_to|removeColumns|drop_columns)\b|\$unset\b|<dropColumn\b|\bdrop\s+column\b/i, "drop_column"],
   [/\b(renameColumn|rename_column|RenameColumn|RenameField)\b/, "rename_column"],
   [/\b(renameTable|rename_table|RenameTable|RenameModel|renameCollection)\b/, "rename_table"],
   [/\b(changeColumn|change_column|AlterColumn|AlterField|change_column_null)\b|\.alter\(\s*\)/, "alter_column_type"],
@@ -302,6 +302,17 @@ function stripCodeComments(src) {
     .replace(/^[ \t]*#(?![!{]).*$/gm, (m) => " ".repeat(m.length));
 }
 
+// Operations whose presence shows a migration file was understood even when nothing destructive is in it
+// (A94): without one of these, or with an SQL string built at run time, a non-SQL file is `unanalyzed`.
+const KNOWN_OPS = /\b(createTable|create_table|createTableIfNotExists|addColumn|add_column|addColumns|createIndex|create_index|add_index|addIndex|createCollection|createIndexes|CreateModel|AddField|CreateTable|AddColumn|CreateIndex|add_reference|add_foreign_key|addForeignKey|addConstraint|add_constraint|changeColumn|alter_column|AlterField|renameColumn|rename_column|insert|bulkInsert|seed)\b|<(createTable|addColumn|createIndex)\b/;
+const DYNAMIC_SQL = /\b(execute|raw|query|queryRaw|run_sql|RunSQL|exec|Exec|ExecContext|sql)\s*\(\s*(?!['"`]|r['"]|f['"]|text\(\s*['"`]|\)|\s*$)/;
+export function unanalyzedReason(src, actions) {
+  const code = stripCodeComments(src);
+  if (DYNAMIC_SQL.test(code)) return "SQL or an operation is built at run time (a non-literal argument to execute/raw/query): the statement cannot be read statically";
+  if (!actions.length && !KNOWN_OPS.test(code)) return "no recognised migration operation (no schema token and no SQL literal): the file was not understood";
+  return null;
+}
+
 export function scanNonSql(src) {
   const code = stripCodeComments(src);
   const lines = code.split("\n");
@@ -311,7 +322,7 @@ export function scanNonSql(src) {
       const g = new RegExp(re.source, "g");
       let m;
       while ((m = g.exec(ln))) {
-        const arg = /^\s*\(\s*['"`]([\w.]+)['"`]/.exec(ln.slice(m.index + m[0].length)) ||
+        const arg = /^\s*\(?\s*['"`:]([\w.]+)['"`]?/.exec(ln.slice(m.index + m[0].length)) ||
           /^\(\s*['"`]([\w.]+)['"`]/.exec(ln.slice(m.index + m[0].length - 1));
         actions.push({ line: idx + 1, statement: src.split("\n")[idx].trim().slice(0, 300), kind,
           object: arg ? arg[1].toLowerCase() : "?",
@@ -354,10 +365,13 @@ export function classifyFiles(files, contextFiles = [], read = (f) => readFileSy
       }
     } else {
       out.files.push({ file, method: "token-scan" });
-      for (const a of scanNonSql(src)) out.actions.push({ file, ...a });
+      const acts = scanNonSql(src);
+      for (const a of acts) out.actions.push({ file, ...a });
+      const why = unanalyzedReason(src, acts);
+      if (why) { out.unanalyzed = out.unanalyzed || []; out.unanalyzed.push({ file, reason: why }); }
     }
   }
-  if (out.actions.some((a) => a.class === "destructive" || a.class === "unknown")) out.destructive = "yes";
+  if (out.actions.some((a) => a.class === "destructive" || a.class === "unknown") || out.unanalyzed) out.destructive = "yes";
   return out;
 }
 

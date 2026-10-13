@@ -30,6 +30,8 @@ export function validate(doc, { bullets = null, regenerated = null } = {}) {
   if (!doc.tools || !Array.isArray(doc.tools.detected) || !Array.isArray(doc.tools.used)) e.push("tools.detected and tools.used must be arrays");
   else for (const [i, t] of doc.tools.used.entries()) {
     if (!str(t.name) || !str(t.command) || !Number.isInteger(t.exit_code) || typeof t.output_excerpt !== "string") e.push(`tools.used[${i}]: name, command, exit_code and output_excerpt required`);
+    else if (!(Array.isArray(regenerated?.tools?.detected) ? regenerated.tools.detected : doc.tools.detected).some((d) => d && d.name === t.name)) e.push(`tools.used[${i}]: ${t.name} is not a detected tool (tools.detected); a tool that was not found was not used`);
+    else if (!t.output_excerpt.trim() || !t.command.includes(t.name)) e.push(`tools.used[${i}]: a used tool needs its command (naming it) and the output it produced`);
     else used.add(t.name);
   }
   if (!Array.isArray(doc.files)) { e.push("files must be an array"); return e; }
@@ -91,11 +93,12 @@ export function validate(doc, { bullets = null, regenerated = null } = {}) {
     const want = new Set((regenerated.ignored || []).map((g) => g.path));
     for (const g of doc.ignored || []) if (!want.has(g.path)) e.push(`ignored ${g.path}: the differ does not ignore it`);
     const byPath = new Map(doc.files.map((f) => [f.path, f]));
-    const toolsUsed = Array.isArray(doc.tools?.used) && doc.tools.used.length > 0;
+    // only a tool that was detected and left its command and output counts; its formats must cover the file's
+    const toolFormats = new Set((regenerated.tools?.detected || []).filter((d) => used.has(d.name)).flatMap((d) => d.formats || []));
     for (const g of regenerated.files) {
       const f = byPath.get(g.path);
       if (!f) { e.push(`${g.path}: the differ reports this file; the report dropped it`); continue; }
-      if (g.status === "unsupported" && f.status !== "unsupported" && !toolsUsed) e.push(`${g.path}: the differ cannot parse it; only a used tool's result may make it compared`);
+      if (g.status === "unsupported" && f.status !== "unsupported" && !toolFormats.has(g.format)) e.push(`${g.path}: the differ cannot parse it; only the result of a detected tool that handles ${g.format} may make it compared`);
       const left = [...(f.changes || [])];
       for (const c of g.changes) {
         const i = left.findIndex((x) => x.location === c.location && (x.rule === c.rule || (c.rule === "CP-U01" && x.evidence?.class === "traced")));

@@ -185,3 +185,39 @@ test("secrets are found in terraform and prefixed env files", () => {
   assert.deepEqual(sum(d, "blocking"), ["secret_plaintext:KEY_X", "secret_plaintext:password", "secret_plaintext:token"]);
   assert.ok(!JSON.stringify(d).includes(secret));
 });
+
+// --- A94: position-aware new lines, re-derivation, gate-specific row ids ---------------------------------
+test("a flag flipped on is found even when the same line text exists elsewhere in the file", () => {
+  const base = "features:\n  alpha:\n    enabled: true\n  beta:\n    enabled: false\n";
+  const head = "features:\n  alpha:\n    enabled: true\n  beta:\n    enabled: true\n";
+  const r = repoWith({ "config/flags.yaml": base }, { "config/flags.yaml": head });
+  const d = buildDocument({ repo: r, base: "HEAD", planText: "## Behavior\n" });
+  assert.deepEqual(sum(d, "blocking"), ["flag_default_on:enabled"]);
+  assert.equal(d.items[0].location.line, 5);
+});
+test("a moved line is still not a new line; a removed flag of one parent is not hidden by another parent's", () => {
+  const r = repoWith({ "config/flags.yaml": "features:\n  a:\n    enabled: true\n  b:\n    enabled: true\n" }, { "config/flags.yaml": "features:\n  a:\n    enabled: true\n  b:\n    note: x\n" });
+  const d = buildDocument({ repo: r, base: "HEAD", planText: "## Behavior\n" });
+  assert.deepEqual(sum(d, "blocking"), [], "removed flag b.enabled has no reference outside the file");
+});
+test("validate-config --repo/--base re-runs the scan and refuses a dropped blocking item; --gate sets the row ids", () => {
+  const r = repoWith({ "a.txt": "x" }, { "config/app.yaml": "feature_new: true\n" });
+  const d = buildDocument({ repo: r, base: "HEAD", planText: "## Behavior\n" });
+  assert.equal(sum(d, "blocking").length, 1);
+  const f = join(mktmp(), "c.json");
+  writeFileSync(f, JSON.stringify(d));
+  const V = join(process.cwd(), "skills/proof-review/scripts/validate-config.mjs");
+  let o = spawnSync("node", [V, f, "--table", "--gate", "REVIEW_SMALL", "--repo", r, "--base", "HEAD", "--plan", join(r, "none-plan.md")], { encoding: "utf8" });
+  assert.equal(o.status, 2, "an unreadable plan file is a usage error");
+  const plan = join(mktmp(), "PLAN.md");
+  writeFileSync(plan, "## Behavior\n");
+  o = spawnSync("node", [V, f, "--table", "--gate", "REVIEW_SMALL", "--repo", r, "--base", "HEAD", "--plan", plan], { encoding: "utf8" });
+  assert.equal(o.status, 0, o.stderr);
+  assert.match(o.stdout, /\| REVIEW_SMALL-1 \| blocking \|/);
+  assert.doesNotMatch(o.stdout, /REVIEW_RULES-/);
+  writeFileSync(f, JSON.stringify({ ...d, items: [] }));
+  o = spawnSync("node", [V, f, "--repo", r, "--base", "HEAD", "--plan", plan], { encoding: "utf8" });
+  assert.equal(o.status, 1);
+  assert.match(o.stderr, /dropped it/);
+  assert.equal(spawnSync("node", [V, f, "--gate", "REVIEW_PLAN"], { encoding: "utf8" }).status, 2);
+});

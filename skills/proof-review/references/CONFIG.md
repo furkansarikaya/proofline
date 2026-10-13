@@ -13,8 +13,11 @@ variable or secret is never a finding of this change.
 
 ```
 node <skill-dir>/scripts/check-config.mjs --base <base_sha> --plan <run>/PLAN.md --out <dir>/config-check.json
-node <skill-dir>/scripts/validate-config.mjs <dir>/config-check.json --table
+node <skill-dir>/scripts/validate-config.mjs <dir>/config-check.json --table --gate REVIEW_RULES --repo . --base <base_sha> --plan <run>/PLAN.md
 ```
+
+`--gate REVIEW_SMALL` on tier small (the row ids carry the gate that holds the focus). `--repo`/`--base` make the
+validator re-run the scan and reject a document that dropped an item the scan finds.
 
 `--repo` defaults to the current directory. Without `--plan` the feature-flag check cannot compare with the
 plan and reports flag defaults as notes (confidence `medium`).

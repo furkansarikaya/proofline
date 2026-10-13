@@ -57,8 +57,10 @@ project code runs. Follow [CONFIG.md](references/CONFIG.md):
 
 1. `node <skill-dir>/scripts/check-config.mjs --base <base_sha> --plan <run>/PLAN.md --out <dir>/config-check.json`
    (standalone: `--base <rev>`, optionally `--plan` or `--out`).
-2. `node <skill-dir>/scripts/validate-config.mjs <dir>/config-check.json --table`: exit 0 prints `RESULT`,
-   `CONFIDENCE` and the rows; exit 1 names what is inconsistent (including a secret value in the document).
+2. `node <skill-dir>/scripts/validate-config.mjs <dir>/config-check.json --table --gate <GATE> --repo . --base <base_sha> --plan <run>/PLAN.md`
+   (`<GATE>` is `REVIEW_RULES`, or `REVIEW_SMALL` on tier small): exit 0 prints `RESULT`, `CONFIDENCE` and the
+   rows with that gate's ids; exit 1 names what is inconsistent (including a secret value in the document and
+   an item the fresh scan finds that the document dropped).
 3. Write `<dir>/REPORT.md` (verdict, the table, the `limits` the document lists) and submit with
    `--focus config` and the rows. No `findings.json` is needed; if one is written for this focus it may carry
    suspicions only.

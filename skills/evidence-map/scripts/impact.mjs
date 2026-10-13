@@ -38,6 +38,9 @@ const JS = new Set(["js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts"]);
 const C_STYLE = new Set([...JS, "go", "java", "kt", "kts", "swift", "rs", "c", "h", "cc", "cpp", "hpp", "cs", "scala", "dart", "php"]);
 const HASH_STYLE = new Set(["py", "rb", "sh", "bash", "zsh", "pl", "r", "ex", "exs"]);
 const MAX_BYTES = 1 << 20;
+const SFC = new Set(["vue", "svelte"]);
+// extensions whose files can hold a reference: a file of these over MAX_BYTES is reported, never dropped silently
+const READABLE = new Set([...JS, ...C_STYLE, ...HASH_STYLE, "vue", "svelte", "md", "mdx", "rst", "adoc", "txt", "json", "yaml", "yml", "toml", "html", "xml", "sql", "graphql", "proto"]);
 const IDENT = /^[A-Za-z_$][\w$]*$/;
 const rank = { exact: 0, heuristic: 1, textual: 2 };
 const extOf = (p) => (p.includes(".") ? p.slice(p.lastIndexOf(".") + 1).toLowerCase() : "");
@@ -89,6 +92,17 @@ function lex(src, ext) {
   return m;
 }
 
+// Single-file components: the `<script>` blocks are code (lexed as TypeScript), the template stays code too
+// (a call in `{{ fooBar() }}` is a reference) but is not lexed: its quotes and slashes are markup.
+function sfcMask(src) {
+  const m = new Uint8Array(src.length);
+  for (const b of src.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+    const start = b.index + b[0].indexOf(">") + 1;
+    m.set(lex(b[1], "ts"), start);
+  }
+  return m;
+}
+
 function names(list, sep) {
   const out = [];
   for (let part of list.split(",")) {
@@ -111,18 +125,20 @@ export function analyze(repoArg, opts = {}) {
   const ghost = new Map();
 
   const cache = new Map();
+  const skippedLarge = [];
   const load = (p) => {
     if (cache.has(p)) return cache.get(p);
     let fi = null;
     try {
-      if (statSync(join(repo, p)).size <= MAX_BYTES) {
+      if (statSync(join(repo, p)).size > MAX_BYTES) { if (READABLE.has(extOf(p))) skippedLarge.push(p); }
+      else {
         const src = readFileSync(join(repo, p), "utf8");
         if (!src.slice(0, 8000).includes("\0")) {
-          const ext = extOf(p);
-          const code = C_STYLE.has(ext) || HASH_STYLE.has(ext);
+          const raw = extOf(p), sfc = SFC.has(raw), ext = sfc ? "ts" : raw;
+          const code = sfc || C_STYLE.has(ext) || HASH_STYLE.has(ext);
           const starts = [0];
           for (let i = src.indexOf("\n"); i >= 0; i = src.indexOf("\n", i + 1)) starts.push(i + 1);
-          fi = { path: p, src, ext, code, starts, mask: code ? lex(src, ext) : null, parsed: null, decls: null };
+          fi = { path: p, src, ext, code, starts, mask: code ? (sfc ? sfcMask(src) : lex(src, ext)) : null, parsed: null, decls: null };
         }
       }
     } catch { /* unreadable: skipped */ }
@@ -137,7 +153,26 @@ export function analyze(repoArg, opts = {}) {
     const add = (name, off) => { if (name && !out.has(name) && mask[off] === 0) out.set(name, src.slice(0, off).split("\n").length); };
     out.exported = new Set();
     if (JS.has(fi.ext)) for (const m of src.matchAll(/^(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:async\s+)?(?:function\s*\*?\s*|abstract\s+class\s+|class\s+|interface\s+|type\s+|enum\s+|(?:const|let|var)\s+)([A-Za-z_$][\w$]*)/gm)) { add(m[1], m.index); if (m[0].startsWith("export")) out.exported.add(m[1]); }
-    else if (fi.ext === "py") for (const m of src.matchAll(/^(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)|^([A-Za-z_]\w*)\s*(?::[^=\n]+)?=(?!=)/gm)) add(m[1] || m[2], m.index);
+    if (JS.has(fi.ext)) {
+      // CommonJS: `exports.X = ...`, `module.exports.X = ...`, `module.exports = { a, b: x, c() {} }`
+      for (const m of src.matchAll(/^[ \t]*(?:module\.)?exports\.([A-Za-z_$][\w$]*)\s*=(?!=)/gm)) { add(m[1], m.index); out.exported.add(m[1]); }
+      for (const m of src.matchAll(/^[ \t]*module\.exports\s*=\s*\{/gm)) {
+        let depth = 1, j = m.index + m[0].length, from = j;
+        const parts = [];
+        while (j < src.length && depth > 0) {
+          const c = src[j];
+          if (c === "{" || c === "(" || c === "[") depth++;
+          else if (c === "}" || c === ")" || c === "]") { depth--; if (depth === 0) parts.push([from, j]); }
+          else if (c === "," && depth === 1) { parts.push([from, j]); from = j + 1; }
+          j++;
+        }
+        for (const [a, b] of parts) {
+          const t = /^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*(?:[:(,]|$)/.exec(src.slice(a, b));
+          if (t && mask[a + t[0].indexOf(t[1])] === 0) { add(t[1], a + t[0].indexOf(t[1])); out.exported.add(t[1]); }
+        }
+      }
+    }
+    if (JS.has(fi.ext)) { /* declared above */ } else if (fi.ext === "py") for (const m of src.matchAll(/^(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)|^([A-Za-z_]\w*)\s*(?::[^=\n]+)?=(?!=)/gm)) add(m[1] || m[2], m.index);
     else if (fi.ext === "go") for (const m of src.matchAll(/^func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)|^type\s+([A-Za-z_]\w*)|^(?:var|const)\s+([A-Za-z_]\w*)/gm)) add(m[1] || m[2] || m[3], m.index);
     else {
       for (const m of src.matchAll(/\b(?:function|func|fn|def|class|struct|interface|trait|enum|record|object|module)\s+([A-Za-z_]\w*)/g)) add(m[1], m.index);
@@ -284,7 +319,8 @@ export function analyze(repoArg, opts = {}) {
     const row = { path: p, change: c.path === null ? "deleted" : c.old === null ? "added" : "modified", symbols: [], file_level_change: false, dependents: [] };
     const fi = c.path ? load(c.path) : null;
     const baseSrc = c.old && base ? git(repo, ["show", "--no-textconv", `${base}:${c.old}`]) : null;
-    const oldFi = baseSrc !== null ? { ext: extOf(c.old), code: C_STYLE.has(extOf(c.old)) || HASH_STYLE.has(extOf(c.old)), src: baseSrc } : null;
+    const oldExt = SFC.has(extOf(c.old || "")) ? "ts" : extOf(c.old || "");
+    const oldFi = baseSrc !== null ? { ext: oldExt, code: SFC.has(extOf(c.old)) || C_STYLE.has(oldExt) || HASH_STYLE.has(oldExt), src: baseSrc, sfc: SFC.has(extOf(c.old)) } : null;
     if (fi && fi.code) {
       const dm = [...decls(c.path)].sort((a, b) => a[1] - b[1]);
       const lines = fi.starts.length;
@@ -301,7 +337,7 @@ export function analyze(repoArg, opts = {}) {
         if (c.explicit && !pub(name)) continue; row.symbols.push(name); addSym(name, c.old === null ? "added" : "modified", { path: c.path, line: dm.find((d) => d[0] === name)[1] }); }
     }
     if (oldFi && oldFi.code) {
-      const om = declsOf({ ext: oldFi.ext }, oldFi.src, lex(oldFi.src, oldFi.ext));
+      const om = declsOf({ ext: oldFi.ext }, oldFi.src, oldFi.sfc ? sfcMask(oldFi.src) : lex(oldFi.src, oldFi.ext));
       const cur = fi && fi.code ? decls(c.path) : new Map();
       for (const [name, line] of om) if (!cur.has(name) && !row.symbols.includes(name)) { row.symbols.push(name); addSym(name, c.path === null ? "deleted" : "removed", { path: c.old, line }); }
     }
@@ -500,6 +536,9 @@ export function analyze(repoArg, opts = {}) {
     }
     if (sites.length) unknown.push({ id: "dynamic-sites", status: "unknown", text: "Code that selects a callee by a runtime value; it may or may not reach a changed symbol.", sites: sites.slice(0, 50) });
   }
+
+  // a readable file over the size limit was not searched: say so, never drop it silently
+  if (skippedLarge.length) unknown.push({ id: "skipped_large", status: "unknown", text: `Files over ${MAX_BYTES} bytes are not read; a reference inside them is missing from this report.`, files: [...new Set(skippedLarge)].sort() });
 
   // ---- tools (detected only)
   const detected = [];
