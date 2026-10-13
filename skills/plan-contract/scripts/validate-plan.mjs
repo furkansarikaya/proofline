@@ -212,6 +212,21 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
     const none = c.length === 1 && /^none\b/i.test(c[0].trim());
     if (!none && !c.every((l) => /^\s*-\s+\S/.test(l))) errors.push(`section "## ${s}": write "none" or one "- " item per line`);
   }
+  // A64: the project's design documents (config design_docs: data_model, api) that exist in the repository are
+  // in scope when the plan changes what they describe: a Data section with content beyond its first line, a
+  // Contracts section that is not "none". Left out of scope they drift (COMPLEX X-10).
+  try {
+    const cfg = existsSync(resolve(root, ".agents/config.yaml")) ? readFileSync(resolve(root, ".agents/config.yaml"), "utf8") : "";
+    const doc = (k) => (new RegExp(`^design_docs:[\\s\\S]*?^\\s+${k}:\\s*(\\S+)`, "m").exec(cfg) || [])[1];
+    const needs = [];
+    const dataLines = (body.get("Data") || []).filter((l) => l.trim() !== "");
+    if (dataLines.length > 1 && doc("data_model")) needs.push(["## Data", doc("data_model")]);
+    const contracts = (body.get("Contracts") || []).filter((l) => l.trim() !== "");
+    if (contracts.length > 0 && !(contracts.length === 1 && /^none\b/i.test(contracts[0].trim())) && doc("api")) needs.push(["## Contracts", doc("api")]);
+    for (const [sec, p] of needs) {
+      if (existsSync(resolve(root, p)) && !seen.has(p)) errors.push(`scope: ${p} is the project's design document for ${sec}; the plan changes it, so list it in scope (it is updated in the same change)`);
+    }
+  } catch { /* the config is optional */ }
   const vc = (body.get("Verification commands") || []).join("\n");
   if (body.has("Verification commands") && !/`[^`]+`|^```/m.test(vc)) errors.push('section "## Verification commands": no command in backticks or a code block');
   return errors;

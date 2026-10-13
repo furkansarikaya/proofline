@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -175,4 +175,16 @@ test("SKILL.md frontmatter and shared rules block", () => {
   assert.ok(md.split("\n").length < 500);
   const shared = readFileSync(join(here, "../shared/shared-rules.md"), "utf8").trim();
   assert.ok(md.includes(shared), "shared rules block must be byte-identical");
+});
+
+test("design documents of the config are in scope when the plan changes the data model or the contracts (A64)", () => {
+  const root = mkdtempSync(join(tmpdir(), "pc-docs-"));
+  mkdirSync(join(root, ".agents"), { recursive: true }); mkdirSync(join(root, "docs/design"), { recursive: true });
+  writeFileSync(join(root, ".agents/config.yaml"), "design_docs:\n  data_model: docs/design/DATA_MODEL.md\n  api: docs/design/API.md\n");
+  writeFileSync(join(root, "docs/design/DATA_MODEL.md"), "# data\n"); writeFileSync(join(root, "docs/design/API.md"), "# api\n");
+  writeFileSync(join(root, "src.js"), "x\n");
+  const body = { Architecture: ["- one module"], ...BODY, Data: ["destructive: no", "", "- adds a nullable column"], Contracts: ["- `GET /api/books` gains `tags`"] };
+  const e = validate(plan({ body }), TASK, { root, cls: "COMPLEX" });
+  has(e, "docs/design/DATA_MODEL.md is the project's design document for ## Data");
+  has(e, "docs/design/API.md is the project's design document for ## Contracts");
 });
