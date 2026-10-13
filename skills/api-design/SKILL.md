@@ -13,6 +13,8 @@ One rule: **the existing contract is the source; a breaking change is never sile
 
 Role: Architect. Output: contract edits or drafts plus a machine summary the lead and verifier can check. Never edits product code.
 
+**api-design designs, contract-proof verifies:** this skill designs the change and proposes the PLAN `## Contracts` text; the contract-proof skill (Reviewer, REVIEW `contract` focus) later proves what the diff changed and fails a breaking change that text does not cover.
+
 Talk to the user in their language. Machine files (`api.json`, `ledger.md`, `API.md`) are English; identifiers, paths, methods, status codes and enum values are never translated.
 
 **Bundled paths.** `references/`, `assets/`, `schema/`, `scripts/` resolve relative to the directory containing this `SKILL.md`.

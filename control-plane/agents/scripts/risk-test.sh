@@ -199,7 +199,14 @@ sc_frozen() {
   sed 's/^  audit_command:.*$/  audit_command: make audit/' "$base/cfg.keep" > .agents/config.yaml
   expect_msg "an audit command edit after freeze" 'freeze mismatch: risk' A verify-freeze LC
   cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
-  ok "frozen: flags need a refreeze, the mapping, the performance thresholds and the security policy are bound by risk_sha256, config-check refuses foreign checks"
+  # contract-proof's contract.paths / contract.ignore globs are frozen with the mapping (A83)
+  printf '\ncontract:\n  ignore: "i18n/**"\n' >> .agents/config.yaml
+  A config-check >/dev/null
+  expect_msg "contract.ignore added after freeze" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
+  { cat .agents/config.yaml; printf '\ncontract:\n  skip: "x"\n'; } > "$base/cfg3"
+  expect_msg "an unknown contract key" 'unknown contract key: contract.skip' A config-check "$base/cfg3"
+  ok "frozen: flags need a refreeze, the mapping, the performance thresholds, the security policy and the contract globs are bound by risk_sha256, config-check refuses foreign checks"
 }
 
 # Before FREEZE: a planned contract path without its flag sends `next` to the architect.

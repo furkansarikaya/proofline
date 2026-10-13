@@ -49,7 +49,10 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
   blocking finding of that focus, and the check still runs.
 - A gate passes only when its own focus and every risk focus it carries pass.
 - A check whose skill or tool is missing is `UNSUPPORTED`: never a PASS, waivable only by the user, and listed
-  in the completion report.
+  in the completion report. The `contract` check is the contract-proof skill (A83): every change in a contract
+  file gets a breaking/non-breaking rule, in-repo consumers come from the impact report, and a breaking
+  change that PLAN.md `## Contracts` does not cover with versioning, migration or deprecation fails; it is
+  UNSUPPORTED only for a contract file it cannot parse and no compatibility tool already present covers.
 - The `concurrency` focus runs the concurrency-proof skill (A86): a finding is a traced interleaving (two or
   more actors, `file:line` per step) or a concurrent reproduction in the project's own test runner; PASS
   means no proven problem, never that the code is free of races; unproven risks are listed separately, and a
