@@ -61,8 +61,9 @@ this `SKILL.md`.
 - **review** (dispatched as reviewer with `FOCUS: data`, gate `REVIEW_DATA`): implemented migrations vs the
   frozen PLAN `## Data` ([REVIEW.md](references/REVIEW.md)).
 - **migration validation** (dispatched as reviewer with `FOCUS: migration`, still gate `REVIEW_DATA`, A84):
-  applies the changed migrations only on a throwaway database the project's own test infrastructure creates,
-  rolls back when a down migration exists, compares schema snapshots and seed rows, and reports lock,
+  has the changed migrations applied only on a throwaway database the project's own test infrastructure
+  creates, and rolled back when a down migration exists, only through the project's own test command (the
+  agent issues no migrate, dump or rollback command); compares schema snapshots and seed rows, and reports lock,
   long-run, pattern and mixed-version risks ([MIGRATION-VALIDATION.md](references/MIGRATION-VALIDATION.md)).
   No throwaway-database capability is `UNSUPPORTED`, never PASS. Writes only `reviews/data-migration/REPORT.md`.
 

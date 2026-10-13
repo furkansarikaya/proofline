@@ -64,7 +64,7 @@ stop_condition: Stops after one result for the assigned focus on the current fin
    | `concurrency` | REVIEW_RULES / REVIEW_SMALL | races, lost updates, double processing, retries, ordering, lock lifecycle (concurrency-proof skill) | `reviews/concurrency-proof/REPORT.md` |
    | `performance` | REVIEW_RULES / REVIEW_SMALL | measured base-versus-change regression (performance-proof skill) | `reviews/performance-proof/REPORT.md` |
    | `config` | REVIEW_RULES / REVIEW_SMALL | {{skill:proof-review}} config consistency: variables used but not documented in the example env or config docs, plain-text secrets, feature-flag defaults | `reviews/proof-review/config/REPORT.md` |
-   | `migration` | REVIEW_DATA | {{skill:data-design}} migration validation (`references/MIGRATION-VALIDATION.md`): apply only on the test suite's own throwaway database, roll back, compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |
+   | `migration` | REVIEW_DATA | {{skill:data-design}} migration validation (`references/MIGRATION-VALIDATION.md`): apply and roll back only on the test suite's own throwaway database and only through the project's own test command (you issue no migrate command), compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |
 
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"`:
    the script records it as a blocking `UNSUPPORTED` finding (never a PASS; only the user may waive it, and the

@@ -226,13 +226,15 @@ test("report: a destructive down migration is not executed unless the project's 
 });
 
 test("report: connection strings and DSN fragments are refused (F4)", () => {
-  for (const bad of ["sqlite:///data/app.db", "mssql://sa:x@h/db", "oracle:thin:@h:1521", "amqp://u:p@h", "clickhouse+http://h:8123", "password=hunter2", "host=db.internal", "jdbc:postgresql://h/db"])
+  for (const bad of ["sqlite:///data/app.db", "mssql://sa:x@h/db", "oracle:thin:@h:1521", "amqp://u:p@h", "clickhouse+http://h:8123", "password=hunter2", "user=app dbname=x", "port=5432", "postgresql:host/db", "database=accounts", "host=db.internal", "jdbc:postgresql://h/db"])
     assert.ok(codesOf(report({ over: { patterns: ["traced", "pass", `scan: ${bad}`] } })).includes("V13"), bad);
 });
 
 test("report: empty criterion and non-path harness are rejected (F5, F6)", () => {
   assert.ok(codesOf(report({ status: "FAIL", over: { lock_risk: ["judged", "fail", "criterion: ; rewrite"] } })).includes("V08"));
   assert.ok(codesOf(report({ status: "FAIL", over: { lock_risk: ["judged", "fail", "criterion:"] } })).includes("V08"));
+  assert.ok(codesOf(report({ status: "FAIL", over: { lock_risk: ["judged", "fail", "criterion: ..."] } })).includes("V08"));
+  assert.ok(codesOf(report({ down: "no", extra: "down_destructive: yes", over: { rollback: ["measured", "na", "no down"] } })).includes("V03"));
   assert.ok(codesOf(report({ harness: "createTestDb" })).includes("V03"));
   assert.deepEqual(checkReport(report({ harness: "test/helpers/temp-db.mjs" })), []);
 });

@@ -13,7 +13,7 @@ const CLASSES = ["measured", "reproduced", "traced", "judged"];
 const RESULTS = ["pass", "fail", "warn", "na", "unsupported"];
 const STATUSES = ["PASS", "FAIL", "UNSUPPORTED", "BLOCKED"];
 // Connection strings and DSN fragments: URL schemes of any database or broker, and key=value DSN parts.
-const CONN = /\b(?:jdbc:[a-z0-9]+:|[a-z][a-z0-9+.-]*:\/\/)\S|\b(?:sqlite3?|mssql|oracle|amqps?):\S|\b(?:password|passwd|pwd|host|server|user id|uid)\s*=\s*\S/i;
+const CONN = /\b(?:jdbc:[a-z0-9]+:|[a-z][a-z0-9+.-]*:\/\/)\S|\b(?:sqlite3?|mssql|oracle|amqps?|postgres(?:ql)?|mysql|mariadb|mongodb|redis):\S|\b(?:password|passwd|pwd|host|server|user id|uid)\s*=\s*\S|\b(?:user|username|dbname|database|hostaddr|port)=\S/i;
 const HARNESS = /^`?[\w@.\/-]+\.[A-Za-z0-9]+(?::\d+)?`?(?:\s|$)/; // path or path:line, first token
 const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 
@@ -50,6 +50,7 @@ export function checkReport(md) {
   if (!["yes", "no"].includes(down)) fail("V03", "Capability needs down_migration: yes|no");
 
   const downDestructive = kv(cap, "down_destructive") === "yes";
+  if (downDestructive && down === "no") fail("V03", "down_destructive: yes contradicts down_migration: no");
   const downRun = kv(cap, "down_run_by");
   if (kv(cap, "down_destructive") !== null && !["yes", "no"].includes(kv(cap, "down_destructive"))) fail("V03", "down_destructive must be yes or no");
   if (downRun && !HARNESS.test(downRun)) fail("V03", "down_run_by must be the path[:line] of the project's own test that runs the down migration");
@@ -76,7 +77,7 @@ export function checkReport(md) {
 
   for (const [id, r] of byId) {
     const ev = r.evidence || "";
-    if (r.result === "fail" && r.class === "judged" && !/criterion:\s*[^\s|]{3,}/i.test(ev))
+    if (r.result === "fail" && r.class === "judged" && !/criterion:\s*[^|]*?[A-Za-z]{3,}/i.test(ev))
       fail("V08", `${id}: a judged finding fails the gate only when it cites the written spec/plan criterion it violates ("criterion: ..."); otherwise result warn`);
     if (MEASURED_ONLY.includes(id) && ["pass", "fail"].includes(r.result)) {
       if (db !== "yes") fail("V05", `${id}: ${r.result} needs a throwaway database; without one the result is unsupported`);
