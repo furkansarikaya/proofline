@@ -62,7 +62,8 @@ The highest class any indicator reaches wins; when unsure, take the higher.
 
 The class selects artifacts (`pipelines:` in config: EVIDENCE, QA_PLAN, `## Architecture`) and the QA gate.
 A PLAN whose `## Data` starts with `destructive: yes` makes the task CRITICAL at freeze. Reclassifying after
-freeze voids the freeze until an amendment and `refreeze`.
+freeze voids the freeze until an amendment and `refreeze`. The `destructive` approval (and `single_step`) comes after the freeze,
+before IMPLEMENT, bound to the frozen PLAN.md hash; a refreeze that changes PLAN.md returns the run to PLANNED and asks again.
 
 ## Autonomy and stop points (D3)
 

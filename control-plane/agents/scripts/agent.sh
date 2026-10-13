@@ -698,7 +698,7 @@ scope_mappings() {
 }
 authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 
-# Approvals a freeze needs (D3): plan (supervised), destructive (PLAN `## Data` destructive: yes),
+# Approvals a freeze needs (D3): plan (supervised),
 # scope (a refreeze that adds scope paths). Prints the approval files to consume, one per line.
 # A60: a task that lists a pre-existing defect with `decision: fix` changes behaviour nobody asked for: the freeze
 # needs the user's `scope` approval for the plan (the same kind an amendment adding paths needs). A defect with
@@ -726,21 +726,32 @@ verify_intent_provenance() { # ID
     case "$vi_all" in *"$vi_n"*) ;; *) echo "$vi_a"; ;; esac
   done
 }
+# K-6: approvals the handoff PLANNED -> IMPLEMENTING needs: destructive (PLAN `## Data` destructive: yes) and, for
+# a single_step shape, single_step; both bound to the sha256 of the frozen PLAN.md (a refreeze drops them).
+# Prints the approval files to consume, one per line.
+implement_approvals() { # ID
+  ia_id=$1; ia_d=$(run_dir "$1")
+  [ "$(plan_destructive "$ia_d/PLAN.md")" = yes ] || return 0
+  ia_plan=$(hash_file "$ia_d/PLAN.md")
+  ia_f=$(find_approval "$ia_id" destructive "$ia_plan") || fail "PLAN.md declares a destructive data change: a destructive approval bound to the frozen PLAN.md is required before IMPLEMENT ('agent.sh request-approval $ia_id destructive'; relay it, the runtime records the user's reply; a refreeze drops an earlier approval)"
+  printf '%s\n' "$ia_f"
+  if [ "$(plan_migration_shape "$ia_d/PLAN.md")" = single_step ]; then
+    ia_f=$(find_approval "$ia_id" single_step "$ia_plan") || fail "PLAN.md '## Data' declares single_step: yes: a destructive migration without expand/contract steps needs the user's explicit single-step approval bound to the frozen PLAN.md before IMPLEMENT ('agent.sh request-approval $ia_id single_step')"
+    printf '%s\n' "$ia_f"
+  fi
+}
 freeze_approvals() {
   fa_id=$1 fa_mode=$2; fa_d=$(run_dir "$1"); fa_plan=$(hash_file "$fa_d/PLAN.md")
   if [ "$(run_autonomy "$fa_id")" = supervised ]; then
     fa_f=$(find_approval "$fa_id" plan "$fa_plan") || fail "supervised freeze requires a plan approval for this PLAN.md: run 'agent.sh request-approval $fa_id plan', relay it, then 'agent.sh approve $fa_id plan'"
     printf '%s\n' "$fa_f"
   fi
+  # K-6: the destructive / single_step approvals are not a freeze condition: they stop the run after the freeze,
+  # before IMPLEMENT (implement_approvals), bound to the frozen PLAN.md hash. The freeze validates the shape only.
   if [ "$(plan_destructive "$fa_d/PLAN.md")" = yes ]; then
-    fa_f=$(find_approval "$fa_id" destructive "$fa_plan") || fail "PLAN.md declares a destructive data change: a destructive approval for this PLAN.md is required before IMPLEMENT ('agent.sh request-approval $fa_id destructive')"
-    printf '%s\n' "$fa_f"
     case "$(plan_migration_shape "$fa_d/PLAN.md")" in
-      expand_contract) ;;
-      single_step)
-        fa_f=$(find_approval "$fa_id" single_step "$fa_plan") || fail "PLAN.md '## Data' declares single_step: yes: a destructive migration without expand/contract steps needs the user's explicit single-step approval for this PLAN.md ('agent.sh request-approval $fa_id single_step')"
-        printf '%s\n' "$fa_f" ;;
-      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase deferred (a separate, later migration, not part of this change). Only the user's explicit single-step approval allows one step: add 'single_step: yes' and request it ('agent.sh request-approval $fa_id single_step')" ;;
+      expand_contract|single_step) ;;
+      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase deferred (a separate, later migration, not part of this change). Only the user's explicit single-step approval allows one step: add 'single_step: yes' (the approval is requested after the freeze, before IMPLEMENT)" ;;
     esac
   fi
   if [ -n "$(task_defect_fixes "$fa_d/TASK.md")" ]; then
@@ -811,17 +822,23 @@ freeze() {
   fz_hits=$(language_scan $fz_lang) || fail "$(language_fail_text "$(printf '%s' "$fz_hits" | tr '\n' ' ')")"
   fz_approvals=''
   if gates_enforced "$id"; then fz_approvals=$(freeze_approvals "$id" "$fz_mode"); fi
+  fz_oldplan=$(section_value "$dir" freeze plan_sha256)
   tmp=$dir/RUN.yaml.tmp; replace_hashes "$dir" "$tmp"
   if [ "$fz_mode" = refreeze ] && gates_enforced "$id"; then
     [ "$(sed -n '/^freeze:$/,/^[^ ]/p' "$dir/RUN.yaml" | grep -v scope_paths)" != "$(sed -n '/^freeze:$/,/^[^ ]/p' "$tmp" | grep -v scope_paths)" ] || { rm -f "$tmp"; fail "refreeze changes nothing: an amendment must change the task, evidence, plan, QA plan or classification"; }
   fi
   mv "$tmp" "$dir/RUN.yaml"; sv_reset; set_task_source_revision "$dir"
   if gates_enforced "$id"; then
-    if [ "$fz_mode" = refreeze ]; then refreeze_lifecycle "$id" "$3"
+    if [ "$fz_mode" = refreeze ]; then refreeze_lifecycle "$id" "$3" "$fz_oldplan"
     else ledger_append "$id" freeze "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$(section_value "$dir" freeze pipeline)"; fi
     for fz_a in $fz_approvals; do consume_approval "$id" "$fz_a"; done
   fi
   echo "freeze recorded: $id"
+  if [ "$fz_mode" = refreeze ] && gates_enforced "$id" && [ "$(plan_destructive "$dir/PLAN.md")" = yes ]; then
+    if [ "$(section_value "$dir" handoff state)" = PLANNED ] && [ "$fz_oldplan" != "$(section_value "$dir" freeze plan_sha256)" ]; then
+      echo "refreeze: PLAN.md has a new hash; an earlier destructive / single_step approval was bound to the old one and no longer counts. The run is back at PLANNED: the implementer cannot work, and IMPLEMENTED/CODE_DONE are unreachable, until a destructive approval for this PLAN.md exists ('agent.sh request-approval $id destructive', then 'agent.sh handoff $id IMPLEMENTING')"
+    fi
+  fi
 }
 
 # --- Task-source contract (projection hash; see WORKFLOW.md "Task-source contract") --
@@ -1272,11 +1289,12 @@ record_handoff() {
   verify_seal "$id"
   patch=$(task_patch_fingerprint "$id")
   current=$(section_value "$dir" handoff state)
-  hd_detail=''
+  hd_detail='' hd_approvals=''
   case "$phase" in
     IMPLEMENTING)
       case "$current" in
-        PLANNED|IMPLEMENTING) ;;
+        PLANNED) if gates_enforced "$id"; then hd_approvals=$(implement_approvals "$id"); fi ;;
+        IMPLEMENTING) ;;
         IMPLEMENTED) gates_enforced "$id" || fail "illegal handoff transition: $current -> $phase"
           [ "$execution_role" = lead ] || fail "only the lead may reopen implementation after a gate finding (diagnosis comes first)"
           reopen_for_fix "$id"; hd_detail="fix_round=$(fix_rounds_used "$id")" ;;
@@ -1319,6 +1337,7 @@ record_handoff() {
       fi ;;
   esac
   set_run_value "$id" handoff state "$phase"
+  for hd_a in $hd_approvals; do consume_approval "$id" "$hd_a"; done
   if [ "$phase" = CODE_DONE ]; then set_run_value "$id" execution state CODE_DONE; fi
   if gates_enforced "$id"; then
     ledger_append "$id" "handoff:$phase" "$current" "$phase" "$hd_detail"
@@ -1715,14 +1734,27 @@ reopen_for_fix() {
   set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
   set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
 }
+# K-6: a refreeze that changes PLAN.md of a destructive plan while the run is IMPLEMENTING or IMPLEMENTED sends
+# the run back to PLANNED, so the one gate (PLANNED -> IMPLEMENTING, implement_approvals) asks again for the
+# destructive (and single_step) approval bound to the new hash. Nothing else changes: the fix budget and the
+# worker evidence follow the existing refreeze rules (evidence bound to the old plan hash no longer counts).
 refreeze_lifecycle() {
-  g_id=$1 g_amend=$2; g_d=$(run_dir "$g_id"); g_hs=$(section_value "$g_d" handoff state); g_to=$g_hs
+  g_id=$1 g_amend=$2 g_oldplan=${3:-}; g_d=$(run_dir "$g_id"); g_hs=$(section_value "$g_d" handoff state); g_to=$g_hs
   case "$g_hs" in
     IMPLEMENTED)
       set_run_value "$g_id" handoff state IMPLEMENTING
       set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
       set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
       g_to=IMPLEMENTING ;;
+  esac
+  case "$g_to" in
+    IMPLEMENTING)
+      if [ "$(plan_destructive "$g_d/PLAN.md")" = yes ] && [ "$g_oldplan" != "$(section_value "$g_d" freeze plan_sha256)" ]; then
+        set_run_value "$g_id" handoff state PLANNED
+        set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
+        set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
+        g_to=PLANNED
+      fi ;;
   esac
   ledger_append "$g_id" refreeze "$g_hs" "$g_to" "amendment $g_amend"
 }
@@ -1756,6 +1788,7 @@ window_open() { # ID [ROLE]
   g_id=$1; window_role "${2:-}" >/dev/null; require_run "$g_id"; gates_enforced "$g_id" || return 0
   require_open_run "$g_id"
   g_d=$(run_dir "$g_id"); [ "$(resolve_topology "$g_d")" = orchestrated ] || return 0
+  [ "$(section_value "$g_d" handoff state)" != PLANNED ] || [ "$(plan_destructive "$g_d/PLAN.md")" != yes ] || fail "worker windows are opened only while handoff state is IMPLEMENTING: this destructive plan is frozen at PLANNED and needs a destructive approval bound to the current PLAN.md first ('agent.sh next $g_id', 'agent.sh request-approval $g_id destructive', then 'agent.sh handoff $g_id IMPLEMENTING')"
   [ "$(section_value "$g_d" handoff state)" = IMPLEMENTING ] || fail "worker windows are opened only while handoff state is IMPLEMENTING"
   verify_seal "$g_id"; verify_mutation_ownership "$g_id" 1
   task_patch_fingerprint "$g_id"
@@ -2654,11 +2687,9 @@ next_step() {
     ns_ph=$(hash_file "$ns_d/PLAN.md")
     ns_shape=$(plan_migration_shape "$ns_d/PLAN.md")
     if [ "$ns_shape" = missing ]; then o "fix PLAN.md ## Data: expand/contract steps (data-design), or single_step: yes with the user's approval"; r "destructive plan without expand/contract steps"; return 0; fi
-    for ns_k in plan destructive single_step scope; do
+    for ns_k in plan scope; do
       if [ "$ns_k" = plan ] && [ "$(run_autonomy "$ns_id")" != supervised ]; then continue; fi
       if [ "$ns_k" = scope ] && [ -z "$(task_defect_fixes "$ns_d/TASK.md")" ]; then continue; fi
-      if [ "$ns_k" = destructive ] && [ "$(plan_destructive "$ns_d/PLAN.md")" != yes ]; then continue; fi
-      if [ "$ns_k" = single_step ] && [ "$ns_shape" != single_step ]; then continue; fi
       if ! find_approval "$ns_id" "$ns_k" "$ns_ph" >/dev/null; then
         ns_rq=$(latest_request "$ns_id" "$ns_k" 2>/dev/null || true)
         if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $ns_id"
@@ -2669,7 +2700,19 @@ next_step() {
     o "agent.sh freeze $ns_id"; r "artifacts ready"; return 0
   fi
   case "$ns_hs" in
-    PLANNED) o "agent.sh handoff $ns_id IMPLEMENTING"; r "plan frozen" ;;
+    PLANNED)
+      ns_ph=$(hash_file "$ns_d/PLAN.md"); ns_ask=''
+      if [ "$(plan_destructive "$ns_d/PLAN.md")" = yes ]; then
+        ns_kinds=destructive; [ "$(plan_migration_shape "$ns_d/PLAN.md")" != single_step ] || ns_kinds="destructive single_step"
+        for ns_k in $ns_kinds; do
+          find_approval "$ns_id" "$ns_k" "$ns_ph" >/dev/null && continue
+          ns_rq=$(latest_request "$ns_id" "$ns_k" 2>/dev/null || true)
+          if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $ns_id"
+          else o "agent.sh request-approval $ns_id $ns_k (relay verbatim)"; fi
+          r "$ns_k approval required before IMPLEMENT"; ns_ask=1; break
+        done
+      fi
+      [ -n "$ns_ask" ] || { o "agent.sh handoff $ns_id IMPLEMENTING"; r "plan frozen"; } ;;
     IMPLEMENTING) o "dispatch.sh $ns_id implementer"; o "agent.sh handoff $ns_id IMPLEMENTED"; r "implementation in progress" ;;
     IMPLEMENTED)
       ns_fp=$(content_fingerprint); ns_fail='' ns_todo=''

@@ -38,13 +38,13 @@ options `null | empty string | throw`, recommended `null`); `awaiting_input: tru
 ## destructive-approval
 
 CRITICAL; `PLAN.md` `## Data` starts `destructive: yes` (drops `legacy_keys`); the `plan` approval was
-granted; no `destructive` approval exists.
+granted and the plan is frozen (handoff `PLANNED`); no `destructive` approval exists for the frozen hash.
 
 - next: `agent.sh request-approval LK-7 destructive (relay verbatim)`
 - do: run `agent.sh request-approval LK-7 destructive`, print its question to the user verbatim and stop.
   Only after the user's reply contains an approval phrase and a destructive kind word: `agent.sh approve
-  LK-7 destructive`, then `agent.sh freeze LK-7`.
-- must not: run `agent.sh freeze` or `approve` before the user's reply; treat the `plan` approval or the
+  LK-7 destructive`, then `agent.sh handoff LK-7 IMPLEMENTING`.
+- must not: run `agent.sh handoff LK-7 IMPLEMENTING` or `approve` before the user's reply; treat the `plan` approval or the
   run's autonomy as covering the destructive step; dispatch the implementer; reword the plan to
   `destructive: no` or drop the migration to avoid the stop; reclassify below CRITICAL.
 

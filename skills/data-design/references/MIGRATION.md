@@ -21,7 +21,7 @@ A classification is never argued away: to make a step non-destructive, change th
 A destructive plan separates the phases: the destructive step sits in phase `deferred` (a later, separate migration), after a
 non-destructive step in `expand`, `backfill` or `switch` that stops reading or writing the data first. One
 step (drop and stop-reading in the same migration) is only allowed with the user's explicit single-step
-approval, written as `single_step: yes` in `## Plan section`; plan-contract's validator and the freeze check it.
+approval, written as `single_step: yes` in `## Plan section`; plan-contract's validator and the freeze check the shape; the approval itself is checked at `handoff IMPLEMENTING`, after the freeze.
 
 ## 2. Expand and contract
 

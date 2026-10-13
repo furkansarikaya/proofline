@@ -379,40 +379,149 @@ sc_supervised_destructive() {
   approve_as_user plan 'approve the plan again'
   A freeze LC >/dev/null
   ok "supervised freeze needs a plan approval bound to PLAN.md"
-  # destructive data change: forced CRITICAL, needs plan + destructive approvals
+  # destructive data change (K-6): forced CRITICAL at freeze; the freeze needs the plan approval only, the
+  # destructive approval stops the run after the freeze, before IMPLEMENT, bound to the frozen PLAN.md hash
   unfrozen STANDARD
   printf '\n## Data\n\ndestructive: maybe\n' >> .agents/runs/LC/PLAN.md
   expect_msg "an invalid ## Data first line" 'destructive: yes' A freeze LC
   sed 's/^destructive: maybe$/destructive: yes/' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
-  expect_fail "a destructive plan froze without approvals" A freeze LC
+  expect_fail "a destructive plan froze without the plan approval" A freeze LC
   expect_state pipeline classification CRITICAL
   expect_msg "a destructive plan reclassified below CRITICAL" 'CRITICAL' A classify LC STANDARD
   approve_as_user plan 'approve the plan'
-  expect_msg "destructive freeze without destructive approval" 'destructive approval' A freeze LC
-  approve_as_user destructive 'approve the destructive migration'
   expect_msg "a destructive plan with no expand/contract steps froze" 'without expand/contract steps' A freeze LC
   A next LC | grep -q 'destructive plan without expand/contract steps' || die "next does not name the missing expand/contract steps"
   # a one-release plan: the destructive step shares the expand phase
   printf '\n| step | phase | operation | object | destructive | reversible | rollback | lock |\n|---|---|---|---|---|---|---|---|\n| S1 | expand | drop_column | books.legacy_notes | yes | no | restore from backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
-  approve_as_user plan 'approve the plan, third time'; approve_as_user destructive 'approve the destructive migration, second time'
+  approve_as_user plan 'approve the plan, third time'
   expect_msg "a one-release destructive plan froze" 'without expand/contract steps' A freeze LC
-  # expand then contract: accepted
+  # expand then contract: accepted with the plan approval alone
   sed '/^| S1 | expand | drop_column/d' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
   printf '| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
-  approve_as_user plan 'approve the plan, fourth time'; approve_as_user destructive 'approve the destructive migration, third time'
-  A freeze LC >/dev/null
+  A next LC | grep -q '^next=agent.sh request-approval LC plan' || die "next does not ask for the plan approval of the final plan"
+  A next LC | grep -q 'destructive approval required before' && die "next asks for the destructive approval before the freeze"
+  approve_as_user plan 'approve the plan, fourth time'
+  A next LC | grep -q '^next=agent.sh freeze LC' || die "next does not offer the freeze with only the plan approval"
+  A freeze LC >/dev/null || die "a destructive plan with the plan approval was not frozen"
   [ "$(pipe_val tier)" = full ]
-  ok "destructive plan: forced CRITICAL, plan + destructive approvals, expand/contract steps required"
+  expect_state handoff state PLANNED
+  # after the freeze: next asks for the destructive approval, bound to the frozen hash, before IMPLEMENT
+  A next LC | grep -q '^next=agent.sh request-approval LC destructive' || die "next does not ask for the destructive approval after the freeze"
+  A next LC | grep -q '^reason=destructive approval required before IMPLEMENT' || die "next reason lacks 'destructive approval required before IMPLEMENT'"
+  A next LC | grep -q 'agent.sh handoff LC IMPLEMENTING' && die "next offers the handoff before the destructive approval"
+  expect_msg "IMPLEMENTING without the destructive approval" 'agent.sh request-approval LC destructive' A handoff LC IMPLEMENTING
+  expect_state handoff state PLANNED
+  approve_as_user destructive 'approve the destructive migration'
+  A next LC | grep -q '^next=agent.sh handoff LC IMPLEMENTING' || die "next does not offer the handoff after the destructive approval"
+  A handoff LC IMPLEMENTING >/dev/null || die "IMPLEMENTING refused with a valid destructive approval"
+  expect_state handoff state IMPLEMENTING
+  ok "destructive plan: forced CRITICAL, freeze on the plan approval, destructive approval before IMPLEMENT"
+  # a refreeze (new PLAN.md hash) drops the approval: it must be requested again before IMPLEMENT
+  unfrozen STANDARD
+  printf '\n## Data\n\ndestructive: yes\n\n| step | phase | operation | object | destructive | reversible | rollback | lock |\n|---|---|---|---|---|---|---|---|\n| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan, fifth time'
+  A freeze LC >/dev/null || die "freeze for the refreeze scenario failed"
+  approve_as_user destructive 'approve the destructive migration, second time'
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: clarify the migration\n' > .agents/runs/LC/amendments/001.md
+  printf 'amended: migration note\n' >> .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the amended plan'
+  A refreeze LC 001.md | grep -q 'destructive / single_step approval was bound to the old one' || die "refreeze does not say the destructive approval was dropped"
+  expect_msg "IMPLEMENTING with an approval bound to the old PLAN.md" 'agent.sh request-approval LC destructive' A handoff LC IMPLEMENTING
+  A next LC | grep -q '^next=agent.sh request-approval LC destructive' || die "next does not ask again after the refreeze"
+  approve_as_user destructive 'approve the destructive migration for the amended plan'
+  A handoff LC IMPLEMENTING >/dev/null || die "IMPLEMENTING refused after the destructive approval of the new hash"
+  ok "a refreeze drops the destructive approval"
   # an explicit single-step approval is the only way to a one-step destructive change
   unfrozen STANDARD
   printf '\n## Data\n\ndestructive: yes\nsingle_step: yes\n\ndrop books.legacy_notes in one migration\n' >> .agents/runs/LC/PLAN.md
   printf '\nThe user wants this migration as a single step.\n' >> .agents/runs/LC/TASK.md
-  approve_as_user plan 'approve the plan, fifth time'; approve_as_user destructive 'approve the destructive migration, fourth time'
-  expect_msg "a single_step plan froze without the single-step approval" "single-step approval" A freeze LC
+  approve_as_user plan 'approve the plan, sixth time'
+  A freeze LC >/dev/null || die "a single_step plan was not frozen on the plan approval"
+  approve_as_user destructive 'approve the destructive migration, third time'
+  expect_msg "a single_step plan reached IMPLEMENTING without the single-step approval" "single-step approval" A handoff LC IMPLEMENTING
   A next LC | grep -q '^next=agent.sh request-approval LC single_step' || die "next does not ask for the single_step approval"
   approve_as_user single_step 'approve the migration as a single step'
-  A freeze LC >/dev/null || die "an approved single-step plan was refused"
-  ok "single_step: yes needs the user's single-step approval"
+  A handoff LC IMPLEMENTING >/dev/null || die "an approved single-step plan was refused"
+  ok "single_step: yes needs the user's single-step approval before IMPLEMENT"
+}
+
+# K-6: a refreeze that changes the PLAN.md of a destructive plan while the run is IMPLEMENTING or IMPLEMENTED
+# sends it back to PLANNED: the implementer cannot work and IMPLEMENTED is unreachable until a destructive
+# approval for the new hash exists. A fix-round reopen (same hash) does not ask again.
+dest_data='
+## Data
+
+destructive: yes
+
+| step | phase | operation | object | destructive | reversible | rollback | lock |
+|---|---|---|---|---|---|---|---|
+| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |
+| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |
+'
+amend_plan() { # N TEXT: write amendment N and append TEXT to PLAN.md
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment %s: destructive migration added to the plan\n' "$1" > ".agents/runs/LC/amendments/$1.md"
+  printf '%s\n' "$2" >> .agents/runs/LC/PLAN.md
+}
+sc_destructive_refreeze() {
+  for dr_from in IMPLEMENTING IMPLEMENTED; do
+    scaffold orchestrated
+    if [ "$dr_from" = IMPLEMENTED ]; then worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'; A handoff LC IMPLEMENTED >/dev/null; fi
+    amend_plan 001 "$dest_data"
+    A refreeze LC 001.md | grep -q 'back at PLANNED' || die "$dr_from: the refreeze does not say the run is back at PLANNED"
+    expect_state handoff state PLANNED
+    expect_state pipeline classification CRITICAL
+    expect_msg "$dr_from: window-open without the destructive approval" 'destructive approval' A window-open LC
+    expect_msg "$dr_from: IMPLEMENTED without the destructive approval" 'illegal handoff transition' A handoff LC IMPLEMENTED
+    expect_msg "$dr_from: IMPLEMENTING without the destructive approval" 'agent.sh request-approval LC destructive' A handoff LC IMPLEMENTING
+    A next LC | grep -q '^next=agent.sh request-approval LC destructive' || die "$dr_from: next does not ask for the destructive approval"
+    A next LC | grep -q '^reason=destructive approval required before IMPLEMENT' || die "$dr_from: next reason is not 'destructive approval required before IMPLEMENT'"
+    approve_as_user destructive 'approve the destructive migration'
+    A handoff LC IMPLEMENTING >/dev/null || die "$dr_from: IMPLEMENTING refused with the approval for the new hash"
+    wopen
+    wclose
+    # the approval was consumed and is bound to this hash: a second plan change asks again
+    amend_plan 002 'amended again: second plan change'
+    A refreeze LC 002.md >/dev/null
+    expect_state handoff state PLANNED
+    expect_msg "$dr_from: a consumed approval reused for another hash" 'agent.sh request-approval LC destructive' A handoff LC IMPLEMENTING
+    expect_msg "$dr_from: window-open on a consumed approval" 'destructive approval' A window-open LC
+  done
+  ok "a refreeze of a destructive plan from IMPLEMENTING or IMPLEMENTED returns to PLANNED until the new hash is approved"
+  # a fix-round reopen keeps the hash: no new approval
+  scaffold orchestrated
+  amend_plan 001 "$dest_data"
+  A refreeze LC 001.md >/dev/null
+  approve_as_user destructive 'approve the destructive migration'
+  A handoff LC IMPLEMENTING >/dev/null
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  A secret-scan LC >/dev/null; gfail REVIEW_RULES impl.txt
+  A handoff LC IMPLEMENTING >/dev/null || die "the fix-round reopen asked for a new destructive approval"
+  expect_state handoff state IMPLEMENTING
+  wopen
+  wclose
+  ok "a fix-round reopen (same PLAN.md hash) does not ask for the destructive approval again"
+  # a refreeze that leaves PLAN.md unchanged (TASK.md only) stays at IMPLEMENTING: the approval still binds the hash
+  scaffold orchestrated
+  amend_plan 001 "$dest_data"
+  A refreeze LC 001.md >/dev/null
+  approve_as_user destructive 'approve the destructive migration'
+  A handoff LC IMPLEMENTING >/dev/null
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment 002: clarify the task wording only\n' > .agents/runs/LC/amendments/002.md
+  printf '\n- AC-1 clarified: an empty key returns the documented default\n' >> .agents/runs/LC/TASK.md
+  A refreeze LC 002.md >/dev/null
+  expect_state handoff state IMPLEMENTING
+  wopen
+  wclose
+  ok "a TASK.md-only refreeze of a destructive plan (same PLAN.md hash) stays at IMPLEMENTING"
+  # a refreeze from destructive to non-destructive needs no destructive approval
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment 003: the migration is dropped from this change\n' > .agents/runs/LC/amendments/003.md
+  sed -e 's/^destructive: yes$/destructive: no/' -e '/^| S[0-9] |/d' -e '/^| step |/d' -e '/^|---/d' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
+  A refreeze LC 003.md >/dev/null
+  expect_state handoff state IMPLEMENTING
+  wopen
+  wclose
+  ok "a refreeze from destructive to non-destructive stays at IMPLEMENTING"
 }
 
 sc_questions() {
@@ -885,6 +994,7 @@ run_sc sc_fix_loop
 run_sc sc_waiver
 run_sc sc_approvals
 run_sc sc_supervised_destructive
+run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
 run_sc sc_ask
 run_sc sc_questions
