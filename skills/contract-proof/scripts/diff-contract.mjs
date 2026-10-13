@@ -940,7 +940,7 @@ export const hasToken = (text, tok) => {
   return new RegExp(`(^|[^A-Za-z0-9_./{}-])${e}(?=$|[^A-Za-z0-9_./{}-]|\\.(\\s|$))`).test(text);
 };
 // a negation anywhere in the clause that carries the element and the keyword voids it
-const NEGATION = /\b(no|not|never|none|nothing|neither|nor|without|cannot|lacks?|unnecessary|needless|skip(ped|s)?|avoid(s|ed|ing)?|defer(s|red|ring)?|pending|tbd|todo|reject(s|ed|ing)?|forgo(es|ne|ing)?|drop(s|ped|ping)?|revert(s|ed|ing)?|except|impossible|later|unknown|nil)\b|\bn\/?a\b|\bw\/o\b|\bout[- ]of[- ]scope\b|\bas[- ]is\b|[=:]\s*(0|no|nil|null|off)\b|\binstead of\b|\bout of scope\b|n't\b|\b(non|un)-?(version|migrat|deprecat)|[=:]\s*false\b|\?/i;
+const NEGATION = /(?<![\w@/.-])(no|not|never|none|nothing|neither|nor|without|cannot|lacks?|unnecessary|needless|skip(ped|s)?|avoid(s|ed|ing)?|defer(s|red|ring)?|pending|tbd|todo|reject(s|ed|ing)?|forgo(es|ne|ing)?|drop(s|ped|ping)?|revert(s|ed|ing)?|except|impossible|later|unknown|nil)(?![\w@/-]|\.\w)|\bn\/?a\b|\bw\/o\b|\bout[- ]of[- ]scope\b|\bas[- ]is\b|[=:]\s*(0|no|nil|null|off)\b|\binstead of\b|\bout of scope\b|n't\b|\b(non|un)-?(version|migrat|deprecat)|[=:]\s*false\b|\?/i;
 // clauses end at `;` or at a sentence dot (`Order.id` and `openapi.yaml` keep theirs)
 const clauses = (t) => t.split(/;|\.(?=\s|$)/);
 // a bare element (`id`, `name`, an enum value) only counts as a code span, never as any word
@@ -953,7 +953,9 @@ export function coverage(path, change, bullets) {
   if (!BLOCKING_CLASSES.includes(change.classification)) return none;
   const b = bullets.find((x) => hasToken(x.text, path) && clauses(x.text).some((c) => {
     const words = c.replace(/info\.version/gi, " ");
-    return namesElement(c, change.element) && COVER_KEYWORD.test(words) && !NEGATION.test(words);
+    // the element's own name (`skip-list`, `no-case`) is not a negation of it
+    const bare = words.split("`" + change.element + "`").join(" ").split(change.element).join(" ");
+    return namesElement(c, change.element) && COVER_KEYWORD.test(words) && !NEGATION.test(bare);
   }));
   return b ? { covered: true, plan_line: b.line, text: b.text } : none;
 }

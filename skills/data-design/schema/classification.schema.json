@@ -11,6 +11,7 @@
       "description": "yes when any action is destructive or unknown, or a file could not be analyzed",
       "enum": ["yes", "no"]
     },
+    "down_destructive": { "description": "yes when a destructive or unknown action sits on the down (rollback) path; the up path alone decides `destructive`", "enum": ["yes", "no"] },
     "unanalyzed": {
       "description": "non-SQL files the token scan could not understand (run-time built SQL, no recognised operation): never silently skipped, the check is UNSUPPORTED for them",
       "type": "array",
@@ -50,6 +51,7 @@
             "type": "string"
           },
           "class": { "enum": ["destructive", "breaking", "safe", "unknown"] },
+          "path": { "description": "present only on actions of the down (rollback) path", "const": "down" },
           "reason": { "type": "string", "minLength": 1 }
         }
       }

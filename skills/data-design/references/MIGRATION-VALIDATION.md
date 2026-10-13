@@ -77,8 +77,12 @@ runs that test command and reads the files it wrote.
    (`--repo` re-classifies every cited migration: V16 a drop or unknown action marked `destructive: no` or a
    `patterns: pass` over a traced blocking hazard, V17 a file the scanner cannot analyze marked applied or a
    cited file that is missing). Non-SQL migrations (python, JavaScript, TypeScript, Ruby, Go, XML) are token
-   scanned; a file with run-time built SQL or no recognised operation is listed under `unanalyzed` and is never
-   applied.
+   scanned (heredoc and triple-quoted SQL bodies included); a file with run-time built SQL (a computed or
+   paren-less `execute` argument, an unrecognised string) or no recognised operation is listed under
+   `unanalyzed` and is never applied. Only the up path (`upgrade`, `up`, `change`, `-- +goose Up`) decides
+   `destructive`; a drop in `downgrade`/`down` is reported as `down_destructive` (V18: Capability must say
+   `down_destructive: yes`; the agent never runs it, A84). Without `--repo` the validator prints a `WARN` line and
+   `CONFIDENCE: medium`: destructive and hazard claims are then self-attested.
 
 ## 4. What is reported and how it is classified
 

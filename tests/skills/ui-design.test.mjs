@@ -139,7 +139,7 @@ test("creative direction: new is invalid when DESIGN.md exists; new needs avoide
 test("creative direction: an approval naming a meeting or review without a recorded answer is refused (A94)", () => {
   const d = strong(); d.creative_direction.basis = "redesign";
   d.creative_direction.redesign = { task_quote: "redesign the orders page", user_approval: "" };
-  for (const t of ["approved in the Q3 planning review", "the user approved it in the Q2 review meeting", "agreed in the design sync (Q4 planning)", "approved at the roadmap review"]) {
+  for (const t of ["approved in the Q3 planning review", "the user approved it in the Q2 review meeting", "agreed in the design sync (Q4 planning)", "approved at the roadmap review", "Q4 launch, user said yes", "user said yes, Q3"]) {
     d.creative_direction.redesign.user_approval = t; has(errs(d, { root: repo, task }), "reference the recorded answer");
   }
   d.creative_direction.redesign.user_approval = "approved in the Q3 planning review, recorded in questions/004.answer.md";
@@ -151,7 +151,7 @@ test("creative direction: redesign needs the task's request and the user's appro
   d.creative_direction.redesign.user_approval = "assumed from the task"; has(errs(d), "must come from the user");
   d.creative_direction.redesign.user_approval = "Q-2 answered_by user: yes, redesign"; assert.deepEqual(errs(d, { root: repo, task }), []);
   d.creative_direction.redesign.user_approval = "the user said yes in chat"; has(errs(d), "reference the recorded answer");
-  for (const ref of ["questions/002.answer.md", "Q3", "design/INTENT.md#D-4"]) {
+  for (const ref of ["questions/002.answer.md", "Q3 of the NEEDS_INPUT round", "design/INTENT.md#D-4"]) {
     d.creative_direction.redesign.user_approval = `user approved: ${ref}`; assert.deepEqual(errs(d, { root: repo, task }), [], ref);
   }
   d.creative_direction.redesign.user_approval = "I approve, Q-1"; has(errs(d), "must come from the user");

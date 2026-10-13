@@ -32,7 +32,10 @@ const STRONG_REF = /(\bquestions\/\d{3}\.answer\.md\b|\bINTENT\.md#[\w-]+)/;
 const Q_REF = /\bQ-?\d+\b(?!\s+(planning|review|meeting|sync|stand-?up|roadmap|kick-?off|retro\w*|offsite|okrs?|budget|sprint|workshop|demo|call)\b)/i;
 // An approval that names a meeting or a review without a recorded answer is a rumour, not an answer.
 const MEETING = /\b(meetings?|reviews?|planning|sync|stand-?up|workshop|retro\w*|kick-?off|calls?|discussions?|sessions?|committee|board|roadmap|offsite|demo)\b/i;
-const ANSWER_REF = { test: (t) => STRONG_REF.test(t) || (Q_REF.test(t) && !MEETING.test(t)) };
+// A bare `Q<n>` is also a quarter label ("Q4 launch"): it counts only with round wording that makes it the
+// NEEDS_INPUT question number ("Q2 of the NEEDS_INPUT round", "Q-2 answered by the user").
+const ROUND_WORDING = /\b(needs_input|round|answer(?:s|ed)?)(?![A-Za-z])/i;
+const ANSWER_REF = { test: (t) => STRONG_REF.test(t) || (Q_REF.test(t) && ROUND_WORDING.test(t) && !MEETING.test(t)) };
 // The task's quote must ask for a visual change, not just mention the page. Heuristic.
 const REDESIGN_INTENT = /\b(re-?design\w*|re-?styl\w*|re-?them\w*|new (look|visual\w*|style|theme|design)|visual (overhaul|refresh|redesign)|(rework|refresh|revamp|overhaul|change) (the |its )?(look|visuals?|visual (style|design)|style|theme|design))\b/i;
 const norm = (t) => String(t).replace(/\s+/g, " ").trim().toLowerCase();

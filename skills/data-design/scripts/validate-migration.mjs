@@ -82,7 +82,10 @@ export function checkReport(md, { repo = null } = {}) {
       let cls = null;
       try { cls = classifyFiles(cited.map(([, a]) => a)); } catch (e) { fail("V17", `cannot scan the cited migrations: ${e.message}`); }
       if (cls) for (const [r, abs] of cited) {
-        const bad = cls.actions.filter((a) => a.file === abs && (a.class === "destructive" || a.class === "unknown"));
+        const bad = cls.actions.filter((a) => a.file === abs && a.path !== "down" && (a.class === "destructive" || a.class === "unknown"));
+        // a destructive down path is not a destructive migration; it is the capability's down_destructive (A84)
+        const downBad = cls.actions.some((a) => a.file === abs && a.path === "down" && (a.class === "destructive" || a.class === "unknown"));
+        if (downBad && kv(cap, "down_destructive") !== "yes") fail("V18", `${r.file}: the down path has destructive statements; Capability must say down_destructive: yes (and the rollback is not executed unless down_run_by names the project's own test)`);
         const un = (cls.unanalyzed || []).find((u) => u.file === abs);
         if (bad.length && r.destructive !== "yes") fail("V16", `${r.file}: the scanner classifies line ${bad[0].line} as ${bad[0].class} (${bad[0].kind} ${bad[0].object}); destructive must be yes`);
         if (un && r.applied === "yes") fail("V17", `${r.file}: the scanner cannot analyze this file (${un.reason}); it is never applied, so applied must be no`);
@@ -148,7 +151,11 @@ function main(argv) {
   try { md = readFileSync(args[0], "utf8"); } catch (e) { process.stderr.write(`error: ${e.message}\n`); return 2; }
   const errors = checkReport(md, { repo });
   for (const e of errors) process.stdout.write(`FAIL ${e}\n`);
-  if (!errors.length) process.stdout.write("OK\n");
+  if (!errors.length) {
+    process.stdout.write("OK\n");
+    if (!repo) process.stdout.write("WARN no --repo: destructive and hazard claims are self-attested; confidence capped at medium\nCONFIDENCE: medium\n");
+    else process.stdout.write("CONFIDENCE: high\n");
+  }
   return errors.length ? 1 : 0;
 }
 

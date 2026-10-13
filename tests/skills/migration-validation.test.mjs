@@ -169,7 +169,7 @@ test("cli: validator exit codes", () => {
   const ok = join(d, "ok.md");
   const bad = join(d, "bad.md");
   spawnSync("node", ["-e", `require("fs").writeFileSync(${JSON.stringify(ok)}, ${JSON.stringify(report())});require("fs").writeFileSync(${JSON.stringify(bad)}, ${JSON.stringify(report({ status: "UNSUPPORTED" }))})`]);
-  assert.equal(spawnSync("node", [VALIDATE, ok], { encoding: "utf8" }).stdout.trim(), "OK");
+  assert.match(spawnSync("node", [VALIDATE, ok], { encoding: "utf8" }).stdout, /^OK\nWARN no --repo: .*self-attested.*\nCONFIDENCE: medium\n$/);
   const b = spawnSync("node", [VALIDATE, bad], { encoding: "utf8" });
   assert.equal(b.status, 1);
   assert.match(b.stdout, /FAIL V14/);
