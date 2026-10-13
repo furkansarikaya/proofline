@@ -2665,7 +2665,8 @@ ledger_note() {
   echo "ledger note recorded: $ln_id"
 }
 
-# --- Metrics (D5): .agents/local/metrics/history.tsv, best effort, `metrics: off` disables ---
+# --- Metrics (D5, A80): .agents/local/metrics/, best effort, `metrics: off` disables ALL of it ---
+# history.tsv: one flat line per step. records.jsonl: versioned records (schema in docs/concepts/metrics.md).
 metrics_line() { # TASK ROLE RUNTIME MODEL DURATION OUTCOME
   [ "$(cfg metrics on)" != off ] || return 0
   ml_f=$root/.agents/local/metrics/history.tsv
@@ -2680,11 +2681,35 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
     ms_at=$(sed -n 's/^decided_at=//p' "$ms_f" | head -1); [ -z "$ms_at" ] || ms_dur=$(( $(now_epoch) - ms_at ))
   fi
   metrics_line "$1" "$2" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$4"
+  ms_g=$(gate_of "$2" "$3" 2>/dev/null || true)
+  metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" - - - - - - - "$4"
 }
 metrics_run() { # ID OUTCOME
   mr_first=$(head -1 "$(ledger_file "$1")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p'); mr_dur=-
   [ -z "$mr_first" ] || mr_dur=$(( $(now_epoch) - mr_first ))
   metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
+  mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
+  metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2"
+}
+# metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
+#   DELEGATIONS FIX_ROUNDS RESULT -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
+#   by the control plane from its own state and the runtime's structured output; no model-written text is copied in.
+#   Empty or "-" is null; a number field that is not digits is null; strings are cut to [A-Za-z0-9._+:-], so a
+#   record can never carry free text (and so never a secret). `metrics: off` writes nothing.
+metrics_json() {
+  [ "$(cfg metrics on)" != off ] || return 0
+  mj_f=$root/.agents/local/metrics/records.jsonl
+  mkdir -p "$(dirname "$mj_f")" 2>/dev/null || return 0
+  mj_s() { mj_v=$(printf '%s' "$1" | tr -cd 'A-Za-z0-9._+:-'); case "$mj_v" in ''|-) printf null ;; *) printf '"%s"' "$mj_v" ;; esac; }
+  mj_n() { case "$1" in ''|*[!0-9]*) printf null ;; *) printf '%s' "$1" ;; esac; }
+  printf '{"schema":"proofline.metrics/1","kind":%s,"time":"%s","task":%s,"role":%s,"focus":%s,"gate":%s,"runtime":%s,"model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":%s,"turns":%s,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s}\n' \
+    "$(mj_s "$1")" "$(now_iso)" "$(mj_s "$2")" "$(mj_s "$3")" "$(mj_s "$4")" "$(mj_s "$5")" "$(mj_s "$6")" "$(mj_s "$7")" \
+    "$(mj_n "$8")" "$(mj_n "$9")" "$(mj_n "${10}")" "$(mj_n "${11}")" "$(mj_n "${12}")" "$(mj_n "${13}")" "$(mj_n "${14}")" "$(mj_n "${15}")" "$(mj_s "${16}")" >> "$mj_f" 2>/dev/null || true
+}
+# metrics-dispatch (called by dispatch.sh, lead only): one record per specialist dispatch.
+metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURNS RETRIES RESULT
+  require_run "$1"
+  metrics_json dispatch "$1" "$2" "$3" "$(gate_of "$2" "$3" 2>/dev/null || true)" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" - - "${12}"
 }
 
 # --- next (deterministic next step; an interrupted step restarts from its beginning) -------
@@ -3067,6 +3092,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
   decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
+  metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND> | approval-consume <ID> <KIND> [FINGERPRINT]
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> (answer on stdin)
   terminate <ID> <FAILED|BLOCKED> | amend <ID> | knowledge-done <ID> [not_applicable]
@@ -3116,6 +3142,7 @@ case "$command" in
   approval-consume) approval_consume "${2:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${3:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${4:-}" ;;
   waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
+  metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N>}" "${3:?usage: agent.sh answer <ID> <N>}" ;;
