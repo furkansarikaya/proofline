@@ -1976,6 +1976,26 @@ record_validate() {
   known_control_artifact "$rv_id" ".agents/runs/$rv_id/$rv_ap" || { record_reject "ARTIFACT is not a registered run artifact: $rv_ap"; return 1; }
   artifact_allowed "$rv_role" "$rv_kind" "$rv_focus" "$rv_ap" || { record_reject "ARTIFACT $rv_ap is outside the paths $rv_role${rv_focus:+ (FOCUS $rv_focus)} reports in: $(artifact_paths "$rv_role" "$rv_kind" "$rv_focus")"; return 1; }
   [ "$(hash_file "$rv_d/$rv_ap")" = "$rv_as" ] || { record_reject "ARTIFACT sha256 mismatch for $rv_ap"; return 1; }
+  # One round (C-14), keyed by role (+focus) per run, deliberately not per instance: a later instance of the role (a second explorer, a redispatched architect) decides or returns BLOCKED.
+  # Exemption (A75): intent-grill's interview is multi-round; its rounds neither count nor are limited (and are not capped:
+  # shortcut: unlimited rounds, the user's replies are the bound). Only the task author, and its artifact is design/INTENT.md
+  # or the immutable snapshot `submit` made of it (reports/snapshots/<sha12>-task_author-design_INTENT.md), whose `## Status` is in-progress; other design/ roles never.
+  # Residual: the task author writes that file and its status itself, so this is a trust convention checked by shape, not proof of an interview.
+  rv_grill=no
+  if [ "$rv_role" = task_author ]; then
+    case "$rv_ap" in design/INTENT.md|reports/snapshots/*-task_author-design_INTENT.md)
+      # the file itself must be an interview in progress (the snapshot is a copy of it): first line under `## Status` is in-progress
+      [ "$(awk '/^## Status[[:space:]]*$/ { s=1; next } s && NF { gsub(/[[:space:]]/, ""); print; exit }' "$rv_d/$rv_ap")" = in-progress ] && rv_grill=yes ;;
+    esac
+  fi
+  if [ "$rv_res" = NEEDS_INPUT ] && [ "$rv_grill" != yes ]; then
+    for rv_qf in "$rv_d"/questions/[0-9][0-9][0-9].md; do
+      [ -f "$rv_qf" ] || continue
+      [ "$(gate_field "$rv_qf" from)" = "$rv_role" ] && [ "$(gate_field "$rv_qf" focus)" = "$rv_focus" ] || continue
+      [ "$(gate_field "$rv_qf" grill)" != yes ] || continue
+      record_reject "the $rv_role role already asked its questions in this run (questions/${rv_qf##*/}); a later instance of the role decides with its recommended option and says so, or returns BLOCKED with the reason"; return 1
+    done
+  fi
   parse_findings "$rv_t/raw" > "$rv_t/findings"
   ! grep -qx MALFORMED "$rv_t/findings" || { record_reject "malformed findings row (want | id | severity | path:line | finding | evidence |)"; return 1; }
   ! grep -qx NO_FINDINGS_PLACEHOLDER "$rv_t/findings" || { record_reject "no findings: omit rows, keep only the table header"; return 1; }
@@ -1992,7 +2012,7 @@ record_validate() {
     grep -q '[^[:space:]]' "$rv_t/questions" || { record_reject "NEEDS_INPUT needs a QUESTIONS: block"; return 1; }
   fi
   if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ]; then gate_preconditions "$rv_id" "$rv_gate"; fi
-  printf 'role=%s\nresult=%s\nkind=%s\ngate=%s\nfocus=%s\nconfidence=%s\nartifact=%s\nfingerprint=%s\n' "$rv_role" "$rv_res" "$rv_kind" "$rv_gate" "$rv_focus" "$rv_conf" "$rv_ap" "$rv_fp" > "$rv_t/meta"
+  printf 'role=%s\nresult=%s\nkind=%s\ngate=%s\nfocus=%s\nconfidence=%s\nartifact=%s\nfingerprint=%s\ngrill=%s\n' "$rv_role" "$rv_res" "$rv_kind" "$rv_gate" "$rv_focus" "$rv_conf" "$rv_ap" "$rv_fp" "$rv_grill" > "$rv_t/meta"
 }
 record_apply() {
   ra_id=$1 ra_t=$2; ra_d=$(run_dir "$1"); m() { sed -n "s/^$1=//p" "$ra_t/meta"; }
@@ -2008,7 +2028,7 @@ record_apply() {
   fi
   if [ "$ra_res" = NEEDS_INPUT ]; then
     mkdir -p "$ra_d/questions"; ra_q=$(next_num "$ra_d/questions")
-    { printf 'from: %s\nresult: %s\nasked_at: %s\n---\n' "$ra_role" "$ra_raw" "$(now_epoch)"; cat "$ra_t/questions"; } > "$ra_d/questions/$ra_q.md"
+    { printf 'from: %s\nfocus: %s\ngrill: %s\nresult: %s\nasked_at: %s\n---\n' "$ra_role" "$ra_focus" "$(m grill)" "$ra_raw" "$(now_epoch)"; cat "$ra_t/questions"; } > "$ra_d/questions/$ra_q.md"
     if section_key_present "$ra_d" execution awaiting_input; then set_run_value "$ra_id" execution awaiting_input true; fi
   fi
   if gates_enforced "$ra_id"; then ledger_append "$ra_id" "record:$ra_role:$ra_res" - - "$ra_raw sha256=$ra_sha${ra_gate:+ gate=$ra_gate}"; fi

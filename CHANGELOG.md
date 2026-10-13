@@ -9,6 +9,7 @@
 - tdd-proof validates one cycle per criterion (A45); Claude specialists under an isolated-HOME Codex lead get the operator's HOME (A46).
 - Faster CI (A76): self-test suites run as parallel scenario units in four shards, pull requests run Linux only (macOS on `main` and nightly), documentation-only pull requests skip the test jobs, and the `checks` job always reports.
 - A `fix_scope` entry `path:symbol` (or `path:line`) scopes to its path, so a fix round no longer stalls at IMPLEMENTING on a symbol-qualified scope (A77).
+- Every role asks all its questions in one NEEDS_INPUT round, enforced by `submit` and `record`; intent-grill's multi-round interview (the task author's `design/INTENT.md` rounds) is exempt (A70, A75).
 - `SECURITY.md` and `CONTRIBUTING.md`; the Acknowledgments section is removed and D33 states that no third-party project is named.
 
 ## 0.0.1 — 2026-10-09

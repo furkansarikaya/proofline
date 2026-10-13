@@ -54,7 +54,7 @@ so.
 - **C-13 No waiver.** The ledger has no waiver (the harness never grants one).
 - **C-14 Stops and approvals.** Every stop is one the class requires (D3) or a `NEEDS_INPUT` round;
   every approval in the ledger matches a harness reply in `replies.md` and has `answered_by: user`;
-  at most 3 harness replies were needed.
+  at most 3 harness replies were needed. intent-grill's multi-round interview is exempt from the one-round rule (A75).
 
 ## Scope and hygiene
 

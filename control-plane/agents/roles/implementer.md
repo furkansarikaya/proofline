@@ -31,7 +31,7 @@
 5. Run the plan's `## Verification commands` that apply to the changed paths. Report pre-existing failures,
    do not fix them.
 6. A requirement-level ambiguity the plan does not settle: write state to your evidence and return
-   NEEDS_INPUT. Never guess.
+   NEEDS_INPUT. Never guess. Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
 7. Return the result. Stop. Do not run `agent.sh handoff`.
 
 ## Output

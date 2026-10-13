@@ -33,7 +33,7 @@ effort: high
 3. Classify every migration step as reversible or destructive. Any destructive step: first line of the PLAN
    `## Data` text is `destructive: yes`, and a `blocking` finding names the step and its rollback limit.
 4. A data-retention or compatibility choice the task does not settle: write state to `design/DATA.md`, return
-   NEEDS_INPUT.
+   NEEDS_INPUT. Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
 5. Return the result with the PLAN `## Data` text after the table. Stop.
 
 ## Output

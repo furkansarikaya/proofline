@@ -250,7 +250,7 @@ Turns a one-sentence request or an imported issue into a standard task with test
 - Sandbox: workspace-write
 - Tier floor: 1
 - Timeout: 1200 s
-- Stop condition: Stops when TASK.md passes the task-author self-check, or after one NEEDS_INPUT round of open questions.
+- Stop condition: Stops when TASK.md passes the task-author self-check, or after one NEEDS_INPUT round carrying all open questions.
 
 | Profile | Claude model | Codex model | Effort |
 |---|---|---|---|

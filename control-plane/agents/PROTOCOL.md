@@ -121,6 +121,16 @@ QUESTIONS:
    at least 3 characters) is contained in it; else `answered_by: lead`. When no question is pending, `awaiting_input` becomes false.
 3. The lead restarts the specialist on the same run with an `ANSWERS` block; it resumes from its artifacts.
 
+One round (C-14): a role gathers every open question first and returns them together, numbered, in one
+NEEDS_INPUT result. `submit` (and `record`) reject a second NEEDS_INPUT from the same role in the same run (a
+reviewer focus counts separately): after the first round the role, and any later instance of it, decides with the
+recommended option it offered and says so, or returns BLOCKED with the reason. The script rule covers results
+submitted inside a run (after `agent.sh start`); the pre-run intake (task author, intent-grill's own rounds) is
+bound only by its own protocol. The lead's own `ask` is not limited. intent-grill's interview is exempt (A75): a
+NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` while that file's `## Status` is `in-progress`, through `submit` (the
+check covers the snapshot `submit` makes of it), is neither counted nor refused, so the interview may run any number
+of rounds, one question each, and does not use up the task author's own round.
+
 The lead's own questions use the same format. Approvals (plan, destructive, scope, budget, waive, commit,
 push): `request-approval` prints the question (`GATES.md` "Approvals"). Any other question of the lead (a
 choice between plans, a scope change with options) and `dispatch.sh`'s failover question under

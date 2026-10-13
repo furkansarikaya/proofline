@@ -30,7 +30,7 @@ this `SKILL.md`.
    **Destructive means CRITICAL and a stop.** Any destructive step in any phase, a `deferred` one included
    (the drop of an expand/contract plan is still the plan's destructive step): the plan's first line is
    `destructive: yes`, the task class is raised to CRITICAL (state it in the findings table), and the skill
-   stops with NEEDS_INPUT asking the user to approve the destructive steps by id. It never returns DONE for a
+   stops with NEEDS_INPUT asking the user to approve the destructive steps by id (in the one round that also carries any engine or evidence gap). It never returns DONE for a
    destructive plan without an `ANSWERS` block that approves it, and that answer is not the binding approval:
    the lead still needs the user's own `destructive` approval (recorded by the runtime from their reply) before IMPLEMENT.
 3. **Destructive statements are never executed.** No agent runs a destructive statement (drop, alter ... drop,
@@ -38,8 +38,8 @@ this `SKILL.md`.
    a rollback that would need one is reported as "not executed (destructive statement)", never run.
 3a. **The real engine, proven.** Discover the database engine and the migration tool from the repository
    ([MODEL.md](references/MODEL.md#1-engine-discovery)) and cite the evidence. Lock and transaction notes
-   follow that engine ([LOCKS.md](references/LOCKS.md)). Conflicting or missing evidence is NEEDS_INPUT,
-   never a guess.
+   follow that engine ([LOCKS.md](references/LOCKS.md)). Conflicting or missing evidence is a question in the
+   single NEEDS_INPUT round (with the destructive-approval question, rule 2), never a guess.
 4. **Expand before contract.** Readers and writers of the old shape keep working at every step: add, backfill,
    switch, then remove. A step that breaks running code (rename, drop, type change, NOT NULL) only comes after
    the switch, or the plan says why the switch is unnecessary.
@@ -83,7 +83,7 @@ this `SKILL.md`.
    [ledger-template.md](assets/ledger-template.md) to `ledger.md` in the output folder (team, plan mode:
    `design/data-ledger.md` in the run folder; review mode has no separate ledger, see REVIEW.md). On restart (`ANSWERS`, resume) continue from its Next step.
 2. **Engine and migration tool** ([MODEL.md](references/MODEL.md#1-engine-discovery)). Record engine, version,
-   evidence, migrations directory, apply tool. Unresolved -> NEEDS_INPUT, stop.
+   evidence, migrations directory, apply tool. Unresolved -> a question for the single NEEDS_INPUT round: collect it with the destructive-approval question (step 7) and any other gap, ask them together, stop.
 3. **Current model** ([MODEL.md](references/MODEL.md#2-current-model)). Tables/collections the change touches,
    from migrations or schema files (`path:line`), their nullability, keys, indexes, and who reads/writes each
    column (`path:symbol`). Row-count hints only from the repository (README, ops docs); unknown size counts as
@@ -99,7 +99,7 @@ this `SKILL.md`.
    table). Fix the document, never the classifier's verdict, until it prints `OK`. Node unavailable: apply
    [MIGRATION.md](references/MIGRATION.md#1-classification) and the table rules in
    [REVIEW.md](references/REVIEW.md#2-gate-rule) by hand and say so (`CONFIDENCE: medium` at most).
-7. **Destructive stop.** First line `destructive: yes` -> NEEDS_INPUT (rule 2) with the question in
+7. **Destructive stop.** First line `destructive: yes` -> NEEDS_INPUT (rule 2, the one round, together with any engine or evidence question) with the question in
    [MIGRATION.md](references/MIGRATION.md#5-the-approval-question). Resume on `ANSWERS`: approve -> DONE;
    "defer" -> remove the destructive steps from this plan's table (they become a follow-up task with its own
    approval), re-validate, DONE with `destructive: no`;
@@ -147,6 +147,6 @@ When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the
 - Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, output only the table header row.
-- A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); resume when restarted with an `ANSWERS` block. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
+- A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
 - Never spawn agents and never change task state; only the lead does.
 <!-- proofline:shared-rules:end -->

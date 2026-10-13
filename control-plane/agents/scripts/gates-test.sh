@@ -527,7 +527,8 @@ sc_destructive_refreeze() {
 sc_questions() {
   scaffold orchestrated
   mkdir -p .agents/runs/LC/reports; printf '# explorer notes\n' > .agents/runs/LC/reports/001-explorer.md
-  q() { printf 'ROLE: explorer\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" "$1" > "$base/q.md"; AS explorer record LC --file "$base/q.md"; }
+  # QR is the asking role (default explorer); one NEEDS_INPUT round per role (C-14), so later rounds use other roles.
+  q() { qr=${QR:-explorer}; printf 'ROLE: %s\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$qr" "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" "$1" > "$base/q.md"; AS "$qr" record LC --file "$base/q.md"; }
   expect_msg "NEEDS_INPUT without questions" 'QUESTIONS' q ''
   q 'QUESTIONS:
 1. Which default should an empty key return?
@@ -535,7 +536,15 @@ sc_questions() {
    recommended: nil
    why: AC-1 depends on it
 ' >/dev/null
-  q 'QUESTIONS:
+  # C-14: the same role asking a second time is rejected; a different role is still accepted
+  expect_msg "a second NEEDS_INPUT from the same role" 'already asked its questions in this run' q 'QUESTIONS:
+1. Keep the old lookup name?
+   options: yes | no
+   recommended: yes
+   why: callers depend on it
+'
+  [ ! -f .agents/runs/LC/questions/002.md ] || die "a rejected second NEEDS_INPUT was stored"
+  QR=architect q 'QUESTIONS:
 1. Keep the old lookup name?
    options: yes | no
    recommended: yes
@@ -552,13 +561,13 @@ sc_questions() {
   grep -q '^answered_by: lead' .agents/runs/LC/questions/002.answer.md || die "an answer the user never gave is not answered_by lead"
   expect_state execution awaiting_input false
   # I4: a capture older than the question, or an answer under 3 characters, is never the user's
-  q 'QUESTIONS:
+  QR=designer q 'QUESTIONS:
 1. Which default for a missing file?
 ' >/dev/null
   capture 'the default is an empty list' "$(( $(date +%s) - 100 ))"
   printf 'the default is an empty list\n' | A answer LC 3 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/003.answer.md || die "an answer from a capture older than the question is answered_by user"
-  q 'QUESTIONS:
+  QR=qa q 'QUESTIONS:
 1. Proceed?
 ' >/dev/null
   capture 'ok'
@@ -566,6 +575,44 @@ sc_questions() {
   grep -q '^answered_by: lead' .agents/runs/LC/questions/004.answer.md || die "a two-character answer is answered_by user"
   A verify-seal LC >/dev/null
   ok "questions: verbatim store, answered_by user vs lead (capture newer, answer >= 3 chars), awaiting_input"
+}
+
+sc_questions_keys() {
+  scaffold orchestrated
+  mkdir -p .agents/runs/LC/reports .agents/runs/LC/questions; printf '# notes\n' > .agents/runs/LC/reports/001-explorer.md
+  # a legacy question file (no focus: line) still counts for its role; another focus is a different key
+  printf 'from: designer\nasked_at: 1\n---\n1. old question\n' > .agents/runs/LC/questions/001.md
+  printf 'from: qa\nfocus: tests\nasked_at: 1\n---\n1. other focus\n' > .agents/runs/LC/questions/002.md
+  q() { printf 'ROLE: %s\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\nQUESTIONS:\n1. Proceed?\n' "$1" "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" > "$base/q.md"; AS "$1" record LC --file "$base/q.md"; }
+  expect_msg "a legacy question file without focus did not count" 'designer role already asked its questions in this run (questions/001.md)' q designer
+  q qa >/dev/null || die "a question file with another focus blocked the role"
+  ok "questions: legacy file without focus counts for its role; a different focus is a different key; message names the file and later instances"
+}
+
+sc_questions_grill() {
+  scaffold orchestrated
+  mkdir -p .agents/runs/LC/reports .agents/runs/LC/design; printf '# notes\n' > .agents/runs/LC/reports/001-task_author.md; printf '# Intent\n\n## Status\n\nin-progress\n' > .agents/runs/LC/design/INTENT.md
+  printf '1. Proceed?\n   options: yes | no\n   recommended: yes\n   why: it unblocks the tree\n' > "$base/gq.txt"
+  # sg ROLE ARTIFACT TOKEN: a NEEDS_INPUT through the real `submit` (which snapshots the artifact before `record`)
+  sg() { AS "$1" submit LC --result NEEDS_INPUT --confidence medium --artifact "$2" --questions "$base/gq.txt" --agent "$3"; }
+  # A75: intent-grill's interview (the task author, artifact design/INTENT.md) is multi-round and never limited
+  sg task_author design/INTENT.md g1 >/dev/null || die "intent-grill's first round was refused"
+  sg task_author design/INTENT.md g2 >/dev/null || die "intent-grill's second round was refused"
+  sg task_author design/INTENT.md g3 >/dev/null || die "intent-grill's third round was refused"
+  # its rounds do not use up the role's own round; a non-grill second round is refused (C-14)
+  sg task_author reports/001-task_author.md t1 >/dev/null || die "the task author's own first round was refused after intent-grill rounds"
+  expect_msg "a second non-grill NEEDS_INPUT from the same role" 'already asked its questions in this run' sg task_author reports/001-task_author.md t2
+  # the exemption needs an interview in progress: a design/INTENT.md that is not in-progress is an ordinary round
+  printf '# Intent\n\n## Status\n\ncomplete\n' > .agents/runs/LC/design/INTENT.md
+  expect_msg "a task author NEEDS_INPUT with a finished INTENT.md was exempt" 'already asked its questions in this run' sg task_author design/INTENT.md c1
+  printf '# intent\n' > .agents/runs/LC/design/INTENT.md
+  expect_msg "a task author NEEDS_INPUT with a stub INTENT.md was exempt" 'already asked its questions in this run' sg task_author design/INTENT.md c2
+  printf '# Intent\n\n## Status\n\nin-progress\n' > .agents/runs/LC/design/INTENT.md
+  sg task_author design/INTENT.md g4 >/dev/null || die "an in-progress interview round was refused after the role's own round"
+  # the exemption is the task author's: another role under design/ with the same artifact is bound by C-14
+  sg architect design/INTENT.md a1 >/dev/null || die "the architect's first round was refused"
+  expect_msg "an architect NEEDS_INPUT with design/INTENT.md was exempt" 'already asked its questions in this run' sg architect design/INTENT.md a2
+  ok "questions: through submit, the task author's intent-grill rounds are exempt (A75); a non-grill second round and an architect with design/INTENT.md are refused (C-14)"
 }
 
 sc_next() {
@@ -998,6 +1045,8 @@ run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
 run_sc sc_ask
 run_sc sc_questions
+run_sc sc_questions_keys
+run_sc sc_questions_grill
 run_sc sc_next
 run_sc sc_decide
 run_sc sc_config_scope_misc
