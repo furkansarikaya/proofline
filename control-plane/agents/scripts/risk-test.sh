@@ -143,7 +143,10 @@ sc_unsupported() {
   expect_msg "UNSUPPORTED without a reason" 'needs --reason' AS qa submit LC --focus visual --result UNSUPPORTED --confidence high --artifact reviews/visual-proof/REPORT.md
   expect_msg "UNSUPPORTED on a base focus" 'UNSUPPORTED is a result of a risk focus only' AS reviewer submit LC --focus rules --result UNSUPPORTED --reason 'no tool' --confidence high
   fid=$(sed -n 's/^finding: \([^|]*\)|blocking|-|UNSUPPORTED .*/\1/p' "$(ls .agents/runs/LC/gates/*-QA.yaml | tail -1)")
-  A next LC | grep -Fq "request-approval LC waive:$fid (UNSUPPORTED visual" || die "next does not offer the user's waiver"
+  nx=$(A next LC)
+  printf '%s\n' "$nx" | grep -Fq "request-approval LC waive:$fid (UNSUPPORTED visual" || die "next does not offer the user's waiver"
+  # A92: only a script finding fails the gate: no implementer fix round is offered
+  ! printf '%s\n' "$nx" | grep -Fq 'handoff LC IMPLEMENTING' || die "next offers a fix round for an UNSUPPORTED-only failure"
   approve_as_user "waive:$fid" "approved, waive $fid"
   A waive LC "$fid" --reason 'no browser in this project; the user accepts the visual gap' >/dev/null
   [ "$(gate_st QA)" = waived ] || die "waived UNSUPPORTED gate: $(gate_st QA)"
@@ -152,6 +155,9 @@ sc_unsupported() {
   expect_msg "a report without the UNSUPPORTED section" '## Unsupported Checks' A publish-completion-report LC markdown
   write_report '' '## Waivers' 'The user waived the UNSUPPORTED finding.' '' '## Unsupported Checks' 'Visual check skipped.'
   expect_msg "a report that does not name the check" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
+  # A92: the name counts only inside the section it is required under
+  write_report '' '## Waivers' 'QA:visual was waived by the user.' '' '## Unsupported Checks' 'Visual check skipped.'
+  expect_msg "a check named outside the section" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
   write_report '' '## Waivers' 'The user waived the UNSUPPORTED finding.' '' '## Unsupported Checks' 'QA:visual - visual-proof skill not installed; waived by the user.'
   A publish-completion-report LC markdown >/dev/null
   # the dependency audit always has a tool-free check
@@ -204,6 +210,13 @@ sc_frozen() {
   A config-check >/dev/null
   expect_msg "contract.ignore added after freeze" 'freeze mismatch: risk' A verify-freeze LC
   cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
+  # A92: a RUN.yaml without freeze.risk_sha256 fails closed; a refreeze inserts the key
+  cp .agents/runs/LC/RUN.yaml "$base/run.keep"; grep -v '^  risk_sha256:' "$base/run.keep" > .agents/runs/LC/RUN.yaml
+  expect_msg "a run without risk_sha256" 'no freeze.risk_sha256' A verify-freeze LC
+  printf '# Amendment 2\n\nBind the risk mapping.\n' > .agents/runs/LC/amendments/002.md
+  approve_as_user plan 'approved: the amended plan, bind the mapping'
+  A refreeze LC 002.md >/dev/null; A verify-freeze LC >/dev/null
+  grep -q '^  risk_sha256: "[0-9a-f]\{64\}"' .agents/runs/LC/RUN.yaml || die "refreeze did not insert risk_sha256"
   { cat .agents/config.yaml; printf '\ncontract:\n  skip: "x"\n'; } > "$base/cfg3"
   expect_msg "an unknown contract key" 'unknown contract key: contract.skip' A config-check "$base/cfg3"
   ok "frozen: flags need a refreeze, the mapping, the performance thresholds, the security policy and the contract globs are bound by risk_sha256, config-check refuses foreign checks"
@@ -232,9 +245,29 @@ sc_contract_content() {
   printf '# API notes\n\nThe spec starts with:\n\nopenapi: 3.0.0\n' > docs/api-notes.md          # trap: prose quoting a contract
   printf 'const yaml = "openapi: 3.0.0";\n' > src.js                                              # trap: not at line start
   snap
-  has 'signal.contract_file=source=diff:proto/v1/user.proto(*.proto),diff:schemas/user.json(content /^(openapi/asyncapi/swagger):/"\$schema"/^syntax = "proto/),diff:spec/service.yaml(content /^(openapi/asyncapi/swagger):/"\$schema"/^syntax = "proto/) check=REVIEW_RULES:contract'
+  has 'signal.contract_file=source=diff:proto/v1/user.proto(*.proto),diff:schemas/user.json(content /^(openapi/asyncapi/swagger):/"\$schema"[[:space:]]*:[[:space:]]*"https?://json-schema\.org//^syntax = "proto/),diff:spec/service.yaml(content /^(openapi/asyncapi/swagger):/"\$schema"[[:space:]]*:[[:space:]]*"https?://json-schema\.org//^syntax = "proto/) check=REVIEW_RULES:contract'
   hasnt 'api-notes.md'; hasnt 'src.js'
   ok "contract content: OpenAPI root key and JSON Schema found by content, nested .proto by path; prose and code quoting it are not"
+}
+
+# A92: a content-recognised contract edited by deleting an operation still signals; config JSON is not a contract.
+sc_contract_content_edit() {
+  scaffold standalone no CRITICAL manual
+  mkdir -p spec; printf 'openapi: 3.0.0\npaths:\n  /a:\n    get: {}\n  /b:\n    get: {}\n' > spec/service.yaml
+  printf '{ "compilerOptions": {} }\n' > tsconfig.json
+  git add -A; git commit -qm 'add spec and tsconfig'
+  printf 'openapi: 3.0.0\npaths:\n  /a:\n    get: {}\n' > spec/service.yaml
+  snap
+  has 'diff:spec/service.yaml(content '; has 'focus.REVIEW_RULES.contract=missing'
+  has 'missing_flag.contract_file=diff:spec/service.yaml needs PLAN.md contract_change: yes'
+  printf '{ "$schema": "https://json.schemastore.org/tsconfig", "compilerOptions": {} }\n' > tsconfig.json
+  printf '{ "$schema": "https://json.schemastore.org/biome.json" }\n' > tooling.json
+  printf '{ "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object" }\n' > shape.json
+  snap
+  hasnt 'tsconfig.json'; hasnt 'tooling.json'; has 'diff:shape.json(content '
+  printf 'contract:\n  ignore: "shape.json"\n' >> .agents/config.yaml
+  snap; hasnt 'shape.json'
+  ok "contract content: an edit or deletion in a content-recognised contract signals; tsconfig, a non-json-schema.org schema and contract.ignore do not"
 }
 
 # A one-file migration at what would be tier small: the migration signal makes the tier full, so REVIEW_DATA
@@ -274,6 +307,7 @@ sc_dependency_manifests() {
 run_sc sc_mapping
 run_sc sc_dependency_manifests
 run_sc sc_contract_content
+run_sc sc_contract_content_edit
 run_sc sc_migration_small
 run_sc sc_flags
 run_sc sc_missing_flag

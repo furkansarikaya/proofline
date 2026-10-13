@@ -445,19 +445,26 @@ $low"
   capture 'accept AS-1 only if the table is empty'; printf 'accept AS-1\n' | A answer LC 8 >/dev/null
   grep -q '^answered_by: lead' $d/questions/008.answer.md || die "a conditional accept (only if) accepted AS-1"
   expect_msg "a conditional accept froze" 'did not accept it' A freeze LC    # question 9
-  capture 'accept AS-1, thanks'; printf 'accept AS-1\n' | A answer LC 9 >/dev/null
-  grep -q '^answered_by: user' $d/questions/009.answer.md || die "a plain accept with thanks was not the user's"
-  grep -qx 'accept AS-1' $d/questions/009.answer.md || die "the user's accept was not normalized"
+  # A92: a prompt that also rejects, or offers an alternative, is not a plain acceptance
+  capture 'accept AS-1 or reject it, your call'; printf 'accept AS-1\n' | A answer LC 9 >/dev/null
+  grep -q '^answered_by: lead' $d/questions/009.answer.md || die "an accept-or-reject prompt accepted AS-1"
+  expect_msg "an accept-or-reject froze" 'did not accept it' A freeze LC     # question 10
+  capture 'accept AS-1, actually reject'; printf 'accept AS-1\n' | A answer LC 10 >/dev/null
+  grep -q '^answered_by: lead' $d/questions/010.answer.md || die "a retracted accept (actually reject) accepted AS-1"
+  expect_msg "a retracted accept froze" 'did not accept it' A freeze LC      # question 11
+  capture 'accept AS-1, thanks'; printf 'accept AS-1\n' | A answer LC 11 >/dev/null
+  grep -q '^answered_by: user' $d/questions/011.answer.md || die "a plain accept with thanks was not the user's"
+  grep -qx 'accept AS-1' $d/questions/011.answer.md || die "the user's accept was not normalized"
   capture 'accept AS-2'; printf 'accept AS-2\n' | A answer LC 6 >/dev/null
-  A verify-assumptions LC | grep -Fq 'AS-1 risk=high status=accepted-by-user ref=questions/009.answer.md' || die "AS-1 is not accepted-by-user with its answer"
+  A verify-assumptions LC | grep -Fq 'AS-1 risk=high status=accepted-by-user ref=questions/011.answer.md' || die "AS-1 is not accepted-by-user with its answer"
   A verify-assumptions LC | grep -Fq 'AS-2 risk=high status=accepted-by-user ref=questions/006.answer.md' || die "AS-2 is not accepted-by-user with its answer"
   # a changed assumption text is a new assumption: the old answer does not carry over
   cp $d/PLAN.md "$base/plan.keep"
   sed 's/the legacy key table is empty/the legacy key table has no live rows/' "$base/plan.keep" > $d/PLAN.md
   expect_msg "an answer for another text of the assumption was reused" 'unverified high-risk assumption' A freeze LC
-  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 10 ] || die "a changed assumption text was not asked again"
+  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 12 ] || die "a changed assumption text was not asked again"
   cp "$base/plan.keep" $d/PLAN.md
-  printf 'accept AS-1\n' | A answer LC 10 >/dev/null   # the question of the reverted wording is moot; CODE_DONE needs none pending
+  printf 'accept AS-1\n' | A answer LC 12 >/dev/null   # the question of the reverted wording is moot; CODE_DONE needs none pending
   A freeze LC >/dev/null || die "freeze refused after the user accepted both assumptions"
   A verify-freeze LC >/dev/null
   ok "assumptions: shape, trap, low-risk pass, bound question, no silent accept, user accept, text change, freeze"
@@ -468,10 +475,10 @@ $low"
   A knowledge-done LC not_applicable >/dev/null; write_report
   expect_msg "a report that omits the assumptions was published" 'does not list: AS-1 AS-2 AS-3' A publish-completion-report LC markdown
   write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): unverified'
-  expect_msg "an accepted assumption without its answer reference was published" 'does not list: AS-1(answer questions/009.answer.md)' A publish-completion-report LC markdown
-  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/009.answer.md' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): verified'
+  expect_msg "an accepted assumption without its answer reference was published" 'does not list: AS-1(answer questions/011.answer.md)' A publish-completion-report LC markdown
+  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/011.answer.md' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): verified'
   expect_msg "an unverified assumption reported as verified was published" 'AS-3(unverified)' A publish-completion-report LC markdown
-  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/009.answer.md' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): unverified'
+  write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user, questions/011.answer.md' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): unverified'
   A publish-completion-report LC markdown >/dev/null || die "a report listing every assumption was refused"
   ok "assumptions: completion report lists unverified and accepted-by-user assumptions"
 }
@@ -635,7 +642,7 @@ sc_questions() {
   scaffold orchestrated
   mkdir -p .agents/runs/LC/reports; printf '# explorer notes\n' > .agents/runs/LC/reports/001-explorer.md
   # QR is the asking role (default explorer); one NEEDS_INPUT round per role (C-14), so later rounds use other roles.
-  q() { qr=${QR:-explorer}; printf 'ROLE: %s\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$qr" "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" "$1" > "$base/q.md"; AS "$qr" record LC --file "$base/q.md"; }
+  q() { qr=${QR:-explorer}; { printf 'ROLE: %s\nTASK: LC\n' "$qr"; [ -z "${QF:-}" ] || printf 'FOCUS: %s\n' "$QF"; printf 'RESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" "$1"; } > "$base/q.md"; AS "$qr" record LC --file "$base/q.md"; }
   expect_msg "NEEDS_INPUT without questions" 'QUESTIONS' q ''
   q 'QUESTIONS:
 1. Which default should an empty key return?
@@ -680,6 +687,13 @@ sc_questions() {
   capture 'ok'
   printf 'ok\n' | A answer LC 4 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/004.answer.md || die "a two-character answer is answered_by user"
+  # A92: a risk FOCUS on a task result does not open a second round for qa (C-14)
+  QF=visual QR=qa expect_msg "a second NEEDS_INPUT from qa with FOCUS: visual" 'already asked its questions in this run' q 'QUESTIONS:
+1. And the dark theme?
+   options: yes | no
+   recommended: yes
+   why: AC-1 depends on it
+'
   A verify-seal LC >/dev/null
   ok "questions: verbatim store, answered_by user vs lead (capture newer, answer >= 3 chars), awaiting_input"
 }

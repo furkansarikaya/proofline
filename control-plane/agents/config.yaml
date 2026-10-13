@@ -117,8 +117,10 @@ security:
 risk:
   contract_file:
     paths: "**/openapi*.yaml **/openapi*.yml **/openapi*.json **/swagger*.yaml **/swagger*.yml **/swagger*.json **/asyncapi*.yaml **/asyncapi*.yml **/asyncapi*.json *.proto *.graphql *.graphqls *.gql *.avsc *.schema.json"
-    # A contract under any other name: an OpenAPI/AsyncAPI/Swagger root key, a JSON Schema, a proto file header.
-    content: ^(openapi|asyncapi|swagger):|"\$schema"|^syntax = "proto
+    # A contract under any other name: an OpenAPI/AsyncAPI/Swagger root key, a JSON Schema declaring a
+    # json-schema.org `$schema`, a proto file header. Matched on the base or the whole current file, never on a
+    # path in `contract.ignore` or on the built-in not-a-contract list (tsconfig, package.json, linter configs ...).
+    content: ^(openapi|asyncapi|swagger):|"\$schema"[[:space:]]*:[[:space:]]*"https?://json-schema\.org/|^syntax = "proto
     flag: contract_change
     check: contract
     design_role: architect
