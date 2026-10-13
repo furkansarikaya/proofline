@@ -99,10 +99,54 @@ test("a YAML JSON Schema with an unquoted $schema and an anchor is UNSUPPORTED, 
 });
 
 test("any root schema keyword makes a JSON Schema: enum-only, oneOf-only, required-only, properties-only, YAML too", () => {
-  for (const d of [{ enum: ["A"] }, { oneOf: [{ type: "string" }] }, { required: ["a"] }, { properties: { a: {} } }, { patternProperties: {} }, { items: {} }, { const: 1 }, { allOf: [] }, { anyOf: [] }]) assert.equal(kindOf(d), "jsonschema", JSON.stringify(d));
+  for (const d of [{ enum: ["A"] }, { oneOf: [{ type: "string" }] }, { required: ["a"] }, { properties: { a: {} } }, { patternProperties: { "^x": {} } }, { const: 1 }, { allOf: [{}] }, { anyOf: [{}] },
+    { type: "object", items: {} }, { type: ["string", "null"], $id: "x" }, { $schema: "https://json-schema.org/draft/2020-12/schema" }]) assert.equal(kindOf(d), "jsonschema", JSON.stringify(d));
   assert.equal(load("s/x.yaml", "anyOf:\n  - type: string\n").format, "jsonschema");
   assert.equal(load("api.yaml", "'openapi': 3.0.3\ninfo: {title: T, version: 1.0.1}\npaths: {}\n").format, "openapi", "a quoted root key is found by parsing");
   assert.equal(kindOf({ name: "x", version: "1" }), null);
+});
+test("files that only look like schemas are not JSON Schemas (review: i18n, generator and app config, chart values, manifests)", () => {
+  const cases = {
+    "i18n/en.json": '{"type": "Type", "title": "Title", "required": "This field is required"}\n',
+    "openapitools.json": '{"$schema": "node_modules/@openapitools/openapi-generator-cli/config.schema.json", "spaces": 2, "generator-cli": {"version": "7.4.0"}}\n',
+    "config/settings.json": '{"type": "postgres", "host": "db", "items": 5}\n',
+    "openapi-generator-config.yaml": "generatorName: typescript-axios\nadditionalProperties:\n  supportsES6: true\n",
+    "charts/app/values.yaml": "image:\n  repository: app\nservice:\n  type: ClusterIP\n  port: 80\n",
+    "k8s/secret.yaml": "apiVersion: v1\nkind: Secret\ntype: Opaque\nmetadata:\n  name: s\n",
+    "package.json": '{"name": "x", "type": "module", "description": "d"}\n',
+  };
+  for (const [p, t] of Object.entries(cases)) assert.equal(load(p, t, { explicit: false }), null, p);
+});
+test("repository mode: parse first; a contract under a not-a-contract name is compared; contract.ignore and contract.paths from config", () => {
+  const api = (paths) => `openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.1\npaths:\n${paths}`;
+  const two = "  /a:\n    get:\n      responses:\n        \"200\":\n          description: ok\n  /b:\n    get:\n      responses:\n        \"200\":\n          description: ok\n";
+  const one = "  /a:\n    get:\n      responses:\n        \"200\":\n          description: ok\n";
+  const cfg = '# c\ncanonical_branch: main\ncontract:\n  paths: "contracts/raw/*.txt"\n  ignore: "i18n/** charts/**/values*.yaml"\nrisk:\n  x:\n    paths: "*.y"\n';
+  const dir = mini("parsefirst", { ".agents/config.yaml": cfg, ".github/openapi.yaml": api(two), "api/compose.yaml": api(two), "docker-compose.yml": api(two),
+    ".github/workflows/ci.yml": "on: push\n", "i18n/en.json": '{"a": "b"}\n', "charts/app/values.yaml": "replicas: 1\n", "contracts/raw/x.txt": "a\n" },
+    { ".github/openapi.yaml": api(one), "api/compose.yaml": api(one), "docker-compose.yml": api(one), ".github/workflows/ci.yml": "on: pull_request\n",
+      "i18n/en.json": '{"a": "c"}\n', "charts/app/values.yaml": "replicas: 2\n", "contracts/raw/x.txt": "b\n" });
+  const r = runRepo(dir);
+  const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
+  for (const p of [".github/openapi.yaml", "api/compose.yaml", "docker-compose.yml"]) assert.deepEqual(rules(by[p]), ["CP-B01 both /b"], p);
+  assert.deepEqual(r.ignored.map((g) => g.path).sort(), [".github/workflows/ci.yml", "charts/app/values.yaml", "i18n/en.json"]);
+  assert.equal(r.ignored.find((g) => g.path === "i18n/en.json").reason, "contract.ignore in .agents/config.yaml");
+  assert.equal(by["contracts/raw/x.txt"].status, "unsupported", "contract.paths forces a file in; unparseable is UNSUPPORTED");
+  assert.deepEqual(r.settings, { paths: ["contracts/raw/*.txt"], ignore: ["i18n/**", "charts/**/values*.yaml"] });
+  for (const f of r.files) for (const c of f.changes) if (c.classification !== "non-breaking") c.consumers.source = "search";
+  assert.deepEqual(validate(r, { regenerated: runRepo(dir) }), []);
+  bad({ ...r, ignored: [...r.ignored, { path: "data/x.json", reason: "mine" }] }, /neither on the not-a-contract list nor under contract.ignore/);
+  bad({ ...r, settings: { paths: [], ignore: ["**"] } }, /differ from the repository's contract.paths/, { regenerated: runRepo(dir) });
+});
+test("validator --path: a report made with --path validates with --repo/--base and the same paths", () => {
+  const out = join(base, "subset.json");
+  let r = spawnSync("node", [DIFF, "--repo", repo, "--base", "HEAD~1", "--path", "graphql/schema.graphql", "--out", out], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  r = spawnSync("node", [VALIDATE, out, "--repo", repo, "--base", "HEAD~1", "--path", "graphql/schema.graphql"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  r = spawnSync("node", [VALIDATE, out, "--repo", repo, "--base", "HEAD~1"], { encoding: "utf8" });
+  assert.equal(r.status, 1, "without the same --path the whole diff is required");
+  assert.equal(spawnSync("node", [VALIDATE, out, "--path", "x"]).status, 2, "--path needs --repo");
 });
 test("the not-a-contract list covers config files only", () => {
   for (const p of ["package.json", "web/package-lock.json", "tsconfig.base.json", ".eslintrc.json", "composer.json", ".github/workflows/ci.yml", "docker-compose.override.yml", "pnpm-lock.yaml"]) assert.ok(NOT_A_CONTRACT.test(p), p);
@@ -253,10 +297,13 @@ test("coverage repros from review: negation, info.version, another type's field,
 test("plan bullets: only the Contracts section and its in-scope children; no fences, comments or later sections", () => {
   const md = "# P\n\n## Contracts\n\n- one\n<!-- - hidden -->\n<!--\n- hidden2\n-->\n```\n- fenced\n```\n~~~md\n- fenced2\n~~~\n### Breaking\n\n- two\n### Out of scope\n\n- three\n#### Detail\n- four\n### Non-goals\n- five\n### Later\n- six\n# Appendix\n- seven\n## Contracts\n* eight\n## Notes\n- nine\n";
   assert.deepEqual(planBullets(md).map((b) => b.text), ["- one", "- two", "- six", "* eight"]);
+  assert.deepEqual(planBullets("## Contracts\n1. first\n2) second\n").map((b) => b.text), ["1. first", "2) second"], "numbered bullets count");
 });
 test("coverage: negations of every form, clause boundaries and bare elements", () => {
   const P = "api/o.yaml";
-  for (const t of ["isn't versioned", "won't be migrated", "non-versioned", "unversioned", "cannot be migrated", "lacks a migration", "nothing to migrate", "without deprecation", "deprecation skipped"]) {
+  for (const t of ["isn't versioned", "won't be migrated", "non-versioned", "unversioned", "cannot be migrated", "lacks a migration", "nothing to migrate", "without deprecation", "deprecation skipped",
+    "dropped instead of versioned", "migration avoided", "migration deferred", "versioning out of scope", "migration pending", "migration TBD", "versioning rejected", "forgo the deprecation",
+    "migration dropped", "versioning reverted", "migrated except old clients", "neither versioned nor migrated", "versioned = false", "versioned: false", "migration?"]) {
     assert.equal(cov(P, "Order.x", `- \`${P}\` \`Order.x\` removed, ${t}`), false, t);
   }
   assert.equal(cov(P, "Order.x", `- \`${P}\` \`Order.x\` removed. Migration of other services is planned.`), false, "keyword in another sentence");

@@ -274,13 +274,31 @@ const CONTRACT_TEXT = /^(openapi|asyncapi|swagger)\s*:|"(openapi|asyncapi|swagge
 export const CONTRACT_PATH = /((^|\/)(openapi|swagger|asyncapi)[^/]*|schema[^/]*)\.(ya?ml|json)$|(^|\/)(apis?|contracts?|specs?|schemas?|openapi|asyncapi|swagger|events|graphql|proto)\/(.+\/)?[^/]+\.(ya?ml|json)$/i;
 const SDL_EXT = [".graphql", ".graphqls", ".gql"];
 const OTHER_CONTRACT_EXT = { ".avsc": "avro", ".avdl": "avro", ".thrift": "thrift", ".raml": "raml", ".wsdl": "wsdl", ".xsd": "xsd" };
-// any of these at the root makes a JSON/YAML document a JSON Schema (an enum-only or oneOf-only schema too)
-const SCHEMA_KEYS = ["$schema", "$id", "$defs", "definitions", "type", "properties", "patternProperties", "additionalProperties", "items", "enum", "const", "oneOf", "anyOf", "allOf", "required", "$ref"];
+// A JSON/YAML document is a JSON Schema when its `$schema` names a json-schema.org draft, when one strong
+// root keyword has a schema-shaped value (an enum-only or oneOf-only schema counts), or when two weak ones
+// do. A lone `type` (i18n `"type": "Type"`, package.json `"type": "module"`) or `additionalProperties` (a
+// generator config) is not enough.
+const JSON_TYPES = new Set(["string", "number", "integer", "boolean", "object", "array", "null"]);
+const objOfObjs = (v) => isObj(v) && Object.keys(v).length > 0 && Object.values(v).every(isObj);
+const STRONG = {
+  enum: Array.isArray, const: () => true,
+  oneOf: (v) => Array.isArray(v) && v.length > 0 && v.every(isObj), anyOf: (v) => Array.isArray(v) && v.length > 0 && v.every(isObj), allOf: (v) => Array.isArray(v) && v.length > 0 && v.every(isObj),
+  $defs: objOfObjs, definitions: objOfObjs, patternProperties: objOfObjs, properties: objOfObjs,
+  required: (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string"),
+};
+const WEAK = {
+  type: (v) => (Array.isArray(v) ? v.length > 0 && v.every((x) => JSON_TYPES.has(x)) : JSON_TYPES.has(v)),
+  items: (v) => isObj(v) || (Array.isArray(v) && v.every(isObj)),
+  additionalProperties: (v) => typeof v === "boolean" || isObj(v),
+  $id: (v) => typeof v === "string", $ref: (v) => typeof v === "string",
+};
 export function kindOf(doc) {
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) return null;
   if (has(doc, "openapi") || has(doc, "swagger")) return "openapi";
   if (has(doc, "asyncapi")) return "asyncapi";
-  if (SCHEMA_KEYS.some((k) => has(doc, k))) return "jsonschema";
+  if (typeof doc.$schema === "string" && /json-schema\.org/.test(doc.$schema)) return "jsonschema";
+  if (Object.entries(STRONG).some(([k, ok]) => has(doc, k) && ok(doc[k]))) return "jsonschema";
+  if (Object.entries(WEAK).filter(([k, ok]) => has(doc, k) && ok(doc[k])).length >= 2) return "jsonschema";
   return null;
 }
 const parseData = (path, text) => {
@@ -899,7 +917,7 @@ export function planBullets(text) {
       else if (inContracts && (offLevel === null || level <= offLevel)) offLevel = /non-goals?|out of scope/i.test(title) ? level : null;
       return;
     }
-    if (inContracts && offLevel === null && /^\s*[-*]\s+/.test(l)) out.push({ line: i + 1, text: l.trim() });
+    if (inContracts && offLevel === null && /^\s*([-*]|\d+[.)])\s+/.test(l)) out.push({ line: i + 1, text: l.trim() });
   });
   return out;
 }
@@ -910,7 +928,7 @@ export const hasToken = (text, tok) => {
   return new RegExp(`(^|[^A-Za-z0-9_./{}-])${e}(?=$|[^A-Za-z0-9_./{}-]|\\.(\\s|$))`).test(text);
 };
 // a negation anywhere in the clause that carries the element and the keyword voids it
-const NEGATION = /\b(no|not|never|none|nothing|without|cannot|lacks?|unnecessary|needless|skip(ped|s)?)\b|n't\b|\b(non|un)-?(version|migrat|deprecat)/i;
+const NEGATION = /\b(no|not|never|none|nothing|neither|nor|without|cannot|lacks?|unnecessary|needless|skip(ped|s)?|avoid(s|ed|ing)?|defer(s|red|ring)?|pending|tbd|reject(s|ed|ing)?|forgo(es|ne|ing)?|drop(s|ped|ping)?|revert(s|ed|ing)?|except)\b|\binstead of\b|\bout of scope\b|n't\b|\b(non|un)-?(version|migrat|deprecat)|[=:]\s*false\b|\?/i;
 // clauses end at `;` or at a sentence dot (`Order.id` and `openapi.yaml` keep theirs)
 const clauses = (t) => t.split(/;|\.(?=\s|$)/);
 // a bare element (`id`, `name`, an enum value) only counts as a code span, never as any word
@@ -970,13 +988,37 @@ export function changedPaths(repo, base) {
 }
 // Config files that are never contracts; a changed one is listed under `ignored` with the reason, unless a
 // `$ref` somewhere names it. Everything else that is changed JSON/YAML and not a contract is UNSUPPORTED.
-export const NOT_A_CONTRACT = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^(\.github|\.vscode|\.idea|\.agents|\.devcontainer)\//i;
+export const NOT_A_CONTRACT = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|openapi-generator-config\.ya?ml|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^\.github\/(workflows|actions|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)\/|^\.github\/(dependabot|labeler|release|stale|FUNDING|config)\.ya?ml$|^(\.vscode|\.idea|\.agents|\.devcontainer)\//i;
+// gitignore-like globs of `.agents/config.yaml` (`**` spans directories, a pattern without / matches at any depth)
+export function globRe(g) {
+  let p = g.includes("/") ? g : `**/${g}`, r = "";
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i];
+    if (c === "*") { if (p[i + 1] === "*") { if (p[i + 2] === "/") { r += "(.*/)?"; i += 2; } else { r += ".*"; i++; } } else r += "[^/]*"; }
+    else if (c === "?") r += "[^/]";
+    else r += /[.+()|^$[\]{}\\]/.test(c) ? "\\" + c : c;
+  }
+  return new RegExp(`^${r}$`);
+}
+export const globMatch = (path, globs) => globs.some((g) => globRe(g).test(path));
+// contract.paths / contract.ignore of `.agents/config.yaml` (A83; frozen with the risk mapping)
+export function contractSettings(repo) {
+  const out = { paths: [], ignore: [] };
+  let t; try { t = readFileSync(join(repo, ".agents", "config.yaml"), "utf8"); } catch { return out; }
+  let inBlock = false;
+  for (const l of t.replace(/\r\n?/g, "\n").split("\n")) {
+    if (/^\S/.test(l)) { inBlock = /^contract:\s*(#.*)?$/.test(l); continue; }
+    const m = inBlock && /^ {2}(paths|ignore):\s*(.*?)\s*(#.*)?$/.exec(l);
+    if (m) out[m[1]] = m[2].replace(/^"(.*)"$/, "$1").split(/\s+/).filter(Boolean);
+  }
+  return out;
+}
 // JSON/YAML files of the working tree that parse as a contract (any kind, they may reference a changed
 // fragment) and the file names any `$ref` in a JSON/YAML file names
 function scanRepo(repo) {
   const all = [...git(repo, ["ls-files"]).split("\n"), ...git(repo, ["ls-files", "--others", "--exclude-standard"]).split("\n")];
   const roots = [], refNames = new Set();
-  for (const p of [...new Set(all)].filter((x) => DATA_EXT.test(x) && !NOT_A_CONTRACT.test(x)).sort()) {
+  for (const p of [...new Set(all)].filter((x) => DATA_EXT.test(x)).sort()) {
     try { if (statSync(join(repo, p)).size > 4 << 20) continue; } catch { continue; }
     const t = readHead(repo, p); if (t === null) continue;
     for (const m of t.matchAll(/["']?\$ref["']?\s*:\s*["']?([^"'#\s,}]+)/g)) refNames.add(basename(m[1]));
@@ -985,7 +1027,7 @@ function scanRepo(repo) {
   return { roots, refNames };
 }
 export function run(opts) {
-  const rows = new Map(), report = { ignored: [] };
+  const rows = new Map(), report = { ignored: [] }, settings = { paths: [], ignore: [] };
   const bullets = opts.plan ? planBullets(readFileSync(opts.plan, "utf8")) : [];
   const impact = opts.impact ? JSON.parse(readFileSync(opts.impact, "utf8")) : null;
   if (opts.baseFile || opts.headFile) {
@@ -1008,12 +1050,17 @@ export function run(opts) {
       return r;
     };
     const unknown = [], ignored = [];
+    Object.assign(settings, contractSettings(opts.repo));
     for (const p of [...want].sort()) {
       const c = changed.get(p);
       if (!c) { if (explicit) rows.set(p, { path: p, format: "unknown", change: "unchanged", status: "compared", changes: [] }); continue; }
-      // a config file such as package.json ("type": "module") is never read as a JSON Schema
-      const r = !explicit && NOT_A_CONTRACT.test(p) ? null : diffRoot(p, c, explicit);
-      if (r) rows.set(p, r.row); else if (DATA_EXT.test(p)) unknown.push(p);
+      // parse first: a file on the not-a-contract list or under contract.ignore is skipped only when it is
+      // not a contract; a recognized contract is always compared (`.github/openapi.yaml` too)
+      const forced = globMatch(p, settings.paths);
+      const r = diffRoot(p, c, explicit || forced);
+      const skippable = !explicit && !forced && (NOT_A_CONTRACT.test(p) || globMatch(p, settings.ignore));
+      const claims = () => [c.base ? show(opts.repo, opts.base, c.base) : null, c.head ? readHead(opts.repo, c.head) : null].some((t) => t !== null && CONTRACT_TEXT.test(t));
+      if (r && (r.row.status === "compared" || !skippable || claims())) rows.set(p, r.row); else if (DATA_EXT.test(p)) unknown.push(p);
     }
     // a changed standalone-looking schema may really be a fragment of a root contract: check those too
     const maybeFragment = [...unknown, ...[...rows.values()].filter((r) => r.format === "jsonschema" && changed.has(r.path)).map((r) => r.path)];
@@ -1038,6 +1085,7 @@ export function run(opts) {
         const roots = [...(fragOf.get(u) || [])].filter((r) => rows.has(r));
         if (roots.length) rows.set(u, { path: u, format: fmt, change, status: "compared", via: roots.sort(), changes: [] });
         else if (NOT_A_CONTRACT.test(u) && !scan.refNames.has(basename(u))) ignored.push({ path: u, reason: "configuration file on the not-a-contract list" });
+        else if (globMatch(u, settings.ignore) && !scan.refNames.has(basename(u))) ignored.push({ path: u, reason: "contract.ignore in .agents/config.yaml" });
         else rows.set(u, { path: u, format: fmt, change, status: "unsupported", reason: scan.refNames.has(basename(u)) ? "named by a $ref that was not resolved to it; classify it by hand" : "not recognized as a contract and no recognized contract references it; pass its root contract with --path or classify it by hand", changes: [] });
       }
     }
@@ -1058,6 +1106,7 @@ export function run(opts) {
     target: { base: opts.base || opts.baseFile || null, head: opts.repo ? "working-tree" : opts.headFile || null },
     tools: { detected: detectTools(opts.repo), used: [] },
     plan: { path: opts.plan || null, contracts_bullets: bullets.length },
+    settings,
     files,
     ignored: report.ignored,
     judged: [],

@@ -96,7 +96,11 @@ property schema the property rules above apply.
 
 ## Coverage by the plan
 
-The bullets counted are those of the `## Contracts` section: a level 1 or 2 heading ends it; its level 3+
+Coverage is **lexical**: a script reads words, it does not understand the plan. A bullet can satisfy these
+rules and still promise nothing real, so the plan's `## Contracts` text is reviewed by a human (the plan
+approval and REVIEW_PLAN) and the reviewer reads every covering bullet the report cites.
+
+The bullets counted (`-`, `*` or numbered `1.`/`1)`) are those of the `## Contracts` section: a level 1 or 2 heading ends it; its level 3+
 children count unless titled non-goals or out of scope (with their own children); bullets in fenced code
 blocks or HTML comments never count.
 
@@ -108,9 +112,10 @@ A `breaking` or `needs-review` change is **covered** when one bullet of PLAN.md 
    `Order.id` does not cover `User.id`; a bare element such as `id` or an enum value counts only as a code
    span `` `id` ``, never as any word), and
 3. in that same clause states versioning, migration or deprecation (`version`, `versioned`, `versioning`,
-   `migrate`, `migration`, `deprecate`, `deprecation`, ...) that is not negated (`no`, `not`, `n't`,
-   `never`, `none`, `nothing`, `without`, `cannot`, `lacks`, `unnecessary`, `skipped`, `non-`/`un-`
-   versioned ...) and is not only `info.version` ("bump info.version" moves a number, it gives consumers no
+   `migrate`, `migration`, `deprecate`, `deprecation`, ...) that is not negated or hedged (`no`, `not`,
+   `n't`, `never`, `none`, `nothing`, `neither`/`nor`, `without`, `cannot`, `lacks`, `unnecessary`,
+   `skipped`, `instead of`, `avoid`, `defer`, `out of scope`, `pending`, `TBD`, `reject`, `forgo`, `drop`,
+   `revert`, `except`, `= false`/`: false`, a `?`, `non-`/`un-`versioned ...) and is not only `info.version` ("bump info.version" moves a number, it gives consumers no
    path).
 
 A bullet that misses one of the three ("refactor, no consumer-visible change", "new field, defaults to EUR")

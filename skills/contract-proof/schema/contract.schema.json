@@ -72,6 +72,7 @@
       }
     },
     "plan": { "type": "object", "properties": { "path": { "type": ["string", "null"] }, "contracts_bullets": { "type": "integer", "minimum": 0 } } },
+    "settings": { "type": "object", "description": "contract.paths / contract.ignore globs read from .agents/config.yaml", "properties": { "paths": { "type": "array", "items": { "type": "string" } }, "ignore": { "type": "array", "items": { "type": "string" } } } },
     "files": {
       "type": "array",
       "items": {

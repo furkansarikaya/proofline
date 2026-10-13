@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // Validates a contract-proof report (contract.json, schema ../schema/contract.schema.json) and derives
 // the gate result mechanically.
-// Usage: node validate-contract.mjs <contract.json> [--table] [--plan PLAN.md] [--repo DIR --base REF]
+// Usage: node validate-contract.mjs <contract.json> [--table] [--plan PLAN.md] [--repo DIR --base REF [--path P]...]
 //   --plan       re-derives every change's coverage from PLAN.md `## Contracts`; without it no change counts
 //                as covered (the report's own `covered: true` is never trusted)
-//   --repo/--base re-runs diff-contract.mjs and requires every change it finds, with the same rule (only a
-//                CP-U01 may have been reclassified, with traced evidence)
+//   --repo/--base re-runs diff-contract.mjs (with the same --path list and the repository's contract.paths /
+//                contract.ignore) and requires every change it finds, with the same rule (only a CP-U01 may
+//                have been reclassified, with traced evidence)
 //   valid   -> exit 0; prints "RESULT: PASS|FAIL|UNSUPPORTED", "CONFIDENCE: high|medium|low" and, for
 //              UNSUPPORTED, "REASON: ..."; --table also prints the `agent.sh submit --findings` rows.
 //   invalid -> exit 1 with one error per line; unreadable input or usage error -> exit 2.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { RULES, BLOCKING_CLASSES, COVER_KEYWORD, NOT_A_CONTRACT, coverage, planBullets, hasToken, run } from "./diff-contract.mjs";
+import { RULES, BLOCKING_CLASSES, COVER_KEYWORD, NOT_A_CONTRACT, globMatch, coverage, planBullets, hasToken, run } from "./diff-contract.mjs";
 
 export const FORMATS = ["openapi", "asyncapi", "jsonschema", "graphql", "proto", "json", "yaml", "avro", "thrift", "raml", "wsdl", "xsd", "unknown"];
 export const SIDES = ["request", "response", "both"];
@@ -86,6 +87,9 @@ export function validate(doc, { bullets = null, regenerated = null } = {}) {
     }
   }
   if (regenerated) {
+    if (JSON.stringify(regenerated.settings || {}) !== JSON.stringify(doc.settings || { paths: [], ignore: [] })) e.push(`settings ${JSON.stringify(doc.settings)} differ from the repository's contract.paths/contract.ignore ${JSON.stringify(regenerated.settings)}`);
+    const want = new Set((regenerated.ignored || []).map((g) => g.path));
+    for (const g of doc.ignored || []) if (!want.has(g.path)) e.push(`ignored ${g.path}: the differ does not ignore it`);
     const byPath = new Map(doc.files.map((f) => [f.path, f]));
     const toolsUsed = Array.isArray(doc.tools?.used) && doc.tools.used.length > 0;
     for (const g of regenerated.files) {
@@ -104,7 +108,7 @@ export function validate(doc, { bullets = null, regenerated = null } = {}) {
     if (!Array.isArray(doc.ignored)) e.push("ignored must be an array");
     else for (const [i, g] of doc.ignored.entries()) {
       if (!str(g.path) || !str(g.reason)) e.push(`ignored[${i}]: path and reason required`);
-      else if (!NOT_A_CONTRACT.test(g.path)) e.push(`ignored[${i}]: ${g.path} is not on the not-a-contract list; only those files may be ignored`);
+      else if (!NOT_A_CONTRACT.test(g.path) && !globMatch(g.path, doc.settings?.ignore || [])) e.push(`ignored[${i}]: ${g.path} is neither on the not-a-contract list nor under contract.ignore; only those files may be ignored`);
     }
   }
   if (!Array.isArray(doc.judged)) e.push("judged must be an array");
@@ -146,21 +150,22 @@ export function gate(doc, { trustCoverage = false } = {}) {
 }
 
 function main(args) {
-  const usage = () => { console.error("usage: validate-contract.mjs <contract.json> [--table] [--plan PLAN.md] [--repo DIR --base REF]"); process.exit(2); };
-  const o = { files: [] };
+  const usage = () => { console.error("usage: validate-contract.mjs <contract.json> [--table] [--plan PLAN.md] [--repo DIR --base REF [--path P]...]"); process.exit(2); };
+  const o = { files: [], paths: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--table") o.table = true;
     else if (a === "--plan" || a === "--repo" || a === "--base") { if (args[i + 1] === undefined) usage(); o[a.slice(2)] = args[++i]; }
+    else if (a === "--path") { if (args[i + 1] === undefined) usage(); o.paths.push(args[++i]); }
     else if (a.startsWith("-")) usage();
     else o.files.push(a);
   }
-  if (o.files.length !== 1 || !o.repo !== !o.base || (o.base && o.base.startsWith("-"))) usage();
+  if (o.files.length !== 1 || !o.repo !== !o.base || (o.base && o.base.startsWith("-")) || (o.paths.length && !o.repo)) usage();
   let doc, bullets = null, regenerated = null;
   try {
     doc = JSON.parse(readFileSync(o.files[0], "utf8"));
     if (o.plan) bullets = planBullets(readFileSync(o.plan, "utf8"));
-    if (o.repo) regenerated = run({ repo: o.repo, base: o.base, paths: [], plan: null, impact: null });
+    if (o.repo) regenerated = run({ repo: o.repo, base: o.base, paths: o.paths, plan: null, impact: null });
   } catch (err) { console.error(`cannot read input: ${err.message}`); process.exit(2); }
   const errors = validate(doc, { bullets, regenerated });
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }

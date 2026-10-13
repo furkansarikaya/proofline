@@ -108,6 +108,12 @@ security:
 # `## Risk`; data_change = a `## Data` section; ui = a `## UI` section); a diff signal without it is a blocking
 # finding of its focus. `design_role` declares it before FREEZE. Plain documentation never carries a signal.
 # The block is frozen with the plan (freeze.risk_sha256); the lead never edits it during a run.
+# contract-proof (A83), frozen with the risk mapping: `paths` adds globs of files that are contracts whatever
+# their content; `ignore` adds globs of changed JSON/YAML files that are not contracts (i18n, chart values,
+# manifests). A file that parses as an OpenAPI, AsyncAPI or JSON Schema document is compared anyway.
+# contract:
+#   paths: "contracts/**/*.json"
+#   ignore: "i18n/** charts/**/values*.yaml k8s/**"
 risk:
   contract_file:
     paths: "**/openapi*.yaml **/openapi*.yml **/openapi*.json **/swagger*.yaml **/swagger*.yml **/swagger*.json **/asyncapi*.yaml **/asyncapi*.yml **/asyncapi*.json *.proto *.graphql *.graphqls *.gql *.avsc *.schema.json"

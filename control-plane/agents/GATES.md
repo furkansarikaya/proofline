@@ -85,7 +85,7 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   each such `<GATE>:<focus>`. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED. The
   `contract` focus has contract-proof (A83): UNSUPPORTED only for a changed contract file it cannot parse that no
   compatibility tool already present covers, or when node is missing.
-- **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block and the performance thresholds (`performance:`, A87) with `freeze.risk_sha256`. A
+- **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block, the performance thresholds (`performance:`, A87) and the `contract:` globs (A83) with `freeze.risk_sha256`. A
   change of either after FREEZE fails `verify-freeze` until an amendment and refreeze. The lead never writes
   `.agents/config.yaml` during a run (runtime hook).
 

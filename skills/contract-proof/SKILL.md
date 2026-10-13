@@ -38,11 +38,17 @@ this `SKILL.md`.
   the spec or PLAN.md, and that criterion is quoted.
 - A file the differ cannot parse and no existing tool covers is `status: unsupported` with the reason:
   never a pass, never silently skipped. So is every changed `.json`/`.yaml`/`.yml` that is neither a
-  contract (OpenAPI, AsyncAPI, or a JSON Schema: any root schema keyword such as `type`, `properties`,
-  `enum`, `oneOf`, `required`, `items`) nor reached by one, and an external `$ref` target that cannot be
-  loaded. Only files on the not-a-contract list (`package.json`, lock files, `tsconfig*.json`, linter and
-  formatter configs, CI and compose files, `.github/`, `.vscode/` ...; `NOT_A_CONTRACT` in the differ) are
-  skipped, each listed under `ignored` and printed as an `info` row, and never when a `$ref` names them. A run in which no changed contract file is recognized at all
+  contract nor reached by one, and an external `$ref` target that cannot be loaded. A JSON Schema is a
+  document whose `$schema` names a json-schema.org draft, or with one schema-shaped strong root keyword
+  (`enum`, `const`, `oneOf`/`anyOf`/`allOf`, `properties`, `patternProperties`, `$defs`, `required`), or two
+  weak ones (`type` with a JSON type, `items`, `additionalProperties`, `$id`, `$ref`); a lone `type` is not.
+  Every file is parsed first: a recognized contract is always compared, whatever its name or folder. Only a
+  changed file that is not a contract and is on the not-a-contract list (`package.json`, lock files,
+  `tsconfig*.json`, `openapitools.json`, linter and formatter configs, CI and compose files,
+  `.github/workflows/` ...; `NOT_A_CONTRACT` in the differ) or matches `contract.ignore` of
+  `.agents/config.yaml` is skipped, listed under `ignored` and printed as an `info` row, and never when a
+  `$ref` names it. `contract.paths` globs make files contracts whatever their content (unparseable ->
+  UNSUPPORTED). Both keys are frozen with the risk mapping (A78), so the lead cannot change them in a run. A run in which no changed contract file is recognized at all
   is UNSUPPORTED too (the focus was selected by a contract signal or flag; nothing proven is not a pass).
 - Every change has a qualified `element`: the named schema, operation or channel, then the property
   (`Order.customerEmail`, `POST /invoices.currency`, `status.LOST`, `Customer.orders(status)`,
@@ -128,7 +134,9 @@ output folder) before starting the next step.
    ```
 
    `--plan` re-derives every coverage from PLAN.md (without it nothing counts as covered); `--repo/--base`
-   re-runs the differ and refuses a dropped file or change or a rewritten rule. Both are required in team mode.
+   (with the same `--path` list when the differ ran with one) re-runs the differ and refuses a dropped file or
+   change, a rewritten rule, an `ignored` entry the differ did not make, or `settings` that differ from the
+   repository's `contract.*` keys. Both are required in team mode.
    Fix the document (never the evidence, never the rules) until it exits 0; it prints `RESULT`, `CONFIDENCE`,
    `REASON` (UNSUPPORTED only) and the findings rows. Then write `REPORT.md` from
    [REPORT.template.md](assets/REPORT.template.md). Node unavailable: the review cannot run (`BLOCKED`, or
