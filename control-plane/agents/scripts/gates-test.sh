@@ -501,6 +501,27 @@ sc_destructive_refreeze() {
   wopen
   wclose
   ok "a fix-round reopen (same PLAN.md hash) does not ask for the destructive approval again"
+  # a refreeze that leaves PLAN.md unchanged (TASK.md only) stays at IMPLEMENTING: the approval still binds the hash
+  scaffold orchestrated
+  amend_plan 001 "$dest_data"
+  A refreeze LC 001.md >/dev/null
+  approve_as_user destructive 'approve the destructive migration'
+  A handoff LC IMPLEMENTING >/dev/null
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment 002: clarify the task wording only\n' > .agents/runs/LC/amendments/002.md
+  printf '\n- AC-1 clarified: an empty key returns the documented default\n' >> .agents/runs/LC/TASK.md
+  A refreeze LC 002.md >/dev/null
+  expect_state handoff state IMPLEMENTING
+  wopen
+  wclose
+  ok "a TASK.md-only refreeze of a destructive plan (same PLAN.md hash) stays at IMPLEMENTING"
+  # a refreeze from destructive to non-destructive needs no destructive approval
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment 003: the migration is dropped from this change\n' > .agents/runs/LC/amendments/003.md
+  sed -e 's/^destructive: yes$/destructive: no/' -e '/^| S[0-9] |/d' -e '/^| step |/d' -e '/^|---/d' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
+  A refreeze LC 003.md >/dev/null
+  expect_state handoff state IMPLEMENTING
+  wopen
+  wclose
+  ok "a refreeze from destructive to non-destructive stays at IMPLEMENTING"
 }
 
 sc_questions() {
