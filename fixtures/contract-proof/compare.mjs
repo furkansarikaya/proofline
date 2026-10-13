@@ -33,6 +33,7 @@ for (const p of paths) {
     if (c.consumers.outside_repo !== "unknown") errors.push(`${key}: outside consumers must be unknown`);
   }
 }
+if (run === "all" && !sameSet((report.ignored || []).map((g) => g.path), exp.ignored)) errors.push(`ignored: ${JSON.stringify(report.ignored)}, want ${exp.ignored}`);
 const result = (/^RESULT: (\S+)/m.exec(out) || [])[1];
 if (result !== want.result) errors.push(`RESULT ${result}, want ${want.result}`);
 const blocking = out.split("\n").filter((l) => l.startsWith("blocking|")).map((l) => {

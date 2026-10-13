@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,7 +11,7 @@ const skill = join(here, "../../skills/contract-proof");
 const fixture = join(here, "../../fixtures/contract-proof");
 const DIFF = join(skill, "scripts/diff-contract.mjs");
 const VALIDATE = join(skill, "scripts/validate-contract.mjs");
-const { RULES, parseYaml, parseJson, parseProto, parseGraphql, diffFile, load, coverage, planBullets, consumersFrom, run } = await import(DIFF);
+const { RULES, parseYaml, parseJson, parseProto, parseGraphql, diffFile, load, kindOf, coverage, planBullets, consumersFrom, run, NOT_A_CONTRACT } = await import(DIFF);
 const { validate, gate } = await import(VALIDATE);
 const EXPECTED = JSON.parse(readFileSync(join(fixture, "EXPECTED.json"), "utf8"));
 const SCHEMA = JSON.parse(readFileSync(join(skill, "schema/contract.schema.json"), "utf8"));
@@ -26,6 +26,18 @@ before(() => {
 });
 after(() => rmSync(base, { recursive: true, force: true }));
 
+const plain = (v) => JSON.parse(JSON.stringify(v));
+const git = (cwd, ...args) => { const r = spawnSync("git", args, { cwd, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); };
+// a two-commit repository: `files` first, then `edit` (null deletes)
+function mini(name, files, edit) {
+  const dir = join(base, name);
+  const put = (m) => { for (const [p, c] of Object.entries(m)) { mkdirSync(dirname(join(dir, p)), { recursive: true }); if (c === null) rmSync(join(dir, p)); else writeFileSync(join(dir, p), c); } };
+  mkdirSync(dir); git(dir, "init", "-q"); git(dir, "config", "user.name", "T"); git(dir, "config", "user.email", "t@example.invalid"); git(dir, "config", "commit.gpgsign", "false");
+  put(files); git(dir, "add", "-A"); git(dir, "commit", "-q", "-m", "base");
+  put(edit); git(dir, "add", "-A"); git(dir, "commit", "-q", "-m", "change");
+  return dir;
+}
+const runRepo = (dir) => run({ repo: dir, base: "HEAD~1", paths: [], plan: null, impact: null });
 const changes = (path, a, b, opts = {}) => diffFile(path, a, b, { explicit: true, ...opts }).row;
 const rules = (r) => r.changes.map((c) => `${c.rule} ${c.side} ${c.element}`).sort();
 const oas = (schemaYaml, where = "response") => {
@@ -46,19 +58,36 @@ test("every rule id is documented in RULES.md and has a valid classification", (
 
 // ---- YAML subset ----------------------------------------------------------------------------------
 test("YAML subset parses mappings, sequences, flow, quotes, block scalars and comments", () => {
-  const d = parseYaml(`# c\na: 1\nb: "x: y" # trailing\nc: 'it''s'\nd: [1, two, {k: v}]\ne:\n  - name: n\n    in: path\n  - plain\nf: |\n  line1\n  line2\ng: ~\nh: true\n"200":\n  ok: 3.5\ni: >\n  one\n  two\n`);
-  assert.deepEqual(d, { a: 1, b: "x: y", c: "it's", d: [1, "two", { k: "v" }], e: [{ name: "n", in: "path" }, "plain"], f: "line1\nline2", g: null, h: true, 200: { ok: 3.5 }, i: "one two" });
+  const d = parseYaml(`# c\na: 1\nb: "x: y" # trailing\nc: 'it''s'\nd: [1, two, {k: v}]\ne:\n  - name: nm\n    in: path\n  - plain\nf: |\n  line1\n  line2\ng: ~\nh: true\n"200":\n  ok: 3.5\ni: >\n  one\n  two\nj: |-\n  stripped\n`);
+  assert.deepEqual(plain(d), { a: 1, b: "x: y", c: "it's", d: [1, "two", { k: "v" }], e: [{ name: "nm", in: "path" }, "plain"], f: "line1\nline2\n", g: null, h: true, 200: { ok: 3.5 }, i: "one two\n", j: "stripped" });
 });
 test("YAML outside the subset is refused, never guessed", () => {
   for (const bad of ["a: &x 1\nb: *x\n", "a: !!str 1\n", "a: 1\n---\nb: 2\n", "? a\n: b\n", "<<: {a: 1}\n", "a: b\n  c\n", "a: 1\na: 2\n", "a: [1,\n  2]\n", "a:\n\tb: 1\n",
     "a: >\n  one\n\n  two\n", "a: >\n  one\n    indented\n", "a: {x:1}\n", "a: [{x:1}]\n"]) {
     assert.throws(() => parseYaml(bad), undefined, JSON.stringify(bad));
   }
-  assert.deepEqual(parseYaml("a: {x: 1, u: http://h}\n"), { a: { x: 1, u: "http://h" } });
+  assert.deepEqual(plain(parseYaml("a: {x: 1, u: http://h}\n")), { a: { x: 1, u: "http://h" } });
+});
+test("YAML 1.1 booleans, duplicate flow keys, big integers, keep chomping are refused; __proto__ is a plain key", () => {
+  for (const b of ["a: yes\n", "a: No\n", "a: on\n", "a: OFF\n", "a: y\n", "a: n\n", "a: [yes]\n", "a: {x: 1, x: 2}\n", "a: 9007199254740993\n", "a: |+\n  x\n", "a: |2\n  x\n", "a: 0755\n"]) {
+    assert.throws(() => parseYaml(b), undefined, JSON.stringify(b));
+  }
+  assert.throws(() => parseJson('{"a": 9007199254740993}'), /2\^53/);
+  assert.throws(() => parseJson('{"a": 1, "a": 2}'), /duplicate/);
+  const y = parseYaml("__proto__:\n  polluted: true\nconstructor: 1\n");
+  assert.equal(Object.getPrototypeOf(y), null);
+  assert.deepEqual(Object.keys(y), ["__proto__", "constructor"]);
+  assert.equal({}.polluted, undefined);
+  const j = parseJson('{"__proto__": {"polluted": true}}');
+  assert.deepEqual(Object.keys(j), ["__proto__"]);
+  assert.equal({}.polluted, undefined);
+  // a property literally named `constructor` is diffed like any other
+  const o = (p) => oas(`type: object\nproperties:\n${p}`);
+  assert.deepEqual(rules(changes("o.yaml", o("  constructor:\n    type: string"), o("  other:\n    type: string"))), ["CP-B02 response GET /a.constructor", "CP-N01 response GET /a.other"]);
 });
 test("JSON parser keeps values identical to JSON.parse", () => {
   const t = '{"a": [1, 2.5, -3e2, true, null, "s\\"q"], "b": {"c": {}}}';
-  assert.deepEqual(parseJson(t), JSON.parse(t));
+  assert.deepEqual(plain(parseJson(t)), JSON.parse(t));
   assert.throws(() => parseJson('{"a": 1,}'));
 });
 test("a YAML JSON Schema with an unquoted $schema and an anchor is UNSUPPORTED, not dropped", () => {
@@ -67,6 +96,45 @@ test("a YAML JSON Schema with an unquoted $schema and an anchor is UNSUPPORTED, 
   assert.match(r.unsupported, /anchor/);
   assert.equal(load("config/app.yaml", "a: &x 1\n", { explicit: false }), null, "plain config is not a contract");
   assert.match(load("contracts/app.yaml", "a: &x 1\n", { explicit: false }).unsupported, /cannot parse/, "a contract path is never dropped");
+});
+
+test("any root schema keyword makes a JSON Schema: enum-only, oneOf-only, required-only, properties-only, YAML too", () => {
+  for (const d of [{ enum: ["A"] }, { oneOf: [{ type: "string" }] }, { required: ["a"] }, { properties: { a: {} } }, { patternProperties: {} }, { items: {} }, { const: 1 }, { allOf: [] }, { anyOf: [] }]) assert.equal(kindOf(d), "jsonschema", JSON.stringify(d));
+  assert.equal(load("s/x.yaml", "anyOf:\n  - type: string\n").format, "jsonschema");
+  assert.equal(load("api.yaml", "'openapi': 3.0.3\ninfo: {title: T, version: 1.0.1}\npaths: {}\n").format, "openapi", "a quoted root key is found by parsing");
+  assert.equal(kindOf({ name: "x", version: "1" }), null);
+});
+test("the not-a-contract list covers config files only", () => {
+  for (const p of ["package.json", "web/package-lock.json", "tsconfig.base.json", ".eslintrc.json", "composer.json", ".github/workflows/ci.yml", "docker-compose.override.yml", "pnpm-lock.yaml"]) assert.ok(NOT_A_CONTRACT.test(p), p);
+  for (const p of ["api/openapi.yaml", "data/seed.json", "schemas/package.schema.json", "config/flags.json"]) assert.ok(!NOT_A_CONTRACT.test(p), p);
+});
+test("repository mode: unrecognized changed data is UNSUPPORTED, config is ignored, a $ref'd config name is UNSUPPORTED", () => {
+  const dir = mini("unrec", { "conf/flags.json": '{"a": 1}\n', "package.json": '{"name": "x"}\n', ".github/thing.json": '{"x": 1}\n',
+    "api/root.yaml": "'openapi': 3.0.3\ninfo: {title: T, version: 1.0.1}\npaths:\n  /a:\n    get:\n      responses:\n        \"200\":\n          content:\n            application/json:\n              schema:\n                $ref: 'https://example.invalid/.github/thing.json'\n" },
+    { "conf/flags.json": '{"a": 2}\n', "package.json": '{"name": "y"}\n', ".github/thing.json": '{"x": 2}\n' });
+  const r = runRepo(dir);
+  const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
+  assert.equal(by["conf/flags.json"].status, "unsupported");
+  assert.match(by["conf/flags.json"].reason, /not recognized as a contract/);
+  assert.equal(by[".github/thing.json"].status, "unsupported");
+  assert.match(by[".github/thing.json"].reason, /named by a \$ref/);
+  assert.equal(by["package.json"], undefined);
+  assert.deepEqual(r.ignored.map((g) => g.path), ["package.json"]);
+  assert.equal(gate(r).result, "UNSUPPORTED");
+});
+test("repository mode: a quoted-key root, a JSON Schema root and a root-absolute $ref reach a changed fragment", () => {
+  const frag = (t) => `{"type": "object", "properties": {"x": {"type": "${t}"}}}\n`;
+  const dir = mini("frags", {
+    "api/root.yaml": "'openapi': 3.0.3\ninfo: {title: T, version: 1.0.1}\npaths:\n  /a:\n    get:\n      responses:\n        \"200\":\n          content:\n            application/json:\n              schema:\n                $ref: './parts/p.json'\n",
+    "api/parts/p.json": frag("string"),
+    "s/root.json": '{"properties": {"y": {"$ref": "/s/parts/q.json"}}}\n', "s/parts/q.json": '{"enum": ["A", "B"]}\n' },
+    { "api/parts/p.json": frag("integer"), "s/parts/q.json": '{"enum": ["A"]}\n' });
+  const r = runRepo(dir);
+  const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
+  assert.deepEqual(rules(by["api/root.yaml"]), ["CP-B03 response GET /a.x"]);
+  assert.deepEqual(by["api/parts/p.json"].via, ["api/root.yaml"]);
+  assert.deepEqual(rules(by["s/root.json"]), ["CP-B06 both y.B"]);
+  assert.deepEqual(by["s/parts/q.json"].via, ["s/root.json"]);
 });
 
 // ---- direction rules -----------------------------------------------------------------------------
@@ -85,6 +153,13 @@ test("constraints and requiredness flip with the direction", () => {
   assert.deepEqual(rules(changes("o.yaml", oas(reqBase, "request"), oas(req, "request"))), ["CP-B04 request POST /a.a"]);
   assert.deepEqual(rules(changes("o.yaml", oas(reqBase), oas(req))), ["CP-N06 response GET /a.a"]);
   assert.deepEqual(rules(changes("o.yaml", oas(req), oas(reqBase))), ["CP-B04 response GET /a.a"]);
+});
+test("required is diffed as a set: a required name without a property schema", () => {
+  const sch = (r) => `type: object\nrequired: [${r}]\nproperties:\n  a:\n    type: string`;
+  assert.deepEqual(rules(changes("o.yaml", oas(sch("a"), "request"), oas(sch("a, z"), "request"))), ["CP-B05 request POST /a.z"]);
+  assert.deepEqual(rules(changes("o.yaml", oas(sch("a, z"), "request"), oas(sch("a"), "request"))), ["CP-N06 request POST /a.z"]);
+  assert.deepEqual(rules(changes("o.yaml", oas(sch("a, z")), oas(sch("a")))), ["CP-B04 response GET /a.z"]);
+  assert.deepEqual(rules(changes("o.yaml", oas("required: [a]"), oas("required: [a, b]"))), ["CP-N06 response GET /a.b"]);
 });
 test("a changed pattern, format or const is breaking on every side; added and removed follow the direction", () => {
   const f = (v) => `type: string${v ? `\nformat: ${v}` : ""}`;
@@ -114,7 +189,7 @@ test("$ref refactor with the same shape is no change; a recursive schema does no
   assert.deepEqual(rules(changes("o.yaml", rec(""), rec("        v:\n          type: string\n"))), ["CP-N01 response N.v"]);
 });
 test("operations, status codes and parameters", () => {
-  const b = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      parameters:\n        - name: q\n          in: query\n      responses:\n        \"200\":\n          description: ok\n        \"404\":\n          description: no\n  /b:\n    get:\n      responses:\n        \"200\":\n          description: ok\n";
+  const b = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      parameters:\n        - name: q\n          in: query\n      responses:\n        \"200\":\n          description: ok\n        \"404\":\n          description: none\n  /b:\n    get:\n      responses:\n        \"200\":\n          description: ok\n";
   const h = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      parameters:\n        - name: q\n          in: query\n          required: true\n        - name: r\n          in: header\n          required: true\n      responses:\n        \"200\":\n          description: ok\n";
   assert.deepEqual(rules(changes("o.yaml", b, h)), ["CP-B01 both /b", "CP-B04 request GET /a.q", "CP-B05 request GET /a.r", "CP-B08 response GET /a.404"]);
 });
@@ -174,6 +249,22 @@ test("coverage repros from review: negation, info.version, another type's field,
   assert.equal(cov("a/openapi.yaml", "Order.id", "- `b/openapi.yaml` Order.id deprecated, migrate"), false);
   assert.equal(cov("openapi.yaml", "Order.id", "- `b/openapi.yaml` Order.id deprecated, migrate"), false);
   assert.equal(cov("api/openapi.yaml", "Order.id", "- api/openapi.yaml: Order.id migrated to Order.key."), true, "a sentence dot after a name is fine");
+});
+test("plan bullets: only the Contracts section and its in-scope children; no fences, comments or later sections", () => {
+  const md = "# P\n\n## Contracts\n\n- one\n<!-- - hidden -->\n<!--\n- hidden2\n-->\n```\n- fenced\n```\n~~~md\n- fenced2\n~~~\n### Breaking\n\n- two\n### Out of scope\n\n- three\n#### Detail\n- four\n### Non-goals\n- five\n### Later\n- six\n# Appendix\n- seven\n## Contracts\n* eight\n## Notes\n- nine\n";
+  assert.deepEqual(planBullets(md).map((b) => b.text), ["- one", "- two", "- six", "* eight"]);
+});
+test("coverage: negations of every form, clause boundaries and bare elements", () => {
+  const P = "api/o.yaml";
+  for (const t of ["isn't versioned", "won't be migrated", "non-versioned", "unversioned", "cannot be migrated", "lacks a migration", "nothing to migrate", "without deprecation", "deprecation skipped"]) {
+    assert.equal(cov(P, "Order.x", `- \`${P}\` \`Order.x\` removed, ${t}`), false, t);
+  }
+  assert.equal(cov(P, "Order.x", `- \`${P}\` \`Order.x\` removed. Migration of other services is planned.`), false, "keyword in another sentence");
+  assert.equal(cov(P, "Order.x", `- \`${P}\` \`Order.x\` removed; this is not versioned`), false, "negation in another clause still leaves the element clause without a keyword");
+  assert.equal(cov(P, "Order.x", `- \`${P}\` \`Order.x\` removed: migration in place; nothing else changes`), true, "a negation in another clause does not void a covering clause");
+  assert.equal(cov(P, "id", `- \`${P}\` id removed: migration in place`), false, "a bare element is not any word");
+  assert.equal(cov(P, "id", `- \`${P}\` \`id\` removed: migration in place`), true, "a bare element as a code span");
+  assert.equal(cov(P, "name", `- \`${P}\` \`Order.name\` removed: migration in place`), false);
 });
 test("consumers from an impact report use the element's leaf, skip prose and keep outside consumers unknown", () => {
   const imp = { symbols: [{ name: "x", references: [{ path: "PLAN.md", line: 3, kind: "textual", role: "doc" }, { path: "a.js", line: 2, kind: "heuristic", role: "reference" }] }] };

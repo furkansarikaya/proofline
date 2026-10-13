@@ -36,7 +36,7 @@ at all unless the resolved shape differs.
 | `CP-B02` | field or property removed | any side: request callers still send it (and may be rejected), response consumers still read it. A protobuf field removed with `reserved` is still `CP-B02`: wire-safe, but its readers lose the data. |
 | `CP-B03` | type changed; on request a type narrowed, on response a type widened; a media type removed; protobuf `repeated` toggled; an rpc's request or response type changed | `integer` -> `number` widens |
 | `CP-B04` | optional became required on the **request** side, or required became optional on the **response** side | also a non-null GraphQL argument or input field made from a nullable one; a `both` side always takes this rule |
-| `CP-B05` | new required request field, parameter or `requestBody`, or a new non-null GraphQL argument / input field without a default; a new protobuf `required` field | **A `default` does not help in OpenAPI or JSON Schema**: `required` rejects an absent value before any default is applied, so `required` + `default` is `CP-B05`. GraphQL is different: a non-null argument with a default may be omitted (`CP-N10`). |
+| `CP-B05` | new required request field, parameter or `requestBody` (also a name added to `required` that has no property schema), or a new non-null GraphQL argument / input field without a default; a new protobuf `required` field | **A `default` does not help in OpenAPI or JSON Schema**: `required` rejects an absent value before any default is applied, so `required` + `default` is `CP-B05`. GraphQL is different: a non-null argument with a default may be omitted (`CP-N10`). |
 | `CP-B06` | enum value or union member removed | any side (a request caller still sends it; a producer of a `both` message may still emit it) |
 | `CP-B07` | parameter, header or argument removed; a `requestBody` removed | |
 | `CP-B08` | response status code removed | consumers branch on it |
@@ -72,7 +72,9 @@ traced` and `evidence.detail` naming what was read (never by the reviewer's pref
 
 YAML: anchors, aliases, tags, merge keys, complex keys, multi-documents, multi-line plain or flow scalars,
 folded `>` blocks with blank-line paragraphs or more-indented lines, flow pairs without a space after the colon
-(`{x:1}`). GraphQL: multi-line argument lists, several fields on one line, `extend`. Protobuf: a statement
+(`{x:1}`), duplicate keys, YAML 1.1 booleans (`yes`, `no`, `on`, `off`, `y`, `n`), octal-looking numbers and
+integers beyond 2^53, `|+` and indentation indicators (`|` keeps one final newline, `|-` none). JSON:
+duplicate keys and integers beyond 2^53. Keys such as `__proto__` are ordinary keys. GraphQL: multi-line argument lists, several fields on one line, `extend`. Protobuf: a statement
 spanning lines, `extend`, groups.
 
 ## Not compared (documentation by definition)
@@ -88,17 +90,28 @@ A change's `element` is a qualified name: the named schema a `$ref` led to (`Ord
 (`status.LOST`); GraphQL `Type.field`, `Type.field(arg)`, `Enum.VALUE`; protobuf `Message.field`,
 `Enum.VALUE`, `Service.rpc`.
 
+`required` is a set: a name added to it without a property schema is `CP-B05` on the request (`CP-N06` on the
+response), a name dropped from it is `CP-N06` on the request and `CP-B04` on the response; for names with a
+property schema the property rules above apply.
+
 ## Coverage by the plan
+
+The bullets counted are those of the `## Contracts` section: a level 1 or 2 heading ends it; its level 3+
+children count unless titled non-goals or out of scope (with their own children); bullets in fenced code
+blocks or HTML comments never count.
 
 A `breaking` or `needs-review` change is **covered** when one bullet of PLAN.md `## Contracts`
 
 1. names the contract file by its exact repository path (`api/openapi.yaml`; `b/openapi.yaml` or a bare
    `openapi.yaml` does not name it),
-2. names the whole element (`Order.id`; `Order.id` does not cover `User.id`, `id` alone covers nothing),
-   and
-3. states versioning, migration or deprecation (`version`, `versioned`, `versioning`, `migrate`,
-   `migration`, `deprecate`, `deprecation`, ...) that is not negated ("no versioning needed", "migration not
-   required") and is not only `info.version` ("bump info.version" moves a number, it gives consumers no path).
+2. has one clause (clauses end at `;` or a sentence dot) that names the whole element (`Order.id`;
+   `Order.id` does not cover `User.id`; a bare element such as `id` or an enum value counts only as a code
+   span `` `id` ``, never as any word), and
+3. in that same clause states versioning, migration or deprecation (`version`, `versioned`, `versioning`,
+   `migrate`, `migration`, `deprecate`, `deprecation`, ...) that is not negated (`no`, `not`, `n't`,
+   `never`, `none`, `nothing`, `without`, `cannot`, `lacks`, `unnecessary`, `skipped`, `non-`/`un-`
+   versioned ...) and is not only `info.version` ("bump info.version" moves a number, it gives consumers no
+   path).
 
 A bullet that misses one of the three ("refactor, no consumer-visible change", "new field, defaults to EUR")
 covers nothing. An uncovered breaking or needs-review change is a `blocking` row. `validate-contract.mjs

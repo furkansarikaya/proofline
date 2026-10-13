@@ -11,7 +11,7 @@
 //   invalid -> exit 1 with one error per line; unreadable input or usage error -> exit 2.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { RULES, BLOCKING_CLASSES, COVER_KEYWORD, coverage, planBullets, hasToken, run } from "./diff-contract.mjs";
+import { RULES, BLOCKING_CLASSES, COVER_KEYWORD, NOT_A_CONTRACT, coverage, planBullets, hasToken, run } from "./diff-contract.mjs";
 
 export const FORMATS = ["openapi", "asyncapi", "jsonschema", "graphql", "proto", "json", "yaml", "avro", "thrift", "raml", "wsdl", "xsd", "unknown"];
 export const SIDES = ["request", "response", "both"];
@@ -100,6 +100,13 @@ export function validate(doc, { bullets = null, regenerated = null } = {}) {
       }
     }
   }
+  if (doc.ignored !== undefined) {
+    if (!Array.isArray(doc.ignored)) e.push("ignored must be an array");
+    else for (const [i, g] of doc.ignored.entries()) {
+      if (!str(g.path) || !str(g.reason)) e.push(`ignored[${i}]: path and reason required`);
+      else if (!NOT_A_CONTRACT.test(g.path)) e.push(`ignored[${i}]: ${g.path} is not on the not-a-contract list; only those files may be ignored`);
+    }
+  }
   if (!Array.isArray(doc.judged)) e.push("judged must be an array");
   else for (const [i, j] of doc.judged.entries()) {
     if (!/^J-\d+$/.test(j.id || "") || !str(j.location) || !str(j.text)) e.push(`judged[${i}]: id J-<n>, location and text required`);
@@ -124,6 +131,7 @@ export function gate(doc, { trustCoverage = false } = {}) {
       else rows.push(row("blocking", loc(f, c), `${what}; not covered by versioning, migration or deprecation in PLAN.md ## Contracts`, `${ev}; ${cons}`));
     } else if (c.rule === "CP-N04" || c.rule === "CP-N07") rows.push(row("info", loc(f, c), what, `${ev}; ${cons}`));
   }
+  for (const g of doc.ignored || []) rows.push(row("info", `${g.path}:1`, `not compared: ${g.reason}`, "changed data file on the not-a-contract list"));
   for (const j of doc.judged) rows.push(row(j.criterion ? "blocking" : "info", j.location, `judged: ${j.text}${j.criterion ? `; violates: ${j.criterion}` : ""}`, "judged"));
   const blocking = rows.some((r) => r.startsWith("blocking|"));
   if (blocking) for (const f of unsupported) rows.push(row("blocking", `${f.path}:1`, `UNSUPPORTED ${f.format}: ${f.reason}`, "no compatibility proof for this file"));

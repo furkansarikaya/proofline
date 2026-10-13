@@ -89,6 +89,11 @@
         }
       }
     },
+    "ignored": {
+      "type": "array",
+      "description": "changed files on the not-a-contract list (diff-contract.mjs NOT_A_CONTRACT), reported as info rows",
+      "items": { "type": "object", "required": ["path", "reason"], "properties": { "path": { "$ref": "#/$defs/text" }, "reason": { "$ref": "#/$defs/text" } } }
+    },
     "judged": {
       "type": "array",
       "items": {

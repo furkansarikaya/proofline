@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the contract-proof fixture repository in an empty directory given as $1.
 # Deterministic, no network, no installs. Two commits: the first is the base contract set and PLAN.md,
-# the second changes nine contract-related files, so `--base HEAD~1` has the known answer in EXPECTED.md.
+# the second changes thirteen data and contract files, so `--base HEAD~1` has the known answer in EXPECTED.md.
 set -eu
 [ $# -eq 1 ] || { echo "usage: sh setup.sh <target-dir>" >&2; exit 2; }
 TARGET=$1
@@ -16,7 +16,7 @@ git config user.name Fixture
 git config user.email fixture@example.invalid
 git config commit.gpgsign false
 git config core.hooksPath .git/hooks
-mkdir -p api/fragments api/examples schemas events graphql proto src/client
+mkdir -p api/fragments api/examples schemas/parts events graphql proto src/client data
 
 cat > package.json <<'EOF'
 { "name": "shop-contracts-fixture", "private": true, "type": "module" }
@@ -66,6 +66,26 @@ Contract cleanup across the shop APIs.
 - `api/billing.json` `POST /invoices.currency`: new required request field, defaults to EUR; no versioning or migration needed.
 - `schemas/shipment.schema.json` `status.LOST` removed: migration rewrites stored LOST shipments to RETURNED; deprecation window of 90 days announced to consumers.
 - `proto/inventory.proto` `Order.quantity` renumbered: versioned under a new package.
+- `proto/inventory.proto` `StockLevel.quantity` renumbered; this isn't versioned.
+- `api/openapi.yaml` `Order.createdAt` format changed. Migration of other services is planned.
+- `schemas/status-codes.json` value B removed: migration done.
+- `api/billing.json` `POST /invoices.customerId` is now required: versioned through the Billing-Version header, old clients keep the previous behaviour.
+
+<!--
+- `proto/inventory.proto` `StockLevel.quantity` renumbered: versioned under a renamed package.
+-->
+
+```
+- `api/openapi.yaml` `Order.customerEmail` removed: migration planned.
+```
+
+### Out of scope
+
+- `api/openapi.yaml` `Order.createdAt` format change: migration later.
+
+## Notes
+
+- `schemas/customer.schema.json` `address.zip` removed: deprecation window 30 days.
 EOF
 
 # ---- base contracts -----------------------------------------------------------------------------
@@ -306,6 +326,36 @@ cat > api/examples/order-example.json <<'EOF'
 { "id": "o-1", "status": "placed" }
 EOF
 
+# status-codes.json: an enum-only JSON Schema (no type, no properties).
+cat > schemas/status-codes.json <<'EOF'
+{ "enum": ["A", "B"] }
+EOF
+
+# customer.schema.json is NOT changed; it reaches the fragment through a repository-root-absolute $ref.
+cat > schemas/customer.schema.json <<'EOF'
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "address": { "$ref": "/schemas/parts/address.json" }
+  }
+}
+EOF
+
+cat > schemas/parts/address.json <<'EOF'
+{
+  "type": "object",
+  "properties": {
+    "street": { "type": "string" },
+    "zip": { "type": "string" }
+  }
+}
+EOF
+
+cat > data/seed.json <<'EOF'
+{ "orders": 3 }
+EOF
+
 git add -A
 git commit -q -m "base contracts"
 
@@ -406,7 +456,7 @@ cat > api/billing.json <<'EOF'
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["orderId", "currency"],
+                "required": ["orderId", "currency", "customerId"],
                 "properties": {
                   "orderId": { "type": "string" },
                   "note": { "type": "string", "maxLength": 500 },
@@ -552,6 +602,31 @@ EOF
 
 cat > api/examples/order-example.json <<'EOF'
 { "id": "o-1", "status": "shipped" }
+EOF
+
+# status-codes.json loses B (breaking, bare element: the plan's "value B" without a code span covers nothing).
+cat > schemas/status-codes.json <<'EOF'
+{ "enum": ["A"] }
+EOF
+
+# address.json (a fragment of the unchanged customer.schema.json) loses zip.
+cat > schemas/parts/address.json <<'EOF'
+{
+  "type": "object",
+  "properties": {
+    "street": { "type": "string" }
+  }
+}
+EOF
+
+# seed.json: changed data that is no contract and not on the not-a-contract list -> UNSUPPORTED.
+cat > data/seed.json <<'EOF'
+{ "orders": 4 }
+EOF
+
+# package.json: on the not-a-contract list -> ignored with a note, no finding.
+cat > package.json <<'EOF'
+{ "name": "shop-contracts-fixture", "private": true, "type": "module", "description": "shop" }
 EOF
 
 git add -A

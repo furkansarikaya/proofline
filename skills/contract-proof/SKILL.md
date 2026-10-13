@@ -37,10 +37,12 @@ this `SKILL.md`.
   A judged item never closes the gate alone; it is `blocking` only when it violates a criterion written in
   the spec or PLAN.md, and that criterion is quoted.
 - A file the differ cannot parse and no existing tool covers is `status: unsupported` with the reason:
-  never a pass, never silently skipped. So is a changed `.json`/`.yaml`/`.yml` under a contract path
-  (`openapi*`, `asyncapi*`, `swagger*`, `*schema*`, or inside `api/`, `apis/`, `contract(s)/`, `spec(s)/`,
-  `schema(s)/`, `events/`, `graphql/`, `proto/`) that is neither a contract nor reached by one, and an
-  external `$ref` target that cannot be loaded. A run in which no changed contract file is recognized at all
+  never a pass, never silently skipped. So is every changed `.json`/`.yaml`/`.yml` that is neither a
+  contract (OpenAPI, AsyncAPI, or a JSON Schema: any root schema keyword such as `type`, `properties`,
+  `enum`, `oneOf`, `required`, `items`) nor reached by one, and an external `$ref` target that cannot be
+  loaded. Only files on the not-a-contract list (`package.json`, lock files, `tsconfig*.json`, linter and
+  formatter configs, CI and compose files, `.github/`, `.vscode/` ...; `NOT_A_CONTRACT` in the differ) are
+  skipped, each listed under `ignored` and printed as an `info` row, and never when a `$ref` names them. A run in which no changed contract file is recognized at all
   is UNSUPPORTED too (the focus was selected by a contract signal or flag; nothing proven is not a pass).
 - Every change has a qualified `element`: the named schema, operation or channel, then the property
   (`Order.customerEmail`, `POST /invoices.currency`, `status.LOST`, `Customer.orders(status)`,
@@ -76,14 +78,16 @@ output folder) before starting the next step.
    GraphQL `.graphql`/`.graphqls`/`.gql`, `.proto`; Avro, Thrift, RAML, WSDL and XSD are reported
    unsupported), reads the base with `git show`, resolves local `$ref`s and relative external `$ref`s
    (`./fragments/item.yaml#/Item`: loaded from the same side, compared where the root contract uses them, the
-   line cited in the fragment as `line_file`; URLs and paths leaving the repository are compared as text), also
-   compares an unchanged root contract whose fragment changed (the fragment's row says `via`), classifies every
+   line cited in the fragment as `line_file`; `/parts/x.yaml` resolves from the repository root; URLs and paths
+   leaving the repository are compared as text), also compares an unchanged root contract of any kind, found
+   by parsing every JSON/YAML file, whose fragment changed (the fragment's row says `via`), classifies every
    change, marks the plan coverage, keeps each change's `original_rule`, and lists compatibility tools it found
    on `PATH` or in `node_modules/.bin` under `tools.detected` (never installs or runs them). `--path <file>`
    (repeatable) limits it to named files; a contract file the risk signal matched but the differ skipped is
    passed with `--path`. The YAML subset refuses (UNSUPPORTED) anchors, aliases, tags, merge keys,
-   multi-documents, multi-line plain or flow scalars, folded `>` blocks with paragraphs or indented lines and
-   flow pairs without a space (`{x:1}`); GraphQL and protobuf need one statement per line, except simple
+   multi-documents, multi-line plain or flow scalars, folded `>` blocks with paragraphs or indented lines,
+   flow pairs without a space (`{x:1}`), duplicate keys, YAML 1.1 booleans (`yes`/`no`/`on`/`off`/`y`/`n`),
+   octal-looking and beyond-2^53 integers, and `|+` or indentation indicators; GraphQL and protobuf need one statement per line, except simple
    single-line bodies (`type A { a: Int }`, `enum E { A B }`, `message A { string a = 1; }`). Ledger: one row
    per file.
 3. **Consumers.** For every breaking or needs-review change, use the evidence-map impact report (decision

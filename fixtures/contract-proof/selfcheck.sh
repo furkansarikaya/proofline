@@ -12,7 +12,7 @@ command -v node >/dev/null 2>&1 || { echo "selfcheck: node not found, skipped" >
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/contract-selfcheck.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-node "$EM/impact.mjs" --repo "$1" --symbol customerEmail --symbol createdAt --symbol currency --symbol quantity --symbol LOST --symbol sku --out "$tmp/impact.json" || fail "impact.mjs failed"
+node "$EM/impact.mjs" --repo "$1" --symbol customerEmail --symbol createdAt --symbol currency --symbol quantity --symbol LOST --symbol sku --symbol customerId --symbol zip --symbol B --out "$tmp/impact.json" || fail "impact.mjs failed"
 node "$EM/validate-impact.mjs" "$tmp/impact.json" --repo "$1" >/dev/null || fail "impact report does not validate"
 
 # whole diff

@@ -56,6 +56,8 @@ const unsup = (msg) => { throw new Unsupported(msg); };
 // ---- line bookkeeping: lineOf(container, key) ---------------------------------------------------
 const LINES = new WeakMap();
 const setLine = (obj, key, line) => { let m = LINES.get(obj); if (!m) LINES.set(obj, (m = new Map())); m.set(String(key), line); };
+// parsed mappings have no prototype, so `__proto__` or `constructor` is an ordinary key and `in` is exact
+const newMap = () => Object.create(null);
 const lineOf = (obj, key) => (obj && typeof obj === "object" ? LINES.get(obj)?.get(String(key)) : undefined);
 
 // ---- JSON with line numbers ---------------------------------------------------------------------
@@ -71,11 +73,12 @@ export function parseJson(text) {
   const val = () => {
     ws(); const c = text[i];
     if (c === "{") {
-      i++; const o = {}; ws();
+      i++; const o = newMap(); ws();
       if (text[i] === "}") { i++; return o; }
       for (;;) {
         ws(); if (text[i] !== '"') unsup(`expected a key at line ${line}`);
         const kl = line, k = str(); ws(); if (text[i] !== ":") unsup(`expected ':' at line ${line}`); i++;
+        if (k in o) unsup(`duplicate key ${k} at line ${kl}`);
         o[k] = val(); setLine(o, k, kl); ws();
         if (text[i] === ",") { i++; continue; } if (text[i] === "}") { i++; return o; }
         unsup(`expected ',' or '}' at line ${line}`);
@@ -93,7 +96,10 @@ export function parseJson(text) {
     if (c === '"') return str();
     const m = /^(-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?|true|false|null)/.exec(text.slice(i, i + 64));
     if (!m) unsup(`unexpected token at line ${line}`);
-    i += m[0].length; return JSON.parse(m[0]);
+    i += m[0].length;
+    const n = JSON.parse(m[0]);
+    if (typeof n === "number" && /^-?\d+$/.test(m[0]) && !Number.isSafeInteger(n)) unsup(`integer beyond 2^53 at line ${line}`);
+    return n;
   };
   const v = val(); ws();
   if (i < text.length) unsup(`trailing content at line ${line}`);
@@ -121,9 +127,12 @@ function yamlScalar(raw, ln) {
   if (s[0] === '"') { if (!s.endsWith('"') || s.length < 2) unsup(`unterminated string at line ${ln}`); try { return JSON.parse(s); } catch { unsup(`unsupported escape at line ${ln}`); } }
   if (s[0] === "'") { if (!s.endsWith("'") || s.length < 2) unsup(`unterminated string at line ${ln}`); return s.slice(1, -1).replace(/''/g, "'"); }
   if (/^[&*!|>%@`]/.test(s)) unsup(`anchor, alias, tag or reserved indicator at line ${ln}`);
+  // YAML 1.1 readers turn these into booleans, YAML 1.2 readers into strings: refuse instead of guessing
+  if (/^(y|Y|yes|Yes|YES|n|N|no|No|NO|on|On|ON|off|Off|OFF)$/.test(s)) unsup(`ambiguous YAML 1.1 boolean ${s} at line ${ln}`);
   if (/^(true|True|TRUE)$/.test(s)) return true;
   if (/^(false|False|FALSE)$/.test(s)) return false;
-  if (/^[-+]?(0|[1-9]\d*)$/.test(s)) return Number(s);
+  if (/^[-+]?(0|[1-9]\d*)$/.test(s)) { const n = Number(s); if (!Number.isSafeInteger(n)) unsup(`integer beyond 2^53 at line ${ln}`); return n; }
+  if (/^[-+]?0\d+$/.test(s)) unsup(`octal-looking number ${s} at line ${ln}`);
   if (/^[-+]?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?$/.test(s)) return Number(s);
   if (/\s#/.test(s) || /:\s/.test(s)) unsup(`ambiguous plain scalar at line ${ln}`);
   return s;
@@ -135,11 +144,12 @@ function yamlFlow(s, ln) {
     skip();
     if (s[i] === "[") { i++; const a = []; skip(); if (s[i] === "]") { i++; return a; } for (;;) { a.push(item(",]")); setLine(a, a.length - 1, ln); skip(); if (s[i] === ",") { i++; continue; } if (s[i] === "]") { i++; return a; } unsup(`bad flow sequence at line ${ln}`); } }
     if (s[i] === "{") {
-      i++; const o = {}; skip(); if (s[i] === "}") { i++; return o; }
+      i++; const o = newMap(); skip(); if (s[i] === "}") { i++; return o; }
       for (;;) {
         const k = String(item(":,}")); skip();
         // `{x:1}` is one plain scalar in YAML, not a pair: refuse instead of guessing
         if (s[i] !== ":" || !(i + 1 >= s.length || " ,}]".includes(s[i + 1]))) unsup(`bad flow mapping at line ${ln}`); i++;
+        if (k in o) unsup(`duplicate key ${k} in flow mapping at line ${ln}`);
         o[k] = item(",}"); setLine(o, k, ln); skip();
         if (s[i] === ",") { i++; continue; } if (s[i] === "}") { i++; return o; } unsup(`bad flow mapping at line ${ln}`);
       }
@@ -183,7 +193,7 @@ export function parseYaml(text) {
     return { key: String(k), rest: rest.trim() };
   };
   const blockScalar = (ind, head, ln) => {
-    if (!/^[|>][-+]?$/.test(head)) unsup(`unsupported block scalar header at line ${ln}`);
+    if (!/^[|>]-?$/.test(head)) unsup(`unsupported block scalar header (keep chomping, indentation indicator) at line ${ln}`);
     const out = []; let bi = null;
     while (p < L.length) {
       const l = L[p]; const rawT = l.raw.replace(/\s+$/, "");
@@ -197,7 +207,9 @@ export function parseYaml(text) {
     while (out.length && out[out.length - 1] === "") out.pop();
     // folded paragraphs and more-indented folded lines have their own rules; refused, not approximated
     if (head[0] === ">" && out.some((x) => x === "" || /^\s/.test(x))) unsup(`folded block scalar with paragraphs or indented lines at line ${ln}`);
-    return head[0] === "|" ? out.join("\n") : out.join(" ");
+    // clip chomping (`|`, `>`) keeps one final newline, strip (`|-`, `>-`) none
+    const body = head[0] === "|" ? out.join("\n") : out.join(" ");
+    return body === "" || head.endsWith("-") ? body : body + "\n";
   };
   const node = (minInd) => {
     const l = next(); if (!l || l.ind < minInd) return null;
@@ -221,13 +233,13 @@ export function parseYaml(text) {
     return v;
   };
   const map = (ind) => {
-    const o = {};
+    const o = newMap();
     for (;;) {
       const l = next(); if (!l || l.ind < ind) break;
       if (l.ind > ind) unsup(`bad indentation at line ${l.line}`);
       if (isSeq(l.text)) break;
       const kv = splitKey(l); if (!kv) unsup(`expected a mapping entry at line ${l.line}`);
-      if (Object.prototype.hasOwnProperty.call(o, kv.key)) unsup(`duplicate key ${kv.key} at line ${l.line}`);
+      if (kv.key in o) unsup(`duplicate key ${kv.key} at line ${l.line}`);
       p++; o[kv.key] = value(kv.rest, ind, l, o, kv.key); setLine(o, kv.key, l.line);
     }
     return o;
@@ -262,11 +274,13 @@ const CONTRACT_TEXT = /^(openapi|asyncapi|swagger)\s*:|"(openapi|asyncapi|swagge
 export const CONTRACT_PATH = /((^|\/)(openapi|swagger|asyncapi)[^/]*|schema[^/]*)\.(ya?ml|json)$|(^|\/)(apis?|contracts?|specs?|schemas?|openapi|asyncapi|swagger|events|graphql|proto)\/(.+\/)?[^/]+\.(ya?ml|json)$/i;
 const SDL_EXT = [".graphql", ".graphqls", ".gql"];
 const OTHER_CONTRACT_EXT = { ".avsc": "avro", ".avdl": "avro", ".thrift": "thrift", ".raml": "raml", ".wsdl": "wsdl", ".xsd": "xsd" };
-function kindOf(doc) {
+// any of these at the root makes a JSON/YAML document a JSON Schema (an enum-only or oneOf-only schema too)
+const SCHEMA_KEYS = ["$schema", "$id", "$defs", "definitions", "type", "properties", "patternProperties", "additionalProperties", "items", "enum", "const", "oneOf", "anyOf", "allOf", "required", "$ref"];
+export function kindOf(doc) {
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) return null;
-  if ("openapi" in doc || "swagger" in doc) return "openapi";
-  if ("asyncapi" in doc) return "asyncapi";
-  if ("$schema" in doc || ("type" in doc && ("properties" in doc || "items" in doc)) || "$defs" in doc || "definitions" in doc) return "jsonschema";
+  if (has(doc, "openapi") || has(doc, "swagger")) return "openapi";
+  if (has(doc, "asyncapi")) return "asyncapi";
+  if (SCHEMA_KEYS.some((k) => has(doc, k))) return "jsonschema";
   return null;
 }
 const parseData = (path, text) => {
@@ -328,8 +342,9 @@ export function bundle(root, rootPath, loadDoc) {
       const fpart = h < 0 ? r : r.slice(0, h), frag = h < 0 ? "" : r.slice(h + 1);
       if (frag !== "" && !frag.startsWith("/")) { /* anchor fragment: compared as text */ }
       else if (fpart === "") { if (file !== rootPath) v.$ref = `#/${EXT_KEY}/${esc(file)}${frag}`; }
-      else if (!/^[a-z][a-z0-9+.-]*:/i.test(fpart) && !fpart.startsWith("/")) {
-        const target = posixJoin(dirOf(file), fpart);
+      else if (!/^[a-z][a-z0-9+.-]*:/i.test(fpart) && !fpart.startsWith("//")) {
+        // `/parts/x.yaml` is relative to the repository root, `x.yaml` to the referring file
+        const target = fpart.startsWith("/") ? posixJoin("", fpart) : posixJoin(dirOf(file), fpart);
         if (!target.startsWith("..")) {
           if (!store.has(target)) {
             let d = null, why = null;
@@ -379,6 +394,8 @@ function pick(side, req, resp) {
   if (side === "response") return resp;
   return RULES[req][0] !== "non-breaking" ? req : resp;
 }
+const has = (t, k) => Object.prototype.hasOwnProperty.call(t, k);
+const own = (t, k) => (t && typeof t === "object" && Object.prototype.hasOwnProperty.call(t, k) ? t[k] : undefined);
 const unptr = (r) => r.slice(2).split("/").map((x) => x.replace(/~1/g, "/").replace(/~0/g, "~"));
 // the name of a schema a reference points to (`#/components/schemas/Order` -> Order), else null
 function schemaName(ref) {
@@ -394,7 +411,7 @@ function derefFactory(root) {
       const r = n.$ref;
       if (!r.startsWith("#/") || seen.includes(r)) return { node: n, ref: r, opaque: true, stack: seen };
       seen.push(r);
-      let t = root; for (const s of unptr(r)) t = t?.[s];
+      let t = root; for (const s of unptr(r)) t = own(t, s);
       if (t === undefined) return { node: n, ref: r, opaque: true, stack: seen };
       n = t;
     }
@@ -410,7 +427,7 @@ function reachedRefs(root) {
     if (!isObj(v)) return;
     if (typeof v.$ref === "string" && v.$ref.startsWith("#/") && !out.has(v.$ref)) {
       out.add(v.$ref);
-      let t = root; for (const s of unptr(v.$ref)) t = t?.[s];
+      let t = root; for (const s of unptr(v.$ref)) t = own(t, s);
       walk(t, depth + 1);
     }
     for (const k of Object.keys(v)) walk(v[k], depth + 1);
@@ -455,7 +472,7 @@ export function diffDocs(base, head, kind, rootPath = null) {
     const top = segs.length === 0;
     const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
     for (const k of keys) {
-      const va = a[k], vb = b[k], s = [...segs, k], ln = L(a, b, k);
+      const va = own(a, k), vb = own(b, k), s = [...segs, k], ln = L(a, b, k);
       if (top && k === EXT_KEY) continue; // fragments are compared where the contract references them
       if (k === "properties") { diffProps(a, b, s, side, ra.stack, rb.stack, q); continue; } // before the equality skip: `required` may differ
       if (deq(va, vb) && !hasRef(va) && !hasRef(vb)) continue;
@@ -469,8 +486,8 @@ export function diffDocs(base, head, kind, rootPath = null) {
             const ref = "#/" + [k, ...(sec ? [sec] : []), n].map(esc).join("/");
             if (reached.has(ref)) continue;
             const ss = [k, ...(sec ? [sec] : []), n], l2 = L(ca, cb, n);
-            if (!(n in cb)) add("CP-B01", ss, "both", "present", undefined, l2, n);
-            else if (!(n in ca)) add("CP-N02", ss, "both", undefined, "present", l2, n);
+            if (!has(cb, n)) add("CP-B01", ss, "both", "present", undefined, l2, n);
+            else if (!has(ca, n)) add("CP-N02", ss, "both", undefined, "present", l2, n);
             else walk(ca[n], cb[n], ss, "both", ra.stack, rb.stack, ca, cb, n, [n]);
           }
         }
@@ -499,8 +516,14 @@ export function diffDocs(base, head, kind, rootPath = null) {
         diffNamed(va || {}, vb || {}, s, side, k === "content" ? "CP-B03" : "CP-B07", "CP-N01", ra.stack, rb.stack, null, q); continue;
       }
       if (k === "required" && Array.isArray(va ?? vb)) {
-        if (!("properties" in a) && !("properties" in b)) add("CP-U01", s, side, va, vb, ln, el(q));
-        continue; // handled with properties
+        // names without a property schema change requiredness here; the others are diffed with properties
+        const pa = isObj(a.properties) ? dB(a.properties, ra.stack).node : {}, pb = isObj(b.properties) ? dH(b.properties, rb.stack).node : {};
+        const sa = new Set(Array.isArray(va) ? va : []), sb = new Set(Array.isArray(vb) ? vb : []);
+        for (const n of new Set([...sa, ...sb])) {
+          if (sa.has(n) === sb.has(n) || (isObj(pa) && has(pa, n)) || (isObj(pb) && has(pb, n))) continue;
+          add(sb.has(n) ? pick(side, "CP-B05", "CP-N06") : pick(side, "CP-N06", "CP-B04"), [...s, n], side, sa.has(n) ? "required" : null, sb.has(n) ? "required" : null, ln, el(q, n));
+        }
+        continue;
       }
       if (k === "required" && (typeof va === "boolean" || typeof vb === "boolean")) {
         const was = va === true, now = vb === true;
@@ -537,8 +560,8 @@ export function diffDocs(base, head, kind, rootPath = null) {
     if (!isObj(A) || !isObj(B)) { add("CP-U01", segs, side, A, B, undefined, el(q)); return; }
     for (const n of new Set([...Object.keys(A), ...Object.keys(B)])) {
       const s = [...segs, n], ln = L(A, B, n), name = rename ? el(rename(n)) : el(q, n);
-      if (!(n in B)) add(removed, s, side, "present", undefined, ln, name);
-      else if (!(n in A)) add(added, s, side, undefined, "present", ln, name);
+      if (!has(B, n)) add(removed, s, side, "present", undefined, ln, name);
+      else if (!has(A, n)) add(added, s, side, undefined, "present", ln, name);
       else walk(A[n], B[n], s, side, sa, sb, A, B, n, rename ? rename(n) : q);
     }
   };
@@ -559,8 +582,8 @@ export function diffDocs(base, head, kind, rootPath = null) {
     const rA = new Set(Array.isArray(a.required) ? a.required : []), rB = new Set(Array.isArray(b.required) ? b.required : []);
     for (const n of new Set([...Object.keys(A), ...Object.keys(B)])) {
       const s = [...segs, n], ln = L(A, B, n), name = el(q, n);
-      if (!(n in B)) { add("CP-B02", s, side, "present", undefined, ln, name); continue; }
-      if (!(n in A)) { add(rB.has(n) ? pick(side, "CP-B05", "CP-N01") : "CP-N01", s, side, undefined, rB.has(n) ? "required" : "optional", ln, name); continue; }
+      if (!has(B, n)) { add("CP-B02", s, side, "present", undefined, ln, name); continue; }
+      if (!has(A, n)) { add(rB.has(n) ? pick(side, "CP-B05", "CP-N01") : "CP-N01", s, side, undefined, rB.has(n) ? "required" : "optional", ln, name); continue; }
       if (rA.has(n) !== rB.has(n)) add(rB.has(n) ? pick(side, "CP-B04", "CP-N06") : pick(side, "CP-N06", "CP-B04"), s, side, rA.has(n) ? "required" : "optional", rB.has(n) ? "required" : "optional", ln, name);
       walk(A[n], B[n], s, side, sa, sb, A, B, n, [...q, n]);
     }
@@ -858,11 +881,25 @@ export function diffFile(path, baseText, headText, { explicit = false, loadBase 
 }
 
 // ---- PLAN.md ## Contracts coverage --------------------------------------------------------------
+// Bullets of the `## Contracts` section: any heading of level 1-2 ends it; an H3+ child counts unless it is
+// a non-goals or out-of-scope heading (with its own children); fenced code and HTML comments never count.
 export function planBullets(text) {
-  const out = []; let on = false;
-  text.replace(/\r\n?/g, "\n").split("\n").forEach((l, i) => {
-    if (/^##\s/.test(l)) { on = /^##\s+Contracts\s*$/.test(l); return; }
-    if (on && /^\s*-\s+/.test(l)) out.push({ line: i + 1, text: l.trim() });
+  const out = []; let inContracts = false, offLevel = null, fence = null, comment = false;
+  text.replace(/\r\n?/g, "\n").split("\n").forEach((raw, i) => {
+    let l = raw;
+    if (fence) { if (l.trim().startsWith(fence)) fence = null; return; }
+    if (comment) { const e = l.indexOf("-->"); if (e < 0) return; comment = false; l = l.slice(e + 3); }
+    l = l.replace(/<!--.*?-->/g, "");
+    const open = l.indexOf("<!--"); if (open >= 0) { comment = true; l = l.slice(0, open); }
+    const f = /^\s*(```|~~~)/.exec(l); if (f) { fence = f[1]; return; }
+    const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(l);
+    if (h) {
+      const level = h[1].length, title = h[2];
+      if (level <= 2) { inContracts = level === 2 && /^Contracts$/i.test(title); offLevel = null; }
+      else if (inContracts && (offLevel === null || level <= offLevel)) offLevel = /non-goals?|out of scope/i.test(title) ? level : null;
+      return;
+    }
+    if (inContracts && offLevel === null && /^\s*[-*]\s+/.test(l)) out.push({ line: i + 1, text: l.trim() });
   });
   return out;
 }
@@ -872,17 +909,22 @@ export const hasToken = (text, tok) => {
   const e = String(tok).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^A-Za-z0-9_./{}-])${e}(?=$|[^A-Za-z0-9_./{}-]|\\.(\\s|$))`).test(text);
 };
-const NEGATED = /\b(no|not|without|never|none|unversioned|skip(ped)?)\b[^.;]*\b(version|migrat|deprecat)|\b(version\w*|migrat\w*|deprecat\w*)\b[^.;]*\b(not|no|unnecessary|needless|none|skipped)\b/i;
+// a negation anywhere in the clause that carries the element and the keyword voids it
+const NEGATION = /\b(no|not|never|none|nothing|without|cannot|lacks?|unnecessary|needless|skip(ped|s)?)\b|n't\b|\b(non|un)-?(version|migrat|deprecat)/i;
+// clauses end at `;` or at a sentence dot (`Order.id` and `openapi.yaml` keep theirs)
+const clauses = (t) => t.split(/;|\.(?=\s|$)/);
+// a bare element (`id`, `name`, an enum value) only counts as a code span, never as any word
+const namesElement = (clause, element) => (/[./( ]/.test(element) ? hasToken(clause, element) : clause.includes("`" + element + "`"));
 // The coverage rule (RULES.md#coverage-by-the-plan): the bullet names the exact repository path, the whole
 // qualified element, and states versioning, migration or deprecation that is not negated and is not just
 // `info.version`.
 export function coverage(path, change, bullets) {
   const none = { covered: false, plan_line: null, text: null };
   if (!BLOCKING_CLASSES.includes(change.classification)) return none;
-  const b = bullets.find((x) => {
-    const words = x.text.replace(/info\.version/gi, " ");
-    return hasToken(x.text, path) && hasToken(x.text, change.element) && COVER_KEYWORD.test(words) && !NEGATED.test(words);
-  });
+  const b = bullets.find((x) => hasToken(x.text, path) && clauses(x.text).some((c) => {
+    const words = c.replace(/info\.version/gi, " ");
+    return namesElement(c, change.element) && COVER_KEYWORD.test(words) && !NEGATION.test(words);
+  }));
   return b ? { covered: true, plan_line: b.line, text: b.text } : none;
 }
 
@@ -926,16 +968,24 @@ export function changedPaths(repo, base) {
   for (const p of git(repo, ["ls-files", "--others", "--exclude-standard"]).split("\n").filter(Boolean)) out.set(p, { base: null, head: p });
   return out;
 }
-// JSON/YAML files of the working tree that look like a contract root (they may reference a changed fragment)
-function contractRoots(repo) {
+// Config files that are never contracts; a changed one is listed under `ignored` with the reason, unless a
+// `$ref` somewhere names it. Everything else that is changed JSON/YAML and not a contract is UNSUPPORTED.
+export const NOT_A_CONTRACT = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^(\.github|\.vscode|\.idea|\.agents|\.devcontainer)\//i;
+// JSON/YAML files of the working tree that parse as a contract (any kind, they may reference a changed
+// fragment) and the file names any `$ref` in a JSON/YAML file names
+function scanRepo(repo) {
   const all = [...git(repo, ["ls-files"]).split("\n"), ...git(repo, ["ls-files", "--others", "--exclude-standard"]).split("\n")];
-  return all.filter((p) => DATA_EXT.test(p)).filter((p) => {
-    try { if (statSync(join(repo, p)).size > 4 << 20) return false; } catch { return false; }
-    const t = readHead(repo, p); return t !== null && CONTRACT_TEXT.test(t);
-  }).sort();
+  const roots = [], refNames = new Set();
+  for (const p of [...new Set(all)].filter((x) => DATA_EXT.test(x) && !NOT_A_CONTRACT.test(x)).sort()) {
+    try { if (statSync(join(repo, p)).size > 4 << 20) continue; } catch { continue; }
+    const t = readHead(repo, p); if (t === null) continue;
+    for (const m of t.matchAll(/["']?\$ref["']?\s*:\s*["']?([^"'#\s,}]+)/g)) refNames.add(basename(m[1]));
+    try { if (kindOf(parseData(p, t))) roots.push(p); } catch (e) { if (!(e instanceof Unsupported) && !(e instanceof SyntaxError)) throw e; }
+  }
+  return { roots, refNames };
 }
 export function run(opts) {
-  const rows = new Map();
+  const rows = new Map(), report = { ignored: [] };
   const bullets = opts.plan ? planBullets(readFileSync(opts.plan, "utf8")) : [];
   const impact = opts.impact ? JSON.parse(readFileSync(opts.impact, "utf8")) : null;
   if (opts.baseFile || opts.headFile) {
@@ -957,35 +1007,41 @@ export function run(opts) {
       for (const [f, why] of r.unresolved) if (!unresolved.has(f)) unresolved.set(f, `${why} (referenced from ${p})`);
       return r;
     };
-    const unknown = [];
+    const unknown = [], ignored = [];
     for (const p of [...want].sort()) {
       const c = changed.get(p);
       if (!c) { if (explicit) rows.set(p, { path: p, format: "unknown", change: "unchanged", status: "compared", changes: [] }); continue; }
-      const r = diffRoot(p, c, explicit);
+      // a config file such as package.json ("type": "module") is never read as a JSON Schema
+      const r = !explicit && NOT_A_CONTRACT.test(p) ? null : diffRoot(p, c, explicit);
       if (r) rows.set(p, r.row); else if (DATA_EXT.test(p)) unknown.push(p);
     }
     // a changed standalone-looking schema may really be a fragment of a root contract: check those too
     const maybeFragment = [...unknown, ...[...rows.values()].filter((r) => r.format === "jsonschema" && changed.has(r.path)).map((r) => r.path)];
     if (maybeFragment.length) {
-      // an unchanged root contract whose external $ref reaches a changed file is compared too
-      for (const p of contractRoots(opts.repo)) {
+      const scan = scanRepo(opts.repo);
+      // an unchanged root contract (of any kind) whose external $ref reaches a changed file is compared too
+      for (const p of scan.roots) {
         if (rows.has(p) || unknown.includes(p)) continue;
         const r = diffRoot(p, changed.get(p) || { base: p, head: p }, false);
-        if (r && r.row.format !== "jsonschema" && maybeFragment.some((u) => r.fragments.has(u))) { if (!changed.has(p)) r.row.change = "unchanged"; rows.set(p, r.row); }
+        if (r && maybeFragment.some((u) => r.fragments.has(u))) { if (!changed.has(p)) r.row.change = "unchanged"; rows.set(p, r.row); }
       }
-      // a changed schema reached from a compared root is classified there, with that root's sides
+      // a changed schema reached from a compared root is classified there, with that root's sides; a root
+      // that already became a fragment row is not used (two schemas referencing each other keep one row)
+      const asFragment = new Set();
       for (const u of maybeFragment) {
         if (unknown.includes(u)) continue;
-        const roots = [...(fragOf.get(u) || [])].filter((r) => rows.has(r) && r !== u && rows.get(r).format !== "jsonschema");
-        if (roots.length) { const old = rows.get(u); rows.set(u, { path: u, format: old.format, change: old.change, status: "compared", via: roots.sort(), changes: [] }); }
+        const roots = [...(fragOf.get(u) || [])].filter((r) => rows.has(r) && r !== u && !asFragment.has(r));
+        if (roots.length) { const old = rows.get(u); asFragment.add(u); rows.set(u, { path: u, format: old.format, change: old.change, status: "compared", via: roots.sort(), changes: [] }); }
       }
       for (const u of unknown) {
         const c = changed.get(u), fmt = /\.json$/i.test(u) ? "json" : "yaml", change = c.base === null ? "added" : c.head === null ? "deleted" : "modified";
         const roots = [...(fragOf.get(u) || [])].filter((r) => rows.has(r));
         if (roots.length) rows.set(u, { path: u, format: fmt, change, status: "compared", via: roots.sort(), changes: [] });
-        else if (CONTRACT_PATH.test(u)) rows.set(u, { path: u, format: fmt, change, status: "unsupported", reason: "not recognized as a contract and no recognized contract references it; pass its root contract with --path or classify it by hand", changes: [] });
+        else if (NOT_A_CONTRACT.test(u) && !scan.refNames.has(basename(u))) ignored.push({ path: u, reason: "configuration file on the not-a-contract list" });
+        else rows.set(u, { path: u, format: fmt, change, status: "unsupported", reason: scan.refNames.has(basename(u)) ? "named by a $ref that was not resolved to it; classify it by hand" : "not recognized as a contract and no recognized contract references it; pass its root contract with --path or classify it by hand", changes: [] });
       }
     }
+    report.ignored = ignored;
     for (const [f, why] of unresolved) if (!rows.has(f)) rows.set(f, { path: f, format: /\.json$/i.test(f) ? "json" : /\.ya?ml$/i.test(f) ? "yaml" : "unknown", change: "unchanged", status: "unsupported", reason: `external $ref fragment not diffed: ${why}`, changes: [] });
   }
   const files = [...rows.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -1003,6 +1059,7 @@ export function run(opts) {
     tools: { detected: detectTools(opts.repo), used: [] },
     plan: { path: opts.plan || null, contracts_bullets: bullets.length },
     files,
+    ignored: report.ignored,
     judged: [],
   };
 }
