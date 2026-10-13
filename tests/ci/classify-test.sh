@@ -11,6 +11,11 @@ expect() {
 }
 expect false README.md
 expect false CHANGELOG.md CONTRIBUTING.md docs/decisions.md docs/concepts/enforcement-layers.md
+expect false docs/concepts/diagram.svg docs/img/flow.png
+expect true docs/tools/run.py
+expect true docs/data.json
+expect true docs/concepts/notes.txt
+expect true docs/Makefile
 expect true skills/proof-review/SKILL.md
 expect true roles/lead.md
 expect true control-plane/agents/GATES.md
