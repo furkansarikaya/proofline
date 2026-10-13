@@ -24,7 +24,7 @@
       "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
     },
     "blocking": { "type": "array", "items": { "type": "string" }, "description": "ids of blocking findings" },
-    "fix_scope": { "type": "array", "items": { "type": "string" }, "description": "FAIL only: unique finding paths without the line; * = any frozen scope path" },
+    "fix_scope": { "type": "array", "items": { "type": "string" }, "description": "FAIL only: unique finding paths without the line or symbol; * = any frozen scope path" },
     "info_count": { "type": "integer", "minimum": 0 },
     "blocked_reason": { "type": ["string", "null"] },
     "questions": { "type": "integer", "minimum": 0, "description": "numbered questions in the QUESTIONS: block" }

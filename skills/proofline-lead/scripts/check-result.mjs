@@ -53,7 +53,7 @@ export function parseFindings(lines) {
 }
 
 const pathOf = (p) => {
-  const s = p.replace(/:[0-9]+([-:][0-9]+)?$/, "").trim();
+  const s = p.replace(/:.*$/, "").trim();
   return s === "" || s === "-" ? "*" : s;
 };
 

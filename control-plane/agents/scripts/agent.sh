@@ -1699,6 +1699,9 @@ latest_finding_file() {
   done
   printf '%s\n' "$g_hit"
 }
+# A fix_scope entry is `path`, `path:line`, `path:line-line` or `path:symbol` (A77); it scopes to the path part.
+# Prints the entries of a comma list reduced to paths, one per line, whitespace trimmed, empties dropped.
+scope_entry_paths() { printf '%s\n' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/:.*$//' | sed '/^$/d'; }
 # A fix stays inside the union fix_scope of every failing record on the failing content.
 verify_fix_bound() {
   g_id=$1; gates_enforced "$g_id" || return 0
@@ -1713,11 +1716,11 @@ verify_fix_bound() {
       [ "$(gate_field "$g_o" result)" = fail ] && [ "$(gate_field "$g_o" fingerprint)" = "$g_fp" ] && g_scope="$g_scope,$(gate_field "$g_o" fix_scope)"
     done
   fi
-  [ "$(printf '%s' "$g_scope" | tr -d ', ')" != '*' ] || return 0
+  [ "$(scope_entry_paths "$g_scope" | tr -d '\n')" != '*' ] || return 0
   g_delta=$( { cat "${g_f%.yaml}.manifest"; patch_manifest "$g_id"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u )
   g_bad=''
   for g_p in $g_delta; do
-    printf '%s\n' "$g_scope" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -Fxq -- "$g_p" && continue
+    scope_entry_paths "$g_scope" | grep -Fxq -- "$g_p" && continue
     # A fix needs its regression test (tdd): a test path of the frozen scope is always inside the fix.
     if printf '%s\n' "$(section_value "$(run_dir "$g_id")" freeze scope_paths)" | tr ',' '\n' | grep -Fxq -- "$g_p" \
        && path_matches "$g_p" '**/test/** **/tests/** **/__tests__/** **/spec/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'; then continue; fi
@@ -1839,7 +1842,7 @@ write_gate() {
   wg_name=$(printf '%03d-%s' "$wg_seq" "$wg_gate")
   wg_scope=''
   if [ "$wg_res" = fail ]; then
-    wg_scope=$(awk -F'|' '$2 != "info" { p = $3; sub(/:[0-9]+([-:][0-9]+)?$/, "", p); gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); if (p == "" || p == "-") p = "*"; print p }' "$wg_findings" | sort -u | tr '\n' ',' | sed 's/,$//')
+    wg_scope=$(awk -F'|' '$2 != "info" { p = $3; sub(/:.*$/, "", p); gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); if (p == "" || p == "-") p = "*"; print p }' "$wg_findings" | sort -u | tr '\n' ',' | sed 's/,$//')
   fi
   patch_manifest "$wg_id" > "$wg_gd/$wg_name.manifest" || fail "could not write gate manifest"
   {
@@ -2764,8 +2767,9 @@ amend_run() {
   [ -n "$g_fscope" ] || fail "amend requires fix_scope (comma-separated paths the fix may touch)"
   if [ "$g_pchange" != yes ]; then
     g_maps=$(scope_mappings "$g_d/PLAN.md") || fail "invalid scope mapping"
-    for g_p in $(printf '%s' "$g_fscope" | tr ',' ' '); do authorized_path "$g_maps" "$g_p" || fail "fix_scope names a path outside the frozen scope: $g_p (add 'plan_change: yes' and follow with an amendment + refreeze if the plan itself must change)"; done
+    for g_p in $(scope_entry_paths "$g_fscope"); do authorized_path "$g_maps" "$g_p" || fail "fix_scope names a path outside the frozen scope: $g_p (add 'plan_change: yes' and follow with an amendment + refreeze if the plan itself must change)"; done
   fi
+  g_fscope=$(scope_entry_paths "$g_fscope" | paste -sd, -)
   g_patch=$(task_patch_fingerprint "$g_id"); g_seq=$(next_gate_seq "$g_id"); g_name=$(printf '%03d-REOPEN' "$g_seq"); g_gd=$(gates_dir "$g_id"); mkdir -p "$g_gd"
   patch_manifest "$g_id" > "$g_gd/$g_name.manifest" || fail "could not write reopen manifest"
   if [ -f "$g_d/COMPLETION_REPORT.md" ]; then cp "$g_d/COMPLETION_REPORT.md" "$g_gd/$g_name.completion-report.md"; fi
