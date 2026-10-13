@@ -591,7 +591,7 @@ sc_questions_keys() {
 
 sc_questions_grill() {
   scaffold orchestrated
-  mkdir -p .agents/runs/LC/reports .agents/runs/LC/design; printf '# notes\n' > .agents/runs/LC/reports/001-task_author.md; printf '# intent\n' > .agents/runs/LC/design/INTENT.md
+  mkdir -p .agents/runs/LC/reports .agents/runs/LC/design; printf '# notes\n' > .agents/runs/LC/reports/001-task_author.md; printf '# Intent\n\n## Status\n\nin-progress\n' > .agents/runs/LC/design/INTENT.md
   printf '1. Proceed?\n   options: yes | no\n   recommended: yes\n   why: it unblocks the tree\n' > "$base/gq.txt"
   # sg ROLE ARTIFACT TOKEN: a NEEDS_INPUT through the real `submit` (which snapshots the artifact before `record`)
   sg() { AS "$1" submit LC --result NEEDS_INPUT --confidence medium --artifact "$2" --questions "$base/gq.txt" --agent "$3"; }
@@ -602,6 +602,13 @@ sc_questions_grill() {
   # its rounds do not use up the role's own round; a non-grill second round is refused (C-14)
   sg task_author reports/001-task_author.md t1 >/dev/null || die "the task author's own first round was refused after intent-grill rounds"
   expect_msg "a second non-grill NEEDS_INPUT from the same role" 'already asked its questions in this run' sg task_author reports/001-task_author.md t2
+  # the exemption needs an interview in progress: a design/INTENT.md that is not in-progress is an ordinary round
+  printf '# Intent\n\n## Status\n\ncomplete\n' > .agents/runs/LC/design/INTENT.md
+  expect_msg "a task author NEEDS_INPUT with a finished INTENT.md was exempt" 'already asked its questions in this run' sg task_author design/INTENT.md c1
+  printf '# intent\n' > .agents/runs/LC/design/INTENT.md
+  expect_msg "a task author NEEDS_INPUT with a stub INTENT.md was exempt" 'already asked its questions in this run' sg task_author design/INTENT.md c2
+  printf '# Intent\n\n## Status\n\nin-progress\n' > .agents/runs/LC/design/INTENT.md
+  sg task_author design/INTENT.md g4 >/dev/null || die "an in-progress interview round was refused after the role's own round"
   # the exemption is the task author's: another role under design/ with the same artifact is bound by C-14
   sg architect design/INTENT.md a1 >/dev/null || die "the architect's first round was refused"
   expect_msg "an architect NEEDS_INPUT with design/INTENT.md was exempt" 'already asked its questions in this run' sg architect design/INTENT.md a2

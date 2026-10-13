@@ -1979,10 +1979,14 @@ record_validate() {
   # One round (C-14), keyed by role (+focus) per run, deliberately not per instance: a later instance of the role (a second explorer, a redispatched architect) decides or returns BLOCKED.
   # Exemption (A75): intent-grill's interview is multi-round; its rounds neither count nor are limited (and are not capped:
   # shortcut: unlimited rounds, the user's replies are the bound). Only the task author, and its artifact is design/INTENT.md
-  # or the immutable snapshot `submit` made of it (reports/snapshots/<sha12>-task_author-design_INTENT.md); other design/ roles never.
+  # or the immutable snapshot `submit` made of it (reports/snapshots/<sha12>-task_author-design_INTENT.md), whose `## Status` is in-progress; other design/ roles never.
+  # Residual: the task author writes that file and its status itself, so this is a trust convention checked by shape, not proof of an interview.
   rv_grill=no
   if [ "$rv_role" = task_author ]; then
-    case "$rv_ap" in design/INTENT.md|reports/snapshots/*-task_author-design_INTENT.md) rv_grill=yes ;; esac
+    case "$rv_ap" in design/INTENT.md|reports/snapshots/*-task_author-design_INTENT.md)
+      # the file itself must be an interview in progress (the snapshot is a copy of it): first line under `## Status` is in-progress
+      [ "$(awk '/^## Status[[:space:]]*$/ { s=1; next } s && NF { gsub(/[[:space:]]/, ""); print; exit }' "$rv_d/$rv_ap")" = in-progress ] && rv_grill=yes ;;
+    esac
   fi
   if [ "$rv_res" = NEEDS_INPUT ] && [ "$rv_grill" != yes ]; then
     for rv_qf in "$rv_d"/questions/[0-9][0-9][0-9].md; do
