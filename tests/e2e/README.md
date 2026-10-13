@@ -118,3 +118,19 @@ never in the fixtures or EXPECTED files.
 
 Fixed after the last rounds (covered by self-tests, not yet by an end-to-end run): shell writes after `cd` in the
 hook, the FINGERPRINT line in role texts, QA and test-trust write locations.
+
+## Capabilities the scenarios do not exercise yet (A91)
+
+The results above predate the capabilities added in A78-A90. The scenarios and their EXPECTED files were not
+changed for them. What the end-to-end harness does and does not exercise today:
+
+- Exercised by the existing runs: classification, freeze, gates, fix loop, approvals, the database guard, metrics
+  files being written (the harness snapshots `metrics`), and the Turkish chat report.
+- Not exercised by any scenario: the risk-adaptive pipeline signals and their focuses (contract, concurrency,
+  performance, visual, migration validation, dependencies, config), the `## Assumptions` freeze stop, UNSUPPORTED
+  results and the `## Unsupported Checks` report section, evidence-map `impact` mode, the ui-design and visual-proof
+  skills, `proofline insights` and the benchmark report over a run directory.
+- Covered elsewhere: the control-plane self-tests, `tests/skills`, and the known-answer `fixtures/*` with their
+  selfchecks (`sh tests/fixtures/check-fixtures.sh`); `node tests/benchmark/benchmark.mjs --e2e-dir DIR` can score a
+  run directory against EXPECTED once such runs exist.
+- Codex-only, mixed and failover configurations remain "not tested" as stated in the tables above.

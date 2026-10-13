@@ -34,5 +34,7 @@ Inside Claude Code the same commands are `/proofline status`, `/proofline run <T
 - When a gate FAILS, let the fix loop work (2 rounds by default). A waiver needs your explicit message per finding; security and secret findings cannot be waived.
 - After a runtime limit, open the other runtime and run `proofline resume`. See [failover](../concepts/failover.md).
 - Run `proofline doctor` after changing config or upgrading.
+- Read the completion report's `## Unsupported Checks` and `## Assumptions`: an UNSUPPORTED check was never a pass, and an unverified assumption is a risk you accepted or still carry. Evidence classes and their meaning: [evidence](../concepts/evidence.md).
+- Run `proofline insights` now and then: it reports where cost and repeated failures concentrate and changes nothing.
 
 More prompts: [prompt catalogue](prompt-catalogue.md). Concepts: [workflow](../concepts/workflow.md), [gates](../concepts/gates.md).

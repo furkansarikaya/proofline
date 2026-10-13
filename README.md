@@ -60,6 +60,33 @@ known-answer EXPECTED files, which no run has fully met yet.
 | Task adapters: Jira, Linear | — | not tested (argument checks only) | not tested |
 | Windows | — | not tested (use WSL or Git Bash) | not tested |
 
+## Capabilities and what tests them
+
+"Tested" below means a test that runs in CI or in `sh tests/selftest.sh`. "Tested on fixtures" means the check is
+exercised by planted data with known answers (`fixtures/*/EXPECTED.md`) and its validator or helper scripts, not by
+a model-driven team run in a real project. **No end-to-end team run has exercised any capability listed here yet**
+(the end-to-end results predate them); see [tests/e2e/README.md](tests/e2e/README.md).
+
+| Capability | Status |
+|---|---|
+| Risk-adaptive pipeline (`agent.sh pipeline`, focuses inside the existing gates) | tested (control-plane self-tests, `risk-signals` fixture) |
+| Assumption register (`## Assumptions`, freeze stop, completion report) | tested (self-tests, plan and evidence validators) |
+| Metrics (`records.jsonl`) and `proofline insights` | tested (self-tests, CLI test, `insights` fixture); tokens only where a runtime reports them |
+| evidence-map `impact` mode | tested on fixtures (`impact-map`, skill tests); static analysis limits stated in every report |
+| ui-design (creative direction, UX comparison, self-critique, `visual_proof` criteria) | tested on fixtures (`ui-design`, skill tests) |
+| visual-proof, report validator and depth rules | tested (skill tests on every pull request) |
+| visual-proof, browser measurement | tested locally with headless Chrome; a step on main/nightly CI (`fixtures/visual-proof/browser-check.sh`) that prints UNSUPPORTED on a runner without a Chromium-family browser |
+| contract-proof | tested on fixtures (`contract-proof`, skill tests); compatibility tools of real projects not exercised |
+| concurrency-proof | tested on fixtures (`concurrency-proof`, skill tests); a concurrent reproduction in a real project's test runner not exercised |
+| performance-proof | tested on fixtures (`performance-proof`, skill tests); not run against a real benchmark in CI |
+| data-design migration validation | tested on fixtures (`migration-validation`, skill tests); applying migrations to a project's own throwaway database not exercised |
+| SECURITY `dependencies` and REVIEW `config` | tested on fixtures (`dependency-audit`, `config-consistency`); a project's own audit tool not exercised |
+| Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every pull request; full report on main/nightly CI) |
+
+Skills and roles are counted from `skills/` (twenty-one method skills plus the `/proofline` entry skill) and
+`roles/` (eleven roles); `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep
+the generated references in step with them.
+
 ## Quick start (5 minutes)
 
 ```sh
@@ -110,7 +137,7 @@ FAIL for that reason. See [tests/e2e/README.md](tests/e2e/README.md) for every r
 
 ## Documentation
 
-- Concepts: [workflow](docs/concepts/workflow.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md)
+- Concepts: [workflow](docs/concepts/workflow.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md)
 - Guides: [daily use](docs/guides/daily-use.md), [existing project](docs/guides/existing-project.md), [task templates](docs/guides/task-templates.md), [writing an adapter](docs/guides/writing-an-adapter.md), [prompt catalogue](docs/guides/prompt-catalogue.md)
 - Turkish: [gunluk kullanim](docs/guides/tr/gunluk-kullanim.md), [prompt katalogu](docs/guides/tr/prompt-katalogu.md)
 - Reference: [skills](docs/reference/skills.md), [roles](docs/reference/roles.md), [design decisions](docs/decisions.md)
