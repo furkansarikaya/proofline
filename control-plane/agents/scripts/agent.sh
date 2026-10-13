@@ -1188,6 +1188,27 @@ verify_tests_findings() { # ID
   vt_out=$(node "$vt_s" "$vt_f" $vt_p 2>&1) || { printf '%s\n' "$vt_out" | tr '\n' ' '; return 1; }
 }
 
+# --- design-sync is not skipped silently (A65) --------------------------------------------------------
+# A VERIFY submission of a run whose plan changes what a configured design document describes (a UI section, a
+# Data section with content, Contracts other than none, where that document exists) needs design/SYNC.md, or a
+# VERIFY.md line `design-sync: SKIPPED (<reason>)`.
+verify_design_sync() { # ID
+  vs_d=$(run_dir "$1")
+  [ "$(pipeline_class "$1")" != TRIVIAL ] || return 0
+  [ -f "$vs_d/PLAN.md" ] || return 0
+  [ -f "$vs_d/design/SYNC.md" ] && return 0
+  [ ! -f "$vs_d/VERIFY.md" ] || ! grep -q 'design-sync: SKIPPED (' "$vs_d/VERIFY.md" || return 0
+  vs_need=no
+  for vs_k in data_model api architecture; do
+    vs_p=$(cfg "design_docs.$vs_k" ""); [ -n "$vs_p" ] && [ -f "$root/$vs_p" ] || continue
+    case "$vs_k" in
+      data_model) [ "$(awk '/^## Data[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF { n++ } END { print n + 0 }' "$vs_d/PLAN.md")" -gt 1 ] && vs_need=yes ;;
+      api) [ -n "$(awk '/^## Contracts[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF && tolower($0) !~ /^none/ { print; exit }' "$vs_d/PLAN.md")" ] && vs_need=yes ;;
+    esac
+  done
+  [ "$vs_need" = no ] || { echo "the plan changes what a design document describes: write design/SYNC.md (design-sync) or record 'design-sync: SKIPPED (<reason>)' in VERIFY.md"; return 1; }
+}
+
 # --- Scratch worktrees are removed before CODE_DONE (A53, C-18) -----------------------------------
 # Evidence worktrees live under $TMPDIR (or /tmp); a specialist that created one removes it. A scratch worktree
 # still registered when the run reaches CODE_DONE blocks it, with the paths and the way to remove them.
@@ -2109,6 +2130,9 @@ submit_result() {
     else [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions" > "$sb_tmp/questions.in"; fi
     sb_questions=$sb_tmp/questions.in
   fi
+  if [ "$execution_role" = verifier ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
+    sb_ds=$(verify_design_sync "$sb_id") || submit_fail "$sb_ds"
+  fi
   if [ "$execution_role" = reviewer ] && [ "$sb_focus" = tests ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
     sb_vt=$(verify_tests_findings "$sb_id") || submit_fail "findings.json of the tests review is not valid: $sb_vt"
   fi
@@ -2904,6 +2928,8 @@ report_tokens() {
   required_gates "$rt_id" | tr ' ' '\n' | grep .
   # A finished run is delivered only by the user: the report says that commit and push each await approval.
   case "$(run_state "$rt_d")" in CODE_DONE|DONE) printf '%s\n' commit push ;; esac
+  # The regression test evidence (RED then GREEN) is named in the report (STANDARD S-11).
+  if ls "$rt_d"/worker-evidence/RED-*.yaml >/dev/null 2>&1 && ls "$rt_d"/worker-evidence/GREEN-*.yaml >/dev/null 2>&1; then printf '%s\n' RED GREEN; fi
 }
 summary_run() {
   sm_id=${1:-}; [ -n "$sm_id" ] || sm_id=$(active_run); [ -n "$sm_id" ] || fail "no active task: pass a TASK-ID"; require_run "$sm_id"; sm_d=$(run_dir "$sm_id")

@@ -255,7 +255,7 @@ final_report_tokens() {
   to_code_done orchestrated
   stop_ev() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${2:-false},\"last_assistant_message\":\"$(jstr "$1")\"}"; }
   need=$(A report-tokens LC | tr '\n' ' ')
-  case "$need" in "CODE_DONE COMPLEX "*" commit push ") ;; *) die "A44-1 report-tokens: $need" ;; esac
+  case "$need" in "CODE_DONE COMPLEX "*" commit push RED GREEN ") ;; *) die "A44-1 report-tokens: $need" ;; esac
   ok "A44-1 report-tokens names the state, the class and every required gate: $need"
   out=$(stop_ev "Tüm kapılar geçti: gizli taraması, küçük inceleme ve doğrulama tamam. Teslim onayınızı bekliyorum.")
   printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-2 a translated report was accepted: $out"
