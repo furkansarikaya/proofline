@@ -40,10 +40,10 @@ task_branch() { # put the run on its own task branch, as `agent.sh branch` does
   awk '{ print } /^  base_sha:/ { print "  task_branch: proofline/LC-lookup" }' .agents/runs/LC/RUN.yaml > "$base/run.tmp" && mv "$base/run.tmp" .agents/runs/LC/RUN.yaml
   git checkout -q -b proofline/LC-lookup
 }
-needs_input() { # N TOKEN -> the explorer submits NEEDS_INPUT with its artifact and questions file
-  art=.agents/runs/LC/reports/00$1-explorer.md; mkdir -p .agents/runs/LC/reports; printf '# explorer %s\nquestion needed\n' "$1" > "$art"
+needs_input() { # N TOKEN [ROLE] -> the role (default explorer) submits NEEDS_INPUT with its artifact and questions file; one round per role (C-14)
+  nr=${3:-explorer}; art=.agents/runs/LC/reports/00$1-$nr.md; mkdir -p .agents/runs/LC/reports; printf '# %s %s\nquestion needed\n' "$nr" "$1" > "$art"
   printf '1. Which default does an empty key return?\n   options: nil | empty string\n   recommended: nil\n   why: AC-1 depends on it\n' > "$base/q$1.txt"
-  AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high --artifact "reports/00$1-explorer.md" --questions "$base/q$1.txt" >/dev/null
+  AGENT_ROLE=$nr sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high --artifact "reports/00$1-$nr.md" --questions "$base/q$1.txt" >/dev/null
 }
 
 lead_edits() {
@@ -311,7 +311,7 @@ questions() {
   printf 'nil\n' | A answer LC 1 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/001.answer.md || die "an answer without a user prompt was not attributed to the lead"
   ok "NEEDS_INPUT answered without a user prompt -> answered_by lead"
-  needs_input 2 q2; sub_stop proofline-explorer q2 >/dev/null
+  needs_input 2 q2 architect; sub_stop proofline-architect q2 >/dev/null
   prompt 'please use nil for the empty key'
   printf 'nil for the empty key\n' | A answer LC 2 >/dev/null
   grep -q '^answered_by: user' .agents/runs/LC/questions/002.answer.md || die "the user's captured answer was not attributed to the user"

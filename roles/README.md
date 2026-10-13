@@ -102,6 +102,14 @@ QUESTIONS:
    why: <what depends on the answer>
 ```
 
-The lead relays the block verbatim and restarts the role with an `ANSWERS` block; the role resumes from its
-artifacts. A gate evaluation never asks: what blocks it is `RESULT: BLOCKED` with `BLOCKED_REASON`. The QA plan
+One round only: a role gathers every open question first and returns them together, numbered, in one NEEDS_INPUT
+result; `submit` rejects a second NEEDS_INPUT from the same role in the same run. The script rule applies to results
+submitted inside a run (after `agent.sh start`); the pre-run intake (the task author, and intent-grill's own
+interview rounds) is outside it and bound only by its own protocol, where the task author asks all of an
+ordinary request's questions in one list. The limit is per role per run, on purpose: a later instance of the role
+(a second explorer on another slice, an architect redispatched after a failed gate) has no second round either;
+it decides with its recommended option and says so, or returns BLOCKED with the reason. The lead relays the block
+verbatim and restarts the role with an `ANSWERS` block; the role resumes from its artifacts and never returns
+NEEDS_INPUT again: it decides with the recommended option it offered (and says so) or returns BLOCKED with the
+reason. intent-grill's interview (a NEEDS_INPUT with `ARTIFACT: design/INTENT.md`, one question per round) is exempt: it is not counted and not limited, and it does not use up the task author's own round (A75). The lead's own `agent.sh ask` is not limited by this rule (its questions arise at separate decision points). A gate evaluation never asks: what blocks it is `RESULT: BLOCKED` with `BLOCKED_REASON`. The QA plan
 step (before FREEZE) is a task step: it returns `DONE`, `BLOCKED` or `NEEDS_INPUT` with `ARTIFACT: QA_PLAN.md`.

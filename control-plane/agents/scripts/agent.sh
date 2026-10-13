@@ -1976,6 +1976,16 @@ record_validate() {
   known_control_artifact "$rv_id" ".agents/runs/$rv_id/$rv_ap" || { record_reject "ARTIFACT is not a registered run artifact: $rv_ap"; return 1; }
   artifact_allowed "$rv_role" "$rv_kind" "$rv_focus" "$rv_ap" || { record_reject "ARTIFACT $rv_ap is outside the paths $rv_role${rv_focus:+ (FOCUS $rv_focus)} reports in: $(artifact_paths "$rv_role" "$rv_kind" "$rv_focus")"; return 1; }
   [ "$(hash_file "$rv_d/$rv_ap")" = "$rv_as" ] || { record_reject "ARTIFACT sha256 mismatch for $rv_ap"; return 1; }
+  # One round (C-14), keyed by role (+focus) per run, deliberately not per instance: a later instance of the role (a second explorer, a redispatched architect) decides or returns BLOCKED.
+  # Exemption (A75): intent-grill's interview (artifact design/INTENT.md) is multi-round; its rounds neither count nor are limited.
+  if [ "$rv_res" = NEEDS_INPUT ] && [ "$rv_ap" != design/INTENT.md ]; then
+    for rv_qf in "$rv_d"/questions/[0-9][0-9][0-9].md; do
+      [ -f "$rv_qf" ] || continue
+      [ "$(gate_field "$rv_qf" from)" = "$rv_role" ] && [ "$(gate_field "$rv_qf" focus)" = "$rv_focus" ] || continue
+      [ "$(gate_field "$rv_qf" artifact)" != design/INTENT.md ] || continue
+      record_reject "the $rv_role role already asked its questions in this run (questions/${rv_qf##*/}); a later instance of the role decides with its recommended option and says so, or returns BLOCKED with the reason"; return 1
+    done
+  fi
   parse_findings "$rv_t/raw" > "$rv_t/findings"
   ! grep -qx MALFORMED "$rv_t/findings" || { record_reject "malformed findings row (want | id | severity | path:line | finding | evidence |)"; return 1; }
   ! grep -qx NO_FINDINGS_PLACEHOLDER "$rv_t/findings" || { record_reject "no findings: omit rows, keep only the table header"; return 1; }
@@ -2008,7 +2018,7 @@ record_apply() {
   fi
   if [ "$ra_res" = NEEDS_INPUT ]; then
     mkdir -p "$ra_d/questions"; ra_q=$(next_num "$ra_d/questions")
-    { printf 'from: %s\nresult: %s\nasked_at: %s\n---\n' "$ra_role" "$ra_raw" "$(now_epoch)"; cat "$ra_t/questions"; } > "$ra_d/questions/$ra_q.md"
+    { printf 'from: %s\nfocus: %s\nartifact: %s\nresult: %s\nasked_at: %s\n---\n' "$ra_role" "$ra_focus" "$(m artifact)" "$ra_raw" "$(now_epoch)"; cat "$ra_t/questions"; } > "$ra_d/questions/$ra_q.md"
     if section_key_present "$ra_d" execution awaiting_input; then set_run_value "$ra_id" execution awaiting_input true; fi
   fi
   if gates_enforced "$ra_id"; then ledger_append "$ra_id" "record:$ra_role:$ra_res" - - "$ra_raw sha256=$ra_sha${ra_gate:+ gate=$ra_gate}"; fi

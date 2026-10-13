@@ -34,7 +34,13 @@ message; continue other steps of the run.
    as the user wrote it: no paraphrase, no line of your own, no option letter you chose; a blanket reply stays
    that reply; the freeze compares recorded answers with the captured prompts)
    and the original assignment's other keys ([DISPATCH.md](DISPATCH.md#2-the-assignment)). The specialist
-   resumes from its artifacts.
+   resumes from its artifacts. It never asks again in the run: `submit` rejects a second NEEDS_INPUT from the
+   same role (one round only; the limit is per role per run, so a later instance of the role has none either);
+   it decides with the recommended option it offered and says so, or returns BLOCKED. The rule is enforced by
+   the script for results submitted inside a run (after `agent.sh start`); the pre-run intake (task author,
+   intent-grill's own interview rounds) is bound only by its own protocol. Inside a run intent-grill's interview
+   (artifact `design/INTENT.md`) is exempt from the one-round rule and may ask one question per round for as many
+   rounds as the tree needs (A75).
 
 ## 3. The lead's own questions
 
@@ -42,7 +48,9 @@ Plan approval, destructive approval, scope change, waiver and commit/push use `A
 <kind>` (kinds `plan`, `destructive`, `scope`, `commit`, `push`, `waive:<FINDING-ID>`); its output is the
 question; relay it verbatim and STOP. A question the lead must ask without a `request-approval` kind
 (choosing between two plans, a scope change with options, opening a PR) is the same block, written in
-English (it is stored in the run), stored with `A ask <ID>` (block on stdin, or `--file .agents/local/assignments/<ID>/<file>`):
+English (it is stored in the run), stored with `A ask <ID>` (block on stdin, or `--file .agents/local/assignments/<ID>/<file>`).
+Gather every open question of one decision point first and ask them together, numbered, in one `A ask`; the
+user's replies are limited, so never split one decision point over several asks:
 
 ```
 QUESTIONS:
