@@ -1,6 +1,6 @@
 ---
 name: data-design
-description: Designs the data side of a change for the project's actual database - data model, Mermaid ERD, invariants, and a migration plan with expand/contract steps, batched idempotent resumable backfill, reversibility and rollback per step, lock risk per statement, and a data-loss assessment. Classifies every planned or implemented statement mechanically (scripts/classify-migration.mjs); a destructive migration makes the task CRITICAL and stops for user approval. Also reverse-engineers docs/design/DATA_MODEL.md from an existing schema, and, as the REVIEW_DATA focus, checks implemented migrations against the frozen PLAN "## Data". Use when persistence or schema changes, on "/proofline design data", or for a data review gate.
+description: Designs the data side of a change for the project's actual database - data model, Mermaid ERD, invariants, and a migration plan with expand/contract steps, batched idempotent resumable backfill, reversibility and rollback per step, lock risk per statement, and a data-loss assessment. Classifies every planned or implemented statement mechanically (scripts/classify-migration.mjs); a destructive migration makes the task CRITICAL and stops for user approval. Also reverse-engineers docs/design/DATA_MODEL.md from an existing schema, and, as the REVIEW_DATA focus, checks implemented migrations against the frozen PLAN "## Data" and validates them on the test suite's own throwaway database (UNSUPPORTED without one). Use when persistence or schema changes, on "/proofline design data", or for a data review gate.
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -60,6 +60,11 @@ this `SKILL.md`.
   [DATA_MODEL.template.md](assets/DATA_MODEL.template.md).
 - **review** (dispatched as reviewer with `FOCUS: data`, gate `REVIEW_DATA`): implemented migrations vs the
   frozen PLAN `## Data` ([REVIEW.md](references/REVIEW.md)).
+- **migration validation** (dispatched as reviewer with `FOCUS: migration`, still gate `REVIEW_DATA`, A84):
+  applies the changed migrations only on a throwaway database the project's own test infrastructure creates,
+  rolls back when a down migration exists, compares schema snapshots and seed rows, and reports lock,
+  long-run, pattern and mixed-version risks ([MIGRATION-VALIDATION.md](references/MIGRATION-VALIDATION.md)).
+  No throwaway-database capability is `UNSUPPORTED`, never PASS. Writes only `reviews/data-migration/REPORT.md`.
 
 ## Standalone vs team
 
@@ -120,6 +125,17 @@ classifier's JSON follows [classification.schema.json](schema/classification.sch
 mis-declared statement, missing rollback or lock, planned step missing, deferred step present, plan/diff
 destructive mismatch); exit 2 -> BLOCKED. `CONFIDENCE: high` when every changed migration was classified with
 `method: sql`, `medium` when any used `token-scan`. Plan and reverse modes record no gate.
+
+## Migration validation rule (focus `migration`)
+
+Database safety first: the only database ever touched is one the test suite itself creates; no connection
+string from env or config; destructive statements are never executed, not even there (hard rule 3; the
+runtime hook is authoritative). Run `scripts/migration-check.mjs` (`scan`, `diff`, `data`: text and dump files
+only), write `REPORT.md`, then `node <skill-dir>/scripts/validate-migration.mjs <REPORT.md>`: exit 0 and its
+`status:` line give the result (PASS, FAIL, or UNSUPPORTED when there is no throwaway database, a check could
+not run or a migration was not applied); evidence classes `measured` / `traced` can fail the gate, `judged`
+ones are `warn` unless they cite a written spec or plan criterion. The agent never deploys; the rollback plan
+stays in `## Rollback` and the completion report.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)
