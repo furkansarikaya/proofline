@@ -2693,7 +2693,7 @@ metrics_run() { # ID OUTCOME
 }
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
 #   DELEGATIONS FIX_ROUNDS RESULT -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
-#   by the control plane from its own state and the runtime's structured output, never from model text.
+#   by the control plane from its own state and the runtime's structured output; no model-written text is copied in.
 #   Empty or "-" is null; a number field that is not digits is null; strings are cut to [A-Za-z0-9._+:-], so a
 #   record can never carry free text (and so never a secret). `metrics: off` writes nothing.
 metrics_json() {

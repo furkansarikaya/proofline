@@ -174,7 +174,7 @@ seq_n=$(find "$run/dispatch" -name '*.log' 2>/dev/null | wc -l | tr -d ' '); seq
 mkdir -p "$run/results" "$run/dispatch"
 work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX")
 
-# Metrics (A80): one `agent.sh metrics-dispatch` record per dispatch, written on every exit path. Duration is this
+# Metrics (A80): one `agent.sh metrics-dispatch` record per dispatch, written on every exit after the first attempt starts (usage errors before it write none). Duration is this
 # script's own clock; tokens and turns are read from the runtime's structured output trailer (claude --output-format
 # json: usage.input_tokens/output_tokens, num_turns; codex exec: its "tokens used" trailer). Absent = empty = null,
 # never estimated. `metrics: off` is honoured by agent.sh. Never changes the exit status.
@@ -184,17 +184,16 @@ num_first() { grep -o "\"$1\":[[:space:]]*[0-9][0-9]*" "$log" 2>/dev/null | head
 add_n() { # VALUE ACCUMULATOR-VALUE : sum when VALUE is a number, else keep the accumulator
   case "$1" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$(( ${2:-0} + $1 ))" ;; esac
 }
-harvest() { # after one attempt: count it and add what the runtime reported
-  attempts=$((attempts + 1))
+harvest() { # after one attempt: add what the runtime reported
   [ -z "$tmpl" ] && [ -f "$log" ] || return 0
   case "$rt" in
     claude)
       m_in=$(add_n "$(num_last input_tokens)" "$m_in"); m_out=$(add_n "$(num_last output_tokens)" "$m_out")
       m_turns=$(add_n "$(num_first num_turns)" "$m_turns") ;;
     codex)
-      m_tot=$(add_n "$(awk 'f { s = $0; gsub(/[^0-9]/, "", s); if (s != "") v = s; f = 0 }
+      m_tot=$(add_n "$(grep -v "^[[:space:]]*$" "$log" 2>/dev/null | tail -n 3 | awk 'f { s = $0; gsub(/[^0-9]/, "", s); if (s != "") v = s; f = 0 }
         tolower($0) ~ /tokens used/ { s = $0; sub(/.*[Uu]sed/, "", s); gsub(/[^0-9]/, "", s); if (s != "") v = s; else f = 1 }
-        END { print v }' "$log" 2>/dev/null)" "$m_tot") ;;
+        END { print v }')" "$m_tot") ;;
   esac
 }
 finish() {
@@ -211,6 +210,7 @@ trap finish EXIT
 
 # attempt RUNTIME-OVERRIDE : sets $status (0 ok, 124 timeout, other failure), $rt, $out, $log
 attempt() {
+  attempts=$((attempts + 1))
   set --
   [ -n "$focus" ] && set -- "$@" --focus "$focus"
   [ -n "$o_model" ] && set -- "$@" --model "$o_model"

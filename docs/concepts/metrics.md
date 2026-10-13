@@ -9,16 +9,17 @@ Two files:
 - `history.tsv` — one flat line per recorded specialist step and per finished run
   (`time task role runtime model duration_s outcome`). Kept for simple readers.
 - `records.jsonl` — versioned records, one JSON object per line. This is the schema consumed by
-  `proofline insights`.
+  `proofline insights` (intended; not implemented yet).
 
 ## Who writes a record
 
-Only the control plane, from its own state and the runtime's structured output. Never from model text:
-a role cannot write, edit or influence a record, and `agent.sh metrics-dispatch` is lead-only.
+The control plane, from its own state and the runtime's structured output; no model-written text is copied into a
+record. `dispatch` records come from the lead's `dispatch.sh` call by convention: `agent.sh metrics-dispatch` is a
+lead-only command, but `AGENT_ROLE` is a declared claim, so the trust is the same as for `ledger-note`.
 
 | `kind` | Written by | When |
 |---|---|---|
-| `dispatch` | `dispatch.sh` through `agent.sh metrics-dispatch` | one per `dispatch.sh` call, on every exit path (submitted, failed, timeout, blocked, needs_input) |
+| `dispatch` | `dispatch.sh` through `agent.sh metrics-dispatch` | one per `dispatch.sh` call once its first attempt has started (submitted, failed, timeout, blocked, needs_input); a call that exits on a usage error before any attempt writes none |
 | `step` | `agent.sh` (`submit` / `record`) | one per recorded specialist result |
 | `run` | `agent.sh` (`handoff DONE`, `terminate`) | once when the run ends |
 
@@ -63,11 +64,13 @@ record carries cost, the `step` record carries the gate verdict.
 ## Rules
 
 - **Tokens and turns are never estimated.** Claude's `--output-format json` result (`usage`, `num_turns`) and Codex's
-  `tokens used` trailer are read when present. A runtime that reports nothing (a command-template runtime, a
+  `tokens used` trailer (only within the last non-empty lines of the runtime log) are read when present. A runtime that reports nothing (a command-template runtime, a
   crashed process, a runtime version without the field) leaves the keys `null`. `null` is not zero: sum only the
   non-null values and report how many records had none.
-- **No free text, no secrets.** Strings are reduced to `[A-Za-z0-9._+:-]`; findings, prompts, results and file
-  paths never enter a record. The directory is git-ignored (`.agents/local/`) and `proofline clean` removes it.
+- **No free text.** Findings, prompts, results and file paths are never written. Identifier strings (task, role,
+  focus, gate, runtime, model, result) are reduced to the characters `[A-Za-z0-9._+:-]`, so a record holds short
+  identifiers and numbers only. This limits what can leak; it is not a secret scanner. The directory is
+  git-ignored (`.agents/local/`) and `proofline clean` removes it.
 - **`metrics: off`** writes neither file, from `agent.sh` or `dispatch.sh`. Existing files are left alone.
 - **Metrics never change a decision.** The execution policy (`exec-policy.sh`) does not read them (A80):
   routing stays a pure function of class, tier, profile, role and signals, and quality and security rules cannot be

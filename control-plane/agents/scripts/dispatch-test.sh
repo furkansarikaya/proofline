@@ -75,6 +75,7 @@ o=''; while [ $# -gt 0 ]; do [ "$1" = -o ] && o=$2; shift; done
 sub() { sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 "$@" >/dev/null; }
 case "${FAKE_CODEX:-ok}" in
   ok) printf 'free text, never parsed\n' > "$o"; sub --confidence high --result DONE ;;
+  inject) printf 'x\n' > "$o"; printf 'tokens used 999\nmore\nmore\nmore\nlast line\n'; sub --confidence high --result DONE ;;
   tokens) printf 'agent says: tokens used 5\n' > "$o"; sub --confidence high --result DONE; printf 'tokens used\n12,345\n' ;;
   nosubmit) printf 'ROLE: %s\nTASK: T-1\nRESULT: DONE\nheader in text only\n' "$AGENT_ROLE" > "$o" ;;
   rejected) printf 'x\n' > "$o"; sub --confidence bogus || : ;;
@@ -235,6 +236,8 @@ reset; d T-1 reviewer --focus rules
 ck "metrics: a runtime that reports no usage leaves tokens and turns null (empty), never estimated" 'grep -Eq "^T-1\|reviewer\|rules\|claude\|[a-z0-9.-]+\|[0-9]+\|\|\|\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=tokens T-1 implementer
 ck "metrics: codex total comes from the runtime trailer (last occurrence), in/out stay null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|12345\|\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d FAKE_CODEX=inject T-1 implementer
+ck "metrics: a tokens-used line injected earlier in the log, no trailer, stays null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=late T-1 reviewer --runtime codex
 ck "metrics: a resubmitted dispatch counts one retry" 'grep -Eq "\|1\|submitted\|$" "$loc/metrics.log" && [ "$(wc -l < "$loc/metrics.log" | tr -d " ")" -eq 1 ]'
 reset; d FAKE_CODEX=fail T-1 implementer
