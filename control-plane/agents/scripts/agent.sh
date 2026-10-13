@@ -736,8 +736,8 @@ plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: ye
 # globs), so a mid-run edit of any of them is refused. Empty security and contract keys are left out, so a config
 # that does not set them hashes as before.
 risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true; }
-# Minimal duplicate of contract-proof's NOT_A_CONTRACT (skills stay standalone; keep in sync by hand, A92).
-risk_not_contract='(^|/)(package(-lock)?\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|\.eslintrc[^/]*|\.prettierrc[^/]*|biome\.jsonc?|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|docker-compose[^/]*\.ya?ml|compose\.ya?ml)$|^\.github/(workflows|actions)/|^(\.vscode|\.idea|\.agents|\.devcontainer)/'
+# Verbatim copy of contract-proof's NOT_A_CONTRACT (skills stay standalone; risk-test asserts equality, A92).
+risk_not_contract='(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|openapi-generator-config\.ya?ml|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^\.github\/(workflows|actions|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)\/|^\.github\/(dependabot|labeler|release|stale|FUNDING|config)\.ya?ml$|^(\.vscode|\.idea|\.agents|\.devcontainer)\/'
 risk_names() { risk_config | awk -F= '$1 ~ /^risk\.[a-z_]+\.(paths|content)$/ && $2 != "" { split($1, p, "."); print p[2] }' | sort -u; }
 # risk_compute ID -> "name|source|path|why" lines (source diff|scope|plan). Plain documentation (.md .mdx .rst
 # .adoc) never carries a path or content signal: a guide named like a migration is not one.
@@ -3185,7 +3185,7 @@ next_step() {
             done
           done
         done
-        if [ "$ns_scr" -gt 0 ] && [ "$ns_oth" -eq 0 ]; then o "the implementer cannot clear these: only UNSUPPORTED or missing-flag findings fail (waive them, or amend PLAN.md and refreeze)"
+        if [ "$ns_scr" -gt 0 ] && [ "$ns_oth" -eq 0 ]; then o "the implementer cannot clear these: only UNSUPPORTED or missing-flag findings fail (waive them, or amend PLAN.md and refreeze)"; o "agent.sh terminate $ns_id BLOCKED (reason and evidence on stdin), if the user declines the waiver and the plan cannot be amended"
         elif [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"
         else o "agent.sh terminate $ns_id FAILED (reason and evidence on stdin)"; fi
         r "failing gates:$ns_fail"

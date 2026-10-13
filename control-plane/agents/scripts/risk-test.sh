@@ -89,10 +89,18 @@ sc_flags() {
   expect_msg "an invalid ## Risk line was frozen" "PLAN.md '## Risk' holds only flag lines" A freeze LC
   # tier small: the contract focus is carried by REVIEW_SMALL
   rrun STANDARD 'api/openapi.yaml' "$(printf '%s\n' '' '## Risk' '' 'contract_change: yes')"
+  sed 's/^  small_max_files: 2/  small_max_files: 4/' .agents/config.yaml > "$base/cfg.small"; cp "$base/cfg.small" .agents/config.yaml   # room for the run's own scope files
+  git add -A; git commit -qm 'small tier room'
+  sed "s/^  base_sha:.*/  base_sha: \"$(git rev-parse HEAD)\"/" .agents/runs/LC/RUN.yaml > "$base/run.base"; cp "$base/run.base" .agents/runs/LC/RUN.yaml
   A classify LC STANDARD review >/dev/null; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
   mkdir -p api; printf 'openapi: 3.0.0\n' > api/openapi.yaml   # one exempt file: tier small
   snap; [ "$(pv tier)" = small ] || die "tier is $(pv tier), want small"
   has 'check=REVIEW_SMALL:contract'; has 'focus.REVIEW_SMALL.contract=missing'
+  # A92 (F8): the metrics record of a contract focus at tier small names REVIEW_SMALL, not REVIEW_RULES
+  implement api/openapi.yaml 'openapi: 3.0.0'
+  mkdir -p .agents/runs/LC/reviews/contract-proof; printf '# contract\n\nNo breaking change found.\n' > .agents/runs/LC/reviews/contract-proof/REPORT.md
+  AS reviewer submit LC --focus contract --confidence high --artifact reviews/contract-proof/REPORT.md >/dev/null
+  grep -Fq '"focus":"contract","gate":"REVIEW_SMALL"' .agents/local/metrics/records.jsonl || die "metrics gate label at tier small: $(cat .agents/local/metrics/records.jsonl 2>/dev/null)"
   # TRIVIAL has no QA gate: a ui signal names no gate instead of inventing one
   rrun TRIVIAL ''; rm -f .agents/runs/LC/EVIDENCE.md .agents/runs/LC/QA_PLAN.md
   printf '<p></p>\n' > page.html
@@ -256,6 +264,8 @@ sc_contract_content_edit() {
   mkdir -p spec; printf 'openapi: 3.0.0\npaths:\n  /a:\n    get: {}\n  /b:\n    get: {}\n' > spec/service.yaml
   printf '{ "compilerOptions": {} }\n' > tsconfig.json
   git add -A; git commit -qm 'add spec and tsconfig'
+  # the run's base is the commit that holds the contract, so the edit below is an edit of a file that exists at base
+  sed "s/^  base_sha:.*/  base_sha: \"$(git rev-parse HEAD)\"/" .agents/runs/LC/RUN.yaml > "$base/run.base"; cp "$base/run.base" .agents/runs/LC/RUN.yaml
   printf 'openapi: 3.0.0\npaths:\n  /a:\n    get: {}\n' > spec/service.yaml
   snap
   has 'diff:spec/service.yaml(content '; has 'focus.REVIEW_RULES.contract=missing'
@@ -304,8 +314,19 @@ sc_dependency_manifests() {
   ok "dependency manifests: every manifest and lockfile the dependency diff reads is a SECURITY:dependencies signal; documentation is not"
 }
 
+# Drift guard (A92): the control plane's not-a-contract list is a verbatim copy of contract-proof's.
+sc_not_contract_drift() {
+  cp_re=$(sed -n "s/^risk_not_contract='\(.*\)'\$/\1/p" "$(dirname "$0")/agent.sh")
+  sk=$(dirname "$0")/../../../skills/contract-proof/scripts/diff-contract.mjs
+  [ -f "$sk" ] || { ok "not-a-contract drift guard skipped (skill source not present)"; return 0; }
+  sk_re=$(sed -n 's#^export const NOT_A_CONTRACT = /\(.*\)/i;$#\1#p' "$sk")
+  [ -n "$cp_re" ] && [ "$cp_re" = "$sk_re" ] || die "risk_not_contract drifted from contract-proof NOT_A_CONTRACT"
+  ok "not-a-contract list equals contract-proof's"
+}
+
 run_sc sc_mapping
 run_sc sc_dependency_manifests
+run_sc sc_not_contract_drift
 run_sc sc_contract_content
 run_sc sc_contract_content_edit
 run_sc sc_migration_small
