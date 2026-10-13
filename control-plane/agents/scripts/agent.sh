@@ -2798,6 +2798,7 @@ required_report_headings() {
   if printf '%s\n' "$rh_g" | grep -Eq '^(REVIEW_|SECURITY)'; then printf '## Review Result\n'; fi
   if printf '%s\n' "$rh_g" | grep -Fxq QA; then printf '## QA Result\n'; fi
   if [ -d "$dir/worker-evidence" ]; then printf '## TDD Evidence\n'; fi
+  if ls "$dir"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1; then printf '## Root cause\n'; fi
   if [ -n "$(ls -A "$dir/amendments" 2>/dev/null)" ]; then printf '## Amendments\n'; fi
   if ls "$dir"/gates/*-REOPEN.yaml >/dev/null 2>&1; then printf '## Reopen History\n'; fi
   if ls "$dir"/waivers/*.yaml >/dev/null 2>&1; then printf '## Waivers\n'; fi

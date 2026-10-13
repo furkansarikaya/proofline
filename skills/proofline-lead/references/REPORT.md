@@ -33,6 +33,7 @@ from run evidence; nothing is inferred or invented.
 | Section | Source |
 |---|---|
 | Implementation Summary | PLAN.md scope paths and the final diff stat against `repository.base_sha` |
+| Root cause | the implementer's `reports/NNN-debug.md` (defect tasks only) |
 | TDD Evidence | `worker-evidence/` (RED/GREEN per scope path, exemptions from PLAN.md) |
 | Verification | `VERIFY.md` header (result, confidence) and `## Verification commands` |
 | Review Result | `A pipeline <ID>` final statuses; per gate: result, confidence, fix round, finding ids; `pass_low` is listed as not counted |
@@ -42,9 +43,20 @@ from run evidence; nothing is inferred or invented.
 | Amendments, Reopen History | `amendments/`, ledger |
 | Known Limitations / Follow-up | open `info` findings, follow-up tasks from waivers |
 
+### Root cause (defect tasks)
+
+When the task fixes a defect (TASK.md or PLAN.md carries a defect word, the same check as the implementer's
+debug-proof, A35/A61/A67), `COMPLETION_REPORT.md` has a `## Root cause` section of exactly one sentence that
+names the function or symbol at fault and what it did wrong (for example: `paginate` rounds the page count
+with `Math.floor` where `Math.ceil` is needed). The sentence comes from the debug-proof result, not from the
+diff. The regression test and the gates stay in their own sections. The final message to the user repeats the
+same sentence, then the regression test, the gates, and that commit and push await the user's approval.
+`A publish-completion-report` requires the section when `reports/NNN-debug.md` exists.
+
 ## 3. Final report to the user
 
 In the user's language, after cleanup or at a terminal state: outcome (DONE, FAILED, BLOCKED), branch,
 gates (each: pass, waived with id, failed with open finding ids), fix rounds used, which model on which
 runtime did what (from `## Execution`), waivers, failovers, and the next action the user can take
-(deliver, review the open findings, answer a question). No raw output.
+(deliver, review the open findings, answer a question). For a defect task it also gives the one-sentence
+root cause of section 2 and the regression test. No raw output.

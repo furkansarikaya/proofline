@@ -5,6 +5,10 @@ requires the sections that apply to the run; a missing one FAILS `publish-comple
 
 ## Implementation Summary
 
+## Root cause
+
+(defect task: a debug-proof result exists) One sentence: the function or symbol at fault and what it did wrong.
+
 ## TDD Evidence
 
 (when worker evidence exists) RED/GREEN per scope path, by the expected implementation owner.

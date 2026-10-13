@@ -9,6 +9,10 @@ adapter before DONE. Omit a conditional section only when its condition does not
 - Task: <TASK-ID> — <title>; class <CLASS>; tier <docs|small|full>; branch `<task branch>`
 - Changed: <scope path> (<AC ids>), ...
 
+## Root cause
+
+(defect task: a debug-proof result exists) <one sentence: `<function or symbol>` <what it did wrong>; the regression test stays in TDD Evidence>
+
 ## TDD Evidence
 
 (when worker evidence exists)
