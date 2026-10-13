@@ -412,7 +412,7 @@ test("validator CLI rejects a run document with the wrong gate and accepts the r
 });
 
 test("the schema declares the run fields", () => {
-  assert.deepEqual(SCHEMA.properties.focus.enum, ["plan", "rules", "bugs", "rules+bugs", "rules+tests", "all"]);
+  assert.deepEqual(SCHEMA.properties.focus.enum, ["plan", "rules", "bugs", "rules+bugs", "rules+tests", "config", "all"]);
   assert.ok(SCHEMA.properties.gate && SCHEMA.properties.run && SCHEMA.properties.plan_deviations && SCHEMA.properties.evidence_pruned);
   assert.ok(SCHEMA.properties.claims.items.properties.source.enum.includes("plan"));
   assert.ok(SCHEMA.properties.bugs.items.properties.reproduction.properties.source);

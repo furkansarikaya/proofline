@@ -1,6 +1,6 @@
 ---
 name: proof-review
-description: Reviews a code change (uncommitted work, a branch, or a PR) and reports only what it can prove. First checks whether the change does what it says, using claims taken from the user, the PR description, linked issues, and commit messages, never inferred from the code. Then checks the change against the team's written project rules (CLAUDE.md, AGENTS.md, Cursor and Copilot rules, CONTRIBUTING.md, ADRs), reporting only checkable rules the diff newly breaks. Then hunts bugs in the changed code and its direct callers, reporting a bug only when a temporary test reproduced it in a separate git worktree or a concrete input was traced line by line. Style, naming, suggestions, and severity scores are out of scope. Never fixes code. Inside a proofline run the intent source is the frozen PLAN.md (each acceptance criterion is a claim, any changed path outside its scope is unrequested), a focus parameter (plan, rules, bugs, rules+tests, all) selects what is reviewed, and the gate result is computed by a rule. Use when the user asks to review a change, PR, branch, or uncommitted work with proof, or when the proofline lead dispatches a review focus.
+description: Reviews a code change (uncommitted work, a branch, or a PR) and reports only what it can prove. First checks whether the change does what it says, using claims taken from the user, the PR description, linked issues, and commit messages, never inferred from the code. Then checks the change against the team's written project rules (CLAUDE.md, AGENTS.md, Cursor and Copilot rules, CONTRIBUTING.md, ADRs), reporting only checkable rules the diff newly breaks. Then hunts bugs in the changed code and its direct callers, reporting a bug only when a temporary test reproduced it in a separate git worktree or a concrete input was traced line by line. Style, naming, suggestions, and severity scores are out of scope. Never fixes code. Inside a proofline run the intent source is the frozen PLAN.md (each acceptance criterion is a claim, any changed path outside its scope is unrequested), a focus parameter (plan, rules, bugs, rules+tests, all, config) selects what is reviewed, and the gate result is computed by a rule. The `config` focus checks config consistency of the diff: variables used but undocumented, plain-text secrets in config files and feature-flag defaults. Use when the user asks to review a change, PR, branch, or uncommitted work with proof, or when the proofline lead dispatches a review focus.
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -34,6 +34,7 @@ Talk to the user in their language. Inside a run, `REPORT.md` is English. Write 
 | `rules+bugs` | The full tier's `REVIEW_RULES` reviewer: project rules plus the bug hunt over the whole diff (the result header says `FOCUS: rules`) | 1-4, 7-12 | yes, in a worktree |
 | `rules+tests` | The small tier's single reviewer: project rules, plus a bug hunt limited to the changed tests' units ([BUGS.md](references/BUGS.md#1-candidates)) | 1-4, 7-12 | yes, in a worktree |
 | `all` (default outside a run) | Everything, in the order intent, rules, bugs | 1-12 | yes, in a worktree |
+| `config` | Risk focus (A78, A88) inside REVIEW_RULES / REVIEW_SMALL: config consistency of the diff ([CONFIG.md](references/CONFIG.md)); follows [Config focus](#config-focus), not the steps below | see below | no |
 
 A focus never reports the series of another focus (the validator rejects a `findings.json` that does): `plan` reports claims, unrequested changes and plan deviations; `rules` reports rule violations; `bugs` reports bugs; `rules+bugs` and `rules+tests` report rule violations and bugs. Every focus may add suspicions.
 
@@ -43,10 +44,32 @@ A focus never reports the series of another focus (the validator rejects a `find
 - **The target is the task diff**: type `working_tree` with `<base>` = `base_sha` instead of `HEAD` (so earlier commits of the task are included), excluding `.agents/runs/` and `.agents/local/`. No PR, branch or main-branch detection.
 - **The checkpoint does not pause.** Its content is written to `evidence/checkpoint.md` and opens `REPORT.md`; the ledger records mode `run`. The only decision point is the size decision of step 3, which inside a run is `BLOCKED` (never a question).
 - **Nothing is asked.** A reviewer result is only `PASS`, `FAIL` or `BLOCKED` (this overrides the shared rule's `NEEDS_INPUT` bullet below, which is for task roles): anything that would need the user becomes `RESULT: BLOCKED` with a one-line `BLOCKED_REASON` naming the decision needed. The sandbox warning is not asked (the ledger records `Sandbox warning: run mode`).
-- **Assigned focus.** The lead assigns only `plan` (gate `REVIEW_PLAN`), `rules` (gate `REVIEW_RULES`; this skill runs focus `rules+bugs`) and `rules+tests` (gate `REVIEW_SMALL`). The skill focuses `bugs`, `all` and a bare `rules` exist for standalone use only and have no gate in a run.
-- **Output** goes to `.agents/runs/<TASK-ID>/reviews/proof-review/<dir>/` with `<dir>` = `plan` (focus `plan`), `rules` (`rules+bugs`; standalone also `rules`, `bugs`, `all`) or `small` (`rules+tests`); the final message follows "Result in a run".
+- **Assigned focus.** The lead assigns only `plan` (gate `REVIEW_PLAN`), `rules` (gate `REVIEW_RULES`; this skill runs focus `rules+bugs`), `rules+tests` (gate `REVIEW_SMALL`) and, when `agent.sh pipeline <ID>` lists `focus.<GATE>.config`, the risk focus `config` (inside `REVIEW_RULES`, or `REVIEW_SMALL` on tier small). The skill focuses `bugs`, `all` and a bare `rules` exist for standalone use only and have no gate in a run.
+- **Output** goes to `.agents/runs/<TASK-ID>/reviews/proof-review/<dir>/` with `<dir>` = `plan` (focus `plan`), `rules` (`rules+bugs`; standalone also `rules`, `bugs`, `all`), `small` (`rules+tests`) or `config` (focus `config`); the final message follows "Result in a run".
 
 Outside a run the skill works as before: working tree, branch or PR, with the user's own intent sources and the checkpoint.
+
+### Config focus
+
+Risk focus `config` (A78 signal `config_env`; A88). It checks only what the diff adds or removes in config,
+environment and code files, with a deterministic script, and reports `measured` items; nothing is judged and no
+project code runs. Follow [CONFIG.md](references/CONFIG.md):
+
+1. `node <skill-dir>/scripts/check-config.mjs --base <base_sha> --plan <run>/PLAN.md --out <dir>/config-check.json`
+   (standalone: `--base <rev>`, optionally `--plan` or `--out`).
+2. `node <skill-dir>/scripts/validate-config.mjs <dir>/config-check.json --table`: exit 0 prints `RESULT`,
+   `CONFIDENCE` and the rows; exit 1 names what is inconsistent (including a secret value in the document).
+3. Write `<dir>/REPORT.md` (verdict, the table, the `limits` the document lists) and submit with
+   `--focus config` and the rows. No `findings.json` is needed; if one is written for this focus it may carry
+   suspicions only.
+
+Blocking items (the gate is `FAIL` when one exists): a variable read by added code (`process.env.X`,
+`os.environ["X"]`, `os.Getenv`, `env::var`, `ENV[...]`, `getenv`, `${VAR}` in a config file) that no example env
+file, config sample or documentation defines; a secret committed in plain text in a config file (value never
+printed, a line carrying `proofline:allow-secret` is a note); a feature flag added with a default of on that the
+plan does not name; a flag removed from config that code or config still references. Notes: a documented variable
+read nowhere, a flag defaulting to off, a planned flag, an allow-listed secret. Findings of this focus sit in a
+waivable review gate, but a plain-text secret is also a SECRETS gate finding, which is never waivable.
 
 ### Gate rule (focus runs inside a run)
 
@@ -226,7 +249,7 @@ ARTIFACT: reviews/proof-review/<dir>/REPORT.md <sha256 of that file>
 BLOCKED_REASON: <only for BLOCKED>
 ```
 
-- `FOCUS` is the assigned focus: `plan` -> gate `REVIEW_PLAN`, dir `plan`; `rules` (skill focus `rules+bugs`) -> `REVIEW_RULES`, dir `rules`; `rules+tests` -> `REVIEW_SMALL`, dir `small`. Row ids are `<GATE>-<n>` (`REVIEW_PLAN-1`, `REVIEW_RULES-2`, `REVIEW_SMALL-1`), numbered from 1 in the order of the internal ids, no gaps, no repeats. The skill's own ids (`C002`, `P001`, `R001`, `F001`, `U001`, `S001`) stay in `findings.json` and `REPORT.md` and open the row's finding text; they are never the row id.
+- `FOCUS` is the assigned focus (the risk focus `config` is also valid, see [Config focus](#config-focus)): `plan` -> gate `REVIEW_PLAN`, dir `plan`; `rules` (skill focus `rules+bugs`) -> `REVIEW_RULES`, dir `rules`; `rules+tests` -> `REVIEW_SMALL`, dir `small`; `config` (risk focus) -> the gate that carries it (`REVIEW_RULES`, or `REVIEW_SMALL` on tier small), dir `config`; its rows come from `validate-config.mjs --table`, the item id (`G001`) opens the finding text. Row ids are `<GATE>-<n>` (`REVIEW_PLAN-1`, `REVIEW_RULES-2`, `REVIEW_SMALL-1`), numbered from 1 in the order of the internal ids, no gaps, no repeats. The skill's own ids (`C002`, `P001`, `R001`, `F001`, `U001`, `S001`) stay in `findings.json` and `REPORT.md` and open the row's finding text; they are never the row id.
 - `severity` is exactly `blocking` or `info`. Every finding that fails the gate (a `partial` or `missing` claim, a rule violation, an open `reproduced` or `traced` bug, a plan deviation) is one `blocking` row. Unrequested changes and suspicions are `info` rows. `done` claims and `needs_validation` notes produce no row. `evidence` is `reproduced`, `traced`, the rule's `file:line`, or `-`. Zero rows on a clean `PASS`.
 - `RESULT` is the computed gate result: `FAIL` exactly when at least one `blocking` row exists, else `PASS`; never `NEEDS_INPUT` or `DONE`. `BLOCKED` when the review could not run (no plan or task file, no command execution, not a git repository, content changed during the review, no diff base, size decision of step 3, worktree build failure of step 9); `BLOCKED_REASON` names the decision or the missing capability. A `BLOCKED` result has no `blocking` row.
 - `CONFIDENCE`: `high` when every phase of the focus completed, every bug survived refutation, and nothing is in `scope.not_reviewed`; `medium` when something was not reviewed (size or risk order, rule files over the budget) or a bug is `traced` only because running was not possible; `low` when a refutation was inconclusive for a finding that decides the result or a claim could not be judged from the plan's wording. A `PASS` with `low` does not satisfy the gate.

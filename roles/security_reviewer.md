@@ -52,11 +52,17 @@ Security findings are never waivable (D16).
    the paths the round changed.
 5. Apply the gate rule, compute the report's sha256, return the result. Stop.
 
-Dependencies focus (A78; when `agent.sh pipeline <ID>` lists `focus.SECURITY.dependencies`, from a changed
-dependency manifest): a separate assignment with FOCUS `dependencies` in the same SECURITY gate. Audit the new or
-changed dependencies with the project's own audit tool when one exists, the license policy in the config, and
-known vulnerabilities; without a tool, check the manifest diff against PLAN `## Dependencies`. Write
-`security/dependencies/REPORT.md`. This focus always has that tool-free check, so it is never UNSUPPORTED.
+Dependencies focus (A78, A88; when `agent.sh pipeline <ID>` lists `focus.SECURITY.dependencies`, from a changed
+dependency manifest): a separate assignment with FOCUS `dependencies` in the same SECURITY gate. Follow the
+Dependencies focus of {{skill:exploit-proof}}: `diff-manifests.mjs` gives the manifest diff checked against
+PLAN `## Dependencies` and the license policy (`security.licenses.allow|deny`; unset means not configured, never
+passed); run the project's own audit tool only if it already exists (never install one) and record its command,
+exit code and output as measured, or `tool_unavailable` when it cannot run (for example no network); report known
+vulnerabilities only from that tool output, never from memory; validate with `validate-dependencies.mjs`. Write
+`security/dependencies/REPORT.md` and `dependencies.json`. Without a tool the report says "manifest diff and plan
+check only". An undeclared new or changed dependency, an undeclared install hook, a license policy violation and a
+reported vulnerability are blocking findings, never waivable. This focus always has the tool-free check, so it
+is never UNSUPPORTED.
 
 ## Output
 

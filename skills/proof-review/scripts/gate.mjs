@@ -15,11 +15,14 @@ export const FORBIDDEN_BY_FOCUS = {
   "rules+bugs": ["claims", "unrequested", "plan_deviations"],
   "rules+tests": ["claims", "unrequested", "plan_deviations"],
   all: [],
+  // The risk focus `config` (A88) reports its own measured items (scripts/check-config.mjs); a findings.json
+  // for it carries suspicions only.
+  config: ["claims", "rules", "unrequested", "plan_deviations", "bugs"],
 };
 export const FOCUSES = Object.keys(FORBIDDEN_BY_FOCUS);
 // Inside a run the output folder (run-relative) and the result header FOCUS per focus. The lead's
 // REVIEW_RULES gate runs focus rules+bugs and its result header says FOCUS: rules.
-export const RUN_DIR = { plan: "plan", rules: "rules", "rules+bugs": "rules", bugs: "rules", all: "rules", "rules+tests": "small" };
+export const RUN_DIR = { plan: "plan", rules: "rules", "rules+bugs": "rules", bugs: "rules", all: "rules", "rules+tests": "small", config: "config" };
 export const HEADER_FOCUS = { "rules+bugs": "rules" };
 
 // Gate rule: a missing or partial claim, a reproduced or traced bug that is still open, a

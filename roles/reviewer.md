@@ -63,7 +63,7 @@ stop_condition: Stops after one result for the assigned focus on the current fin
    | `contract` | REVIEW_RULES / REVIEW_SMALL | backward and forward compatibility of the changed API, event or data contract (contract-proof skill) | `reviews/contract-proof/REPORT.md` |
    | `concurrency` | REVIEW_RULES / REVIEW_SMALL | {{skill:concurrency-proof}}: races, lost updates, double processing, idempotency, retries, ordering and redelivery, timeouts, transactions, lock lifecycle; a traced interleaving or a concurrent reproduction per finding, PASS means no proven problem | `reviews/concurrency-proof/REPORT.md` |
    | `performance` | REVIEW_RULES / REVIEW_SMALL | measured base-versus-change regression (performance-proof skill) | `reviews/performance-proof/REPORT.md` |
-   | `config` | REVIEW_RULES / REVIEW_SMALL | {{skill:proof-review}} config consistency: variables used but not documented in the example env or config docs, plain-text secrets, feature-flag defaults | `reviews/proof-review/config/REPORT.md` |
+   | `config` | REVIEW_RULES / REVIEW_SMALL | {{skill:proof-review}} focus `config` (its `check-config.mjs` and `validate-config.mjs`): variables used but not documented in the example env or config docs, plain-text secrets (masked), feature-flag defaults and removed flags still referenced | `reviews/proof-review/config/REPORT.md` |
    | `migration` | REVIEW_DATA | {{skill:data-design}} migration validation (`references/MIGRATION-VALIDATION.md`): apply and roll back only on the test suite's own throwaway database and only through the project's own test command (you issue no migrate command), compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |
 
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"`:
@@ -72,7 +72,8 @@ stop_condition: Stops after one result for the assigned focus on the current fin
    when the diff carries a signal of your focus that PLAN.md does not declare (for example a contract file
    changed without `contract_change: yes`); run the check anyway and report what you found.
 
-   proof-review also writes `ledger.md` and `findings.json` in the same directory. The header's `FOCUS:` is the
+   proof-review also writes `ledger.md` and `findings.json` in the same directory (focus `config` writes
+   `config-check.json` instead, validated by its script). The header's `FOCUS:` is the
    assigned focus, never the skill focus: FOCUS `rules` runs proof-review focus `rules+bugs` and reports
    `FOCUS: rules`.
 4. In a fix round, check each previous finding first (closed or still open), then review only the paths the

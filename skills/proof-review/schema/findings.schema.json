@@ -521,6 +521,7 @@
         "bugs",
         "rules+bugs",
         "rules+tests",
+        "config",
         "all"
       ],
       "description": "Review focus. Omitted outside a run (means all). A focus may not report the series of another focus; scripts/validate-findings.mjs checks it."
