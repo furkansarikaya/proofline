@@ -241,6 +241,10 @@ test("pageUrl confines file: pages to the base folder and http(s) pages to the l
   assert.equal(pageUrl("http://127.0.0.1:5173/", "/orders?state=empty"), "http://127.0.0.1:5173/orders?state=empty");
   for (const p of ["http://example.com/", "http://127.0.0.1:9999/", "//evil.test/x", "file:///etc/hosts"]) assert.equal(pageUrl("http://127.0.0.1:5173/", p), null, p);
   assert.equal(pageUrl("https://staging.example.com/", "/"), null);
+  for (const root of ["file:///", "file://", "file:///index.html", "file://host/app/"]) {
+    assert.equal(pageUrl(root, "etc/hosts"), null, root);
+    assert.match(checkConfig({ class: "STANDARD", base_url: root, viewports: VP3.slice(0, 2), screens: [{ id: "s", path: "index.html", states: [{ name: "success", ready: "#x" }] }] }).join(), /not the filesystem root/, root);
+  }
 });
 
 test("detect: a browser on PATH, a declared project tool, or none (never installed)", () => {

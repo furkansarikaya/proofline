@@ -244,7 +244,14 @@ async function launch(path, timeoutMs, noSandbox) {
     if (proc.exitCode === null && proc.signalCode === null) { kill("SIGTERM"); await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]); }
     kill("SIGKILL");
     try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch (e) { console.error(`measure: could not remove ${profile}: ${e.message}`); }
+    process.off("exit", emergency); process.off("SIGINT", onInt); process.off("SIGTERM", onTerm);
   };
+  // Aborted run (signal, or any process.exit before close finished): kill the group and remove the profile
+  // synchronously, then exit 130 (SIGINT) or 143 (SIGTERM).
+  const emergency = () => { kill("SIGKILL"); try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* best effort at exit */ } };
+  const onInt = () => { emergency(); process.exit(130); };
+  const onTerm = () => { emergency(); process.exit(143); };
+  process.on("exit", emergency); process.on("SIGINT", onInt); process.on("SIGTERM", onTerm);
   try {
     const ws = await new Promise((ok, fail) => {
       let buf = "";
@@ -397,6 +404,7 @@ export function pageUrl(base, path) {
   try { b = new URL(base); u = new URL(path, b); } catch { return null; }
   if (b.protocol === "file:") {
     const dir = decodeURIComponent(b.pathname.replace(/[^/]*$/, ""));
+    if (b.host || dir === "/") return null; // the filesystem root (or a remote host) is not an app folder
     return u.protocol === "file:" && !u.host && decodeURIComponent(u.pathname).startsWith(dir) ? u.href : null;
   }
   return /^https?:$/.test(b.protocol) && LOCAL.includes(b.hostname) && u.origin === b.origin ? u.href : null;
@@ -410,6 +418,7 @@ export function checkConfig(c) {
   try { u = new URL(c.base_url); } catch { e.push("base_url must be a URL"); }
   // Only the code under review: a local file or a server the QA started on this machine.
   if (u && !(u.protocol === "file:" || (/^https?:$/.test(u.protocol) && LOCAL.includes(u.hostname)))) e.push("base_url must be file: or http(s) on localhost/127.0.0.1/[::1]");
+  else if (u?.protocol === "file:" && !pageUrl(c.base_url, "x")) e.push("a file: base_url must name the app folder on this machine, not the filesystem root or another host");
   const vps = Array.isArray(c.viewports) ? c.viewports : [];
   if (vps.length < (MIN_VIEWPORTS[c.class] || 2)) e.push(`class ${c.class} needs at least ${MIN_VIEWPORTS[c.class] || 2} viewports`);
   for (const v of vps) if (!v?.name || !Number.isInteger(v.width) || !Number.isInteger(v.height)) e.push("each viewport needs name, width, height");

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Browser part of the visual-proof fixture: measures the built fixture with skills/visual-proof/scripts/measure.mjs
-# and compares the measured failures with the planted facts of EXPECTED.md (exactly those, traps not flagged).
+# and compares the measured failures with the planted facts of EXPECTED.md (exactly those, traps not flagged),
+# then aborts two measurements with SIGTERM and SIGINT and checks no browser process or profile is left.
 # Main/nightly CI only (.github/workflows/ci.yml); pull requests run the browser-less validator tests.
 # No browser on the machine: prints `UNSUPPORTED: <reason>` and exits 0 (the accepted result; never a pass of
 # the measurement). Installs nothing.
@@ -21,3 +22,4 @@ if [ "$kind" = none ]; then
 fi
 node "$root/skills/visual-proof/scripts/measure.mjs" --config "$work/fx/visual.json" --out "$work/out" --repo "$work/fx" "$@"
 node "$root/fixtures/visual-proof/expect.mjs" "$work/out/report.json" "$work/fx/spec.md"
+node "$root/fixtures/visual-proof/abort-check.mjs" "$work/fx" "$@"
