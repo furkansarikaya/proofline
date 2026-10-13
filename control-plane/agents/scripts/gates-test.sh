@@ -661,11 +661,23 @@ sc_decide() {
   tail -1 "$STUB_ARGS" | grep -q -- '--signal recent_fail_same_focus --escalations-used 1' || die "signals/escalations: $(tail -1 "$STUB_ARGS")"
   # metrics: one line per recorded specialist step with runtime and model from the decision
   grep -q "$(printf '\tLC\treviewer\tclaude\tsonnet\t')" .agents/local/metrics/history.tsv || die "metrics line missing: $(cat .agents/local/metrics/history.tsv)"
+  # A80: versioned JSON records; the step record carries the gate and result, tokens/turns stay null
+  mj=.agents/local/metrics/records.jsonl
+  grep -q '^{"schema":"proofline.metrics/1","kind":"step","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules+tests"' "$mj" 2>/dev/null || die "step record missing/malformed: $(cat "$mj" 2>/dev/null)"
+  grep '"kind":"step"' "$mj" | grep -q '"tokens_in":null,"tokens_out":null,"tokens_total":null,"turns":null' || die "step record invented token/turn data: $(cat "$mj")"
+  # dispatch record: numbers kept, strings sanitized (no free text, so no secret), non-lead refused
+  A metrics-dispatch LC reviewer rules claude 'sonnet"; sk-LIVE secret' 12 100 50 150 3 1 submitted >/dev/null
+  tail -1 "$mj" | grep -q '"kind":"dispatch","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules","gate":"REVIEW_RULES","runtime":"claude","model":"sonnetsk-LIVEsecret","duration_s":12,"tokens_in":100,"tokens_out":50,"tokens_total":150,"turns":3,"retries":1,"delegations":null,"fix_rounds":null,"result":"submitted"' || die "dispatch record shape: $(tail -1 "$mj")"
+  A metrics-dispatch LC reviewer rules claude sonnet 12 '' '' '' abc 0 submitted >/dev/null
+  tail -1 "$mj" | grep -q '"tokens_in":null,"tokens_out":null,"tokens_total":null,"turns":null,"retries":0' || die "absent/non-numeric usage must be null: $(tail -1 "$mj")"
+  expect_fail "a reviewer wrote a metrics record" AS reviewer metrics-dispatch LC reviewer rules claude sonnet 1 - - - - 0 submitted
   sed 's/^metrics: on/metrics: off/' .agents/config.yaml > "$base/c.yaml"; cp "$base/c.yaml" .agents/config.yaml; rm -rf .agents/local/metrics
   mkdir -p .agents/runs/LC/reports; printf '# e\n' > .agents/runs/LC/reports/090-explorer.md
   printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: reports/090-explorer.md %s\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/090-explorer.md)" > "$base/e.md"
   AS explorer record LC --file "$base/e.md" >/dev/null
   [ ! -e .agents/local/metrics/history.tsv ] || die "metrics: off still wrote metrics"
+  A metrics-dispatch LC reviewer rules claude sonnet 1 1 1 2 1 0 submitted >/dev/null
+  [ ! -e .agents/local/metrics/records.jsonl ] && [ -z "$(ls .agents/local/metrics 2>/dev/null)" ] || die "metrics: off still wrote records: $(ls .agents/local/metrics)"
   ok "decide: signals, overrides, escalations-used, persisted and ledgered; metrics on/off"
 }
 

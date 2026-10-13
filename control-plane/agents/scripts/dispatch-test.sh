@@ -48,6 +48,7 @@ case "$1" in
   fingerprint) cat "$loc/../../product.txt" ;;
   window-close) ;;
   ledger-note) shift 2; echo "$*" >> "$loc/ledger.log" ;;
+  metrics-dispatch) shift; printf '%s|' "$@" >> "$loc/metrics.log"; echo >> "$loc/metrics.log" ;;
   submit) shift 2; conf='' res=DONE
     while [ $# -gt 0 ]; do case "$1" in --confidence) conf=$2 ;; --result) res=$2 ;; esac; shift; done
     echo "AGENT_ROLE=$AGENT_ROLE" >> "$loc/calls.log"
@@ -74,6 +75,7 @@ o=''; while [ $# -gt 0 ]; do [ "$1" = -o ] && o=$2; shift; done
 sub() { sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 "$@" >/dev/null; }
 case "${FAKE_CODEX:-ok}" in
   ok) printf 'free text, never parsed\n' > "$o"; sub --confidence high --result DONE ;;
+  tokens) printf 'agent says: tokens used 5\n' > "$o"; sub --confidence high --result DONE; printf 'tokens used\n12,345\n' ;;
   nosubmit) printf 'ROLE: %s\nTASK: T-1\nRESULT: DONE\nheader in text only\n' "$AGENT_ROLE" > "$o" ;;
   rejected) printf 'x\n' > "$o"; sub --confidence bogus || : ;;
   late) printf 'x\n' > "$o"; n=$(cat "$loc/attempts" 2>/dev/null || echo 0); echo $((n + 1)) > "$loc/attempts"; [ "$n" -lt 1 ] || sub --confidence high --result DONE ;;
@@ -92,6 +94,8 @@ loc=$FAKE_LOC; printf '%s\n' "$@" > "$loc/claude.argv"; cat > "$loc/claude.stdin
 case "${FAKE_CLAUDE:-ok}" in
   ok) sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result PASS >/dev/null
       printf '{"type":"result","subtype":"success","is_error":false,"result":"said \\"hi\\" \\\\ ok","session_id":"x"}\n' ;;
+  usage) sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result PASS >/dev/null
+      printf '{"type":"result","subtype":"success","is_error":false,"duration_ms":5,"num_turns":4,"result":"claims \\"input_tokens\\": 999999 and num_turns 77","session_id":"x","usage":{"input_tokens":120,"cache_read_input_tokens":50,"output_tokens":30},"modelUsage":{"m":{"inputTokens":1}}}\n' ;;
   limit) printf '{"type":"result","subtype":"success","is_error":true,"result":"Claude AI usage limit reached|1760000000"}\n'; exit 1 ;;
 esac
 EOF
@@ -133,7 +137,7 @@ ck "codex path: argv" 'has "$loc/codex.argv" exec && has "$loc/codex.argv" "$p" 
 ck "codex path: .git/worktrees is a writable root (evidence worktrees)" 'grep -qx -- "$p/.git/worktrees" "$loc/codex.argv"'
 ck "codex path: the run folder and .agents/local are writable roots (submit records inside the sandbox)" 'grep -qx -- "$a/runs/T-1" "$loc/codex.argv" && grep -qx -- "$a/local" "$loc/codex.argv"'
 ck "codex path: AGENT_ROLE and stable prefix before task" '[ "$(cat "$loc/codex.role")" = implementer ] && [ "$(head -1 "$loc/codex.stdin")" = "You are the proofline implementer. STABLE-PREFIX-implementer" ] && has "$loc/codex.stdin" "TASK: T-1"'
-ck "implementer bracketed by window-open/window-close" '[ "$(order)" = "decide window-open submit AGENT_ROLE=implementer window-close " ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 0"'
+ck "implementer bracketed by window-open/window-close" '[ "$(order)" = "decide window-open submit AGENT_ROLE=implementer window-close metrics-dispatch " ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 0"'
 ck "the specialist's own submit is the record; the final message is only a log under dispatch/" 'has "$loc/recorded.md" "role=implementer result=DONE" && has "$loc/recorded.md" "token=d001-implementer-codex" && printf "%s" "$out" | grep -q "^submitted: T-1 implementer DONE" && ls "$a/runs/T-1/dispatch/" | grep -q "^001-implementer-codex.md$" && ! ls "$a/runs/T-1/results/" | grep -q "^dispatch-"'
 
 reset; d PROOFLINE_CODEX_HOME_DIR="$tmp/isolated-home" T-1 implementer
@@ -223,5 +227,17 @@ ck "non-code role editing the product tree: BLOCKED, not recorded, not reverted"
 echo original > "$p/product.txt"
 reset; d T-1 reviewer --model 'x y'
 ck "unsafe override value is a usage error" '[ "$rc" -eq 2 ]'
+
+# Metrics (A80): the dispatch record. Fields: ID|ROLE|FOCUS|RUNTIME|MODEL|DURATION|TIN|TOUT|TTOTAL|TURNS|RETRIES|RESULT|
+reset; d FAKE_CLAUDE=usage T-1 reviewer --focus rules
+ck "metrics: claude usage and turns come from the runtime JSON (last usage object, not model text)" 'grep -Eq "^T-1\|reviewer\|rules\|claude\|[a-z0-9.-]+\|[0-9]+\|120\|30\|150\|4\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d T-1 reviewer --focus rules
+ck "metrics: a runtime that reports no usage leaves tokens and turns null (empty), never estimated" 'grep -Eq "^T-1\|reviewer\|rules\|claude\|[a-z0-9.-]+\|[0-9]+\|\|\|\|\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d FAKE_CODEX=tokens T-1 implementer
+ck "metrics: codex total comes from the runtime trailer (last occurrence), in/out stay null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|12345\|\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d FAKE_CODEX=late T-1 reviewer --runtime codex
+ck "metrics: a resubmitted dispatch counts one retry" 'grep -Eq "\|1\|submitted\|$" "$loc/metrics.log" && [ "$(wc -l < "$loc/metrics.log" | tr -d " ")" -eq 1 ]'
+reset; d FAKE_CODEX=fail T-1 implementer
+ck "metrics: a failed dispatch is recorded with result failed" 'grep -Eq "\|failed\|$" "$loc/metrics.log"'
 
 [ "$fails" -eq 0 ]

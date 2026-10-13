@@ -156,8 +156,10 @@ Optional, after CODE_DONE, only when the task changed a durable contract: update
 collects signals from the run (`low_confidence_pass`, `recent_fail_same_focus`, `large_diff` (> 400 changed
 lines or > 15 files), `critical_class`, `fix_round_2`) and the escalations already used, calls
 `exec-policy.sh resolve`, and writes `decisions/NNN-<role>[-<focus>].decision` and a ledger row.
-Each recorded specialist result appends one line to `.agents/local/metrics/history.tsv`
-(`metrics: off` disables it).
+Each recorded specialist result appends one line to `.agents/local/metrics/history.tsv` and
+versioned JSON records (dispatch, step, run: duration, runtime-reported tokens or null, turns, retries,
+delegations, gate result) to `.agents/local/metrics/records.jsonl` (`metrics: off` disables both;
+schema `proofline.metrics/1`, `docs/concepts/metrics.md`). Routing does not read them.
 
 Runtime of a role (one table, `exec-policy.sh runtime <role>`; `agent.sh` and `decide` use it):
 `runtime.roles.<role>` when set, else the role's group: `lead` -> `runtime.lead`; `reviewer`,

@@ -172,7 +172,42 @@ retry_note=''
 subdir=$root/.agents/local/submissions
 seq_n=$(find "$run/dispatch" -name '*.log' 2>/dev/null | wc -l | tr -d ' '); seq_n=$((seq_n + 1))
 mkdir -p "$run/results" "$run/dispatch"
-work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX"); trap 'rm -rf "$work"' EXIT
+work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX")
+
+# Metrics (A80): one `agent.sh metrics-dispatch` record per dispatch, written on every exit path. Duration is this
+# script's own clock; tokens and turns are read from the runtime's structured output trailer (claude --output-format
+# json: usage.input_tokens/output_tokens, num_turns; codex exec: its "tokens used" trailer). Absent = empty = null,
+# never estimated. `metrics: off` is honoured by agent.sh. Never changes the exit status.
+t0=$(date +%s); attempts=0 m_in='' m_out='' m_tot='' m_turns=''
+num_last() { grep -o "\"$1\":[[:space:]]*[0-9][0-9]*" "$log" 2>/dev/null | tail -n 1 | tr -cd '0-9'; }
+num_first() { grep -o "\"$1\":[[:space:]]*[0-9][0-9]*" "$log" 2>/dev/null | head -n 1 | tr -cd '0-9'; }
+add_n() { # VALUE ACCUMULATOR-VALUE : sum when VALUE is a number, else keep the accumulator
+  case "$1" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$(( ${2:-0} + $1 ))" ;; esac
+}
+harvest() { # after one attempt: count it and add what the runtime reported
+  attempts=$((attempts + 1))
+  [ -z "$tmpl" ] && [ -f "$log" ] || return 0
+  case "$rt" in
+    claude)
+      m_in=$(add_n "$(num_last input_tokens)" "$m_in"); m_out=$(add_n "$(num_last output_tokens)" "$m_out")
+      m_turns=$(add_n "$(num_first num_turns)" "$m_turns") ;;
+    codex)
+      m_tot=$(add_n "$(awk 'f { s = $0; gsub(/[^0-9]/, "", s); if (s != "") v = s; f = 0 }
+        tolower($0) ~ /tokens used/ { s = $0; sub(/.*[Uu]sed/, "", s); gsub(/[^0-9]/, "", s); if (s != "") v = s; else f = 1 }
+        END { print v }' "$log" 2>/dev/null)" "$m_tot") ;;
+  esac
+}
+finish() {
+  fin_rc=$?
+  if [ "$attempts" -gt 0 ]; then
+    case "$fin_rc" in 0) fin_res=submitted ;; 124) fin_res=timeout ;; 5) fin_res=needs_input ;; 6) fin_res=blocked ;; *) fin_res=failed ;; esac
+    # the claude runtime reports input and output; the total is their sum only when both were reported
+    fin_tot=$m_tot; [ -n "$fin_tot" ] || { [ -z "$m_in" ] || [ -z "$m_out" ] || fin_tot=$((m_in + m_out)); }
+    "$agent" metrics-dispatch "$id" "$role" "$focus" "${rt:-}" "${model:-}" "$(( $(date +%s) - t0 ))" "$m_in" "$m_out" "$fin_tot" "$m_turns" "$((attempts - 1))" "$fin_res" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$work"
+}
+trap finish EXIT
 
 # attempt RUNTIME-OVERRIDE : sets $status (0 ok, 124 timeout, other failure), $rt, $out, $log
 attempt() {
@@ -292,6 +327,7 @@ attempt() {
   fi
   [ "$status" -ne 0 ] || [ -s "$out" ] || { [ -n "$tmpl" ] && cp "$log" "$out"; } || true
   [ "$status" -ne 0 ] || [ -s "$out" ] || status=1
+  harvest
   [ -s "$out" ] || rm -f "$out"
   return 0
 }
