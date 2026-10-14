@@ -102,9 +102,16 @@ sc_flags() {
   AS reviewer submit LC --focus contract --confidence high --artifact reviews/contract-proof/REPORT.md >/dev/null
   grep -Fq '"focus":"contract","gate":"REVIEW_SMALL"' .agents/local/metrics/records.jsonl || die "metrics gate label at tier small: $(cat .agents/local/metrics/records.jsonl 2>/dev/null)"
   # TRIVIAL has no QA gate: a ui signal names no gate instead of inventing one
+  # A96: a copy fix in a UI file of a TRIVIAL run: no designer, no ui flag, no missing flag, plan freezes as is
   rrun TRIVIAL ''; rm -f .agents/runs/LC/EVIDENCE.md .agents/runs/LC/QA_PLAN.md
   printf '<p></p>\n' > page.html
-  snap; has 'check=-:visual (no required gate carries it'
+  printf '%s\n' '---' 'scope:' '  - path: page.html' '    criteria: [AC-1]' '    tdd_exemption: "single-word copy fix in static markup; verified by an absence grep"' \
+    '---' '# Plan' '' '## Assumptions' 'none' > .agents/runs/LC/PLAN.md
+  snap; has 'signal.ui_path=source=diff:page.html(*.html),scope:page.html(*.html) check=- (class TRIVIAL: no design phase / no QA gate) flag=ui:no design_role=-'
+  hasnt 'missing_flag.'; hasnt 'design_role.'
+  A next LC | grep -Fq 'designer' && die "TRIVIAL ui_path dispatches a designer: $(A next LC)"
+  A freeze LC >/dev/null || die "TRIVIAL plan touching an .html file does not freeze"
+  [ ! -d .agents/runs/LC/design ] || die "design folder exists for TRIVIAL"
   ok "flags: ## Risk, ## UI and ## Data add their checks; invalid flag refused; REVIEW_SMALL carries rules focuses; no gate invented"
 }
 

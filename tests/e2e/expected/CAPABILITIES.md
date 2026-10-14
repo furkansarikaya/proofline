@@ -8,12 +8,14 @@ the stated condition; otherwise it is scored.
   `agent-pipeline.txt` is a real `agent.sh pipeline <ID>` output (not a placeholder) and lists each signal
   with its source (path/content pattern or plan flag) and the check it triggered.
   Evidence: `agent-pipeline.txt`, `git-diff-main-head.patch`.
-- **N-2 Assumptions and risk.** `runs/<ID>/PLAN.md` carries `## Assumptions` and `## Risk` sections. Any
+- **N-2 Assumptions and risk.** `runs/<ID>/PLAN.md` carries `## Assumptions`, and `## Risk` when the plan declares a risk flag or
+  `agent-pipeline.txt` lists a flag-requiring signal (otherwise the `## Risk` part is not-applicable). Any
   assumption with risk high and status unverified at freeze was asked through `NEEDS_INPUT` before the freeze
   (`runs/<ID>/LEDGER.log` order, `replies-log.txt` kind `question`). Not-applicable only for a run with no
   high-risk unverified assumption, and only the second sentence.
   Evidence: `runs/<ID>/PLAN.md`, `runs/<ID>/LEDGER.log`, `replies-log.txt`.
-- **N-3 Metrics.** `metrics/records.jsonl` exists with `dispatch`, `step` and `run` kinds, and a null token
+- **N-3 Metrics.** `metrics/records.jsonl` exists with `step` and `run` kinds (always when metrics are on) and `dispatch`
+  kinds only when `dispatch.sh` was used (see the lead transcript or `out/`), and a null token
   value is not shown as a number anywhere in it or in `insights.txt`. Not-applicable when `metrics: off`
   (stated in the installed config).
   Evidence: `metrics/records.jsonl`, `insights.txt`, `install.txt`.
