@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A non-TRIVIAL plan (STANDARD, COMPLEX, CRITICAL) with a `## UI` section must declare `visual_writes:` at plan time (A112, amends A78/A81/A82/A98): `validate-plan` and `agent.sh freeze` refuse it without the line, so QA visual no longer ends INCONCLUSIVE and forces an amendment and a second plan approval; TRIVIAL (no QA gate) unchanged.
 - Self-test shards are balanced by measured unit weight and CI runs six shards (A109, amends A76): the slowest shard no longer takes 12 to 14 minutes; every unit still runs exactly once. `SELFTEST_LIST` and `SELFTEST_SLOWEST` show the split and the timings.
 - visual-proof browser measurement is its own CI job (`visual-browser`, Linux and macOS, main/nightly/manual) on the runner image's own browser, and `measure.mjs` retries a browser start timeout once with the browser's stderr tail in the message (A110, amends A82); verified on `ubuntu-latest` with `--no-sandbox`.
 - Approval detection is fail-closed (A108, amends A41/A68/A79): a reply approves only when every word is part of an allowlisted English or Turkish approval phrase, the kind's own words or a short filler list, and it holds a phrase and the kind word; any other word (a negation, a hesitation, an extra clause), an empty or an unrelated reply is neither approval nor rejection, the request stays pending and `next` says to ask again; case folding is locale independent; every approval question lists the accepted answers.

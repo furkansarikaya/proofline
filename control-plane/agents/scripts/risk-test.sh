@@ -88,6 +88,18 @@ sc_flags() {
   hasnt 'missing_flag.'
   # a flag set with no matching path in the diff: the check is still required (the plan says it is needed)
   hasnt 'signal.contract_file'; has 'focus.REVIEW_RULES.contract=missing'; has 'focus.QA.visual=missing'
+  # A112: a COMPLEX plan with a ## UI section is refused at freeze without a visual_writes line, accepted with it
+  rrun COMPLEX '' "$(printf '%s\n' '' '## UI' '' 'one status badge')"
+  approve_as_user plan 'approve the plan'
+  expect_msg "a COMPLEX UI plan without visual_writes was frozen" "no 'visual_writes: <how the data the page writes is thrown away>' line" A freeze LC
+  rrun COMPLEX '' "$(printf '%s\n' '' '## UI' '' 'one status badge' 'visual_writes: DB_PATH=:memory:, discarded on exit')"
+  approve_as_user plan 'approve the plan'
+  A freeze LC >/dev/null || die "COMPLEX UI plan with visual_writes does not freeze"
+  # STANDARD has a QA gate too: the same refusal and the same acceptance
+  rrun STANDARD '' "$(printf '%s\n' '' '## UI' '' 'one status badge')"
+  expect_msg "a STANDARD UI plan without visual_writes was frozen" "no 'visual_writes: <how the data the page writes is thrown away>' line" A freeze LC
+  rrun STANDARD '' "$(printf '%s\n' '' '## UI' '' 'one status badge' '- visual_writes: DB_PATH=:memory:')"
+  A freeze LC >/dev/null || die "STANDARD UI plan with visual_writes does not freeze"
   # an invalid ## Risk line is refused at freeze
   rrun STANDARD '' "$(printf '%s\n' '' '## Risk' '' 'contract_change: maybe')"
   expect_msg "an invalid ## Risk line was frozen" "PLAN.md '## Risk' holds only flag lines" A freeze LC
@@ -159,7 +171,7 @@ uns_visual() { # REASON: the qa visual focus submits UNSUPPORTED (an INCONCLUSIV
   case "$1" in *INCONCLUSIVE:*) uns_report INCONCLUSIVE ;; *) uns_report ;; esac; AS qa submit LC --focus visual --result UNSUPPORTED --reason "$1" --confidence high --artifact reviews/visual-proof/REPORT.md --evidence reviews/visual-proof/validator.txt
 }
 uns_run() { # [CONFIG-SED]: a COMPLEX UI run with every other focus passing, frozen under the (edited) config
-  rrun COMPLEX 'web/index.html' "$(printf '%s\n' '' '## UI' '' 'one status badge')"
+  rrun COMPLEX 'web/index.html' "$(printf '%s\n' '' '## UI' '' 'one status badge' 'visual_writes: DB_PATH=:memory:')"
   if [ -n "${1:-}" ]; then   # the project's own config, committed at the run's base
     sed "$1" .agents/config.yaml > "$base/cfg.u"; cp "$base/cfg.u" .agents/config.yaml
     git add .agents/config.yaml; git commit -qm 'project config'

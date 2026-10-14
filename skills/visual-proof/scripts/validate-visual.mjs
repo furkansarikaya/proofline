@@ -160,7 +160,7 @@ export function validateReport(report, opt = {}) {
   if (net && net.unguarded !== undefined && !(Array.isArray(net.unguarded) && net.unguarded.every(isObj))) err("network.unguarded must be a list");
   // A write the page sent to its own origin is allowed only when the plan or spec says the server's data is
   // throwaway: a `visual_writes: <how>` line (A50/A52).
-  const writesAllowed = [...(opt.specTexts || []), opt.planText ?? ""].some((t) => /^\s*(?:[-*]\s*)?`?visual_writes:\s*\S/m.test(String(t)));
+  const writesAllowed = [...(opt.specTexts || []), opt.planText ?? ""].some((t) => /^\s*(?:[-*]\s*)?`?visual_writes:[ \t]*\S/m.test(String(t)));
 
   // --- depth ---------------------------------------------------------------------------------------------
   const min = MIN_VIEWPORTS[report.class];

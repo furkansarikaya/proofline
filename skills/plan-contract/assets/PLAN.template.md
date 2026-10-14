@@ -16,7 +16,7 @@ scope:
 
 ## UI
 
-<Only when UI changes: the Designer's text, including the line "visual_proof: <AC ids|none>" (required for COMPLEX/CRITICAL). Delete the section otherwise.>
+<Only when UI changes: the Designer's text, including the line "visual_proof: <AC ids|none>" (required for COMPLEX/CRITICAL) and, for every class but TRIVIAL, the line "visual_writes: <how the data the page writes is thrown away>" (QA visual proof runs; the plan must declare this up front). Delete the section otherwise.>
 
 ## Behavior
 

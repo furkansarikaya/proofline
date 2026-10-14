@@ -131,6 +131,29 @@ test("TRIVIAL allows at most two scope paths", () => {
   has(errs(plan(), { cls: "TRIVIAL" }), "TRIVIAL allows at most 2 paths");
 });
 
+test("A112: every non-TRIVIAL plan with ## UI needs a visual_writes line at plan time; TRIVIAL is unaffected", () => {
+  const arch = { Architecture: ["One module, no boundary change."] };
+  const withUi = (lines, a = arch) => plan({ body: { ...BODY, ...a, UI: ["Screens S1.", "visual_proof: AC-1", ...lines] } });
+  for (const cls of ["STANDARD", "COMPLEX", "CRITICAL"]) has(errs(withUi([]), { cls }), `the line "visual_writes: <how the data the page writes is thrown away>" is required for ${cls}`);
+  has(errs(withUi(["visual_writes:"]), { cls: "COMPLEX" }), "visual_writes");
+  has(errs(withUi(["visual_writes:", "next line"]), { cls: "STANDARD" }), "visual_writes");
+  for (const cls of ["STANDARD", "COMPLEX"]) for (const l of ["visual_writes: DB_PATH=:memory:", "- visual_writes: temp db", "`visual_writes: none`"]) assert.deepEqual(errs(withUi([l]), { cls }), [], `${cls} ${l}`);
+  assert.ok(!errs(withUi([], {}), { cls: "TRIVIAL" }).some((e) => e.includes("visual_writes")), "TRIVIAL is not asked");
+});
+
+test("A112 drift: agent.sh freeze, validate-plan and validate-visual accept and refuse the same visual_writes lines", () => {
+  const sh = readFileSync(join(here, "../../control-plane/agents/scripts/agent.sh"), "utf8");
+  const grepRx = sh.match(/grep -Eq '([^']*visual_writes[^']*)'/)[1];
+  const vv = readFileSync(join(here, "../../skills/visual-proof/scripts/validate-visual.mjs"), "utf8");
+  const jsRx = new RegExp(vv.match(/\/(\^[^\n]*visual_writes[^\n]*?)\/m\.test/)[1], "m");
+  const samples = [["visual_writes: x", true], ["- visual_writes: x", true], ["* `visual_writes: x`", true], ["visual_writes:\tx", true], ["visual_writes:", false], ["visual_writes:\nx", false], ["-visual_writes: x", true], ["text visual_writes: x", false]];
+  for (const [text, want] of samples) {
+    const g = spawnSync("grep", ["-Eq", grepRx], { input: text + "\n" }).status === 0;
+    const planOk = !errs(plan({ body: { ...BODY, Architecture: ["One module."], UI: ["Screens S1.", "visual_proof: AC-1", text] } }), { cls: "COMPLEX" }).some((e) => e.includes("visual_writes"));
+    assert.deepEqual([g, jsRx.test(text), planOk], [want, want, want], JSON.stringify(text));
+  }
+});
+
 test("persistence and UI scope paths require ## Data and ## UI", () => {
   const scope = [...SCOPE, "  - path: db/migrations/001_threshold.sql", "    new: true", "    criteria: [AC-3]", "  - path: src/components/Receipt.tsx", "    new: true", "    criteria: [AC-4]"];
   const e = errs(plan({ scope }));
@@ -139,9 +162,9 @@ test("persistence and UI scope paths require ## Data and ## UI", () => {
 });
 
 test("A81: ## UI visual_proof line is checked when present and required for COMPLEX/CRITICAL", () => {
-  const ui = (lines) => plan({ body: { ...BODY, UI: ["Screens S1 with all states.", ...lines] } });
+  const ui = (lines) => plan({ body: { ...BODY, UI: ["Screens S1 with all states.", "visual_writes: DB_PATH=:memory:", ...lines] } });
   const arch = { Architecture: ["One module, no boundary change."] };
-  const strong = (lines) => plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", ...lines] } });
+  const strong = (lines) => plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", "visual_writes: DB_PATH=:memory:", ...lines] } });
   assert.deepEqual(errs(ui([])), []);
   assert.deepEqual(errs(ui(["visual_proof: AC-1, AC-4"])), []);
   // A94: the same line shape as verify-proof reads (spacing and backtick variants; a bullet marker needs a space)
@@ -153,9 +176,9 @@ test("A81: ## UI visual_proof line is checked when present and required for COMP
   has(errs(ui(["visual_proof: yes"])), "is not an AC-<n> id");
   has(errs(ui(["visual_proof: AC-1", "visual_proof: none"])), "more than one visual_proof line");
   has(errs(strong([]), { cls: "COMPLEX" }), '"visual_proof: <AC ids|none>" is required for COMPLEX');
-  assert.deepEqual(errs(strong(["- visual_proof: AC-4"]), { cls: "CRITICAL" }), []);
+  assert.deepEqual(errs(strong(["- visual_proof: AC-4", "visual_writes: in-memory database"]), { cls: "CRITICAL" }), []);
   // The template's section set (Assumptions, Risk, UI with the visual_proof line) validates together.
-  const full = plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", "visual_proof: AC-1"], Risk: ["contract_change: no", "concurrency: no", "performance_critical: no"] } });
+  const full = plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", "visual_proof: AC-1", "visual_writes: DB_PATH=:memory:"], Risk: ["contract_change: no", "concurrency: no", "performance_critical: no"] } });
   assert.deepEqual(errs(full, { cls: "COMPLEX" }), []);
 });
 
