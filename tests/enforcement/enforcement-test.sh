@@ -327,6 +327,22 @@ runtime_approvals() {
   prompt 'plan approved, go ahead'
   [ "$(ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml | wc -l | tr -d ' ')" = 1 ] || die "A41-6 one prompt granted the same approval twice"
   ok "A41-6 an approval is single-use per prompt"
+  # A106: single-use is per capture, not per text. The same words answer a later request.
+  sleep 1; A request-approval LC plan >/dev/null; sleep 1
+  prompt 'plan approved, go ahead'
+  [ "$(ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml | wc -l | tr -d ' ')" = 2 ] || die "A106-1 a new capture with identical text did not answer the new request"
+  grep -q '^capture_id: "' "$(ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml | tail -n 1)" || die "A106-1 capture_id not recorded"
+  ok "A106-1 a different capture with identical text, newer than the new request, is accepted"
+  sleep 1; A request-approval LC plan >/dev/null
+  out=$(A approve LC plan 2>&1) && die "A106-3 the old capture approved a newer request: $out"
+  printf '%s' "$out" | grep -q 'stale capture' || die "A106-3 not refused as stale: $out"
+  ok "A106-3 the earlier capture (identical text, older than the request) is refused as stale"
+  rq=$(ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-request-plan.yaml | tail -n 1)
+  sed 's/^requested_at: .*/requested_at: 0/' "$rq" > "$base/rq.tmp" && mv "$base/rq.tmp" "$rq"
+  out=$(A approve LC plan 2>&1) && die "A106-2 a capture was reused for a second approval: $out"
+  printf '%s' "$out" | grep -q 'single-use' || die "A106-2 not refused as single-use: $out"
+  ok "A106-2 re-using one capture for another request of the same kind is refused (capture_id)"
+  denied "A106-4 the lead forges a prompt capture" "$(pre_bash "cp .agents/local/prompts/s1.json .agents/local/prompts/s2.json")" ""
   AGENT_ROLE=reviewer prompt 'plan approved' s9
   ok "A41-7 a specialist's prompt is not a capture (existing rule kept)"
 }

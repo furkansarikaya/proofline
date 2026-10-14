@@ -3189,12 +3189,14 @@ approve() {
     ap_src=prompt_capture
   fi
   ap_csha=$(hash_file "$ap_txt")
+  # A106: single-use is per capture event (session + time + hash), never per text: the same words answer a later request.
+  ap_cid="$ap_session:$ap_time:$ap_csha"
   text_has_approval "$ap_txt" "$ap_kind" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_kind (approval.phrases plus '$(kind_words "$ap_kind")')"; }
   rm -f "$ap_txt"
-  if [ "$ap_src" = prompt_capture ] && grep -l "^capture_sha256: \"$ap_csha\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
+  if [ "$ap_src" = prompt_capture ] && grep -l "^capture_id: \"$ap_cid\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
   ap_n=$(next_num "$ap_ad")
-  printf 'kind: "%s"\nbound: "%s"\nsource: "%s"\nsession: "%s"\ncapture_sha256: "%s"\ncapture_time: %s\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\n' \
-    "$ap_kind" "$ap_bound" "$ap_src" "$ap_session" "$ap_csha" "$ap_time" "$(basename "$ap_req")" "$(now_epoch)" > "$ap_ad/$ap_n-$ap_slug.yaml"
+  printf 'kind: "%s"\nbound: "%s"\nsource: "%s"\nsession: "%s"\ncapture_sha256: "%s"\ncapture_id: "%s"\ncapture_time: %s\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\n' \
+    "$ap_kind" "$ap_bound" "$ap_src" "$ap_session" "$ap_csha" "$ap_cid" "$ap_time" "$(basename "$ap_req")" "$(now_epoch)" > "$ap_ad/$ap_n-$ap_slug.yaml"
   ap_tok=''; [ "$ap_id" = - ] || ap_tok="$(ledger_token "approvals/$ap_n-$ap_slug.yaml" "$ap_id") "
   ledger_if "$ap_id" approval - - "${ap_tok}$ap_kind source=$ap_src answered_by=user bound=$ap_bound"
   echo "approval recorded: $ap_id $ap_kind ($ap_src)"
