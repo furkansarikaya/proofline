@@ -256,7 +256,7 @@ async function launch(path, timeoutMs, noSandbox) {
   try {
     const ws = await new Promise((ok, fail) => {
       let buf = "";
-      const t = setTimeout(() => fail(new Error(`browser did not start within ${timeoutMs} ms`)), timeoutMs);
+      const t = setTimeout(() => fail(new Error(`browser did not start within ${timeoutMs} ms${buf ? `: ${buf.slice(-300)}` : ""}`)), timeoutMs);
       proc.stderr.on("data", (d) => { buf += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf); if (m) { clearTimeout(t); ok(m[1]); } });
       proc.on("exit", (c) => { clearTimeout(t); fail(new Error(`browser exited (${c}): ${buf.slice(-300)}`)); });
       proc.on("error", (e) => { clearTimeout(t); fail(e); });
@@ -560,7 +560,12 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
   const raw = { tool: { kind: tool.kind, name: tool.name, ...(tool.path ? { path: tool.path } : {}), ...(tool.reason ? { reason: tool.reason } : {}), detected_by: tool.detected_by }, config, cells: [], interactions: [] };
   if (tool.kind !== "headless-browser") return raw;
   mkdirSync(join(outDir, "screenshots"), { recursive: true });
-  const b = await launch(tool.path, timeoutMs, noSandbox);
+  // A110: one cold start on a CI runner has been seen to hang past the start timeout; one retry, never more.
+  const b = await launch(tool.path, timeoutMs, noSandbox).catch((e) => {
+    if (!/did not start/.test(e.message)) throw e;
+    console.error(`measure: ${e.message}; retrying once`);
+    return launch(tool.path, timeoutMs, noSandbox);
+  });
   raw.tool.version = b.version;
   const axe = tool.a11y_scanner ? readFileSync(tool.a11y_scanner.path, "utf8") : null;
   if (axe) raw.a11y_scanner = { status: "run", tool: "axe-core", source: "project node_modules" };

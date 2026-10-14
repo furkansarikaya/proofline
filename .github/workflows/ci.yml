@@ -112,11 +112,26 @@ jobs:
       - name: benchmark report
         if: github.event_name != 'pull_request'
         run: node tests/benchmark/benchmark.mjs --run-validators --out "$RUNNER_TEMP/benchmark"
-      # A82: the visual-proof fixture measured in a real headless browser, main/nightly only (pull requests run
-      # the browser-less validator tests in tests/skills). A runner without a Chromium-family browser prints
-      # UNSUPPORTED and passes: that is the accepted result there, never a measured pass.
+  # A82/A110: the visual-proof fixture measured in a real headless browser on the runner image's own browser.
+  # Not a pull-request job (pull requests run the browser-less validator tests in tests/skills); main, nightly
+  # and manual runs. A runner without a Chromium-family browser prints UNSUPPORTED and passes: that is the
+  # accepted result there, never a measured pass.
+  visual-browser:
+    needs: [changes]
+    if: github.event_name != 'pull_request' && needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # --no-sandbox: the Linux runner kernel restricts unprivileged user namespaces
+      # (kernel.apparmor_restrict_unprivileged_userns=1), which the browser sandbox needs.
       - name: visual-proof browser measurement
-        if: github.event_name != 'pull_request'
         run: sh fixtures/visual-proof/browser-check.sh --no-sandbox
 
   # The self-test suites are split into scenario units and spread over six shards, balanced by unit weight (A109); inside a shard the units
@@ -145,7 +160,7 @@ jobs:
   # passed, a failed or cancelled job fails it.
   checks:
     if: always()
-    needs: [changes, static, fixtures, selftest]
+    needs: [changes, static, fixtures, visual-browser, selftest]
     runs-on: ubuntu-latest
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
