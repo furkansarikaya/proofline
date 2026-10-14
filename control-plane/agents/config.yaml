@@ -42,7 +42,7 @@ git:
   # Forbidden commit identities (glob or ERE, case-insensitive), for example *@example-corp.com
   forbidden_identities:
 approval:
-  phrases: approve, approved, onaylıyorum, onayliyorum, go ahead, commit it, push it
+  phrases: approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur
 commands:
   build:
   test:

@@ -598,6 +598,25 @@ scenario_task_source_status() {
   ok "task source status synchronization"
 }
 
+# A108: approval detection is fail-closed. Only an allowlisted phrase plus the kind word approves; an ambiguous,
+# empty, unrelated or hesitant answer approves nothing and leaves the request pending; the question lists the answers.
+scenario_approval_fail_closed() {
+  scaffold standalone no TRIVIAL supervised
+  q=$(A request-approval LC plan)
+  for w in approve yes okay lgtm 'go ahead' evet onay olur tamam; do printf '%s' "$q" | grep -Fq "$w" || die "the question does not list the accepted answer '$w'"; done
+  ad=.agents/runs/LC/approvals
+  for t in 'hmm bir dakika' 'sonra bakarız' '' 'the weather is nice today' 'approve the plan?' 'do not approve the plan' 'approve the plan, but wait' 'plan için emin değilim, onaylıyorum' 'unapproved plan' 'okay then' 'plan tamamen yanlış'; do
+    capture "$t"; expect_fail "an ambiguous answer approved: '$t'" A approve LC plan
+    [ -z "$(ls "$ad" | grep -E '^[0-9]{3}-plan\.yaml$' || true)" ] || die "an approval file exists after '$t'"
+    [ -n "$(ls "$ad" | grep -E '^[0-9]{3}-request-plan\.yaml$')" ] || die "the request is no longer pending after '$t'"
+  done
+  for t in 'approve the plan' 'Plan approved.' 'yes, plan' 'ok plan' 'okay, plan' 'LGTM plan' 'go ahead with the plan' 'plan onaylandı' 'plan onayliyorum' 'Plan: evet' 'plan tamam' 'plan olur'; do
+    A request-approval LC plan >/dev/null; capture "$t"; A approve LC plan >/dev/null || die "an allowlisted answer was refused: '$t'"
+    rm -f "$ad"/[0-9][0-9][0-9]-plan.yaml
+  done
+  ok "approval detection is fail-closed (A108)"
+}
+
 # Delivery then cleanup: the commit moves HEAD past base_sha; cleanup must still succeed (base_sha an ancestor,
 # task-owned patch = the CODE_DONE patch and committed), and afterwards the git hooks see no open run.
 scenario_cleanup_after_delivery() {
@@ -636,6 +655,7 @@ scenario_freeze_scope_mapping() {
 }
 
 run_sc scenario_standalone
+run_sc scenario_approval_fail_closed
 run_sc scenario_evidence_order
 run_sc scenario_independence
 run_sc scenario_orchestrated_loop

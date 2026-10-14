@@ -174,7 +174,7 @@ the content fingerprint), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>
      user prompt, exactly one JSON object:
      `{"session":"<id>","time":<epoch seconds>,"sha256":"<hex sha256 of text>","text":"<prompt>"}`.
      It is accepted only when `time` is later than the request, `sha256` matches the unescaped `text`, the
-     text contains an `approval.phrases` entry and a kind word (`plan`, `scope`, `commit`, `push`,
+     text contains an `approval.phrases` entry as whole words (an explicit allowlist, English and Turkish; A108) and a kind word, and no question mark, negation, condition or hesitation word (an ambiguous answer approves nothing and the request stays pending; `next` says to ask again) (`plan`, `scope`, `commit`, `push`,
      `destructive|migration|delete|drop`, `budget|round|rounds`, or the finding id), and that prompt has not
      granted the same kind before. The capture, and every approval request and approval file, must be a
      regular file (not a symlink) with one hard link, and no directory between the project root and it may
