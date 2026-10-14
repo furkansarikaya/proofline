@@ -117,7 +117,8 @@ jobs:
   # and manual runs. A runner without a Chromium-family browser prints UNSUPPORTED and passes: that is the
   # accepted result there, never a measured pass.
   visual-browser:
-    if: github.event_name != 'pull_request'
+    needs: [changes]
+    if: github.event_name != 'pull_request' && needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
