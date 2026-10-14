@@ -294,6 +294,31 @@ sc_waiver() {
   ok "waivers: approval naming the finding, lead only, SECRETS and SECURITY never"
 }
 
+# A99: the script's approval question follows the run's language; identifiers and the approval words stay verbatim.
+sc_question_language() {
+  unfrozen COMPLEX
+  hist=.agents/local/prompts/history; mkdir -p "$hist"
+  for k in plan destructive single_step scope budget commit push; do
+    A request-approval LC $k > "$base/q.en" || die "request-approval $k failed"
+    grep -q "^1\. Approve $k for LC?" "$base/q.en" && grep -q '   options: approve | reject' "$base/q.en" || die "English run: $k question changed"
+  done
+  [ "$(A run-language LC)" = en ] || die "no signal must be English"
+  printf 'Lütfen bu görevi yap ve sonra bana bir özet ver\n' > "$hist/1000000001-aaaaaaaa.txt"
+  [ "$(A run-language LC)" = tr ] || die "a Turkish prompt was not detected"
+  for k in plan destructive single_step scope budget commit push; do
+    A request-approval LC $k > "$base/q.tr" || die "request-approval $k failed (tr)"
+    grep -q '^QUESTIONS:$' "$base/q.tr" && grep -q "^1\. LC için $k onaylansın mı?" "$base/q.tr" || die "Turkish run: $k question is not Turkish"
+    grep -q '   seçenekler: approve | reject (onay için "approve ' "$base/q.tr" && grep -q '   önerilen: yok' "$base/q.tr" && grep -q '   neden: ' "$base/q.tr" || die "Turkish run: $k options lost the approval words"
+    grep -qE 'Approve|options:|recommended:|why:' "$base/q.tr" && die "Turkish run: $k question still holds English labels"
+  done
+  # a newer English prompt switches the signal back; a TASK.md Language line wins over prompts
+  printf 'please go on with the plan now\n' > "$hist/1000000002-bbbbbbbb.txt"
+  [ "$(A run-language LC)" = en ] || die "a newer English prompt was ignored"
+  printf '\nLanguage: tr\n' >> .agents/runs/LC/TASK.md
+  [ "$(A run-language LC)" = tr ] || die "TASK.md Language: tr was ignored"
+  ok "approval questions: Turkish run prints Turkish with approve/reject and the kind word; English run unchanged (A99)"
+}
+
 sc_approvals() {
   unfrozen COMPLEX
   expect_msg "approve without a request" 'no approval request' A approve LC plan
@@ -1177,6 +1202,7 @@ run_sc sc_parallel_lock
 run_sc sc_fix_loop
 run_sc sc_waiver
 run_sc sc_approvals
+run_sc sc_question_language
 run_sc sc_supervised_destructive
 run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity

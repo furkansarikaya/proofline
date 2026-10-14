@@ -623,8 +623,13 @@ verify_assumptions() {
     if [ "$va_ask" = yes ]; then
       va_row=$(assumption_register "$va_id" | awk -F'\t' -v i="$va_a" '$1 == i')
       va_q=$(mktemp "${TMPDIR:-/tmp}/proofline-assumption.XXXXXX")
-      printf '1. High-risk assumption %s is unverified: %s\n   source: %s; verification: %s; affects: %s\n   ASSUMPTION: %s\n   options: "accept %s" (the id is part of the phrase; proceed on this assumption, recorded as accepted-by-user with your answer) | the corrected fact (the plan is changed and the assumption checked again)\n   recommended: the corrected fact when it can be checked, otherwise accept\n   why: freeze refuses an unverified high-risk assumption; it is never accepted silently\n' \
+      if [ "$(run_language "$va_id")" = tr ]; then
+        printf '1. Yüksek riskli varsayım %s doğrulanmadı: %s\n   kaynak: %s; doğrulama: %s; etkilediği kararlar: %s\n   ASSUMPTION: %s\n   seçenekler: "accept %s" yazın (kimlik ifadenin parçasıdır; bu varsayımla ilerlenir, cevabınızla kabul edilmiş olarak kaydedilir) | düzeltilmiş olgu (plan değiştirilir, varsayım yeniden denetlenir)\n   önerilen: doğrulanabiliyorsa düzeltilmiş olgu, aksi halde accept\n   neden: freeze doğrulanmamış yüksek riskli varsayımı reddeder; sessizce kabul edilmez\n' \
+          "$va_a" "$va_t" "$(printf '%s' "$va_row" | cut -f5)" "$(printf '%s' "$va_row" | cut -f6)" "$(printf '%s' "$va_row" | cut -f7)" "$(assumption_token "$va_a" "$va_t")" "$va_a" > "$va_q"
+      else
+        printf '1. High-risk assumption %s is unverified: %s\n   source: %s; verification: %s; affects: %s\n   ASSUMPTION: %s\n   options: "accept %s" (the id is part of the phrase; proceed on this assumption, recorded as accepted-by-user with your answer) | the corrected fact (the plan is changed and the assumption checked again)\n   recommended: the corrected fact when it can be checked, otherwise accept\n   why: freeze refuses an unverified high-risk assumption; it is never accepted silently\n' \
         "$va_a" "$va_t" "$(printf '%s' "$va_row" | cut -f5)" "$(printf '%s' "$va_row" | cut -f6)" "$(printf '%s' "$va_row" | cut -f7)" "$(assumption_token "$va_a" "$va_t")" "$va_a" > "$va_q"
+      fi
       ask_question "$va_id" "$va_q" >/dev/null; rm -f "$va_q"
       va_msg="$va_msg $va_a: question recorded (relay it: 'agent.sh questions $va_id');"
     fi
@@ -2875,30 +2880,68 @@ approve_pending() {
     sh "$scripts/agent.sh" approve "$ap_t" "$ap_k" 2>/dev/null || :
   done
 }
+# run_language [ID]: `tr` or `en`, the language the script's own questions are printed in (A99). Sources, in
+# order: a `Language: tr|en` line of the run's TASK.md; the newest captured user prompt of three or more words
+# (.agents/local/prompts/history/, A60). Turkish text: two or more Turkish-only letters or Turkish function
+# words (a heuristic, the A67 limits apply). Anything else, or no signal, is English.
+run_language() {
+  rl_id=${1:--}; rl_v=''
+  if [ "$rl_id" != - ] && [ -f "$(run_dir "$rl_id")/TASK.md" ]; then
+    rl_v=$(sed -n 's/^[Ll]anguage:[[:space:]]*\([A-Za-z]*\).*/\1/p' "$(run_dir "$rl_id")/TASK.md" | head -1 | tr '[:upper:]' '[:lower:]')
+  fi
+  case "$rl_v" in tr|turkish|turkce) echo tr; return 0 ;; en|english) echo en; return 0 ;; esac
+  for rl_f in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort -r | head -5); do
+    [ "$(wc -w < "$rl_f")" -ge 3 ] || continue
+    LC_ALL=C awk '
+      { l = tolower($0); a += gsub(/\303[\247\266\274]|\304[\237\261]|\305\237|\303[\207\226\234]|\304[\236\260]|\305\236/, "&")
+        l = " " l " "; gsub(/[^a-z]+/, " ", l)
+        n = split(" ve bir icin bu ile mi degil olarak lutfen yap gerekiyor kadar sonra ama cok var yok ", w, " ")
+        for (i = 1; i <= n; i++) { t = w[i]; while ((k = index(l, " " t " ")) > 0) { b++; l = substr(l, 1, k) substr(l, k + length(t) + 2) } } }
+      END { print (a >= 2 || b >= 2) ? "tr" : "en" }' "$rl_f"
+    return 0
+  done
+  echo en
+}
 request_approval() {
   rq_id=$1 rq_kind=$2; require_lead; approval_target "$rq_id" "$rq_kind"
   rq_ad=$(approvals_dir "$rq_id"); mkdir -p "$rq_ad"; rq_n=$(next_num "$rq_ad")
   rq_bound=$(approval_bound "$rq_id" "$rq_kind")
   printf 'kind: "%s"\nbound: "%s"\nrequested_at: %s\n' "$rq_kind" "$rq_bound" "$(now_epoch)" > "$rq_ad/$rq_n-request-$(kind_slug "$rq_kind").yaml"
   ledger_if "$rq_id" approval-request - - "$rq_kind bound=$rq_bound"
+  rq_lang=$(run_language "$rq_id"); rq_tr=0; [ "$rq_lang" != tr ] || rq_tr=1
   rq_steps=''
   if [ "$rq_kind" = destructive ]; then
-    rq_steps=$(awk -F'|' 'function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    rq_steps=$(awk -F'|' -v tr="$rq_tr" 'function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
       /^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next }
-      i && /^\|/ && NF >= 7 && tolower(t($6)) == "yes" { printf "   destructive step %s (%s): %s on %s; rollback: %s\n", t($2), t($3), t($4), t($5), t($8) }' "$(run_dir "$rq_id")/PLAN.md")
+      i && /^\|/ && NF >= 7 && tolower(t($6)) == "yes" { if (tr) printf "   yıkıcı adım %s (%s): %s, hedef %s; geri alma: %s\n", t($2), t($3), t($4), t($5), t($8); else printf "   destructive step %s (%s): %s on %s; rollback: %s\n", t($2), t($3), t($4), t($5), t($8) }' "$(run_dir "$rq_id")/PLAN.md")
   fi
   rq_rows=''
   if [ "$rq_kind" = destructive ]; then
     # A62: the plan's `## Data` carries a `rows:` line (the data at risk, from seed files and fixtures; no agent
     # opens a database): the user's question says how much data the step destroys.
-    rq_rows=$(awk '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print "   data at risk: " substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
+    rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
-  printf 'QUESTIONS:\n1. Approve %s for %s?\n' "$rq_kind" "$rq_id"
+  if [ "$rq_tr" = 1 ]; then printf 'QUESTIONS:\n1. %s için %s onaylansın mı?\n' "$rq_id" "$rq_kind"
+  else printf 'QUESTIONS:\n1. Approve %s for %s?\n' "$rq_kind" "$rq_id"; fi
   [ -z "$rq_steps" ] || printf '%s\n' "$rq_steps"
   [ -z "$rq_rows" ] || printf '%s\n' "$rq_rows"
-  printf '   options: approve | reject\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_why "$rq_kind" "$rq_bound")"
+  if [ "$rq_tr" = 1 ]; then
+    printf '   seçenekler: approve | reject (onay için "approve %s" yazın, vazgeçmek için "reject")\n   önerilen: yok (karar kullanıcıya ait)\n   neden: %s\n' "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_why "$rq_kind" "$rq_bound" tr)"
+  else printf '   options: approve | reject\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_why "$rq_kind" "$rq_bound")"; fi
 }
-approval_why() {
+approval_why() { # KIND BOUND [tr]
+  if [ "${3:-}" = tr ]; then
+    case "$1" in
+      plan) echo 'denetimli özerklik: plan yalnızca kullanıcı onayından sonra dondurulur' ;;
+      destructive) echo 'plan yıkıcı bir veri değişikliği bildiriyor' ;;
+      single_step) echo 'yıkıcı değişiklikte expand/contract adımı yok: okuma ile silme arasında durulacak nokta olmadan tek adımda çalışır' ;;
+      scope) echo 'değişiklik kapsama yol ekliyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor' ;;
+      budget) echo 'düzeltme turları bitti: yeniden dondurma yeni bir düzeltme bütçesi başlatır' ;;
+      commit|push) echo "içerik $2 için teslim açık onay gerektirir" ;;
+      *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
+    esac
+    return 0
+  fi
   case "$1" in
     plan) echo 'supervised autonomy: the plan freezes only after user approval' ;;
     destructive) echo 'the plan declares a destructive data change' ;;
@@ -3711,6 +3754,7 @@ case "$command" in
   secret-scan) secret_scan "${2:?usage: agent.sh secret-scan <ID>}" ;;
   request-approval) request_approval "${2:?usage: agent.sh request-approval <ID> <KIND>}" "${3:?usage: agent.sh request-approval <ID> <KIND>}" ;;
   approve) approve "${2:?usage: agent.sh approve <ID> <KIND>}" "${3:?usage: agent.sh approve <ID> <KIND>}" ;;
+  run-language) run_language "${2:--}" ;;
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) approval_consume "${2:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${3:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${4:-}" ;;
   waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;

@@ -79,6 +79,10 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    installed here, suggest `proofline init`, stop.
 2. **Language.** The user's language is the language of their messages (default English). Gate names (`SECRETS`, `REVIEW_SMALL`, ...), classes, states and results stay verbatim inside it: the runtime's Stop hook checks that a final report carries the state, class and every gate name from `A report-tokens <ID>` (paste the lines of `A summary <ID>`; translate only the prose around them). Reports and
    a relayed question is shown verbatim (English, as stored) with a line and a marked translation in it;
+   when the user's language is not English, never leave a `QUESTIONS:` block in English as the last words of
+   the message: `request-approval` and the assumption and failover questions are already printed in the run's
+   language by the script (A99), relay those unchanged; any other English block is shown with its translation
+   in the user's language, keeping `approve`, `reject`, `accept AS-n`, kinds, ids and hashes exactly;
    assignments, files and stored questions are English.
 3. **State.** `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the
    effective policy). An active run: `A next <ID>` and continue in "Flow"; on `resume` or after another
