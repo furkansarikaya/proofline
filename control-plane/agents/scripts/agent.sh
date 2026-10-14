@@ -1736,6 +1736,53 @@ next_evidence_seq() {
 evidence_field() { awk -v k="$2" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^ */, "", v); gsub(/"/, "", v); print v; exit }' "$1"; }
 evidence_targets() { sed -n 's/^target: *//p' "$1" | head -1 | tr ',' '\n'; }
 evidence_covers_path() { evidence_targets "$1" | grep -Fxq -- "$2"; }
+# scope_snapshot MAPPINGS: "path=sha256;..." of every frozen scope path now ("missing" for a path not there yet).
+scope_snapshot() {
+  for ss_p in $(printf '%s\n' "$1" | cut -d '|' -f1); do
+    if [ -f "$root/$ss_p" ] && [ ! -L "$root/$ss_p" ]; then ss_h=$(hash_file "$root/$ss_p"); else ss_h=missing; fi
+    printf '%s=%s;' "$ss_p" "$ss_h"
+  done
+  printf '\n'
+}
+# test_like_path P: a test file by name or folder (language-neutral); the implementation is every other scope path.
+test_like_path() {
+  case "$1" in
+    *_test.*|*.test.*|*.spec.*|*Test.*|*Tests.*|test_*|*/test_*|test/*|tests/*|*/test/*|*/tests/*|__tests__/*|*/__tests__/*|spec/*|*/spec/*) return 0 ;;
+  esac
+  return 1
+}
+# latest_evidence EVDIR PHASE PATH: the highest-numbered PHASE record covering PATH (prints its file).
+latest_evidence() {
+  le_best='' le_n=0
+  for le_f in "$1"/"$2"-*.yaml; do
+    [ -e "$le_f" ] || continue
+    evidence_covers_path "$le_f" "$3" || continue
+    le_s=$(basename "$le_f" .yaml); le_s=${le_s#"$2"-}
+    case "$le_s" in *[!0-9]*|'') continue ;; esac
+    if [ "$le_s" -gt "$le_n" ]; then le_n=$le_s le_best=$le_f; fi
+  done
+  [ -n "$le_best" ] || return 1
+  printf '%s\n' "$le_best"
+}
+# green_after_change OLD NEW: succeeds when an implementation path (a scope path that is not a test file; any
+# path when the scope holds only tests) differs between the two snapshots.
+green_after_change() {
+  gc_impl=0 gc_changed_impl=0 gc_changed=0
+  gc_ifs=$IFS; IFS=';'; set -f
+  # shellcheck disable=SC2086 # split on ';' on purpose
+  set -- "$1" $2
+  IFS=$gc_ifs; set +f
+  gc_old=$1; shift
+  for gc_e in "$@"; do
+    [ -n "$gc_e" ] || continue
+    gc_path=${gc_e%=*}
+    if test_like_path "$gc_path"; then gc_t=1; else gc_t=0; gc_impl=1; fi
+    if ! printf '%s' "$gc_old" | tr ';' '\n' | grep -Fxq -- "$gc_e"; then
+      gc_changed=1; [ "$gc_t" = 1 ] || gc_changed_impl=1
+    fi
+  done
+  if [ "$gc_impl" = 1 ]; then [ "$gc_changed_impl" = 1 ]; else [ "$gc_changed" = 1 ]; fi
+}
 record_worker_evidence() {
   id=$1 phase=$2 result=$3; require_run "$id"; dir=$(run_dir "$id"); require_open_run "$id"
   topology=$(resolve_topology "$dir")
@@ -1761,12 +1808,31 @@ record_worker_evidence() {
     [ "$result" = pass ] || fail "$phase evidence must record result: pass"
   fi
   evdir=$(worker_evidence_dir "$id")
+  snapshot=$(scope_snapshot "$mappings")
+  # Order (A97): GREEN and REFACTOR follow a RED record of the same path; GREEN also follows a change of the
+  # implementation since that RED (a green recorded before the fix exists proves nothing). A path with a
+  # TDD exemption is not held to RED.
+  case "$phase" in GREEN|REFACTOR)
+    for we_p in $(printf '%s' "$target_text" | tr ',' ' '); do
+      [ -z "$(exempted_path "$dir/PLAN.md" "$we_p")" ] || continue
+      we_red=$(latest_evidence "$evdir" RED "$we_p") || fail "$phase evidence rejected: no RED evidence for $we_p yet; record RED (the failing test, before the fix) first"
+      if [ "$phase" = GREEN ]; then
+        we_old=$(evidence_field "$we_red" scope_snapshot)
+        if [ -n "$we_old" ] && ! green_after_change "$we_old" "$snapshot"; then
+          fail "GREEN evidence rejected: no implementation file changed since the RED record for $we_p; make the fix, then record GREEN"
+        fi
+      else
+        latest_evidence "$evdir" GREEN "$we_p" >/dev/null || latest_evidence "$evdir" FIX "$we_p" >/dev/null || fail "REFACTOR evidence rejected: no GREEN evidence for $we_p yet"
+      fi
+    done ;;
+  esac
   mkdir -p "$evdir" 2>/dev/null || fail "worker evidence directory could not be created (sandbox denied write?): $evdir"
   seq=$(next_evidence_seq "$evdir" "$phase"); out="$evdir/$phase-$seq.yaml"
   {
     printf 'task_id: "%s"\nphase: "%s"\nresult: "%s"\nrole: "%s"\ntopology: "%s"\n' "$id" "$phase" "$result" "$execution_role" "$topology"
     printf 'command: %s\ntarget: %s\n' "$command_text" "$target_text"
     if [ "$phase" = RED ]; then printf 'expected_failure: %s\n' "$expected_failure"; fi
+    printf 'scope_snapshot: %s\n' "$snapshot"
     printf 'base_sha: "%s"\n' "$(git -C "$root" rev-parse HEAD)"
     printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\n' "$(section_value "$dir" freeze task_sha256)" "$(section_value "$dir" freeze evidence_sha256)" "$(section_value "$dir" freeze plan_sha256)"
     if [ -n "${CODEX_SESSION_ID:-}" ]; then printf 'codex_session_id: "%s"\n' "$CODEX_SESSION_ID"; fi

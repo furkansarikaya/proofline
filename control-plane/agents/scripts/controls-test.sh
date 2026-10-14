@@ -109,9 +109,11 @@ sc_policy() {
   expect_fail "GREEN with result fail" ev implementer POLICY GREEN fail impl.txt
   printf 'command: x\ntarget: impl.txt\nexpected_failure: configuration change\n' > "$base/ev"
   expect_fail "RED with a stock expected_failure" sh -c "AGENT_ROLE=implementer sh ./.agents/scripts/agent.sh worker-evidence POLICY RED fail < '$base/ev'"
-  ev implementer POLICY GREEN pass impl.txt >/dev/null
-  expect_fail "IMPLEMENTED with GREEN but no RED" A handoff POLICY IMPLEMENTED
+  expect_fail "GREEN recorded before any RED (A97)" ev implementer POLICY GREEN pass impl.txt
+  expect_fail "IMPLEMENTED with no evidence at all" A handoff POLICY IMPLEMENTED
   ev implementation_worker POLICY RED fail impl.txt >/dev/null
+  expect_fail "GREEN with no implementation change since RED (A97)" ev implementer POLICY GREEN pass impl.txt
+  printf 'implemented\n' >> impl.txt; ev implementer POLICY GREEN pass impl.txt >/dev/null
   A handoff POLICY IMPLEMENTED >/dev/null
   cp .agents/runs/POLICY/worker-evidence/GREEN-1.yaml "$base/g"
   sed 's/^plan_sha256: .*/plan_sha256: "00"/' "$base/g" > .agents/runs/POLICY/worker-evidence/GREEN-1.yaml
@@ -137,7 +139,7 @@ sc_standalone() {
   expect_fail "standalone IMPLEMENTED without evidence" A handoff SOLO IMPLEMENTED
   ev lead SOLO RED fail impl.txt >/dev/null
   expect_fail "standalone IMPLEMENTED with RED only" A handoff SOLO IMPLEMENTED
-  ev lead SOLO GREEN pass impl.txt >/dev/null
+  printf 'implemented\n' >> impl.txt; ev lead SOLO GREEN pass impl.txt >/dev/null
   grep -Fq 'role: "lead"' .agents/runs/SOLO/worker-evidence/RED-1.yaml
   A handoff SOLO IMPLEMENTED >/dev/null; A handoff SOLO CODE_DONE >/dev/null
   ok "standalone topology"

@@ -519,25 +519,24 @@ DBRES
 scratch_guard() {
   sg_t=${TMPDIR:-}; sg_t=${sg_t%/}
   [ -n "$sg_t" ] || sg_t=/tmp
-  sg_tn=${sg_t#/private}
   sg_wts=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
   while IFS= read -r sg_rec; do
     sg_k=${sg_rec%%"$TAB"*}; sg_v=$(printf '%s' "${sg_rec#*"$TAB"}" | tr '\002' '\n')
     case "$sg_k" in
       W)
-        # shellcheck disable=SC2016 # literal $TMPDIR in the command text
-        case "$sg_v" in '$TMPDIR'/*|'${TMPDIR}'/*) sg_v=$sg_t/${sg_v#*/} ;; esac
-        sg_n=${sg_v#/private}
-        case "$sg_n" in
-          "$sg_tn"/*|/tmp/*|/var/folders/*) ;;
-          *) continue ;;
-        esac
+        # shellcheck disable=SC2016 # literal $TMPDIR and $HOME in the command text
+        case "$sg_v" in '$TMPDIR'/*|'${TMPDIR}'/*) sg_v=$sg_t/${sg_v#*/} ;; '~'/*|'$HOME'/*|'${HOME}'/*) sg_v=${HOME:-/nonexistent-home}/${sg_v#*/} ;; esac
+        case "$sg_v" in /dev/*) continue ;; /*) ;; *) continue ;; esac
+        sg_n=$(printf '%s' "${sg_v#/private}" | sed 's|//*|/|g')
+        # Inside the project: the path policy decides. Inside a registered worktree: allowed. Anywhere else
+        # (/tmp, $TMPDIR, $HOME, any absolute path) a shell write is refused: a run leaves nothing outside the copy (C-18).
+        case "$sg_n" in "${root#/private}"|"${root#/private}"/*) continue ;; esac
         sg_in=no
         for sg_w in $sg_wts; do
           [ "${sg_w#/private}" != "${root#/private}" ] || continue
           case "$sg_n" in "${sg_w#/private}"/*) sg_in=yes ;; esac
         done
-        [ "$sg_in" = yes ] || deny "the command writes '$sg_v'. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); \$TMPDIR is only for git worktrees. Create the folder there and write inside it" ;;
+        [ "$sg_in" = yes ] || deny "the command writes '$sg_v', outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); \$TMPDIR is only for git worktrees. Create the folder there and write inside it" ;;
       C)
         sg_rest=${sg_rec#*"$TAB"}; sg_cw=${sg_rest%%"$TAB"*}
         if [ "$sg_cw" = mktemp ]; then
@@ -555,7 +554,7 @@ scratch_guard() {
 lead_tmp_check() {
   tmp_is_scratch_root && return 0
   lt_p=$(stray_tmp_path "$cmd")
-  [ -z "$lt_p" ] || deny "scratch files and worktrees go under \$TMPDIR (${TMPDIR:-unset}), never $lt_p directly"
+  [ -z "$lt_p" ] || deny "$lt_p is outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under \$TMPDIR (${TMPDIR:-unset})"
 }
 
 # --- events -----------------------------------------------------------------------------------
@@ -582,7 +581,7 @@ pretool)
     # and $TMPDIR are what a run must not leave behind. A project that itself lives under /tmp is not scratch.
     if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } && ! tmp_is_scratch_root; then
       stray=$(stray_tmp_path "$cmd")
-      [ -z "$stray" ] || deny "scratch files and worktrees go under \$TMPDIR (${TMPDIR:-unset}), never $stray directly"
+      [ -z "$stray" ] || deny "$stray is outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under \$TMPDIR (${TMPDIR:-unset})"
     fi
     printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
     # Hook and gate bypasses: never, for anyone, while proofline is installed.

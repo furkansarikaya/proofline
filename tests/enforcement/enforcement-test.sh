@@ -189,7 +189,29 @@ verdicts() {
     denied "a specialist writes scratch under /tmp" "$(pre_bash 'git worktree add /tmp/t1-base-wt HEAD' proofline-reviewer r1)" "TMPDIR"
     allowed "a specialist writes under its own project path" "$(pre_bash "cat $PWD/src/service.js" proofline-reviewer r1)" ;;
   esac
-  allowed "a verifier submits as itself" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
+  # A97 (C-18): a shell write outside the project, scratch folder and registered worktrees is refused, whatever
+  # the spelling (redirection, tee, cp, mv, mktemp); the harmless forms stay allowed.
+  for c in 'cat > /tmp/x' 'npm test > /tmp/x 2>&1; rm -f /tmp/x' 'echo x > $TMPDIR/foo' 'echo x >> "$TMPDIR/foo"' \
+    'printf x | tee /tmp/t1-findings.txt' 'cp impl.txt /tmp/copy.txt' "echo x > $base/outside.txt" \
+    "cat > /var/folders/zz/T/qa-t1.mjs <<'EOF'
+x
+EOF"; do
+    denied "A97 a specialist runs: $c" "$(pre_bash "$c" proofline-qa q1)" ".agents/runs/<ID>/scratch/"
+  done
+  for c in 'echo x > ~/x' 'echo x > $HOME/x' 'mv impl.txt ~/impl.txt'; do
+    denied "A97 a specialist runs: $c" "$(pre_bash "$c" proofline-qa q1)"
+  done
+  denied "A97 mktemp without a template" "$(pre_bash 'mktemp' proofline-qa q1)" "mktemp would create"
+  for c in 'npm test > /dev/null 2>&1' 'ls /nope 2>&1 >/dev/null' 'echo x > /dev/stderr' 'echo x >&2' 'printf x > .agents/runs/LC/scratch/f.txt' \
+    'echo "a > ~/x" ; echo '"'"'b >> $HOME/y'"'" "cat <<'EOF' > .agents/runs/LC/scratch/h.txt
+echo hello > ~/x
+EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
+    allowed "A97 a specialist may run: $c" "$(pre_bash "$c" proofline-qa q1)"
+  done
+  git worktree add -q "$base/wt-a97" HEAD >/dev/null 2>&1 || die "A97 fixture worktree"
+  allowed "A97 a write inside a registered worktree" "$(pre_bash "echo x > $base/wt-a97/notes.txt" proofline-qa q1)"
+  git worktree remove --force "$base/wt-a97" >/dev/null 2>&1 || :
+  allowed "a verifier submits as itself""$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
   denied "the lead submits" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high')" "does not match the caller's role"
   # an explorer that never submitted is sent back once, then reported as without a result
   out=$(sub_stop proofline-explorer e1); printf '%s' "$out" | grep -q '"decision":"block"' || die "no-submission stop not sent back: $out"
