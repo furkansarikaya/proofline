@@ -29,6 +29,19 @@ run=$root/$scenario-$config-$(date -u +%Y%m%dT%H%M%SZ)
 [ ! -e "$run" ] || run=$run-$$
 project=$run/project out=$run/out
 mkdir -p "$project" "$out" "$run/codexhome/.codex"
+# C-18 evidence: the user's global git config, recorded (never written) before and after the run.
+hash_stdin() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+hash_of() { hash_stdin < "$1"; }
+global_git() { # output file name
+  {
+    for f in "${HOME:-/nonexistent}/.gitconfig" "${XDG_CONFIG_HOME:-${HOME:-/nonexistent}/.config}/git/config"; do
+      if [ -f "$f" ]; then printf 'file=%s sha256=%s\n' "$f" "$(hash_of "$f")"; else printf 'file=%s absent\n' "$f"; fi
+    done
+    list=$(git config --global --list 2>/dev/null || true)
+    if [ -n "$list" ]; then printf 'list_sha256=%s\n' "$(printf '%s\n' "$list" | hash_stdin)"; else echo 'list=absent'; fi
+  } > "$out/$1"
+}
+global_git git-global-before.txt
 cp -R "$repo/playground/." "$project/"
 # Write identity only into this throwaway repository's own config. Git plumbing avoids hooks.
 git -C "$project" init -q -b main
@@ -72,7 +85,12 @@ if [ "$dry" = yes ]; then
   [ "$scenario" != FAILOVER ] || echo 'failover: poll implementer ledger every 10s; terminate Claude process group; resume under Codex with proofline resume'
   echo "replies: up to ${E2E_MAX_REPLIES:-6} lines from '$reply_file' when a plan or question stop is pending"
   echo 'collect: git log/status/diff/branches, runs, metrics, agent status/next/pipeline, final messages, durations, exit codes, database probe'
+  echo 'collect (A95): git-global-before/after.txt, replies-log.txt, agent-pipeline.txt, insights.txt, metrics/*, visual-artifacts.txt'
   echo "doctor=$out/doctor.txt"
+  # The dry run records the global config twice and creates placeholders for the collected files, so the layout is testable.
+  global_git git-global-after.txt
+  for f in agent-pipeline.txt insights.txt visual-artifacts.txt replies-log.txt; do echo 'not collected (dry run)' > "$out/$f"; done
+  mkdir -p "$out/metrics"; echo 'not collected (dry run)' > "$out/metrics/note.txt"
   exit 0
 fi
 if [ "$lead" = claude ]; then command -v claude >/dev/null 2>&1 || { echo 'claude unavailable' >&2; exit 127; }
@@ -133,7 +151,8 @@ number=1
 if [ "$scenario" = FAILOVER ] && [ "$killed" = yes ]; then
   number=2; run_lead codex "$number" 'proofline resume' no
 fi
-max=${E2E_MAX_REPLIES:-6}; replies=0
+max=${E2E_MAX_REPLIES:-6}; replies=0 plan_replies=0 question_replies=0
+: > "$out/replies-log.txt"
 while [ "$replies" -lt "$max" ]; do
   id=$(cd "$project" && sh .agents/scripts/agent.sh status 2>/dev/null | sed -n 's/^active_task=//p' | head -1)
   case $id in ''|none) id=none ;; esac
@@ -156,12 +175,15 @@ while [ "$replies" -lt "$max" ]; do
   esac
   [ -n "$line" ] || break
   replies=$((replies + 1)); printf '%s\n' "$line" >> "$out/replies.txt"
+  # plan = an approval (the user's reply is the approval); question = a scripted question reply.
+  case $kind in plan) rkind=plan-approval; plan_replies=$((plan_replies + 1)) ;; *) rkind=question; question_replies=$((question_replies + 1)) ;; esac
+  printf 'reply=%s kind=%s task=%s request=%s | %s\n' "$replies" "$rkind" "$id" "$(printf '%s\n' "$state" | sed -n 's/^next=//p' | head -1)" "$line" >> "$out/replies-log.txt"
   number=$((number + 1))
   if [ "$scenario" = FAILOVER ]; then lead=codex; fi
   run_lead "$lead" "$number" "$line" yes
   [ "$timed_out" = no ] || break
 done
-printf 'scenario=%s\nconfig=%s\nrun_dir=%s\nreplies=%s\n' "$scenario" "$config" "$run" "$replies" >> "$out/summary.txt"
+printf 'scenario=%s\nconfig=%s\nrun_dir=%s\nreplies=%s\nplan_approval_replies=%s\nquestion_replies=%s\n' "$scenario" "$config" "$run" "$replies" "$plan_replies" "$question_replies" >> "$out/summary.txt"
 (git -C "$project" log --oneline --all || true) > "$out/git-log.txt"
 git -C "$project" status --short > "$out/git-status.txt"
 git -C "$project" diff main...HEAD > "$out/git-diff-main-head.patch" || true
@@ -177,6 +199,17 @@ if [ -n "$id" ] && [ "$id" != none ]; then
   (cd "$project" && sh .agents/scripts/agent.sh next "$id") > "$out/agent-next.txt" 2>&1 || true
   (cd "$project" && sh .agents/scripts/agent.sh pipeline "$id") > "$out/agent-pipeline.txt" 2>&1 || true
 fi
+[ -e "$out/agent-pipeline.txt" ] || echo 'no active task id: pipeline not collected' > "$out/agent-pipeline.txt"
+# N-6: insights is read-only; the hash of .agents is taken around the call and recorded.
+agents_hash() { (cd "$project" && find .agents -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do printf '%s %s\n' "$(hash_of "$f")" "$f"; done | hash_stdin); }
+before_ins=$(agents_hash)
+ins_rc=0; (cd "$project" && "$repo/bin/proofline" insights) > "$out/insights.txt" 2>&1 || ins_rc=$?
+after_ins=$(agents_hash)
+printf 'insights_exit=%s\nagents_hash_before_insights=%s\nagents_hash_after_insights=%s\n' "$ins_rc" "$before_ins" "$after_ins" >> "$out/summary.txt"
+# N-4: screenshots and other visual-proof artifacts of the runs, hashed.
+(cd "$project" && find .agents/runs \( -ipath '*screenshot*' -o -ipath '*visual*' \) -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do printf '%s %s\n' "$(hash_of "$f")" "$f"; done) > "$out/visual-artifacts.txt"
+[ -s "$out/visual-artifacts.txt" ] || echo 'none' > "$out/visual-artifacts.txt"
+global_git git-global-after.txt
 (cd "$project" && node -e 'const {DatabaseSync}=require("node:sqlite");const db=new DatabaseSync("data/reading-list.db",{readOnly:true});const cols=db.prepare("PRAGMA table_info(books)").all().map(x=>x.name);console.log("columns="+cols.join(","));console.log("legacy_notes_non_null="+(cols.includes("legacy_notes")?db.prepare("SELECT COUNT(*) AS n FROM books WHERE legacy_notes IS NOT NULL").get().n:"not-applicable"))') > "$out/db-probe.txt" 2>&1 || true
 echo "run_dir=$run"
 echo "summary=$out/summary.txt"
