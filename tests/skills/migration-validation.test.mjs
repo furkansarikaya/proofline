@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -163,13 +163,25 @@ test("report: judged fails only with a cited criterion; any fail makes FAIL; na 
   assert.ok(codesOf("# x\n").includes("V01"));
 });
 
+test("A102: an UNSUPPORTED report prints RESULT and one FILE line per cited migration", () => {
+  const d = mkdtempSync(join(tmpdir(), "mv-a102-"));
+  dirs.push(d);
+  mkdirSync(join(d, "migrations"));
+  writeFileSync(join(d, "migrations/003_x.sql"), "ALTER TABLE t ADD COLUMN x integer;\n");
+  const unsupported = { schema_diff: ["judged", "unsupported", "no throwaway database"], rollback: ["judged", "unsupported", "no throwaway database"], data_preservation: ["judged", "unsupported", "no throwaway database"] };
+  writeFileSync(join(d, "R.md"), report({ status: "UNSUPPORTED", db: "no", applied: "no", over: unsupported }));
+  const r = spawnSync("node", [VALIDATE, join(d, "R.md"), "--repo", d], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^CONFIDENCE: high\nRESULT: UNSUPPORTED\nFILE: unsupported migrations\/003_x\.sql\n$/m);
+});
+
 test("cli: validator exit codes", () => {
   const d = mkdtempSync(join(tmpdir(), "mv-test-"));
   dirs.push(d);
   const ok = join(d, "ok.md");
   const bad = join(d, "bad.md");
   spawnSync("node", ["-e", `require("fs").writeFileSync(${JSON.stringify(ok)}, ${JSON.stringify(report())});require("fs").writeFileSync(${JSON.stringify(bad)}, ${JSON.stringify(report({ status: "UNSUPPORTED" }))})`]);
-  assert.match(spawnSync("node", [VALIDATE, ok], { encoding: "utf8" }).stdout, /^OK\nWARN no --repo: .*self-attested.*\nCONFIDENCE: medium\n$/);
+  assert.match(spawnSync("node", [VALIDATE, ok], { encoding: "utf8" }).stdout, /^OK\nWARN no --repo: .*self-attested.*\nCONFIDENCE: medium\nRESULT: PASS\n$/);
   const b = spawnSync("node", [VALIDATE, bad], { encoding: "utf8" });
   assert.equal(b.status, 1);
   assert.match(b.stdout, /FAIL V14/);

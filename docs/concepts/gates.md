@@ -51,7 +51,9 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
 - A check whose skill or tool is missing is `UNSUPPORTED`: never a PASS, unproven and reported (A98). By default
   (`risk.unsupported: report`) it does not block the gate; the completion report must list it under
   `## Unsupported Checks` with `not proven: <what>`. `risk.unsupported: block` makes it blocking (only the user
-  waives it), and an INCONCLUSIVE measurement is blocking in both modes. The `contract` check is the contract-proof skill (A83): every change in a contract
+  waives it), and an INCONCLUSIVE measurement is blocking in both modes. An UNSUPPORTED result must cite the
+  skill validator's own saved output (`RESULT: UNSUPPORTED`), and the script cross-checks it against the contract
+  and migration files it found in the diff itself, so one line of text cannot skip a check (A102). The `contract` check is the contract-proof skill (A83): every change in a contract
   file gets a breaking/non-breaking rule, in-repo consumers come from the impact report, and a breaking
   change that PLAN.md `## Contracts` does not cover with versioning, migration or deprecation fails; it is
   UNSUPPORTED only for a contract file it cannot parse and no compatibility tool already present covers.

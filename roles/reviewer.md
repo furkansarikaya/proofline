@@ -66,14 +66,21 @@ stop_condition: Stops after one result for the assigned focus on the current fin
    | `config` | REVIEW_RULES / REVIEW_SMALL | {{skill:proof-review}} focus `config` (its `check-config.mjs` and `validate-config.mjs`): variables used but not documented in the example env or config docs, plain-text secrets (masked), feature-flag defaults and removed flags still referenced | `reviews/proof-review/config/REPORT.md` |
    | `migration` | REVIEW_DATA | {{skill:data-design}} migration validation (`references/MIGRATION-VALIDATION.md`): apply and roll back only on the test suite's own throwaway database and only through the project's own test command (you issue no migrate command), compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |
 
-   A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"`:
+   A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"
+   --evidence <file>`, where the file is the skill validator's own output saved in the focus's report folder
+   (`validate-contract.mjs ... --repo --base` or `validate-migration.mjs <REPORT.md> --repo`, redirected to e.g.
+   `reviews/contract-proof/validator.txt`) and holds its `RESULT: UNSUPPORTED` line (A102). A reason alone is
+   refused, and so is UNSUPPORTED for `concurrency` and `config` (both always have a tool-free check), and for
+   `performance` when the script itself detects a project benchmark command (then BLOCKED if it cannot reach the
+   change). The evidence must be your own file, and an INCONCLUSIVE keeps its `<focus> INCONCLUSIVE:` reason. It is
    never a PASS (A98): by default the script records it as unproven and reported (the focus is `unsupported`,
    the completion report lists it with `not proven: <what>`); under `risk.unsupported: block`, and for an
    `INCONCLUSIVE:` reason in both modes, it is a blocking finding only the user may waive. A defect you found in
    the part you could check is a FAIL (`--result UNSUPPORTED` refuses blocking rows). The reason names the concrete missing tool, parser,
    capability or file (`n/a` is refused). Never claim a check you could not run. `contract` is UNSUPPORTED only when
-   contract-proof's validator says so (a changed contract file it cannot parse and no existing tool covers) or
-   node is missing. The script also adds a blocking finding when the diff carries a signal of your focus that PLAN.md does not declare (for example a contract file
+   contract-proof's validator says so (a changed contract file it cannot parse and no existing tool covers): the
+   script refuses it when a contract file its own risk signals found in the diff is missing from the
+   validator's `FILE:` lines, and `migration` when a changed `.sql` migration is not listed `FILE: unsupported`. The script also adds a blocking finding when the diff carries a signal of your focus that PLAN.md does not declare (for example a contract file
    changed without `contract_change: yes`); run the check anyway and report what you found.
 
    proof-review also writes `ledger.md` and `findings.json` in the same directory (focus `config` writes
@@ -95,10 +102,10 @@ again; a stop without a recorded submission is sent back once). Your final messa
 
 ```
 AGENT_ROLE=reviewer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --focus <plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration> \
-  --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
+  --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--evidence <file>] [--questions <file>]
 ```
 
-RESULT is derived from your findings (FAIL exactly when one `blocking` row exists, else PASS); pass `--result BLOCKED --reason "<one line>"` only when evaluation was impossible, and `--result UNSUPPORTED --reason "<one line>"` only for a risk focus whose skill or tool is missing. `--artifact` is the run-relative path of your report (e.g. `reviews/proof-review/small/REPORT.md`); any path spelling is accepted and the script hashes it. It may be omitted: the focus decides the report path.
+RESULT is derived from your findings (FAIL exactly when one `blocking` row exists, else PASS); pass `--result BLOCKED --reason "<one line>"` only when evaluation was impossible, and `--result UNSUPPORTED --reason "<one line>" --evidence <saved validator output>` only for a risk focus whose skill or tool is missing (contract, performance, migration). `--artifact` is the run-relative path of your report (e.g. `reviews/proof-review/small/REPORT.md`); any path spelling is accepted and the script hashes it. It may be omitted: the focus decides the report path.
 
 The recorded header (built by the script from your facts; shown so you know what is checked):
 

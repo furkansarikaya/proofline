@@ -84,6 +84,7 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   if (res === "UNSUPPORTED") {
     if (!gateRole || !riskFocus) return { errors: [...errors, "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"] };
     if (h.FOCUS === "dependencies") return { errors: [...errors, "the dependencies focus always has a tool-free check; UNSUPPORTED is not available"] };
+    if (h.FOCUS === "concurrency" || h.FOCUS === "config") return { errors: [...errors, `the ${h.FOCUS} focus always has a tool-free check; UNSUPPORTED is not available (A102)`] };
     kind = "gate";
   } else if (res === "PASS" || res === "FAIL") kind = gateRole ? "gate" : null;
   else if (res === "BLOCKED") kind = gateRole && role !== "qa" ? "gate" : "task";
@@ -120,6 +121,8 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   if (res === "UNSUPPORTED") {
     if (blocking.length > 0) errors.push("UNSUPPORTED cannot carry blocking findings (a check that ran is PASS or FAIL)");
     if (!lines.some((l) => /^UNSUPPORTED_REASON:\s*\S/.test(l))) errors.push("UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)");
+    // A102: and the saved validator output that proves it, cited with its sha256 (agent.sh checks its content)
+    if (!lines.some((l) => /^UNSUPPORTED_EVIDENCE:\s*[^\s/][^\s]*\s+[0-9a-f]{64}\s*$/.test(l) && !l.includes(".."))) errors.push("UNSUPPORTED needs an UNSUPPORTED_EVIDENCE line '<run-relative path> <sha256>' (the skill validator's saved output, A102)");
   }
 
   const reason = lines.map((l) => /^BLOCKED_REASON:\s*(\S.*)$/.exec(l)).find(Boolean);

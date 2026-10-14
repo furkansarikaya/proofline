@@ -570,6 +570,8 @@ pretool)
   case "$tool" in Bash|shell|local_shell|exec_command|unified_exec) cmd=$(jget tool_input.command tool_input.cmd) ;; esac
   TAB=$(printf '\t')
   if [ -n "$cmd" ]; then
+    # A102: the capability probes' self-test switches are never set by a model (they would hide a browser or benchmark).
+    case "$cmd" in *PROOFLINE_PROBE_ROOT*|*PROOFLINE_SELFTEST*) deny "PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them" ;; esac
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
     # mutation evidence runs in a separate worktree (`git worktree add`, then `git -C <worktree> ...`).
     if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } \

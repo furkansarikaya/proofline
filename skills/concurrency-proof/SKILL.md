@@ -144,8 +144,8 @@ Mechanical, from `validate-concurrency.mjs`:
 - `CONFIDENCE`: `low` when `scope.not_reviewed` is non-empty, `medium` when reproduction is `unsupported`,
   otherwise `high`. A PASS with `CONFIDENCE: low` does not satisfy the gate.
 - the review cannot be completed (target unresolved, validator exit 2) -> `--result BLOCKED --reason`. This
-  skill exists, so the focus is never `UNSUPPORTED` for a missing skill; a missing reproduction capability is
-  the `unsupported` reproduction status inside a normal result.
+  skill exists, so the focus is never `UNSUPPORTED` for a missing skill (the control plane refuses it, A102); a
+  missing reproduction capability is the `unsupported` reproduction status inside a normal result.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)

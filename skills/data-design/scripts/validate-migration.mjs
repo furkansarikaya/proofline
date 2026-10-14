@@ -5,7 +5,8 @@
 //   --repo re-classifies every cited migration file with the scanner (A94): a destructive or unknown action in a
 //   migration marked `destructive: no`, an unanalyzable file marked applied, a missing file, or a blocking hazard
 //   under a `patterns: pass` is refused. Without it only the report's own consistency is checked.
-// Prints one "FAIL <code>: <message>" line per problem, or "OK". Exit: 0 valid, 1 invalid, 2 usage/read error.
+// Prints one "FAIL <code>: <message>" line per problem, or "OK", "CONFIDENCE: ...", "RESULT: <status>" and, for
+// UNSUPPORTED, "FILE: unsupported <file>" per cited migration (A102). Exit: 0 valid, 1 invalid, 2 usage/read error.
 
 import { readFileSync, realpathSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -155,6 +156,10 @@ function main(argv) {
     process.stdout.write("OK\n");
     if (!repo) process.stdout.write("WARN no --repo: destructive and hazard claims are self-attested; confidence capped at medium\nCONFIDENCE: medium\n");
     else process.stdout.write("CONFIDENCE: high\n");
+    // A102: the result and, for UNSUPPORTED, every cited migration: saved, this output is the evidence of the submission
+    const status = kv(md.split(/^## /m)[0], "status");
+    process.stdout.write(`RESULT: ${status}\n`);
+    if (status === "UNSUPPORTED") for (const r of table(sections(md).get("Migrations")).rows) process.stdout.write(`FILE: unsupported ${r.file}\n`);
   }
   return errors.length ? 1 : 0;
 }

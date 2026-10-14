@@ -120,6 +120,13 @@ of the run folder, standalone in `.agents/local/visual-proof/<slug>/`. Rules in 
 | INCONCLUSIVE (a required cell not measured, a required criterion unproven, no failure) | `--result UNSUPPORTED --reason "visual INCONCLUSIVE: <what could not be measured>; not a FAIL; ..."` (the `SUBMIT:` line `--rows` prints; same mapping as performance-proof): blocking, never a PASS, re-measured or waived only by the user, listed under `## Unsupported Checks` |
 | UNSUPPORTED (no tooling) | `--result UNSUPPORTED --reason "<what is missing>"`: never a PASS; unproven and reported under `## Unsupported Checks` with `not proven: <what>` (blocking only under `risk.unsupported: block`) |
 
+Both UNSUPPORTED rows also carry `--evidence reviews/visual-proof/validator.txt`: the validator's own output
+saved there (`node <skill-dir>/scripts/validate-visual.mjs <run>/reviews/visual-proof/report.json --rows > <run>/reviews/visual-proof/validator.txt`).
+The control plane refuses an UNSUPPORTED without it, or whose file lacks the printed `RESULT: UNSUPPORTED` or
+`RESULT: INCONCLUSIVE` line (A102); a reason alone is not evidence. It also refuses an UNSUPPORTED when it finds
+a Chromium-family browser or an installed browser-test dependency itself (the same lists as `--detect`), and an
+INCONCLUSIVE whose reason does not start `visual INCONCLUSIVE:`.
+
 `CONFIDENCE`: `high` when every required cell was measured, `medium` when element-level `not_measured`
 entries exist, `low` otherwise. The completion report's `## QA Result` carries the `SUMMARY` line;
 `## Unsupported Checks` names `QA:visual` when it was UNSUPPORTED or INCONCLUSIVE.

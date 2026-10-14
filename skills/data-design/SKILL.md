@@ -135,7 +135,12 @@ runtime hook is authoritative). Run `scripts/migration-check.mjs` (`scan`, `diff
 only), write `REPORT.md`, then `node <skill-dir>/scripts/validate-migration.mjs <REPORT.md>`: exit 0 and its
 `status:` line give the result (PASS, FAIL, or UNSUPPORTED when there is no throwaway database, a check could
 not run or a migration was not applied); evidence classes `measured` / `traced` can fail the gate, `judged`
-ones are `warn` unless they cite a written spec or plan criterion. The agent never deploys; the rollback plan
+ones are `warn` unless they cite a written spec or plan criterion. For UNSUPPORTED, save the validator's own
+output with `--repo` (`node <skill-dir>/scripts/validate-migration.mjs <run>/reviews/data-migration/REPORT.md
+--repo <repo> > <run>/reviews/data-migration/validator.txt`: it prints `RESULT: UNSUPPORTED` and one
+`FILE: unsupported <file>` per cited migration) and submit `--result UNSUPPORTED --reason "<what is missing>"
+--evidence reviews/data-migration/validator.txt`; the control plane refuses it without that file, without
+`--repo`, or when a changed `.sql` migration is not cited in `## Migrations` (A102). The agent never deploys; the rollback plan
 stays in `## Rollback` and the completion report.
 
 <!-- proofline:shared-rules:begin v1 -->

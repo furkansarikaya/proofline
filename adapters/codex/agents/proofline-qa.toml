@@ -49,7 +49,10 @@ viewports, measured and judged), screenshots with sha256 in `reviews/visual-proo
 `validate-visual.mjs`, and `reviews/visual-proof/REPORT.md`. Its RESULT maps to the submission: PASS or FAIL with
 the printed rows; INCONCLUSIVE -> `--result UNSUPPORTED --reason "visual INCONCLUSIVE: ..."` (the `SUBMIT:` line it
 prints; blocking, never a PASS); no browser tooling (UNSUPPORTED) -> `--result UNSUPPORTED
---reason "<what is missing>"`, never a PASS: by default recorded as unproven and reported (the focus is
+--reason "<what is missing>"`, never a PASS. Both need `--evidence reviews/visual-proof/validator.txt`: the
+saved output of `validate-visual.mjs` with its `RESULT: UNSUPPORTED` or `RESULT: INCONCLUSIVE` line (A102; a
+reason alone is refused; the script also refuses UNSUPPORTED when it finds a Chromium-family browser or an
+installed browser-test dependency itself, and an INCONCLUSIVE whose reason lacks `visual INCONCLUSIVE:`). UNSUPPORTED is by default recorded as unproven and reported (the focus is
 `unsupported`, the completion report lists it with `not proven: <what>`); blocking, waived only by the user,
 under `risk.unsupported: block` (A98). The reason names the concrete missing tool or capability (`n/a` is refused). Never install a tool, never create a visual baseline. Never
 exercise pages or form steps against a backend with a real database (A50/A52): `file:`/static pages or a
@@ -73,11 +76,11 @@ AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from y
   --confidence <high|medium|low> [--artifact QA_REPORT.md] [--findings <rows file|->] [--report <file|->]
 ```
 
-Visual focus (FOCUS `visual`, report `reviews/visual-proof/REPORT.md`; `--result UNSUPPORTED --reason "<one line>"`
-when the skill or browser is missing):
+Visual focus (FOCUS `visual`, report `reviews/visual-proof/REPORT.md`; `--result UNSUPPORTED --reason "<one line>"
+--evidence reviews/visual-proof/validator.txt` when the skill or browser is missing):
 ```
 AGENT_ROLE=qa sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --focus visual \
-  --confidence <high|medium|low> [--result UNSUPPORTED --reason "<one line>"] [--artifact reviews/visual-proof/REPORT.md] [--findings <rows file|->] [--report <file|->]
+  --confidence <high|medium|low> [--result UNSUPPORTED --reason "<one line>" --evidence <file>] [--artifact reviews/visual-proof/REPORT.md] [--findings <rows file|->] [--report <file|->]
 ```
 
 The recorded header (built by the script from your facts; shown so you know what is checked):

@@ -5,6 +5,10 @@
 set -eu
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
+# A102 capability probes look only here (no browser of the test machine leaks in); a scenario plants one.
+# It counts only with PROOFLINE_SELFTEST=1 and outside a runtime session, so the session variables are cleared.
+PROOFLINE_PROBE_ROOT=$base/probe PROOFLINE_SELFTEST=1; export PROOFLINE_PROBE_ROOT PROOFLINE_SELFTEST; mkdir -p "$PROOFLINE_PROBE_ROOT/bin"
+unset CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_ENTRYPOINT CODEX_SESSION_ID CODEX_SANDBOX CODEX_THREAD_ID 2>/dev/null || true
 
 # snap: one `pipeline` per state; has/hasnt/pv read the snapshot.
 snap() { PO=$(A pipeline "$RID"); }
@@ -148,9 +152,11 @@ sc_missing_flag() {
 # UNSUPPORTED (A78, A98): never a PASS. Default `risk.unsupported: report`: the focus is `unsupported`, the gate
 # closes, `next` and `pipeline` name it, the completion report must list it with 'not proven:'. Blocking: under
 # `risk.unsupported: block`, for an INCONCLUSIVE reason (both modes) and with a blocking defect row (FAIL).
-uns_report() { mkdir -p .agents/runs/LC/reviews/visual-proof; printf '# visual\n\nNo headless browser in the project.\n' > .agents/runs/LC/reviews/visual-proof/REPORT.md; }
-uns_visual() { # REASON: the qa visual focus submits UNSUPPORTED
-  uns_report; AS qa submit LC --focus visual --result UNSUPPORTED --reason "$1" --confidence high --artifact reviews/visual-proof/REPORT.md
+uns_report() { # [RESULT]: the report and validate-visual.mjs output (A102)
+  mkdir -p .agents/runs/LC/reviews/visual-proof; printf '# visual\n\nNo headless browser in the project.\n' > .agents/runs/LC/reviews/visual-proof/REPORT.md
+  printf 'RESULT: %s\nSUMMARY: no browser tooling\n' "${1:-UNSUPPORTED}" > .agents/runs/LC/reviews/visual-proof/validator.txt; }
+uns_visual() { # REASON: the qa visual focus submits UNSUPPORTED (an INCONCLUSIVE reason gets INCONCLUSIVE evidence)
+  case "$1" in *INCONCLUSIVE:*) uns_report INCONCLUSIVE ;; *) uns_report ;; esac; AS qa submit LC --focus visual --result UNSUPPORTED --reason "$1" --confidence high --artifact reviews/visual-proof/REPORT.md --evidence reviews/visual-proof/validator.txt
 }
 uns_run() { # [CONFIG-SED]: a COMPLEX UI run with every other focus passing, frozen under the (edited) config
   rrun COMPLEX 'web/index.html' "$(printf '%s\n' '' '## UI' '' 'one status badge')"
@@ -220,10 +226,9 @@ sc_unsupported() {
   expect_msg "a waived INCONCLUSIVE not named" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
   write_report '' '## Waivers' 'The user waived the INCONCLUSIVE finding.' '' '## Unsupported Checks' '- QA:visual: visual INCONCLUSIVE, waived by the user; not proven: the badge layout.'
   A publish-completion-report LC markdown >/dev/null
-  # a performance INCONCLUSIVE blocks too (the prefix rule, whatever the focus)
+  # A102: an INCONCLUSIVE reason must carry the focus's own prefix; another focus's prefix is refused
   uns_run
-  out=$(uns_visual 'performance INCONCLUSIVE: noise 30% over the 10% threshold')
-  [ "$(focus_st QA visual)" = fail ] || die "performance INCONCLUSIVE prefix did not block: $out"
+  expect_msg "another focus's INCONCLUSIVE prefix" "must start 'visual INCONCLUSIVE:'" uns_visual 'performance INCONCLUSIVE: noise 30% over the 10% threshold'
   # FAIL + UNSUPPORTED: a defect in the part that could be checked is a FAIL (the contract-proof shape: defect rows
   # plus blocking UNSUPPORTED rows); it blocks, the implementer fixes the defect, the UNSUPPORTED row is listed
   uns_run; uns_report
@@ -248,6 +253,130 @@ sc_unsupported() {
   mkdir -p .agents/runs/LC/security/dependencies; printf '# deps\n' > .agents/runs/LC/security/dependencies/REPORT.md
   expect_msg "UNSUPPORTED dependency audit" 'UNSUPPORTED is not available' AS security_reviewer submit LC --focus dependencies --result UNSUPPORTED --reason 'no audit tool' --confidence high --artifact security/dependencies/REPORT.md
   ok "UNSUPPORTED: unproven and reported (gate closes, never pass, report lists it with 'not proven:'); INCONCLUSIVE, block mode and a defect row block; not for dependencies"
+}
+
+# A102: UNSUPPORTED is backed by the skill validator's saved output (snapshotted, sha-bound) and cross-checked
+# against the script's own risk signals; a reason alone, a fabricated file or an edited one is refused. The
+# genuine evidence comes from running the skills' own validators on the fixture (skipped without node or sources).
+SKD=$(CDPATH='' cd "$tl_agents/../../skills" 2>/dev/null && pwd || true)
+ue_submit() { # FOCUS EVIDENCE: a reviewer UNSUPPORTED submission citing EVIDENCE
+  AS reviewer submit LC --focus "$1" --result UNSUPPORTED --reason 'no machine-readable contract or temp-db capability in the project' \
+    --confidence low --artifact "$(risk_report "$1")" --evidence "$2"
+}
+ue_run() { # SCOPE-PATH CONTENT PLAN-LINES: a frozen COMPLEX run with that change, every gate's own focus passing
+  rrun COMPLEX "$1" "$3"; frozen; implement "$1" "$2"; pass_all >/dev/null 2>&1 || true
+}
+sc_unsupported_evidence() {
+  [ -n "$SKD" ] && [ -f "$SKD/contract-proof/scripts/validate-contract.mjs" ] && command -v node >/dev/null 2>&1 || { ok "unsupported evidence skipped (node or skill sources absent)"; return 0; }
+  # contract on a prose-only change: contract-proof itself says UNSUPPORTED (no contract file recognized)
+  ue_run docs/API.md '# API: GET /items returns a list.' "$(printf '%s\n' '' '## Risk' '' 'contract_change: yes')"
+  d=.agents/runs/LC; b=$(rv repository base_sha); mkdir -p "$d/reviews/contract-proof" "$d/scratch"
+  printf '# contract\n\nNo machine-readable contract; docs/API.md is prose.\n' > "$d/reviews/contract-proof/REPORT.md"
+  node "$SKD/contract-proof/scripts/diff-contract.mjs" --repo . --base "$b" --out "$d/scratch/contract.json"
+  node "$SKD/contract-proof/scripts/validate-contract.mjs" "$d/scratch/contract.json" --repo . --base "$b" > "$d/reviews/contract-proof/validator.txt"
+  grep -qx 'RESULT: UNSUPPORTED' "$d/reviews/contract-proof/validator.txt" && grep -qx "BASE: $b" "$d/reviews/contract-proof/validator.txt" || die "contract-proof output: $(cat "$d/reviews/contract-proof/validator.txt")"
+  expect_msg "UNSUPPORTED without evidence" 'needs --evidence' AS reviewer submit LC --focus contract --result UNSUPPORTED --reason 'no machine-readable contract; docs/API.md is prose' --confidence low --artifact reviews/contract-proof/REPORT.md
+  printf 'contract-proof could not run: no parser for prose\n' > "$d/reviews/contract-proof/made-up.txt"
+  expect_msg "evidence without the validator's RESULT line" "does not hold the validator's 'RESULT: UNSUPPORTED' line" ue_submit contract reviews/contract-proof/made-up.txt
+  expect_msg "evidence outside the run" 'must be an existing file inside the run' ue_submit contract /etc/hosts
+  sed 's/^BASE: .*/BASE: 0000000000000000000000000000000000000000/' "$d/reviews/contract-proof/validator.txt" > "$d/reviews/contract-proof/other-base.txt"
+  expect_msg "evidence produced against another base" "not the run's base" ue_submit contract reviews/contract-proof/other-base.txt
+  out=$(ue_submit contract reviews/contract-proof/validator.txt)
+  printf '%s' "$out" | grep -Fq 'submitted: LC reviewer UNSUPPORTED gate=REVIEW_' || die "genuine evidence refused: $out"
+  g=$(printf '%s' "$out" | sed -n 's/^submitted: .* gate=\(REVIEW_[A-Z]*\) .*/\1/p')   # REVIEW_SMALL at tier small
+  rec=$(ls "$d"/gates/*-"$g".yaml | tail -1); ev=$(sed -n 's/^unsupported_evidence: "\(.*\)@[0-9a-f]\{12\}"$/\1/p' "$rec")
+  case "$ev" in reports/snapshots/*-reviewer-reviews_contract-proof_validator.txt) ;; *) die "gate record evidence: $(grep unsupported_evidence "$rec")" ;; esac
+  [ "$(focus_st "$g" contract)" = unsupported ] || die "contract focus: $(focus_st "$g" contract)"
+  snap; has "unsupported.$g:contract=UNSUPPORTED (unproven, reported)"; has "(evidence: $ev@"
+  A next LC | grep -Fq "(evidence: $ev@" || die "next does not name the evidence: $(A next LC)"
+  # the snapshot is bound by its sha256: edited after submit, the record is stale and a re-cite is refused
+  raw=$(ls "$d"/results/*-reviewer.result.md | tail -1); cp "$raw" "$base/raw.ue"
+  printf 'RESULT: UNSUPPORTED\n' > "$d/$ev"
+  [ "$(focus_st "$g" contract)" = stale ] || die "edited evidence still counts: $(focus_st "$g" contract)"
+  expect_msg "a record citing the edited evidence" 'UNSUPPORTED_EVIDENCE sha256 mismatch' env AGENT_ROLE=reviewer sh ./.agents/scripts/agent.sh record LC --file "$base/raw.ue"
+  # a recognized OpenAPI file in the diff: the claim is refused unless the differ lists it
+  ue_run api/openapi.yaml 'openapi: 3.0.0' "$(printf '%s\n' '' '## Risk' '' 'contract_change: yes')"
+  d=.agents/runs/LC; mkdir -p "$d/reviews/contract-proof"; printf '# contract\n' > "$d/reviews/contract-proof/REPORT.md"
+  printf 'RESULT: UNSUPPORTED\nCONFIDENCE: low\nREASON: no changed contract file was recognized\n' > "$d/reviews/contract-proof/validator.txt"
+  expect_msg "UNSUPPORTED over a recognized OpenAPI file" 'api/openapi.yaml is a contract file this run changed' ue_submit contract reviews/contract-proof/validator.txt
+  printf 'RESULT: UNSUPPORTED\nFILE: compared api/openapi.yaml\n' > "$d/reviews/contract-proof/validator.txt"
+  expect_msg "UNSUPPORTED with every file compared" 'lists every contract file as compared' ue_submit contract reviews/contract-proof/validator.txt
+  # migration without a throwaway database: data-design's validator says UNSUPPORTED and lists the file
+  ue_run db/migrations/002_add.sql 'alter table t add column x int;' "$(printf '%s\n' '' '## Data' '' 'destructive: no')"
+  d=.agents/runs/LC; mkdir -p "$d/reviews/data-migration"
+  printf '%s\n' '# Migration validation: LC' '' 'status: UNSUPPORTED' '' '## Capability' 'throwaway_db: no' 'reason: no test helper creates a temporary database' 'down_migration: no' '' \
+    '## Migrations' '| file | applied | destructive | note |' '|---|---|---|---|' '| db/migrations/002_add.sql | no | no | additive |' '' \
+    '## Checks' '| id | class | result | evidence |' '|---|---|---|---|' '| schema_diff | judged | unsupported | no throwaway database |' '| rollback | judged | unsupported | no throwaway database |' \
+    '| data_preservation | judged | unsupported | no throwaway database |' '| lock_risk | judged | pass | add column without default |' '| long_running | judged | pass | no backfill |' \
+    '| patterns | traced | pass | scan: no hazard |' '| mixed_version | judged | pass | additive only |' > "$d/reviews/data-migration/REPORT.md"
+  node "$SKD/data-design/scripts/validate-migration.mjs" "$d/reviews/data-migration/REPORT.md" --repo . > "$d/reviews/data-migration/validator.txt" || die "migration report: $(cat "$d/reviews/data-migration/validator.txt")"
+  grep -Fqx 'RESULT: UNSUPPORTED' "$d/reviews/data-migration/validator.txt" && grep -Fqx 'FILE: unsupported db/migrations/002_add.sql' "$d/reviews/data-migration/validator.txt" || die "validate-migration output: $(cat "$d/reviews/data-migration/validator.txt")"
+  grep -v '^FILE: ' "$d/reviews/data-migration/validator.txt" > "$d/reviews/data-migration/nofile.txt"
+  expect_msg "a changed .sql migration missing from the evidence" 'the changed migration db/migrations/002_add.sql is not listed' ue_submit migration reviews/data-migration/nofile.txt
+  { printf 'WARN no --repo: self-attested\n'; cat "$d/reviews/data-migration/validator.txt"; } > "$d/reviews/data-migration/norepo.txt"
+  expect_msg "validate-migration output without --repo" 'without --repo' ue_submit migration reviews/data-migration/norepo.txt
+  out=$(ue_submit migration reviews/data-migration/validator.txt)
+  printf '%s' "$out" | grep -Fq 'submitted: LC reviewer UNSUPPORTED gate=REVIEW_DATA' || die "genuine migration evidence refused: $out"
+  ok "unsupported evidence: the validator's own output, snapshotted and sha-bound; no evidence, a made-up file, another base, an edited snapshot, an unlisted recognized contract or .sql migration are refused"
+}
+
+# A102: concurrency (and config) always have a tool-free check, so UNSUPPORTED is refused.
+sc_unsupported_toolfree() {
+  rrun COMPLEX 'src/worker.go' "$(printf '%s\n' '' '## Risk' '' 'concurrency: yes')"; frozen; implement src/worker.go 'package x'
+  d=.agents/runs/LC; mkdir -p "$d/reviews/concurrency-proof"; printf '# c\n' > "$d/reviews/concurrency-proof/REPORT.md"; printf 'RESULT: UNSUPPORTED\n' > "$d/reviews/concurrency-proof/validator.txt"
+  expect_msg "UNSUPPORTED concurrency" 'the concurrency focus always has a tool-free check' ue_submit concurrency reviews/concurrency-proof/validator.txt
+  ok "unsupported: refused for concurrency, which always has a tool-free check"
+}
+
+# A102: capability probes refuse an UNSUPPORTED whose capability is present (a browser on PATH, a project
+# benchmark script); an INCONCLUSIVE must keep its prefix and an UNSUPPORTED must not borrow one; only the
+# submitting role's own files are evidence.
+sc_unsupported_probes() {
+  uns_run
+  printf '#!/bin/sh\n' > "$PROOFLINE_PROBE_ROOT/bin/google-chrome"; chmod +x "$PROOFLINE_PROBE_ROOT/bin/google-chrome"
+  expect_msg "visual UNSUPPORTED with a browser on PATH" 'capability present: browser' uns_visual 'no headless browser installed in the project'
+  # a measured INCONCLUSIVE had the browser: the probe does not refuse it
+  out=$(uns_visual 'visual INCONCLUSIVE: two identical captures differ by 4% of pixels')
+  printf '%s' "$out" | grep -Fq 'submitted: LC qa FAIL gate=QA' || die "INCONCLUSIVE refused by the probe: $out"
+  rm "$PROOFLINE_PROBE_ROOT/bin/google-chrome"
+  uns_report INCONCLUSIVE
+  expect_msg "an INCONCLUSIVE downgraded to UNSUPPORTED" "must start 'visual INCONCLUSIVE:'" AS qa submit LC --focus visual --result UNSUPPORTED --reason 'no headless browser installed' --confidence high --artifact reviews/visual-proof/REPORT.md --evidence reviews/visual-proof/validator.txt
+  uns_report
+  expect_msg "an UNSUPPORTED dressed as INCONCLUSIVE" 'records UNSUPPORTED' AS qa submit LC --focus visual --result UNSUPPORTED --reason 'visual INCONCLUSIVE: nothing measured' --confidence high --artifact reviews/visual-proof/REPORT.md --evidence reviews/visual-proof/validator.txt
+  out=$(uns_visual 'no headless browser installed in the project')
+  printf '%s' "$out" | grep -Fq 'submitted: LC qa UNSUPPORTED gate=QA' || die "visual UNSUPPORTED without a browser refused: $out"
+  # performance: a project bench script is a benchmark command
+  pf_run() { # PACKAGE-JSON: a frozen run flagged performance_critical whose base holds that package.json
+    rrun COMPLEX 'src/search.js' "$(printf '%s\n' '' '## Risk' '' 'performance_critical: yes')"
+    printf '%s\n' "$1" > package.json; git add package.json; git commit -qm 'project package.json'
+    sed "s/^  base_sha:.*/  base_sha: \"$(git rev-parse HEAD)\"/" .agents/runs/LC/RUN.yaml > "$base/run.base"; cp "$base/run.base" .agents/runs/LC/RUN.yaml
+    frozen; implement src/search.js 'export const search = () => [];'
+    d=.agents/runs/LC; mkdir -p "$d/reviews/performance-proof"; printf '# perf\n' > "$d/reviews/performance-proof/REPORT.md"
+    printf 'valid: UNSUPPORTED\nresult: UNSUPPORTED\nreason: performance UNSUPPORTED: no benchmark command; never a PASS; add one\n' > "$d/reviews/performance-proof/validator.txt"
+  }
+  pf_sub() { AS reviewer submit LC --focus performance --result UNSUPPORTED --reason "$1" --confidence low --artifact reviews/performance-proof/REPORT.md --evidence "${2:-reviews/performance-proof/validator.txt}"; }
+  pf_run '{ "name": "x", "scripts": { "test": "node --test", "bench": "node bench.js" } }'
+  expect_msg "performance UNSUPPORTED with a bench script" 'capability present: package.json script' pf_sub 'performance UNSUPPORTED: no benchmark command in the project'
+  printf 'valid: INCONCLUSIVE\nresult: UNSUPPORTED\nreason: performance INCONCLUSIVE: M1 noise 30%%; not a FAIL; re-run\n' > "$d/reviews/performance-proof/validator.txt"
+  expect_msg "a performance INCONCLUSIVE downgraded" "must start 'performance INCONCLUSIVE:'" pf_sub 'performance UNSUPPORTED: no benchmark command in the project'
+  pf_run '{ "name": "x", "scripts": { "test": "node --test" } }'
+  # another role's file is not this role's evidence
+  mkdir -p "$d/reports/snapshots"; cp "$d/reviews/performance-proof/validator.txt" "$d/reports/snapshots/aaaaaaaaaaaa-qa-validator.txt"
+  expect_msg "another role's snapshot as evidence" "must be the reviewer role's own file" pf_sub 'performance UNSUPPORTED: no benchmark command in the project' reports/snapshots/aaaaaaaaaaaa-qa-validator.txt
+  out=$(pf_sub 'performance UNSUPPORTED: no benchmark command in the project')
+  printf '%s' "$out" | grep -Fq 'submitted: LC reviewer UNSUPPORTED gate=' || die "performance UNSUPPORTED without a benchmark refused: $out"
+  ok "unsupported probes: a browser or a bench script refuses UNSUPPORTED; INCONCLUSIVE keeps its prefix both ways; another role's file is refused"
+}
+
+# Drift guard (A102): the visual probe's browser and tool lists equal visual-proof's measure.mjs.
+sc_probe_drift() {
+  pd_m=$(dirname "$0")/../../../skills/visual-proof/scripts/measure.mjs
+  [ -f "$pd_m" ] || { ok "probe drift guard skipped (skill source not present)"; return 0; }
+  pd_a=$(dirname "$0")/agent.sh
+  for pd_n in $(sed -n 's/^const BROWSER_NAMES = \[\(.*\)\];$/\1/p; s/^const PROJECT_TOOLS = \[\(.*\)\];$/\1/p' "$pd_m" | tr -d '",'); do
+    sed -n '/^probe_visual()/,/^}/p' "$pd_a" | grep -Eq "(^|[ ])$pd_n( |;|$)" || die "probe_visual lacks $pd_n from measure.mjs"
+  done
+  ok "visual probe lists equal measure.mjs's"
 }
 
 # Flags are frozen with PLAN.md; the mapping is frozen with risk_sha256; config-check refuses foreign checks.
@@ -415,5 +544,9 @@ run_sc sc_migration_small
 run_sc sc_flags
 run_sc sc_missing_flag
 run_sc sc_unsupported
+run_sc sc_unsupported_evidence
+run_sc sc_unsupported_toolfree
+run_sc sc_unsupported_probes
+run_sc sc_probe_drift
 run_sc sc_frozen
 run_sc sc_prefreeze

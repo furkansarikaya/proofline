@@ -148,7 +148,13 @@ output folder) before starting the next step.
 `contract.json` (schema [contract.schema.json](schema/contract.schema.json)), `REPORT.md`, `ledger.md`.
 Team mode: `agent.sh submit <ID> --focus contract --artifact reviews/contract-proof/REPORT.md` with the rows
 printed by the validator as `--findings`; for RESULT UNSUPPORTED add `--result UNSUPPORTED --reason "<REASON
-line>"`. The script builds the header, fingerprint and hash.
+line>" --evidence reviews/contract-proof/validator.txt`, where that file is the validator's own output of step 7
+saved unchanged (`node <skill-dir>/scripts/validate-contract.mjs <out>/contract.json --plan <PLAN.md> --repo <repo>
+--base <base> > <run>/reviews/contract-proof/validator.txt`; it prints `RESULT`, `REASON`, one
+`FILE: compared|unsupported <path>` line per file and `BASE: <commit>`). The control plane refuses an
+UNSUPPORTED without that file, one lacking `RESULT: UNSUPPORTED`, one made against another base, and one that
+does not list every contract file its own risk signals found in the diff (pass such a file with `--path`), or
+lists them all as compared (A102). The script builds the header, fingerprint and hash.
 
 ## Gate rule (REVIEW `contract` focus)
 
