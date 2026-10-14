@@ -311,9 +311,21 @@ sc_question_language() {
     grep -q '   seçenekler: approve | reject (onay için "approve ' "$base/q.tr" && grep -q '   önerilen: yok' "$base/q.tr" && grep -q '   neden: ' "$base/q.tr" || die "Turkish run: $k options lost the approval words"
     grep -qE 'Approve|options:|recommended:|why:' "$base/q.tr" && die "Turkish run: $k question still holds English labels"
   done
-  # a newer English prompt switches the signal back; a TASK.md Language line wins over prompts
-  printf 'please go on with the plan now\n' > "$hist/1000000002-bbbbbbbb.txt"
-  [ "$(A run-language LC)" = en ] || die "a newer English prompt was ignored"
+  # A103: the user's own words decide; English replies and system-looking prompts never flip a Turkish run
+  printf 'approve commit\n' > "$hist/1000000002-bbbbbbbb.txt"
+  printf 'You are the reviewer subagent. Please read the diff and report findings now\n' > "$hist/1000000003-cccccccc.txt"
+  [ "$(A run-language LC)" = tr ] || die "newer English prompts flipped a Turkish run"
+  rm "$hist"/*.txt
+  printf 'evet onay tamam\n' > "$hist/1000000001-aaaaaaaa.txt"
+  [ "$(A run-language LC)" = en ] || die "short Turkish replies were taken as evidence"
+  printf 'please go on with the plan now and report back\n' > "$hist/1000000001-aaaaaaaa.txt"
+  [ "$(A run-language LC)" = en ] || die "an English run is not English"
+  # TASK.md blockquote (the user's report) beats history
+  printf '\n> Bu sayfa çalışmıyor, lütfen düzelt ve bir test ekle\n' >> .agents/runs/LC/TASK.md
+  [ "$(A run-language LC)" = tr ] || die "TASK.md Turkish blockquote was ignored"
+  printf '\nLanguage: en\n' >> .agents/runs/LC/TASK.md
+  [ "$(A run-language LC)" = en ] || die "TASK.md Language: en was ignored"
+  grep -v '^Language: en$' .agents/runs/LC/TASK.md > "$base/t.md"; cp "$base/t.md" .agents/runs/LC/TASK.md
   printf '\nLanguage: tr\n' >> .agents/runs/LC/TASK.md
   [ "$(A run-language LC)" = tr ] || die "TASK.md Language: tr was ignored"
   ok "approval questions: Turkish run prints Turkish with approve/reject and the kind word; English run unchanged (A99)"
