@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `freeze` and `refreeze` validate the PLAN.md scope mapping (every entry needs `path` and `criteria:`, scope not empty) with the check `handoff IMPLEMENTING` uses, before recording any freeze state (A101): a plan without `criteria:` can no longer freeze `scope_paths: ""` and trap a TRIVIAL run at a scope approval.
 - End-to-end harness (A100): `E2E_CODEX_MODEL` and `E2E_CODEX_EFFORT` add `-m` and `-c model_reasoning_effort` to the Codex lead and resume commands (the dry run prints them), and the Codex effort ladder accepts `none` as an explicit override; class floors are unchanged.
 - The approval, assumption and failover questions the control plane prints follow the run's language (A99): Turkish in a Turkish run, with `approve`, `reject`, `accept AS-n`, kind words, ids and hashes unchanged; English runs are unchanged.
 - UNSUPPORTED is unproven and reported, not blocking by default (A98): a risk focus whose tool or capability is missing is recorded `unsupported` (never `pass`), its gate can close, `pipeline` and `next` show `UNSUPPORTED (unproven, reported)`, and the completion report must list every such check under `## Unsupported Checks` with `not proven: <what>`. `risk.unsupported: block` restores the blocking rule of A78; an INCONCLUSIVE measurement (`performance INCONCLUSIVE:`, including unverified performance thresholds, `visual INCONCLUSIVE:`) and a FAIL stay blocking. A vague reason (`n/a`) is refused, `summary` shows `pass (unsupported: <focus>)`, and `next` asks the lead to surface unsupported checks to the user.
