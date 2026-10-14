@@ -1025,10 +1025,14 @@ verify_freeze() {
 scope_mappings() {
   awk '
     /^scope:$/ { inside=1; next } inside && /^---$/ { exit }
-    inside && /^  - path: / { path=$0; sub(/^  - path: /, "", path); next }
+    inside && /^  - path: / { if (path != "") bad=1; path=$0; sub(/^  - path: /, "", path); next }
     inside && /^    criteria: \[/ { c=$0; sub(/^    criteria: \[/, "", c); sub(/\]$/, "", c); if (path == "" || c == "") bad=1; else print path "|" c; path="" }
     END { if (bad || path != "") exit 1 }
   ' "$1"
+}
+# A101: the one scope-mapping check, shared by freeze and handoff IMPLEMENTING; nothing is recorded before it passes.
+require_scope_mapping() { # ID
+  rsm_m=$(scope_mappings "$(run_dir "$1")/PLAN.md") && [ -n "$rsm_m" ] || fail "invalid scope mapping: fix PLAN.md ## Scope entries: each entry needs \`path\` and \`criteria:\` (a non-empty flow list such as [AC-1]); run the plan-contract validator (skills/plan-contract/scripts/validate-plan.mjs)"
 }
 authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 
@@ -1133,6 +1137,7 @@ freeze() {
   enforce_task_branch "$id"
   verify_seal "$id"
   verify_task_source_status "$id"
+  require_scope_mapping "$id"
   # A destructive data change makes the task CRITICAL (D9/D14), whatever was classified.
   if gates_enforced "$id" && [ "$(plan_destructive "$dir/PLAN.md")" = yes ] && [ "$(pipeline_class "$id")" != CRITICAL ]; then
     fz_prev=$(pipeline_class "$id")
@@ -1320,7 +1325,7 @@ task_patch_fingerprint() {
   id=$1; task_owned_paths "$id" | while IFS= read -r path; do [ -n "$path" ] && printf '%s %s\n' "$path" "$(fingerprint_path "$path")"; done | sha256
 }
 verify_scope() {
-  id=$1 allow_knowledge=${2:-0}; require_run "$id"; dir=$(run_dir "$id"); enforce_task_branch "$id"; mappings=$(scope_mappings "$dir/PLAN.md") || fail "invalid scope mapping"; [ -n "$mappings" ] || fail "scope mapping missing"
+  id=$1 allow_knowledge=${2:-0}; require_run "$id"; dir=$(run_dir "$id"); enforce_task_branch "$id"; require_scope_mapping "$id"; mappings=$(scope_mappings "$dir/PLAN.md")
   status=$(baseline_status "$dir"); [ "$status" = captured ] || fail "baseline required before scope verification: $id"
   validate_control_artifacts "$id"
   tmp=$(mktemp "${TMPDIR:-/tmp}/agent-scope.XXXXXX")

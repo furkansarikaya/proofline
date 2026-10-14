@@ -621,6 +621,20 @@ scenario_cleanup_after_delivery() {
   ok "cleanup after the delivery commit; the run no longer blocks commits"
 }
 
+# A101: freeze refuses a PLAN.md scope entry without `criteria:` before recording anything (RUN.yaml untouched), and
+# the repaired plan freezes without a scope approval.
+scenario_freeze_scope_mapping() {
+  scaffold standalone no TRIVIAL supervised
+  before=$(cat .agents/runs/LC/RUN.yaml); good=$(cat .agents/runs/LC/PLAN.md)
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '  - path: impl_test.txt' '    criteria: [AC-1]' '---' '# Plan' > .agents/runs/LC/PLAN.md
+  expect_msg "freeze accepted a scope entry without criteria" 'each entry needs `path` and `criteria:`' A freeze LC
+  [ "$before" = "$(cat .agents/runs/LC/RUN.yaml)" ] || die "a refused freeze changed RUN.yaml"
+  printf '%s\n' "$good" > .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null
+  grep -q 'scope_paths: "impl.txt,impl_test.txt"' .agents/runs/LC/RUN.yaml || die "scope_paths not recorded"
+  ok "freeze validates scope mapping first"
+}
+
 run_sc scenario_standalone
 run_sc scenario_evidence_order
 run_sc scenario_independence
@@ -648,4 +662,5 @@ run_sc scenario_report_root_cause
 run_sc scenario_task_contract_projection
 run_sc scenario_task_source_status
 run_sc scenario_cleanup_after_delivery
+run_sc scenario_freeze_scope_mapping
 echo 'agent lifecycle tests passed'
