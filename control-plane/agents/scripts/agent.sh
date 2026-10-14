@@ -736,6 +736,8 @@ plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: ye
 # globs), so a mid-run edit of any of them is refused. Empty security and contract keys are left out, so a config
 # that does not set them hashes as before.
 risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true; }
+# Verbatim copy of contract-proof's NOT_A_CONTRACT (skills stay standalone; risk-test asserts equality, A92).
+risk_not_contract='(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|openapi-generator-config\.ya?ml|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^\.github\/(workflows|actions|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)\/|^\.github\/(dependabot|labeler|release|stale|FUNDING|config)\.ya?ml$|^(\.vscode|\.idea|\.agents|\.devcontainer)\/'
 risk_names() { risk_config | awk -F= '$1 ~ /^risk\.[a-z_]+\.(paths|content)$/ && $2 != "" { split($1, p, "."); print p[2] }' | sort -u; }
 # risk_compute ID -> "name|source|path|why" lines (source diff|scope|plan). Plain documentation (.md .mdx .rst
 # .adoc) never carries a path or content signal: a guide named like a migration is not one.
@@ -755,8 +757,15 @@ risk_compute() {
     [ -n "$rc_c" ] && [ -n "$rc_changed" ] || continue
     printf '%s\n' "$rc_changed" | while IFS= read -r rc_p; do
       if [ -n "$rc_g" ] && path_matches "$rc_p" "$rc_g"; then continue; fi   # already a path signal
-      if git -C "$root" cat-file -e "$rc_base:$rc_p" 2>/dev/null; then git -C "$root" diff --no-renames "$rc_base" -- "$rc_p" | sed -n 's/^+//p' | grep -v '^++ '
-      elif [ -f "$root/$rc_p" ]; then cat "$root/$rc_p"; fi | grep -Eq -- "$rc_c" && printf '%s|diff|%s|content /%s/\n' "$rc_n" "$rc_p" "$(printf '%s' "$rc_c" | tr '|' '/')" || true
+      # A92: ordinary config is not a contract: contract.ignore and a minimal not-a-contract list skip the content check.
+      if [ "$rc_n" = contract_file ]; then
+        if printf '%s\n' "$rc_p" | grep -Eiq -- "$risk_not_contract"; then continue; fi
+        rc_ig=$(cfg contract.ignore); if [ -n "$rc_ig" ] && path_matches "$rc_p" "$rc_ig"; then continue; fi
+      fi
+      # A92: a file that exists at base matches on its base version OR its whole current version (a root key such as
+      # `openapi:` sits on an unchanged line, and a deleted operation adds none); a new file on its content.
+      { git -C "$root" show "$rc_base:$rc_p" 2>/dev/null || true; [ ! -f "$root/$rc_p" ] || cat "$root/$rc_p"; } |
+        grep -Eq -- "$rc_c" && printf '%s|diff|%s|content /%s/\n' "$rc_n" "$rc_p" "$(printf '%s' "$rc_c" | tr '|' '/')" || true
     done
   done
   for rc_f in $risk_flags; do
@@ -939,7 +948,8 @@ replace_hashes() {
   qa_plan_hash=not_required; [ "$(pipeline_needs "$id" qa)" != yes ] || qa_plan_hash=$(hash_file "$dir/QA_PLAN.md")
   scope_paths=$(scope_mappings "$dir/PLAN.md" | cut -d '|' -f1 | tr '\n' ',' | sed 's/,$//')
   awk -v a="$task_hash" -v b="$evidence_hash" -v c="$plan_hash" -v d="$policy_hash" -v e="$qa_plan_hash" -v f="$(pipeline_signature "$id")" -v s="$scope_paths" -v r="$(risk_config | sha256)" '
-    /^freeze:$/ { i=1; print; next } i && /^[^[:space:]#]/ { i=0 }
+    /^freeze:$/ { i=1; print; next }
+    i && /^[^[:space:]#]/ { if (!rk) print "  risk_sha256: \"" r "\""; rk=1; i=0 }
     i && /^  task_sha256:/ { print "  task_sha256: \"" a "\""; next }
     i && /^  evidence_sha256:/ { print "  evidence_sha256: \"" b "\""; next }
     i && /^  plan_sha256:/ { print "  plan_sha256: \"" c "\""; next }
@@ -947,8 +957,9 @@ replace_hashes() {
     i && /^  policy_sha256:/ { print "  policy_sha256: \"" d "\""; next }
     i && /^  pipeline:/ && f != "" { print "  pipeline: \"" f "\""; next }
     i && /^  scope_paths:/ { print "  scope_paths: \"" s "\""; next }
-    i && /^  risk_sha256:/ { print "  risk_sha256: \"" r "\""; next }
+    i && /^  risk_sha256:/ { print "  risk_sha256: \"" r "\""; rk=1; next }
     { print }
+    END { if (i && !rk) print "  risk_sha256: \"" r "\"" }
   ' "$dir/RUN.yaml" > "$target"
 }
 freeze_hash_present() {
@@ -968,9 +979,9 @@ verify_freeze() {
     [ "$(section_value "$dir" freeze pipeline)" = "$(pipeline_signature "$id")" ] || fail "freeze mismatch: pipeline (the classification changed or was removed after freeze; an amendment and refreeze are required)"
   fi
   # A78: the risk signal mapping (config `risk:`) is frozen with the plan; it never changes under a frozen run.
-  if section_key_present "$dir" freeze risk_sha256; then
-    [ "$(section_value "$dir" freeze risk_sha256)" = "$(risk_config | sha256)" ] || fail "freeze mismatch: risk (the risk:, performance: or security: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
-  fi
+  # A92: fail closed when the key is missing (a RUN.yaml from before A78): a refreeze inserts it.
+  section_key_present "$dir" freeze risk_sha256 || fail "freeze mismatch: risk (RUN.yaml has no freeze.risk_sha256, so the risk mapping is unbound; record an amendment and refreeze to bind it)"
+  [ "$(section_value "$dir" freeze risk_sha256)" = "$(risk_config | sha256)" ] || fail "freeze mismatch: risk (the risk:, performance:, security: or contract: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
   stored=$(section_value "$dir" freeze policy_sha256); actual=$(hash_file "$agents/modes/$mode.yaml")
   [ -n "$stored" ] && [ "$stored" = "$actual" ] || fail "freeze mismatch: policy"
   echo "freeze verified: $id"
@@ -2260,6 +2271,8 @@ record_validate() {
     BLOCKED) if is_gate_role "$rv_role" && [ "$rv_role" != qa ]; then rv_kind=gate; else rv_kind=task; fi ;;
     DONE|NEEDS_INPUT) case "$rv_role" in reviewer|security_reviewer|verifier) ;; *) rv_kind=task ;; esac ;;
   esac
+  # A92: a task result (DONE, NEEDS_INPUT, BLOCKED) has no focus: a risk FOCUS must not open a second C-14 round.
+  if [ "$rv_kind" = task ]; then rv_focus=''; fi
   if [ "$rv_role" = lead ] && [ "$rv_kind" != task ]; then record_reject "the lead can never record a $rv_res verdict"; return 1; fi
   [ -n "$rv_kind" ] || { record_reject "RESULT $rv_res is not valid for role $rv_role"; return 1; }
   rv_gate=''
@@ -2929,7 +2942,7 @@ assumption_prompt_accepts() {
   apa_head=${apa_p%"$apa_rest"}
   printf '%s' "$apa_head" | grep -Eq "(accept|accepted) $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')([^0-9]|\$)" || return 1
   # negations and conditions (English, Turkish): the prompt is then not a plain acceptance
-  if printf ' %s ' "$apa_rest" | grep -Eq "(^|[^[:alpha:]])(not|never|no|nope|n't|don't|dont|do not|only if|if|unless|but|except|until|yet|wait|without|maybe|değil|degil|hayır|hayir|olmasın|olmasin|sadece eğer|sadece eger|ama|eğer|eger)([^[:alpha:]]|$)"; then return 1; fi
+  if printf ' %s ' "$apa_rest" | grep -Eq "(^|[^[:alpha:]])(not|never|no|nope|n't|don't|dont|do not|only if|if|unless|but|except|until|yet|wait|without|maybe|reject|rejected|decline|declined|or|actually|instead|rather|değil|degil|hayır|hayir|reddet|reddediyorum|yerine|olmasın|olmasin|sadece eğer|sadece eger|ama|eğer|eger)([^[:alpha:]]|$)"; then return 1; fi
   return 0
 }
 answer() {
@@ -3053,7 +3066,7 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
     ms_at=$(sed -n 's/^decided_at=//p' "$ms_f" | head -1); [ -z "$ms_at" ] || ms_dur=$(( $(now_epoch) - ms_at ))
   fi
   metrics_line "$1" "$2" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$4"
-  ms_g=$(gate_of "$2" "$3" 2>/dev/null || true)
+  ms_g=$(gate_of "$2" "$3" "$1" 2>/dev/null || true)
   metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" - - - - - - - "$4"
 }
 metrics_run() { # ID OUTCOME
@@ -3081,7 +3094,7 @@ metrics_json() {
 # metrics-dispatch (called by dispatch.sh, lead only): one record per specialist dispatch.
 metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURNS RETRIES RESULT
   require_run "$1"
-  metrics_json dispatch "$1" "$2" "$3" "$(gate_of "$2" "$3" 2>/dev/null || true)" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" - - "${12}"
+  metrics_json dispatch "$1" "$2" "$3" "$(gate_of "$2" "$3" "$1" 2>/dev/null || true)" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" - - "${12}"
 }
 
 # --- next (deterministic next step; an interrupted step restarts from its beginning) -------
@@ -3153,9 +3166,15 @@ next_step() {
       if [ -n "$ns_fail" ]; then
         ns_used=$(fix_rounds_used "$ns_id")
         # A78: script findings are not fixed by the implementer: a missing flag is a plan amendment, UNSUPPORTED the user's call.
+        ns_scr=0 ns_oth=0
         for ns_g in $ns_fail; do
           for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
             ns_lf=$(gate_latest_file "$ns_id" "$ns_g" "$ns_fc"); [ -n "$ns_lf" ] || continue
+            # A92: count script findings (UNSUPPORTED, missing flag) against the rows an implementer can fix.
+            ns_a=$(grep -c '^finding: [^|]*|blocking|' "$ns_lf" || true)
+            ns_b=$(grep -Ec '^finding: [^|]*\|blocking\|[^|]*\|(UNSUPPORTED |risk signal )' "$ns_lf" || true)
+            ns_scr=$((ns_scr + ns_b)); ns_oth=$((ns_oth + ns_a - ns_b))
+            case "$(gate_field "$ns_lf" result | tr '[:upper:]' '[:lower:]')" in fail) [ "$ns_a" -gt 0 ] || ns_oth=$((ns_oth + 1)) ;; esac
             # shellcheck disable=SC2013 # finding ids contain no whitespace
             for ns_fid in $(sed -n 's/^finding: \([^|]*\)|blocking|[^|]*|UNSUPPORTED .*/\1/p' "$ns_lf"); do
               finding_waived "$ns_id" "$ns_lf" "$ns_fid" || o "agent.sh request-approval $ns_id waive:$ns_fid (UNSUPPORTED $ns_fc: never a PASS; the user decides whether to accept the gap, listed in the completion report)"
@@ -3166,7 +3185,8 @@ next_step() {
             done
           done
         done
-        if [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"
+        if [ "$ns_scr" -gt 0 ] && [ "$ns_oth" -eq 0 ]; then o "the implementer cannot clear these: only UNSUPPORTED or missing-flag findings fail (waive them, or amend PLAN.md and refreeze)"; o "agent.sh terminate $ns_id BLOCKED (reason and evidence on stdin), if the user declines the waiver and the plan cannot be amended"
+        elif [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"
         else o "agent.sh terminate $ns_id FAILED (reason and evidence on stdin)"; fi
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
@@ -3278,8 +3298,9 @@ validate_completion_report_structure() {
   done | tr '\n' ' ')
   [ -z "$vc_miss" ] || fail "completion report: '## Assumptions' does not list: $vc_miss (every unverified assumption by id with its status word, unverified or accepted-by-user; an accepted one with its answer file)"
   # A78: every UNSUPPORTED check is named (GATE:focus) in the report; it was never a PASS.
+  vc_usec=$(awk '/^## Unsupported Checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
   for vc_u in $(risk_unsupported "$id" | cut -d'|' -f1 | sort -u); do
-    grep -Fq "$vc_u" "$report" || fail "completion report must name the UNSUPPORTED check $vc_u under '## Unsupported Checks'"
+    printf '%s\n' "$vc_usec" | grep -Fq "$vc_u" || fail "completion report must name the UNSUPPORTED check $vc_u under '## Unsupported Checks'"
   done
 }
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
