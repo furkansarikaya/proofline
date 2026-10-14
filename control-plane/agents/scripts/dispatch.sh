@@ -229,7 +229,7 @@ attempt() {
 
   ins=$(role_instructions "$role") || die "no instructions for role $role (.agents/roles/$role.md, .claude/agents/proofline-$role.md or .codex/agents/proofline-$role.toml)"
   { printf 'TASK: %s\nROLE: %s\n' "$id" "$role"; [ -z "$focus" ] || printf 'FOCUS: %s\n' "$focus"
-    printf 'RUN_DIR: .agents/runs/%s\nReport your result with: AGENT_ROLE=%s sh .agents/scripts/agent.sh submit %s --confidence <high|medium|low> [--focus F] [--artifact <path of your report>] [--findings FILE] [--reason T] [--questions FILE]\nThe script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is not parsed.\n' "$id" "$role" "$id"
+    printf 'RUN_DIR: .agents/runs/%s\nReport your result with: AGENT_ROLE=%s sh .agents/scripts/agent.sh submit %s --confidence <high|medium|low> [--focus F] [--artifact <path of your report>] [--findings FILE|none] [--report FILE|-] [--reason T] [--questions FILE]\nOnly one of --report/--findings may read stdin (-): use a file for the other, or one stdin document: report, a line "=== FINDINGS ===", then rows (severity|path:line|finding|evidence; answer-only: --findings none or info|-|answer|<one line>).\nThe script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is not parsed.\n' "$id" "$role" "$id"
     [ -z "$retry_note" ] || printf '\n%s\n' "$retry_note"
     [ -z "$prompt_file" ] || { printf '\n'; cat "$prompt_file"; }
   } > "$work/suffix"

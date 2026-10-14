@@ -2728,6 +2728,22 @@ submit_result() {
   case "$sb_agent" in *[!A-Za-z0-9_.-]*) fail "submit: invalid --agent token" ;; esac
   sb_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-submit.XXXXXX"); record_tmp=$sb_tmp
   sb_d=$(run_dir "$sb_id")
+  # A104: stdin is one stream. Two `-` sources cannot both read it: refuse before reading, or, for the
+  # --report/--findings pair, split one document on the exact line "=== FINDINGS ===" (report above, rows below).
+  sb_nstdin=0
+  for sb_v in "$sb_report" "$sb_findings" "$sb_questions"; do [ "$sb_v" != - ] || sb_nstdin=$((sb_nstdin + 1)); done
+  if [ "$sb_nstdin" -gt 1 ]; then
+    if [ "$sb_report" = - ] && [ "$sb_findings" = - ] && [ "$sb_questions" != - ]; then
+      cat > "$sb_tmp/stdin.all"
+      grep -qx '=== FINDINGS ===' "$sb_tmp/stdin.all" || submit_fail "only one of --report/--findings may read stdin (-); write one of them to a file under the run's scratch or reports dir, or give ONE stdin document: the report, then a line '=== FINDINGS ===', then the finding rows (severity|path:line|finding|evidence; an answer-only result has the row info|-|answer|<one line>, or use --findings none)"
+      awk -v o="$sb_tmp" 'BEGIN { f = o "/report.pre" } $0 == "=== FINDINGS ===" && f != o "/findings.pre" { f = o "/findings.pre"; next } { print > f }' "$sb_tmp/stdin.all"
+      : >> "$sb_tmp/report.pre"; : >> "$sb_tmp/findings.pre"
+      sb_report=$sb_tmp/report.pre; sb_findings=$sb_tmp/findings.pre
+    else
+      submit_fail "only one of --report/--findings/--questions may read stdin (-); write the others to a file under the run's scratch or reports dir (e.g. printf '%s\\n' 'info|-|answer|<one line>' > <scratch>/rows, then --findings <scratch>/rows --report -)"
+    fi
+  fi
+  case "$sb_findings" in none|NONE|None) sb_findings='' ;; esac   # zero rows: a clean result for every role
   case "$sb_conf" in high|medium|low) ;; *) submit_fail "--confidence must be high, medium or low" ;; esac
   sb_gaterole=no; is_gate_role "$execution_role" && sb_gaterole=yes
   # Findings: "severity|path:line|finding|evidence" (an optional leading id column and a markdown table
@@ -2745,7 +2761,7 @@ submit_result() {
         if (t(f[1]) !~ /^(blocking|info)$/ && n >= 5) i = 2
         sev = t(f[i]); loc = t(f[i + 1]); fnd = t(f[i + 2]); ev = ""
         for (j = i + 3; j <= n; j++) ev = ev (ev == "" ? "" : " / ") t(f[j])
-        if (sev !~ /^(blocking|info)$/ || loc == "" || fnd == "" || ev == "") { print "BAD " NR ": want severity|path:line|finding|evidence with severity blocking or info"; bad = 1; next }
+        if (sev !~ /^(blocking|info)$/ || loc == "" || fnd == "" || ev == "") { print "BAD " NR ": want severity|path:line|finding|evidence with severity blocking or info (an answer-only result: --findings none, or the row info|-|answer|<one line>; report text on stdin goes to --report -, never --findings -)"; bad = 1; next }
         c++; printf "%s|%s|%s|%s\n", sev, loc, fnd, ev }
       END { exit bad }' "$sb_tmp/findings.in" > "$sb_tmp/rows" || submit_fail "$(grep '^BAD' "$sb_tmp/rows" | head -1)"
   fi
@@ -2785,7 +2801,7 @@ submit_result() {
     artifact_allowed "$execution_role" "$sb_rk" "$sb_focus" "$sb_rp" || submit_fail "artifact $sb_rp is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_rk" "$sb_focus")"
     if [ "$sb_report" = - ]; then cat > "$sb_tmp/report.in"
     else [ -f "$sb_report" ] || submit_fail "report file not found: $sb_report"; cat "$sb_report" > "$sb_tmp/report.in"; fi
-    [ -s "$sb_tmp/report.in" ] || submit_fail "the report is empty"
+    [ -s "$sb_tmp/report.in" ] || submit_fail "the report is empty (--report - reads stdin; give the report text on stdin, one stdin source per submit, or --report <file>)"
     mkdir -p "$(dirname "$sb_d/$sb_rp")" && cp "$sb_tmp/report.in" "$sb_d/$sb_rp" || submit_fail "could not write $sb_rp"
     sb_art=$sb_rp
   fi

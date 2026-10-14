@@ -51,6 +51,8 @@ AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> [--foc
   tolerated); ids are assigned (`<GATE>-<n>` or `<role>-<n>`). For a gate role `RESULT` follows from the
   findings (FAIL exactly when a `blocking` row exists); a contradicting `--result` is rejected. `BLOCKED` takes
   `--reason`; if the report does not exist the script writes the reason into it.
+- `--findings none` is zero rows. Only one of `--report`/`--findings` may read stdin (`-`); two stdin sources are refused
+  before stdin is read, except one document with the report, a line `=== FINDINGS ===`, then the rows (A104).
 - `--focus` is required for a reviewer unless the artifact's directory implies it (also `PROOFLINE_FOCUS`).
 - A rejection prints `submit rejected: <reason>` and exits 1 immediately, so the specialist fixes and submits
   again. The outcome (ok or rejected, with the reason) is also written to
