@@ -160,8 +160,9 @@ Mechanical, from `validate-contract.mjs`:
   one `blocking` row; RESULT `FAIL`. A judged item with a written criterion it violates is `blocking` too.
 - a covered breaking change, a `CP-N04` new enum value and a `CP-N07` new status code -> `info` rows with
   their in-repo consumers.
-- no blocking row and at least one unsupported file, or no contract file recognized at all -> RESULT `UNSUPPORTED` (blocking, waivable only by the
-  user, listed under `## Unsupported Checks` in the completion report). With blocking rows, each unsupported
+- no blocking row and at least one unsupported file, or no contract file recognized at all -> RESULT `UNSUPPORTED` (never a pass: unproven and
+  reported under `## Unsupported Checks` with `not proven: <what>` by default; blocking, waived only by the user, under the
+  project's `risk.unsupported: block`). With blocking rows, each unsupported
   file is one more blocking row.
 - otherwise PASS. CONFIDENCE `low` with an unsupported file or none recognized, `medium` when consumers came from a plain
   search, else `high`.

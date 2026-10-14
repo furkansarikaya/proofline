@@ -22,7 +22,8 @@ impact report or the call path to show it; if no benchmark reaches the changed c
 UNSUPPORTED ("no benchmark exercises <symbol>").
 
 Absent, unprovable, or needing a database other than the project's own throwaway test database: UNSUPPORTED,
-with the reason in `unsupported_reason` and the next step (the user adds a benchmark, or waives the check).
+with the reason in `unsupported_reason` and the next step (the user adds a benchmark; until then the check is
+reported as unproven, or waived by the user when the project sets `risk.unsupported: block`).
 
 ## 2. Worktrees
 

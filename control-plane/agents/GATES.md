@@ -75,14 +75,23 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   Signals are computed from the PLAN.md scope before FREEZE, so `next` dispatches the design role
   (architect, data_architect, designer) that must declare a flag.
 - **Gate status.** A gate is the worst status over its own focus and every risk focus it carries; it cannot
-  be `pass` while a required focus result is missing, stale, failing or UNSUPPORTED.
+  be `pass` while a required focus result is missing, stale or failing. A focus recorded `unsupported` (A98)
+  does not hold its gate open, is never `pass`, and its gate record carries `unsupported: "<focus>"`.
 - **Missing flag.** A diff signal whose flag PLAN.md does not set to `yes` makes `record` add a blocking finding
   (`risk signal <name> without PLAN.md flag <flag>`) to that focus's result, whatever the reviewer found; the
   check still runs. Fix: amend PLAN.md (the design role declares the flag) and refreeze, or the user waives it.
 - **UNSUPPORTED.** A risk focus whose skill or tool is missing is submitted with `--result UNSUPPORTED --reason
-  "<what is missing>"`. It is recorded as a blocking `UNSUPPORTED <focus>: <reason>` finding: never a PASS;
-  only the user can waive it (never for SECURITY); the completion report needs `## Unsupported Checks` naming
-  each such `<GATE>:<focus>`. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED. The
+  "<what is missing>"`. It is never a PASS (A98): with `risk.unsupported: report` (default) it is recorded as an
+  `info` row `UNSUPPORTED <focus>: <reason>`, the focus is `unsupported` (unproven, reported), the gate closes
+  when its other focuses pass, and `pipeline`/`next` print `UNSUPPORTED (unproven, reported)`. It is a blocking
+  finding only the user can waive (never for SECURITY) under `risk.unsupported: block` (the A78 rule) and, in
+  both modes, when the reason is an INCONCLUSIVE measurement (`performance INCONCLUSIVE: ...`,
+  `visual INCONCLUSIVE: ...`). A defect found by the part that could be checked is a FAIL; UNSUPPORTED rows in a
+  FAIL stay blocking. The completion report needs `## Unsupported Checks` with one line per `<GATE>:<focus>`
+  that names it and says `not proven: <what>` (three words at least). The reason must be concrete (at least 12
+  characters with a path, an `INCONCLUSIVE:` measurement or a tool/capability word; `n/a` is refused). A gate that
+  closes with an unsupported focus shows `gate.<GATE>.unsupported=<focus,...>` in `pipeline` and
+  `<GATE>: pass (unsupported: <focus,...>)` in `summary`; `next` tells the lead to surface them to the user. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED. The
   `contract` focus has contract-proof (A83): UNSUPPORTED only for a changed contract file it cannot parse that no
   compatibility tool already present covers, or when node is missing.
 - **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block, the performance thresholds (`performance:`, A87) the non-empty `security.*` keys (A88) and the `contract:` globs (A83) with `freeze.risk_sha256`. A

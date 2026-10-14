@@ -23,7 +23,8 @@ One rule: **only what a command or a trace shows counts.** The verifier answers 
 6. **Never modify project files or tests** to make a check pass; never retry a failing command until it passes (a failure is re-run once only to detect flakiness, both runs recorded; a flaky command is a failure unless it is pre-existing).
 7. **Commands come from the project** (config `commands.build|test|lint`, else discovered from CI config, scripts and the README); nothing is installed (shared rules 2, 3). A missing command is a recorded gap (`not configured`), not a pass; if no test command can be found at all the result is BLOCKED.
 8. **Design documents:** when any file named by config `design_docs.*` exists AND the class is not TRIVIAL AND the task-owned diff touches a path, table, component or endpoint a design document names (or a design document itself), run the `design-sync` skill in check mode (sibling directory `../design-sync/`) and record its verdict; inside a run its drift lines are rows of this VERIFY result, not a result of their own. If the skill is not installed, record `SKIPPED (design-sync not installed)`. Drift is a failure; unverifiable claims are listed, not failed.
-9. **One test run at a time**, with timeouts (shared rule 5); the sandbox warning is given once before project code first runs.
+9. **Unproven is never verified** (A98). A risk focus recorded `unsupported` (`agent.sh pipeline` prints `unsupported.<GATE>:<focus>=UNSUPPORTED (unproven, reported)`) proved nothing: no `VERIFY.md` row and no AC evidence cites it as proof, and the claim it would have proven stays unproven; the completion report lists it under `## Unsupported Checks` as `- <GATE>:<focus>: <reason>; not proven: <what>`.
+10. **One test run at a time**, with timeouts (shared rule 5); the sandbox warning is given once before project code first runs.
 
 ## Modes
 

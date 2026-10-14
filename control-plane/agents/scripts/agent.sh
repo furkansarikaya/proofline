@@ -134,6 +134,7 @@ config_check() {
         if ((p[3] == "paths" || p[3] == "content") && v != "") sig[p[2]] = 1
         if (p[3] == "check" && v != "") chk[p[2]] = 1
       }
+      if (k == "risk.unsupported") en(k, v, "block|report")
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
@@ -826,14 +827,31 @@ risk_show() {
     [ -z "$rsh_by" ] || printf 'design_role.%s=%s\n' "$rsh_r" "${rsh_by% }"
   done
 }
-# risk_unsupported ID -> "GATE:focus|finding" for each UNSUPPORTED finding of a current focus record (never a PASS).
+# risk_unsupported ID -> "GATE:focus|severity|finding" for each UNSUPPORTED finding of a current focus record
+# (never a PASS): severity info = unproven and reported (A98), blocking = a waiver or a measurement is needed.
 risk_unsupported() {
   for ru_g in $(required_gates "$1"); do
     for ru_f in $(risk_gate_focuses "$1" "$ru_g"); do
       ru_r=$(gate_latest_file "$1" "$ru_g" "$ru_f"); [ -n "$ru_r" ] || continue
-      sed -n 's/^finding: [^|]*|blocking|[^|]*|\(UNSUPPORTED [^|]*\)|.*/\1/p' "$ru_r" | sed "s#^#$ru_g:$ru_f|#"
+      sed -n 's/^finding: [^|]*|\([a-z]*\)|[^|]*|\(UNSUPPORTED [^|]*\)|.*/\1|\2/p' "$ru_r" | sed "s#^#$ru_g:$ru_f|#"
     done
   done
+}
+# A98: an UNSUPPORTED result blocks only under `risk.unsupported: block` (the A78 rule) or when its reason is an
+# INCONCLUSIVE measurement (`<focus> INCONCLUSIVE: ...`: it ran and was unreliable, the user decides).
+unsupported_blocks() { # REASON
+  [ "$(cfg risk.unsupported report)" != block ] || return 0
+  printf '%s\n' "$1" | grep -Eq '^[[:alnum:]_ -]*INCONCLUSIVE:'
+}
+# A98: a reason is the concrete missing thing, not a dodge ("n/a"): at least 12 characters and an anchor: a
+# path-like token, an INCONCLUSIVE measurement, or a tool/capability word. shortcut: a word list, not a proof
+# that the tool is absent; the reviewer and verifier re-check it, and `risk.unsupported: block` stays available.
+unsupported_reason_ok() { # REASON
+  [ "${#1}" -ge 12 ] || return 1
+  printf '%s\n' "$1" | grep -Eiq 'INCONCLUSIVE:|[A-Za-z0-9_.-]{2,}/[A-Za-z0-9_.-]{2,}|[A-Za-z0-9_-]\.(json|ya?ml|proto|graphqls?|gql|avsc|sql|js|mjs|ts|py|go|rb|java|sh|toml|lock|html?)([^A-Za-z]|$)|tool|parser|parse|benchmark|browser|chromium|chrome|database|schema|snapshot|contract|command|install|binary|runtime|driver|harness|format|capabilit|openapi|asyncapi|graphql|protobuf|machine-readable|migration|seed row|fixture|server|interception|threshold|library|package|test suite|temp-db|temporary|throwaway|node'
+}
+unsupported_label() { # SEVERITY
+  if [ "$1" = info ]; then echo 'UNSUPPORTED (unproven, reported)'; else echo 'UNSUPPORTED (blocking: a waiver or a measurement is needed)'; fi
 }
 
 # --- Gates (D14): SECRETS, REVIEW_SMALL, REVIEW_PLAN, REVIEW_RULES, REVIEW_TESTS, REVIEW_DATA, SECURITY, QA, VERIFY.
@@ -912,13 +930,16 @@ pipeline_show() {
     "$(pipeline_value "$class" max_explorers)" "$(run_autonomy "$id")" "$ps_tier" "$ps_art" "$ps_round" "$(max_fix_rounds)" \
     "$( [ "$ps_round" -ge 2 ] && echo yes || echo no )" "$ps_gates"
   ps_fp=$(content_fingerprint)
-  for ps_g in $ps_gates; do printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" strict "$ps_fp")"; done
+  for ps_g in $ps_gates; do
+    printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" strict "$ps_fp")"
+    ps_u=$(gate_unsupported_focuses "$id" "$ps_g" strict "$ps_fp"); [ -z "$ps_u" ] || printf 'gate.%s.unsupported=%s (unproven, reported; the gate is not a full pass)\n' "$ps_g" "$ps_u"
+  done
   # A78: risk signals, the focus each one adds to a gate, the per-focus status and the design roles to dispatch.
   for ps_g in $ps_gates; do
     for ps_f in $(risk_gate_focuses "$id" "$ps_g"); do printf 'focus.%s.%s=%s\n' "$ps_g" "$ps_f" "$(gate_focus_status "$id" "$ps_g" "$ps_f" strict "$ps_fp")"; done
   done
   risk_show "$id"
-  risk_unsupported "$id" | while IFS='|' read -r ps_k ps_t; do printf 'unsupported.%s=%s\n' "$ps_k" "$ps_t"; done
+  risk_unsupported "$id" | while IFS='|' read -r ps_k ps_v ps_t; do printf 'unsupported.%s=%s: %s\n' "$ps_k" "$(unsupported_label "$ps_v")" "${ps_t#UNSUPPORTED }"; done
 }
 class_rank() { case "$1" in TRIVIAL) echo 0 ;; STANDARD) echo 1 ;; COMPLEX) echo 2 ;; CRITICAL) echo 3 ;; *) echo 0 ;; esac; }
 classify() {
@@ -2029,7 +2050,8 @@ blocking_finding_ids() { sed -n 's/^finding: \([^|]*\)|\([a-z]*\)|.*/\1 \2/p' "$
 # strict binds the content fingerprint (any byte); patch binds the task-owned patch (after CODE_DONE,
 # when knowledge and report bookkeeping legitimately change the tree).
 # A gate is the worst status over its own focus and every risk focus it carries for the run (A78), so a gate
-# is never satisfied while a required focus result is missing, stale, failing or UNSUPPORTED.
+# is never satisfied while a required focus result is missing, stale or failing. A98: a focus recorded
+# `unsupported` (unproven, reported) does not hold the gate open; it is never `pass` and the report lists it.
 gate_status() {
   gs_id=$1 gs_gate=$2 gs_mode=${3:-strict} gs_now=${4:-}
   if [ "$gs_mode" = strict ]; then [ -n "$gs_now" ] || gs_now=$(content_fingerprint)
@@ -2041,7 +2063,7 @@ gate_status() {
   done
   printf '%s\n' "$gs_worst"
 }
-status_rank() { case "$1" in pass) echo 0 ;; waived) echo 1 ;; pass_low) echo 2 ;; missing) echo 3 ;; stale) echo 4 ;; *) echo 5 ;; esac; }
+status_rank() { case "$1" in pass|unsupported) echo 0 ;; waived) echo 1 ;; pass_low) echo 2 ;; missing) echo 3 ;; stale) echo 4 ;; *) echo 5 ;; esac; }
 # gate_focus_status ID GATE FOCUS MODE NOW: the latest record of that gate and focus ('-' = the gate's own focus).
 gate_focus_status() {
   gfs_id=$1 gfs_gate=$2; gfs_key=fingerprint; [ "$4" = strict ] || gfs_key=patch_sha256
@@ -2049,12 +2071,24 @@ gate_focus_status() {
   [ -n "$gfs_last" ] || { echo missing; return 0; }
   if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] || ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
   case "$(gate_field "$gfs_last" result)" in
-    pass) echo pass ;; pass_low) echo pass_low ;;
+    pass) echo pass ;; pass_low) echo pass_low ;; unsupported) echo unsupported ;;
     fail) if fail_fully_waived "$gfs_id" "$gfs_last"; then echo waived; else echo fail; fi ;;
     *) echo stale ;;
   esac
 }
-gate_satisfied() { case "$1" in pass|waived) return 0 ;; *) return 1 ;; esac; }
+# A98: a gate that closes with an `unsupported` focus is never shown as a bare pass.
+gate_unsupported_focuses() { # ID GATE MODE NOW -> comma list
+  guf=''
+  for guf_f in $(risk_gate_focuses "$1" "$2"); do
+    if [ "$(gate_focus_status "$1" "$2" "$guf_f" "$3" "$4")" = unsupported ]; then guf="$guf${guf:+,}$guf_f"; fi
+  done
+  printf '%s' "$guf"
+}
+gate_label() { # ID GATE MODE NOW
+  gl_s=$(gate_status "$@"); gl_u=$(gate_unsupported_focuses "$@")
+  if [ -n "$gl_u" ]; then printf '%s (unsupported: %s)\n' "$gl_s" "$gl_u"; else printf '%s\n' "$gl_s"; fi
+}
+gate_satisfied() { case "$1" in pass|waived|unsupported) return 0 ;; *) return 1 ;; esac; }
 verify_required_gates() { # ID strict|patch MESSAGE
   vrg_now=''; [ "$2" != strict ] || vrg_now=$(content_fingerprint); risk_prime "$1"
   for vrg_g in $(required_gates "$1"); do
@@ -2239,6 +2273,7 @@ write_gate() {
     printf 'policy_sha256: "%s"\npipeline: "%s"\n' "$(section_value "$wg_d" freeze policy_sha256)" "$(section_value "$wg_d" freeze pipeline)"
     [ -z "$wg_rfile" ] || printf 'result_file: "%s"\nresult_sha256: "%s"\n' "$wg_rfile" "$(hash_file "$wg_d/$wg_rfile")"
     [ "$wg_res" != fail ] || printf 'fix_scope: %s\n' "$wg_scope"
+    [ "$wg_res" != unsupported ] || printf 'unsupported: "%s"\n' "$wg_focus"
     [ ! -s "$wg_findings" ] || sed 's/^/finding: /' "$wg_findings"
     printf 'timestamp: "%s"\nepoch: %s\n' "$(now_iso)" "$(now_epoch)"
   } > "$wg_gd/$wg_name.yaml" || fail "could not write gate record"
@@ -2342,7 +2377,8 @@ record_validate() {
   case "$rv_res" in
     UNSUPPORTED) if is_gate_role "$rv_role" && risk_focus_role "$rv_focus" >/dev/null 2>&1; then rv_kind=gate; else record_reject "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"; return 1; fi
       [ "$rv_focus" != dependencies ] || { record_reject "the dependencies focus always has a tool-free check (the manifest diff against PLAN ## Dependencies); UNSUPPORTED is not available"; return 1; }
-      grep -q '^UNSUPPORTED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)"; return 1; } ;;
+      grep -q '^UNSUPPORTED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)"; return 1; }
+      unsupported_reason_ok "$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1)" || { record_reject "UNSUPPORTED_REASON is too vague: name the concrete missing tool, parser, capability or file (at least 12 characters, e.g. 'no machine-readable contract file; API.md is prose, no parser' or 'no headless browser installed'); a check you could run is PASS or FAIL (A98)"; return 1; } ;;
     PASS|FAIL) is_gate_role "$rv_role" && rv_kind=gate ;;
     BLOCKED) if is_gate_role "$rv_role" && [ "$rv_role" != qa ]; then rv_kind=gate; else rv_kind=task; fi ;;
     DONE|NEEDS_INPUT) case "$rv_role" in reviewer|security_reviewer|verifier) ;; *) rv_kind=task ;; esac ;;
@@ -2406,15 +2442,20 @@ record_validate() {
   rv_blocking=$(awk -F'|' '$2 != "info"' "$rv_t/findings" | wc -l | tr -d ' ')
   if [ "$rv_res" = FAIL ] && [ "$rv_blocking" = 0 ]; then record_reject "FAIL needs at least one blocking finding"; return 1; fi
   if [ "$rv_res" = PASS ] && [ "$rv_blocking" != 0 ]; then record_reject "PASS cannot carry blocking findings"; return 1; fi
-  if [ "$rv_res" = UNSUPPORTED ] && [ "$rv_blocking" != 0 ]; then record_reject "UNSUPPORTED cannot carry blocking findings (a check that ran is PASS or FAIL)"; return 1; fi
-  # A78: the script's own findings. UNSUPPORTED becomes one blocking row (never a PASS; the user may waive it);
-  # a diff signal of this focus without its PLAN.md flag becomes one blocking row per path. Either makes it FAIL.
+  if [ "$rv_res" = UNSUPPORTED ] && [ "$rv_blocking" != 0 ]; then record_reject "UNSUPPORTED cannot carry blocking findings (a check that found a defect is FAIL; its UNSUPPORTED rows still block and are listed)"; return 1; fi
+  # A78/A98: the script's own findings. UNSUPPORTED becomes one row, never a PASS: `info` (unproven, reported,
+  # the focus is recorded `unsupported`) unless `risk.unsupported: block` or an INCONCLUSIVE reason makes it
+  # blocking. A FAIL that carries UNSUPPORTED rows (contract-proof: a defect plus an unparsed file) stays FAIL.
+  # A diff signal of this focus without its PLAN.md flag becomes one blocking row per path. Any blocking script
+  # row makes it FAIL.
   rv_added=0
   if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ] && risk_focus_role "$rv_focus" >/dev/null 2>&1; then
     rv_next=$(awk -F'|' '{ n = $1; sub(/.*-/, "", n); if (n + 0 > m) m = n + 0 } END { print m + 1 }' "$rv_t/findings")
     if [ "$rv_res" = UNSUPPORTED ]; then
-      printf '%s-%s|blocking|-|UNSUPPORTED %s: %s|%s\n' "$rv_gate" "$rv_next" "$rv_focus" "$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1 | tr '|' '/')" "$rv_ap" >> "$rv_t/findings"
-      rv_next=$((rv_next + 1)); rv_added=$((rv_added + 1))
+      rv_ur=$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1 | tr '|' '/'); rv_us=info
+      if unsupported_blocks "$rv_ur"; then rv_us=blocking; rv_added=$((rv_added + 1)); fi
+      printf '%s-%s|%s|-|UNSUPPORTED %s: %s|%s\n' "$rv_gate" "$rv_next" "$rv_us" "$rv_focus" "$rv_ur" "$rv_ap" >> "$rv_t/findings"
+      rv_next=$((rv_next + 1))
     fi
     for rv_m in $(risk_missing_flags "$rv_id" "$rv_focus" | awk -F'|' '$2 == "diff" { print $1 "|" $3 "|" $4 }'); do
       rv_mn=${rv_m%%|*} rv_mfl=${rv_m##*|}; rv_mp=${rv_m#*|}; rv_mp=${rv_mp%|*}
@@ -2443,6 +2484,7 @@ record_apply() {
   ra_sha=$(hash_file "$ra_d/$ra_raw")
   if [ "$ra_kind" = gate ] && [ "$ra_res" != BLOCKED ]; then
     ra_gres=fail; [ "$ra_res" != PASS ] || { if [ "$ra_conf" = low ]; then ra_gres=pass_low; else ra_gres=pass; fi; }
+    [ "$ra_res" != UNSUPPORTED ] || ra_gres=unsupported
     write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)"
   fi
   if [ "$ra_res" = NEEDS_INPUT ]; then
@@ -2452,7 +2494,8 @@ record_apply() {
   fi
   if gates_enforced "$ra_id"; then ledger_append "$ra_id" "record:$ra_role:$ra_res" - - "$ra_raw sha256=$ra_sha${ra_gate:+ gate=$ra_gate}"; fi
   metrics_step "$ra_id" "$ra_role" "$ra_focus" "$(printf '%s' "$ra_res" | tr "[:upper:]" "[:lower:]")"
-  [ "$(m added)" = 0 ] || echo "risk: $(m added) script finding(s) added to $ra_gate focus $ra_focus (UNSUPPORTED or a risk signal without its PLAN.md flag, A78); the result is FAIL"
+  [ "$(m added)" = 0 ] || echo "risk: $(m added) script finding(s) added to $ra_gate focus $ra_focus (a blocking UNSUPPORTED or a risk signal without its PLAN.md flag, A78/A98); the result is FAIL"
+  [ "$ra_res" != UNSUPPORTED ] || echo "risk: $ra_gate focus $ra_focus is UNSUPPORTED (unproven, reported, A98): never a PASS; the completion report lists it under '## Unsupported Checks' with a 'not proven:' line"
   echo "result recorded: $ra_id $ra_raw ($ra_role $ra_res)"
 }
 # --- Language check (A33): run artifacts are English. -----------------------------------------
@@ -2577,8 +2620,8 @@ submit_result() {
       PASS) [ "$sb_blocking" = 0 ] || submit_fail "--result PASS contradicts $sb_blocking blocking finding(s); the result of a gate follows from the findings" ;;
       FAIL) [ "$sb_blocking" -gt 0 ] || submit_fail "--result FAIL needs at least one blocking finding" ;;
       BLOCKED) ;;
-      # A78: a risk focus whose tool or skill is missing; recorded as a blocking UNSUPPORTED finding, never a PASS.
-      UNSUPPORTED) [ "$sb_blocking" = 0 ] || submit_fail "--result UNSUPPORTED cannot carry blocking findings (a check that ran is PASS or FAIL)"
+      # A78/A98: a risk focus whose tool or skill is missing; never a PASS (reported, or blocking: record decides).
+      UNSUPPORTED) [ "$sb_blocking" = 0 ] || submit_fail "--result UNSUPPORTED cannot carry blocking findings (a check that found a defect is FAIL; its UNSUPPORTED rows still block and are listed)"
         [ -n "$sb_reason" ] || submit_fail "--result UNSUPPORTED needs --reason naming the missing tool or skill" ;;
       *) submit_fail "--result $sb_res is not valid for role $execution_role (gate roles: PASS FAIL BLOCKED UNSUPPORTED, or omit it)" ;;
     esac
@@ -3253,7 +3296,7 @@ next_step() {
             case "$(gate_field "$ns_lf" result | tr '[:upper:]' '[:lower:]')" in fail) [ "$ns_a" -gt 0 ] || ns_oth=$((ns_oth + 1)) ;; esac
             # shellcheck disable=SC2013 # finding ids contain no whitespace
             for ns_fid in $(sed -n 's/^finding: \([^|]*\)|blocking|[^|]*|UNSUPPORTED .*/\1/p' "$ns_lf"); do
-              finding_waived "$ns_id" "$ns_lf" "$ns_fid" || o "agent.sh request-approval $ns_id waive:$ns_fid (UNSUPPORTED $ns_fc: never a PASS; the user decides whether to accept the gap, listed in the completion report)"
+              finding_waived "$ns_id" "$ns_lf" "$ns_fid" || o "agent.sh request-approval $ns_id waive:$ns_fid (blocking UNSUPPORTED $ns_fc: an INCONCLUSIVE measurement or risk.unsupported: block, never a PASS; the user decides whether to accept the gap, listed in the completion report)"
             done
             # shellcheck disable=SC2013 # finding ids contain no whitespace
             for ns_fid in $(sed -n 's/^finding: \([^|]*\)|blocking|[^|]*|risk signal .*/\1/p' "$ns_lf"); do
@@ -3277,11 +3320,13 @@ next_step() {
           esac
         done
         r "gates not passing:$ns_todo"
-      else o "agent.sh handoff $ns_id CODE_DONE"; r "every required gate passes"; fi ;;
+      else
+        unsupported_next "$ns_id"
+        o "agent.sh handoff $ns_id CODE_DONE"; r "every required gate passes"; fi ;;
     CODE_DONE)
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
-          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then o "write COMPLETION_REPORT.md; agent.sh publish-completion-report $ns_id"; r "completion report not published"
+          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; o "write COMPLETION_REPORT.md; agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
         *) o "agent.sh knowledge-done $ns_id [not_applicable]"; r "knowledge transaction not recorded" ;;
       esac ;;
@@ -3339,6 +3384,14 @@ amend_run() {
 }
 
 # --- Completion report (task-system agnostic; adapters in .agents/task-integrations/) ------
+# A98: `next` names every UNSUPPORTED focus before CODE_DONE and the report: unproven, never a PASS.
+unsupported_next() { # ID
+  un_all=$(risk_unsupported "$1"); [ -n "$un_all" ] || return 0
+  printf '%s\n' "$un_all" | while IFS='|' read -r un_k un_v un_t; do
+    o "$(unsupported_label "$un_v") $un_k: ${un_t#UNSUPPORTED } -> list it in COMPLETION_REPORT.md '## Unsupported Checks' as '- $un_k: <reason>; not proven: <what>'"
+  done
+  o "surface these unsupported checks to the user in your reply: they were not proven, never passed"
+}
 required_report_headings() {
   dir=$1 id=$(basename "$1")
   printf '## Implementation Summary\n## Verification\n## Assumptions\n## Known Limitations / Follow-up\n'
@@ -3373,10 +3426,13 @@ validate_completion_report_structure() {
     [ "$vc_s" != accepted-by-user ] || printf '%s\n' "$vc_sec" | grep -Fq "$(basename "$vc_ref")" || echo "$vc_a(answer $vc_ref)"
   done | tr '\n' ' ')
   [ -z "$vc_miss" ] || fail "completion report: '## Assumptions' does not list: $vc_miss (every unverified assumption by id with its status word, unverified or accepted-by-user; an accepted one with its answer file)"
-  # A78: every UNSUPPORTED check is named (GATE:focus) in the report; it was never a PASS.
+  # A78/A98: every UNSUPPORTED check is named (GATE:focus) in the report on a line that says what it leaves
+  # unproven ('not proven: <what>'); it was never a PASS, so the report never asserts it as verified.
   vc_usec=$(awk '/^## Unsupported Checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
   for vc_u in $(risk_unsupported "$id" | cut -d'|' -f1 | sort -u); do
     printf '%s\n' "$vc_usec" | grep -Fq "$vc_u" || fail "completion report must name the UNSUPPORTED check $vc_u under '## Unsupported Checks'"
+    # 'not proven:' says what, in at least three words ('n/a' is not an answer)
+    printf '%s\n' "$vc_usec" | grep -F "$vc_u" | sed -n 's/.*not proven:[[:space:]]*//p' | awk '{ n = 0; for (i = 1; i <= NF; i++) if ($i ~ /[A-Za-z][A-Za-z]/) n++; if (n >= 3) ok = 1 } END { exit !ok }' || fail "completion report: the line naming the UNSUPPORTED check $vc_u under '## Unsupported Checks' must say 'not proven: <what>' in at least three words (an unproven claim is never reported as verified)"
   done
 }
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
@@ -3556,7 +3612,7 @@ summary_run() {
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
     sm_fp=$(content_fingerprint)
     printf 'TIER: %s\n' "$(tier_effective "$sm_id")"
-    for sm_g in $(required_gates "$sm_id"); do printf '%s: %s\n' "$sm_g" "$(gate_status "$sm_id" "$sm_g" strict "$sm_fp")"; done
+    for sm_g in $(required_gates "$sm_id"); do printf '%s: %s\n' "$sm_g" "$(gate_label "$sm_id" "$sm_g" strict "$sm_fp")"; done
     printf 'FIX ROUNDS: %s of %s\n' "$(fix_rounds_used "$sm_id")" "$(max_fix_rounds)"
   fi
   printf 'DELIVERY: completion report published %s\n' "$(ua "$(section_value "$sm_d" completion_report published)")"

@@ -305,7 +305,7 @@ test("CLI: validate-visual prints RESULT, SUMMARY and rows; measure prints a sel
 test("SKILL.md states the boundaries: existing tooling only, UNSUPPORTED never PASS, depth, judged never alone", () => {
   const md = readFileSync(new URL("../../skills/visual-proof/SKILL.md", import.meta.url), "utf8");
   assert.match(md, /never installs a browser/);
-  assert.match(md, /it is never a PASS and only the user can waive it/);
+  assert.match(md, /it is never a PASS: unproven and reported in the completion\s+report/);
   assert.match(md, /STANDARD: the changed screens in their default state x 2\s+viewports, measured only/);
   assert.match(md, /COMPLEX and CRITICAL: every spec state/);
   assert.match(md, /FAIL the gate only when they violate a criterion written in the spec or plan/);

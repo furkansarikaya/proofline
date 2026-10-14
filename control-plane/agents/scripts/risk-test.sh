@@ -1,7 +1,7 @@
 #!/bin/sh
 # shellcheck disable=SC2012,SC2015,SC2119,SC2120,SC2016,SC2329 # test code: assertion chains
 # Self-tests of the risk-adaptive pipeline (A78): every signal -> check mapping, the missing-flag FAIL, the
-# focus results a gate needs, UNSUPPORTED (never a PASS), frozen flags and the frozen mapping.
+# focus results a gate needs, UNSUPPORTED (never a PASS; reported, A98), frozen flags and the frozen mapping.
 set -eu
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
@@ -145,41 +145,109 @@ sc_missing_flag() {
   ok "missing flag: blocking finding at the focus, check still runs, gate needs every focus, declared flag passes"
 }
 
-# UNSUPPORTED: accepted for a risk focus, never a PASS, waivable only by the user, named in the completion report.
-sc_unsupported() {
-  rrun COMPLEX 'web/index.html' "$(printf '%s\n' '' '## UI' '' 'one status badge')"; frozen; implement web/index.html '<main></main>'
+# UNSUPPORTED (A78, A98): never a PASS. Default `risk.unsupported: report`: the focus is `unsupported`, the gate
+# closes, `next` and `pipeline` name it, the completion report must list it with 'not proven:'. Blocking: under
+# `risk.unsupported: block`, for an INCONCLUSIVE reason (both modes) and with a blocking defect row (FAIL).
+uns_report() { mkdir -p .agents/runs/LC/reviews/visual-proof; printf '# visual\n\nNo headless browser in the project.\n' > .agents/runs/LC/reviews/visual-proof/REPORT.md; }
+uns_visual() { # REASON: the qa visual focus submits UNSUPPORTED
+  uns_report; AS qa submit LC --focus visual --result UNSUPPORTED --reason "$1" --confidence high --artifact reviews/visual-proof/REPORT.md
+}
+uns_run() { # [CONFIG-SED]: a COMPLEX UI run with every other focus passing, frozen under the (edited) config
+  rrun COMPLEX 'web/index.html' "$(printf '%s\n' '' '## UI' '' 'one status badge')"
+  if [ -n "${1:-}" ]; then   # the project's own config, committed at the run's base
+    sed "$1" .agents/config.yaml > "$base/cfg.u"; cp "$base/cfg.u" .agents/config.yaml
+    git add .agents/config.yaml; git commit -qm 'project config'
+    sed "s/^  base_sha:.*/  base_sha: \"$(git rev-parse HEAD)\"/" .agents/runs/LC/RUN.yaml > "$base/run.base"; cp "$base/run.base" .agents/runs/LC/RUN.yaml
+  fi
+  frozen; implement web/index.html '<main></main>'
   pass_all >/dev/null 2>&1 || true
-  # the qa visual focus has no tool: UNSUPPORTED
-  mkdir -p .agents/runs/LC/reviews/visual-proof
-  out=$(printf '# visual\n\nNo headless browser in the project.\n' | AS qa submit LC --focus visual --result UNSUPPORTED --reason 'visual-proof skill not installed; no headless browser in the project' --confidence high --artifact reviews/visual-proof/REPORT.md --report -)
-  printf '%s' "$out" | grep -Fq 'submitted: LC qa FAIL gate=QA' || die "UNSUPPORTED was not recorded as a failing focus: $out"
-  [ "$(focus_st QA visual)" = fail ] && [ "$(gate_st QA)" = fail ] || die "UNSUPPORTED counted as pass: $(focus_st QA visual)"
-  snap; has 'unsupported.QA:visual=UNSUPPORTED visual: visual-proof skill not installed'
+}
+sc_unsupported() {
+  uns_run
+  # A98: a vague reason is a dodge, refused; a concrete one (tool, capability, path) is accepted
+  expect_msg "a reason 'n/a'" 'UNSUPPORTED_REASON is too vague' uns_visual 'n/a'
+  expect_msg "a reason without an anchor" 'UNSUPPORTED_REASON is too vague' uns_visual 'n/a for this change, skipped'
+  out=$(uns_visual 'visual-proof skill not installed; no headless browser in the project')
+  printf '%s' "$out" | grep -Fq 'submitted: LC qa UNSUPPORTED gate=QA' || die "UNSUPPORTED was not recorded as such: $out"
+  printf '%s' "$out" | grep -Fq 'QA focus visual is UNSUPPORTED (unproven, reported, A98)' || die "no unsupported notice: $out"
+  [ "$(focus_st QA visual)" = unsupported ] || die "focus is not unsupported: $(focus_st QA visual)"
+  [ "$(gate_st QA)" = pass ] || die "an unsupported-only focus holds the gate open: $(gate_st QA)"
+  rec=$(ls .agents/runs/LC/gates/*-QA.yaml | tail -1)
+  grep -q '^result: "unsupported"$' "$rec" && grep -q '^unsupported: "visual"$' "$rec" || die "the focus record is not unsupported: $(cat "$rec")"
+  grep -q '^finding: QA-1|info|-|UNSUPPORTED visual: visual-proof skill not installed' "$rec" || die "unsupported row: $(grep finding "$rec")"
+  ! grep -q '^result: "pass"' "$rec" || die "UNSUPPORTED recorded as pass"
+  snap; has 'unsupported.QA:visual=UNSUPPORTED (unproven, reported): visual: visual-proof skill not installed'
+  has 'gate.QA.unsupported=visual (unproven, reported'
+  A summary LC | grep -Fxq 'QA: pass (unsupported: visual)' || die "summary shows a bare pass: $(A summary LC | grep '^QA')"
   expect_msg "UNSUPPORTED without a reason" 'needs --reason' AS qa submit LC --focus visual --result UNSUPPORTED --confidence high --artifact reviews/visual-proof/REPORT.md
   expect_msg "UNSUPPORTED on a base focus" 'UNSUPPORTED is a result of a risk focus only' AS reviewer submit LC --focus rules --result UNSUPPORTED --reason 'no tool' --confidence high
+  nx=$(A next LC)
+  printf '%s\n' "$nx" | grep -Fq 'next=UNSUPPORTED (unproven, reported) QA:visual: visual: visual-proof skill not installed' || die "next does not name the unsupported focus: $nx"
+  printf '%s\n' "$nx" | grep -Fq 'next=agent.sh handoff LC CODE_DONE' || die "next does not offer CODE_DONE: $nx"
+  ! printf '%s\n' "$nx" | grep -Fq 'waive:' || die "next asks for a waiver of a reported UNSUPPORTED: $nx"
+  printf '%s\n' "$nx" | grep -Fq 'next=surface these unsupported checks to the user in your reply' || die "next does not ask to surface them: $nx"
+  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
+  A next LC | grep -Fq 'next=UNSUPPORTED (unproven, reported) QA:visual' || die "next before the report does not name the unsupported focus"
+  write_report
+  expect_msg "a report without the UNSUPPORTED section" '## Unsupported Checks' A publish-completion-report LC markdown
+  write_report '' '## Unsupported Checks' 'Visual check skipped; not proven: layout at 320px.'
+  expect_msg "a report that does not name the check" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
+  # A92: the name counts only inside the section it is required under
+  write_report '' '## Review Result' 'QA:visual unsupported.' '' '## Unsupported Checks' 'Visual check skipped.'
+  expect_msg "a check named outside the section" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
+  write_report '' '## Unsupported Checks' '- QA:visual: visual-proof skill not installed.'
+  expect_msg "a check without its 'not proven' line" "must say 'not proven: <what>'" A publish-completion-report LC markdown
+  write_report '' '## Unsupported Checks' '- QA:visual: visual-proof skill not installed; not proven: n/a'
+  expect_msg "a 'not proven: n/a' line" "must say 'not proven: <what>' in at least three words" A publish-completion-report LC markdown
+  write_report '' '## Unsupported Checks' '- QA:visual: visual-proof skill not installed; not proven: the badge renders without overflow at 320px.'
+  A publish-completion-report LC markdown >/dev/null
+  # INCONCLUSIVE stays blocking under the default: a measurement ran and was unreliable, the user decides
+  uns_run
+  out=$(uns_visual 'visual INCONCLUSIVE: two identical captures differ by 4% of pixels')
+  printf '%s' "$out" | grep -Fq 'submitted: LC qa FAIL gate=QA' || die "INCONCLUSIVE was not a failing focus: $out"
+  [ "$(focus_st QA visual)" = fail ] && [ "$(gate_st QA)" = fail ] || die "INCONCLUSIVE did not block: $(focus_st QA visual)"
+  snap; has 'unsupported.QA:visual=UNSUPPORTED (blocking: a waiver or a measurement is needed): visual: visual INCONCLUSIVE:'
   fid=$(sed -n 's/^finding: \([^|]*\)|blocking|-|UNSUPPORTED .*/\1/p' "$(ls .agents/runs/LC/gates/*-QA.yaml | tail -1)")
   nx=$(A next LC)
-  printf '%s\n' "$nx" | grep -Fq "request-approval LC waive:$fid (UNSUPPORTED visual" || die "next does not offer the user's waiver"
+  printf '%s\n' "$nx" | grep -Fq "request-approval LC waive:$fid (blocking UNSUPPORTED visual" || die "next does not offer the user's waiver: $nx"
   # A92: only a script finding fails the gate: no implementer fix round is offered
   ! printf '%s\n' "$nx" | grep -Fq 'handoff LC IMPLEMENTING' || die "next offers a fix round for an UNSUPPORTED-only failure"
   approve_as_user "waive:$fid" "approved, waive $fid"
-  A waive LC "$fid" --reason 'no browser in this project; the user accepts the visual gap' >/dev/null
-  [ "$(gate_st QA)" = waived ] || die "waived UNSUPPORTED gate: $(gate_st QA)"
+  A waive LC "$fid" --reason 'unstable rendering in this environment; the user accepts the visual gap' >/dev/null
+  [ "$(gate_st QA)" = waived ] || die "waived INCONCLUSIVE gate: $(gate_st QA)"
   A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
-  write_report '' '## Waivers' 'The user waived the UNSUPPORTED finding.'
-  expect_msg "a report without the UNSUPPORTED section" '## Unsupported Checks' A publish-completion-report LC markdown
-  write_report '' '## Waivers' 'The user waived the UNSUPPORTED finding.' '' '## Unsupported Checks' 'Visual check skipped.'
-  expect_msg "a report that does not name the check" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
-  # A92: the name counts only inside the section it is required under
-  write_report '' '## Waivers' 'QA:visual was waived by the user.' '' '## Unsupported Checks' 'Visual check skipped.'
-  expect_msg "a check named outside the section" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
-  write_report '' '## Waivers' 'The user waived the UNSUPPORTED finding.' '' '## Unsupported Checks' 'QA:visual - visual-proof skill not installed; waived by the user.'
+  write_report '' '## Waivers' 'The user waived the INCONCLUSIVE finding.' '' '## Unsupported Checks' 'Visual check skipped.'
+  expect_msg "a waived INCONCLUSIVE not named" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
+  write_report '' '## Waivers' 'The user waived the INCONCLUSIVE finding.' '' '## Unsupported Checks' '- QA:visual: visual INCONCLUSIVE, waived by the user; not proven: the badge layout.'
   A publish-completion-report LC markdown >/dev/null
+  # a performance INCONCLUSIVE blocks too (the prefix rule, whatever the focus)
+  uns_run
+  out=$(uns_visual 'performance INCONCLUSIVE: noise 30% over the 10% threshold')
+  [ "$(focus_st QA visual)" = fail ] || die "performance INCONCLUSIVE prefix did not block: $out"
+  # FAIL + UNSUPPORTED: a defect in the part that could be checked is a FAIL (the contract-proof shape: defect rows
+  # plus blocking UNSUPPORTED rows); it blocks, the implementer fixes the defect, the UNSUPPORTED row is listed
+  uns_run; uns_report
+  printf '%s\n' 'blocking|web/index.html:1|the status badge has no text alternative|traced: <main> holds an img without alt' \
+    'blocking|-|UNSUPPORTED visual: no headless browser for the overflow cells|no measurement' > "$base/uns.rows"
+  expect_msg "UNSUPPORTED with a blocking row" 'UNSUPPORTED cannot carry blocking findings' AS qa submit LC --focus visual --result UNSUPPORTED --reason 'no browser' --findings "$base/uns.rows" --confidence high --artifact reviews/visual-proof/REPORT.md
+  out=$(AS qa submit LC --focus visual --findings "$base/uns.rows" --confidence high --artifact reviews/visual-proof/REPORT.md)
+  printf '%s' "$out" | grep -Fq 'submitted: LC qa FAIL gate=QA' || die "FAIL+UNSUPPORTED did not fail: $out"
+  [ "$(focus_st QA visual)" = fail ] && [ "$(gate_st QA)" = fail ] || die "FAIL+UNSUPPORTED did not block"
+  snap; has 'unsupported.QA:visual=UNSUPPORTED (blocking: a waiver or a measurement is needed): visual: no headless browser'
+  A next LC | grep -Fq 'handoff LC IMPLEMENTING (fix round' || die "next does not send the defect to a fix round: $(A next LC)"
+  # risk.unsupported: block restores A78: the UNSUPPORTED row is blocking, the gate fails, only the user waives
+  uns_run 's/^  unsupported: report$/  unsupported: block/'
+  grep -q '^  unsupported: block$' .agents/config.yaml || die "the block edit did not apply"
+  A config-check >/dev/null
+  out=$(uns_visual 'visual-proof skill not installed')
+  printf '%s' "$out" | grep -Fq 'submitted: LC qa FAIL gate=QA' || die "block mode did not fail: $out"
+  [ "$(gate_st QA)" = fail ] || die "block mode gate: $(gate_st QA)"
+  A next LC | grep -Fq 'request-approval LC waive:QA-1' || die "block mode: next does not offer the waiver"
   # the dependency audit always has a tool-free check
   rrun COMPLEX 'package.json'; frozen; implement package.json '{}'
   mkdir -p .agents/runs/LC/security/dependencies; printf '# deps\n' > .agents/runs/LC/security/dependencies/REPORT.md
   expect_msg "UNSUPPORTED dependency audit" 'UNSUPPORTED is not available' AS security_reviewer submit LC --focus dependencies --result UNSUPPORTED --reason 'no audit tool' --confidence high --artifact security/dependencies/REPORT.md
-  ok "UNSUPPORTED: a blocking finding, never a PASS, waivable by the user, listed in the completion report; not for dependencies"
+  ok "UNSUPPORTED: unproven and reported (gate closes, never pass, report lists it with 'not proven:'); INCONCLUSIVE, block mode and a defect row block; not for dependencies"
 }
 
 # Flags are frozen with PLAN.md; the mapping is frozen with risk_sha256; config-check refuses foreign checks.
@@ -205,6 +273,13 @@ sc_frozen() {
   sed 's/^  regression_pct: 10$/  regression_pct: 500/' .agents/config.yaml > "$base/cfg3"; grep -q '^  regression_pct: 500$' "$base/cfg3"
   cp "$base/cfg3" .agents/config.yaml
   expect_msg "a performance threshold change after freeze" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
+  # A98: risk.unsupported is part of the frozen mapping and config-check accepts only block|report
+  sed 's/^  unsupported: report$/  unsupported: block/' "$base/cfg.keep" > .agents/config.yaml; grep -q '^  unsupported: block$' .agents/config.yaml || die "the unsupported edit did not apply"
+  A config-check >/dev/null
+  expect_msg "risk.unsupported changed after freeze" 'freeze mismatch: risk' A verify-freeze LC
+  sed 's/^  unsupported: report$/  unsupported: maybe/' "$base/cfg.keep" > "$base/cfg.bad"
+  expect_msg "an invalid risk.unsupported" 'invalid value for risk.unsupported: maybe (want block|report)' A config-check "$base/cfg.bad"
   cp "$base/cfg.keep" .agents/config.yaml; A verify-freeze LC >/dev/null
   expect_msg "a check outside the focus set" 'invalid value for risk.contract_file.check' A config-check "$base/cfg"
   awk '/^  ui_path:/ { print; print "    paths: \"*.html\""; print "    check: VISUAL_GATE"; skip = 1; next } skip && /^  [a-z]/ { skip = 0 } !skip { print }' .agents/config.yaml > "$base/cfg2"

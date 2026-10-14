@@ -45,6 +45,12 @@ Fix rounds used: <n> of <review.max_fix_rounds>.
 (STANDARD and up) QA: <PASS|FAIL> (<confidence>); scenarios <passed>/<total>.
 Visual (when the `visual` focus ran): <the `SUMMARY:` line of `reviews/visual-proof/REPORT.md`>.
 
+## Unsupported Checks
+
+(when `A pipeline <ID>` prints `unsupported.` lines) never written as verified (A98):
+
+- <GATE>:<focus>: <reason, the missing tool or capability>; not proven: <what this check would have proven>
+
 ## Waivers
 
 (when waivers exist)

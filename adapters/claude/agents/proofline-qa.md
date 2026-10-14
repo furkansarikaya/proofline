@@ -50,8 +50,9 @@ viewports, measured and judged), screenshots with sha256 in `reviews/visual-proo
 `validate-visual.mjs`, and `reviews/visual-proof/REPORT.md`. Its RESULT maps to the submission: PASS or FAIL with
 the printed rows; INCONCLUSIVE -> `--result UNSUPPORTED --reason "visual INCONCLUSIVE: ..."` (the `SUBMIT:` line it
 prints; blocking, never a PASS); no browser tooling (UNSUPPORTED) -> `--result UNSUPPORTED
---reason "<what is missing>"`, recorded as a blocking `UNSUPPORTED` finding, never a PASS; only the user may
-waive it and the completion report lists it. Never install a tool, never create a visual baseline. Never
+--reason "<what is missing>"`, never a PASS: by default recorded as unproven and reported (the focus is
+`unsupported`, the completion report lists it with `not proven: <what>`); blocking, waived only by the user,
+under `risk.unsupported: block` (A98). The reason names the concrete missing tool or capability (`n/a` is refused). Never install a tool, never create a visual baseline. Never
 exercise pages or form steps against a backend with a real database (A50/A52): `file:`/static pages or a
 project test server with throwaway or in-memory data only.
 

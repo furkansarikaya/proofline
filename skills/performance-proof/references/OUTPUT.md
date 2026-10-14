@@ -27,7 +27,8 @@ runs, with noise above the threshold, or without any measurement; mixed units; a
 a judged item with a number; a claim sentence that cites no measurement of the report or contradicts the
 direction of the one it cites; a side whose sample count differs from `environment.runs`; and change samples
 identical to the base samples (copied data). With `--config` and `--plan` it also recomputes the thresholds
-and their source; without both it prints `thresholds unverified` and `--rows` never submits PASS (UNSUPPORTED instead).
+and their source; without both it prints `thresholds unverified` and `--rows` never submits PASS (UNSUPPORTED with a
+blocking `performance INCONCLUSIVE: thresholds unverified ...` reason instead).
 `--rows` prints the gate submission.
 
 ## Human part (above the json block)
@@ -52,5 +53,6 @@ Next step: <for INCONCLUSIVE / UNSUPPORTED>
 ## Completion report
 
 The lead lists an INCONCLUSIVE or UNSUPPORTED performance result under `## Unsupported Checks`
-(`REVIEW_RULES:performance` or `REVIEW_SMALL:performance`) with the reason, stating that it is not a FAIL
-and not a PASS, and whether the user waived it.
+(`REVIEW_RULES:performance` or `REVIEW_SMALL:performance`) with the reason and `not proven: <what>`, stating
+that it is not a FAIL and not a PASS, and whether the user waived it. INCONCLUSIVE always blocks until the user
+decides; UNSUPPORTED is unproven and reported (blocking only under `risk.unsupported: block`).

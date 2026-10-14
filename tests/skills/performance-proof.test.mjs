@@ -292,13 +292,13 @@ test("H2: direction follows the unit; higher on a time and lower on a rate are r
     assert.equal(cbUnitDirection(unit), want, unit);
 });
 const { unitDirection: cbUnitDirection } = await import(join(scripts, "compare-bench.mjs"));
-test("M1: an unverified PASS is submitted as UNSUPPORTED (blocking); only verified thresholds can PASS", () => {
+test("M1: an unverified PASS is submitted as UNSUPPORTED with a blocking INCONCLUSIVE reason; only verified thresholds can PASS", () => {
   const cfg = join(tmp, "cfg-m1.yaml"); writeFileSync(cfg, "");
   const plan = join(tmp, "PLAN-m1.md"); writeFileSync(plan, "## Risk\n\nperformance_critical: yes\n");
   const f = save("c3-m1.json", report("c3"));
   const bare = vcli(f, "--rows");
   assert.equal(bare.status, 0, bare.stderr); assert.match(bare.stdout, /thresholds unverified/);
-  assert.match(bare.stdout, /^result: UNSUPPORTED\nreason: performance UNSUPPORTED: thresholds unverified/m);
+  assert.match(bare.stdout, /^result: UNSUPPORTED\nreason: performance INCONCLUSIVE: thresholds unverified/m);
   const half = vcli(f, "--config", cfg, "--rows");
   assert.match(half.stdout, /^result: UNSUPPORTED$/m, "--config without --plan is not verified");
   const both = vcli(f, "--config", cfg, "--plan", plan, "--rows");

@@ -48,8 +48,10 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
 - A signal in the diff without its plan flag (a contract file changed, `contract_change` not set) is a
   blocking finding of that focus, and the check still runs.
 - A gate passes only when its own focus and every risk focus it carries pass.
-- A check whose skill or tool is missing is `UNSUPPORTED`: never a PASS, waivable only by the user, and listed
-  in the completion report. The `contract` check is the contract-proof skill (A83): every change in a contract
+- A check whose skill or tool is missing is `UNSUPPORTED`: never a PASS, unproven and reported (A98). By default
+  (`risk.unsupported: report`) it does not block the gate; the completion report must list it under
+  `## Unsupported Checks` with `not proven: <what>`. `risk.unsupported: block` makes it blocking (only the user
+  waives it), and an INCONCLUSIVE measurement is blocking in both modes. The `contract` check is the contract-proof skill (A83): every change in a contract
   file gets a breaking/non-breaking rule, in-repo consumers come from the impact report, and a breaking
   change that PLAN.md `## Contracts` does not cover with versioning, migration or deprecation fails; it is
   UNSUPPORTED only for a contract file it cannot parse and no compatibility tool already present covers.
@@ -61,7 +63,8 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
   repeatedly in a base and a change worktree, interleaved, and a script decides from the median and a bootstrap
   interval (default threshold 10 %, `.agents/config.yaml` `performance:`, the plan's stated budget wins). A
   regression beyond the threshold is a FAIL; noise or too few runs is INCONCLUSIVE, submitted as UNSUPPORTED
-  (not a FAIL, never a PASS: the user re-runs or waives it); no benchmark command in the project is UNSUPPORTED.
+  with a `performance INCONCLUSIVE:` reason (not a FAIL, never a PASS, blocking: the user re-runs or waives it);
+  no benchmark command in the project is UNSUPPORTED (unproven, reported).
   Patterns read from the code (an N+1 query) are judged and fail only against a written criterion.
   The bootstrap seed and resample count are pinned, the direction follows the unit (a time is lower-is-better),
   and a PASS whose thresholds were not recomputed from the config and the plan is submitted as UNSUPPORTED (A93).

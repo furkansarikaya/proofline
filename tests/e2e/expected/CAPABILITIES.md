@@ -14,7 +14,8 @@ the stated condition; otherwise it is scored.
   (`runs/<ID>/LEDGER.log` order, `replies-log.txt` kind `question`). Not-applicable only for a run with no
   high-risk unverified assumption, and only the second sentence.
   Evidence: `runs/<ID>/PLAN.md`, `runs/<ID>/LEDGER.log`, `replies-log.txt`.
-- **N-3 Metrics.** `metrics/records.jsonl` exists with `step` and `run` kinds (always when metrics are on) and `dispatch`
+- **N-3 Metrics.** `metrics/records.jsonl` exists with `step` kinds (always when metrics are on), `run` kinds only once
+  the run reached DONE or was terminated (a run stopped awaiting the user has step records only), and `dispatch`
   kinds only when `dispatch.sh` was used (see the lead transcript or `out/`), and a null token
   value is not shown as a number anywhere in it or in `insights.txt`. Not-applicable when `metrics: off`
   (stated in the installed config).

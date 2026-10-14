@@ -39,7 +39,8 @@ test that uses it), not by reading names.
 UNSUPPORTED is never PASS (shared rule 2: nothing is installed to obtain a capability). With
 `throwaway_db: no` the static scan (`migration-check.mjs scan`) still runs and its findings are reported:
 `traced` hazards are blocking and turn the status into FAIL, `judged` ones are `warn`. The completion report
-lists the check under `## Unsupported Checks` (A78).
+lists the check under `## Unsupported Checks` with `not proven: <what>` (A78, A98: unproven and reported, the gate
+is not held unless the project sets `risk.unsupported: block`).
 
 ## 3. Method (with a throwaway database)
 

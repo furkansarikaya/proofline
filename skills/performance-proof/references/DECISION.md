@@ -103,7 +103,7 @@ source; a report whose thresholds differ is invalid. The budget is trusted only 
 unparseable or out-of-range `budget_pct` there is a note in the compare-bench report (the budget is not used)
 and the validator refuses that plan until it is amended and refrozen. Without those options the thresholds are only what the
 report declares: the validator prints `thresholds unverified`, and `--rows` submits such a PASS as
-`UNSUPPORTED` (`performance UNSUPPORTED: thresholds unverified ...`, blocking): only verified thresholds can
+`UNSUPPORTED` (`performance INCONCLUSIVE: thresholds unverified ...`, blocking, never a PASS): only verified thresholds can
 PASS. A FAIL stays a FAIL. Config percentages outside (0, 100] are ignored with a note, like the plan budget.
 
 An absolute bound in the plan ("p95 under 200 ms") is not a relative threshold; it is an acceptance criterion
