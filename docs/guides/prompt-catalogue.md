@@ -58,7 +58,8 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | Waive one non-security finding | `I approve waiving RULES-3 because the legacy module is replaced next sprint` (finding id and a specific reason; security and secret findings cannot be waived) |
 | Allow more fix rounds after exhaustion | `I approve another round` |
 | Answer a high-risk assumption the plan could not verify | start the message with `accept AS-1` (the id from the question; several: `accept AS-1 and AS-2`), with no "not", "if", "unless" or "but" after it; or say what is true instead. Nothing else accepts it |
-| A check came back UNSUPPORTED | install the missing tool yourself and re-run, or waive it explicitly: `I approve waiving the visual check because there is no browser on this machine` |
+| A check came back UNSUPPORTED | nothing by default: it is reported as unproven in the completion report (`## Unsupported Checks`, `not proven: ...`); to prove it, install the missing tool yourself and re-run |
+| A check is blocked as INCONCLUSIVE (or the project sets `risk.unsupported: block`) | re-run it, or waive it explicitly: `I approve waiving the visual check because there is no browser on this machine` |
 | Pick up after the runtime hit its limit | `/proofline resume` in the other runtime |
 | Why is it blocked? | `/proofline status` and `proofline doctor` |
 

@@ -28,6 +28,12 @@ requires the sections that apply to the run; a missing one FAILS `publish-comple
 
 (STANDARD and up) QA result; when the `visual` focus ran, the visual-proof `SUMMARY:` line.
 
+## Unsupported Checks
+
+(when `agent.sh pipeline <ID>` prints `unsupported.` lines) one line per check; never written as verified (A98):
+
+- <GATE>:<focus>: <reason, the missing tool or capability>; not proven: <what this check would have proven>
+
 ## Waivers
 
 (when waivers exist) finding id, gate, reason, approval.

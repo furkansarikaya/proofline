@@ -114,7 +114,12 @@ security:
 # contract:
 #   paths: "contracts/**/*.json"
 #   ignore: "i18n/** charts/**/values*.yaml k8s/**"
+# `unsupported` (A98): a check whose tool or capability is missing is UNSUPPORTED, never a PASS. `report` (default)
+# records the focus `unsupported` (unproven), lets its gate close and makes the completion report list it under
+# `## Unsupported Checks` with `not proven: <what>`; `block` keeps it a blocking finding only the user can waive
+# (A78). An INCONCLUSIVE measurement (`performance INCONCLUSIVE: ...`, `visual INCONCLUSIVE: ...`) blocks in both.
 risk:
+  unsupported: report
   contract_file:
     paths: "**/openapi*.yaml **/openapi*.yml **/openapi*.json **/swagger*.yaml **/swagger*.yml **/swagger*.json **/asyncapi*.yaml **/asyncapi*.yml **/asyncapi*.json *.proto *.graphql *.graphqls *.gql *.avsc *.schema.json"
     # A contract under any other name: an OpenAPI/AsyncAPI/Swagger root key, a JSON Schema declaring a

@@ -52,5 +52,6 @@ Next step: <for INCONCLUSIVE / UNSUPPORTED>
 ## Completion report
 
 The lead lists an INCONCLUSIVE or UNSUPPORTED performance result under `## Unsupported Checks`
-(`REVIEW_RULES:performance` or `REVIEW_SMALL:performance`) with the reason, stating that it is not a FAIL
-and not a PASS, and whether the user waived it.
+(`REVIEW_RULES:performance` or `REVIEW_SMALL:performance`) with the reason and `not proven: <what>`, stating
+that it is not a FAIL and not a PASS, and whether the user waived it. INCONCLUSIVE always blocks until the user
+decides; UNSUPPORTED is unproven and reported (blocking only under `risk.unsupported: block`).

@@ -24,7 +24,8 @@ Talk to the user in their language. Files written for machines (`report.json`, `
 1. **Existing tooling only** ([TOOLING.md](references/TOOLING.md)). `node <skill-dir>/scripts/measure.mjs --detect --repo <repo>`
    finds a Chromium-family browser on `PATH` (or in the standard application folders) or a browser-test
    dependency the project already installed. A runtime's own browser tool is an optional adapter. Nothing
-   found: the result is `UNSUPPORTED` with the reason; it is never a PASS and only the user can waive it.
+   found: the result is `UNSUPPORTED` with the reason; it is never a PASS: unproven and reported in the completion
+   report (or blocking, waived only by the user, when the project sets `risk.unsupported: block`).
 2. **Only the code under review.** Pages load from `file:` or a server you started from the project's own
    command on `localhost`/`127.0.0.1`/`[::1]` (`measure.mjs` refuses any other host). Never a deployed
    environment, never a third-party URL. `measure.mjs` pauses every request the page makes (DevTools
@@ -117,7 +118,7 @@ of the run folder, standalone in `.agents/local/visual-proof/<slug>/`. Rules in 
 | PASS | the rows printed (none blocking); PASS |
 | FAIL (a measured failure, a judged violation of a written criterion, a failing regression run) | each printed `blocking` row; FAIL |
 | INCONCLUSIVE (a required cell not measured, a required criterion unproven, no failure) | `--result UNSUPPORTED --reason "visual INCONCLUSIVE: <what could not be measured>; not a FAIL; ..."` (the `SUBMIT:` line `--rows` prints; same mapping as performance-proof): blocking, never a PASS, re-measured or waived only by the user, listed under `## Unsupported Checks` |
-| UNSUPPORTED (no tooling) | `--result UNSUPPORTED --reason "<what is missing>"` |
+| UNSUPPORTED (no tooling) | `--result UNSUPPORTED --reason "<what is missing>"`: never a PASS; unproven and reported under `## Unsupported Checks` with `not proven: <what>` (blocking only under `risk.unsupported: block`) |
 
 `CONFIDENCE`: `high` when every required cell was measured, `medium` when element-level `not_measured`
 entries exist, `low` otherwise. The completion report's `## QA Result` carries the `SUMMARY` line;

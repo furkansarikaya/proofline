@@ -6,7 +6,7 @@
 // --config/--plan recompute the thresholds (and their source) the report must carry; the budget is trusted only
 // from the PLAN.md flag line (a plan whose flag line carries an unparseable budget_pct is refused). Without both
 // the thresholds are self-declared: the result says "thresholds unverified", and --rows never submits PASS for
-// such a report (it submits UNSUPPORTED `performance UNSUPPORTED: thresholds unverified ...`, blocking).
+// such a report (it submits UNSUPPORTED `performance UNSUPPORTED: thresholds unverified ...`, never a PASS).
 // --rows prints the gate submission (findings rows, or the UNSUPPORTED reason that starts
 // `performance INCONCLUSIVE:` / `performance UNSUPPORTED:`) for a valid report.
 // The bootstrap constants are pinned (seed, resamples, confidence from compare-bench.mjs) and every measurement

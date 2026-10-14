@@ -25,11 +25,14 @@ listed separately in the result.
 A check that needs a tool the project does not have (a browser, a benchmark command, a throwaway test database, a
 parser for a contract format) reports `UNSUPPORTED`. proofline installs nothing to make a check run.
 
-- `UNSUPPORTED` is blocking: it is never counted as a PASS.
-- Only the user can waive it, and the completion report lists it under `## Unsupported Checks`.
+- `UNSUPPORTED` is never counted as a PASS: the claim stays unproven (A98).
+- By default (`risk.unsupported: report`) it does not block its gate; the completion report lists it under
+  `## Unsupported Checks`, one line per check with `not proven: <what>`, and never asserts it as verified.
+  `risk.unsupported: block` makes it a blocking finding that only the user can waive.
 - A tool that exists but cannot run (no network for an audit tool) is recorded as `tool_unavailable` in the report.
 - Noise is not unsupported: a performance measurement whose spread exceeds the threshold is `INCONCLUSIVE`, which is
-  neither a FAIL nor a PASS, and the report says so.
+  neither a FAIL nor a PASS, and the report says so. It is submitted as UNSUPPORTED with an `INCONCLUSIVE:` reason
+  and is blocking in both modes (a measurement ran and was unreliable; the user decides).
 
 ## Assumptions
 
