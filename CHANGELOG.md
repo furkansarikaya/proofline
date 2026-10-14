@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Self-test shards are balanced by measured unit weight and CI runs six shards (A109, amends A76): the slowest shard no longer takes 12 to 14 minutes; every unit still runs exactly once. `SELFTEST_LIST` and `SELFTEST_SLOWEST` show the split and the timings.
 - Approval single-use is per capture, not per text (A106, amends A41/A68): `approve` records `capture_id` (`session:time:sha256`) and refuses reuse of one capture for a second approval of the same kind; a new, newer capture with identical words answers a new request (a re-requested plan can be approved with "Plan approved." again).
 - Run language comes from the user's own words (A103, amends A99): `run-language` reads TASK.md `Language:`, then the TASK.md `>` blockquote, then the oldest captured prompt of six or more words; short replies such as `approve commit` and newer English system prompts no longer flip a Turkish run to English.
 - `submit` stdin contract (A104): `--report -` with `--findings -` (or any two `-` sources) is refused before stdin is read with the corrected command, except one stdin document split on the exact line `=== FINDINGS ===` (report above, rows below); `--findings none` is zero rows, an answer-only task uses it or one `info|-|answer|<line>` row; rejected rows and empty reports name the corrected form; role texts, dispatch prompt and skills agree.

@@ -1,0 +1,51 @@
+# Unit weights for tests/selftest.sh (A109): "<seconds> <suite> [scenario]", taken from one CI run
+# (SELFTEST_SLOWEST=999 prints every unit; seconds under a 4-core shard, only the ratios matter).
+# A unit that is not listed weighs 15. Shards are filled longest unit first onto the lightest shard;
+# a stale weight only costs balance, it never drops or loosens a test.
+343 risk-test sc_unsupported_evidence
+334 lifecycle-test scenario_bounded_fix
+325 lifecycle-test scenario_orchestrated_loop
+297 cli-test
+285 risk-test sc_unsupported
+220 lifecycle-test scenario_independence
+203 gates-test sc_waiver
+187 risk-test sc_missing_flag
+184 lifecycle-test scenario_task_contract_bookkeeping orchestrated
+150 lifecycle-test scenario_terminal
+149 lifecycle-test scenario_report_root_cause
+144 risk-test sc_unsupported_probes
+138 lifecycle-test scenario_classification
+132 lifecycle-test scenario_amend_plan_change
+131 gates-test sc_destructive_refreeze
+116 enforcement-test waivers
+102 lifecycle-test scenario_task_contract_relocate
+101 gates-test sc_record
+96 enforcement-test final_report_tokens
+88 capabilities-test
+86 gates-test sc_waiver_rebind
+86 gates-test sc_fix_loop
+83 gates-test sc_scratch_worktrees
+82 gates-test sc_submit
+78 gates-test sc_knowledge_secrets
+77 lifecycle-test scenario_cleanup_after_delivery
+73 lifecycle-test scenario_task_contract_adapter
+67 lifecycle-test scenario_standalone
+66 lifecycle-test scenario_task_contract_edit orchestrated
+64 lifecycle-test scenario_pipeline_trivial
+64 lifecycle-test scenario_hardening
+58 gates-test sc_assumptions
+51 lifecycle-test scenario_task_contract_bookkeeping standalone
+50 risk-test sc_frozen
+50 lifecycle-test scenario_amendment_fresh_budget
+48 lifecycle-test scenario_task_contract_edit standalone
+41 tasks-test
+41 gates-test sc_next
+40 gates-test sc_provenance
+40 gates-test sc_parallel_lock
+39 gates-test sc_supervised_destructive
+38 lifecycle-test scenario_fix_scope_format
+35 lifecycle-test scenario_fix_scope_symbol
+35 gates-test sc_questions_grill
+35 gates-test sc_folded_defect
+33 lifecycle-test scenario_attribution
+30 risk-test sc_flags
