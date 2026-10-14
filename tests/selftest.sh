@@ -7,7 +7,10 @@
 # (SELFTEST_JOBS overrides the count), so the wall time is the total work divided by the cores (A76).
 #   SELFTEST_ONLY=<name>   runs the suite with that name (e.g. gates-test); a value matching no name exactly
 #                          selects every suite whose name contains it.
-#   SELFTEST_SHARD=I/N     runs only the units with index % N == I-1 (CI splits the work over N jobs).
+#   SELFTEST_SHARD=I/N     runs only shard I of N (CI splits the work over N jobs); units are spread by the
+#                          weights in tests/selftest-weights.txt (A109).
+#   SELFTEST_LIST=1        prints the shard's units and exits (shows the split; no test runs).
+#   SELFTEST_SLOWEST=K    prints the K slowest units (default 5); K=999 lists every unit to refresh the weights.
 #   LC_ONLY=<substring>    runs only the scenarios whose line contains it.
 # Prints one PASS/FAIL line per suite, the failing unit's log tail, the slowest units and a pass/total summary.
 set -u
@@ -66,13 +69,24 @@ for s in $suites; do
     printf '%s|%s\n' "$s" "$sc" >> "$logs/units"
   done
 done
-total_units=$(wc -l < "$logs/units" | tr -d ' ')
-: > "$logs/mine"
-i=1
-while [ "$i" -le "$total_units" ]; do
-  [ $(( (i - 1) % shard_n )) -ne $((shard_i - 1)) ] || echo "$i" >> "$logs/mine"
-  i=$((i + 1))
-done
+# A109: units go to shards by weight (tests/selftest-weights.txt, default 15), longest first onto the lightest
+# shard, so no shard collects the heavy units; every unit lands in exactly one shard. `mine` lists this
+# shard's unit numbers, heaviest first (the best start order for the parallel workers).
+weights=$here/selftest-weights.txt
+[ -f "$weights" ] || weights=/dev/null
+awk -v wf="$weights" '
+  FILENAME == wf { if ($1 ~ /^[0-9]+$/) { w = $1; sub(/^[0-9]+ +/, ""); sub(/ +$/, ""); wt[$0] = w } ; next }
+  { s = $0; sub(/\|.*/, "", s); sc = $0; sub(/^[^|]*\|/, "", sc); sub(/.*\//, "", s); sub(/\.sh$/, "", s)
+    k = (sc == "") ? s : s " " sc
+    print ((k in wt) ? wt[k] : 15), FNR }
+' "$weights" "$logs/units" | sort -k1,1nr -k2,2n | awk -v n="$shard_n" -v me="$shard_i" '
+  { b = 1; for (j = 2; j <= n; j++) if (load[j] < load[b]) b = j
+    load[b] += $1; if (b == me) print $2 }
+' > "$logs/mine"
+if [ -n "${SELFTEST_LIST:-}" ]; then   # print this shard's units (suite|scenario) and stop
+  for i in $(cat "$logs/mine"); do sed -n "${i}p" "$logs/units"; done
+  exit 0
+fi
 
 wall_start=$(date +%s)
 [ ! -s "$logs/mine" ] || xargs -n 1 -P "$jobs" sh "$self" --unit "$logs" < "$logs/mine"
@@ -102,6 +116,6 @@ done
 for i in $(cat "$logs/mine"); do
   line=$(sed -n "${i}p" "$logs/units")
   printf '%s %s %s\n' "$(cat "$logs/$i.t" 2>/dev/null || echo 0)" "$(basename "${line%%|*}" .sh)" "${line#*|}"
-done | sort -rn | head -n 5 | sed 's/^/slowest: /'
+done | sort -rn | head -n "${SELFTEST_SLOWEST:-5}" | sed 's/^/slowest: /'
 printf 'selftest: %s/%s suites passed (%s units, %s jobs, shard %s, %ss)\n' "$pass" "$total" "$(wc -l < "$logs/mine" | tr -d ' ')" "$jobs" "$shard" "$wall"
 [ "$pass" = "$total" ]
