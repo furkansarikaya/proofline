@@ -6,7 +6,10 @@
 334 lifecycle-test scenario_bounded_fix
 325 lifecycle-test scenario_orchestrated_loop
 297 cli-test
-285 risk-test sc_unsupported
+190 risk-test sc_unsupported
+150 risk-test sc_unsupported_inconclusive
+140 risk-test sc_unsupported_rows
+65 risk-test sc_unsupported_block
 220 lifecycle-test scenario_independence
 203 gates-test sc_waiver
 187 risk-test sc_missing_flag

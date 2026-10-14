@@ -207,6 +207,10 @@ sc_unsupported() {
   expect_msg "a 'not proven: n/a' line" "must say 'not proven: <what>' in at least three words" A publish-completion-report LC markdown
   write_report '' '## Unsupported Checks' '- QA:visual: visual-proof skill not installed; not proven: the badge renders without overflow at 320px.'
   A publish-completion-report LC markdown >/dev/null
+  ok "UNSUPPORTED: unproven and reported (gate closes, never pass, report lists it with 'not proven:')"
+}
+# (A109: the scenario below was the tail of sc_unsupported, ~9 minutes in one process; each part builds its own run)
+sc_unsupported_inconclusive() {
   # INCONCLUSIVE stays blocking under the default: a measurement ran and was unreliable, the user decides
   uns_run
   out=$(uns_visual 'visual INCONCLUSIVE: two identical captures differ by 4% of pixels')
@@ -226,6 +230,9 @@ sc_unsupported() {
   expect_msg "a waived INCONCLUSIVE not named" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
   write_report '' '## Waivers' 'The user waived the INCONCLUSIVE finding.' '' '## Unsupported Checks' '- QA:visual: visual INCONCLUSIVE, waived by the user; not proven: the badge layout.'
   A publish-completion-report LC markdown >/dev/null
+  ok "INCONCLUSIVE blocks until the user waives it; the report names it"
+}
+sc_unsupported_rows() {
   # A102: an INCONCLUSIVE reason must carry the focus's own prefix; another focus's prefix is refused
   uns_run
   expect_msg "another focus's INCONCLUSIVE prefix" "must start 'visual INCONCLUSIVE:'" uns_visual 'performance INCONCLUSIVE: noise 30% over the 10% threshold'
@@ -240,6 +247,9 @@ sc_unsupported() {
   [ "$(focus_st QA visual)" = fail ] && [ "$(gate_st QA)" = fail ] || die "FAIL+UNSUPPORTED did not block"
   snap; has 'unsupported.QA:visual=UNSUPPORTED (blocking: a waiver or a measurement is needed): visual: no headless browser'
   A next LC | grep -Fq 'handoff LC IMPLEMENTING (fix round' || die "next does not send the defect to a fix round: $(A next LC)"
+  ok "another focus's INCONCLUSIVE prefix is refused; a defect row plus UNSUPPORTED fails and goes to a fix round"
+}
+sc_unsupported_block() {
   # risk.unsupported: block restores A78: the UNSUPPORTED row is blocking, the gate fails, only the user waives
   uns_run 's/^  unsupported: report$/  unsupported: block/'
   grep -q '^  unsupported: block$' .agents/config.yaml || die "the block edit did not apply"
@@ -252,7 +262,7 @@ sc_unsupported() {
   rrun COMPLEX 'package.json'; frozen; implement package.json '{}'
   mkdir -p .agents/runs/LC/security/dependencies; printf '# deps\n' > .agents/runs/LC/security/dependencies/REPORT.md
   expect_msg "UNSUPPORTED dependency audit" 'UNSUPPORTED is not available' AS security_reviewer submit LC --focus dependencies --result UNSUPPORTED --reason 'no audit tool' --confidence high --artifact security/dependencies/REPORT.md
-  ok "UNSUPPORTED: unproven and reported (gate closes, never pass, report lists it with 'not proven:'); INCONCLUSIVE, block mode and a defect row block; not for dependencies"
+  ok "UNSUPPORTED under risk.unsupported: block blocks; not available for dependencies"
 }
 
 # A102: UNSUPPORTED is backed by the skill validator's saved output (snapshotted, sha-bound) and cross-checked
@@ -544,6 +554,9 @@ run_sc sc_migration_small
 run_sc sc_flags
 run_sc sc_missing_flag
 run_sc sc_unsupported
+run_sc sc_unsupported_inconclusive
+run_sc sc_unsupported_rows
+run_sc sc_unsupported_block
 run_sc sc_unsupported_evidence
 run_sc sc_unsupported_toolfree
 run_sc sc_unsupported_probes
