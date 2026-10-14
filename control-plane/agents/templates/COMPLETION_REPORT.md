@@ -51,3 +51,5 @@ requires the sections that apply to the run; a missing one FAILS `publish-comple
 (after `agent.sh amend`)
 
 ## Known Limitations / Follow-up
+
+(open `info` findings, follow-up tasks; every TASK `## Pre-existing defects` entry with `decision: report`, left unchanged)

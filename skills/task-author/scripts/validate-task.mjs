@@ -46,6 +46,46 @@ export function parseTask(text) {
   return { id: h1?.[1], title: h1?.[2], acs, cls: cls?.[1], indicator: cls?.[2], secs };
 }
 
+// A105: in a COMPLEX or CRITICAL task a defect the work runs into is declared, not folded into the task. The
+// request (title, Goal, the user's `>` quotes, the Suggested class line) decides whether the task itself is a
+// defect fix; the control plane applies the same rule at freeze (agent.sh task_defect_errors).
+const REQUEST_DEFECT = /\b(bugs?|defects?|regression|broken|fix|fixes|fixed|wrong|incorrect|crash(es)?|disappears?|disappeared|unreachable)\b|hata|bozuk|kaybol|yanlış|düzelt/i;
+const MENTION = /\b(defects?|bugs?|regression|fix|fixes|fixing)\b|kusur|düzelt/i;
+const SCANNED = ["Context", "Acceptance criteria", "Constraints", "Risks"];
+const isDefectHeading = (l) => /^#{2,3}\s+Pre-existing defects\s*$/i.test(l);
+
+export function defectEntries(text) {
+  const out = [];
+  let i = false;
+  for (const l of stripComments(text).split(/\r?\n/)) {
+    if (/^#{1,3}\s/.test(l)) { i = isDefectHeading(l); continue; }
+    if (i && /^\s*[-*]\s+\S/.test(l)) out.push(l.trim());
+  }
+  return out;
+}
+
+export function defectErrors(text) {
+  const src = stripComments(text);
+  const errors = [];
+  const entries = defectEntries(src);
+  for (const e of entries) if (!/decision:\s*(report|fix)\b/i.test(e)) errors.push(`"## Pre-existing defects" entry without \`decision: report\` or \`decision: fix\`: ${e}`);
+  const lines = src.split(/\r?\n/);
+  let sec = "", sub = false;
+  const request = [], mentions = [];
+  for (const l of lines) {
+    const h2 = /^##\s+(.+?)\s*$/.exec(l);
+    if (h2) { sec = h2[1]; sub = isDefectHeading(l); continue; }
+    if (/^###\s/.test(l)) { sub = isDefectHeading(l); continue; }
+    if (/^\s*>/.test(l) || /^# Task:/.test(l) || sec === "Goal" || sec === "Suggested class") { request.push(l); continue; }
+    if (!sub && SCANNED.includes(sec) && MENTION.test(l)) mentions.push(l.trim());
+  }
+  const big = /^(COMPLEX|CRITICAL)\b/.test((sections(src).get("Suggested class") || []).map((l) => l.trim()).find(Boolean) || "");
+  if (big && !REQUEST_DEFECT.test(request.join("\n")) && mentions.length && !entries.length) {
+    errors.push(`the task mentions a defect or a fix the request does not ask for (${mentions[0].slice(0, 120)}): list it under "## Pre-existing defects" as \`- <path:symbol>: <what> -- decision: report\` (left unchanged, named in the completion report); \`decision: fix\` only when the user asked in their own words, and the freeze then needs the user's \`scope\` approval`);
+  }
+  return errors;
+}
+
 export function validate(text) {
   const errors = [], warnings = [];
   const t = parseTask(text);
@@ -71,6 +111,8 @@ export function validate(text) {
     else if (!t.indicator) errors.push("Suggested class must name the indicator that placed it: `<CLASS> — <indicator>`");
   }
   if (PLACEHOLDER.test(stripComments(text).replace(/^# Task:.*$/m, ""))) errors.push("unfilled placeholder (<...>, TBD, TODO or ???) remains");
+  errors.push(...defectErrors(text));
+  if (defectEntries(text).some((e) => /decision:\s*fix\b/i.test(e))) warnings.push("a pre-existing defect with `decision: fix` needs the user's own `scope` approval at freeze; an answer such as \"use your recommended option\" is not one");
   return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls } };
 }
 

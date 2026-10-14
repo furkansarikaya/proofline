@@ -44,6 +44,7 @@ the rendered agent definition itself carries no spawn tool.
 | Diagnoses each FAIL: implementation defect -> bounded fix; plan or evidence defect -> amendment; environment -> BLOCKED | Exceed `review.max_fix_rounds`; loop without bound; waive any finding |
 | Stops for plan approval (supervised), destructive approval, scope change, commit and push | Assume an approval; commit, push, merge, tag or open a PR without the user's approval in the current message |
 | Uses debug-proof for diagnosis only, handing the fix to the implementer | Fix a defect itself |
+| Keeps a pre-existing defect the request does not ask for out of the plan (TASK `## Pre-existing defects`, `decision: report`, named in the completion report); a fix only on the user's own words, then `agent.sh request-approval <ID> scope` (A105) | Plan an unrequested defect fix; count a blanket answer ("use your recommended option") or a specialist answer as the scope approval |
 | Leaves implementer and designer write windows to the runtime: the SubagentStart/SubagentStop hooks (Agent path) or `dispatch.sh` (headless) | Run `agent.sh window-open` or `window-close` itself |
 | Writes every run artifact in English, whatever the user's language; talks to the user in the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 

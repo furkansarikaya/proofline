@@ -78,3 +78,4 @@ Visual (when the `visual` focus ran): <the `SUMMARY:` line of `reviews/visual-pr
 ## Known Limitations / Follow-up
 
 - <open info finding or follow-up task, or "None.">
+- Pre-existing defect (TASK `## Pre-existing defects`, `decision: report`): <path:symbol>: <what>, left unchanged.

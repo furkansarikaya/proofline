@@ -1104,8 +1104,50 @@ sc_intent_provenance() {
     '| 1 | D-12 | a) fix the page count in this change (round up); AC-6 is in scope. | user |' > "$d/design/INTENT.md"
   expect_msg "an answer recorded as the user's that the user never said" 'in no captured user prompt' A freeze LC
   sed 's#^| 1 | D-12 | .*#| 1 | D-12 | Use your recommended option for every open question. | user |#' "$d/design/INTENT.md" > "$base/intent.md" && cp "$base/intent.md" "$d/design/INTENT.md"
-  A freeze LC >/dev/null || die "a verbatim blanket answer was refused: $(A freeze LC 2>&1)"
-  ok "an answer to a scope decision recorded as the user's must be in a captured user prompt"
+  # A105: the verbatim blanket answer is the user's, but it never decides to fix a defect
+  expect_msg "a blanket answer deciding a scope fix" 'blanket answer never decides a fix' A freeze LC
+  sed 's#| resolved | Fixed in this change |#| resolved | Reported, left unchanged |#' "$d/design/INTENT.md" > "$base/intent.md" && cp "$base/intent.md" "$d/design/INTENT.md"
+  A freeze LC >/dev/null || die "a blanket answer deciding report was refused: $(A freeze LC 2>&1)"
+  ok "an answer to a scope decision recorded as the user's must be in a captured user prompt; a blanket answer only reports"
+}
+sc_folded_defect() {
+  # A105: COMPLEX X-13 replay. The task (tags) folds the paging defect fix into its criteria after a blanket
+  # answer; the plan scopes src/service.js for it. The freeze needs the declaration, then the user's scope approval.
+  unfrozen COMPLEX
+  d=.agents/runs/LC
+  printf '%s\n' '# Task: LC — Tag books' '' '## Goal' '' '> I would like to tag the books in my reading list and filter by a tag.' '' \
+    '## Context' '' '- Decisions delegated to the recommended options: the paginate defect is fixed with a ceiling.' '' \
+    '## Acceptance criteria' '' '- AC-1: x' '' '## Suggested class' '' 'COMPLEX — persistence and contract change' > "$d/TASK.md"
+  expect_msg "a COMPLEX task folding a defect fix without declaring it" 'mentions a defect or a fix the request does not ask for' A freeze LC
+  A next LC | grep -q '^next=fix TASK.md ## Pre-existing defects' || die "next does not ask for the declaration: $(A next LC)"
+  printf '\n### Pre-existing defects\n\n- src/service.js:paginate: totalPages rounds down\n' >> "$d/TASK.md"
+  expect_msg "a declared defect without a decision" 'entry without decision' A freeze LC
+  sed 's/rounds down$/rounds down -- decision: fix/' "$d/TASK.md" > "$base/task.md" && cp "$base/task.md" "$d/TASK.md"
+  approve_as_user plan 'approve the plan'
+  expect_msg "a declared defect fix without the user's scope approval" 'scope approval for this PLAN.md' A freeze LC
+  # a specialist question answered with the blanket reply does not unlock the freeze
+  printf 'QUESTIONS:\n1. Fix the paging defect in this change?\n   options: fix | report\n   recommended: report\n   why: not requested\n' > "$base/q.md"
+  A ask LC --file "$base/q.md" >/dev/null
+  capture 'Use your recommended option for every open question.'
+  printf 'Use your recommended option for every open question.\n' | A answer LC 1 >/dev/null
+  grep -q '^answered_by: user' $d/questions/001.answer.md || die "the blanket answer was not recorded as the user's"
+  expect_msg "a blanket answer as a scope approval" 'scope approval for this PLAN.md' A freeze LC
+  A request-approval LC scope >/dev/null
+  capture 'Use your recommended option for every open question.'
+  expect_msg "a blanket prompt as a scope approval" 'no approval phrase' A approve LC scope
+  approve_as_user scope 'approve the scope change: fix the paging defect'
+  A freeze LC >/dev/null || die "freeze refused with the scope approval: $(A freeze LC 2>&1)"
+  ok "A105: a COMPLEX task declares a folded defect fix; only the user's own scope approval unlocks the freeze"
+  # declared as report: no approval needed; a STANDARD defect task is unaffected
+  unfrozen COMPLEX
+  printf '%s\n' '# Task: LC — Tag books' '' '## Goal' '' '> I would like to tag books.' '' '## Context' '' '- The paginate defect is reported, not fixed.' '' \
+    '## Pre-existing defects' '' '- src/service.js:paginate: totalPages rounds down -- decision: report' '' '## Acceptance criteria' '' '- AC-1: x' > "$d/TASK.md"
+  approve_as_user plan 'approve the plan'
+  A freeze LC >/dev/null || die "a reported defect was refused: $(A freeze LC 2>&1)"
+  unfrozen STANDARD
+  printf '%s\n' '# Task: LC — Every book reachable' '' '## Goal' '' 'Every book is reachable through paging.' '' '## Context' '' '- The fix rounds the page count up.' '' '## Acceptance criteria' '' '- AC-1: x' > "$d/TASK.md"
+  A freeze LC >/dev/null || die "a STANDARD defect task was refused: $(A freeze LC 2>&1)"
+  ok "A105: a reported defect or a STANDARD defect task needs no scope approval"
 }
 sc_class_floor() {
   new_repo; RID=LC; mkdir -p .agents/runs/LC tasks
@@ -1262,6 +1304,7 @@ run_sc sc_scratch_worktrees
 run_sc sc_tests_findings
 run_sc sc_defect_scope
 run_sc sc_intent_provenance
+run_sc sc_folded_defect
 run_sc sc_class_floor
 run_sc sc_design_sync
 echo 'gates tests passed'

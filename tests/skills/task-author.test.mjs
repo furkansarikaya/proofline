@@ -149,3 +149,19 @@ test("team result assumption rows use task_author-<n>, not A-<n>", () => {
   assert.match(md, /\| task_author-1 \| info \|/);
   assert.doesNotMatch(md, /\| A-1 \|/);
 });
+
+test("A105: a COMPLEX/CRITICAL task declares a defect the request does not ask for", () => {
+  const folded = GOOD.replace("Login lives in the auth module.", "Login lives in the auth module.\n- Delegated to the recommended option: the session defect is fixed too.");
+  assert.match(errs(folded), /mentions a defect or a fix the request does not ask for/);
+  // a `###` section nested in Context counts; every entry needs a decision
+  const declared = folded.replace("## Acceptance criteria", "### Pre-existing defects\n- src/auth.js:session: expiry off by one\n\n## Acceptance criteria");
+  assert.match(errs(declared), /without `decision: report` or `decision: fix`/);
+  const report = declared.replace("off by one", "off by one -- decision: report");
+  assert.doesNotMatch(errs(report), /Pre-existing|mentions a defect/);
+  const fix = declared.replace("off by one", "off by one -- decision: fix");
+  assert.equal(validate(fix).valid, true);
+  assert.match(validate(fix).warnings.join("\n"), /scope` approval/);
+  // the task itself is a defect fix (request words), or a STANDARD task: no declaration needed
+  assert.doesNotMatch(errs(folded.replace("Limit failed logins per account.", "Fix the login bug: limit failed logins.")), /mentions a defect/);
+  assert.doesNotMatch(errs(folded.replace("CRITICAL — authentication boundary", "STANDARD — one module")), /mentions a defect/);
+});
