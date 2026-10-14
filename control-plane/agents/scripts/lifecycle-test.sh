@@ -38,6 +38,34 @@ scenario_standalone() {
   ok "standalone lifecycle: gates bind content and artifact"
 }
 
+# A97 (S-6): GREEN and REFACTOR follow a RED record of the same path, and GREEN follows a change of the
+# implementation since that RED.
+scenario_evidence_order() {
+  scaffold standalone
+  tgt='impl.txt,impl_test.txt'
+  ev() { # PHASE [TARGET]: record without touching the tree
+    e_ef=''; [ "$1" = RED ] && e_ef='expected_failure: TestImpl fails: lookup is not implemented in impl.txt yet'
+    printf 'command: go test ./...\ntarget: %s\n%s\n' "${2:-$tgt}" "$e_ef" | sh ./.agents/scripts/agent.sh worker-evidence "$RID" "$1" "${3:-pass}" 2>&1
+  }
+  out=$(ev GREEN) && die "GREEN accepted before any RED"
+  printf '%s' "$out" | grep -q 'no RED evidence' || die "GREEN before RED: wrong reason: $out"
+  out=$(ev REFACTOR) && die "REFACTOR accepted before any RED"
+  printf '%s' "$out" | grep -q 'no RED evidence' || die "REFACTOR before RED: wrong reason: $out"
+  printf 'test: lookup returns the stored value\n' >> impl_test.txt
+  ev RED "$tgt" fail >/dev/null || die "RED refused"
+  out=$(ev GREEN) && die "GREEN accepted with no implementation change since RED"
+  printf '%s' "$out" | grep -q 'no implementation file changed' || die "GREEN without change: wrong reason: $out"
+  printf 'test edited again\n' >> impl_test.txt
+  out=$(ev GREEN) && die "GREEN accepted after only a test file changed"
+  printf '%s' "$out" | grep -q 'no implementation file changed' || die "GREEN after a test-only edit: wrong reason: $out"
+  out=$(ev REFACTOR) && die "REFACTOR accepted before GREEN"
+  printf '%s' "$out" | grep -q 'no GREEN evidence' || die "REFACTOR before GREEN: wrong reason: $out"
+  printf 'impl: lookup returns the stored value\n' >> impl.txt
+  ev GREEN >/dev/null || die "GREEN refused after the fix"
+  ev REFACTOR >/dev/null || die "REFACTOR refused after GREEN"
+  ok "evidence order: GREEN needs an earlier RED and a changed implementation; REFACTOR needs GREEN"
+}
+
 # The lead and the non-gate roles never record a verdict; each gate role records only its own gate.
 scenario_independence() {
   scaffold standalone
@@ -594,6 +622,7 @@ scenario_cleanup_after_delivery() {
 }
 
 run_sc scenario_standalone
+run_sc scenario_evidence_order
 run_sc scenario_independence
 run_sc scenario_orchestrated_loop
 run_sc scenario_attribution
