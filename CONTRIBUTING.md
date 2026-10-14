@@ -56,6 +56,26 @@ Follow [writing an adapter](docs/guides/writing-an-adapter.md) and [adapters/REA
 Support that you did not run end to end is labelled **not tested** in the README's support table; do not
 claim more than the tests show.
 
+## Development process
+
+How work is split between agents in this repository.
+
+- The lead plans, dispatches, merges results and decides. The lead does not write code, docs or tests.
+- Every change goes to a separate implementer sub-agent. A separate test sub-agent writes self-tests, skill
+  tests and fixtures. A separate review sub-agent checks the diff against `docs/decisions.md` and the task.
+  The author never reviews its own work; the reviewer never fixes.
+- An e2e evaluator is always a different agent from the one that ran the scenario and from the one that
+  wrote the fix.
+- Models: lead Opus; implementer, test and review Sonnet; Opus advises on hard design decisions.
+  Sub-agents return a compact result only: findings and file paths.
+- Agents work in their own worktrees, never in the main checkout.
+- A review FAIL returns its findings to the same implementer, at most 2 rounds. Then that job stops, is
+  reported, and other jobs continue.
+- One branch and one pull request per job. Merge when CI is green; no direct push to `main`.
+- Progress is kept in `.claude/progress.md`, so an interrupted session resumes from it.
+- Codex integration checks never run full scenarios and never run in parallel. They use the cheapest model
+  and the lowest reasoning effort (A100), a hard call cap, and stop on the first quota error.
+
 ## Commits and pull requests
 
 - [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`, with the decision
