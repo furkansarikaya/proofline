@@ -88,7 +88,10 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   both modes, when the reason is an INCONCLUSIVE measurement (`performance INCONCLUSIVE: ...`,
   `visual INCONCLUSIVE: ...`). A defect found by the part that could be checked is a FAIL; UNSUPPORTED rows in a
   FAIL stay blocking. The completion report needs `## Unsupported Checks` with one line per `<GATE>:<focus>`
-  that names it and says `not proven: <what>`. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED. The
+  that names it and says `not proven: <what>` (three words at least). The reason must be concrete (at least 12
+  characters with a path, an `INCONCLUSIVE:` measurement or a tool/capability word; `n/a` is refused). A gate that
+  closes with an unsupported focus shows `gate.<GATE>.unsupported=<focus,...>` in `pipeline` and
+  `<GATE>: pass (unsupported: <focus,...>)` in `summary`; `next` tells the lead to surface them to the user. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED. The
   `contract` focus has contract-proof (A83): UNSUPPORTED only for a changed contract file it cannot parse that no
   compatibility tool already present covers, or when node is missing.
 - **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block, the performance thresholds (`performance:`, A87) the non-empty `security.*` keys (A88) and the `contract:` globs (A83) with `freeze.risk_sha256`. A

@@ -242,7 +242,7 @@ function main(argv) {
       environment: env, thresholds: { regression_pct: th.regression_pct, noise_pct: th.noise_pct, min_runs: th.min_runs, confidence: th.confidence, source: th.source, ...(th.notes.length ? { notes: th.notes } : {}) },
       measurements: [m], judged: [], summary: summarize(m, th),
     };
-    if (m.status === "INCONCLUSIVE") report.next_step = "re-run with more runs on a quieter machine, or the user decides (waiver of the UNSUPPORTED performance result)";
+    if (m.status === "INCONCLUSIVE") report.next_step = "re-run with more runs on a quieter machine, or the user decides (a waiver of the blocking INCONCLUSIVE performance result)";
     console.log(JSON.stringify(report, null, 2));
     return 0;
   } catch (e) {

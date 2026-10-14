@@ -46,7 +46,8 @@
    never a PASS (A98): by default the script records it as unproven and reported (the focus is `unsupported`,
    the completion report lists it with `not proven: <what>`); under `risk.unsupported: block`, and for an
    `INCONCLUSIVE:` reason in both modes, it is a blocking finding only the user may waive. A defect you found in
-   the part you could check is a FAIL (`--result UNSUPPORTED` refuses blocking rows). Never claim a check you could not run. `contract` is UNSUPPORTED only when
+   the part you could check is a FAIL (`--result UNSUPPORTED` refuses blocking rows). The reason names the concrete missing tool, parser,
+   capability or file (`n/a` is refused). Never claim a check you could not run. `contract` is UNSUPPORTED only when
    contract-proof's validator says so (a changed contract file it cannot parse and no existing tool covers) or
    node is missing. The script also adds a blocking finding when the diff carries a signal of your focus that PLAN.md does not declare (for example a contract file
    changed without `contract_change: yes`); run the check anyway and report what you found.

@@ -164,6 +164,9 @@ uns_run() { # [CONFIG-SED]: a COMPLEX UI run with every other focus passing, fro
 }
 sc_unsupported() {
   uns_run
+  # A98: a vague reason is a dodge, refused; a concrete one (tool, capability, path) is accepted
+  expect_msg "a reason 'n/a'" 'UNSUPPORTED_REASON is too vague' uns_visual 'n/a'
+  expect_msg "a reason without an anchor" 'UNSUPPORTED_REASON is too vague' uns_visual 'n/a for this change, skipped'
   out=$(uns_visual 'visual-proof skill not installed; no headless browser in the project')
   printf '%s' "$out" | grep -Fq 'submitted: LC qa UNSUPPORTED gate=QA' || die "UNSUPPORTED was not recorded as such: $out"
   printf '%s' "$out" | grep -Fq 'QA focus visual is UNSUPPORTED (unproven, reported, A98)' || die "no unsupported notice: $out"
@@ -174,12 +177,15 @@ sc_unsupported() {
   grep -q '^finding: QA-1|info|-|UNSUPPORTED visual: visual-proof skill not installed' "$rec" || die "unsupported row: $(grep finding "$rec")"
   ! grep -q '^result: "pass"' "$rec" || die "UNSUPPORTED recorded as pass"
   snap; has 'unsupported.QA:visual=UNSUPPORTED (unproven, reported): visual: visual-proof skill not installed'
+  has 'gate.QA.unsupported=visual (unproven, reported'
+  A summary LC | grep -Fxq 'QA: pass (unsupported: visual)' || die "summary shows a bare pass: $(A summary LC | grep '^QA')"
   expect_msg "UNSUPPORTED without a reason" 'needs --reason' AS qa submit LC --focus visual --result UNSUPPORTED --confidence high --artifact reviews/visual-proof/REPORT.md
   expect_msg "UNSUPPORTED on a base focus" 'UNSUPPORTED is a result of a risk focus only' AS reviewer submit LC --focus rules --result UNSUPPORTED --reason 'no tool' --confidence high
   nx=$(A next LC)
   printf '%s\n' "$nx" | grep -Fq 'next=UNSUPPORTED (unproven, reported) QA:visual: visual: visual-proof skill not installed' || die "next does not name the unsupported focus: $nx"
   printf '%s\n' "$nx" | grep -Fq 'next=agent.sh handoff LC CODE_DONE' || die "next does not offer CODE_DONE: $nx"
   ! printf '%s\n' "$nx" | grep -Fq 'waive:' || die "next asks for a waiver of a reported UNSUPPORTED: $nx"
+  printf '%s\n' "$nx" | grep -Fq 'next=surface these unsupported checks to the user in your reply' || die "next does not ask to surface them: $nx"
   A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
   A next LC | grep -Fq 'next=UNSUPPORTED (unproven, reported) QA:visual' || die "next before the report does not name the unsupported focus"
   write_report
@@ -191,6 +197,8 @@ sc_unsupported() {
   expect_msg "a check named outside the section" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
   write_report '' '## Unsupported Checks' '- QA:visual: visual-proof skill not installed.'
   expect_msg "a check without its 'not proven' line" "must say 'not proven: <what>'" A publish-completion-report LC markdown
+  write_report '' '## Unsupported Checks' '- QA:visual: visual-proof skill not installed; not proven: n/a'
+  expect_msg "a 'not proven: n/a' line" "must say 'not proven: <what>' in at least three words" A publish-completion-report LC markdown
   write_report '' '## Unsupported Checks' '- QA:visual: visual-proof skill not installed; not proven: the badge renders without overflow at 320px.'
   A publish-completion-report LC markdown >/dev/null
   # INCONCLUSIVE stays blocking under the default: a measurement ran and was unreliable, the user decides

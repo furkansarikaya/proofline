@@ -52,7 +52,7 @@ Planted facts (12 runs per side unless stated; `samples/` after `setup.sh`):
 17. A report whose bootstrap seed or resample count differs from the pinned seed 1 and 2000 resamples
     validates (shopping for a seed whose interval clears the threshold).
 18. A PASS report validated without both `--config` and `--plan` submitted as PASS: `--rows` submits it as
-    `UNSUPPORTED` (`performance UNSUPPORTED: thresholds unverified ...`), blocking.
+    `UNSUPPORTED` (`performance INCONCLUSIVE: thresholds unverified ...`), blocking.
 19. c1's samples relabelled with a unit alias (`milliseconds`, `MS`, `μs`) and compared with `--direction
     higher`: an alias is the same time unit, refused like `ms`.
 20. c9's samples relabelled with a unit that names no direction (`score`) and compared without the plan

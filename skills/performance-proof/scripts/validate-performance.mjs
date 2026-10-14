@@ -6,7 +6,8 @@
 // --config/--plan recompute the thresholds (and their source) the report must carry; the budget is trusted only
 // from the PLAN.md flag line (a plan whose flag line carries an unparseable budget_pct is refused). Without both
 // the thresholds are self-declared: the result says "thresholds unverified", and --rows never submits PASS for
-// such a report (it submits UNSUPPORTED `performance UNSUPPORTED: thresholds unverified ...`, never a PASS).
+// such a report (it submits UNSUPPORTED `performance INCONCLUSIVE: thresholds unverified ...`: a measurement exists
+// but cannot be verified, so it blocks like any INCONCLUSIVE, A98).
 // --rows prints the gate submission (findings rows, or the UNSUPPORTED reason that starts
 // `performance INCONCLUSIVE:` / `performance UNSUPPORTED:`) for a valid report.
 // The bootstrap constants are pinned (seed, resamples, confidence from compare-bench.mjs) and every measurement
@@ -158,7 +159,7 @@ export function submission(doc, artifact = "reviews/performance-proof/REPORT.md"
     .map((m) => `blocking|-|${m.id} ${one(m.metric)}: ${one(m.reason)}|${artifact}`);
   for (const j of doc.judged) rows.push(`${j.violates_criterion ? "blocking" : "info"}|${one(j.path) || "-"}|${j.id} judged: ${one(j.text)}${j.violates_criterion ? ` (violates: ${one(j.criterion)})` : ""}|${artifact}`);
   if (doc.status === "PASS" && !verified)
-    return { result: "UNSUPPORTED", reason: "performance UNSUPPORTED: thresholds unverified (validated without --config and --plan); never a PASS; re-run validate-performance.mjs with --config .agents/config.yaml --plan <run>/PLAN.md --rows", rows };
+    return { result: "UNSUPPORTED", reason: "performance INCONCLUSIVE: thresholds unverified (validated without --config and --plan); not a PASS; re-run validate-performance.mjs with --config .agents/config.yaml --plan <run>/PLAN.md --rows", rows };
   return { result: doc.status, rows };
 }
 
