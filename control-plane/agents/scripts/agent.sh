@@ -3047,42 +3047,38 @@ latest_capture() { # -> the capture file with the greatest time, or exit 1; any 
   [ -n "$lc_best" ] || return 1
   printf '%s\n' "$lc_best"
 }
-# approval_norm: stdin -> lowercase words separated by single spaces. ASCII punctuation becomes a space,
-# apostrophes are dropped; hyphen and underscore stay (ids, `single-step`); non-ASCII letters pass unchanged.
+# approval_norm: stdin -> words separated by single spaces. Case folding is ASCII only and locale independent
+# (LC_ALL=C); ASCII punctuation becomes a space, apostrophes are dropped; hyphen and underscore stay (ids,
+# `single-step`); every other byte, non-ASCII letters included, passes unchanged.
 approval_norm() {
-  tr '[:upper:]' '[:lower:]' | sed "s/'//g; s/’//g" | tr '!"#$%&()*+,./:;<=>?@[\\]^`{|}~' ' ' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'
-}
-# approval_hold TEXT: 0 when the answer holds a question mark or a negation, condition, hesitation or refusal
-# word (English, Turkish; ASCII and Turkish spellings). Such an answer is ambiguous, never an approval (A108).
-approval_hold() {
-  case "$1" in *\?*) return 0 ;; esac
-  ah_n=" $(printf '%s\n' "$1" | approval_norm) "
-  for ah_w in not never no nope nt dont cant wont isnt only if unless but except until yet wait hold hmm hmmm hm \
-    maybe perhaps later sure unsure without reject rejected decline declined cancel stop or actually instead rather \
-    degil değil hayir hayır reddet reddediyorum reddettim iptal yerine olmasin olmasın sadece eger eğer ama sonra \
-    bakariz bakarız dakika bekle bekleyin belki emin dur; do
-    case "$ah_n" in *" $ah_w "*) return 0 ;; esac
-  done
-  return 1
+  LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sed "s/'//g; s/’//g" | LC_ALL=C tr '!"#$%&()*+,./:;<=>?@[\\]^`{|}~' ' ' | LC_ALL=C tr -s '[:space:]' ' ' | LC_ALL=C sed 's/^ //; s/ $//'
 }
 # approval_phrases: the explicit approval allowlist (A108): `approval.phrases`, else the built-in English and Turkish list.
 approval_phrases() { cfg approval.phrases 'approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur'; }
-# text_has_approval TEXTFILE KIND: an allowlisted approval phrase and a kind-specific word, each matched as whole
-# words, and no hold word. Anything else is ambiguous: not an approval and not a rejection (A108).
+# approval_fillers: the words an approval reply may carry besides a phrase and the kind word (A108).
+approval_fillers() { echo 'the, a, an, it, this, please, for, with, to, and, lütfen, lutfen, bu, planı, plani, için, icin'; }
+# text_has_approval TEXTFILE KIND: a positive grammar (A108). After normalisation every word of the reply must be a
+# word of an allowlisted approval phrase, a word of the kind's own words (`kind_words`) or a filler word; the reply
+# must hold a whole allowlisted phrase and a kind word, and no question mark. Any other word (a negation, a
+# hesitation, an extra clause, anything unrelated) makes it ambiguous: not an approval, not a rejection.
 text_has_approval() {
   tha_raw=$(cat "$1")
-  if approval_hold "$tha_raw"; then return 1; fi
-  tha_low=" $(printf '%s\n' "$tha_raw" | approval_norm) "
+  case "$tha_raw" in *\?*) return 1 ;; esac
+  tha_n=$(printf '%s\n' "$tha_raw" | approval_norm); [ -n "$tha_n" ] || return 1
+  tha_low=" $tha_n "
+  tha_pl=$(approval_phrases | tr ',' '\n' | while IFS= read -r tha_x; do printf '%s\n' "$tha_x" | approval_norm; echo; done)
+  tha_kw=$(kind_words "$2" | approval_norm)
+  tha_ok=" $(printf '%s' "$tha_pl" | tr '\n' ' ') $tha_kw $(approval_fillers | approval_norm) "
+  for tha_t in $tha_n; do case "$tha_ok" in *" $tha_t "*) ;; *) return 1 ;; esac; done
   tha_hit=''
-  tha_list=$(approval_phrases | tr ',' '\n')
   while IFS= read -r tha_p; do
-    tha_p=$(printf '%s\n' "$tha_p" | approval_norm); [ -n "$tha_p" ] || continue
+    [ -n "$tha_p" ] || continue
     case "$tha_low" in *" $tha_p "*) tha_hit=y; break ;; esac
   done <<EOF
-$tha_list
+$tha_pl
 EOF
   [ -n "$tha_hit" ] || return 1
-  for tha_w in $(kind_words "$2" | approval_norm); do case "$tha_low" in *" $tha_w "*) return 0 ;; esac; done
+  for tha_w in $tha_kw; do case "$tha_low" in *" $tha_w "*) return 0 ;; esac; done
   return 1
 }
 # approval_unanswered REQFILE KIND: 0 when the newest user prompt is newer than the request and is no approval
@@ -3182,8 +3178,8 @@ request_approval() {
   [ -z "$rq_steps" ] || printf '%s\n' "$rq_steps"
   [ -z "$rq_rows" ] || printf '%s\n' "$rq_rows"
   if [ "$rq_tr" = 1 ]; then
-    printf '   seçenekler: approve | reject (onay için "approve %s" yazın, vazgeçmek için "reject")\n   kabul edilen onay sözcükleri: %s (tür sözcüğüyle birlikte, örn. "approve %s"); belirsiz veya koşullu bir yanıt onay sayılmaz, soru yeniden sorulur\n   önerilen: yok (karar kullanıcıya ait)\n   neden: %s\n' "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_why "$rq_kind" "$rq_bound" tr)"
-  else printf '   options: approve | reject\n   accepted answers: %s (with the kind word, for example "approve %s"); an ambiguous or conditional reply is not an approval and the question is asked again\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_why "$rq_kind" "$rq_bound")"; fi
+    printf '   seçenekler: approve | reject (onay için "approve %s" yazın, vazgeçmek için "reject")\n   kabul edilen onay sözcükleri: %s (tür sözcüğüyle birlikte, örn. "approve %s"; bunlardan başka yalnızca şu sözcükler: %s); başka herhangi bir sözcük yanıtı belirsiz yapar: onay sayılmaz ve soru yeniden sorulur\n   önerilen: yok (karar kullanıcıya ait)\n   neden: %s\n' "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_why "$rq_kind" "$rq_bound" tr)"
+  else printf '   options: approve | reject\n   accepted answers: %s (with the kind word, for example "approve %s"; besides those only the words: %s); any other word makes the reply ambiguous: it is not an approval and the question is asked again\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_why "$rq_kind" "$rq_bound")"; fi
 }
 approval_why() { # KIND BOUND [tr]
   if [ "${3:-}" = tr ]; then
@@ -3240,7 +3236,7 @@ approve() {
   ap_csha=$(hash_file "$ap_txt")
   # A106: single-use is per capture event (session + time + hash), never per text: the same words answer a later request.
   ap_cid="$ap_session:$ap_time:$ap_csha"
-  text_has_approval "$ap_txt" "$ap_kind" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_kind (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_kind")', with no negation, condition or hesitation word; the question stays pending)"; }
+  text_has_approval "$ap_txt" "$ap_kind" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_kind (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_kind")', and no other word; the question stays pending)"; }
   rm -f "$ap_txt"
   if [ "$ap_src" = prompt_capture ] && grep -l "^capture_id: \"$ap_cid\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
   ap_n=$(next_num "$ap_ad")

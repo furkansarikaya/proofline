@@ -269,8 +269,8 @@ waivers() {
   expect_msg "waiver of a SECURITY finding" "never waivable" A waive LC SECURITY-1 --reason "accepted risk for this lookup fixture only"
   expect_msg "waiver without the user's approval" "needs the user's approval" A waive LC REVIEW_RULES-1 --reason "accepted risk for this lookup fixture only"
   A request-approval LC waive:REVIEW_RULES-1 >/dev/null; sleep 1
-  prompt 'I "approve" the waiver of REVIEW_RULES-1 \ onaylıyorum
-second line'
+  prompt '"approve" REVIEW_RULES-1 \ onaylıyorum
+evet'
   ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-waive-REVIEW_RULES-1.yaml >/dev/null 2>&1 || die "the prompt hook did not record the approval from the capture (capture format or sha256)"
   A waive LC REVIEW_RULES-1 --reason "accepted risk for this lookup fixture only" >/dev/null || die "approved waiver refused"
   ok "SECURITY is never waivable; a waiver needs the user's captured approval (capture accepted by agent.sh)"
