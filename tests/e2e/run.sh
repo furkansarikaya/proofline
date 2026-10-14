@@ -68,6 +68,11 @@ export PROOFLINE_CODEX_HOME_DIR="$run/codexhome"
 # The Codex lead runs with HOME=$run/codexhome; a Claude specialist it dispatches (failover, mixed teams) must
 # get the operator's own HOME back, or it is "not logged in" (dispatch.sh restores it from this variable).
 export PROOFLINE_REAL_HOME="$HOME"
+# Cheapest Codex lead (A100): both empty keeps the runtime default; -m and -c work on exec and exec resume.
+cx_m=${E2E_CODEX_MODEL:-} cx_e='' codex_cheap=''
+cx_e=${E2E_CODEX_EFFORT:-}
+[ -z "$cx_m" ] || codex_cheap=" -m '$cx_m'"
+[ -z "$cx_e" ] || codex_cheap="$codex_cheap -c 'model_reasoning_effort=\"$cx_e\"'"
 request=$(cat "$here/tasks/$task.md"; printf '.')
 request=${request%.}
 if [ "$dry" = yes ]; then
@@ -79,8 +84,8 @@ if [ "$dry" = yes ]; then
   if [ "$lead" = claude ]; then
     echo "lead: (cd '$project' && claude -p '<whole $task task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${lead_model}' --output-format stream-json --verbose --max-turns '${E2E_MAX_TURNS:-250}') > '$out/lead-1.jsonl' 2> '$out/lead-1.err'"
   else
-    echo "lead: HOME='$run/codexhome' CODEX_HOME='$run/codexhome/.codex' codex exec --dangerously-bypass-hook-trust -C '$project' -s danger-full-access -c 'approval_policy=\"never\"' --json -o '$out/lead-1.last.txt' '<whole $task task file>' > '$out/lead-1.jsonl'"
-    echo "lead resume: codex exec resume -c 'sandbox_mode=\"danger-full-access\"' -c 'approval_policy=\"never\"' <thread> <reply>"
+    echo "lead: HOME='$run/codexhome' CODEX_HOME='$run/codexhome/.codex' codex exec$codex_cheap --dangerously-bypass-hook-trust -C '$project' -s danger-full-access -c 'approval_policy=\"never\"' --json -o '$out/lead-1.last.txt' '<whole $task task file>' > '$out/lead-1.jsonl'"
+    echo "lead resume: codex exec resume$codex_cheap -c 'sandbox_mode=\"danger-full-access\"' -c 'approval_policy=\"never\"' <thread> <reply>"
   fi
   [ "$scenario" != FAILOVER ] || echo 'failover: poll implementer ledger every 10s; terminate Claude process group; resume under Codex with proofline resume'
   echo "replies: up to ${E2E_MAX_REPLIES:-6} lines from '$reply_file' when a plan or question stop is pending"
@@ -115,9 +120,9 @@ run_lead() { # runtime, number, message, resumed?
     fi
   else
     if [ "$resumed" = yes ]; then
-      start_group env HOME="$run/codexhome" CODEX_HOME="$run/codexhome/.codex" codex exec resume -c 'sandbox_mode="danger-full-access"' -c 'approval_policy="never"' --json -o "$out/lead-$number.last.txt" "$thread" "$message" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group env HOME="$run/codexhome" CODEX_HOME="$run/codexhome/.codex" codex exec resume ${cx_m:+-m "$cx_m"} ${cx_e:+-c 'model_reasoning_effort="'"$cx_e"'"'} -c 'sandbox_mode="danger-full-access"' -c 'approval_policy="never"' --json -o "$out/lead-$number.last.txt" "$thread" "$message" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     else
-      start_group env HOME="$run/codexhome" CODEX_HOME="$run/codexhome/.codex" codex exec --dangerously-bypass-hook-trust -C "$project" -s danger-full-access -c 'approval_policy="never"' --json -o "$out/lead-$number.last.txt" "$message" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
+      start_group env HOME="$run/codexhome" CODEX_HOME="$run/codexhome/.codex" codex exec ${cx_m:+-m "$cx_m"} ${cx_e:+-c 'model_reasoning_effort="'"$cx_e"'"'} --dangerously-bypass-hook-trust -C "$project" -s danger-full-access -c 'approval_policy="never"' --json -o "$out/lead-$number.last.txt" "$message" > "$out/lead-$number.jsonl" 2> "$out/lead-$number.err"
     fi
   fi
   elapsed=0 timed_out=no killed=no

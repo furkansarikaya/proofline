@@ -20,4 +20,11 @@ HOME=$empty XDG_CONFIG_HOME=$empty/x GIT_CONFIG_NOSYSTEM=1 E2E_ROOT=$root/b sh "
 b=$(find "$root/b" -name git-global-before.txt | head -1)
 [ "$(grep -c absent "$b")" -ge 3 ] || fail "absent not recorded: $(cat "$b")"
 [ ! -e "$empty/.gitconfig" ] || fail 'harness wrote a global config'
+# A100: the Codex lead command carries the cheapest model and effort only when asked.
+E2E_ROOT=$root/c sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead( resume)?:' > "$root/plain.txt"
+[ "$(wc -l < "$root/plain.txt")" -eq 2 ] || fail "no codex lead lines: $(cat "$root/plain.txt")"
+! grep -Eq -- "-m |model_reasoning_effort" "$root/plain.txt" || fail 'model/effort flags present with the env unset'
+E2E_CODEX_MODEL=gpt-6-luna E2E_CODEX_EFFORT=none E2E_ROOT=$root/d sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead( resume)?:' > "$root/cheap.txt"
+[ "$(grep -c -- "-m 'gpt-6-luna'" "$root/cheap.txt")" -eq 2 ] || fail "model flag missing: $(cat "$root/cheap.txt")"
+[ "$(grep -c 'model_reasoning_effort="none"' "$root/cheap.txt")" -eq 2 ] || fail "effort flag missing: $(cat "$root/cheap.txt")"
 echo "capabilities harness tests passed"
