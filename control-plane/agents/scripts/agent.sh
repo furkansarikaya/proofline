@@ -3026,27 +3026,36 @@ approve_pending() {
     sh "$scripts/agent.sh" approve "$ap_t" "$ap_k" 2>/dev/null || :
   done
 }
-# run_language [ID]: `tr` or `en`, the language the script's own questions are printed in (A99). Sources, in
-# order: a `Language: tr|en` line of the run's TASK.md; the newest captured user prompt of three or more words
-# (.agents/local/prompts/history/, A60). Turkish text: two or more Turkish-only letters or Turkish function
-# words (a heuristic, the A67 limits apply). Anything else, or no signal, is English.
+# run_language [ID]: `tr` or `en`, the language the script's own questions are printed in (A99, A103). Sources
+# are the user's own words, in order: a `Language: tr|en` line of the run's TASK.md; the `>` blockquote lines of
+# TASK.md (A33); the OLDEST captured prompt of six or more words (.agents/local/prompts/history/, A60; shorter
+# prompts such as `approve commit` are replies, never evidence). Turkish text: two or more Turkish-only letters
+# or Turkish function words (a heuristic, the A67 limits apply). No signal is English.
 run_language() {
-  rl_id=${1:--}; rl_v=''
-  if [ "$rl_id" != - ] && [ -f "$(run_dir "$rl_id")/TASK.md" ]; then
-    rl_v=$(sed -n 's/^[Ll]anguage:[[:space:]]*\([A-Za-z]*\).*/\1/p' "$(run_dir "$rl_id")/TASK.md" | head -1 | tr '[:upper:]' '[:lower:]')
+  rl_id=${1:--}; rl_v=''; rl_t=
+  [ "$rl_id" = - ] || rl_t="$(run_dir "$rl_id")/TASK.md"
+  if [ -f "$rl_t" ]; then
+    rl_v=$(sed -n 's/^[Ll]anguage:[[:space:]]*\([A-Za-z]*\).*/\1/p' "$rl_t" | head -1 | tr '[:upper:]' '[:lower:]')
   fi
   case "$rl_v" in tr|turkish|turkce) echo tr; return 0 ;; en|english) echo en; return 0 ;; esac
-  for rl_f in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort -r | head -5); do
-    [ "$(wc -w < "$rl_f")" -ge 3 ] || continue
-    LC_ALL=C awk '
-      { l = tolower($0); a += gsub(/\303[\247\266\274]|\304[\237\261]|\305\237|\303[\207\226\234]|\304[\236\260]|\305\236/, "&")
-        l = " " l " "; gsub(/[^a-z]+/, " ", l)
-        n = split(" ve bir icin bu ile mi degil olarak lutfen yap gerekiyor kadar sonra ama cok var yok ", w, " ")
-        for (i = 1; i <= n; i++) { t = w[i]; while ((k = index(l, " " t " ")) > 0) { b++; l = substr(l, 1, k) substr(l, k + length(t) + 2) } } }
-      END { print (a >= 2 || b >= 2) ? "tr" : "en" }' "$rl_f"
-    return 0
+  if [ -f "$rl_t" ]; then
+    rl_q=$(grep -E '^[[:space:]]*>' "$rl_t" 2>/dev/null || :)
+    if [ "$(printf '%s\n' "$rl_q" | wc -w)" -ge 3 ]; then printf '%s\n' "$rl_q" | rl_detect; return 0; fi
+  fi
+  for rl_f in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
+    [ "$(wc -w < "$rl_f")" -ge 6 ] || continue
+    rl_detect < "$rl_f"; return 0
   done
   echo en
+}
+# rl_detect: stdin text -> `tr` or `en`.
+rl_detect() {
+  LC_ALL=C awk '
+    { l = tolower($0); a += gsub(/\303[\247\266\274]|\304[\237\261]|\305\237|\303[\207\226\234]|\304[\236\260]|\305\236/, "&")
+      l = " " l " "; gsub(/[^a-z]+/, " ", l)
+      n = split(" ve bir icin bu ile mi degil olarak lutfen yap gerekiyor kadar sonra ama cok var yok ben bunu sunu nasil neden evet hayir onay tamam ", w, " ")
+      for (i = 1; i <= n; i++) { t = w[i]; while ((k = index(l, " " t " ")) > 0) { b++; l = substr(l, 1, k) substr(l, k + length(t) + 2) } } }
+    END { print (a >= 2 || b >= 2) ? "tr" : "en" }'
 }
 request_approval() {
   rq_id=$1 rq_kind=$2; require_lead; approval_target "$rq_id" "$rq_kind"
