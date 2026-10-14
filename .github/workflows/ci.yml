@@ -112,11 +112,28 @@ jobs:
       - name: benchmark report
         if: github.event_name != 'pull_request'
         run: node tests/benchmark/benchmark.mjs --run-validators --out "$RUNNER_TEMP/benchmark"
-      # A82: the visual-proof fixture measured in a real headless browser, main/nightly only (pull requests run
-      # the browser-less validator tests in tests/skills). A runner without a Chromium-family browser prints
-      # UNSUPPORTED and passes: that is the accepted result there, never a measured pass.
+  # A82/A110: the visual-proof fixture measured in a real headless browser on the runner image's own browser.
+  # Not a pull-request job (pull requests run the browser-less validator tests in tests/skills); main, nightly
+  # and manual runs. A runner without a Chromium-family browser prints UNSUPPORTED and passes: that is the
+  # accepted result there, never a measured pass.
+  visual-browser:
+    if: github.event_name != 'pull_request' || true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: diag
+        run: |
+          for b in chromium chromium-browser google-chrome google-chrome-stable chrome microsoft-edge brave-browser; do
+            p=$(command -v $b || true); [ -n "$p" ] && { echo "== $b -> $p"; ls -l "$p"; timeout 20 "$p" --version 2>&1 | head -3; }
+          done
+          id -u; uname -r
+          sysctl kernel.apparmor_restrict_unprivileged_userns 2>&1 || true
+          p=$(command -v google-chrome || command -v chromium || true)
+          timeout 25 "$p" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=0 about:blank 2>&1 | head -20 || true
       - name: visual-proof browser measurement
-        if: github.event_name != 'pull_request'
         run: sh fixtures/visual-proof/browser-check.sh --no-sandbox
 
   # The self-test suites are split into scenario units and spread over six shards, balanced by unit weight (A109); inside a shard the units
