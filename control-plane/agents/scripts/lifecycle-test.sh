@@ -607,8 +607,8 @@ scenario_approval_fail_closed() {
   ad=.agents/runs/LC/approvals
   for t in 'hmm bir dakika' 'sonra bakarız' '' 'the weather is nice today' 'approve the plan?' 'do not approve the plan' 'approve the plan, but wait' 'plan için emin değilim, onaylıyorum' 'unapproved plan' 'okay then' 'plan tamamen yanlış' "I shouldn't approve the plan" 'I cannot approve the plan' 'yes, delete nothing' 'plan için onay vermiyorum' 'plan onay yok' 'plan olmaz, onay yok' 'plan: onaylamıyorum, evet' 'plan onay bekliyor' 'I will approve the plan after I review the tests' 'what does the plan do before I approve' 'yes the plan is wrong' 'evet, plan yanlış' 'approve the plan — just kidding' 'PLAN ONAYLIYORUM DEĞİL'; do
     capture "$t"; expect_fail "an ambiguous answer approved: '$t'" A approve LC plan
-    [ -z "$(ls "$ad" | grep -E '^[0-9]{3}-plan\.yaml$' || true)" ] || die "an approval file exists after '$t'"
-    [ -n "$(ls "$ad" | grep -E '^[0-9]{3}-request-plan\.yaml$')" ] || die "the request is no longer pending after '$t'"
+    for f in "$ad"/[0-9][0-9][0-9]-plan.yaml; do [ ! -e "$f" ] || die "an approval file exists after '$t'"; done
+    for f in "$ad"/[0-9][0-9][0-9]-request-plan.yaml; do [ -e "$f" ] || die "the request is no longer pending after '$t'"; done
   done
   for t in 'approve the plan' 'Plan approved.' 'yes, plan' 'ok plan' 'okay, plan' 'LGTM plan' 'go ahead with the plan' 'plan onaylandı' 'plan onayliyorum' 'Plan: evet' 'plan tamam' 'plan olur'; do
     A request-approval LC plan >/dev/null; capture "$t"; A approve LC plan >/dev/null || die "an allowlisted answer was refused: '$t'"
