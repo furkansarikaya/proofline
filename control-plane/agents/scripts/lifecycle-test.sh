@@ -241,7 +241,7 @@ scenario_bounded_fix() {
   expect_fail "refreeze without an amendment file" A refreeze LC missing.md
   # D15/B4: the exhausted budget is reset only with the user's budget approval for this PLAN.md
   expect_msg "a refreeze reset an exhausted fix budget without the user" 'budget approval' A refreeze LC 001.md
-  approve_as_user budget 'approve one more fix budget for LC'
+  approve_as_user budget 'approve budget'
   A refreeze LC 001.md >/dev/null
   [ "$(pipe_val fix_round)" = 0 ] || die "refreeze did not start a fresh budget"
   expect_state handoff state IMPLEMENTING; expect_state handoff implemented_patch_sha256 PENDING
@@ -433,7 +433,7 @@ scenario_amend_plan_change() {
   mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: add extra.txt to scope\n' > .agents/runs/LC/amendments/001.md
   printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' '  - path: impl_test.txt' '    criteria: [AC-1]' '  - path: extra.txt' '    criteria: [AC-1]' '    new: true' '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'amended: one helper file' > .agents/runs/LC/PLAN.md
   expect_msg "a scope-adding refreeze without a scope approval" 'scope approval' A refreeze LC 001.md
-  approve_as_user scope 'approve the scope change to add extra.txt'
+  approve_as_user scope 'approve the scope please'
   A refreeze LC 001.md >/dev/null; expect_state handoff state IMPLEMENTING
   solo RED fail impl_test.txt 'test: helper returns the stored value' impl.txt,impl_test.txt,extra.txt; solo GREEN pass extra.txt 'helper: returns the stored value' impl.txt,impl_test.txt,extra.txt
   A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
@@ -598,6 +598,31 @@ scenario_task_source_status() {
   ok "task source status synchronization"
 }
 
+# A108: approval detection is fail-closed. Only an allowlisted phrase plus the kind word approves; an ambiguous,
+# empty, unrelated or hesitant answer approves nothing and leaves the request pending; the question lists the answers.
+scenario_approval_fail_closed() {
+  scaffold standalone no TRIVIAL supervised
+  q=$(A request-approval LC plan)
+  for w in approve yes okay lgtm 'go ahead' evet onay olur tamam; do printf '%s' "$q" | grep -Fq "$w" || die "the question does not list the accepted answer '$w'"; done
+  ad=.agents/runs/LC/approvals
+  for t in 'hmm bir dakika' 'sonra bakarız' '' 'the weather is nice today' 'approve the plan?' 'do not approve the plan' 'approve the plan, but wait' 'plan için emin değilim, onaylıyorum' 'unapproved plan' 'okay then' 'plan tamamen yanlış' "I shouldn't approve the plan" 'I cannot approve the plan' 'yes, delete nothing' 'plan için onay vermiyorum' 'plan onay yok' 'plan olmaz, onay yok' 'plan: onaylamıyorum, evet' 'plan onay bekliyor' 'I will approve the plan after I review the tests' 'what does the plan do before I approve' 'yes the plan is wrong' 'evet, plan yanlış' 'approve the plan — just kidding' 'PLAN ONAYLIYORUM DEĞİL'; do
+    capture "$t"; expect_fail "an ambiguous answer approved: '$t'" A approve LC plan
+    for f in "$ad"/[0-9][0-9][0-9]-plan.yaml; do [ ! -e "$f" ] || die "an approval file exists after '$t'"; done
+    for f in "$ad"/[0-9][0-9][0-9]-request-plan.yaml; do [ -e "$f" ] || die "the request is no longer pending after '$t'"; done
+  done
+  for t in 'approve the plan' 'Plan approved.' 'yes, plan' 'ok plan' 'okay, plan' 'LGTM plan' 'go ahead with the plan' 'plan onaylandı' 'plan onayliyorum' 'Plan: evet' 'plan tamam' 'plan olur'; do
+    A request-approval LC plan >/dev/null; capture "$t"; A approve LC plan >/dev/null || die "an allowlisted answer was refused: '$t'"
+    rm -f "$ad"/[0-9][0-9][0-9]-plan.yaml
+  done
+  # The grammar is locale independent (test-lib runs under LC_ALL=C): the same refusals and a positive under UTF-8.
+  for t in "I shouldn't approve the plan" 'PLAN ONAYLIYORUM DEĞİL' 'plan onay yok' 'yes the plan is wrong'; do
+    capture "$t"; expect_fail "an ambiguous answer approved under UTF-8: '$t'" env LC_ALL=en_US.UTF-8 sh ./.agents/scripts/agent.sh approve LC plan
+  done
+  A request-approval LC plan >/dev/null; capture 'PLAN ONAYLIYORUM'
+  env LC_ALL=en_US.UTF-8 sh ./.agents/scripts/agent.sh approve LC plan >/dev/null || die "an allowlisted answer was refused under UTF-8"
+  ok "approval detection is fail-closed (A108)"
+}
+
 # Delivery then cleanup: the commit moves HEAD past base_sha; cleanup must still succeed (base_sha an ancestor,
 # task-owned patch = the CODE_DONE patch and committed), and afterwards the git hooks see no open run.
 scenario_cleanup_after_delivery() {
@@ -636,6 +661,7 @@ scenario_freeze_scope_mapping() {
 }
 
 run_sc scenario_standalone
+run_sc scenario_approval_fail_closed
 run_sc scenario_evidence_order
 run_sc scenario_independence
 run_sc scenario_orchestrated_loop

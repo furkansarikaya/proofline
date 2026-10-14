@@ -3047,13 +3047,58 @@ latest_capture() { # -> the capture file with the greatest time, or exit 1; any 
   [ -n "$lc_best" ] || return 1
   printf '%s\n' "$lc_best"
 }
-# text_has_approval TEXTFILE KIND: an approval phrase from config plus a kind-specific word.
+# approval_norm: stdin -> words separated by single spaces. Case folding is ASCII only and locale independent
+# (LC_ALL=C); ASCII punctuation becomes a space, apostrophes are dropped; hyphen and underscore stay (ids,
+# `single-step`); every other byte, non-ASCII letters included, passes unchanged.
+approval_norm() {
+  LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sed "s/'//g; s/’//g" | LC_ALL=C tr '!"#$%&()*+,./:;<=>?@[\\]^`{|}~' ' ' | LC_ALL=C tr -s '[:space:]' ' ' | LC_ALL=C sed 's/^ //; s/ $//'
+}
+# approval_phrases: the explicit approval allowlist (A108): `approval.phrases`, else the built-in English and Turkish list.
+approval_phrases() { cfg approval.phrases 'approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur'; }
+# approval_fillers: the words an approval reply may carry besides a phrase and the kind word (A108).
+approval_fillers() { echo 'the, a, an, it, this, please, for, with, to, and, lütfen, lutfen, bu, planı, plani, için, icin'; }
+# text_has_approval TEXTFILE KIND: a positive grammar (A108). After normalisation every word of the reply must be a
+# word of an allowlisted approval phrase, a word of the kind's own words (`kind_words`) or a filler word; the reply
+# must hold a whole allowlisted phrase and a kind word, and no question mark. Any other word (a negation, a
+# hesitation, an extra clause, anything unrelated) makes it ambiguous: not an approval, not a rejection.
 text_has_approval() {
-  tha_low=$(tr '[:upper:]' '[:lower:]' < "$1" | tr -s '[:space:]' ' ')
-  tha_ph=$(cfg approval.phrases 'approve, approved, onaylıyorum, onayliyorum, go ahead, commit it, push it')
-  printf '%s\n' "$tha_ph" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | { while IFS= read -r p; do [ -n "$p" ] || continue; case "$tha_low" in *"$p"*) echo y; break ;; esac; done; } | grep -q y || return 1
-  for tha_w in $(kind_words "$2"); do case "$tha_low" in *"$tha_w"*) return 0 ;; esac; done
+  tha_raw=$(cat "$1")
+  case "$tha_raw" in *\?*) return 1 ;; esac
+  tha_n=$(printf '%s\n' "$tha_raw" | approval_norm); [ -n "$tha_n" ] || return 1
+  tha_low=" $tha_n "
+  tha_pl=$(approval_phrases | tr ',' '\n' | while IFS= read -r tha_x; do printf '%s\n' "$tha_x" | approval_norm; echo; done)
+  tha_kw=$(kind_words "$2" | approval_norm)
+  tha_ok=" $(printf '%s' "$tha_pl" | tr '\n' ' ') $tha_kw $(approval_fillers | approval_norm) "
+  for tha_t in $tha_n; do case "$tha_ok" in *" $tha_t "*) ;; *) return 1 ;; esac; done
+  tha_hit=''
+  while IFS= read -r tha_p; do
+    [ -n "$tha_p" ] || continue
+    case "$tha_low" in *" $tha_p "*) tha_hit=y; break ;; esac
+  done <<EOF
+$tha_pl
+EOF
+  [ -n "$tha_hit" ] || return 1
+  for tha_w in $tha_kw; do case "$tha_low" in *" $tha_w "*) return 0 ;; esac; done
   return 1
+}
+# approval_unanswered REQFILE KIND: 0 when the newest user prompt is newer than the request and is no approval
+# (ambiguous or a refusal); `next` then tells the lead to ask again (A108).
+approval_unanswered() {
+  au_c=$(latest_capture 2>/dev/null) || return 1
+  au_t=$(capture_field "$au_c" time 2>/dev/null) || return 1
+  [ "$au_t" -gt "$(gate_field "$1" requested_at)" ] 2>/dev/null || return 1
+  au_f=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); capture_field "$au_c" text > "$au_f" 2>/dev/null || :
+  if text_has_approval "$au_f" "$2"; then rm -f "$au_f"; return 1; fi
+  rm -f "$au_f"; return 0
+}
+# approval_wait_o REQFILE KIND ID: the `next` line of a pending approval request. A newer user prompt that is no
+# approval leaves the request pending and the lead asks again (A108).
+approval_wait_o() {
+  if approval_unanswered "$1" "$2"; then
+    o "the user's last reply is not an explicit approval (an answer that is ambiguous or a refusal never approves): relay the question again verbatim with its accepted answers: agent.sh request-approval $3 $2 (relay verbatim), then wait for the reply and: agent.sh next $3"
+  else
+    o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $3"
+  fi
 }
 latest_request() { # ID KIND -> request file
   ls -1 "$(approvals_dir "$1")" 2>/dev/null | grep -E "^[0-9]{3}-request-$(kind_slug "$2")\.yaml\$" | sort | tail -1 | sed "s#^#$(approvals_dir "$1")/#" | grep . || return 1
@@ -3133,8 +3178,8 @@ request_approval() {
   [ -z "$rq_steps" ] || printf '%s\n' "$rq_steps"
   [ -z "$rq_rows" ] || printf '%s\n' "$rq_rows"
   if [ "$rq_tr" = 1 ]; then
-    printf '   seçenekler: approve | reject (onay için "approve %s" yazın, vazgeçmek için "reject")\n   önerilen: yok (karar kullanıcıya ait)\n   neden: %s\n' "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_why "$rq_kind" "$rq_bound" tr)"
-  else printf '   options: approve | reject\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_why "$rq_kind" "$rq_bound")"; fi
+    printf '   seçenekler: approve | reject (onay için "approve %s" yazın, vazgeçmek için "reject")\n   kabul edilen onay sözcükleri: %s (tür sözcüğüyle birlikte, örn. "approve %s"; bunlardan başka yalnızca şu sözcükler: %s); başka herhangi bir sözcük yanıtı belirsiz yapar: onay sayılmaz ve soru yeniden sorulur\n   önerilen: yok (karar kullanıcıya ait)\n   neden: %s\n' "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_why "$rq_kind" "$rq_bound" tr)"
+  else printf '   options: approve | reject\n   accepted answers: %s (with the kind word, for example "approve %s"; besides those only the words: %s); any other word makes the reply ambiguous: it is not an approval and the question is asked again\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_why "$rq_kind" "$rq_bound")"; fi
 }
 approval_why() { # KIND BOUND [tr]
   if [ "${3:-}" = tr ]; then
@@ -3172,7 +3217,7 @@ approve() {
   [ "$ap_bound" = "$(gate_field "$ap_req" bound)" ] || fail "the content changed since the approval request; request again"
   ap_txt=$(mktemp "${TMPDIR:-/tmp}/proofline-approve.XXXXXX")
   if [ -t 0 ] && [ -t 1 ]; then
-    printf 'Approve %s for %s? Type an approval phrase (for example "approve %s"): ' "$ap_kind" "$ap_id" "$(kind_words "$ap_kind" | cut -d' ' -f1)" >&2
+    printf 'Approve %s for %s? Type an approval phrase (%s; for example "approve %s"): ' "$ap_kind" "$ap_id" "$(approval_phrases)" "$(kind_words "$ap_kind" | cut -d' ' -f1)" >&2
     IFS= read -r ap_line || ap_line=''
     printf '%s' "$ap_line" > "$ap_txt"; ap_src=tty ap_session=tty ap_time=$(now_epoch)
   else
@@ -3191,7 +3236,7 @@ approve() {
   ap_csha=$(hash_file "$ap_txt")
   # A106: single-use is per capture event (session + time + hash), never per text: the same words answer a later request.
   ap_cid="$ap_session:$ap_time:$ap_csha"
-  text_has_approval "$ap_txt" "$ap_kind" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_kind (approval.phrases plus '$(kind_words "$ap_kind")')"; }
+  text_has_approval "$ap_txt" "$ap_kind" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_kind (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_kind")', and no other word; the question stays pending)"; }
   rm -f "$ap_txt"
   if [ "$ap_src" = prompt_capture ] && grep -l "^capture_id: \"$ap_cid\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
   ap_n=$(next_num "$ap_ad")
@@ -3508,7 +3553,7 @@ next_step() {
       if [ "$ns_k" = scope ] && [ -z "$(task_defect_fixes "$ns_d/TASK.md")" ]; then continue; fi
       if ! find_approval "$ns_id" "$ns_k" "$ns_ph" >/dev/null; then
         ns_rq=$(latest_request "$ns_id" "$ns_k" 2>/dev/null || true)
-        if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $ns_id"
+        if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then approval_wait_o "$ns_rq" "$ns_k" "$ns_id"
         else o "agent.sh request-approval $ns_id $ns_k (relay verbatim)"; fi
         r "$ns_k approval required before freeze"; return 0
       fi
@@ -3523,7 +3568,7 @@ next_step() {
         for ns_k in $ns_kinds; do
           find_approval "$ns_id" "$ns_k" "$ns_ph" >/dev/null && continue
           ns_rq=$(latest_request "$ns_id" "$ns_k" 2>/dev/null || true)
-          if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $ns_id"
+          if [ -n "$ns_rq" ] && [ "$(gate_field "$ns_rq" bound)" = "$ns_ph" ]; then approval_wait_o "$ns_rq" "$ns_k" "$ns_id"
           else o "agent.sh request-approval $ns_id $ns_k (relay verbatim)"; fi
           r "$ns_k approval required before IMPLEMENT"; ns_ask=1; break
         done

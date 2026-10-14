@@ -294,7 +294,7 @@ sc_waiver() {
   A request-approval LC waive:REVIEW_SMALL-1 >/dev/null
   capture 'approved, go ahead'
   expect_msg "an approval text not naming the finding" 'no approval phrase' A approve LC waive:REVIEW_SMALL-1
-  capture 'I approve waiving REVIEW_SMALL-1, the default is documented'
+  capture 'approved REVIEW_SMALL-1'
   A approve LC waive:REVIEW_SMALL-1 >/dev/null
   expect_fail "a reviewer waived" AS reviewer waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream'
   A waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream' >/dev/null
@@ -548,7 +548,7 @@ sc_supervised_destructive() {
   approve_as_user plan 'approve the plan'
   printf 'edited after approval\n' >> .agents/runs/LC/PLAN.md
   expect_msg "an approval for an older PLAN.md" 'plan approval' A freeze LC
-  approve_as_user plan 'approve the plan again'
+  approve_as_user plan 'approve the plan please'
   A freeze LC >/dev/null
   ok "supervised freeze needs a plan approval bound to PLAN.md"
   # destructive data change (K-6): forced CRITICAL at freeze; the freeze needs the plan approval only, the
@@ -565,14 +565,14 @@ sc_supervised_destructive() {
   A next LC | grep -q 'destructive plan without expand/contract steps' || die "next does not name the missing expand/contract steps"
   # a one-release plan: the destructive step shares the expand phase
   printf '\n| step | phase | operation | object | destructive | reversible | rollback | lock |\n|---|---|---|---|---|---|---|---|\n| S1 | expand | drop_column | books.legacy_notes | yes | no | restore from backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
-  approve_as_user plan 'approve the plan, third time'
+  approve_as_user plan 'approve this plan'
   expect_msg "a one-release destructive plan froze" 'without expand/contract steps' A freeze LC
   # expand then contract: accepted with the plan approval alone
   sed '/^| S1 | expand | drop_column/d' .agents/runs/LC/PLAN.md > "$base/p.md"; cp "$base/p.md" .agents/runs/LC/PLAN.md
   printf '| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
   A next LC | grep -q '^next=agent.sh request-approval LC plan' || die "next does not ask for the plan approval of the final plan"
   A next LC | grep -q 'destructive approval required before' && die "next asks for the destructive approval before the freeze"
-  approve_as_user plan 'approve the plan, fourth time'
+  approve_as_user plan 'please approve the plan'
   A next LC | grep -q '^next=agent.sh freeze LC' || die "next does not offer the freeze with only the plan approval"
   A freeze LC >/dev/null || die "a destructive plan with the plan approval was not frozen"
   [ "$(pipe_val tier)" = full ]
@@ -591,28 +591,28 @@ sc_supervised_destructive() {
   # a refreeze (new PLAN.md hash) drops the approval: it must be requested again before IMPLEMENT
   unfrozen STANDARD
   printf '\n## Data\n\ndestructive: yes\n\n| step | phase | operation | object | destructive | reversible | rollback | lock |\n|---|---|---|---|---|---|---|---|\n| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
-  approve_as_user plan 'approve the plan, fifth time'
+  approve_as_user plan 'approve plan'
   A freeze LC >/dev/null || die "freeze for the refreeze scenario failed"
-  approve_as_user destructive 'approve the destructive migration, second time'
+  approve_as_user destructive 'approve destructive migration'
   mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: clarify the migration\n' > .agents/runs/LC/amendments/001.md
   printf 'amended: migration note\n' >> .agents/runs/LC/PLAN.md
-  approve_as_user plan 'approve the amended plan'
+  approve_as_user plan 'approve a plan'
   A refreeze LC 001.md | grep -q 'destructive / single_step approval was bound to the old one' || die "refreeze does not say the destructive approval was dropped"
   expect_msg "IMPLEMENTING with an approval bound to the old PLAN.md" 'agent.sh request-approval LC destructive' A handoff LC IMPLEMENTING
   A next LC | grep -q '^next=agent.sh request-approval LC destructive' || die "next does not ask again after the refreeze"
-  approve_as_user destructive 'approve the destructive migration for the amended plan'
+  approve_as_user destructive 'approve the destructive migration please'
   A handoff LC IMPLEMENTING >/dev/null || die "IMPLEMENTING refused after the destructive approval of the new hash"
   ok "a refreeze drops the destructive approval"
   # an explicit single-step approval is the only way to a one-step destructive change
   unfrozen STANDARD
   printf '\n## Data\n\ndestructive: yes\nsingle_step: yes\n\ndrop books.legacy_notes in one migration\n' >> .agents/runs/LC/PLAN.md
   printf '\nThe user wants this migration as a single step.\n' >> .agents/runs/LC/TASK.md
-  approve_as_user plan 'approve the plan, sixth time'
+  approve_as_user plan 'yes approve the plan'
   A freeze LC >/dev/null || die "a single_step plan was not frozen on the plan approval"
-  approve_as_user destructive 'approve the destructive migration, third time'
+  approve_as_user destructive 'please approve destructive migration'
   expect_msg "a single_step plan reached IMPLEMENTING without the single-step approval" "single-step approval" A handoff LC IMPLEMENTING
   A next LC | grep -q '^next=agent.sh request-approval LC single_step' || die "next does not ask for the single_step approval"
-  approve_as_user single_step 'approve the migration as a single step'
+  approve_as_user single_step 'approve single step'
   A handoff LC IMPLEMENTING >/dev/null || die "an approved single-step plan was refused"
   ok "single_step: yes needs the user's single-step approval before IMPLEMENT"
 }
@@ -922,7 +922,7 @@ sc_provenance() {
 sc_waiver_rebind() {
   scaffold orchestrated no STANDARD; implemented orchestrated
   rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:1|first problem: cache never invalidated|traced'
-  approve_as_user waive:VERIFY-1 'approve waiving VERIFY-1'
+  approve_as_user waive:VERIFY-1 'approve VERIFY-1'
   grep -q '^bound: "[0-9]*-VERIFY.yaml@[0-9a-f]*#VERIFY-1"' .agents/runs/LC/approvals/*-waive-VERIFY-1.yaml || die "the waiver approval is not bound to the gate record"
   A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: fix attempt'; A handoff LC IMPLEMENTED >/dev/null
   rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:2|different problem: data loss on concurrent write|traced'
@@ -1086,7 +1086,7 @@ sc_defect_scope() {
   printf '\n## Pre-existing defects\n\n- src/service.js:paginate: totalPages rounds down -- decision: fix\n' >> "$d/TASK.md"
   expect_msg "a pre-existing defect fix without the user's scope approval" 'scope approval for this PLAN.md' A freeze LC
   A next LC | grep -q '^next=agent.sh request-approval LC scope' || die "next does not ask for the scope approval: $(A next LC)"
-  approve_as_user scope 'approve the scope change: fix the paging defect'
+  approve_as_user scope 'approve the scope'
   A freeze LC >/dev/null || die "freeze refused with the scope approval: $(A freeze LC 2>&1)"
   ok "a pre-existing defect marked decision: fix needs the user's scope approval at the first freeze"
   # a decision: report entry never needs one
@@ -1135,7 +1135,7 @@ sc_folded_defect() {
   A request-approval LC scope >/dev/null
   capture 'Use your recommended option for every open question.'
   expect_msg "a blanket prompt as a scope approval" 'no approval phrase' A approve LC scope
-  approve_as_user scope 'approve the scope change: fix the paging defect'
+  approve_as_user scope 'approve the scope'
   A freeze LC >/dev/null || die "freeze refused with the scope approval: $(A freeze LC 2>&1)"
   ok "A105: a COMPLEX task declares a folded defect fix; only the user's own scope approval unlocks the freeze"
   # declared as report: no approval needed; a STANDARD defect task is unaffected

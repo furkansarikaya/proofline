@@ -222,7 +222,7 @@ sc_unsupported_inconclusive() {
   printf '%s\n' "$nx" | grep -Fq "request-approval LC waive:$fid (blocking UNSUPPORTED visual" || die "next does not offer the user's waiver: $nx"
   # A92: only a script finding fails the gate: no implementer fix round is offered
   ! printf '%s\n' "$nx" | grep -Fq 'handoff LC IMPLEMENTING' || die "next offers a fix round for an UNSUPPORTED-only failure"
-  approve_as_user "waive:$fid" "approved, waive $fid"
+  approve_as_user "waive:$fid" "approved, $fid"
   A waive LC "$fid" --reason 'unstable rendering in this environment; the user accepts the visual gap' >/dev/null
   [ "$(gate_st QA)" = waived ] || die "waived INCONCLUSIVE gate: $(gate_st QA)"
   A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
@@ -395,7 +395,7 @@ sc_frozen() {
   printf '\n## Risk\n\ncontract_change: yes\nperformance_critical: yes budget_pct=5\n' >> .agents/runs/LC/PLAN.md
   expect_msg "a flag changed after freeze" 'freeze mismatch: plan' A verify-freeze LC
   mkdir -p .agents/runs/LC/amendments; printf '# Amendment 1\n\nDeclare the contract change.\n' > .agents/runs/LC/amendments/001.md
-  approve_as_user plan 'approved: the amended plan'
+  approve_as_user plan 'approved: this plan'
   A refreeze LC 001.md >/dev/null; A verify-freeze LC >/dev/null
   snap; has 'signal.contract_change=source=plan'
   # A87: the performance budget on the flag line is frozen with PLAN.md: raising it after freeze breaks the freeze
@@ -443,7 +443,7 @@ sc_frozen() {
   cp .agents/runs/LC/RUN.yaml "$base/run.keep"; grep -v '^  risk_sha256:' "$base/run.keep" > .agents/runs/LC/RUN.yaml
   expect_msg "a run without risk_sha256" 'no freeze.risk_sha256' A verify-freeze LC
   printf '# Amendment 2\n\nBind the risk mapping.\n' > .agents/runs/LC/amendments/002.md
-  approve_as_user plan 'approved: the amended plan, bind the mapping'
+  approve_as_user plan 'approved, the plan please'
   A refreeze LC 002.md >/dev/null; A verify-freeze LC >/dev/null
   grep -q '^  risk_sha256: "[0-9a-f]\{64\}"' .agents/runs/LC/RUN.yaml || die "refreeze did not insert risk_sha256"
   { cat .agents/config.yaml; printf '\ncontract:\n  skip: "x"\n'; } > "$base/cfg3"
