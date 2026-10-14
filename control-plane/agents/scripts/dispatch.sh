@@ -27,6 +27,9 @@
 #   `ask` stores a pending question through `agent.sh ask` (awaiting_input, ledgered; `agent.sh questions` shows
 #   it and `next` stops for the user) and prints it as NEEDS_INPUT; `off`, floor unmet or no other runtime ->
 #   BLOCKED.
+# Claude workers get `--permission-mode` from config dispatch.claude_permission_mode (default
+#   bypassPermissions; acceptEdits|default accepted): headless, they cannot be prompted, and the PreToolUse hook is the
+#   confinement. bypassPermissions is refused (BLOCKED) when that hook is not wired in .claude/settings.json (A114).
 # Codex runs with --dangerously-bypass-hook-trust: a headless `codex exec` never asks to trust the project's
 #   hooks, so without it the proofline hooks (.codex/) would not load for the worker. The fingerprint and
 #   .git/config/HEAD checks below stay the enforcement; the hooks are an extra layer (ENFORCEMENT.md).
@@ -244,7 +247,7 @@ attempt() {
   # Every role writes its owned artifacts in the run dir; only the implementer, and the designer during
   # IMPLEMENTING, may touch the product tree, inside an attested window.
   writes_code=no; case "$role" in implementer) writes_code=yes ;; designer) [ "$(handoff_state)" != IMPLEMENTING ] || writes_code=yes ;; esac
-  tmpl=$(cfg dispatch command_template "$rt")
+  pm=''; tmpl=$(cfg dispatch command_template "$rt")
   if [ -n "$tmpl" ]; then
     for ph in "prompt_file $work/full" "output_file $out" "root $root" "model $model" "effort $effort"; do
       tmpl=$(subst "$tmpl" "${ph%% *}" "$(sq "${ph#* }")")
@@ -278,7 +281,17 @@ attempt() {
           aj_src=$root/.agents/roles/$role.md; [ -f "$aj_src" ] || aj_src=$ins
           set -- "${PROOFLINE_CLAUDE_BIN:-claude}" -p --agents "$(agents_json "$an" "$aj_src" "$role")" --agent "$an"
         fi
-        set -- "$@" --model "$model" --effort "$effort" --output-format json ;;
+        # A headless worker cannot be prompted, so the permission mode is explicit (A114). bypassPermissions is
+        # only used while the PreToolUse hook (the real confinement) is installed and wired for this project.
+        pm=$(cfg dispatch claude_permission_mode); [ -n "$pm" ] || pm=bypassPermissions
+        case "$pm" in bypassPermissions|acceptEdits|default) ;; *) die "invalid dispatch.claude_permission_mode: $pm (want bypassPermissions|acceptEdits|default)" ;; esac
+        if [ "$pm" = bypassPermissions ]; then
+          { [ -f "$root/.agents/hooks/proofline-hook.sh" ] && grep -q 'proofline-hook.sh' "$root/.claude/settings.json" 2>/dev/null &&
+            grep -q '"PreToolUse"' "$root/.claude/settings.json"; } ||
+            blocked "claude worker not started: the proofline PreToolUse hook is not installed in .claude/settings.json (run 'proofline doctor', then install); a headless worker runs with bypassPermissions only while the hook confines it, or set dispatch.claude_permission_mode"
+        fi
+        note "dispatch claude_permission_mode=$pm role=$role" || true
+        set -- "$@" --model "$model" --effort "$effort" --permission-mode "$pm" --output-format json ;;
       *) blocked "runtime $rt has no built-in invocation and no dispatch.command_template.$rt" ;;
     esac
   fi
@@ -290,7 +303,7 @@ attempt() {
   else
     before=$("$agent" window-open "$id" "$role") || { echo "dispatch: window-open refused; $role not started" >&2; exit 1; }
   fi
-  echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code" >&2
+  echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code${pm:+ permission_mode=$pm}" >&2
   status=0
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
   else (cd "$root" && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" &&

@@ -244,6 +244,10 @@ capabilities:
 dispatch:
   # Timeout of one specialist run in seconds (minimum 30).
   timeout_seconds: 1800
+  # Permission mode of a headless Claude worker started by dispatch.sh (A114): bypassPermissions | acceptEdits | default.
+  # A headless worker cannot be prompted, so a narrower mode usually leaves it unable to submit; the PreToolUse hook
+  # confines it either way. bypassPermissions is refused while that hook is not wired in .claude/settings.json.
+  claude_permission_mode: bypassPermissions
   # D8 Worker tier: any headless CLI as a runtime, one line per runtime, e.g.
   #   mycli: mycli run --model {model} --input {prompt_file} --out {output_file} --cwd {root}
   # Placeholders: {prompt_file} {model} {effort} {output_file} {root} (substituted shell-quoted).

@@ -108,6 +108,9 @@ sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result D
 EOF
 chmod +x "$tmp/bin/"*
 echo original > "$p/product.txt"
+# the project's Claude hooks, wired (a bypassPermissions worker is only started with them; A114)
+mkdir -p "$a/hooks" "$p/.claude"; : > "$a/hooks/proofline-hook.sh"
+printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"sh .agents/hooks/proofline-hook.sh claude"}]}]}}\n' > "$p/.claude/settings.json"
 export FAKE_LOC="$loc" FAKE_ROOT="$p" PROOFLINE_CODEX_BIN="$tmp/bin/fake-codex" PROOFLINE_CLAUDE_BIN="$tmp/bin/fake-claude"
 
 mkcfg() { # FAILOVER [CODEX-LADDER]
@@ -135,6 +138,7 @@ mkcfg auto
 reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "codex path: exit 0" '[ "$rc" -eq 0 ]'
 ck "codex path: argv" 'has "$loc/codex.argv" exec && has "$loc/codex.argv" "$p" && has "$loc/codex.argv" workspace-write && has "$loc/codex.argv" gpt-6-sol && has "$loc/codex.argv" model_reasoning_effort=high && has "$loc/codex.argv" "approval_policy=\"never\"" && has "$loc/codex.argv" -o && grep -qx -- --dangerously-bypass-hook-trust "$loc/codex.argv"'
+ck "codex path: argv carries no Claude permission mode (A114)" '! has "$loc/codex.argv" --permission-mode && ! has "$loc/codex.argv" bypassPermissions'
 ck "codex path: .git/worktrees is a writable root (evidence worktrees)" 'grep -qx -- "$p/.git/worktrees" "$loc/codex.argv"'
 ck "codex path: the run folder and .agents/local are writable roots (submit records inside the sandbox)" 'grep -qx -- "$a/runs/T-1" "$loc/codex.argv" && grep -qx -- "$a/local" "$loc/codex.argv"'
 ck "codex path: AGENT_ROLE and stable prefix before task" '[ "$(cat "$loc/codex.role")" = implementer ] && [ "$(head -1 "$loc/codex.stdin")" = "You are the proofline implementer. STABLE-PREFIX-implementer" ] && has "$loc/codex.stdin" "TASK: T-1"'
@@ -152,6 +156,18 @@ ck "claude path: exit 0, no window" '[ "$rc" -eq 0 ] && ! has "$loc/calls.log" w
 ck "claude path: argv runs the role as an agent (--agents JSON from .agents/roles, default tools)" 'has "$loc/claude.argv" -p && has "$loc/claude.argv" sonnet && has "$loc/claude.argv" json && ! has "$loc/claude.argv" --append-system-prompt && grep -qx -- --agent "$loc/claude.argv" && grep -qx proofline-reviewer "$loc/claude.argv" && has "$loc/claude.argv" "\"proofline-reviewer\":{\"description\"" && has "$loc/claude.argv" STABLE-PREFIX-reviewer && has "$loc/claude.argv" "\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]"'
 ck "claude path: the submit carries the focus from the environment" 'has "$loc/recorded.md" "role=reviewer result=PASS focus=rules" && has "$loc/claude.stdin" "FOCUS: rules" && has "$loc/claude.stdin" "agent.sh submit T-1"'
 
+ck "claude path: explicit --permission-mode bypassPermissions by default, recorded in the ledger (A114)" 'grep -qx -- --permission-mode "$loc/claude.argv" && grep -qx bypassPermissions "$loc/claude.argv" && has "$loc/ledger.log" "dispatch claude_permission_mode=bypassPermissions role=reviewer"'
+cp "$a/config.yaml" "$tmp/config.keep"; sed -i.bak 's/^  claude_permission_mode: .*/  claude_permission_mode: acceptEdits/' "$a/config.yaml"
+reset; d T-1 reviewer --focus rules
+ck "a configured permission mode is passed through" '[ "$rc" -eq 0 ] && grep -qx acceptEdits "$loc/claude.argv" && ! has "$loc/claude.argv" bypassPermissions'
+sed -i.bak 's/^  claude_permission_mode: .*/  claude_permission_mode: yolo/' "$a/config.yaml"
+reset; d T-1 reviewer --focus rules
+ck "an invalid permission mode is a config error, nothing launched" '[ "$rc" -eq 2 ] && [ ! -f "$loc/claude.argv" ] && printf "%s" "$err" | grep -q claude_permission_mode'
+cp "$tmp/config.keep" "$a/config.yaml"
+mv "$p/.claude/settings.json" "$tmp/settings.keep"
+reset; d T-1 reviewer --focus rules
+ck "hooks not installed: no bypass worker is launched, BLOCKED naming proofline doctor" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ] && printf "%s" "$out" | grep -q "proofline doctor"'
+mv "$tmp/settings.keep" "$p/.claude/settings.json"
 printf 'reviewer Read,Grep,Agent,Task(x),Bash\n' > "$a/tools.conf"
 reset; d T-1 reviewer --focus rules
 ck "claude path: tools.conf list without Agent/Task" '[ "$rc" -eq 0 ] && has "$loc/claude.argv" "\"tools\":[\"Read\",\"Grep\",\"Bash\"]" && ! has "$loc/claude.argv" "\"Agent\"" && ! has "$loc/claude.argv" Task'
@@ -162,7 +178,7 @@ ck "claude path: the generated .claude agent runs (--agent proofline-security-re
 printf -- '---\nname: proofline-security-reviewer\ntools: Read, Task, Bash\n---\nbody\n' > "$p/.claude/agents/proofline-security-reviewer.md"
 reset; d T-1 security_reviewer
 ck "claude path: a generated agent granting Task is BLOCKED" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ] && ! has "$loc/calls.log" submit'
-rm -rf "$p/.claude"
+rm -rf "$p/.claude/agents"
 
 reset; d T-1 designer --runtime claude
 ck "designer before IMPLEMENTING: no window, product tree fingerprinted" '[ "$rc" -eq 0 ] && ! has "$loc/calls.log" window-open && has "$loc/calls.log" fingerprint'
