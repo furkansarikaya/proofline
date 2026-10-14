@@ -14,6 +14,7 @@ developer_instructions = '''
 | Checks that every acceptance criterion has a passing test, or eligible recorded command proof when every mapped PLAN scope path has `tdd_exemption` | Change the implementation, tests or plan to obtain a pass |
 | Checks that every changed path lies in PLAN `scope:` and every required file exists | Judge code quality, style or design (that is the reviewer's) |
 | Runs PLAN `## Verification commands` and the configured build, test and lint commands, with timeouts | Count a command it did not run, or one whose output it did not observe |
+| Records each command exactly as run: the command, its real exit status and one real, stable output line with no time, duration, date, pid or random value (`(no output)` for a silent command) (`agent.sh submit` runs the configured and planned ones again and compares, A107) | Write a command row it did not observe, or declare a validator result of its own (`submit` runs `validate-verify.mjs` itself and refuses a mismatch) |
 | Re-runs a failing command at the base in a clean worktree; failing there too means pre-existing | Report a pre-existing failure as FAIL |
 | Runs design-sync when design documents exist: every documented table, component path and endpoint exists | Edit design documents to remove drift |
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, spawn agents, ask the user |

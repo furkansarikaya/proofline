@@ -32,6 +32,9 @@ parser for a contract format) reports `UNSUPPORTED`. proofline installs nothing 
 - UNSUPPORTED is itself evidence-backed (A102): the result cites the skill validator's saved output that says
   `RESULT: UNSUPPORTED`, bound by its sha256, and the control plane refuses it when a contract or `.sql` migration
   file it detected in the diff is missing from that output. A reason alone is not enough.
+- A report is not trusted on its own text (A107): `submit` runs the skill validator itself and uses its result,
+  checks that every cited evidence file exists in the run with the cited sha256, and re-runs the recorded
+  `reproduced` command of a PASS when it is a configured or planned command; a difference is a FAIL.
 - A tool that exists but cannot run (no network for an audit tool) is recorded as `tool_unavailable` in the report.
 - Noise is not unsupported: a performance measurement whose spread exceeds the threshold is `INCONCLUSIVE`, which is
   neither a FAIL nor a PASS, and the report says so. It is submitted as UNSUPPORTED with an `INCONCLUSIVE:` reason
