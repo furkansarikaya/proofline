@@ -6,7 +6,9 @@ set -eu
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
 # A102 capability probes look only here (no browser of the test machine leaks in); a scenario plants one.
-PROOFLINE_PROBE_ROOT=$base/probe; export PROOFLINE_PROBE_ROOT; mkdir -p "$PROOFLINE_PROBE_ROOT/bin"
+# It counts only with PROOFLINE_SELFTEST=1 and outside a runtime session, so the session variables are cleared.
+PROOFLINE_PROBE_ROOT=$base/probe PROOFLINE_SELFTEST=1; export PROOFLINE_PROBE_ROOT PROOFLINE_SELFTEST; mkdir -p "$PROOFLINE_PROBE_ROOT/bin"
+unset CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_ENTRYPOINT CODEX_SESSION_ID CODEX_SANDBOX CODEX_THREAD_ID 2>/dev/null || true
 
 # snap: one `pipeline` per state; has/hasnt/pv read the snapshot.
 snap() { PO=$(A pipeline "$RID"); }

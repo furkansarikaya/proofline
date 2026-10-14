@@ -109,7 +109,8 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   of visual-proof's `measure.mjs --detect`); `performance` UNSUPPORTED when the project has a benchmark command (a
   package.json script `bench`/`benchmark`/`perf*`, a Makefile or justfile `bench`/`benchmark` target, cargo
   `benches/`, a Go `func Benchmark`, asv or pytest-benchmark, JMH, BenchmarkDotNet); a benchmark that cannot
-  reach the change is then BLOCKED for the user. Residual: non-SQL migrations (`.py`, `.js`, `.rb`) have no
+  reach the change is then BLOCKED for the user. The self-test switch `PROOFLINE_PROBE_ROOT` needs
+  `PROOFLINE_SELFTEST=1` outside a runtime session, and the hook refuses a model command naming either. Residual: non-SQL migrations (`.py`, `.js`, `.rb`) have no
   `FILE:` cross-check, and a deliberately fabricated evidence file is caught only by reading it. The
   `contract` focus has contract-proof (A83): UNSUPPORTED only for a changed contract file it cannot parse that no
   compatibility tool already present covers, or when node is missing.

@@ -2499,12 +2499,19 @@ record_validate() {
 }
 # A102 capability probes: print what makes a check runnable, nothing when absent. They only ever refuse an
 # UNSUPPORTED, never grant anything, so they stay conservative. PROOFLINE_PROBE_ROOT (self-tests only) replaces
-# PATH and the application folders with <root>/bin and <root>/Applications.
+# PATH and the application folders with <root>/bin and <root>/Applications; it counts only with the second
+# marker PROOFLINE_SELFTEST=1 and outside a runtime session (Claude Code or Codex environment variables), and
+# the PreToolUse hook refuses any model command that names either variable.
+probe_root() {
+  [ -n "${PROOFLINE_PROBE_ROOT:-}" ] && [ "${PROOFLINE_SELFTEST:-}" = 1 ] || return 0
+  [ -z "${CLAUDECODE:-}${CLAUDE_CODE_SESSION_ID:-}${CLAUDE_CODE_ENTRYPOINT:-}${CODEX_SESSION_ID:-}${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}" ] || return 0
+  printf '%s' "$PROOFLINE_PROBE_ROOT"
+}
 # probe_visual: the families visual-proof's `measure.mjs --detect` recognises (keep the lists equal): a
 # Chromium-family binary on PATH or in the standard macOS application folders, or an installed project
 # browser-test dependency (declared in package.json and present in node_modules).
 probe_visual() {
-  pv_root=${PROOFLINE_PROBE_ROOT:-}
+  pv_root=$(probe_root)
   if [ -n "$pv_root" ]; then pv_path=$pv_root/bin; else pv_path=${PATH:-}; fi
   pv_ifs=$IFS; IFS=:
   for pv_d in $pv_path; do
