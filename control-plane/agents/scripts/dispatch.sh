@@ -344,9 +344,15 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
     case "$mode" in
       off) blocked "runtime $rt failed ($reason); failover: off" ;;
       ask)
+        if [ "$("$agent" run-language "$id" 2>/dev/null || echo en)" = tr ]; then
+          { printf '1. Çalışma ortamı %s, %s adımını çalıştıramadı (%s). Bu adım baştan %s üzerinde yeniden çalıştırılsın mı?\n' "$rt" "$role" "$reason" "$other"
+            printf '   seçenekler: yes | no\n   önerilen: yes, %s bu rol için uygunsa\n   neden: config failover değeri ask\n' "$other"
+          } > "$work/question"
+        else
         { printf '1. Runtime %s could not run %s (%s). Re-run this step from its beginning on %s?\n' "$rt" "$role" "$reason" "$other"
           printf '   options: yes | no\n   recommended: yes, if %s is acceptable for this role\n   why: config failover is ask\n' "$other"
         } > "$work/question"
+        fi
         "$agent" ask "$id" --file "$work/question" >&2 || blocked "runtime $rt failed ($reason); failover: ask, but the question could not be stored"
         note "dispatch needs_input role=$role runtime=$rt reason=$reason" || true
         printf 'ROLE: %s\nTASK: %s\nRESULT: NEEDS_INPUT\nQUESTIONS:\n' "$role" "$id"; cat "$work/question"

@@ -89,7 +89,10 @@ ARTIFACT: <run-relative path, e.g. COMPLETION_REPORT.md> <sha256>
 
 Rows: open findings, waivers granted by the user, failovers. Then `BLOCKED_REASON: <one line>` when BLOCKED.
 Its own questions (plan approval, scope change) and every relayed specialist question use one format, the
-specialist's text unchanged:
+specialist's text unchanged. When the user's language is not English, the script's own questions
+(`request-approval`, assumption, failover) are already printed in that language (A99): relay them as
+printed. Never end the message with an English-only `QUESTIONS:` block; present any other English block
+in the user's language and keep `approve`, `reject`, `accept AS-n`, kinds, ids and hashes verbatim:
 
 ```
 QUESTIONS:
