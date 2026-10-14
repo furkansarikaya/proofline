@@ -100,7 +100,17 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   `FILE: compared|unsupported <path>` lines with at least one unsupported, and every changed `.sql` migration
   must appear as `FILE: unsupported <path>` in `validate-migration.mjs --repo` output. The gate record keeps
   `unsupported_evidence: <path>@<sha12>` (the record turns stale if the file changes), and `pipeline` and `next`
-  print it. The
+  print it. The evidence must be the submitting role's own file (its focus folder, its
+  `reports/snapshots/<sha12>-<role>-...` snapshot or `reports/<NNN>-<role>...`). An INCONCLUSIVE in the evidence
+  (visual `RESULT: INCONCLUSIVE`, performance `reason: performance INCONCLUSIVE:`) needs a reason starting
+  `<focus> INCONCLUSIVE:` (it stays blocking), and an UNSUPPORTED evidence refuses an INCONCLUSIVE-prefixed
+  reason. Capability probes that only refuse: `visual` UNSUPPORTED is refused when a Chromium-family browser is on
+  PATH or in the standard macOS application folders, or a project browser-test dependency is installed (the lists
+  of visual-proof's `measure.mjs --detect`); `performance` UNSUPPORTED when the project has a benchmark command (a
+  package.json script `bench`/`benchmark`/`perf*`, a Makefile or justfile `bench`/`benchmark` target, cargo
+  `benches/`, a Go `func Benchmark`, asv or pytest-benchmark, JMH, BenchmarkDotNet); a benchmark that cannot
+  reach the change is then BLOCKED for the user. Residual: non-SQL migrations (`.py`, `.js`, `.rb`) have no
+  `FILE:` cross-check, and a deliberately fabricated evidence file is caught only by reading it. The
   `contract` focus has contract-proof (A83): UNSUPPORTED only for a changed contract file it cannot parse that no
   compatibility tool already present covers, or when node is missing.
 - **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block, the performance thresholds (`performance:`, A87) the non-empty `security.*` keys (A88) and the `contract:` globs (A83) with `freeze.risk_sha256`. A

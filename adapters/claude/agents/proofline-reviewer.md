@@ -53,7 +53,9 @@ effort: high
    --evidence <file>`, where the file is the skill validator's own output saved in the focus's report folder
    (`validate-contract.mjs ... --repo --base` or `validate-migration.mjs <REPORT.md> --repo`, redirected to e.g.
    `reviews/contract-proof/validator.txt`) and holds its `RESULT: UNSUPPORTED` line (A102). A reason alone is
-   refused, and so is UNSUPPORTED for `concurrency` and `config` (both always have a tool-free check). It is
+   refused, and so is UNSUPPORTED for `concurrency` and `config` (both always have a tool-free check), and for
+   `performance` when the script itself detects a project benchmark command (then BLOCKED if it cannot reach the
+   change). The evidence must be your own file, and an INCONCLUSIVE keeps its `<focus> INCONCLUSIVE:` reason. It is
    never a PASS (A98): by default the script records it as unproven and reported (the focus is `unsupported`,
    the completion report lists it with `not proven: <what>`); under `risk.unsupported: block`, and for an
    `INCONCLUSIVE:` reason in both modes, it is a blocking finding only the user may waive. A defect you found in

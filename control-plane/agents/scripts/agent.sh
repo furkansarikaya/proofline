@@ -2497,6 +2497,55 @@ record_validate() {
   printf 'role=%s\nresult=%s\nkind=%s\ngate=%s\nfocus=%s\nconfidence=%s\nartifact=%s\nfingerprint=%s\ngrill=%s\n' "$rv_role" "$rv_res" "$rv_kind" "$rv_gate" "$rv_focus" "$rv_conf" "$rv_ap" "$rv_fp" "$rv_grill" > "$rv_t/meta"
   printf 'added=%s\nevidence=%s\n' "$rv_added" "$rv_ue" >> "$rv_t/meta"
 }
+# A102 capability probes: print what makes a check runnable, nothing when absent. They only ever refuse an
+# UNSUPPORTED, never grant anything, so they stay conservative. PROOFLINE_PROBE_ROOT (self-tests only) replaces
+# PATH and the application folders with <root>/bin and <root>/Applications.
+# probe_visual: the families visual-proof's `measure.mjs --detect` recognises (keep the lists equal): a
+# Chromium-family binary on PATH or in the standard macOS application folders, or an installed project
+# browser-test dependency (declared in package.json and present in node_modules).
+probe_visual() {
+  pv_root=${PROOFLINE_PROBE_ROOT:-}
+  if [ -n "$pv_root" ]; then pv_path=$pv_root/bin; else pv_path=${PATH:-}; fi
+  pv_ifs=$IFS; IFS=:
+  for pv_d in $pv_path; do
+    for pv_n in chromium chromium-browser google-chrome google-chrome-stable chrome microsoft-edge microsoft-edge-stable msedge brave-browser; do
+      [ -n "$pv_d" ] && [ -x "$pv_d/$pv_n" ] && [ ! -d "$pv_d/$pv_n" ] && { IFS=$pv_ifs; printf 'browser %s\n' "$pv_d/$pv_n"; return 0; }
+    done
+  done
+  IFS=$pv_ifs
+  for pv_a in 'Google Chrome.app/Contents/MacOS/Google Chrome' 'Chromium.app/Contents/MacOS/Chromium' 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge' 'Brave Browser.app/Contents/MacOS/Brave Browser'; do
+    [ -x "$pv_root/Applications/$pv_a" ] && { printf 'browser %s\n' "$pv_root/Applications/$pv_a"; return 0; }
+  done
+  [ -f "$root/package.json" ] || return 0
+  for pv_t in @playwright/test playwright playwright-core puppeteer puppeteer-core cypress webdriverio @wdio/cli selenium-webdriver; do
+    grep -Fq "\"$pv_t\"" "$root/package.json" && [ -d "$root/node_modules/$pv_t" ] && { printf 'project browser-test dependency %s (package.json, node_modules)\n' "$pv_t"; return 0; }
+  done
+  return 0
+}
+# probe_performance: a benchmark command the project already has (performance-proof METHOD.md section 1, tracked
+# files only): a package.json script bench|benchmark|perf*, a Makefile/justfile bench|benchmark target, a cargo
+# benches/ directory, a Go `func Benchmark`, pytest-benchmark or asv, a JMH or BenchmarkDotNet dependency.
+probe_performance() {
+  pp_ls=$(git -C "$root" ls-files 2>/dev/null || true)
+  pp_has() { printf '%s\n' "$pp_ls" | grep -Eq "$1"; }
+  if [ -f "$root/package.json" ] && sed -n '/"scripts"[[:space:]]*:/,/}/p' "$root/package.json" | grep -Eq '"(bench|benchmark|perf[A-Za-z0-9:_-]*)"[[:space:]]*:'; then echo 'package.json script bench/benchmark/perf*'; return 0; fi
+  for pp_m in Makefile makefile GNUmakefile justfile Justfile; do
+    [ -f "$root/$pp_m" ] && grep -Eq '^(bench|benchmark)[[:space:]]*:' "$root/$pp_m" && { echo "$pp_m target bench/benchmark"; return 0; }
+  done
+  if [ -f "$root/Cargo.toml" ] && pp_has '^benches/'; then echo 'cargo benches/ directory'; return 0; fi
+  pp_go=$(printf '%s\n' "$pp_ls" | grep -E '_test\.go$' || true)
+  if [ -n "$pp_go" ] && (cd "$root" && printf '%s\n' "$pp_go" | while IFS= read -r pp_f; do [ -f "$pp_f" ] && grep -q '^func Benchmark' "$pp_f" && echo y && break; done) | grep -q y; then echo 'Go func Benchmark in *_test.go'; return 0; fi
+  if pp_has '(^|/)asv\.conf\.json$'; then echo 'asv.conf.json'; return 0; fi
+  for pp_f in pyproject.toml setup.cfg requirements-dev.txt requirements.txt; do
+    [ -f "$root/$pp_f" ] && grep -q 'pytest-benchmark' "$root/$pp_f" && { echo "pytest-benchmark in $pp_f"; return 0; }
+  done
+  for pp_f in pom.xml build.gradle build.gradle.kts; do
+    [ -f "$root/$pp_f" ] && grep -q 'jmh' "$root/$pp_f" && { echo "JMH in $pp_f"; return 0; }
+  done
+  pp_cs=$(printf '%s\n' "$pp_ls" | grep -E '\.csproj$' | head -50 || true)
+  if [ -n "$pp_cs" ] && (cd "$root" && printf '%s\n' "$pp_cs" | while IFS= read -r pp_f; do grep -q 'BenchmarkDotNet' "$pp_f" 2>/dev/null && echo y && break; done) | grep -q y; then echo 'BenchmarkDotNet in a .csproj'; return 0; fi
+  return 0
+}
 # A102: an UNSUPPORTED result is backed by the skill validator's own saved output, not by a reason alone.
 # unsupported_evidence_check ID ROLE FOCUS RAW -> "<path> <sha256>", or the refusal text and exit 1.
 # The file: inside the run (the focus's report folder or reports/, normally the snapshot `submit` made, A43),
@@ -2514,11 +2563,30 @@ unsupported_evidence_check() {
   case "$ue_p" in ''|/*|*..*) echo "UNSUPPORTED_EVIDENCE path must be run-relative: $ue_p"; return 1 ;; esac
   [ -f "$ue_d/$ue_p" ] && [ ! -L "$ue_d/$ue_p" ] || { echo "UNSUPPORTED_EVIDENCE not found in the run: $ue_p"; return 1; }
   case "$(realpath "$ue_d/$ue_p")" in "$(realpath "$ue_d")"/*) ;; *) echo "UNSUPPORTED_EVIDENCE must be inside the run: $ue_p"; return 1 ;; esac
+  # only the submitting role's own files: its focus folder, its submit snapshot, its numbered reports
   ue_dir=$(risk_focus_report "$3")
-  case "$ue_p" in reports/*|"$ue_dir"*) ;; *) echo "UNSUPPORTED_EVIDENCE must be in $ue_dir or reports/: $ue_p"; return 1 ;; esac
+  case "$ue_p" in "$ue_dir"*|reports/snapshots/????????????-"$2"-*|reports/[0-9][0-9][0-9]-"$2"*) ;;
+    *) echo "UNSUPPORTED_EVIDENCE must be the $2 role's own file ($ue_dir, its reports/snapshots/<sha12>-$2-... snapshot or reports/<NNN>-$2...): $ue_p"; return 1 ;; esac
   [ "$(hash_file "$ue_d/$ue_p")" = "$ue_s" ] || { echo "UNSUPPORTED_EVIDENCE sha256 mismatch for $ue_p (edited after it was cited)"; return 1; }
   ue_f=$ue_d/$ue_p; ue_rx='UNSUPPORTED'; [ "$3" != visual ] || ue_rx='UNSUPPORTED|INCONCLUSIVE'
   grep -Eiq "^RESULT:[[:space:]]*($ue_rx)[[:space:]]*\$" "$ue_f" || { echo "UNSUPPORTED_EVIDENCE $ue_p does not hold the validator's 'RESULT: UNSUPPORTED' line: save the $3 validator's own output there (A102)"; return 1; }
+  # An INCONCLUSIVE measurement stays blocking: its reason keeps the `<focus> INCONCLUSIVE:` prefix, and an
+  # UNSUPPORTED (no tool) is not dressed up as one. The evidence decides which it is (visual RESULT line,
+  # performance-proof's `reason:` line).
+  ue_r=$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$4" | head -1)
+  ue_inc=no
+  if grep -Eiq '^RESULT:[[:space:]]*INCONCLUSIVE[[:space:]]*$' "$ue_f" || grep -Eiq "^reason:[[:space:]]*$3 INCONCLUSIVE:" "$ue_f"; then ue_inc=yes; fi
+  if [ "$ue_inc" = yes ]; then
+    case "$ue_r" in "$3 INCONCLUSIVE:"*) ;; *) echo "UNSUPPORTED_REASON must start '$3 INCONCLUSIVE:': $ue_p records an INCONCLUSIVE measurement, which stays blocking (A98, A102)"; return 1 ;; esac
+  elif printf '%s\n' "$ue_r" | grep -Eq '^[[:alnum:]_ -]*INCONCLUSIVE:'; then
+    echo "UNSUPPORTED_REASON claims an INCONCLUSIVE measurement, but $ue_p records UNSUPPORTED (A102)"; return 1
+  fi
+  # Capability probes, independent of the agent: they only ever refuse (a present capability means the check can run).
+  ue_cap=''
+  if [ "$ue_inc" = no ]; then   # an INCONCLUSIVE measurement had its capability by definition
+    case "$3" in visual) ue_cap=$(probe_visual) ;; performance) ue_cap=$(probe_performance) ;; esac
+  fi
+  [ -z "$ue_cap" ] || { echo "UNSUPPORTED refused: capability present: $ue_cap; run $3-proof and submit PASS/FAIL (or a measured INCONCLUSIVE); if it cannot exercise this change, submit BLOCKED with the reason for the user (A102)"; return 1; }
   ue_b=$(sed -n 's/^BASE:[[:space:]]*\([0-9a-f]\{7,40\}\)[[:space:]]*$/\1/p' "$ue_f" | head -1)
   if [ -n "$ue_b" ]; then
     ue_rb=$(repository_base_sha "$ue_d")
@@ -2757,7 +2825,7 @@ submit_result() {
     case "$sb_ev" in reports/snapshots/*) ;; *)
       sb_eh=$(hash_file "$sb_d/$sb_ev")
       sb_es=reports/snapshots/$(printf '%.12s' "$sb_eh")-$execution_role-$(printf '%s' "$sb_ev" | tr '/' '_')
-      case "$sb_ev" in reports/*|"$(risk_focus_report "$sb_focus")"*) cp "$sb_d/$sb_ev" "$sb_d/$sb_es" || submit_fail "could not snapshot $sb_ev"; sb_ev=$sb_es ;; esac ;;
+      case "$sb_ev" in reports/[0-9][0-9][0-9]-"$execution_role"*|"$(risk_focus_report "$sb_focus")"*) cp "$sb_d/$sb_ev" "$sb_d/$sb_es" || submit_fail "could not snapshot $sb_ev"; sb_ev=$sb_es ;; esac ;;
     esac
   fi
   {
