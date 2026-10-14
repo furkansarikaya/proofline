@@ -2467,6 +2467,10 @@ record_validate() {
   known_control_artifact "$rv_id" ".agents/runs/$rv_id/$rv_ap" || { record_reject "ARTIFACT is not a registered run artifact: $rv_ap"; return 1; }
   artifact_allowed "$rv_role" "$rv_kind" "$rv_focus" "$rv_ap" || { record_reject "ARTIFACT $rv_ap is outside the paths $rv_role${rv_focus:+ (FOCUS $rv_focus)} reports in: $(artifact_paths "$rv_role" "$rv_kind" "$rv_focus")"; return 1; }
   [ "$(hash_file "$rv_d/$rv_ap")" = "$rv_as" ] || { record_reject "ARTIFACT sha256 mismatch for $rv_ap"; return 1; }
+  # A107: every cited evidence file (EVIDENCE: <path> <sha256>) still exists in the run with the cited hash.
+  for rv_el in $(sed -n 's/^EVIDENCE:[[:space:]]*//p' "$rv_t/raw" | tr ' ' '@'); do
+    rv_em=$(evidence_cite_check "$rv_id" "$rv_role" "$rv_focus" "${rv_el%@*}" "${rv_el#*@}") || { record_reject "$rv_em"; return 1; }
+  done
   rv_ue=''
   if [ "$rv_res" = UNSUPPORTED ]; then
     rv_ue=$(unsupported_evidence_check "$rv_id" "$rv_role" "$rv_focus" "$rv_t/raw") || { record_reject "$rv_ue"; return 1; }
@@ -2588,6 +2592,145 @@ probe_performance() {
   pp_cs=$(printf '%s\n' "$pp_ls" | grep -E '\.csproj$' | head -50 || true)
   if [ -n "$pp_cs" ] && (cd "$root" && printf '%s\n' "$pp_cs" | while IFS= read -r pp_f; do grep -q 'BenchmarkDotNet' "$pp_f" 2>/dev/null && echo y && break; done) | grep -q y; then echo 'BenchmarkDotNet in a .csproj'; return 0; fi
   return 0
+}
+# A107: a cited evidence file exists inside the run, in a folder the role reports in (or reports/,
+# worker-evidence/), is a regular file, and carries the cited sha256 (none cited: the file is hashed).
+# evidence_cite_check ID ROLE FOCUS PATH [SHA] -> "<run-relative path> <sha256>", or the refusal text and exit 1.
+evidence_cite_check() {
+  ec_d=$(run_dir "$1"); ec_p=$4; ec_s=${5:-}
+  case "$ec_p" in .agents/runs/"$1"/*) ec_p=${ec_p#.agents/runs/"$1"/} ;; esac
+  case "$ec_p" in ''|/*|*..*) echo "cited evidence path must be run-relative: $4 (A107)"; return 1 ;; esac
+  [ -f "$ec_d/$ec_p" ] && [ ! -L "$ec_d/$ec_p" ] || { echo "cited evidence file not found in the run: $ec_p (A107)"; return 1; }
+  case "$(realpath "$ec_d/$ec_p")" in "$(realpath "$ec_d")"/*) ;; *) echo "cited evidence file must be inside the run: $ec_p (A107)"; return 1 ;; esac
+  case "$ec_p" in reports/*|worker-evidence/*) ;; *)
+    artifact_allowed "$2" gate "$3" "$ec_p" || artifact_allowed "$2" task "$3" "$ec_p" || { echo "cited evidence file $ec_p is outside the folders $2${3:+ (FOCUS $3)} reports in: $(artifact_paths "$2" gate "$3") reports/ worker-evidence/ (A107)"; return 1; } ;;
+  esac
+  ec_h=$(hash_file "$ec_d/$ec_p")
+  [ -z "$ec_s" ] || [ "$ec_h" = "$ec_s" ] || { echo "cited evidence file $ec_p was modified after it was hashed: cited sha256 $(printf '%.12s' "$ec_s"), the file is $(printf '%.12s' "$ec_h") (A107)"; return 1; }
+  printf '%s %s\n' "$ec_p" "$ec_h"
+}
+# A107: the validator of the skill behind a role/focus, run by the control plane itself. Prints
+# "<PASS|FAIL> <script>" when it ran; "NOSKILL <skill>" when the role/focus is mapped but the skill is not
+# installed; "UNRUN <why>" when the skill is installed but could not run (node missing, no findings file);
+# nothing when no validator is mapped for the role/focus. An invalid report prints the validator's errors and
+# exits 1. Mapped: verifier (verify-proof), reviewer tests (test-trust), reviewer plan, rules, rules+tests
+# (proof-review, over its findings.json).
+# shortcut: other focuses keep the findings-derived result; map them here when their findings file is required.
+skill_validator() { # ID ROLE FOCUS ARTIFACT
+  sv_d=$(run_dir "$1")
+  case "$2:$3" in
+    verifier:*) sv_k=verify-proof ;;
+    reviewer:tests) sv_k=test-trust ;;
+    reviewer:plan|reviewer:rules|reviewer:rules+tests) sv_k=proof-review ;;
+    *) return 0 ;;
+  esac
+  [ -d "$root/.agents/skills/$sv_k" ] || { printf 'NOSKILL %s' "$sv_k"; return 0; }
+  command -v node >/dev/null 2>&1 || { printf 'UNRUN node is not installed, so %s cannot run' "$sv_k"; return 0; }
+  case "$2:$3" in
+    verifier:*)
+      sv_s=$root/.agents/skills/verify-proof/scripts/validate-verify.mjs
+      [ -f "$sv_s" ] || { printf 'UNRUN %s is missing' "$sv_s"; return 0; }
+      sv_a=''; [ ! -f "$sv_d/TASK.md" ] || sv_a="--task $sv_d/TASK.md"; [ ! -f "$sv_d/PLAN.md" ] || sv_a="$sv_a --plan $sv_d/PLAN.md"
+      # shellcheck disable=SC2086
+      sv_o=$(node "$sv_s" "$sv_d/$4" $sv_a 2>&1) || { printf 'validate-verify.mjs rejects %s: %s' "$4" "$(printf '%s' "$sv_o" | tr '\n' ' ')"; return 1; }
+      # a file the validator accepts has a Verdict line equal to the computed verdict (BLOCKED is never a pass)
+      sv_r=$(sed -n 's/^Verdict:[[:space:]]*\([A-Z]*\)[[:space:]]*$/\1/p' "$sv_d/$4" | tail -1); [ "$sv_r" = PASS ] || sv_r=FAIL
+      printf '%s verify-proof/scripts/validate-verify.mjs' "$sv_r" ;;
+    reviewer:tests)
+      sv_s=$root/.agents/skills/test-trust/scripts/gate.mjs; sv_f=$sv_d/reviews/test-trust/tests/findings.json
+      [ -f "$sv_s" ] && [ -f "$sv_f" ] || { printf 'UNRUN reviews/test-trust/tests/findings.json or the test-trust gate script is missing'; return 0; }
+      if node "$sv_s" gate "$sv_f" >/dev/null 2>&1; then sv_r=PASS; else sv_r=FAIL; fi
+      printf '%s test-trust/scripts/gate.mjs' "$sv_r" ;;
+    *)
+      case "$3" in plan) sv_k=plan ;; rules) sv_k=rules ;; *) sv_k=small ;; esac
+      sv_f=$sv_d/reviews/proof-review/$sv_k/findings.json; sv_v=$root/.agents/skills/proof-review/scripts/validate-findings.mjs; sv_s=$root/.agents/skills/proof-review/scripts/gate.mjs
+      [ -f "$sv_f" ] && [ -f "$sv_v" ] && [ -f "$sv_s" ] || { printf 'UNRUN reviews/proof-review/%s/findings.json or the proof-review scripts are missing' "$sv_k"; return 0; }
+      sv_o=$(node "$sv_v" "$sv_f" 2>&1) || { printf 'validate-findings.mjs rejects reviews/proof-review/%s/findings.json: %s' "$sv_k" "$(printf '%s' "$sv_o" | tr '\n' ' ')"; return 1; }
+      if node "$sv_s" "$sv_f" >/dev/null 2>&1; then sv_r=PASS; else sv_r=FAIL; fi
+      printf '%s proof-review/scripts/gate.mjs' "$sv_r" ;;
+  esac
+  return 0
+}
+# A107: the commands the control plane may run again: the project's own configured build, test and lint
+# commands and the PLAN.md `## Verification commands` of the frozen plan. A PLAN.md that no longer has the
+# frozen sha256 contributes nothing (a plan edited after the freeze cannot widen the list).
+reproduce_allowed() { # ID
+  for ra_k in build test lint; do cfg "commands.$ra_k" ''; done | sed '/^$/d'
+  ra_p=$(run_dir "$1")/PLAN.md
+  [ -f "$ra_p" ] || return 0
+  ra_f=$(section_value "$(run_dir "$1")" freeze plan_sha256)
+  case "$ra_f" in ''|*[!0-9a-f]*) return 0 ;; esac; [ "${#ra_f}" = 64 ] || return 0   # no frozen plan hash: only configured commands
+  [ "$(hash_file "$ra_p")" = "$ra_f" ] || return 0
+  awk '/^## Verification commands[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i' "$ra_p" | sed -n 's/^[^`]*`\([^`][^`]*\)`.*/\1/p'
+}
+# reproduce_recheck ID ROLE REPORT EVLINES COUNTFILE REQUIRED(yes|no): re-runs the recorded reproduced items (a
+# command, its exit status, an output line) of the verifier's VERIFY.md `## Commands` and of cited evidence files
+# that carry `command:` (`exit:`, `output:`) lines. Every command an AC row cites as proof (`command: ...`) must
+# be re-runnable (configured or planned) or it is a problem; other allowed items run up to three. An item without
+# an output line compares nothing and is a problem; the line must equal a whole output line. Prints one problem
+# per line (nothing when every item matched) and writes the number of re-runs to COUNTFILE. REQUIRED=yes with no
+# item at all is itself a problem.
+reproduce_recheck() {
+  rr_tab=$(printf '\037'); rr_t=$(mktemp -d "${TMPDIR:-/tmp}/proofline-repro.XXXXXX"); : > "$rr_t/items"
+  if [ "$2" = verifier ] && [ -f "$3" ]; then
+    awk -v T="$rr_tab" '
+      /^## / { sec = $0; next }
+      sec ~ /^## Commands[[:space:]]*$/ && /^- `[^`]+` \| exit=[0-9]+/ {
+        l = $0; sub(/^- `/, "", l); c = l; sub(/`.*/, "", c); e = l; sub(/^[^|]*\| exit=/, "", e); sub(/[^0-9].*/, "", e)
+        n++; cmd[n] = c; ex[n] = e; out[n] = ""; cur = n; next }
+      sec ~ /^## Commands[[:space:]]*$/ && /^  output: / && cur && out[cur] == "" { o = $0; sub(/^  output: /, "", o); out[cur] = o }
+      sec ~ /^## AC coverage[[:space:]]*$/ && /^\|/ { split($0, f, "|"); if (f[2] ~ /AC-[0-9]+/ && f[3] ~ /command: `/) { l = f[3]; sub(/^[^`]*`/, "", l); sub(/`.*/, "", l); if (l != "") ac[l] = 1 } }
+      END { for (i = 1; i <= n; i++) { print cmd[i] T ex[i] T out[i] T ((cmd[i] in ac) ? 1 : 0); seen[cmd[i]] = 1 }
+            for (c in ac) if (!(c in seen)) print c T "-" T "" T 1 }' "$3" > "$rr_t/items"
+  fi
+  # shellcheck disable=SC2034 # the sha column of an EVIDENCE line is read to be dropped
+  while IFS=' ' read -r rr_ep rr_es; do
+    [ -n "$rr_ep" ] && [ -f "$(run_dir "$1")/$rr_ep" ] || continue
+    awk -v T="$rr_tab" '
+      function flush() { if (c != "" && n < 3) { print c T (e == "" ? "0" : e) T o T 0; n++ } c = ""; e = ""; o = "" }
+      /^command:/ { flush(); c = $0; sub(/^command:[[:space:]]*/, "", c) }
+      /^exit:/ { e = $0; sub(/^exit:[[:space:]]*/, "", e) }
+      /^output:/ { o = $0; sub(/^output:[[:space:]]*/, "", o) }
+      END { flush() }' "$(run_dir "$1")/$rr_ep" >> "$rr_t/items"
+  done < "$4"
+  if [ ! -s "$rr_t/items" ]; then
+    echo 0 > "$5"; rm -rf "$rr_t"
+    [ "$6" != yes ] || printf 'no re-runnable reproduced evidence: the result records no command with an exit status to run again\n'
+    return 0
+  fi
+  reproduce_allowed "$1" > "$rr_t/allowed"
+  rr_n=0; rr_x=0; rr_pb=0; rr_to=''; command -v timeout >/dev/null 2>&1 && rr_to='timeout 900'
+  sort -u "$rr_t/items" > "$rr_t/uniq"
+  while IFS="$rr_tab" read -r rr_c rr_e rr_o rr_a; do
+    rr_cd=$(printf '%s' "$rr_c" | tr '|' '/')
+    if ! grep -Fxq -- "$rr_c" "$rr_t/allowed"; then
+      if [ "$rr_a" = 1 ]; then rr_pb=$((rr_pb + 1)); printf 'AC proof cites `%s`, which is neither a configured build, test or lint command nor an entry of the frozen PLAN.md Verification commands, so it cannot be re-run\n' "$rr_cd"; fi
+      continue
+    fi
+    if [ "$rr_a" != 1 ]; then [ "$rr_x" -lt 3 ] || continue; rr_x=$((rr_x + 1)); fi
+    if [ "$rr_e" = - ]; then rr_pb=$((rr_pb + 1)); printf 'AC proof cites `%s` but VERIFY.md records no Commands entry with an exit status for it: nothing to compare\n' "$rr_cd"; continue; fi
+    case "$rr_o" in '(no output)') rr_o='' ;; esac   # a silent command records `output: (no output)`; an absent line means the same
+    if [ -n "$rr_o" ] && printf '%s\n' "$rr_o" | grep -Eiq '[0-9]([[:space:]]*(ms|us|s|sec|secs|seconds|m|min|mins|minutes))([^A-Za-z]|$)|[0-9]{1,2}:[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2}|pid[ =:]*[0-9]+|0x[0-9a-f]{6,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}'; then
+      rr_pb=$((rr_pb + 1)); printf 'the recorded output line of `%s` ("%s") holds a time, duration, date, pid or random value: record one stable summary line that is identical on every run (for example the pass and fail counts), or `(no output)` for a silent command\n' "$rr_cd" "$(printf '%s' "$rr_o" | tr '|' '/')"; continue
+    fi
+    rr_n=$((rr_n + 1)); rr_rc=0
+    # shellcheck disable=SC2086
+    ( cd "$root" && $rr_to sh -c "$rr_c" ) > "$rr_t/out" 2>&1 < /dev/null || rr_rc=$?
+    if [ "$rr_rc" != "$rr_e" ]; then
+      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s, the report records exit=%s (reproduced evidence does not reproduce)\n' "$rr_cd" "$rr_rc" "$rr_e"
+    elif [ -z "$rr_o" ]; then
+      if grep -q '[^[:space:]]' "$rr_t/out"; then
+        rr_pb=$((rr_pb + 1)); printf 're-running `%s` printed output but the report records none (`(no output)` is for a silent command; record one stable summary line)\n' "$rr_cd"
+      fi
+    elif ! RR_WANT=$rr_o awk 'BEGIN { w = ENVIRON["RR_WANT"]; sub(/^[ \t]+/, "", w); sub(/[ \t\r]+$/, "", w) } { sub(/^[ \t]+/, ""); sub(/[ \t\r]+$/, ""); if ($0 == w) f = 1 } END { exit !f }' "$rr_t/out"; then
+      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s but no output line equal to the recorded "%s" (reproduced evidence does not reproduce)\n' "$rr_cd" "$rr_rc" "$(printf '%s' "$rr_o" | tr '|' '/')"
+    fi
+  done < "$rr_t/uniq"
+  echo "$rr_n" > "$5"
+  if [ "$rr_n" = 0 ] && [ "$rr_pb" = 0 ] && [ "$6" = yes ]; then
+    printf 'no recorded reproduced command could be re-run: none is a configured build, test or lint command or an entry of the frozen PLAN.md Verification commands\n'
+  fi
+  rm -rf "$rr_t"
 }
 # A102: an UNSUPPORTED result is backed by the skill validator's own saved output, not by a reason alone.
 # unsupported_evidence_check ID ROLE FOCUS RAW -> "<path> <sha256>", or the refusal text and exit 1.
@@ -2751,17 +2894,19 @@ submit_result() {
   sb_id=$1; shift
   [ "$execution_role" != lead ] || fail "the lead never submits a specialist result"
   require_run "$sb_id"
-  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_report='' sb_evidence='' sb_agent=${PROOFLINE_AGENT:-}
+  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_report='' sb_evidence='' sb_evlist='' sb_vres='' sb_agent=${PROOFLINE_AGENT:-}
   while [ $# -gt 0 ]; do
-    [ $# -ge 2 ] || fail "usage: agent.sh submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--evidence P] [--questions FILE] [--agent TOKEN]"
+    [ $# -ge 2 ] || fail "usage: agent.sh submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--evidence P[@SHA256]]... [--validator-result PASS|FAIL] [--questions FILE] [--agent TOKEN]"
     case "$1" in
       --result) sb_res=$2 ;; --confidence) sb_conf=$2 ;; --focus) sb_focus=$2 ;; --artifact) sb_art=$2 ;;
-      --findings) sb_findings=$2 ;; --report) sb_report=$2 ;; --reason) sb_reason=$2 ;; --evidence) sb_evidence=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
+      --findings) sb_findings=$2 ;; --report) sb_report=$2 ;; --reason) sb_reason=$2 ;; --evidence) sb_evidence=$2; sb_evlist="$sb_evlist
+$2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
       *) fail "submit: unknown option $1" ;;
     esac
     shift 2
   done
   case "$sb_agent" in *[!A-Za-z0-9_.-]*) fail "submit: invalid --agent token" ;; esac
+  case "$sb_evidence" in *@[0-9a-f]*) sb_evidence=${sb_evidence%@*} ;; esac   # A107: P@SHA256 cites a hash; the path is what UNSUPPORTED snapshots
   sb_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-submit.XXXXXX"); record_tmp=$sb_tmp
   sb_d=$(run_dir "$sb_id")
   # A104: stdin is one stream. Two `-` sources cannot both read it: refuse before reading, or, for the
@@ -2862,6 +3007,51 @@ submit_result() {
   if [ "$execution_role" = reviewer ] && [ "$sb_focus" = tests ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
     sb_vt=$(verify_tests_findings "$sb_id") || submit_fail "findings.json of the tests review is not valid: $sb_vt"
   fi
+  # A107: the skill's own validator is run here and its result is the one used; a result the agent declares is
+  # never trusted. Cited evidence files must exist in the run with the cited sha256 (checked again by record).
+  if [ "$sb_gaterole" = yes ] && { [ "$sb_res" = PASS ] || [ "$sb_res" = FAIL ]; }; then
+    sb_vr=$(skill_validator "$sb_id" "$execution_role" "$sb_focus" "$sb_norm") || submit_fail "$sb_vr"
+    sb_gl=${sb_gate:-$execution_role}:${sb_focus:--}
+    case "$sb_vr" in
+      PASS\ *|FAIL\ *)
+        sb_vs=${sb_vr%% *}
+        if [ -n "$sb_vres" ] && [ "$sb_vres" != "$sb_vs" ]; then submit_fail "validator result mismatch: declared $sb_vres, recomputed $sb_vs by ${sb_vr#* } (A107; the declared value is never trusted)"; fi
+        if [ "$sb_res" = PASS ] && [ "$sb_vs" = FAIL ]; then submit_fail "validator result mismatch: declared PASS (no blocking finding), recomputed FAIL by ${sb_vr#* } (A107); report the failing check as a blocking finding"; fi ;;
+      UNRUN\ *)
+        # the skill is installed but did not run: a PASS needs it (an omitted or declared value changes nothing)
+        if [ "$sb_res" = PASS ]; then submit_fail "no validator run for $sb_gl: ${sb_vr#UNRUN } (A107; a PASS of this focus needs the skill validator's own result)"; fi ;;
+      NOSKILL\ *)
+        printf 'info|%s|NOT_VALIDATED: %s skill %s is not installed, so no validator ran; the result follows from the findings|agent.sh submit (A107)\n' "$sb_norm" "$sb_gl" "${sb_vr#NOSKILL }" >> "$sb_tmp/rows" ;;
+      *) : ;;   # no validator is mapped for this role and focus (A107 lists them)
+    esac
+  fi
+  { { [ "$sb_res" = UNSUPPORTED ] || printf '%s\n' "$sb_evlist"; } | sed '/^$/d'
+    grep -ohE '[A-Za-z0-9_./-]+@[0-9a-f]{64}' "$sb_tmp/rows" "$sb_d/$sb_norm" 2>/dev/null || true
+    grep -ohE 'evidence:[A-Za-z0-9_./-]+' "$sb_tmp/rows" "$sb_d/$sb_norm" 2>/dev/null | sed 's/^evidence://' || true; } | while IFS= read -r sb_c; do
+      sb_cs=''; case "$sb_c" in *@*) sb_cs=${sb_c#*@} ;; esac
+      printf '%s %s\n' "${sb_c%%@*}" "$sb_cs"
+    done | sort -u > "$sb_tmp/cites"
+  : > "$sb_tmp/evlines"
+  while IFS=' ' read -r sb_cp sb_cs; do
+    [ -n "$sb_cp" ] || continue
+    sb_cn=$(normalize_artifact "$sb_id" "$sb_cp") || submit_fail "cited evidence file not found or outside the run: $sb_cp (A107)"
+    sb_ce=$(evidence_cite_check "$sb_id" "$execution_role" "$sb_focus" "$sb_cn" "$sb_cs") || submit_fail "$sb_ce"
+    printf '%s\n' "$sb_ce" >> "$sb_tmp/evlines"
+  done < "$sb_tmp/cites"
+  # A107: a PASS is re-derived: recorded reproduced items (a command with its exit status and output line) are
+  # run again here, and any difference makes the result FAIL with a blocking finding.
+  if [ "$sb_gaterole" = yes ] && [ "$sb_res" = PASS ]; then
+    # the verifier's commands are reproduced-class by design (once verify-proof is installed); every other gate
+    # is judgment, trace or measurement unless it cites a command record, and says so in an info row
+    sb_rq=no; if [ "$execution_role" = verifier ] && [ -d "$root/.agents/skills/verify-proof" ]; then sb_rq=yes; fi
+    sb_rm=$(reproduce_recheck "$sb_id" "$execution_role" "$sb_d/$sb_norm" "$sb_tmp/evlines" "$sb_tmp/rerun.n" "$sb_rq")
+    if [ -n "$sb_rm" ]; then
+      printf '%s\n' "$sb_rm" | while IFS= read -r sb_rl; do printf 'blocking|%s|%s|%s\n' "$sb_norm" "$sb_rl" "agent.sh submit re-ran the recorded command (A107)"; done >> "$sb_tmp/rows"
+      sb_res=FAIL; sb_blocking=$(awk -F'|' '$1 == "blocking"' "$sb_tmp/rows" | wc -l | tr -d ' ')
+    elif [ "$(cat "$sb_tmp/rerun.n" 2>/dev/null || echo 0)" = 0 ]; then
+      printf 'info|%s|NOT_RERUN: %s:%s no reproduced evidence; this gate is not reproduced proof|agent.sh submit (A107)\n' "$sb_norm" "${sb_gate:-$execution_role}" "${sb_focus:--}" >> "$sb_tmp/rows"
+    fi
+  fi
   # Run artifacts are English (A33): the report, the findings and the questions are scanned before recording.
   sb_lang_files="$sb_d/$sb_norm $sb_tmp/rows"; [ -z "$sb_questions" ] || sb_lang_files="$sb_lang_files $sb_questions"
   # shellcheck disable=SC2086
@@ -2894,6 +3084,7 @@ submit_result() {
     printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
     sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
     awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
+    if [ -s "$sb_tmp/evlines" ]; then printf '\n'; sed 's/^/EVIDENCE: /' "$sb_tmp/evlines"; fi
     if [ "$sb_res" = BLOCKED ]; then printf '\nBLOCKED_REASON: %s\n' "$(one_line "${sb_reason:-see $sb_norm}")"; fi
     if [ "$sb_res" = UNSUPPORTED ]; then printf '\nUNSUPPORTED_REASON: %s\n' "$(one_line "$sb_reason")"
       [ -z "$sb_ev" ] || printf 'UNSUPPORTED_EVIDENCE: %s %s\n' "$sb_ev" "$(hash_file "$sb_d/$sb_ev")"; fi

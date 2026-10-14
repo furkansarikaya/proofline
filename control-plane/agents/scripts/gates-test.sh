@@ -1172,6 +1172,184 @@ sc_design_sync() {
   printf '%s' "$out" | grep -q 'design/SYNC.md' && die "a recorded SKIPPED line was not accepted: $out"
   ok "design-sync is written or skipped on the record when the plan changes what a design document describes"
 }
+# --- A107: a report is not evidence; the control plane re-derives what it can -------------------------
+# evidence_gap_fixture: an orchestrated run whose PLAN names `sh check.sh` as its verification command, the
+# verify-proof skill installed, check.sh printing "ok 3 tests"; VERIFY.md is written by vw.
+evidence_gap_fixture() {
+  command -v node >/dev/null 2>&1 || { echo "skip evidence_gap (node missing)"; exit 0; }
+  SC_PLAN_EXTRA='
+## Verification commands
+
+- `sh .agents/local/check.sh`
+- `sh .agents/local/quiet.sh`' scaffold orchestrated; implemented orchestrated
+  mkdir -p .agents/skills; cp -R "$tl_agents/../../skills/verify-proof" .agents/skills/verify-proof; cp -R "$tl_agents/../../skills/plan-contract" .agents/skills/plan-contract
+  printf '.agents/skills/\n' >> .git/info/exclude
+  printf '%s\n' 'echo ok 3 tests' > .agents/local/check.sh; printf '%s\n' ':' > .agents/local/quiet.sh
+  d=.agents/runs/LC
+}
+# vw VERDICT EXIT OUTPUT STATUS: a self-consistent VERIFY.md claiming `sh .agents/local/check.sh` ran with that exit and output.
+vw() {
+  printf '%s\n' '# Verification: LC' '' '## Commands' '' "- \`sh .agents/local/check.sh\` | exit=$2" "  output: $3" '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
+    "| AC-1 | impl_test.txt::lookup | $4 | \`sh .agents/local/check.sh\` exit=$2 |" '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (no design documents)' '' \
+    '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' "Verdict: $1" > "$d/VERIFY.md"
+}
+sc_evidence_gap_fabricated() {
+  evidence_gap_fixture
+  # an honest, self-consistent report is accepted and recorded PASS (the command really prints that line)
+  vw PASS 0 'ok 3 tests' PASS
+  out=$(AS verifier submit LC --confidence high --findings none --agent eg0 2>&1) || die "an honest report was refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier PASS' || die "an honest report was not recorded PASS: $out"
+  # the declared validator result is never trusted: the validator recomputes it and a mismatch names both
+  vw PASS 0 'ok 3 tests' PASS
+  expect_msg "a declared validator FAIL over a recomputed PASS" 'declared FAIL, recomputed PASS' AS verifier submit LC --confidence high --validator-result FAIL --findings none --agent eg2
+  vw FAIL 1 'ok 3 tests' FAIL
+  expect_msg "a declared validator PASS over a recomputed FAIL" 'declared PASS, recomputed FAIL' AS verifier submit LC --confidence high --validator-result PASS --findings none --agent eg1
+  expect_msg "a PASS with no blocking finding over a recomputed FAIL" 'declared PASS (no blocking finding), recomputed FAIL' AS verifier submit LC --confidence high --findings none --agent eg1b
+  # a fabricated report: every row consistent, the validator says valid and PASS, but the command does not print
+  # the recorded line. The control plane re-runs it: FAIL with a blocking finding.
+  vw PASS 0 'ok 412 tests, 0 failed' PASS
+  out=$(AS verifier submit LC --confidence high --validator-result PASS --findings none --agent eg3 2>&1) || die "the fabricated report was refused instead of recorded FAIL: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a fabricated but self-consistent report passed: $out"
+  grep -rq 'does not reproduce' "$d/results" || die "no blocking finding names the reproduction mismatch"
+  ok "A107: a fabricated but internally consistent VERIFY.md is re-derived and rejected; a declared validator result is never trusted"
+}
+sc_evidence_gap_files() {
+  evidence_gap_fixture
+  vw PASS 0 'ok 3 tests' PASS
+  mkdir -p "$d/reports"; printf 'measured: 4 files\n' > "$d/reports/measure.txt"
+  want=$(tsha "$d/reports/measure.txt")
+  out=$(AS verifier submit LC --confidence high --findings none --evidence "reports/measure.txt@$want" --agent ef0 2>&1) || die "a cited, unchanged evidence file was refused: $out"
+  grep -rq "^EVIDENCE: reports/measure.txt $want" "$d/results" || die "the cited evidence is not on the recorded result"
+  # modified after it was hashed
+  printf 'measured: 40000 files\n' > "$d/reports/measure.txt"
+  expect_msg "an evidence file modified after hashing" 'modified after it was hashed' AS verifier submit LC --confidence high --findings none --evidence "reports/measure.txt@$want" --agent ef1
+  # cited inside a finding row's evidence column
+  printf 'info|-|note|see reports/measure.txt@%s\n' "$want" > "$base/rows.eg"
+  expect_msg "a row citing a modified evidence file" 'modified after it was hashed' AS verifier submit LC --confidence high --findings "$base/rows.eg" --agent ef2
+  # missing
+  rm -f "$d/reports/measure.txt"
+  expect_msg "a missing evidence file" 'cited evidence file not found' AS verifier submit LC --confidence high --findings none --evidence "reports/measure.txt@$want" --agent ef3
+  expect_msg "a missing evidence file cited without a hash" 'not found' AS verifier submit LC --confidence high --findings none --evidence reports/nope.txt --agent ef4
+  # outside the folders the role reports in
+  expect_msg "an evidence file outside the role's folders" 'outside the folders' AS verifier submit LC --confidence high --findings none --evidence "TASK.md@$(tsha "$d/TASK.md")" --agent ef5
+  ok "A107: a cited evidence file that is missing, altered after hashing or outside the role's folders refuses the submission"
+}
+sc_evidence_gap_rerun() {
+  evidence_gap_fixture
+  # the report was true when written; the command now gives a different result than the one recorded
+  vw PASS 0 'ok 3 tests' PASS
+  printf '%s\n' 'echo ok 2 tests, 1 failed' 'exit 1' > .agents/local/check.sh
+  out=$(AS verifier submit LC --confidence high --findings none --agent er1 2>&1) || die "a non-reproducing report was refused instead of recorded FAIL: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "reproduced evidence that no longer reproduces passed: $out"
+  grep -rq 're-running `sh .agents/local/check.sh` gave exit=1, the report records exit=0' "$d/results" || die "no blocking finding names the mismatch"
+  # a command that is neither configured nor planned is never executed: a report cannot make the control plane run it
+  printf 'touch .agents/local/ran-unplanned\n' > .agents/local/other.sh
+  printf '%s\n' '# Verification: LC' '' '## Commands' '' '- `sh .agents/local/other.sh` | exit=0' '  output: done' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
+    '| AC-1 | impl_test.txt::lookup | PASS | `sh .agents/local/other.sh` exit=0 |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
+  out=$(AS verifier submit LC --confidence high --findings none --agent er2 2>&1) || die "unplanned command report refused: $out"
+  [ ! -e .agents/local/ran-unplanned ] || die "the control plane executed a command that is neither configured nor in the plan"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a PASS whose only command could not be re-run was accepted: $out"
+  ok "A107: the verifier path re-runs a recorded reproduced command; a differing result is FAIL, an unplanned command is never run"
+}
+sc_evidence_gap_gates() {
+  evidence_gap_fixture
+  # R1-1: a PASS gate with nothing re-runnable is never silent: judgment-only gates record NOT_RERUN
+  mkdir -p "$d/reviews/proof-review/small"; printf "# small review\n\nthe change was read.\n" > "$d/reviews/proof-review/small/REPORT.md"
+  out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --agent g1 2>&1) || :
+  grep -rq 'NOT_RERUN: .*no reproduced evidence' "$d/results" || die "a PASS with nothing to re-run left no NOT_RERUN row: $out"
+  # a verifier PASS whose only commands are neither configured nor planned: blocking, nothing executed
+  printf 'touch .agents/local/ran-unplanned\n' > .agents/local/other.sh
+  vw PASS 0 'ok 3 tests' PASS
+  sed -i.bak 's|`sh .agents/local/check.sh`|`sh .agents/local/other.sh`|' "$d/VERIFY.md"; rm -f "$d/VERIFY.md.bak"
+  out=$(AS verifier submit LC --confidence high --findings none --agent g2 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "nothing re-runnable passed: $out"
+  grep -rq 'could be re-run' "$d/results" || die "no blocking finding says nothing was re-runnable"
+  [ ! -e .agents/local/ran-unplanned ] || die "an unplanned command was executed"
+  # R1-2: an installed skill whose validator cannot run makes a PASS of that focus a refusal, declared or not
+  cp -R "$tl_agents/../../skills/proof-review" .agents/skills/proof-review
+  mkdir -p "$d/reviews/proof-review/rules"; printf '# rules review\n\nthe change was read.\n' > "$d/reviews/proof-review/rules/REPORT.md"
+  expect_msg "a PASS of a mapped focus without its findings.json" 'no validator run for' AS reviewer submit LC --focus rules --confidence high --findings none --agent g3
+  expect_msg "the same PASS with a declared validator result" 'no validator run for' AS reviewer submit LC --focus rules --confidence high --validator-result PASS --findings none --agent g4
+  ok "A107 R1: a PASS is never silent: NOT_RERUN row, nothing re-runnable is FAIL, a missing validator run refuses a mapped focus"
+}
+sc_evidence_gap_output() {
+  evidence_gap_fixture
+  # R1-3: a command row without an output line compares nothing: FAIL, never a pass
+  printf '%s\n' '# Verification: LC' '' '## Commands' '' '- `sh .agents/local/check.sh` | exit=0' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
+    '| AC-1 | impl_test.txt::lookup | PASS | `sh .agents/local/check.sh` exit=0 |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
+  out=$(AS verifier submit LC --confidence high --findings none --agent o1 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a command without an output line passed: $out"
+  grep -rq 'printed output but the report records none' "$d/results" || die "no blocking finding names the missing output line"
+  # a bare substring of the real output is not a match: the recorded line must equal a whole output line
+  vw PASS 0 'ok' PASS
+  out=$(AS verifier submit LC --confidence high --findings none --agent o2 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a bare substring of the output passed: $out"
+  # a changed output line with the same exit status is a mismatch (the re-run is not satisfied by exit alone)
+  vw PASS 0 'ok 4 tests' PASS
+  out=$(AS verifier submit LC --confidence high --findings none --agent o3 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "an output mismatch with equal exit passed: $out"
+  grep -rq 'no output line equal to the recorded "ok 4 tests"' "$d/results" || die "no blocking finding names the output mismatch"
+  ok "A107 R1: a command row needs a real output line that equals a whole re-run output line"
+}
+sc_evidence_gap_ac() {
+  command -v node >/dev/null 2>&1 || { echo "skip evidence_gap_ac (node missing)"; return 0; }
+  # R1-4: every command an AC row cites is re-run; one honest allowed command beside a fabricated one is FAIL
+  SC_EXEMPT=1 evidence_gap_fixture
+  printf '%s\n' '# Verification: LC' '' '## Commands' '' '- `sh .agents/local/check.sh` | exit=0' '  output: ok 3 tests' '- `npm run e2e -- --suite all` | exit=0' '  output: e2e: 40 passed' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
+    '| AC-1 | command: `npm run e2e -- --suite all` | PASS | `npm run e2e -- --suite all` exit=0 e2e: 40 passed |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
+  out=$(AS verifier submit LC --confidence high --findings none --agent a1 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a fabricated AC command passed beside an honest one: $out"
+  grep -rq 'AC proof cites `npm run e2e -- --suite all`' "$d/results" || die "no blocking finding names the AC command"
+  ok "A107 R1: a command cited as AC proof that cannot be re-run is a blocking finding"
+}
+sc_evidence_gap_r2() {
+  evidence_gap_fixture
+  # vwc VERDICT STATUS LINE...: VERIFY.md with the given `## Commands` lines; the AC row cites check.sh
+  vwc() {
+    vc_v=$1 vc_s=$2; shift 2
+    { printf '%s\n' '# Verification: LC' '' '## Commands' ''; printf '%s\n' "$@"
+      printf '%s\n' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' "| AC-1 | impl_test.txt::lookup | $vc_s | \`sh .agents/local/check.sh\` exit=0 |" '' '## Scope' '' 'verify-scope: exit=0' '' \
+        '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' "Verdict: $vc_v"; } > "$d/VERIFY.md"
+  }
+  CK='- `sh .agents/local/check.sh` | exit=0'
+  # a silent command is listable: `output: (no output)` matches an empty re-run, the exit status decides
+  vwc PASS PASS "$CK" '  output: ok 3 tests' '- `sh .agents/local/quiet.sh` | exit=0' '  output: (no output)'
+  out=$(AS verifier submit LC --confidence high --findings none --agent r1 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier PASS' || die "a silent planned command with (no output) was not accepted: $out"
+  vwc PASS PASS "$CK" '  output: ok 3 tests' '- `sh .agents/local/quiet.sh` | exit=0' '  output: all good'
+  out=$(AS verifier submit LC --confidence high --findings none --agent r1b 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "an invented output line of a silent command passed: $out"
+  # a non-empty re-run with `(no output)` recorded is a mismatch
+  vwc PASS PASS '- `sh .agents/local/check.sh` | exit=0' '  output: (no output)'
+  out=$(AS verifier submit LC --confidence high --findings none --agent r2 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "(no output) over a printing command passed: $out"
+  grep -rq 'printed output but the report records none' "$d/results" || die "no finding names the unrecorded output"
+  # a time or duration in the recorded line is refused with what to record
+  vwc PASS PASS '- `sh .agents/local/check.sh` | exit=0' '  output: Ran 3 tests in 0.002s'
+  out=$(AS verifier submit LC --confidence high --findings none --agent r3 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a timing line passed: $out"
+  grep -rq 'record one stable summary line' "$d/results" || die "the refusal does not say what to record"
+  # a plan hash that is not 64 hex denies every PLAN command: nothing planned can be re-run
+  vwc PASS PASS "$CK" '  output: ok 3 tests'
+  sed -i.bak 's|^  plan_sha256: .*|  plan_sha256: PENDING|' "$d/RUN.yaml"; rm -f "$d/RUN.yaml.bak"
+  out=$(AS verifier submit LC --confidence high --findings none --agent r4 2>&1) || :
+  printf '%s' "$out" | grep -q 'freeze mismatch' || die "a run without its frozen plan hash was not refused: $out"
+  ok "A107 R2: silent commands are listable, timing lines are refused with what to record, a run without its frozen plan hash is refused by the freeze check"
+}
+sc_evidence_gap_files_gate() {
+  evidence_gap_fixture
+  mkdir -p "$d/reviews/proof-review/small" "$d/reports"; printf '# small review\n\nthe change was read.\n' > "$d/reviews/proof-review/small/REPORT.md"
+  # a judgment gate citing a command that is not configured or planned: ignored, never blocking, recorded NOT_RERUN
+  printf '%s\n' 'command: dotnet run -c Release' 'exit: 0' 'output: ok 3 tests' > "$d/reports/perf.txt"
+  out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --evidence reports/perf.txt --agent f1 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC reviewer PASS' || die "an unallowed command in a judgment gate blocked it: $out"
+  grep -rq 'NOT_RERUN: ' "$d/results" || die "no NOT_RERUN row for the ignored command"
+  # every triple of an evidence file is re-run: a bad first triple is not hidden by a good last one
+  printf '%s\n' 'command: sh .agents/local/check.sh' 'exit: 5' 'output: ok 3 tests' 'command: sh .agents/local/check.sh' 'exit: 0' 'output: ok 3 tests' > "$d/reports/two.txt"
+  out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --evidence reports/two.txt --agent f2 2>&1) || die "refused: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC reviewer FAIL' || die "a failing first triple was hidden by the last one: $out"
+  ok "A107 R2: an unallowed command in a judgment gate is NOT_RERUN, every triple of an evidence file is re-run"
+}
 sc_start() {
   new_repo; RID=ST-1
   cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
@@ -1307,4 +1485,12 @@ run_sc sc_intent_provenance
 run_sc sc_folded_defect
 run_sc sc_class_floor
 run_sc sc_design_sync
+run_sc sc_evidence_gap_fabricated
+run_sc sc_evidence_gap_files
+run_sc sc_evidence_gap_rerun
+run_sc sc_evidence_gap_gates
+run_sc sc_evidence_gap_output
+run_sc sc_evidence_gap_ac
+run_sc sc_evidence_gap_r2
+run_sc sc_evidence_gap_files_gate
 echo 'gates tests passed'

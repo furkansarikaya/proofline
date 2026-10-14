@@ -40,7 +40,8 @@ QUESTIONS:                                     with RESULT: NEEDS_INPUT (format 
 
 ```
 AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> [--focus F] [--result R] \
-  --confidence high|medium|low [--artifact PATH] [--findings FILE|-] [--reason TEXT] [--questions FILE]
+  --confidence high|medium|low [--artifact PATH] [--findings FILE|-] [--reason TEXT] [--questions FILE] \
+  [--evidence PATH[@SHA256]]... [--validator-result PASS|FAIL]
 ```
 
 - The script supplies `ROLE` (from `AGENT_ROLE`), `TASK`, `FINGERPRINT` (current content) and the artifact's
@@ -53,6 +54,20 @@ AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> [--foc
   `--reason`; if the report does not exist the script writes the reason into it.
 - `--findings none` is zero rows. Only one of `--report`/`--findings` may read stdin (`-`); two stdin sources are refused
   before stdin is read, except one document with the report, a line `=== FINDINGS ===`, then the rows (A104).
+- Evidence is re-derived, never taken on the report's word (A107). `submit` runs the skill's own validator
+  for the role and focus (verifier: `validate-verify.mjs`; reviewer `tests`: test-trust `gate.mjs`; reviewer
+  `plan`, `rules`, `rules+tests`: proof-review `validate-findings.mjs` and `gate.mjs` over its `findings.json`)
+  and uses its result; a `--validator-result` that differs, or a PASS the validator computes as FAIL, is
+  refused naming both. Every cited evidence file (`--evidence PATH[@SHA256]`, or `PATH@<sha256>` in a row's
+  evidence column or the report) must exist inside the run, in a folder the role reports in (or `reports/`,
+  `worker-evidence/`), with the cited hash; the result records `EVIDENCE: <path> <sha256>` and `record` checks
+  it again. A PASS then re-runs the recorded `reproduced` items (the verifier's `## Commands` entries, or a
+  cited file with `command:`, `exit:`, `output:` lines) when the command is the configured
+  `commands.build|test|lint` or a frozen PLAN `## Verification commands` entry (AC-cited commands always, the
+  rest up to three); a different exit status, a missing recorded output line or an output line that is not a
+  whole line of the re-run output makes the result FAIL with a blocking finding. A gate that re-ran nothing
+  records `NOT_RERUN` (info) and is not reproduced proof; a mapped focus whose installed validator cannot
+  run refuses a PASS.
 - `--focus` is required for a reviewer unless the artifact's directory implies it (also `PROOFLINE_FOCUS`).
 - A rejection prints `submit rejected: <reason>` and exits 1 immediately, so the specialist fixes and submits
   again. The outcome (ok or rejected, with the reason) is also written to

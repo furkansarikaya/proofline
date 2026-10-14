@@ -133,10 +133,10 @@ sc_missing_flag() {
   printf '%s' "$out" | grep -Fq 'submitted: LC reviewer FAIL gate=REVIEW_RULES' || die "submit did not report FAIL: $out"
   rec=$(ls .agents/runs/LC/gates/*-REVIEW_RULES.yaml | tail -1)
   grep -q '^focus: "contract"' "$rec" && grep -q '^result: "fail"' "$rec" || die "the contract record is not a fail"
-  grep -Fq 'finding: REVIEW_RULES-1|blocking|api/openapi.yaml|risk signal contract_file without PLAN.md flag contract_change' "$rec" || die "missing-flag finding absent: $(grep finding "$rec")"
+  grep -Eq 'finding: REVIEW_RULES-[0-9]+\|blocking\|api/openapi.yaml\|risk signal contract_file without PLAN.md flag contract_change' "$rec" || die "missing-flag finding absent: $(grep finding "$rec")"
   grep -q '^fix_scope: api/openapi.yaml$' "$rec" || die "fix scope: $(grep fix_scope "$rec")"
   [ "$(gate_st REVIEW_RULES)" = fail ] && [ "$(focus_st REVIEW_RULES contract)" = fail ] || die "gate/focus not fail"
-  A next LC | grep -Fq 'amend PLAN.md to declare the flag of REVIEW_RULES-1' || die "next does not name the plan amendment"
+  A next LC | grep -Eq 'amend PLAN.md to declare the flag of REVIEW_RULES-[0-9]+' || die "next does not name the plan amendment"
   # a contract focus that is not triggered is refused
   rrun COMPLEX 'src/a.js'; frozen; implement src/a.js 'export const a = 1;'
   mkdir -p .agents/runs/LC/reviews/contract-proof; printf '# c\n' > .agents/runs/LC/reviews/contract-proof/REPORT.md
