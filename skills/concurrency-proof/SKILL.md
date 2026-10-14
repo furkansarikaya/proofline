@@ -38,7 +38,16 @@ this `SKILL.md`.
 - A **judged** item (`J001`...) is an opinion (naming, structure, a pattern you would avoid). It FAILs only
   when it violates a criterion written in the spec or plan, cited as `violates` with file, line and quote.
 - Only problems whose schedule passes through a line the diff adds or changes are in scope. A proven problem
-  the change does not touch is `pre_existing` (an `info` row).
+  the change does not touch is `pre_existing` (an `info` row), valid only when `--repo --base` shows no
+  trace step on a changed line.
+- **Your own labels never close a finding.** `closed` needs a `recheck` the validator re-checks: a re-run of
+  a reproduced finding's own command (at least as many runs, 0 failing, its output saved under `evidence/`
+  with its sha256 and the observed text in it), or the fix line (a changed code line inside the traced
+  function, not one of its steps, carrying a synchronisation token or the stated `fix_token`). `accepted`
+  needs a line of the frozen plan or spec (`.agents/runs/<ID>/PLAN.md`, or pinned by `accepted_by.sha256`
+  outside a run), passed with `--plan`/`--spec`, quoted verbatim and naming the finding (its id, its
+  `path:line`, or `accepted_by.symbol`); a citation of the changed code is refused
+  ([REPORTING.md](references/REPORTING.md)).
 - **Never assert safety.** PASS means "no proven problem", never "safe". The verdict summary and the
   Verdict and Summary sections of `REPORT.md` never claim safety outside code: `safe`, `safely`,
   `thread-safe`, `race-free`, `deadlock-free`, `free of races`, `cannot race`, `no races`, `guaranteed
@@ -104,9 +113,10 @@ output folder) before starting the next step.
    schedule still stands; otherwise it becomes an unproven risk.
 6. **Plan check.** A proven problem the plan or spec explicitly accepts (for example "at-least-once delivery;
    duplicates are tolerated by the consumer", or `concurrency: no` with a reason that covers it) is
-   `accepted` with `accepted_by` {file, line, quote}; it does not fail the gate. Silence is not acceptance.
+   `accepted` with `accepted_by` {file, line, quote} pointing into PLAN.md, TASK.md or the spec (never the
+   changed code); it does not fail the gate. Silence is not acceptance.
 7. **Report** ([REPORTING.md](references/REPORTING.md)). Write `concurrency.json` and `REPORT.md`, then run
-   `node <skill-dir>/scripts/validate-concurrency.mjs <out>/concurrency.json --repo <repo> --base <base> --report <out>/REPORT.md`.
+   `node <skill-dir>/scripts/validate-concurrency.mjs <out>/concurrency.json --repo <repo> --base <base> --plan <PLAN.md> [--spec <spec>] --report <out>/REPORT.md`.
    Fix the documents (never the evidence) until it exits 0; it prints `RESULT`, `CONFIDENCE` and
    `REPRODUCTION`. `--rows` prints the submit rows. Remove the worktree. Node unavailable: apply the checks of
    [REPORTING.md](references/REPORTING.md) by hand and say so (`CONFIDENCE: medium` at most).
@@ -118,7 +128,7 @@ sections `## Summary`, `## Findings`, `## Unproven risks`, `## Judged`, `## Repr
 `ledger.md`, and `evidence/` (text copies of reproduction tests and their output). Team mode:
 
 ```
-node <skill-dir>/scripts/validate-concurrency.mjs <out>/concurrency.json --repo . --base <base_sha> --rows \
+node <skill-dir>/scripts/validate-concurrency.mjs <out>/concurrency.json --repo . --base <base_sha> --plan <run>/PLAN.md --rows \
   | AGENT_ROLE=reviewer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token> --focus concurrency \
       --confidence <from the validator> --artifact reviews/concurrency-proof/REPORT.md --findings -
 ```

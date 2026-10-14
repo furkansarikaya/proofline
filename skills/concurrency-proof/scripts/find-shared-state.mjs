@@ -31,7 +31,7 @@ export const PATTERNS = {
 };
 const SKIP = /(^|\/)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|go\.sum|Cargo\.lock|poetry\.lock|composer\.lock|Gemfile\.lock)$|\.(?:md|txt|png|jpe?g|gif|svg|ico|pdf|zip|gz|lock)$/i;
 // A whole-line comment is not code; a trailing comment is kept (the line has code).
-const COMMENT = /^\s*(?:\/\/|#(?!include|define|if|pragma)|\/\*|\*|--\s|;;)/;
+export const COMMENT = /^\s*(?:\/\/|#(?!include|define|if|pragma)|\/\*|\*|--\s|;;)/;
 export const LIMITS = [
   "text patterns only: no parsing, no call graph, no type information",
   "shared state reached through aliases, dependency injection, framework configuration or another file is not seen",

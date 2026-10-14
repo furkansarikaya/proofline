@@ -63,6 +63,11 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
   regression beyond the threshold is a FAIL; noise or too few runs is INCONCLUSIVE, submitted as UNSUPPORTED
   (not a FAIL, never a PASS: the user re-runs or waives it); no benchmark command in the project is UNSUPPORTED.
   Patterns read from the code (an N+1 query) are judged and fail only against a written criterion.
+  The bootstrap seed and resample count are pinned, the direction follows the unit (a time is lower-is-better),
+  and a PASS whose thresholds were not recomputed from the config and the plan is submitted as UNSUPPORTED (A93).
+- The `visual` focus (visual-proof skill, A82) uses the same INCONCLUSIVE mapping: a required cell or criterion
+  it could not measure is submitted as UNSUPPORTED with a `visual INCONCLUSIVE:` reason (A93). Its browser
+  blocks every request outside the page's own origin, and it never drives a backend with a real database.
 - The mapping lives in `.agents/config.yaml` and is frozen with the plan; the lead cannot change it during a run.
 
 Two of these focuses are tool-free (decision A88):

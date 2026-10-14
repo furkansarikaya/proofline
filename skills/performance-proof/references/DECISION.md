@@ -9,6 +9,11 @@ and for the change against the base:
 
 - `regression_pct`: the relative change of the median in percent, positive when worse. Lower is better by
   default (`(change - base) / base`); with `--direction higher` (throughput) it is `(base - change) / base`.
+  The direction is fixed by the unit, not chosen (case-insensitive, with aliases: `msec`, `milliseconds`,
+  `sec`, `seconds`, `usec`, `µs`/`μs`, `nsec`, per-operation forms): a time, or a metric named as a time, latency or
+  duration, is lower-is-better; a rate (`ops/s`, `req/sec`, `fps`, `Hz`) higher-is-better. A unit that names no
+  direction needs `direction=lower|higher` on the plan's `performance_critical: yes` line. compare-bench refuses
+  a contradicting or undeclared direction and the validator refuses a report that carries one.
 - `ci_low_pct`..`ci_high_pct`: the 95 % percentile bootstrap interval of `regression_pct`, and
   `ci99_high_pct`, the upper end of the 99 % interval. Each of 2000 resamples draws both sides with
   replacement and takes the medians; the random numbers come from a seeded generator (mulberry32, seed 1), so
@@ -97,7 +102,9 @@ false verdict.
 source; a report whose thresholds differ is invalid. The budget is trusted only from the plan's flag line: an
 unparseable or out-of-range `budget_pct` there is a note in the compare-bench report (the budget is not used)
 and the validator refuses that plan until it is amended and refrozen. Without those options the thresholds are only what the
-report declares: the validator prints `thresholds unverified` and the reviewer's CONFIDENCE is at most medium.
+report declares: the validator prints `thresholds unverified`, and `--rows` submits such a PASS as
+`UNSUPPORTED` (`performance UNSUPPORTED: thresholds unverified ...`, blocking): only verified thresholds can
+PASS. A FAIL stays a FAIL. Config percentages outside (0, 100] are ignored with a note, like the plan budget.
 
 An absolute bound in the plan ("p95 under 200 ms") is not a relative threshold; it is an acceptance criterion
 the verifier checks. Report the change side's median and interval for it, citing the measurement.

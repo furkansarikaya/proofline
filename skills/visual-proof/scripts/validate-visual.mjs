@@ -6,6 +6,10 @@
 // Prints `RESULT: <PASS|FAIL|INCONCLUSIVE|UNSUPPORTED>` and one `SUMMARY:` line; `--rows` adds the finding rows
 // for `agent.sh submit --findings` (severity|path:line|finding|evidence).
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error.
+// A pass or fail item needs a numeric value and the threshold MEASURE.md documents for its check (or a stricter
+// one), and its status is recomputed from value and threshold. `not_applicable` is only what measure.mjs writes
+// when a page has nothing of that kind (NOT_APPLICABLE below: the check, selector `body`, the fixed reason as
+// value), never next to a pass or fail of the same check in the cell; it is counted apart from passes.
 
 import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -26,6 +30,46 @@ export const MIN_VIEWPORTS = { STANDARD: 2, COMPLEX: 3, CRITICAL: 3 };
 const RESULTS = ["PASS", "FAIL", "INCONCLUSIVE", "UNSUPPORTED"];
 const STATUSES = ["pass", "fail", "not_applicable"];
 const JUDGED = ["ok", "concern", "violation"];
+
+// Documented thresholds (references/MEASURE.md): [operator, value]. A report may be stricter, never weaker.
+// horizontal_scroll's bound is the viewport's clientWidth (at most its width); contrast 3 is for large text only.
+export const THRESHOLDS = { viewport_overflow: ["<=", 0], hidden_interactive: [">", 1], overlapping_interactive: ["==", 0],
+  contrast: [">=", 4.5], touch_target: [">=", 24], state_rendered: ["==", 1], focus_order: ["==", 0], focus_visible: ["==", 1],
+  long_content: ["==", 0], form_validation: ["==", 0], modal_interaction: ["==", 0], dropdown_interaction: ["==", 0], a11y_scanner: ["==", 0] };
+// The only not_applicable items: the page has no element of that kind (measure.mjs, value = this reason).
+export const NOT_APPLICABLE = { hidden_interactive: "no focusable element", focus_order: "no focusable element", focus_visible: "no focusable element",
+  overlapping_interactive: "no visible interactive element", contrast: "no visible text", touch_target: "no non-exempt target" };
+const NO_FOCUSABLE = ["hidden_interactive", "focus_order", "focus_visible"];
+
+// null when the threshold is the documented one or stricter, else the reason it is not.
+export function thresholdError(m, viewport) {
+  const t = /^(<=|>=|==|<|>)\s*(-?\d+(?:\.\d+)?)$/.exec(String(m.threshold ?? "").trim());
+  if (!t) return `threshold ${JSON.stringify(m.threshold)} is not numeric (<=, >=, ==, <, > and a number)`;
+  const op = t[1], v = Number(t[2]);
+  let want = THRESHOLDS[m.check];
+  if (m.check === "horizontal_scroll") {
+    // The bound is the measured clientWidth: at most the viewport width, or Chrome's 980px layout width for a
+    // phone viewport (<= 480px, emulated as mobile) when the page has no viewport meta tag.
+    if (!Number.isInteger(viewport?.width)) return "horizontal_scroll needs a listed viewport (its bound is the viewport width)";
+    const cap = viewport.width <= 480 ? Math.max(viewport.width, 980) : viewport.width;
+    const cw = m.client_width ?? viewport.width;
+    if (!Number.isInteger(cw) || cw < 1 || cw > cap) return `horizontal_scroll client_width ${m.client_width} exceeds ${cap} (the viewport width, or 980 on a phone viewport without a viewport meta tag)`;
+    want = ["<=", cw];
+  }
+  if (m.check === "contrast" && op === ">=" && v === 3) {
+    // Large text (WCAG): >= 24px, or >= 18.66px bold, recomputed from the item's measured font facts.
+    const size = m.font_size_px, weight = m.font_weight;
+    if (typeof size !== "number" || typeof weight !== "number") return "contrast >= 3 is for large text only: the item needs font_size_px and font_weight (else the threshold is >= 4.5)";
+    return size >= 24 || (size >= 18.66 && weight >= 700) ? null : `contrast >= 3 is for large text only: ${size}px weight ${weight} is not large (>= 24px, or >= 18.66px bold); the threshold is >= 4.5`;
+  }
+  if (!want) return null;
+  const [wop, wv] = want;
+  const ok = wop === "==" ? op === "==" && v === wv
+    : wop === "<=" ? (op === "<=" && v <= wv) || (op === "<" && v <= wv)
+    : wop === ">=" ? (op === ">=" && v >= wv) || (op === ">" && v >= wv)
+    : (op === ">" && v >= wv) || (op === ">=" && v > wv);
+  return ok ? null : `threshold ${m.threshold} is weaker than or unlike the documented ${wop} ${wv} for ${m.check} (references/MEASURE.md)`;
+}
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const str = (v) => typeof v === "string" && v.trim() !== "";
@@ -106,6 +150,17 @@ export function validateReport(report, opt = {}) {
     err("unsupported_reason is only allowed with tool.kind none");
   }
   if (!unsupported && tool.kind && !str(tool.name)) err("tool.name is required (the detected browser or project tool)");
+  // M2: measure.mjs blocks every request outside the page's own origin (file: folder or localhost origin) and
+  // lists them; a headless-browser report without that record did not run with the guard.
+  const net = isObj(report.network) ? report.network : null;
+  if (tool.kind === "headless-browser" && net?.interception !== "on") err("network.interception must be on for a headless-browser report (measure.mjs blocks requests outside the page's origin)");
+  if (net && (!Array.isArray(net.blocked) || !net.blocked.every((b) => isObj(b) && str(b.url)))) err("network.blocked must be a list of {url, type}");
+  const writes = Array.isArray(net?.same_origin_writes) ? net.same_origin_writes : [];
+  if (net && net.same_origin_writes !== undefined && !(Array.isArray(net.same_origin_writes) && writes.every((w) => isObj(w) && str(w.method) && str(w.url)))) err("network.same_origin_writes must be a list of {method, url}");
+  if (net && net.unguarded !== undefined && !(Array.isArray(net.unguarded) && net.unguarded.every(isObj))) err("network.unguarded must be a list");
+  // A write the page sent to its own origin is allowed only when the plan or spec says the server's data is
+  // throwaway: a `visual_writes: <how>` line (A50/A52).
+  const writesAllowed = [...(opt.specTexts || []), opt.planText ?? ""].some((t) => /^\s*(?:[-*]\s*)?`?visual_writes:\s*\S/m.test(String(t)));
 
   // --- depth ---------------------------------------------------------------------------------------------
   const min = MIN_VIEWPORTS[report.class];
@@ -144,6 +199,17 @@ export function validateReport(report, opt = {}) {
     if (m.value === undefined || m.value === null || m.value === "") err(`${w}: value is required`);
     if (!str(m.threshold)) err(`${w}: threshold is required`);
     if (!STATUSES.includes(m.status)) err(`${w}: status must be pass|fail|not_applicable`);
+    else if (str(m.threshold) && CHECKS.includes(m.check)) {
+      const te = thresholdError(m, viewports.find((v) => v?.name === m.viewport));
+      if (te) err(`${w}: ${te}`);
+      if (m.status === "not_applicable") {
+        if (!(m.check in NOT_APPLICABLE) || m.interaction !== undefined) err(`${w}: not_applicable is not allowed for ${m.check} (only ${Object.keys(NOT_APPLICABLE).join(", ")}, when the page has nothing of that kind)`);
+        else if (m.value !== NOT_APPLICABLE[m.check] || m.selector !== "body") err(`${w}: not_applicable ${m.check} needs selector body and the reason "${NOT_APPLICABLE[m.check]}" as value (got ${JSON.stringify(m.value)}); anything else is measured (pass/fail) or a not_measured entry`);
+        else if (measured.some((o) => o !== m && o?.check === m.check && key(o) === key(m))) err(`${w}: not_applicable ${m.check} next to another ${m.check} item in ${key(m)}`);
+        else if (NO_FOCUSABLE.includes(m.check) && !NO_FOCUSABLE.every((c) => measured.some((o) => o?.check === c && o.status === "not_applicable" && key(o) === key(m))))
+          err(`${w}: "no focusable element" holds for hidden_interactive, focus_order and focus_visible together in ${key(m)}`);
+      } else if (typeof m.value !== "number" || !Number.isFinite(m.value)) err(`${w}: a ${m.status} item needs a numeric value (got ${JSON.stringify(m.value)})`);
+    }
     if (m.aspect !== undefined) err(`${w}: a measured item has no aspect (judged items are separate)`);
     if (INTERACTION_CHECKS.includes(m.check) && !str(m.interaction)) err(`${w}: an interaction check names its interaction`);
     const holds = thresholdHolds(m.value, m.threshold);
@@ -237,6 +303,10 @@ export function validateReport(report, opt = {}) {
     if (reasons.length) computed = "FAIL";
     else {
       for (const n of notMeasured) if (n.scope === "cell") reasons.push(`not measured: ${n.check} at ${key(n)}`);
+      // A93 caps: no PASS without the network guard, with a write lacking an allowance, or with an unguarded worker.
+      if (net?.interception !== "on") reasons.push("network interception not applied (the adapter must block requests outside the page's origin)");
+      if (writes.length && !writesAllowed) reasons.push(`${writes.length} same-origin write(s) without a visual_writes allowance in the plan or spec: ${writes.slice(0, 3).map((w) => `${w.method} ${w.url}`).join(", ")}`);
+      if (Array.isArray(net?.unguarded) && net.unguarded.length) reasons.push(`${net.unguarded.length} child target(s) ran without the network guard`);
       for (const c of criteria) if (c?.required && computedCriteria[c.id] === "unproven") reasons.push(`${c.id} unproven`);
       computed = reasons.length ? "INCONCLUSIVE" : "PASS";
     }
@@ -245,7 +315,10 @@ export function validateReport(report, opt = {}) {
 
   const shots = new Set([...cells.map((c) => c?.screenshot?.path), ...measured.map((m) => m?.evidence?.path), ...judged.map((j) => j?.screenshot?.path)].filter(Boolean));
   const fails = measured.filter((m) => m.status === "fail");
-  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length}/${measured.length} pass, ${fails.length} fail; judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}`;
+  const na = measured.filter((m) => m.status === "not_applicable").length;
+  const blocked = Array.isArray(net?.blocked) ? net.blocked.length : 0;
+  const writesNote = writes.length ? ` same_origin_writes=${writes.length}${writesAllowed ? " (allowed)" : ""};` : "";
+  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}`;
   return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged) };
 }
 
@@ -262,6 +335,8 @@ function rowsOf(report, fails, judged) {
   }
   return rows.map((r) => r.map(clean).join("|"));
 }
+
+export const submitReason = (r) => `visual INCONCLUSIVE: ${r.reasons.slice(0, 6).join("; ").replace(/["|\n]/g, "/")}${r.reasons.length > 6 ? `; +${r.reasons.length - 6} more` : ""}; not a FAIL; measure the missing cells or the user waives`;
 
 function main(argv) {
   const usage = "usage: validate-visual.mjs <report.json> [--class STANDARD|COMPLEX|CRITICAL] [--plan PLAN.md] [--spec FILE]... [--rows] [--json]";
@@ -286,7 +361,11 @@ function main(argv) {
     r.errors.forEach((e) => console.error(`error: ${e}`));
     console.log(`RESULT: ${r.valid ? r.computed : "INVALID"}`);
     console.log(`SUMMARY: ${r.summary}`);
-    if (argv.includes("--rows") && r.valid) r.rows.forEach((x) => console.log(x));
+    if (argv.includes("--rows") && r.valid) {
+      // L1: INCONCLUSIVE is submitted like performance-proof's: UNSUPPORTED with a prefixed reason (blocking).
+      if (r.computed === "INCONCLUSIVE") console.log(`SUBMIT: --result UNSUPPORTED --reason "${submitReason(r)}"`);
+      r.rows.forEach((x) => console.log(x));
+    }
   }
   return r.valid ? 0 : 1;
 }

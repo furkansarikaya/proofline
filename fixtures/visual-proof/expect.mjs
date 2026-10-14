@@ -41,5 +41,32 @@ if (report.result !== "FAIL") problems.push(`result ${report.result}, expected F
 const v = validateReport(report, { root: dirname(file), specTexts: [readFileSync(spec, "utf8")] });
 for (const e of v.errors.filter((e) => !/needs a judged item/.test(e))) problems.push(`validator: ${e}`);
 
+// Trap (EXPECTED.md 14): the out-of-origin backend call is blocked and recorded, never a failure.
+if (report.network?.interception !== "on" || !report.network.blocked.some((b) => b.url === "http://127.0.0.1:9/api/orders")) problems.push("trap: http://127.0.0.1:9/api/orders must be blocked and listed under network.blocked");
+// Trap (EXPECTED.md 18): the WebSocket and the worker's backend call are blocked too; no target ran unguarded.
+for (const [url, type] of [["ws://127.0.0.1:9/live", "WebSocket"], ["http://127.0.0.1:9/api/worker", null]]) {
+  if (!report.network?.blocked?.some((b) => b.url === url && (!type || b.type === type))) problems.push(`trap: ${url} must be blocked and listed under network.blocked`);
+}
+if (report.network?.unguarded?.length) problems.push(`trap: targets ran without the guard: ${JSON.stringify(report.network.unguarded)}`);
+// MUST reject (EXPECTED.md 15-17): the planted failures edited away never validate.
+const tamper = (name, edit) => {
+  const t = JSON.parse(JSON.stringify(report));
+  edit(t, t.measured.filter((m) => m.status === "fail"));
+  t.criteria.forEach((c) => { c.status = "proven"; });
+  for (const m of t.measured) delete m.criteria;
+  t.result = "PASS";
+  const r = validateReport(t, { root: dirname(file), specTexts: [readFileSync(spec, "utf8")] });
+  if (r.errors.filter((e) => !/needs a judged item/.test(e)).length === 0) problems.push(`tamper ${name}: the edited report validated`);
+};
+tamper("fail->pass", (t, f) => f.forEach((m) => { m.status = "pass"; }));
+tamper("fail->not_applicable", (t, f) => f.forEach((m) => { m.status = "not_applicable"; }));
+tamper("fail->not_applicable with reason", (t, f) => f.forEach((m) => { m.status = "not_applicable"; m.value = "no visible text"; m.selector = "body"; }));
+tamper("loosened thresholds", (t, f) => f.forEach((m) => { m.status = "pass"; m.threshold = { contrast: ">= 2", touch_target: ">= 10", horizontal_scroll: "<= 500", viewport_overflow: "<= 100", state_rendered: ">= 0" }[m.check]; }));
+tamper("n/a thresholds", (t, f) => f.forEach((m) => { m.status = "pass"; m.threshold = "n/a"; }));
+tamper("contrast >= 3 on normal text", (t, f) => f.filter((m) => m.check === "contrast").forEach((m) => { m.status = "pass"; m.threshold = ">= 3"; m.note = "large text"; m.value = 3.1; }));
+tamper("horizontal scroll bound above the viewport", (t, f) => f.filter((m) => m.check === "horizontal_scroll").forEach((m) => { m.status = "pass"; m.threshold = `<= ${m.value}`; m.client_width = m.value; }));
+const noNet = JSON.parse(JSON.stringify(report)); delete noNet.network;
+if (!validateReport(noNet, { root: dirname(file) }).errors.some((e) => /network\.interception/.test(e))) problems.push("tamper no network record: validated");
+
 if (problems.length) { problems.forEach((p) => console.error(`expect: ${p}`)); process.exit(1); }
 console.log(`expect: visual-proof fixture ok (${fails.length} planted failures measured, traps clear)`);

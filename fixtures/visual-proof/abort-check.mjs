@@ -22,11 +22,15 @@ async function abort(signal, code) {
       viewports: [{ name: "phone", width: 360, height: 740 }, { name: "desktop", width: 1280, height: 800 }],
       screens: [{ id: "slow", path: "index.html", states: [{ name: "never", ready: "#never-rendered" }] }],
     }));
-    const child = spawn(process.execPath, [MEASURE, "--config", cfg, "--out", join(tmp, "out"), ...extra], { env: { ...process.env, TMPDIR: tmp }, stdio: "ignore" });
-    const exited = new Promise((ok) => child.once("exit", (c, s) => ok(c ?? s)));
-    const until = Date.now() + 30000;
+    const child = spawn(process.execPath, [MEASURE, "--config", cfg, "--out", join(tmp, "out"), ...extra], { env: { ...process.env, TMPDIR: tmp }, stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "", done = null;
+    child.stderr.on("data", (d) => { stderr += d; });
+    const exited = new Promise((ok) => child.once("exit", (c, s) => { done = c ?? s; ok(done); }));
+    // A cold browser start under load can take long: wait up to 90 s, and say why when the child ends first.
+    const until = Date.now() + 90000;
     while (!(readdirSync(tmp).some((n) => n.startsWith("visual-proof-profile-")) && browsers(tmp).length)) {
-      if (Date.now() > until) throw new Error(`${signal}: the browser never started`);
+      if (done !== null) throw new Error(`${signal}: measure.mjs exited ${done} before the browser ran: ${stderr.slice(-400)}`);
+      if (Date.now() > until) { child.kill("SIGKILL"); await exited; throw Object.assign(new Error(`${signal}: the browser never started within 90 s: ${stderr.slice(-400)}`), { retry: true }); }
       await sleep(100);
     }
     await sleep(500);
@@ -39,6 +43,10 @@ async function abort(signal, code) {
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }
 
-await abort("SIGTERM", 143);
-await abort("SIGINT", 130);
+// One retry for a browser that did not start in time (load, not a leak); every other failure is final.
+const once = async (signal, code) => {
+  try { await abort(signal, code); } catch (e) { if (!e.retry) throw e; console.error(`abort-check: ${e.message}; retrying once`); await abort(signal, code); }
+};
+await once("SIGTERM", 143);
+await once("SIGINT", 130);
 console.log("abort-check: no browser process or profile left after SIGTERM and SIGINT");

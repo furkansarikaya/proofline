@@ -217,7 +217,7 @@ test("an unparseable plan budget is a note in the report and the validator refus
   assert.equal(v.status, 1); assert.match(v.stderr, /budget_pct=lots is not a number/);
 });
 test("self-declared thresholds are caught when the config or plan is given", () => {
-  const a = report("c1"); a.thresholds.regression_pct = 500; a.measurements[0].status = "PASS"; a.status = "PASS";
+  const a = report("c1"); a.thresholds.regression_pct = 50; a.measurements[0].status = "PASS"; a.status = "PASS";
   // recomputed with its own (forged) threshold the report is consistent, so only the project's config exposes it
   assert.equal(validate(a).length, 0);
   has(validate(a, { expected: thresholds("") }), "the project's config and plan give 10");
@@ -256,4 +256,98 @@ test("calibration: deterministic, and no PASS or FAIL against the truth on clean
   const a = calibrate(o);
   assert.deepEqual(a, calibrate(o));
   assert.equal(a[0].FAIL, 0); assert.equal(a[1].PASS, 0);
+});
+
+// --- review round 2 (A93): pinned bootstrap, direction from the unit, unverified thresholds never PASS ---------
+const reshop = (doc, opts) => {
+  // a tamperer recomputes everything consistently with the chosen constants, so only the pinning catches it
+  const m = doc.measurements[0];
+  const r = compare(m.base.samples, m.change.samples, { th: doc.thresholds, direction: m.direction, ...opts });
+  Object.assign(m, { delta: r.delta, status: r.status, reason: r.reason, direction: opts.direction ?? m.direction });
+  doc.status = r.status;
+  return doc;
+};
+test("H1: the bootstrap seed, resamples and confidence are pinned; any other value is invalid", () => {
+  assert.deepEqual(validate(report("c3")), []);
+  has(validate(reshop(report("c2"), { seed: 19 })), "needs seed 1, resamples 2000 and confidence 0.95");
+  has(validate(reshop(report("c2"), { resamples: 5000 })), "needs seed 1");
+  const c = report("c3"); c.measurements[0].delta.confidence = 0.9; has(validate(c), "needs seed 1");
+  const d = report("c3"); d.thresholds.confidence = 0.9; has(validate(d), "confidence 0.95 (pinned)");
+  const e = report("c3"); delete e.measurements[0].delta.seed; has(validate(e), "needs seed 1");
+  const f = cli("--base", join(samples, "c3-base.csv"), "--change", join(samples, "c3-change.csv"), "--seed", "19");
+  assert.equal(f.status, 2, "compare-bench has no --seed");
+});
+test("H2: direction follows the unit; higher on a time and lower on a rate are refused", () => {
+  const r = cli("--base", join(samples, "c1-base.json"), "--change", join(samples, "c1-change.json"), "--direction", "higher");
+  assert.equal(r.status, 2); assert.match(r.stderr, /contradicts unit ms/);
+  const l = cli("--base", join(samples, "c9-base.json"), "--change", join(samples, "c9-change.json"), "--direction", "lower");
+  assert.equal(l.status, 2); assert.match(l.stderr, /contradicts unit ops\/s/);
+  assert.equal(report("c9").status, "FAIL", "a rate without --direction is higher-is-better");
+  assert.equal(report("c9").measurements[0].direction, "higher");
+  // a +30 % time regression recomputed as higher-is-better becomes PASS; the validator refuses the direction
+  const t = reshop(report("c1"), { direction: "higher" }); assert.equal(t.status, "PASS");
+  has(validate(t), "unit ms (metric wall_time) is lower-is-better");
+  const u = reshop(report("c1"), { direction: "higher" }); u.measurements[0].unit = "points"; has(validate(u), "metric wall_time) is lower-is-better");
+  for (const [unit, want] of [["ms", "lower"], ["ns/op", "lower"], ["s", "lower"], ["µs", "lower"], ["ops/s", "higher"], ["req/s", "higher"], ["MB/s", "higher"], ["score", null]])
+    assert.equal(cbUnitDirection(unit), want, unit);
+});
+const { unitDirection: cbUnitDirection } = await import(join(scripts, "compare-bench.mjs"));
+test("M1: an unverified PASS is submitted as UNSUPPORTED (blocking); only verified thresholds can PASS", () => {
+  const cfg = join(tmp, "cfg-m1.yaml"); writeFileSync(cfg, "");
+  const plan = join(tmp, "PLAN-m1.md"); writeFileSync(plan, "## Risk\n\nperformance_critical: yes\n");
+  const f = save("c3-m1.json", report("c3"));
+  const bare = vcli(f, "--rows");
+  assert.equal(bare.status, 0, bare.stderr); assert.match(bare.stdout, /thresholds unverified/);
+  assert.match(bare.stdout, /^result: UNSUPPORTED\nreason: performance UNSUPPORTED: thresholds unverified/m);
+  const half = vcli(f, "--config", cfg, "--rows");
+  assert.match(half.stdout, /^result: UNSUPPORTED$/m, "--config without --plan is not verified");
+  const both = vcli(f, "--config", cfg, "--plan", plan, "--rows");
+  assert.equal(both.status, 0, both.stderr); assert.match(both.stdout, /^result: PASS$/m); assert.doesNotMatch(both.stdout, /unverified/);
+  assert.equal(submission(report("c1"), undefined, { verified: false }).result, "FAIL", "a FAIL stays blocking");
+});
+test("L2: percent thresholds are bounded to (0, 100] in config and report", () => {
+  const t = thresholds("performance:\n  regression_pct: 1000\n  noise_pct: 101\n");
+  assert.equal(t.regression_pct, 10); assert.equal(t.noise_pct, 5); assert.equal(t.source, "default"); assert.equal(t.notes.length, 2);
+  assert.equal(thresholds("performance:\n  regression_pct: 100\n").regression_pct, 100);
+  const r = report("c3"); r.thresholds.noise_pct = 1000; has(validate(r), "in (0, 100]");
+});
+
+// --- re-review (A93): unit aliases; a unit without a known direction needs the plan's direction ---------------
+const { planDirection } = await import(join(scripts, "compare-bench.mjs"));
+test("unit aliases are times or rates in any case; µ/μ read as u", () => {
+  for (const u of ["milliseconds", "msec", "MS", "Ms", "seconds", "sec", "usec", "nsec", "μs", "µs", "ns/op", "ms per op", "Minutes"]) assert.equal(cbUnitDirection(u), "lower", u);
+  for (const u of ["ops/sec", "req/s", "fps", "Hz", "MB/s", "ops per second"]) assert.equal(cbUnitDirection(u), "higher", u);
+  for (const u of ["score", "points", "bytes", "custom"]) assert.equal(cbUnitDirection(u), null, u);
+  // an alias with --direction higher is refused like ms
+  const w = (n, unit, xs) => { const p = join(tmp, n); writeFileSync(p, JSON.stringify({ unit, samples: xs })); return p; };
+  const base = readSamples(join(samples, "c1-base.json")).samples, change = readSamples(join(samples, "c1-change.json")).samples;
+  for (const unit of ["milliseconds", "MS", "μs"]) {
+    const r = cli("--base", w(`b-${unit}.json`, unit, base), "--change", w(`c-${unit}.json`, unit, change), "--metric", "value", "--direction", "higher");
+    assert.equal(r.status, 2, unit); assert.match(r.stderr, /contradicts unit/, unit);
+  }
+  const t = reshop(report("c1"), { direction: "higher" }); t.measurements[0].unit = "MSEC"; t.measurements[0].metric = "value";
+  has(validate(t), "unit MSEC (metric value) is lower-is-better");
+});
+test("a unit without a known direction needs direction= on the plan's flag line, in compare-bench and the validator", () => {
+  assert.equal(planDirection("## Risk\n\nperformance_critical: yes budget_pct=5 direction=higher\n"), "higher");
+  assert.equal(planDirection("## Notes\nperformance_critical: yes direction=higher\n"), null);
+  const w = (n, xs) => { const p = join(tmp, n); writeFileSync(p, JSON.stringify({ unit: "score", samples: xs })); return p; };
+  const base = readSamples(join(samples, "c9-base.json")).samples, change = readSamples(join(samples, "c9-change.json")).samples;
+  const b = w("score-b.json", base), c = w("score-c.json", change);
+  for (const d of [[], ["--direction", "lower"], ["--direction", "higher"]]) {
+    const r = cli("--base", b, "--change", c, ...d); assert.equal(r.status, 2, d.join(" ")); assert.match(r.stderr, /has no known direction/);
+  }
+  const plan = join(tmp, "PLAN-dir.md"); writeFileSync(plan, "## Risk\n\nperformance_critical: yes direction=higher\n");
+  const r = cli("--base", b, "--change", c, "--plan", plan, "--env", join(tmp, "env.txt"), "--tool-source", "package.json");
+  assert.equal(r.status, 0, r.stderr);
+  const doc = JSON.parse(r.stdout); assert.equal(doc.measurements[0].direction, "higher"); assert.equal(doc.status, "FAIL");
+  assert.equal(cli("--base", b, "--change", c, "--plan", plan, "--direction", "lower").status, 2);
+  has(validate(doc), "unit score has no known direction");
+  assert.deepEqual(validate(doc, { planDir: "higher" }), []);
+  has(validate(doc, { planDir: "lower" }), "PLAN.md declares direction=lower");
+  const cfg = join(tmp, "cfg-dir.yaml"); writeFileSync(cfg, "");
+  const v = vcli(save("score.json", doc), "--config", cfg, "--plan", plan);
+  assert.equal(v.status, 0, v.stderr);
+  const bad = join(tmp, "PLAN-ms-higher.md"); writeFileSync(bad, "## Risk\n\nperformance_critical: yes direction=higher\n");
+  assert.match(cli("--base", join(samples, "c1-base.json"), "--change", join(samples, "c1-change.json"), "--plan", bad).stderr, /contradicts unit ms/);
 });

@@ -21,3 +21,10 @@ document.getElementById('search').addEventListener('submit', (e) => {
   document.getElementById('search-error').hidden = document.getElementById('q').value.trim() !== '';
 });
 document.getElementById('clear-search').addEventListener('click', () => { document.getElementById('q').value = ''; });
+// Trap (EXPECTED.md 14): a call to a backend outside the page's origin (a stand-in for an API with a database).
+// measure.mjs must block it before it leaves the browser and list it under network.blocked; it is no failure.
+fetch('http://127.0.0.1:9/api/orders').catch(() => {});
+// Trap (EXPECTED.md 18): a WebSocket to another port and a worker calling the backend; both are blocked
+// before they leave the browser and listed under network.blocked.
+try { new WebSocket('ws://127.0.0.1:9/live'); } catch (e) { /* blocked */ }
+try { new Worker(URL.createObjectURL(new Blob(["fetch('http://127.0.0.1:9/api/worker').catch(() => {});"]))); } catch (e) { /* no worker */ }

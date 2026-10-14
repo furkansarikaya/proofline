@@ -19,13 +19,16 @@ the report that `scripts/validate-performance.mjs` checks. `compare-bench.mjs` p
 | `summary` | sentences; every performance claim cites an `M<n>` and agrees with its direction ("faster" never cites a regression); INCONCLUSIVE says "INCONCLUSIVE" and "not a FAIL" |
 | `next_step` | required for INCONCLUSIVE and UNSUPPORTED |
 
-The validator recomputes every measurement from its samples (same seed and resample count) and rejects a
+The validator recomputes every measurement from its samples with the pinned bootstrap constants (seed 1,
+2000 resamples, confidence 0.95; a report carrying other values is invalid), refuses a direction the unit
+contradicts (a time is lower-is-better, a rate higher-is-better), and rejects a
 statistic, a measurement status or a report status that does not follow; a PASS with fewer than `min_runs`
 runs, with noise above the threshold, or without any measurement; mixed units; a missing environment block;
 a judged item with a number; a claim sentence that cites no measurement of the report or contradicts the
 direction of the one it cites; a side whose sample count differs from `environment.runs`; and change samples
 identical to the base samples (copied data). With `--config` and `--plan` it also recomputes the thresholds
-and their source; without them it prints `thresholds unverified`. `--rows` prints the gate submission.
+and their source; without both it prints `thresholds unverified` and `--rows` never submits PASS (UNSUPPORTED instead).
+`--rows` prints the gate submission.
 
 ## Human part (above the json block)
 

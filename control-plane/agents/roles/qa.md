@@ -41,9 +41,12 @@ the project's own browser tooling or an installed headless browser only: measure
 state and viewport (STANDARD: default state x 2 viewports, measured only; COMPLEX/CRITICAL: every spec state x 3
 viewports, measured and judged), screenshots with sha256 in `reviews/visual-proof/`, `report.json` validated by
 `validate-visual.mjs`, and `reviews/visual-proof/REPORT.md`. Its RESULT maps to the submission: PASS or FAIL with
-the printed rows; INCONCLUSIVE -> `--result BLOCKED`; no browser tooling (UNSUPPORTED) -> `--result UNSUPPORTED
+the printed rows; INCONCLUSIVE -> `--result UNSUPPORTED --reason "visual INCONCLUSIVE: ..."` (the `SUBMIT:` line it
+prints; blocking, never a PASS); no browser tooling (UNSUPPORTED) -> `--result UNSUPPORTED
 --reason "<what is missing>"`, recorded as a blocking `UNSUPPORTED` finding, never a PASS; only the user may
-waive it and the completion report lists it. Never install a tool, never create a visual baseline.
+waive it and the completion report lists it. Never install a tool, never create a visual baseline. Never
+exercise pages or form steps against a backend with a real database (A50/A52): `file:`/static pages or a
+project test server with throwaway or in-memory data only.
 
 ## Output
 

@@ -1,9 +1,10 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { validate, checkRepo, checkReport, gate, rows, safetyClaim, CATEGORIES } from "../../skills/concurrency-proof/scripts/validate-concurrency.mjs";
 import { scan, scanText } from "../../skills/concurrency-proof/scripts/find-shared-state.mjs";
 
@@ -262,7 +263,7 @@ test("repo and base: the fixture's known answer passes; bad citations fail", () 
 
 test("CLI: exit codes, result lines, rows only, report check", () => {
   const repo = fixture();
-  const f = writeDoc(doc());
+  const f = writeDoc(doc(undefined, { scope: { changed_files: CHANGED, candidates: scan({ repo, base: "base" }).candidates.length, not_reviewed: [] } }));
   let r = runCli(VALIDATE, [f, "--repo", repo, "--base", "base"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^RESULT: FAIL\nCONFIDENCE: medium\nREPRODUCTION: UNSUPPORTED \(test only\)$/m);
@@ -323,4 +324,136 @@ test("find-shared-state patterns: languages, comments skipped, identifiers", () 
   assert.deepEqual(cats("// retry with a lock and a timeout"), []);
   assert.deepEqual(cats("# lock the queue"), []);
   assert.deepEqual(cats("const blockSize = 4"), []);
+});
+
+// --- review round 2 (A93): the agent's own labels never close a traced or reproduced finding ------------------
+const { checkLabels } = await import("../../skills/concurrency-proof/scripts/validate-concurrency.mjs");
+const truthful = (repo, findings) => doc(findings, { scope: { changed_files: CHANGED, candidates: scan({ repo, base: "base" }).candidates.length, not_reviewed: [] } });
+const labels = (d, opts) => checkLabels(d, { docDir: mktmp(), ...opts });
+
+test("H6: pre_existing is valid only when --repo --base shows no trace step on a changed line", () => {
+  const repo = fixture();
+  const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "pre_existing";
+  assert.deepEqual(validate(d), []);
+  assert.match(labels(d, { repo, base: "base" }).join(), /pre_existing, but trace step 1 \(src\/wallet\.js:3\) is on a line changed since base/);
+  assert.match(labels(d, {}).join(), /pre_existing needs --repo and --base/);
+  assert.match(labels(d, { repo }).join(), /pre_existing needs --repo and --base/);
+  const g = truthful(repo, [doubleCharge()]);
+  g.findings[0].trace.steps = [step(1, "attempt 1", "src/gateway.js", 9, "a"), step(2, "attempt 2", "src/gateway.js", 9, "b")];
+  g.findings[0].location = { file: "src/gateway.js", line: 9 }; g.findings[0].status = "pre_existing";
+  assert.deepEqual(labels(g, { repo, base: "base" }), []);
+});
+
+test("H6: closed needs a recheck the validator re-checks, never a sentence", () => {
+  const repo = fixture();
+  const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "closed";
+  d.findings[0].recheck = "looked again";
+  assert.ok(validate(d).some((e) => /recheck: a closed finding needs a recheck \{kind: reproduction\|fix/.test(e)));
+  d.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line: 5, code: "await store.put(accountId, { ...account, balance });" };
+  assert.deepEqual(validate(d), []);
+  assert.match(labels(d, { repo, base: "base" }).join(), /is a step of the traced schedule, not a fix/);
+  assert.match(labels(d, {}).join(), /a fix recheck needs --repo and --base/);
+  d.findings[0].recheck = { kind: "fix", file: "src/gateway.js", line: 9, code: "if (idempotencyKey" };
+  const e = labels(d, { repo, base: "base" }).join();
+  assert.match(e, /src\/gateway\.js is not a file of the traced schedule/); assert.match(e, /src\/gateway\.js:9 is not a line changed since base/);
+  const o = truthful(repo, [lostUpdate()]); o.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line: 5, code: "x" };
+  assert.ok(validate(o).some((x) => /only a closed finding carries a recheck/.test(x)));
+});
+test("H6 re-review: a fix line is code inside the traced function and carries a synchronisation token", () => {
+  // a fixed copy of the fixture: wallet.js gets a lock line in deposit, a comment trick and an unrelated function
+  const repo = join(mktmp(), "fx"); assert.equal(spawnSync("sh", [SETUP, repo]).status, 0);
+  writeFileSync(join(repo, "src/wallet.js"), [
+    "// Deposits add to an account balance.", "export async function deposit(store, accountId, cents) {",
+    "  const account = await store.get(accountId);", "  await mutex.lock(accountId); const balance = account.balance + cents;",
+    "  await store.put(accountId, { ...account, balance });", "  return balance; // lock released by the caller", "}",
+    "// lock the account first", "export function unrelated() { return mutex.lock(); }", ""].join("\n"));
+  const d = doc([lostUpdate()]); d.findings[0].status = "closed";
+  const fix = (line, code, extra = {}) => { d.findings[0].recheck = { kind: "fix", file: "src/wallet.js", line, code, ...extra }; return labels(d, { repo, base: "base" }).filter((x) => !/scope\.candidates/.test(x)).join("\n"); };
+  assert.equal(fix(4, "await mutex.lock(accountId);"), "");
+  assert.equal(fix(4, "await mutex.lock(accountId);", { fix_token: "mutex.lock" }), "");
+  assert.match(fix(4, "await mutex.lock(accountId);", { fix_token: "serialise(" }), /not the stated fix_token "serialise\("/);
+  assert.match(fix(6, "return balance;"), /has no synchronisation token/);
+  assert.match(fix(8, "// lock the account first"), /is a comment or blank, not a fix/);
+  assert.match(fix(9, "return mutex.lock();"), /is not inside a function of the traced schedule/);
+});
+test("H6 re-review: a reproduction recheck re-runs the original command, with its hash and observed text", () => {
+  const rep = { command: "node --test test/race.test.js", runs: 10, failures: 4, observed: "balance 120 != 130", saved_copy: "evidence/C001.test.txt" };
+  const d = doc([{ ...lostUpdate(), evidence: "reproduced", reproduction: rep, why_not_reproduced: undefined }]);
+  delete d.findings[0].why_not_reproduced;
+  d.reproduction = { status: "ran", runner: "node --test", worktree: "/tmp/concurrency-proof-x" };
+  d.findings[0].status = "closed";
+  const dir = mktmp(); mkdirSync(join(dir, "evidence"));
+  const out = "10/10 runs passed\nbalance 130 == 130\n"; writeFileSync(join(dir, "evidence/C001-recheck.txt"), out);
+  const sha = createHash("sha256").update(out).digest("hex");
+  const rc = { kind: "reproduction", command: rep.command, runs: 10, failures: 0, observed: "balance 130 == 130", saved_copy: "evidence/C001-recheck.txt", sha256: sha };
+  d.findings[0].recheck = { ...rc };
+  assert.deepEqual(validate(d), []);
+  assert.deepEqual(checkLabels(d, { docDir: dir }), []);
+  const bad = (over, re) => { d.findings[0].recheck = { ...rc, ...over }; assert.match([...validate(d), ...checkLabels(d, { docDir: dir })].join("\n"), re); };
+  bad({ failures: 2 }, /0 failing runs/);
+  bad({ sha256: undefined }, /sha256 of the saved copy/);
+  bad({ sha256: "0".repeat(64) }, /sha256: does not match/);
+  bad({ observed: "all good" }, /observed: the text is not in/);
+  bad({ command: "node --test test/other.test.js" }, /must be the original reproduction command/);
+  bad({ runs: 3 }, /3 < the original 10 runs/);
+  bad({ saved_copy: "evidence/missing.txt" }, /does not exist next to concurrency\.json/);
+  // a traced finding is closed by a fix, not by a new test the validator cannot relate to the schedule
+  const t = doc([lostUpdate()]); t.findings[0].status = "closed"; t.reproduction = d.reproduction; t.findings[0].recheck = { ...rc };
+  assert.match(checkLabels(t, { docDir: dir }).join(), /a traced finding is closed by a fix recheck/);
+  d.reproduction = { status: "unsupported", reason: "x" }; d.findings[0].recheck = { ...rc };
+  assert.match(checkLabels(d, { docDir: dir }).join(), /a reproduction recheck needs reproduction\.status ran/);
+});
+
+test("H6: accepted_by cites the frozen plan or spec verbatim, names the finding, never the changed code", () => {
+  const repo = fixture();
+  const d = truthful(repo, [lostUpdate()]); d.findings[0].status = "accepted";
+  d.findings[0].accepted_by = { file: "src/wallet.js", line: 5, quote: "await store.put(accountId, { ...account, balance });" };
+  assert.deepEqual(validate(d), []);
+  assert.match(labels(d, { repo }).join(), /cites src\/wallet\.js, which is changed code/);
+  const text = "# Plan\n\n## Risk\n\nconcurrency: yes\n- C001 (src/wallet.js:5): deposits are serialised by the caller (one request per account).\n- Deposits are serialised by the caller.\n";
+  const runDir = join(repo, ".agents/runs/T1"); mkdirSync(runDir, { recursive: true });
+  const plan = join(runDir, "PLAN.md"); writeFileSync(plan, text);
+  const ref = () => [{ path: plan, text: readFileSync(plan, "utf8") }];
+  const p = truthful(repo, [lostUpdate()]); p.findings[0].status = "accepted";
+  p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 6, quote: "deposits are serialised by the caller" };
+  try {
+    assert.match(labels(p, { repo }).join(), /pass --plan or --spec/);
+    assert.deepEqual(labels(p, { repo, refs: ref() }), []);
+    // the line must name the finding (id, path:line or a symbol of its steps)
+    p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 7, quote: "Deposits are serialised by the caller." };
+    assert.match(labels(p, { repo, refs: ref() }).join(), /does not name the finding \(C001, src\/wallet\.js:5/);
+    p.findings[0].accepted_by.symbol = "store.put";
+    assert.match(labels(p, { repo, refs: ref() }).join(), /does not name the finding/, "the symbol must be on the cited line");
+    p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 6, quote: "duplicates are tolerated" };
+    assert.match(labels(p, { repo, refs: ref() }).join(), /does not contain the quote verbatim/);
+    // a run PLAN.md must be the frozen one
+    p.findings[0].accepted_by = { file: ".agents/runs/T1/PLAN.md", line: 6, quote: "deposits are serialised by the caller" };
+    writeFileSync(join(runDir, "RUN.yaml"), `freeze:\n  plan_sha256: "${"0".repeat(64)}"\n`);
+    assert.match(labels(p, { repo, refs: ref() }).join(), /is not the frozen PLAN\.md/);
+    writeFileSync(join(runDir, "RUN.yaml"), `freeze:\n  plan_sha256: "${createHash("sha256").update(text).digest("hex")}"\n`);
+    assert.deepEqual(labels(p, { repo, refs: ref() }), []);
+    // outside a run folder the plan read is pinned by sha256
+    const loose = join(repo, "PLAN.md"); writeFileSync(loose, text);
+    p.findings[0].accepted_by = { file: "PLAN.md", line: 6, quote: "deposits are serialised by the caller" };
+    const lref = [{ path: loose, text }];
+    assert.match(labels(p, { repo, refs: lref }).join(), /is not a run artifact .*accepted_by\.sha256 must pin the file read/);
+    p.findings[0].accepted_by.sha256 = createHash("sha256").update(text).digest("hex");
+    assert.deepEqual(labels(p, { repo, refs: lref }), []);
+    assert.match(labels(p, { repo, refs: ref() }).join(), /PLAN\.md is not one of the --plan\/--spec files/);
+    rmSync(loose);
+    const w = join(repo, "src/wallet.js");
+    assert.match(labels(d, { repo, refs: [{ path: w, text: readFileSync(w, "utf8") }] }).join(), /src\/wallet\.js is in scope\.changed_files/);
+  } finally { rmSync(join(repo, ".agents"), { recursive: true, force: true }); rmSync(join(repo, "PLAN.md"), { force: true }); }
+});
+
+test("L7: scope.candidates must equal a fresh find-shared-state count with --repo --base", () => {
+  const repo = fixture();
+  const n = scan({ repo, base: "base" }).candidates.length;
+  const d = truthful(repo, []); d.reproduction = { status: "ran", runner: "node --test", worktree: "/tmp/concurrency-proof-x" }; d.unproven_risks = [];
+  assert.deepEqual(labels(d, { repo, base: "base" }), []);
+  d.scope.candidates = n + 5;
+  assert.match(labels(d, { repo, base: "base" }).join(), new RegExp(`scope\\.candidates: ${n + 5}, but find-shared-state\\.mjs --base base finds ${n}`));
+  const f = writeDoc(d);
+  const r = runCli(VALIDATE, [f, "--repo", repo, "--base", "base"]);
+  assert.equal(r.status, 1); assert.match(r.stderr, /scope\.candidates/);
 });
