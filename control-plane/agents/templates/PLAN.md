@@ -35,7 +35,7 @@ user's explicit single-step approval allows one step: the line `single_step: yes
 ## UI
 
 When the UI changes (designer): screens, flows, states, accessibility, and the line
-`visual_proof: <AC ids|none>` naming the criteria that need visual evidence (required for COMPLEX/CRITICAL), and for COMPLEX/CRITICAL the line `visual_writes: <how the data the page writes is thrown away>`
+`visual_proof: <AC ids|none>` naming the criteria that need visual evidence (required for COMPLEX/CRITICAL), and for every class but TRIVIAL the line `visual_writes: <how the data the page writes is thrown away>`
 (QA visual proof runs; without it QA ends INCONCLUSIVE and the plan needs an amendment). Delete otherwise.
 
 ## Behavior

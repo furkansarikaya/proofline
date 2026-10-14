@@ -95,6 +95,11 @@ sc_flags() {
   rrun COMPLEX '' "$(printf '%s\n' '' '## UI' '' 'one status badge' 'visual_writes: DB_PATH=:memory:, discarded on exit')"
   approve_as_user plan 'approve the plan'
   A freeze LC >/dev/null || die "COMPLEX UI plan with visual_writes does not freeze"
+  # STANDARD has a QA gate too: the same refusal and the same acceptance
+  rrun STANDARD '' "$(printf '%s\n' '' '## UI' '' 'one status badge')"
+  expect_msg "a STANDARD UI plan without visual_writes was frozen" "no 'visual_writes: <how the data the page writes is thrown away>' line" A freeze LC
+  rrun STANDARD '' "$(printf '%s\n' '' '## UI' '' 'one status badge' '- visual_writes: DB_PATH=:memory:')"
+  A freeze LC >/dev/null || die "STANDARD UI plan with visual_writes does not freeze"
   # an invalid ## Risk line is refused at freeze
   rrun STANDARD '' "$(printf '%s\n' '' '## Risk' '' 'contract_change: maybe')"
   expect_msg "an invalid ## Risk line was frozen" "PLAN.md '## Risk' holds only flag lines" A freeze LC
