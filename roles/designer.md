@@ -85,7 +85,7 @@ ARTIFACT: <run-relative path, e.g. design/UI.md> <sha256>
 subagent runtime may refuse for report files, and `--findings -` instead of a scratch file.
 
 `--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence`
-(no numbering, no header, no table). Zero rows is a clean result.
+(no numbering, no header, no table). Zero rows is a clean result: pass `--findings none`; rows are required only for defects and observations, and an answer-only task uses `--findings none` or one `info|-|answer|<one line>` row. Only one of `--report`/`--findings` may read stdin (`-`): put the other in a file, or send ONE stdin document with the report, then a line `=== FINDINGS ===`, then the rows.
 
 Row ids are assigned by the script: `designer-<n>`: design-system conflicts, missing accessibility support, UI risks. Then
 `BLOCKED_REASON: <one line>` when BLOCKED, and for NEEDS_INPUT:

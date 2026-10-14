@@ -128,7 +128,7 @@ ARTIFACT: <run-relative path, e.g. QA_REPORT.md> <sha256>
 subagent runtime may refuse for report files, and `--findings -` instead of a scratch file.
 
 `--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence`
-(no numbering, no header). Zero rows is a clean result. Ids are assigned by the script: plan step `qa-<n>` (a task result), report step `QA-<n>` (the gate). Severity: `blocking` (a scenario failed, not run or
+(no numbering, no header). Zero rows is a clean result: pass `--findings none`; rows are required only for defects and observations, and an answer-only task uses `--findings none` or one `info|-|answer|<one line>` row. Only one of `--report`/`--findings` may read stdin (`-`): put the other in a file, or send ONE stdin document with the report, then a line `=== FINDINGS ===`, then the rows. Ids are assigned by the script: plan step `qa-<n>` (a task result), report step `QA-<n>` (the gate). Severity: `blocking` (a scenario failed, not run or
 proven only by an untrustworthy test; in the plan step, a criterion that cannot be tested) or `info`.
 `--questions` (plan step only) is a file in this format:
 

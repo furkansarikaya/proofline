@@ -211,6 +211,27 @@ sc_report_stdin() {
 
 }
 
+sc_stdin_contract() { # A104
+  scaffold orchestrated; implemented orchestrated
+  rp=.agents/runs/LC/reviews/proof-review/small/REPORT.md
+  # two stdin sources are refused before stdin is read, with the corrected command in the message
+  out=$(printf 'report text\n' | AS reviewer submit LC --focus rules+tests --confidence high --report - --findings - 2>&1) && die "both-stdin was accepted"
+  case "$out" in *'only one of --report/--findings may read stdin'*'=== FINDINGS ==='*) ;; *) die "both-stdin message wrong: $out" ;; esac
+  # the documented separator splits one document
+  printf 'review of the tree\n\n=== FINDINGS ===\nblocking|impl.txt:1|wrong value|traced\ninfo|impl.txt:2|a note|seen\n' \
+    | AS reviewer submit LC --focus rules+tests --confidence high --report - --findings - >/dev/null || die "separator submit failed"
+  [ "$(gate_st REVIEW_SMALL)" = fail ] || die "separator findings did not fail the gate"
+  grep -q 'review of the tree' "$rp" && ! grep -q 'FINDINGS\|wrong value' "$rp" || die "report not split from the findings"
+  # --findings none and an answer-only info row
+  printf 'answer text\n' | AS reviewer submit LC --focus rules+tests --confidence high --report - --findings none >/dev/null || die "--findings none failed"
+  [ "$(gate_st REVIEW_SMALL)" = pass ] || die "--findings none did not pass"
+  printf 'info|-|answer|the answer in one line\n' > "$base/ans.rows"
+  AS reviewer submit LC --focus rules+tests --confidence high --findings "$base/ans.rows" >/dev/null || die "info row with path - rejected"
+  printf 'prose, not a row\n' > "$base/prose.rows"
+  expect_msg "a prose row names the corrected form" '--findings none' AS reviewer submit LC --focus rules+tests --confidence high --findings "$base/prose.rows"
+  ok "submit stdin contract: both-stdin refused, separator split, --findings none, info row"
+}
+
 sc_parallel_lock() {
   scaffold orchestrated; implemented orchestrated
   printf '# Completion Report: LC\n' > .agents/runs/LC/COMPLETION_REPORT.md
@@ -1210,6 +1231,7 @@ run_sc sc_record
 run_sc sc_submit
 run_sc sc_language
 run_sc sc_report_stdin
+run_sc sc_stdin_contract
 run_sc sc_parallel_lock
 run_sc sc_fix_loop
 run_sc sc_waiver
