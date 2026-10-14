@@ -1045,7 +1045,36 @@ authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 # `decision: report` is a finding, never a change. TASK.md `## Pre-existing defects`: `- <path:symbol>: <what> --
 # decision: report | fix`.
 task_defect_fixes() { # TASK.md -> the lines that say `decision: fix`
-  awk '/^## Pre-existing defects[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && tolower($0) ~ /decision:[[:space:]]*fix/ { print }' "$1" 2>/dev/null
+  awk '/^##[#]?[[:space:]]+[Pp]re-existing defects[[:space:]]*$/ { i = 1; next } /^#/ { i = 0 } i && tolower($0) ~ /decision:[[:space:]]*fix/ { print }' "$1" 2>/dev/null
+}
+# A105 (amends A60): a COMPLEX or CRITICAL task whose request (title, Goal, `>` quotes, Suggested class line) names
+# no defect, but whose Context, Acceptance criteria, Constraints or Risks speak of a defect or a fix, declares it
+# under `## Pre-existing defects` (a `###` heading counts): otherwise a defect fix folded into the task (an answer
+# such as "use your recommended option" turned into a criterion) would reach the plan as requested work. Every
+# entry carries `decision: report | fix`. The task-author validator applies the same rule. Prints the errors.
+task_defect_errors() { # ID
+  te_f=$(run_dir "$1")/TASK.md; [ -f "$te_f" ] || return 0
+  te_big=0; case "$(pipeline_class "$1")" in COMPLEX|CRITICAL) te_big=1 ;; esac
+  awk -v big="$te_big" '
+    function w(s, re) { return (" " s " ") ~ ("[^a-z](" re ")[^a-z]") }
+    /<!--/ { c = 1 } c { if (/-->/) c = 0; next }
+    NR == 1 && /^# Task:/ { req = req " " tolower($0); next }
+    /^##[#]?[[:space:]]/ { h = $0; sub(/^#+[[:space:]]+/, "", h); sub(/[[:space:]]+$/, "", h); d = (tolower(h) == "pre-existing defects")
+      if ($0 ~ /^## /) sec = h; next }
+    d && /^[[:space:]]*[-*][[:space:]]+[^[:space:]]/ { n++; if (tolower($0) !~ /decision:[[:space:]]*(report|fix)([^a-z]|$)/) { e = $0; sub(/^[[:space:]]*[-*][[:space:]]+/, "", e); print "entry without decision: report|fix: " e } ; next }
+    d { next }
+    /^[[:space:]]*>/ || sec == "Goal" || sec == "Suggested class" { req = req " " tolower($0); next }
+    (sec == "Context" || sec == "Acceptance criteria" || sec == "Constraints" || sec == "Risks") && m == "" {
+      l = tolower($0); if (w(l, "defects?|bugs?|regression|fix|fixes|fixing") || l ~ /kusur|düzelt/) { m = $0; sub(/^[[:space:]]*[-*][[:space:]]+/, "", m) } }
+    END {
+      if (!big || m == "" || n > 0) exit
+      if (w(req, "bugs?|defects?|regression|broken|fix|fixes|fixed|wrong|incorrect|crash(es)?|disappears?|disappeared|unreachable") || req ~ /hata|bozuk|kaybol|yanlış|düzelt/) exit
+      sub(/[.]$/, "", m); print "mentions a defect or a fix the request does not ask for: " substr(m, 1, 120)
+    }' "$te_f"
+}
+require_task_defects() { # ID
+  rtd=$(task_defect_errors "$1" | head -1)
+  [ -z "$rtd" ] || fail "TASK.md ## Pre-existing defects (A105): $rtd. List each defect the request does not ask for as '- <path:symbol>: <what> -- decision: report' (left unchanged, named in the completion report); 'decision: fix' only when the user asked for it in their own words, and then the user's scope approval ('agent.sh request-approval $1 scope') is needed. A delegated answer such as 'use your recommended option' never makes a defect fix requested"
 }
 # Answers recorded as the user's must be the user's words (A60): in INTENT.md `## Rounds`, a round answering a
 # `scope` decision with answered_by user must appear in a captured user prompt (.agents/local/prompts/history/).
@@ -1054,14 +1083,19 @@ verify_intent_provenance() { # ID
   vi_f=$(run_dir "$vi_id")/design/INTENT.md
   [ -f "$vi_f" ] || vi_f=$root/$(cfg tasks.dir .agents/tasks)/$vi_id/design/INTENT.md
   vi_h=$root/.agents/local/prompts/history
-  [ -f "$vi_f" ] && [ -d "$vi_h" ] || return 0
+  [ -f "$vi_f" ] || return 0
   vi_all=$(cat "$vi_h"/* 2>/dev/null | tr -s ' \t\n' ' ')
+  # `id<TAB>decision` of every scope decision of the tree (A105 reads the decision).
   vi_scope=$(awk -F'|' '/^## Decision tree/ { i = 1; next } /^## / { i = 0 }
-    i && NF >= 8 { id = $2; br = $3; gsub(/^[ \t]+|[ \t]+$/, "", id); gsub(/^[ \t]+|[ \t]+$/, "", br); if (br == "scope") print id }' "$vi_f")
+    i && NF >= 8 { id = $2; br = $3; dc = $7; gsub(/^[ \t]+|[ \t]+$/, "", id); gsub(/^[ \t]+|[ \t]+$/, "", br); gsub(/^[ \t]+|[ \t]+$/, "", dc); if (br == "scope") print id "\t" dc }' "$vi_f")
   awk -F'|' '/^## Rounds/ { i = 1; next } /^## / { i = 0 }
     i && NF >= 5 { a = $3; t = $4; by = $5; gsub(/^[ \t]+|[ \t]+$/, "", a); gsub(/^[ \t]+|[ \t]+$/, "", t); gsub(/^[ \t]+|[ \t]+$/, "", by)
       if (by == "user" && a ~ /^D-[0-9]+$/) print a "\t" t }' "$vi_f" | while IFS="$(printf '\t')" read -r vi_a vi_t; do
-    printf '%s\n' "$vi_scope" | grep -Fxq -- "$vi_a" || continue
+    vi_dc=$(printf '%s\n' "$vi_scope" | awk -F'\t' -v a="$vi_a" '$1 == a { print "d:" $2; exit }')
+    [ -n "$vi_dc" ] || continue
+    # A105: a blanket "use your recommended option" never decides a scope question; only "report" may follow it.
+    if printf '%s' "$vi_t" | grep -iq 'recommend' && ! printf '%s' "$vi_dc" | grep -Eiq 'report|out of scope|unchanged'; then echo "$vi_a"; continue; fi
+    [ -d "$vi_h" ] || continue
     vi_n=$(printf '%s' "$vi_t" | tr -s ' \t\n' ' ')
     case "$vi_all" in *"$vi_n"*) ;; *) echo "$vi_a"; ;; esac
   done
@@ -1071,6 +1105,7 @@ verify_intent_provenance() { # ID
 # Prints the approval files to consume, one per line.
 implement_approvals() { # ID
   ia_id=$1; ia_d=$(run_dir "$1")
+  require_task_defects "$ia_id"
   [ "$(plan_destructive "$ia_d/PLAN.md")" = yes ] || return 0
   ia_plan=$(hash_file "$ia_d/PLAN.md")
   ia_f=$(find_approval "$ia_id" destructive "$ia_plan") || fail "PLAN.md declares a destructive data change: a destructive approval bound to the frozen PLAN.md is required before IMPLEMENT ('agent.sh request-approval $ia_id destructive'; relay it, the runtime records the user's reply; a refreeze drops an earlier approval)"
@@ -1082,6 +1117,7 @@ implement_approvals() { # ID
 }
 freeze_approvals() {
   fa_id=$1 fa_mode=$2; fa_d=$(run_dir "$1"); fa_plan=$(hash_file "$fa_d/PLAN.md")
+  require_task_defects "$fa_id"
   if [ "$(run_autonomy "$fa_id")" = supervised ]; then
     fa_f=$(find_approval "$fa_id" plan "$fa_plan") || fail "supervised freeze requires a plan approval for this PLAN.md: run 'agent.sh request-approval $fa_id plan', relay it, then 'agent.sh approve $fa_id plan'"
     printf '%s\n' "$fa_f"
@@ -1099,7 +1135,7 @@ freeze_approvals() {
     printf '%s\n' "$fa_f"
   fi
   fa_bad=$(verify_intent_provenance "$fa_id" | tr '\n' ' ')
-  [ -z "$fa_bad" ] || fail "INTENT.md records the user's answer to scope decision(s) $fa_bad, but those words are in no captured user prompt: an answer recorded as the user's must be what the user said (a blanket 'use your recommended option' is recorded as that)"
+  [ -z "$fa_bad" ] || fail "INTENT.md records the user's answer to scope decision(s) $fa_bad, but those words are in no captured user prompt, or are a blanket 'use your recommended option' for a decision other than report: an answer recorded as the user's must be what the user said, and a blanket answer never decides a fix (A105: record the decision as report, or ask for the user's scope approval)"
   # D15: an exhausted fix budget ends in `terminate FAILED`; a refreeze (which starts a fresh budget) needs
   # the user's explicit budget approval.
   if [ "$fa_mode" = refreeze ] && [ "$(fix_rounds_used "$fa_id")" -gt "$(max_fix_rounds)" ]; then
@@ -3463,6 +3499,8 @@ next_step() {
     ns_ae=$(assumption_shape_errors "$ns_id" | tr '\n' ';')
     if [ -n "$ns_ae" ]; then o "fix the '## Assumptions' section of PLAN.md / EVIDENCE.md (none, or the register table): $ns_ae"; r "assumption register invalid"; return 0; fi
     if [ -n "$(assumption_blocked "$ns_id")" ]; then o "agent.sh verify-assumptions $ns_id; verify each unverified high-risk assumption (update the register), or: agent.sh freeze $ns_id (records one NEEDS_INPUT question per assumption; relay it, the user answers 'accept <id>' or gives the corrected fact)"; r "unverified high-risk assumption blocks the freeze"; return 0; fi
+    ns_te=''; ! gates_enforced "$ns_id" || ns_te=$(task_defect_errors "$ns_id" | head -1)
+    if [ -n "$ns_te" ]; then o "fix TASK.md ## Pre-existing defects (task-author): list each defect the request does not ask for as '- <path:symbol>: <what> -- decision: report'; 'decision: fix' only on the user's own words, then a scope approval"; r "A105: $ns_te"; return 0; fi
     for ns_k in plan scope; do
       if [ "$ns_k" = plan ] && [ "$(run_autonomy "$ns_id")" != supervised ]; then continue; fi
       if [ "$ns_k" = scope ] && [ -z "$(task_defect_fixes "$ns_d/TASK.md")" ]; then continue; fi

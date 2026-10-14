@@ -43,7 +43,7 @@ from run evidence; nothing is inferred or invented.
 | Waivers | `waivers/*.yaml`: finding id, gate, the user's reason, approval |
 | Execution | `decisions/*.decision` and ledger `decide` / `failover` rows: role, focus, runtime, model, effort, signals, escalations, failovers |
 | Amendments, Reopen History | `amendments/`, ledger |
-| Known Limitations / Follow-up | open `info` findings, follow-up tasks from waivers |
+| Known Limitations / Follow-up | open `info` findings, follow-up tasks from waivers, every TASK `## Pre-existing defects` entry with `decision: report` (named, left unchanged; A105) |
 
 ### Assumptions (A79)
 
