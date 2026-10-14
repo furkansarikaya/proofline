@@ -33,7 +33,9 @@ Writes outside them are denied by the PreToolUse hook; its writes are bracketed 
 3. Write `design/UI.md` and `design/ui.json`; validate with `--task TASK.md --class <run class>` (COMPLEX and
    CRITICAL need the creative direction, UX patterns, self-critique and criteria). Draft the PLAN `## UI` text: per
    UI-facing `AC-n`, the screens, states and accessibility checks a test or verifier can observe, and the line
-   `visual_proof: <AC ids|none>` matching `ui.json` (`--list-visual-proof`).
+   `visual_proof: <AC ids|none>` matching `ui.json` (`--list-visual-proof`). For COMPLEX/CRITICAL add
+   `visual_writes: <how the data the page writes is thrown away, e.g. an in-memory database, or none>` (A112):
+   QA's visual proof reads it; the plan is refused at validation without it.
 4. A behaviour-changing UX choice the task does not settle: write state to `design/UI.md`, return NEEDS_INPUT. Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
 5. Return the result with the PLAN `## UI` text after the table. Stop.
 

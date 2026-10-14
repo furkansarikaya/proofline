@@ -131,6 +131,17 @@ test("TRIVIAL allows at most two scope paths", () => {
   has(errs(plan(), { cls: "TRIVIAL" }), "TRIVIAL allows at most 2 paths");
 });
 
+test("A112: COMPLEX/CRITICAL plan with ## UI needs a visual_writes line at plan time; TRIVIAL and STANDARD are unchanged", () => {
+  const arch = { Architecture: ["One module, no boundary change."] };
+  const withUi = (lines) => plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", "visual_proof: AC-1", ...lines] } });
+  for (const cls of ["COMPLEX", "CRITICAL"]) has(errs(withUi([]), { cls }), `the line "visual_writes: <how the data the page writes is thrown away>" is required for ${cls}`);
+  has(errs(withUi(["visual_writes:"]), { cls: "COMPLEX" }), "visual_writes");
+  for (const l of ["visual_writes: DB_PATH=:memory:", "- visual_writes: temp db", "`visual_writes: none`"]) assert.deepEqual(errs(withUi([l]), { cls: "COMPLEX" }), [], l);
+  const ui = plan({ body: { ...BODY, UI: ["Screens S1.", "visual_proof: AC-1"] } });
+  assert.ok(!errs(ui).some((e) => e.includes("visual_writes")), "STANDARD is not asked");
+  assert.ok(!errs(ui, { cls: "TRIVIAL" }).some((e) => e.includes("visual_writes")), "TRIVIAL is not asked");
+});
+
 test("persistence and UI scope paths require ## Data and ## UI", () => {
   const scope = [...SCOPE, "  - path: db/migrations/001_threshold.sql", "    new: true", "    criteria: [AC-3]", "  - path: src/components/Receipt.tsx", "    new: true", "    criteria: [AC-4]"];
   const e = errs(plan({ scope }));
@@ -153,9 +164,9 @@ test("A81: ## UI visual_proof line is checked when present and required for COMP
   has(errs(ui(["visual_proof: yes"])), "is not an AC-<n> id");
   has(errs(ui(["visual_proof: AC-1", "visual_proof: none"])), "more than one visual_proof line");
   has(errs(strong([]), { cls: "COMPLEX" }), '"visual_proof: <AC ids|none>" is required for COMPLEX');
-  assert.deepEqual(errs(strong(["- visual_proof: AC-4"]), { cls: "CRITICAL" }), []);
+  assert.deepEqual(errs(strong(["- visual_proof: AC-4", "visual_writes: in-memory database"]), { cls: "CRITICAL" }), []);
   // The template's section set (Assumptions, Risk, UI with the visual_proof line) validates together.
-  const full = plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", "visual_proof: AC-1"], Risk: ["contract_change: no", "concurrency: no", "performance_critical: no"] } });
+  const full = plan({ body: { ...BODY, ...arch, UI: ["Screens S1.", "visual_proof: AC-1", "visual_writes: DB_PATH=:memory:"], Risk: ["contract_change: no", "concurrency: no", "performance_critical: no"] } });
   assert.deepEqual(errs(full, { cls: "COMPLEX" }), []);
 });
 

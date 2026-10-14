@@ -1176,6 +1176,12 @@ freeze() {
   verify_seal "$id"
   verify_task_source_status "$id"
   require_scope_mapping "$id"
+  # A112: QA's visual focus runs for a COMPLEX/CRITICAL plan with a UI part; its same-origin-write allowance is declared
+  # in the plan, now, not found missing at QA time (INCONCLUSIVE, then an amendment and a second approval).
+  if gates_enforced "$id" && plan_section_present "$dir/PLAN.md" UI && case "$(pipeline_class "$id")" in COMPLEX|CRITICAL) true ;; *) false ;; esac \
+    && ! grep -Eq '^[[:space:]]*([-*][[:space:]]*)?`?visual_writes:[[:space:]]*[^[:space:]]' "$dir/PLAN.md"; then
+    fail "PLAN.md has a ## UI section and QA's visual focus will run, but no 'visual_writes: <how the data the page writes is thrown away>' line: add it under ## UI (write 'visual_writes: none, <why>' if the page sends no same-origin writes) and freeze again; without it QA ends INCONCLUSIVE and needs a plan amendment (A112)"
+  fi
   # A destructive data change makes the task CRITICAL (D9/D14), whatever was classified.
   if gates_enforced "$id" && [ "$(plan_destructive "$dir/PLAN.md")" = yes ] && [ "$(pipeline_class "$id")" != CRITICAL ]; then
     fz_prev=$(pipeline_class "$id")

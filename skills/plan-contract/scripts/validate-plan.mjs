@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 
 // Shared rule, duplicated in verify-proof's validate-verify.mjs (skills share no files; tests pin both): an
 // optional bullet marker followed by a space, optional backticks, `visual_proof:` and the value.
+// A112: the same line visual-proof's validate-visual.mjs accepts as the same-origin-write allowance.
+const VISUAL_WRITES_LINE = /^\s*(?:[-*]\s*)?`?visual_writes:\s*\S/m;
 const VISUAL_PROOF_LINE = /^\s*(?:[-*]\s+)?`?visual_proof:\s*([^`]*?)\s*`?\s*$/;
 
 export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
@@ -279,6 +281,9 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
   // A81: the designer's `visual_proof: <AC ids|none>` line names the criteria that need visual evidence; visual-proof
   // and verify-proof read it from the frozen plan. Validated when present, required for COMPLEX/CRITICAL plans with UI.
   const ui = body.get("UI");
+  // A112: QA's visual focus runs for COMPLEX/CRITICAL plans with a UI part; without the allowance it ends INCONCLUSIVE
+  // at QA time and forces an amendment. The plan says at plan time how the data the page writes is thrown away.
+  if (ui && ARCHITECTURE_CLASSES.includes(klass) && !VISUAL_WRITES_LINE.test(planMd)) errors.push(`section "## UI": the line "visual_writes: <how the data the page writes is thrown away>" is required for ${klass} (QA's visual focus runs; without it same-origin writes make it INCONCLUSIVE and force a plan amendment; write "visual_writes: none, the page sends no same-origin writes" if there are none)`);
   if (ui) {
     const vp = ui.map((l) => VISUAL_PROOF_LINE.exec(l)).filter(Boolean);
     if (vp.length > 1) errors.push('section "## UI": more than one visual_proof line');
