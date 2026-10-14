@@ -108,21 +108,29 @@ test("rejects role, task and result mismatches", () => {
 });
 
 // --- A94: risk-focus and UNSUPPORTED results mirror agent.sh record_validate ----------------------
+const EV = `UNSUPPORTED_EVIDENCE: reports/snapshots/abc-reviewer-validator.txt ${"e".repeat(64)}`;
 for (const focus of ["contract", "concurrency", "performance", "config"]) {
   test(`reviewer focus ${focus} is a valid gate result on REVIEW_RULES or REVIEW_SMALL`, () => {
     assert.equal(ok(result({ focus })).gate, "REVIEW_RULES");
     ok(result({ focus, res: "FAIL", rows: ["| REVIEW_SMALL-1 | blocking | src/a.js:1 | f | traced |"] }));
   });
-  test(`reviewer focus ${focus} may be UNSUPPORTED with a reason`, () => {
-    const s = ok(result({ focus, res: "UNSUPPORTED", rows: [ROW_INFO], extra: [] , tail: ["UNSUPPORTED_REASON: no compat tool on PATH"] }));
+}
+for (const focus of ["contract", "performance"]) {
+  test(`reviewer focus ${focus} may be UNSUPPORTED with a reason and its evidence`, () => {
+    const s = ok(result({ focus, res: "UNSUPPORTED", rows: [ROW_INFO], extra: [] , tail: ["UNSUPPORTED_REASON: no compat tool on PATH", EV] }));
     assert.equal(s.result, "UNSUPPORTED"); assert.equal(s.counts, false); assert.equal(s.unsupported_reason, "no compat tool on PATH");
   });
 }
+test("A102: UNSUPPORTED needs its evidence line; concurrency and config have no UNSUPPORTED", () => {
+  bad(result({ focus: "contract", res: "UNSUPPORTED", tail: ["UNSUPPORTED_REASON: no compat tool on PATH"] }), "needs an UNSUPPORTED_EVIDENCE line");
+  bad(result({ focus: "contract", res: "UNSUPPORTED", tail: ["UNSUPPORTED_REASON: no compat tool on PATH", "UNSUPPORTED_EVIDENCE: ../x.txt " + "e".repeat(64)] }), "needs an UNSUPPORTED_EVIDENCE line");
+  for (const focus of ["concurrency", "config"]) bad(result({ focus, res: "UNSUPPORTED", tail: ["UNSUPPORTED_REASON: no compat tool on PATH", EV] }), "always has a tool-free check");
+});
 test("reviewer focus migration lands on REVIEW_DATA; visual is qa; dependencies is security_reviewer", () => {
   assert.equal(ok(result({ focus: "migration" })).gate, "REVIEW_DATA");
   assert.equal(ok(result({ role: "qa", focus: "visual", art: `reviews/visual-proof/R.md ${SHA}` })).gate, "QA");
   assert.equal(ok(result({ role: "security_reviewer", focus: "dependencies", art: `security/dependencies/R.md ${SHA}` })).gate, "SECURITY");
-  ok(result({ role: "qa", focus: "visual", res: "UNSUPPORTED", art: `reviews/visual-proof/R.md ${SHA}`, tail: ["UNSUPPORTED_REASON: no browser"] }));
+  ok(result({ role: "qa", focus: "visual", res: "UNSUPPORTED", art: `reviews/visual-proof/R.md ${SHA}`, tail: ["UNSUPPORTED_REASON: no browser", EV] }));
 });
 test("UNSUPPORTED is rejected where agent.sh rejects it", () => {
   const T = ["UNSUPPORTED_REASON: x"];

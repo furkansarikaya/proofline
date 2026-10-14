@@ -53,6 +53,11 @@ Report path: `reviews/performance-proof/REPORT.md`. Submit with `agent.sh submit
 | INCONCLUSIVE | `--result UNSUPPORTED --reason "performance INCONCLUSIVE: <reason>; not a FAIL; <next step>"` (the text `--rows` prints; it always starts with `performance INCONCLUSIVE:`): blocking, never a PASS, re-run or waived only by the user, listed in the completion report under `## Unsupported Checks` |
 | UNSUPPORTED | `--result UNSUPPORTED --reason "performance UNSUPPORTED: <the missing benchmark command or capability>; ..."` (the text `--rows` prints): never a PASS; unproven and reported under `## Unsupported Checks` (blocking only under `risk.unsupported: block`) |
 
+Every UNSUPPORTED submission (INCONCLUSIVE included) also carries `--evidence`: save the validator's own output,
+`node <skill-dir>/scripts/validate-performance.mjs <REPORT.md> --config .agents/config.yaml --plan <run>/PLAN.md --rows > <run>/reviews/performance-proof/validator.txt`,
+and pass `--evidence reviews/performance-proof/validator.txt`. The control plane refuses an UNSUPPORTED without
+that file or whose file lacks the printed `result: UNSUPPORTED` line (A102); a reason alone is not evidence.
+
 `BLOCKED` only when the measurement could not start for another reason (a worktree that does not build, content changed while measuring). Never return PASS without a measurement.
 
 <!-- proofline:shared-rules:begin v1 -->

@@ -91,7 +91,16 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   that names it and says `not proven: <what>` (three words at least). The reason must be concrete (at least 12
   characters with a path, an `INCONCLUSIVE:` measurement or a tool/capability word; `n/a` is refused). A gate that
   closes with an unsupported focus shows `gate.<GATE>.unsupported=<focus,...>` in `pipeline` and
-  `<GATE>: pass (unsupported: <focus,...>)` in `summary`; `next` tells the lead to surface them to the user. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED. The
+  `<GATE>: pass (unsupported: <focus,...>)` in `summary`; `next` tells the lead to surface them to the user. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED; so do `concurrency` and `config` (A102).
+  **Evidence (A102).** A reason alone is refused: UNSUPPORTED also needs `--evidence <file>`, the skill
+  validator's own output saved in the focus's report folder or `reports/` (`submit` snapshots it like the
+  report, A43). `record` refuses it unless the file holds the validator's `RESULT: UNSUPPORTED` line (visual:
+  or `INCONCLUSIVE`) and its sha256 is the one cited; a printed `BASE:` must be the run's base. Cross-checks on
+  the script's own signals: every contract file `risk_compute` found in the diff must appear in contract-proof's
+  `FILE: compared|unsupported <path>` lines with at least one unsupported, and every changed `.sql` migration
+  must appear as `FILE: unsupported <path>` in `validate-migration.mjs --repo` output. The gate record keeps
+  `unsupported_evidence: <path>@<sha12>` (the record turns stale if the file changes), and `pipeline` and `next`
+  print it. The
   `contract` focus has contract-proof (A83): UNSUPPORTED only for a changed contract file it cannot parse that no
   compatibility tool already present covers, or when node is missing.
 - **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block, the performance thresholds (`performance:`, A87) the non-empty `security.*` keys (A88) and the `contract:` globs (A83) with `freeze.risk_sha256`. A

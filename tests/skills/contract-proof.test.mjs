@@ -452,6 +452,19 @@ test("CLI refuses an option-like --base", () => {
   assert.equal(spawnSync("node", [VALIDATE, join(base, "x.json"), "--repo", repo, "--base", "-x"]).status, 2);
 });
 
+test("A102: the validator prints FILE and BASE lines, the evidence of an UNSUPPORTED submission", () => {
+  const dir = mini("a102", { "api/openapi.yaml": "openapi: 3.0.0\npaths: {}\n", "api/events.avsc": "{}\n" }, { "api/openapi.yaml": "openapi: 3.0.0\ninfo:\n  title: x\npaths: {}\n", "api/events.avsc": "{\"type\": \"record\"}\n" });
+  const out = join(base, "a102.json");
+  assert.equal(spawnSync("node", [DIFF, "--repo", dir, "--base", "HEAD~1", "--out", out]).status, 0);
+  const r = spawnSync("node", [VALIDATE, out, "--repo", dir, "--base", "HEAD~1"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^RESULT: UNSUPPORTED$/m);
+  assert.match(r.stdout, /^FILE: compared api\/openapi\.yaml$/m);
+  assert.match(r.stdout, /^FILE: unsupported api\/events\.avsc$/m);
+  const head1 = spawnSync("git", ["rev-parse", "HEAD~1"], { cwd: dir, encoding: "utf8" }).stdout.trim();
+  assert.match(r.stdout, new RegExp(`^BASE: ${head1}$`, "m"));
+});
+
 // ---- fixture end to end ------------------------------------------------------------------------------
 test("fixture: whole diff FAILs with the planted uncovered breaks only; subsets PASS and UNSUPPORTED", () => {
   let r = spawnSync("sh", [join(fixture, "selfcheck.sh"), repo], { encoding: "utf8" });

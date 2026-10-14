@@ -29,6 +29,9 @@ parser for a contract format) reports `UNSUPPORTED`. proofline installs nothing 
 - By default (`risk.unsupported: report`) it does not block its gate; the completion report lists it under
   `## Unsupported Checks`, one line per check with `not proven: <what>`, and never asserts it as verified.
   `risk.unsupported: block` makes it a blocking finding that only the user can waive.
+- UNSUPPORTED is itself evidence-backed (A102): the result cites the skill validator's saved output that says
+  `RESULT: UNSUPPORTED`, bound by its sha256, and the control plane refuses it when a contract or `.sql` migration
+  file it detected in the diff is missing from that output. A reason alone is not enough.
 - A tool that exists but cannot run (no network for an audit tool) is recorded as `tool_unavailable` in the report.
 - Noise is not unsupported: a performance measurement whose spread exceeds the threshold is `INCONCLUSIVE`, which is
   neither a FAIL nor a PASS, and the report says so. It is submitted as UNSUPPORTED with an `INCONCLUSIVE:` reason

@@ -8,9 +8,12 @@
 //                contract.ignore) and requires every change it finds, with the same rule (only a CP-U01 may
 //                have been reclassified, with traced evidence)
 //   valid   -> exit 0; prints "RESULT: PASS|FAIL|UNSUPPORTED", "CONFIDENCE: high|medium|low" and, for
-//              UNSUPPORTED, "REASON: ..."; --table also prints the `agent.sh submit --findings` rows.
+//              UNSUPPORTED, "REASON: ..."; then "FILE: compared|unsupported <path>" per file and, with --base,
+//              "BASE: <commit>" (A102: saved, this output is the evidence of an UNSUPPORTED submission);
+//              --table also prints the `agent.sh submit --findings` rows.
 //   invalid -> exit 1 with one error per line; unreadable input or usage error -> exit 2.
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { RULES, BLOCKING_CLASSES, COVER_KEYWORD, NOT_A_CONTRACT, globMatch, coverage, planBullets, hasToken, run } from "./diff-contract.mjs";
 
@@ -175,6 +178,9 @@ function main(args) {
   const g = gate(doc, { trustCoverage: bullets !== null });
   console.log(`RESULT: ${g.result}\nCONFIDENCE: ${g.confidence}`);
   if (g.result === "UNSUPPORTED") console.log(`REASON: ${g.reason}`);
+  // A102: the per-file status and the resolved base make this output the evidence of an UNSUPPORTED submission
+  for (const f of doc.files) console.log(`FILE: ${f.status} ${f.path}`);
+  if (o.base) { try { console.log(`BASE: ${execFileSync("git", ["-C", o.repo, "rev-parse", "--verify", `${o.base}^{commit}`], { encoding: "utf8" }).trim()}`); } catch { /* unresolvable: the differ already refused it */ } }
   if (o.table && g.rows.length) console.log(g.rows.join("\n"));
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv.slice(2));

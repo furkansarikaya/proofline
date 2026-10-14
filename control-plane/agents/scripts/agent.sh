@@ -832,13 +832,15 @@ risk_show() {
     [ -z "$rsh_by" ] || printf 'design_role.%s=%s\n' "$rsh_r" "${rsh_by% }"
   done
 }
-# risk_unsupported ID -> "GATE:focus|severity|finding" for each UNSUPPORTED finding of a current focus record
+# risk_unsupported ID -> "GATE:focus|severity|finding|evidence" for each UNSUPPORTED finding of a current focus record
+# (evidence: the record's `unsupported_evidence` path@sha12, A102, empty for a FAIL's unparsed-file rows)
 # (never a PASS): severity info = unproven and reported (A98), blocking = a waiver or a measurement is needed.
 risk_unsupported() {
   for ru_g in $(required_gates "$1"); do
     for ru_f in $(risk_gate_focuses "$1" "$ru_g"); do
       ru_r=$(gate_latest_file "$1" "$ru_g" "$ru_f"); [ -n "$ru_r" ] || continue
-      sed -n 's/^finding: [^|]*|\([a-z]*\)|[^|]*|\(UNSUPPORTED [^|]*\)|.*/\1|\2/p' "$ru_r" | sed "s#^#$ru_g:$ru_f|#"
+      ru_e=$(gate_field "$ru_r" unsupported_evidence)
+      sed -n 's/^finding: [^|]*|\([a-z]*\)|[^|]*|\(UNSUPPORTED [^|]*\)|.*/\1|\2/p' "$ru_r" | sed "s#^#$ru_g:$ru_f|#; s#\$#|$ru_e#"
     done
   done
 }
@@ -944,7 +946,7 @@ pipeline_show() {
     for ps_f in $(risk_gate_focuses "$id" "$ps_g"); do printf 'focus.%s.%s=%s\n' "$ps_g" "$ps_f" "$(gate_focus_status "$id" "$ps_g" "$ps_f" strict "$ps_fp")"; done
   done
   risk_show "$id"
-  risk_unsupported "$id" | while IFS='|' read -r ps_k ps_v ps_t; do printf 'unsupported.%s=%s: %s\n' "$ps_k" "$(unsupported_label "$ps_v")" "${ps_t#UNSUPPORTED }"; done
+  risk_unsupported "$id" | while IFS='|' read -r ps_k ps_v ps_t ps_e; do printf 'unsupported.%s=%s: %s%s\n' "$ps_k" "$(unsupported_label "$ps_v")" "${ps_t#UNSUPPORTED }" "${ps_e:+ (evidence: $ps_e)}"; done
 }
 class_rank() { case "$1" in TRIVIAL) echo 0 ;; STANDARD) echo 1 ;; COMPLEX) echo 2 ;; CRITICAL) echo 3 ;; *) echo 0 ;; esac; }
 classify() {
@@ -2033,6 +2035,8 @@ valid_gate_file() {
   [ "$(gate_field "$g_f" role)" = "$(gate_owner "$(gate_field "$g_f" gate)")" ] || return 1
   g_art=$(gate_field "$g_f" artifact)
   if [ -n "$g_art" ]; then [ -f "$g_d/$g_art" ] && [ "$(gate_field "$g_f" artifact_sha256)" = "$(hash_file "$g_d/$g_art")" ] || return 1; fi
+  g_ue=$(gate_field "$g_f" unsupported_evidence); g_ue=${g_ue%@*}   # A102: evidence edited after the record -> stale
+  if [ -n "$g_ue" ]; then [ -f "$g_d/$g_ue" ] && [ "$(gate_field "$g_f" unsupported_evidence_sha256)" = "$(hash_file "$g_d/$g_ue")" ] || return 1; fi
   return 0
 }
 finding_ids() { sed -n 's/^finding: \([^|]*\)|.*/\1/p' "$1"; }
@@ -2265,7 +2269,7 @@ gate_preconditions() { # ID GATE
 # write_gate ID GATE RESULT ROLE CONFIDENCE FOCUS ARTIFACT FINDINGS-FILE RESULT-FILE FINGERPRINT
 # FINDINGS-FILE holds rows "id|severity|path:line|finding|evidence".
 write_gate() {
-  wg_id=$1 wg_gate=$2 wg_res=$3 wg_role=$4 wg_conf=$5 wg_focus=$6 wg_art=$7 wg_findings=$8 wg_rfile=$9; shift 9; wg_fp=$1
+  wg_id=$1 wg_gate=$2 wg_res=$3 wg_role=$4 wg_conf=$5 wg_focus=$6 wg_art=$7 wg_findings=$8 wg_rfile=$9; shift 9; wg_fp=$1 wg_ue=${2:-}
   wg_d=$(run_dir "$wg_id"); wg_gd=$(gates_dir "$wg_id"); mkdir -p "$wg_gd" || fail "cannot create $wg_gd"
   wg_seq=$(next_gate_seq "$wg_id"); [ "$wg_seq" -le 999 ] || fail "gate record limit reached"
   wg_name=$(printf '%03d-%s' "$wg_seq" "$wg_gate")
@@ -2284,6 +2288,8 @@ write_gate() {
     [ -z "$wg_rfile" ] || printf 'result_file: "%s"\nresult_sha256: "%s"\n' "$wg_rfile" "$(hash_file "$wg_d/$wg_rfile")"
     [ "$wg_res" != fail ] || printf 'fix_scope: %s\n' "$wg_scope"
     [ "$wg_res" != unsupported ] || printf 'unsupported: "%s"\n' "$wg_focus"
+    # A102: the evidence of an UNSUPPORTED result, bound by its sha256 (valid_gate_file re-checks it)
+    [ -z "$wg_ue" ] || printf 'unsupported_evidence: "%s@%.12s"\nunsupported_evidence_sha256: "%s"\n' "${wg_ue% *}" "${wg_ue##* }" "${wg_ue##* }"
     [ ! -s "$wg_findings" ] || sed 's/^/finding: /' "$wg_findings"
     printf 'timestamp: "%s"\nepoch: %s\n' "$(now_iso)" "$(now_epoch)"
   } > "$wg_gd/$wg_name.yaml" || fail "could not write gate record"
@@ -2387,6 +2393,9 @@ record_validate() {
   case "$rv_res" in
     UNSUPPORTED) if is_gate_role "$rv_role" && risk_focus_role "$rv_focus" >/dev/null 2>&1; then rv_kind=gate; else record_reject "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"; return 1; fi
       [ "$rv_focus" != dependencies ] || { record_reject "the dependencies focus always has a tool-free check (the manifest diff against PLAN ## Dependencies); UNSUPPORTED is not available"; return 1; }
+      # A102: concurrency (traced interleavings) and config (the static consistency scan) need no tool either.
+      case "$rv_focus" in concurrency|config) record_reject "the $rv_focus focus always has a tool-free check (concurrency: a traced interleaving; config: the static consistency scan); UNSUPPORTED is not available: submit PASS or FAIL, or BLOCKED with the reason (A102)"; return 1 ;; esac
+      grep -q '^UNSUPPORTED_EVIDENCE:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs --evidence (an UNSUPPORTED_EVIDENCE line): the saved output of the skill's validator that prints 'RESULT: UNSUPPORTED' (submit --evidence <run-relative path>, A102); a reason alone is not evidence"; return 1; }
       grep -q '^UNSUPPORTED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)"; return 1; }
       unsupported_reason_ok "$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1)" || { record_reject "UNSUPPORTED_REASON is too vague: name the concrete missing tool, parser, capability or file (at least 12 characters, e.g. 'no machine-readable contract file; API.md is prose, no parser' or 'no headless browser installed'); a check you could run is PASS or FAIL (A98)"; return 1; } ;;
     PASS|FAIL) is_gate_role "$rv_role" && rv_kind=gate ;;
@@ -2422,6 +2431,10 @@ record_validate() {
   known_control_artifact "$rv_id" ".agents/runs/$rv_id/$rv_ap" || { record_reject "ARTIFACT is not a registered run artifact: $rv_ap"; return 1; }
   artifact_allowed "$rv_role" "$rv_kind" "$rv_focus" "$rv_ap" || { record_reject "ARTIFACT $rv_ap is outside the paths $rv_role${rv_focus:+ (FOCUS $rv_focus)} reports in: $(artifact_paths "$rv_role" "$rv_kind" "$rv_focus")"; return 1; }
   [ "$(hash_file "$rv_d/$rv_ap")" = "$rv_as" ] || { record_reject "ARTIFACT sha256 mismatch for $rv_ap"; return 1; }
+  rv_ue=''
+  if [ "$rv_res" = UNSUPPORTED ]; then
+    rv_ue=$(unsupported_evidence_check "$rv_id" "$rv_role" "$rv_focus" "$rv_t/raw") || { record_reject "$rv_ue"; return 1; }
+  fi
   # One round (C-14), keyed by role (+focus) per run, deliberately not per instance: a later instance of the role (a second explorer, a redispatched architect) decides or returns BLOCKED.
   # Exemption (A75): intent-grill's interview is multi-round; its rounds neither count nor are limited (and are not capped:
   # shortcut: unlimited rounds, the user's replies are the bound). Only the task author, and its artifact is design/INTENT.md
@@ -2482,7 +2495,48 @@ record_validate() {
   fi
   if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ]; then gate_preconditions "$rv_id" "$rv_gate"; fi
   printf 'role=%s\nresult=%s\nkind=%s\ngate=%s\nfocus=%s\nconfidence=%s\nartifact=%s\nfingerprint=%s\ngrill=%s\n' "$rv_role" "$rv_res" "$rv_kind" "$rv_gate" "$rv_focus" "$rv_conf" "$rv_ap" "$rv_fp" "$rv_grill" > "$rv_t/meta"
-  printf 'added=%s\n' "$rv_added" >> "$rv_t/meta"
+  printf 'added=%s\nevidence=%s\n' "$rv_added" "$rv_ue" >> "$rv_t/meta"
+}
+# A102: an UNSUPPORTED result is backed by the skill validator's own saved output, not by a reason alone.
+# unsupported_evidence_check ID ROLE FOCUS RAW -> "<path> <sha256>", or the refusal text and exit 1.
+# The file: inside the run (the focus's report folder or reports/, normally the snapshot `submit` made, A43),
+# its sha256 as cited, holding the validator's `RESULT: UNSUPPORTED` line (visual: or INCONCLUSIVE); a printed
+# `BASE:` must be the run's base. Cross-checks that do not depend on the agent: every contract file this script's
+# own signals found in the diff is listed by the differ (`FILE: compared|unsupported <path>`, at least one
+# unsupported), and every changed .sql migration is listed `FILE: unsupported <path>` by validate-migration --repo.
+# shortcut: the file's text is checked, not re-derived (the control plane never runs a skill); a fabricated file
+# that also names every signalled path passes, and the reviewer, verifier and completion report remain the check.
+unsupported_evidence_check() {
+  ue_d=$(run_dir "$1")
+  ue_l=$(sed -n 's/^UNSUPPORTED_EVIDENCE:[[:space:]]*//p' "$4" | head -1); ue_p=${ue_l% *}; ue_s=${ue_l##* }
+  [ "$ue_p" != "$ue_l" ] || { echo "UNSUPPORTED_EVIDENCE needs '<run-relative path> <sha256>'"; return 1; }
+  case "$ue_p" in .agents/runs/"$1"/*) ue_p=${ue_p#.agents/runs/"$1"/} ;; esac
+  case "$ue_p" in ''|/*|*..*) echo "UNSUPPORTED_EVIDENCE path must be run-relative: $ue_p"; return 1 ;; esac
+  [ -f "$ue_d/$ue_p" ] && [ ! -L "$ue_d/$ue_p" ] || { echo "UNSUPPORTED_EVIDENCE not found in the run: $ue_p"; return 1; }
+  case "$(realpath "$ue_d/$ue_p")" in "$(realpath "$ue_d")"/*) ;; *) echo "UNSUPPORTED_EVIDENCE must be inside the run: $ue_p"; return 1 ;; esac
+  ue_dir=$(risk_focus_report "$3")
+  case "$ue_p" in reports/*|"$ue_dir"*) ;; *) echo "UNSUPPORTED_EVIDENCE must be in $ue_dir or reports/: $ue_p"; return 1 ;; esac
+  [ "$(hash_file "$ue_d/$ue_p")" = "$ue_s" ] || { echo "UNSUPPORTED_EVIDENCE sha256 mismatch for $ue_p (edited after it was cited)"; return 1; }
+  ue_f=$ue_d/$ue_p; ue_rx='UNSUPPORTED'; [ "$3" != visual ] || ue_rx='UNSUPPORTED|INCONCLUSIVE'
+  grep -Eiq "^RESULT:[[:space:]]*($ue_rx)[[:space:]]*\$" "$ue_f" || { echo "UNSUPPORTED_EVIDENCE $ue_p does not hold the validator's 'RESULT: UNSUPPORTED' line: save the $3 validator's own output there (A102)"; return 1; }
+  ue_b=$(sed -n 's/^BASE:[[:space:]]*\([0-9a-f]\{7,40\}\)[[:space:]]*$/\1/p' "$ue_f" | head -1)
+  if [ -n "$ue_b" ]; then
+    ue_rb=$(repository_base_sha "$ue_d")
+    case "$ue_rb" in "$ue_b"*) ;; *) echo "UNSUPPORTED_EVIDENCE $ue_p was produced against base $ue_b, not the run's base ${ue_rb:-unknown}"; return 1 ;; esac
+  fi
+  case "$3" in
+    contract)
+      for ue_c in $(risk_signals "$1" | awk -F'|' '$1 == "contract_file" && $2 == "diff" { print $3 }' | sort -u); do
+        grep -Fxq -e "FILE: compared $ue_c" -e "FILE: unsupported $ue_c" "$ue_f" || { echo "UNSUPPORTED refused: $ue_c is a contract file this run changed (risk signal contract_file) and $ue_p does not list it as compared or unsupported; run the differ over it (--path $ue_c) and submit its result (A102)"; return 1; }
+      done
+      if grep -q '^FILE: ' "$ue_f" && ! grep -q '^FILE: unsupported ' "$ue_f"; then echo "UNSUPPORTED refused: $ue_p lists every contract file as compared; the result is PASS or FAIL (A102)"; return 1; fi ;;
+    migration)
+      grep -q '^WARN no --repo' "$ue_f" && { echo "UNSUPPORTED_EVIDENCE $ue_p is validate-migration output without --repo; re-run it with --repo <repo> (A102)"; return 1; }
+      for ue_c in $(risk_signals "$1" | awk -F'|' '$1 == "migration" && $2 == "diff" && $3 ~ /\.sql$/ { print $3 }' | sort -u); do
+        grep -Fxq "FILE: unsupported $ue_c" "$ue_f" || { echo "UNSUPPORTED refused: the changed migration $ue_c is not listed 'FILE: unsupported $ue_c' in $ue_p; cite it in the report's ## Migrations and re-run validate-migration.mjs --repo (A102)"; return 1; }
+      done ;;
+  esac
+  printf '%s %s\n' "$ue_p" "$ue_s"
 }
 record_apply() {
   ra_id=$1 ra_t=$2; ra_d=$(run_dir "$1"); m() { sed -n "s/^$1=//p" "$ra_t/meta"; }
@@ -2495,7 +2549,7 @@ record_apply() {
   if [ "$ra_kind" = gate ] && [ "$ra_res" != BLOCKED ]; then
     ra_gres=fail; [ "$ra_res" != PASS ] || { if [ "$ra_conf" = low ]; then ra_gres=pass_low; else ra_gres=pass; fi; }
     [ "$ra_res" != UNSUPPORTED ] || ra_gres=unsupported
-    write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)"
+    write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)" "$(m evidence)"
   fi
   if [ "$ra_res" = NEEDS_INPUT ]; then
     mkdir -p "$ra_d/questions"; ra_q=$(next_num "$ra_d/questions")
@@ -2586,12 +2640,12 @@ submit_result() {
   sb_id=$1; shift
   [ "$execution_role" != lead ] || fail "the lead never submits a specialist result"
   require_run "$sb_id"
-  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_report='' sb_agent=${PROOFLINE_AGENT:-}
+  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_report='' sb_evidence='' sb_agent=${PROOFLINE_AGENT:-}
   while [ $# -gt 0 ]; do
-    [ $# -ge 2 ] || fail "usage: agent.sh submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--questions FILE] [--agent TOKEN]"
+    [ $# -ge 2 ] || fail "usage: agent.sh submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--evidence P] [--questions FILE] [--agent TOKEN]"
     case "$1" in
       --result) sb_res=$2 ;; --confidence) sb_conf=$2 ;; --focus) sb_focus=$2 ;; --artifact) sb_art=$2 ;;
-      --findings) sb_findings=$2 ;; --report) sb_report=$2 ;; --reason) sb_reason=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
+      --findings) sb_findings=$2 ;; --report) sb_report=$2 ;; --reason) sb_reason=$2 ;; --evidence) sb_evidence=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
       *) fail "submit: unknown option $1" ;;
     esac
     shift 2
@@ -2632,7 +2686,8 @@ submit_result() {
       BLOCKED) ;;
       # A78/A98: a risk focus whose tool or skill is missing; never a PASS (reported, or blocking: record decides).
       UNSUPPORTED) [ "$sb_blocking" = 0 ] || submit_fail "--result UNSUPPORTED cannot carry blocking findings (a check that found a defect is FAIL; its UNSUPPORTED rows still block and are listed)"
-        [ -n "$sb_reason" ] || submit_fail "--result UNSUPPORTED needs --reason naming the missing tool or skill" ;;
+        [ -n "$sb_reason" ] || submit_fail "--result UNSUPPORTED needs --reason naming the missing tool or skill"
+        ;;
       *) submit_fail "--result $sb_res is not valid for role $execution_role (gate roles: PASS FAIL BLOCKED UNSUPPORTED, or omit it)" ;;
     esac
   fi
@@ -2695,6 +2750,16 @@ submit_result() {
     mkdir -p "$sb_d/reports/snapshots" && cp "$sb_d/$sb_norm" "$sb_d/$sb_sn" || submit_fail "could not snapshot $sb_norm"
     sb_norm=$sb_sn ;;
   esac
+  # A102: the evidence of an UNSUPPORTED result is snapshotted the same way; record checks what it holds.
+  sb_ev=''
+  if [ "$sb_res" = UNSUPPORTED ] && [ -n "$sb_evidence" ]; then   # none: record refuses it after the focus checks
+    sb_ev=$(normalize_artifact "$sb_id" "$sb_evidence") || submit_fail "--evidence must be an existing file inside the run directory: $sb_evidence"
+    case "$sb_ev" in reports/snapshots/*) ;; *)
+      sb_eh=$(hash_file "$sb_d/$sb_ev")
+      sb_es=reports/snapshots/$(printf '%.12s' "$sb_eh")-$execution_role-$(printf '%s' "$sb_ev" | tr '/' '_')
+      case "$sb_ev" in reports/*|"$(risk_focus_report "$sb_focus")"*) cp "$sb_d/$sb_ev" "$sb_d/$sb_es" || submit_fail "could not snapshot $sb_ev"; sb_ev=$sb_es ;; esac ;;
+    esac
+  fi
   {
     printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
     [ -z "$sb_focus" ] || printf 'FOCUS: %s\n' "$sb_focus"
@@ -2703,7 +2768,8 @@ submit_result() {
     sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
     awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
     if [ "$sb_res" = BLOCKED ]; then printf '\nBLOCKED_REASON: %s\n' "$(one_line "${sb_reason:-see $sb_norm}")"; fi
-    if [ "$sb_res" = UNSUPPORTED ]; then printf '\nUNSUPPORTED_REASON: %s\n' "$(one_line "$sb_reason")"; fi
+    if [ "$sb_res" = UNSUPPORTED ]; then printf '\nUNSUPPORTED_REASON: %s\n' "$(one_line "$sb_reason")"
+      [ -z "$sb_ev" ] || printf 'UNSUPPORTED_EVIDENCE: %s %s\n' "$sb_ev" "$(hash_file "$sb_d/$sb_ev")"; fi
     if [ "$sb_res" = NEEDS_INPUT ]; then
       printf '\nQUESTIONS:\n'
       if [ -n "$sb_questions" ]; then cat "$sb_tmp/questions.in"
@@ -3435,8 +3501,8 @@ amend_run() {
 # A98: `next` names every UNSUPPORTED focus before CODE_DONE and the report: unproven, never a PASS.
 unsupported_next() { # ID
   un_all=$(risk_unsupported "$1"); [ -n "$un_all" ] || return 0
-  printf '%s\n' "$un_all" | while IFS='|' read -r un_k un_v un_t; do
-    o "$(unsupported_label "$un_v") $un_k: ${un_t#UNSUPPORTED } -> list it in COMPLETION_REPORT.md '## Unsupported Checks' as '- $un_k: <reason>; not proven: <what>'"
+  printf '%s\n' "$un_all" | while IFS='|' read -r un_k un_v un_t un_e; do
+    o "$(unsupported_label "$un_v") $un_k: ${un_t#UNSUPPORTED }${un_e:+ (evidence: $un_e)} -> list it in COMPLETION_REPORT.md '## Unsupported Checks' as '- $un_k: <reason>; not proven: <what>'"
   done
   o "surface these unsupported checks to the user in your reply: they were not proven, never passed"
 }
