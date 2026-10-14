@@ -65,7 +65,7 @@ Deterministic risk signals add focuses inside the gates above; they never add a 
 | flags `contract_change`, `concurrency`, `performance_critical`, `destructive`, `ui` | PLAN.md | itself | as above (`destructive` adds `migration`) | as above |
 
 Plain documentation (`.md .mdx .rst .adoc`) and `.agents/` never carry a path or content signal. A check runs
-only when its gate is required for the class and tier (TRIVIAL has no QA gate, so no `visual` check). A
+only when its gate is required for the class and tier (TRIVIAL has no QA gate, so no `visual` check). A TRIVIAL run has no design phase either: its UI signals print `check=- (class TRIVIAL: no design phase / no QA gate)` and `design_role=-`, and ask for no `ui` flag, no `## UI` section and no designer (A96). A
 migration path signal is a risky path, so the tier is full and REVIEW_DATA exists to carry it. A flag set to
 `yes` requires its check whether or not the diff carries the signal.
 

@@ -784,11 +784,17 @@ risk_gate_focuses() { # ID GATE -> the risk focuses the gate carries for this ru
   if [ "${rs_cache_id:-}" = "$1" ]; then rgf_all=$rs_focuses; else rgf_all=$(risk_focuses_of "$1"); fi
   for rgf_f in $rgf_all; do if risk_focus_on_gate "$rgf_f" "$2"; then printf '%s\n' "$rgf_f"; fi; done
 }
+# A96: a TRIVIAL run has no design phase and no QA gate, so a UI signal (ui_path, ui) is shown but never asks
+# for the `ui` flag, a `## UI` section or a designer (A36: a copy edit in a UI file is TRIVIAL text).
+risk_ui_exempt() { # ID SIGNAL -> 0 when the signal is a UI signal of a class without a design phase
+  [ "$(cfg "risk.$2.check")" = visual ] && [ "$(pipeline_class "$1")" = TRIVIAL ]
+}
 # risk_missing_flags ID [FOCUS] -> "name|source|path|flag" for each path signal (of FOCUS) whose flag is not yes.
 risk_missing_flags() {
   rmf_plan=$(run_dir "$1")/PLAN.md
   risk_signals "$1" | while IFS='|' read -r rmf_n rmf_src rmf_p _; do
     [ "$rmf_src" != plan ] || continue
+    ! risk_ui_exempt "$1" "$rmf_n" || continue
     [ -z "${2:-}" ] || [ "$(cfg "risk.$rmf_n.check")" = "$2" ] || continue
     rmf_fl=$(cfg "risk.$rmf_n.flag"); [ -n "$rmf_fl" ] || continue
     [ "$(plan_flag "$rmf_plan" "$rmf_fl")" != yes ] || continue
@@ -804,6 +810,10 @@ risk_show() {
     rsh_f=$(cfg "risk.$rsh_n.check"); rsh_g=''
     for rsh_x in $rsh_req; do if risk_focus_on_gate "$rsh_f" "$rsh_x"; then rsh_g=$rsh_x; fi; done
     rsh_fl=$(cfg "risk.$rsh_n.flag"); [ -z "$rsh_fl" ] || rsh_fl="$rsh_fl:$(plan_flag "$(run_dir "$1")/PLAN.md" "$rsh_fl")"
+    if risk_ui_exempt "$1" "$rsh_n"; then
+      printf 'signal.%s=source=%s check=- (class TRIVIAL: no design phase / no QA gate) flag=%s design_role=-\n' "$rsh_n" "$rsh_src" "${rsh_fl:--}"
+      continue
+    fi
     printf 'signal.%s=source=%s check=%s:%s%s flag=%s design_role=%s\n' "$rsh_n" "$rsh_src" "${rsh_g:--}" "$rsh_f" \
       "$([ -n "$rsh_g" ] || printf ' (no required gate carries it for this class and tier)')" "${rsh_fl:--}" "$(cfg "risk.$rsh_n.design_role" -)"
   done
@@ -812,7 +822,7 @@ risk_show() {
       "$([ "$rsh_src" = diff ] && echo "a blocking finding of focus $(cfg "risk.$rsh_n.check"); the check still runs" || echo "declare it before FREEZE")"
   done
   for rsh_r in architect data_architect designer; do
-    rsh_by=$(printf '%s\n' "$rsh_sig" | cut -d'|' -f1 | sed '/^$/d' | sort -u | while IFS= read -r rsh_n; do [ "$(cfg "risk.$rsh_n.design_role")" != "$rsh_r" ] || printf '%s ' "$rsh_n"; done)
+    rsh_by=$(printf '%s\n' "$rsh_sig" | cut -d'|' -f1 | sed '/^$/d' | sort -u | while IFS= read -r rsh_n; do if [ "$(cfg "risk.$rsh_n.design_role")" = "$rsh_r" ] && ! risk_ui_exempt "$1" "$rsh_n"; then printf '%s ' "$rsh_n"; fi; done)
     [ -z "$rsh_by" ] || printf 'design_role.%s=%s\n' "$rsh_r" "${rsh_by% }"
   done
 }
