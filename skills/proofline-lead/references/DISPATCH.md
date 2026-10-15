@@ -72,7 +72,7 @@ Rules:
 | Role | OBJECTIVE / WRITE / STOP default |
 |---|---|
 | task_author | write TASK.md for the request / `TASK.md` (+ `design/INTENT.md` with intent-grill) / canonical sections complete or questions |
-| explorer | answer one evidence question / `reports/NNN-explorer.md` / the evidence-map stop condition |
+| explorer | answer one evidence question / `reports/NNN-explorer.md` (name assigned by `submit` from the explorer's `--report`) / the evidence-map stop condition |
 | architect | `## Architecture` text / `design/ARCHITECTURE.md` / sections drafted |
 | data_architect | `## Data` text / `design/DATA.md` / migration plan classified |
 | designer | `## UI` text / `design/UI.md` / spec complete |

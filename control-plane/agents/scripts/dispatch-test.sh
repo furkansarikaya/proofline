@@ -275,4 +275,15 @@ ck "metrics: a resubmitted dispatch counts one retry" 'grep -Eq "\|1\|submitted\
 reset; d FAKE_CODEX=fail T-1 implementer
 ck "metrics: a failed dispatch is recorded with result failed" 'grep -Eq "\|failed\|$" "$loc/metrics.log"'
 
+# A113: four parallel dispatches get four distinct claimed sequences: the exact tokens d001..d004, one log each
+reset; mkcfg auto
+pids=''
+for pf in rules tests plan config; do
+  env FAKE_CLAUDE=ok sh "$a/scripts/dispatch.sh" T-1 reviewer --focus "$pf" > "$tmp/par-$pf.out" 2>&1 &
+  pids="$pids $!"
+done
+for pid in $pids; do wait "$pid"; done
+ck "A113 parallel dispatches: exactly four distinct dispatch logs d001..d004" '[ "$(cd "$a/runs/T-1/dispatch" && ls ???-reviewer-claude.log | tr "\n" " ")" = "001-reviewer-claude.log 002-reviewer-claude.log 003-reviewer-claude.log 004-reviewer-claude.log " ]'
+ck "A113 parallel dispatches: exactly four distinct submission tokens d001..d004" '[ "$(cd "$loc/submissions" && ls | sed "s/.status$//" | tr "\n" " ")" = "d001-reviewer-claude d002-reviewer-claude d003-reviewer-claude d004-reviewer-claude " ]'
+
 [ "$fails" -eq 0 ]

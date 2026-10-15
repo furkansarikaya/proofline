@@ -232,6 +232,63 @@ sc_stdin_contract() { # A104
   ok "submit stdin contract: both-stdin refused, separator split, --findings none, info row"
 }
 
+# A113: submit allocates an explorer's numbered report name; parallel submits never share or overwrite one
+sc_report_names() {
+  scaffold orchestrated
+  n=1 pids=''
+  while [ "$n" -le 4 ]; do
+    printf 'report of explorer %s\n' "$n" > "$base/rep$n"
+    AS explorer submit LC --result DONE --confidence high --findings none --report "$base/rep$n" --artifact reports/001-explorer.md --agent "ag$n" > "$base/s$n.out" 2>&1 &
+    pids="$pids $!"; n=$((n + 1))
+  done
+  for pid in $pids; do wait "$pid" || die "parallel explorer submit failed: $(cat "$base"/s?.out)"; done
+  [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" -eq 4 ] || die "four parallel submits did not give four reports"
+  for n in 1 2 3 4; do
+    [ "$(grep -l "^report of explorer $n$" .agents/runs/LC/reports/???-explorer.md | wc -l | tr -d ' ')" -eq 1 ] || die "the report of explorer $n was lost or duplicated"
+  done
+  [ "$(find .agents/runs/LC/results -name '???-explorer.result.md' | wc -l | tr -d ' ')" -eq 4 ] || die "parallel results collided"
+  [ "$(grep -c 'event=record:explorer:DONE' .agents/runs/LC/LEDGER.log)" -eq 4 ] || die "not one ledger row per parallel submit"
+  [ "$(grep -h '^ARTIFACT: ' .agents/runs/LC/results/???-explorer.result.md | sort -u | wc -l | tr -d ' ')" -eq 4 ] || die "results cite a shared artifact"
+  # the same dispatch updates its own report; a re-dispatch under a new token gets a new name
+  printf 'report of explorer 1, revised\n' > "$base/rep1"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/rep1" --agent ag1 >/dev/null || die "the same dispatch could not resubmit"
+  [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" -eq 4 ] || die "a resubmit allocated a new report"
+  [ "$(grep -l '^report of explorer 1, revised$' .agents/runs/LC/reports/???-explorer.md | wc -l | tr -d ' ')" -eq 1 ] || die "the resubmit did not update its own report"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/rep1" --agent ag9 >/dev/null || die "a re-dispatch was refused"
+  [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" -eq 5 ] || die "a re-dispatch did not get its own name"
+  # a direct write into a numbered explorer path is never an explorer artifact, whatever the spelling
+  printf 'planted\n' > .agents/runs/LC/reports/009-explorer.md
+  nrep=$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')
+  for sp in reports/009-explorer.md reports/./009-explorer.md reports//009-explorer.md ./reports/./009-explorer.md ".agents/runs/LC/reports/./009-explorer.md"; do
+    expect_msg "a direct numbered explorer report was accepted: $sp" 'hands its report over with --report' AS explorer submit LC --result DONE --confidence high --findings none --artifact "$sp" --agent ag1
+    expect_msg "a tokenless direct numbered explorer report was accepted: $sp" 'hands its report over with --report' AS explorer submit LC --result DONE --confidence high --findings none --artifact "$sp"
+  done
+  # an empty report allocates nothing and leaves no owner entry
+  nrep=$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')
+  : > "$base/empty"
+  expect_msg "an empty report was accepted" 'report is empty' AS explorer submit LC --result DONE --confidence high --findings none --report "$base/empty" --agent agE
+  [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" = "$nrep" ] || die "a refused empty report left a stub"
+  [ ! -e .agents/runs/LC/reports/.owners/agE ] || die "a refused empty report left an owner entry"
+  # a refused submit after allocation (non-English report) rolls the allocation back
+  printf 'Bu rapor T\303\274rk\303\247e yaz\304\261ld\304\261: \303\247ok \305\237\303\266yle \304\237\303\274zel.\n' > "$base/tr"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/tr" --agent agT >/dev/null 2>&1 && die "a non-English report was accepted"
+  [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" = "$nrep" ] || die "a refused submit left an allocated stub"
+  # BLOCKED without a report: the reason becomes the allocated report
+  AS explorer submit LC --result BLOCKED --reason 'no readable entry point in scope' --confidence high --agent agK >/dev/null || die "an explorer BLOCKED without a report was refused"
+  grep -l 'no readable entry point in scope' .agents/runs/LC/reports/???-explorer.md >/dev/null || die "the BLOCKED reason was not stored as the report"
+  # a tokenless submit succeeds and gets a new name every time
+  nrep=$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')
+  printf 'tokenless report\n' > "$base/tl"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/tl" >/dev/null || die "a tokenless explorer submit was refused"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/tl" >/dev/null || die "a second tokenless explorer submit was refused"
+  [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" -eq $((nrep + 2)) ] || die "tokenless submits did not get a new name each"
+  # record cannot cite another dispatch's live report either
+  live=$(ls .agents/runs/LC/reports/???-explorer.md | head -1)
+  printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n' "$(A fingerprint LC)" "${live#.agents/runs/LC/}" "$(shasum -a 256 "$live" | cut -d' ' -f1)" > "$base/foreign.raw"
+  expect_msg "record cited a live explorer report" 'snapshot made by submit' AS explorer record LC --file "$base/foreign.raw"
+  ok "A113: submit allocates distinct explorer report names under parallel submits; a direct numbered write is refused; same token updates, new token gets a new name"
+}
+
 sc_parallel_lock() {
   scaffold orchestrated; implemented orchestrated
   printf '# Completion Report: LC\n' > .agents/runs/LC/COMPLETION_REPORT.md
@@ -698,9 +755,9 @@ sc_destructive_refreeze() {
 
 sc_questions() {
   scaffold orchestrated
-  mkdir -p .agents/runs/LC/reports; printf '# explorer notes\n' > .agents/runs/LC/reports/001-explorer.md
+  mkdir -p .agents/runs/LC/reports/snapshots; printf '# explorer notes\n' > .agents/runs/LC/reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md
   # QR is the asking role (default explorer); one NEEDS_INPUT round per role (C-14), so later rounds use other roles.
-  q() { qr=${QR:-explorer}; { printf 'ROLE: %s\nTASK: LC\n' "$qr"; [ -z "${QF:-}" ] || printf 'FOCUS: %s\n' "$QF"; printf 'RESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" "$1"; } > "$base/q.md"; AS "$qr" record LC --file "$base/q.md"; }
+  q() { qr=${QR:-explorer}; { printf 'ROLE: %s\nTASK: LC\n' "$qr"; [ -z "${QF:-}" ] || printf 'FOCUS: %s\n' "$QF"; printf 'RESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\n%s' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md)" "$1"; } > "$base/q.md"; AS "$qr" record LC --file "$base/q.md"; }
   expect_msg "NEEDS_INPUT without questions" 'QUESTIONS' q ''
   q 'QUESTIONS:
 1. Which default should an empty key return?
@@ -758,11 +815,11 @@ sc_questions() {
 
 sc_questions_keys() {
   scaffold orchestrated
-  mkdir -p .agents/runs/LC/reports .agents/runs/LC/questions; printf '# notes\n' > .agents/runs/LC/reports/001-explorer.md
+  mkdir -p .agents/runs/LC/reports/snapshots .agents/runs/LC/questions; printf '# notes\n' > .agents/runs/LC/reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md
   # a legacy question file (no focus: line) still counts for its role; another focus is a different key
   printf 'from: designer\nasked_at: 1\n---\n1. old question\n' > .agents/runs/LC/questions/001.md
   printf 'from: qa\nfocus: tests\nasked_at: 1\n---\n1. other focus\n' > .agents/runs/LC/questions/002.md
-  q() { printf 'ROLE: %s\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\nQUESTIONS:\n1. Proceed?\n' "$1" "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/001-explorer.md)" > "$base/q.md"; AS "$1" record LC --file "$base/q.md"; }
+  q() { printf 'ROLE: %s\nTASK: LC\nRESULT: NEEDS_INPUT\nCONFIDENCE: medium\nFINGERPRINT: %s\nARTIFACT: reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n\nQUESTIONS:\n1. Proceed?\n' "$1" "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md)" > "$base/q.md"; AS "$1" record LC --file "$base/q.md"; }
   expect_msg "a legacy question file without focus did not count" 'designer role already asked its questions in this run (questions/001.md)' q designer
   q qa >/dev/null || die "a question file with another focus blocked the role"
   ok "questions: legacy file without focus counts for its role; a different focus is a different key; message names the file and later instances"
@@ -851,8 +908,8 @@ sc_decide() {
   tail -1 "$mj" | grep -q '"tokens_in":null,"tokens_out":null,"tokens_total":null,"turns":null,"retries":0' || die "absent/non-numeric usage must be null: $(tail -1 "$mj")"
   expect_fail "a reviewer wrote a metrics record" AS reviewer metrics-dispatch LC reviewer rules claude sonnet 1 - - - - 0 submitted
   sed 's/^metrics: on/metrics: off/' .agents/config.yaml > "$base/c.yaml"; cp "$base/c.yaml" .agents/config.yaml; rm -rf .agents/local/metrics
-  mkdir -p .agents/runs/LC/reports; printf '# e\n' > .agents/runs/LC/reports/090-explorer.md
-  printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: reports/090-explorer.md %s\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/090-explorer.md)" > "$base/e.md"
+  mkdir -p .agents/runs/LC/reports/snapshots; printf '# e\n' > .agents/runs/LC/reports/snapshots/aaaaaaaaaaaa-explorer-reports_090-explorer.md
+  printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: reports/snapshots/aaaaaaaaaaaa-explorer-reports_090-explorer.md %s\n' "$(A fingerprint LC)" "$(tsha .agents/runs/LC/reports/snapshots/aaaaaaaaaaaa-explorer-reports_090-explorer.md)" > "$base/e.md"
   AS explorer record LC --file "$base/e.md" >/dev/null
   [ ! -e .agents/local/metrics/history.tsv ] || die "metrics: off still wrote metrics"
   A metrics-dispatch LC reviewer rules claude sonnet 1 1 1 2 1 0 submitted >/dev/null
@@ -1453,6 +1510,7 @@ run_sc sc_language
 run_sc sc_report_stdin
 run_sc sc_stdin_contract
 run_sc sc_parallel_lock
+run_sc sc_report_names
 run_sc sc_fix_loop
 run_sc sc_waiver
 run_sc sc_approvals

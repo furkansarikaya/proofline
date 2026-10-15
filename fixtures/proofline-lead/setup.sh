@@ -197,10 +197,10 @@ fix_round() { # FILE TEXT: reopen, one FIX window, back to IMPLEMENTED
 
 # --- needs-input: discovery stopped on an explorer question -----------------------------------
 if [ "$STATE" = needs-input ]; then
-  mkdir -p "$D/reports"
-  printf '# Explorer evidence: %s\n\nState: waiting for the empty-key default.\n' "$ID" > "$D/reports/001-explorer.md"
+  mkdir -p "$D/reports/snapshots"
+  printf '# Explorer evidence: %s\n\nState: waiting for the empty-key default.\n' "$ID" > "$D/reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md"
   {
-    result explorer '' NEEDS_INPUT medium reports/001-explorer.md
+    result explorer '' NEEDS_INPUT medium reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md
     printf '\nQUESTIONS:\n1. Which value must lookup("") return?\n   options: null | empty string | throw\n   recommended: null\n   why: AC-1 and the QA scenarios depend on it\n'
   } > .agents/local/result.md
   AGENT_ROLE=explorer sh ./.agents/scripts/agent.sh record "$ID" --file .agents/local/result.md >/dev/null
@@ -234,7 +234,7 @@ worker RED fail test/lookup.test.js 'test("empty key", () => assert.equal(lookup
 worker GREEN pass src/lookup.js 'export const EMPTY_DEFAULT = null;'
 worker REFACTOR pass src/store.js '// empty key handled in lookup'
 # A defect task needs the implementer's debug-proof result before IMPLEMENTED (A35, A47).
-mkdir -p "$D/reports"
+mkdir -p "$D/reports/snapshots"
 printf '# Debug: %s\n\nReproduction: lookup("") returned undefined. Root cause: the store map had no default. Regression test: test/lookup.test.js "empty key".\n' "$ID" > "$D/reports/001-debug.md"
 q A handoff "$ID" IMPLEMENTED
 

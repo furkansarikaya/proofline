@@ -2381,6 +2381,35 @@ next_num() { # DIR -> next NNN over files whose name starts with three digits
   done
   printf '%03d\n' $((nn_max + 1))
 }
+# A113: an explorer's numbered report name is allocated by submit, never chosen by the explorer. alloc_explorer_report
+# picks the next free reports/NNN-explorer.md with an atomic noclobber create (parallel submits get distinct names)
+# and remembers it per dispatch token in reports/.owners/, so the same token updates its own report and a
+# re-dispatch under a new token gets a new name. A tokenless submit allocates a new name every time. It sets
+# ae_p (the path), ae_new (set when this call created the file: submit_fail removes it again) and ae_om.
+alloc_explorer_report() {
+  ae_p='' ae_new='' ae_om=''; ae_n=0; mkdir -p "$sb_d/reports/.owners" 2>/dev/null || submit_fail "cannot create reports/.owners in the run"
+  if [ -n "$sb_agent" ]; then
+    ae_om=$sb_d/reports/.owners/$(printf '%s' "$sb_agent" | tr -c 'A-Za-z0-9._-' '_')
+    if [ -s "$ae_om" ] && [ -f "$sb_d/$(cat "$ae_om")" ]; then ae_p=$(cat "$ae_om"); return 0; fi
+  fi
+  while :; do
+    ae_n=$((ae_n + 1)); [ "$ae_n" -le 1000 ] || submit_fail "could not allocate a report name under reports/ (is it writable?)"
+    ae_p=reports/$(next_num "$sb_d/reports")-explorer.md
+    ( set -C; : > "$sb_d/$ae_p" ) 2>/dev/null && break
+  done
+  ae_new=$ae_p
+  [ -z "$ae_om" ] || printf '%s\n' "$ae_p" > "$ae_om"
+}
+# canon_rel PATH -> the path with "/./" and "//" collapsed and a leading "./" dropped (".." is rejected by callers)
+canon_rel() {
+  cr_p=$1
+  while :; do
+    cr_q=$(printf '%s' "$cr_p" | sed -e 's#//*#/#g' -e 's#/\./#/#g' -e 's#^\./##' -e 's#/\.$##')
+    [ "$cr_q" != "$cr_p" ] || break
+    cr_p=$cr_q
+  done
+  printf '%s\n' "$cr_p"
+}
 record_result() {
   rr_id=$1 rr_src=${2:-}; require_run "$rr_id"
   rr_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-record.XXXXXX")
@@ -2471,6 +2500,8 @@ record_validate() {
   rv_run=$(realpath "$rv_d")
   case "$rv_real" in "$rv_run"/*) rv_ap=${rv_real#"$rv_run"/} ;; *) record_reject "ARTIFACT path must be inside the run: $rv_ap"; return 1 ;; esac
   [ -f "$rv_d/$rv_ap" ] && [ ! -L "$rv_d/$rv_ap" ] || { record_reject "ARTIFACT not found in the run: $rv_ap"; return 1; }
+  # A113: an explorer's report reaches record only as the snapshot submit made of the report it allocated
+  if [ "$rv_role" = explorer ]; then case "$rv_ap" in reports/snapshots/*) ;; reports/*) record_reject "an explorer result cites a snapshot made by submit, not a live report path ($rv_ap): hand the report over with submit --report <file>"; return 1 ;; esac; fi
   known_control_artifact "$rv_id" ".agents/runs/$rv_id/$rv_ap" || { record_reject "ARTIFACT is not a registered run artifact: $rv_ap"; return 1; }
   artifact_allowed "$rv_role" "$rv_kind" "$rv_focus" "$rv_ap" || { record_reject "ARTIFACT $rv_ap is outside the paths $rv_role${rv_focus:+ (FOCUS $rv_focus)} reports in: $(artifact_paths "$rv_role" "$rv_kind" "$rv_focus")"; return 1; }
   [ "$(hash_file "$rv_d/$rv_ap")" = "$rv_as" ] || { record_reject "ARTIFACT sha256 mismatch for $rv_ap"; return 1; }
@@ -2878,6 +2909,8 @@ normalize_artifact() {
     ./*) na_p=${na_p#./} ;;
   esac
   case "$na_p" in ''|/*|*..*) return 1 ;; esac
+  na_p=$(canon_rel "$na_p")   # A113: reports/./001-x.md and reports//001-x.md are the same file
+  case "$na_p" in ''|/*|*..*) return 1 ;; esac
   [ -f "$na_d/$na_p" ] && [ ! -L "$na_d/$na_p" ] || return 2
   printf '%s\n' "$na_p"
 }
@@ -2896,7 +2929,10 @@ submit_status() { # TOKEN STATUS ID ROLE RESULT GATE RAW ERROR
   printf 'status=%s\ntask=%s\nrole=%s\nresult=%s\ngate=%s\nraw=%s\nepoch=%s\nerror=%s\n' "$2" "$3" "$4" "$5" "$6" "$7" "$(now_epoch)" "$(one_line "$8")" \
     > "$(submission_dir)/$1.status.tmp" && mv "$(submission_dir)/$1.status.tmp" "$(submission_dir)/$1.status"
 }
-submit_fail() { echo "submit rejected: $*" >&2; submit_status "$sb_agent" rejected "$sb_id" "$execution_role" "${sb_res:-}" '' '' "$*"; exit 1; }
+submit_fail() {
+  # A113: an explorer report name allocated by this submit is released again when the submit is refused
+  if [ -n "${ae_new:-}" ]; then rm -f "$sb_d/$ae_new"; [ -z "${ae_om:-}" ] || rm -f "$ae_om"; fi
+  echo "submit rejected: $*" >&2; submit_status "$sb_agent" rejected "$sb_id" "$execution_role" "${sb_res:-}" '' '' "$*"; exit 1; }
 submit_result() {
   sb_id=$1; shift
   [ "$execution_role" != lead ] || fail "the lead never submits a specialist result"
@@ -2981,15 +3017,27 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
   # Artifact: normalised and hashed here. --report FILE|-: the script writes the artifact from that text, so a
   # specialist never needs the Write tool (a subagent runtime may refuse report files) or a scratch file.
   [ -n "$sb_art" ] || sb_art=$(default_artifact "$execution_role" "$sb_res" "$sb_focus")
+  ae_p='' ae_new='' ae_om=''
+  if [ "$execution_role" = explorer ] && [ -z "$sb_report" ]; then
+    # A113: an explorer never names its report; BLOCKED without one gets the reason as its report
+    if [ "$sb_res" = BLOCKED ]; then printf '# BLOCKED\n\n%s\n' "${sb_reason:-no reason given}" > "$sb_tmp/blocked.in"; sb_report=$sb_tmp/blocked.in
+    else submit_fail "an explorer hands its report over with --report <file> (or --report - on stdin), written in your scratch folder; the script assigns the numbered reports/NNN-explorer.md name (no --artifact)"; fi
+  fi
   if [ -n "$sb_report" ]; then
-    [ -n "$sb_art" ] || submit_fail "--report needs --artifact: the run-relative path to write"
-    sb_rp=${sb_art#.agents/runs/"$sb_id"/}; sb_rp=${sb_rp#./}
-    case "$sb_rp" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
-    sb_rk=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_rk=gate; fi
-    artifact_allowed "$execution_role" "$sb_rk" "$sb_focus" "$sb_rp" || submit_fail "artifact $sb_rp is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_rk" "$sb_focus")"
+    [ -n "$sb_art" ] || [ "$execution_role" = explorer ] || submit_fail "--report needs --artifact: the run-relative path to write"
+    # the content is validated first and the name allocated last (A113): a refused submit leaves no stub
     if [ "$sb_report" = - ]; then cat > "$sb_tmp/report.in"
     else [ -f "$sb_report" ] || submit_fail "report file not found: $sb_report"; cat "$sb_report" > "$sb_tmp/report.in"; fi
     [ -s "$sb_tmp/report.in" ] || submit_fail "the report is empty (--report - reads stdin; give the report text on stdin, one stdin source per submit, or --report <file>)"
+    if [ "$execution_role" = explorer ]; then alloc_explorer_report; sb_rp=$ae_p
+    else
+      sb_rp=${sb_art#.agents/runs/"$sb_id"/}; sb_rp=${sb_rp#./}
+      case "$sb_rp" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
+      sb_rp=$(canon_rel "$sb_rp")
+    fi
+    case "$sb_rp" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
+    sb_rk=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_rk=gate; fi
+    artifact_allowed "$execution_role" "$sb_rk" "$sb_focus" "$sb_rp" || submit_fail "artifact $sb_rp is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_rk" "$sb_focus")"
     mkdir -p "$(dirname "$sb_d/$sb_rp")" && cp "$sb_tmp/report.in" "$sb_d/$sb_rp" || submit_fail "could not write $sb_rp"
     sb_art=$sb_rp
   fi
@@ -2997,8 +3045,9 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
   sb_nrc=0; sb_norm=$(normalize_artifact "$sb_id" "$sb_art") || sb_nrc=$?
   if [ "$sb_nrc" = 2 ] && [ "$sb_res" = BLOCKED ]; then
     # BLOCKED needs a report to point at; the reason is the honest content when none was written.
-    sb_norm=${sb_art#.agents/runs/"$sb_id"/}
+    sb_norm=${sb_art#.agents/runs/"$sb_id"/}; sb_norm=${sb_norm#./}
     case "$sb_norm" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
+    sb_norm=$(canon_rel "$sb_norm")
     mkdir -p "$(dirname "$sb_d/$sb_norm")" && printf '# BLOCKED\n\n%s\n' "${sb_reason:-no reason given}" > "$sb_d/$sb_norm"
   elif [ "$sb_nrc" = 1 ]; then submit_fail "--artifact must be a path inside the run directory: $sb_art"
   elif [ "$sb_nrc" = 2 ]; then submit_fail "artifact not found in the run: $sb_art (write the report there first; expected location for your role: $(artifact_paths "$execution_role" "$([ "$sb_gaterole" = yes ] && echo gate || echo task)" "$sb_focus"))"
@@ -3068,6 +3117,8 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
   # make an earlier result's ARTIFACT sha256 stale. The original path is checked against the role's paths here.
   sb_kind=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_kind=gate; fi
   artifact_allowed "$execution_role" "$sb_kind" "$sb_focus" "$sb_norm" || submit_fail "artifact $sb_norm is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_kind" "$sb_focus")"
+  # A113: an explorer cites only the report this submit allocated (or an immutable snapshot of it)
+  [ "$execution_role" != explorer ] || case "$sb_norm" in reports/snapshots/*) ;; *) [ "$sb_norm" = "$ae_p" ] || submit_fail "$sb_norm was not assigned to this submission (A113): write your report to your scratch folder and pass it with --report <file>; the script assigns the numbered name" ;; esac
   case "$sb_norm" in reports/snapshots/*) ;; *)
     sb_h=$(hash_file "$sb_d/$sb_norm")
     sb_sn=reports/snapshots/$(printf '%.12s' "$sb_h")-$execution_role-$(printf '%s' "$sb_norm" | tr '/' '_')
