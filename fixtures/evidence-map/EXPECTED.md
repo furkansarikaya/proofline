@@ -7,7 +7,7 @@ Evaluator-only. A runner never reads this file; build the scenario outside this 
 `sh fixtures/evidence-map/setup.sh <dir>` builds a small checkout library and places the assignment at `<dir>/ASSIGNMENT.md` (git-excluded). Run in `<dir>`:
 
 - **Standalone:** `/evidence-map` followed by the content of `ASSIGNMENT.md`.
-- **Team:** dispatch the Explorer with `ASSIGNMENT.md` as its assignment and `reports/001-explorer.md` as its artifact.
+- **Team:** dispatch the Explorer with `ASSIGNMENT.md` as its assignment; its report is handed over with `submit --report` and the script assigns `reports/001-explorer.md` as its artifact (the first explorer).
 
 Items are keyed by `path:symbol` (a `path:line` pointing inside the same function is equivalent).
 

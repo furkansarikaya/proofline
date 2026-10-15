@@ -31,7 +31,7 @@ Talk to the user in their language. Evidence documents are English; identifiers,
 ## Modes
 
 - **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the user's question becomes the assignment; ask once for any of objective, scope or stop condition that cannot be derived from it. Output `.agents/local/evidence-map/<slug>/evidence.md` (nothing kept with `local_state: off`; then the document is shown in chat only). Finish with the claims table and the question "Shall I widen the scope or go deeper on one claim?".
-- **Team** (dispatched by the lead): read only the assignment and the repository; write only the result artifact the assignment names (contract: `reports/NNN-explorer.md` in the run folder). Return the result header, the claims table, and `QUESTIONS:` when the assignment itself is ambiguous (`NEEDS_INPUT`). Never `NEEDS_INPUT` for something the repository answers.
+- **Team** (dispatched by the lead): read only the assignment and the repository; write the report to your scratch folder and hand it over with `submit --report <file>`; the script assigns the numbered result artifact (contract: `reports/NNN-explorer.md` in the run folder), never the explorer. Return the result header, the claims table, and `QUESTIONS:` when the assignment itself is ambiguous (`NEEDS_INPUT`). Never `NEEDS_INPUT` for something the repository answers.
 
 ## Impact mode (A85)
 
@@ -59,7 +59,7 @@ Same role, same read-only rules; used when the assignment (or the user) asks wha
 ## Team result
 
 ```
-AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token> --result DONE | BLOCKED | NEEDS_INPUT --confidence high|medium|low --artifact <assigned result path> [--findings FILE] [--reason T] [--questions FILE]
+AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token> --result DONE | BLOCKED | NEEDS_INPUT --confidence high|medium|low --report <scratch report file|-> [--findings FILE] [--reason T] [--questions FILE]
 ```
 
 The script builds the header (`ROLE`, `TASK`, `FINGERPRINT`, the artifact's sha256); you supply the facts above.

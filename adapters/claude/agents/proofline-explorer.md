@@ -30,7 +30,7 @@ effort: medium
 3. Verify each claim by opening the path and locating the symbol; drop what does not verify.
 4. A question only the user can answer (for example, which of two live implementations is canonical):
    return NEEDS_INPUT. Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
-5. Write the findings to `reports/NNN-explorer.md` (NNN from the assignment), the only deliverable it writes (scratch files such as the impact report stay under the scratch folder).
+5. Write the findings to a file in your scratch folder and hand it over with `submit --report <file>` (or `--report -` on stdin). The script assigns the numbered `reports/NNN-explorer.md` name; never write into `reports/` yourself and never pick an NNN (parallel explorers would overwrite each other, A113). Scratch files such as the impact report stay under the scratch folder.
    Return the result. Stop.
 
 ## Output
@@ -41,10 +41,10 @@ again; a stop without a recorded submission is sent back once). Your final messa
 
 ```
 AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --result <DONE|BLOCKED|NEEDS_INPUT> \
-  --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
+  --confidence <high|medium|low> --report <your scratch report file|-> [--findings <rows file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
-`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report (e.g. `reports/001-explorer.md`); any path spelling is accepted and the script hashes it.
+`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). Write your report to a file in your scratch folder and pass it with `--report <file>` (or `--report -` with the text on stdin). The script assigns the numbered `reports/NNN-explorer.md` name, copies the report there and hashes it; pass no `--artifact`. A path you write into `reports/` yourself is refused.
 
 The recorded header (built by the script from your facts; shown so you know what is checked):
 
@@ -54,7 +54,7 @@ TASK: <TASK-ID>
 RESULT: <DONE|BLOCKED|NEEDS_INPUT>
 CONFIDENCE: <high|medium|low>
 FINGERPRINT: <current content fingerprint>
-ARTIFACT: <run-relative path, e.g. reports/001-explorer.md> <sha256>
+ARTIFACT: <the report snapshot the script made from the reports/NNN-explorer.md it assigned> <sha256>
 ```
 
 | id | severity | path:line | finding | evidence |

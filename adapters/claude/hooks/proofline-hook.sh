@@ -793,7 +793,8 @@ subagent-start)
     if before=$(unset AGENT_ROLE; sh "$agent" window-open "$act" "$prole" 2>"$tmp/err"); then printf '%s\n' "$before" > "$local_dir/windows/$aidf"
     else printf 'proofline: window-open refused for proofline-%s (%s): %s\n' "$prole" "$aidf" "$(tr '\n' ' ' < "$tmp/err")" >> "$local_dir/records/$aidf.txt"; fi
   fi
-  ctx SubagentStart "proofline: active run $act (run dir .agents/runs/$act). You are role $prole; your agent token is $aidf. Prefix every state-changing agent.sh command with AGENT_ROLE=$prole. Report your result with: AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] [--artifact <path of your report>] [--findings FILE] [--reason T] [--questions FILE]. The script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is free text; the result is the submission." ;;
+  case "$prole" in explorer) rart='--report <scratch report file or -> (write the report in your scratch folder; the script assigns the numbered report name, pass no --artifact)' ;; *) rart='[--artifact <path of your report>]' ;; esac
+  ctx SubagentStart "proofline: active run $act (run dir .agents/runs/$act). You are role $prole; your agent token is $aidf. Prefix every state-changing agent.sh command with AGENT_ROLE=$prole. Report your result with: AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] $rart [--findings FILE] [--reason T] [--questions FILE]. The script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is free text; the result is the submission." ;;
 
 subagent-stop)
   # The result is the specialist's `agent.sh submit` (its status file under .agents/local/submissions/);
@@ -812,7 +813,8 @@ subagent-stop)
     # stop (within two seconds) gives the same answer.
     if [ "$(jget stop_hook_active)" != true ] && { [ -z "$prev" ] || [ $((now - prev)) -le 2 ]; }; then
       [ -n "$prev" ] || printf '%s\n' "$now" > "$mark"
-      reason="proofline: you stopped without a recorded result. Run AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] [--artifact <report path>] [--findings FILE] [--reason T] [--questions FILE]${err:+ (last rejection: $err)}, fix what it names, then finish."
+      case "$prole" in explorer) rart='--report <scratch report file or -> (the script assigns the numbered report name, pass no --artifact)' ;; *) rart='[--artifact <report path>]' ;; esac
+      reason="proofline: you stopped without a recorded result. Run AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] $rart [--findings FILE] [--reason T] [--questions FILE]${err:+ (last rejection: $err)}, fix what it names, then finish."
       printf '{"decision":"block","reason":"%s"}\n' "$(jesc "$reason")"
       exit 0
     fi

@@ -41,9 +41,12 @@ task_branch() { # put the run on its own task branch, as `agent.sh branch` does
   git checkout -q -b proofline/LC-lookup
 }
 needs_input() { # N TOKEN [ROLE] -> the role (default explorer) submits NEEDS_INPUT with its artifact and questions file; one round per role (C-14)
-  nr=${3:-explorer}; art=.agents/runs/LC/reports/00$1-$nr.md; mkdir -p .agents/runs/LC/reports; printf '# %s %s\nquestion needed\n' "$nr" "$1" > "$art"
+  nr=${3:-explorer}; art=.agents/runs/LC/reports/00$1-$nr.md; mkdir -p .agents/runs/LC/reports; [ "$nr" != explorer ] || { art=$base/scratch-$1.md; }; printf '# %s %s\nquestion needed\n' "$nr" "$1" > "$art"
   printf '1. Which default does an empty key return?\n   options: nil | empty string\n   recommended: nil\n   why: AC-1 depends on it\n' > "$base/q$1.txt"
-  AGENT_ROLE=$nr sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high --artifact "reports/00$1-$nr.md" --questions "$base/q$1.txt" >/dev/null
+  # an explorer's numbered report name is assigned by submit (A113): it hands the file over with --report
+  if [ "$nr" = explorer ]; then ni_a="--report $art"; else ni_a="--artifact reports/00$1-$nr.md"; fi
+  # shellcheck disable=SC2086
+  AGENT_ROLE=$nr sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high $ni_a --questions "$base/q$1.txt" >/dev/null
 }
 
 lead_edits() {
@@ -132,7 +135,7 @@ subagent_guard() {
   denied "non-proofline subagent state command" "$(pre_bash 'sh .agents/scripts/agent.sh handoff LC IMPLEMENTED' Explore g2)"
   denied "read-only role writes product code" "$(pre_edit Write impl.txt proofline-explorer)" "outside the paths role explorer owns"
   denied "read-only role writes a gate record" "$(pre_edit Write .agents/runs/LC/gates/009-VERIFY.yaml proofline-verifier)"
-  allowed "read-only role writes its run artifact" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md proofline-explorer)"
+  allowed "read-only role may write a run path (the hook allows it; submit refuses a self-named explorer report, A113)" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md proofline-explorer)"
   # owned paths (.agents/owns.conf) and hyphenated agent names
   mkdir -p .agents; printf 'reviewer reviews/proof-review/ reviews/test-trust/\nsecurity_reviewer security/\ndesigner design/ /DESIGN.md /docs/design/\nimplementer PRODUCT_SCOPE\n' > .agents/owns.conf
   allowed "reviewer writes its report (owns.conf)" "$(pre_edit Write .agents/runs/LC/reviews/proof-review/rules/REPORT.md proofline-reviewer)"
@@ -516,7 +519,7 @@ EOF')"
   done
   denied "L1 a reviewer never writes an assignment" "$(pre_edit Write .agents/local/assignments/LC/003-reviewer.md proofline-reviewer)"
   # P2: NNN tokens from the generated owns.conf
-  allowed "P2 explorer writes reports/001-explorer.md" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md proofline-explorer)"
+  allowed "P2 explorer may write reports/001-explorer.md (hook-owned path; submit only accepts the name it assigned, A113)" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md proofline-explorer)"
   allowed "P2 qa writes reports/002-qa.md" "$(pre_edit Write .agents/runs/LC/reports/002-qa.md proofline-qa)"
   denied "P2 explorer writes another role's result" "$(pre_edit Write .agents/runs/LC/reports/001-reviewer.md proofline-explorer)" "outside the paths"
   denied "P2 explorer writes results/01-explorer.md" "$(pre_edit Write .agents/runs/LC/results/01-explorer.md proofline-explorer)" "outside the paths"
