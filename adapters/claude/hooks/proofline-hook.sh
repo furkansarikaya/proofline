@@ -557,6 +557,122 @@ lead_tmp_check() {
   [ -z "$lt_p" ] || deny "$lt_p is outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under \$TMPDIR (${TMPDIR:-unset})"
 }
 
+# stash_path P BASE: P resolved against BASE (physical when it exists; leading $TMPDIR and $HOME expanded).
+# Prints nothing when the path cannot be resolved from the text (another variable, command substitution, `-`,
+# an unknown base, `..` through a path that does not exist): the caller then treats it as the project (A111).
+stash_path() {
+  sp_p=$1
+  # shellcheck disable=SC2016 # literal $TMPDIR in the command text
+  case "$sp_p" in '$TMPDIR'/*|'${TMPDIR}'/*) sp_p=${TMPDIR:-/tmp}/${sp_p#*/} ;; '~'/*|'$HOME'/*|'${HOME}'/*) sp_p=${HOME:-/nonexistent}/${sp_p#*/} ;; esac
+  case "$sp_p" in ''|-|'~'*|*'$'*|*'`'*|*'*'*|*'?'*) return 0 ;; /*) ;; *) [ -n "${2:-}" ] || return 0; sp_p=$2/$sp_p ;; esac
+  # a directory that does not exist now is unresolved (a failed cd leaves the shell in the project; a link may be made later)
+  [ -d "$sp_p" ] || return 0
+  (CDPATH='' cd -P "$sp_p" 2>/dev/null && pwd -P)
+}
+# stash_guard: a specialist runs no `git stash` subcommand (list and show included) against the project's
+# working tree (A71, A111); a registered evidence worktree is free. The target directory is the hook cwd moved by
+# `cd` and `git -C` / --work-tree in the scanned commands, and it is the PROJECT whenever the text cannot say
+# (unexpanded variable, substitution, `cd -`, pushd/popd, `env -C`, a `cd` inside a subshell, pipe or background
+# job before the stash). The cost of a wrong denial is one retry with a literal path. Reads $tmp/scan.
+stash_guard() {
+  sh_wts=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  sh_cd=$cwd; sh_sep=$(printf '\003'); sh_cdseen=no; sh_ok=0; sh_force=no
+  # shellcheck disable=SC2016 # literal $TMPDIR in the message
+  sh_msg='git stash (every subcommand, list and show included) must not run in the project working tree from a specialist (A71). Use an evidence worktree: create it in its own call (git worktree add "$TMPDIR/<name>" HEAD), then run git -C "$TMPDIR/<name>" stash ... in a separate call with a literal path that exists (a variable, substitution, cd -, a missing directory, a cd inside a subshell or pipe, or a git stash behind a wrapper is read as the project)'
+  sh_pre=${cmd%stash*}
+  sh_nl=$(printf '%s' "$sh_pre" | sed -e 's/&&//g' -e 's/[0-9]*>&[0-9-]*//g' -e 's/&>//g')
+  sh_nonlin=no
+  case "$sh_nl" in *'('*|*'|'*|*'&'*|*'{'*|*'`'*) sh_nonlin=yes ;; esac
+  if printf '%s' "$cmd" | grep -Eq '(^|[^[:alnum:]_.-])(env|sudo|doas)[[:space:]]+([^;&|]*[[:space:]])?(-[A-Za-z]*[CD]|--chdir|--chdir=)'; then sh_cd=''; fi
+  while IFS= read -r sh_rec; do
+    case "$sh_rec" in C"$TAB"*) ;; *) continue ;; esac
+    sh_rest=${sh_rec#*"$TAB"}; sh_cw=${sh_rest%%"$TAB"*}
+    case "$sh_rest" in *"$TAB"*) sh_args=${sh_rest#*"$TAB"} ;; *) sh_args='' ;; esac
+    case "$sh_cw" in
+      cd)
+        sh_cdseen=yes
+        sh_ifs=$IFS; IFS=$sh_sep; set -f
+        # shellcheck disable=SC2086 # split on \003 on purpose
+        set -- $sh_args
+        IFS=$sh_ifs; set +f
+        while [ $# -gt 0 ]; do case "$1" in -P|-L|-e|-@|--) shift ;; *) break ;; esac; done
+        if [ $# -eq 0 ]; then sh_cd=''; else sh_cd=$(stash_path "$1" "$sh_cd"); fi ;;
+      pushd|popd) sh_cdseen=yes; sh_cd='' ;;
+      env) case "$sh_args" in GIT_WORK_TREE=*|GIT_DIR=*) sh_cd=''; sh_force=yes ;; esac ;;
+      git)
+        sh_dir=$sh_cd
+        if [ "$sh_cdseen" = yes ] && [ "$sh_nonlin" = yes ]; then sh_dir=''; fi
+        sh_ifs=$IFS; IFS=$sh_sep; set -f
+        # shellcheck disable=SC2086 # split on \003 on purpose
+        set -- $sh_args
+        IFS=$sh_ifs; set +f
+        sh_hit=no; sh_wtopt=$sh_force
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -C) [ $# -ge 2 ] || break; shift; sh_dir=$(stash_path "$1" "$sh_dir") ;;
+            --work-tree) [ $# -ge 2 ] || break; shift; sh_wtopt=yes ;;
+            --work-tree=*) sh_wtopt=yes ;;
+            -c) [ $# -ge 2 ] || break; shift; case "$1" in [Cc][Oo][Rr][Ee].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]=*) sh_wtopt=yes ;; esac ;;
+            --namespace|--config-env|--super-prefix|--git-dir|--exec-path|--attr-source|--list-cmds|--exec) [ $# -ge 2 ] || break; shift ;;
+            -*) ;;
+            stash) sh_hit=yes; break ;;
+            *)
+              # a first word that is not a plausible subcommand name (a value of an option this list does not know)
+              # followed by the word stash is read as a stash
+              case "$1" in *[!a-z-]*) shift; for sh_a in "$@"; do [ "$sh_a" != stash ] || sh_hit=yes; done ;; esac
+              break ;;
+          esac
+          [ $# -eq 0 ] || shift
+        done
+        [ "$sh_hit" = yes ] || continue
+        # --work-tree, core.worktree and GIT_WORK_TREE move the target away from what -C or cd says: the project
+        [ "$sh_wtopt" = no ] || sh_dir=''
+        sh_in=no
+        if [ -n "$sh_dir" ]; then
+          while IFS= read -r sh_w; do
+            [ -n "$sh_w" ] || continue
+            [ "${sh_w#/private}" != "${root#/private}" ] || continue
+            case "${sh_dir#/private}/" in "${sh_w#/private}"/*) sh_in=yes ;; esac
+          done <<EOF
+$sh_wts
+EOF
+        fi
+        [ "$sh_in" = yes ] || deny "$sh_msg"
+        sh_ok=$((sh_ok + 1)) ;;
+    esac
+  done < "$tmp/scan"
+  # Safety net on the text: every `git ... stash` in command position that the records above did not resolve to
+  # an evidence worktree is refused (unquoted substitutions, wrappers such as find -exec, watch, ssh, su -c, a
+  # variable or substitution where the subcommand goes). Words that merely print or search (echo, grep) are skipped.
+  sh_n=$(printf '%s' "$cmd" | stash_net_count)
+  [ "${sh_n:-0}" -le "$sh_ok" ] || deny "$sh_msg"
+}
+# stash_net_count: stdin is the command text; prints how many `git [options] stash` (or a `$`/backtick where the
+# subcommand goes) sit in command position, not after a printing or searching word.
+stash_net_count() {
+  awk 'BEGIN { RS = "\001" }
+  {
+    q = "\047"
+    val = "(\"[^\"]*\"|" q "[^" q "]*" q "|\\$\\([^)]*\\)|`[^`]*`|[^ \t;&|\"" q "`]+)"
+    opt = "(-C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--exec-path|--config-env|--attr-source|--list-cmds|--exec)[ \t]+" val
+    re = "(^|[^A-Za-z0-9_.-])git([ \t]+(" opt "|-[^ \t;&|]+))*[ \t]+(stash([ \t;&|)$`{}]|$)|[$`])"
+    n = 0; s = $0; off = 0
+    while (match(s, re)) {
+      st = RSTART; ln = RLENGTH
+      gs = st; if (substr(s, st, 1) != "g") gs = st + 1
+      before = substr($0, 1, off + gs - 1)
+      k = 0
+      for (i = length(before); i >= 1; i--) { c = substr(before, i, 1); if (c == ";" || c == "&" || c == "|" || c == "(" || c == "{" || c == "\n" || c == "`") { k = i; break } }
+      t = substr(before, k + 1)
+      while (match(t, /^[ \t]*[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/)) t = substr(t, RLENGTH + 1)
+      sub(/^[ \t]+/, "", t); split(t, wd, /[ \t]+/)
+      if (!(wd[1] ~ /^(echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true)$/)) n++
+      off += st + ln - 1; s = substr($0, off + 1)
+    }
+    print n
+  }'
+}
+
 # --- events -----------------------------------------------------------------------------------
 case "$ev" in
 pretool)
@@ -575,7 +691,7 @@ pretool)
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
     # mutation evidence runs in a separate worktree (`git worktree add`, then `git -C <worktree> ...`).
     if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } \
-       && printf '%s' "$cmd" | grep -Eq '(^|[;&|(]|[[:space:]])git[[:space:]]+(stash|reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout[[:space:]]+--)([[:space:]]|$)' \
+       && printf '%s' "$cmd" | grep -Eq '(^|[;&|(]|[[:space:]])git[[:space:]]+(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout[[:space:]]+--)([[:space:]]|$)' \
        && ! printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+-C[[:space:]]|git[[:space:]]+worktree|--work-tree'; then
       deny "git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it"
     fi
@@ -586,6 +702,8 @@ pretool)
       [ -z "$stray" ] || deny "$stray is outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under \$TMPDIR (${TMPDIR:-unset})"
     fi
     printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
+    # A111: every `git stash` subcommand is refused in the project tree for a specialist (evidence worktrees are free).
+    if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; }; then stash_guard; fi
     # Hook and gate bypasses: never, for anyone, while proofline is installed.
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
