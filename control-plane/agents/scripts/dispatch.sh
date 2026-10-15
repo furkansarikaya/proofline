@@ -154,6 +154,19 @@ runtime_failure_reason() { # LOG
   echo none
 }
 
+# The proofline PreToolUse hook is the confinement of a bypassPermissions worker (A114): the script must be
+# present, non-empty and parse, and .claude/settings.json must wire it under PreToolUse (same logic as doctor).
+pre_tool_hook_wired() {
+  ph=$root/.agents/hooks/proofline-hook.sh; pj=$root/.claude/settings.json
+  [ -s "$ph" ] && sh -n "$ph" 2>/dev/null && [ -f "$pj" ] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '[(.hooks.PreToolUse // [])[] | (.hooks // [])[] | .command // ""] | any(contains("proofline-hook.sh"))' "$pj" >/dev/null 2>&1
+  elif command -v node >/dev/null 2>&1; then
+    node -e 'try { const g = (JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hooks || {}).PreToolUse || [];
+      process.exit(g.some((x) => (x.hooks || []).some((h) => String(h.command).includes("proofline-hook.sh"))) ? 0 : 1) } catch (e) { process.exit(1) }' "$pj"
+  else return 1; fi # shortcut: no JSON tool means refuse (fail closed), install jq or node
+}
+
 # Extract the top-level "result" string of claude's --output-format json, unescaped.
 claude_result() {
   awk 'BEGIN { RS = "\001" } {
@@ -286,8 +299,7 @@ attempt() {
         pm=$(cfg dispatch claude_permission_mode); [ -n "$pm" ] || pm=bypassPermissions
         case "$pm" in bypassPermissions|acceptEdits|default) ;; *) die "invalid dispatch.claude_permission_mode: $pm (want bypassPermissions|acceptEdits|default)" ;; esac
         if [ "$pm" = bypassPermissions ]; then
-          { [ -f "$root/.agents/hooks/proofline-hook.sh" ] && grep -q 'proofline-hook.sh' "$root/.claude/settings.json" 2>/dev/null &&
-            grep -q '"PreToolUse"' "$root/.claude/settings.json"; } ||
+          pre_tool_hook_wired ||
             blocked "claude worker not started: the proofline PreToolUse hook is not installed in .claude/settings.json (run 'proofline doctor', then install); a headless worker runs with bypassPermissions only while the hook confines it, or set dispatch.claude_permission_mode"
         fi
         note "dispatch claude_permission_mode=$pm role=$role" || true

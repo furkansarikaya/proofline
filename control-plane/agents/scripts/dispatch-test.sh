@@ -109,7 +109,7 @@ EOF
 chmod +x "$tmp/bin/"*
 echo original > "$p/product.txt"
 # the project's Claude hooks, wired (a bypassPermissions worker is only started with them; A114)
-mkdir -p "$a/hooks" "$p/.claude"; : > "$a/hooks/proofline-hook.sh"
+mkdir -p "$a/hooks" "$p/.claude"; echo 'exit 0' > "$a/hooks/proofline-hook.sh"
 printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"sh .agents/hooks/proofline-hook.sh claude"}]}]}}\n' > "$p/.claude/settings.json"
 export FAKE_LOC="$loc" FAKE_ROOT="$p" PROOFLINE_CODEX_BIN="$tmp/bin/fake-codex" PROOFLINE_CLAUDE_BIN="$tmp/bin/fake-claude"
 
@@ -167,7 +167,23 @@ cp "$tmp/config.keep" "$a/config.yaml"
 mv "$p/.claude/settings.json" "$tmp/settings.keep"
 reset; d T-1 reviewer --focus rules
 ck "hooks not installed: no bypass worker is launched, BLOCKED naming proofline doctor" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ] && printf "%s" "$out" | grep -q "proofline doctor"'
+hk_case() { # NAME SETTINGS-JSON : a bypass worker is refused with this wiring
+  printf '%s\n' "$2" > "$p/.claude/settings.json"
+  reset; d T-1 reviewer --focus rules
+  ck "$1: BLOCKED, no worker launched" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ] && printf "%s" "$out" | grep -q "proofline doctor"'
+}
+hk_case "hook wired only for SessionStart plus an unrelated PreToolUse" '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sh .agents/hooks/proofline-hook.sh claude"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo other"}]}]}}'
+hk_case "hook wired only for SessionStart" '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sh .agents/hooks/proofline-hook.sh claude"}]}]}}'
 mv "$tmp/settings.keep" "$p/.claude/settings.json"
+cp "$a/hooks/proofline-hook.sh" "$tmp/hook.keep"; printf 'if then\n' > "$a/hooks/proofline-hook.sh"
+reset; d T-1 reviewer --focus rules
+ck "a hook script that does not parse: BLOCKED, no worker launched" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ]'
+: > "$a/hooks/proofline-hook.sh"
+reset; d T-1 reviewer --focus rules
+ck "an empty hook script: BLOCKED, no worker launched" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ]'
+cp "$tmp/hook.keep" "$a/hooks/proofline-hook.sh"
+reset; d T-1 reviewer --focus rules
+ck "correct wiring and script: the worker is launched" '[ "$rc" -eq 0 ] && grep -qx bypassPermissions "$loc/claude.argv"'
 printf 'reviewer Read,Grep,Agent,Task(x),Bash\n' > "$a/tools.conf"
 reset; d T-1 reviewer --focus rules
 ck "claude path: tools.conf list without Agent/Task" '[ "$rc" -eq 0 ] && has "$loc/claude.argv" "\"tools\":[\"Read\",\"Grep\",\"Bash\"]" && ! has "$loc/claude.argv" "\"Agent\"" && ! has "$loc/claude.argv" Task'
