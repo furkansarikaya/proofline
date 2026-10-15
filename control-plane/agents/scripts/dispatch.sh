@@ -27,6 +27,9 @@
 #   `ask` stores a pending question through `agent.sh ask` (awaiting_input, ledgered; `agent.sh questions` shows
 #   it and `next` stops for the user) and prints it as NEEDS_INPUT; `off`, floor unmet or no other runtime ->
 #   BLOCKED.
+# Claude workers get `--permission-mode` from config dispatch.claude_permission_mode (default
+#   bypassPermissions; acceptEdits|default accepted): headless, they cannot be prompted, and the PreToolUse hook is the
+#   confinement. bypassPermissions is refused (BLOCKED) when that hook is not wired in .claude/settings.json (A114).
 # Codex runs with --dangerously-bypass-hook-trust: a headless `codex exec` never asks to trust the project's
 #   hooks, so without it the proofline hooks (.codex/) would not load for the worker. The fingerprint and
 #   .git/config/HEAD checks below stay the enforcement; the hooks are an extra layer (ENFORCEMENT.md).
@@ -151,6 +154,19 @@ runtime_failure_reason() { # LOG
   echo none
 }
 
+# The proofline PreToolUse hook is the confinement of a bypassPermissions worker (A114): the script must be
+# present, non-empty and parse, and .claude/settings.json must wire it under PreToolUse (same logic as doctor).
+pre_tool_hook_wired() {
+  ph=$root/.agents/hooks/proofline-hook.sh; pj=$root/.claude/settings.json
+  [ -s "$ph" ] && sh -n "$ph" 2>/dev/null && [ -f "$pj" ] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '[(.hooks.PreToolUse // [])[] | (.hooks // [])[] | .command // ""] | any(contains("proofline-hook.sh"))' "$pj" >/dev/null 2>&1
+  elif command -v node >/dev/null 2>&1; then
+    node -e 'try { const g = (JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hooks || {}).PreToolUse || [];
+      process.exit(g.some((x) => (x.hooks || []).some((h) => String(h.command).includes("proofline-hook.sh"))) ? 0 : 1) } catch (e) { process.exit(1) }' "$pj"
+  else return 1; fi # shortcut: no JSON tool means refuse (fail closed), install jq or node
+}
+
 # Extract the top-level "result" string of claude's --output-format json, unescaped.
 claude_result() {
   awk 'BEGIN { RS = "\001" } {
@@ -244,7 +260,7 @@ attempt() {
   # Every role writes its owned artifacts in the run dir; only the implementer, and the designer during
   # IMPLEMENTING, may touch the product tree, inside an attested window.
   writes_code=no; case "$role" in implementer) writes_code=yes ;; designer) [ "$(handoff_state)" != IMPLEMENTING ] || writes_code=yes ;; esac
-  tmpl=$(cfg dispatch command_template "$rt")
+  pm=''; tmpl=$(cfg dispatch command_template "$rt")
   if [ -n "$tmpl" ]; then
     for ph in "prompt_file $work/full" "output_file $out" "root $root" "model $model" "effort $effort"; do
       tmpl=$(subst "$tmpl" "${ph%% *}" "$(sq "${ph#* }")")
@@ -278,7 +294,16 @@ attempt() {
           aj_src=$root/.agents/roles/$role.md; [ -f "$aj_src" ] || aj_src=$ins
           set -- "${PROOFLINE_CLAUDE_BIN:-claude}" -p --agents "$(agents_json "$an" "$aj_src" "$role")" --agent "$an"
         fi
-        set -- "$@" --model "$model" --effort "$effort" --output-format json ;;
+        # A headless worker cannot be prompted, so the permission mode is explicit (A114). bypassPermissions is
+        # only used while the PreToolUse hook (the real confinement) is installed and wired for this project.
+        pm=$(cfg dispatch claude_permission_mode); [ -n "$pm" ] || pm=bypassPermissions
+        case "$pm" in bypassPermissions|acceptEdits|default) ;; *) die "invalid dispatch.claude_permission_mode: $pm (want bypassPermissions|acceptEdits|default)" ;; esac
+        if [ "$pm" = bypassPermissions ]; then
+          pre_tool_hook_wired ||
+            blocked "claude worker not started: the proofline PreToolUse hook is not installed in .claude/settings.json (run 'proofline doctor', then install); a headless worker runs with bypassPermissions only while the hook confines it, or set dispatch.claude_permission_mode"
+        fi
+        note "dispatch claude_permission_mode=$pm role=$role" || true
+        set -- "$@" --model "$model" --effort "$effort" --permission-mode "$pm" --output-format json ;;
       *) blocked "runtime $rt has no built-in invocation and no dispatch.command_template.$rt" ;;
     esac
   fi
@@ -290,7 +315,7 @@ attempt() {
   else
     before=$("$agent" window-open "$id" "$role") || { echo "dispatch: window-open refused; $role not started" >&2; exit 1; }
   fi
-  echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code" >&2
+  echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code${pm:+ permission_mode=$pm}" >&2
   status=0
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
   else (cd "$root" && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" &&
