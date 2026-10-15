@@ -185,7 +185,7 @@ verdicts() {
   denied "a submit without the agent token" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high' proofline-verifier v1)" "--agent v1"
   denied "a submit with another agent's token" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent e1 --confidence high' proofline-verifier v1)" "--agent v1"
   denied "a submit without the role prefix" "$(pre_bash 'sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)" "prefix AGENT_ROLE"
-  denied "a specialist stashes the live tree" "$(pre_bash 'git stash -q -- src/service.js; git stash pop -q' proofline-reviewer r1)" "separate worktree"
+  denied "a specialist stashes the live tree" "$(pre_bash 'git stash -q -- src/service.js; git stash pop -q' proofline-reviewer r1)" "evidence worktree"
   denied "a specialist resets the live tree" "$(pre_bash 'git reset --hard HEAD' proofline-implementer a7)" "separate worktree"
   allowed "a specialist mutates inside its own worktree" "$(pre_bash 'git -C "$TMPDIR/wt" checkout -- src/service.js' proofline-reviewer r1)"
   case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) : ;; *)
@@ -214,6 +214,60 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
   git worktree add -q "$base/wt-a97" HEAD >/dev/null 2>&1 || die "A97 fixture worktree"
   allowed "A97 a write inside a registered worktree" "$(pre_bash "echo x > $base/wt-a97/notes.txt" proofline-qa q1)"
   git worktree remove --force "$base/wt-a97" >/dev/null 2>&1 || :
+  # A111: every git stash subcommand is refused in the project tree, whatever the spelling; evidence worktrees are
+  # free. Variables stay UNEXPANDED (single quotes): the hook sees the text a model sends, not the shell's result.
+  a111=$base/wt-a111; a111l=$base/lnk-a111
+  git worktree add -q "$a111" HEAD >/dev/null 2>&1 || die "A111 fixture worktree"
+  ln -s "$PWD" "$a111l"
+  for c in 'git stash list >/dev/null' 'git stash' 'git stash show -p' 'git stash push -u' 'git stash pop' 'git stash apply' \
+    'git stash drop' 'git stash clear' 'git stash create' 'git stash store abc' 'git stash branch b' \
+    "git -C $PWD stash list" 'git --no-pager stash list' 'git -c core.pager=cat stash show' "cd $PWD && git stash list" \
+    "GIT_PAGER=cat git stash list" "sh -c 'git stash list'" 'git stash list | head -1' 'cd . && git stash list' \
+    'git -C $PWD stash list' 'git -C "$PWD" stash list' 'cd $(pwd) && git stash' 'P=$PWD; git -C "$P" stash' \
+    'git -C "$(git rev-parse --show-toplevel)" stash list' 'cd $(git rev-parse --show-toplevel) && git stash' \
+    'git -C "$TMPDIR/../$(basename $PWD)" stash list' "sh -c 'cd \$0 && git stash' $PWD" \
+    "(cd $a111); git stash list" "cd $a111 | cat; git stash list" "cd $a111 & git stash list" \
+    "cd $a111 && cd - && git stash" "cd $a111 && cd \$OLDPWD && git stash" "pushd $a111 >/dev/null; popd >/dev/null; git stash" \
+    'git --attr-source HEAD stash list' 'git --bogus-opt HEAD stash list' 'git -C src/.. stash list' 'git -C .. stash list' \
+    "git -C $a111l stash list" "cd $a111l && git stash list" "env -C $PWD git stash list" 'command git stash list' \
+    '/usr/bin/git stash list' 'env git stash list' 'git -c a=b --no-pager -C . stash show'; do
+    denied "A111 a specialist runs: $c" "$(pre_bash "$c" proofline-qa q1)" "evidence worktree"
+  done
+  # review R2: unquoted substitutions, wrappers, missing or later-made paths, a variable in subcommand position
+  for c in 'git -C $(git rev-parse --show-toplevel) stash list' 'git -C $(pwd) stash list' 'git -C `pwd` stash list' \
+    'git --work-tree=$(pwd) stash' 'git -c user.name=$(whoami) stash' 'git $(echo stash) list' 'git -C $(realpath .) stash show' \
+    "git -C \$(dirname $a111/x) stash" 'find . -exec git stash list \;' 'watch -n1 git stash list' 'parallel git stash ::: list' \
+    'ssh localhost git stash list' 'setsid git stash' 'chronic git stash' 'unbuffer git stash list' \
+    'script -c "git stash list" /dev/null' "su -c 'git stash list'" 'function s { git stash list; }; s' \
+    "cd $a111/missing; git stash list" "ln -s $PWD $a111/lk && git -C $a111/lk stash list" "ln -s $PWD $a111/lk2; cd $a111/lk2; git stash" \
+    "GIT_WORK_TREE=$PWD git -C $a111 stash" "git --work-tree=$PWD -C $a111 stash" "git -C $a111 -c core.worktree=$PWD stash" \
+    "git --work-tree $PWD -C $a111 stash list" \
+    'S=stash; git $S list''git ${S:-stash} list' 'git stash${IFS}list' "git worktree add $a111/new HEAD && git -C $a111/new stash"; do
+    denied "A111 R2 a specialist runs: $c" "$(pre_bash "$c" proofline-qa q1)" "evidence worktree"
+  done
+  for c in 'git log stash' 'git diff main..stash' 'git diff stash@{0}' 'git checkout stash-fix' 'git branch stash' \
+    'git commit -m "stash"' 'git grep stash' 'git config stash.showPatch true' 'grep stash src/impl.txt' 'echo git stash list' \
+    'printf "git stash\n"' 'cat notes | grep -n "git stash"'; do
+    allowed "A111 R2 no false positive: $c" "$(pre_bash "$c" proofline-qa q1)"
+  done
+  git worktree add -q "$base/wt a111 sp" HEAD >/dev/null 2>&1 || die "A111 spaced fixture worktree"
+  allowed "A111 R2 a registered worktree path with spaces" "$(pre_bash "git -C '$base/wt a111 sp' stash list" proofline-qa q1)"
+  git worktree remove --force "$base/wt a111 sp" >/dev/null 2>&1 || :
+  for c in "git -C $a111 stash list" "git -C $a111 stash" "cd $a111 && git stash list" "cd $a111; git stash" \
+    "cd $a111 && git stash list | head -1" "git -C $a111 --no-pager stash show" "cd $a111 && git -C . stash list" \
+    'grep stash src/impl.txt' 'echo git stash list' 'git log --oneline' 'git commit --dry-run -m stash'; do
+    allowed "A111 a specialist may run: $c" "$(pre_bash "$c" proofline-qa q1)"
+  done
+  case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) : ;; *)
+    git worktree add -q "${TMPDIR%/}/wt-a111t" HEAD >/dev/null 2>&1 || die "A111 TMPDIR fixture worktree"
+    # shellcheck disable=SC2016 # the variable stays unexpanded on purpose
+    allowed 'A111 a specialist stashes in $TMPDIR/<registered worktree>' "$(pre_bash 'git -C "$TMPDIR/wt-a111t" stash list' proofline-qa q1)"
+    # shellcheck disable=SC2016
+    allowed 'A111 a specialist cd to $TMPDIR/<registered worktree>' "$(pre_bash 'cd $TMPDIR/wt-a111t && git stash list' proofline-qa q1)"
+    git worktree remove --force "${TMPDIR%/}/wt-a111t" >/dev/null 2>&1 || : ;;
+  esac
+  rm -f "$a111l"
+  git worktree remove --force "$a111" >/dev/null 2>&1 || :
   allowed "a verifier submits as itself""$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
   denied "the lead submits" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high')" "does not match the caller's role"
   # an explorer that never submitted is sent back once, then reported as without a result
