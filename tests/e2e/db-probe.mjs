@@ -34,4 +34,6 @@ try {
     : 'no migrations table');
   db.close();
   console.log('db_file_sha256=' + sha(readFileSync(file)));
+  // A change not yet checkpointed lives in the -wal file; -shm is an index and is ignored.
+  console.log('db_wal_sha256=' + (existsSync(file + '-wal') ? sha(readFileSync(file + '-wal')) : 'absent'));
 } finally { rmSync(tmp, { recursive: true, force: true }); }

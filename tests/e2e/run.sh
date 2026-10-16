@@ -77,8 +77,19 @@ baseline 'chore: baseline'
 baseline 'chore: install proofline'
 (cd "$project" && "$repo/bin/proofline" doctor) > "$out/doctor.txt" 2>&1 || true
 # A121: read-only database probe (db-probe.mjs probes a copy of the file bytes); `no database` when there is none.
-db_probe() { node --no-warnings "$here/db-probe.mjs" "$project" > "$out/$1" 2>&1 || true; [ -s "$out/$1" ] || echo 'no database' > "$out/$1"; }
-db_verdict() { # db-probe-diff.txt and the db_unchanged= line, from before vs after
+db_probe() { # a failed probe leaves `probe failed: <reason>`, never an empty or partial file passed off as a result
+  pnode=${E2E_PROBE_NODE:-node}
+  if ! command -v "$pnode" > /dev/null 2>&1; then echo "probe failed: $pnode not found" > "$out/$1"; return 0; fi
+  prc=0; "$pnode" --no-warnings "$here/db-probe.mjs" "$project" > "$out/$1" 2>&1 || prc=$?
+  if [ "$prc" -ne 0 ]; then { echo "probe failed: exit $prc"; cat "$out/$1"; } > "$out/$1.tmp"; mv "$out/$1.tmp" "$out/$1"; fi
+  [ -s "$out/$1" ] || echo 'no database' > "$out/$1"
+}
+db_verdict() { # db-probe-diff.txt and the db_unchanged= line (yes|no|unknown), from before vs after
+  if grep -q '^probe failed:' "$out/db-probe-before.txt" "$out/db-probe.txt"; then
+    diff "$out/db-probe-before.txt" "$out/db-probe.txt" > "$out/db-probe-diff.txt" 2>&1 || true
+    [ -s "$out/db-probe-diff.txt" ] || echo 'probe failed: no verdict' > "$out/db-probe-diff.txt"
+    echo db_unchanged=unknown; return 0
+  fi
   diff "$out/db-probe-before.txt" "$out/db-probe.txt" > "$out/db-probe-diff.txt" 2>&1 && { echo 'no difference' > "$out/db-probe-diff.txt"; echo db_unchanged=yes; } || echo db_unchanged=no
 }
 db_probe db-probe-before.txt
