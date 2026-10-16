@@ -333,7 +333,7 @@ scan_cmd() {
       }
     }
     else if (c == "sed" || c == "gsed" || c == "perl") {
-      if (c == "sed") for (j = k + 1; j <= nw; j++) { if (w[j] ~ /^-[A-Za-z]*i[A-Za-z]+$/) { out("S", "sed " w[j]); break } if (j < nw && w[j] ~ /^-[A-Za-z]*i$/ && w[j + 1] ~ /^-[A-Za-z-]/) { out("S", "sed " w[j] " " w[j + 1]); break } } for (j = k + 1; j <= nw; j++) if (w[j] ~ /^-[A-Za-z]*i/ || w[j] ~ /^--in-place/) { if (nw > k + 1) out("W", w[nw]); break } }
+      if (c == "sed") for (j = k + 1; j <= nw; j++) { if (w[j] ~ /^-[A-Za-z]*i[A-Za-z-]+$/) { out("S", "sed " w[j]); break } if (j < nw && w[j] ~ /^-[A-Za-z]*i$/ && w[j + 1] ~ /^-[A-Za-z-]/) { out("S", "sed " w[j] " " w[j + 1]); break } } for (j = k + 1; j <= nw; j++) if (w[j] ~ /^-[A-Za-z]*i/ || w[j] ~ /^--in-place/) { if (nw > k + 1) out("W", w[nw]); break } }
     else if (c ~ /^(cp|mv|install|ln|rsync)$/) {
       nopt = 0; tgt = ""
       for (j = k + 1; j <= nw; j++) {

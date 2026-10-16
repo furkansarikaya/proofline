@@ -1510,6 +1510,7 @@ discard_stray() {
     if [ "$ds_lc" = "$ds_p" ] || { [ -n "$ds_ino" ] && [ "$ds_ino" = "$ds_pino" ]; }; then fail "discard-stray refused: '$ds_rel' is a known run artifact"; fi
   done
   [ -f "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is not a regular file in the run directory"
+  [ -n "$ds_ino" ] || fail "discard-stray refused: cannot read the inode of '$ds_rel' (ls -di failed); nothing was removed"
   ds_sha=$(sha256 < "$ds_file"); rm -f -- "$ds_file"
   if gates_enforced "$ds_id"; then ledger_append "$ds_id" discard-stray "$(section_value "$ds_dir" handoff state)" "$(section_value "$ds_dir" handoff state)" "path=$ds_rel sha256=$ds_sha"; fi
   echo "discarded stray run file: $ds_rel (sha256 $ds_sha)"

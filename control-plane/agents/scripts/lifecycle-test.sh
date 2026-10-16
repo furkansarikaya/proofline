@@ -532,6 +532,9 @@ scenario_hardening() {
   [ ! -e .agents/runs/LC/QA_PLAN.md-E ] || die "discard-stray left the stray"
   grep -q 'event=discard-stray .*path=QA_PLAN.md-E sha256=' .agents/runs/LC/LEDGER.log || die "discard-stray left no ledger row"
   [ "$(tail -n 2 "$ld/LEDGER.log" | head -n 1)" = "$before" ] || die "discard-stray broke the ledger chain"
+  mkdir -p "$base/lsstub"; printf '#!/bin/sh\n[ "$1" = -di ] && exit 1\nexec /bin/ls "$@"\n' > "$base/lsstub/ls"; chmod +x "$base/lsstub/ls"; printf x > "$ld/ls-E"
+  expect_msg "discard-stray proceeded although ls -di failed" 'cannot read the inode' sh -c "PATH=$base/lsstub:\$PATH sh ./.agents/scripts/agent.sh discard-stray LC ls-E"
+  [ -f "$ld/ls-E" ] || die "discard-stray removed a file although ls -di failed"; rm -f "$ld/ls-E"
   printf x > "$ld/other-E"; ln "$ld/other-E" "$ld/alias-E"; A discard-stray LC alias-E >/dev/null; [ -f "$ld/other-E" ] || die "removing a hard-link alias removed the original"; rm -f "$ld/other-E"
   A verify-scope LC >/dev/null   # the stray check handoff runs now passes (CODE_DONE itself still needs its gates)
   for f in design/INTENT.md design/API.json design/adr/0001-x.md results/001-explorer.md dispatch/001-reviewer-claude.md dispatch/001-reviewer-claude.log reviews/proof-review/plan/REPORT.md reviews/proof-review/rules/ledger.md reviews/proof-review/small/findings.json reviews/test-trust/tests/REPORT.md reviews/test-trust/qa/REPORT.md reviews/data-design/REVIEW.md security/evidence/poc.txt; do
