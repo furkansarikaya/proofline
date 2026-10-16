@@ -61,11 +61,17 @@ acquire_lock() {
       al_pid=$(cat "$al_path/pid" 2>/dev/null || :)
       case "$al_pid" in ''|*[!0-9]*) ;; *)
         if ! kill -0 "$al_pid" 2>/dev/null; then
-          # Another waiter may win after removal; mkdir is still the arbiter.
-          rm -f "$al_path/pid"
-          rmdir "$al_path" 2>/dev/null || :
-          al_broke=$al_pid
-          continue
+          # Take the pid file by rename and check whose it was: a holder that took the lock after our read
+          # is put back untouched, never stripped of its pid. mkdir is still the arbiter among waiters.
+          if mv "$al_path/pid" "$al_path/pid.brk.$$" 2>/dev/null; then
+            if [ "$(cat "$al_path/pid.brk.$$" 2>/dev/null)" = "$al_pid" ]; then
+              rm -f "$al_path/pid.brk.$$"
+              rmdir "$al_path" 2>/dev/null || :
+              al_broke=$al_pid
+              continue
+            fi
+            mv "$al_path/pid.brk.$$" "$al_path/pid" 2>/dev/null || :
+          fi
         fi ;;
       esac
     fi
