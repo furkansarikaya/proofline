@@ -47,6 +47,8 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
   names (see D33).
 - **Everything in the repository is English**, including comments, fixtures and test names; the only
   exception is the Turkish translation of the user guides under `docs/guides/tr/`.
+- The repository's own `.gitignore` ignores `.claude/` entirely (local agent state, progress notes, evaluations,
+  worktrees). `proofline init` never adds `.claude/` to the `.gitignore` of an installed project; a CLI test checks it.
 - Enforcement lives in `agent.sh` and the git hooks; runtime hooks only block earlier. A new rule starts in the
   script, with a test that really attempts the forbidden action (`tests/enforcement/`).
 

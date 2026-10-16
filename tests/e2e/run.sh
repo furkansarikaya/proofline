@@ -29,6 +29,15 @@ run=$root/$scenario-$config-$(date -u +%Y%m%dT%H%M%SZ)
 [ ! -e "$run" ] || run=$run-$$
 project=$run/project out=$run/out
 mkdir -p "$project" "$out" "$run/codexhome/.codex"
+# A117: whatever the exit status, stop a lead still running and remove the project copy and the isolated Codex home;
+# `out/` (the evaluator input) stays, and so does the whole run directory with --keep.
+lead_pid=''
+cleanup() {
+  [ -z "$lead_pid" ] || kill -TERM -- "-$lead_pid" 2>/dev/null || true
+  [ "$keep" = yes ] || rm -rf "$project" "$run/codexhome"
+}
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 # C-18 evidence: the user's global git config, recorded (never written) before and after the run.
 hash_stdin() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 hash_of() { hash_stdin < "$1"; }
@@ -140,7 +149,7 @@ run_lead() { # runtime, number, message, resumed?
     fi
     sleep 1; elapsed=$((elapsed + 1))
   done
-  rc=0; wait "$lead_pid" || rc=$?
+  rc=0; wait "$lead_pid" || rc=$?; lead_pid=''
   printf 'lead_%s_runtime=%s\nlead_%s_exit=%s\nlead_%s_duration=%s\nlead_%s_timeout=%s\nlead_%s_killed=%s\n' "$number" "$runtime" "$number" "$rc" "$number" "$(( $(date +%s) - started ))" "$number" "$timed_out" "$number" "$killed" >> "$out/summary.txt"
   if [ "$runtime" = claude ]; then
     node -e 'const fs=require("fs");let id="",last="";for(const l of fs.readFileSync(process.argv[1],"utf8").split("\n")){try{const e=JSON.parse(l);if(!id&&e.type==="system"&&e.subtype==="init")id=e.session_id||"";if(e.type==="result")last=e.result||""}catch{}}fs.writeFileSync(process.argv[2],last);if(id)console.log(id)' "$out/lead-$number.jsonl" "$out/lead-$number.final.txt" > "$out/lead-$number.session"
@@ -218,4 +227,3 @@ global_git git-global-after.txt
 (cd "$project" && node -e 'const {DatabaseSync}=require("node:sqlite");const db=new DatabaseSync("data/reading-list.db",{readOnly:true});const cols=db.prepare("PRAGMA table_info(books)").all().map(x=>x.name);console.log("columns="+cols.join(","));console.log("legacy_notes_non_null="+(cols.includes("legacy_notes")?db.prepare("SELECT COUNT(*) AS n FROM books WHERE legacy_notes IS NOT NULL").get().n:"not-applicable"))') > "$out/db-probe.txt" 2>&1 || true
 echo "run_dir=$run"
 echo "summary=$out/summary.txt"
-if [ "$keep" = no ]; then rm -rf "$project" "$run/codexhome"; fi

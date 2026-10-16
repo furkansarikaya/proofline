@@ -17,3 +17,5 @@ Finish with exactly one verdict line, counting only applicable items:
 PASS requires every applicable item to be met. Do not infer a pass from an exit code or a summary alone.
 
 Also score every applicable item of `tests/e2e/expected/CAPABILITIES.md` (`N-` items) and report them in a separate table with the same format. They never replace or loosen an existing item and are not counted in the `E2E:` verdict line; give them their own line `CAPABILITIES: PASS|FAIL (<met>/<applicable>)`. For C-14, `out/replies-log.txt` lists each reply with its kind: `plan-approval` replies are approvals, `question` replies are question replies; judge the three-reply limit with that record and state both counts.
+
+Clean up after yourself (A117): write only your evaluation file, to the path you were given. When you finish, remove every scratch file, copy, extracted tree or temporary worktree you created, and never leave files in the repository checkout. The run's `out/` directory is read-only input: do not change or delete anything in it.

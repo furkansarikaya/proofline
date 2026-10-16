@@ -1,9 +1,5 @@
 .DS_Store
 node_modules/
-# local, never committed
-.claude/forbidden-patterns.local
-.claude/progress.md
-.claude/bundles/
-.claude/settings.local.json
+# local agent state, progress notes, evaluations and worktrees: never committed
+.claude/
 .agents/local/
-.claude/build/

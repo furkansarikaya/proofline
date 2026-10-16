@@ -27,4 +27,11 @@ E2E_ROOT=$root/c sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead
 E2E_CODEX_MODEL=gpt-6-luna E2E_CODEX_EFFORT=none E2E_ROOT=$root/d sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead( resume)?:' > "$root/cheap.txt"
 [ "$(grep -c -- "-m 'gpt-6-luna'" "$root/cheap.txt")" -eq 2 ] || fail "model flag missing: $(cat "$root/cheap.txt")"
 [ "$(grep -c 'model_reasoning_effort="none"' "$root/cheap.txt")" -eq 2 ] || fail "effort flag missing: $(cat "$root/cheap.txt")"
+# A117: a dry run removes its project copy and isolated Codex home, keeps out/; --keep keeps the whole run directory.
+run_dir=$(dirname "$out")
+[ ! -e "$run_dir/project" ] && [ ! -e "$run_dir/codexhome" ] || fail 'dry run left the project copy or codexhome behind'
+[ -s "$out/git-global-before.txt" ] && [ -s "$out/prepare.txt" ] || fail 'out/ not intact after cleanup'
+E2E_ROOT=$root/k sh "$here/run.sh" TRIVIAL claude --dry-run --keep > /dev/null 2>&1 || fail 'dry run --keep failed'
+k=$(find "$root/k" -maxdepth 1 -mindepth 1 -type d | head -1)
+[ -d "$k/project" ] && [ -d "$k/codexhome" ] && [ -d "$k/out" ] || fail '--keep did not keep the run directory'
 echo "capabilities harness tests passed"
