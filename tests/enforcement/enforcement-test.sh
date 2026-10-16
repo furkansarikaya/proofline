@@ -219,6 +219,16 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
   done
   git worktree add -q "$base/wt-a97" HEAD >/dev/null 2>&1 || die "A97 fixture worktree"
   allowed "A97 a write inside a registered worktree" "$(pre_bash "echo x > $base/wt-a97/notes.txt" proofline-qa q1)"
+  git worktree add -q "$base/wt a120 sp" HEAD >/dev/null 2>&1 || die "A120 spaced fixture worktree"
+  allowed "A120 a Write tool inside a registered worktree with a space in its path" "$(pre_edit Write "$base/wt a120 sp/notes.txt" proofline-qa q1)"
+  allowed "DB-7 (A120) a scratch .db written by the Write tool inside a registered worktree" "$(pre_edit Write "$base/wt-a97/own2.db" proofline-qa q1)"
+  git worktree remove --force "$base/wt a120 sp" >/dev/null 2>&1 || :
+  for c in settings.json hooks/x rules/x CLAUDE.md agents/x skills/x commands/x; do
+    denied "A120 a Write to ~/.claude/$c" "$(HOME=$base/home pre_edit Write "$base/home/.claude/$c" proofline-qa q1)" "is outside the project"
+  done
+  for c in projects/p/memory/m.md plans/p.md projects/p/tool-results/r.txt; do
+    allowed "A120 a Write to ~/.claude/$c" "$(HOME=$base/home pre_edit Write "$base/home/.claude/$c" proofline-qa q1)"
+  done
   allowed "A120 a Write tool inside a registered worktree" "$(pre_edit Write "$base/wt-a97/notes.txt" proofline-qa q1)"
   denied "A120 a Write tool beside a registered worktree (prefix only)" "$(pre_edit Write "$base/wt-a97-x/notes.txt" proofline-qa q1)" "outside the project"
   git worktree remove --force "$base/wt-a97" >/dev/null 2>&1 || :

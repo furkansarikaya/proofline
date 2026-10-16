@@ -93,14 +93,16 @@ relpath() {
   case "$rp" in "$root") echo . ;; "$root"/*) printf '%s\n' "${rp#"$root"/}" ;; *) echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp" ;; esac
 }
 # outside_ok P: may a Write/Edit tool write P, which relpath put outside the project? Only inside a registered
-# worktree or the runtime's own storage under ~/.claude; a sibling such as <project>-x is outside (A120, C-18).
+# worktree or the runtime's own storage (~/.claude/projects/*/memory, tool-results, ~/.claude/plans); a sibling such as <project>-x is outside (A120, C-18).
 outside_ok() {
   oo_p=$(relpath "$1" abs | sed -n 2p); oo_p=${oo_p#/private}
-  case "$oo_p" in "${HOME:-/nonexistent-home}"/.claude/*) return 0 ;; esac
-  for oo_w in $(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p'); do
+  oo_h=$(printf '%s' "${HOME:-/nonexistent-home}" | sed 's|//*|/|g'); oo_h=${oo_h#/private}
+  case "$oo_p" in "$oo_h"/.claude/projects/*/memory/*|"$oo_h"/.claude/projects/*/tool-results/*|"$oo_h"/.claude/plans/*) return 0 ;; esac
+  git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' > "$tmp/oo_wts"
+  while IFS= read -r oo_w; do
     [ "${oo_w#/private}" != "${root#/private}" ] || continue
     case "$oo_p" in "${oo_w#/private}"/*) return 0 ;; esac
-  done
+  done < "$tmp/oo_wts"
   echo "$1 is outside the project. A run writes nothing outside the copy (registered worktrees and the runtime's own storage excepted); a path that merely shares a prefix with the project root is outside too"
   return 1
 }
