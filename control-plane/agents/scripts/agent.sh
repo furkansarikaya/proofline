@@ -4087,13 +4087,17 @@ cleanup_run() {
   esac
   # A116: the run's per-run assignments directory goes with it; guard before any removal so a refusal leaves both.
   adir="$root/.agents/local/assignments/$id"
+  for cu_p in "$root/.agents/local" "$root/.agents/local/assignments"; do
+    [ ! -L "$cu_p" ] || fail "refusing to remove assignments under $cu_p: it is a symlink"
+  done
   if [ -e "$adir" ] || [ -L "$adir" ]; then
     [ ! -L "$adir" ] && [ -d "$adir" ] || fail "refusing to remove $adir: not a plain assignments directory"
   fi
   marker=$(active_run_file)
   if [ -f "$marker" ] && [ "$(sed '/^[[:space:]]*$/d' "$marker")" = "$id" ]; then : > "$marker"; fi
+  # assignments first: if this rm fails the run still exists and cleanup can be retried
+  [ ! -d "$adir" ] || rm -rf "$adir" || fail "could not remove $adir; the run is kept, retry cleanup"
   rm -rf "$dir"
-  [ ! -d "$adir" ] || rm -rf "$adir"
   echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
 }
 
