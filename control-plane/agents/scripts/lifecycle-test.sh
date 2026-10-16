@@ -390,16 +390,41 @@ scenario_pipeline_trivial() {
 }
 
 # A31: the class is a claim, the diff the fact: a TRIVIAL run that changes executable code is reclassified.
+# A115 refuses code in a TRIVIAL scope at freeze, so the claim is frozen under a narrower review.executable_code
+# and the real list is restored before the diff is checked at IMPLEMENTED (the backstop for a list changed after freeze).
 scenario_classification_diff() {
   scaffold standalone no TRIVIAL manual
   awk '/^  - path: impl.txt$/ { print "  - path: app.go"; print "    new: true"; next } { print }' .agents/runs/LC/PLAN.md > "$base/plan" && cp "$base/plan" .agents/runs/LC/PLAN.md
-  A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  cp .agents/config.yaml "$base/config.saved"
+  printf 'review:\n  executable_code: "*.zzz"\n' >> .agents/config.yaml
+  A freeze LC >/dev/null
+  cp "$base/config.saved" .agents/config.yaml
+  A handoff LC IMPLEMENTING >/dev/null
   solo RED fail impl_test.txt 'test: lookup returns the stored value' app.go,impl_test.txt
   solo GREEN pass app.go 'package x' app.go,impl_test.txt
   expect_msg "a TRIVIAL run with an executable code change reached IMPLEMENTED" 'is TRIVIAL but its diff changes executable code: app.go' A handoff LC IMPLEMENTED
   expect_msg "the message names the way out" "agent.sh classify LC STANDARD" A handoff LC IMPLEMENTED
   expect_state handoff state IMPLEMENTING
   ok "classification check: TRIVIAL + executable code blocks IMPLEMENTED, with the way out named"
+}
+
+# A115 (amends A31): a TRIVIAL freeze refuses a scope with executable code (tests included) before any IMPLEMENT.
+# The A31 diff check at IMPLEMENTED is now a backstop: every changed path is a scope path or an unmapped-path failure.
+scenario_trivial_freeze_code() {
+  scaffold standalone no TRIVIAL manual
+  cp .agents/runs/LC/PLAN.md "$base/plan.text"
+  awk '/^  - path: impl.txt$/ { print "  - path: src/x.js"; print "    new: true"; next } /^  - path: impl_test.txt$/ { print "  - path: src/x.test.js"; print "    new: true"; next } { print }' "$base/plan.text" > "$base/plan.code"
+  cp "$base/plan.code" .agents/runs/LC/PLAN.md
+  expect_msg "a TRIVIAL freeze accepted executable code in scope" 'scope has executable code: src/x.js src/x.test.js' A freeze LC
+  awk '/^  - path: impl.txt$/ { print "  - path: public/index.html"; print "    new: true"; next } /^  - path: impl_test.txt$/ { print "  - path: README.md"; print "    new: true"; next } { print }' "$base/plan.text" > .agents/runs/LC/PLAN.md
+  A freeze LC >/dev/null
+  scaffold standalone no STANDARD manual
+  cp "$base/plan.code" .agents/runs/LC/PLAN.md
+  A freeze LC >/dev/null
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment\n' > .agents/runs/LC/amendments/001.md
+  A classify LC TRIVIAL >/dev/null; rm .agents/runs/LC/EVIDENCE.md .agents/runs/LC/QA_PLAN.md
+  expect_msg "a TRIVIAL refreeze accepted executable code in scope" 'executable code' A refreeze LC 001.md
+  ok "TRIVIAL freeze and refreeze refuse executable code in scope; STANDARD, html and md scope freeze"
 }
 
 # STANDARD: evidence + frozen QA plan; QA gate; review only by opt-in or by the diff's tier.
@@ -697,6 +722,7 @@ run_sc scenario_amendment_fresh_budget
 run_sc scenario_terminal
 run_sc scenario_pipeline_trivial
 run_sc scenario_classification_diff
+run_sc scenario_trivial_freeze_code
 run_sc scenario_pipeline_standard
 run_sc scenario_classification
 run_sc scenario_amend_plan_change

@@ -38,7 +38,7 @@ The highest class any indicator reaches wins. When unsure between two classes, t
 
 | Class | Indicators |
 |---|---|
-| TRIVIAL | All of: at most 2 scope paths, no behaviour change, no design choice, no contract, persistence, security or concurrency involvement. |
+| TRIVIAL | All of: at most 2 scope paths, text or configuration only (no code, no tests: `freeze` refuses executable code in scope, A115), no behaviour change, no design choice, no contract, persistence, security or concurrency involvement. |
 | STANDARD | A bounded behaviour change in one component; no new integration, persistence or security boundary. |
 | COMPLEX | Two or more modules; a new integration or dependency; a public contract change; a persistence or schema change; meaningful concurrency; a design choice with real tradeoffs. |
 | CRITICAL | Auth, authorization, cryptography, secrets, any security boundary; a destructive or irreversible migration; financial or data-integrity-critical behaviour; high-impact CI, deploy or infrastructure. |

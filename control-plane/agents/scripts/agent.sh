@@ -925,6 +925,11 @@ pipeline_check() {
     pc_n=$(scope_mappings "$dir/PLAN.md" | wc -l | tr -d ' ')
     [ "$pc_n" -le "$pc_max" ] || fail "the $class pipeline allows at most $pc_max scope paths; this plan has $pc_n — reclassify"
   fi
+  # A115: TRIVIAL covers text and configuration; code (tests included) in the scope is refused at freeze, not at IMPLEMENTED (A31).
+  if [ "$class" = TRIVIAL ]; then
+    pc_code=$(scope_mappings "$dir/PLAN.md" | cut -d '|' -f1 | paths_executable)
+    [ -z "$pc_code" ] || fail "the TRIVIAL pipeline covers text and configuration only; scope has executable code:$pc_code — classify STANDARD ('agent.sh classify $id STANDARD', write the evidence and QA plan it requires, then amend and 'agent.sh refreeze $id <AMENDMENT>' on a frozen run)"
+  fi
 }
 
 # What a run requires: class artifacts, tier and every required gate with its status.
@@ -1488,15 +1493,16 @@ VCA_EOF
 # TRIVIAL covers text and configuration changes. A TRIVIAL run whose diff changes an executable code file
 # (config review.executable_code, default below) must be reclassified before IMPLEMENTED and CODE_DONE.
 executable_code_default='*.go *.py *.pyw *.js *.mjs *.cjs *.jsx *.ts *.mts *.cts *.tsx *.java *.kt *.kts *.scala *.groovy *.rs *.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.cs *.fs *.vb *.rb *.php *.swift *.m *.mm *.dart *.lua *.pl *.pm *.r *.jl *.ex *.exs *.erl *.hs *.ml *.clj *.sh *.bash *.zsh *.fish *.ps1 *.bat *.cmd *.sql *.vue *.svelte *.gradle'
+paths_executable() { # stdin: one path per line -> " p1 p2" of the paths matching review.executable_code (A31, A115)
+  pe_globs=$(cfg review.executable_code "$executable_code_default"); pe_hits=''
+  while IFS= read -r pe_p; do [ -z "$pe_p" ] || ! path_matches "$pe_p" "$pe_globs" || pe_hits="$pe_hits $pe_p"; done
+  printf '%s' "$pe_hits"
+}
 verify_classification() { # ID
   vc_id=$1
   gates_enforced "$vc_id" && pipeline_class_valid "$(pipeline_class "$vc_id")" || return 0
   [ "$(pipeline_class "$vc_id")" = TRIVIAL ] || return 0
-  vc_globs=$(cfg review.executable_code "$executable_code_default")
-  vc_hits=''
-  for vc_p in $(task_changed_paths "$vc_id"); do
-    ! path_matches "$vc_p" "$vc_globs" || vc_hits="$vc_hits $vc_p"
-  done
+  vc_hits=$(task_changed_paths "$vc_id" | paths_executable)
   [ -z "$vc_hits" ] || fail "classification blocked: run $vc_id is TRIVIAL but its diff changes executable code:${vc_hits}. TRIVIAL covers text and configuration only. Reclassify: write the evidence and QA plan the new class requires, 'agent.sh classify $vc_id STANDARD' (or higher), then amend and 'agent.sh refreeze $vc_id <AMENDMENT>'."
 }
 
@@ -3778,7 +3784,7 @@ next_step() {
   case "$ns_st" in FAILED|BLOCKED) o "report the evidence, then: agent.sh cleanup $ns_id"; r "run is terminal ($ns_st)"; return 0 ;; esac
   if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> < answer"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_class=$(pipeline_class "$ns_id")
-  pipeline_class_valid "$ns_class" || { o "agent.sh classify $ns_id <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review]"; r "run is not classified"; return 0; }
+  pipeline_class_valid "$ns_class" || { o "agent.sh classify $ns_id <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review]"; r "run is not classified (TRIVIAL is text and configuration only; a plan that changes code or adds tests is STANDARD or higher)"; return 0; }
   if section_key_present "$ns_d" repository task_branch; then
     case "$(section_value "$ns_d" repository task_branch)" in ''|PENDING) o "agent.sh branch $ns_id"; r "task branch not established"; return 0 ;; esac
   fi

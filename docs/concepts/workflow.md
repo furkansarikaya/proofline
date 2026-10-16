@@ -15,7 +15,7 @@ The highest class any indicator reaches wins; when unsure, take the higher.
 
 | Class | Typical indicators |
 |---|---|
-| TRIVIAL | at most 2 scope paths, no behaviour change, no design choice |
+| TRIVIAL | at most 2 scope paths, text or configuration only (no executable code or tests in scope), no behaviour change, no design choice |
 | STANDARD | bounded behaviour change in one component |
 | COMPLEX | several modules, new integration or dependency, public contract, persistence, real design tradeoffs |
 | CRITICAL | auth, crypto, secrets, destructive migration, financial or data-integrity behaviour, high-impact CI or deploy |
