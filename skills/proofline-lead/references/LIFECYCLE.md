@@ -122,7 +122,7 @@ editing the hash.
 ## 6. Implement
 
 1. `A handoff <ID> IMPLEMENTING` (a destructive plan: only after the destructive approval, section 5).
-2. Dispatch exactly one implementer ([DISPATCH.md](DISPATCH.md#implementer)); the assignment names
+2. Dispatch exactly one implementer ([DISPATCH.md](DISPATCH.md#3-implementer)); the assignment names
    tdd-proof (RED for the right reason, GREEN, REFACTOR) and the frozen scope.
 3. `A handoff <ID> IMPLEMENTED` (fails without RED/GREEN evidence per scope path or an attested window),
    `A tier <ID>`, `A pipeline <ID>`.

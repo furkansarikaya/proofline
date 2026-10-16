@@ -23,7 +23,7 @@ source: <path:line of the defining migration or schema file>
 
 | column | type | null | default | key | notes |
 |---|---|---|---|---|---|
-| <column> | <type> | <yes|no> | <default or -> | <PK|FK -> table.column|UK|-> | <readers/writers path:symbol when relevant> |
+| <column> | <type> | <yes\|no> | <default or -> | <PK\|FK -> table.column\|UK\|-> | <readers/writers path:symbol when relevant> |
 
 indexes: <name (columns) [unique], ... or none>
 

@@ -24,7 +24,9 @@ trap 'rm -f "$tmp"' EXIT
       /^name: /        { name = substr($0, 7) }
       /^description: / { desc = substr($0, 14) }
       /^  version: /   { v = substr($0, 12); gsub(/"/, "", v) }
-      END { gsub(/\|/, "\\|", desc); printf "| `%s` | %s | %s |\n", name, desc, v }
+      END {
+        if (desc ~ /^".*"$/) { desc = substr(desc, 2, length(desc) - 2); gsub(/\\"/, "\"", desc); gsub(/\\\\/, "\\", desc) }
+        gsub(/\|/, "\\|", desc); printf "| `%s` | %s | %s |\n", name, desc, v }
     ' "$f"
   done
 } > "$tmp"
