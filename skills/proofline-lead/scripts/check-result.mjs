@@ -150,6 +150,14 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   };
 }
 
+function inFlightPid(marker) {
+  try {
+    const m = /^pid=(\d+)$/m.exec(readFileSync(marker, "utf8"));
+    if (m) { process.kill(Number(m[1]), 0); return m[1]; }
+  } catch { /* no marker, or its process is gone: stale */ }
+  return "";
+}
+
 function main(argv) {
   const args = argv.slice(2);
   const opt = (name) => {
@@ -162,8 +170,15 @@ function main(argv) {
   const role = opt("--role");
   const task = opt("--task");
   if (args.length !== 1 || role === "" || task === "") { console.error("usage: check-result.mjs <result-file|-> [--role ROLE] [--task ID]"); return 2; }
-  let text;
-  try { text = readFileSync(args[0] === "-" ? 0 : args[0], "utf8"); } catch (e) { console.error(`error: ${e.message}`); return 2; }
+  let text = "";
+  let readError = "";
+  try { text = readFileSync(args[0] === "-" ? 0 : args[0], "utf8"); } catch (e) { readError = e.message; }
+  // A124: dispatch.sh leaves <NNN>-<role>-<runtime>.running next to the (still empty or absent) .md while its worker runs.
+  if (args[0] !== "-" && text.trim() === "") {
+    const pid = inFlightPid(args[0].replace(/\.[^./]*$/, ".running"));
+    if (pid) { console.log(`dispatch in flight (pid ${pid}): wait for the dispatch command to return; this file is empty until it does`); return 1; }
+  }
+  if (readError) { console.error(`error: ${readError}`); return 2; }
   const { errors, summary } = check(text, { role, task });
   if (errors.length) { for (const e of errors) console.log(e); return 1; }
   console.log(JSON.stringify(summary));

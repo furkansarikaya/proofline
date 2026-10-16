@@ -23,7 +23,8 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   `AGENT_ROLE` from the subagent type. dispatch path -> dispatch.sh records. The lead records nothing.
 - Exit codes of `D`: 0 recorded, 1 task failure or record rejected, 2 usage/config, 5 NEEDS_INPUT, 6
   BLOCKED, 124 timeout. 5 -> the question is already pending (`A ask` by dispatch.sh or the specialist's
-  NEEDS_INPUT): [HANDOFF.md](HANDOFF.md); 6 -> read `BLOCKED_REASON` from check-result; 124 -> re-dispatch
+  NEEDS_INPUT): [HANDOFF.md](HANDOFF.md); 6 -> read `BLOCKED_REASON` from check-result, or from `D`'s own stdout when
+  `D` itself blocks (a worker that wrote nothing leaves no `.md` to check); 124 -> re-dispatch
   once, then BLOCKED.
 - `D` is synchronous and can take minutes: its `dispatch/<NNN>-<role>-<runtime>.md` and `.log` stay empty until it
   returns, and a `.running` marker sits beside them meanwhile. Never read those files, or start the same step

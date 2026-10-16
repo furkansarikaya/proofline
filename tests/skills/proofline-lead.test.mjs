@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -83,6 +83,22 @@ test("the summary has exactly the schema's properties", () => {
   assert.deepEqual(Object.keys(s).sort(), [...SCHEMA.required].sort());
   assert.deepEqual(Object.keys(SCHEMA.properties).sort(), [...SCHEMA.required].sort());
   assert.match(s.fingerprint, new RegExp(SCHEMA.properties.fingerprint.pattern));
+});
+
+// --- check-result: a dispatch in flight (A124) ------------------------------------------------
+test("check-result on an empty result says the dispatch is in flight while its marker names a live pid", () => {
+  const d = mkdtempSync(join(tmpdir(), "cr-inflight-"));
+  try {
+    const md = join(d, "003-verifier-claude.md");
+    writeFileSync(md, "");
+    writeFileSync(join(d, "003-verifier-claude.running"), `pid=${process.pid}\nrole=verifier\n`);
+    const live = spawnSync("node", [script, md, "--role", "verifier", "--task", "T-1"], { encoding: "utf8" });
+    assert.equal(live.status, 1);
+    assert.match(live.stdout, new RegExp(`dispatch in flight \\(pid ${process.pid}\\): wait for the dispatch command to return`));
+    writeFileSync(join(d, "003-verifier-claude.running"), "pid=999999999\nrole=verifier\n");
+    const dead = spawnSync("node", [script, md, "--role", "verifier", "--task", "T-1"], { encoding: "utf8" });
+    assert.match(dead.stdout, /malformed header: missing ROLE/);
+  } finally { rmSync(d, { recursive: true, force: true }); }
 });
 
 // --- check-result: each malformed class is rejected -------------------------------------------
