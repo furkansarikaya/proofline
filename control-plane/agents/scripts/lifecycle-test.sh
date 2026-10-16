@@ -508,13 +508,25 @@ scenario_hardening() {
   expect_msg "a stray QA_PLAN.md-E did not block handoff" 'discard-stray LC' A handoff LC CODE_DONE
   expect_fail "a non-lead discarded a stray" sh -c "AGENT_ROLE=qa sh ./.agents/scripts/agent.sh discard-stray LC QA_PLAN.md-E"
   [ -f .agents/runs/LC/QA_PLAN.md-E ] || die "a non-lead removed the stray"
-  expect_msg "discard-stray removed a known artifact" 'known run artifact' A discard-stray LC PLAN.md
-  expect_msg "discard-stray accepted .." 'plain run-relative' A discard-stray LC ../LC/QA_PLAN.md-E
-  mkdir -p .agents/runs/LC/stray-dir; expect_msg "discard-stray removed a directory" 'not a regular file' A discard-stray LC stray-dir; rmdir .agents/runs/LC/stray-dir
-  ln -s PLAN.md .agents/runs/LC/link-E; expect_msg "discard-stray followed a symlink" 'symlink' A discard-stray LC link-E; rm .agents/runs/LC/link-E
+  ld=.agents/runs/LC; before=$(tail -n 1 "$ld/LEDGER.log")
+  for f in PLAN.md plan.md Plan.MD ledger.log LEDGER.log qa_plan.md Qa_Report.md run.yaml; do
+    expect_msg "discard-stray removed a protected name ($f)" 'known run artifact' A discard-stray LC "$f"
+  done
+  [ -f "$ld/PLAN.md" ] && [ -f "$ld/LEDGER.log" ] || die "a protected file was removed"
+  expect_msg "discard-stray accepted a sub-path (gates/)" 'single top-level' A discard-stray LC gates/zz.yaml
+  expect_msg "discard-stray accepted Results/x" 'single top-level' A discard-stray LC Results/x
+  expect_msg "discard-stray accepted .." 'single top-level' A discard-stray LC ../LC/QA_PLAN.md-E
+  expect_msg "discard-stray accepted a dot-name" 'single top-level' A discard-stray LC .lock
+  mkdir -p "$ld/sub"; printf x > "$ld/sub/file"; expect_msg "discard-stray removed sub/file" 'single top-level' A discard-stray LC sub/file; rm -r "$ld/sub"
+  mkdir -p "$ld/gates"; ln -s gates "$ld/lnk"; printf x > "$ld/gates/zz.yaml"
+  expect_msg "discard-stray went through a symlinked parent" 'single top-level' A discard-stray LC lnk/zz.yaml
+  [ -f "$ld/gates/zz.yaml" ] || die "a file in gates/ was removed"; rm -f "$ld/gates/zz.yaml" "$ld/lnk"
+  mkdir -p "$ld/stray-dir"; expect_msg "discard-stray removed a directory" 'not a regular file' A discard-stray LC stray-dir; rmdir "$ld/stray-dir"
+  ln -s PLAN.md "$ld/link-E"; expect_msg "discard-stray followed a symlink" 'symlink' A discard-stray LC link-E; rm "$ld/link-E"
   A discard-stray LC QA_PLAN.md-E >/dev/null
   [ ! -e .agents/runs/LC/QA_PLAN.md-E ] || die "discard-stray left the stray"
   grep -q 'event=discard-stray .*path=QA_PLAN.md-E sha256=' .agents/runs/LC/LEDGER.log || die "discard-stray left no ledger row"
+  [ "$(tail -n 2 "$ld/LEDGER.log" | head -n 1)" = "$before" ] || die "discard-stray broke the ledger chain"
   A verify-scope LC >/dev/null   # the stray check handoff runs now passes (CODE_DONE itself still needs its gates)
   for f in design/INTENT.md design/API.json design/adr/0001-x.md results/001-explorer.md dispatch/001-reviewer-claude.md dispatch/001-reviewer-claude.log reviews/proof-review/plan/REPORT.md reviews/proof-review/rules/ledger.md reviews/proof-review/small/findings.json reviews/test-trust/tests/REPORT.md reviews/test-trust/qa/REPORT.md reviews/data-design/REVIEW.md security/evidence/poc.txt; do
     mkdir -p ".agents/runs/LC/$(dirname "$f")"; printf 'x\n' > ".agents/runs/LC/$f"
