@@ -1064,10 +1064,13 @@ task_defect_fixes() { # TASK.md -> the lines that say `decision: fix`
 # under `## Pre-existing defects` (a `###` heading counts): otherwise a defect fix folded into the task (an answer
 # such as "use your recommended option" turned into a criterion) would reach the plan as requested work. Every
 # entry carries `decision: report | fix`. The task-author validator applies the same rule. Prints the errors.
+# The one list of defect and fix words of a task's own sections (A105, A122): English words and Turkish stems.
+defect_sec_re='defects?|bugs?|regression|fix|fixes|fixing'
+defect_sec_tr='kusur|düzelt'
 task_defect_errors() { # ID
   te_f=$(run_dir "$1")/TASK.md; [ -f "$te_f" ] || return 0
   te_big=0; case "$(pipeline_class "$1")" in COMPLEX|CRITICAL) te_big=1 ;; esac
-  awk -v big="$te_big" '
+  awk -v big="$te_big" -v sre="$defect_sec_re" -v str="$defect_sec_tr" '
     function w(s, re) { return (" " s " ") ~ ("[^a-z](" re ")[^a-z]") }
     /<!--/ { c = 1 } c { if (/-->/) c = 0; next }
     NR == 1 && /^# Task:/ { req = req " " tolower($0); next }
@@ -1077,7 +1080,7 @@ task_defect_errors() { # ID
     d { next }
     /^[[:space:]]*>/ || sec == "Goal" || sec == "Suggested class" { req = req " " tolower($0); next }
     (sec == "Context" || sec == "Acceptance criteria" || sec == "Constraints" || sec == "Risks") && m == "" {
-      l = tolower($0); if (w(l, "defects?|bugs?|regression|fix|fixes|fixing") || l ~ /kusur|düzelt/) { m = $0; sub(/^[[:space:]]*[-*][[:space:]]+/, "", m) } }
+      l = tolower($0); if (w(l, sre) || l ~ str) { m = $0; sub(/^[[:space:]]*[-*][[:space:]]+/, "", m) } }
     END {
       if (!big || m == "" || n > 0) exit
       if (w(req, "bugs?|defects?|regression|broken|fix|fixes|fixed|wrong|incorrect|crash(es)?|disappears?|disappeared|unreachable") || req ~ /hata|bozuk|kaybol|yanlış|düzelt/) exit
@@ -1701,9 +1704,22 @@ verify_debug_result() { # ID
     for vd_w in $(cfg review.defect_words "$defect_words_default"); do case "$vd_qw" in *" $vd_w "*) vd_hit=quote; break ;; esac; done
     if [ -z "$vd_hit" ] && printf '%s\n' "$vd_q" | grep -Eq 'hata|bozuk|kayb|kayıp|kaybol|görünm|çalışm|yanlış'; then vd_hit=quote; fi
   fi
+  if [ -z "$vd_hit" ]; then
+    # A122: Goal, Context, Acceptance criteria, Constraints, Risks and the user's quotes speak of a defect or a fix
+    # (the words of A105, never a second list). Declared pre-existing defects (A105) are findings, not the task.
+    vd_hit=$(awk -v sre="$defect_sec_re" -v str="$defect_sec_tr" '
+      function w(s, re) { return (" " s " ") ~ ("[^a-z](" re ")[^a-z]") }
+      /<!--/ { c = 1 } c { if (/-->/) c = 0; next }
+      NR == 1 && /^# Task:/ { sec = "Goal" }
+      /^##[#]?[[:space:]]/ { h = $0; sub(/^#+[[:space:]]+/, "", h); sub(/[[:space:]]+$/, "", h); d = (tolower(h) == "pre-existing defects")
+        if ($0 ~ /^## /) sec = h; next }
+      d { next }
+      /^[[:space:]]*>/ || sec == "Goal" || sec == "Context" || sec == "Acceptance criteria" || sec == "Constraints" || sec == "Risks" {
+        l = tolower($0); if (w(l, sre) || l ~ str) { print substr($0, 1, 80); exit } }' "$vd_d/TASK.md")
+  fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
-  fail "IMPLEMENTED blocked: the task describes a defect ('$vd_hit' in its title or goal) but there is no debug-proof result: the implementer writes reports/NNN-debug.md (reproduction, root cause, regression test) and submits it"
+  fail "IMPLEMENTED blocked: the task speaks of a defect or a fix ('$vd_hit' in its title, goal, context, criteria, constraints, risks or quotes) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) and submit it"
 }
 
 # --- Handoff ladder: PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE ------------
