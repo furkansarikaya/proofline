@@ -131,8 +131,8 @@ See `GATES.md`. `CODE_DONE` requires every required gate `pass` (or fully `waive
 content and no pending question. It grants no delivery right. `DONE` additionally requires
 `knowledge-done`, a completion report with the sections the run needs, published and verified through the
 task adapter. `delivery-check` proves local readiness; commit and push need the user's approval
-(`GATES.md` "Approvals") and pass through the git hooks. `cleanup` deletes the run directory and clears
-`.agents/local/ACTIVE_RUN`, so the git hooks no longer see the run; then STOP. Before the delivery commit it
+(`GATES.md` "Approvals") and pass through the git hooks. `cleanup` deletes the run directory and the run's
+`.agents/local/assignments/<ID>/` and clears `.agents/local/ACTIVE_RUN`, so the git hooks no longer see the run; then STOP. Before the delivery commit it
 checks freshness and handoff integrity as usual; after it (HEAD moved past `repository.base_sha`) it requires
 `base_sha` to be an ancestor of HEAD, measures the task-owned paths from `base_sha` (the patch must equal the
 CODE_DONE patch, every required gate must still pass, the knowledge scope must hold) and requires every

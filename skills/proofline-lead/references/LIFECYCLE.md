@@ -142,5 +142,5 @@ in this step.
 1. Write `COMPLETION_REPORT.md` ([REPORT.md](REPORT.md)), `A publish-completion-report <ID>`.
 2. `A handoff <ID> DONE`, `A delivery-check <ID>`.
 3. Delivery stop ([DELIVERY.md](DELIVERY.md)).
-4. `A cleanup <ID>` after delivery or when the user declines delivery; terminal runs (`FAILED`,
+4. `A cleanup <ID>` (removes the run directory and `.agents/local/assignments/<ID>/`, PR_BODY.md included, so only after delivery) after delivery or when the user declines delivery; terminal runs (`FAILED`,
    `BLOCKED`) after their evidence is reported. Then the final report and STOP.

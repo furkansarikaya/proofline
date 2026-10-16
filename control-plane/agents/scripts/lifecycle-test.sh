@@ -194,7 +194,10 @@ scenario_orchestrated_loop() {
   cp impl.txt "$base/impl.done"; printf 'edited after DONE\n' >> impl.txt
   expect_fail "cleanup accepted a run whose content changed after DONE" A cleanup LC
   cp "$base/impl.done" impl.txt
+  mkdir -p .agents/local/assignments/LC .agents/local/assignments/OTHER; : > .agents/local/assignments/LC/a.md; : > .agents/local/assignments/OTHER/b.md
   A cleanup LC >/dev/null
+  [ ! -e .agents/local/assignments/LC ] && [ -f .agents/local/assignments/OTHER/b.md ] || die "cleanup did not remove only the run's assignments directory (A116)"
+  rm -rf .agents/local/assignments/OTHER
   [ ! -e .agents/runs/LC ] && [ -z "$(sed '/^[[:space:]]*$/d' .agents/local/ACTIVE_RUN)" ]
   A status | grep -Fxq 'active_task=none'
   ok "orchestrated loop, reopen, ledger and cleanup"
@@ -325,18 +328,39 @@ scenario_terminal() {
   expect_fail "an unknown outcome was accepted" term DONE
   term FAILED >/dev/null
   expect_state execution state FAILED
+  mkdir -p .agents/local/outside-target; : > .agents/local/outside-target/keep; mkdir -p .agents/local/assignments; ln -s "$PWD/.agents/local/outside-target" .agents/local/assignments/LC
   expect_fail "a terminal run accepted a handoff" A handoff LC IMPLEMENTING
   expect_fail "a terminal run accepted a gate" gpass QA
   expect_fail "a terminal run was reclassified" A classify LC STANDARD
   expect_fail "a terminal run was terminated again" term BLOCKED
   A verify-seal LC >/dev/null
   A next LC | grep -q '^next=report the evidence' || die "next did not point a terminal run at cleanup"
-  A cleanup LC >/dev/null; [ ! -e .agents/runs/LC ]
+  # A116 guards: each case checks, restores the scaffolding, then asserts, so a failed assertion leaves nothing behind.
+  A_=.agents/local/assignments; O_=.agents/local/outside-target
+  expect_fail "cleanup followed a symlinked assignments directory" A cleanup LC
+  kept=0; [ -f "$O_/keep" ] && [ -L "$A_/LC" ] && [ -d .agents/runs/LC ] && kept=1; rm -f "$A_/LC"
+  [ "$kept" = 1 ] || die "symlinked assignments guard failed (A116)"
+  : > "$A_/LC"
+  expect_fail "cleanup removed a regular file at the assignments path" A cleanup LC
+  kept=0; [ -f "$A_/LC" ] && [ -d .agents/runs/LC ] && kept=1; rm -f "$A_/LC"
+  [ "$kept" = 1 ] || die "a file at the assignments path was not kept with the run (A116)"
+  mkdir -p "$O_/LC"; : > "$O_/LC/keep"; rmdir "$A_"; ln -s "$PWD/$O_" "$A_"
+  expect_fail "cleanup went through a symlinked assignments parent" A cleanup LC
+  kept=0; [ -f "$O_/LC/keep" ] && [ -d .agents/runs/LC ] && kept=1; rm -f "$A_"; mkdir -p "$A_"
+  [ "$kept" = 1 ] || die "symlinked assignments parent guard failed (A116)"
+  mkdir -p "$A_/LC"; : > "$A_/LC/a.md"
+  A cleanup LC >/dev/null
+  [ ! -e .agents/runs/LC ] && [ ! -e "$A_/LC" ] || die "a FAILED cleanup left the run or its assignments directory (A116)"
   scaffold standalone
   expect_fail "cleanup of a run that is neither DONE nor terminal" A cleanup LC
+  mkdir -p .agents/local/assignments/LC; : > .agents/local/assignments/LC/a.md
+  expect_fail "a refused cleanup" A cleanup LC
+  [ -f .agents/local/assignments/LC/a.md ] && [ -d .agents/runs/LC ] || die "a refused cleanup removed the assignments or run directory (A116)"
+  rm -rf .agents/local/assignments/LC
   printf 'reason: the verification toolchain is unavailable in this environment\nevidence: go test exited 127 because the go binary is missing\n' | A terminate LC BLOCKED >/dev/null
   expect_state execution state BLOCKED
-  A cleanup LC >/dev/null; [ ! -e .agents/runs/LC ]
+  mkdir -p .agents/local/assignments/LC; : > .agents/local/assignments/LC/a.md
+  A cleanup LC >/dev/null; [ ! -e .agents/runs/LC ] && [ ! -e .agents/local/assignments/LC ] || die "a BLOCKED cleanup left the run or its assignments directory (A116)"
   ok "terminal outcomes and cleanup"
 }
 
