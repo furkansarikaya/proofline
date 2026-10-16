@@ -36,7 +36,7 @@ adapter before DONE. Omit a conditional section only when its condition does not
 
 | gate | status | confidence | fix round | findings |
 |---|---|---|---|---|
-| <GATE> | <pass|waived|fail|pass_low (not counted)> | <high|medium|low> | <n> | <ids or none> |
+| <GATE> | <pass\|waived\|fail\|pass_low (not counted)> | <high\|medium\|low> | <n> | <ids or none> |
 
 Fix rounds used: <n> of <review.max_fix_rounds>.
 
@@ -65,7 +65,7 @@ Visual (when the `visual` focus ran): <the `SUMMARY:` line of `reviews/visual-pr
 
 | role | focus | runtime | model | effort | signals | note |
 |---|---|---|---|---|---|---|
-| <role> | <focus or -> | <claude|codex> | <model> | <effort> | <signals or none> | <escalated, failover from=.. to=.. reason=..> |
+| <role> | <focus or -> | <claude\|codex> | <model> | <effort> | <signals or none> | <escalated, failover from=.. to=.. reason=..> |
 
 ## Amendments
 

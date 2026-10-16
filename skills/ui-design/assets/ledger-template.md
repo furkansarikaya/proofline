@@ -14,7 +14,7 @@ Always English. Update after every step; this is the resume point. Never record 
 |---|---|
 
 ## Inventory
-| Need | Existing item (path) | Decision (reused|new) | Reason |
+| Need | Existing item (path) | Decision (reused\|new) | Reason |
 |---|---|---|---|
 
 ## Screens

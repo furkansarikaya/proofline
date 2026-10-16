@@ -18,6 +18,7 @@ node --test tests/benchmark/benchmark.test.mjs            # benchmark report kno
 sh adapters/generate.sh --check              # generated agent files match roles/
 sh docs/reference/generate-skills.sh --check # docs/reference/skills.md matches the skills
 sh tests/shared/check-shared.sh              # shared skill sections have not drifted
+node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Markdown links (also run alone by CI)
 ```
 
 `SELFTEST_ONLY=<suite>` runs one self-test suite; `LC_ONLY=<substring>` runs matching scenarios inside a suite.

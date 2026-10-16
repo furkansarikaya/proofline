@@ -10,7 +10,7 @@ destructive: <yes|no>
 
 | step | phase | operation | object | destructive | reversible | rollback | lock |
 |---|---|---|---|---|---|---|---|
-| S1 | expand | <operation> | <table or table.column> | <yes|no> | <yes|no> | <how this step is undone, or how data is recovered> | <lock taken, scope, expected duration> |
+| S1 | expand | <operation> | <table or table.column> | <yes\|no> | <yes\|no> | <how this step is undone, or how data is recovered> | <lock taken, scope, expected duration> |
 
 <!--
 phase:      expand < backfill < switch < contract < deferred (non-decreasing down the table)

@@ -74,6 +74,13 @@ jobs:
           if [ -f tests/shared/check-shared.sh ]; then sh tests/shared/check-shared.sh
           else echo "SKIPPED: tests/shared/check-shared.sh does not exist yet"; fi
 
+      # A125: front matter, YAML/TOML and Markdown links; runs for documentation-only pull requests too
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: front matter and link check
+        run: node --test tests/skills/frontmatter.test.mjs
+
       - name: generator tests
         if: needs.changes.outputs.code == 'true'
         run: sh tests/generator/generator-test.sh
