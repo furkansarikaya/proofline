@@ -332,7 +332,8 @@ scan_cmd() {
         out("W", x)
       }
     }
-    else if (c == "sed" || c == "gsed" || c == "perl") { for (j = k + 1; j <= nw; j++) if (w[j] ~ /^-[A-Za-z]*i/ || w[j] ~ /^--in-place/) { if (nw > k + 1) out("W", w[nw]); break } }
+    else if (c == "sed" || c == "gsed" || c == "perl") {
+      if (c == "sed") for (j = k + 1; j < nw; j++) if (w[j] ~ /^-[A-Za-z]*i$/ && w[j + 1] ~ /^-[A-Za-z-]/) { out("S", "sed " w[j] " " w[j + 1]); break } for (j = k + 1; j <= nw; j++) if (w[j] ~ /^-[A-Za-z]*i/ || w[j] ~ /^--in-place/) { if (nw > k + 1) out("W", w[nw]); break } }
     else if (c ~ /^(cp|mv|install|ln|rsync)$/) {
       nopt = 0; tgt = ""
       for (j = k + 1; j <= nw; j++) {
@@ -722,6 +723,7 @@ pretool)
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
       case "$k" in
+        S) deny "$v: on BSD/macOS sed the token after -i is the backup suffix, so it leaves a stray file named like the target plus that token (QA_PLAN.md-E) that blocks handoff. Write the file with the Write/Edit tool, or sed -E ... file > scratch && mv scratch file, or perl -pi -e ... (sed -i '' is BSD-only, bare sed -i GNU-only)" ;;
         B) deny "git hook bypass is never allowed ($v); the git hooks enforce identity, gates and approvals" ;;
         A) case "${v#*"$TAB"}" in approve|approve-pending) deny "no model runs agent.sh ${v#*"$TAB"}: an approval is the user's. The runtime records it from the user's reply (the prompt hook) and agent.sh refuses it without that reply; wait for the user's answer, then run agent.sh next" ;; esac ;;
         W) ! always_protected "$(relpath "$v")" || deny "the command writes '$v', which wires the git hooks; it is never changed by an agent (git hook bypass)" ;;
