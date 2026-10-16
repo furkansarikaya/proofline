@@ -11,7 +11,9 @@ unset AGENT_ROLE 2>/dev/null || true
 
 tl_agents=$(CDPATH='' cd "$(dirname "$0")/.." && pwd)     # control-plane/agents (source) or .agents (installed)
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-test.XXXXXX")
-trap 'chmod -R u+w "$base" 2>/dev/null; rm -rf "$base"' EXIT
+# Cleanup never decides the exit status (set -e in a trap would): a process still finishing inside $base
+# (git maintenance) can make rm fail once, so retry; the assertions already decided the result.
+trap 'chmod -R u+w "$base" 2>/dev/null || :; rm -rf "$base" 2>/dev/null || { sleep 1; rm -rf "$base" 2>/dev/null || :; }' EXIT
 RID=LC
 
 if command -v shasum >/dev/null 2>&1; then tsha() { shasum -a 256 "$1" | awk '{print $1}'; }; else tsha() { sha256sum "$1" | awk '{print $1}'; }; fi
@@ -182,7 +184,7 @@ finish_done() {
 tc_status() { awk -v s="$2" '/^\*\*Status:\*\*/ { print "**Status:** " s; next } { print }' "$1" > "$1.tmp" && mv "$1.tmp" "$1"; }
 # capture TEXT [TIME]: a user-prompt capture as a runtime hook writes it (.agents/local/prompts/<session>.json).
 capture() {
-  cp_time=${2:-$(( $(date +%s) + 5 ))}; mkdir -p .agents/local/prompts
+  cp_time=${2:-$(( $(date +%s) + 3600 ))}; mkdir -p .agents/local/prompts
   printf '%s' "$1" > "$base/cap.txt"
   cp_text=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
   printf '{"session":"s1","time":%s,"sha256":"%s","text":"%s"}\n' "$cp_time" "$(tsha "$base/cap.txt")" "$cp_text" > .agents/local/prompts/s1.json

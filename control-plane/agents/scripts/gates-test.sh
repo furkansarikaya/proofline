@@ -321,6 +321,26 @@ sc_parallel_lock() {
   ok 'parallel decide, ledger-note and record; stale and live locks'
 }
 
+# A waiter that read a dead holder's pid must not break the lock when a live holder took it right after that read.
+# A fake `cat` plays the holder: after the waiter's first read of the lock's pid it writes a live pid into the file.
+sc_lock_break_race() {
+  scaffold orchestrated
+  mkdir "$base/fakebin"
+  printf '%s\n' '#!/bin/sh' \
+    'case "${1:-}" in */.lock/pid) if [ -f "$FAKE_CAT_FLAG" ]; then rm -f "$FAKE_CAT_FLAG"; /bin/cat "$1"; printf "%s\n" "$FAKE_CAT_LIVE" > "$1"; exit 0; fi ;; esac' \
+    'exec /bin/cat "$@"' > "$base/fakebin/cat"
+  chmod +x "$base/fakebin/cat"
+  mkdir .agents/runs/LC/.lock; printf '99999999\n' > .agents/runs/LC/.lock/pid
+  : > "$base/fake-cat.flag"
+  expect_msg 'a lock taken by a live holder after the stale read was broken' 'lock timeout after 1s' \
+    env PATH="$base/fakebin:$PATH" FAKE_CAT_FLAG="$base/fake-cat.flag" FAKE_CAT_LIVE="$$" PROOFLINE_LOCK_TIMEOUT=1 sh ./.agents/scripts/agent.sh ledger-note LC racer
+  [ ! -e "$base/fake-cat.flag" ] || die 'the fake holder never took the lock (the race was not exercised)'
+  [ "$(/bin/cat .agents/runs/LC/.lock/pid)" = "$$" ] || die 'the live holder lost its pid'
+  rm -f .agents/runs/LC/.lock/pid; rmdir .agents/runs/LC/.lock
+  A ledger-note LC after >/dev/null || die 'the lock was not free after the live holder left'
+  ok 'lock break: a holder that appears after the stale-pid read keeps the lock'
+}
+
 sc_fix_loop() {
   scaffold orchestrated; implemented orchestrated
   A secret-scan LC >/dev/null; gfail REVIEW_SMALL impl.txt; gpass QA; gpass VERIFY
@@ -1510,6 +1530,7 @@ run_sc sc_language
 run_sc sc_report_stdin
 run_sc sc_stdin_contract
 run_sc sc_parallel_lock
+run_sc sc_lock_break_race
 run_sc sc_report_names
 run_sc sc_fix_loop
 run_sc sc_waiver

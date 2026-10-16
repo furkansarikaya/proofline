@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A stale-lock break in `acquire_lock` never strips a live holder of its pid (A118): the dead holder's `pid` file is renamed aside and the lock removed only if the file still names the dead holder, else it is put back. Fixes a rare double-holder race under parallel commands; `gates-test` fixtures also date captures one hour ahead and no longer let fixture cleanup decide the exit status.
 - `agent.sh cleanup <ID>` also removes the run's `.agents/local/assignments/<ID>/` directory (A116): after the existing cleanup preconditions, never following a symlink, leaving other runs' assignment directories alone; a refused cleanup leaves both directories.
 - `.claude/` is ignored as a whole in this repository (A117); `proofline init` still never adds it to an installed project's `.gitignore` (now tested); `tests/e2e/run.sh` removes its project copy and isolated Codex home on every exit through a trap, and evaluators must remove their own scratch output.
 - A non-TRIVIAL plan (STANDARD, COMPLEX, CRITICAL) with a `## UI` section must declare `visual_writes:` at plan time (A112, amends A78/A81/A82/A98): `validate-plan` and `agent.sh freeze` refuse it without the line, so QA visual no longer ends INCONCLUSIVE and forces an amendment and a second plan approval; TRIVIAL (no QA gate) unchanged.
