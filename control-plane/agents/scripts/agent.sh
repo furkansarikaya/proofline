@@ -2233,7 +2233,16 @@ latest_finding_file() {
 # A fix_scope entry is `path`, `path:line`, `path:line-line` or `path:symbol` (A77); it scopes to the path part.
 # Prints the entries of a comma list reduced to paths, one per line, whitespace trimmed, empties dropped.
 scope_entry_paths() { printf '%s\n' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/:.*$//' | sed '/^$/d'; }
-# A fix stays inside the union fix_scope of every failing record on the failing content.
+# A123: frozen plan-scope paths that share an acceptance criterion with a path of the fix_scope list ($2); a list path
+# outside the plan scope contributes no criteria. Prints one path per line.
+fix_scope_siblings() { # ID FIX_SCOPE
+  scope_mappings "$(run_dir "$1")/PLAN.md" 2>/dev/null | awk -F'|' -v paths="$(scope_entry_paths "$2" | tr '\n' '|')" '
+    BEGIN { n = split(paths, pa, "|"); for (i = 1; i <= n; i++) if (pa[i] != "") ip[pa[i]] = 1 }
+    { P[NR] = $1; N[NR] = split($2, cs, ","); for (j = 1; j <= N[NR]; j++) { c = cs[j]; gsub(/[[:space:]]/, "", c); C[NR, j] = c; if ($1 in ip) want[c] = 1 } }
+    END { for (r = 1; r <= NR; r++) for (j = 1; j <= N[r]; j++) if (C[r, j] in want) { print P[r]; break } }'
+}
+# A fix stays inside the union fix_scope of every failing record on the failing content (A123: plus the plan-scope
+# paths sharing an acceptance criterion with a failing finding).
 verify_fix_bound() {
   g_id=$1; gates_enforced "$g_id" || return 0
   g_f=$(latest_finding_file "$g_id"); [ -n "$g_f" ] || return 0
@@ -2248,16 +2257,18 @@ verify_fix_bound() {
     done
   fi
   [ "$(scope_entry_paths "$g_scope" | tr -d '\n')" != '*' ] || return 0
+  g_sib=$(fix_scope_siblings "$g_id" "$g_scope")
   g_delta=$( { cat "${g_f%.yaml}.manifest"; patch_manifest "$g_id"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u )
   g_bad=''
   for g_p in $g_delta; do
     scope_entry_paths "$g_scope" | grep -Fxq -- "$g_p" && continue
+    printf '%s\n' "$g_sib" | grep -Fxq -- "$g_p" && continue
     # A fix needs its regression test (tdd): a test path of the frozen scope is always inside the fix.
     if printf '%s\n' "$(section_value "$(run_dir "$g_id")" freeze scope_paths)" | tr ',' '\n' | grep -Fxq -- "$g_p" \
        && path_matches "$g_p" '**/test/** **/tests/** **/__tests__/** **/spec/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'; then continue; fi
     g_bad="$g_bad $g_p"
   done
-  [ -z "$g_bad" ] || fail "fix changed paths outside the finding's fix_scope (${g_f##*/}):$g_bad"
+  [ -z "$g_bad" ] || fail "fix changed paths outside the finding's fix_scope (${g_f##*/}):$g_bad (a fix may also touch a frozen plan scope path that shares an acceptance criterion with a failing finding; any other path needs the user's scope approval, then the lead runs 'agent.sh amend' with plan_change)"
 }
 reopen_for_fix() {
   g_id=$1; g_any=no
