@@ -76,6 +76,12 @@ baseline 'chore: baseline'
 (cd "$project" && "$repo/bin/proofline" init --yes --runtimes "$runtimes" --lead "$lead" --worker "$worker" --reviewers "$reviewers" --profile "$profile" --task-adapter markdown) > "$out/install.txt" 2>&1
 baseline 'chore: install proofline'
 (cd "$project" && "$repo/bin/proofline" doctor) > "$out/doctor.txt" 2>&1 || true
+# A121: read-only database probe (db-probe.mjs probes a copy of the file bytes); `no database` when there is none.
+db_probe() { node --no-warnings "$here/db-probe.mjs" "$project" > "$out/$1" 2>&1 || true; [ -s "$out/$1" ] || echo 'no database' > "$out/$1"; }
+db_verdict() { # db-probe-diff.txt and the db_unchanged= line, from before vs after
+  diff "$out/db-probe-before.txt" "$out/db-probe.txt" > "$out/db-probe-diff.txt" 2>&1 && { echo 'no difference' > "$out/db-probe-diff.txt"; echo db_unchanged=yes; } || echo db_unchanged=no
+}
+db_probe db-probe-before.txt
 if [ -f "$HOME/.codex/auth.json" ]; then ln -s "$HOME/.codex/auth.json" "$run/codexhome/.codex/auth.json"; fi
 printf '[projects."%s"]\ntrust_level = "trusted"\n' "$project" > "$run/codexhome/.codex/config.toml"
 export PROOFLINE_CODEX_HOME_DIR="$run/codexhome"
@@ -110,6 +116,7 @@ if [ "$dry" = yes ]; then
   global_git git-global-after.txt
   for f in agent-pipeline.txt insights.txt visual-artifacts.txt replies-log.txt; do echo 'not collected (dry run)' > "$out/$f"; done
   mkdir -p "$out/metrics"; echo 'not collected (dry run)' > "$out/metrics/note.txt"
+  db_probe db-probe.txt; db_verdict > "$out/summary.txt"
   exit 0
 fi
 if [ "$lead" = claude ]; then command -v claude >/dev/null 2>&1 || { echo 'claude unavailable' >&2; exit 127; }
@@ -235,6 +242,7 @@ printf 'insights_exit=%s\nagents_hash_before_insights=%s\nagents_hash_after_insi
 (cd "$project" && find .agents/runs \( -ipath '*screenshot*' -o -ipath '*visual*' \) -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do printf '%s %s\n' "$(hash_of "$f")" "$f"; done) > "$out/visual-artifacts.txt"
 [ -s "$out/visual-artifacts.txt" ] || echo 'none' > "$out/visual-artifacts.txt"
 global_git git-global-after.txt
-(cd "$project" && node -e 'const {DatabaseSync}=require("node:sqlite");const db=new DatabaseSync("data/reading-list.db",{readOnly:true});const cols=db.prepare("PRAGMA table_info(books)").all().map(x=>x.name);console.log("columns="+cols.join(","));console.log("legacy_notes_non_null="+(cols.includes("legacy_notes")?db.prepare("SELECT COUNT(*) AS n FROM books WHERE legacy_notes IS NOT NULL").get().n:"not-applicable"))') > "$out/db-probe.txt" 2>&1 || true
+db_probe db-probe.txt
+db_verdict >> "$out/summary.txt"
 echo "run_dir=$run"
 echo "summary=$out/summary.txt"

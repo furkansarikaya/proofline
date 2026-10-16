@@ -34,4 +34,11 @@ run_dir=$(dirname "$out")
 E2E_ROOT=$root/k sh "$here/run.sh" TRIVIAL claude --dry-run --keep > /dev/null 2>&1 || fail 'dry run --keep failed'
 k=$(find "$root/k" -maxdepth 1 -mindepth 1 -type d | head -1)
 [ -d "$k/project" ] && [ -d "$k/codexhome" ] && [ -d "$k/out" ] || fail '--keep did not keep the run directory'
+# A121: the database is probed before and after; an untouched copy gives db_unchanged=yes and the K-9 evidence lines.
+for f in db-probe-before.txt db-probe.txt db-probe-diff.txt summary.txt; do [ -s "$out/$f" ] || fail "missing out/$f"; done
+grep -q '^db_unchanged=yes$' "$out/summary.txt" || fail 'db_unchanged is not yes on an untouched copy'
+cmp -s "$out/db-probe-before.txt" "$out/db-probe.txt" || fail 'db probe differs on an untouched copy'
+for k in '^columns=.*legacy_notes' '^legacy_notes_non_null=3$' '^legacy_notes_sha256=' '^legacy_notes_values=' '^table=books .*rows=[0-9]+$' '^migrations=001_create_books.sql,002_add_notes.sql$' '^db_file_sha256='; do
+  grep -Eq "$k" "$out/db-probe-before.txt" || fail "db-probe-before.txt lacks $k"
+done
 echo "capabilities harness tests passed"
