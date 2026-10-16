@@ -107,6 +107,7 @@ done
 [ -z "$bad" ] && ok "Claude settings and Codex hooks wire all six events" || die "hooks missing:$bad"
 grep -qx '<!-- proofline:begin -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:end -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:begin -->' "$base/CLAUDE.md" && ok "AGENTS.md and CLAUDE.md carry the marked proofline block" || die "marked blocks missing"
 grep -qxF .agents/local/ "$base/.gitignore" && grep -qxF .agents/runs/ "$base/.gitignore" && ok ".gitignore ignores .agents/local/ and .agents/runs/" || die ".gitignore lines missing"
+! grep -Eq '^/?\.claude(/|$)' "$base/.gitignore" && ok ".gitignore of an installed project has no .claude line (A117)" || die "init added a .claude line to .gitignore"
 [ "$(git -C "$base" config --local --get core.hooksPath)" = .agents/githooks ] && ok "core.hooksPath is set locally" || die "core.hooksPath not set locally"
 [ -z "$(git config --global --get core.hooksPath 2>/dev/null || true)" ] && [ "$(shasum -a 256 "$GIT_CONFIG_GLOBAL" | awk '{print $1}')" = "$global_sha" ] && ok "global git configuration is untouched" || die "global git config changed"
 bad=''
@@ -122,6 +123,7 @@ after=$(sig "$base")
 [ "$before" = "$after" ] && ok "a second init changes no file" || { LAST="$out
 $(diff "$T/manifest.before" "$base/.agents/.proofline-manifest" | head -10)"; die "second init changed files"; }
 expect "a second init reports no changes" "$out" "no changes"
+grep -qxF .agents/local/ "$base/.gitignore" && grep -qxF .agents/runs/ "$base/.gitignore" && ! grep -Eq '^/?\.claude(/|$)' "$base/.gitignore" && ok "after a second init .gitignore still has no .claude line (A117)" || die "second init changed .gitignore wrongly"
 
 # ---- init: merges, never overwrites ----------------------------------------------------------------------
 pre=$(mkrepo pre)
@@ -136,6 +138,7 @@ out=$(pl "$pre" init --yes --runtimes claude,codex 2>&1) || { LAST=$out; die "in
 [ "$(sed -n 1,2p "$pre/AGENTS.md")" = "$(printf '# My agents\nkeep me')" ] && grep -qx '<!-- proofline:begin -->' "$pre/AGENTS.md" && ok "AGENTS.md: user content first and intact, proofline block appended" || die "AGENTS.md overwritten"
 [ "$(sed -n 1p "$pre/CLAUDE.md")" = "my claude notes" ] && grep -qx '<!-- proofline:end -->' "$pre/CLAUDE.md" && ok "CLAUDE.md: user content kept, block appended" || die "CLAUDE.md overwritten"
 grep -qx node_modules "$pre/.gitignore" && grep -qxF .agents/runs/ "$pre/.gitignore" && ok ".gitignore: existing lines kept" || die ".gitignore overwritten"
+grep -qxF .agents/local/ "$pre/.gitignore" && ! grep -Eq '^/?\.claude(/|$)' "$pre/.gitignore" && ok ".gitignore: init adds no .claude line to an existing file (A117)" || die "init added .claude to an existing .gitignore"
 jqe '.permissions.allow[0] == "Bash(ls)" and .model == "opus"' "$pre/.claude/settings.json" && ok ".claude/settings.json keeps the user's keys" || die "settings.json keys dropped"
 jqe '[.hooks.PreToolUse[].hooks[].command] | (index("echo mine") != null) and (map(select(contains("proofline-hook.sh"))) | length == 1)' "$pre/.claude/settings.json" && ok ".claude/settings.json keeps the user's hook and adds one proofline hook" || die "settings.json hooks wrong"
 jqe '.extra == 1 and ([.hooks.SessionStart[].hooks[].command] | index("echo codex-mine") != null)' "$pre/.codex/hooks.json" && jqe '.hooks.SubagentStop | length >= 1' "$pre/.codex/hooks.json" && ok ".codex/hooks.json is merged, not replaced" || die "codex hooks.json not merged"
