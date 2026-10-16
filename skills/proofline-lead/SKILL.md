@@ -29,7 +29,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 
 1. **`next` is the program.** Before every step run `A next <ID>` and do exactly what its `next=` lines say,
    translated by the table in "Flow". Never skip, reorder or invent a transition. When `next` and this
-   skill disagree, `next` wins and the disagreement is reported.
+   skill disagree, `next` wins and the disagreement is reported. A `dispatch.sh` command that has not returned
+   (`next=wait:`) means: start no other work on that step and read none of its files until it returns.
 2. **No product code (D2).** Product code, tests and fixes come only from the implementer. A defect the lead
    finds goes to the implementer as a bounded finding; debug-proof is for diagnosis only.
 3. **No verdicts (D12).** Verdicts enter only through `A record`, called by the SubagentStop hook or by
@@ -115,6 +116,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 | `next=` begins with | The lead does |
 |---|---|
 | `agent.sh classify` / `branch` / `baseline` | Intake step 3. |
+| `wait:` | A dispatch is still running: wait for its command to return, then `A next` again. Never re-dispatch it. |
 | `agent.sh questions` | [HANDOFF.md](references/HANDOFF.md): print verbatim, STOP. |
 | `dispatch.sh <ID> explorer` | DISCOVER: split into at most `max_explorers` bounded assignments; dispatch in parallel; consolidate `EVIDENCE.md` with evidence-map's CONSOLIDATION format; verify it ([LIFECYCLE.md](references/LIFECYCLE.md#3-discover)). |
 | `write PLAN.md` | Design roles when their conditions hold, then plan-contract and `validate-plan.mjs` exit 0 ([LIFECYCLE.md](references/LIFECYCLE.md#4-design-and-plan)). |

@@ -6,7 +6,8 @@
 // Usage: node <skill-dir>/scripts/check-result.mjs <result-file|-> [--role ROLE] [--task ID]
 // Exit codes: 0 valid (JSON on stdout), 1 malformed (one message per line on stdout), 2 usage or read error.
 
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const HEADER_KEYS = ["ROLE", "TASK", "FOCUS", "RESULT", "CONFIDENCE", "FINGERPRINT", "ARTIFACT"];
@@ -150,6 +151,20 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   };
 }
 
+function inFlightPid(marker) {
+  try {
+    const m = /^pid=(\d+)$/m.exec(readFileSync(marker, "utf8"));
+    if (!m) return "";
+    // A live pid is not enough (pids are reused): a marker older than dispatch.timeout_seconds + 60 s is stale.
+    let timeout = 1800;
+    try { const t = /^\s*timeout_seconds:\s*(\d+)/m.exec(readFileSync(join(dirname(marker), "../../../config.yaml"), "utf8")); if (t) timeout = Number(t[1]); } catch { /* default */ }
+    if (Date.now() - statSync(marker).mtimeMs > (timeout + 60) * 1000) return "";
+    process.kill(Number(m[1]), 0);
+    return m[1];
+  } catch { /* no marker, or its process is gone: stale */ }
+  return "";
+}
+
 function main(argv) {
   const args = argv.slice(2);
   const opt = (name) => {
@@ -162,8 +177,15 @@ function main(argv) {
   const role = opt("--role");
   const task = opt("--task");
   if (args.length !== 1 || role === "" || task === "") { console.error("usage: check-result.mjs <result-file|-> [--role ROLE] [--task ID]"); return 2; }
-  let text;
-  try { text = readFileSync(args[0] === "-" ? 0 : args[0], "utf8"); } catch (e) { console.error(`error: ${e.message}`); return 2; }
+  let text = "";
+  let readError = "";
+  try { text = readFileSync(args[0] === "-" ? 0 : args[0], "utf8"); } catch (e) { readError = e.message; }
+  // A124: dispatch.sh leaves <NNN>-<role>-<runtime>.running next to the (still empty or absent) .md while its worker runs.
+  if (args[0] !== "-" && text.trim() === "") {
+    const pid = inFlightPid(args[0].replace(/\.[^./]*$/, ".running"));
+    if (pid) { console.log(`dispatch in flight (pid ${pid}): wait for the dispatch command to return; this file is empty until it does`); return 1; }
+  }
+  if (readError) { console.error(`error: ${readError}`); return 2; }
   const { errors, summary } = check(text, { role, task });
   if (errors.length) { for (const e of errors) console.log(e); return 1; }
   console.log(JSON.stringify(summary));

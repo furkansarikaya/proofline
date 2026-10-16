@@ -21,6 +21,8 @@
 #   the runtime gets PROOFLINE_AGENT (a per-attempt token) and PROOFLINE_FOCUS in its environment, so its
 #   `agent.sh submit` writes .agents/local/submissions/<token>.status. No valid submission: the step is run
 #   once more with the rejection in its prompt, then BLOCKED. The raw runtime log goes to dispatch/.
+#   While a step runs, dispatch/<NNN>-<role>-<runtime>.running says so (A124); a worker that wrote nothing is BLOCKED
+#   with a reason and a non-empty log. An implementer prompt states that its window is already open (A124).
 # Failover (D7) on a runtime failure (limit/quota/rate limit/429, missing binary, auth error), never on a
 #   task failure: config `failover: auto` reruns the same step from its beginning on the other runtime
 #   when it is installed and meets the role's capability floor (ledgered via `agent.sh ledger-note`);
@@ -194,7 +196,7 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX")
 # script's own clock; tokens and turns are read from the runtime's structured output trailer (claude --output-format
 # json: usage.input_tokens/output_tokens, num_turns; codex exec: its "tokens used" trailer). Absent = empty = null,
 # never estimated. `metrics: off` is honoured by agent.sh. Never changes the exit status.
-t0=$(date +%s); attempts=0 m_in='' m_out='' m_tot='' m_turns=''
+t0=$(date +%s); attempts=0 running='' noout=no m_in='' m_out='' m_tot='' m_turns=''
 num_last() { grep -o "\"$1\":[[:space:]]*[0-9][0-9]*" "$log" 2>/dev/null | tail -n 1 | tr -cd '0-9'; }
 num_first() { grep -o "\"$1\":[[:space:]]*[0-9][0-9]*" "$log" 2>/dev/null | head -n 1 | tr -cd '0-9'; }
 add_n() { # VALUE ACCUMULATOR-VALUE : sum when VALUE is a number, else keep the accumulator
@@ -220,13 +222,17 @@ finish() {
     fin_tot=$m_tot; [ -n "$fin_tot" ] || { [ -z "$m_in" ] || [ -z "$m_out" ] || fin_tot=$((m_in + m_out)); }
     "$agent" metrics-dispatch "$id" "$role" "$focus" "${rt:-}" "${model:-}" "$(( $(date +%s) - t0 ))" "$m_in" "$m_out" "$fin_tot" "$m_turns" "$((attempts - 1))" "$fin_res" >/dev/null 2>&1 || true
   fi
+  [ -z "$running" ] || rm -f "$running"
   rm -rf "$work"
 }
 trap finish EXIT
 
 # attempt RUNTIME-OVERRIDE : sets $status (0 ok, 124 timeout, other failure), $rt, $out, $log
 attempt() {
-  attempts=$((attempts + 1))
+  attempts=$((attempts + 1)) noout=no
+  # Every role writes its owned artifacts in the run dir; only the implementer, and the designer during
+  # IMPLEMENTING, may touch the product tree, inside an attested window.
+  writes_code=no; case "$role" in implementer) writes_code=yes ;; designer) [ "$(handoff_state)" != IMPLEMENTING ] || writes_code=yes ;; esac
   set --
   [ -n "$focus" ] && set -- "$@" --focus "$focus"
   [ -n "$o_model" ] && set -- "$@" --model "$o_model"
@@ -247,6 +253,10 @@ attempt() {
   { printf 'TASK: %s\nROLE: %s\n' "$id" "$role"; [ -z "$focus" ] || printf 'FOCUS: %s\n' "$focus"
     printf 'RUN_DIR: .agents/runs/%s\nReport your result with: AGENT_ROLE=%s sh .agents/scripts/agent.sh submit %s --confidence <high|medium|low> [--focus F] [--artifact <path of your report>] [--findings FILE|none] [--report FILE|-] [--reason T] [--questions FILE]\nOnly one of --report/--findings may read stdin (-): use a file for the other, or one stdin document: report, a line "=== FINDINGS ===", then rows (severity|path:line|finding|evidence; answer-only: --findings none or info|-|answer|<one line>).\nThe script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is not parsed.\n' "$id" "$role" "$id"
     [ "$role" != explorer ] || printf 'Explorer: write your report in your scratch folder and pass it with --report <file> (no --artifact); the script assigns the numbered reports/NNN-explorer.md name (A113).\n'
+    # A124: the window is held by this script and leaves no file until window-close, and an assignment is optional;
+    # say both, or a worker looks for them, finds nothing and reports BLOCKED.
+    [ "$writes_code" = no ] || printf 'WINDOW: dispatch.sh opened your write window before starting you (window-open). It leaves no file until the step ends (window-close writes worker-evidence/WINDOW-<n>.yaml). Do not look for it; never report BLOCKED for a missing window.\n'
+    [ -n "$prompt_file" ] || printf 'ASSIGNMENT: none was given. Do your role'"'"'s default step on this task from .agents/runs/%s/ (TASK.md, PLAN.md and their scope); never report BLOCKED for a missing assignment file.\n' "$id"
     [ -z "$retry_note" ] || printf '\n%s\n' "$retry_note"
     [ -z "$prompt_file" ] || { printf '\n'; cat "$prompt_file"; }
   } > "$work/suffix"
@@ -259,10 +269,9 @@ attempt() {
   token=d$(printf '%03d' "$seq_n")-$role-$rt
   out=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.md
   log=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.log
+  [ -z "$running" ] || rm -f "$running"   # a retry or failover attempt replaces the previous attempt's marker
+  running=${log%.log}.running
   seq_n=$((seq_n + 1)); : > "$out"
-  # Every role writes its owned artifacts in the run dir; only the implementer, and the designer during
-  # IMPLEMENTING, may touch the product tree, inside an attested window.
-  writes_code=no; case "$role" in implementer) writes_code=yes ;; designer) [ "$(handoff_state)" != IMPLEMENTING ] || writes_code=yes ;; esac
   pm=''; tmpl=$(cfg dispatch command_template "$rt")
   if [ -n "$tmpl" ]; then
     for ph in "prompt_file $work/full" "output_file $out" "root $root" "model $model" "effort $effort"; do
@@ -320,6 +329,8 @@ attempt() {
   fi
   echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code${pm:+ permission_mode=$pm}" >&2
   status=0
+  # A124: .md and .log stay empty until the worker exits, so a reader cannot tell a running dispatch from a dead one.
+  printf 'pid=%s\nrole=%s\ndispatch in flight: %s %s on %s, started %s.\nThis dispatch.sh command has not returned: the .md and .log of this step stay empty until it does.\nWait for the command to return; do not re-dispatch this step or read these files as a result.\n' "$$" "$role" "$id" "$role" "$rt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$running"
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
   else (cd "$root" && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" &&
     if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
@@ -355,6 +366,10 @@ attempt() {
   fi
   [ "$status" -ne 0 ] || [ -s "$out" ] || { [ -n "$tmpl" ] && cp "$log" "$out"; } || true
   [ "$status" -ne 0 ] || [ -s "$out" ] || status=1
+  # A124: a worker that wrote nothing at all leaves the lead nothing to act on; name it in the log and in BLOCKED.
+  if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ ! -s "$log" ]; then
+    noout=yes; echo "dispatch: $role on $rt exited with status $status and wrote nothing to its log" > "$log"
+  fi
   harvest
   [ -s "$out" ] || rm -f "$out"
   return 0
@@ -404,6 +419,7 @@ while :; do
     note "dispatch timeout role=$role runtime=$rt after=${timeout_s}s" || true
     echo "dispatch: $role on $rt timed out after ${timeout_s}s; log: ${log#"$root"/}" >&2; exit 124
   fi
+  [ "$noout" = no ] || blocked "$role on $rt produced no output (exit $status); log: ${log#"$root"/}. An empty result also follows a dispatch killed before it finished (its caller's time limit): run it once, alone, and wait for the command to return"
   if [ "$status" -ne 0 ]; then echo "dispatch: $role on $rt failed (exit $status); log: ${log#"$root"/}" >&2; exit 1; fi
   st=$subdir/$token.status
   state=$(sed -n 's/^status=//p' "$st" 2>/dev/null | head -n 1)

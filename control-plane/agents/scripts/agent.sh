@@ -938,6 +938,7 @@ pipeline_show() {
   pipeline_declared "$id" || fail "run $id has no pipeline block"
   class=$(pipeline_class "$id"); pipeline_class_valid "$class" || fail "run $id is not classified yet"
   risk_prime "$id"
+  if ps_if=$(inflight_dispatch "$id"); then printf 'in_flight=dispatch.sh %s %s (pid %s): wait for the command to return\n' "$id" "${ps_if% *}" "${ps_if#* }"; fi
   ps_tier=$(tier_effective "$id"); ps_gates=$(required_gates "$id" "$ps_tier" | tr '\n' ' ' | sed 's/ $//')
   ps_art='TASK.md PLAN.md'
   [ "$(pipeline_needs "$id" evidence)" != yes ] || ps_art="$ps_art EVIDENCE.md"
@@ -3850,6 +3851,33 @@ metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURN
 }
 
 # --- next (deterministic next step; an interrupted step restarts from its beginning) -------
+# A124: a dispatch.sh step in flight leaves dispatch/<NNN>-<role>-<runtime>.running (pid=, role=). Prints "ROLE PID" of the
+# first marker whose pid is alive (status 1 when none). A marker whose pid is dead (killed dispatch) is stale:
+# `inflight_sweep` removes it and prints its name.
+# A live pid is not enough (pids are reused): a marker older than dispatch.timeout_seconds + 60 s is stale, since one
+# attempt cannot outlive its timeout and every attempt writes a new marker. Args: PID MARKER-FILE.
+inflight_pid_alive() {
+  case "$1" in ''|*[!0-9]*|0) return 1 ;; esac
+  kill -0 "$1" 2>/dev/null || return 1
+  ipa_t=$(cfg dispatch.timeout_seconds 1800); case "$ipa_t" in ''|*[!0-9]*) ipa_t=1800 ;; esac
+  [ -z "$(find "$2" -mmin "+$(( (ipa_t + 119) / 60 ))" 2>/dev/null)" ]
+}
+inflight_sweep() { # ID
+  for ifs_f in "$(run_dir "$1")"/dispatch/*.running; do
+    [ -f "$ifs_f" ] || continue
+    inflight_pid_alive "$(sed -n 's/^pid=//p' "$ifs_f" | head -n 1)" "$ifs_f" || { rm -f "$ifs_f"; printf '%s ' "${ifs_f##*/}"; }
+  done
+}
+inflight_dispatch() { # ID
+  ifd_d=$(run_dir "$1")/dispatch
+  for ifd_f in "$ifd_d"/*.running; do
+    [ -f "$ifd_f" ] || continue
+    ifd_p=$(sed -n 's/^pid=//p' "$ifd_f" | head -n 1); ifd_r=$(sed -n 's/^role=//p' "$ifd_f" | head -n 1)
+    if inflight_pid_alive "$ifd_p" "$ifd_f"; then printf '%s %s\n' "${ifd_r:-specialist}" "$ifd_p"; return 0; fi
+  done
+  return 1
+}
+
 next_step() {
   ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id"); risk_prime "$ns_id"
   ns_st=$(run_state "$ns_d"); ns_hs=$(section_value "$ns_d" handoff state)
@@ -3858,6 +3886,11 @@ next_step() {
   r() { printf 'reason=%s\n' "$*"; }
   case "$ns_st" in FAILED|BLOCKED) o "report the evidence, then: agent.sh cleanup $ns_id"; r "run is terminal ($ns_st)"; return 0 ;; esac
   if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> < answer"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
+  ns_stale=$(inflight_sweep "$ns_id")
+  if ns_if=$(inflight_dispatch "$ns_id"); then
+    o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; return 0
+  fi
+  [ -z "$ns_stale" ] || printf 'note=stale dispatch marker removed: %s\n' "${ns_stale% }"
   ns_class=$(pipeline_class "$ns_id")
   pipeline_class_valid "$ns_class" || { o "agent.sh classify $ns_id <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review]"; r "run is not classified (TRIVIAL is text and configuration only; a plan that changes code or adds tests is STANDARD or higher)"; return 0; }
   if section_key_present "$ns_d" repository task_branch; then
