@@ -1715,17 +1715,11 @@ verify_debug_result() { # ID
         if ($0 ~ /^## /) sec = h; next }
       d { next }
       /^[[:space:]]*>/ || sec == "Goal" || sec == "Context" || sec == "Acceptance criteria" || sec == "Constraints" || sec == "Risks" {
-        l = tolower($0); if (w(l, sre) || l ~ str) { print "its task text"; exit } }' "$vd_d/TASK.md")
-  fi
-  if [ -z "$vd_hit" ]; then
-    # A122: a RED whose expected failure is not "it does not exist yet" fails against existing behaviour: the change repairs it.
-    vd_hit=$(sed -n 's/^expected_failure:[[:space:]]*//p' "$vd_d"/worker-evidence/RED-*.yaml 2>/dev/null | tr '[:upper:]' '[:lower:]' \
-      | grep -Ev 'not (yet )?(implemented|defined|registered|found|exist)|does not exist|undefined|no such|cannot find|[^a-z]yet([^a-z]|$)|not a function' | head -1)
-    [ -z "$vd_hit" ] || vd_hit='a RED test of existing behaviour'
+        l = tolower($0); if (w(l, sre) || l ~ str) { print substr($0, 1, 80); exit } }' "$vd_d/TASK.md")
   fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
-  fail "IMPLEMENTED blocked: the task speaks of a defect or a fix ('$vd_hit' in its title, goal, context, criteria, constraints, risks or quotes, or a RED test of existing behaviour) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) and submit it"
+  fail "IMPLEMENTED blocked: the task speaks of a defect or a fix ('$vd_hit' in its title, goal, context, criteria, constraints, risks or quotes) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) and submit it"
 }
 
 # --- Handoff ladder: PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE ------------

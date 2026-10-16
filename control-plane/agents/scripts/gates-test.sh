@@ -1134,14 +1134,14 @@ The last page is cut off: a defect in the page count.' scaffold orchestrated no 
   expect_msg "a defect named only in Context needs a debug-proof result" 'reports/NNN-debug.md with the debug-proof skill' A handoff LC IMPLEMENTED
   mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
   A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED (Context)"
-  # A122: a RED that fails against existing behaviour, no defect word anywhere
+  # A122 regression guard: ordinary actual-vs-expected RED text (tdd-proof RED.md section 4) in a feature run asks for no report
   SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
-  WEV_EF='page 2 returns 0 items, expected 2' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a RED test of existing behaviour needs a debug-proof result" 'a RED test of existing behaviour' A handoff LC IMPLEMENTED
-  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
-  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED (RED)"
-  # a feature run (RED fails because the behaviour does not exist yet, no defect words) is not asked: the cases above
-  ok "A122: a defect named in Context, or a RED against existing behaviour, needs reports/NNN-debug.md; a feature run is not asked"
+  WEV_EF='lookup returns null instead of 5' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with actual-vs-expected text was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
+  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
+  WEV_EF='expected 3 to equal 5 in TestLookup' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with an assertion failure was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
+  ok "A122: a defect named in Context needs reports/NNN-debug.md; a feature run with an ordinary assertion RED is not asked"
 }
 sc_scratch_worktrees() {
   scaffold orchestrated no STANDARD
