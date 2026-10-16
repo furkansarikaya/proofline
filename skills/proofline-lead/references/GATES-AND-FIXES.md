@@ -47,8 +47,11 @@ re-run it on a weaker model (D7).
 3. **One implementer round** ([DISPATCH.md](DISPATCH.md#3-implementer)): `FIX_ROUND: <n>`, `FINDINGS:` the
    rows of every failing gate on this content, `FILES_CHANGED:` the paths the previous round changed,
    `ALLOWED_SCOPE:` the union `fix_scope` of those rows (a row without a path allows any frozen scope
-   path), plus the frozen plan scope paths that share an acceptance criterion with a path of those rows (A123;
-   list them in `ALLOWED_SCOPE`). The fix must change the tree and stay inside that scope; any other path needs an amendment.
+   path), plus the frozen plan scope paths that share an acceptance criterion with a path of those rows (A123).
+   `next` prints that computed list as `fix_path=<path>` lines (`fix_path=*`: any frozen scope path); paste them
+   into `ALLOWED_SCOPE`, do not work them out by hand. The fix must change the tree and stay inside that scope. A path
+   the plan never scoped needs the user's scope approval (`A ask` with the D13 block), then a PLAN.md amendment and
+   `A refreeze`; `amend` is for CODE_DONE/DONE runs only.
 4. `A handoff <ID> IMPLEMENTED`, `A tier <ID>`, `A pipeline <ID>`. Every gate is now `stale` or `missing`
    (any byte change); re-run exactly the gates that are not `pass`/`waived`.
 5. Round 2 sets `escalation=yes`; `decide` adds `fix_round_2` (stronger model for the implementer and the
