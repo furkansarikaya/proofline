@@ -270,7 +270,7 @@ export function checkMarkdown(file, text, root = REPO) {
       if (/[<>$*{}]/.test(target)) continue; // placeholder
       const [pathPart, anchor] = target.split("#");
       const dest = pathPart ? resolve(dirname(file), decodeURIComponent(pathPart)) : file;
-      if (!existsSync(dest)) { at(`broken link ${target}`); continue; }
+      if (!isTracked(dest)) { at(`broken link ${target}`); continue; }
       if (anchor && dest.endsWith(".md") && statSync(dest).isFile() && !(pathPart ? anchorsOf(dest) : anchorsOf(dest, text)).has(anchor.toLowerCase())) at(`broken anchor ${target}`);
     }
     // wording
@@ -285,6 +285,13 @@ export function checkMarkdown(file, text, root = REPO) {
 
 // ---------- file selection ----------
 const tracked = spawnSync("git", ["ls-files"], { cwd: REPO, encoding: "utf8" }).stdout.split("\n").filter(Boolean);
+const trackedSet = new Set(tracked);
+// A link target counts only if the repository tracks it (a file, or a directory holding tracked files), as in CI.
+function isTracked(abs) {
+  const rel = relative(REPO, abs);
+  if (rel.startsWith("..")) return existsSync(abs);
+  return rel === "" || trackedSet.has(rel) || tracked.some((f) => f.startsWith(rel + "/"));
+}
 const mdFiles = tracked.filter((f) => f.endsWith(".md"));
 const yamlFiles = tracked.filter((f) => /\.ya?ml$/.test(f));
 const tomlFiles = tracked.filter((f) => f.endsWith(".toml"));
@@ -385,11 +392,13 @@ test("Markdown bodies: fences, relative links, anchors, tables, headings, wordin
 test("decision numbers cited in Markdown exist in docs/decisions.md", () => {
   const dec = readFileSync(join(REPO, "docs/decisions.md"), "utf8");
   const have = new Set([...dec.matchAll(/^- \*\*([A-Z]\d+)\./gm)].map((m) => m[1]));
+  // a number above the highest present is a decision of a pending pull request: not flagged
+  const maxDec = Math.max(...[...have].map((a) => Number(a.slice(1))));
   const bad = [];
   for (const f of mdFiles) {
     if (f === "CHANGELOG.md" || f.startsWith("fixtures/")) continue;
     const text = readFileSync(join(REPO, f), "utf8");
-    for (const m of text.matchAll(/\bA(\d{1,3})\b/g)) if (!have.has(`A${m[1]}`) && Number(m[1]) <= 124) bad.push(`${f}: A${m[1]}`);
+    for (const m of text.matchAll(/\bA(\d{1,3})\b/g)) if (!have.has(`A${m[1]}`) && Number(m[1]) <= maxDec) bad.push(`${f}: A${m[1]}`);
   }
   assert.deepEqual([...new Set(bad)], []);
 });
