@@ -1491,17 +1491,22 @@ VCA_EOF
 # A119: the lead's only way to remove ONE stray from a run directory (the hook denies raw rm there). Top-level regular
 # files only: a subpath would need the registry to be case- and symlink-proof (APFS is case-insensitive). The protected
 # names below mirror the top-level entries of known_control_artifact and are protected whether or not the pipeline needs them.
-ds_protected='task.md plan.md run.yaml completion_report.md ledger.log verify.md evidence.md qa_plan.md qa_report.md pid amendments dispatch worker-evidence decisions gates results reports questions approvals waivers security scratch reviews design'
+ds_protected='task.md plan.md run.yaml run.yaml.tmp completion_report.md ledger.log verify.md evidence.md qa_plan.md qa_report.md pid amendments dispatch worker-evidence decisions gates results reports questions approvals waivers security scratch reviews design'
 discard_stray() {
   ds_id=$1 ds_rel=${2:-}; require_run "$ds_id"; require_lead; require_open_run "$ds_id"; ds_dir=$(run_dir "$ds_id")
   [ "$(section_value "$ds_dir" completion_report published)" != true ] || fail "discard-stray refused: the run is sealed (completion report published)"
   [ -n "$ds_rel" ] || fail "usage: agent.sh discard-stray <ID> <file-name-in-the-run-directory>"
   case "$ds_rel" in */*|.*|-*) fail "discard-stray refused: '$ds_rel' must be a single top-level file name of the run directory (strays in subdirectories are not handled)" ;; esac
+  # APFS folds case and some Unicode (U+017F, U+212A): only plain ASCII names are accepted, and the same-file test below
+  # catches whatever else the filesystem folds.
+  [ -z "$(printf '%s' "$ds_rel" | LC_ALL=C tr -d 'A-Za-z0-9._-')" ] || fail "discard-stray refused: '$ds_rel' may contain only A-Z a-z 0-9 . _ -"
   ds_lc=$(printf '%s' "$ds_rel" | tr '[:upper:]' '[:lower:]')
-  for ds_p in $ds_protected; do [ "$ds_lc" != "$ds_p" ] || fail "discard-stray refused: '$ds_rel' is a known run artifact"; done
   ds_dir=$(cd -P "$ds_dir" && pwd -P) || fail "discard-stray refused: run directory does not resolve"
   ds_file=$ds_dir/$ds_rel
   [ ! -L "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is a symlink"
+  for ds_p in $ds_protected; do
+    if [ "$ds_lc" = "$ds_p" ] || [ "$ds_dir/$ds_rel" -ef "$ds_dir/$ds_p" ]; then fail "discard-stray refused: '$ds_rel' is a known run artifact"; fi
+  done
   [ -f "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is not a regular file in the run directory"
   ds_sha=$(sha256 < "$ds_file"); rm -f -- "$ds_file"
   if gates_enforced "$ds_id"; then ledger_append "$ds_id" discard-stray "$(section_value "$ds_dir" handoff state)" "$(section_value "$ds_dir" handoff state)" "path=$ds_rel sha256=$ds_sha"; fi
@@ -4272,7 +4277,7 @@ case "$command" in
   config-get) config_get "${2:?usage: agent.sh config-get <dotted.key>}" || fail "config key not found: $2" ;;
   config-check) config_check "${2:-}" ;;
   baseline) require_lead; baseline "${2:?usage: agent.sh baseline <ID>}" ;;
-  discard-stray) require_lead; discard_stray "${2:?usage: agent.sh discard-stray <ID> <file-name>}" "${3:?usage: agent.sh discard-stray <ID> <file-name>}" ;;
+  discard-stray) require_lead; discard_stray "${2:?usage: agent.sh discard-stray <ID> <file-name>}" "${3:-}" ;;
   branch) require_lead; branch_setup "${2:?usage: agent.sh branch <ID>}" ;;
   start) shift; start_run "$@" ;;
   classify) require_lead; classify "${2:?usage: agent.sh classify <ID> <CLASS> [review]}" "${3:?usage: agent.sh classify <ID> <CLASS> [review]}" "${4:-}" ;;

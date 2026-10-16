@@ -513,6 +513,11 @@ scenario_hardening() {
     expect_msg "discard-stray removed a protected name ($f)" 'known run artifact' A discard-stray LC "$f"
   done
   [ -f "$ld/PLAN.md" ] && [ -f "$ld/LEDGER.log" ] || die "a protected file was removed"
+  expect_msg "discard-stray accepted the long-s spelling of task.md" 'may contain only' A discard-stray LC "ta$(printf '\305\277')k.md"
+  expect_msg "discard-stray accepted the Kelvin spelling of TASK.md" 'may contain only' A discard-stray LC "tas$(printf '\342\204\252').md"
+  expect_msg "discard-stray removed RUN.yaml.tmp" 'known run artifact' A discard-stray LC run.yaml.tmp
+  expect_msg "discard-stray with an empty name" 'usage: agent.sh discard-stray' A discard-stray LC ''
+  [ -f "$ld/TASK.md" ] || die "TASK.md was removed"
   expect_msg "discard-stray accepted a sub-path (gates/)" 'single top-level' A discard-stray LC gates/zz.yaml
   expect_msg "discard-stray accepted Results/x" 'single top-level' A discard-stray LC Results/x
   expect_msg "discard-stray accepted .." 'single top-level' A discard-stray LC ../LC/QA_PLAN.md-E
@@ -527,6 +532,7 @@ scenario_hardening() {
   [ ! -e .agents/runs/LC/QA_PLAN.md-E ] || die "discard-stray left the stray"
   grep -q 'event=discard-stray .*path=QA_PLAN.md-E sha256=' .agents/runs/LC/LEDGER.log || die "discard-stray left no ledger row"
   [ "$(tail -n 2 "$ld/LEDGER.log" | head -n 1)" = "$before" ] || die "discard-stray broke the ledger chain"
+  printf x > "$ld/other-E"; ln "$ld/other-E" "$ld/alias-E"; A discard-stray LC alias-E >/dev/null; [ -f "$ld/other-E" ] || die "removing a hard-link alias removed the original"; rm -f "$ld/other-E"
   A verify-scope LC >/dev/null   # the stray check handoff runs now passes (CODE_DONE itself still needs its gates)
   for f in design/INTENT.md design/API.json design/adr/0001-x.md results/001-explorer.md dispatch/001-reviewer-claude.md dispatch/001-reviewer-claude.log reviews/proof-review/plan/REPORT.md reviews/proof-review/rules/ledger.md reviews/proof-review/small/findings.json reviews/test-trust/tests/REPORT.md reviews/test-trust/qa/REPORT.md reviews/data-design/REVIEW.md security/evidence/poc.txt; do
     mkdir -p ".agents/runs/LC/$(dirname "$f")"; printf 'x\n' > ".agents/runs/LC/$f"
