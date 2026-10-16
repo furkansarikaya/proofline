@@ -159,8 +159,8 @@ pass_all() {
 # --- implementation helpers ------------------------------------------------------------------
 wopen() { W=$(A window-open "$RID"); }
 wclose() { A window-close "$RID" "$W" 0 >/dev/null; }
-wev() { # phase result [target]
-  e_ef=''; [ "$1" = RED ] && e_ef='expected_failure: TestImpl fails: lookup is not implemented in impl.txt yet'
+wev() { # phase result [target]; WEV_EF overrides the RED expected failure
+  e_ef=''; [ "$1" = RED ] && e_ef="expected_failure: ${WEV_EF:-TestImpl fails: lookup is not implemented in impl.txt yet}"
   printf 'command: go test ./...\ntarget: %s\n%s\n' "${3:-impl.txt,impl_test.txt}" "$e_ef" | AGENT_ROLE=implementer sh ./.agents/scripts/agent.sh worker-evidence "$RID" "$1" "$2" >/dev/null
 }
 worker() { wopen; printf '%s\n' "$4" >> "$3"; wev "$1" "$2"; wclose; }   # phase result file line

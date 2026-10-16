@@ -1121,6 +1121,27 @@ Stop using the column; dropping the column is a separate follow-up.' scaffold or
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "dropping in a Goal sentence blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "drop/dropping are no defect words (data removal wording)"
+  # A122: no defect word in the title or Goal, but Context and Acceptance criteria speak of a bug or a fix
+  SC_TASK_EXTRA='
+## Goal
+
+Every item is reachable through paging.
+
+## Context
+
+The last page is cut off: a defect in the page count.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  expect_msg "a defect named only in Context needs a debug-proof result" 'reports/NNN-debug.md with the debug-proof skill' A handoff LC IMPLEMENTED
+  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
+  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED (Context)"
+  # A122: a RED that fails against existing behaviour, no defect word anywhere
+  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
+  WEV_EF='page 2 returns 0 items, expected 2' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  expect_msg "a RED test of existing behaviour needs a debug-proof result" 'a RED test of existing behaviour' A handoff LC IMPLEMENTED
+  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
+  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED (RED)"
+  # a feature run (RED fails because the behaviour does not exist yet, no defect words) is not asked: the cases above
+  ok "A122: a defect named in Context, or a RED against existing behaviour, needs reports/NNN-debug.md; a feature run is not asked"
 }
 sc_scratch_worktrees() {
   scaffold orchestrated no STANDARD
