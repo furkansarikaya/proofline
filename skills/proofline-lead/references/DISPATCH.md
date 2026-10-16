@@ -93,7 +93,7 @@ Exactly one per run at a time, and only in this worktree.
   writes are bracketed the same way.
 - A failed implementer's partial edits stay for inspection; undoing them is destructive (user approval).
 - Fix rounds: a new implementer call with `FIX_ROUND`, `FINDINGS`, `FILES_CHANGED`, `ALLOWED_SCOPE` = the
-  union `fix_scope` (codex runtime: dispatch.sh continues the same thread when it supports it).
+  union `fix_scope` plus the plan-scope paths sharing a criterion with a failing finding (A123): the `fix_path=` lines of `agent.sh next` (codex runtime: dispatch.sh continues the same thread when it supports it).
 
 ## 4. Consuming a result
 

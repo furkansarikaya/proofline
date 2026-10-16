@@ -2233,31 +2233,63 @@ latest_finding_file() {
 # A fix_scope entry is `path`, `path:line`, `path:line-line` or `path:symbol` (A77); it scopes to the path part.
 # Prints the entries of a comma list reduced to paths, one per line, whitespace trimmed, empties dropped.
 scope_entry_paths() { printf '%s\n' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/:.*$//' | sed '/^$/d'; }
-# A fix stays inside the union fix_scope of every failing record on the failing content.
+# A123: frozen plan-scope paths that share an acceptance criterion with a path of the fix_scope list ($2); a list path
+# outside the plan scope contributes no criteria. Prints one path per line.
+fix_scope_siblings() { # ID FIX_SCOPE
+  scope_mappings "$(run_dir "$1")/PLAN.md" 2>/dev/null | awk -F'|' -v paths="$(scope_entry_paths "$2" | tr '\n' '|')" '
+    BEGIN { n = split(paths, pa, "|"); for (i = 1; i <= n; i++) if (pa[i] != "") ip[pa[i]] = 1 }
+    { P[NR] = $1; N[NR] = split($2, cs, ","); for (j = 1; j <= N[NR]; j++) { c = cs[j]; gsub(/[[:space:]]/, "", c); C[NR, j] = c; if ($1 in ip) want[c] = 1 } }
+    END { for (r = 1; r <= NR; r++) for (j = 1; j <= N[r]; j++) if (C[r, j] in want) { print P[r]; break } }'
+}
+# The union fix_scope (comma list) of the failing records on the content of finding file $2.
+fix_scope_union() { # ID FINDING_FILE
+  fu_scope=$(gate_field "$2" fix_scope)
+  if [ "$(gate_field "$2" result)" = fail ]; then
+    fu_fp=$(gate_field "$2" fingerprint)
+    for fu_n in $(gate_names "$1"); do
+      fu_o=$(gates_dir "$1")/$fu_n
+      [ "$(gate_field "$fu_o" result)" = fail ] && [ "$(gate_field "$fu_o" fingerprint)" = "$fu_fp" ] && fu_scope="$fu_scope,$(gate_field "$fu_o" fix_scope)"
+    done
+  fi
+  printf '%s\n' "$fu_scope"
+}
+# A123: the paths a fix may touch, one per line: the finding paths plus the frozen plan scope paths sharing an acceptance
+# criterion with them. Prints `*` when a finding names no path (any frozen scope path), nothing when no finding is open.
+fix_allowed_paths() { # ID
+  fa_ff=$(latest_finding_file "$1"); [ -n "$fa_ff" ] || return 0
+  fa_sc=$(fix_scope_union "$1" "$fa_ff")
+  if [ "$(scope_entry_paths "$fa_sc" | tr -d '\n')" = '*' ]; then echo '*'; return 0; fi
+  { scope_entry_paths "$fa_sc"; fix_scope_siblings "$1" "$fa_sc"; } | sort -u
+}
+# `next` lines naming the allowed fix paths of an open fix round, to paste into the implementer's ALLOWED_SCOPE (A123).
+fix_paths_lines() { # ID
+  fl_ff=$(latest_finding_file "$1"); [ "$(gate_field "${fl_ff:-/dev/null}" result 2>/dev/null)" = fail ] || return 0
+  fix_allowed_paths "$1" | sed 's/^/fix_path=/'
+}
+# A fix stays inside the union fix_scope of every failing record on the failing content (A123: plus the plan-scope
+# paths sharing an acceptance criterion with a failing finding).
 verify_fix_bound() {
   g_id=$1; gates_enforced "$g_id" || return 0
   g_f=$(latest_finding_file "$g_id"); [ -n "$g_f" ] || return 0
   g_patch=$(task_patch_fingerprint "$g_id")
   [ "$g_patch" != "$(gate_field "$g_f" patch_sha256)" ] || fail "no application/test change since the finding in ${g_f##*/}: a fix must change the tree before it can be re-reviewed"
-  g_scope=$(gate_field "$g_f" fix_scope)
-  if [ "$(gate_field "$g_f" result)" = fail ]; then
-    g_fp=$(gate_field "$g_f" fingerprint)
-    for g_n in $(gate_names "$g_id"); do
-      g_o=$(gates_dir "$g_id")/$g_n
-      [ "$(gate_field "$g_o" result)" = fail ] && [ "$(gate_field "$g_o" fingerprint)" = "$g_fp" ] && g_scope="$g_scope,$(gate_field "$g_o" fix_scope)"
-    done
-  fi
+  g_scope=$(fix_scope_union "$g_id" "$g_f")
   [ "$(scope_entry_paths "$g_scope" | tr -d '\n')" != '*' ] || return 0
+  g_sib=$(fix_scope_siblings "$g_id" "$g_scope")
   g_delta=$( { cat "${g_f%.yaml}.manifest"; patch_manifest "$g_id"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u )
   g_bad=''
   for g_p in $g_delta; do
     scope_entry_paths "$g_scope" | grep -Fxq -- "$g_p" && continue
+    printf '%s\n' "$g_sib" | grep -Fxq -- "$g_p" && continue
     # A fix needs its regression test (tdd): a test path of the frozen scope is always inside the fix.
     if printf '%s\n' "$(section_value "$(run_dir "$g_id")" freeze scope_paths)" | tr ',' '\n' | grep -Fxq -- "$g_p" \
        && path_matches "$g_p" '**/test/** **/tests/** **/__tests__/** **/spec/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'; then continue; fi
     g_bad="$g_bad $g_p"
   done
-  [ -z "$g_bad" ] || fail "fix changed paths outside the finding's fix_scope (${g_f##*/}):$g_bad"
+  [ -z "$g_bad" ] || fail "fix changed paths outside the finding's fix_scope (${g_f##*/}):$g_bad
+allowed fix paths (finding paths plus frozen plan scope paths sharing an acceptance criterion with them):
+$(fix_allowed_paths "$g_id" | sed 's/^/  /')
+a path the plan never scoped needs the user's scope approval: the lead asks (agent.sh ask, D13 block), then amends PLAN.md and runs agent.sh refreeze"
 }
 reopen_for_fix() {
   g_id=$1; g_any=no
@@ -3878,7 +3910,7 @@ next_step() {
         done
       fi
       [ -n "$ns_ask" ] || { o "agent.sh handoff $ns_id IMPLEMENTING"; r "plan frozen"; } ;;
-    IMPLEMENTING) o "dispatch.sh $ns_id implementer"; o "agent.sh handoff $ns_id IMPLEMENTED"; r "implementation in progress" ;;
+    IMPLEMENTING) o "dispatch.sh $ns_id implementer"; o "agent.sh handoff $ns_id IMPLEMENTED"; fix_paths_lines "$ns_id"; r "implementation in progress" ;;
     IMPLEMENTED)
       ns_fp=$(content_fingerprint); ns_fail='' ns_todo=''
       for ns_g in $(required_gates "$ns_id"); do
@@ -3908,7 +3940,7 @@ next_step() {
           done
         done
         if [ "$ns_scr" -gt 0 ] && [ "$ns_oth" -eq 0 ]; then o "the implementer cannot clear these: only UNSUPPORTED or missing-flag findings fail (waive them, or amend PLAN.md and refreeze)"; o "agent.sh terminate $ns_id BLOCKED (reason and evidence on stdin), if the user declines the waiver and the plan cannot be amended"
-        elif [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"
+        elif [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"; fix_paths_lines "$ns_id"
         else o "agent.sh terminate $ns_id FAILED (reason and evidence on stdin)"; fi
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then

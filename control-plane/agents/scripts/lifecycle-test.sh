@@ -223,7 +223,7 @@ scenario_attribution() {
 # Fix loop: a fix stays inside its findings' fix_scope, at most review.max_fix_rounds rounds per frozen
 # contract, and an amendment + refreeze returns the run to IMPLEMENTING with a fresh budget.
 scenario_bounded_fix() {
-  scaffold orchestrated
+  export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA   # impl.txt and impl_test.txt share no criterion (A123)
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
   gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
@@ -261,7 +261,7 @@ scenario_bounded_fix() {
 
 # fix_scope is the union of the findings' paths on the failing content; whitespace in a list is ignored.
 scenario_fix_scope_format() {
-  scaffold orchestrated
+  export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
   rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:3|wrong default|traced' 'REVIEW_SMALL-2|blocking|impl_test.txt:9|hollow assertion|traced' 'REVIEW_SMALL-3|info|other.txt:1|suspicion only|none'
@@ -277,7 +277,7 @@ scenario_fix_scope_format() {
 
 # A77: a fix_scope entry `path:symbol` (gate row or amendment) scopes to its path; a path outside still fails.
 scenario_fix_scope_symbol() {
-  scaffold orchestrated
+  export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
   rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:TestLookup|hollow assertion|traced'
@@ -289,6 +289,41 @@ scenario_fix_scope_symbol() {
   wopen; cp "$base/impl.keep" impl.txt; printf 'test: the symbol named in the finding asserts the value\n' >> impl_test.txt; wev FIX pass impl_test.txt; wclose
   A handoff LC IMPLEMENTED >/dev/null
   ok "fix_scope path:symbol scopes to its path"
+}
+
+# A123: a fix may also touch a frozen plan-scope path that shares an acceptance criterion with a failing finding's path;
+# a plan path with no shared criterion, a path outside the plan and a finding path outside the plan stay refused.
+scenario_fix_scope_shared_criteria() {
+  export SC_SCOPE_OTHER=AC-2 SC_SCOPE_EXTRA=AC-1 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_SCOPE_OTHER SC_SCOPE_EXTRA SC_TASK_EXTRA
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  gfail REVIEW_SMALL impl.txt
+  grep -q '^fix_scope: impl.txt$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "the gate record's fix_scope was widened"
+  A next LC > "$base/next.out"
+  [ "$(grep '^fix_path=' "$base/next.out" | sort | tr '\n' ' ')" = 'fix_path=impl.txt fix_path=impl_test.txt fix_path=other.txt ' ] || die "next did not list the allowed fix paths (finding path and shared-criterion siblings): $(grep '^fix_path=' "$base/next.out" | tr '\n' ' ')"
+  A handoff LC IMPLEMENTING >/dev/null
+  A next LC | grep -q '^fix_path=other.txt$' || die "next kept no allowed fix paths while the fix round is open"
+  cp far.txt "$base/t.keep"
+  worker FIX pass far.txt 'far: a plan path with another criterion'
+  expect_msg "a plan path sharing no criterion reached IMPLEMENTED" "outside the finding's fix_scope" A handoff LC IMPLEMENTED
+  expect_msg "the refusal did not list the allowed fix paths" "  other.txt" A handoff LC IMPLEMENTED
+  expect_msg "the refusal did not name the scope approval and refreeze route" "agent.sh refreeze" A handoff LC IMPLEMENTED
+  wopen; cp "$base/t.keep" far.txt; printf 'z\n' > z.txt; wev FIX pass; wclose
+  expect_fail "a path outside the plan reached IMPLEMENTED" A handoff LC IMPLEMENTED
+  rm -f z.txt
+  worker FIX pass other.txt 'other: a plan path sharing AC-1 with the finding'
+  A handoff LC IMPLEMENTED >/dev/null
+  ok "fix_scope widens to plan paths sharing a criterion only"
+}
+
+scenario_fix_scope_no_criteria() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  gfail REVIEW_SMALL z.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'impl: the finding path is outside the plan, so it carries no criterion'
+  expect_msg "a finding outside the plan widened the fix scope" "outside the finding's fix_scope" A handoff LC IMPLEMENTED
+  ok "a finding path with no plan criterion widens nothing"
 }
 
 # An amendment that changes any frozen artifact starts a fresh fix budget.
@@ -752,6 +787,8 @@ run_sc scenario_attribution
 run_sc scenario_bounded_fix
 run_sc scenario_fix_scope_format
 run_sc scenario_fix_scope_symbol
+run_sc scenario_fix_scope_shared_criteria
+run_sc scenario_fix_scope_no_criteria
 run_sc scenario_amendment_fresh_budget
 run_sc scenario_terminal
 run_sc scenario_pipeline_trivial

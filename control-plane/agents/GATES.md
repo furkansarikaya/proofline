@@ -131,7 +131,8 @@ After CODE_DONE the knowledge step and the report publication change the tree, s
   rounds used ≤ `review.max_fix_rounds` (default 2).
 - The fix MUST change the tree and stay inside the union `fix_scope` of the failing content's records
   (finding paths; a finding without a path allows any frozen scope path). An entry `path:line`, `path:line-line`
-  or `path:symbol` scopes to its path part; comparison uses the path.
+  or `path:symbol` scopes to its path part; comparison uses the path. The fix may also touch any path of the frozen
+  plan `## Scope` that shares an acceptance criterion (`criteria:`) with a plan-scope path of a failing finding (A123); a path outside the plan scope, or sharing no criterion, needs the user's scope approval, a PLAN.md amendment and `refreeze` (`amend` works from CODE_DONE only). `next` and the refusal print the allowed paths. A plan whose scope entries all list one criterion makes every plan path fixable.
 - Round 2 sets `escalation=yes` in `pipeline` and the `fix_round_2` signal in `decide`.
 - After the last round with open findings: only `terminate <ID> FAILED` (stdin `reason`, `evidence`).
   Commit and push stay locked because the gates never pass. Nothing resets the budget on the lead's
