@@ -6,7 +6,8 @@
 // Usage: node <skill-dir>/scripts/check-result.mjs <result-file|-> [--role ROLE] [--task ID]
 // Exit codes: 0 valid (JSON on stdout), 1 malformed (one message per line on stdout), 2 usage or read error.
 
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const HEADER_KEYS = ["ROLE", "TASK", "FOCUS", "RESULT", "CONFIDENCE", "FINGERPRINT", "ARTIFACT"];
@@ -153,7 +154,13 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
 function inFlightPid(marker) {
   try {
     const m = /^pid=(\d+)$/m.exec(readFileSync(marker, "utf8"));
-    if (m) { process.kill(Number(m[1]), 0); return m[1]; }
+    if (!m) return "";
+    // A live pid is not enough (pids are reused): a marker older than dispatch.timeout_seconds + 60 s is stale.
+    let timeout = 1800;
+    try { const t = /^\s*timeout_seconds:\s*(\d+)/m.exec(readFileSync(join(dirname(marker), "../../../config.yaml"), "utf8")); if (t) timeout = Number(t[1]); } catch { /* default */ }
+    if (Date.now() - statSync(marker).mtimeMs > (timeout + 60) * 1000) return "";
+    process.kill(Number(m[1]), 0);
+    return m[1];
   } catch { /* no marker, or its process is gone: stale */ }
   return "";
 }

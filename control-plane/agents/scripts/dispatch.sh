@@ -269,6 +269,7 @@ attempt() {
   token=d$(printf '%03d' "$seq_n")-$role-$rt
   out=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.md
   log=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.log
+  [ -z "$running" ] || rm -f "$running"   # a retry or failover attempt replaces the previous attempt's marker
   running=${log%.log}.running
   seq_n=$((seq_n + 1)); : > "$out"
   pm=''; tmpl=$(cfg dispatch command_template "$rt")
@@ -342,7 +343,6 @@ attempt() {
     else
       run_timed "$timeout_s" "$log" "$input" "$@"
     fi) || status=$?; fi
-  rm -f "$running"
   if [ "$writes_code" = yes ]; then
     "$agent" window-close "$id" "$before" "$status" "$role" >&2 || { echo "dispatch: window-close failed (unattributed mutation?)" >&2; exit 1; }
   fi

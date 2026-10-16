@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -98,6 +98,10 @@ test("check-result on an empty result says the dispatch is in flight while its m
     writeFileSync(join(d, "003-verifier-claude.running"), "pid=999999999\nrole=verifier\n");
     const dead = spawnSync("node", [script, md, "--role", "verifier", "--task", "T-1"], { encoding: "utf8" });
     assert.match(dead.stdout, /malformed header: missing ROLE/);
+    writeFileSync(join(d, "003-verifier-claude.running"), `pid=${process.pid}\nrole=verifier\n`);
+    utimesSync(join(d, "003-verifier-claude.running"), 946684800, 946684800);
+    const old = spawnSync("node", [script, md, "--role", "verifier", "--task", "T-1"], { encoding: "utf8" });
+    assert.match(old.stdout, /malformed header: missing ROLE/);
   } finally { rmSync(d, { recursive: true, force: true }); }
 });
 

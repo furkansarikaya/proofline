@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2016,SC2034,SC2086 # ck evaluates its condition later; d_env holds space-free assignments
+# shellcheck disable=SC2016,SC2086 # ck evaluates its condition later; d_env holds space-free assignments
 # Tests for dispatch.sh with fake runtimes and a stub agent.sh in a throwaway installed layout.
 # The stub's `decide` calls the real exec-policy.sh, so capability floors are the real ones.
 set -u
@@ -265,6 +265,7 @@ ck "a reviewer with an assignment gets neither line" '! has "$loc/claude.stdin" 
 reset; mkdir -p "$loc"
 ( rc=0; env FAKE_CLAUDE=hold sh "$a/scripts/dispatch.sh" T-1 reviewer --runtime claude > "$tmp/hold.out" 2>&1 || rc=$?; echo "$rc" > "$tmp/hold.rc" ) &
 w=0; while [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ] && [ "$w" -lt 100 ]; do sleep 0.1; w=$((w + 1)); done
+# shellcheck disable=SC2034 # m is read by the ck condition below
 m=$(cat "$a"/runs/T-1/dispatch/*.running 2>/dev/null); touch "$loc/release"; wait
 ck "a running dispatch leaves a marker (in flight, do not re-dispatch); it is removed when the step ends" 'printf "%s" "$m" | grep -q "dispatch in flight: T-1 reviewer on claude" && printf "%s" "$m" | grep -q "do not re-dispatch" && [ "$(cat "$tmp/hold.rc")" -eq 0 ] && [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ]'
 

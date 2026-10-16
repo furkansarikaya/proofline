@@ -356,7 +356,7 @@ scenario_terminal() {
   mk_=.agents/runs/LC/dispatch/001-verifier-claude.running; mkdir -p .agents/runs/LC/dispatch
   sleep 60 & fl_=$!
   printf 'pid=%s\nrole=verifier\ndispatch in flight\n' "$fl_" > "$mk_"
-  A next LC | grep -q "^next=wait: dispatch.sh LC verifier in flight (pid $fl_)" || { kill "$fl_"; die "next did not tell the lead to wait for a live dispatch (A124)"; }
+  A next LC | grep -q "^next=wait: dispatch.sh LC verifier in flight (pid $fl_;" || { kill "$fl_"; die "next did not tell the lead to wait for a live dispatch (A124)"; }
   A next LC | grep -q '^next=dispatch.sh' && { kill "$fl_"; die "next printed a dispatch instruction while one is in flight (A124)"; }
   A pipeline LC | grep -q "^in_flight=dispatch.sh LC verifier (pid $fl_)" || { kill "$fl_"; die "pipeline did not report the dispatch in flight (A124)"; }
   kill "$fl_"; wait "$fl_" 2>/dev/null || :
@@ -364,6 +364,11 @@ scenario_terminal() {
   grep -q '^next=wait' .agents/local/next.out && die "next ignored a dead-pid marker as live (A124)"
   grep -q '^note=stale dispatch marker removed: 001-verifier-claude.running' .agents/local/next.out || die "stale marker not reported (A124)"
   [ ! -e "$mk_" ] || die "stale marker not removed (A124)"
+  sleep 60 & fl_=$!
+  printf 'pid=%s\nrole=verifier\n' "$fl_" > "$mk_"; touch -t 200001010000 "$mk_"
+  A next LC > .agents/local/next.out; kill "$fl_"; wait "$fl_" 2>/dev/null || :
+  grep -q '^next=wait' .agents/local/next.out && die "next treated an over-age marker with a live (reused) pid as in flight (A124)"
+  grep -q '^note=stale dispatch marker removed' .agents/local/next.out && [ ! -e "$mk_" ] || die "over-age marker not reported and removed (A124)"
   term() { printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gate QA failed the empty-key scenario on every round\n' | AGENT_ROLE=${2:-lead} sh ./.agents/scripts/agent.sh terminate LC "$1"; }
   expect_fail "FAILED accepted while fix rounds remain" term FAILED
   A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: first attempt'; A handoff LC IMPLEMENTED >/dev/null
