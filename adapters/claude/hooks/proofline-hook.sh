@@ -90,7 +90,19 @@ relpath() {
   case "/$rp_tail/" in */../*|*/./*) echo @unknown; return ;; esac
   rp_dir=$(CDPATH='' cd "$rp_dir" 2>/dev/null && pwd -P) || { echo @unknown; return; }
   rp=$rp_dir/$rp_tail
-  case "$rp" in "$root") echo . ;; "$root"/*) printf '%s\n' "${rp#"$root"/}" ;; *) echo @outside ;; esac
+  case "$rp" in "$root") echo . ;; "$root"/*) printf '%s\n' "${rp#"$root"/}" ;; *) echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp" ;; esac
+}
+# outside_ok P: may a Write/Edit tool write P, which relpath put outside the project? Only inside a registered
+# worktree or the runtime's own storage under ~/.claude; a sibling such as <project>-x is outside (A120, C-18).
+outside_ok() {
+  oo_p=$(relpath "$1" abs | sed -n 2p); oo_p=${oo_p#/private}
+  case "$oo_p" in "${HOME:-/nonexistent-home}"/.claude/*) return 0 ;; esac
+  for oo_w in $(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p'); do
+    [ "${oo_w#/private}" != "${root#/private}" ] || continue
+    case "$oo_p" in "${oo_w#/private}"/*) return 0 ;; esac
+  done
+  echo "$1 is outside the project. A run writes nothing outside the copy (registered worktrees and the runtime's own storage excepted); a path that merely shares a prefix with the project root is outside too"
+  return 1
 }
 # always_protected REL: the git hooks and the git config that wires them; never written by an agent.
 always_protected() { case "$1" in .agents/githooks|.agents/githooks/*|.git/config|.git/config.*) return 0 ;; esac; return 1; }
@@ -783,7 +795,11 @@ pretool)
       set +f ;;
   esac
   [ -n "$act" ] || exit 0
-  while IFS= read -r tg; do why=$(target_ok "$tg") || deny "$tool $tg: $why"; done < "$tmp/targets"
+  while IFS= read -r tg; do
+    why=$(target_ok "$tg") || deny "$tool $tg: $why"
+    # A120: the file tools write nothing outside the copy (the shell guard handles shell writes, A97)
+    [ "$(relpath "$tg")" != @outside ] || why=$(outside_ok "$tg") || deny "$tool $tg: $why"
+  done < "$tmp/targets"
   exit 0 ;;
 
 subagent-start)

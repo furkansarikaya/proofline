@@ -190,6 +190,8 @@ while [ "$replies" -lt "$max" ]; do
     *)
       asked=$(printf '%s\n' "$state $pending $(cat "$last")")
       if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|commit it|push it'; then break; fi
+      # A120: no open question, no reply (the lead waits for something a reply cannot give).
+      printf '%s\n' "$state" | sh "$here/question-open.sh" "$last" || break
       line=$qline ;;
   esac
   [ -n "$line" ] || break

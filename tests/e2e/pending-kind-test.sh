@@ -18,3 +18,11 @@ check "a waiver approval" 'next=agent.sh request-approval LC waive:REVIEW_RULES-
 check "no approval pending" 'next=agent.sh freeze LC
 reason=artifacts ready' ''
 echo "pending-kind tests passed"
+# A120: the scripted question reply is sent only while a question is open.
+t=$(mktemp -d "${TMPDIR:-/tmp}/qopen.XXXXXX"); trap 'rm -rf "$t"' EXIT
+qo() { printf '%s\n' "$2" | sh "$here/question-open.sh" "$t/last" && got=open || got=none; [ "$got" = "$3" ] && echo "ok $1" || { echo "FAIL: $1 (got $got, want $3)" >&2; exit 1; }; }
+printf 'Which option do you prefer?\n' > "$t/last"; qo "the lead asks a question" 'next=agent.sh handoff LC IMPLEMENTING' open
+printf 'Please run rm .agents/x and tell me when it is gone.\n' > "$t/last"; qo "the lead waits for a user action, no question" 'next=agent.sh handoff LC IMPLEMENTING' none
+qo "a pending question named by next" 'next=agent.sh questions LC
+reason=a question is pending (a specialist NEEDS_INPUT)' open
+echo "question-open tests passed"

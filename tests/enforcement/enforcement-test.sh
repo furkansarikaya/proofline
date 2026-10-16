@@ -67,7 +67,10 @@ lead_edits() {
   allowed "lead Write of PLAN.md" "$(pre_edit Write "$PWD/.agents/runs/LC/PLAN.md")"
   allowed "lead Write of an amendment" "$(pre_edit Write .agents/runs/LC/amendments/001.md)"
   allowed "lead Write of a task file (tasks.dir)" "$(pre_edit Write .agents/tasks/LC.md)"
-  allowed "lead Write outside the project" "$(pre_edit Write "$base/elsewhere.txt")"
+  denied "lead Write outside the project (A120)" "$(pre_edit Write "$base/elsewhere.txt")" "outside the project"
+  denied "A120 Write to a sibling that shares the project path as a prefix" "$(pre_edit Write "$PWD-design/DESIGN.md")" "outside the project"
+  denied "A120 Edit to a sibling that shares the project path as a prefix" "$(pre_edit Edit "$PWD-design/DESIGN.md")" "outside the project"
+  denied "A120 Write through <project>/../x" "$(pre_edit Write "$PWD/../x")" "outside the project"
   denied "lead Write through a ../ path" "$(pre_edit Write .agents/runs/LC/../../../impl.txt)"
   # Bash write heuristic
   denied "lead shell redirection into product code" "$(pre_bash 'echo hacked > src/x.js')"
@@ -216,6 +219,8 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
   done
   git worktree add -q "$base/wt-a97" HEAD >/dev/null 2>&1 || die "A97 fixture worktree"
   allowed "A97 a write inside a registered worktree" "$(pre_bash "echo x > $base/wt-a97/notes.txt" proofline-qa q1)"
+  allowed "A120 a Write tool inside a registered worktree" "$(pre_edit Write "$base/wt-a97/notes.txt" proofline-qa q1)"
+  denied "A120 a Write tool beside a registered worktree (prefix only)" "$(pre_edit Write "$base/wt-a97-x/notes.txt" proofline-qa q1)" "outside the project"
   git worktree remove --force "$base/wt-a97" >/dev/null 2>&1 || :
   # A111: every git stash subcommand is refused in the project tree, whatever the spelling; evidence worktrees are
   # free. Variables stay UNEXPANDED (single quotes): the hook sees the text a model sends, not the shell's result.
@@ -595,7 +600,7 @@ database_guard() {
   allowed "DB-6 a heredoc that only names the database file in text" "$(pre_bash "cat > .agents/runs/LC/PLAN.md <<'EOF'
 drop column in data/app.db
 EOF")"
-  allowed "DB-7 the Write tool for a scratch database file" "$(pre_edit Write "$base/own2.db")"
+  denied "DB-7 the Write tool for a scratch database file outside the project (A120: refused as outside, not by the database guard)" "$(pre_edit Write "$base/own2.db")" "is outside the project"
   printf 'ALTER TABLE books DROP COLUMN legacy_notes;\n' > "$base/drop.sql"
   denied "DB-7b a destructive SQL file fed to a client" "$(pre_bash "sqlite3 :memory: < $base/drop.sql")" "destructive SQL"
   denied "DB-8 reading a database file" "$(pre_bash 'cat data/app.db')" "database file"
