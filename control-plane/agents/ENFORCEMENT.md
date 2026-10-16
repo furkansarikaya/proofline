@@ -16,7 +16,7 @@ behaviour as technically prevented.
 | Low-confidence PASS does not count | Script-enforced | recorded `pass_low`; never satisfies a gate. |
 | Lead never writes product code (orchestrated) | Script-enforced detection at every transition and gate; write-time blocking is a runtime hook (phase 3) | `window-open`/`window-close` attest the implementer's tree; any other change FAILS. |
 | No swarm, one implementer, explorer bound | Policy-only | Role instructions and mode policy; the repository has no agent-spawn interceptor. |
-| Classification selects artifacts and QA | Script-enforced (the choice of class is a lead judgment) | `classify` lead-only; `freeze` requires exactly the class artifacts; TRIVIAL scope bound; the class is frozen and sealed. |
+| Classification selects artifacts and QA | Script-enforced (the choice of class is a lead judgment) | `classify` lead-only; `freeze` requires exactly the class artifacts; TRIVIAL scope bound and no executable code in a TRIVIAL scope (A115); the class is frozen and sealed. |
 | Destructive plan is CRITICAL | Script-enforced | `freeze` forces CRITICAL when `## Data` starts `destructive: yes`; `classify` below CRITICAL FAILS; an invalid first line FAILS. |
 | Tier from the diff, never decreasing | Script-enforced | `tier` computes from the diff; `pipeline.tier` is recorded by the lead, sealed by the ledger, and the effective tier is the maximum. |
 | Required gates per class and tier | Script-enforced | `required_gates`; a gate outside the set is refused; CODE_DONE needs all `pass`/`waived`. |

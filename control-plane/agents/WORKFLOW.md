@@ -55,7 +55,7 @@ The highest class any indicator reaches wins; when unsure, take the higher.
 
 | Class | Indicators |
 |---|---|
-| TRIVIAL | All of: ≤ 2 scope paths (script-enforced), no behaviour change, no design choice, no contract, persistence, security or concurrency involvement |
+| TRIVIAL | All of: ≤ 2 scope paths (script-enforced), text or configuration only (no executable code or tests in scope, script-enforced, A115), no behaviour change, no design choice, no contract, persistence, security or concurrency involvement |
 | STANDARD | Bounded behaviour change in one component; no new integration, persistence or security boundary |
 | COMPLEX | ≥ 2 modules; new integration or dependency; public contract change; persistence or schema change; meaningful concurrency; a design choice with real tradeoffs |
 | CRITICAL | Auth, authorization, cryptography, secrets, any security boundary; destructive or irreversible migration; financial or data-integrity-critical behaviour; high-impact CI, deploy or infrastructure |

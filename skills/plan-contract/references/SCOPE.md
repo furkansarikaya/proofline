@@ -59,3 +59,5 @@ Allowed only where a failing-then-passing test cannot exist for that file: data 
 - `## Dependencies` or `## Contracts` that is neither `none` nor a `- ` list;
 - `## Assumptions` that is neither `none` nor the 7-column table (`id | assumption | source | risk | verification | status | decisions`); an id not `AS-<n>` or repeated; a risk outside `low|medium|high`; a status outside `verified|unverified`; a `verified` row, or a `high` row, without a verification method; an empty text, source or decisions cell;
 - `## Verification commands` without a command in backticks or a code block.
+
+The validator does not check the class against the paths: `agent.sh freeze` and `refreeze` refuse a TRIVIAL plan whose scope holds executable code, tests included (A115). Classify STANDARD first when the plan changes code or adds tests.
