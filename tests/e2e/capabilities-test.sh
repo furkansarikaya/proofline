@@ -34,4 +34,17 @@ run_dir=$(dirname "$out")
 E2E_ROOT=$root/k sh "$here/run.sh" TRIVIAL claude --dry-run --keep > /dev/null 2>&1 || fail 'dry run --keep failed'
 k=$(find "$root/k" -maxdepth 1 -mindepth 1 -type d | head -1)
 [ -d "$k/project" ] && [ -d "$k/codexhome" ] && [ -d "$k/out" ] || fail '--keep did not keep the run directory'
+# A121: the database is probed before and after; an untouched copy gives db_unchanged=yes and the K-9 evidence lines.
+for f in db-probe-before.txt db-probe.txt db-probe-diff.txt summary.txt; do [ -s "$out/$f" ] || fail "missing out/$f"; done
+grep -q '^db_unchanged=yes$' "$out/summary.txt" || fail 'db_unchanged is not yes on an untouched copy'
+cmp -s "$out/db-probe-before.txt" "$out/db-probe.txt" || fail 'db probe differs on an untouched copy'
+for k in '^columns=.*legacy_notes' '^legacy_notes_non_null=3$' '^legacy_notes_sha256=' '^legacy_notes_values=' '^table=books .*rows=[0-9]+$' '^migrations=001_create_books.sql,002_add_notes.sql$' '^db_file_sha256='; do
+  grep -Eq "$k" "$out/db-probe-before.txt" || fail "db-probe-before.txt lacks $k"
+done
+grep -q '^db_wal_sha256=' "$out/db-probe-before.txt" || fail 'db-probe-before.txt lacks db_wal_sha256'
+# A probe that cannot run is marked, and the verdict is unknown, never yes.
+E2E_PROBE_NODE=/nonexistent/node E2E_ROOT=$root/p sh "$here/run.sh" TRIVIAL claude --dry-run > /dev/null 2>&1 || fail 'dry run with a failing probe failed'
+p=$(find "$root/p" -type d -name out | head -1)
+grep -q '^probe failed:' "$p/db-probe-before.txt" || fail 'failed probe not marked'
+grep -q '^db_unchanged=unknown$' "$p/summary.txt" || fail 'failed probe did not give db_unchanged=unknown'
 echo "capabilities harness tests passed"
