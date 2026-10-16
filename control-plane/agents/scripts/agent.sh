@@ -4085,10 +4085,16 @@ cleanup_run() {
       fi
       if section_key_present "$dir" completion_report required; then verify_completion_report "$id" >/dev/null; fi ;;
   esac
+  # A116: the run's per-run assignments directory goes with it; guard before any removal so a refusal leaves both.
+  adir="$root/.agents/local/assignments/$id"
+  if [ -e "$adir" ] || [ -L "$adir" ]; then
+    [ ! -L "$adir" ] && [ -d "$adir" ] || fail "refusing to remove $adir: not a plain assignments directory"
+  fi
   marker=$(active_run_file)
   if [ -f "$marker" ] && [ "$(sed '/^[[:space:]]*$/d' "$marker")" = "$id" ]; then : > "$marker"; fi
   rm -rf "$dir"
-  echo "run cleaned up: $id (runtime artifacts removed; ACTIVE_RUN cleared)"
+  [ ! -d "$adir" ] || rm -rf "$adir"
+  echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
 }
 
 # --- Branch: <git.branch_prefix><TASK-ID>-<slug> from the canonical branch's exact tip --------
