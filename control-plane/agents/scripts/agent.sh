@@ -1504,8 +1504,10 @@ discard_stray() {
   ds_dir=$(cd -P "$ds_dir" && pwd -P) || fail "discard-stray refused: run directory does not resolve"
   ds_file=$ds_dir/$ds_rel
   [ ! -L "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is a symlink"
+  ds_ino=$(ls -di "$ds_file" 2>/dev/null | awk '{print $1}')   # same inode = same file (test -ef is not POSIX)
   for ds_p in $ds_protected; do
-    if [ "$ds_lc" = "$ds_p" ] || [ "$ds_dir/$ds_rel" -ef "$ds_dir/$ds_p" ]; then fail "discard-stray refused: '$ds_rel' is a known run artifact"; fi
+    ds_pino=$(ls -di "$ds_dir/$ds_p" 2>/dev/null | awk '{print $1}')
+    if [ "$ds_lc" = "$ds_p" ] || { [ -n "$ds_ino" ] && [ "$ds_ino" = "$ds_pino" ]; }; then fail "discard-stray refused: '$ds_rel' is a known run artifact"; fi
   done
   [ -f "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is not a regular file in the run directory"
   ds_sha=$(sha256 < "$ds_file"); rm -f -- "$ds_file"
