@@ -33,7 +33,12 @@ mkdir -p "$project" "$out" "$run/codexhome/.codex"
 # `out/` (the evaluator input) stays, and so does the whole run directory with --keep.
 lead_pid=''
 cleanup() {
-  [ -z "$lead_pid" ] || kill -TERM -- "-$lead_pid" 2>/dev/null || true
+  if [ -n "$lead_pid" ]; then
+    kill -TERM -- "-$lead_pid" 2>/dev/null || true
+    # Bounded wait for the lead to exit, then KILL, so rm never races a live process.
+    i=0; while [ "$i" -lt 50 ] && kill -0 "$lead_pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+    ! kill -0 "$lead_pid" 2>/dev/null || kill -KILL -- "-$lead_pid" 2>/dev/null || true
+  fi
   [ "$keep" = yes ] || rm -rf "$project" "$run/codexhome"
 }
 trap cleanup EXIT
