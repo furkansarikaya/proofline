@@ -1486,7 +1486,34 @@ VCA_EOF
 "; done <<VCA_EOF
 $(find "$dir" -type l -print)
 VCA_EOF
-  [ -z "$bad" ] || { echo "unexpected run artifact:" >&2; printf '%s' "$bad" >&2; return 1; }
+  [ -z "$bad" ] || { echo "unexpected run artifact:" >&2; printf '%s' "$bad" >&2; echo "the lead removes a stray regular file (never a known artifact) with: agent.sh discard-stray $id <top-level-file-name> (A119)" >&2; return 1; }
+}
+# A119: the lead's only way to remove ONE stray from a run directory (the hook denies raw rm there). Top-level regular
+# files only: a subpath would need the registry to be case- and symlink-proof (APFS is case-insensitive). The protected
+# names below mirror the top-level entries of known_control_artifact and are protected whether or not the pipeline needs them.
+ds_protected='task.md plan.md run.yaml run.yaml.tmp completion_report.md ledger.log verify.md evidence.md qa_plan.md qa_report.md pid amendments dispatch worker-evidence decisions gates results reports questions approvals waivers security scratch reviews design'
+discard_stray() {
+  ds_id=$1 ds_rel=${2:-}; require_run "$ds_id"; require_lead; require_open_run "$ds_id"; ds_dir=$(run_dir "$ds_id")
+  [ "$(section_value "$ds_dir" completion_report published)" != true ] || fail "discard-stray refused: the run is sealed (completion report published)"
+  [ -n "$ds_rel" ] || fail "usage: agent.sh discard-stray <ID> <file-name-in-the-run-directory>"
+  case "$ds_rel" in */*|.*|-*) fail "discard-stray refused: '$ds_rel' must be a single top-level file name of the run directory (strays in subdirectories are not handled)" ;; esac
+  # APFS folds case and some Unicode (U+017F, U+212A): only plain ASCII names are accepted, and the same-file test below
+  # catches whatever else the filesystem folds.
+  [ -z "$(printf '%s' "$ds_rel" | LC_ALL=C tr -d 'A-Za-z0-9._-')" ] || fail "discard-stray refused: '$ds_rel' may contain only A-Z a-z 0-9 . _ -"
+  ds_lc=$(printf '%s' "$ds_rel" | tr '[:upper:]' '[:lower:]')
+  ds_dir=$(cd -P "$ds_dir" && pwd -P) || fail "discard-stray refused: run directory does not resolve"
+  ds_file=$ds_dir/$ds_rel
+  [ ! -L "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is a symlink"
+  ds_ino=$(ls -di "$ds_file" 2>/dev/null | awk '{print $1}')   # same inode = same file (test -ef is not POSIX)
+  for ds_p in $ds_protected; do
+    ds_pino=$(ls -di "$ds_dir/$ds_p" 2>/dev/null | awk '{print $1}')
+    if [ "$ds_lc" = "$ds_p" ] || { [ -n "$ds_ino" ] && [ "$ds_ino" = "$ds_pino" ]; }; then fail "discard-stray refused: '$ds_rel' is a known run artifact"; fi
+  done
+  [ -f "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is not a regular file in the run directory"
+  [ -n "$ds_ino" ] || fail "discard-stray refused: cannot read the inode of '$ds_rel' (ls -di failed); nothing was removed"
+  ds_sha=$(sha256 < "$ds_file"); rm -f -- "$ds_file"
+  if gates_enforced "$ds_id"; then ledger_append "$ds_id" discard-stray "$(section_value "$ds_dir" handoff state)" "$(section_value "$ds_dir" handoff state)" "path=$ds_rel sha256=$ds_sha"; fi
+  echo "discarded stray run file: $ds_rel (sha256 $ds_sha)"
 }
 
 # --- Classification check (A31): the class is the lead's claim, the diff is the fact. -----------
@@ -4229,7 +4256,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
-  open-runs
+  open-runs | discard-stray <ID> <FILE-NAME>   (lead: remove one stray, non-artifact top-level regular file of the run directory)
   submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
   decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
@@ -4253,6 +4280,7 @@ case "$command" in
   config-get) config_get "${2:?usage: agent.sh config-get <dotted.key>}" || fail "config key not found: $2" ;;
   config-check) config_check "${2:-}" ;;
   baseline) require_lead; baseline "${2:?usage: agent.sh baseline <ID>}" ;;
+  discard-stray) require_lead; discard_stray "${2:?usage: agent.sh discard-stray <ID> <file-name>}" "${3:-}" ;;
   branch) require_lead; branch_setup "${2:?usage: agent.sh branch <ID>}" ;;
   start) shift; start_run "$@" ;;
   classify) require_lead; classify "${2:?usage: agent.sh classify <ID> <CLASS> [review]}" "${3:?usage: agent.sh classify <ID> <CLASS> [review]}" "${4:-}" ;;
