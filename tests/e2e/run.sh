@@ -170,7 +170,7 @@ number=1
 if [ "$scenario" = FAILOVER ] && [ "$killed" = yes ]; then
   number=2; run_lead codex "$number" 'proofline resume' no
 fi
-max=${E2E_MAX_REPLIES:-6}; replies=0 plan_replies=0 question_replies=0
+max=${E2E_MAX_REPLIES:-6}; replies=0 plan_replies=0 question_replies=0 stopped='' stop_state=''
 : > "$out/replies-log.txt"
 while [ "$replies" -lt "$max" ]; do
   id=$(cd "$project" && sh .agents/scripts/agent.sh status 2>/dev/null | sed -n 's/^active_task=//p' | head -1)
@@ -190,6 +190,11 @@ while [ "$replies" -lt "$max" ]; do
     *)
       asked=$(printf '%s\n' "$state $pending $(cat "$last")")
       if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|commit it|push it'; then break; fi
+      # A120: no open question, no reply (the lead waits for something a reply cannot give).
+      if ! printf '%s\n' "$state" | sh "$here/question-open.sh" "$last"; then
+        stopped=no-open-question; stop_state=$(printf '%s\n' "$state" | sed -n 's/^\(next\|reason\)=/\1=/p' | tr '\n' ' ')
+        break
+      fi
       line=$qline ;;
   esac
   [ -n "$line" ] || break
@@ -203,6 +208,7 @@ while [ "$replies" -lt "$max" ]; do
   [ "$timed_out" = no ] || break
 done
 printf 'scenario=%s\nconfig=%s\nrun_dir=%s\nreplies=%s\nplan_approval_replies=%s\nquestion_replies=%s\n' "$scenario" "$config" "$run" "$replies" "$plan_replies" "$question_replies" >> "$out/summary.txt"
+[ -z "$stopped" ] || printf 'stopped=%s\nstopped_state=%s\n' "$stopped" "$stop_state" >> "$out/summary.txt"
 (git -C "$project" log --oneline --all || true) > "$out/git-log.txt"
 git -C "$project" status --short > "$out/git-status.txt"
 git -C "$project" diff main...HEAD > "$out/git-diff-main-head.patch" || true
