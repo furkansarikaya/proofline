@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2016,SC2086 # ck evaluates its condition later; d_env holds space-free assignments
+# shellcheck disable=SC2016,SC2034,SC2086 # ck evaluates its condition later; d_env holds space-free assignments
 # Tests for dispatch.sh with fake runtimes and a stub agent.sh in a throwaway installed layout.
 # The stub's `decide` calls the real exec-policy.sh, so capability floors are the real ones.
 set -u
@@ -98,6 +98,10 @@ case "${FAKE_CLAUDE:-ok}" in
   usage) sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result PASS >/dev/null
       printf '{"type":"result","subtype":"success","is_error":false,"duration_ms":5,"num_turns":4,"result":"claims \\"input_tokens\\": 999999 and num_turns 77","session_id":"x","usage":{"input_tokens":120,"cache_read_input_tokens":50,"output_tokens":30},"modelUsage":{"m":{"inputTokens":1}}}\n' ;;
   limit) printf '{"type":"result","subtype":"success","is_error":true,"result":"Claude AI usage limit reached|1760000000"}\n'; exit 1 ;;
+  empty) exit 0 ;;
+  hold) n=0; while [ ! -f "$loc/release" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+      sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result PASS >/dev/null
+      printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"x"}\n' ;;
 esac
 EOF
 cat > "$tmp/bin/fake-cli" <<'EOF'
@@ -250,6 +254,19 @@ reset; d FAKE_CODEX=rejected T-1 reviewer --runtime codex
 ck "a rejected submission: the rejection goes into the one rerun and into BLOCKED" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q "last rejection: --confidence must be high" && [ "$(grep -c "^decide" "$loc/calls.log")" -eq 2 ]'
 reset; d FAKE_CODEX=late T-1 reviewer --runtime codex
 ck "no submission on the first attempt, one on the rerun: recorded with the retry note in the prompt" '[ "$rc" -eq 0 ] && has "$loc/recorded.md" "token=d002-reviewer-codex" && has "$loc/codex.stdin" "Your previous attempt ended without a recorded result"'
+
+# A124: a worker that writes nothing leaves a reason (BLOCKED, non-empty log); a running dispatch leaves a marker
+reset; d FAKE_CLAUDE=empty T-1 reviewer --runtime claude
+ck "0-byte worker result: BLOCKED with a reason, log not empty, no marker left" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q "^BLOCKED_REASON: reviewer on claude produced no output" && has "$a/runs/T-1/dispatch/001-reviewer-claude.log" "wrote nothing" && [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ]'
+reset; d FAKE_CODEX=nosubmit T-1 implementer
+ck "the implementer prompt states the window and a missing assignment (no file to look for)" 'has "$loc/codex.stdin" "WINDOW: dispatch.sh opened your write window" && has "$loc/codex.stdin" "ASSIGNMENT: none was given" && has "$loc/codex.stdin" "never report BLOCKED for a missing window"'
+reset; d T-1 reviewer --runtime claude --prompt-file "$a/roles.conf"
+ck "a reviewer with an assignment gets neither line" '! has "$loc/claude.stdin" "WINDOW: dispatch.sh" && ! has "$loc/claude.stdin" "ASSIGNMENT: none was given"'
+reset; mkdir -p "$loc"
+( rc=0; env FAKE_CLAUDE=hold sh "$a/scripts/dispatch.sh" T-1 reviewer --runtime claude > "$tmp/hold.out" 2>&1 || rc=$?; echo "$rc" > "$tmp/hold.rc" ) &
+w=0; while [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ] && [ "$w" -lt 100 ]; do sleep 0.1; w=$((w + 1)); done
+m=$(cat "$a"/runs/T-1/dispatch/*.running 2>/dev/null); touch "$loc/release"; wait
+ck "a running dispatch leaves a marker (in flight, do not re-dispatch); it is removed when the step ends" 'printf "%s" "$m" | grep -q "dispatch in flight: T-1 reviewer on claude" && printf "%s" "$m" | grep -q "do not re-dispatch" && [ "$(cat "$tmp/hold.rc")" -eq 0 ] && [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ]'
 
 TIMEOUT=1 mkcfg auto
 reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
