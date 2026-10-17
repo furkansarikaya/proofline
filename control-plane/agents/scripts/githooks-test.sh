@@ -93,4 +93,24 @@ try push -q origin proofline/T-1-x
 [ "$rc" -eq 0 ] && ok "open run: push of its task branch passes" || no "open run: push of its task branch passes ($(cat "$tmp/out"))"
 ! grep -q '^status' "$st/calls.log" && ok "hooks never consult ACTIVE_RUN (agent.sh status)" || no "hooks never consult ACTIVE_RUN (agent.sh status)"
 
+# human detection: agent session markers decide, never a terminal (these runs have no TTY)
+rm -f "$st/active"; g reset -q --hard; g checkout -q work
+sed 's/push_requires_approval: false/push_requires_approval: true/' "$r/.agents/config.yaml" > "$tmp/c" && cp "$tmp/c" "$r/.agents/config.yaml"
+g add .agents/config.yaml; g -c core.hooksPath=/dev/null commit -q -m cfg2
+clean="-u PROOFLINE_NO_TTY -u AGENT_ROLE -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u CODEX_CI -u CODEX_SANDBOX -u CODEX_THREAD_ID -u CODEX_SESSION_ID"
+# shellcheck disable=SC2086 # $clean is a list of options
+hpush() { rc=0; env $clean "$@" git -C "$r" -c core.hooksPath=.agents/githooks push -q origin "$REF" >"$tmp/out" 2>&1 || rc=$?; }
+REF=work:human-a; : > "$st/calls.log"; hpush
+[ "$rc" -eq 0 ] && ! grep -q approval-consume "$st/calls.log" && ok "no TTY and no markers: push passes as a human, no approval asked" || no "no TTY and no markers: push passes as a human ($(cat "$tmp/out"))"
+REF=work:release/h; hpush
+[ "$rc" -eq 0 ] && ok "no TTY and no markers: a human may push a protected branch" || no "no TTY and no markers: a human may push a protected branch ($(cat "$tmp/out"))"
+for m in AGENT_ROLE=lead CLAUDECODE=1 CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ID=x CODEX_CI=1 CODEX_SANDBOX=seatbelt CODEX_THREAD_ID=x CODEX_SESSION_ID=x PROOFLINE_NO_TTY=1; do
+  rm -f "$st/approve_push"; REF=work:agent-a; hpush "$m"
+  [ "$rc" -ne 0 ] && said "no user push approval" && ok "marker $m: push blocked without approval" || no "marker $m: push blocked without approval"
+  REF="work:release/${m%%=*}"; touch "$st/approve_push"; hpush "$m"
+  [ "$rc" -ne 0 ] && said protected_branches && ok "marker $m: protected branch push blocked" || no "marker $m: protected branch push blocked"
+done
+rm -f "$st/approve_push"; touch "$st/approve_push"; REF=work:agent-b; hpush CLAUDECODE=1
+[ "$rc" -eq 0 ] && ok "marker present: push with approval passes" || no "marker present: push with approval passes ($(cat "$tmp/out"))"
+
 [ "$fails" -eq 0 ]

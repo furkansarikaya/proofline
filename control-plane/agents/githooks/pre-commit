@@ -2,12 +2,12 @@
 # proofline pre-commit (D19, D34). Installed with `git config core.hooksPath .agents/githooks`.
 #  1 identity guard: author or committer email matching git.forbidden_identities (case-insensitive glob or
 #    ERE) is blocked for everyone, humans included. The patterns are never printed.
-#  2 protected branches (git.protected_branches, globs): agents never commit there; a human at a TTY may.
+#  2 protected branches (git.protected_branches, globs): agents never commit there; a human may.
 #  3 open runs (`agent.sh open-runs`: every run under .agents/runs/ not terminated FAILED/BLOCKED and not
 #    cleaned up; ACTIVE_RUN plays no part, so emptying it opens nothing): a commit only on the task branch
 #    of one of them, only exactly the gated content (nothing unstaged or untracked outside .agents/runs
 #    and .agents/local), only when `agent.sh delivery-check` passes for that run, and only with a `commit`
-#    approval bound to the content fingerprint (`agent.sh approval-consume`); a human at a TTY skips the
+#    approval bound to the content fingerprint (`agent.sh approval-consume`); a human skips the
 #    approval step but never the gate check.
 set -u
 root=$(git rev-parse --show-toplevel) || exit 1
@@ -19,8 +19,7 @@ cfg() { # SECTION KEY -> value of a 2-level key (empty when absent)
   awk -v s="$1" -v k="$2" '$0 ~ "^" s ":" { c = 1; next } /^[^ #]/ { c = 0 }
     c && $0 ~ "^  " k ":" { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/"/, "", v); print v; exit }' "$config"
 }
-# A human: a terminal on stderr and no agent role. PROOFLINE_NO_TTY=1 forces "not human" (tests).
-human() { [ "${PROOFLINE_NO_TTY:-0}" != 1 ] && [ -z "${AGENT_ROLE:-}" ] && [ -t 2 ]; }
+. "$(dirname "$0")/human.sh"   # human(): no agent session markers (see human.sh)
 set -f
 email_of() { git var "$1" 2>/dev/null | sed -n 's/.*<\([^>]*\)>.*/\1/p'; }
 forbidden() { # EMAIL

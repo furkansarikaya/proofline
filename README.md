@@ -83,6 +83,8 @@ that must show RED then GREEN evidence. Gates then run in parallel on the exact 
 implementer for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks, and you
 approve every commit and push. `proofline status` shows the next step at any time.
 
+Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's environment markers, not by a terminal.
+
 ## Real output
 
 The lead's final message from a real end-to-end run (STANDARD bug fix in the playground, Claude-only team,

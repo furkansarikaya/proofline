@@ -80,6 +80,11 @@ doctor_probes() {
   cfg_set "$pc" git.push_requires_approval true; cfg_set "$pc" git.protected_branches ''
   if probe_git push -q "$PD/remote.git" HEAD:refs/heads/probe-other >/dev/null 2>"$PD/err"; then d_fail "probe: pre-push let an agent push without approval"
   else d_pass "probe: pre-push blocks a push without approval"; fi
+  # human detection: agent session markers decide, not a terminal (no TTY here; the markers are cleared or set)
+  if (unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE AGENT_ROLE PROOFLINE_NO_TTY CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CODEX_CI CODEX_SANDBOX CODEX_THREAD_ID CODEX_SESSION_ID; cd "$PD/repo" && git push -q "$PD/remote.git" HEAD:refs/heads/probe-human) >/dev/null 2>&1 \
+    && ! (unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE AGENT_ROLE PROOFLINE_NO_TTY; CLAUDECODE=1; export CLAUDECODE; cd "$PD/repo" && git push -q "$PD/remote.git" HEAD:refs/heads/probe-agent) >/dev/null 2>&1
+  then d_pass "probe: a push without a terminal or agent markers passes as a human; one with agent markers is blocked"
+  else d_fail "probe: human detection is wrong (a push without agent markers must pass, one with CLAUDECODE set must be blocked)"; fi
 
   if ! command -v jq >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
     d_warn "probe: runtime hooks not probed (the hook script needs jq or node to read JSON)"; return 0
@@ -140,10 +145,10 @@ EOF
   case "$hp" in
     .agents/githooks|"$ROOT/.agents/githooks")
       dh_ok=1
-      for dh in pre-commit pre-push; do
+      for dh in pre-commit pre-push human.sh; do
         if [ ! -x "$ROOT/.agents/githooks/$dh" ]; then d_fail "git hooks: .agents/githooks/$dh is missing or not executable"; dh_ok=0; fi
       done
-      [ "$dh_ok" = 0 ] || d_pass "git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable" ;;
+      [ "$dh_ok" = 0 ] || d_pass "git hooks: core.hooksPath = .agents/githooks, pre-commit, pre-push and human.sh executable" ;;
     '') d_fail "git hooks: core.hooksPath is not set; the commit and push locks are inactive. Fix: git config --local core.hooksPath .agents/githooks" ;;
     *) d_fail "git hooks: core.hooksPath is '$hp', not .agents/githooks; the proofline locks are inactive" ;;
   esac
