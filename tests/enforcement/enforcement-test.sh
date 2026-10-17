@@ -41,7 +41,7 @@ task_branch() { # put the run on its own task branch, as `agent.sh branch` does
   git checkout -q -b proofline/LC-lookup
 }
 needs_input() { # N TOKEN [ROLE] -> the role (default explorer) submits NEEDS_INPUT with its artifact and questions file; one round per role (C-14)
-  nr=${3:-explorer}; art=.agents/runs/LC/reports/00$1-$nr.md; mkdir -p .agents/runs/LC/reports; [ "$nr" != explorer ] || { art=$base/scratch-$1.md; }; printf '# %s %s\nquestion needed\n' "$nr" "$1" > "$art"
+  nr=${3:-explorer}; art=.agents/runs/LC/reports/00$1-$nr.md; mkdir -p .agents/runs/LC/reports; [ "$nr" != explorer ] || { art=$base/$2-scratch-$1.md; }; printf '# %s %s\nquestion needed\n' "$nr" "$1" > "$art"
   printf '1. Which default does an empty key return?\n   options: nil | empty string\n   recommended: nil\n   why: AC-1 depends on it\n' > "$base/q$1.txt"
   # an explorer's numbered report name is assigned by submit (A113): it hands the file over with --report
   if [ "$nr" = explorer ]; then ni_a="--report $art"; else ni_a="--artifact reports/00$1-$nr.md"; fi
@@ -165,6 +165,9 @@ subagent_guard() {
   out=$(sub_start proofline:proofline-implementer a7)
   [ -s .agents/local/windows/a7 ] && printf '%s' "$out" | grep -q 'AGENT_ROLE=implementer' || die "SubagentStart did not open the implementer window"; ok "SubagentStart opens the implementer window and briefs the role"
   [ -e .agents/local/submissions/a7.started ] || die "SubagentStart did not register the subagent id (A127)"
+  # A132: each explorer is told its own token-derived scratch report path
+  out1=$(sub_start proofline:proofline-explorer e1); out2=$(sub_start proofline:proofline-explorer e2)
+  printf '%s' "$out1" | grep -q 'scratch/e1-report.md' && printf '%s' "$out2" | grep -q 'scratch/e2-report.md' && ! printf '%s' "$out2" | grep -q 'scratch/e1-report.md' || die "SubagentStart did not name a per-token explorer scratch report"; ok "A132 SubagentStart names each explorer its own scratch report path"
   allowed "implementer edits an in-scope file inside its window" "$(pre_edit Edit impl.txt proofline:proofline-implementer a7)"
   denied "implementer edits an out-of-scope file" "$(pre_edit Write src/app.js proofline-implementer a7)" "outside the paths role implementer owns"
   denied "implementer shell write out of scope" "$(pre_bash 'echo x > src/app.js' proofline-implementer a7)"
@@ -282,6 +285,18 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
     'git commit -m "stash"' 'git grep stash' 'git config stash.showPatch true' 'grep stash src/impl.txt' 'echo git stash list' \
     'printf "git stash\n"' 'cat notes | grep -n "git stash"'; do
     allowed "A111 R2 no false positive: $c" "$(pre_bash "$c" proofline-qa q1)"
+  done
+  # A132: `git -C $VAR <subcommand>` is not a stash (the `$` is the option's value); the three commands a COMPLEX run
+  # had denied, verbatim shape (git worktree add ... then git -C $W status/apply)
+  # shellcheck disable=SC2016 # variables stay unexpanded on purpose
+  for c in 'W=$TMPDIR/t1 && mkdir -p $W && git worktree add --detach $W/wt HEAD 2>&1 | tail -1 && git -C $W/wt status --short && (cd $W/wt && node --test 2>&1 | grep -E "^ok")' \
+    'R=.agents/runs/T-1; WT=$TMPDIR/rv/wt; git worktree add --detach $WT HEAD >/dev/null 2>&1; git -C $WT status --short; echo $WT' \
+    'W=$TMPDIR/rv/wt
+git worktree add --detach $W HEAD >/dev/null 2>&1
+git diff HEAD --binary | git -C $W apply
+git worktree remove --force $W' \
+    'git -C $(pwd) status' 'git -C `pwd` log -1' 'git -c user.name=$X log -1'; do
+    allowed "A132 no false positive: $c" "$(pre_bash "$c" proofline-qa q1)"
   done
   git worktree add -q "$base/wt a111 sp" HEAD >/dev/null 2>&1 || die "A111 spaced fixture worktree"
   allowed "A111 R2 a registered worktree path with spaces" "$(pre_bash "git -C '$base/wt a111 sp' stash list" proofline-qa q1)"

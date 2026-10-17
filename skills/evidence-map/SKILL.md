@@ -59,7 +59,7 @@ Same role, same read-only rules; used when the assignment (or the user) asks wha
 ## Team result
 
 ```
-AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token> --result DONE | BLOCKED | NEEDS_INPUT --confidence high|medium|low --report <scratch report file|-> [--findings FILE] [--reason T] [--questions FILE]
+AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token> --result DONE | BLOCKED | NEEDS_INPUT --confidence high|medium|low --report <run>/scratch/<token>-report.md|- [--findings FILE] [--reason T] [--questions FILE]
 ```
 
 The script builds the header (`ROLE`, `TASK`, `FINGERPRINT`, the artifact's sha256); you supply the facts above.

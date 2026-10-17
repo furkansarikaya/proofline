@@ -244,8 +244,8 @@ sc_report_names() {
   scaffold orchestrated
   n=1 pids=''
   while [ "$n" -le 4 ]; do
-    printf 'report of explorer %s\n' "$n" > "$base/rep$n"
-    AS explorer submit LC --result DONE --confidence high --findings none --report "$base/rep$n" --artifact reports/001-explorer.md --agent "ag$n" > "$base/s$n.out" 2>&1 &
+    printf 'report of explorer %s\n' "$n" > "$base/ag$n-rep"
+    AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag$n-rep" --artifact reports/001-explorer.md --agent "ag$n" > "$base/s$n.out" 2>&1 &
     pids="$pids $!"; n=$((n + 1))
   done
   for pid in $pids; do wait "$pid" || die "parallel explorer submit failed: $(cat "$base"/s?.out)"; done
@@ -257,12 +257,18 @@ sc_report_names() {
   [ "$(grep -c 'event=record:explorer:DONE' .agents/runs/LC/LEDGER.log)" -eq 4 ] || die "not one ledger row per parallel submit"
   [ "$(grep -h '^ARTIFACT: ' .agents/runs/LC/results/???-explorer.result.md | sort -u | wc -l | tr -d ' ')" -eq 4 ] || die "results cite a shared artifact"
   # the same dispatch updates its own report; a re-dispatch under a new token gets a new name
-  printf 'report of explorer 1, revised\n' > "$base/rep1"
-  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/rep1" --agent ag1 >/dev/null || die "the same dispatch could not resubmit"
+  printf 'report of explorer 1, revised\n' > "$base/ag1-rep"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "the same dispatch could not resubmit"
   [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" -eq 4 ] || die "a resubmit allocated a new report"
   [ "$(grep -l '^report of explorer 1, revised$' .agents/runs/LC/reports/???-explorer.md | wc -l | tr -d ' ')" -eq 1 ] || die "the resubmit did not update its own report"
-  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/rep1" --agent ag9 >/dev/null || die "a re-dispatch was refused"
+  cp "$base/ag1-rep" "$base/ag9-rep"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag9-rep" --agent ag9 >/dev/null || die "a re-dispatch was refused"
   [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" -eq 5 ] || die "a re-dispatch did not get its own name"
+  # A132: a scratch file name without the caller's token (two parallel explorers both pick scratch/r.md) is refused
+  nrep=$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')
+  printf 'shared name\n' > "$base/r.md"
+  expect_msg "a shared-name scratch report was accepted" 'carries its own agent token' AS explorer submit LC --result DONE --confidence high --findings none --report "$base/r.md" --agent ag1
+  [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" = "$nrep" ] || die "a refused shared-name report allocated a name"
   # a direct write into a numbered explorer path is never an explorer artifact, whatever the spelling
   printf 'planted\n' > .agents/runs/LC/reports/009-explorer.md
   nrep=$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')
@@ -272,13 +278,13 @@ sc_report_names() {
   done
   # an empty report allocates nothing and leaves no owner entry
   nrep=$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')
-  : > "$base/empty"
-  expect_msg "an empty report was accepted" 'report is empty' AS explorer submit LC --result DONE --confidence high --findings none --report "$base/empty" --agent agE
+  : > "$base/agE-empty"
+  expect_msg "an empty report was accepted" 'report is empty' AS explorer submit LC --result DONE --confidence high --findings none --report "$base/agE-empty" --agent agE
   [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" = "$nrep" ] || die "a refused empty report left a stub"
   [ ! -e .agents/runs/LC/reports/.owners/agE ] || die "a refused empty report left an owner entry"
   # a refused submit after allocation (non-English report) rolls the allocation back
-  printf 'Bu rapor T\303\274rk\303\247e yaz\304\261ld\304\261: \303\247ok \305\237\303\266yle \304\237\303\274zel.\n' > "$base/tr"
-  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/tr" --agent agT >/dev/null 2>&1 && die "a non-English report was accepted"
+  printf 'Bu rapor T\303\274rk\303\247e yaz\304\261ld\304\261: \303\247ok \305\237\303\266yle \304\237\303\274zel.\n' > "$base/agT-tr"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/agT-tr" --agent agT >/dev/null 2>&1 && die "a non-English report was accepted"
   [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" = "$nrep" ] || die "a refused submit left an allocated stub"
   # BLOCKED without a report: the reason becomes the allocated report
   AS explorer submit LC --result BLOCKED --reason 'no readable entry point in scope' --confidence high --agent agK >/dev/null || die "an explorer BLOCKED without a report was refused"
@@ -294,6 +300,20 @@ sc_report_names() {
   printf 'ROLE: explorer\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n' "$(A fingerprint LC)" "${live#.agents/runs/LC/}" "$(shasum -a 256 "$live" | cut -d' ' -f1)" > "$base/foreign.raw"
   expect_msg "record cited a live explorer report" 'snapshot made by submit' AS explorer record LC --file "$base/foreign.raw"
   ok "A113: submit allocates distinct explorer report names under parallel submits; a direct numbered write is refused; same token updates, new token gets a new name"
+}
+
+# A132: max_explorers bounds recorded explorer results; a dispatch whose result never arrived holds no slot
+sc_explorer_limit() {
+  scaffold orchestrated
+  A decide LC explorer >/dev/null || die "first explorer decide refused"
+  A decide LC explorer >/dev/null || die "second (parallel) explorer decide refused"
+  printf 'one\n' > "$base/ag1-rep"; printf 'two\n' > "$base/ag2-rep"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "explorer 1 submit failed"
+  # explorer 2 never submitted (lost): its slot is re-dispatched, the limit of 2 results is not exceeded
+  A decide LC explorer >/dev/null || die "the re-dispatch of a slot without a result was refused"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag2-rep" --agent ag2 >/dev/null || die "explorer 2 submit failed"
+  expect_msg "a third explorer result slot was granted" 'allows 2 explorer result(s) (pipelines.COMPLEX.max_explorers) and run LC already has 2: 001-explorer.result.md 002-explorer.result.md' A decide LC explorer
+  ok "A132: the explorer after max_explorers results is refused with the limit and the results; a lost slot is re-dispatched"
 }
 
 sc_parallel_lock() {
@@ -1662,6 +1682,7 @@ run_sc sc_stdin_contract
 run_sc sc_parallel_lock
 run_sc sc_lock_break_race
 run_sc sc_report_names
+run_sc sc_explorer_limit
 run_sc sc_fix_loop
 run_sc sc_waiver
 run_sc sc_approvals

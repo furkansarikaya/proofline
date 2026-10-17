@@ -681,7 +681,11 @@ stash_net_count() {
       t = substr(before, k + 1)
       while (match(t, /^[ \t]*[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/)) t = substr(t, RLENGTH + 1)
       sub(/^[ \t]+/, "", t); split(t, wd, /[ \t]+/)
-      if (!(wd[1] ~ /^(echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true)$/)) n++
+      # `git -C $W status`: the `$` the pattern stopped at is the VALUE of a value-taking option, not a subcommand
+      # (a real `git -C $W stash` matches longer, through the option alternative, and is counted)
+      m = substr(s, st, ln)
+      skip = (m ~ /(^|[ \t])(-C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--exec-path|--config-env|--attr-source|--list-cmds|--exec)[ \t]+[$`]$/)
+      if (!skip && !(wd[1] ~ /^(echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true)$/)) n++
       off += st + ln - 1; s = substr($0, off + 1)
     }
     print n
@@ -814,7 +818,7 @@ subagent-start)
     if before=$(unset AGENT_ROLE; sh "$agent" window-open "$act" "$prole" 2>"$tmp/err"); then printf '%s\n' "$before" > "$local_dir/windows/$aidf"
     else printf 'proofline: window-open refused for proofline-%s (%s): %s\n' "$prole" "$aidf" "$(tr '\n' ' ' < "$tmp/err")" >> "$local_dir/records/$aidf.txt"; fi
   fi
-  case "$prole" in explorer) rart='--report <scratch report file or -> (write the report in your scratch folder; the script assigns the numbered report name, pass no --artifact)' ;; *) rart='[--artifact <path of your report>]' ;; esac
+  case "$prole" in explorer) rart="--report .agents/runs/$act/scratch/$aidf-report.md (write the report to EXACTLY this file, never a generic scratch name such as r.md, or pass --report - with the text on stdin; the script assigns the numbered report name, pass no --artifact)" ;; *) rart='[--artifact <path of your report>]' ;; esac
   ctx SubagentStart "proofline: active run $act (run dir .agents/runs/$act). You are role $prole; your agent token is $aidf. Prefix every state-changing agent.sh command with AGENT_ROLE=$prole. Report your result with: AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] $rart [--findings FILE] [--reason T] [--questions FILE]. The script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is free text; the result is the submission." ;;
 
 subagent-stop)
@@ -834,7 +838,7 @@ subagent-stop)
     # stop (within two seconds) gives the same answer.
     if [ "$(jget stop_hook_active)" != true ] && { [ -z "$prev" ] || [ $((now - prev)) -le 2 ]; }; then
       [ -n "$prev" ] || printf '%s\n' "$now" > "$mark"
-      case "$prole" in explorer) rart='--report <scratch report file or -> (the script assigns the numbered report name, pass no --artifact)' ;; *) rart='[--artifact <report path>]' ;; esac
+      case "$prole" in explorer) rart="--report .agents/runs/$act/scratch/$aidf-report.md (or - for stdin; the script assigns the numbered report name, pass no --artifact)" ;; *) rart='[--artifact <report path>]' ;; esac
       reason="proofline: you stopped without a recorded result. Run AGENT_ROLE=$prole sh .agents/scripts/agent.sh submit $act --agent $aidf --confidence <high|medium|low> [--focus F] $rart [--findings FILE] [--reason T] [--questions FILE]${err:+ (last rejection: $err)}, fix what it names, then finish."
       printf '{"decision":"block","reason":"%s"}\n' "$(jesc "$reason")"
       exit 0

@@ -3170,7 +3170,12 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
     [ -n "$sb_art" ] || [ "$execution_role" = explorer ] || submit_fail "--report needs --artifact: the run-relative path to write"
     # the content is validated first and the name allocated last (A113): a refused submit leaves no stub
     if [ "$sb_report" = - ]; then cat > "$sb_tmp/report.in"
-    else [ -f "$sb_report" ] || submit_fail "report file not found: $sb_report"; cat "$sb_report" > "$sb_tmp/report.in"; fi
+    else [ -f "$sb_report" ] || submit_fail "report file not found: $sb_report"
+      # A132: a scratch file name two parallel explorers can both pick (scratch/r.md) is the collision itself
+      if [ "$execution_role" = explorer ] && [ -n "$sb_agent" ]; then
+        case "$sb_report" in *"$sb_agent"*|"$sb_tmp"/*) ;; *) submit_fail "an explorer's report file name carries its own agent token, so a parallel explorer cannot overwrite it: write it to .agents/runs/$sb_id/scratch/$sb_agent-report.md (or pass --report - with the text on stdin); refused: $sb_report" ;; esac
+      fi
+      cat "$sb_report" > "$sb_tmp/report.in"; fi
     [ -s "$sb_tmp/report.in" ] || submit_fail "the report is empty (--report - reads stdin; give the report text on stdin, one stdin source per submit, or --report <file>)"
     if [ "$execution_role" = explorer ]; then alloc_explorer_report; sb_rp=$ae_p
     else
@@ -3262,7 +3267,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
   sb_kind=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_kind=gate; fi
   artifact_allowed "$execution_role" "$sb_kind" "$sb_focus" "$sb_norm" || submit_fail "artifact $sb_norm is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_kind" "$sb_focus")"
   # A113: an explorer cites only the report this submit allocated (or an immutable snapshot of it)
-  [ "$execution_role" != explorer ] || case "$sb_norm" in reports/snapshots/*) ;; *) [ "$sb_norm" = "$ae_p" ] || submit_fail "$sb_norm was not assigned to this submission (A113): write your report to your scratch folder and pass it with --report <file>; the script assigns the numbered name" ;; esac
+  [ "$execution_role" != explorer ] || case "$sb_norm" in reports/snapshots/*) ;; *) [ "$sb_norm" = "$ae_p" ] || submit_fail "$sb_norm was not assigned to this submission (A113): write your report to scratch/<your token>-report.md and pass it with --report <file>; the script assigns the numbered name" ;; esac
   case "$sb_norm" in reports/snapshots/*) ;; *)
     sb_h=$(hash_file "$sb_d/$sb_norm")
     sb_sn=reports/snapshots/$(printf '%.12s' "$sb_h")-$execution_role-$(printf '%s' "$sb_norm" | tr '/' '_')
@@ -3817,6 +3822,15 @@ decide() {
       *) fail "unknown decide argument: $1" ;;
     esac
   done
+  # A132: a slot is a recorded explorer result; max_explorers bounds the results, a dispatch whose result never arrived
+  # (crash, no submission) holds no slot and its re-dispatch is allowed.
+  if [ "$dc_role" = explorer ]; then
+    dc_max=$(pipeline_value "$dc_class" max_explorers); dc_have=$(ls -1 "$(run_dir "$dc_id")/results" 2>/dev/null | grep -E '^[0-9]{3}-explorer\.result\.md$' || true)
+    dc_nhave=$(printf '%s' "$dc_have" | grep -c . || true)
+    case "$dc_max" in ''|*[!0-9]*) ;; *)
+      [ "$dc_nhave" -lt "$dc_max" ] || fail "decide refused (A132): class $dc_class allows $dc_max explorer result(s) (pipelines.$dc_class.max_explorers) and run $dc_id already has $dc_nhave: $(printf '%s' "$dc_have" | tr '\n' ' '). Consolidate EVIDENCE.md from them (each report is under reports/ and its snapshot); a dispatch that returned no result holds no slot and is re-dispatched, but no further explorer is started once the results reach the limit" ;;
+    esac
+  fi
   dc_tier=$(tier_effective "$dc_id"); dc_sig=''
   [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
   dc_stats=$(diff_stats "$dc_id"); if [ "${dc_stats% *}" -gt 15 ] || [ "${dc_stats#* }" -gt 400 ]; then dc_sig="$dc_sig large_diff"; fi
