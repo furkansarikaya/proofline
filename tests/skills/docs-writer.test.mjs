@@ -133,6 +133,17 @@ test("evidence: clean doc exits 0; anchors, fences, absolute and external links"
   assert.equal(run(docsPath, [], p).status, 2);
 });
 
+test("evidence: file names are not config keys; a bare name found anywhere is not a missing path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dw-fp-"));
+  mkdirSync(join(dir, "scripts/deep"), { recursive: true });
+  writeFileSync(join(dir, "config.yaml"), "dispatch:\n  timeout: 1\n");
+  writeFileSync(join(dir, "scripts/deep/dispatch.sh"), "#!/bin/sh\n");
+  writeFileSync(join(dir, "scripts/deep/agent.sh"), "#!/bin/sh\n");
+  writeFileSync(join(dir, "d.md"), "Run `dispatch.sh` or `agent.sh`, set `dispatch.timeout`, not `gone.sh` or `dispatch.nothing` or `deep/gone.sh`.\n");
+  assert.deepEqual(checkDocs(dir, ["d.md"]).findings.map((f) => `${f.kind}:${f.claim}`),
+    ["path:gone.sh", "config key:dispatch.nothing", "path:deep/gone.sh"]);
+});
+
 test("evidence: proofline subcommands come from bin and the skill text", () => {
   const dir = mkdtempSync(join(tmpdir(), "dw-pl-"));
   mkdirSync(join(dir, "bin"), { recursive: true });

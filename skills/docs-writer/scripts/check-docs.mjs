@@ -4,10 +4,11 @@
 // Checked: repo-internal links (file and #anchor), file paths in code spans, commands (their path words, --flags and
 // the subcommand of a project binary), config keys of a config.yaml. Each miss is `doc:line: kind not found: claim`.
 // Exit 0: no finding. 1: findings. 2: usage error. Dependency-free; reads files, runs nothing.
+// shortcut: a dotted span ending in a file extension is a file name, never a config key; a bare file name matches by basename.
 // shortcut: a flag or subcommand counts as present when its text occurs in any non-Markdown source file; a path
 // without extension or trailing slash is claimed only when its first segment is a top-level project entry.
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, resolve, extname, relative } from "node:path";
+import { join, dirname, resolve, extname, relative, basename } from "node:path";
 
 const SKIP_DIRS = new Set([".git", "node_modules", ".claude", "dist", "build"]);
 const EXT = new Set("md json yaml yml sh mjs cjs js ts tsx jsx py go rs toml txt css html sql".split(" "));
@@ -75,7 +76,10 @@ export function checkDocs(root, docs) {
     if (!hasExt && !slashy) return;
     if (!hasExt && strictForm && !(p.endsWith("/") || p.startsWith("./") || p.startsWith("../") || topEntries().has(p.split("/")[0]))) return;
     claims++;
-    if (!pathExists(docDir, p)) miss(doc, line, "path", p);
+    if (pathExists(docDir, p)) return;
+    // a bare file name that exists anywhere in the project is not a missing path (matched by basename)
+    if (!slashy && all().some((f) => basename(f) === p)) return;
+    miss(doc, line, "path", p);
   }
 
   function command(doc, line, text, docDir) {
@@ -99,7 +103,7 @@ export function checkDocs(root, docs) {
     s = s.trim();
     if (!s || command(doc, line, s, docDir)) return;
     if (/^--[A-Za-z][\w-]+$/.test(s)) { claims++; if (!src().includes(s)) miss(doc, line, "flag", s); return; }
-    if (/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(s) && tops().has(s.split(".")[0])) {
+    if (/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(s) && !EXT.has(s.split(".").pop()) && tops().has(s.split(".")[0])) {
       claims++; if (!configKeys().some((k) => k.has(s))) miss(doc, line, "config key", s); return;
     }
     pathClaim(doc, line, s, docDir, true);
