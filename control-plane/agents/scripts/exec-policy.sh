@@ -7,6 +7,7 @@
 #       [--escalations-used N] [--model M] [--effort E] [--context-bytes N]
 #   exec-policy.sh explain < decision          reason codes -> text
 #   exec-policy.sh check-capabilities          codex ladder vs the local Codex model cache (needs jq)
+#   exec-policy.sh check-lead --runtime RT [--model M]   a lead must run on the base model or stronger (A135)
 #   exec-policy.sh runtime <role>              the configured runtime of a role (runtime.roles.<role> > runtime.<group>)
 #
 # Inputs: .agents/config.yaml (EXEC_POLICY_CONFIG), .agents/roles.conf (EXEC_POLICY_ROLES).
@@ -243,7 +244,27 @@ check_capabilities() {
   return "$bad"
 }
 
+# A lead runs on the base (full-strength) model of its runtime or stronger (A135). The base model is
+# execution_policy.lead_base_model.<runtime>. An unset model is the runtime default, not resolvable here: accepted.
+check_lead() {
+  cl_rt='' cl_model=''
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || die "missing value for $1"
+    case "$1" in --runtime) cl_rt=$2 ;; --model) cl_model=$2 ;; *) die "unknown option: $1" ;; esac
+    shift 2
+  done
+  [ -f "$config" ] || die "config not found: $config"
+  [ -n "$cl_rt" ] || die "check-lead needs --runtime"
+  cl_base=$(cfg execution_policy lead_base_model "$cl_rt"); [ -n "$cl_base" ] || return 0
+  [ -n "$cl_model" ] || return 0
+  ladder=$(cfg execution_policy providers "$cl_rt" models)
+  idx "$cl_model" $ladder >/dev/null || reject UNKNOWN_MODEL "$cl_model is not in the $cl_rt ladder ($ladder)"
+  [ "$(model_tier "$cl_rt" "$cl_model")" -ge "$(model_tier "$cl_rt" "$cl_base")" ] ||
+    reject LEAD_BELOW_BASE "a $cl_rt lead must run on the base model $cl_base or stronger, not $cl_model (cheap models are for workers only)"
+}
+
 case "${1:-}" in
+  check-lead) shift; check_lead "$@" ;;
   resolve) shift; resolve "$@" ;;
   explain) explain ;;
   check-capabilities) check_capabilities ;;

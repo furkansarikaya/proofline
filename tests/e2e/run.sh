@@ -104,6 +104,8 @@ export PROOFLINE_REAL_HOME="$HOME"
 # Cheapest Codex lead (A100): both empty keeps the runtime default; -m and -c work on exec and exec resume.
 cx_m=${E2E_CODEX_MODEL:-} cx_e='' codex_cheap=''
 cx_e=${E2E_CODEX_EFFORT:-}
+# A135: a Codex lead needs the base model; E2E_CODEX_MODEL feeds both the first exec and every resume.
+{ [ "$lead" = codex ] || [ "$scenario" = FAILOVER ]; } && [ -n "$cx_m" ] && ! EXEC_POLICY_CONFIG="$repo/control-plane/agents/config.yaml" sh "$repo/control-plane/agents/scripts/exec-policy.sh" check-lead --runtime codex --model "$cx_m" && exit 2
 [ -z "$cx_m" ] || codex_cheap=" -m '$cx_m'"
 [ -z "$cx_e" ] || codex_cheap="$codex_cheap -c 'model_reasoning_effort=\"$cx_e\"'"
 request=$(cat "$here/tasks/$task.md"; printf '.')

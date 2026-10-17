@@ -165,4 +165,22 @@ for r in explorer architect implementer reviewer security_reviewer verifier; do
 done
 if [ -z "$bad" ]; then echo "PASS runtime <role>: group mapping and per-role override, same as resolve"; else echo "FAIL runtime <role>:$bad"; fails=$((fails + 1)); fi
 
+# A135: a lead runs on the base model (execution_policy.lead_base_model) or stronger; workers are not bound by it.
+cl() { rc=0; out=$(sh "$ep" check-lead "$@" 2>&1) || rc=$?; }
+cl_check() { if [ "$rc" -eq "$1" ] && case "$out" in *"$3"*) true ;; *) false ;; esac; then echo "PASS $2"; else echo "FAIL $2: exit $rc, want $1 ($out)"; fails=$((fails + 1)); fi; }
+cl --runtime codex --model gpt-6-luna; cl_check 3 "lead + cheapest model is refused and names the base model" "gpt-6-sol"
+cl --runtime codex --model gpt-6-sol; cl_check 0 "lead + base model is accepted" ""
+cl --runtime codex --model gpt-6-astra; cl_check 0 "lead + stronger than base is accepted" ""
+cl --runtime codex --model nope; cl_check 3 "lead + unknown model is refused" "UNKNOWN_MODEL"
+cl --runtime codex; cl_check 0 "lead + unset model (runtime default) is accepted" ""
+cl --runtime claude --model haiku; cl_check 0 "no base model configured for claude: unchanged" ""
+res EXEC_POLICY_ROLES="$here/../roles.conf" --role explorer $base --profile economy --runtime codex --model gpt-6-luna
+check "worker + explicit cheapest model is accepted" 0 model=gpt-6-luna
+res EXEC_POLICY_ROLES="$here/../roles.conf" --role lead $base --runtime codex --model gpt-6-luna
+check "resolve refuses a lead on the cheapest model" 4 err~CAPABILITY_FLOOR_UNMET
+for p in balanced max economy; do
+  res EXEC_POLICY_ROLES="$here/../roles.conf" --role lead $base --profile "$p" --runtime codex
+  check "shipped lead row is the base model or stronger ($p)" 0 capability_tier=$([ "$p" = economy ] && echo 2 || echo 3)
+done
+
 [ "$fails" -eq 0 ]

@@ -216,6 +216,10 @@ execution_policy:
   forbidden_efforts: ultra
   # Hard ceiling for the dynamic context budget in bytes, overrides included.
   max_context_bytes: 262144
+  # Base (full-strength) model a LEAD must run on, per runtime (A135). A lead launched or resumed on a cheaper ladder
+  # model is refused (exec-policy.sh check-lead; e2e harness; doctor). Workers are not bound by it.
+  lead_base_model:
+    codex: gpt-6-sol
   # Per class: effort floor and dynamic context budget in bytes (the role's stable prefix is outside it).
   classes:
     TRIVIAL: effort=low context_bytes=16384
