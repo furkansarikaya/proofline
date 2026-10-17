@@ -1,0 +1,7 @@
+interface:
+  display_name: "Docs Writer"
+  short_description: "Writes, updates and audits documentation against the code with a writing profile"
+  default_prompt: "Use $docs-writer to create, update or audit the documentation: "
+
+policy:
+  allow_implicit_invocation: false

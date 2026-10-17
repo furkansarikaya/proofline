@@ -22,11 +22,12 @@
 2. Follow .agents/skills/system-design/SKILL.md in team mode. Write `design/ARCHITECTURE.md`; draft ADRs there for the
    knowledge step (target `design_docs.adr_dir`).
 3. When the task adds or changes an API, follow .agents/skills/api-design/SKILL.md in team mode and write `design/API.md`.
-4. Persistence or schema questions belong to the data architect: list them as findings, do not design them.
-5. A requirement-level choice the task and evidence do not settle: write state to `design/ARCHITECTURE.md`
+4. When the assignment is `docs create`, `docs update` or `docs audit`, or the task changed user-visible behaviour, follow .agents/skills/docs-writer/SKILL.md in team mode and write the changed documents under `design/docs/`.
+5. Persistence or schema questions belong to the data architect: list them as findings, do not design them.
+6. A requirement-level choice the task and evidence do not settle: write state to `design/ARCHITECTURE.md`
    and return NEEDS_INPUT. Questions about the architecture, the API and data retention all go in this one round (the
    two questions of a decision pair too). Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
-6. Return the result with the PLAN `## Architecture` text (and `## Contracts` entries) after the table, plus the
+7. Return the result with the PLAN `## Architecture` text (and `## Contracts` entries) after the table, plus the
    PLAN `## Risk` flags the design implies, one line each: `contract_change: yes|no` (an API, event or schema
    contract changes), `concurrency: yes|no` (shared state, locks, retries, ordering, idempotency),
    `performance_critical: yes|no` (a stated latency, throughput or resource bound; a relative regression budget

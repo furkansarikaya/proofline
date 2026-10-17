@@ -137,6 +137,10 @@ drafts (D26), within `knowledge_scope_root`, then `A knowledge-done <ID>`. Other
 `A knowledge-done <ID> not_applicable`. Design documents are not product code; the lead writes them only
 in this step.
 
+When the task changed user-visible behaviour (a command, flag, config key, output or error text), also run
+docs-writer `update` on the affected documents: those under `knowledge_scope_root` in this step, any other
+document as a path in the frozen plan scope. No document is left stale.
+
 ## 8. Report, DONE, cleanup
 
 1. Write `COMPLETION_REPORT.md` ([REPORT.md](REPORT.md)), `A publish-completion-report <ID>`.

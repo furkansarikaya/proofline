@@ -96,7 +96,7 @@ items): in the runs listed in the e2e page (the regression round of 2026-10-17, 
 | UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests); end-to-end: reported in COMPLEX runs, database unchanged in every run from A121 on, where `db_unchanged=yes` is recorded (N-4, N-5) |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
-Skills and roles are counted from `skills/` (twenty-one method skills plus the `/proofline` entry skill) and
+Skills and roles are counted from `skills/` (twenty-two method skills plus the `/proofline` entry skill) and
 `roles/` (eleven roles); `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep
 the generated references in step with them. Test counts on 2026-10-17: `sh tests/selftest.sh` 16 suites with over 145
 units; `node --test tests/skills/` 737 tests (734 pass, 3 skipped); `sh tests/fixtures/check-fixtures.sh` 42 passed,

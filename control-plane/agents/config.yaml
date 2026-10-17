@@ -60,6 +60,12 @@ design_docs:
   adr_dir: docs/adr
 local_state: on
 metrics: on
+# Writing profile (A138) for the docs-writer skill and any skill that writes prose. profile: auto = English text
+# follows the simplified-technical-English rules (ste), Turkish text the plain-language rules (plain); ste or plain
+# forces one. strictness: relaxed reports a length finding as a warning, strict fails on it.
+writing:
+  profile: auto
+  strictness: relaxed
 test_trust:
   repeat: 5
   mutation_budget: 20

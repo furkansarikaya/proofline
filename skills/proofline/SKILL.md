@@ -1,7 +1,7 @@
 ---
 name: proofline
 description: "The user-facing /proofline entry point. `$ARGUMENTS` is the subcommand: init, upgrade, doctor, status (default), queue, clean and version run through the proofline CLI (`bin/proofline`); run, resume, task, design, review, audit, debug and deliver hand the session to the proofline-lead skill, which carries each out through `agent.sh` and the specialist roles. Use to install proofline in a project, check that its rules are enforced, or start, resume and deliver a task."
-argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [--grill] <text>|design system|data|api|ui [--check]|review|audit|debug|deliver <TASK>]"
+argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [--grill] <text>|design system|data|api|ui [--check]|docs create|update|audit|review|audit|debug|deliver <TASK>]"
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -42,7 +42,7 @@ with "proofline is not installed here".
 | `queue` | CLI `queue`. |
 | `clean` | CLI `clean` lists what goes; remove only after the user's yes (`clean --yes`). |
 | `version` | CLI `version`. |
-| `run <TASK>`, `resume`, `task [--grill] <text>`, `design system\|data\|api\|ui [--check]`, `review`, `audit`, `debug`, `deliver <TASK>` | Check `.agents/config.yaml` and `A` exist (else say proofline is not installed here, propose `/proofline init`, stop). Then load the proofline-lead skill and carry out its "Commands" table row for this command with the remaining arguments. For `resume` and `deliver` the CLI prints the deterministic part first (`proofline resume`, `proofline deliver <TASK>`); run it and use its output. |
+| `run <TASK>`, `resume`, `task [--grill] <text>`, `design system\|data\|api\|ui [--check]`, `docs create\|update\|audit`, `review`, `audit`, `debug`, `deliver <TASK>` | Check `.agents/config.yaml` and `A` exist (else say proofline is not installed here, propose `/proofline init`, stop). Then load the proofline-lead skill and carry out its "Commands" table row for this command with the remaining arguments. For `resume` and `deliver` the CLI prints the deterministic part first (`proofline resume`, `proofline deliver <TASK>`); run it and use its output. |
 | anything else | Print the routing table's command names and stop. |
 
 ## Hard rules
