@@ -1,7 +1,8 @@
 #!/bin/sh
 # proofline CLI (D8, D23). POSIX sh. Installs and checks the control plane (init, upgrade, doctor), shows
 # state (status, resume, queue) and tells you the exact instruction for your agent session for the commands
-# that need one (task, design, run, review, audit, debug, deliver). It never commits, pushes or approves.
+# that need one (task, design, run, review, audit, debug, deliver). It never commits, pushes or approves;
+# its one merge path is `merge`, which merges a pull request only when every check is green (A136).
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
@@ -33,6 +34,8 @@ else sha256() { sha256sum "$1" | awk '{print $1}'; }; fi
 . "$LIB/doctor.sh"
 # shellcheck source=lib/insights.sh
 . "$LIB/insights.sh"
+# shellcheck source=lib/merge.sh
+. "$LIB/merge.sh"
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$PWD
 CFG=$ROOT/.agents/config.yaml
@@ -60,6 +63,9 @@ state (works without an agent session)
   queue                   task files and runs
   deliver <TASK>          delivery check and what a commit / push would do (never commits)
   clean [--yes]           remove .agents/local state and finished runs
+  merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]
+                          the only allowed merge path: checks that every check of the pull request is
+                            green on its current head, then merges (--admin and --auto are refused)
   insights [--run ID] [--json]
                           read-only report: cost per run, role and model (tokens only where the runtime
                             reported them) and recurring failures with suggestions; changes nothing
@@ -236,6 +242,7 @@ main() {
     queue) cmd_queue ;;
     deliver) cmd_deliver "$@" ;;
     clean) cmd_clean "$@" ;;
+    merge) cmd_merge "$@" ;;
     insights) cmd_insights "$@" ;;
     task) cmd_task "$@" ;;
     design) cmd_design "$@" ;;
