@@ -217,6 +217,16 @@ do_config() {
     { [ "$dc_all" = yes ] || [ "$HAVE_PROTECTED" = 1 ]; } && cfg_set_if "$dc_w" git.protected_branches "$PROTECTED"
     { [ "$dc_all" = yes ] || [ -n "$OPT_PUSH" ]; } && cfg_set_if "$dc_w" git.push_requires_approval "$PUSH"
     { [ "$dc_all" = yes ] || [ -n "$OPT_FORBIDDEN" ]; } && cfg_set_if "$dc_w" git.forbidden_identities "$FORBIDDEN"
+    for dc_r in $OPT_ROLES; do # a role override is always explicit; the parent key is added when an older config lacks it
+      if dc_p=$(cfg_get "$dc_w" runtime.roles 2>/dev/null); then
+        case "$dc_p" in
+          '') ;;
+          '{}') cfg_set "$dc_w" runtime.roles '' ;; # a hand-edited empty map becomes a parent line
+          *) die "runtime.roles in .agents/config.yaml has an inline value ($dc_p); write the roles as indented lines and run init again" ;;
+        esac
+      else cfg_set "$dc_w" runtime.roles ''; fi
+      cfg_set_if "$dc_w" "runtime.roles.${dc_r%%=*}" "${dc_r#*=}"
+    done
     for dc_k in build test lint; do
       case "$dc_k" in build) dc_v=$D_BUILD ;; test) dc_v=$D_TEST ;; lint) dc_v=$D_LINT ;; esac
       [ -n "$dc_v" ] && [ -z "$(cfg_val "$dc_w" "commands.$dc_k" '')" ] && cfg_set_if "$dc_w" "commands.$dc_k" "$dc_v"
@@ -319,7 +329,7 @@ install_run() { # MODE set by the caller
 cmd_init() {
   OPT_RUNTIMES=${PROOFLINE_RUNTIMES:-}; OPT_LEAD=${PROOFLINE_LEAD:-}; OPT_WORKER=${PROOFLINE_WORKER:-}
   OPT_REVIEWERS=${PROOFLINE_REVIEWERS:-}; OPT_PROFILE=${PROOFLINE_PROFILE:-}; OPT_ADAPTER=${PROOFLINE_TASK_ADAPTER:-}
-  OPT_PUSH=${PROOFLINE_PUSH_APPROVAL:-}; OPT_FORBIDDEN=''; HAVE_PROTECTED=0; OPT_PROTECTED=''
+  OPT_PUSH=${PROOFLINE_PUSH_APPROVAL:-}; OPT_FORBIDDEN=''; OPT_ROLES=''; HAVE_PROTECTED=0; OPT_PROTECTED=''
   if [ -n "${PROOFLINE_PROTECTED_BRANCHES+x}" ]; then HAVE_PROTECTED=1; OPT_PROTECTED=$PROOFLINE_PROTECTED_BRANCHES; fi
   DRY=0; YES=0; VERIFY=0
   while [ $# -gt 0 ]; do
@@ -336,6 +346,7 @@ cmd_init() {
       --protected-branches) [ $# -ge 2 ] || die "--protected-branches needs a value"; HAVE_PROTECTED=1; OPT_PROTECTED=$2; shift ;;
       --push-approval) [ $# -ge 2 ] || die "--push-approval needs true or false"; OPT_PUSH=$2; shift ;;
       --forbidden-identity) [ $# -ge 2 ] || die "--forbidden-identity needs a pattern"; OPT_FORBIDDEN="${OPT_FORBIDDEN:+$OPT_FORBIDDEN }$2"; shift ;;
+      --role) [ -n "${2:-}" ] || die "--role needs ROLE=RUNTIME"; OPT_ROLES="${OPT_ROLES:+$OPT_ROLES }$2"; shift ;;
       *) die "init: unknown argument: $1 (see: proofline help)" ;;
     esac
     shift
@@ -368,6 +379,12 @@ cmd_init() {
   pick WORKER "$OPT_WORKER" "Worker runtime" runtime.worker "$LEAD" "claude|codex"
   pick REVIEWERS "$OPT_REVIEWERS" "Reviewer runtime" runtime.reviewers "$LEAD" "claude|codex"
   for r in $LEAD $WORKER $REVIEWERS; do rt_has "$r" || die "runtime $r is used by the config but not in --runtimes ($RUNTIMES)"; done
+  for r in $OPT_ROLES; do # --role ROLE=RUNTIME: the role must have a roles/<ROLE>.md, the runtime must be one of --runtimes
+    case "$r" in ?*=?*) ;; *) die "invalid --role value: $r (want ROLE=RUNTIME, for example implementer=codex)" ;; esac
+    case "${r%%=*}" in *[!a-z_]*|README) false ;; *) [ -f "$PL_HOME/roles/${r%%=*}.md" ] ;; esac || die "unknown role in --role: ${r%%=*} (want a name from roles/*.md, for example implementer)"
+    case "${r#*=}" in claude|codex) ;; *) die "unknown runtime in --role: ${r#*=} (claude or codex)" ;; esac
+    rt_has "${r#*=}" || die "runtime ${r#*=} is used by --role $r but not in --runtimes ($RUNTIMES)"
+  done
   pick PROFILE "$OPT_PROFILE" "Model profile (max, balanced, economy)" profile balanced "max|balanced|economy"
   pick ADAPTER "$OPT_ADAPTER" "Task adapter (markdown, github, jira, linear)" tasks.adapter markdown "markdown|github|jira|linear"
   pick PUSH "$OPT_PUSH" "Pushes need your approval (true, false)" git.push_requires_approval true "true|false"

@@ -389,6 +389,49 @@ expect "insights with no data finds no recurring failure" "$out" "none found"
 out=$(pl "$noruns" insights --json 2>&1); printf '%s' "$out" | jq -e '.metrics.off == true and .runs == [] and .patterns == []' >/dev/null 2>&1 && ok "insights --json with no data is empty and valid" || { LAST=$out; die "insights --json empty"; }
 out=$(sh "$PL" help); expect "help lists insights" "$out" "insights [--run ID] [--json]"
 
+# ---- help and the entry skill list the same session commands (A144) --------------------------------------------
+# skill: the first cell of the routing row that starts with `run <TASK>`; help: the "agent session" section plus
+# resume and deliver, which help lists under "state".
+sk_list=$(grep '^| `run <TASK>`' "$repo/skills/proofline/SKILL.md" | sed 's/^| //; s/` | .*//; s/\\|/|/g; s/^`//; s/`, `/@@/g' | tr -s '@' '\n' | sort)
+hp_all=$(sh "$PL" help)
+hp_list=$(printf '%s\n' "$hp_all" | awk '/^agent session/ { on = 1; next } on && /^  [a-z]/ { print } /^  (resume|deliver)/ { print }' | sed 's/^  //; s/  .*//; s/ | /@@/g' | tr -s '@' '\n' | sort)
+[ -n "$sk_list" ] && [ -n "$hp_list" ] || die "help and skill command lists are empty"
+if [ "$sk_list" = "$hp_list" ]; then ok "help lists exactly the session commands of the entry skill"
+else LAST=$(printf 'skill:\n%s\nhelp:\n%s\n' "$sk_list" "$hp_list"); die "help and skills/proofline/SKILL.md list different session commands"; fi
+expect "help lists docs, explain and wiki" "$hp_all" "wiki ingest|query|lint"
+expect "help shows init --role" "$hp_all" "--role ROLE=RUNTIME (repeatable)"
+
+# ---- init --role ROLE=RUNTIME (A144) -----------------------------------------------------------------------------
+rl=$(mkrepo role1)
+pl "$rl" init --yes --runtimes claude,codex --role implementer=codex >/dev/null 2>&1 && ok "init --role implementer=codex is accepted" || die "init --role accepted"
+[ "$(cfgv "$rl" runtime.roles.implementer)" = codex ] && ok "the role override is in the config and agent.sh reads it" || die "runtime.roles.implementer not read"
+[ "$(cd "$rl" && sh .agents/scripts/exec-policy.sh runtime implementer)" = codex ] && ok "exec-policy resolves the overridden role to codex" || die "exec-policy runtime implementer"
+[ "$(cd "$rl" && sh .agents/scripts/exec-policy.sh runtime reviewer)" = claude ] && ok "other roles keep their group runtime" || die "exec-policy runtime reviewer"
+out=$(pl "$rl" doctor 2>&1); reject "doctor does not fail the config check with runtime.roles set" "$out" "FAIL config"
+rl2=$(mkrepo role2)
+pl "$rl2" init --yes --runtimes claude,codex --role implementer=codex --role qa=claude --role implementer=claude >/dev/null 2>&1 && ok "init --role is repeatable" || die "init --role repeated"
+[ "$(cfgv "$rl2" runtime.roles.qa)" = claude ] && [ "$(cfgv "$rl2" runtime.roles.implementer)" = claude ] && ok "repeated roles are all written, the last value of a role wins" || die "repeated roles content"
+[ "$(grep -c '^    implementer:' "$rl2/.agents/config.yaml")" = 1 ] && ok "a role appears once in the config" || die "duplicate implementer key"
+rl3=$(mkrepo role3)
+pl "$rl3" init --yes --runtimes claude,codex >/dev/null 2>&1 && sed '/^  roles:/d' "$rl3/.agents/config.yaml" > "$T/cfg-noroles" && cat "$T/cfg-noroles" > "$rl3/.agents/config.yaml" || die "setup of a config without runtime.roles"
+pl "$rl3" init --yes --runtimes claude,codex --role qa=codex >/dev/null 2>&1 && [ "$(cfgv "$rl3" runtime.roles.qa)" = codex ] && ok "init --role adds runtime.roles to an older config that lacks it" || die "init --role on a config without runtime.roles"
+nocheck "init --role with an empty value is rejected" pl "$(mkrepo rolebad0)" init --yes --role ""
+rl4=$(mkrepo role4)
+pl "$rl4" init --yes --runtimes claude,codex >/dev/null 2>&1 && sed 's/^  roles:.*/  roles: {}/' "$rl4/.agents/config.yaml" > "$T/cfg-braces" && cat "$T/cfg-braces" > "$rl4/.agents/config.yaml" || die "setup of a config with roles: {}"
+pl "$rl4" init --yes --runtimes claude,codex --role qa=codex >/dev/null 2>&1 && [ "$(cfgv "$rl4" runtime.roles.qa)" = codex ] && ! grep -q 'roles: {}' "$rl4/.agents/config.yaml" && ok "a hand-edited roles: {} becomes a proper parent line" || die "init --role on roles: {}"
+sed 's/^  roles:.*/  roles: {qa: claude}/' "$rl4/.agents/config.yaml" > "$T/cfg-inline" && cat "$T/cfg-inline" > "$rl4/.agents/config.yaml"
+out=$(pl "$rl4" init --yes --runtimes claude,codex --role qa=codex 2>&1) && die "init --role on an inline roles map must fail"
+expect "an inline roles value is refused with a clear message" "$out" "has an inline value"
+for bad in "nonesuch=codex" "implementer=gemini" "implementer" "implementer=" "=codex" "../x=codex"; do
+  rb=$(mkrepo "rolebad$n")
+  nocheck "init --role $bad is rejected" pl "$rb" init --yes --role "$bad"
+  [ ! -e "$rb/.agents" ] && ok "nothing is written after the rejected --role $bad" || die "files written after --role $bad"
+done
+out=$(pl "$(mkrepo rolebad2)" init --yes --role nonesuch=codex 2>&1); expect "an unknown role is named in the message" "$out" "unknown role in --role: nonesuch"
+out=$(pl "$(mkrepo rolebad3)" init --yes --role implementer=gemini 2>&1); expect "an unknown runtime is named in the message" "$out" "unknown runtime in --role: gemini"
+out=$(pl "$(mkrepo rolebad4)" init --yes --role implementer 2>&1); expect "a value without = is named in the message" "$out" "invalid --role value: implementer"
+out=$(pl "$(mkrepo rolebad5)" init --yes --runtimes claude --role implementer=codex 2>&1); expect "a runtime outside --runtimes is refused" "$out" "not in --runtimes"
+
 # ---- static analysis ----------------------------------------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
   out=$(cd "$repo" && shellcheck -s sh -x bin/proofline bin/lib/*.sh adapters/codex/install.sh tests/cli/cli-test.sh 2>&1) && ok "shellcheck -s sh: bin/, installer and this suite are clean" || { LAST=$out; die "shellcheck"; }

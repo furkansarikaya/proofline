@@ -53,6 +53,7 @@ setup
                             --profile max|balanced|economy  --task-adapter markdown|github|jira|linear
                             --protected-branches "a b"  --push-approval true|false
                             --forbidden-identity PATTERN (repeatable)  --verify-commands
+                            --role ROLE=RUNTIME (repeatable)  run one role on another runtime
   upgrade [--dry-run]     update unmodified control-plane files; keep yours and report conflicts
   doctor                  verify hooks, runtimes, config, commit identity and every enforced rule (live probes)
   version
@@ -73,8 +74,11 @@ state (works without an agent session)
 agent session (prints the exact instruction for your runtime)
   task [--grill] <text>   write a task file (grill the intent first with --grill)
   design system|data|api|ui [--check]
+  docs create|update|audit  write, update from a diff, or audit documentation
+  explain <topic|TASK-ID>  one self-contained offline HTML page that explains a topic or a task
   run <TASK>              take a task through the full workflow
   review | audit | debug  proof-review, test-trust and debug-proof standalone
+  wiki ingest|query|lint  keep a persistent project wiki in docs/wiki/
 EOF
 }
 
@@ -224,9 +228,15 @@ cmd_run() {
   hint run "$@"
 }
 
-cmd_session() { # review | audit | debug
+cmd_session() { # review | audit | debug | docs | explain | wiki
+  c=$1
+  case "$c" in
+    docs) case "${2:-}" in create|update|audit) ;; *) die "usage: proofline docs create|update|audit" ;; esac ;;
+    explain) [ -n "${2:-}" ] || die "usage: proofline explain <topic|TASK-ID>" ;;
+    wiki) case "${2:-}" in ingest|query|lint) ;; *) die "usage: proofline wiki ingest|query|lint" ;; esac ;;
+  esac
   require_installed
-  c=$1; shift
+  shift
   hint "$c" "$@"
 }
 
@@ -247,7 +257,7 @@ main() {
     task) cmd_task "$@" ;;
     design) cmd_design "$@" ;;
     run) cmd_run "$@" ;;
-    review|audit|debug) cmd_session "$cmd" "$@" ;;
+    review|audit|debug|docs|explain|wiki) cmd_session "$cmd" "$@" ;;
     version|--version|-v) say "proofline $PROOFLINE_VERSION" ;;
     help|--help|-h) usage ;;
     *) usage >&2; die "unknown command: $cmd" ;;
