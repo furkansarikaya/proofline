@@ -2266,7 +2266,22 @@ fix_allowed_paths() { # ID
   fa_ff=$(latest_finding_file "$1"); [ -n "$fa_ff" ] || return 0
   fa_sc=$(fix_scope_union "$1" "$fa_ff")
   if [ "$(scope_entry_paths "$fa_sc" | tr -d '\n')" = '*' ]; then echo '*'; return 0; fi
-  { scope_entry_paths "$fa_sc"; fix_scope_siblings "$1" "$fa_sc"; } | sort -u
+  # A127: a control artifact (PLAN.md, VERIFY.md, ...) is never a fix path: the implementer cannot edit it.
+  { scope_entry_paths "$fa_sc"; fix_scope_siblings "$1" "$fa_sc"; } | sort -u | while IFS= read -r fa_p; do fix_path_control "$1" "$fa_p" || printf '%s\n' "$fa_p"; done
+}
+fix_path_control() { known_control_artifact "$1" "$2" || known_control_artifact "$1" ".agents/runs/$1/$2"; } # ID PATH (project- or run-relative)
+# A127: the number of blocking rows of gate record $2 that the plan answers: the row path is a control artifact, or a VERIFY
+# row says the plan's verification commands do not cover an AC.
+finding_plan_rows() { # ID GATE_FILE
+  fpr_n=0; fpr_g=$(gate_field "$2" gate)
+  while IFS='|' read -r _ _ fpr_path fpr_text _; do
+    [ -n "$fpr_path$fpr_text" ] || continue
+    if fix_path_control "$1" "${fpr_path%%:*}" || { [ "$fpr_g" = VERIFY ] && printf '%s' "$fpr_text" | grep -Eqi 'verification commands|eligible command proof'; }
+    then fpr_n=$((fpr_n + 1)); fi
+  done <<EOF
+$(grep '^finding: [^|]*|blocking|' "$2" || true)
+EOF
+  printf '%s\n' "$fpr_n"
 }
 # `next` lines naming the allowed fix paths of an open fix round, to paste into the implementer's ALLOWED_SCOPE (A123).
 fix_paths_lines() { # ID
@@ -3037,7 +3052,7 @@ submit_result() {
     case "$1" in
       --result) sb_res=$2 ;; --confidence) sb_conf=$2 ;; --focus) sb_focus=$2 ;; --artifact) sb_art=$2 ;;
       --findings) sb_findings=$2 ;; --report) sb_report=$2 ;; --reason) sb_reason=$2 ;; --evidence) sb_evidence=$2; sb_evlist="$sb_evlist
-$2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent) sb_agent=$2 ;;
+$2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent) [ -n "${PROOFLINE_AGENT:-}" ] || sb_agent=$2 ;;   # A127: dispatch.sh's token wins over a typed one
       *) fail "submit: unknown option $1" ;;
     esac
     shift 2
@@ -3959,7 +3974,7 @@ next_step() {
       if [ -n "$ns_fail" ]; then
         ns_used=$(fix_rounds_used "$ns_id")
         # A78: script findings are not fixed by the implementer: a missing flag is a plan amendment, UNSUPPORTED the user's call.
-        ns_scr=0 ns_oth=0
+        ns_scr=0 ns_oth=0 ns_pl=0
         for ns_g in $ns_fail; do
           for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
             ns_lf=$(gate_latest_file "$ns_id" "$ns_g" "$ns_fc"); [ -n "$ns_lf" ] || continue
@@ -3967,6 +3982,7 @@ next_step() {
             ns_a=$(grep -c '^finding: [^|]*|blocking|' "$ns_lf" || true)
             ns_b=$(grep -Ec '^finding: [^|]*\|blocking\|[^|]*\|(UNSUPPORTED |risk signal )' "$ns_lf" || true)
             ns_scr=$((ns_scr + ns_b)); ns_oth=$((ns_oth + ns_a - ns_b))
+            ns_pl=$((ns_pl + $(finding_plan_rows "$ns_id" "$ns_lf")))
             case "$(gate_field "$ns_lf" result | tr '[:upper:]' '[:lower:]')" in fail) [ "$ns_a" -gt 0 ] || ns_oth=$((ns_oth + 1)) ;; esac
             # shellcheck disable=SC2013 # finding ids contain no whitespace
             for ns_fid in $(sed -n 's/^finding: \([^|]*\)|blocking|[^|]*|UNSUPPORTED .*/\1/p' "$ns_lf"); do
@@ -3979,6 +3995,9 @@ next_step() {
           done
         done
         if [ "$ns_scr" -gt 0 ] && [ "$ns_oth" -eq 0 ]; then o "the implementer cannot clear these: only UNSUPPORTED or missing-flag findings fail (waive them, or amend PLAN.md and refreeze)"; o "agent.sh terminate $ns_id BLOCKED (reason and evidence on stdin), if the user declines the waiver and the plan cannot be amended"
+        elif [ "$ns_pl" -gt 0 ] && [ "$ns_oth" -le "$ns_pl" ]; then
+          # A127: the plan or its verification commands answer these rows, not the implementer: no fix round, no control-artifact fix_path.
+          o "amend PLAN.md ## Verification commands (lead owns it; write amendments/<NNN>.md and edit PLAN.md), then agent.sh refreeze $ns_id <AMENDMENT>; a scope approval is needed only if the amendment adds scope paths; then re-run VERIFY"
         elif [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"; fix_paths_lines "$ns_id"
         else o "agent.sh terminate $ns_id FAILED (reason and evidence on stdin)"; fi
         r "failing gates:$ns_fail"

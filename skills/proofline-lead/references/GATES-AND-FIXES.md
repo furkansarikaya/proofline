@@ -40,9 +40,13 @@ re-run it on a weaker model (D7).
 `next` prints `agent.sh handoff <ID> IMPLEMENTING (fix round <n>; findings of: <GATES>)`.
 
 1. **Diagnose** each blocking finding from its row only: implementation defect -> fix round;
-   plan or evidence defect (the frozen plan cannot satisfy the criterion) -> amendment with a `scope`
-   approval when paths are added, never a silent fix; environment -> BLOCKED. debug-proof may locate the
-   cause; it never edits code.
+   plan or evidence defect (the frozen plan cannot satisfy the criterion, or its `## Verification commands`
+   do not cover an AC) -> `next` prints `amend PLAN.md ## Verification commands` instead of a fix round:
+   write `amendments/<NNN>.md`, edit PLAN.md (the lead owns both; `amend` works from CODE_DONE only),
+   `agent.sh refreeze <ID> <AMENDMENT>`, re-run the gate. A `scope` approval is needed only if the
+   amendment adds scope paths; adding verification commands needs none. Never a silent fix; environment ->
+   BLOCKED. A fix round never lists PLAN.md, VERIFY.md or another control artifact as a `fix_path` (A127).
+   debug-proof may locate the cause; it never edits code.
 2. **Reopen:** `A handoff <ID> IMPLEMENTING`.
 3. **One implementer round** ([DISPATCH.md](DISPATCH.md#3-implementer)): `FIX_ROUND: <n>`, `FINDINGS:` the
    rows of every failing gate on this content, `FILES_CHANGED:` the paths the previous round changed,

@@ -433,7 +433,9 @@ while :; do
   if [ "$submissions" -ge 2 ]; then
     blocked "no valid submission from $role after one retry${err:+ (last rejection: $err)}; nothing recorded"
   fi
-  note "dispatch resubmit role=$role runtime=$rt reason=${err:-no submission}" || true
+  # A127: name what was looked for and what exists, so a missing status file (a submit under another token) shows in the ledger
+  seen=$(ls "$subdir" 2>/dev/null | tr '\n' ',')
+  note "dispatch resubmit role=$role runtime=$rt reason=${err:-no submission} token=$token status_files=${seen:-none}" || true
   retry_note="Your previous attempt ended without a recorded result${err:+ (last rejection: $err)}. Your report files may already exist: check them, fix what the rejection names, then submit. Do not redo finished work."
   a_runtime=$rt; o_model=''
   attempt

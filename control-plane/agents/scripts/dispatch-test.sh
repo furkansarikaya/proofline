@@ -253,6 +253,7 @@ ck "a final message with a header is never recorded: rerun once, then BLOCKED" '
 reset; d FAKE_CODEX=rejected T-1 reviewer --runtime codex
 ck "a rejected submission: the rejection goes into the one rerun and into BLOCKED" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q "last rejection: --confidence must be high" && [ "$(grep -c "^decide" "$loc/calls.log")" -eq 2 ]'
 reset; d FAKE_CODEX=late T-1 reviewer --runtime codex
+ck "A127: a rerun for no submission ledgers the token it looked for and the status files that exist" 'has "$loc/ledger.log" "reason=no submission token=d001-reviewer-codex status_files="'
 ck "no submission on the first attempt, one on the rerun: recorded with the retry note in the prompt" '[ "$rc" -eq 0 ] && has "$loc/recorded.md" "token=d002-reviewer-codex" && has "$loc/codex.stdin" "Your previous attempt ended without a recorded result"'
 
 # A124: a worker that writes nothing leaves a reason (BLOCKED, non-empty log); a running dispatch leaves a marker

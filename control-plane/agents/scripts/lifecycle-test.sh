@@ -316,6 +316,30 @@ scenario_fix_scope_shared_criteria() {
   ok "fix_scope widens to plan paths sharing a criterion only"
 }
 
+# A127: a VERIFY failure the plan answers (finding path PLAN.md, or commands that do not cover an AC) routes to amendment and
+# refreeze, never to a fix round on control artifacts; a code finding keeps its fix round, without control-artifact paths.
+scenario_plan_level_verify_fail() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  gfail VERIFY PLAN.md
+  A next LC > "$base/next.out"
+  ! grep -q '^fix_path=' "$base/next.out" || die "a plan-level VERIFY failure printed fix paths: $(grep '^fix_path=' "$base/next.out" | tr '\n' ' ')"
+  ! grep -q 'fix round' "$base/next.out" || die "a plan-level VERIFY failure opened a fix round"
+  grep -q '^next=amend PLAN.md ## Verification commands (lead owns it.*agent.sh refreeze LC <AMENDMENT>; a scope approval is needed only if the amendment adds scope paths; then re-run VERIFY' "$base/next.out" || die "next did not print the plan-level route: $(cat "$base/next.out")"
+  rec VERIFY FAIL high 'VERIFY-2|blocking|impl.txt:1|AC-2 has no eligible command proof: the plan Verification commands hold only a negative grep|traced: PLAN.md commands'
+  A next LC | grep -q 'refreeze LC <AMENDMENT>' || die "a command-coverage VERIFY failure with a product path was not routed to the plan"
+  gfail REVIEW_SMALL impl.txt
+  A next LC > "$base/next.out"
+  grep -q '^fix_path=impl.txt$' "$base/next.out" && ! grep -Eq '^fix_path=(PLAN|VERIFY)\.md$' "$base/next.out" && grep -q 'fix round' "$base/next.out" || die "a code finding lost its fix round or listed a control artifact: $(cat "$base/next.out")"
+  # the recovery needs no scope approval when the amendment adds no scope path
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: add positive verification commands\n' > .agents/runs/LC/amendments/001.md
+  printf 'amended: positive verification commands\n' >> .agents/runs/LC/PLAN.md
+  A refreeze LC 001.md >/dev/null || die "a refreeze that adds no scope path asked for a scope approval"
+  expect_state handoff state IMPLEMENTING
+  ok "a plan-level VERIFY failure routes to amendment and refreeze, never to fix paths on control artifacts"
+}
+
 scenario_fix_scope_no_criteria() {
   scaffold orchestrated
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
@@ -805,6 +829,7 @@ run_sc scenario_bounded_fix
 run_sc scenario_fix_scope_format
 run_sc scenario_fix_scope_symbol
 run_sc scenario_fix_scope_shared_criteria
+run_sc scenario_plan_level_verify_fail
 run_sc scenario_fix_scope_no_criteria
 run_sc scenario_amendment_fresh_budget
 run_sc scenario_terminal
