@@ -165,7 +165,7 @@ subagent_guard() {
   out=$(sub_start proofline:proofline-implementer a7)
   [ -s .agents/local/windows/a7 ] && printf '%s' "$out" | grep -q 'AGENT_ROLE=implementer' || die "SubagentStart did not open the implementer window"; ok "SubagentStart opens the implementer window and briefs the role"
   [ -e .agents/local/submissions/a7.started ] || die "SubagentStart did not register the subagent id (A127)"
-  allowed "implementer edits an in-scope file inside its window""$(pre_edit Edit impl.txt proofline:proofline-implementer a7)"
+  allowed "implementer edits an in-scope file inside its window" "$(pre_edit Edit impl.txt proofline:proofline-implementer a7)"
   denied "implementer edits an out-of-scope file" "$(pre_edit Write src/app.js proofline-implementer a7)" "outside the paths role implementer owns"
   denied "implementer shell write out of scope" "$(pre_bash 'echo x > src/app.js' proofline-implementer a7)"
   rm .agents/owns.conf
@@ -179,7 +179,9 @@ subagent_guard() {
   out=$(sub_stop proofline:proofline-implementer a7)
   printf '%s' "$out" | grep -q '"decision":"block"' && printf '%s' "$out" | grep -q 'submit' || die "a stop without a submission was not sent back: $out"
   [ ! -f .agents/runs/LC/worker-evidence/WINDOW-1.yaml ] || die "the window closed while the specialist was sent back"
+  [ -e .agents/local/submissions/a7.started ] || die "the marker was removed while the specialist was sent back"
   sub_stop proofline:proofline-implementer a7 true >/dev/null
+  [ ! -e .agents/local/submissions/a7.started ] || die "SubagentStop left the subagent marker behind (A127)"
   [ -f .agents/runs/LC/worker-evidence/WINDOW-1.yaml ] && [ ! -f .agents/local/windows/a7 ] || die "SubagentStop did not close the window"; ok "SubagentStop closes the implementer window (WINDOW-1)"
   out=$(post)
   printf '%s' "$out" | grep -q 'additionalContext' && printf '%s' "$out" | grep -q 'without a recorded result' || die "PostToolUse did not relay the outcome: $out"

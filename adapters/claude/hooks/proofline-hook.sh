@@ -841,6 +841,7 @@ subagent-stop)
     fi
     : > "$sdir/$aidf.final"
   fi
+  rm -f "$sdir/$aidf.started"   # A127: the final stop; the status check above is done
   mkdir "$rec/$aidf.lock" 2>/dev/null || exit 0   # one record per subagent even when two hook layers fire
   if { [ "$prole" = implementer ] || [ "$prole" = designer ]; } && [ -f "$local_dir/windows/$aidf" ]; then
     if (unset AGENT_ROLE; sh "$agent" window-close "$act" "$(cat "$local_dir/windows/$aidf")" 0 "$prole") >"$tmp/o" 2>&1; then rm -f "$local_dir/windows/$aidf"
