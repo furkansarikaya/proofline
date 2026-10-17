@@ -1,0 +1,7 @@
+interface:
+  display_name: "Explain HTML"
+  short_description: "Explains a topic, task, review or report as one self-contained offline HTML page"
+  default_prompt: "Use $explain-html to explain: "
+
+policy:
+  allow_implicit_invocation: false
