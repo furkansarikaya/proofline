@@ -959,7 +959,20 @@ pipeline_show() {
     for ps_f in $(risk_gate_focuses "$id" "$ps_g"); do printf 'focus.%s.%s=%s\n' "$ps_g" "$ps_f" "$(gate_focus_status "$id" "$ps_g" "$ps_f" strict "$ps_fp")"; done
   done
   risk_show "$id"
+  risk_not_rerun "$id" | while IFS= read -r ps_n; do printf 'not_rerun.%s=NOT_RERUN (not reproduced proof): %s\n' "${ps_n%% *}" "${ps_n#* }"; done
   risk_unsupported "$id" | while IFS='|' read -r ps_k ps_v ps_t ps_e; do printf 'unsupported.%s=%s: %s%s\n' "$ps_k" "$(unsupported_label "$ps_v")" "${ps_t#UNSUPPORTED }" "${ps_e:+ (evidence: $ps_e)}"; done
+}
+# A130 (amends A107): "GATE:focus reason" for each current gate record that re-ran nothing: the `not_rerun` field, or
+# the info row `NOT_RERUN:` that records of older versions carry. Not reproduced proof; never a finding.
+risk_not_rerun() {
+  for rn_g in $(required_gates "$1"); do
+    for rn_fc in - $(risk_gate_focuses "$1" "$rn_g"); do
+      rn_f=$(gate_latest_file "$1" "$rn_g" "$rn_fc"); [ -n "$rn_f" ] || continue
+      rn_v=$(gate_field "$rn_f" not_rerun)
+      [ -n "$rn_v" ] || rn_v=$(sed -n 's/^finding: [^|]*|info|[^|]*|NOT_RERUN: \([^|]*\)|.*/\1/p' "$rn_f" | head -1)
+      [ -z "$rn_v" ] || printf '%s\n' "$rn_v"
+    done
+  done
 }
 class_rank() { case "$1" in TRIVIAL) echo 0 ;; STANDARD) echo 1 ;; COMPLEX) echo 2 ;; CRITICAL) echo 3 ;; *) echo 0 ;; esac; }
 classify() {
@@ -2438,10 +2451,10 @@ gate_preconditions() { # ID GATE
   [ "$(section_value "$gp_d" handoff implemented_patch_sha256)" = "$(task_patch_fingerprint "$gp_id")" ] || fail "$gp_gate gate blocked: the application tree changed since IMPLEMENTED"
   verify_mutation_ownership "$gp_id"
 }
-# write_gate ID GATE RESULT ROLE CONFIDENCE FOCUS ARTIFACT FINDINGS-FILE RESULT-FILE FINGERPRINT
+# write_gate ID GATE RESULT ROLE CONFIDENCE FOCUS ARTIFACT FINDINGS-FILE RESULT-FILE FINGERPRINT [UNSUPPORTED-EVIDENCE] [NOT_RERUN]
 # FINDINGS-FILE holds rows "id|severity|path:line|finding|evidence".
 write_gate() {
-  wg_id=$1 wg_gate=$2 wg_res=$3 wg_role=$4 wg_conf=$5 wg_focus=$6 wg_art=$7 wg_findings=$8 wg_rfile=$9; shift 9; wg_fp=$1 wg_ue=${2:-}
+  wg_id=$1 wg_gate=$2 wg_res=$3 wg_role=$4 wg_conf=$5 wg_focus=$6 wg_art=$7 wg_findings=$8 wg_rfile=$9; shift 9; wg_fp=$1 wg_ue=${2:-} wg_nr=${3:-}
   wg_d=$(run_dir "$wg_id"); wg_gd=$(gates_dir "$wg_id"); mkdir -p "$wg_gd" || fail "cannot create $wg_gd"
   wg_seq=$(next_gate_seq "$wg_id"); [ "$wg_seq" -le 999 ] || fail "gate record limit reached"
   wg_name=$(printf '%03d-%s' "$wg_seq" "$wg_gate")
@@ -2462,6 +2475,7 @@ write_gate() {
     [ "$wg_res" != unsupported ] || printf 'unsupported: "%s"\n' "$wg_focus"
     # A102: the evidence of an UNSUPPORTED result, bound by its sha256 (valid_gate_file re-checks it)
     [ -z "$wg_ue" ] || printf 'unsupported_evidence: "%s@%.12s"\nunsupported_evidence_sha256: "%s"\n' "${wg_ue% *}" "${wg_ue##* }" "${wg_ue##* }"
+    [ -z "$wg_nr" ] || printf 'not_rerun: "%s"\n' "$wg_nr"   # A130
     [ ! -s "$wg_findings" ] || sed 's/^/finding: /' "$wg_findings"
     printf 'timestamp: "%s"\nepoch: %s\n' "$(now_iso)" "$(now_epoch)"
   } > "$wg_gd/$wg_name.yaml" || fail "could not write gate record"
@@ -2970,7 +2984,7 @@ record_apply() {
   if [ "$ra_kind" = gate ] && [ "$ra_res" != BLOCKED ]; then
     ra_gres=fail; [ "$ra_res" != PASS ] || { if [ "$ra_conf" = low ]; then ra_gres=pass_low; else ra_gres=pass; fi; }
     [ "$ra_res" != UNSUPPORTED ] || ra_gres=unsupported
-    write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)" "$(m evidence)"
+    write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)" "$(m evidence)" "$(sed -n 's/^NOT_RERUN:[[:space:]]*//p' "$ra_d/$ra_raw" | head -1)"
   fi
   if [ "$ra_res" = NEEDS_INPUT ]; then
     mkdir -p "$ra_d/questions"; ra_q=$(next_num "$ra_d/questions")
@@ -3194,6 +3208,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
   fi
   # A107: the skill's own validator is run here and its result is the one used; a result the agent declares is
   # never trusted. Cited evidence files must exist in the run with the cited sha256 (checked again by record).
+  sb_nr=''
   if [ "$sb_gaterole" = yes ] && { [ "$sb_res" = PASS ] || [ "$sb_res" = FAIL ]; }; then
     sb_vr=$(skill_validator "$sb_id" "$execution_role" "$sb_focus" "$sb_norm") || submit_fail "$sb_vr"
     sb_gl=${sb_gate:-$execution_role}:${sb_focus:--}
@@ -3234,7 +3249,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
       printf '%s\n' "$sb_rm" | while IFS= read -r sb_rl; do printf 'blocking|%s|%s|%s\n' "$sb_norm" "$sb_rl" "agent.sh submit re-ran the recorded command (A107)"; done >> "$sb_tmp/rows"
       sb_res=FAIL; sb_blocking=$(awk -F'|' '$1 == "blocking"' "$sb_tmp/rows" | wc -l | tr -d ' ')
     elif [ "$(cat "$sb_tmp/rerun.n" 2>/dev/null || echo 0)" = 0 ]; then
-      printf 'info|%s|NOT_RERUN: %s:%s no reproduced evidence; this gate is not reproduced proof|agent.sh submit (A107)\n' "$sb_norm" "${sb_gate:-$execution_role}" "${sb_focus:--}" >> "$sb_tmp/rows"
+      sb_nr="${sb_gate:-$execution_role}:${sb_focus:--} no reproduced evidence; this gate is not reproduced proof"   # A130: a gate field, never a findings row
     fi
   fi
   # Run artifacts are English (A33): the report, the findings and the questions are scanned before recording.
@@ -3272,6 +3287,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
     sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
     awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
     if [ -s "$sb_tmp/evlines" ]; then printf '\n'; sed 's/^/EVIDENCE: /' "$sb_tmp/evlines"; fi
+    if [ -n "${sb_nr:-}" ]; then printf '\nNOT_RERUN: %s\n' "$sb_nr"; fi
     if [ "$sb_res" = BLOCKED ]; then printf '\nBLOCKED_REASON: %s\n' "$(one_line "${sb_reason:-see $sb_norm}")"; fi
     if [ "$sb_res" = UNSUPPORTED ]; then printf '\nUNSUPPORTED_REASON: %s\n' "$(one_line "$sb_reason")"
       [ -z "$sb_ev" ] || printf 'UNSUPPORTED_EVIDENCE: %s %s\n' "$sb_ev" "$(hash_file "$sb_d/$sb_ev")"; fi
@@ -4040,12 +4056,12 @@ next_step() {
         done
         r "gates not passing:$ns_todo"
       else
-        unsupported_next "$ns_id"
+        unsupported_next "$ns_id"; not_rerun_next "$ns_id"
         o "agent.sh handoff $ns_id CODE_DONE"; r "every required gate passes"; fi ;;
     CODE_DONE)
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
-          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; o "write COMPLETION_REPORT.md; agent.sh publish-completion-report $ns_id"; r "completion report not published"
+          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md; agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
         *) o "agent.sh knowledge-done $ns_id [not_applicable]"; r "knowledge transaction not recorded" ;;
       esac ;;
@@ -4111,6 +4127,10 @@ unsupported_next() { # ID
   done
   o "surface these unsupported checks to the user in your reply: they were not proven, never passed"
 }
+# A130: every gate that re-ran nothing is named in the report on its own line, "not reproduced (NOT_RERUN)".
+not_rerun_next() { # ID
+  risk_not_rerun "$1" | while IFS= read -r nn_l; do o "NOT_RERUN ${nn_l%% *}: not reproduced proof -> list it in COMPLETION_REPORT.md on its own line: '- ${nn_l%% *}: not reproduced (NOT_RERUN)'"; done
+}
 required_report_headings() {
   dir=$1 id=$(basename "$1")
   printf '## Implementation Summary\n## Verification\n## Assumptions\n## Known Limitations / Follow-up\n'
@@ -4148,6 +4168,23 @@ validate_completion_report_structure() {
   # A78/A98: every UNSUPPORTED check is named (GATE:focus) in the report on a line that says what it leaves
   # unproven ('not proven: <what>'); it was never a PASS, so the report never asserts it as verified.
   vc_usec=$(awk '/^## Unsupported Checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
+  # A130: a gate that re-ran nothing has its own report line saying 'not reproduced (NOT_RERUN)'; no line naming it
+  # calls it reproduced (once 'not reproduced' is removed the word must be gone).
+  for vc_n in $(risk_not_rerun "$id" | cut -d' ' -f1 | sort -u); do
+    grep -F "$vc_n" "$report" | grep -Fq 'not reproduced (NOT_RERUN)' || fail "completion report must name the gate $vc_n on its own line as 'not reproduced (NOT_RERUN)': it re-ran nothing and is not reproduced proof (A130)"
+    ! grep -F "$vc_n" "$report" | sed 's/not reproduced//Ig' | grep -qi 'reproduced' || fail "completion report: the line naming $vc_n describes it as reproduced; it is 'not reproduced (NOT_RERUN)' (A130)"
+  done
+  # A130: every finding row of a gate (info included; UNSUPPORTED rows are A98's) is named by id in the report; 'none' is
+  # true only for a gate whose record has no finding row. The refusal names the gate and the ids it misses.
+  for vc_g in $(required_gates "$id"); do
+    vc_ids=$(for vc_fc in - $(risk_gate_focuses "$id" "$vc_g"); do
+      vc_f=$(gate_latest_file "$id" "$vc_g" "$vc_fc"); [ -n "$vc_f" ] || continue
+      sed -n 's/^finding: \([^|]*\)|[a-z]*|[^|]*|\([^|]*\)|.*/\1|\2/p' "$vc_f" | grep -v '|UNSUPPORTED ' | cut -d'|' -f1
+    done | sort -u)
+    vc_miss=''
+    for vc_i in $vc_ids; do grep -Eq "(^|[^A-Za-z0-9_-])$vc_i([^0-9]|\$)" "$report" || vc_miss="$vc_miss $vc_i"; done
+    [ -z "$vc_miss" ] || fail "completion report must name the findings of gate $vc_g by id; missing:$vc_miss (every non-info finding and every info row; 'none' only for a gate record with no finding rows) (A130)"
+  done
   for vc_u in $(risk_unsupported "$id" | cut -d'|' -f1 | sort -u); do
     printf '%s\n' "$vc_usec" | grep -Fq "$vc_u" || fail "completion report must name the UNSUPPORTED check $vc_u under '## Unsupported Checks'"
     # 'not proven:' says what, in at least three words ('n/a' is not an answer)
