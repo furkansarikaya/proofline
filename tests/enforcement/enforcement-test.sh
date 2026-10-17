@@ -310,7 +310,8 @@ git worktree remove --force $W' \
   for n in 1 2 3; do
     out=$(pre_bash "$(sed "s#/private/tmp/[^ ;]*/project#$PWD#" "$ENF_REPO/tests/enforcement/a132-commands/$n.txt")" proofline-qa q1)
     case "$out" in *'git stash'*) die "A132 replay $n: still denied as a stash: $out" ;; esac
-    denied "A132 replay $n: refused only by the write-target rule" "$out" "cannot be resolved"
+    # which of the path rules speaks first depends on the environment (TMPDIR set or not): "cannot be resolved" or "mktemp"
+    case "$out" in *'"permissionDecision":"deny"'*'cannot be resolved'*|*'"permissionDecision":"deny"'*'mktemp would create'*) ok "A132 replay $n: refused by a path rule, not as a stash" ;; *) die "A132 replay $n: unexpected outcome: $out" ;; esac
   done
   git worktree add -q "$base/wt a111 sp" HEAD >/dev/null 2>&1 || die "A111 spaced fixture worktree"
   allowed "A111 R2 a registered worktree path with spaces" "$(pre_bash "git -C '$base/wt a111 sp' stash list" proofline-qa q1)"
