@@ -31,7 +31,7 @@ Each run prints its directory and writes `out/summary.txt`, lead transcripts and
 How to read this page. "Passed" means the independent evaluator's verdict `E2E: PASS` for a run against the
 unchanged EXPECTED files. Evaluators were separate sessions that never saw the runner or the fix. Cells are
 `met/applicable` over `COMMON.md` plus the scenario file; the `CAPABILITIES.md` (`N-`) items are scored in a
-separate table and are not part of that count. All runs below are the Claude-only configuration (`--profile
+separate table and are not part of that count. All scored runs below are the Claude-only configuration (the Codex and mixed integration checks have their own section; `--profile
 economy`, Sonnet lead for TRIVIAL, STANDARD and STANDARD.tr; `balanced`, Opus lead for COMPLEX and CRITICAL),
 in copies of `playground/` outside the repository, installed with `proofline init`, headless. Dates are UTC dates
 of the run; "main" is the commit the run was made on. The current `main` is `de4efd8` (A132): no scenario has been
@@ -41,7 +41,7 @@ run on it.
 
 "Merged after" lists the decisions in `docs/decisions.md` merged after that run's commit
 (`git log <commit>..main`). Some of them changed only CI, the e2e harness or tests (A100, A109, A110, A121,
-A128, A131); the others changed the control plane, the hooks or the skills. A scenario may only be called plainly
+A128, A131); A117 changed the harness and the repository's ignore file, A125 is mostly a test (plus front matter edits), and A118 changed `agent.sh` (a lock race); the rest changed the control plane, the hooks or the skills. A scenario may only be called plainly
 "passing" if it passed on the current `main`; none did.
 
 | Scenario | Last passing run | main commit | Evaluator verdict | Decisions merged after that run |
@@ -54,13 +54,13 @@ A128, A131); the others changed the control plane, the hooks or the skills. A sc
 
 ### Latest regression round (2026-10-17, main `9e70f03`, all five scenarios, one run each)
 
-| Scenario | Verdict | What failed | Fixed afterwards |
+| Scenario | Verdict | What failed | Addressed afterwards (self-tested, never re-run) |
 |---|---|---|---|
 | TRIVIAL | FAIL 35/36 | C-22: the lead's report said "findings none" while the gate carried an info row `NOT_RERUN` | A130 (`NOT_RERUN` is a gate field; the completion report must name finding ids per gate) |
-| STANDARD | FAIL 35/36 | C-22, the same cause | A130 |
-| STANDARD.tr | FAIL 40/41 | C-22, the same cause | A130 |
-| COMPLEX | FAIL 37/39 | C-22 (the same cause, and fix rounds stated as 1 instead of 2); X-4 and M-2: three explorer results, because two parallel explorers shared one scratch report and `max_explorers` was not enforced | A130, A132 |
-| CRITICAL | FAIL 30/35 | the scripted harness reply to the task author's intent interview steered the answer to the non-destructive option, so the plan was `destructive: no` and K-3, K-5 and K-6 were never reached; K-2 (the count in `EVIDENCE.md`) is model behaviour; K-9 and K-13 were met (database unchanged) | A131 (reply chosen per scenario, intent only) |
+| STANDARD | FAIL 35/36 | C-22, the same cause | A130 (addressed, not re-run) |
+| STANDARD.tr | FAIL 40/41 | C-22, the same cause | A130 (addressed, not re-run) |
+| COMPLEX | FAIL 37/39 | C-22 (the same cause, and fix rounds stated as 1 instead of 2); X-4 and M-2: three explorer results, because two parallel explorers shared one scratch report and `max_explorers` was not enforced | A130, A132 (addressed, not re-run) |
+| CRITICAL | FAIL 30/35 | the scripted harness reply to the task author's intent interview steered the answer to the non-destructive option, so the plan was `destructive: no` and K-3, K-5 and K-6 were never reached; C-14 was also unmet (four replies against the limit of three, the fourth sent while no question was open: A131 addresses it); K-2 (the count in `EVIDENCE.md`) is model behaviour; K-9 and K-13 were met (database unchanged) | A131 (addressed, not re-run: reply chosen per scenario, intent only) |
 
 None of the fixes was re-run end to end: the run budgets of the campaign were spent. A130 and A132 are covered by
 self-tests only; A131 by the reply-loop tests.
@@ -85,11 +85,14 @@ self-tests only; A131 by the reply-loop tests.
 
 ### Capabilities (the `N-` items)
 
-Every `N-` item (pipeline signals, assumptions and risk, metrics, visual focus, no new damage, insights read-only)
-was met or not applicable in all of the last runs: the five runs of the regression round (CRITICAL 4/4,
-COMPLEX 6/6, the others as applicable), COMPLEX `128e516` (6/6), STANDARD.tr `f75d1f5` (both runs) and TRIVIAL
-`7eeeeb4`. In the COMPLEX runs the visual focus produced a measured pass in a real browser and the completion
-report listed the UNSUPPORTED contract and migration checks and the unverified assumptions. The capabilities
+In these runs every `N-` item (pipeline signals, assumptions and risk, metrics, visual focus, no new damage,
+insights read-only) was met or not applicable: the five runs of the regression round (CRITICAL 4/4, COMPLEX 6/6,
+the others as applicable), COMPLEX `128e516` (6/6), STANDARD.tr `f75d1f5` (both runs) and TRIVIAL `7eeeeb4`. This
+does not hold for every run of the campaign: COMPLEX `f75d1f5` (run A1) and COMPLEX `d2efc01` (run B1) scored 5/6
+with N-4 unmet (they stopped at a second plan approval, before QA, so there was no visual result), and so did
+several earlier COMPLEX runs. The visual focus produced a measured pass in a real browser in COMPLEX `128e516` and in
+the COMPLEX run of the regression round, and the completion reports of those runs listed the UNSUPPORTED contract and
+migration checks and the unverified assumptions. The capabilities
 that these runs exercised are the ones added in A78 to A90 and wired in by A95: the risk-adaptive pipeline and its
 signals, `## Assumptions` and `## Risk`, metrics and `proofline insights`, the QA visual focus (visual-proof), the
 UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121). Not exercised by any scenario: the concurrency, performance, dependencies and config focuses and the evidence-map
@@ -105,9 +108,9 @@ error in these checks). These are integration checks, not scored scenarios, so n
 | Check | Result |
 |---|---|
 | Dispatch of a Codex worker, sandbox, `submit` | PASS |
-| Claude lead with a Codex worker, TRIVIAL (mixed) | PASS up to the commit-approval stop; the Claude reviewer and verifier workers submitted with the permission mode of A114 |
+| Claude lead with a Codex worker, TRIVIAL (mixed) | PASS up to the commit-approval stop (the Claude reviewer and verifier ran as lead-native subagents, so the permission mode of A114 was not exercised by this check) |
 | `proofline doctor` and hook probes on Codex | PASS, 0 model calls |
-| Lead failover Claude to Codex (`resume`) | partially tested: resume and freshness verified, a headless Claude verifier dispatched (A114 mode recorded), the A124 wait and the A127 route verified on `128e516`; the run did not reach DONE: the cheap Codex lead stopped to ask for authorization in prose, and the plan had an acceptance criterion mapped to no scope path (A129 now refuses that at freeze) |
+| Lead failover Claude to Codex (`resume`) | partially tested: resume and freshness verified, a headless Claude verifier dispatched (A114 mode recorded), the A124 `wait:` line, and the A127 token with a single status file verified on `128e516`; the route printed after the VERIFY failure was only partly right (it named `## Verification commands` while the right edit was `criteria:` on the scope entries), and plan validation was a product gap (nothing enforced AC-to-scope coverage before freeze), both addressed afterwards by A127 and A129 and not re-run; the run did not reach DONE: the cheap Codex lead stopped to ask for authorization in prose, and the plan had an acceptance criterion mapped to no scope path (A129 now refuses that at freeze, not re-run) |
 | Codex-only TRIVIAL scored run (2026-10-14, `354f348`) | FAIL 26/43: the model wrote a plan scope without criteria and nothing was implemented; the unparseable scope that the first freeze accepted is fixed (A101) |
 | Codex-only STANDARD, STANDARD.tr, COMPLEX, CRITICAL; mixed STANDARD, STANDARD.tr, COMPLEX, CRITICAL; failover as a scored scenario | not tested |
 
@@ -121,13 +124,13 @@ these changed an EXPECTED file.
 ### Known limits
 
 - Run-to-run model variance remains: the accuracy of the lead's final report (C-22) and the contents of
-  `EVIDENCE.md` in CRITICAL (K-2) differed between runs on the same code.
+  `EVIDENCE.md` in CRITICAL (K-2) differed between runs (the failing runs were on different commits).
 - COMPLEX has passed twice (2026-10-14 on `b515110`, 2026-10-17 on `128e516`) and failed in every other
   run of the campaign; a COMPLEX pass is therefore not yet a stable result.
 - The Codex-lead behaviour was tested with the cheapest model only; its stop to ask for authorization in prose is
   model behaviour that `agent.sh next` cannot prevent.
-- No scenario was re-verified after A130 to A132, and none after A129 for TRIVIAL, STANDARD, STANDARD.tr and
-  CRITICAL. Tests that do run on every change: the self-tests (16 suites, over 145 units; a full run is
+- No scenario was re-verified after A130 to A132, and none after A129 (COMPLEX `128e516` passed before A129, and its run on `9e70f03`
+  failed). Tests that do run on every change: the self-tests (16 suites, over 145 units; a full run is
   `sh tests/selftest.sh`), 737 skill tests (734 pass, 3 skipped; `node --test tests/skills/`) and the fixtures
   (42 passed, 1 skipped; `sh tests/fixtures/check-fixtures.sh`), as counted on 2026-10-17.
 
