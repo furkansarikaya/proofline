@@ -5,7 +5,7 @@
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 ss="$here/secret-scan.sh"
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/secret-scan-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/secret-scan-test.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }; trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "PASS $1"; }
 no() { echo "FAIL $1"; fails=$((fails + 1)); }

@@ -4,7 +4,7 @@
 # The stub's `decide` calls the real exec-policy.sh, so capability floors are the real ones.
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-test.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }; trap 'rm -rf "$tmp"' EXIT
 fails=0
 # Fixture roles policy (the shipped roles.conf is generated; it is checked separately below).
 # Claude rows use model names, codex rows tierN tokens: role balanced max economy (model:effort) floor
@@ -32,7 +32,7 @@ cp "$here/dispatch.sh" "$here/exec-policy.sh" "$here/runtime-detect.sh" "$a/scri
 fixture_roles > "$a/roles.conf"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git init -q "$p"   # .git/config and HEAD are watched during every dispatched step
-for r in implementer reviewer security_reviewer designer; do printf 'You are the proofline %s. STABLE-PREFIX-%s\n' "$r" "$r" > "$a/roles/$r.md"; done
+for r in implementer reviewer security_reviewer designer explorer; do printf 'You are the proofline %s. STABLE-PREFIX-%s\n' "$r" "$r" > "$a/roles/$r.md"; done
 
 cat > "$a/scripts/agent.sh" <<'EOF'
 #!/bin/sh
@@ -263,6 +263,17 @@ reset; d FAKE_CODEX=nosubmit T-1 implementer
 ck "the implementer prompt states the window and a missing assignment (no file to look for)" 'has "$loc/codex.stdin" "WINDOW: dispatch.sh opened your write window" && has "$loc/codex.stdin" "ASSIGNMENT: none was given" && has "$loc/codex.stdin" "never report BLOCKED for a missing window"'
 reset; d T-1 reviewer --runtime claude --prompt-file "$a/roles.conf"
 ck "a reviewer with an assignment gets neither line" '! has "$loc/claude.stdin" "WINDOW: dispatch.sh" && ! has "$loc/claude.stdin" "ASSIGNMENT: none was given"'
+# A132: each explorer dispatch names its own token-derived scratch report path
+reset; d T-1 explorer --runtime claude
+ck "the explorer prompt names its own token-derived scratch report" 'has "$loc/claude.stdin" "scratch/d001-explorer-claude-report.md"'
+d T-1 explorer --runtime claude
+ck "a second explorer dispatch gets a different scratch report path" 'has "$loc/claude.stdin" "scratch/d002-explorer-claude-report.md" && ! has "$loc/claude.stdin" "scratch/d001-explorer-claude-report.md"'
+# A132: a test-lib script with an unusable TMPDIR stops (exit 2) instead of building its fixture in the current
+# directory; a throwaway repository sees no commit and no config change
+guard=$tmp/guard-repo; mkdir -p "$guard"; ( cd "$guard" && git init -q 2>/dev/null )
+# shellcheck disable=SC2034 # read by the ck condition below
+grc=0; ( cd "$guard" && TMPDIR=/nonexistent/proofline-guard sh "$here/gates-test.sh" >/dev/null 2>&1 ) || grc=$?; : "$grc"
+ck "a test-lib script with a missing TMPDIR exits 2 and leaves the current repository untouched" '[ "$grc" -eq 2 ] && [ -z "$(git -C "$guard" rev-list --all 2>/dev/null)" ] && ! git -C "$guard" config --local core.hooksPath >/dev/null 2>&1'
 reset; mkdir -p "$loc"
 ( rc=0; env FAKE_CLAUDE=hold sh "$a/scripts/dispatch.sh" T-1 reviewer --runtime claude > "$tmp/hold.out" 2>&1 || rc=$?; echo "$rc" > "$tmp/hold.rc" ) &
 w=0; while [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ] && [ "$w" -lt 100 ]; do sleep 0.1; w=$((w + 1)); done

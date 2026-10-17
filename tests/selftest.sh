@@ -28,7 +28,8 @@ if [ "${1:-}" = --unit ]; then   # worker: --unit LOGDIR INDEX
   exit 0
 fi
 
-logs=$(mktemp -d "${TMPDIR:-/tmp}/proofline-selftest.XXXXXX")
+logs=$(mktemp -d "${TMPDIR:-/tmp}/proofline-selftest.XXXXXX") || { echo "selftest: TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }
+[ -n "$logs" ] && [ -d "$logs" ] || { echo "selftest: no log directory" >&2; exit 2; }
 trap 'rm -rf "$logs"' EXIT
 jobs=${SELFTEST_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}
 case "$jobs" in ''|*[!0-9]*|0) jobs=4 ;; esac

@@ -249,10 +249,14 @@ attempt() {
   tok runtime "$rt"; tok model "$model"; tok effort "$effort"
   case "$budget" in ''|*[!0-9]*) die "decision has no context_bytes" ;; esac
 
+  # A113: claim the sequence atomically (mkdir), so parallel dispatches never share a token, output or log.
+  # A132: claimed before the prompt is built, so the prompt can name the token-derived scratch path.
+  while ! mkdir "$run/dispatch/.claim-$(printf '%03d' "$seq_n")" 2>/dev/null; do seq_n=$((seq_n + 1)); done
+  token=d$(printf '%03d' "$seq_n")-$role-$rt
   ins=$(role_instructions "$role") || die "no instructions for role $role (.agents/roles/$role.md, .claude/agents/proofline-$role.md or .codex/agents/proofline-$role.toml)"
   { printf 'TASK: %s\nROLE: %s\n' "$id" "$role"; [ -z "$focus" ] || printf 'FOCUS: %s\n' "$focus"
     printf 'RUN_DIR: .agents/runs/%s\nReport your result with: AGENT_ROLE=%s sh .agents/scripts/agent.sh submit %s --confidence <high|medium|low> [--focus F] [--artifact <path of your report>] [--findings FILE|none] [--report FILE|-] [--reason T] [--questions FILE]\nOnly one of --report/--findings may read stdin (-): use a file for the other, or one stdin document: report, a line "=== FINDINGS ===", then rows (severity|path:line|finding|evidence; answer-only: --findings none or info|-|answer|<one line>).\nThe script builds the header, fingerprint and hashes and returns any rejection to you: fix what it names and submit again. Your final message is not parsed.\n' "$id" "$role" "$id"
-    [ "$role" != explorer ] || printf 'Explorer: write your report in your scratch folder and pass it with --report <file> (no --artifact); the script assigns the numbered reports/NNN-explorer.md name (A113).\n'
+    [ "$role" != explorer ] || printf 'Explorer: write your report to EXACTLY .agents/runs/%s/scratch/%s-report.md (never a generic name such as r.md: a parallel explorer would overwrite it) and pass it with --report that path (or --report - on stdin; no --artifact); the script assigns the numbered reports/NNN-explorer.md name (A113, A132).\n' "$id" "$token"
     # A124: the window is held by this script and leaves no file until window-close, and an assignment is optional;
     # say both, or a worker looks for them, finds nothing and reports BLOCKED.
     [ "$writes_code" = no ] || printf 'WINDOW: dispatch.sh opened your write window before starting you (window-open). It leaves no file until the step ends (window-close writes worker-evidence/WINDOW-<n>.yaml). Do not look for it; never report BLOCKED for a missing window.\n'
@@ -264,9 +268,6 @@ attempt() {
   [ "$sb" -le "$budget" ] || blocked "task prompt is $sb bytes, over the resolved context budget of $budget (trim it; it is never truncated)"
   { cat "$ins"; printf '\n=== TASK ===\n'; cat "$work/suffix"; } > "$work/full"
 
-  # A113: claim the sequence atomically (mkdir), so parallel dispatches never share a token, output or log
-  while ! mkdir "$run/dispatch/.claim-$(printf '%03d' "$seq_n")" 2>/dev/null; do seq_n=$((seq_n + 1)); done
-  token=d$(printf '%03d' "$seq_n")-$role-$rt
   out=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.md
   log=$run/dispatch/$(printf '%03d' "$seq_n")-$role-$rt.log
   [ -z "$running" ] || rm -f "$running"   # a retry or failover attempt replaces the previous attempt's marker

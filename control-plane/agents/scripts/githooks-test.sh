@@ -4,7 +4,7 @@
 # Never touches global or system git config (GIT_CONFIG_GLOBAL/NOSYSTEM, per-command -c only).
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/githooks-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/githooks-test.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }; trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 PROOFLINE_NO_TTY=1
 unset AGENT_ROLE GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL 2>/dev/null || true
 fails=0

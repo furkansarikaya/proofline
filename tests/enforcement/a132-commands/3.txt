@@ -1,0 +1,11 @@
+cd /private/tmp/claude-501/-Users-furkansarikaya-claude-FsPackages-proofline/a9e4dbd7-a2f4-47f2-b206-a0f4709f720c/scratchpad/e2e-root-R1-COMPLEX/COMPLEX-claude-20261017T050340Z/project
+R=.agents/runs/T-1/reviews/proof-review/rules
+W=/var/folders/d7/wsv_0k_10xx5wd2b3fx5nlbw0000gn/T/rv-r1/wt
+mkdir -p /var/folders/d7/wsv_0k_10xx5wd2b3fx5nlbw0000gn/T/rv-r1
+git worktree add --detach $W HEAD >/dev/null 2>&1
+git diff HEAD --binary | git -C $W apply
+cp migrations/003_add_tags.sql $W/migrations/
+cp tests/tags.test.js tests/app.test.js $W/tests/
+cp $R/evidence/F001/repro.test.js $W/tests/repro.test.js
+(cd $W && node --test tests/repro.test.js 2>&1 | grep -E "POST|DELETE|GET|pass|fail") | tee $R/evidence/F001/output-round2.txt
+git worktree remove --force $W
