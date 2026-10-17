@@ -59,7 +59,8 @@ cmd_merge() {
   read -r mg_num mg_state0 mg_draft mg_sha mg_extra <<EOF
 $mg_head
 EOF
-  [ -z "$mg_extra" ] && [ "$mg_num" = "$mg_pr" ] || mg_refuse "gh pr view did not return pull request $mg_pr (saw: $mg_head)"
+  [ -z "$mg_extra" ] || mg_refuse "gh pr view did not return pull request $mg_pr (saw: $mg_head)"
+  [ "$mg_num" = "$mg_pr" ] || mg_refuse "gh pr view did not return pull request $mg_pr (saw: $mg_head)"
   [ "$mg_state0" = OPEN ] || mg_refuse "pull request $mg_pr is $mg_state0, not OPEN"
   [ "$mg_draft" = false ] || mg_refuse "pull request $mg_pr is a draft"
   case "$mg_sha" in *[!0-9a-f]*|'') mg_refuse "head commit of pull request $mg_pr is not a SHA (saw: $mg_sha)" ;; esac
