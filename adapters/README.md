@@ -14,7 +14,7 @@ the decisions merged after it, is the root [README](../README.md#support-levels)
 
 | Adapter | Rendering, hooks, enforcement | End-to-end team runs |
 |---|---|---|
-| Claude Code (`adapters/claude`) | tested (incl. one live headless hook test) | each of the five scenarios passed at some point (2026-10-14 to 2026-10-17); none verified on the current `main` |
+| Claude Code (`adapters/claude`) | tested (incl. one live headless hook test) | each of the five scenarios passed at some point (2026-10-13 to 2026-10-17; STANDARD.tr several times); none verified on the current `main` |
 | Codex (`adapters/codex`) | tested (hooks, dispatch, agents rendered) | partially tested: cheapest-model integration checks (dispatch, submit, doctor probes, mixed TRIVIAL to the commit-approval stop, failover `resume`); the scored Codex-only TRIVIAL run failed; no scored scenario passed |
 | Any `AGENTS.md` agent (protocol tier), any headless CLI worker | control plane, git hooks and a fake command tested | not tested |
 

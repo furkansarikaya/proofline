@@ -49,7 +49,7 @@ What was actually tested for 0.0.1 (details, dates and every run in [tests/e2e/R
 evaluator's verdict `E2E: PASS` against the known-answer EXPECTED files; the date is the run's date and the
 commit is the `main` commit it ran on. Only a scenario verified on the current `main` may be called plainly
 "passing": **none is** (the current `main` is `de4efd8`, A132; the last runs are older). "Not re-verified after" lists
-the decisions in [docs/decisions.md](docs/decisions.md) merged after the run (A100, A109, A110, A121, A128 and A131 changed only CI, the e2e harness or tests; A117, A118 and A125 are mixed; the rest changed the control plane, the hooks or the skills).
+the decisions in [docs/decisions.md](docs/decisions.md) merged after the run (A109, A121, A128 and A131 changed only CI, the e2e harness or tests; A100 (harness plus a `none` step in the shipped Codex effort ladder), A110 (a CI job plus the visual-proof measure script), A117, A118 and A125 are mixed; the rest changed the control plane, the hooks or the skills).
 
 | Platform / configuration | Tier | Self-tests + enforcement | End-to-end team runs |
 |---|---|---|---|
@@ -83,7 +83,7 @@ items): in the runs listed in the e2e page (the regression round of 2026-10-17, 
 | Capability | Status |
 |---|---|
 | Risk-adaptive pipeline (`agent.sh pipeline`, focuses inside the existing gates) | tested (control-plane self-tests, `risk-signals` fixture); end-to-end: signals and the checks they trigger listed in COMPLEX and CRITICAL runs (N-1) |
-| Assumption register (`## Assumptions`, freeze stop, completion report) | tested (self-tests, plan and evidence validators); end-to-end: in every scenario (N-2), and the completion report lists unverified assumptions |
+| Assumption register (`## Assumptions`, freeze stop, completion report) | tested (self-tests, plan and evidence validators); end-to-end: N-2 met in every scenario (the register was empty in TRIVIAL, STANDARD and STANDARD.tr); the COMPLEX completion reports list unverified assumptions |
 | Metrics (`records.jsonl`) and `proofline insights` | tested (self-tests, CLI test, `insights` fixture); tokens only where a runtime reports them; end-to-end: records written, null tokens shown as `n/a`, `insights` read-only (N-3, N-6) |
 | evidence-map `impact` mode | tested on fixtures (`impact-map`, skill tests); static analysis limits stated in every report; not exercised by a team run |
 | ui-design (creative direction, UX comparison, self-critique, `visual_proof` criteria) | tested on fixtures (`ui-design`, skill tests); not scored in a team run |
@@ -94,7 +94,7 @@ items): in the runs listed in the e2e page (the regression round of 2026-10-17, 
 | performance-proof | tested on fixtures (`performance-proof`, skill tests); not run against a real benchmark in CI; not exercised by a team run |
 | data-design migration validation | tested on fixtures (`migration-validation`, skill tests); applying migrations to a project's own throwaway database not exercised; end-to-end: the migration focus ended UNSUPPORTED in COMPLEX, listed as not proven |
 | SECURITY `dependencies` and REVIEW `config` | tested on fixtures (`dependency-audit`, `config-consistency`); a project's own audit tool not exercised; not exercised by a team run |
-| UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests); end-to-end: reported in COMPLEX runs, database unchanged in all of the last runs (N-4, N-5) |
+| UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests); end-to-end: reported in COMPLEX runs, database unchanged in every run from A121 on, where `db_unchanged=yes` is recorded (N-4, N-5) |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
 Skills and roles are counted from `skills/` (twenty-one method skills plus the `/proofline` entry skill) and

@@ -40,8 +40,7 @@ run on it.
 ### Last passing run per scenario
 
 "Merged after" lists the decisions in `docs/decisions.md` merged after that run's commit
-(`git log <commit>..main`). Some of them changed only CI, the e2e harness or tests (A100, A109, A110, A121,
-A128, A131); A117 changed the harness and the repository's ignore file, A125 is mostly a test (plus front matter edits), and A118 changed `agent.sh` (a lock race); the rest changed the control plane, the hooks or the skills. A scenario may only be called plainly
+(`git log <commit>..main`). Some of them changed only CI, the e2e harness or tests (A109, A121, A128, A131); A100 is the harness plus a `none` step in the shipped Codex effort ladder, A110 is a CI job plus `skills/visual-proof/scripts/measure.mjs`; A117 changed the harness and the repository's ignore file, A125 is mostly a test (plus front matter edits), and A118 changed `agent.sh` (a lock race); the rest changed the control plane, the hooks or the skills. A scenario may only be called plainly
 "passing" if it passed on the current `main`; none did.
 
 | Scenario | Last passing run | main commit | Evaluator verdict | Decisions merged after that run |
@@ -60,7 +59,7 @@ A128, A131); A117 changed the harness and the repository's ignore file, A125 is 
 | STANDARD | FAIL 35/36 | C-22, the same cause | A130 (addressed, not re-run) |
 | STANDARD.tr | FAIL 40/41 | C-22, the same cause | A130 (addressed, not re-run) |
 | COMPLEX | FAIL 37/39 | C-22 (the same cause, and fix rounds stated as 1 instead of 2); X-4 and M-2: three explorer results, because two parallel explorers shared one scratch report and `max_explorers` was not enforced | A130, A132 (addressed, not re-run) |
-| CRITICAL | FAIL 30/35 | the scripted harness reply to the task author's intent interview steered the answer to the non-destructive option, so the plan was `destructive: no` and K-3, K-5 and K-6 were never reached; C-14 was also unmet (four replies against the limit of three, the fourth sent while no question was open: A131 addresses it); K-2 (the count in `EVIDENCE.md`) is model behaviour; K-9 and K-13 were met (database unchanged) | A131 (addressed, not re-run: reply chosen per scenario, intent only) |
+| CRITICAL | FAIL 30/35 | the scripted harness reply to the task author's intent interview steered the answer to the non-destructive option, so the plan was `destructive: no` and K-3, K-5 and K-6 were never reached; C-14 was also unmet (four replies against the limit of three, the fourth sent while no question was open: A131 addresses it); K-2 failed because `migrations/001_create_books.sql` was not a listed reference (the count of 3 was present; model behaviour; in the earlier regression run on `7eeeeb4` the count itself was missing); K-9 and K-13 were met (database unchanged) | A131 (addressed, not re-run: reply chosen per scenario, intent only) |
 
 None of the fixes was re-run end to end: the run budgets of the campaign were spent. A130 and A132 are covered by
 self-tests only; A131 by the reply-loop tests.
@@ -109,7 +108,7 @@ error in these checks). These are integration checks, not scored scenarios, so n
 |---|---|
 | Dispatch of a Codex worker, sandbox, `submit` | PASS |
 | Claude lead with a Codex worker, TRIVIAL (mixed) | PASS up to the commit-approval stop (the Claude reviewer and verifier ran as lead-native subagents, so the permission mode of A114 was not exercised by this check) |
-| `proofline doctor` and hook probes on Codex | PASS, 0 model calls |
+| `proofline doctor` and hook probes on Codex | PASS, 0 model calls (thinner evidence than the other rows: there was no separate run for this check, the evaluator took the doctor output from the other two checks) |
 | Lead failover Claude to Codex (`resume`) | partially tested: resume and freshness verified, a headless Claude verifier dispatched (A114 mode recorded), the A124 `wait:` line, and the A127 token with a single status file verified on `128e516`; the route printed after the VERIFY failure was only partly right (it named `## Verification commands` while the right edit was `criteria:` on the scope entries), and plan validation was a product gap (nothing enforced AC-to-scope coverage before freeze), both addressed afterwards by A127 and A129 and not re-run; the run did not reach DONE: the cheap Codex lead stopped to ask for authorization in prose, and the plan had an acceptance criterion mapped to no scope path (A129 now refuses that at freeze, not re-run) |
 | Codex-only TRIVIAL scored run (2026-10-14, `354f348`) | FAIL 26/43: the model wrote a plan scope without criteria and nothing was implemented; the unparseable scope that the first freeze accepted is fixed (A101) |
 | Codex-only STANDARD, STANDARD.tr, COMPLEX, CRITICAL; mixed STANDARD, STANDARD.tr, COMPLEX, CRITICAL; failover as a scored scenario | not tested |
