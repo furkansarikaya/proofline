@@ -1002,7 +1002,7 @@ sc_config_scope_misc() {
   A config-check >/dev/null
   [ "$(A config-get review.max_fix_rounds)" = 2 ] && [ "$(A config-get git.branch_prefix)" = proofline/ ]
   expect_fail "config-get of a missing key" A config-get no.such.key
-  for edit in 's/^profile: balanced/profile: .*/' 's/^failover: auto/failover: a.*/' 's/^  claude_permission_mode: .*/  claude_permission_mode: yolo/' 's/^profile: balanced/profile: turbo/' 's/^failover: auto/failover: sometimes/' 's/^  max_fix_rounds: 2/  max_fix_rounds: two/' 's/^metrics: on/metrics: maybe/' 's/^  COMPLEX: supervised/  COMPLEX: lazy/' 's/^    opus: 3/    opus: 4/' 's/^  regression_pct: 10/  regression_pct: ten/'; do
+  for edit in 's/^profile: balanced/profile: .*/' 's/^failover: auto/failover: a.*/' 's/^  claude_permission_mode: .*/  claude_permission_mode: yolo/' 's/^profile: balanced/profile: turbo/' 's/^failover: auto/failover: sometimes/' 's/^  max_fix_rounds: 2/  max_fix_rounds: two/' 's/^metrics: on/metrics: maybe/' 's/^  COMPLEX: supervised/  COMPLEX: lazy/' 's/^    opus: 3/    opus: 4/' 's/^  regression_pct: 10/  regression_pct: ten/' 's/^  profile: auto/  profile: loud/' 's/^  strictness: relaxed/  strictness: harsh/'; do
     sed "$edit" .agents/config.yaml > "$base/bad.yaml"
     expect_msg "config-check accepted: $edit" 'config invalid' A config-check "$base/bad.yaml"
   done

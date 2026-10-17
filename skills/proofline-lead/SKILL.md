@@ -160,6 +160,7 @@ Specialist results that stop the flow:
 | `queue` | List tasks in `tasks.dir` (`todo/`, then `backlog/`); run them one after another, each in its own run; the next starts only after the previous one is cleaned up ([FAILOVER.md](references/FAILOVER.md#3-queue-and-concurrency)). |
 | `task [--grill]` | Dispatch `task_author` (intent-grill first with `--grill`); writes the task file through the adapter; no run starts. |
 | `design system\|data\|api\|ui [--check]` | Outside a run: architect (system-design / api-design), data_architect (data-design), designer (ui-design) in standalone mode to reverse-engineer the configured `design_docs`; `--check` runs design-sync. |
+| `docs create\|update\|audit` | Outside a run: architect with docs-writer in standalone mode. `create <topic>` writes a document, `update [<range>]` updates the documents a diff makes stale, `audit` checks all documents against the code and fixes them. |
 | `review` | proof-review standalone (working tree, branch or PR). |
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |

@@ -7,6 +7,8 @@
 #   --root DIR   repository root (default: two directories above this script)
 #   skill-name   check only these skills; default: every skills/*/SKILL.md that exists
 #
+# Also: skills/<name>/references/WRITING.md and scripts/check-writing.mjs, when present, equal tests/shared/writing-profile.md and check-writing.mjs.
+#
 # Block = from the line starting with `<!-- proofline:shared-rules:begin` through the line
 # `<!-- proofline:shared-rules:end -->`, both included.
 # Prints PASS or FAIL per skill. Exit 0 when every checked skill passes, 1 on drift, a
@@ -55,5 +57,14 @@ for name in $names; do
   else
     echo "FAIL $name (shared-rules block differs from tests/shared/shared-rules.md)"; status=1
   fi
+done
+# Writing-profile copies (A138): a skill that carries the reference or the length check carries the canonical bytes.
+for name in $names; do
+  for pair in references/WRITING.md:writing-profile.md scripts/check-writing.mjs:check-writing.mjs; do
+    f="$root/skills/$name/${pair%%:*}"
+    [ -f "$f" ] || continue
+    if cmp -s "$f" "$root/tests/shared/${pair##*:}"; then echo "PASS $name ${pair%%:*}"
+    else echo "FAIL $name (${pair%%:*} differs from tests/shared/${pair##*:})"; status=1; fi
+  done
 done
 exit $status
