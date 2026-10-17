@@ -170,16 +170,17 @@ test("A105: a COMPLEX/CRITICAL task declares a defect the request does not ask f
 test("task_author writes the drop criterion when the user already said the data is not wanted (A137)", () => {
   for (const p of ["../../roles/task_author.md", "../../adapters/claude/agents/proofline-task-author.md"]) {
     const md = readFileSync(new URL(p, import.meta.url), "utf8");
-    assert.match(md, /already says the values are not wanted and the column should go, writes the whole removal as criteria/, p);
-    assert.match(md, /Offer "defer the drop" as the recommended option, ask whether or when to drop, or refuse the drop criterion/, p);
+    assert.match(md, /Only when the user's own words say explicitly that the stored values \(the data\) are not wanted or may be discarded AND that the column should go, writes the whole removal as criteria/, p);
+    assert.match(md, /After that explicit statement: offer "defer the drop" as the recommended option, ask whether or when to drop, or refuse the drop criterion/, p);
+    assert.match(md, /Hedged \("maybe", "probably"\), partial or inferred wording .* gets the data-fate question/, p);
     assert.match(md, /the destructive stop is the safety \(A55\)/, p);
   }
   const da = readFileSync(new URL("../../roles/data_architect.md", import.meta.url), "utf8");
   assert.match(da, /`contract` step: a separate, later migration, still `destructive: yes`/);
 });
 
-test("the CRITICAL question reply states that the column goes now, in user words only (A137)", () => {
+test("the CRITICAL question reply stays user intent only and unchanged by A137", () => {
   const r = readFileSync(new URL("../../tests/e2e/replies/question.CRITICAL.txt", import.meta.url), "utf8");
-  assert.match(r, /not left for later/);
-  assert.doesNotMatch(r, /migration|expand|contract|destructive|approve|plan|stage|\?/i);
+  assert.match(r, /no longer needed/);
+  assert.doesNotMatch(r, /migration|expand|contract|destructive|approve|plan|stage|later|\?/i);
 });
