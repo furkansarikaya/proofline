@@ -72,6 +72,8 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | Push | `I approve the push for TASK-001` |
 | Clean finished runs | `proofline clean --yes` |
 
+A reply must be one full sentence of the kind (`I approve the plan`, `I approve the commit`, `I approve the scope`, ...) or a short phrase such as `approve plan`; any extra clause makes it ambiguous and the question is asked again.
+
 Approvals only count from your own message (or a typed terminal answer), after the request, and are single-use.
 The accepted approval phrases are set in `approval.phrases` in `.agents/config.yaml`.
 
