@@ -16,7 +16,8 @@ kind=$(awk '
 if [ -z "$kind" ] && [ -d "${1:-}" ]; then
   newest=$(ls "$1" 2>/dev/null | sort | tail -1)
   case $newest in
-    [0-9]*-request-*.yaml) kind=${newest#*-request-}; kind=${kind%.yaml} ;;
+    # agent.sh kind_slug turns ':' into '-' (waive:F-1 is waive-F-1); no other kind holds a '-'.
+    [0-9]*-request-*.yaml) kind=${newest#*-request-}; kind=${kind%.yaml}; case $kind in waive-*) kind=waive:${kind#waive-} ;; esac ;;
   esac
 fi
 [ -z "$kind" ] || printf '%s\n' "$kind"

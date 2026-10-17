@@ -203,13 +203,11 @@ while :; do
   # A128: a refreeze asks for its plan approval without `next` naming it, so the newest approvals/ file counts too.
   kind=$(printf '%s\n' "$state" | sh "$here/pending-kind.sh" "$project/.agents/runs/$id/approvals")
   qline=$(sed -n 1p "$reply_file"); pline=$(sed -n 2p "$reply_file")
-  case $kind in
+  decision=$({ printf '%s\n' "$state"; printf '%s\n' "$pending"; cat "$last"; } | sh "$here/reply-decision.sh" "$kind")
+  case $decision in
     plan) line=$pline ;;
-    destructive|single_step|scope|budget|commit|push|waive:*) break ;;
+    stop) break ;;
     *)
-      # The accepted-answers list of an approval question names "commit it, push it": it is no commit request.
-      asked=$(printf '%s\n' "$state $pending $(cat "$last")" | grep -v 'accepted answers:')
-      if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|commit it|push it'; then break; fi
       # A120: no open question, no reply (the lead waits for something a reply cannot give).
       if ! printf '%s\n' "$state" | sh "$here/question-open.sh" "$last"; then
         stopped=no-open-question; stop_state=$(printf '%s\n' "$state" | sed -n 's/^\(next\|reason\)=/\1=/p' | tr '\n' ' ')
