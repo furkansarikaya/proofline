@@ -316,8 +316,9 @@ scenario_fix_scope_shared_criteria() {
   ok "fix_scope widens to plan paths sharing a criterion only"
 }
 
-# A127: a VERIFY failure the plan answers (finding path PLAN.md, or commands that do not cover an AC) routes to amendment and
-# refreeze, never to a fix round on control artifacts; a code finding keeps its fix round, without control-artifact paths.
+# A127: a gate failure the plan answers (a row on PLAN.md or another control artifact) routes to amendment and refreeze,
+# never to a fix round on control artifacts; a code row keeps its fix round, a product path sharing a directory name with a
+# control folder stays a fix path, and the amend route is walked to the end (new plan hash: evidence and gates again).
 scenario_plan_level_verify_fail() {
   scaffold orchestrated
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
@@ -326,18 +327,36 @@ scenario_plan_level_verify_fail() {
   A next LC > "$base/next.out"
   ! grep -q '^fix_path=' "$base/next.out" || die "a plan-level VERIFY failure printed fix paths: $(grep '^fix_path=' "$base/next.out" | tr '\n' ' ')"
   ! grep -q 'fix round' "$base/next.out" || die "a plan-level VERIFY failure opened a fix round"
-  grep -q '^next=amend PLAN.md ## Verification commands (lead owns it.*agent.sh refreeze LC <AMENDMENT>; a scope approval is needed only if the amendment adds scope paths; then re-run VERIFY' "$base/next.out" || die "next did not print the plan-level route: $(cat "$base/next.out")"
-  rec VERIFY FAIL high 'VERIFY-2|blocking|impl.txt:1|AC-2 has no eligible command proof: the plan Verification commands hold only a negative grep|traced: PLAN.md commands'
-  A next LC | grep -q 'refreeze LC <AMENDMENT>' || die "a command-coverage VERIFY failure with a product path was not routed to the plan"
-  gfail REVIEW_SMALL impl.txt
+  grep -q '^next=amend PLAN.md ## Verification commands (lead owns it.*agent.sh refreeze LC <AMENDMENT>; a scope approval is needed only if the amendment adds scope paths' "$base/next.out" || die "next did not print the plan-level route: $(cat "$base/next.out")"
+  grep -q 'voids the worker evidence and every gate: dispatch.sh LC implementer re-records RED and GREEN.*handoff LC IMPLEMENTED' "$base/next.out" || die "next did not print the evidence and gate steps after the refreeze"
+  grep -q 'no honest RED' "$base/next.out" || die "next did not say a commands-only amendment has no honest RED"
+  # a VERIFY row about code whose text only mentions verification commands is a code row
+  rec VERIFY FAIL high 'VERIFY-2|blocking|impl.txt:1|verification commands fail: expected 3 got 2|traced: npm test'
   A next LC > "$base/next.out"
-  grep -q '^fix_path=impl.txt$' "$base/next.out" && ! grep -Eq '^fix_path=(PLAN|VERIFY)\.md$' "$base/next.out" && grep -q 'fix round' "$base/next.out" || die "a code finding lost its fix round or listed a control artifact: $(cat "$base/next.out")"
+  grep -q '^fix_path=impl.txt$' "$base/next.out" && grep -q 'fix round' "$base/next.out" && ! grep -q 'refreeze LC <AMENDMENT>' "$base/next.out" || die "a code row mentioning verification commands lost its fix round: $(cat "$base/next.out")"
+  # a product path sharing a directory name with a control folder stays a fix path
+  rec VERIFY FAIL high 'VERIFY-3|blocking|reports/x.csv:2|the export has a wrong column|traced: csv'
+  A next LC | grep -q '^fix_path=reports/x.csv$' || die "a product path under reports/ was dropped from the fix paths"
+  # a code row plus a script row on a control path keeps the code fix round
+  rec VERIFY FAIL high 'VERIFY-4|blocking|impl.txt:1|lookup is wrong|traced: x' 'VERIFY-5|blocking|PLAN.md:1|UNSUPPORTED measurement missing|traced: y'
+  A next LC > "$base/next.out"
+  grep -q 'fix round' "$base/next.out" && ! grep -q '^fix_path=PLAN.md$' "$base/next.out" || die "a script row on a control path displaced the code fix round: $(cat "$base/next.out")"
+  # A107 rows get their own hint: re-dispatch the verifier, or amend when the command is missing from the plan
+  rec VERIFY FAIL high 'VERIFY-6|blocking|impl.txt:1|AC proof cites `ls` which cannot be re-run|traced: z'
+  A next LC | grep -q 're-dispatch the verifier citing only a configured or planned command' || die "an A107 row got no verifier re-dispatch hint"
+  rec VERIFY FAIL high 'VERIFY-7|blocking|PLAN.md:1|AC-2 has no eligible command proof|traced: PLAN.md commands'
   # the recovery needs no scope approval when the amendment adds no scope path
   mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: add positive verification commands\n' > .agents/runs/LC/amendments/001.md
   printf 'amended: positive verification commands\n' >> .agents/runs/LC/PLAN.md
   A refreeze LC 001.md >/dev/null || die "a refreeze that adds no scope path asked for a scope approval"
   expect_state handoff state IMPLEMENTING
-  ok "a plan-level VERIFY failure routes to amendment and refreeze, never to fix paths on control artifacts"
+  # the new plan hash voids the worker evidence and the gates: the implementer records RED and GREEN again
+  expect_msg "IMPLEMENTED on evidence bound to the old plan" 'worker-evidence verification failed' A handoff LC IMPLEMENTED
+  worker RED fail impl_test.txt 'test: lookup returns the default for the amended plan'; worker GREEN pass impl.txt 'impl: lookup returns the default for the amended plan'
+  A handoff LC IMPLEMENTED >/dev/null
+  expect_fail "CODE_DONE on gates of the old plan" A handoff LC CODE_DONE
+  pass_all; A handoff LC CODE_DONE >/dev/null
+  ok "a plan-level gate failure routes to amendment and refreeze, never to fix paths on control artifacts; the route ends at CODE_DONE"
 }
 
 scenario_fix_scope_no_criteria() {

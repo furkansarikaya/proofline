@@ -164,7 +164,8 @@ subagent_guard() {
   denied "implementer edits without an open window" "$(pre_edit Edit impl.txt proofline-implementer a7)" "no implementer window"
   out=$(sub_start proofline:proofline-implementer a7)
   [ -s .agents/local/windows/a7 ] && printf '%s' "$out" | grep -q 'AGENT_ROLE=implementer' || die "SubagentStart did not open the implementer window"; ok "SubagentStart opens the implementer window and briefs the role"
-  allowed "implementer edits an in-scope file inside its window" "$(pre_edit Edit impl.txt proofline:proofline-implementer a7)"
+  [ -e .agents/local/submissions/a7.started ] || die "SubagentStart did not register the subagent id (A127)"
+  allowed "implementer edits an in-scope file inside its window""$(pre_edit Edit impl.txt proofline:proofline-implementer a7)"
   denied "implementer edits an out-of-scope file" "$(pre_edit Write src/app.js proofline-implementer a7)" "outside the paths role implementer owns"
   denied "implementer shell write out of scope" "$(pre_bash 'echo x > src/app.js' proofline-implementer a7)"
   rm .agents/owns.conf

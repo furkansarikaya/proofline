@@ -157,6 +157,10 @@ sc_submit() {
   # A127: the token dispatch.sh exports wins over a typed --agent (a headless worker has no start context to read one from)
   (export PROOFLINE_AGENT=envtok; AS reviewer submit LC --focus rules+tests --confidence high --agent typedtok >/dev/null) || die "submit with PROOFLINE_AGENT and --agent failed"
   grep -q '^status=ok' .agents/local/submissions/envtok.status && [ ! -e .agents/local/submissions/typedtok.status ] || die "a typed --agent displaced the dispatch token"
+  # a subagent the hook registered (SubagentStart writes <id>.started) inside a dispatch worker keeps its own token
+  : > .agents/local/submissions/subtok.started
+  (export PROOFLINE_AGENT=envtok; AS reviewer submit LC --focus rules+tests --confidence high --agent subtok >/dev/null) || die "submit by a registered subagent failed"
+  grep -q '^status=ok' .agents/local/submissions/subtok.status || die "a registered subagent's token was displaced by the dispatch token"
   for art in "$(pwd)/$small/REPORT.md" ".agents/runs/LC/reviews/proof-review/small/REPORT.md" "./.agents/runs/LC/reviews/proof-review/small/REPORT.md" "reviews/proof-review/small/REPORT.md" "./reviews/proof-review/small/REPORT.md"; do
     AS reviewer submit LC --artifact "$art" --confidence high >/dev/null || die "artifact spelling not accepted: $art"
   done

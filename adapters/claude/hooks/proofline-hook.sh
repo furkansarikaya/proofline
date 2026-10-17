@@ -808,7 +808,8 @@ pretool)
 
 subagent-start)
   [ "$parsed" = yes ] && [ -n "$prole" ] && [ -n "$act" ] && [ "$act" != INVALID ] || exit 0
-  mkdir -p "$local_dir/windows" "$local_dir/records"
+  mkdir -p "$local_dir/windows" "$local_dir/records" "$local_dir/submissions"
+  : > "$local_dir/submissions/$aidf.started"   # A127: submit trusts a typed --agent over PROOFLINE_AGENT only for a registered subagent
   if [ "$prole" = implementer ] || [ "$prole" = designer ]; then
     if before=$(unset AGENT_ROLE; sh "$agent" window-open "$act" "$prole" 2>"$tmp/err"); then printf '%s\n' "$before" > "$local_dir/windows/$aidf"
     else printf 'proofline: window-open refused for proofline-%s (%s): %s\n' "$prole" "$aidf" "$(tr '\n' ' ' < "$tmp/err")" >> "$local_dir/records/$aidf.txt"; fi
