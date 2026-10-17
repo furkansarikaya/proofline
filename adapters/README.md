@@ -6,6 +6,18 @@ adapter: state, gates and the commit/push lock are in `control-plane/agents/scri
 hooks, which work with any agent (D6). Supported: Claude Code and Codex (full). Others: send a PR (D8).
 Untested adapters must be labelled "not tested".
 
+## Support status (0.0.1)
+
+Rendering and hooks are covered by `tests/generator/generator-test.sh`, the enforcement tests and the self-tests.
+End-to-end results are an evaluator's `E2E: PASS` on a dated run; the full table, with the commit of every run and
+the decisions merged after it, is the root [README](../README.md#support-levels).
+
+| Adapter | Rendering, hooks, enforcement | End-to-end team runs |
+|---|---|---|
+| Claude Code (`adapters/claude`) | tested (incl. one live headless hook test) | each of the five scenarios passed at some point (2026-10-14 to 2026-10-17); none verified on the current `main` |
+| Codex (`adapters/codex`) | tested (hooks, dispatch, agents rendered) | partially tested: cheapest-model integration checks (dispatch, submit, doctor probes, mixed TRIVIAL to the commit-approval stop, failover `resume`); the scored Codex-only TRIVIAL run failed; no scored scenario passed |
+| Any `AGENTS.md` agent (protocol tier), any headless CLI worker | control plane, git hooks and a fake command tested | not tested |
+
 ## 1. Role sources
 
 `roles/<id>.md` = frontmatter + body (format: `roles/README.md`). Fields an adapter uses:

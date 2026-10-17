@@ -11,9 +11,9 @@ the project; there is no build step.
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 cd proofline
-sh tests/selftest.sh                         # control-plane, enforcement, generator, CLI, task and e2e-harness suites (a few minutes)
-node --test tests/skills/                    # skill validators and fixtures' known answers
-sh tests/fixtures/check-fixtures.sh          # builds every fixtures/*/setup.sh and runs its selfcheck
+sh tests/selftest.sh                         # control-plane, enforcement, generator, CLI, task and e2e-harness suites (16 suites, over 145 units; a few minutes)
+node --test tests/skills/                    # skill validators and fixtures' known answers (about 740 tests)
+sh tests/fixtures/check-fixtures.sh          # builds every fixtures/*/setup.sh and runs its selfcheck (42 passed, 1 skipped without vitest)
 node --test tests/benchmark/benchmark.test.mjs            # benchmark report known-answer test (seconds)
 sh adapters/generate.sh --check              # generated agent files match roles/
 sh docs/reference/generate-skills.sh --check # docs/reference/skills.md matches the skills
@@ -27,7 +27,7 @@ core count and `SELFTEST_SHARD=<i>/<n>` runs one slice (CI uses four).
 CI additionally runs `shellcheck -s sh` over every shell script. A pull request that changes only plain
 documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png` and `.svg` files under `docs/` except `docs/reference/`) skips the
 test jobs but still runs shellcheck and the sync checks; Markdown under `skills/`, `roles/`, `control-plane/`
-and `adapters/` counts as code. Pull requests run Linux only; macOS runs on pushes to `main` and nightly.
+and `adapters/` counts as code. Pull requests run Linux only (about 8 minutes of wall time, A109); macOS runs on pushes to `main` and nightly.
 End-to-end team runs are described in
 [tests/e2e/README.md](tests/e2e/README.md); they use real agents and are not required for a pull request.
 The benchmark report (`node tests/benchmark/benchmark.mjs`, see [tests/benchmark/README.md](tests/benchmark/README.md))
@@ -93,7 +93,8 @@ Pull request checklist:
 - [ ] generated files are in sync (`--check` commands above)
 - [ ] a decision entry in `docs/decisions.md` for every behaviour change
 - [ ] a test that fails without the change
-- [ ] documentation updated, in English
+- [ ] documentation updated, in English; any test count, CI time or end-to-end result you quote is current, and an end-to-end result carries its date and `main` commit
+- [ ] the README "Support levels" table still says only what the runs show: a result older than a behaviour-changing decision reads "passed on <date> (<commit>), not re-verified after <decisions>"
 - [ ] no EXPECTED file loosened; no organisation-specific or third-party project name added
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).

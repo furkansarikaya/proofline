@@ -1,7 +1,7 @@
 # proofline
 
-> **Status 0.0.1: control plane and enforcement are tested; end-to-end team runs do not pass yet.**
-> See the [end-to-end results table](tests/e2e/README.md#results-after-the-a40-a53-rounds-2026-10-12-final).
+> **Status 0.0.1: the control plane and enforcement are tested; every Claude-only end-to-end scenario has passed at least once, but none has been verified on the current `main`.**
+> See [Support levels](#support-levels) and the [end-to-end results](tests/e2e/README.md#current-results).
 
 **No evidence, no claim.** A deterministic engineering team for coding agents: nothing is "done" because a model said so.
 
@@ -44,48 +44,66 @@ Windows: use WSL or Git Bash (the control plane is POSIX `sh`).
 
 ## Support levels
 
-What was actually tested for 0.0.1 (details in [tests/e2e/README.md](tests/e2e/README.md)). "Tested" means the
-self-tests and enforcement tests pass; the end-to-end column reports the independent evaluator's verdict against the
-known-answer EXPECTED files, which no run has fully met yet.
+What was actually tested for 0.0.1 (details, dates and every run in [tests/e2e/README.md](tests/e2e/README.md#current-results)).
+"Tested" means the self-tests and enforcement tests pass. "Passed" in the end-to-end column means the independent
+evaluator's verdict `E2E: PASS` against the known-answer EXPECTED files; the date is the run's date and the
+commit is the `main` commit it ran on. Only a scenario verified on the current `main` may be called plainly
+"passing": **none is** (the current `main` is `de4efd8`, A132; the last runs are older). "Not re-verified after" lists
+the decisions in [docs/decisions.md](docs/decisions.md) merged after the run (some changed only CI, the e2e
+harness or tests: A100, A109, A110, A121, A128, A131).
 
 | Platform / configuration | Tier | Self-tests + enforcement | End-to-end team runs |
 |---|---|---|---|
-| Claude Code, Claude-only team | Full | tested (incl. one live headless hook test) | tested, partial: 6 scenarios, 75–94 % of expectations met, 0 fully passing |
-| Codex CLI, Codex-only team | Full | tested (hooks, dispatch, agents rendered) | partially tested: TRIVIAL only, did not complete |
-| Claude lead + Codex worker | Full | tested with fake runtimes | not tested |
-| Lead failover (Claude → Codex `resume`) | Full | `agent.sh next` / dispatch failover tested with fake runtimes | not tested |
+| Claude Code, Claude-only team, TRIVIAL | Full | tested (incl. one live headless hook test) | passed on 2026-10-16 (`7eeeeb4`), not re-verified after A121 to A132; latest run 2026-10-17 (`9e70f03`): FAIL 35/36, report accuracy (C-22), fixed by A130, not re-run |
+| Claude Code, Claude-only team, STANDARD | Full | tested | passed on 2026-10-14 (`b515110`), not re-verified after A99 to A132; latest runs 2026-10-16 (`7eeeeb4`) and 2026-10-17 (`9e70f03`): FAIL 35/36 each (missing debug report, then report accuracy), fixed by A122 and A130, not re-run |
+| Claude Code, Claude-only team, STANDARD.tr (Turkish chat, English files) | Full | tested | passed on 2026-10-17 (`f75d1f5`, twice in a row), not re-verified after A126 to A132; latest run 2026-10-17 (`9e70f03`): FAIL 40/41, report accuracy (C-22), fixed by A130, not re-run |
+| Claude Code, Claude-only team, COMPLEX | Full | tested | passed on 2026-10-17 (`128e516`), not re-verified after A129 to A132; it failed in 9 other runs of the campaign and one model-behaviour item (the accuracy of the lead's report) still differs run to run; latest run 2026-10-17 (`9e70f03`): FAIL 37/39 (report accuracy; two parallel explorers shared a scratch file), fixed by A130 and A132, not re-run |
+| Claude Code, Claude-only team, CRITICAL | Full | tested | passed on 2026-10-14 (`b515110`), not re-verified after A99 to A132; latest run 2026-10-17 (`9e70f03`): FAIL 30/35 (the scripted harness reply steered the interview to the non-destructive option, so the destructive stop was never reached), fixed in the harness by A131, not re-run |
+| Codex CLI, Codex-only team | Full | tested (hooks, dispatch, agents rendered) | partially tested: dispatch of a worker, sandbox, `submit` and the doctor and hook probes passed (cheapest model, a few calls); the scored TRIVIAL run failed (26/43, 2026-10-14) and no other scenario was run |
+| Claude lead + Codex worker (mixed) | Full | tested with fake runtimes | partially tested: TRIVIAL passed up to the commit-approval stop (an integration check, not a scored `E2E: PASS`); no scored scenario |
+| Lead failover (Claude to Codex `resume`) | Full | `agent.sh next` / dispatch failover tested with fake runtimes | partially tested: resume, freshness, the dispatch of a headless Claude verifier, the in-flight wait and the VERIFY-failure route were verified on `128e516` (2026-10-17); the run did not reach DONE (the cheap Codex lead stopped to ask for authorization in prose) |
 | Any `AGENTS.md` agent (standalone topology) | Protocol | control plane + git hooks tested | not tested |
 | Any headless CLI as worker (command template) | Worker | tested with a fake command | not tested |
 | Task adapters: markdown, GitHub Issues | — | tested (GitHub via a fake `gh`) | markdown used in every run |
 | Task adapters: Jira, Linear | — | not tested (argument checks only) | not tested |
 | Windows | — | not tested (use WSL or Git Bash) | not tested |
 
+Known limits, stated plainly: no scenario was re-run after A130 to A132; COMPLEX passed twice in 11 runs and is
+not yet a stable result; the Codex checks used the cheapest model and never ran a full scenario. One open question
+for the maintainer (C-14 allows at most three harness replies while a COMPLEX run with a refreeze legitimately needs
+more) is recorded in [tests/e2e/README.md](tests/e2e/README.md#open-item-for-the-maintainer).
+
 ## Capabilities and what tests them
 
 "Tested" below means a test that runs in CI (on every code pull request; documentation-only pull requests skip the test jobs) or in `sh tests/selftest.sh`. "Tested on fixtures" means the check is
-exercised by planted data with known answers (`fixtures/*/EXPECTED.md`) and its validator or helper scripts, not by
-a model-driven team run in a real project. **No end-to-end team run has exercised any capability listed here yet**
-(the end-to-end results predate them); see [tests/e2e/README.md](tests/e2e/README.md).
+exercised by planted data with known answers (`fixtures/*/EXPECTED.md`) and its validator or helper scripts. "End-to-end"
+means an independent evaluator scored a team run that used the capability (`expected/CAPABILITIES.md`, the `N-`
+items): in the last runs (2026-10-14 to 2026-10-17, up to `9e70f03`) every `N-` item was met or not applicable,
+so the capabilities marked "end-to-end" below were exercised by real team runs and the others were not. Details:
+[tests/e2e/README.md](tests/e2e/README.md#capabilities-the-n--items).
 
 | Capability | Status |
 |---|---|
-| Risk-adaptive pipeline (`agent.sh pipeline`, focuses inside the existing gates) | tested (control-plane self-tests, `risk-signals` fixture) |
-| Assumption register (`## Assumptions`, freeze stop, completion report) | tested (self-tests, plan and evidence validators) |
-| Metrics (`records.jsonl`) and `proofline insights` | tested (self-tests, CLI test, `insights` fixture); tokens only where a runtime reports them |
-| evidence-map `impact` mode | tested on fixtures (`impact-map`, skill tests); static analysis limits stated in every report |
-| ui-design (creative direction, UX comparison, self-critique, `visual_proof` criteria) | tested on fixtures (`ui-design`, skill tests) |
-| visual-proof, report validator and depth rules | tested (skill tests on every code pull request) |
-| visual-proof, browser measurement | run by the main/nightly CI step (`fixtures/visual-proof/browser-check.sh`); UNSUPPORTED where no browser is found |
-| contract-proof | tested on fixtures (`contract-proof`, skill tests); compatibility tools of real projects not exercised |
-| concurrency-proof | tested on fixtures (`concurrency-proof`, skill tests); a concurrent reproduction in a real project's test runner not exercised |
-| performance-proof | tested on fixtures (`performance-proof`, skill tests); not run against a real benchmark in CI |
-| data-design migration validation | tested on fixtures (`migration-validation`, skill tests); applying migrations to a project's own throwaway database not exercised |
-| SECURITY `dependencies` and REVIEW `config` | tested on fixtures (`dependency-audit`, `config-consistency`); a project's own audit tool not exercised |
+| Risk-adaptive pipeline (`agent.sh pipeline`, focuses inside the existing gates) | tested (control-plane self-tests, `risk-signals` fixture); end-to-end: signals and the checks they trigger listed in COMPLEX and CRITICAL runs (N-1) |
+| Assumption register (`## Assumptions`, freeze stop, completion report) | tested (self-tests, plan and evidence validators); end-to-end: in every scenario (N-2), and the completion report lists unverified assumptions |
+| Metrics (`records.jsonl`) and `proofline insights` | tested (self-tests, CLI test, `insights` fixture); tokens only where a runtime reports them; end-to-end: records written, null tokens shown as `n/a`, `insights` read-only (N-3, N-6) |
+| evidence-map `impact` mode | tested on fixtures (`impact-map`, skill tests); static analysis limits stated in every report; not exercised by a team run |
+| ui-design (creative direction, UX comparison, self-critique, `visual_proof` criteria) | tested on fixtures (`ui-design`, skill tests); not scored in a team run |
+| visual-proof, report validator and depth rules | tested (skill tests on every code pull request); end-to-end: the QA visual focus passed with a measured report in COMPLEX runs (N-4) |
+| visual-proof, browser measurement | run by the main/nightly CI step (`fixtures/visual-proof/browser-check.sh`); UNSUPPORTED where no browser is found; end-to-end: measured in a real browser in COMPLEX runs |
+| contract-proof | tested on fixtures (`contract-proof`, skill tests); compatibility tools of real projects not exercised; end-to-end: the contract focus is triggered in COMPLEX and CRITICAL and ends UNSUPPORTED, listed as not proven |
+| concurrency-proof | tested on fixtures (`concurrency-proof`, skill tests); a concurrent reproduction in a real project's test runner not exercised; not exercised by a team run |
+| performance-proof | tested on fixtures (`performance-proof`, skill tests); not run against a real benchmark in CI; not exercised by a team run |
+| data-design migration validation | tested on fixtures (`migration-validation`, skill tests); applying migrations to a project's own throwaway database not exercised; end-to-end: the migration focus is triggered and ends UNSUPPORTED, listed as not proven |
+| SECURITY `dependencies` and REVIEW `config` | tested on fixtures (`dependency-audit`, `config-consistency`); a project's own audit tool not exercised; not exercised by a team run |
+| UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests); end-to-end: reported in COMPLEX runs, database unchanged in all of the last runs (N-4, N-5) |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
 Skills and roles are counted from `skills/` (twenty-one method skills plus the `/proofline` entry skill) and
 `roles/` (eleven roles); `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep
-the generated references in step with them.
+the generated references in step with them. Test counts on 2026-10-17: `sh tests/selftest.sh` 16 suites with over 145
+units; `node --test tests/skills/` 737 tests (734 pass, 3 skipped); `sh tests/fixtures/check-fixtures.sh` 42 passed,
+1 skipped. A pull request takes about 8 minutes of wall time in CI (Linux only; A109).
 
 ## Quick start (5 minutes)
 

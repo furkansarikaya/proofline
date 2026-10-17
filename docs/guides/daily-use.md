@@ -35,6 +35,7 @@ Inside Claude Code the same commands are `/proofline status`, `/proofline run <T
 - After a runtime limit, open the other runtime and run `proofline resume`. See [failover](../concepts/failover.md).
 - Run `proofline doctor` after changing config or upgrading.
 - Read the completion report's `## Unsupported Checks` and `## Assumptions`: an UNSUPPORTED check was never a pass, and an unverified assumption is a risk you accepted or still carry. Evidence classes and their meaning: [evidence](../concepts/evidence.md).
+- Know what is verified: the scripts are tested, and each Claude-only scenario has passed an independent end-to-end evaluation at some point (2026-10-14 to 2026-10-17), but none has been re-verified on the current version, and the Codex and failover configurations are only partially tested. The dated table is in the [README](../../README.md#support-levels).
 - Run `proofline insights` now and then: it reports where cost and repeated failures concentrate and changes nothing.
 
 More prompts: [prompt catalogue](prompt-catalogue.md). Concepts: [workflow](../concepts/workflow.md), [gates](../concepts/gates.md).
