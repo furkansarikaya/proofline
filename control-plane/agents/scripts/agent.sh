@@ -476,7 +476,7 @@ run_autonomy() { # ID -> supervised|autonomous (RUN.yaml execution.autonomy, els
 # plan_migration_shape PLAN -> expand_contract | single_step | missing | none (not destructive). A destructive
 # plan carries the data-design step table in `## Data` (`| step | phase | operation | object | destructive | ...`):
 # expand_contract = a non-destructive step in phase expand|backfill|switch, every destructive step in phase
-# deferred (a separate, later migration: a destructive step in this change's own phases is one step). single_step = the plan says `single_step: yes`, which the
+# contract or deferred (a separate, later migration; A141: a destructive step in expand|backfill|switch is one step). single_step = the plan says `single_step: yes`, which the
 # freeze accepts only with the user's `single_step` approval (A32).
 plan_migration_shape() {
   [ "$(plan_destructive "$1")" = yes ] || { echo none; return 0; }
@@ -488,7 +488,7 @@ plan_migration_shape() {
     /^\|/ && NF >= 7 {
       ph = t($3); dest = t($6)
       if (ph !~ /^(expand|backfill|switch|contract|deferred)$/) next
-      if (dest == "yes") { if (ph == "deferred") late = 1; else early = 1 }
+      if (dest == "yes") { if (ph == "deferred" || ph == "contract") late = 1; else early = 1 }
       else if (ph ~ /^(expand|backfill|switch)$/) pre = 1
     }
     END { if (single) print "single_step"; else if (pre && late && !early) print "expand_contract"; else print "missing" }' "$1")
@@ -1168,7 +1168,7 @@ freeze_approvals() {
   if [ "$(plan_destructive "$fa_d/PLAN.md")" = yes ]; then
     case "$(plan_migration_shape "$fa_d/PLAN.md")" in
       expand_contract|single_step) ;;
-      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase deferred (a separate, later migration, not part of this change). Only the user's explicit single-step approval allows one step: add 'single_step: yes' (the approval is requested after the freeze, before IMPLEMENT)" ;;
+      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase contract or deferred (a separate, later migration file after the stop-reading step). Only the user's explicit single-step approval allows one step: add 'single_step: yes' (the approval is requested after the freeze, before IMPLEMENT)" ;;
     esac
   fi
   if [ -n "$(task_defect_fixes "$fa_d/TASK.md")" ]; then

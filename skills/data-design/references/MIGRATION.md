@@ -18,7 +18,7 @@ a SQL scan of their string literals. Each action gets a `kind`, an `object` and 
 `destructive: yes` when any action is `destructive` or `unknown`. Pass the files that define the touched
 tables with `--context` so type changes can be proven widening; without them a type change is destructive.
 A classification is never argued away: to make a step non-destructive, change the step.
-A destructive plan separates the phases: the destructive step sits in phase `deferred` (a later, separate migration), after a
+A destructive plan separates the phases: the destructive step sits in phase `contract` (a separate, later migration file of this change) or `deferred` (a later task), after a
 non-destructive step in `expand`, `backfill` or `switch` that stops reading or writing the data first. One
 step (drop and stop-reading in the same migration) is only allowed with the user's explicit single-step
 approval, written as `single_step: yes` in `## Plan section`; plan-contract's validator and the freeze check the shape; the approval itself is checked at `handoff IMPLEMENTING`, after the freeze.
