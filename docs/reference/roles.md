@@ -6,7 +6,7 @@ Generated from roles/ — do not edit.
 
 | Role | Purpose | Dispatched | Result | Gates | Skills | Writes code | Sandbox | Tier floor |
 |---|---|---|---|---|---|---|---|---|
-| [`architect`](#architect) | Designs the smallest valid system and API solution from the task and frozen evidence, returning the PLAN Architecture text, design drafts and ADRs for real decisions. | class COMPLEX or CRITICAL, or on request (proofline design system or api, proofline docs) | task | none | system-design api-design docs-writer | no | workspace-write | 2 |
+| [`architect`](#architect) | Designs the smallest valid system and API solution from the task and frozen evidence, returning the PLAN Architecture text, design drafts and ADRs for real decisions. | class COMPLEX or CRITICAL, or on request (proofline design system or api, proofline docs or explain) | task | none | system-design api-design docs-writer explain-html | no | workspace-write | 2 |
 | [`data_architect`](#data_architect) | Designs the data model change and its migration plan, returning the PLAN Data section text and design/DATA.md, and flags every destructive operation. | when persistence, schema or stored data changes, or on request (proofline design data) | task | none | data-design | no | workspace-write | 2 |
 | [`designer`](#designer) | Designs the user interface for a task, writing the PLAN UI section and the per-task UI spec, and keeps the durable design system consistent. | when the task changes a user interface, or on request (proofline design ui) | task | none | ui-design | no | workspace-write | 1 |
 | [`explorer`](#explorer) | Investigates one bounded assignment and returns compact evidence where every claim is a verified path and symbol. | class STANDARD and up, in parallel up to the class max_explorers bound for independent objectives | task | none | evidence-map | no | workspace-write | 1 |
@@ -24,10 +24,10 @@ Designs the smallest valid system and API solution from the task and frozen evid
 
 - Name: Architect
 - Agent: proofline-architect
-- Dispatched: class COMPLEX or CRITICAL, or on request (proofline design system or api, proofline docs)
+- Dispatched: class COMPLEX or CRITICAL, or on request (proofline design system or api, proofline docs or explain)
 - Reads: TASK.md EVIDENCE.md design/INTENT.md repo
 - Owns: design/ reports/NNN-architect.md
-- Skills: system-design api-design docs-writer
+- Skills: system-design api-design docs-writer explain-html
 - Gates: none
 - Result protocol: task
 - Tools: Read Grep Glob Bash Write Edit

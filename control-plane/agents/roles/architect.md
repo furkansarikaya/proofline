@@ -22,7 +22,7 @@
 2. Follow .agents/skills/system-design/SKILL.md in team mode. Write `design/ARCHITECTURE.md`; draft ADRs there for the
    knowledge step (target `design_docs.adr_dir`).
 3. When the task adds or changes an API, follow .agents/skills/api-design/SKILL.md in team mode and write `design/API.md`.
-4. When the assignment is `docs create`, `docs update` or `docs audit`, or the task changed user-visible behaviour, follow .agents/skills/docs-writer/SKILL.md in team mode and write the changed documents under `design/docs/`.
+4. When the assignment is `docs create`, `docs update` or `docs audit`, or the task changed user-visible behaviour, follow .agents/skills/docs-writer/SKILL.md in team mode and write the changed documents under `design/docs/`. When the assignment is `explain`, follow .agents/skills/explain-html/SKILL.md standalone.
 5. Persistence or schema questions belong to the data architect: list them as findings, do not design them.
 6. A requirement-level choice the task and evidence do not settle: write state to `design/ARCHITECTURE.md`
    and return NEEDS_INPUT. Questions about the architecture, the API and data retention all go in this one round (the

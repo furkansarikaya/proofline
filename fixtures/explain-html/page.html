@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a task moves through a run</title>
+<style>
+:root { --bg: #ffffff; --fg: #1a1a1a; --accent: #0b5cad; --box: #e8f0fa; }
+@media (prefers-color-scheme: dark) { :root { --bg: #14181d; --fg: #e8e8e8; --accent: #7db7f0; --box: #1f2a38; } }
+:root[data-theme="light"] { --bg: #ffffff; --fg: #1a1a1a; --accent: #0b5cad; --box: #e8f0fa; }
+:root[data-theme="dark"] { --bg: #14181d; --fg: #e8e8e8; --accent: #7db7f0; --box: #1f2a38; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.6 system-ui, sans-serif; }
+header, main, footer { max-width: 40rem; margin: 0 auto; padding: 1rem; }
+svg { width: 100%; height: auto; }
+svg rect { fill: var(--box); stroke: var(--accent); }
+svg text { fill: var(--fg); font-size: 14px; }
+button:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>How a task moves through a run</h1>
+  <button id="theme" type="button" aria-pressed="false">Dark theme</button>
+</header>
+<main>
+  <p>A task is planned, built and then checked. Each step ends before the next one starts.</p>
+  <svg viewBox="0 0 360 60" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d-t d-d">
+    <title id="d-t">Three steps of a run</title>
+    <desc id="d-d">Plan leads to build, and build leads to check.</desc>
+    <rect x="5" y="10" width="95" height="40" rx="6"/><text x="52" y="35" text-anchor="middle">Plan</text>
+    <rect x="130" y="10" width="95" height="40" rx="6"/><text x="177" y="35" text-anchor="middle">Build</text>
+    <rect x="255" y="10" width="95" height="40" rx="6"/><text x="302" y="35" text-anchor="middle">Check</text>
+  </svg>
+  <details>
+    <summary>Details</summary>
+    <p>UNKNOWN: the review result is not written yet.</p>
+  </details>
+</main>
+<footer><p>Made offline from the run folder.</p></footer>
+<script>
+document.getElementById("theme").addEventListener("click", function (e) {
+  var dark = document.documentElement.getAttribute("data-theme") !== "dark";
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  e.currentTarget.setAttribute("aria-pressed", String(dark));
+});
+</script>
+</body>
+</html>
