@@ -143,7 +143,9 @@ document as a path in the frozen plan scope. No document is left stale.
 
 ## 8. Report, DONE, cleanup
 
-1. Write `COMPLETION_REPORT.md` ([REPORT.md](REPORT.md)), `A publish-completion-report <ID>`.
+1. Write `COMPLETION_REPORT.md` ([REPORT.md](REPORT.md)), `A publish-completion-report <ID>`. The script appends the
+   Facts block (`A report-facts <ID>`) and refuses a number of tests, gates, fix rounds or refreezes that the records do not
+   show: do not count yourself.
 2. `A handoff <ID> DONE`, `A delivery-check <ID>`.
 3. Delivery stop ([DELIVERY.md](DELIVERY.md)).
 4. `A cleanup <ID>` (removes the run directory and `.agents/local/assignments/<ID>/`, PR_BODY.md included, so only after delivery) after delivery or when the user declines delivery; terminal runs (`FAILED`,

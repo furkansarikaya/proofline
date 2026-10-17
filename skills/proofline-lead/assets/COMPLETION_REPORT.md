@@ -38,7 +38,7 @@ adapter before DONE. Omit a conditional section only when its condition does not
 |---|---|---|---|---|
 | <GATE> | <pass\|waived\|fail\|pass_low (not counted)> | <high\|medium\|low> | <n> | <ids or none> |
 
-Fix rounds used: <n> of <review.max_fix_rounds>.
+Fix rounds used: <n> of <review.max_fix_rounds> (the numbers of the Facts block; publish refuses others, A143).
 
 The findings column names every finding id of the gate record, info rows included; `none` only when the gate record has no finding row (A130).
 For each `not_rerun.<GATE>:<focus>=` line of `A pipeline <ID>` (the gate re-ran nothing), one line of its own, never called reproduced proof:

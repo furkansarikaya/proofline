@@ -75,6 +75,10 @@ if [ -n "$aid" ] || [ -n "$atype" ]; then [ -z "$prole" ] || role=$prole
 elif [ -n "$envrole" ] && [ "$envrole" != lead ] && valid_role "$envrole"; then role=$envrole; fi
 sub=no; { [ -n "$aid" ] || [ -n "$atype" ]; } && sub=yes
 aidf=$(safe "${aid:-unknown}")
+# Read roles (A143) change nothing in the project working tree; mutation and trials run in an evidence worktree.
+ro=no; case "$role" in qa|reviewer|security_reviewer|verifier) ro=yes ;; esac
+# shellcheck disable=SC2016 # literal $TMPDIR in the message
+ro_tail() { [ "$ro" = yes ] || return 0; printf ' (role %s is read-only in the project working tree, A143: mutation, trials and fix attempts run only in an evidence worktree, a git worktree outside the project that you create under $TMPDIR: git worktree add --detach "$TMPDIR/<name>" HEAD, in its own call, then use literal paths inside it; git worktree list shows it. Allowed in the project: your run result files and .agents/runs/<ID>/scratch/)' "$role"; }
 
 # --- path policy ----------------------------------------------------------------------------
 tasks_dir=''
@@ -116,6 +120,25 @@ target_ok() {
   if [ -L "$to_p" ]; then echo "the target is a symbolic link; writes through links are never allowed during a run"; return 1; fi
   if [ -f "$to_p" ] && [ -n "$(find "$to_p" -prune -links +1 2>/dev/null)" ]; then echo "the target has several hard links; writes through links are never allowed during a run"; return 1; fi
   path_ok "$(relpath "$1")"
+}
+# ro_operand KIND WORD (A143): may a read role pass WORD, an operand of an in-place editing command (KIND P: only an
+# existing file counts, the program text is also an operand) or of a script editor (KIND Q: any path counts)?
+# Prints the reason on refusal. A path outside the project is left to the shell-write rules; a variable path that
+# starts with neither $TMPDIR nor $HOME cannot be read, so it is refused.
+ro_operand() {
+  ro_v=$2
+  case "$ro_v" in .) ro_v=$cwd ;; */.) ro_v=${ro_v%/.} ;; esac   # patch: its targets are named in the diff, so the directory counts
+  # shellcheck disable=SC2016 # literal $TMPDIR in the command text
+  case "$ro_v" in '$TMPDIR'/*|'${TMPDIR}'/*) ro_v=${TMPDIR:-/tmp}/${ro_v#*/} ;; '~'/*|'$HOME'/*|'${HOME}'/*) ro_v=${HOME:-/nonexistent-home}/${ro_v#*/} ;; esac
+  case "$ro_v" in
+    *'$'*|*'`'*|'~'*)
+      case "$ro_v" in *[[:space:]]*|*';'*|*'{'*|*'('*|*'='*) return 0 ;; esac
+      echo "the path '$2' of an in-place edit cannot be resolved from the command text"; return 1 ;;
+  esac
+  case "$ro_v" in /*) ro_a=$ro_v ;; *) ro_a=$cwd/$ro_v ;; esac
+  [ "$1" = Q ] || [ -e "$ro_a" ] || return 0
+  case "$(relpath "$ro_v")" in @outside) return 0 ;; esac
+  target_ok "$ro_v"
 }
 # own_match REL TOKEN BASE: does owns.conf TOKEN (relative to BASE) cover REL? A token ending in / covers
 # its subtree, any other token one exact path; NNN in a token stands for three digits.
@@ -191,6 +214,9 @@ path_ok() {
 # skipped, `sh|bash -c STRING`, "$(...)" and "`...`" inside double quotes are scanned as nested commands.
 #   W path   the command writes path (redirection, tee, sed -i, perl -i, cp/mv/install/rsync/ln target, mv
 #            sources, touch/rm/truncate/unlink/rmdir/shred, chmod/chown/chgrp operands, dd of=)
+#   P word   an operand (program text included) of a command that edits files in place (sed -i, perl/ruby -i,
+#            awk -i inplace, patch); only the read-role guard reads it (A143)
+#   Q word   an operand of an editor run from a script (ed, ex, vi, vim); only the read-role guard reads it (A143)
 #   L arg    an ln operand (link or link target)
 #   A l sub  an agent.sh invocation; l = 1 when the subcommand word is literal
 #   R value  an AGENT_ROLE=value assignment (anywhere: prefix, env, export, plain word)
@@ -201,7 +227,7 @@ path_ok() {
 #   C word args   every simple command: its command word and its arguments joined with \003 (database guard)
 scan_cmd() {
   awk 'BEGIN { RS = "\001" }
-  function out(k, v) { if (k == "W" && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
+  function out(k, v) { if ((k == "W" || k == "P" || k == "Q") && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
   function base(x) { sub(/.*\//, "", x); return x }
   function isassign(x) { return x ~ /^[A-Za-z_][A-Za-z0-9_]*=/ }
   function push(t, d) {
@@ -333,7 +359,22 @@ scan_cmd() {
         out("W", x)
       }
     }
+    else if (c ~ /^(ed|ex|vi|vim|view|nvim)$/) {
+      for (j = k + 1; j <= nw; j++) {
+        if (w[j] ~ /^(-c|-S|-u|-U|-i|-w|-W|--cmd)$/) { j++; continue }
+        if (w[j] !~ /^[-+]/ && w[j] != "") out("Q", w[j])
+      }
+    }
+    else if (c ~ /^(patch|gpatch)$/) { out("P", "."); for (j = k + 1; j <= nw; j++) if (w[j] !~ /^-/ && w[j] != "") out("P", w[j]) }
+    else if (c ~ /^(ruby|awk|gawk|mawk)$/) {
+      hasc = 0
+      for (j = k + 1; j <= nw; j++) {
+        if (c == "ruby" ? w[j] ~ /^-[0adlnpsSwWxXvuT]*i/ : (w[j] ~ /^-i?inplace/ || w[j] == "--include=inplace" || ((w[j] == "-i" || w[j] == "--include") && w[j + 1] ~ /^inplace/))) hasc = 1
+      }
+      if (hasc) { for (j = k + 1; j <= nw; j++) if (w[j] !~ /^-/ && w[j] != "") out("P", w[j]); if (nw > k + 1) out("W", w[nw]) }
+    }
     else if (c == "sed" || c == "gsed" || c == "perl") {
+      for (j = k + 1; j <= nw; j++) if (w[j] ~ /^-[0adlnpsSwWxXvuTEe]*i/ || w[j] ~ /^--in-place/) { for (j = k + 1; j <= nw; j++) if (w[j] !~ /^-/ && w[j] != "") out("P", w[j]); break }
       if (c == "sed") for (j = k + 1; j <= nw; j++) { if (w[j] ~ /^-[A-Za-z]*i[A-Za-z-]+$/) { out("S", "sed " w[j]); break } if (j < nw && w[j] ~ /^-[A-Za-z]*i$/ && w[j + 1] ~ /^-[A-Za-z-]/) { out("S", "sed " w[j] " " w[j + 1]); break } } for (j = k + 1; j <= nw; j++) if (w[j] ~ /^-[A-Za-z]*i/ || w[j] ~ /^--in-place/) { if (nw > k + 1) out("W", w[nw]); break } }
     else if (c ~ /^(cp|mv|install|ln|rsync)$/) {
       nopt = 0; tgt = ""
@@ -592,7 +633,7 @@ stash_path() {
 # job before the stash). The cost of a wrong denial is one retry with a literal path. Reads $tmp/scan.
 stash_guard() {
   sh_wts=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
-  sh_cd=$cwd; sh_sep=$(printf '\003'); sh_cdseen=no; sh_ok=0; sh_force=no
+  sh_cd=$cwd; sh_sep=$(printf '\003'); sh_cdseen=no; sh_ok=0; sh_rok=0; sh_force=no
   # shellcheck disable=SC2016 # literal $TMPDIR in the message
   sh_msg='git stash (every subcommand, list and show included) must not run in the project working tree from a specialist (A71). Use an evidence worktree: create it in its own call (git worktree add "$TMPDIR/<name>" HEAD), then run git -C "$TMPDIR/<name>" stash ... in a separate call with a literal path that exists (a variable, substitution, cd -, a missing directory, a cd inside a subshell or pipe, or a git stash behind a wrapper is read as the project)'
   sh_pre=${cmd%stash*}
@@ -622,7 +663,7 @@ stash_guard() {
         # shellcheck disable=SC2086 # split on \003 on purpose
         set -- $sh_args
         IFS=$sh_ifs; set +f
-        sh_hit=no; sh_wtopt=$sh_force
+        sh_hit=no; sh_wtopt=$sh_force; sh_sub=stash
         while [ $# -gt 0 ]; do
           case "$1" in
             -C) [ $# -ge 2 ] || break; shift; sh_dir=$(stash_path "$1" "$sh_dir") ;;
@@ -631,7 +672,11 @@ stash_guard() {
             -c) [ $# -ge 2 ] || break; shift; case "$1" in [Cc][Oo][Rr][Ee].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]=*) sh_wtopt=yes ;; esac ;;
             --namespace|--config-env|--super-prefix|--git-dir|--exec-path|--attr-source|--list-cmds|--exec) [ $# -ge 2 ] || break; shift ;;
             -*) ;;
-            stash) sh_hit=yes; break ;;
+            stash) sh_hit=yes; sh_sub=stash; break ;;
+            reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout|rm|mv|pull)
+              # a read role changes no file of the project tree with git either (A143)
+              if [ "$ro" = yes ]; then sh_hit=yes; sh_sub=$1; break; fi
+              break ;;
             *)
               # a first word that is not a plausible subcommand name (a value of an option this list does not know)
               # followed by the word stash is read as a stash
@@ -653,15 +698,23 @@ stash_guard() {
 $sh_wts
 EOF
         fi
-        [ "$sh_in" = yes ] || deny "$sh_msg"
-        sh_ok=$((sh_ok + 1)) ;;
+        if [ "$sh_in" != yes ]; then
+          [ "$sh_sub" = stash ] && deny "$sh_msg$(ro_tail)"
+          deny "git $sh_sub changes the project working tree; its directory is not a registered evidence worktree (or cannot be read from the command text: a variable, substitution, cd -, a missing directory, a cd inside a subshell or pipe)$(ro_tail)"
+        fi
+        if [ "$sh_sub" = stash ]; then sh_ok=$((sh_ok + 1)); else sh_rok=$((sh_rok + 1)); fi ;;
     esac
   done < "$tmp/scan"
   # Safety net on the text: every `git ... stash` in command position that the records above did not resolve to
   # an evidence worktree is refused (unquoted substitutions, wrappers such as find -exec, watch, ssh, su -c, a
   # variable or substitution where the subcommand goes). Words that merely print or search (echo, grep) are skipped.
   sh_n=$(printf '%s' "$cmd" | stash_net_count)
-  [ "${sh_n:-0}" -le "$sh_ok" ] || deny "$sh_msg"
+  [ "${sh_n:-0}" -le "$sh_ok" ] || deny "$sh_msg$(ro_tail)"
+  # The same net for a read role's other tree-changing subcommands (wrappers such as find -exec hide them from the records).
+  if [ "$ro" = yes ]; then
+    sh_rn=$(printf '%s' "$cmd" | grep -Eo '(^|[^[:alnum:]_.-])git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout|rm|mv|pull)([[:space:]]|$)' | wc -l | tr -d ' ')
+    [ "${sh_rn:-0}" -le "$sh_rok" ] || deny "git changes the project working tree, or a wrapper hides which directory it runs in; use git -C <evidence worktree> or cd there with a literal path$(ro_tail)"
+  fi
 }
 # stash_net_count: stdin is the command text; prints how many `git [options] stash` (or a `$`/backtick where the
 # subcommand goes) sit in command position, not after a printing or searching word.
@@ -888,10 +941,11 @@ pretool)
     case "$cmd" in *PROOFLINE_PROBE_ROOT*|*PROOFLINE_SELFTEST*) deny "PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them" ;; esac
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
     # mutation evidence runs in a separate worktree (`git worktree add`, then `git -C <worktree> ...`).
-    if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } \
+    # (A read role is checked precisely by stash_guard below: effective directory, `git -C`, `cd`.)
+    if [ -n "$act" ] && [ "$ro" = no ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } \
        && printf '%s' "$cmd" | grep -Eq '(^|[;&|(]|[[:space:]])git[[:space:]]+(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout[[:space:]]+--)([[:space:]]|$)' \
        && ! printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+-C[[:space:]]|git[[:space:]]+worktree|--work-tree'; then
-      deny "git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it"
+      deny "git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it$(ro_tail)"
     fi
     # Scratch space is $TMPDIR (the runtime's private temp dir), never /tmp directly: files outside the project
     # and $TMPDIR are what a run must not leave behind. A project that itself lives under /tmp is not scratch.
@@ -952,14 +1006,19 @@ pretool)
         W)
           [ -n "$v" ] || continue
           case "$v" in /dev/*) continue ;; esac
+          # A read role writes through no `..` component: $TMPDIR/<worktree>/../../<project path> would pass the worktree check
+          [ "$ro" = no ] || case "/$v/" in */../*) deny "the command writes '$v', which goes through a .. component and cannot be placed inside an evidence worktree$(ro_tail)" ;; esac
           case "$v" in
             *'$'*|*'*'*|*'?'*|*'['*)
               # shellcheck disable=SC2016 # literal $TMPDIR in the command text
               case "$v" in /tmp/*|/private/tmp/*|'$TMPDIR'/*|'${TMPDIR'*) continue ;; esac
               case "$role" in implementer|designer) case "$v" in *.agents*|*.claude/settings*|*.codex/*|*.git/*) deny "the command writes '$v', which may be protected run state" ;; esac; continue ;; esac
-              deny "the command writes '$v', which cannot be resolved; while run $act is active the lead and read-only roles write only their run artifacts (shell write detection is a heuristic; use the Write tool on an allowed path)" ;;
+              deny "the command writes '$v', which cannot be resolved; while run $act is active the lead and read-only roles write only their run artifacts (shell write detection is a heuristic; use the Write tool on an allowed path)$(ro_tail)" ;;
           esac
-          why=$(target_ok "$v") || deny "the command writes '$v': $why" ;;
+          why=$(target_ok "$v") || deny "the command writes '$v': $why$(ro_tail)" ;;
+        P|Q)
+          [ "$ro" = yes ] || continue
+          why=$(ro_operand "$k" "$v") || deny "the command edits '$v' in place: $why$(ro_tail)" ;;
       esac
     done < "$tmp/scan"
     scratch_guard
@@ -985,7 +1044,7 @@ pretool)
   esac
   [ -n "$act" ] || exit 0
   while IFS= read -r tg; do
-    why=$(target_ok "$tg") || deny "$tool $tg: $why"
+    why=$(target_ok "$tg") || deny "$tool $tg: $why$(ro_tail)"
     # A120: the file tools write nothing outside the copy (the shell guard handles shell writes, A97)
     [ "$(relpath "$tg")" != @outside ] || why=$(outside_ok "$tg") || deny "$tool $tg: $why"
   done < "$tmp/targets"
