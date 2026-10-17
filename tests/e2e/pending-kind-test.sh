@@ -26,3 +26,16 @@ printf 'Please run rm .agents/x and tell me when it is gone.\n' > "$t/last"; qo 
 qo "a pending question named by next" 'next=agent.sh questions LC
 reason=a question is pending (a specialist NEEDS_INPUT)' open
 echo "question-open tests passed"
+# A128: a refreeze asks a second plan approval while `next` prints the fix-round step (run B1-COMPLEX).
+ak() { printf '%s\n' "$2" | sh "$here/pending-kind.sh" "$t/approvals"; }
+acheck() { [ "$(ak "$1" "$2")" = "$3" ] && echo "ok $1" || { echo "FAIL: $1 (got '$(ak "$1" "$2")', want '$3')" >&2; exit 1; }; }
+fix='next=agent.sh handoff T-1 IMPLEMENTING (fix round 2)
+reason=failing gates: REVIEW_RULES REVIEW_TESTS'
+mkdir "$t/approvals"; : > "$t/approvals/001-request-plan.yaml"; : > "$t/approvals/002-plan.yaml"
+acheck "an answered plan approval is not pending" "$fix" ''
+: > "$t/approvals/003-request-plan.yaml"
+acheck "the second plan approval after an amendment" "$fix" plan
+: > "$t/approvals/004-plan.yaml"; : > "$t/approvals/005-request-commit.yaml"
+acheck "a commit request is never mistaken for a plan" "$fix" commit
+acheck "next naming an approval wins" 'next=agent.sh request-approval T-1 scope (relay verbatim)' scope
+echo "approvals-dir tests passed"
