@@ -4,7 +4,7 @@ description: Debugs a failure with proof instead of guesses. Reproduces the bug 
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # debug-proof
@@ -50,7 +50,7 @@ Talk to the user in their language. Machine files (`debug.json`, `ledger.md`) ar
 7. **Regression test** ([METHOD.md](references/METHOD.md#6-regression-test)): fails before, passes after, suite green.
 8. **Validate.** `node <skill-dir>/scripts/validate-debug.mjs <debug.json|result.md> [--scope <path,path>]`; exit 0 required for status `fixed`. Without Node, check [METHOD.md](references/METHOD.md#8-validation-rules) by hand and say so.
 9. **Clean up** worktrees (paths recorded before creation; removed on resume) and verify the working tree holds only the fix and the regression test.
-10. **Report.** Compact: symptom, cause (one sentence with `path:symbol`), proof experiment, fix, regression test, ruled-out hypotheses, unresolved suspicions listed separately. Final question or the result header.
+10. **Report.** Compact: symptom, cause (one sentence with `path:symbol`), proof experiment, fix, regression test, ruled-out hypotheses, unresolved suspicions listed separately. Standalone: name the output path. Final question or the result header.
 
 ## Gate rule
 

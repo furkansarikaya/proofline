@@ -56,7 +56,8 @@ cat > src/ui/styles/tokens.css <<'X'
   --font-size-md: 14px;
 }
 X
-cat > DESIGN.md <<'X'
+mkdir -p docs/design
+cat > docs/design/DESIGN.md <<'X'
 # Design system
 
 Tokens are CSS custom properties in `src/ui/styles/tokens.css`. Components are plain DOM functions in
@@ -215,7 +216,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 test('every component listed in DESIGN.md exists', () => {
-  const design = readFileSync(new URL('../DESIGN.md', import.meta.url), 'utf8');
+  const design = readFileSync(new URL('../docs/design/DESIGN.md', import.meta.url), 'utf8');
   const paths = [...design.matchAll(/`(src\/ui\/components\/\w+\.js)`/g)].map((m) => m[1]);
   assert.equal(paths.length, 7);
   for (const p of paths) readFileSync(new URL(`../${p}`, import.meta.url));

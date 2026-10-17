@@ -4,7 +4,7 @@ description: Designs the smallest valid architecture for a task, or reverse-engi
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # system-design
@@ -34,7 +34,7 @@ Talk to the user in their language. Files written for machines (`architecture.js
 
 ## Standalone vs team
 
-- **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): outputs go to `.agents/local/system-design/<target>/` (nothing kept with `local_state: off`), report in the user's language, final question or next step. Reverse mode writes `docs/design/ARCHITECTURE.md` only after the user confirms the path.
+- **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): drafts and evidence go to `.agents/local/system-design/<target>/` (nothing kept with `local_state: off`). After the report, ask the user to approve the architecture document; only after approval write it to `design_docs.architecture`. Final message, one line: the written path and the next step, or without approval "draft stayed under .agents/local/system-design/<target>/". Report in the user's language.
 - **Team** (dispatched by the lead): read only the assignment, TASK.md, EVIDENCE.md and the repo; write only `design/ARCHITECTURE.md` and `design/architecture.json` in the run folder (plus `design/adr/NNNN-*.md` when an ADR is warranted), and return the `## Architecture` text for PLAN in the result file. Durable `docs/design/ARCHITECTURE.md` and ADR publication belong to the knowledge step, not this skill. The ledger is `design/architecture-ledger.md` (never a bare `ledger.md` in `design/`). Finish with the result header (`ROLE: architect`), the findings table (open risks; rows `| architect-<n> | info|blocking | <path:line> | <risk> | <evidence> |`, ids sequential from 1, `blocking` only when the task cannot proceed unresolved; any skill-internal id stays in the finding text), then BLOCKED_REASON or QUESTIONS.
 
 ## Flow

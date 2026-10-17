@@ -4,7 +4,7 @@ description: Visual proof of a UI change with the browser tooling the project or
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # visual-proof
@@ -111,7 +111,7 @@ rows before the next step.
 ## Output and gate rule
 
 `report.json`, `screenshots/`, `REPORT.md`, `visual.json`, `ledger.md`: team mode in `reviews/visual-proof/`
-of the run folder, standalone in `.agents/local/visual-proof/<slug>/`. Rules in [OUTPUT.md](references/OUTPUT.md).
+of the run folder, standalone in `.agents/local/visual-proof/<slug>/`. Rules in [OUTPUT.md](references/OUTPUT.md). The standalone final message names the folder.
 
 | validator RESULT | submit (`--focus visual`) |
 |---|---|

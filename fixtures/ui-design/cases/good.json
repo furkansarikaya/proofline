@@ -2,7 +2,7 @@
   "schema_version": 1,
   "mode": "task",
   "ui_languages": ["en"],
-  "design_system": { "file": "DESIGN.md", "exists": true },
+  "design_system": { "file": "docs/design/DESIGN.md", "exists": true },
   "reused": [
     { "kind": "component", "name": "Select", "path": "src/ui/components/Select.js" },
     { "kind": "component", "name": "TextInput", "path": "src/ui/components/TextInput.js" },

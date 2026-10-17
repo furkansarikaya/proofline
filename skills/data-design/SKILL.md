@@ -4,7 +4,7 @@ description: Designs the data side of a change for the project's actual database
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # data-design
@@ -71,8 +71,7 @@ this `SKILL.md`.
 
 - **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): output to
   `.agents/local/data-design/<target>/` (`<target>` = task id, `model` for reverse, `review-<slug>` for review;
-  nothing kept with `local_state: off`). Reverse mode writes `docs/design/DATA_MODEL.md` only after the user
-  confirms the path. The report ends with the next step, or with the approval question when destructive.
+  nothing kept with `local_state: off`). After the report, ask the user to approve the data model document (with the destructive-approval question when destructive); only after approval write it to `design_docs.data_model`. Final message, one line: the written path and the next step, or without approval "draft stayed under .agents/local/data-design/<target>/".
 - **Team** (dispatched by the lead): plan mode reads only the assignment, TASK.md, EVIDENCE.md (when present),
   PLAN `## Architecture` (when present) and the repository, and writes only `design/DATA.md` in the run folder
   and its ledger `design/data-ledger.md` (`ARTIFACT: design/DATA.md <sha256>`). Review mode writes only

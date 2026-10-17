@@ -32,6 +32,8 @@ Template: [INTENT.template.md](../assets/INTENT.template.md). Parsed form: [inte
 
 A `|` inside a cell is written as `/`.
 
+**Level.** The `question` cell starts with `[task]` or `[project]` (no prefix means `[task]`). `[project]` decisions (tech stack, content structure, language support, publishing, architecture patterns) become ADRs after approval; `[task]` decisions stay in the task. The validator treats the prefix as plain text.
+
 ## 3. Candidates
 
 - One `ACC-<n>` per observable behavior; it names a trigger and an observable result ("Exporting with status filter `paid` downloads a CSV with only paid orders created in the current month, Europe/Berlin time"). No implementation, no "should be fast", no "works correctly".

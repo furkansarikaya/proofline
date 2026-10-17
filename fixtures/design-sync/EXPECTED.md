@@ -3,7 +3,7 @@
 Evaluator only; never shown to the runner. Output: `SYNC.md` (standalone: under
 `.agents/local/design-sync/`) and the final message. `selfcheck.sh` proves the planted facts.
 
-Planted facts: default locations `DESIGN.md`, `docs/design/ARCHITECTURE.md`, `docs/design/DATA_MODEL.md`,
+Planted facts: default locations `docs/design/DESIGN.md`, `docs/design/ARCHITECTURE.md`, `docs/design/DATA_MODEL.md`,
 `docs/design/API.md` all exist. The schema source is `migrations/*.sql` (001 creates `users`, `projects`;
 002 creates `tasks` as `create table if not exists "tasks"`). Routes are in `src/api/routes.js` (`:id`
 style). Tokens are in `src/styles/tokens.css` (lower-case hex). The mailer was moved from
@@ -18,7 +18,7 @@ updated.
    file is now at `src/notify/mailer.js` (naming the new location, e.g. from `git log --follow` or a
    search, is expected).
 3. `docs/design/API.md`: `DELETE /projects/{id}` has no route in `src/api/routes.js`.
-4. `DESIGN.md`: token `--color-surface` is documented but not defined in `src/styles/tokens.css`.
+4. `docs/design/DESIGN.md`: token `--color-surface` is documented but not defined in `src/styles/tokens.css`.
 5. Verdict FAIL (in team mode: `RESULT: FAIL`), with exactly the four drift items above as the reasons.
 
 ## MUST NOT report as drift (decoys)

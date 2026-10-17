@@ -74,7 +74,7 @@ Designs the user interface for a task, writing the PLAN UI section and the per-t
 - Agent: proofline-designer
 - Dispatched: when the task changes a user interface, or on request (proofline design ui)
 - Reads: TASK.md EVIDENCE.md design/INTENT.md repo
-- Owns: design/ /DESIGN.md
+- Owns: design/ /docs/design/DESIGN.md
 - Skills: ui-design
 - Gates: none
 - Result protocol: task

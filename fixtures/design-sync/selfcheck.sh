@@ -29,11 +29,11 @@ grep -q "method: 'GET', path: '/projects/:id'" src/api/routes.js || fail "GET :i
 grep -q "method: 'PATCH', path: '/projects/:id'" src/api/routes.js || fail "PATCH :id decoy missing"
 
 # Drift 4: --color-surface documented, not defined.
-grep -q '`--color-surface`' DESIGN.md || fail "surface token not documented"
+grep -q '`--color-surface`' docs/design/DESIGN.md || fail "surface token not documented"
 grep -q -- '--color-surface' src/styles/tokens.css && fail "surface token defined"
 # Decoys: hex case differs only.
 grep -q -- '--color-primary: #1a73e8;' src/styles/tokens.css || fail "primary decoy missing"
-grep -q '`--color-primary` | `#1A73E8`' DESIGN.md || fail "primary doc decoy missing"
+grep -q '`--color-primary` | `#1A73E8`' docs/design/DESIGN.md || fail "primary doc decoy missing"
 grep -q -- '--color-danger: #d93025;' src/styles/tokens.css || fail "danger decoy missing"
 
 # The migrations really create exactly these tables.

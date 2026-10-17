@@ -4,7 +4,7 @@ description: Implements a change test-first with recorded proof. For every non-e
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # tdd-proof
@@ -53,7 +53,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
 4. **Ledger and `tdd.json`** ([schema](schema/tdd.schema.json)) are written per cycle, before the next cycle starts.
 5. **Validate.** `node <skill-dir>/scripts/validate-tdd.mjs <tdd.json> --scope <path:AC-1+AC-2,path,...>` (criteria after the path, from the plan's scope); exit 0 required. Without Node, check [RED.md](references/RED.md#5-validation-rules) by hand and say so.
 6. **Clean up** the worktree (path recorded before use; removed on resume), verify the user's tree holds only scope changes.
-7. **Report.** Per path: test, RED reason (one line), GREEN command, hollow-check result, refactor note. Final question or the result header.
+7. **Report.** Per path: test, RED reason (one line), GREEN command, hollow-check result, refactor note. Standalone: name the output path. Final question or the result header.
 
 ## Gate rule
 

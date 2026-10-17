@@ -15,7 +15,17 @@
         "id": { "type": ["string", "null"] },
         "title": { "type": ["string", "null"] },
         "acs": { "type": "integer", "minimum": 0 },
-        "class": { "enum": ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL", null] }
+        "class": { "enum": ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL", null] },
+        "meta": {
+          "type": "object",
+          "description": "optional front matter, present only when the task has one",
+          "properties": {
+            "size": { "enum": ["S", "M", "L"] },
+            "sprint": { "type": "string" },
+            "assignee": { "type": "string" },
+            "depends_on": { "type": "string" }
+          }
+        }
       }
     }
   }

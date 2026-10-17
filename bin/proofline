@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.2
+PROOFLINE_VERSION=0.0.3
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -216,7 +216,7 @@ cmd_task() {
 cmd_design() {
   require_installed
   case "${1:-}" in system|data|api|ui) ;; *) die "usage: proofline design system|data|api|ui [--check]" ;; esac
-  say "durable design documents: $(cfg_val "$CFG" design_docs.design DESIGN.md), $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
+  say "durable design documents: $(cfg_val "$CFG" design_docs.design docs/design/DESIGN.md), $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
   hint design "$@"
 }
 

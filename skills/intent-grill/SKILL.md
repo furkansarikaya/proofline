@@ -4,7 +4,7 @@ description: Interviews the user about a vague or high-stakes request before a t
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # intent-grill
@@ -45,6 +45,10 @@ Talk to the user in their language. `INTENT.md` is English except the quoted req
 7. **Record the answer.** Answer verbatim, `answered_by`; update the decision row (`resolved` or `deferred`, `source: round <n>`). Add new decisions the answer opens; re-check dependencies. Validate. Open decisions left: back to step 5.
 8. **Derive** ([INTENT-FORMAT.md](references/INTENT-FORMAT.md#3-candidates)). Write `ACC-<n>` candidates for every resolved decision outside `non-goals` and `OOS-<n>` candidates for every resolved non-goal; set `## Status` `complete`; validate until exit 0. Node unavailable: check every rule in [INTENT-FORMAT.md](references/INTENT-FORMAT.md#4-validation-rules) by hand and say so.
 9. **Report.** Standalone: the decisions table (id, decision, decided_by), deferred items, candidates, notes, then the closing question and the absolute path of `INTENT.md`. Team: the result header and table.
+
+## Decision level and ADRs
+
+Mark every decision `[task]` or `[project]` at the start of its `question` cell ([INTENT-FORMAT.md](references/INTENT-FORMAT.md#2-decision-tree-table)). `[project]` = tech stack, content structure, language support, publishing, architecture patterns: it outlives this task. Before asking, list the ADRs in config `design_docs.adr_dir`; a `[project]` question that an accepted ADR already answers is a confirmation question quoting the ADR, and a different answer is a new decision that supersedes it, never an overwrite. `[task]` decisions go into the task. After the user approves, task-author writes the `[project]` ones as ADRs (new `NNNN` = highest + 1, the contradicted ADR set to `superseded by NNNN`) and links them from the task files; intent-grill itself writes no ADR. Do not open another decision store. When `.agents/local/team.yaml` exists, say once "team info recorded (N people), tell me to change it" instead of asking about the team again.
 
 ## Output
 

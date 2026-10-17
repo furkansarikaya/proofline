@@ -4,7 +4,7 @@ description: "Writes an executable, scoped PLAN.md for one task and validates it
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # plan-contract
@@ -31,7 +31,7 @@ Talk to the user in their language. `PLAN.md` is English; identifiers, paths, co
 
 ## Modes
 
-- **Standalone** (no `.agents/local/ACTIVE_RUN`): input a TASK.md path (or text, saved first to `.agents/local/plan-contract/<TASK-ID>/TASK.md`); output `.agents/local/plan-contract/<TASK-ID>/PLAN.md`. Finish with the plan summary and the question "Approve this plan, or change scope?".
+- **Standalone** (no `.agents/local/ACTIVE_RUN`): input a TASK.md path (or text, saved first to `.agents/local/plan-contract/<TASK-ID>/TASK.md`); output `.agents/local/plan-contract/<TASK-ID>/PLAN.md`. The PLAN is working evidence, not a project document. Finish with the `PLAN.md` path, the plan summary and the question "Approve this plan, or change scope?".
 - **Team** (the lead's own planning step inside a run): inputs `TASK.md`, `EVIDENCE.md` (STANDARD and up), `design/INTENT.md` when present, and the Architect / Data Architect / Designer section texts they returned; output `PLAN.md` in the run folder. Supervised autonomy: present the validated plan for `plan` approval before `agent.sh freeze`. The lead never writes a verdict about its own plan; the plan focus reviewer does.
 
 ## Flow

@@ -4,7 +4,7 @@ description: Explains a topic, a task, a review or a completion report as one se
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # explain-html
@@ -49,7 +49,7 @@ Talk to the user in their language. Write the page in the language they use. The
 4. **Write** to `.agents/local/explain/<slug>.html` (`<slug>` from the topic or the TASK-ID). Before the first write, create `.agents/local/.gitignore` containing `*` if it is missing. With `local_state: off`, ask the user for a path. Copy the file elsewhere only when the user asks.
 5. **Prove.** `node <skill-dir>/scripts/check-html.mjs <file>` exits 0 only when the page passes. Fix every finding.
 6. **Judge** what the script does not check: landmarks, SVG titles, contrast, focus, the 320 px layout, and the writing profile on the page text.
-7. **Report** the path, the validator result and every `UNKNOWN`.
+7. **Report** the HTML path (it stays under `.agents/local/explain/`), the validator result and every `UNKNOWN`.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)

@@ -4,7 +4,7 @@ description: Concurrency review of a change (working tree, branch, pull request 
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # concurrency-proof
@@ -73,7 +73,7 @@ problem lives in SQL and the test suite has no throwaway database, it stays `tra
 - **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the target is what the user
   names (working tree, branch against its base, or a pull request whose head is available locally; a missing
   head is a question, never a fetch). Output in `.agents/local/concurrency-proof/<slug>/`. The report ends
-  with the verdict and the next step.
+  with the verdict, the report path and the next step.
 - **Team** (dispatched as `reviewer` with FOCUS `concurrency`): the target is the task-owned diff (`base_sha`
   of the run to the working tree, untracked files included). Reads only the assignment, TASK.md, PLAN.md
   (`## Risk`, `## Assumptions`, the criteria), EVIDENCE.md, the diff and the code it reaches; writes only

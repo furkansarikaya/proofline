@@ -4,7 +4,7 @@ description: Audits how far a test suite can be trusted, using runnable evidence
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # test-trust
@@ -107,7 +107,7 @@ All output goes to the output folder: `ledger.md`, `findings.json`, `REPORT.md`,
 
 - **Inside a run:** `.agents/runs/<TASK-ID>/reviews/test-trust/tests/` (gate) or `.../reviews/test-trust/qa/` (QA role, never a gate artifact). The run owns the folder; it is deleted with the run. Mutations and repeated runs happen only in the throwaway worktree; a write to the project tree is denied by the proofline hook and leaves the gate unrecorded.
 - **Outside a run:** `.agents/local/test-trust/<scope-slug>/` at the audited repo's root. Make sure it is git-ignored without touching the project's `.gitignore`: if `git check-ignore -q .agents/local/` fails, create `.agents/local/.gitignore` containing the single line `*`. `local_state: off` in `.agents/config.yaml` keeps nothing after the run: the same files live in a `mktemp -d "${TMPDIR:-/tmp}/test-trust-out-XXXXXX"` folder that is deleted at the end (re-runs start from scratch).
-- **Raw evidence is deleted once the report is written** (`evidence/`, and outside a run `REPORT.md`, after it was shown to the user). Before deleting, validate `findings.json`, then set `"evidence_pruned": true` in it. Outside a run only `ledger.md` and `findings.json` remain. Inside a run `REPORT.md` remains too and is the `ARTIFACT`.
+- **Raw evidence is deleted once the report is written** (`evidence/`, and outside a run `REPORT.md`, after it was shown to the user). Before deleting, validate `findings.json`, then set `"evidence_pruned": true` in it. Outside a run only `ledger.md` and `findings.json` remain; the final message names their folder. Inside a run `REPORT.md` remains too and is the `ARTIFACT`.
 - **Outside a run, a folder whose findings are all closed deletes itself:** when the final `findings.json` has no `confirmed` and no `needs_validation` finding (a re-run found everything fixed or cleared, or nothing was ever found), delete the whole scope folder and say so. Delete only the folder you resolved, only if it is not a symlink; every `rm` is its own command on a checked literal path.
 
 Delete raw evidence with the same care as in [HOLLOW.md](references/HOLLOW.md#5-clean-up): resolve with `realpath`, stay inside the output folder, never follow a symlink.

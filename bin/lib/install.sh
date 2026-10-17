@@ -432,4 +432,8 @@ cmd_upgrade() {
   if awk -F'\t' '$1 == "conflict"' "$STAGE/plan" | grep -q .; then
     say ""; say "conflicts: files you modified were kept. Compare each with its .proofline-new copy, merge by hand, then delete the copy."
   fi
+  # The default design document moved out of the root (0.0.3); offer the move, never do it, never touch the config.
+  if [ -f "$ROOT/DESIGN.md" ] && [ "$(cfg_val "$cf" design_docs.design docs/design/DESIGN.md)" != DESIGN.md ]; then
+    say ""; say "offer: DESIGN.md sits at the project root; the default location is now docs/design/DESIGN.md. To move it: git mv DESIGN.md docs/design/DESIGN.md (then update design_docs.design if set). Nothing was moved."
+  fi
 }

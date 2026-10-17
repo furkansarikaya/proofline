@@ -184,3 +184,22 @@ test("the CRITICAL question reply stays user intent only and unchanged by A137",
   assert.match(r, /no longer needed/);
   assert.doesNotMatch(r, /migration|expand|contract|destructive|approve|plan|stage|later|\?/i);
 });
+
+test("front matter: accepts size/sprint/assignee/depends_on, rejects unknown size and unknown dependency", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fm-"));
+  mkdirSync(join(dir, "T-0"));
+  writeFileSync(join(dir, "T-0", "TASK.md"), GOOD.replace("T-1", "T-0"));
+  const fm = (extra) => `---\n${extra}\n---\n${GOOD}`;
+  const run = (t) => {
+    const f = join(dir, "x.md.txt");
+    writeFileSync(f, t);
+    return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" });
+  };
+  assert.equal(run(fm("size: M\nsprint: 2\nassignee: ann\ndepends_on: [T-0]")).status, 0);
+  const bad = run(fm("size: XL"));
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout + bad.stderr, /size must be one of S\|M\|L/);
+  const dep = run(fm("depends_on: [T-99]"));
+  assert.notEqual(dep.status, 0);
+  assert.match(dep.stdout + dep.stderr, /depends_on id "T-99" matches no task/);
+});

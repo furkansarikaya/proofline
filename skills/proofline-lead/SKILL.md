@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # proofline-lead
@@ -159,7 +159,7 @@ Specialist results that stop the flow:
 | `resume` | Boot with freshness and `verify-handoff`; continue Flow from `A next` ([FAILOVER.md](references/FAILOVER.md)). |
 | `queue` | List tasks in `tasks.dir` (`todo/`, then `backlog/`); run them one after another, each in its own run; the next starts only after the previous one is cleaned up ([FAILOVER.md](references/FAILOVER.md#3-queue-and-concurrency)). |
 | `task [--grill]` | Dispatch `task_author` (intent-grill first with `--grill`); writes the task file through the adapter; no run starts. |
-| `design system\|data\|api\|ui [--check]` | Outside a run: architect (system-design / api-design), data_architect (data-design), designer (ui-design) in standalone mode to reverse-engineer the configured `design_docs`; `--check` runs design-sync. |
+| `design system\|data\|api\|ui [--check]` | Outside a run: architect (system-design / api-design), data_architect (data-design), designer (ui-design) in standalone mode to reverse-engineer the configured `design_docs`; the document is written to its `design_docs` path only after the user approves it, otherwise the draft stays under `.agents/local/`; `--check` runs design-sync. |
 | `docs create\|update\|audit` | Outside a run: architect with docs-writer in standalone mode. `create <topic>` writes a document, `update [<range>]` updates the documents a diff makes stale, `audit` checks all documents against the code and fixes them. |
 | `explain <topic\|TASK-ID>` | Outside a run: architect with explain-html in standalone mode. Writes one self-contained offline HTML page to `.agents/local/explain/`; a TASK-ID is read from its run folder. |
 | `review` | proof-review standalone (working tree, branch or PR). |

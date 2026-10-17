@@ -4,14 +4,14 @@ description: Designs UI work. Reverse-engineers a DESIGN.md design system (token
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # ui-design
 
 One rule: **reuse what exists, specify every state, invent only with a reason.**
 
-Role: Designer. Output: `DESIGN.md` (durable design system) and the task's UI spec. Never edits product code.
+Role: Designer. Output: `docs/design/DESIGN.md` (durable design system) and the task's UI spec. Never edits product code.
 
 Talk to the user in their language. Machine files (`ui.json`, `ledger.md`) are English; the UI copy you specify is written in the product's own UI language(s) as found in the repo (locale files, existing strings), recorded in `ui_languages`. Identifiers, paths and enum values are never translated.
 
@@ -19,7 +19,7 @@ Talk to the user in their language. Machine files (`ui.json`, `ledger.md`) are E
 
 ## Hard rules
 
-1. **Design system first, from evidence.** If `design_docs.design` (default `DESIGN.md`) is absent, derive it from the existing UI ([METHOD.md](references/METHOD.md#1-reverse-engineer-designmd)); every token and component in it cites a verified path. If it exists, it is the source: read it and verify it against the code; drift is reported, not silently fixed.
+1. **Design system first, from evidence.** If `design_docs.design` (default `docs/design/DESIGN.md`) is absent, derive it from the existing UI ([METHOD.md](references/METHOD.md#1-reverse-engineer-designmd)); every token and component in it cites a verified path. If it exists, it is the source: read it and verify it against the code; drift is reported, not silently fixed.
 2. **Reuse before invent.** Each element of the spec is an existing token/component (`reused`, with a path that exists) or a `new` item with `reason` and `reuse_rejected` (which existing item was considered and why it fails). A duplicate of an existing token (same value, different name) is never created.
 3. **Every state of every screen.** Each screen specifies `empty`, `loading`, `error`, `success`, `partial`, `permission-denied`. A state that cannot occur is `not_applicable` with the reason. A state without copy and behaviour is missing, not specified.
 4. **Accessibility is part of the spec.** Per screen: keyboard behaviour (tab order, shortcuts, focus management on open/close/error), screen-reader behaviour (roles, labels, live regions, announced state changes), and the contrast/target-size/motion baseline from `DESIGN.md`. A visual-only state change with no announcement is a defect in the spec.
@@ -37,7 +37,7 @@ Talk to the user in their language. Machine files (`ui.json`, `ledger.md`) are E
 
 ## Standalone vs team
 
-- **Standalone**: outputs in `.agents/local/ui-design/<target>/`; `DESIGN.md` at the repo root only after the user confirms. Report in the user's language, final question or next step.
+- **Standalone**: drafts and evidence in `.agents/local/ui-design/<target>/`. After the report, ask the user to approve the design document; only after approval write it to `design_docs.design`. Final message, one line: the written path and the next step, or without approval "draft stayed under .agents/local/ui-design/<target>/". Report in the user's language.
 - **Team**: read only the assignment and run artifacts; write `design/UI.md`, `design/ui.json` and its ledger `design/ui-ledger.md` in the run folder and return the PLAN `## UI` text. Durable `DESIGN.md` updates belong to the knowledge step (a task that adds a token/component lists them under `new` so the knowledge step can record them). End with the result header (`ROLE: designer`), findings table (design risks: ids `designer-<n>`, severity `info`, or `blocking` when a state or accessibility gap blocks the task; skill-internal ids stay in the finding text), then BLOCKED_REASON or QUESTIONS.
 
 ## Flow

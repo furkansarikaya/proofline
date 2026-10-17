@@ -4,7 +4,7 @@ description: Turns a one-sentence request or an external issue (GitHub, Jira, Li
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # task-author
@@ -42,7 +42,7 @@ Targets: `markdown` (default), `github`, `jira`, `linear`. Jira and Linear are w
 
 ### 1. Resolve context
 
-Standalone: output folder `.agents/local/task-author/<slug>/` (git-ignored; created on demand; nothing is written when config `local_state: off` - then return the text in the message). In a run: the assignment names the file, normally `.agents/runs/<TASK-ID>/TASK.md`. Read config `tasks.adapter` for the default target. Task id: from the assignment, the imported issue key, or `T-<slug>` standalone.
+Standalone: working and evidence files go to `.agents/local/task-author/<slug>/` (git-ignored; created on demand; nothing is written there when config `local_state: off`). The approved task itself is written to config `tasks.dir` (default `.agents/tasks`; for `github`, `jira`, `linear` the adapter decides, this skill only produces the text) - see step 6. In a run: the assignment names the file, normally `.agents/runs/<TASK-ID>/TASK.md`. Read config `tasks.adapter` for the default target. Task id: from the assignment, the imported issue key, or `T-<slug>` standalone.
 
 Resolve the template: `node <skill-dir>/scripts/validate-task.mjs --resolve-template <target> --root <project>` prints `.agents/templates/tasks/<target>.md` when it exists, else the bundled `assets/templates/<target>.md`.
 
@@ -52,7 +52,7 @@ Read only what is needed to avoid asking avoidable questions: the README, the di
 
 ### 3. Draft
 
-Write each section per [CRITERIA.md](references/CRITERIA.md). Classify per [CLASSES.md](references/CLASSES.md). Verification commands come from the project's own build/test commands (config `commands.*`, CI config, README); if none can be found, write the question instead.
+Write each section per [CRITERIA.md](references/CRITERIA.md). Classify per [CLASSES.md](references/CLASSES.md). Then apply [Split, size, sprint, team](#split-size-sprint-team) and [Decisions and ADRs](#decisions-and-adrs). Verification commands come from the project's own build/test commands (config `commands.*`, CI config, README); if none can be found, write the question instead.
 
 ### 4. Self-check and validate
 
@@ -64,11 +64,24 @@ If any open question remains after step 2-4: write the draft with the open point
 
 ### 6. Return
 
-Standalone: path to `TASK.md`, the class with its indicator, the `intent-grill` recommendation if rule 9 applies, and the next step (plan or implement). Team: result header with `RESULT: DONE`, `ARTIFACT` = `TASK.md` with its sha256, one findings row per assumption made (ids `task_author-<n>`).
+Standalone: show the draft task(s) and ask for approval (this is the one approval; it covers the task files and any project-wide ADRs). After approval write each task to `tasks.dir` (`<tasks.dir>/<ID>/TASK.md`) and each ADR to `design_docs.adr_dir`; evidence and working files stay in `.agents/local/`. The final message gives the path and the next step in one line, in the user's language, command unchanged: `run it with: /proofline run TASK-001`. Not approved: write nothing outside `.agents/local/` and say "draft stayed under .agents/local/task-author/<slug>/". Also report the class with its indicator, the `intent-grill` recommendation if rule 9 applies, and, when the work was split, the result table (task, size, sprint, person, dependency). Team: result header with `RESULT: DONE`, `ARTIFACT` = `TASK.md` with its sha256, one findings row per assumption made (ids `task_author-<n>`).
+
+## Split, size, sprint, team
+
+- **Split.** When the work holds several independent deliverables, propose splitting it into tasks: each deliverable alone, with its dependencies and acceptance criteria. If the user asks for one task, keep one.
+- **Size.** Every task gets `S`, `M` or `L` and a one-sentence reason.
+- **Sprint.** Only when the user asks: group the tasks by dependency order and ask the sprint length.
+- **Team.** Only when the work is split into more than one task and no team info is recorded, ask ONE question: "Alone or a team?" (default: alone). If a team: head count, each person's experience (junior/mid/senior) and specialty. Save the answer to `.agents/local/team.yaml` (git-ignored; names and experience labels never go into the repository, a task file carries only the assignee string). Do not ask again in later grills; remind in one line: "team info recorded (N people), tell me to change it". A single task never triggers the team question.
+- **Assignment** (informational; the run flow ignores it): specialty match first; `L` and risky tasks to a senior; balanced load per person; one sentence of reason per assignment.
+- **Task fields.** Optional: `size` (S|M|L), `sprint` (positive integer or label), `assignee` (string), `depends_on` (list of task ids). In the markdown target they are YAML front matter at the top of `TASK.md`; `validate-task.mjs` rejects an unknown size and a `depends_on` id with no task file in the tasks directory (`--tasks-dir DIR`, default the task's own directory). In `github`, `jira`, `linear` map `sprint` to the milestone and `assignee` to the assignee where the tracker has them; otherwise add a `Planning:` line to the description.
+
+## Decisions and ADRs
+
+Decisions are either task-level (they stay in the task: criteria, constraints, out of scope) or project-level (tech stack, content structure, language support, publishing, architecture patterns). `intent-grill` marks each one ([INTENT-FORMAT.md](../intent-grill/references/INTENT-FORMAT.md)); do the split from that mark. After the user's approval, write each project-level decision as an ADR in `design_docs.adr_dir` following `system-design`'s `references/ADR.md` (context, decision, rationale, rejected alternatives), `NNNN` = highest existing number + 1. A decision that contradicts an existing ADR becomes a NEW ADR and the old one's Status line is set to `superseded by NNNN`; an ADR is never silently overwritten. Each task file links the ADRs it relies on under `## Constraints`. No new decision store. In a run the `system-design` rules stay (proposed under `design/adr/`, the knowledge step moves them); this standalone rule is the extra one.
 
 ## Output
 
-`TASK.md` sections, in order: `# Task: <ID> - <title>`, `## Goal`, `## Context`, `## Acceptance criteria`, `## Out of scope`, `## Constraints`, `## Risks`, `## Suggested class`, `## Verification commands`. Extra sections required by a project template follow them. Schema of the validator's `--json` output: `schema/task-validation.schema.json`. Ledger (standalone): [assets/ledger-template.md](assets/ledger-template.md).
+`TASK.md` sections, in order: `# Task: <ID> - <title>`, `## Goal`, `## Context`, `## Acceptance criteria`, `## Out of scope`, `## Constraints`, `## Risks`, `## Suggested class`, `## Verification commands`. Extra sections required by a project template follow them. Schema of the validator's `--json` output: `schema/task-validation.schema.json`. Optional front matter (markdown target) comes before the H1. Ledger (standalone): [assets/ledger-template.md](assets/ledger-template.md).
 
 ## Team mode
 

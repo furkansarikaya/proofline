@@ -35,6 +35,8 @@ Bundled mappings:
 | jira | Summary (title), Description (goal), canonical sections, Labels, Components |
 | linear | canonical sections plus Labels |
 
+Planning fields (`size`, `sprint`, `assignee`, `depends_on`): `markdown` carries them as YAML front matter at the top of `TASK.md`. For `github`, `jira` and `linear` they are not template sections: `sprint` goes to the milestone and `assignee` to the assignee where the tracker has them, anything else is one `Planning: size M, sprint 2, depends on TASK-001` line at the end of the description.
+
 ## Export
 
 Fill each section's placeholder from `TASK.md` (acceptance criteria keep their `AC-n:` prefix; lists stay lists). A field the template requires and the task lacks (labels, components, a custom field) is a question (NEEDS_INPUT), never guessed. Verify with `validate-task.mjs --check-export <file> --template <template>`: exit 0 means every section is filled.

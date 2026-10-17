@@ -4,7 +4,7 @@ description: "Bounded codebase investigation that returns compact, verified evid
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # evidence-map
@@ -30,7 +30,7 @@ Talk to the user in their language. Evidence documents are English; identifiers,
 
 ## Modes
 
-- **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the user's question becomes the assignment; ask once for any of objective, scope or stop condition that cannot be derived from it. Output `.agents/local/evidence-map/<slug>/evidence.md` (nothing kept with `local_state: off`; then the document is shown in chat only). Finish with the claims table and the question "Shall I widen the scope or go deeper on one claim?".
+- **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the user's question becomes the assignment; ask once for any of objective, scope or stop condition that cannot be derived from it. Output `.agents/local/evidence-map/<slug>/evidence.md` (nothing kept with `local_state: off`; then the document is shown in chat only). Finish with the evidence path (or "shown in chat only"), the claims table and the question "Shall I widen the scope or go deeper on one claim?".
 - **Team** (dispatched by the lead): read only the assignment and the repository; write the report to your scratch folder and hand it over with `submit --report <file>`; the script assigns the numbered result artifact (contract: `reports/NNN-explorer.md` in the run folder), never the explorer. Return the result header, the claims table, and `QUESTIONS:` when the assignment itself is ambiguous (`NEEDS_INPUT`). Never `NEEDS_INPUT` for something the repository answers.
 
 ## Impact mode (A85)

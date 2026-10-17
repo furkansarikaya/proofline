@@ -17,7 +17,7 @@ const SKIP_DIRS = new Set([".git", "node_modules", ".agents", "dist", "build", "
 const CODE_EXT = new Set(".js .mjs .cjs .ts .tsx .jsx .vue .svelte .py .rb .go .java .kt .cs .cshtml .razor .php .rs .swift .sql .prisma .graphql .css .scss .sass .less .html .json .yaml .yml .toml .xml .gradle .sh".split(" "));
 const MAX_BYTES = 1_000_000;
 const METHODS = "GET POST PUT PATCH DELETE HEAD OPTIONS";
-const DEFAULT_DOCS = { design: "DESIGN.md", architecture: "docs/design/ARCHITECTURE.md", data_model: "docs/design/DATA_MODEL.md", api: "docs/design/API.md" };
+const DEFAULT_DOCS = { design: "docs/design/DESIGN.md", architecture: "docs/design/ARCHITECTURE.md", data_model: "docs/design/DATA_MODEL.md", api: "docs/design/API.md" };
 const ROLES = ["data_model", "architecture", "api", "design"];
 
 // ---------- config ----------

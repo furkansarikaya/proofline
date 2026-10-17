@@ -1,7 +1,7 @@
 # Knowledge precedence and read contract
 
 Resolve conflicts in this order: (1) the frozen task, (2) current behaviour and tests, (3) durable design
-documents (`design_docs` in config: `DESIGN.md`, `docs/design/*`, ADRs), (4) skill guidance, (5) model
+documents (`design_docs` in config: `docs/design/*` including `DESIGN.md`, ADRs), (4) skill guidance, (5) model
 preference. A task that forbids dependencies beats a skill that recommends one; current tests beat a stale
 document.
 

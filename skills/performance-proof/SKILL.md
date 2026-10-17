@@ -4,14 +4,14 @@ description: Proves or refutes a performance regression by measurement, never by
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # performance-proof
 
 One rule: **no performance claim without a measurement of the same command on both sides.**
 
-Role: Reviewer, focus `performance` of REVIEW_RULES (REVIEW_SMALL on tier small), dispatched only when `agent.sh pipeline <ID>` lists `focus.<GATE>.performance` (PLAN.md `## Risk` `performance_critical: yes`, or the optional `performance_hint` content signal). Standalone: the user names a change (branch, commit range or working tree) and a base. Output: `performance.json` (embedded in `REPORT.md` as a fenced `json` block), `ledger.md`, the raw sample files.
+Role: Reviewer, focus `performance` of REVIEW_RULES (REVIEW_SMALL on tier small), dispatched only when `agent.sh pipeline <ID>` lists `focus.<GATE>.performance` (PLAN.md `## Risk` `performance_critical: yes`, or the optional `performance_hint` content signal). Standalone: the user names a change (branch, commit range or working tree) and a base. Output: `performance.json` (embedded in `REPORT.md` as a fenced `json` block), `ledger.md`, the raw sample files. Standalone: the final message names the report path.
 
 Talk to the user in their language. Machine files are English; identifiers, paths, commands and status values are never translated.
 

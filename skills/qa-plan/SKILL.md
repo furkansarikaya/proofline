@@ -4,7 +4,7 @@ description: Independent QA in two phases. Before implementation, writes QA_PLAN
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # qa-plan
@@ -72,7 +72,7 @@ Standalone use: `plan` on a task or a list of criteria the user gives; `report` 
 
 Files: `QA_PLAN.md` ([template](assets/QA_PLAN.template.md)) and `QA_REPORT.md`. Machine summary schema: [schema/qa-validation.schema.json](schema/qa-validation.schema.json). Ledger: [assets/ledger-template.md](assets/ledger-template.md).
 
-Standalone final message, in the user's language: verdict, scenario table (id, kind, result), failures with reproduction, blocked scenarios with reasons, manual follow-ups for the human, and the question "what do you want to do with the failures?".
+Standalone final message, in the user's language: the output path, verdict, scenario table (id, kind, result), failures with reproduction, blocked scenarios with reasons, manual follow-ups for the human, and the question "what do you want to do with the failures?".
 
 ## Team mode
 

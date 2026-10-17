@@ -4,7 +4,7 @@ description: Proves backward and forward compatibility of changed API, event and
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # contract-proof
@@ -62,7 +62,7 @@ this `SKILL.md`.
   names (working tree against a base ref, or a branch against its base). The plan is a file the user names;
   without one, every breaking change is uncovered and the report says so. Output in
   `.agents/local/contract-proof/<slug>/` (nothing kept with `local_state: off`). The report ends with the
-  verdict and the next step.
+  verdict, the report path and the next step.
 - **Team** (dispatched by the lead as `reviewer` with FOCUS `contract`): the target is the task-owned diff
   (`base_sha` of the run to the working tree, untracked files included); the plan is the frozen
   `.agents/runs/<ID>/PLAN.md`. Writes only `reviews/contract-proof/` in the run folder (`REPORT.md`,

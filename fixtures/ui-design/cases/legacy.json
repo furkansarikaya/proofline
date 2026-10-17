@@ -5,7 +5,7 @@
     "en"
   ],
   "design_system": {
-    "file": "DESIGN.md",
+    "file": "docs/design/DESIGN.md",
     "exists": true
   },
   "reused": [
