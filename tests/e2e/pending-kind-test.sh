@@ -20,11 +20,18 @@ reason=artifacts ready' ''
 echo "pending-kind tests passed"
 # A120: the scripted question reply is sent only while a question is open.
 t=$(mktemp -d "${TMPDIR:-/tmp}/qopen.XXXXXX"); trap 'rm -rf "$t"' EXIT
-qo() { printf '%s\n' "$2" | sh "$here/question-open.sh" "$t/last" && got=open || got=none; [ "$got" = "$3" ] && echo "ok $1" || { echo "FAIL: $1 (got $got, want $3)" >&2; exit 1; }; }
+qo() { printf '%s\n' "$2" | sh "$here/question-open.sh" "$t/last" ${4:-} && got=open || got=none; [ "$got" = "$3" ] && echo "ok $1" || { echo "FAIL: $1 (got $got, want $3)" >&2; exit 1; }; }
 printf 'Which option do you prefer?\n' > "$t/last"; qo "the lead asks a question" 'next=agent.sh handoff LC IMPLEMENTING' open
 printf 'Please run rm .agents/x and tell me when it is gone.\n' > "$t/last"; qo "the lead waits for a user action, no question" 'next=agent.sh handoff LC IMPLEMENTING' none
 qo "a pending question named by next" 'next=agent.sh questions LC
 reason=a question is pending (a specialist NEEDS_INPUT)' open
+# A131: a question mark in an explanation is no open question while the run names a step of its own.
+printf 'Why is AS-2 unsettled? A blanket reply cannot settle it. Reply accept AS-2.\n' > "$t/last"
+qo "a question mark with a named run step is no open question" 'next=agent.sh verify-assumptions T-1' none T-1
+qo "a question mark before any task is a question" '' open none
+qo "a question mark with no agent.sh step is a question" 'reason=waiting' open T-1
+qo "a pending question wins over a named step" 'next=agent.sh questions T-1
+reason=a question is pending (a specialist NEEDS_INPUT)' open T-1
 echo "question-open tests passed"
 # A128: a refreeze asks a second plan approval while `next` prints the fix-round step (run B1-COMPLEX).
 ak() { printf '%s\n' "$2" | sh "$here/pending-kind.sh" "$t/approvals"; }

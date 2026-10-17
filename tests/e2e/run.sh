@@ -22,6 +22,8 @@ task=$scenario; [ "$task" != FAILOVER ] || task=STANDARD
 case $scenario in COMPLEX|CRITICAL|FAILOVER) def_profile=balanced; def_model=opus ;; *) def_profile=economy; def_model=sonnet ;; esac
 profile=${E2E_PROFILE:-$def_profile}; lead_model=${E2E_LEAD_MODEL:-$def_model}
 reply_file=$here/replies/$scenario.txt
+# A131: a scenario may carry its own question reply (the user's answer to the task's intent question); else line 1 of the generic file.
+qreply_file=$here/replies/question.$scenario.txt; [ -f "$qreply_file" ] || qreply_file=$reply_file
 [ -f "$here/tasks/$task.md" ] && [ -f "$reply_file" ] || { echo 'task or reply file missing' >&2; exit 2; }
 root=${E2E_ROOT:-${TMPDIR:-/tmp}/proofline-e2e}
 mkdir -p "$root"
@@ -119,7 +121,7 @@ if [ "$dry" = yes ]; then
     echo "lead resume: codex exec resume$codex_cheap -c 'sandbox_mode=\"danger-full-access\"' -c 'approval_policy=\"never\"' <thread> <reply>"
   fi
   [ "$scenario" != FAILOVER ] || echo 'failover: poll implementer ledger every 10s; terminate Claude process group; resume under Codex with proofline resume'
-  echo "replies: up to ${E2E_MAX_REPLIES:-6} lines from '$reply_file' when a plan or question stop is pending"
+  echo "replies: up to ${E2E_MAX_REPLIES:-6} lines from '$reply_file' (question reply from '$qreply_file') when a plan or question stop is pending"
   echo 'collect: git log/status/diff/branches, runs, metrics, agent status/next/pipeline, final messages, durations, exit codes, database probe'
   echo 'collect (A95): git-global-before/after.txt, replies-log.txt, agent-pipeline.txt, insights.txt, metrics/*, visual-artifacts.txt'
   echo "doctor=$out/doctor.txt"
@@ -202,14 +204,14 @@ while :; do
   # is never answered by the harness. Any other stop of the lead (a question) gets the scripted question reply.
   # A128: a refreeze asks for its plan approval without `next` naming it, so the newest approvals/ file counts too.
   kind=$(printf '%s\n' "$state" | sh "$here/pending-kind.sh" "$project/.agents/runs/$id/approvals")
-  qline=$(sed -n 1p "$reply_file"); pline=$(sed -n 2p "$reply_file")
+  qline=$(sed -n 1p "$qreply_file"); pline=$(sed -n 2p "$reply_file")
   decision=$({ printf '%s\n' "$state"; printf '%s\n' "$pending"; cat "$last"; } | sh "$here/reply-decision.sh" "$kind")
   case $decision in
     plan) line=$pline ;;
     stop) break ;;
     *)
       # A120: no open question, no reply (the lead waits for something a reply cannot give).
-      if ! printf '%s\n' "$state" | sh "$here/question-open.sh" "$last"; then
+      if ! printf '%s\n' "$state" | sh "$here/question-open.sh" "$last" "$id"; then
         stopped=no-open-question; stop_state=$(printf '%s\n' "$state" | sed -n 's/^\(next\|reason\)=/\1=/p' | tr '\n' ' ')
         break
       fi
