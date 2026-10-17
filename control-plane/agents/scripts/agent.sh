@@ -4137,7 +4137,7 @@ next_step() {
     CODE_DONE)
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
-          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md; agent.sh publish-completion-report $ns_id"; r "completion report not published"
+          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
         *) o "agent.sh knowledge-done $ns_id [not_applicable]"; r "knowledge transaction not recorded" ;;
       esac ;;
@@ -4292,12 +4292,104 @@ validate_completion_report_structure() {
     printf '%s\n' "$vc_usec" | grep -F "$vc_u" | sed -n 's/.*not proven:[[:space:]]*//p' | awk '{ n = 0; for (i = 1; i <= NF; i++) if ($i ~ /[A-Za-z][A-Za-z]/) n++; if (n >= 3) ok = 1 } END { exit !ok }' || fail "completion report: the line naming the UNSUPPORTED check $vc_u under '## Unsupported Checks' must say 'not proven: <what>' in at least three words (an unproven claim is never reported as verified)"
   done
 }
+# --- Report facts (A143, C-22): counts and statuses come from records, never from the model's text ---------
+# report_facts ID: the Facts block, generated from the gate records, the ledger, the task-owned paths and the
+# worker-evidence records. `publish-completion-report` appends it verbatim and refuses numbers in the lead's text
+# that contradict it. No record carries the number of individual test cases, so none is stated.
+evidence_run_counts() { # ID -> "<records> <passed>": the worker-evidence records (RED, GREEN, REFACTOR, FIX) and those with result pass
+  ec_n=0; ec_p=0
+  for ec_f in "$(run_dir "$1")"/worker-evidence/RED-*.yaml "$(run_dir "$1")"/worker-evidence/GREEN-*.yaml "$(run_dir "$1")"/worker-evidence/REFACTOR-*.yaml "$(run_dir "$1")"/worker-evidence/FIX-*.yaml; do
+    [ -f "$ec_f" ] || continue
+    ec_n=$((ec_n + 1)); ! grep -q '^result: "pass"' "$ec_f" || ec_p=$((ec_p + 1))
+  done
+  echo "$ec_n $ec_p"
+}
+report_facts() {
+  rf_id=$1; require_run "$rf_id"; risk_prime "$rf_id"
+  rf_fp=$(content_fingerprint); rf_gl=$(required_gates "$rf_id")
+  rf_wt=$(evidence_run_counts "$rf_id"); rf_wp=${rf_wt#* }; rf_wt=${rf_wt%% *}; rf_wp=${rf_wp%% *}
+  printf '%s\n## Facts\n\nGenerated from the run records by %s when the report is published; never edited by hand. Numbers in the text above must match it.\n\n' "$REPORT_FACTS_BEGIN" "\`agent.sh report-facts $rf_id\`"
+  printf -- '- Class: %s\n- Required gates: %s\n' "$(pipeline_class "$rf_id")" "$(printf '%s\n' "$rf_gl" | grep -c .)"
+  for rf_g in $rf_gl; do
+    rf_i=$(gate_report_ids "$rf_id" "$rf_g" | tr '\n' ' ' | sed 's/ $//')
+    printf -- '- Gate %s: %s; findings: %s\n' "$rf_g" "$(gate_label "$rf_id" "$rf_g" strict "$rf_fp")" "${rf_i:-none}"
+  done
+  printf -- '- Fix rounds: %s of %s\n- Refreezes: %s\n- Files changed (task-owned paths): %s\n' "$(fix_rounds_used "$rf_id")" "$(max_fix_rounds)" \
+    "$(grep -c 'event=refreeze ' "$(ledger_file "$rf_id")" 2>/dev/null || true)" "$(task_owned_paths "$rf_id" 2>/dev/null | grep -c . || true)"
+  printf -- '- Worker-evidence run records: total %s, ended pass %s, ended fail %s (a RED record ends fail on purpose; this is not a count of failing tests)\n' "$rf_wt" "$rf_wp" "$((rf_wt - rf_wp))"
+  printf -- '- Test cases: no record carries the number of individual tests, so no such number is stated here.\n%s\n' "$REPORT_FACTS_END"
+}
+REPORT_FACTS_BEGIN='<!-- proofline:facts:begin -->'
+REPORT_FACTS_END='<!-- proofline:facts:end -->'
+report_strip_facts() { # FILE: remove an earlier Facts block
+  [ -f "$1" ] || return 0
+  rs_t=$(mktemp "${TMPDIR:-/tmp}/agent-report.XXXXXX") || fail "cannot create a temporary file"
+  awk -v b="$REPORT_FACTS_BEGIN" -v e="$REPORT_FACTS_END" '$0 == b { skip = 1; next } skip && $0 == e { skip = 0; next } !skip' "$1" > "$rs_t" && cp "$rs_t" "$1"; rm -f "$rs_t"
+}
+# report_claims_check ID FILE: a number next to the words tests, gates, fix rounds or refreezes must be a recorded
+# value. Narrow on purpose: digits only, directly beside the word (before it, or after it with `:`/`=`), fenced code skipped.
+report_claims_check() {
+  rc_id=$1
+  rc_wt=$(evidence_run_counts "$rc_id"); rc_wp=${rc_wt#* }; rc_wt=${rc_wt%% *}; rc_wp=${rc_wp%% *}
+  rc_gn=$(required_gates "$rc_id" | grep -c . || true)
+  rc_fr=$(fix_rounds_used "$rc_id"); rc_fm=$(max_fix_rounds)
+  rc_rz=$(grep -c 'event=refreeze ' "$(ledger_file "$rc_id")" 2>/dev/null || true)
+  rc_bad=$(awk -v tests="$rc_wt $rc_wp $((rc_wt - rc_wp))" -v tlab="worker-evidence run records: total $rc_wt, ended pass $rc_wp, ended fail $((rc_wt - rc_wp)); no record counts individual tests" \
+    -v gates="$rc_gn 0" -v glab="required gates $rc_gn" -v rounds="$rc_fr $rc_fm" -v rlab="used $rc_fr, maximum $rc_fm" -v refz="$rc_rz" -v zlab="refreezes $rc_rz" '
+    function allowed(set, n,   a, i, k) { k = split(set, a, " "); for (i = 1; i <= k; i++) if (a[i] + 0 == n + 0) return 1; return 0 }
+    # number words one..twenty become digits, so "Two tests" is read like "2 tests"
+    function numwords(s,   i, w, m, lead, trail) {
+      split("one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty", w, " ")
+      for (i = 1; i <= 20; i++)
+        while (match(s, "(^|[^a-z0-9_-])" w[i] "( |$)")) {
+          m = substr(s, RSTART, RLENGTH); lead = (substr(m, 1, length(w[i])) == w[i]) ? "" : substr(m, 1, 1); trail = (substr(m, length(m)) == " ") ? " " : ""
+          s = substr(s, 1, RSTART - 1) lead i trail substr(s, RSTART + RLENGTH)
+        }
+      return s
+    }
+    function scan(kind, re, set, lab,   s, m, n, rest) {
+      s = $0
+      while (match(s, re)) {
+        m = substr(s, RSTART, RLENGTH); n = m; sub(/^[^0-9]*/, "", n); sub(/[^0-9].*$/, "", n)
+        s = substr(s, RSTART + RLENGTH); rest = s
+        # a verb ("step 3 tests the lookup") or another noun ("2 test files") is no count
+        if (rest ~ /^(the|a|an|this|that|these|those|its|their|each|every|how|whether|it|cases?|files?|suites?|scenarios?|commands?|fixtures?|names?|helpers?)([^a-z_]|$)/) continue
+        if (n + 0 == 0 && (m ~ /(failed|failing|skipped)/ || rest ~ /^(failed|failing|fail|skipped|failures?)([^a-z_]|$)/)) continue
+        if (!allowed(set, n)) printf "line %d: \"%s %s\" (recorded: %s)\n", NR, n, kind, lab
+      }
+    }
+    BEGIN {
+      b = "(^|[^0-9a-z._-])"
+      tb = b "[0-9]+ +((new|unit|integration|e2e|regression|failing|passing|passed|added|existing|total) +)*tests?([^a-z_]|$)"
+      ta = b "tests?( (run|passed|failed|passing|failing|total|count))* *[:=] *[0-9]+"
+      gb = b "[0-9]+ +((required|review|blocking|lifecycle|passing|failing|passed|failed|total) +)*gates?([^a-z_]|$)"
+      ga = b "gates?( (required|passed|failed|passing|total|count))* *[:=] *[0-9]+"
+      rb = b "[0-9]+ +((more|extra|total) +)?fix +rounds?([^a-z_]|$)"
+      ra = b "fix +rounds?( +(used|taken|needed|count|total))* *[:=]? *[0-9]+"
+      fb = b "[0-9]+ +refreezes?([^a-z_]|$)"
+      fa = b "refreezes?( +(count|total))* *[:=]? *[0-9]+"
+    }
+    /^```/ { fence = !fence; next }
+    fence { next }
+    { $0 = tolower($0); gsub(/[*`]/, " "); while (match($0, /[0-9],[0-9][0-9][0-9]/)) $0 = substr($0, 1, RSTART) substr($0, RSTART + 2)
+      $0 = numwords($0)
+      scan("tests", tb, tests, tlab); scan("tests", ta, tests, tlab); scan("gates", gb, gates, glab); scan("gates", ga, gates, glab)
+      scan("fix rounds", rb, rounds, rlab); scan("fix rounds", ra, rounds, rlab); scan("refreezes", fb, refz, zlab); scan("refreezes", fa, refz, zlab) }' "$2")
+  [ -z "$rc_bad" ] || fail "completion report numbers contradict the run records (A143, C-22):
+$rc_bad
+Remove the number or use the recorded one: see 'agent.sh report-facts $rc_id'. The Facts block is added at publish. Digits and the words one to twenty beside tests, gates, fix rounds and refreezes are read; other phrasings and table cells are not."
+}
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
 publish_completion_report() {
   id=$1 adapter=${2:-$(cfg tasks.adapter markdown)}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   [ "$(run_state "$dir")" = CODE_DONE ] || fail "completion report may only be published after CODE_DONE"
   verify_seal "$id"
+  # A143: the Facts block of an earlier publish is removed first so it never satisfies a check, the text is checked
+  # against the records, and a fresh block generated from them is appended verbatim.
+  report_strip_facts "$dir/COMPLETION_REPORT.md"
   validate_completion_report_structure "$id"
+  report_claims_check "$id" "$dir/COMPLETION_REPORT.md"
+  { printf '\n'; report_facts "$id"; } >> "$dir/COMPLETION_REPORT.md"
   script=$(adapter_script "$adapter")
   contract_backup=''
   if local_task_source_run "$id"; then
@@ -4492,7 +4584,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='report-facts role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan report-tokens verify-assumptions'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -4538,6 +4630,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
+  report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
 USAGE
 }
@@ -4558,6 +4651,7 @@ case "$command" in
   tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
   summary) summary_run "${2:-}" ;;
+  report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;

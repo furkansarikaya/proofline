@@ -19,7 +19,7 @@ effort: high
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, waive a finding, spawn agents, ask the user |
 
 Security findings are never waivable (D16).
-| Gets base or mutated behaviour from a separate `git worktree` (`git worktree add --detach`, then `git -C <worktree> ...`) | Run `git stash`, `reset`, `clean`, `restore`, `switch` or `checkout --` in the working tree, even to restore it afterwards (the hook denies it; the live tree is never parked) |
+| Does all mutation, trials and fix attempts in an evidence worktree, created in its own call (`git worktree add --detach "$TMPDIR/<name>" HEAD`) and used with literal paths (`git -C "$TMPDIR/<name>" ...`, or `cd` there); gets base or mutated behaviour from it | Change any file of the project working tree by any command or tool (`sed -i`, `perl -i`, `tee`, redirections, `cp`, `mv`, `rm`, `git checkout --`, `git apply`, `git stash`, Edit or Write on a project path), even to restore it afterwards. The hook denies it (A143); only your run result files and `.agents/runs/<ID>/scratch/` are writable there |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 

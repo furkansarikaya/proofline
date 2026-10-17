@@ -1103,6 +1103,43 @@ sc_report_finding_ids() {
   ok "A130: the completion report names every finding id of every gate; none is refused for a gate with an info row"
 }
 
+# A143 (C-22): counts and statuses in the completion report come from the records; publish appends the Facts block and
+# refuses numbers beside tests, gates, fix rounds and refreezes that are not the recorded ones.
+sc_report_facts() {
+  scaffold orchestrated; to_code_done orchestrated
+  A knowledge-done LC not_applicable >/dev/null
+  ng=$(required | wc -w | tr -d ' ')
+  facts=$(A report-facts LC)
+  for want in "- Required gates: $ng" '- Fix rounds: 0 of 2' '- Refreezes: 0' '- Files changed (task-owned paths): 2' '- Worker-evidence run records: total 2, ended pass 1, ended fail 1' '- Gate VERIFY: pass; findings: none'; do
+    printf '%s\n' "$facts" | grep -Fq -- "$want" || die "Facts block lacks '$want': $facts"
+  done
+  write_report '' 'We ran 9 tests and all of them pass.'
+  expect_msg "a wrong test count was published" '"9 tests" (recorded: worker-evidence run records: total 2, ended pass 1, ended fail 1;' A publish-completion-report LC markdown
+  write_report '' "Tests: 40 passed."
+  expect_msg "a wrong 'tests: N' count was published" '"40 tests"' A publish-completion-report LC markdown
+  write_report '' "All $((ng + 3)) required gates passed."
+  expect_msg "a wrong gate count was published" "\"$((ng + 3)) gates\" (recorded: required gates $ng)" A publish-completion-report LC markdown
+  write_report '' 'The change needed 1 fix round.'
+  expect_msg "a wrong fix-round count was published" '"1 fix rounds" (recorded: used 0, maximum 2)' A publish-completion-report LC markdown
+  write_report '' 'The plan had 1 refreeze.'
+  expect_msg "a wrong refreeze count was published" '"1 refreezes"' A publish-completion-report LC markdown
+  write_report '' 'Five regression tests cover the lookup.'
+  expect_msg "a number word beside tests was published" '"5 tests"' A publish-completion-report LC markdown
+  write_report '' 'All Twelve gates passed.'
+  expect_msg "a number word beside gates was published" '"12 gates"' A publish-completion-report LC markdown
+  # words without numbers, ids with digits, fenced output and the recorded numbers are fine; a hand-written block is replaced
+  write_report '' "AC-1 tests: the lookup test passes. $ng gates passed, 0 fix rounds, 0 refreezes, 2 test runs recorded, one test run ended in a failure as planned (RED)." \
+    'Step 3 tests the lookup. The 3 test files are small; 0 tests failed.' \
+    '```' '# tests 99' '```' '' '<!-- proofline:facts:begin -->' '- Required gates: 99' '<!-- proofline:facts:end -->'
+  A publish-completion-report LC markdown >/dev/null || die "a report with the recorded numbers was refused"
+  rep=.agents/runs/LC/COMPLETION_REPORT.md
+  [ "$(grep -c 'proofline:facts:begin' "$rep")" = 1 ] || die "the report holds $(grep -c 'proofline:facts:begin' "$rep") Facts blocks"
+  ! grep -Fq -- '- Required gates: 99' "$rep" || die "a hand-written Facts block survived"
+  sed -n '/proofline:facts:begin/,/proofline:facts:end/p' "$rep" > "$base/facts.published"
+  [ "$(cat "$base/facts.published")" = "$facts" ] || die "the published Facts block differs from the records read before publishing"
+  ok "A143: the completion report's numbers must be the recorded ones; publish appends the Facts block generated from the records"
+}
+
 # B1: the git hooks see every open run, not ACTIVE_RUN.
 sc_open_runs() {
   scaffold orchestrated no STANDARD
@@ -1749,6 +1786,7 @@ run_sc sc_provenance
 run_sc sc_waiver_rebind
 run_sc sc_open_runs
 run_sc sc_report_finding_ids
+run_sc sc_report_facts
 run_sc sc_knowledge_secrets
 run_sc sc_wiki_knowledge_scope
 run_sc sc_next_order

@@ -1,7 +1,8 @@
 # Completion Report: <TASK-ID>
 
 Owner: lead. Derived from run evidence only; published through the task adapter before DONE. agent.sh
-requires the sections that apply to the run; a missing one FAILS `publish-completion-report`.
+requires the sections that apply to the run; a missing one FAILS `publish-completion-report`. Do not count tests, gates,
+fix rounds or refreezes yourself: publish appends the generated Facts block and refuses other numbers (A143).
 
 ## Implementation Summary
 

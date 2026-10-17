@@ -211,7 +211,12 @@ verdicts() {
   denied "a submit without the role prefix" "$(pre_bash 'sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)" "prefix AGENT_ROLE"
   denied "a specialist stashes the live tree" "$(pre_bash 'git stash -q -- src/service.js; git stash pop -q' proofline-reviewer r1)" "evidence worktree"
   denied "a specialist resets the live tree" "$(pre_bash 'git reset --hard HEAD' proofline-implementer a7)" "separate worktree"
-  allowed "a specialist mutates inside its own worktree" "$(pre_bash 'git -C "$TMPDIR/wt" checkout -- src/service.js' proofline-reviewer r1)"
+  case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) : ;; *)
+    # the worktree must exist and be registered: a directory the hook cannot resolve is read as the project (A111, A143)
+    git worktree add -q "${TMPDIR%/}/wt" HEAD >/dev/null 2>&1 || die "fixture worktree"
+    allowed "a specialist mutates inside its own worktree" "$(pre_bash 'git -C "$TMPDIR/wt" checkout -- src/service.js' proofline-reviewer r1)"
+    git worktree remove --force "${TMPDIR%/}/wt" >/dev/null 2>&1 || : ;;
+  esac
   case "${TMPDIR:-}" in ''|/tmp|/tmp/*|/private/tmp|/private/tmp/*) : ;; *)
     denied "a specialist writes scratch under /tmp" "$(pre_bash 'git worktree add /tmp/t1-base-wt HEAD' proofline-reviewer r1)" "TMPDIR"
     allowed "a specialist writes under its own project path" "$(pre_bash "cat $PWD/src/service.js" proofline-reviewer r1)" ;;
@@ -288,7 +293,7 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
     'git -C $W '"'"'$S'"'"' list' 'git -C $W `echo stash` list'; do
     denied "A132 bypass stays denied: $c" "$(pre_bash "$c" proofline-qa q1)" "evidence worktree"
   done
-  for c in 'git log stash' 'git diff main..stash' 'git diff stash@{0}' 'git checkout stash-fix' 'git branch stash' \
+  for c in 'git log stash' 'git diff main..stash' 'git diff stash@{0}' 'git rev-parse stash-fix' 'git branch stash' \
     'git commit -m "stash"' 'git grep stash' 'git config stash.showPatch true' 'grep stash src/impl.txt' 'echo git stash list' \
     'printf "git stash\n"' 'cat notes | grep -n "git stash"'; do
     allowed "A111 R2 no false positive: $c" "$(pre_bash "$c" proofline-qa q1)"
@@ -300,7 +305,7 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
     'R=.agents/runs/T-1; WT=$TMPDIR/rv/wt; git worktree add --detach $WT HEAD >/dev/null 2>&1; git -C $WT status --short; echo $WT' \
     'W=$TMPDIR/rv/wt
 git worktree add --detach $W HEAD >/dev/null 2>&1
-git diff HEAD --binary | git -C $W apply
+git diff HEAD --binary | git -C $W diff --stat
 git worktree remove --force $W' \
     'git -C $(pwd) status' 'git -C `pwd` log -1' 'git -c user.name=$X log -1'; do
     allowed "A132 no false positive: $c" "$(pre_bash "$c" proofline-qa q1)"
@@ -311,7 +316,7 @@ git worktree remove --force $W' \
     out=$(pre_bash "$(sed "s#/private/tmp/[^ ;]*/project#$PWD#" "$ENF_REPO/tests/enforcement/a132-commands/$n.txt")" proofline-qa q1)
     case "$out" in *'git stash'*) die "A132 replay $n: still denied as a stash: $out" ;; esac
     # which of the path rules speaks first depends on the environment (TMPDIR set or not): "cannot be resolved" or "mktemp"
-    case "$out" in *'"permissionDecision":"deny"'*'cannot be resolved'*|*'"permissionDecision":"deny"'*'mktemp would create'*) ok "A132 replay $n: refused by a path rule, not as a stash" ;; *) die "A132 replay $n: unexpected outcome: $out" ;; esac
+    case "$out" in *'"permissionDecision":"deny"'*'cannot be resolved'*|*'"permissionDecision":"deny"'*'mktemp would create'*|*'"permissionDecision":"deny"'*'changes the project working tree'*) ok "A132 replay $n: refused by a path rule, not as a stash" ;; *) die "A132 replay $n: unexpected outcome: $out" ;; esac
   done
   git worktree add -q "$base/wt a111 sp" HEAD >/dev/null 2>&1 || die "A111 spaced fixture worktree"
   allowed "A111 R2 a registered worktree path with spaces" "$(pre_bash "git -C '$base/wt a111 sp' stash list" proofline-qa q1)"
@@ -727,8 +732,69 @@ EOF")"
   printf '%s' "$out" | grep -q 'other.sqlite' || die "DB-41 a new database file is not named: $out"; ok "DB-41 a new database file is named in the refusal"
 }
 
+# A143: QA, reviewer, security reviewer and verifier change nothing in the project working tree; mutation and trials
+# run in an evidence worktree. Every blocked form is tried for each read role, every allowed form too.
+read_roles_tree() {
+  fixture
+  printf 'a\n' > src/ro.txt
+  git worktree add -q --detach "$base/wt-ro" HEAD >/dev/null 2>&1 || die "A143 fixture worktree"
+  mkdir -p "$base/wt-ro/src"; printf 'a\n' > "$base/wt-ro/src/ro.txt"
+  mkdir -p .agents/runs/LC/scratch
+  P=$PWD; W=$base/wt-ro
+  msg='read-only in the project working tree'
+  for r in qa reviewer security-reviewer verifier; do
+    t=proofline-$r
+    for c in "sed -i 's/a/b/' src/ro.txt" "sed -i '' 's/a/b/' src/ro.txt" "sed -i.bak 's/a/b/' src/ro.txt" "sed -Ei 's/a/b/' src/ro.txt" \
+      "sed --in-place 's/a/b/' src/ro.txt" "sed -i 's/a/b/' src/ro.txt impl.txt" "sed -i 's/a/b/' $P/src/ro.txt" \
+      "perl -i -pe 's/a/b/' src/ro.txt" "perl -pi -e 's/a/b/' src/ro.txt" "perl -i.bak -pe 's/a/b/' src/ro.txt" \
+      "ruby -i -pe '\$_.upcase!' src/ro.txt" "ruby -pi -e 'puts 1' src/ro.txt" "awk -i inplace '{ print }' src/ro.txt" "gawk -i inplace '{ print }' src/ro.txt" \
+      "ed -s src/ro.txt </dev/null" "ex -s -c wq src/ro.txt" "patch -p1 < x.diff" \
+      "printf x | tee src/ro.txt" "printf x | tee -a src/ro.txt" 'echo x > src/ro.txt' 'echo x >> src/ro.txt' "echo x > $P/src/ro.txt" \
+      'cp impl.txt src/ro.txt' 'mv impl.txt src/ro.txt' 'rm src/ro.txt' 'truncate -s0 src/ro.txt' 'dd if=/dev/null of=src/ro.txt' 'install -m644 impl.txt src/ro.txt' \
+      'git checkout -- src/ro.txt' 'git apply x.diff' 'git stash' 'git restore src/ro.txt' 'git reset --hard' 'git clean -fd' 'git rm src/ro.txt' \
+      'git -C . checkout -- src/ro.txt' "git -C $P apply x.diff" 'git worktree list; git checkout -- src/ro.txt' "git -C $W status; git -C . restore src/ro.txt" \
+      'git -C "$P" checkout -- src/ro.txt' 'cd .. && git checkout -- src/ro.txt' \
+      'find . -name ro.txt -exec git checkout -- {} +' 'echo src/ro.txt | xargs sed -i s/a/b/' 'find . -name ro.txt -delete' 'find src -exec rm {} +' 'find . -exec sed -i s/a/b/ {} +' \
+      'echo src/ro.txt | xargs rm' 'ls src | xargs -I{} truncate -s0 {}' 'echo src/ro.txt | xargs git checkout --' "find $W -delete; find . -type f -delete" 'find $F -delete' \
+      'echo x > $F' 'sed -i s/a/b/ $F' 'tee $OUT </dev/null' "echo x > $W/../x.txt" "cd $P/src && sed -i s/a/b/ ro.txt" "cd $P/src && echo x > ro.txt"; do
+      denied "A143 $r runs: $c" "$(pre_bash "$c" "$t" r1)" "$msg"
+    done
+    for tl in Edit Write MultiEdit NotebookEdit; do
+      denied "A143 $r $tl of a project file" "$(pre_edit "$tl" "$P/src/ro.txt" "$t" r1)" "$msg"
+    done
+    denied "A143 $r Write of a relative project file" "$(pre_edit Write src/new.txt "$t" r1)" "$msg"
+    for c in 'grep -n a src/ro.txt' 'cat src/ro.txt' 'git diff' 'git log --oneline' 'git status --short' 'git show HEAD:impl.txt' 'git merge-base HEAD HEAD' \
+      "sed -n 1p src/ro.txt" "sed -E 's/a/b/' src/ro.txt > .agents/runs/LC/scratch/o.txt" 'npm test > .agents/runs/LC/scratch/out.txt 2>&1' \
+      'git worktree list' "git -C $W status" "git -C $W checkout -- src/ro.txt" "git -C $W stash list" "git -C $W apply --check x.diff" \
+      "sed -i 's/a/b/' $W/src/ro.txt" "sed -i.bak 's/a/b/' $W/src/ro.txt" "sed -i '' 's/a/b/' $W/src/ro.txt" "perl -pi -e 's/a/b/' $W/src/ro.txt" \
+      "ruby -pi -e 'puts 1' $W/src/ro.txt" "awk -i inplace '{ print }' $W/src/ro.txt" "ed -s $W/src/ro.txt </dev/null" "ex -s -c wq $W/src/ro.txt" \
+      "cd $W && sed -i 's/a/b/' src/ro.txt" "cd $W && git checkout -- src/ro.txt && npm test" "cd $W && git apply x.diff" "cp impl.txt $W/src/ro.txt" \
+      'find . -name ro.txt' 'find src -exec grep -l a {} +' 'find . -exec sed -n 1p {} +' 'ls src | xargs grep -l a' "find $W -name 'x*' -delete" "cd $W && find . -type f -delete" \
+      "cd $W && echo src/ro.txt | xargs rm" "find $W/src -exec sed -i s/a/b/ {} +" \
+      "echo x > $W/src/out.txt" "cd $W && npm test > out.txt 2>&1" "rm $W/src/ro.txt" 'echo x > /dev/null'; do
+      allowed "A143 $r may run: $c" "$(pre_bash "$c" "$t" r1)"
+    done
+    allowed "A143 $r Write inside the evidence worktree" "$(pre_edit Write "$W/src/new.txt" "$t" r1)"
+    allowed "A143 $r Edit in the run's scratch folder" "$(pre_edit Edit .agents/runs/LC/scratch/n.txt "$t" r1)"
+  done
+  # the role's own result files stay writable
+  allowed "A143 qa writes QA_REPORT.md" "$(pre_bash 'echo x > .agents/runs/LC/QA_REPORT.md' proofline-qa r1)"
+  allowed "A143 qa Write of QA_REPORT.md" "$(pre_edit Write .agents/runs/LC/QA_REPORT.md proofline-qa r1)"
+  allowed "A143 verifier writes VERIFY.md" "$(pre_bash 'sed -i s/a/b/ .agents/runs/LC/VERIFY.md' proofline-verifier r1)"
+  allowed "A143 security reviewer Write under security/" "$(pre_edit Write .agents/runs/LC/security/r.md proofline-security-reviewer r1)"
+  # the same commands are not marked as read-role denials for the lead or the implementer or an explorer
+  for who in '' proofline-implementer proofline-explorer; do
+    for c in "sed -i 's/a/b/' src/ro.txt" "ruby -pi -e 'puts 1' src/ro.txt" 'git checkout -- src/ro.txt' 'echo x > src/ro.txt'; do
+      out=$(pre_bash "$c" "$who" a9)
+      case "$out" in *"$msg"*) die "A143 ${who:-lead} got the read-role denial for: $c" ;; esac
+    done
+  done
+  ok "A143 the lead, the implementer and an explorer get no read-role denial"
+  git worktree remove --force "$W" >/dev/null 2>&1 || :
+}
+
 fails=0
-scenarios='lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens not_installed live_claude'
+scenarios='lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens not_installed live_claude read_roles_tree'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done
