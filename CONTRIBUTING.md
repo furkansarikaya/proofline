@@ -100,7 +100,7 @@ Pull request checklist:
 - [ ] a decision entry in `docs/decisions.md` for every behaviour change
 - [ ] a test that fails without the change
 - [ ] documentation updated, in English; any test count, CI time or end-to-end result you quote is current, and an end-to-end result carries its date and `main` commit
-- [ ] the README "Support levels" table still says only what the runs show: a result older than a behaviour-changing decision reads "passed on <date> (<commit>), not re-verified after <decisions>"
+- [ ] `tests/e2e/README.md` holds every end-to-end result, and the README "Status" section claims no more than those tests show
 - [ ] no EXPECTED file loosened; no organisation-specific or third-party project name added
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).

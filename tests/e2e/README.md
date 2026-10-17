@@ -245,6 +245,21 @@ never in the fixtures or EXPECTED files.
 Fixed after the last rounds (covered by self-tests, not yet by an end-to-end run): shell writes after `cd` in the
 hook, the FINGERPRINT line in role texts, QA and test-trust write locations.
 
+## Other configurations and adapters (A140)
+
+These rows moved here from the root README. Self-tests and enforcement tests cover every row; no scored end-to-end run exists for any of them.
+
+| Configuration | Tier | Self-tests and enforcement | End-to-end |
+|---|---|---|---|
+| Any `AGENTS.md` agent (standalone topology) | Protocol | control plane and hooks tested | not tested |
+| Any headless CLI as worker (command template) | Worker | tested with a fake command | not tested |
+| Task adapters: markdown, GitHub Issues | none | tested (GitHub through a fake `gh`) | markdown used in every run |
+| Task adapters: Jira, Linear | none | argument checks only | not tested |
+| Windows | none | not tested (use WSL or Git Bash) | not tested |
+| Codex-only team | Full | hooks, dispatch and rendered agents tested | partly: see "Codex and mixed configurations" |
+| Claude lead with Codex worker | Full | tested with fake runtimes | partly: see "Codex and mixed configurations" |
+| Lead failover (Claude to Codex `resume`) | Full | `agent.sh next` and dispatch failover tested with fake runtimes | partly: see "Codex and mixed configurations" |
+
 ## Capabilities the scenarios do not exercise yet (A91, updated)
 
 The scenarios and their EXPECTED files were not changed for the capabilities added in A78-A90; since A95 the
