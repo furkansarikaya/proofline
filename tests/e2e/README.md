@@ -129,9 +129,8 @@ these changed an EXPECTED file.
 - The Codex-lead behaviour was tested with the cheapest model only; its stop to ask for authorization in prose is
   model behaviour that `agent.sh next` cannot prevent.
 - No scenario was re-verified after A130 to A132, and none after A129 (COMPLEX `128e516` passed before A129, and its run on `9e70f03`
-  failed). Tests that do run on every change: the self-tests (16 suites, over 145 units; a full run is
-  `sh tests/selftest.sh`), 737 skill tests (734 pass, 3 skipped; `node --test tests/skills/`) and the fixtures
-  (42 passed, 1 skipped; `sh tests/fixtures/check-fixtures.sh`), as counted on 2026-10-17.
+  failed). Tests that do run on every change: the self-tests (`sh tests/selftest.sh`), the skill tests (`node --test tests/skills/`) and the fixtures
+  (`sh tests/fixtures/check-fixtures.sh`): more than 900 tests in all, as counted on 2026-10-17.
 
 ### Reply limit and item tags (decided, A133)
 
@@ -244,6 +243,21 @@ never in the fixtures or EXPECTED files.
 
 Fixed after the last rounds (covered by self-tests, not yet by an end-to-end run): shell writes after `cd` in the
 hook, the FINGERPRINT line in role texts, QA and test-trust write locations.
+
+## Other configurations and adapters (A140)
+
+These rows moved here from the root README. Self-tests and enforcement tests cover every row; no scored end-to-end run exists for any of them.
+
+| Configuration | Tier | Self-tests and enforcement | End-to-end |
+|---|---|---|---|
+| Any `AGENTS.md` agent (standalone topology) | Protocol | control plane and hooks tested | not tested |
+| Any headless CLI as worker (command template) | Worker | tested with a fake command | not tested |
+| Task adapters: markdown, GitHub Issues | none | tested (GitHub through a fake `gh`) | markdown used in every run |
+| Task adapters: Jira, Linear | none | argument checks only | not tested |
+| Windows | none | not tested (use WSL or Git Bash) | not tested |
+| Codex-only team | Full | hooks, dispatch and rendered agents tested | partly: see "Codex and mixed configurations" |
+| Claude lead with Codex worker | Full | tested with fake runtimes | partly: see "Codex and mixed configurations" |
+| Lead failover (Claude to Codex `resume`) | Full | `agent.sh next` and dispatch failover tested with fake runtimes | partly: see "Codex and mixed configurations" |
 
 ## Capabilities the scenarios do not exercise yet (A91, updated)
 

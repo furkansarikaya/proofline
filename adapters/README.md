@@ -9,8 +9,8 @@ Untested adapters must be labelled "not tested".
 ## Support status (0.0.1)
 
 Rendering and hooks are covered by `tests/generator/generator-test.sh`, the enforcement tests and the self-tests.
-End-to-end results are an evaluator's `E2E: PASS` on a dated run; the full table, with the commit of every run and
-the decisions merged after it, is the root [README](../README.md#support-levels).
+End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, with the commit of every run, are in
+[tests/e2e/README.md](../tests/e2e/README.md#current-results).
 
 | Adapter | Rendering, hooks, enforcement | End-to-end team runs |
 |---|---|---|
