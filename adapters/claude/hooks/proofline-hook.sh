@@ -55,7 +55,8 @@ root=${CLAUDE_PROJECT_DIR:-}
 [ -n "$root" ] || root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || root=$cwd
 root=$(CDPATH='' cd "$root" 2>/dev/null && pwd -P) || exit 0
 agent=$root/.agents/scripts/agent.sh
-[ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ] || exit 0
+# Not installed: every event is a no-op, except the merge guard of pretool (A136), which protects any project the hook runs in.
+installed=yes; { [ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ]; } || installed=no
 local_dir=$root/.agents/local
 
 # Active run: the selector's single id; anything malformed counts as active (fail closed).
@@ -707,7 +708,108 @@ stash_net_count() {
   }'
 }
 
+# --- merge guard (A136) --------------------------------------------------------------------------
+# Merging is possible only through `proofline merge <PR>` (bin/lib/merge.sh), which merges a pull request only when
+# a fresh check shows every check green on its current head. Every other merge path is denied for every caller,
+# a run open or not, proofline installed in the project or not: gh pr merge (any flags, --admin and --auto
+# included), gh api calls to a merge endpoint / GraphQL merge mutation / protected-ref update, gh alias, git push
+# to a protected branch (or a bare push while one is checked out), git merge on one. Token matching on the scan's
+# command records, like the rest: a script that merges by itself is not seen (see A136, known limits).
+MG_MSG='merging a pull request goes only through `proofline merge <PR-NUMBER> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]`, which checks that every check is green on the current head and then merges (A136); --admin and --auto are never allowed'
+mg_prot=''
+mg_isprot() { case " $mg_prot " in *" $1 "*) return 0 ;; esac; return 1; }
+mg_load() {
+  [ -z "$mg_prot" ] || return 0
+  mg_cb=''; [ "$installed" = no ] || mg_cb=$(sh "$agent" config-get canonical_branch 2>/dev/null) || mg_cb=''
+  mg_oh=$(git -C "$root" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^[^/]*/||') || mg_oh=''
+  mg_prot="main master $mg_cb $mg_oh"
+}
+# mg_ref REF: is REF (one side of a refspec) a protected branch? A variable or substitution cannot be read: protected.
+mg_ref() {
+  mr=${1#+}; mr=${mr#refs/heads/}
+  case "$mr" in *'$'*|*'`'*) return 0 ;; esac
+  mg_isprot "$mr"
+}
+# mg_git ARGS: the arguments of one git command, one per line.
+mg_git() {
+  mg_ifs=$IFS; IFS='
+'; set -f
+  # shellcheck disable=SC2086 # split on newlines on purpose
+  set -- $1
+  IFS=$mg_ifs; set +f
+  mg_dir=$cwd; mg_sub=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C) [ $# -ge 2 ] || break; mg_dir=$(stash_path "$2" "$mg_dir"); [ -n "$mg_dir" ] || mg_dir=@unknown; shift ;;
+      --git-dir=*|--work-tree=*) mg_dir=@unknown ;;
+      --git-dir|--work-tree) mg_dir=@unknown; shift ;;
+      -c|--namespace|--config-env|--exec-path|--super-prefix|--attr-source) shift ;;
+      -*) ;;
+      *) mg_sub=$1; shift; break ;;
+    esac
+    shift
+  done
+  mg_cur=''
+  [ "$mg_dir" = @unknown ] || mg_cur=$(git -C "$mg_dir" symbolic-ref -q --short HEAD 2>/dev/null) || mg_cur=''
+  case "$mg_sub" in
+    push)
+      mg_np=0; mg_head=no
+      for mg_a in "$@"; do case "$mg_a" in -n|--dry-run) return 0 ;; esac; done   # pushes nothing
+      for mg_a in "$@"; do
+        case "$mg_a" in
+          --all|--mirror) deny "git push $mg_a would push the protected branch: $MG_MSG" ;;
+          -*) continue ;;
+        esac
+        mg_np=$((mg_np + 1))
+        [ "$mg_np" -ge 2 ] || continue
+        case "$mg_a" in
+          *:*) ! mg_ref "${mg_a#*:}" || deny "git push to the protected branch ($mg_a): $MG_MSG" ;;
+          HEAD|@) mg_head=yes ;;
+          *) ! mg_ref "$mg_a" || deny "git push of the protected branch ($mg_a): $MG_MSG" ;;
+        esac
+      done
+      # no refspec, or HEAD: the pushed branch is the checked-out one
+      if [ "$mg_np" -lt 2 ] || [ "$mg_head" = yes ]; then
+        [ "$mg_dir" != @unknown ] || deny "git push whose directory cannot be read from the command text pushes an unknown branch: $MG_MSG"
+        ! mg_isprot "$mg_cur" || deny "git push while the protected branch $mg_cur is checked out: $MG_MSG"
+      fi ;;
+    merge)
+      for mg_a in "$@"; do case "$mg_a" in --abort|--quit|--continue) return 0 ;; esac; done
+      [ "$mg_dir" != @unknown ] || deny "git merge whose directory cannot be read from the command text may merge into a protected branch: $MG_MSG"
+      ! mg_isprot "$mg_cur" || deny "git merge on the protected branch $mg_cur: $MG_MSG"
+      mg_alt=$(printf '%s' "$mg_prot" | tr -s ' ' '|' | sed 's/^|//; s/|$//')
+      ! printf '%s' "$cmd" | grep -Eq "(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?($mg_alt)([[:space:]]|;|&|\\||\$)" \
+        || deny "git merge in a command that switches to a protected branch: $MG_MSG" ;;
+    update-ref)
+      for mg_a in "$@"; do case "$mg_a" in refs/heads/*) ! mg_ref "$mg_a" || deny "git update-ref of a protected branch: $MG_MSG" ;; esac; done ;;
+  esac
+  return 0
+}
+merge_guard() {
+  mg_load
+  while IFS= read -r mg_rec; do
+    case "$mg_rec" in C"$TAB"*) ;; *) continue ;; esac
+    mg_rest=${mg_rec#*"$TAB"}; mg_cw=${mg_rest%%"$TAB"*}
+    case "$mg_rest" in *"$TAB"*) mg_args=$(printf '%s' "${mg_rest#*"$TAB"}" | tr '\003\002' '\n\n') ;; *) mg_args='' ;; esac
+    case "$mg_cw" in echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true|env|agent.sh|proofline|'<') continue ;; esac
+    if [ "$mg_cw" = git ]; then mg_git "$mg_args"; continue; fi
+    # every other command word (gh itself, ssh, xargs, a variable): the words pr merge, api with a merge endpoint, alias
+    mg_pr=no mg_mg=no mg_api=no mg_al=no
+    while IFS= read -r mg_t; do
+      case "$mg_t" in pr) mg_pr=yes ;; merge) mg_mg=yes ;; api) mg_api=yes ;; alias) mg_al=yes ;; esac
+    done <<MGARGS
+$mg_args
+MGARGS
+    [ "$mg_pr$mg_mg" != yesyes ] || deny "$mg_cw pr merge is denied: $MG_MSG"
+    [ "$mg_cw$mg_al" != gh''yes ] || deny "gh alias could hide a merge command: $MG_MSG"
+    if [ "$mg_api" = yes ] && printf '%s\n' "$mg_args" | grep -Eiq '/pulls/[^/[:space:]]*/merge|/merges?([[:space:]?#]|$)|mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|auto_merge|git/refs/heads/(main|master)'; then
+      deny "gh api call to a merge endpoint is denied: $MG_MSG"
+    fi
+  done < "$tmp/scan"
+}
+
 # --- events -----------------------------------------------------------------------------------
+[ "$ev" = pretool ] || [ "$installed" = yes ] || exit 0
 case "$ev" in
 pretool)
   if [ "$parsed" = no ]; then
@@ -719,6 +821,10 @@ pretool)
   cmd=''
   case "$tool" in Bash|shell|local_shell|exec_command|unified_exec) cmd=$(jget tool_input.command tool_input.cmd) ;; esac
   TAB=$(printf '\t')
+  if [ "$installed" = no ]; then   # installed projects run merge_guard below, after the older rules, so their reasons win
+    [ -z "$cmd" ] || { printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"; merge_guard; }
+    exit 0
+  fi
   if [ -n "$cmd" ]; then
     # A102: the capability probes' self-test switches are never set by a model (they would hide a browser or benchmark).
     case "$cmd" in *PROOFLINE_PROBE_ROOT*|*PROOFLINE_SELFTEST*) deny "PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them" ;; esac
@@ -748,6 +854,8 @@ pretool)
         W) ! always_protected "$(relpath "$v")" || deny "the command writes '$v', which wires the git hooks; it is never changed by an agent (git hook bypass)" ;;
       esac
     done < "$tmp/scan"
+    # The merge guard is not run-scoped either (A136).
+    merge_guard
     # The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
     db_guard_cmd "$cmd"
     [ -n "$act" ] || { scratch_guard; lead_tmp_check; exit 0; }
