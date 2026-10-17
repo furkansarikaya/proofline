@@ -24,7 +24,7 @@ How a proofline skill writes prose for people: documentation, reports, questions
 
 ## What the machine check measures
 
-`scripts/check-writing.mjs` measures rules 1 to 3 and nothing else.
+The length script, where a skill carries it, measures rules 1 to 3 and nothing else.
 
 - It skips front matter, code fences, tables, headings, HTML comments, and link and image targets (the link text counts).
 - A list item is an instruction. A sentence is an instruction when its first word looks like a base-form verb and is not a determiner, pronoun, preposition or conjunction. Every other sentence is explanatory.

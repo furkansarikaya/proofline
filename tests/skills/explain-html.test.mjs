@@ -29,6 +29,36 @@ test("external references are rejected in attributes, CSS and JS", () => {
   for (const b of bad) assert.ok(check(good.replace("</body>", b + "</body>")).length > 0, b);
 });
 
+test("known bypasses are rejected", () => {
+  const bad = [
+    '<img src=a.png>',
+    '<iframe src="other.html"></iframe>',
+    '<object data="a.swf"></object>',
+    '<video src="a.mp4"></video>',
+    '<embed src="a.pdf">',
+    '<style>body{background:url(a.png)}</style>',
+    '<img\nsrc="a.png">',
+    '<img srcset="x 1x,//evil/a.png 2x">',
+    '<img srcset="a.png 1x">',
+    '<a href="h&#116;tps://evil.example/">x</a>',
+    '<a href="h&#x74;tps://evil.example/">x</a>',
+    '<iframe src="data:text/html;base64,PGI+"></iframe>',
+    '<form action="other.html"></form>',
+    '<video poster="p.png"></video>',
+    '<a href="other.html">x</a>',
+  ];
+  for (const b of bad) assert.ok(check(good.replace("</body>", b + "</body>")).length > 0, b);
+});
+
+test("inline images, fonts and fragments are allowed", () => {
+  const ok = ['<img alt="" src="data:image/png;base64,AAAA">', '<a href="#top">x</a>', '<style>@font-face{src:url(data:font/woff2;base64,AAAA)}</style>'];
+  for (const b of ok) assert.deepEqual(check(good.replace("</body>", b + "</body>")), [], b);
+});
+
+test("a title inside a comment does not count", () => {
+  assert.deepEqual(msgs(good.replace(/<title>.*<\/title>/, "<!-- <title>x</title> -->")), ["missing or empty <title>"]);
+});
+
 test("the SVG namespace is allowed only as xmlns", () => {
   assert.deepEqual(check(good), []);
   assert.ok(check(good.replace("</body>", "<p>http://www.w3.org/2000/svg</p></body>")).length > 0);
