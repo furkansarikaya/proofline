@@ -72,6 +72,8 @@ English: [../prompt-catalogue.md](../prompt-catalogue.md).
 | Push | `TASK-001 için push'u onaylıyorum` |
 | Biten run'ları temizle | `proofline clean --yes` |
 
+Yanıt, türüne ait tam bir cümle (`Planı onaylıyorum`, `Commit'i onaylıyorum`, `Kapsamı onaylıyorum`, ...) ya da `approve plan` gibi kısa bir ifade olmalıdır; fazladan bir yan cümle yanıtı belirsiz yapar ve soru yeniden sorulur.
+
 Onaylar yalnızca senin mesajından (veya terminalde yazdığın cevaptan), isteğin ardından gelirse sayılır ve tek kullanımlıktır.
 Kabul edilen onay ifadeleri `.agents/config.yaml` içindeki `approval.phrases` ile belirlenir; kendi ifadelerini oraya ekleyebilirsin.
 

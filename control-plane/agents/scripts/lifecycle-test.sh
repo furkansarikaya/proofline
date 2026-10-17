@@ -799,6 +799,35 @@ scenario_approval_fail_closed() {
     A request-approval LC plan >/dev/null; capture "$t"; A approve LC plan >/dev/null || die "an allowlisted answer was refused: '$t'"
     rm -f "$ad"/[0-9][0-9][0-9]-plan.yaml
   done
+  # A134: the full sentences of every kind approve (English and Turkish, ASCII variants), nothing else does.
+  for kt in 'plan|I approve the plan|Planı onaylıyorum|PLANI ONAYLIYORUM|planı onayladım|I approved the plan.|plani onayliyorum' \
+    "destructive|I approve the destructive step|Yıkıcı adımı onaylıyorum|yikici degisikligi onayliyorum|i approve the destructive change" \
+    'single_step|I approve the single step|tek adımı onaylıyorum|tek adimi onayladim' \
+    'scope|I approve the scope|Kapsamı onaylıyorum|kapsami onayliyorum' \
+    'budget|I approve the budget|I approve another round|Bütçeyi onaylıyorum|Bir round daha onaylıyorum|butceyi onayladim' \
+    "commit|I approve the commit|Commit'i onaylıyorum|commit'i onayladım" \
+    "push|I approve the push|Push'u onaylıyorum|push'u onayliyorum"; do
+    k=${kt%%|*}; rest=${kt#*|}
+    while [ -n "$rest" ]; do
+      t=${rest%%|*}; case "$rest" in *'|'*) rest=${rest#*|} ;; *) rest='' ;; esac
+      A request-approval LC "$k" >/dev/null; capture "$t"; A approve LC "$k" >/dev/null || die "a full sentence was refused for $k: '$t'"
+      rm -f "$ad"/[0-9][0-9][0-9]-"$k".yaml
+    done
+  done
+  # A134 negatives: hedged, negated, mixed, question, wrong-kind, empty or quoted answers stay unapproved (plan and commit)
+  longq="$(printf 'x%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) he wrote: \"I approve the plan\" in an earlier mail"
+  for kt in 'plan|I approve the commit|I approve the scope|Commit'"'"'i onaylıyorum|Kapsamı onaylıyorum|I approve the plan but not the migration|I approve the plan and the commit|onaylıyorum ama sonra|Planı onaylıyorum ama göçü değil|maybe I approve the plan|I do not approve the plan|I dont approve the plan|Planı onaylamıyorum|Planı onaylıyorum?|approve?|I approve the plan, thanks|I approve the plans' \
+    "commit|I approve the plan|I approve the push|I approve the commit but wait|Commit'i onaylamıyorum|Push'u onaylıyorum"; do
+    k=${kt%%|*}; rest=${kt#*|}
+    A request-approval LC "$k" >/dev/null
+    while [ -n "$rest" ]; do
+      t=${rest%%|*}; case "$rest" in *'|'*) rest=${rest#*|} ;; *) rest='' ;; esac
+      capture "$t"; expect_fail "a wrong-kind or ambiguous sentence approved $k: '$t'" A approve LC "$k"
+      for f in "$ad"/[0-9][0-9][0-9]-"$k".yaml; do [ ! -e "$f" ] || die "an approval file exists for $k after '$t'"; done
+    done
+  done
+  A request-approval LC plan >/dev/null
+  for t in '' "$longq" 'I approve the plan I approve the plan'; do capture "$t"; expect_fail "an empty or quoted answer approved: '$t'" A approve LC plan; done
   # The grammar is locale independent (test-lib runs under LC_ALL=C): the same refusals and a positive under UTF-8.
   for t in "I shouldn't approve the plan" 'PLAN ONAYLIYORUM DEĞİL' 'plan onay yok' 'yes the plan is wrong'; do
     capture "$t"; expect_fail "an ambiguous answer approved under UTF-8: '$t'" env LC_ALL=en_US.UTF-8 sh ./.agents/scripts/agent.sh approve LC plan

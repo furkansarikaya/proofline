@@ -424,8 +424,15 @@ sc_waiver() {
   A request-approval LC waive:REVIEW_SMALL-1 >/dev/null
   capture 'approved, go ahead'
   expect_msg "an approval text not naming the finding" 'no approval phrase' A approve LC waive:REVIEW_SMALL-1
-  capture 'approved REVIEW_SMALL-1'
-  A approve LC waive:REVIEW_SMALL-1 >/dev/null
+  # A134: the full sentence names the finding; a bare 'the waiver', another id or another kind's object is ambiguous
+  for t in 'I approve the waiver' 'I approve the waiver of REVIEW_SMALL-2' 'I approve the plan' 'I approve the waiver of REVIEW_SMALL-1 but not the rest'; do
+    capture "$t"; expect_fail "a waiver sentence approved: '$t'" A approve LC waive:REVIEW_SMALL-1
+  done
+  capture 'REVIEW_SMALL-1 feragatini onaylıyorum'
+  A approve LC waive:REVIEW_SMALL-1 >/dev/null || die "the Turkish waiver sentence was refused"
+  rm -f .agents/runs/LC/approvals/[0-9][0-9][0-9]-waive-REVIEW_SMALL-1.yaml; A request-approval LC waive:REVIEW_SMALL-1 >/dev/null
+  capture 'I approve the waiver of REVIEW_SMALL-1.'
+  A approve LC waive:REVIEW_SMALL-1 >/dev/null || die "the English waiver sentence was refused"
   expect_fail "a reviewer waived" AS reviewer waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream'
   A waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream' >/dev/null
   [ "$(gate_st REVIEW_SMALL)" = waived ] || die "a fully waived FAIL is $(gate_st REVIEW_SMALL)"
