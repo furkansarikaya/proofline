@@ -3483,7 +3483,10 @@ approval_sentences() {
   done
 }
 # approval_example KIND: the first English and the first Turkish full sentence, for the approval question.
-approval_example() { printf '"%s" | "%s"' "$(approval_sentences "$1" | sed -n 1p)" "$(approval_sentences "$1" | grep -m1 ' onaylıyorum$')"; }
+approval_example() {
+  ae_cap() { LC_ALL=C awk '{ print toupper(substr($0, 1, 1)) substr($0, 2) }'; }
+  printf '"%s" | "%s"' "$(approval_sentences "$1" | sed -n 1p | ae_cap)" "$(approval_sentences "$1" | grep -m1 ' onaylıyorum$' | ae_cap)"
+}
 # text_has_approval TEXTFILE KIND [RUNID]: a positive grammar (A108). After normalisation every word of the reply must be a
 # word of an allowlisted approval phrase, a word of the kind's own words (`kind_words`) or a filler word; the reply
 # must hold a whole allowlisted phrase and a kind word, and no question mark. Any other word (a negation, a

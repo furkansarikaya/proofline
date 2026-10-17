@@ -800,7 +800,9 @@ scenario_approval_fail_closed() {
     rm -f "$ad"/[0-9][0-9][0-9]-plan.yaml
   done
   # A134: the full sentences of every kind approve (English and Turkish, ASCII variants), nothing else does.
-  for kt in 'plan|I approve the plan|Planı onaylıyorum|PLANI ONAYLIYORUM|planı onayladım|I approved the plan.|plani onayliyorum' \
+  # the question shows the sentence capitalised, as the docs do
+  A request-approval LC plan | grep -Fq '"I approve the plan" | "Planı onaylıyorum"' || die "the question does not show the full sentences"
+  for kt in 'plan|I approve the plan|"I approve the plan"|Planı onaylıyorum|PLANI ONAYLIYORUM|planı onayladım|I approved the plan.|plani onayliyorum' \
     "destructive|I approve the destructive step|Yıkıcı adımı onaylıyorum|yikici degisikligi onayliyorum|i approve the destructive change" \
     'single_step|I approve the single step|tek adımı onaylıyorum|tek adimi onayladim' \
     'scope|I approve the scope|Kapsamı onaylıyorum|kapsami onayliyorum' \
