@@ -8,6 +8,7 @@
 #   exec-policy.sh explain < decision          reason codes -> text
 #   exec-policy.sh check-capabilities          codex ladder vs the local Codex model cache (needs jq)
 #   exec-policy.sh check-lead --runtime RT [--model M]   a lead must run on the base model or stronger (A135)
+#   exec-policy.sh lead-base <runtime>                   the base model of a lead (empty: none enforced)
 #   exec-policy.sh runtime <role>              the configured runtime of a role (runtime.roles.<role> > runtime.<group>)
 #
 # Inputs: .agents/config.yaml (EXEC_POLICY_CONFIG), .agents/roles.conf (EXEC_POLICY_ROLES).
@@ -244,8 +245,19 @@ check_capabilities() {
   return "$bad"
 }
 
-# A lead runs on the base (full-strength) model of its runtime or stronger (A135). The base model is
-# execution_policy.lead_base_model.<runtime>. An unset model is the runtime default, not resolvable here: accepted.
+# A lead runs on the base (full-strength) model of its runtime or stronger (A135). The base is
+# execution_policy.lead_base_model.<runtime>; when an older installed config lacks the key it is derived from the
+# ladder (lowest model meeting the lead tier floor of roles.conf, 2 without it), so enforcement never turns off.
+# Enforced for codex only. Prints the base model, or nothing when the runtime has none.
+lead_base() {
+  [ -f "$config" ] || die "config not found: $config"
+  lb=$(cfg execution_policy lead_base_model "$1"); [ -z "$lb" ] || { echo "$lb"; return 0; }
+  [ "$1" = codex ] || return 0
+  ladder=$(cfg execution_policy providers "$1" models); rt=$1
+  lf=$(awk -v t="$1" '$1 == "lead" && $3 == t { print $6; exit }' "$roles" 2>/dev/null); int "${lf:-x}" || lf=2
+  model_at_tier "$lf"
+}
+# check-lead needs the model the lead really runs: an unset one (runtime default) cannot be verified and is refused.
 check_lead() {
   cl_rt='' cl_model=''
   while [ $# -gt 0 ]; do
@@ -253,10 +265,9 @@ check_lead() {
     case "$1" in --runtime) cl_rt=$2 ;; --model) cl_model=$2 ;; *) die "unknown option: $1" ;; esac
     shift 2
   done
-  [ -f "$config" ] || die "config not found: $config"
   [ -n "$cl_rt" ] || die "check-lead needs --runtime"
-  cl_base=$(cfg execution_policy lead_base_model "$cl_rt"); [ -n "$cl_base" ] || return 0
-  [ -n "$cl_model" ] || return 0
+  cl_base=$(lead_base "$cl_rt"); [ -n "$cl_base" ] || return 0
+  [ -n "$cl_model" ] || reject LEAD_MODEL_UNSET "a $cl_rt lead must name its model (base model $cl_base or stronger); the runtime default cannot be verified"
   ladder=$(cfg execution_policy providers "$cl_rt" models)
   idx "$cl_model" $ladder >/dev/null || reject UNKNOWN_MODEL "$cl_model is not in the $cl_rt ladder ($ladder)"
   [ "$(model_tier "$cl_rt" "$cl_model")" -ge "$(model_tier "$cl_rt" "$cl_base")" ] ||
@@ -265,6 +276,7 @@ check_lead() {
 
 case "${1:-}" in
   check-lead) shift; check_lead "$@" ;;
+  lead-base) [ $# -eq 2 ] || die "usage: $0 lead-base <runtime>"; lead_base "$2" ;;
   resolve) shift; resolve "$@" ;;
   explain) explain ;;
   check-capabilities) check_capabilities ;;

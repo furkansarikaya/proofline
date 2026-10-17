@@ -23,7 +23,9 @@ b=$(find "$root/b" -name git-global-before.txt | head -1)
 # A100: the Codex lead command carries the cheapest model and effort only when asked.
 E2E_ROOT=$root/c sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead( resume)?:' > "$root/plain.txt"
 [ "$(wc -l < "$root/plain.txt")" -eq 2 ] || fail "no codex lead lines: $(cat "$root/plain.txt")"
-! grep -Eq -- "-m |model_reasoning_effort" "$root/plain.txt" || fail 'model/effort flags present with the env unset'
+[ "$(EXEC_POLICY_CONFIG=$here/../../control-plane/agents/config.yaml sh "$here/../../control-plane/agents/scripts/exec-policy.sh" lead-base codex)" = gpt-6-sol ] || fail 'lead-base codex is not gpt-6-sol'
+[ "$(grep -c -- "-m 'gpt-6-sol'" "$root/plain.txt")" -eq 2 ] || fail "Codex lead without E2E_CODEX_MODEL must still pass the base model: $(cat "$root/plain.txt")"
+! grep -q "model_reasoning_effort" "$root/plain.txt" || fail 'effort flag present with the env unset'
 # A135: a Codex lead needs the base model (execution_policy.lead_base_model); the cheapest model is refused for
 # the first exec and for every resume (same variable), the base model is accepted with its effort flag.
 base=$(awk '/^  lead_base_model:/ { g = 1; next } g && $1 == "codex:" { print $2; exit }' "$here/../../control-plane/agents/config.yaml")

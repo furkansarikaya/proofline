@@ -229,6 +229,15 @@ out=$(pl "$d4" doctor 2>&1); rc=$?
 [ "$rc" != 0 ] && expect "doctor FAILs when the Claude hooks are not wired" "$out" "FAIL claude hooks" || { LAST=$out; die "doctor passed without Claude hooks"; }
 d5=$T/d5; cp -R "$base" "$d5"; echo "tampered" >> "$d5/.agents/GATES.md"
 out=$(pl "$d5" doctor 2>&1); expect "doctor warns about a modified installed file" "$out" "WARN manifest"
+# A135: the used-runtime list keeps its spaces: a mixed config (Claude lead, Codex worker) with no codex binary still warns
+d8=$T/d8; cp -R "$base" "$d8"; sed 's/^  worker: claude/  worker: codex/' "$d8/.agents/config.yaml" > "$d8/c.tmp" && mv "$d8/c.tmp" "$d8/.agents/config.yaml"
+out=$(PROOFLINE_CODEX_BIN=/nonexistent/codex pl "$d8" doctor 2>&1)
+expect "doctor warns that a used runtime is not installed (mixed config)" "$out" "WARN runtime codex: not installed, but config.yaml uses it"
+# A135: a Codex lead on the shipped policy passes; an installed config without lead_base_model gets a warning
+d9=$T/d9; cp -R "$base" "$d9"; sed 's/^  lead: claude/  lead: codex/' "$d9/.agents/config.yaml" > "$d9/c.tmp" && mv "$d9/c.tmp" "$d9/.agents/config.yaml"
+out=$(pl "$d9" doctor 2>&1); expect "doctor passes a Codex lead on the base model" "$out" "PASS lead model: codex lead resolves to gpt-6-sol"
+grep -v 'lead_base_model:\|^    codex: gpt-6-sol$' "$d9/.agents/config.yaml" > "$d9/c.tmp" && mv "$d9/c.tmp" "$d9/.agents/config.yaml"
+out=$(pl "$d9" doctor 2>&1); expect "doctor warns when lead_base_model is absent from the installed config" "$out" "WARN lead model: .agents/config.yaml has no execution_policy.lead_base_model"
 nocheck "doctor FAILs outside an installed project" pl "$(mkrepo nodoc)" doctor
 # CLI-5: a missing control-plane file the manifest lists is a FAIL when critical, a WARN otherwise
 d6=$T/d6; cp -R "$base" "$d6"; rm "$d6/.agents/PROTOCOL.md"

@@ -172,7 +172,12 @@ cl --runtime codex --model gpt-6-luna; cl_check 3 "lead + cheapest model is refu
 cl --runtime codex --model gpt-6-sol; cl_check 0 "lead + base model is accepted" ""
 cl --runtime codex --model gpt-6-astra; cl_check 0 "lead + stronger than base is accepted" ""
 cl --runtime codex --model nope; cl_check 3 "lead + unknown model is refused" "UNKNOWN_MODEL"
-cl --runtime codex; cl_check 0 "lead + unset model (runtime default) is accepted" ""
+cl --runtime codex; cl_check 3 "lead + unset model is refused (LEAD_MODEL_UNSET)" "LEAD_MODEL_UNSET"
+[ "$(sh "$ep" lead-base codex)" = gpt-6-sol ] && echo "PASS lead-base prints the configured base" || { echo "FAIL lead-base"; fails=$((fails + 1)); }
+# An installed config without the key still enforces: the base is derived from the ladder and the lead tier floor.
+grep -v 'lead_base_model:\|^    codex: gpt-6-sol$' "$tmp/config.yaml" > "$tmp/nokey.yaml"
+rc=0; out=$(EXEC_POLICY_CONFIG="$tmp/nokey.yaml" sh "$ep" check-lead --runtime codex --model gpt-6-luna 2>&1) || rc=$?; cl_check 3 "no lead_base_model key: the cheapest lead is still refused" "gpt-6-sol"
+rc=0; out=$(EXEC_POLICY_CONFIG="$tmp/nokey.yaml" sh "$ep" check-lead --runtime codex --model gpt-6-sol 2>&1) || rc=$?; cl_check 0 "no lead_base_model key: the derived base is accepted" ""
 cl --runtime claude --model haiku; cl_check 0 "no base model configured for claude: unchanged" ""
 res EXEC_POLICY_ROLES="$here/../roles.conf" --role explorer $base --profile economy --runtime codex --model gpt-6-luna
 check "worker + explicit cheapest model is accepted" 0 model=gpt-6-luna
