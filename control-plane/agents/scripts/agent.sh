@@ -1049,6 +1049,15 @@ scope_mappings() {
 require_scope_mapping() { # ID
   rsm_m=$(scope_mappings "$(run_dir "$1")/PLAN.md") && [ -n "$rsm_m" ] || fail "invalid scope mapping: fix PLAN.md ## Scope entries: each entry needs \`path\` and \`criteria:\` (a non-empty flow list such as [AC-1]); run the plan-contract validator (skills/plan-contract/scripts/validate-plan.mjs)"
 }
+# A129: a TASK.md criterion mapped to no scope path and no explicit test is a plan defect, refused at freeze and refreeze
+# with the plan-contract validator's own rule and text (only these two coverage errors; every other check stays advisory).
+# Checked where the skill and node are installed (a real install has both), like the other validator calls.
+require_ac_coverage() { # ID
+  rac_s=$root/.agents/skills/plan-contract/scripts/validate-plan.mjs; rac_d=$(run_dir "$1")
+  [ -f "$rac_s" ] && command -v node >/dev/null 2>&1 || return 0
+  rac_o=$(node "$rac_s" "$rac_d/PLAN.md" "$rac_d/TASK.md" --class "$(pipeline_class "$1")" --repo "$root" 2>/dev/null | grep -E ': maps to no scope path and no explicit test$|: maps to no criterion$' | tr '\n' ';') || true
+  [ -z "$rac_o" ] || fail "plan defect: ${rac_o%;} -- add AC-n to \`criteria:\` of the PLAN.md scope entries (front matter) that implement it, or name an explicit test for it in \`## Tests\`; freeze again (A129)"
+}
 authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 
 # Approvals a freeze needs (D3): plan (supervised),
@@ -1192,6 +1201,7 @@ freeze() {
   verify_seal "$id"
   verify_task_source_status "$id"
   require_scope_mapping "$id"
+  require_ac_coverage "$id"
   # A112: QA's visual focus runs for every non-TRIVIAL plan with a UI part; its same-origin-write allowance is declared
   # in the plan, now, not found missing at QA time (INCONCLUSIVE, then an amendment and a second approval).
   if gates_enforced "$id" && plan_section_present "$dir/PLAN.md" UI && [ "$(pipeline_class "$id")" != TRIVIAL ] \
@@ -3981,7 +3991,7 @@ next_step() {
       if [ -n "$ns_fail" ]; then
         ns_used=$(fix_rounds_used "$ns_id")
         # A78: script findings are not fixed by the implementer: a missing flag is a plan amendment, UNSUPPORTED the user's call.
-        ns_scr=0 ns_oth=0 ns_pl=0 ns_ac=0
+        ns_scr=0 ns_oth=0 ns_pl=0 ns_ac=0 ns_cov=0
         for ns_g in $ns_fail; do
           for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
             ns_lf=$(gate_latest_file "$ns_id" "$ns_g" "$ns_fc"); [ -n "$ns_lf" ] || continue
@@ -3990,6 +4000,7 @@ next_step() {
             ns_b=$(grep -Ec '^finding: [^|]*\|blocking\|[^|]*\|(UNSUPPORTED |risk signal )' "$ns_lf" || true)
             ns_scr=$((ns_scr + ns_b)); ns_oth=$((ns_oth + ns_a - ns_b))
             ns_pl=$((ns_pl + $(finding_plan_rows "$ns_id" "$ns_lf")))
+            ns_cov=$((ns_cov + $(grep -Ec '^finding: [^|]*\|blocking\|.*(maps to no scope path|requires tdd_exemption)' "$ns_lf" || true)))
             ns_ac=$((ns_ac + $(grep -Ec '^finding: [^|]*\|blocking\|[^|]*\|(AC proof cites|re-running `|the recorded output line)' "$ns_lf" || true)))
             case "$(gate_field "$ns_lf" result | tr '[:upper:]' '[:lower:]')" in fail) [ "$ns_a" -gt 0 ] || ns_oth=$((ns_oth + 1)) ;; esac
             # shellcheck disable=SC2013 # finding ids contain no whitespace
@@ -4006,6 +4017,7 @@ next_step() {
         elif [ "$ns_pl" -gt 0 ] && [ "$ns_oth" -le "$ns_pl" ]; then
           # A127: the plan or its verification commands answer these rows, not the implementer: no fix round, no control-artifact fix_path.
           o "amend PLAN.md ## Verification commands (lead owns it; write amendments/<NNN>.md and edit PLAN.md), then agent.sh refreeze $ns_id <AMENDMENT>; a scope approval is needed only if the amendment adds scope paths"
+          [ "$ns_cov" -eq 0 ] || o "a row that says an AC maps to no scope path, or that command proof requires tdd_exemption, is fixed in PLAN.md front matter: add the AC to \`criteria:\` of the scope entries that implement it, and plan a command that proves it (not only a ## Verification commands line)"
           o "the new plan hash voids the worker evidence and every gate: dispatch.sh $ns_id implementer re-records RED and GREEN against it (a real failing test and a real change; a path with a tdd_exemption needs none), then agent.sh handoff $ns_id IMPLEMENTED, then every gate again, VERIFY included"
           o "a commands-only amendment on a non-exempt path has no honest RED: complete Verification commands before freeze; if the verifier only failed to cite a planned or configured command, re-dispatch it instead (dispatch.sh $ns_id verifier)"
         elif [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"; fix_paths_lines "$ns_id"

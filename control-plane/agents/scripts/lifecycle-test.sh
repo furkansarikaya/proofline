@@ -345,6 +345,13 @@ scenario_plan_level_verify_fail() {
   rec VERIFY FAIL high 'VERIFY-6|blocking|impl.txt:1|AC proof cites `ls` which cannot be re-run|traced: z'
   A next LC | grep -q 're-dispatch the verifier citing only a configured or planned command' || die "an A107 row got no verifier re-dispatch hint"
   rec VERIFY FAIL high 'VERIFY-7|blocking|PLAN.md:1|AC-2 has no eligible command proof|traced: PLAN.md commands'
+  A next LC | grep -q 'fixed in PLAN.md front matter' && die "a row without a scope-mapping complaint got the criteria hint"
+  # A129: an AC mapped to no scope path names the right edit target, the front matter `criteria:`, not only Verification commands
+  rec VERIFY FAIL high 'VERIFY-8|blocking|PLAN.md:1|PLAN maps AC-2 to no scope path; command proof requires tdd_exemption on every mapped PLAN scope path|traced: PLAN.md scope'
+  A next LC > "$base/next.out"
+  grep -q 'is fixed in PLAN.md front matter: add the AC to `criteria:` of the scope entries that implement it, and plan a command that proves it' "$base/next.out" || die "next did not name the criteria edit target: $(cat "$base/next.out")"
+  grep -q 'refreeze LC <AMENDMENT>' "$base/next.out" || die "the criteria hint displaced the amendment route"
+  rec VERIFY FAIL high 'VERIFY-7|blocking|PLAN.md:1|AC-2 has no eligible command proof|traced: PLAN.md commands'
   # the recovery needs no scope approval when the amendment adds no scope path
   mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: add positive verification commands\n' > .agents/runs/LC/amendments/001.md
   printf 'amended: positive verification commands\n' >> .agents/runs/LC/PLAN.md
@@ -826,6 +833,27 @@ scenario_cleanup_after_delivery() {
 
 # A101: freeze refuses a PLAN.md scope entry without `criteria:` before recording anything (RUN.yaml untouched), and
 # the repaired plan freezes without a scope approval.
+# A129: freeze and refreeze refuse a TASK.md criterion that maps to no scope path and has no explicit test (the
+# plan-contract validator's rule and text), also for TRIVIAL and when every scope entry has a non-empty `criteria:`.
+scenario_freeze_ac_coverage() {
+  command -v node >/dev/null 2>&1 || { echo "skip freeze_ac_coverage (node missing)"; exit 0; }
+  export SC_TASK_EXTRA='- AC-2: no other change'; scaffold standalone no TRIVIAL supervised; unset SC_TASK_EXTRA
+  mkdir -p .agents/skills; cp -R "$tl_agents/../../skills/plan-contract" .agents/skills/plan-contract; printf '.agents/skills/\n' >> .git/info/exclude
+  before=$(cat .agents/runs/LC/RUN.yaml); good=$(cat .agents/runs/LC/PLAN.md)
+  expect_msg "freeze accepted a TRIVIAL plan with an unmapped criterion" 'AC-2: maps to no scope path and no explicit test' A freeze LC
+  expect_msg "the refusal did not name the fix" 'add AC-n to `criteria:` of the PLAN.md scope entries' A freeze LC
+  [ "$before" = "$(cat .agents/runs/LC/RUN.yaml)" ] || die "a refused freeze changed RUN.yaml"
+  sed 's/^    criteria: \[AC-1\]$/    criteria: [AC-1, AC-2]/' .agents/runs/LC/PLAN.md > "$base/plan.new"; cp "$base/plan.new" .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null || die "a plan mapping every criterion was refused"
+  # refreeze: an amendment that unmaps AC-2 is refused; naming an explicit test for it is accepted
+  mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: drop the AC-2 mapping\n' > .agents/runs/LC/amendments/001.md
+  printf '%s\n' "$good" > .agents/runs/LC/PLAN.md
+  expect_msg "refreeze accepted an unmapped criterion" 'AC-2: maps to no scope path and no explicit test' A refreeze LC 001.md
+  printf '\n## Tests\n\n- AC-2: `impl_test.txt` asserts nothing else changed\n' >> .agents/runs/LC/PLAN.md
+  approve_as_user plan 'approve the plan'; A refreeze LC 001.md >/dev/null || die "an explicit test for the criterion was refused: $(A refreeze LC 001.md 2>&1 | tail -1)"
+  ok "freeze and refreeze refuse a criterion mapped to no scope path and no explicit test"
+}
+
 scenario_freeze_scope_mapping() {
   scaffold standalone no TRIVIAL supervised
   before=$(cat .agents/runs/LC/RUN.yaml); good=$(cat .agents/runs/LC/PLAN.md)
@@ -871,4 +899,5 @@ run_sc scenario_task_contract_projection
 run_sc scenario_task_source_status
 run_sc scenario_cleanup_after_delivery
 run_sc scenario_freeze_scope_mapping
+run_sc scenario_freeze_ac_coverage
 echo 'agent lifecycle tests passed'
