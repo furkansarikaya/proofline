@@ -1726,7 +1726,7 @@ verify_debug_result() { # ID
   fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
-  fail "IMPLEMENTED blocked: the task speaks of a defect or a fix ('$vd_hit' in its title, goal, context, criteria, constraints, risks or quotes) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) when the task repairs a defect, OR, when the defect is unrelated to the request, declare it under '## Pre-existing defects' as '- <path:symbol>: <what> -- decision: report' (no reword or refreeze needed)"
+  fail "IMPLEMENTED blocked: the task speaks of a defect or a fix ('$vd_hit' in its title, goal, context, criteria, constraints, risks or quotes) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) (this always works, also after freeze); an UNRELATED pre-existing defect must instead be declared under '## Pre-existing defects' as '- <path:symbol>: <what> -- decision: report' BEFORE freeze: after freeze that needs an amendment and a refreeze (maybe another plan approval), so prefer the debug report"
 }
 
 # --- Handoff ladder: PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE ------------

@@ -1166,7 +1166,7 @@ Assumption: A tag is compared lowercased. (The request fixes only case-insensiti
   # the same words in an acceptance criterion of the requested change still ask
   SC_TASK_EXTRA="$feat- AC-2: the page count is wrong today; fix it." scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a defect in a criterion of the request needs a debug-proof result" 'declare it under' A handoff LC IMPLEMENTED
+  expect_msg "a defect in a criterion of the request needs a debug-proof result" 'BEFORE freeze' A handoff LC IMPLEMENTED
   # decision: fix is a requested fix
   SC_TASK_EXTRA='
 ## Context
