@@ -164,6 +164,7 @@ Specialist results that stop the flow:
 | `review` | proof-review standalone (working tree, branch or PR). |
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |
+| `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
 | `deliver <TASK>` | [DELIVERY.md](references/DELIVERY.md). |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 

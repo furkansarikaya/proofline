@@ -17,5 +17,13 @@ Two transactions:
   run's `design/adr/` to `design_docs.adr_dir`), then `agent.sh knowledge-done <ID>`. Otherwise
   `agent.sh knowledge-done <ID> not_applicable`.
 
+The project wiki (A139, skill `llm-wiki`) lives under `docs/wiki/`, which is in `knowledge_scope_root` by default:
+a path under that prefix is knowledge work, any other path is implementation scope. Transaction A reads it
+only on demand and read-only: `index`, then the entity, decision, lesson, concept and finally the source page,
+frozen as references in EVIDENCE, with no filing back, no index or log change. Transaction B ingests warranted,
+sourced knowledge, updates only the relevant pages and `log.md`, runs the wiki lint, resolves its errors, then
+runs `knowledge-done`. Wiki decisions rank below design documents and above lessons; current tests beat a stale
+lesson. A project that keeps no wiki simply never writes under `docs/wiki/`.
+
 Run artifacts (evidence, plans, QA, reviews) are disposable and are never promoted wholesale into
 documentation; their summary goes into the completion report.

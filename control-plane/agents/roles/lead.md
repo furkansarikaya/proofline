@@ -44,7 +44,7 @@ the rendered agent definition itself carries no spawn tool.
 8. A FAIL: diagnose (use .agents/skills/debug-proof/SKILL.md to locate, not to fix), send the findings to the implementer as
    one bounded round, re-run only the stale gates. After the last round with open findings:
    `agent.sh terminate <ID> FAILED`.
-9. All gates pass: CODE_DONE, knowledge step, completion report, DONE, cleanup. Report to the user and stop.
+9. All gates pass: CODE_DONE, knowledge step (the wiki under docs/wiki/ is updated with .agents/skills/llm-wiki/SKILL.md), completion report, DONE, cleanup. Report to the user and stop.
    Commit and push only with the user's approval in the current message.
 
 ## Output

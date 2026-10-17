@@ -5,7 +5,7 @@ purpose: Owns the task lifecycle as the main session, classifying, freezing, dis
 conditional: always, the main session (alias full_lifecycle)
 reads: RUN.yaml TASK.md EVIDENCE.md PLAN.md results/ gates/ questions/
 owns: TASK.md EVIDENCE.md PLAN.md COMPLETION_REPORT.md amendments/ /.agents/tasks/
-skills: proofline-lead plan-contract debug-proof
+skills: proofline-lead plan-contract debug-proof llm-wiki
 gate: none
 result: task
 tools: Read Grep Glob Bash Write Edit
@@ -68,7 +68,7 @@ the rendered agent definition itself carries no spawn tool.
 8. A FAIL: diagnose (use {{skill:debug-proof}} to locate, not to fix), send the findings to the implementer as
    one bounded round, re-run only the stale gates. After the last round with open findings:
    `agent.sh terminate <ID> FAILED`.
-9. All gates pass: CODE_DONE, knowledge step, completion report, DONE, cleanup. Report to the user and stop.
+9. All gates pass: CODE_DONE, knowledge step (the wiki under docs/wiki/ is updated with {{skill:llm-wiki}}), completion report, DONE, cleanup. Report to the user and stop.
    Commit and push only with the user's approval in the current message.
 
 ## Output
