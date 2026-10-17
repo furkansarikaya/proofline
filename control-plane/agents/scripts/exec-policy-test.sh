@@ -4,7 +4,7 @@
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 ep="$here/exec-policy.sh"
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/exec-policy-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/exec-policy-test.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }; trap 'rm -rf "$tmp"' EXIT
 fails=0
 # Fixture roles policy (the shipped roles.conf is generated; it is checked separately below).
 # Claude rows use model names, codex rows tierN tokens: role balanced max economy (model:effort) floor

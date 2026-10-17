@@ -3819,16 +3819,22 @@ explorer_slot_check() {
   case "$es_max" in ''|*[!0-9]*|0) return 0 ;; esac
   es_d=$(run_dir "$es_id"); es_l=$(ledger_file "$es_id"); es_floor=0
   if [ -f "$es_l" ]; then es_floor=$(awk '/ event=(freeze|refreeze) / { s = $1; sub(/^seq=/, "", s); f = s } END { print f + 0 }' "$es_l"); fi
-  es_have=''
+  es_have='' es_keys=''
   for es_f in $(ls -1 "$es_d/results" 2>/dev/null | grep -E '^[0-9]{3}-explorer\.result\.md$' || true); do
     grep -qx 'RESULT: DONE' "$es_d/results/$es_f" || continue
     es_s=''; [ ! -f "$es_l" ] || es_s=$(grep "detail=results/$es_f " "$es_l" | sed -n 's/^seq=\([0-9]*\) .*/\1/p' | tail -n 1)
     [ -z "$es_s" ] || [ "$es_s" -gt "$es_floor" ] || continue
+    # one explorer = one allocated report: a resubmitted (revised) report is another result file for the same slot
+    es_k=$(sed -n 's/^ARTIFACT: [^ ]*\/[0-9a-f]\{12\}-\([^ ]*\) .*/\1/p' "$es_d/results/$es_f" | head -n 1)
+    [ -z "$es_k" ] || case " $es_keys " in *" $es_k "*) continue ;; esac
+    es_keys="$es_keys $es_k"
     es_have="$es_have $es_f"
   done
   es_open=0
   for es_m in "$es_d"/dispatch/*-explorer-*.running; do
     [ -f "$es_m" ] || continue
+    # a dispatch whose submission is already recorded is counted as its delivered result, not twice
+    es_b=${es_m##*/}; ! grep -qx 'status=ok' "$(submission_dir)/d${es_b%.running}.status" 2>/dev/null || continue
     ! inflight_pid_alive "$(sed -n 's/^pid=//p' "$es_m" | head -n 1)" "$es_m" || es_open=$((es_open + 1))
   done
   es_n=$(printf '%s\n' "$es_have" | wc -w | tr -d ' ')

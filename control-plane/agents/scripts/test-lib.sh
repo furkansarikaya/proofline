@@ -10,7 +10,9 @@ export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 unset AGENT_ROLE 2>/dev/null || true
 
 tl_agents=$(CDPATH='' cd "$(dirname "$0")/.." && pwd)     # control-plane/agents (source) or .agents (installed)
-base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-test.XXXXXX")
+# A fixture outside an existing temp dir would be built in the CURRENT directory (the real repository): stop first.
+base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-test.XXXXXX") || { echo "test-lib: TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }
+[ -n "$base" ] && [ -d "$base" ] || { echo "test-lib: no fixture directory: ${TMPDIR:-/tmp}" >&2; exit 2; }
 # Cleanup never decides the exit status (set -e in a trap would): a process still finishing inside $base
 # (git maintenance) can make rm fail once, so retry; the assertions already decided the result.
 trap 'chmod -R u+w "$base" 2>/dev/null || :; rm -rf "$base" 2>/dev/null || { sleep 1; rm -rf "$base" 2>/dev/null || :; }' EXIT

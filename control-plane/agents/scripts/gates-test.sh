@@ -313,7 +313,16 @@ sc_explorer_limit() {
   # a BLOCKED result holds no slot: its retry (and a NEEDS_INPUT ANSWERS re-dispatch) is allowed
   AS explorer submit LC --result BLOCKED --reason 'no entry point' --confidence high --agent agB >/dev/null || die "explorer BLOCKED submit failed"
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "explorer 1 submit failed"
-  A decide LC explorer >/dev/null || die "a decide after a BLOCKED result and one DONE result was refused"
+  # the same explorer resubmitting a revised report is still one slot (two result files, one allocated report)
+  printf 'one revised\n' > "$base/ag1-rep"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "explorer 1 resubmit failed"
+  [ "$(ls .agents/runs/LC/results/???-explorer.result.md | wc -l | tr -d ' ')" -ge 3 ] || die "the resubmit did not leave a second DONE result file"
+  A decide LC explorer >/dev/null || die "a decide after a BLOCKED result and one explorer resubmitting was refused"
+  # a live marker whose submission is already recorded is the delivered result, not a second slot
+  mkdir -p .agents/runs/LC/dispatch .agents/local/submissions; printf 'pid=%s\nrole=explorer\n' "$$" > .agents/runs/LC/dispatch/091-explorer-claude.running
+  printf 'status=ok\n' > .agents/local/submissions/d091-explorer-claude.status
+  A decide LC explorer >/dev/null || die "a DONE result plus its own live marker was counted twice"
+  rm -f .agents/runs/LC/dispatch/091-explorer-claude.running
   # a running explorer dispatch occupies a slot: one DONE + one running = 2 of 2
   mkdir -p .agents/runs/LC/dispatch; printf 'pid=%s\nrole=explorer\n' "$$" > .agents/runs/LC/dispatch/090-explorer-claude.running
   expect_msg "a parallel start beyond the limit was granted" '1 delivered result(s)' A decide LC explorer

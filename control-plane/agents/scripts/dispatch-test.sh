@@ -4,7 +4,7 @@
 # The stub's `decide` calls the real exec-policy.sh, so capability floors are the real ones.
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-test.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }; trap 'rm -rf "$tmp"' EXIT
 fails=0
 # Fixture roles policy (the shipped roles.conf is generated; it is checked separately below).
 # Claude rows use model names, codex rows tierN tokens: role balanced max economy (model:effort) floor
@@ -268,6 +268,12 @@ reset; d T-1 explorer --runtime claude
 ck "the explorer prompt names its own token-derived scratch report" 'has "$loc/claude.stdin" "scratch/d001-explorer-claude-report.md"'
 d T-1 explorer --runtime claude
 ck "a second explorer dispatch gets a different scratch report path" 'has "$loc/claude.stdin" "scratch/d002-explorer-claude-report.md" && ! has "$loc/claude.stdin" "scratch/d001-explorer-claude-report.md"'
+# A132: a test-lib script with an unusable TMPDIR stops (exit 2) instead of building its fixture in the current
+# directory; a throwaway repository sees no commit and no config change
+guard=$tmp/guard-repo; mkdir -p "$guard"; ( cd "$guard" && git init -q 2>/dev/null )
+# shellcheck disable=SC2034 # read by the ck condition below
+grc=0; ( cd "$guard" && TMPDIR=/nonexistent/proofline-guard sh "$here/gates-test.sh" >/dev/null 2>&1 ) || grc=$?; : "$grc"
+ck "a test-lib script with a missing TMPDIR exits 2 and leaves the current repository untouched" '[ "$grc" -eq 2 ] && [ -z "$(git -C "$guard" rev-list --all 2>/dev/null)" ] && ! git -C "$guard" config --local core.hooksPath >/dev/null 2>&1'
 reset; mkdir -p "$loc"
 ( rc=0; env FAKE_CLAUDE=hold sh "$a/scripts/dispatch.sh" T-1 reviewer --runtime claude > "$tmp/hold.out" 2>&1 || rc=$?; echo "$rc" > "$tmp/hold.rc" ) &
 w=0; while [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ] && [ "$w" -lt 100 ]; do sleep 0.1; w=$((w + 1)); done

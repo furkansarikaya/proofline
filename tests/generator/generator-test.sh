@@ -6,7 +6,7 @@ set -u
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 GEN=$(dirname "$(dirname "$here")")/adapters/generate.sh
 FIX=$here/fixtures/roles
-T=$(mktemp -d "${TMPDIR:-/tmp}/gen-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/gen-test.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 PASS=0
 FAIL=0

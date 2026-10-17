@@ -9,7 +9,7 @@
 # Usage: sh tests/fixtures/check-fixtures.sh [fixture-name ...]
 set -u
 root=$(cd "$(dirname "$0")/../.." && pwd)
-work=$(mktemp -d "${TMPDIR:-/tmp}/proofline-fixtures.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/proofline-fixtures.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }
 trap 'rm -rf "$work"' EXIT INT TERM
 
 if [ $# -gt 0 ]; then
