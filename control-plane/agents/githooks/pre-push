@@ -1,9 +1,9 @@
 #!/bin/sh
 # proofline pre-push (D19, D34). Installed with `git config core.hooksPath .agents/githooks`.
-#  1 protected branches (git.protected_branches, globs): agents never push there; a human at a TTY may.
+#  1 protected branches (git.protected_branches, globs): agents never push there; a human may.
 #  2 open runs (`agent.sh open-runs`, never ACTIVE_RUN): only a run's task branch is pushed.
 #  3 git.push_requires_approval (default true): an agent push needs a single-use `push` approval
-#    (`agent.sh approval-consume <ID|-> push`; `-` when no run is open); a human at a TTY passes.
+#    (`agent.sh approval-consume <ID|-> push`; `-` when no run is open); a human passes.
 set -u
 root=$(git rev-parse --show-toplevel) || exit 1
 config=$root/.agents/config.yaml
@@ -14,7 +14,7 @@ cfg() { # SECTION KEY -> value of a 2-level key (empty when absent)
   awk -v s="$1" -v k="$2" '$0 ~ "^" s ":" { c = 1; next } /^[^ #]/ { c = 0 }
     c && $0 ~ "^  " k ":" { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/"/, "", v); print v; exit }' "$config"
 }
-human() { [ "${PROOFLINE_NO_TTY:-0}" != 1 ] && [ -z "${AGENT_ROLE:-}" ] && [ -t 2 ]; }
+. "$(dirname "$0")/human.sh"   # human(): no agent session markers (see human.sh)
 set -f
 protected=$(cfg git protected_branches)
 runs=''
