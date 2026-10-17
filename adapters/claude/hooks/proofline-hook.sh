@@ -730,17 +730,19 @@ mg_ref() {
   case "$mr" in *'$'*|*'`'*) return 0 ;; esac
   mg_isprot "$mr"
 }
-# mg_git ARGS: the arguments of one git command, one per line.
+# mg_git ARGS: the arguments of one git command, one per line. State from merge_guard: mg_cd (directory after
+# `cd`), mg_envu (an env/sudo -C, GIT_DIR, GIT_WORK_TREE made the directory unreadable).
 mg_git() {
   mg_ifs=$IFS; IFS='
 '; set -f
   # shellcheck disable=SC2086 # split on newlines on purpose
   set -- $1
   IFS=$mg_ifs; set +f
-  mg_dir=$cwd; mg_sub=''
+  mg_dir=$mg_cd; [ "$mg_envu" = no ] || mg_dir=@unknown
+  mg_sub=''
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C) [ $# -ge 2 ] || break; mg_dir=$(stash_path "$2" "$mg_dir"); [ -n "$mg_dir" ] || mg_dir=@unknown; shift ;;
+      -C) [ $# -ge 2 ] || break; if [ "$mg_dir" != @unknown ]; then mg_dir=$(stash_path "$2" "$mg_dir"); [ -n "$mg_dir" ] || mg_dir=@unknown; fi; shift ;;
       --git-dir=*|--work-tree=*) mg_dir=@unknown ;;
       --git-dir|--work-tree) mg_dir=@unknown; shift ;;
       -c|--namespace|--config-env|--exec-path|--super-prefix|--attr-source) shift ;;
@@ -753,11 +755,20 @@ mg_git() {
   [ "$mg_dir" = @unknown ] || mg_cur=$(git -C "$mg_dir" symbolic-ref -q --short HEAD 2>/dev/null) || mg_cur=''
   case "$mg_sub" in
     push)
-      mg_np=0; mg_head=no
-      for mg_a in "$@"; do case "$mg_a" in -n|--dry-run) return 0 ;; esac; done   # pushes nothing
+      # A real -n / --dry-run pushes nothing; the value of -o / --push-option / --receive-pack / --exec / --repo is not a flag.
+      mg_skip=no
       for mg_a in "$@"; do
+        if [ "$mg_skip" = yes ]; then mg_skip=no; continue; fi
+        case "$mg_a" in -n|--dry-run) return 0 ;; -o|--push-option|--receive-pack|--exec|--repo) mg_skip=yes ;; esac
+      done
+      mg_np=0; mg_head=no; mg_skip=no
+      for mg_a in "$@"; do
+        if [ "$mg_skip" = yes ]; then mg_skip=no; continue; fi
         case "$mg_a" in
           --all|--mirror) deny "git push $mg_a would push the protected branch: $MG_MSG" ;;
+          --repo) mg_np=1; mg_skip=yes; continue ;;
+          --repo=*) mg_np=1; continue ;;
+          -o|--push-option|--receive-pack|--exec) mg_skip=yes; continue ;;
           -*) continue ;;
         esac
         mg_np=$((mg_np + 1))
@@ -770,7 +781,7 @@ mg_git() {
       done
       # no refspec, or HEAD: the pushed branch is the checked-out one
       if [ "$mg_np" -lt 2 ] || [ "$mg_head" = yes ]; then
-        [ "$mg_dir" != @unknown ] || deny "git push whose directory cannot be read from the command text pushes an unknown branch: $MG_MSG"
+        [ "$mg_dir" != @unknown ] || deny "git push whose directory cannot be read from the command text (cd -, a variable, GIT_DIR, env -C, a cd in a subshell or pipe) pushes an unknown branch: $MG_MSG"
         ! mg_isprot "$mg_cur" || deny "git push while the protected branch $mg_cur is checked out: $MG_MSG"
       fi ;;
     merge)
@@ -785,26 +796,73 @@ mg_git() {
   esac
   return 0
 }
+# mg_api ARGS: a `gh api` call (arguments one per line).
+mg_api() {
+  mg_aw=no; mg_atxt=$(printf '%s' "$1" | tr '\n' ' ')
+  ! printf '%s\n' "$1" | grep -Eq '^(-X|--method|-f|-F|--field|--raw-field|--input)(=.*)?$|^-X.' || mg_aw=yes
+  printf '%s\n' "$1" | grep -Eiq '^--input|=@|mutation|/pulls/[^/[:space:]]*/merge|/merges?([[:space:]?#]|$)|mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|auto_merge|git/refs/heads/(main|master)' \
+    && deny "gh api call with a merge endpoint, a GraphQL mutation, --input or a field read from a file (=@) is denied: $MG_MSG"
+  [ "$mg_aw" = no ] || {
+    printf '%s' "$mg_atxt" | grep -Eiq '/contents/' && deny "gh api write to repository contents (default branch included) is denied: $MG_MSG"
+    printf '%s' "$mg_atxt" | grep -Eiq '/git/(refs|commits|trees)' && printf '%s' "$mg_atxt" | grep -Eiq 'main|master|[$`]' \
+      && deny "gh api write to git refs of a protected branch (or to a ref built from a variable) is denied: $MG_MSG"
+  }
+  return 0
+}
 merge_guard() {
   mg_load
+  mg_flat=$(printf '%s' "$cmd" | tr '\n' ' ')
+  case "$cmd" in *PROOFLINE_SELFTEST*) deny "PROOFLINE_SELFTEST is a self-test switch (it lifts the wrapper's PATH-shadowing rule); a model command never names it: $MG_MSG" ;; esac
+  # (a) a variable, substitution or backtick where the gh subcommand goes
+  printf '%s' "$mg_flat" | grep -Eq '(^|[^[:alnum:]_./-])gh([[:space:]]+(-R|--repo)[[:space:]]+[^[:space:]]+)?([[:space:]]+[A-Za-z][A-Za-z-]*)?[[:space:]]+["'"'"']?[$`]' \
+    && deny "a variable or substitution where the gh subcommand goes cannot be checked (gh pr \$m, gh \$SUB ...); write the subcommand literally: $MG_MSG"
+  # (d) merge text piped, heredoc'd or passed to a shell / interpreter / eval / git alias
+  mg_pay='(^|[^[:alnum:]_])pr["'"'"'[:space:]]+merge([^[:alnum:]_]|$)|/pulls/[^[:space:]]*merge|mergePullRequest|enablePullRequestAutoMerge|git[[:space:]]+([^;&|]*[[:space:]])?push[^;&|]*[[:space:]:/+](main|master)([^[:alnum:]_.-]|$)|git[[:space:]]+merge'
+  mg_sink='\|[[:space:]]*((env|sudo|command|exec)[[:space:]]+)*(/[^[:space:]|;&]*/)?(sh|bash|zsh|dash|ksh|ash)([[:space:]]|;|&|\)|$)|(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh)([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<|(sh|bash|zsh|dash|ksh)[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-s([[:space:]]|$)|(^|[^[:alnum:]_.-])(python[0-9.]*|node|nodejs|deno|bun|ruby|perl|php|lua)[[:space:]]+(-[A-Za-z]*[ceErp]|--eval)([[:space:]]|$)|awk[^|;&]*system[[:space:]]*\(|(^|[;&|({[:space:]])eval[[:space:]]|alias\.[A-Za-z0-9_-]+=["'"'"']?!'
+  if printf '%s' "$mg_flat" | grep -Eq "$mg_sink" && printf '%s' "$mg_flat" | grep -Eq "$mg_pay"; then
+    deny "merge text passed to a shell, an interpreter, eval or a git alias cannot be checked: $MG_MSG"
+  fi
+  mg_cd=$cwd; mg_envu=no
+  # env/sudo -C, --chdir move the directory away from what the text says
+  ! printf '%s' "$mg_flat" | grep -Eq '(env|sudo|doas)[[:space:]]+([^;&|]*[[:space:]])?(-[A-Za-z]*[CD]|--chdir)' || mg_envu=yes
+  mg_nl=$(printf '%s' "$cmd" | sed -e 's/&&//g' -e 's/[0-9]*>&[0-9-]*//g' -e 's/&>//g')
+  mg_nonlin=no; case "$mg_nl" in *'('*|*'|'*|*'&'*|*'{'*|*'`'*) mg_nonlin=yes ;; esac
   while IFS= read -r mg_rec; do
     case "$mg_rec" in C"$TAB"*) ;; *) continue ;; esac
     mg_rest=${mg_rec#*"$TAB"}; mg_cw=${mg_rest%%"$TAB"*}
     case "$mg_rest" in *"$TAB"*) mg_args=$(printf '%s' "${mg_rest#*"$TAB"}" | tr '\003\002' '\n\n') ;; *) mg_args='' ;; esac
-    case "$mg_cw" in echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true|env|agent.sh|proofline|'<') continue ;; esac
+    case "$mg_cw" in
+      cd)
+        mg_first=$(printf '%s\n' "$mg_args" | grep -v '^-' | head -n 1)
+        if [ -z "$mg_first" ] || [ "$mg_cd" = @unknown ]; then mg_cd=@unknown; else mg_cd=$(stash_path "$mg_first" "$mg_cd"); [ -n "$mg_cd" ] || mg_cd=@unknown; fi
+        if [ "$mg_nonlin" = yes ]; then mg_cd=@unknown; fi
+        continue ;;
+      pushd|popd) mg_cd=@unknown; continue ;;
+      env|export)
+        ! printf '%s\n' "$mg_args" | grep -Eq '^(GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)=' || mg_envu=yes
+        if printf '%s\n' "$mg_args" | grep -q '^PATH=' && printf '%s' "$mg_flat" | grep -Eq 'merge|proofline|(^|[^[:alnum:]_.-])gh([^[:alnum:]_]|$)'; then
+          deny "setting PATH in a command that runs gh or proofline merge could substitute a fake gh: $MG_MSG"
+        fi
+        continue ;;
+      curl|wget|http|https|xh|xhs|aria2c)
+        # (b) an HTTP client aimed at GitHub's merge / refs / contents / graphql endpoints
+        if printf '%s\n' "$mg_args" | grep -Eiq 'github' && printf '%s\n' "$mg_args" | grep -Eiq '/pulls/[^[:space:]]*/merge|/merges|git/refs|/contents/|graphql|mergePull|auto_merge'; then
+          deny "$mg_cw aimed at a GitHub merge, refs, contents or graphql endpoint is denied: $MG_MSG"
+        fi
+        continue ;;
+      echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true|agent.sh|proofline|'<') continue ;;
+    esac
     if [ "$mg_cw" = git ]; then mg_git "$mg_args"; continue; fi
-    # every other command word (gh itself, ssh, xargs, a variable): the words pr merge, api with a merge endpoint, alias
-    mg_pr=no mg_mg=no mg_api=no mg_al=no
+    # every other command word (gh itself, ssh, xargs, a variable): the words pr merge, api, alias
+    mg_pr=no mg_mg=no mg_ap=no mg_al=no
     while IFS= read -r mg_t; do
-      case "$mg_t" in pr) mg_pr=yes ;; merge) mg_mg=yes ;; api) mg_api=yes ;; alias) mg_al=yes ;; esac
+      case "$mg_t" in pr) mg_pr=yes ;; merge) mg_mg=yes ;; api) mg_ap=yes ;; alias) mg_al=yes ;; esac
     done <<MGARGS
 $mg_args
 MGARGS
     [ "$mg_pr$mg_mg" != yesyes ] || deny "$mg_cw pr merge is denied: $MG_MSG"
     [ "$mg_cw$mg_al" != gh''yes ] || deny "gh alias could hide a merge command: $MG_MSG"
-    if [ "$mg_api" = yes ] && printf '%s\n' "$mg_args" | grep -Eiq '/pulls/[^/[:space:]]*/merge|/merges?([[:space:]?#]|$)|mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|auto_merge|git/refs/heads/(main|master)'; then
-      deny "gh api call to a merge endpoint is denied: $MG_MSG"
-    fi
+    [ "$mg_ap" = no ] || mg_api "$mg_args"
   done < "$tmp/scan"
 }
 

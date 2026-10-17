@@ -74,10 +74,12 @@ How work is split between agents in this repository.
 - Agents work in their own worktrees, never in the main checkout.
 - A review FAIL returns its findings to the same implementer, at most 2 rounds. Then that job stops, is
   reported, and other jobs continue.
-- One branch and one pull request per job. Merge when CI is green; no direct push to `main`. Green is enforced, not
-  asked for (A136): the only merge path is `bin/proofline merge <PR>`, which merges only when every check of the pull request
-  is SUCCESS on its current head; the runtime hook denies `gh pr merge` (always `--admin` and `--auto`), merge endpoints of
-  `gh api`, `git merge` on and `git push` to `main`. The hook must be wired in the lead's session (the plugin hook does it).
+- One branch and one pull request per job. Merge when CI is green; no direct push to `main`. Green is checked by
+  script, not only asked for (A136): the merge path is `bin/proofline merge <PR>`, which merges only when every check of the
+  pull request is SUCCESS on its current head. The runtime hook denies `gh pr merge` (always `--admin` and `--auto`), merge
+  endpoints of `gh api`, and `git merge` on or `git push` to `main`, for the common spellings (A136 lists what it cannot
+  see). GitHub branch protection with required status checks is the fail-closed backstop and stays on. The hook must be
+  wired in the lead's session (the plugin hook does it).
 - Progress is kept in `.claude/progress.md`, so an interrupted session resumes from it.
 - Codex integration checks never run full scenarios and never run in parallel. A Codex lead uses the base model
   (`gpt-6-sol`, A135); the cheapest model applies to workers only. They use the lowest reasoning effort (A100),
