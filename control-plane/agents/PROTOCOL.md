@@ -71,7 +71,7 @@ AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> [--foc
 - `--focus` is required for a reviewer unless the artifact's directory implies it (also `PROOFLINE_FOCUS`).
 - A rejection prints `submit rejected: <reason>` and exits 1 immediately, so the specialist fixes and submits
   again. The outcome (ok or rejected, with the reason) is also written to
-  `.agents/local/submissions/<token>.status`; `<token>` is `--agent` or `PROOFLINE_AGENT`.
+  `.agents/local/submissions/<token>.status`; `<token>` is `PROOFLINE_AGENT` (set by `dispatch.sh`), unless the typed `--agent` id is a registered subagent (the hook wrote `<id>.started`); without `PROOFLINE_AGENT` it is `--agent` (A127).
 - Runtime hooks and `dispatch.sh` read that status and never parse a final message. A specialist that stops
   without a recorded submission is sent back once with the last rejection (Claude SubagentStop block;
   `dispatch.sh` reruns the step once with the rejection in the prompt); a second miss is reported to the lead

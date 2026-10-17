@@ -40,9 +40,18 @@ re-run it on a weaker model (D7).
 `next` prints `agent.sh handoff <ID> IMPLEMENTING (fix round <n>; findings of: <GATES>)`.
 
 1. **Diagnose** each blocking finding from its row only: implementation defect -> fix round;
-   plan or evidence defect (the frozen plan cannot satisfy the criterion) -> amendment with a `scope`
-   approval when paths are added, never a silent fix; environment -> BLOCKED. debug-proof may locate the
-   cause; it never edits code.
+   plan or evidence defect (a row on PLAN.md or another control artifact, e.g. the plan's `## Verification
+   commands` do not cover an AC) -> `next` prints `amend PLAN.md ## Verification commands` instead of a fix
+   round: write `amendments/<NNN>.md`, edit PLAN.md (the lead owns both; `amend` works from CODE_DONE only),
+   `agent.sh refreeze <ID> <AMENDMENT>`. A `scope` approval is needed only if the amendment adds scope
+   paths. The refreeze is not the end: the new plan hash voids the worker evidence and every gate, so
+   `dispatch.sh <ID> implementer` re-records RED and GREEN (a real failing test, then a real change; a path
+   with a `tdd_exemption` needs none), then `handoff <ID> IMPLEMENTED`, then every gate again, VERIFY
+   included. A commands-only amendment on a non-exempt path has no honest RED: complete `## Verification
+   commands` before freeze. If the verifier merely failed to cite a configured or planned command (A107
+   rows), re-dispatch it instead. Never a silent fix; environment -> BLOCKED. A fix round never lists PLAN.md,
+   VERIFY.md or another control artifact as a `fix_path` (A127). debug-proof may locate the cause; it never
+   edits code.
 2. **Reopen:** `A handoff <ID> IMPLEMENTING`.
 3. **One implementer round** ([DISPATCH.md](DISPATCH.md#3-implementer)): `FIX_ROUND: <n>`, `FINDINGS:` the
    rows of every failing gate on this content, `FILES_CHANGED:` the paths the previous round changed,
