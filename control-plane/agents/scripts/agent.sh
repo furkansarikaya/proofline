@@ -2984,7 +2984,7 @@ record_apply() {
   if [ "$ra_kind" = gate ] && [ "$ra_res" != BLOCKED ]; then
     ra_gres=fail; [ "$ra_res" != PASS ] || { if [ "$ra_conf" = low ]; then ra_gres=pass_low; else ra_gres=pass; fi; }
     [ "$ra_res" != UNSUPPORTED ] || ra_gres=unsupported
-    write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)" "$(m evidence)" "$(sed -n 's/^NOT_RERUN:[[:space:]]*//p' "$ra_d/$ra_raw" | head -1)"
+    write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)" "$(m evidence)" "$(sed -n 's/^NOT_RERUN:[[:space:]]*//p' "$ra_d/$ra_raw" | head -1 | tr -d '"\\' | tr -cd '[:print:]' | cut -c1-300)"
   fi
   if [ "$ra_res" = NEEDS_INPUT ]; then
     mkdir -p "$ra_d/questions"; ra_q=$(next_num "$ra_d/questions")
@@ -4127,9 +4127,31 @@ unsupported_next() { # ID
   done
   o "surface these unsupported checks to the user in your reply: they were not proven, never passed"
 }
-# A130: every gate that re-ran nothing is named in the report on its own line, "not reproduced (NOT_RERUN)".
+# A130: the finding ids of a required gate (info rows included, UNSUPPORTED rows are A98's) over its current records.
+gate_report_ids() { # ID GATE -> ids, one per line
+  gri_id=$1 gri_g=$2
+  for gri_fc in - $(risk_gate_focuses "$gri_id" "$gri_g"); do
+    gri_f=$(gate_latest_file "$gri_id" "$gri_g" "$gri_fc"); [ -n "$gri_f" ] || continue
+    sed -n 's/^finding: \([^|]*\)|[a-z]*|[^|]*|\([^|]*\)|.*/\1|\2/p' "$gri_f" | grep -v '|UNSUPPORTED ' | cut -d'|' -f1
+  done | sort -u
+}
+# a report line that names the gate exactly (the gate name is not just part of an id like QA-1 or a longer word)
+# and carries the finding id: the narrowest rule that keeps 'scenarios QA-1 to QA-9' from naming a QA finding.
+report_names_id() { # REPORT GATE ID
+  grep -E "(^|[^A-Za-z0-9_-])$3([^0-9]|\$)" "$1" | sed -E "s/$2-[0-9]+//g" | grep -Eq "(^|[^A-Za-z0-9_-])$2([^A-Za-z0-9_-]|\$)"
+}
+# a report line that names GATE:focus exactly (the next character is not part of a longer focus) -> the lines
+report_key_lines() { # REPORT KEY
+  awk -v k="$2" '{ l = $0; while ((i = index(l, k)) > 0) { c = substr(l, i + length(k), 1); if (c == "" || c !~ /[A-Za-z0-9_+-]/) { print $0; break }; l = substr(l, i + length(k)) } }' "$1"
+}
+# A130: every gate that re-ran nothing is named in the report on its own line, "not reproduced (NOT_RERUN)";
+# `next` before the report lists what the report must carry, so the lead writes it right the first time.
 not_rerun_next() { # ID
   risk_not_rerun "$1" | while IFS= read -r nn_l; do o "NOT_RERUN ${nn_l%% *}: not reproduced proof -> list it in COMPLETION_REPORT.md on its own line: '- ${nn_l%% *}: not reproduced (NOT_RERUN)'"; done
+  for nn_g in $(required_gates "$1"); do
+    nn_i=$(gate_report_ids "$1" "$nn_g" | tr '\n' ' ' | sed 's/ $//')
+    [ -z "$nn_i" ] || o "gate $nn_g findings to name in COMPLETION_REPORT.md (on a line that also names $nn_g, e.g. '- $nn_g: <id> <severity> <what>'): $nn_i"
+  done
 }
 required_report_headings() {
   dir=$1 id=$(basename "$1")
@@ -4169,22 +4191,25 @@ validate_completion_report_structure() {
   # unproven ('not proven: <what>'); it was never a PASS, so the report never asserts it as verified.
   vc_usec=$(awk '/^## Unsupported Checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
   # A130: a gate that re-ran nothing has its own report line saying 'not reproduced (NOT_RERUN)'; no line naming it
-  # calls it reproduced (once 'not reproduced' is removed the word must be gone).
+  # calls it reproduced. Every finding row of a gate (info included; UNSUPPORTED rows are A98's) is named by id on a
+  # line that also names the gate; 'none' is true only for a gate whose record has no finding row. All misses are
+  # collected and reported at once.
+  vc_gaps=''
   for vc_n in $(risk_not_rerun "$id" | cut -d' ' -f1 | sort -u); do
-    grep -F "$vc_n" "$report" | grep -Fq 'not reproduced (NOT_RERUN)' || fail "completion report must name the gate $vc_n on its own line as 'not reproduced (NOT_RERUN)': it re-ran nothing and is not reproduced proof (A130)"
-    ! grep -F "$vc_n" "$report" | sed 's/not reproduced//Ig' | grep -qi 'reproduced' || fail "completion report: the line naming $vc_n describes it as reproduced; it is 'not reproduced (NOT_RERUN)' (A130)"
+    vc_nl=$(report_key_lines "$report" "$vc_n")
+    printf '%s\n' "$vc_nl" | grep -Fq 'not reproduced (NOT_RERUN)' || vc_gaps="$vc_gaps
+- gate $vc_n re-ran nothing: add the line '- $vc_n: not reproduced (NOT_RERUN)'"
+    vc_bad=$(printf '%s\n' "$vc_nl" | while IFS= read -r vc_l; do printf '%s\n' "$vc_l" | sed 's/not reproduced//Ig' | grep -qi 'reproduced' && printf '%s\n' "$vc_l"; done | head -1)
+    [ -z "$vc_bad" ] || vc_gaps="$vc_gaps
+- the line naming $vc_n calls it reproduced: \"$vc_bad\" (it is 'not reproduced (NOT_RERUN)')"
   done
-  # A130: every finding row of a gate (info included; UNSUPPORTED rows are A98's) is named by id in the report; 'none' is
-  # true only for a gate whose record has no finding row. The refusal names the gate and the ids it misses.
   for vc_g in $(required_gates "$id"); do
-    vc_ids=$(for vc_fc in - $(risk_gate_focuses "$id" "$vc_g"); do
-      vc_f=$(gate_latest_file "$id" "$vc_g" "$vc_fc"); [ -n "$vc_f" ] || continue
-      sed -n 's/^finding: \([^|]*\)|[a-z]*|[^|]*|\([^|]*\)|.*/\1|\2/p' "$vc_f" | grep -v '|UNSUPPORTED ' | cut -d'|' -f1
-    done | sort -u)
     vc_miss=''
-    for vc_i in $vc_ids; do grep -Eq "(^|[^A-Za-z0-9_-])$vc_i([^0-9]|\$)" "$report" || vc_miss="$vc_miss $vc_i"; done
-    [ -z "$vc_miss" ] || fail "completion report must name the findings of gate $vc_g by id; missing:$vc_miss (every non-info finding and every info row; 'none' only for a gate record with no finding rows) (A130)"
+    for vc_i in $(gate_report_ids "$id" "$vc_g"); do report_names_id "$report" "$vc_g" "$vc_i" || vc_miss="$vc_miss $vc_i"; done
+    [ -z "$vc_miss" ] || vc_gaps="$vc_gaps
+- gate $vc_g: name the finding id(s)$vc_miss, each on a line that also names $vc_g (for example '- $vc_g: ${vc_miss# } <severity> <what>'); an id is a finding row of the gate record, info rows included, and 'none' is true only for a gate with no finding row"
   done
+  [ -z "$vc_gaps" ] || fail "completion report is incomplete (A130):$vc_gaps"
   for vc_u in $(risk_unsupported "$id" | cut -d'|' -f1 | sort -u); do
     printf '%s\n' "$vc_usec" | grep -Fq "$vc_u" || fail "completion report must name the UNSUPPORTED check $vc_u under '## Unsupported Checks'"
     # 'not proven:' says what, in at least three words ('n/a' is not an answer)

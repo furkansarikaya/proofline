@@ -1029,13 +1029,23 @@ sc_report_finding_ids() {
   done
   A pipeline LC | sed -n 's/^focus\.\([A-Z_]*\)\.\([a-z]*\)=.*/\1 \2/p' | while read -r g f; do RF_FOCUS=$f gpass "$g"; done
   A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
-  write_report '' "$rg: none." "- $rg:$(gate_focus "$rg"): not reproduced (NOT_RERUN)"
-  expect_msg "a gate with an info row reported as none" "gate $rg by id; missing: $rg-1" A publish-completion-report LC markdown
+  nr="$rg:$(gate_focus "$rg")"
+  # every miss at once: the not-reproduced line AND the ids, with the line to add
+  write_report '' "$rg: none."
+  out=$(A publish-completion-report LC markdown 2>&1) && die "a report with none for a gate with info rows was published"
+  printf '%s' "$out" | grep -q "add the line '- $nr: not reproduced (NOT_RERUN)'" || die "no not-reproduced line to add: $out"
+  printf '%s' "$out" | grep -q "gate $rg: name the finding id(s) $rg-1 $rg-2" || die "the missing ids are not all named: $out"
+  # next lists what the report must carry
+  A next LC | grep -q "gate $rg findings to name.*$rg-1 $rg-2" || die "next does not list the finding ids"
+  A next LC | grep -q "NOT_RERUN $nr: not reproduced proof" || die "next does not list the not-reproduced line"
+  # the id of a gate is not named by a line that only has it inside another list (QA-1 in 'scenarios QA-1 to QA-9')
+  write_report '' "scenarios $rg-1 to $rg-9 passed; $rg-2 too." "- $nr: not reproduced (NOT_RERUN)"
+  expect_msg "an id inside a list that does not name the gate" "gate $rg: name the finding id(s) $rg-1 $rg-2" A publish-completion-report LC markdown
   write_report '' "$rg: $rg-1 (info): naming is terse but consistent, no change needed; $rg-2 (info): no validator ran."
-  expect_msg "a re-run-nothing gate without its own not reproduced line" "gate $rg:$(gate_focus "$rg") on its own line as 'not reproduced (NOT_RERUN)'" A publish-completion-report LC markdown
-  write_report '' "$rg: $rg-1, $rg-2 (info) noted. $rg:$(gate_focus "$rg") was reproduced by the control plane." "- $rg:$(gate_focus "$rg"): not reproduced (NOT_RERUN)"
-  expect_msg "a re-run-nothing gate described as reproduced" 'describes it as reproduced' A publish-completion-report LC markdown
-  write_report '' "$rg: $rg-1 (info): naming is terse but consistent, no change needed; $rg-2 (info): no validator ran." "- $rg:$(gate_focus "$rg"): not reproduced (NOT_RERUN)"
+  expect_msg "a re-run-nothing gate without its own not reproduced line" "add the line '- $nr: not reproduced (NOT_RERUN)'" A publish-completion-report LC markdown
+  write_report '' "$rg: $rg-1, $rg-2 (info) noted. $nr was reproduced by the control plane." "- $nr: not reproduced (NOT_RERUN)"
+  expect_msg "a re-run-nothing gate described as reproduced" 'calls it reproduced: "' A publish-completion-report LC markdown
+  write_report '' "$rg: $rg-1 (info): naming is terse but consistent, no change needed; $rg-2 (info): no validator ran." "- $nr: not reproduced (NOT_RERUN)"
   A publish-completion-report LC markdown >/dev/null || die "a report naming the finding id and the not reproduced line was refused"
   ok "A130: the completion report names every finding id of every gate; none is refused for a gate with an info row"
 }
