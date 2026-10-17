@@ -88,7 +88,7 @@ test("e2e run dir: evaluator table, scope from PLAN.md, tokens n/a when none rec
   put(join(out, "runs/T-1/PLAN.md"), "---\nscope:\n  - path: src/a.js\n    criteria: [AC-1]\n---\n# Plan\n");
   put(join(out, "git-diff-main-head.patch"), "diff --git a/src/a.js b/src/a.js\n+x\ndiff --git a/src/z.js b/src/z.js\n+y\ndiff --git a/.agents/x b/.agents/x\n");
   put(join(out, "git-untracked.txt"), "");
-  put(join(out, "evaluation.md"), "| item | met/unmet | evidence |\n|---|---|---|\n| C-1 | met | x |\n| C-2 | unmet | y |\n| C-3 | not-applicable | z |\n| S-1 | met | w |\n\nE2E: FAIL (2/3)\n");
+  put(join(out, "evaluation.md"), "| item | met/unmet | tag | evidence |\n|---|---|---|---|\n| C-1 | met | invariant | x |\n| C-2 | unmet | invariant | y |\n| C-3 | not-applicable | invariant | z |\n| S-1 | met | quality | w |\n\nE2E: FAIL (invariant 1/2, quality 1/1 = 100%)\n");
   const e = build({ fixturesDir: fx, e2eDirs: [join(root, "runs")] }).e2e;
   assert.equal(e.length, 1);
   assert.deepEqual([e[0].scenario, e[0].status, e[0].verdict, e[0].found, e[0].missed, e[0].not_applicable], ["STANDARD", "measured", "FAIL", 2, 1, 1]);

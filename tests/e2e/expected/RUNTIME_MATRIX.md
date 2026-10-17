@@ -26,7 +26,7 @@ differ" row makes the named items `unmet` in the deviating run.
 | Wording of artifacts, findings and reports | different models | same required sections, same facts (FACTS.md) |
 | Exact code of the fix or feature, test names, number of tests added | different models | the scenario's behavioural checks (S-3, S-4, X-7, ...) give the same result |
 | Number of fix rounds (0–2) and which reviewer failed | different review strictness | bounded by C-12; final gates all `pass` |
-| Number of `NEEDS_INPUT` rounds (0–1 per specialist) | different ambiguity judgement | relayed verbatim; harness replies ≤ 3 (C-14) |
+| Number of `NEEDS_INPUT` rounds (0–1 per specialist) | different ambiguity judgement | relayed verbatim; 3 answers, +1 for every refreeze (C-14) |
 | Tier for STANDARD (`small` or `full`) | diff size depends on how many tests were added | the recorded tier matches the diff (C-11) and the gate set matches the tier |
 | Duration, token use, metrics files | runtime | none |
 | Failover entries | a specialist may fail over to the other runtime under `failover: auto` (D7) | ledgered with `from`, `to`, `reason`; the step restarted from its beginning; never for SECURITY below its floor |
