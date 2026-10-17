@@ -269,6 +269,8 @@ sc_report_names() {
   printf 'shared name\n' > "$base/r.md"
   expect_msg "a shared-name scratch report was accepted" 'carries its own agent token' AS explorer submit LC --result DONE --confidence high --findings none --report "$base/r.md" --agent ag1
   [ "$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')" = "$nrep" ] || die "a refused shared-name report allocated a name"
+  printf 'embedded token\n' > "$base/xag1-rep"
+  expect_msg "a report name that only contains the token as a substring was accepted" 'carries its own agent token' AS explorer submit LC --result DONE --confidence high --findings none --report "$base/xag1-rep" --agent ag1
   # a direct write into a numbered explorer path is never an explorer artifact, whatever the spelling
   printf 'planted\n' > .agents/runs/LC/reports/009-explorer.md
   nrep=$(find .agents/runs/LC/reports -maxdepth 1 -name '???-explorer.md' | wc -l | tr -d ' ')
@@ -308,12 +310,27 @@ sc_explorer_limit() {
   A decide LC explorer >/dev/null || die "first explorer decide refused"
   A decide LC explorer >/dev/null || die "second (parallel) explorer decide refused"
   printf 'one\n' > "$base/ag1-rep"; printf 'two\n' > "$base/ag2-rep"
+  # a BLOCKED result holds no slot: its retry (and a NEEDS_INPUT ANSWERS re-dispatch) is allowed
+  AS explorer submit LC --result BLOCKED --reason 'no entry point' --confidence high --agent agB >/dev/null || die "explorer BLOCKED submit failed"
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "explorer 1 submit failed"
-  # explorer 2 never submitted (lost): its slot is re-dispatched, the limit of 2 results is not exceeded
-  A decide LC explorer >/dev/null || die "the re-dispatch of a slot without a result was refused"
+  A decide LC explorer >/dev/null || die "a decide after a BLOCKED result and one DONE result was refused"
+  # a running explorer dispatch occupies a slot: one DONE + one running = 2 of 2
+  mkdir -p .agents/runs/LC/dispatch; printf 'pid=%s\nrole=explorer\n' "$$" > .agents/runs/LC/dispatch/090-explorer-claude.running
+  expect_msg "a parallel start beyond the limit was granted" '1 delivered result(s)' A decide LC explorer
+  rm -f .agents/runs/LC/dispatch/090-explorer-claude.running
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag2-rep" --agent ag2 >/dev/null || die "explorer 2 submit failed"
-  expect_msg "a third explorer result slot was granted" 'allows 2 explorer result(s) (pipelines.COMPLEX.max_explorers) and run LC already has 2: 001-explorer.result.md 002-explorer.result.md' A decide LC explorer
-  ok "A132: the explorer after max_explorers results is refused with the limit and the results; a lost slot is re-dispatched"
+  expect_msg "a third delivered explorer was granted" 'allows 2 explorer slot(s) (pipelines.COMPLEX.max_explorers) and run LC holds 2 delivered result(s)' A decide LC explorer
+  ok "A132: the explorer after max_explorers delivered reports is refused; BLOCKED and a lost dispatch hold no slot; a running one does"
+  # a limit of 0 is not checked, and the count restarts at each freeze
+  unfrozen TRIVIAL
+  A decide LC explorer >/dev/null || die "an explorer decide on a limit of 0 was refused"
+  unfrozen STANDARD
+  printf 'one\n' > "$base/ag1-rep"
+  AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "pre-freeze explorer failed"
+  expect_msg "a second pre-freeze explorer was granted (STANDARD allows 1)" 'holds 1 delivered result(s)' A decide LC explorer
+  A freeze LC >/dev/null || die "freeze failed"
+  A decide LC explorer >/dev/null || die "an explorer after the freeze was refused (the count restarts at each freeze)"
+  ok "A132: a limit of 0 is not checked; the slot count restarts at each freeze"
 }
 
 sc_parallel_lock() {

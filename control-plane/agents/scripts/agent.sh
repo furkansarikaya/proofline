@@ -3173,7 +3173,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
     else [ -f "$sb_report" ] || submit_fail "report file not found: $sb_report"
       # A132: a scratch file name two parallel explorers can both pick (scratch/r.md) is the collision itself
       if [ "$execution_role" = explorer ] && [ -n "$sb_agent" ]; then
-        case "$sb_report" in *"$sb_agent"*|"$sb_tmp"/*) ;; *) submit_fail "an explorer's report file name carries its own agent token, so a parallel explorer cannot overwrite it: write it to .agents/runs/$sb_id/scratch/$sb_agent-report.md (or pass --report - with the text on stdin); refused: $sb_report" ;; esac
+        case "$sb_report" in */"$sb_agent"-*|"$sb_agent"-*|"$sb_tmp"/*) ;; *) submit_fail "an explorer's report file name carries its own agent token, so a parallel explorer cannot overwrite it: write it to .agents/runs/$sb_id/scratch/$sb_agent-report.md (or pass --report - with the text on stdin); refused: $sb_report" ;; esac
       fi
       cat "$sb_report" > "$sb_tmp/report.in"; fi
     [ -s "$sb_tmp/report.in" ] || submit_fail "the report is empty (--report - reads stdin; give the report text on stdin, one stdin source per submit, or --report <file>)"
@@ -3810,6 +3810,30 @@ latest_decision() { # ID ROLE [FOCUS]
   ld_hit=''; for ld_f in $(decision_files "$1"); do case "$ld_f" in [0-9][0-9][0-9]-"$ld_tag".decision) ld_hit=$(run_dir "$1")/decisions/$ld_f ;; esac; done
   printf '%s\n' "$ld_hit"
 }
+# A132: max_explorers bounds the explorer slots of one planning phase. A slot is a DELIVERED report (a DONE result
+# recorded after the last freeze or refreeze) or an explorer dispatch still running. BLOCKED and NEEDS_INPUT hold
+# no slot (their retry or ANSWERS re-dispatch completes the same slot); neither does a dispatch that ended without a
+# result. A limit of 0 is not checked here (the class pipeline decides whether explorers exist).
+explorer_slot_check() {
+  es_id=$1 es_class=$2; es_max=$(pipeline_value "$es_class" max_explorers)
+  case "$es_max" in ''|*[!0-9]*|0) return 0 ;; esac
+  es_d=$(run_dir "$es_id"); es_l=$(ledger_file "$es_id"); es_floor=0
+  if [ -f "$es_l" ]; then es_floor=$(awk '/ event=(freeze|refreeze) / { s = $1; sub(/^seq=/, "", s); f = s } END { print f + 0 }' "$es_l"); fi
+  es_have=''
+  for es_f in $(ls -1 "$es_d/results" 2>/dev/null | grep -E '^[0-9]{3}-explorer\.result\.md$' || true); do
+    grep -qx 'RESULT: DONE' "$es_d/results/$es_f" || continue
+    es_s=''; [ ! -f "$es_l" ] || es_s=$(grep "detail=results/$es_f " "$es_l" | sed -n 's/^seq=\([0-9]*\) .*/\1/p' | tail -n 1)
+    [ -z "$es_s" ] || [ "$es_s" -gt "$es_floor" ] || continue
+    es_have="$es_have $es_f"
+  done
+  es_open=0
+  for es_m in "$es_d"/dispatch/*-explorer-*.running; do
+    [ -f "$es_m" ] || continue
+    ! inflight_pid_alive "$(sed -n 's/^pid=//p' "$es_m" | head -n 1)" "$es_m" || es_open=$((es_open + 1))
+  done
+  es_n=$(printf '%s\n' "$es_have" | wc -w | tr -d ' ')
+  [ $((es_n + es_open)) -lt "$es_max" ] || fail "decide refused (A132): class $es_class allows $es_max explorer slot(s) (pipelines.$es_class.max_explorers) and run $es_id holds ${es_n} delivered result(s)${es_have:+ ($es_have )}and $es_open running explorer dispatch(es). Consolidate EVIDENCE.md from the delivered reports; a BLOCKED or NEEDS_INPUT result or a dispatch that returned nothing holds no slot and is re-dispatched. The count restarts at each freeze/refreeze, so an extra explorer after a plan amendment is allowed once the plan is refrozen"
+}
 decide() {
   dc_id=$1 dc_role=$(canon_role "$2"); shift 2; require_run "$dc_id"; require_lead; require_open_run "$dc_id"
   valid_role "$dc_role" || fail "invalid role: $dc_role"
@@ -3822,15 +3846,7 @@ decide() {
       *) fail "unknown decide argument: $1" ;;
     esac
   done
-  # A132: a slot is a recorded explorer result; max_explorers bounds the results, a dispatch whose result never arrived
-  # (crash, no submission) holds no slot and its re-dispatch is allowed.
-  if [ "$dc_role" = explorer ]; then
-    dc_max=$(pipeline_value "$dc_class" max_explorers); dc_have=$(ls -1 "$(run_dir "$dc_id")/results" 2>/dev/null | grep -E '^[0-9]{3}-explorer\.result\.md$' || true)
-    dc_nhave=$(printf '%s' "$dc_have" | grep -c . || true)
-    case "$dc_max" in ''|*[!0-9]*) ;; *)
-      [ "$dc_nhave" -lt "$dc_max" ] || fail "decide refused (A132): class $dc_class allows $dc_max explorer result(s) (pipelines.$dc_class.max_explorers) and run $dc_id already has $dc_nhave: $(printf '%s' "$dc_have" | tr '\n' ' '). Consolidate EVIDENCE.md from them (each report is under reports/ and its snapshot); a dispatch that returned no result holds no slot and is re-dispatched, but no further explorer is started once the results reach the limit" ;;
-    esac
-  fi
+  [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
   dc_tier=$(tier_effective "$dc_id"); dc_sig=''
   [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
   dc_stats=$(diff_stats "$dc_id"); if [ "${dc_stats% *}" -gt 15 ] || [ "${dc_stats#* }" -gt 400 ]; then dc_sig="$dc_sig large_diff"; fi

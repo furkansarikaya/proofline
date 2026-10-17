@@ -684,7 +684,22 @@ stash_net_count() {
       # `git -C $W status`: the `$` the pattern stopped at is the VALUE of a value-taking option, not a subcommand
       # (a real `git -C $W stash` matches longer, through the option alternative, and is counted)
       m = substr(s, st, ln)
-      skip = (m ~ /(^|[ \t])(-C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--exec-path|--config-env|--attr-source|--list-cmds|--exec)[ \t]+[$`]$/)
+      # Skipped only when the option itself is not a value (`git -c -c $S`, `git -C -C $S`) and what follows the
+      # value is whitespace and a bare literal word (status, apply, worktree): a quote, `$`, backtick, `-` or the
+      # end after it keeps the count (`git -C $W "$S" list`, `git -C $W -C $S`).
+      skip = 0
+      vopt = "^(-C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--exec-path|--config-env|--attr-source|--list-cmds|--exec)$"
+      if (m ~ /(^|[ \t])(-C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--exec-path|--config-env|--attr-source|--list-cmds|--exec)[ \t]+[$`]$/) {
+        nt = split(m, mt, /[ \t]+/)
+        if (nt < 3 || mt[nt - 2] !~ vopt) {
+          rest = substr(s, st + ln); lc = substr(m, length(m), 1)
+          if (lc == "`") { if (match(rest, /`/)) rest = substr(rest, RSTART + 1); else rest = "" }
+          else if (substr(rest, 1, 1) == "(") { if (match(rest, /\)/)) rest = substr(rest, RSTART + 1); else rest = "" }
+          else if (substr(rest, 1, 1) == "{") { if (match(rest, /\}/)) rest = substr(rest, RSTART + 1); else rest = "" }
+          else { match(rest, "^[^ \t;&|\"" q "`]*"); rest = substr(rest, RLENGTH + 1) }
+          if (rest ~ /^[ \t]+[A-Za-z][A-Za-z0-9_-]*([ \t;&|)\n]|$)/) skip = 1
+        }
+      }
       if (!skip && !(wd[1] ~ /^(echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true)$/)) n++
       off += st + ln - 1; s = substr($0, off + 1)
     }

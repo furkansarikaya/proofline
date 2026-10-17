@@ -281,6 +281,13 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
     'S=stash; git $S list''git ${S:-stash} list' 'git stash${IFS}list' "git worktree add $a111/new HEAD && git -C $a111/new stash"; do
     denied "A111 R2 a specialist runs: $c" "$(pre_bash "$c" proofline-qa q1)" "evidence worktree"
   done
+  # A132: a variable that is the VALUE of a git option is not a subcommand, but the same net still counts a variable,
+  # quote or option where the subcommand goes (these were denied before A132 and stay denied)
+  # shellcheck disable=SC2016 # variables stay unexpanded on purpose
+  for c in 'git -C $W "$S" list' 'git -C -C $S' 'git -c -c $S' 'git -C $W -C $S' 'git -C $W $S list' 'git -C $W "$(echo stash)" list' \
+    'git -C $W '"'"'$S'"'"' list' 'git -C $W `echo stash` list'; do
+    denied "A132 bypass stays denied: $c" "$(pre_bash "$c" proofline-qa q1)" "evidence worktree"
+  done
   for c in 'git log stash' 'git diff main..stash' 'git diff stash@{0}' 'git checkout stash-fix' 'git branch stash' \
     'git commit -m "stash"' 'git grep stash' 'git config stash.showPatch true' 'grep stash src/impl.txt' 'echo git stash list' \
     'printf "git stash\n"' 'cat notes | grep -n "git stash"'; do
@@ -297,6 +304,13 @@ git diff HEAD --binary | git -C $W apply
 git worktree remove --force $W' \
     'git -C $(pwd) status' 'git -C `pwd` log -1' 'git -c user.name=$X log -1'; do
     allowed "A132 no false positive: $c" "$(pre_bash "$c" proofline-qa q1)"
+  done
+  # A132: the three real command texts of the COMPLEX run (verbatim): none is a stash any more. They are still
+  # refused, now by the unresolved-variable write rule (A97), which is a different and correct reason.
+  for n in 1 2 3; do
+    out=$(pre_bash "$(sed "s#/private/tmp/[^ ;]*/project#$PWD#" "$ENF_REPO/tests/enforcement/a132-commands/$n.txt")" proofline-qa q1)
+    case "$out" in *'git stash'*) die "A132 replay $n: still denied as a stash: $out" ;; esac
+    denied "A132 replay $n: refused only by the write-target rule" "$out" "cannot be resolved"
   done
   git worktree add -q "$base/wt a111 sp" HEAD >/dev/null 2>&1 || die "A111 spaced fixture worktree"
   allowed "A111 R2 a registered worktree path with spaces" "$(pre_bash "git -C '$base/wt a111 sp' stash list" proofline-qa q1)"
