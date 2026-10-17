@@ -218,7 +218,13 @@ do_config() {
     { [ "$dc_all" = yes ] || [ -n "$OPT_PUSH" ]; } && cfg_set_if "$dc_w" git.push_requires_approval "$PUSH"
     { [ "$dc_all" = yes ] || [ -n "$OPT_FORBIDDEN" ]; } && cfg_set_if "$dc_w" git.forbidden_identities "$FORBIDDEN"
     for dc_r in $OPT_ROLES; do # a role override is always explicit; the parent key is added when an older config lacks it
-      cfg_lines "$dc_w" | grep -q '^runtime\.roles=' || cfg_set "$dc_w" runtime.roles ''
+      if dc_p=$(cfg_get "$dc_w" runtime.roles 2>/dev/null); then
+        case "$dc_p" in
+          '') ;;
+          '{}') cfg_set "$dc_w" runtime.roles '' ;; # a hand-edited empty map becomes a parent line
+          *) die "runtime.roles in .agents/config.yaml has an inline value ($dc_p); write the roles as indented lines and run init again" ;;
+        esac
+      else cfg_set "$dc_w" runtime.roles ''; fi
       cfg_set_if "$dc_w" "runtime.roles.${dc_r%%=*}" "${dc_r#*=}"
     done
     for dc_k in build test lint; do
@@ -340,7 +346,7 @@ cmd_init() {
       --protected-branches) [ $# -ge 2 ] || die "--protected-branches needs a value"; HAVE_PROTECTED=1; OPT_PROTECTED=$2; shift ;;
       --push-approval) [ $# -ge 2 ] || die "--push-approval needs true or false"; OPT_PUSH=$2; shift ;;
       --forbidden-identity) [ $# -ge 2 ] || die "--forbidden-identity needs a pattern"; OPT_FORBIDDEN="${OPT_FORBIDDEN:+$OPT_FORBIDDEN }$2"; shift ;;
-      --role) [ $# -ge 2 ] || die "--role needs ROLE=RUNTIME"; OPT_ROLES="${OPT_ROLES:+$OPT_ROLES }$2"; shift ;;
+      --role) [ -n "${2:-}" ] || die "--role needs ROLE=RUNTIME"; OPT_ROLES="${OPT_ROLES:+$OPT_ROLES }$2"; shift ;;
       *) die "init: unknown argument: $1 (see: proofline help)" ;;
     esac
     shift

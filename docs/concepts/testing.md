@@ -4,7 +4,19 @@ This page lists what tests each capability. The README links here.
 
 ## Risk signals and their tests
 
-**Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script; tested by the control-plane self-tests and the `risk-signals` fixture. The `dependencies` focus (manifest diff, license policy, the project's own audit tool when it exists; fixture `dependency-audit`) and the `config` focus (fixture `config-consistency`) have tool-free checks. The `concurrency` focus runs the concurrency-proof skill (tested: skill tests and the `concurrency-proof` fixture). The migration focus is data-design's migration validation (throwaway database of the project's own test suite, otherwise UNSUPPORTED); its helpers and report validator are tested by the `migration-validation` fixture and `tests/skills`. The QA `visual` focus runs the `visual-proof` skill (measured checks in a browser the machine or project already has; without one UNSUPPORTED): its report validator and depth rules are tested in every pull request, and the browser measurement of its fixture is run by a main/nightly CI step and is UNSUPPORTED where no browser is found. The `performance` focus runs the performance-proof skill (base against change with the project's own benchmark, interleaved runs, median and bootstrap interval; noise is INCONCLUSIVE, never a FAIL or a pass); its decision rule, validator and runner are tested by the `performance-proof` fixture and `tests/skills`, not on a real benchmark in CI. The `contract` focus runs contract-proof (tested: skill tests and the `contract-proof` fixture). Every risk focus now has its skill; a check that cannot run reports UNSUPPORTED, which is never a pass: by default it is unproven and reported (listed in the completion report with what it leaves unproven, the gate is not held), `risk.unsupported: block` makes it a blocking finding only the user can waive, and an INCONCLUSIVE measurement always blocks. An UNSUPPORTED result must cite the skill validator's own saved output, and the script cross-checks it against the contract and migration files it detected in the diff, so a reason line alone never skips a check (tested by the control-plane self-tests with the skills' real validator output).
+Risk signals cover contract, migration, UI, dependency and config paths, and plan flags. They add focused checks inside the gates. A script chooses the checks. The control-plane self-tests and the `risk-signals` fixture test them.
+
+- **Dependencies:** the `dependencies` focus checks the manifest diff, the license policy and the project's own audit tool when it exists. The fixture is `dependency-audit`.
+- **Config:** the `config` focus has tool-free checks. The fixture is `config-consistency`.
+- **Concurrency:** the `concurrency` focus runs the concurrency-proof skill. Skill tests and the `concurrency-proof` fixture test it.
+- **Migration:** the migration focus is data-design's migration validation. It uses a throwaway database of the project's own test suite. Otherwise it is UNSUPPORTED. The `migration-validation` fixture and `tests/skills` test its helpers and report validator.
+- **Visual:** the QA `visual` focus runs the `visual-proof` skill. It makes measured checks in a browser the machine or project already has. Without a browser it is UNSUPPORTED. Every pull request tests its report validator and depth rules. A main/nightly CI step runs the browser measurement of its fixture. That measurement is UNSUPPORTED where no browser is found.
+- **Performance:** the `performance` focus runs the performance-proof skill. It compares base against change with the project's own benchmark, in interleaved runs, with a median and a bootstrap interval. Noise is INCONCLUSIVE, never a FAIL or a pass. The `performance-proof` fixture and `tests/skills` test its decision rule, validator and runner. CI does not run a real benchmark.
+- **Contract:** the `contract` focus runs contract-proof. Skill tests and the `contract-proof` fixture test it.
+
+Every risk focus now has its skill. A check that cannot run reports UNSUPPORTED, which is never a pass. By default it is unproven and reported. The completion report lists it with what it leaves unproven, and the gate is not held. `risk.unsupported: block` makes it a blocking finding only the user can waive. An INCONCLUSIVE measurement always blocks.
+
+An UNSUPPORTED result must cite the skill validator's own saved output. The script cross-checks it against the contract and migration files it detected in the diff. A reason line alone never skips a check. The control-plane self-tests test this with the skills' real validator output.
 
 ## Capabilities and what tests them
 
@@ -27,6 +39,6 @@ This page lists what tests each capability. The README links here.
 | UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests) |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
-Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and
-`roles/` (eleven roles); `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep
-the generated references in step with them. The self-tests (`sh tests/selftest.sh`), the skill tests (`node --test tests/skills/`) and the fixtures (`sh tests/fixtures/check-fixtures.sh`) hold more than 900 tests in all (counted 2026-10-17). A pull request takes about 8 minutes of wall time in CI (Linux only; A109).
+Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and `roles/` (eleven roles). `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep the generated references in step with them.
+
+The self-tests (`sh tests/selftest.sh`), the skill tests (`node --test tests/skills/`) and the fixtures (`sh tests/fixtures/check-fixtures.sh`) hold more than 900 tests in all (counted 2026-10-17). A pull request takes about 8 minutes of wall time in CI (Linux only; A109).

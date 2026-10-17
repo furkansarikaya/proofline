@@ -415,6 +415,13 @@ pl "$rl2" init --yes --runtimes claude,codex --role implementer=codex --role qa=
 rl3=$(mkrepo role3)
 pl "$rl3" init --yes --runtimes claude,codex >/dev/null 2>&1 && sed '/^  roles:/d' "$rl3/.agents/config.yaml" > "$T/cfg-noroles" && cat "$T/cfg-noroles" > "$rl3/.agents/config.yaml" || die "setup of a config without runtime.roles"
 pl "$rl3" init --yes --runtimes claude,codex --role qa=codex >/dev/null 2>&1 && [ "$(cfgv "$rl3" runtime.roles.qa)" = codex ] && ok "init --role adds runtime.roles to an older config that lacks it" || die "init --role on a config without runtime.roles"
+nocheck "init --role with an empty value is rejected" pl "$(mkrepo rolebad0)" init --yes --role ""
+rl4=$(mkrepo role4)
+pl "$rl4" init --yes --runtimes claude,codex >/dev/null 2>&1 && sed 's/^  roles:.*/  roles: {}/' "$rl4/.agents/config.yaml" > "$T/cfg-braces" && cat "$T/cfg-braces" > "$rl4/.agents/config.yaml" || die "setup of a config with roles: {}"
+pl "$rl4" init --yes --runtimes claude,codex --role qa=codex >/dev/null 2>&1 && [ "$(cfgv "$rl4" runtime.roles.qa)" = codex ] && ! grep -q 'roles: {}' "$rl4/.agents/config.yaml" && ok "a hand-edited roles: {} becomes a proper parent line" || die "init --role on roles: {}"
+sed 's/^  roles:.*/  roles: {qa: claude}/' "$rl4/.agents/config.yaml" > "$T/cfg-inline" && cat "$T/cfg-inline" > "$rl4/.agents/config.yaml"
+out=$(pl "$rl4" init --yes --runtimes claude,codex --role qa=codex 2>&1) && die "init --role on an inline roles map must fail"
+expect "an inline roles value is refused with a clear message" "$out" "has an inline value"
 for bad in "nonesuch=codex" "implementer=gemini" "implementer" "implementer=" "=codex" "../x=codex"; do
   rb=$(mkrepo "rolebad$n")
   nocheck "init --role $bad is rejected" pl "$rb" init --yes --role "$bad"
