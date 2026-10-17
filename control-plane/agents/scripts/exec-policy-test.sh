@@ -185,7 +185,8 @@ res EXEC_POLICY_ROLES="$here/../roles.conf" --role lead $base --runtime codex --
 check "resolve refuses a lead on the cheapest model" 4 err~CAPABILITY_FLOOR_UNMET
 for p in balanced max economy; do
   res EXEC_POLICY_ROLES="$here/../roles.conf" --role lead $base --profile "$p" --runtime codex
-  check "shipped lead row is the base model or stronger ($p)" 0 capability_tier=$([ "$p" = economy ] && echo 2 || echo 3)
+  want_tier=3; [ "$p" != economy ] || want_tier=2
+  check "shipped lead row is the base model or stronger ($p)" 0 "capability_tier=$want_tier"
 done
 
 [ "$fails" -eq 0 ]
