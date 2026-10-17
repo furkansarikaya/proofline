@@ -301,7 +301,7 @@ EOF" 'mktemp -d .agents/runs/LC/scratch/q.XXXXXX'; do
   esac
   rm -f "$a111l"
   git worktree remove --force "$a111" >/dev/null 2>&1 || :
-  allowed "a verifier submits as itself""$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
+  allowed "a verifier submits as itself" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --agent v1 --confidence high' proofline-verifier v1)"
   denied "the lead submits" "$(pre_bash 'AGENT_ROLE=verifier sh .agents/scripts/agent.sh submit LC --confidence high')" "does not match the caller's role"
   # an explorer that never submitted is sent back once, then reported as without a result
   out=$(sub_stop proofline-explorer e1); printf '%s' "$out" | grep -q '"decision":"block"' || die "no-submission stop not sent back: $out"
