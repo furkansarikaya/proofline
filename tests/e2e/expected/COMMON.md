@@ -16,8 +16,10 @@ right after its title (A133):
 - `[quality]`: depends on model behaviour (report wording, evidence counts, plan content and the like). It is
   scored as a rate across items.
 
-A borderline item is `[invariant]`. A scenario run PASSES when every applicable invariant item is met and
-at least 90% of its applicable quality items are met (met / applicable). `docs/decisions.md` A133 lists the
+A borderline item is `[invariant]`. Invariants are judged per run and must be 100%. The quality rate is
+met / applicable quality items, pooled per scenario over all runs of that scenario in the campaign (a single
+run also reports its own rate); a scenario PASSES when every applicable invariant item is met in every run and
+the pooled quality rate is at least 90%. `docs/decisions.md` A133 lists the
 quality items; all others are invariant.
 
 ## Workflow and state

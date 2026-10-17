@@ -36,7 +36,7 @@ Harness replies: `Plan approved.` once, plus any `NEEDS_INPUT` answers.
   filter by tag; tag names are rendered with `textContent` (no `innerHTML` with user data).
 - **X-9 Tests.** [quality] New tests cover X-7 (service and/or API level) including case-insensitivity and the
   delete cascade; `tests/migrate.test.js` is updated for `003`; `npm test` passes.
-- **X-10 Design docs.** [quality] `docs/design/DATA_MODEL.md` documents the new tables and `003`;
+- **X-10 Design docs.** [invariant] `docs/design/DATA_MODEL.md` documents the new tables and `003`;
   `docs/design/API.md` documents the new endpoints, the `tag` query parameter and the `tags` field;
   design-sync (VERIFY) found no drift.
 - **X-11 Tier and gates.** [invariant] Tier `full`. Required and `pass`: `SECRETS`, `QA`, `VERIFY`,

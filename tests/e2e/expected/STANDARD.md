@@ -32,7 +32,7 @@ Task: `tasks/STANDARD.md`. Plus every item of `COMMON.md`. Facts: FACTS.md "STAN
   `REVIEW_PLAN`, `REVIEW_RULES`, `REVIEW_TESTS`, `SECURITY` (tier full). No `REVIEW_DATA`. All `pass`.
 - **S-10 Contract unchanged.** [invariant] The response shape of `GET /api/books` (`items`, `page`, `pageSize`,
   `total`, `totalPages`) and `docs/design/API.md` are unchanged.
-- **S-11 Report.** [quality] The completion report states the root cause in one sentence naming `paginate`, the
+- **S-11 Report.** [invariant] The completion report states the root cause in one sentence naming `paginate`, the
   regression test, and the gates; it says commit and push await approval.
 
 ## Must not
