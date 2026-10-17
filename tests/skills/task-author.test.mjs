@@ -165,3 +165,21 @@ test("A105: a COMPLEX/CRITICAL task declares a defect the request does not ask f
   assert.doesNotMatch(errs(folded.replace("Limit failed logins per account.", "Fix the login bug: limit failed logins.")), /mentions a defect/);
   assert.doesNotMatch(errs(folded.replace("CRITICAL — authentication boundary", "STANDARD — one module")), /mentions a defect/);
 });
+
+// A137: a stated "data not wanted, column gone" must not be deferred or refused at intake (CRITICAL e2e stalled in intake).
+test("task_author writes the drop criterion when the user already said the data is not wanted (A137)", () => {
+  for (const p of ["../../roles/task_author.md", "../../adapters/claude/agents/proofline-task-author.md"]) {
+    const md = readFileSync(new URL(p, import.meta.url), "utf8");
+    assert.match(md, /already says the values are not wanted and the column should go, writes the whole removal as criteria/, p);
+    assert.match(md, /Offer "defer the drop" as the recommended option, ask whether or when to drop, or refuse the drop criterion/, p);
+    assert.match(md, /the destructive stop is the safety \(A55\)/, p);
+  }
+  const da = readFileSync(new URL("../../roles/data_architect.md", import.meta.url), "utf8");
+  assert.match(da, /`contract` step: a separate, later migration, still `destructive: yes`/);
+});
+
+test("the CRITICAL question reply states that the column goes now, in user words only (A137)", () => {
+  const r = readFileSync(new URL("../../tests/e2e/replies/question.CRITICAL.txt", import.meta.url), "utf8");
+  assert.match(r, /not left for later/);
+  assert.doesNotMatch(r, /migration|expand|contract|destructive|approve|plan|stage|\?/i);
+});
