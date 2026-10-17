@@ -76,8 +76,9 @@ How work is split between agents in this repository.
   reported, and other jobs continue.
 - One branch and one pull request per job. Merge when CI is green; no direct push to `main`.
 - Progress is kept in `.claude/progress.md`, so an interrupted session resumes from it.
-- Codex integration checks never run full scenarios and never run in parallel. They use the cheapest model
-  and the lowest reasoning effort (A100), a hard call cap, and stop on the first quota error.
+- Codex integration checks never run full scenarios and never run in parallel. A Codex lead uses the base model
+  (`gpt-6-sol`, A135); the cheapest model applies to workers only. They use the lowest reasoning effort (A100),
+  a hard call cap, and stop on the first quota error.
 
 ## Commits and pull requests
 

@@ -154,6 +154,16 @@ EOF
   if out=$(cd "$ROOT" && sh "$A" config-check 2>&1); then d_pass "config: $(printf '%s' "$out" | head -1)"
   else d_fail "config: agent.sh config-check failed: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"; fi
 
+  # A135: a Codex lead needs the base model; report the model the policy resolves for the lead.
+  EP=$ROOT/.agents/scripts/exec-policy.sh
+  if [ "$(cfg_val "$CFG" runtime.lead claude)" = codex ] && [ -f "$EP" ]; then
+    grep -q '^  lead_base_model:' "$CFG" || d_warn "lead model: .agents/config.yaml has no execution_policy.lead_base_model (the built-in base is used; run: proofline upgrade)"
+    if lm=$(cd "$ROOT" && sh "$EP" resolve --role lead --class STANDARD --tier full 2>/dev/null | sed -n 's/^model=//p') && [ -n "$lm" ]; then
+      if out=$(cd "$ROOT" && sh "$EP" check-lead --runtime codex --model "$lm" 2>&1); then d_pass "lead model: codex lead resolves to $lm (base model or stronger)"
+      else d_fail "lead model: $(printf '%s' "$out" | head -1)"; fi
+    else d_warn "lead model: could not resolve the codex lead model (exec-policy.sh resolve failed)"; fi
+  fi
+
   used="$(cfg_val "$CFG" runtime.lead claude) $(cfg_val "$CFG" runtime.worker '') $(cfg_val "$CFG" runtime.reviewers '')"
   for rt in claude codex; do
     case "$rt" in claude) bin=${PROOFLINE_CLAUDE_BIN:-claude} ;; codex) bin=${PROOFLINE_CODEX_BIN:-codex} ;; esac

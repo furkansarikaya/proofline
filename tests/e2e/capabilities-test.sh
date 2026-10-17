@@ -23,10 +23,21 @@ b=$(find "$root/b" -name git-global-before.txt | head -1)
 # A100: the Codex lead command carries the cheapest model and effort only when asked.
 E2E_ROOT=$root/c sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead( resume)?:' > "$root/plain.txt"
 [ "$(wc -l < "$root/plain.txt")" -eq 2 ] || fail "no codex lead lines: $(cat "$root/plain.txt")"
-! grep -Eq -- "-m |model_reasoning_effort" "$root/plain.txt" || fail 'model/effort flags present with the env unset'
-E2E_CODEX_MODEL=gpt-6-luna E2E_CODEX_EFFORT=none E2E_ROOT=$root/d sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead( resume)?:' > "$root/cheap.txt"
-[ "$(grep -c -- "-m 'gpt-6-luna'" "$root/cheap.txt")" -eq 2 ] || fail "model flag missing: $(cat "$root/cheap.txt")"
+[ "$(EXEC_POLICY_CONFIG=$here/../../control-plane/agents/config.yaml sh "$here/../../control-plane/agents/scripts/exec-policy.sh" lead-base codex)" = gpt-6-sol ] || fail 'lead-base codex is not gpt-6-sol'
+[ "$(grep -c -- "-m 'gpt-6-sol'" "$root/plain.txt")" -eq 2 ] || fail "Codex lead without E2E_CODEX_MODEL must still pass the base model: $(cat "$root/plain.txt")"
+! grep -q "model_reasoning_effort" "$root/plain.txt" || fail 'effort flag present with the env unset'
+# A135: a Codex lead needs the base model (execution_policy.lead_base_model); the cheapest model is refused for
+# the first exec and for every resume (same variable), the base model is accepted with its effort flag.
+base=$(awk '/^  lead_base_model:/ { g = 1; next } g && $1 == "codex:" { print $2; exit }' "$here/../../control-plane/agents/config.yaml")
+[ -n "$base" ] || fail 'no lead_base_model.codex in the policy table'
+E2E_CODEX_MODEL=gpt-6-luna E2E_ROOT=$root/e sh "$here/run.sh" TRIVIAL codex --dry-run > "$root/refused.txt" 2>&1 && fail 'cheapest model accepted for a Codex lead'
+grep -q "$base" "$root/refused.txt" || fail "refusal does not name the base model: $(cat "$root/refused.txt")"
+E2E_CODEX_MODEL=gpt-6-luna E2E_ROOT=$root/e2 sh "$here/run.sh" FAILOVER mixed --dry-run > /dev/null 2>&1 && fail 'cheapest model accepted for the FAILOVER resume lead'
+E2E_CODEX_MODEL=$base E2E_CODEX_EFFORT=none E2E_ROOT=$root/d sh "$here/run.sh" TRIVIAL codex --dry-run 2>&1 | grep -E '^lead( resume)?:' > "$root/cheap.txt"
+[ "$(grep -c -- "-m '$base'" "$root/cheap.txt")" -eq 2 ] || fail "model flag missing: $(cat "$root/cheap.txt")"
 [ "$(grep -c 'model_reasoning_effort="none"' "$root/cheap.txt")" -eq 2 ] || fail "effort flag missing: $(cat "$root/cheap.txt")"
+# A135: the cheapest model stays allowed where Claude leads and Codex only works (mixed).
+E2E_CODEX_MODEL=gpt-6-luna E2E_ROOT=$root/m sh "$here/run.sh" TRIVIAL mixed --dry-run > /dev/null 2>&1 || fail 'cheap Codex worker model refused in a mixed run'
 # A117: a dry run removes its project copy and isolated Codex home, keeps out/; --keep keeps the whole run directory.
 run_dir=$(dirname "$out")
 [ ! -e "$run_dir/project" ] && [ ! -e "$run_dir/codexhome" ] || fail 'dry run left the project copy or codexhome behind'
