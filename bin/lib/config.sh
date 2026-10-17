@@ -23,8 +23,8 @@ cfg_get() { cfg_lines "$1" | awk -v k="$2" 'index($0, k "=") == 1 { print substr
 # cfg_val FILE KEY DEFAULT: the value, or DEFAULT when absent or empty.
 cfg_val() { cv=''; [ ! -f "$1" ] || cv=$(cfg_get "$1" "$2" 2>/dev/null) || cv=''; if [ -n "$cv" ]; then printf '%s\n' "$cv"; else printf '%s\n' "${3:-}"; fi; }
 
-# cfg_set FILE KEY VALUE: replaces the value of a 1- or 2-level key; a missing key is added under its
-# section (the section is created when missing). Comments on the replaced line are dropped.
+# cfg_set FILE KEY VALUE: replaces the value of a 1-, 2- or 3-level key; a missing key is added under its
+# section (the section is created when missing; a 3-level key needs its 2-level parent). Comments on the replaced line are dropped.
 cfg_set() {
   cs_t=$(mktemp "${TMPDIR:-/tmp}/proofline-cfg.XXXXXX") || return 1
   if PL_KEY=$2 PL_VAL=$3 awk '
@@ -44,6 +44,7 @@ cfg_set() {
       if (found && p == key) { emit(IND, K, val); next }
       print
       if (!found && n == 2 && L == 0 && p == sec && !done) { emit(2, kp[2], val); done = 1 }
+      if (!found && n == 3 && L == 1 && p == kp[1] "." kp[2] && !done) { emit(4, kp[3], val); done = 1 }
     }
     END {
       if (found || done) exit 0
