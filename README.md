@@ -68,9 +68,8 @@ the decisions in [docs/decisions.md](docs/decisions.md) merged after the run (A1
 | Windows | — | not tested (use WSL or Git Bash) | not tested |
 
 Known limits, stated plainly: no scenario was re-run after A130 to A132; COMPLEX passed twice in 11 runs and is
-not yet a stable result; the Codex checks used the cheapest model and never ran a full scenario. One open question
-for the maintainer (C-14 allows at most three harness replies while a COMPLEX run with a refreeze legitimately needs
-more) is recorded in [tests/e2e/README.md](tests/e2e/README.md#open-item-for-the-maintainer).
+not yet a stable result; the Codex checks used the cheapest model and never ran a full scenario. End-to-end items are
+tagged invariant or quality, and C-14 allows 3 answers +1 per refreeze (A133); the results above predate both.
 
 ## Capabilities and what tests them
 

@@ -133,12 +133,14 @@ these changed an EXPECTED file.
   `sh tests/selftest.sh`), 737 skill tests (734 pass, 3 skipped; `node --test tests/skills/`) and the fixtures
   (42 passed, 1 skipped; `sh tests/fixtures/check-fixtures.sh`), as counted on 2026-10-17.
 
-### Open item for the maintainer
+### Reply limit and item tags (decided, A133)
 
-C-14 in `expected/COMMON.md` says "at most 3 harness replies were needed". The default `E2E_MAX_REPLIES` is 6, and
-every COMPLEX run with an amendment and a refreeze legitimately shows four or more replies (plan approval,
-second plan approval, question replies). EXPECTED is not changed: a decision is needed on whether C-14 should
-count only the replies to questions or plan approvals separately, or keep the limit and expect such runs to fail it.
+C-14 in `expected/COMMON.md` allows at most 3 answers, +1 for every refreeze (answers are harness replies, plan
+approvals and question replies together; each refreeze after an amendment allows one more). The default
+`E2E_MAX_REPLIES` of 6 is the harness cap and is not the C-14 limit: the evaluator counts answers from
+`out/replies-log.txt`. Every numbered item is tagged `[invariant]` or `[quality]`; a scenario passes when all
+invariant items are met and at least 90% of the applicable quality items are met (see `expected/COMMON.md`
+"Tags" and A133). Results above were scored before the tags and the new C-14 wording and are not re-scored.
 
 ## Earlier results, superseded
 
