@@ -1707,20 +1707,26 @@ verify_debug_result() { # ID
   fi
   if [ -z "$vd_hit" ]; then
     # A122: Goal, Context, Acceptance criteria, Constraints, Risks and the user's quotes speak of a defect or a fix
-    # (the words of A105, never a second list). Declared pre-existing defects (A105) are findings, not the task.
+    # (the words of A105, never a second list). A126: a declared `## Pre-existing defects` section (A105, a `###`
+    # heading counts) is a finding, not the task: with entries and no `decision: fix` the request is not a defect
+    # request, so only Goal, quotes and Acceptance criteria are read (as task_defect_errors reads the request);
+    # a `decision: fix` entry is a requested fix and always asks for the report.
     vd_hit=$(awk -v sre="$defect_sec_re" -v str="$defect_sec_tr" '
       function w(s, re) { return (" " s " ") ~ ("[^a-z](" re ")[^a-z]") }
       /<!--/ { c = 1 } c { if (/-->/) c = 0; next }
       NR == 1 && /^# Task:/ { sec = "Goal" }
       /^##[#]?[[:space:]]/ { h = $0; sub(/^#+[[:space:]]+/, "", h); sub(/[[:space:]]+$/, "", h); d = (tolower(h) == "pre-existing defects")
         if ($0 ~ /^## /) sec = h; next }
-      d { next }
+      d { if (/^[[:space:]]*[-*][[:space:]]+[^[:space:]]/) { n++; if (tolower($0) ~ /decision:[[:space:]]*fix/) fx = substr($0, 1, 80) } next }
       /^[[:space:]]*>/ || sec == "Goal" || sec == "Context" || sec == "Acceptance criteria" || sec == "Constraints" || sec == "Risks" {
-        l = tolower($0); if (w(l, sre) || l ~ str) { print substr($0, 1, 80); exit } }' "$vd_d/TASK.md")
+        l = tolower($0); if (w(l, sre) || l ~ str) {
+          if (/^[[:space:]]*>/ || sec == "Goal" || sec == "Acceptance criteria") { if (rq == "") rq = substr($0, 1, 80) }
+          else if (ot == "") ot = substr($0, 1, 80) } }
+      END { if (fx != "") print fx; else if (rq != "") print rq; else if (n == 0 && ot != "") print ot }' "$vd_d/TASK.md")
   fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
-  fail "IMPLEMENTED blocked: the task speaks of a defect or a fix ('$vd_hit' in its title, goal, context, criteria, constraints, risks or quotes) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) and submit it"
+  fail "IMPLEMENTED blocked: the task speaks of a defect or a fix ('$vd_hit' in its title, goal, context, criteria, constraints, risks or quotes) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) when the task repairs a defect, OR, when the defect is unrelated to the request, declare it under '## Pre-existing defects' as '- <path:symbol>: <what> -- decision: report' (no reword or refreeze needed)"
 }
 
 # --- Handoff ladder: PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE ------------
