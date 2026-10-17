@@ -11,7 +11,7 @@ Generated from roles/ — do not edit.
 | [`designer`](#designer) | Designs the user interface for a task, writing the PLAN UI section and the per-task UI spec, and keeps the durable design system consistent. | when the task changes a user interface, or on request (proofline design ui) | task | none | ui-design | no | workspace-write | 1 |
 | [`explorer`](#explorer) | Investigates one bounded assignment and returns compact evidence where every claim is a verified path and symbol. | class STANDARD and up, in parallel up to the class max_explorers bound for independent objectives | task | none | evidence-map | no | workspace-write | 1 |
 | [`implementer`](#implementer) | Implements the frozen plan inside its scope with recorded RED, GREEN and REFACTOR evidence, and fixes bounded findings. | always, the only role that writes product code, one per run | task | none | tdd-proof debug-proof | yes | workspace-write | 2 |
-| [`lead`](#lead) | Owns the task lifecycle as the main session, classifying, freezing, dispatching bounded specialists, consolidating their results, driving gates and the fix loop, and stopping before delivery. | always, the main session (alias full_lifecycle) | task | none | proofline-lead plan-contract debug-proof | no | workspace-write | 2 |
+| [`lead`](#lead) | Owns the task lifecycle as the main session, classifying, freezing, dispatching bounded specialists, consolidating their results, driving gates and the fix loop, and stopping before delivery. | always, the main session (alias full_lifecycle) | task | none | proofline-lead plan-contract debug-proof llm-wiki | no | workspace-write | 2 |
 | [`qa`](#qa) | Writes the acceptance and adversarial QA plan before implementation and evaluates the implementation against the frozen plan after it. | class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED | gate | QA | qa-plan test-trust visual-proof | no | workspace-write | 1 |
 | [`reviewer`](#reviewer) | Independently reviews the task-owned diff for one focus (plan, rules, tests, data, rules+tests, or a risk focus contract, concurrency, performance, config, migration) and returns an evidence-based gate result. | per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78) | gate | REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA REVIEW_SMALL | proof-review test-trust data-design concurrency-proof performance-proof contract-proof | no | workspace-write | 2 |
 | [`security_reviewer`](#security_reviewer) | Reviews the task-owned diff as an attacker and reports only exploitable findings, each reproduced or traced from source to sink. | full tier (D14), always for CRITICAL class | gate | SECURITY | exploit-proof | no | workspace-write | 3 |
@@ -147,7 +147,7 @@ Owns the task lifecycle as the main session, classifying, freezing, dispatching 
 - Dispatched: always, the main session (alias full_lifecycle)
 - Reads: RUN.yaml TASK.md EVIDENCE.md PLAN.md results/ gates/ questions/
 - Owns: TASK.md EVIDENCE.md PLAN.md COMPLETION_REPORT.md amendments/ /.agents/tasks/
-- Skills: proofline-lead plan-contract debug-proof
+- Skills: proofline-lead plan-contract debug-proof llm-wiki
 - Gates: none
 - Result protocol: task
 - Tools: Read Grep Glob Bash Write Edit

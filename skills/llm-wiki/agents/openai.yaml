@@ -1,0 +1,7 @@
+interface:
+  display_name: "LLM Wiki"
+  short_description: "Keep a persistent, cross-linked Markdown wiki: ingest sources, answer from it, lint it"
+  default_prompt: "Use $llm-wiki to ingest, query or lint the project wiki: "
+
+policy:
+  allow_implicit_invocation: false

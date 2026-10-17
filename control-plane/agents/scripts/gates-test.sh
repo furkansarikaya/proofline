@@ -1129,6 +1129,19 @@ sc_knowledge_secrets() {
   ok "knowledge-scope files are secret-scanned at DONE and delivery-check"
 }
 
+# A139: docs/wiki/ is in the default knowledge_scope_root: a wiki page is knowledge work, any other path is not.
+sc_wiki_knowledge_scope() {
+  scaffold orchestrated; to_code_done orchestrated
+  A config-get knowledge_scope_root | grep -Fq 'docs/wiki/' || die "docs/wiki/ is not in the default knowledge_scope_root"
+  mkdir -p notes; printf 'not a wiki page\n' > notes/outside.txt
+  A knowledge-done LC >/dev/null
+  expect_msg "a path outside the root counted as knowledge" 'no knowledge-scope changes' A verify-knowledge-scope LC
+  rm -r notes
+  mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  A verify-knowledge-scope LC >/dev/null
+  ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
+}
+
 # CLASSIFY precedes BRANCH: `next` prints the order the commands accept.
 sc_next_order() {
   new_repo; nd=.agents/runs/NB; mkdir -p "$nd" tasks
@@ -1737,6 +1750,7 @@ run_sc sc_waiver_rebind
 run_sc sc_open_runs
 run_sc sc_report_finding_ids
 run_sc sc_knowledge_secrets
+run_sc sc_wiki_knowledge_scope
 run_sc sc_next_order
 run_sc sc_start
 run_sc sc_qa_plan_bound

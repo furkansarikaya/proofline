@@ -181,7 +181,7 @@ active_run_file: .agents/local/ACTIVE_RUN
 policy_source: .agents/modes
 # Knowledge transaction (Transaction B) scope: space-separated; an entry ending in / is a directory
 # prefix, any other entry an exact path. A path listed in the frozen plan scope stays application scope.
-knowledge_scope_root: DESIGN.md docs/design/ docs/adr/
+knowledge_scope_root: DESIGN.md docs/design/ docs/adr/ docs/wiki/
 safety:
   destructive_git_requires_explicit_authorization: true
   external_network_requires_task_authorization: true

@@ -23,6 +23,7 @@ Inside Claude Code the same commands are `/proofline status`, `/proofline run <T
 | `proofline run <TASK>` | full workflow |
 | `proofline design system\|data\|api\|ui [--check]` | design documents; `--check` reports drift |
 | `proofline review`, `audit`, `debug` | proof-review, test-trust and debug-proof standalone |
+| `/proofline wiki ingest\|query\|lint` | persistent project wiki (llm-wiki skill; slash command only); the wiki lives in `docs/wiki/`, which is in the default `knowledge_scope_root`, so the run's optional Knowledge step may update it |
 | `proofline deliver <TASK>` | delivery check; never commits |
 | `proofline clean [--yes]` | remove `.agents/local` state and finished runs |
 | `proofline merge <PR> [--squash\|--rebase] [--delete-branch]` | the only allowed merge: merges the pull request only when every check is green on its current head (A136); the hook denies `gh pr merge` and the other merge paths |
