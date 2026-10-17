@@ -727,7 +727,7 @@ sc_supervised_destructive() {
   ok "destructive plan: forced CRITICAL, freeze on the plan approval, destructive approval before IMPLEMENT"
   # a refreeze (new PLAN.md hash) drops the approval: it must be requested again before IMPLEMENT
   unfrozen STANDARD
-  printf '\n## Data\n\ndestructive: yes\n\n| step | phase | operation | object | destructive | reversible | rollback | lock |\n|---|---|---|---|---|---|---|---|\n| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | deferred | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
+  printf '\n## Data\n\ndestructive: yes\n\n| step | phase | operation | object | destructive | reversible | rollback | lock |\n|---|---|---|---|---|---|---|---|\n| S1 | expand | switch_reads | books.legacy_notes | no | yes | redeploy the previous release | none |\n| S2 | contract | drop_column | books.legacy_notes | yes | no | restore from the backup | table rewrite |\n' >> .agents/runs/LC/PLAN.md
   approve_as_user plan 'approve plan'
   A freeze LC >/dev/null || die "freeze for the refreeze scenario failed"
   approve_as_user destructive 'approve destructive migration'

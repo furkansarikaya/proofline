@@ -217,7 +217,9 @@ test("destructive: yes needs expand/contract steps unless the plan says single_s
   has(crit(["destructive: yes", "", ...STEPS_HEAD, CONTRACT]), MSG);                         // no preceding non-destructive step
   has(crit(["destructive: yes", "", ...STEPS_HEAD, "| S1 | expand | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG); // one release
   has(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | expand | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG);
-  has(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | contract | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG); // contract in this change is one step
+  // A141: a destructive contract step (a separate, later migration file) after a non-destructive step is accepted
+  assert.deepEqual(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | contract | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), []);
+  has(crit(["destructive: yes", "", ...STEPS_HEAD, "| S2 | contract | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), MSG); // no stop-reading step first
   assert.deepEqual(crit(["destructive: yes", "", ...STEPS_HEAD, EXPAND, "| S2 | deferred | drop_column | books.legacy_fee | yes | no | backup | rewrite |"]), []);
   // single_step is offered only when the task states that the user wants one step (A52)
   has(crit(["destructive: yes", "single_step: yes", "", "drop books.legacy_fee in one migration"]), MSG);
@@ -280,4 +282,16 @@ test("design documents of the config are in scope when the plan changes the data
   const e = validate(plan({ body }), TASK, { root, cls: "COMPLEX" });
   has(e, "docs/design/DATA_MODEL.md is the project's design document for ## Data");
   has(e, "docs/design/API.md is the project's design document for ## Contracts");
+});
+
+// A141: the plan the data architect wrote in the CRITICAL e2e run (drop as a contract step, destructive: yes) is accepted;
+// single_step with it and a destructive step without the header are still refused.
+test("CRITICAL e2e data plan shape is accepted; single_step and a missing destructive header are not (A141)", () => {
+  const data = readFileSync(join(fixture, "critical-data-section.md"), "utf8").trimEnd().split("\n");
+  const crit = (Data) => errs(plan({ body: { Architecture: ["- one module"], ...BODY, Data } }), { cls: "CRITICAL" });
+  assert.deepEqual(crit(data), []);
+  const MSG = "needs expand/contract steps";
+  has(crit(["destructive: yes", "single_step: yes", ...data.slice(1)]), MSG); // no user wording for one step in TASK.md
+  has(crit(data.map((l) => l.replace(/^(\| S3 \| )contract/, "$1expand"))), MSG); // drop in the expand phase
+  has(crit(data.slice(1)), "destructive"); // destructive step, header missing
 });

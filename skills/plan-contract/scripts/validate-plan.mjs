@@ -75,7 +75,7 @@ export function assumptionProblems(lines) {
 }
 
 // A destructive `## Data` section is accepted as expand/contract when its step table has a non-destructive
-// step in an early phase and every destructive step in a late phase; `single_step: yes` opts out (the control
+// step in an early phase (expand, backfill, switch) and every destructive step in a late phase (contract, deferred; A141); `single_step: yes` opts out (the control
 // plane then requires the user's single_step approval after the freeze, before IMPLEMENT). Mirrors agent.sh plan_migration_shape.
 export function migrationShape(lines) {
   let single = false, pre = false, early = false, late = false;
@@ -86,7 +86,7 @@ export function migrationShape(lines) {
     if (cells.length < 8) continue;
     const phase = cells[2], dest = cells[5];
     if (!["expand", "backfill", "switch", "contract", "deferred"].includes(phase)) continue;
-    if (dest === "yes") { if (phase === "deferred") late = true; else early = true; }
+    if (dest === "yes") { if (phase === "deferred" || phase === "contract") late = true; else early = true; }
     else if (["expand", "backfill", "switch"].includes(phase)) pre = true;
   }
   return single ? "single_step" : pre && late && !early ? "expand_contract" : "missing";
@@ -252,7 +252,7 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
       let shape = migrationShape(data);
       // `single_step: yes` is only offered when the task states that the user wants one step (A52).
       if (shape === "single_step" && !/single[- ]step|one[- ]step|one migration|tek ad[ıi]m/i.test(taskMd || "")) shape = "missing";
-      if (shape === "missing") errors.push('section "## Data": destructive: yes needs expand/contract steps: a step table (`| step | phase | operation | object | destructive | reversible | rollback | lock |`) with a non-destructive step in phase expand, backfill or switch and every destructive step in phase deferred (a separate, later migration, not part of this change); a single step is possible only when the task itself states that the user wants one step (then add the line "single_step: yes" and request the single_step approval); otherwise plan the drop as a deferred step');
+      if (shape === "missing") errors.push('section "## Data": destructive: yes needs expand/contract steps: a step table (`| step | phase | operation | object | destructive | reversible | rollback | lock |`) with a non-destructive step in phase expand, backfill or switch and every destructive step in phase contract or deferred (a separate, later migration); a single step is possible only when the task itself states that the user wants one step (then add the line "single_step: yes" and request the single_step approval); otherwise plan the drop as a deferred step');
     }
   }
   for (const s of ["Dependencies", "Contracts"]) {
