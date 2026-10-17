@@ -1142,6 +1142,55 @@ The last page is cut off: a defect in the page count.' scaffold orchestrated no 
   WEV_EF='expected 3 to equal 5 in TestLookup' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with an assertion failure was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "A122: a defect named in Context needs reports/NNN-debug.md; a feature run with an ordinary assertion RED is not asked"
+  # A126: the structure of a real COMPLEX feature task (e2e A1): Context speaks of "fixes" and Risks of the defect,
+  # the defect itself is declared in a nested `### Pre-existing defects` with decision: report -> not asked
+  feat='
+## Context
+
+Assumption: A tag is compared lowercased. (The request fixes only case-insensitivity.)
+
+### Pre-existing defects
+
+- `src/service.js:paginate`: totalPages uses Math.floor, the last items are unreachable -- decision: report
+
+## Acceptance criteria
+
+- AC-1: the list shows the tag.
+'
+  SC_TASK_EXTRA="$feat
+## Risks
+
+- Paging relies on paginate, which has a defect (below); real lists show the defect without a fix." scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a declared pre-existing defect (report) asked a feature task for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
+  # the same words in an acceptance criterion of the requested change still ask
+  SC_TASK_EXTRA="$feat- AC-2: the page count is wrong today; fix it." scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  expect_msg "a defect in a criterion of the request needs a debug-proof result" 'BEFORE freeze' A handoff LC IMPLEMENTED
+  # decision: fix is a requested fix
+  SC_TASK_EXTRA='
+## Context
+
+### Pre-existing defects
+
+- `src/service.js:paginate`: totalPages rounds down -- decision: fix' scaffold orchestrated no STANDARD manual
+  approve_as_user scope 'approve the scope'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  expect_msg "a declared defect with decision: fix needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  # no defect words and no declaration: not asked; Turkish word variant still asked
+  SC_TASK_EXTRA='
+## Context
+
+Tags are lowercased.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a plain feature was asked for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
+  SC_TASK_EXTRA='
+## Context
+
+> Sayfa sayısını düzelt.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  expect_msg "a Turkish fix word in a quote needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  ok "A126: a declared pre-existing defect (report, nested or not) does not make a feature a defect fix; decision: fix, a criterion or a Turkish word still do"
 }
 sc_scratch_worktrees() {
   scaffold orchestrated no STANDARD
