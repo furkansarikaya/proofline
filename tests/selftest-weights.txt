@@ -32,6 +32,14 @@
 76 tasks-test
 75 lifecycle-test scenario_terminal
 75 capabilities-test
+40 reply-loop-test plan
+40 reply-loop-test destructive
+40 reply-loop-test single_step
+40 reply-loop-test scope
+40 reply-loop-test budget
+40 reply-loop-test commit
+40 reply-loop-test push
+40 reply-loop-test waive-F-1
 73 enforcement-test waivers
 71 lifecycle-test scenario_classification
 71 gates-test sc_supervised_destructive
