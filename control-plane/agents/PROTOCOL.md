@@ -66,7 +66,7 @@ AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> [--foc
   `commands.build|test|lint` or a frozen PLAN `## Verification commands` entry (AC-cited commands always, the
   rest up to three); a different exit status, a missing recorded output line or an output line that is not a
   whole line of the re-run output makes the result FAIL with a blocking finding. A gate that re-ran nothing
-  records `NOT_RERUN` (info) and is not reproduced proof; a mapped focus whose installed validator cannot
+  records the gate field `not_rerun` (A130; never a findings row; `pipeline` prints `not_rerun.<GATE>:<focus>=`) and is not reproduced proof; a mapped focus whose installed validator cannot
   run refuses a PASS.
 - `--focus` is required for a reviewer unless the artifact's directory implies it (also `PROOFLINE_FOCUS`).
 - A rejection prints `submit rejected: <reason>` and exits 1 immediately, so the specialist fixes and submits

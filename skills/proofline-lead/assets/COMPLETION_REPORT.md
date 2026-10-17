@@ -40,6 +40,11 @@ adapter before DONE. Omit a conditional section only when its condition does not
 
 Fix rounds used: <n> of <review.max_fix_rounds>.
 
+The findings column names every finding id of the gate record, info rows included; `none` only when the gate record has no finding row (A130).
+For each `not_rerun.<GATE>:<focus>=` line of `A pipeline <ID>` (the gate re-ran nothing), one line of its own, never called reproduced proof:
+
+- <GATE>:<focus>: not reproduced (NOT_RERUN)
+
 ## QA Result
 
 (STANDARD and up) QA: <PASS|FAIL> (<confidence>); scenarios <passed>/<total>.

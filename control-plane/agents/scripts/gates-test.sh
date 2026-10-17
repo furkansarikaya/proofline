@@ -1014,6 +1014,42 @@ sc_waiver_rebind() {
   ok "waiver approvals bind the failing gate record and finding; a later round never reuses them"
 }
 
+# A130: the report names the finding ids of every required gate (info rows included); 'none' only for a gate with no rows.
+sc_report_finding_ids() {
+  scaffold orchestrated; implemented orchestrated
+  rg=$(required | tr ' ' '\n' | grep '^REVIEW_' | head -1)
+  for g in $(required); do
+    case "$g" in
+      SECRETS) A secret-scan LC >/dev/null ;;
+      "$rg") mkdir -p ".agents/runs/LC/$(dirname "$(report_path "$rg")")"; printf '# review\n\nthe change was read.\n' > ".agents/runs/LC/$(report_path "$rg")"
+        printf 'info|impl.txt:1|naming is terse but consistent across the module|read\n' > "$base/ir.rows"
+        AS reviewer submit LC --focus "$(gate_focus "$rg")" --artifact "$(report_path "$rg")" --findings "$base/ir.rows" --confidence high >/dev/null || die "the info-row review was refused" ;;
+      *) gpass "$g" ;;
+    esac
+  done
+  A pipeline LC | sed -n 's/^focus\.\([A-Z_]*\)\.\([a-z]*\)=.*/\1 \2/p' | while read -r g f; do RF_FOCUS=$f gpass "$g"; done
+  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
+  nr="$rg:$(gate_focus "$rg")"
+  # every miss at once: the not-reproduced line AND the ids, with the line to add
+  write_report '' "$rg: none."
+  out=$(A publish-completion-report LC markdown 2>&1) && die "a report with none for a gate with info rows was published"
+  printf '%s' "$out" | grep -q "add the line '- $nr: not reproduced (NOT_RERUN)'" || die "no not-reproduced line to add: $out"
+  printf '%s' "$out" | grep -q "gate $rg: name the finding id(s) $rg-1 $rg-2" || die "the missing ids are not all named: $out"
+  # next lists what the report must carry
+  A next LC | grep -q "gate $rg findings to name.*$rg-1 $rg-2" || die "next does not list the finding ids"
+  A next LC | grep -q "NOT_RERUN $nr: not reproduced proof" || die "next does not list the not-reproduced line"
+  # the id of a gate is not named by a line that only has it inside another list (QA-1 in 'scenarios QA-1 to QA-9')
+  write_report '' "scenarios $rg-1 to $rg-9 passed; $rg-2 too." "- $nr: not reproduced (NOT_RERUN)"
+  expect_msg "an id inside a list that does not name the gate" "gate $rg: name the finding id(s) $rg-1 $rg-2" A publish-completion-report LC markdown
+  write_report '' "$rg: $rg-1 (info): naming is terse but consistent, no change needed; $rg-2 (info): no validator ran."
+  expect_msg "a re-run-nothing gate without its own not reproduced line" "add the line '- $nr: not reproduced (NOT_RERUN)'" A publish-completion-report LC markdown
+  write_report '' "$rg: $rg-1, $rg-2 (info) noted. $nr was reproduced by the control plane." "- $nr: not reproduced (NOT_RERUN)"
+  expect_msg "a re-run-nothing gate described as reproduced" 'calls it reproduced: "' A publish-completion-report LC markdown
+  write_report '' "$rg: $rg-1 (info): naming is terse but consistent, no change needed; $rg-2 (info): no validator ran." "- $nr: not reproduced (NOT_RERUN)"
+  A publish-completion-report LC markdown >/dev/null || die "a report naming the finding id and the not reproduced line was refused"
+  ok "A130: the completion report names every finding id of every gate; none is refused for a gate with an info row"
+}
+
 # B1: the git hooks see every open run, not ACTIVE_RUN.
 sc_open_runs() {
   scaffold orchestrated no STANDARD
@@ -1410,7 +1446,12 @@ sc_evidence_gap_gates() {
   # R1-1: a PASS gate with nothing re-runnable is never silent: judgment-only gates record NOT_RERUN
   mkdir -p "$d/reviews/proof-review/small"; printf "# small review\n\nthe change was read.\n" > "$d/reviews/proof-review/small/REPORT.md"
   out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --agent g1 2>&1) || :
-  grep -rq 'NOT_RERUN: .*no reproduced evidence' "$d/results" || die "a PASS with nothing to re-run left no NOT_RERUN row: $out"
+  gf=$(ls "$d"/gates/*REVIEW_SMALL.yaml | tail -1)
+  grep -q '^not_rerun: "REVIEW_SMALL:rules+tests no reproduced evidence; this gate is not reproduced proof"' "$gf" || die "a PASS with nothing to re-run left no not_rerun field: $out"
+  # A130: the marker is a gate field, never a findings row: a clean gate has no finding at all
+  grep -q '^finding:.*NOT_RERUN' "$gf" && die "a gate that re-ran nothing carries a NOT_RERUN findings row: $(grep '^finding:' "$gf")"
+  grep -rq '^| .*NOT_RERUN' "$d/results" && die "the result file carries a NOT_RERUN findings row"
+  A pipeline LC | grep -q '^not_rerun.REVIEW_SMALL:rules+tests=NOT_RERUN (not reproduced proof): no reproduced evidence' || die "pipeline prints no not_rerun line: $(A pipeline LC | grep not_rerun)"
   # a verifier PASS whose only commands are neither configured nor planned: blocking, nothing executed
   printf 'touch .agents/local/ran-unplanned\n' > .agents/local/other.sh
   vw PASS 0 'ok 3 tests' PASS
@@ -1425,6 +1466,18 @@ sc_evidence_gap_gates() {
   expect_msg "a PASS of a mapped focus without its findings.json" 'no validator run for' AS reviewer submit LC --focus rules --confidence high --findings none --agent g3
   expect_msg "the same PASS with a declared validator result" 'no validator run for' AS reviewer submit LC --focus rules --confidence high --validator-result PASS --findings none --agent g4
   ok "A107 R1: a PASS is never silent: NOT_RERUN row, nothing re-runnable is FAIL, a missing validator run refuses a mapped focus"
+}
+sc_evidence_gap_legacy() {
+  evidence_gap_fixture
+  # A130: a gate record made by an older version (the info row NOT_RERUN, no field) is still honoured
+  mkdir -p "$d/reviews/proof-review/small"; printf "# small review\n\nthe change was read.\n" > "$d/reviews/proof-review/small/REPORT.md"
+  git update-index --assume-unchanged .agents/scripts/agent.sh 2>/dev/null || :   # the edited copy is not a task change (it would raise the tier)
+  sed -i.bak 's#^\( *\)sb_nr="\(.*\) no reproduced evidence; this gate is not reproduced proof".*#\1printf "info|%s|NOT_RERUN: \2 no reproduced evidence; this gate is not reproduced proof|x\\n" "$sb_norm" >> "$sb_tmp/rows"#' .agents/scripts/agent.sh; rm -f .agents/scripts/agent.sh.bak
+  grep -q 'info|%s|NOT_RERUN' .agents/scripts/agent.sh || die "could not build the legacy submit"
+  out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --agent l1 2>&1) || die "legacy submit refused: $out"
+  grep -q '^finding:.*NOT_RERUN' "$(ls "$d"/gates/*REVIEW_SMALL.yaml | tail -1)" || die "legacy record has no info row"
+  A pipeline LC | grep -q '^not_rerun.REVIEW_SMALL:rules+tests=NOT_RERUN (not reproduced proof)' || die "the old NOT_RERUN info row is no longer honoured"
+  ok "A130: a gate record with the old NOT_RERUN info row is still honoured"
 }
 sc_evidence_gap_output() {
   evidence_gap_fixture
@@ -1497,7 +1550,7 @@ sc_evidence_gap_files_gate() {
   printf '%s\n' 'command: dotnet run -c Release' 'exit: 0' 'output: ok 3 tests' > "$d/reports/perf.txt"
   out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --evidence reports/perf.txt --agent f1 2>&1) || die "refused: $out"
   printf '%s' "$out" | grep -q 'submitted: LC reviewer PASS' || die "an unallowed command in a judgment gate blocked it: $out"
-  grep -rq 'NOT_RERUN: ' "$d/results" || die "no NOT_RERUN row for the ignored command"
+  grep -q '^not_rerun: ' "$(ls "$d"/gates/*REVIEW_SMALL.yaml | tail -1)" || die "no not_rerun field for the ignored command"
   # every triple of an evidence file is re-run: a bad first triple is not hidden by a good last one
   printf '%s\n' 'command: sh .agents/local/check.sh' 'exit: 5' 'output: ok 3 tests' 'command: sh .agents/local/check.sh' 'exit: 0' 'output: ok 3 tests' > "$d/reports/two.txt"
   out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --evidence reports/two.txt --agent f2 2>&1) || die "refused: $out"
@@ -1628,6 +1681,7 @@ run_sc sc_secret_scan
 run_sc sc_provenance
 run_sc sc_waiver_rebind
 run_sc sc_open_runs
+run_sc sc_report_finding_ids
 run_sc sc_knowledge_secrets
 run_sc sc_next_order
 run_sc sc_start
@@ -1645,6 +1699,7 @@ run_sc sc_evidence_gap_fabricated
 run_sc sc_evidence_gap_files
 run_sc sc_evidence_gap_rerun
 run_sc sc_evidence_gap_gates
+run_sc sc_evidence_gap_legacy
 run_sc sc_evidence_gap_output
 run_sc sc_evidence_gap_ac
 run_sc sc_evidence_gap_r2
