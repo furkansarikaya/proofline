@@ -71,6 +71,16 @@ test("CLI rejects the known-bad plan with exit 1 and accepts the good one with 0
   assert.equal(spawnSync(process.execPath, [script, good]).status, 2);
 });
 
+// agent.sh (require_ac_coverage, A129) refuses a freeze by matching these two exact error endings; a rewording here
+// would silently disable that check, so both the validator and agent.sh are pinned to the same strings.
+test("the coverage errors agent.sh matches at freeze keep their wording", () => {
+  const e = errs(plan({ scope: ["  - path: src/cart.js", "    criteria: []"], body: { ...BODY, Tests: [] } }));
+  has(e, "src/cart.js: maps to no criterion");
+  has(e, "AC-1: maps to no scope path and no explicit test");
+  const agent = readFileSync(join(here, "../../control-plane/agents/scripts/agent.sh"), "utf8");
+  for (const s of ["maps to no scope path and no explicit test", "maps to no criterion"]) assert.ok(agent.includes(s), `agent.sh no longer matches "${s}"`);
+});
+
 test("every criterion must map to a path or an explicit test", () => {
   const s = ["  - path: src/shipping.js", "    new: true", "    criteria: [AC-1, AC-2, AC-3]", "  - path: test/shipping.test.js", "    new: true", "    criteria: [AC-1, AC-2, AC-3]"];
   const e = errs(plan({ scope: s, body: { ...BODY, Tests: ["- AC-1: `test/shipping.test.js` \"x\""] } }));

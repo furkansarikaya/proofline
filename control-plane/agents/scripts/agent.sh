@@ -1054,8 +1054,11 @@ require_scope_mapping() { # ID
 # Checked where the skill and node are installed (a real install has both), like the other validator calls.
 require_ac_coverage() { # ID
   rac_s=$root/.agents/skills/plan-contract/scripts/validate-plan.mjs; rac_d=$(run_dir "$1")
-  [ -f "$rac_s" ] && command -v node >/dev/null 2>&1 || return 0
-  rac_o=$(node "$rac_s" "$rac_d/PLAN.md" "$rac_d/TASK.md" --class "$(pipeline_class "$1")" --repo "$root" 2>/dev/null | grep -E ': maps to no scope path and no explicit test$|: maps to no criterion$' | tr '\n' ';') || true
+  rac_c=$(pipeline_class "$1")
+  [ -f "$rac_s" ] || { echo "note: AC coverage not checked (the plan-contract skill is not installed)"; return 0; }
+  command -v node >/dev/null 2>&1 || { echo "note: AC coverage not checked (node is not installed)"; return 0; }
+  [ -n "$rac_c" ] || { echo "note: AC coverage not checked (the run has no pipeline classification)"; return 0; }
+  rac_o=$(node "$rac_s" "$rac_d/PLAN.md" "$rac_d/TASK.md" --class "$rac_c" --repo "$root" 2>/dev/null | grep -E ': maps to no scope path and no explicit test$|: maps to no criterion$' | tr '\n' ';') || true
   [ -z "$rac_o" ] || fail "plan defect: ${rac_o%;} -- add AC-n to \`criteria:\` of the PLAN.md scope entries (front matter) that implement it, or name an explicit test for it in \`## Tests\`; freeze again (A129)"
 }
 authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }

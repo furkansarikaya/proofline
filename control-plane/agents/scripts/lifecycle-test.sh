@@ -838,6 +838,8 @@ scenario_cleanup_after_delivery() {
 scenario_freeze_ac_coverage() {
   command -v node >/dev/null 2>&1 || { echo "skip freeze_ac_coverage (node missing)"; exit 0; }
   export SC_TASK_EXTRA='- AC-2: no other change'; scaffold standalone no TRIVIAL supervised; unset SC_TASK_EXTRA
+  # a skipped check is never silent: without the skill installed the freeze says so (the plan is accepted, as before)
+  A freeze LC 2>&1 | grep -Fq 'note: AC coverage not checked (the plan-contract skill is not installed)' || die "a skipped AC coverage check was silent"
   mkdir -p .agents/skills; cp -R "$tl_agents/../../skills/plan-contract" .agents/skills/plan-contract; printf '.agents/skills/\n' >> .git/info/exclude
   before=$(cat .agents/runs/LC/RUN.yaml); good=$(cat .agents/runs/LC/PLAN.md)
   expect_msg "freeze accepted a TRIVIAL plan with an unmapped criterion" 'AC-2: maps to no scope path and no explicit test' A freeze LC
