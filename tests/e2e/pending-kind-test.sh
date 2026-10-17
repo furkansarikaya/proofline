@@ -26,3 +26,34 @@ printf 'Please run rm .agents/x and tell me when it is gone.\n' > "$t/last"; qo 
 qo "a pending question named by next" 'next=agent.sh questions LC
 reason=a question is pending (a specialist NEEDS_INPUT)' open
 echo "question-open tests passed"
+# A128: a refreeze asks a second plan approval while `next` prints the fix-round step (run B1-COMPLEX).
+ak() { printf '%s\n' "$2" | sh "$here/pending-kind.sh" "$t/approvals"; }
+acheck() { [ "$(ak "$1" "$2")" = "$3" ] && echo "ok $1" || { echo "FAIL: $1 (got '$(ak "$1" "$2")', want '$3')" >&2; exit 1; }; }
+fix='next=agent.sh handoff T-1 IMPLEMENTING (fix round 2)
+reason=failing gates: REVIEW_RULES REVIEW_TESTS'
+mkdir "$t/approvals"; : > "$t/approvals/001-request-plan.yaml"; : > "$t/approvals/002-plan.yaml"
+acheck "an answered plan approval is not pending" "$fix" ''
+: > "$t/approvals/003-request-plan.yaml"
+acheck "the second plan approval after an amendment" "$fix" plan
+: > "$t/approvals/004-plan.yaml"; : > "$t/approvals/005-request-commit.yaml"
+acheck "a commit request is never mistaken for a plan" "$fix" commit
+acheck "next naming an approval wins" 'next=agent.sh request-approval T-1 scope (relay verbatim)' scope
+# Every kind agent.sh can request, as the file slug it writes (kind_slug: ':' becomes '-'), maps back to its kind.
+for pair in destructive:destructive single_step:single_step scope:scope budget:budget commit:commit push:push waive-F-1:waive:F-1; do
+  rm -f "$t"/approvals/*; : > "$t/approvals/001-request-plan.yaml"; : > "$t/approvals/002-plan.yaml"
+  : > "$t/approvals/003-request-${pair%%:*}.yaml"
+  acheck "a pending ${pair%%:*} file is read as ${pair#*:}" "$fix" "${pair#*:}"
+done
+# What the harness does with each kind (reply-decision.sh): only exactly `plan` is answered as an approval.
+dec() { printf '%s\n' "$3" | sh "$here/reply-decision.sh" "$2" > "$t/dec"; [ "$(cat "$t/dec")" = "$4" ] && echo "ok $1" || { echo "FAIL: $1 (got '$(cat "$t/dec")', want $4)" >&2; exit 1; }; }
+dec "plan is answered" plan '' plan
+for k in destructive single_step scope budget commit push waive:F-1 waive-F-1 unknown; do dec "$k is never answered" "$k" '' stop; done
+dec "a question gets the scripted reply" '' 'Which option do you prefer?' question
+acc='   accepted answers: approve, yes, commit it, push it (with the kind word)'
+tr_acc='   kabul edilen onay sözcükleri: approve, evet, commit it, push it (tür sözcüğüyle birlikte)'
+dec "the English accepted-answers line is no commit request" '' "$acc" question
+dec "the Turkish accepted-answers line is no commit request" '' "$tr_acc" question
+dec "a real sentence next to the list still counts" '' "$acc
+Please commit it now." stop
+echo "reply-decision tests passed"
+echo "approvals-dir tests passed"

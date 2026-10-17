@@ -190,7 +190,7 @@ if [ "$scenario" = FAILOVER ] && [ "$killed" = yes ]; then
 fi
 max=${E2E_MAX_REPLIES:-6}; replies=0 plan_replies=0 question_replies=0 stopped='' stop_state=''
 : > "$out/replies-log.txt"
-while [ "$replies" -lt "$max" ]; do
+while :; do
   id=$(cd "$project" && sh .agents/scripts/agent.sh status 2>/dev/null | sed -n 's/^active_task=//p' | head -1)
   case $id in ''|none) id=none ;; esac
   state=$(cd "$project" && sh .agents/scripts/agent.sh next "$id" 2>/dev/null || true)
@@ -200,14 +200,14 @@ while [ "$replies" -lt "$max" ]; do
   # Which approval is the run waiting for? `agent.sh next` names it. A plan approval is answered every time it
   # is asked (a refreeze asks again); a destructive, single_step, scope, budget, commit, push or waive request
   # is never answered by the harness. Any other stop of the lead (a question) gets the scripted question reply.
-  kind=$(printf '%s\n' "$state" | sh "$here/pending-kind.sh")
+  # A128: a refreeze asks for its plan approval without `next` naming it, so the newest approvals/ file counts too.
+  kind=$(printf '%s\n' "$state" | sh "$here/pending-kind.sh" "$project/.agents/runs/$id/approvals")
   qline=$(sed -n 1p "$reply_file"); pline=$(sed -n 2p "$reply_file")
-  case $kind in
+  decision=$({ printf '%s\n' "$state"; printf '%s\n' "$pending"; cat "$last"; } | sh "$here/reply-decision.sh" "$kind")
+  case $decision in
     plan) line=$pline ;;
-    destructive|single_step|scope|budget|commit|push|waive:*) break ;;
+    stop) break ;;
     *)
-      asked=$(printf '%s\n' "$state $pending $(cat "$last")")
-      if printf '%s\n' "$asked" | grep -Eiq 'approve (the )?(commit|push)|commit approval|push approval|commit it|push it'; then break; fi
       # A120: no open question, no reply (the lead waits for something a reply cannot give).
       if ! printf '%s\n' "$state" | sh "$here/question-open.sh" "$last"; then
         stopped=no-open-question; stop_state=$(printf '%s\n' "$state" | sed -n 's/^\(next\|reason\)=/\1=/p' | tr '\n' ' ')
@@ -216,6 +216,11 @@ while [ "$replies" -lt "$max" ]; do
       line=$qline ;;
   esac
   [ -n "$line" ] || break
+  # The cap is a safety stop, reported when it (and not the run) ends the loop.
+  if [ "$replies" -ge "$max" ]; then
+    stopped='max-replies'; stop_state=$(printf '%s\n' "$state" | sed -n 's/^\(next\|reason\)=/\1=/p' | tr '\n' ' ')
+    break
+  fi
   replies=$((replies + 1)); printf '%s\n' "$line" >> "$out/replies.txt"
   # plan = an approval (the user's reply is the approval); question = a scripted question reply.
   case $kind in plan) rkind=plan-approval; plan_replies=$((plan_replies + 1)) ;; *) rkind=question; question_replies=$((question_replies + 1)) ;; esac
