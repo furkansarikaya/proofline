@@ -18,15 +18,16 @@ Version 0.0.1 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
-Codex, mixed setups and failover are experimental: the integration checks passed, and the full team runs are still in progress.
+Codex, mixed setups and failover are experimental.
+Their integration checks passed, and the full team runs are still in progress.
 [tests/e2e/README.md](tests/e2e/README.md) lists the detailed full-team results.
 
 ## What to expect from AI behaviour
 
-- **Guaranteed:** approvals, database safety, scope, evidence and cleanup. Scripts and hooks enforce these rules, so they hold in every run.
+- **Guaranteed:** approvals, database safety, scope, evidence and cleanup. Scripts and hooks refuse a step that breaks these rules. A run can still stop or fail before it finishes, and hook checks have documented limits.
 - **Model-dependent:** report wording, plan details and code quality. These vary from run to run. The end-to-end runs measure them as a rate.
 - **Valid differences:** two runs of the same task can differ, and both can be valid.
-- **Lead model:** a cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `proofline doctor` and the end-to-end harness refuse a Codex lead on a model below the base model, or with no model set. Nothing enforces this for other runtimes, so choose the lead model yourself.
+- **Lead model:** a cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `exec-policy.sh check-lead` and the end-to-end harness refuse a Codex lead below the base model or without a model. `proofline doctor` fails on a resolved model below base, and only warns when it cannot resolve the model. No other runtime has a base model, so choose the lead model yourself.
 
 ## Install
 
@@ -78,9 +79,7 @@ Windows: use WSL or Git Bash (the control plane is POSIX `sh`).
 
 Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and
 `roles/` (eleven roles); `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep
-the generated references in step with them. Test counts on 2026-10-17: `sh tests/selftest.sh` 16 suites with 149
-units; `node --test tests/skills/` 739 tests (736 pass, 3 skipped); `sh tests/fixtures/check-fixtures.sh` 42 passed,
-1 skipped. A pull request takes about 8 minutes of wall time in CI (Linux only; A109).
+the generated references in step with them. The self-tests (`sh tests/selftest.sh`), the skill tests (`node --test tests/skills/`) and the fixtures (`sh tests/fixtures/check-fixtures.sh`) hold more than 900 tests in all (counted 2026-10-17). A pull request takes about 8 minutes of wall time in CI (Linux only; A109).
 
 ## Quick start (5 minutes)
 

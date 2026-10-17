@@ -129,9 +129,8 @@ these changed an EXPECTED file.
 - The Codex-lead behaviour was tested with the cheapest model only; its stop to ask for authorization in prose is
   model behaviour that `agent.sh next` cannot prevent.
 - No scenario was re-verified after A130 to A132, and none after A129 (COMPLEX `128e516` passed before A129, and its run on `9e70f03`
-  failed). Tests that do run on every change: the self-tests (16 suites, over 145 units; a full run is
-  `sh tests/selftest.sh`), 737 skill tests (734 pass, 3 skipped; `node --test tests/skills/`) and the fixtures
-  (42 passed, 1 skipped; `sh tests/fixtures/check-fixtures.sh`), as counted on 2026-10-17.
+  failed). Tests that do run on every change: the self-tests (`sh tests/selftest.sh`), the skill tests (`node --test tests/skills/`) and the fixtures
+  (`sh tests/fixtures/check-fixtures.sh`): more than 900 tests in all, as counted on 2026-10-17.
 
 ### Reply limit and item tags (decided, A133)
 

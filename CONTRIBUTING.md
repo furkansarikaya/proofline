@@ -56,7 +56,7 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
 ## New runtime support
 
 Follow [writing an adapter](docs/guides/writing-an-adapter.md) and [adapters/README.md](adapters/README.md).
-Support that you did not run end to end is labelled **not tested** in the README's support table; do not
+Support that you did not run end to end is labelled **not tested** in `tests/e2e/README.md`; do not
 claim more than the tests show.
 
 ## Development process
