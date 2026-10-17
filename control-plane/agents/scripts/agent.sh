@@ -4305,7 +4305,7 @@ evidence_run_counts() { # ID -> "<records> <passed>": the worker-evidence record
   echo "$ec_n $ec_p"
 }
 report_facts() {
-  rf_id=$1; require_run "$rf_id"; rf_d=$(run_dir "$rf_id"); risk_prime "$rf_id"
+  rf_id=$1; require_run "$rf_id"; risk_prime "$rf_id"
   rf_fp=$(content_fingerprint); rf_gl=$(required_gates "$rf_id")
   rf_wt=$(evidence_run_counts "$rf_id"); rf_wp=${rf_wt#* }; rf_wt=${rf_wt%% *}; rf_wp=${rf_wp%% *}
   printf '%s\n## Facts\n\nGenerated from the run records by %s when the report is published; never edited by hand. Numbers in the text above must match it.\n\n' "$REPORT_FACTS_BEGIN" "\`agent.sh report-facts $rf_id\`"
@@ -4316,7 +4316,7 @@ report_facts() {
   done
   printf -- '- Fix rounds: %s of %s\n- Refreezes: %s\n- Files changed (task-owned paths): %s\n' "$(fix_rounds_used "$rf_id")" "$(max_fix_rounds)" \
     "$(grep -c 'event=refreeze ' "$(ledger_file "$rf_id")" 2>/dev/null || true)" "$(task_owned_paths "$rf_id" 2>/dev/null | grep -c . || true)"
-  printf -- '- Test runs recorded by worker evidence: %s (passed %s, failed %s)\n' "$rf_wt" "$rf_wp" "$((rf_wt - rf_wp))"
+  printf -- '- Worker-evidence run records: total %s, ended pass %s, ended fail %s (a RED record ends fail on purpose; this is not a count of failing tests)\n' "$rf_wt" "$rf_wp" "$((rf_wt - rf_wp))"
   printf -- '- Test cases: no record carries the number of individual tests, so no such number is stated here.\n%s\n' "$REPORT_FACTS_END"
 }
 REPORT_FACTS_BEGIN='<!-- proofline:facts:begin -->'
@@ -4329,23 +4329,38 @@ report_strip_facts() { # FILE: remove an earlier Facts block
 # report_claims_check ID FILE: a number next to the words tests, gates, fix rounds or refreezes must be a recorded
 # value. Narrow on purpose: digits only, directly beside the word (before it, or after it with `:`/`=`), fenced code skipped.
 report_claims_check() {
-  rc_id=$1; rc_d=$(run_dir "$rc_id")
+  rc_id=$1
   rc_wt=$(evidence_run_counts "$rc_id"); rc_wp=${rc_wt#* }; rc_wt=${rc_wt%% *}; rc_wp=${rc_wp%% *}
   rc_gn=$(required_gates "$rc_id" | grep -c . || true)
-  rc_bad=$(awk -v tests="$rc_wt $rc_wp $((rc_wt - rc_wp))" -v gates="$rc_gn 0" -v rounds="$(fix_rounds_used "$rc_id") $(max_fix_rounds)" \
-    -v refz="$(grep -c 'event=refreeze ' "$(ledger_file "$rc_id")" 2>/dev/null || true)" '
+  rc_fr=$(fix_rounds_used "$rc_id"); rc_fm=$(max_fix_rounds)
+  rc_rz=$(grep -c 'event=refreeze ' "$(ledger_file "$rc_id")" 2>/dev/null || true)
+  rc_bad=$(awk -v tests="$rc_wt $rc_wp $((rc_wt - rc_wp))" -v tlab="worker-evidence run records: total $rc_wt, ended pass $rc_wp, ended fail $((rc_wt - rc_wp)); no record counts individual tests" \
+    -v gates="$rc_gn 0" -v glab="required gates $rc_gn" -v rounds="$rc_fr $rc_fm" -v rlab="used $rc_fr, maximum $rc_fm" -v refz="$rc_rz" -v zlab="refreezes $rc_rz" '
     function allowed(set, n,   a, i, k) { k = split(set, a, " "); for (i = 1; i <= k; i++) if (a[i] + 0 == n + 0) return 1; return 0 }
-    function scan(kind, re, set,   s, m, n) {
+    # number words one..twenty become digits, so "Two tests" is read like "2 tests"
+    function numwords(s,   i, w, m, lead, trail) {
+      split("one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty", w, " ")
+      for (i = 1; i <= 20; i++)
+        while (match(s, "(^|[^a-z0-9_-])" w[i] "( |$)")) {
+          m = substr(s, RSTART, RLENGTH); lead = (substr(m, 1, length(w[i])) == w[i]) ? "" : substr(m, 1, 1); trail = (substr(m, length(m)) == " ") ? " " : ""
+          s = substr(s, 1, RSTART - 1) lead i trail substr(s, RSTART + RLENGTH)
+        }
+      return s
+    }
+    function scan(kind, re, set, lab,   s, m, n, rest) {
       s = $0
       while (match(s, re)) {
         m = substr(s, RSTART, RLENGTH); n = m; sub(/^[^0-9]*/, "", n); sub(/[^0-9].*$/, "", n)
-        if (!allowed(set, n)) printf "line %d: \"%s\" (%s recorded: %s)\n", NR, n " " kind, kind, set
-        s = substr(s, RSTART + RLENGTH)
+        s = substr(s, RSTART + RLENGTH); rest = s
+        # a verb ("step 3 tests the lookup") or another noun ("2 test files") is no count
+        if (rest ~ /^(the|a|an|this|that|these|those|its|their|each|every|how|whether|it|cases?|files?|suites?|scenarios?|commands?|fixtures?|names?|helpers?)([^a-z_]|$)/) continue
+        if (n + 0 == 0 && (m ~ /(failed|failing|skipped)/ || rest ~ /^(failed|failing|fail|skipped|failures?)([^a-z_]|$)/)) continue
+        if (!allowed(set, n)) printf "line %d: \"%s %s\" (recorded: %s)\n", NR, n, kind, lab
       }
     }
     BEGIN {
       b = "(^|[^0-9a-z._-])"
-      tb = b "[0-9]+ +((new|unit|integration|e2e|regression|failing|passing|passed|added|existing|total) +)*(tests?|specs?|test cases?)([^a-z_]|$)"
+      tb = b "[0-9]+ +((new|unit|integration|e2e|regression|failing|passing|passed|added|existing|total) +)*tests?([^a-z_]|$)"
       ta = b "tests?( (run|passed|failed|passing|failing|total|count))* *[:=] *[0-9]+"
       gb = b "[0-9]+ +((required|review|blocking|lifecycle|passing|failing|passed|failed|total) +)*gates?([^a-z_]|$)"
       ga = b "gates?( (required|passed|failed|passing|total|count))* *[:=] *[0-9]+"
@@ -4357,11 +4372,12 @@ report_claims_check() {
     /^```/ { fence = !fence; next }
     fence { next }
     { $0 = tolower($0); gsub(/[*`]/, " "); while (match($0, /[0-9],[0-9][0-9][0-9]/)) $0 = substr($0, 1, RSTART) substr($0, RSTART + 2)
-      scan("tests", tb, tests); scan("tests", ta, tests); scan("gates", gb, gates); scan("gates", ga, gates)
-      scan("fix rounds", rb, rounds); scan("fix rounds", ra, rounds); scan("refreezes", fb, refz); scan("refreezes", fa, refz) }' "$2")
+      $0 = numwords($0)
+      scan("tests", tb, tests, tlab); scan("tests", ta, tests, tlab); scan("gates", gb, gates, glab); scan("gates", ga, gates, glab)
+      scan("fix rounds", rb, rounds, rlab); scan("fix rounds", ra, rounds, rlab); scan("refreezes", fb, refz, zlab); scan("refreezes", fa, refz, zlab) }' "$2")
   [ -z "$rc_bad" ] || fail "completion report numbers contradict the run records (A143, C-22):
 $rc_bad
-Remove the number or use the recorded one: see 'agent.sh report-facts $rc_id'. No record carries the number of individual tests; the Facts block is added at publish and states what is recorded."
+Remove the number or use the recorded one: see 'agent.sh report-facts $rc_id'. The Facts block is added at publish. Digits and the words one to twenty beside tests, gates, fix rounds and refreezes are read; other phrasings and table cells are not."
 }
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
 publish_completion_report() {

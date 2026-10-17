@@ -614,6 +614,25 @@ lead_tmp_check() {
   [ -z "$lt_p" ] || deny "$lt_p is outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under \$TMPDIR (${TMPDIR:-unset})"
 }
 
+# A143: what a read role's `find -delete|-exec ...` and `xargs ...` must not run outside an evidence worktree (text is
+# space-joined first). Writers: the direct forms (rm, mv, cp, tee, ..., sed/perl/ruby -i, awk -i inplace, tree-changing git).
+RO_W='rm|mv|cp|tee|truncate|ed|ex|patch|install|dd|chmod|chown|ln|shred|unlink|rmdir|touch'
+RO_G='reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout|stash|rm|mv|pull'
+RO_I='(sed|gsed|perl|ruby)( +[^ ]+)* +(-[A-Za-z0-9]*i[^ ]*|--in-place)( |$)'
+RO_FIND_WRITER="(^| )-delete( |\$)|(^| )-(exec|execdir|ok|okdir) +(/[^ ]*/)?(($RO_W)( |\$)|$RO_I|(awk|gawk)( .*)?inplace|git +(-C +[^ ]+ +)?($RO_G)( |\$))"
+RO_XARGS_WRITER="xargs[^;&|]* (/[^ ]*/)?(($RO_W)( |\$)|$RO_I|git +(-C +[^ ]+ +)?($RO_G)( |\$))"
+# ro_in_wt DIR: is DIR inside a registered worktree other than the project? (uses $sh_wts of stash_guard)
+ro_in_wt() {
+  [ -n "$1" ] || return 1
+  while IFS= read -r ri_w; do
+    [ -n "$ri_w" ] || continue
+    [ "${ri_w#/private}" != "${root#/private}" ] || continue
+    case "${1#/private}/" in "${ri_w#/private}"/*) return 0 ;; esac
+  done <<EOF
+$sh_wts
+EOF
+  return 1
+}
 # stash_path P BASE: P resolved against BASE (physical when it exists; leading $TMPDIR and $HOME expanded).
 # Prints nothing when the path cannot be resolved from the text (another variable, command substitution, `-`,
 # an unknown base, `..` through a path that does not exist): the caller then treats it as the project (A111).
@@ -655,6 +674,14 @@ stash_guard() {
         while [ $# -gt 0 ]; do case "$1" in -P|-L|-e|-@|--) shift ;; *) break ;; esac; done
         if [ $# -eq 0 ]; then sh_cd=''; else sh_cd=$(stash_path "$1" "$sh_cd"); fi ;;
       pushd|popd) sh_cdseen=yes; sh_cd='' ;;
+      find)
+        # a read role's `find -delete` or `find -exec <writer>` starts in an evidence worktree or is refused (A143)
+        [ "$ro" = yes ] || continue
+        sh_fa=$(printf '%s' "$sh_args" | tr '\003' ' ')
+        printf '%s\n' "$sh_fa" | grep -Eq "$RO_FIND_WRITER" || continue
+        sh_fd=$sh_cd; sh_f1=${sh_args%%"$sh_sep"*}
+        case "$sh_f1" in -*|'('|'!'|'') ;; *) sh_fd=$(stash_path "$sh_f1" "$sh_cd") ;; esac
+        ro_in_wt "$sh_fd" || deny "find with -delete or -exec of a command that writes starts outside an evidence worktree (or its start directory cannot be read from the command text)$(ro_tail)" ;;
       env) case "$sh_args" in GIT_WORK_TREE=*|GIT_DIR=*) sh_cd=''; sh_force=yes ;; esac ;;
       git)
         sh_dir=$sh_cd
@@ -705,6 +732,10 @@ EOF
         if [ "$sh_sub" = stash ]; then sh_ok=$((sh_ok + 1)); else sh_rok=$((sh_rok + 1)); fi ;;
     esac
   done < "$tmp/scan"
+  # `xargs <writer>` takes its files from stdin, so the directory the command ends in must be an evidence worktree.
+  if [ "$ro" = yes ] && printf '%s' "$cmd" | tr '\n\t' '  ' | grep -Eq "$RO_XARGS_WRITER"; then
+    ro_in_wt "$sh_cd" || deny "xargs of a command that writes runs outside an evidence worktree (or the directory cannot be read from the command text)$(ro_tail)"
+  fi
   # Safety net on the text: every `git ... stash` in command position that the records above did not resolve to
   # an evidence worktree is refused (unquoted substitutions, wrappers such as find -exec, watch, ssh, su -c, a
   # variable or substitution where the subcommand goes). Words that merely print or search (echo, grep) are skipped.

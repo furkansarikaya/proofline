@@ -754,7 +754,8 @@ read_roles_tree() {
       'git checkout -- src/ro.txt' 'git apply x.diff' 'git stash' 'git restore src/ro.txt' 'git reset --hard' 'git clean -fd' 'git rm src/ro.txt' \
       'git -C . checkout -- src/ro.txt' "git -C $P apply x.diff" 'git worktree list; git checkout -- src/ro.txt' "git -C $W status; git -C . restore src/ro.txt" \
       'git -C "$P" checkout -- src/ro.txt' 'cd .. && git checkout -- src/ro.txt' \
-      'find . -name ro.txt -exec git checkout -- {} +' 'echo src/ro.txt | xargs sed -i s/a/b/' \
+      'find . -name ro.txt -exec git checkout -- {} +' 'echo src/ro.txt | xargs sed -i s/a/b/' 'find . -name ro.txt -delete' 'find src -exec rm {} +' 'find . -exec sed -i s/a/b/ {} +' \
+      'echo src/ro.txt | xargs rm' 'ls src | xargs -I{} truncate -s0 {}' 'echo src/ro.txt | xargs git checkout --' "find $W -delete; find . -type f -delete" 'find $F -delete' \
       'echo x > $F' 'sed -i s/a/b/ $F' 'tee $OUT </dev/null' "echo x > $W/../x.txt" "cd $P/src && sed -i s/a/b/ ro.txt" "cd $P/src && echo x > ro.txt"; do
       denied "A143 $r runs: $c" "$(pre_bash "$c" "$t" r1)" "$msg"
     done
@@ -768,6 +769,8 @@ read_roles_tree() {
       "sed -i 's/a/b/' $W/src/ro.txt" "sed -i.bak 's/a/b/' $W/src/ro.txt" "sed -i '' 's/a/b/' $W/src/ro.txt" "perl -pi -e 's/a/b/' $W/src/ro.txt" \
       "ruby -pi -e 'puts 1' $W/src/ro.txt" "awk -i inplace '{ print }' $W/src/ro.txt" "ed -s $W/src/ro.txt </dev/null" "ex -s -c wq $W/src/ro.txt" \
       "cd $W && sed -i 's/a/b/' src/ro.txt" "cd $W && git checkout -- src/ro.txt && npm test" "cd $W && git apply x.diff" "cp impl.txt $W/src/ro.txt" \
+      'find . -name ro.txt' 'find src -exec grep -l a {} +' 'find . -exec sed -n 1p {} +' 'ls src | xargs grep -l a' "find $W -name 'x*' -delete" "cd $W && find . -type f -delete" \
+      "cd $W && echo src/ro.txt | xargs rm" "find $W/src -exec sed -i s/a/b/ {} +" \
       "echo x > $W/src/out.txt" "cd $W && npm test > out.txt 2>&1" "rm $W/src/ro.txt" 'echo x > /dev/null'; do
       allowed "A143 $r may run: $c" "$(pre_bash "$c" "$t" r1)"
     done

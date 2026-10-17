@@ -1110,21 +1110,26 @@ sc_report_facts() {
   A knowledge-done LC not_applicable >/dev/null
   ng=$(required | wc -w | tr -d ' ')
   facts=$(A report-facts LC)
-  for want in "- Required gates: $ng" '- Fix rounds: 0 of 2' '- Refreezes: 0' '- Files changed (task-owned paths): 2' '- Test runs recorded by worker evidence: 2 (passed 1, failed 1)' '- Gate VERIFY: pass; findings: none'; do
-    printf '%s\n' "$facts" | grep -Fxq -- "$want" || die "Facts block lacks '$want': $facts"
+  for want in "- Required gates: $ng" '- Fix rounds: 0 of 2' '- Refreezes: 0' '- Files changed (task-owned paths): 2' '- Worker-evidence run records: total 2, ended pass 1, ended fail 1' '- Gate VERIFY: pass; findings: none'; do
+    printf '%s\n' "$facts" | grep -Fq -- "$want" || die "Facts block lacks '$want': $facts"
   done
   write_report '' 'We ran 9 tests and all of them pass.'
-  expect_msg "a wrong test count was published" '"9 tests" (tests recorded: 2 1 1)' A publish-completion-report LC markdown
+  expect_msg "a wrong test count was published" '"9 tests" (recorded: worker-evidence run records: total 2, ended pass 1, ended fail 1;' A publish-completion-report LC markdown
   write_report '' "Tests: 40 passed."
   expect_msg "a wrong 'tests: N' count was published" '"40 tests"' A publish-completion-report LC markdown
   write_report '' "All $((ng + 3)) required gates passed."
-  expect_msg "a wrong gate count was published" "\"$((ng + 3)) gates\" (gates recorded: $ng 0)" A publish-completion-report LC markdown
+  expect_msg "a wrong gate count was published" "\"$((ng + 3)) gates\" (recorded: required gates $ng)" A publish-completion-report LC markdown
   write_report '' 'The change needed 1 fix round.'
-  expect_msg "a wrong fix-round count was published" '"1 fix rounds" (fix rounds recorded: 0 2)' A publish-completion-report LC markdown
+  expect_msg "a wrong fix-round count was published" '"1 fix rounds" (recorded: used 0, maximum 2)' A publish-completion-report LC markdown
   write_report '' 'The plan had 1 refreeze.'
   expect_msg "a wrong refreeze count was published" '"1 refreezes"' A publish-completion-report LC markdown
+  write_report '' 'Five regression tests cover the lookup.'
+  expect_msg "a number word beside tests was published" '"5 tests"' A publish-completion-report LC markdown
+  write_report '' 'All Twelve gates passed.'
+  expect_msg "a number word beside gates was published" '"12 gates"' A publish-completion-report LC markdown
   # words without numbers, ids with digits, fenced output and the recorded numbers are fine; a hand-written block is replaced
-  write_report '' "AC-1 tests: the lookup test passes. $ng gates passed, 0 fix rounds, 0 refreezes, 2 test runs recorded." \
+  write_report '' "AC-1 tests: the lookup test passes. $ng gates passed, 0 fix rounds, 0 refreezes, 2 test runs recorded, one test run ended in a failure as planned (RED)." \
+    'Step 3 tests the lookup. The 3 test files are small; 0 tests failed.' \
     '```' '# tests 99' '```' '' '<!-- proofline:facts:begin -->' '- Required gates: 99' '<!-- proofline:facts:end -->'
   A publish-completion-report LC markdown >/dev/null || die "a report with the recorded numbers was refused"
   rep=.agents/runs/LC/COMPLETION_REPORT.md
