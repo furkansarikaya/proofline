@@ -446,8 +446,9 @@ test("browser: non-HTML responses, data-vp-probe content and closed-details over
   writeFileSync(join(dir, "index.html"), page(`<details><summary>Menu</summary><div style="position:absolute;left:900px;width:200px">closed</div></details>`));
   // a page author's own data-vp-probe (any value, even a guessed one) does not hide an overflowing element
   writeFileSync(join(dir, "wide.html"), page(`<div data-vp-probe="x" style="width:2000px;height:20px">wide</div>`));
-  // the setup script injects the wide probe with the run's token, so it is not measured
-  const inject = `const d = document.createElement("div"); d.dataset.vpProbe = window.__vp.token; d.style.cssText = "width:2000px;height:20px"; document.body.append(d);`;
+  // the setup script registers what it injects with mark(), so it is not measured; the page cannot read a token
+  const inject = `if (window.__vp.token !== undefined || Object.keys(window.__vp).includes("mark")) throw new Error("mark is page-readable");
+    const d = document.createElement("div"); d.style.cssText = "width:2000px;height:20px"; document.body.append(mark(d));`;
   const state = [{ name: "default", ready: "#m", setup: inject }];
   const cfg = { class: "STANDARD", base_url: pathToFileURL(dir + "/").href,
     viewports: [{ name: "phone", width: 360, height: 740 }, { name: "desktop", width: 1280, height: 800 }],
@@ -459,5 +460,6 @@ test("browser: non-HTML responses, data-vp-probe content and closed-details over
   const fails = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
   const bad = fails.measured.filter((m) => m.status === "fail");
   assert.deepEqual([...new Set(bad.map((m) => m.screen))], ["wide"], JSON.stringify(bad.map((m) => [m.screen, m.check, m.selector])));
+  assert.ok(fails.measured.some((m) => m.screen === "home" && m.check === "horizontal_scroll" && m.status === "pass"), "home was measured (the setup ran)");
   assert.ok(fails.not_measured.some((n) => n.screen === "prep" && /not an HTML response/.test(n.reason)));
 });
