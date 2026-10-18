@@ -176,7 +176,7 @@ function creativeDirection(cd, designExists, task, err) {
   else directionAlternatives(cd, p, err);
   if (cd.basis !== "redesign") { if ("redesign" in cd) err(`${p}.redesign`, "only with basis redesign"); return; }
   const r = cd.redesign, q = `${p}.redesign`;
-  if (!isObj(r)) return err(q, "a redesign needs {task_quote, user_approval}: the task's request and the user's approval");
+  if (!isObj(r)) return err(q, "a redesign needs {task_quote} (the task's request), plus user_approval (the user's approval) when DESIGN.md exists or inventory when it does not");
   onlyKeys(r, ["task_quote", "user_approval", "inventory"], q, err);
   // Redesign of UI code without DESIGN.md: the user's own request is the approval; the kept inventory and avoided patterns are required.
   const fromCode = !designExists;

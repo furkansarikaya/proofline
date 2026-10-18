@@ -7,7 +7,7 @@ Basis: <conform|redesign (task quote; user approval: question id, or inventory w
 Alternatives (new/redesign only): <2-3 directions, each name, summary, trade-off> | Chosen: <the user's pick>
 Visual character / Typography / Layout / Content hierarchy: <each with its reason>
 Rationale: <grounded in the users, the task and the existing system>
-Avoided (new only): <generic defaults rejected, and why>
+Avoided (required for new, and for redesign without DESIGN.md): <generic defaults rejected, and why>
 
 ## UX patterns
 | Decision | Options | Chosen | Density | Flow | Rationale |

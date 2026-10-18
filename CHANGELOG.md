@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.0.4 — 2026-10-18
+
+- ui-design offers 2-3 evidence-derived design directions; the user picks one and the choice is recorded. Never for `conform`.
+- ui-design can redesign from code without a DESIGN.md: the component inventory is kept, the current visual language is not a reference.
+- visual-proof judges a `character` aspect (COMPLEX and CRITICAL, basis new or redesign; the `--ui` flag supplies the basis).
+- Font rationale: self-hosted web fonts, licence and performance are stated.
+- DESIGN.md holds only the system.
+- Fix: task-author `depends_on` now matches the file name `<ID>-*.md`.
+
 ## 0.0.3 — 2026-10-18
 
 Fixes and additions since 0.0.2.
