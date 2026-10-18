@@ -77,7 +77,7 @@
       }
     },
     "creative_direction": {
-      "$comment": "A81. Optional; required for COMPLEX/CRITICAL in mode task (validator --class/--task). basis new is invalid when design_system.exists; basis redesign needs redesign.task_quote (found in TASK.md) and redesign.user_approval; basis new needs avoided.",
+      "$comment": "A81. Optional; required for COMPLEX/CRITICAL in mode task (validator --class/--task). basis new is invalid when design_system.exists; basis redesign needs redesign.task_quote (found in TASK.md) and redesign.user_approval; basis new needs avoided. basis new|redesign needs alternatives (2-3, unique names) and chosen (one alternative name); conform rejects both. redesign with design_system.exists false needs redesign.inventory and avoided, and user_approval is then optional (the user's request is the approval).",
       "type": "object", "additionalProperties": false,
       "required": ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale"],
       "properties": {
@@ -88,9 +88,17 @@
         "hierarchy": { "type": "string", "minLength": 1 },
         "rationale": { "type": "string", "minLength": 1 },
         "avoided": { "$ref": "#/$defs/strings" },
+        "alternatives": {
+          "type": "array", "minItems": 2, "maxItems": 3,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "summary", "trade_off"],
+            "properties": { "name": { "type": "string", "minLength": 1 }, "summary": { "type": "string", "minLength": 1 }, "trade_off": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "chosen": { "type": "string", "minLength": 1 },
         "redesign": {
-          "type": "object", "additionalProperties": false, "required": ["task_quote", "user_approval"],
-          "properties": { "task_quote": { "type": "string", "minLength": 1 }, "user_approval": { "type": "string", "minLength": 1 } }
+          "type": "object", "additionalProperties": false, "required": ["task_quote"],
+          "properties": { "task_quote": { "type": "string", "minLength": 1 }, "user_approval": { "type": "string", "minLength": 1 }, "inventory": { "$ref": "#/$defs/strings" } }
         }
       }
     },

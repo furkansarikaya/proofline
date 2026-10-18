@@ -162,7 +162,7 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
 const reqStr = (o, keys, p, err) => { for (const k of keys) if (!isStr(o[k])) err(`${p}.${k}`, "expected non-empty string"); };
 const onlyKeys = (o, keys, p, err) => { for (const k of Object.keys(o)) if (!keys.includes(k)) err(p, `unexpected "${k}"`); };
 
-const CD_KEYS = ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale", "avoided", "redesign"];
+const CD_KEYS = ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale", "avoided", "alternatives", "chosen", "redesign"];
 function creativeDirection(cd, designExists, task, err) {
   const p = "$.creative_direction";
   if (!isObj(cd)) return err(p, "expected object");
@@ -172,18 +172,41 @@ function creativeDirection(cd, designExists, task, err) {
   if (!["conform", "redesign", "new"].includes(cd.basis)) return err(`${p}.basis`, "must be conform, redesign or new");
   if (cd.basis === "new" && designExists) err(`${p}.basis`, "DESIGN.md exists: conform to it, or redesign only when the task asks for it and the user approved");
   if (cd.basis === "new" && !(Array.isArray(cd.avoided) && cd.avoided.length > 0)) err(`${p}.avoided`, "a new direction lists the generic defaults it rejected and why");
+  if (cd.basis === "conform") { if ("alternatives" in cd || "chosen" in cd) err(`${p}.alternatives`, "conform applies the existing system: no direction alternatives"); }
+  else directionAlternatives(cd, p, err);
   if (cd.basis !== "redesign") { if ("redesign" in cd) err(`${p}.redesign`, "only with basis redesign"); return; }
   const r = cd.redesign, q = `${p}.redesign`;
-  if (!isObj(r)) return err(q, "a redesign needs {task_quote, user_approval}: the task's request and the user's approval");
-  onlyKeys(r, ["task_quote", "user_approval"], q, err);
+  if (!isObj(r)) return err(q, "a redesign needs {task_quote} (the task's request), plus user_approval (the user's approval) when DESIGN.md exists or inventory when it does not");
+  onlyKeys(r, ["task_quote", "user_approval", "inventory"], q, err);
+  // Redesign of UI code without DESIGN.md: the user's own request is the approval; the kept inventory and avoided patterns are required.
+  const fromCode = !designExists;
+  if ("inventory" in r || fromCode) {
+    if (!(Array.isArray(r.inventory) && r.inventory.length > 0 && r.inventory.every(isStr))) err(`${q}.inventory`, "list the pages, content, components and flows kept from the existing code (non-empty strings)");
+  }
+  if (fromCode && !(Array.isArray(cd.avoided) && cd.avoided.length > 0)) err(`${p}.avoided`, "a redesign without DESIGN.md lists the generic patterns found in the existing code and why they go");
   if (!isStr(r.task_quote)) err(`${q}.task_quote`, "quote the task's own words asking for the redesign");
   else {
     if (task && !norm(task.text).includes(norm(r.task_quote))) err(`${q}.task_quote`, "not found in TASK.md: the task does not ask for this redesign");
     if (!REDESIGN_INTENT.test(r.task_quote)) err(`${q}.task_quote`, "does not ask for a visual change (redesign, restyle, re-theme, new look, visual overhaul, ...)");
   }
+  if (fromCode && !("user_approval" in r)) return;
   if (!isStr(r.user_approval)) err(`${q}.user_approval`, "a redesign needs the user's approval (the answered question); ask with NEEDS_INPUT and conform meanwhile");
   else if (NOT_USER.test(r.user_approval)) err(`${q}.user_approval`, "the approval must come from the user, not from the designer or an assumption");
   else if (!ANSWER_REF.test(r.user_approval)) err(`${q}.user_approval`, "reference the recorded answer: questions/<NNN>.answer.md, Q<n> of the NEEDS_INPUT round (not a meeting or review), or INTENT.md#<decision>");
+}
+
+function directionAlternatives(cd, p, err) {
+  const a = cd.alternatives;
+  if (!Array.isArray(a) || a.length < 2 || a.length > 3) return err(`${p}.alternatives`, "a new or redesign direction presents 2-3 alternatives derived from the product's evidence");
+  a.forEach((x, i) => {
+    const q = `${p}.alternatives[${i}]`;
+    if (!isObj(x)) return err(q, "expected object");
+    onlyKeys(x, ["name", "summary", "trade_off"], q, err);
+    reqStr(x, ["name", "summary", "trade_off"], q, err);
+  });
+  const names = a.map((x) => (isObj(x) ? x.name : undefined));
+  if (new Set(names).size !== names.length) err(`${p}.alternatives`, "duplicate alternative name");
+  if (!isStr(cd.chosen) || !names.includes(cd.chosen)) err(`${p}.chosen`, "must be the name of one alternative (the user's choice)");
 }
 
 function uxPatterns(list, err) {

@@ -30,6 +30,6 @@ Record each item in `self_critique.anti_patterns` as `clear` (not present), `fix
 - an error message that does not say what to do next;
 - a hover-only affordance with no keyboard or touch equivalent;
 - the same action labelled differently on different screens;
-- a generic default from CREATIVE-DIRECTION.md section 3 that crept back in.
+- a generic default from CREATIVE-DIRECTION.md section 4 that crept back in.
 
 An item you mark `accepted` that conflicts with an acceptance criterion or with `DESIGN.md` is not acceptable: change the spec or ask the user.

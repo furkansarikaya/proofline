@@ -133,6 +133,11 @@ test("depth: TRIVIAL has no visual focus; STANDARD is 2 viewports and measured o
   noError.cells = noError.cells.filter((x) => x.state !== "error");
   noError.measured = noError.measured.filter((x) => x.state !== "error");
   assert.match(errs(noError, c.dir), /cell orders\|error\|phone required by class COMPLEX has no screenshot entry/);
+  // character: required only for basis new|redesign (validateReport opt.basis, as --ui feeds it)
+  assert.match(errs(c.r, c.dir, { basis: "new" }), /COMPLEX needs a judged item for character/);
+  const ch = clone(c.r); ch.judged.push({ ...ch.judged[0], id: "J-5", aspect: "character" });
+  assert.equal(errs(ch, c.dir, { basis: "redesign" }), "");
+  assert.equal(errs(c.r, c.dir, { basis: "conform" }), "");
   const noTypo = clone(c.r); noTypo.judged = noTypo.judged.filter((j) => j.aspect !== "typography");
   assert.match(errs(noTypo, c.dir), /COMPLEX needs a judged item for typography/);
   // judged alone never closes the gate: no measured coverage is invalid
@@ -290,6 +295,15 @@ test("CLI: validate-visual prints RESULT, SUMMARY and rows; measure prints a sel
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /^RESULT: FAIL\nSUMMARY: visual-proof: FAIL class=STANDARD tool=headless-browser:chromium cells=2 viewports=phone,tablet measured=17\/18 pass, 1 fail/);
   assert.match(ok.stdout, /\nblocking\|index\.html:p\.hint\|/);
+  // --ui feeds creative_direction.basis: a COMPLEX report without a character item fails only for new
+  const cx = report("COMPLEX");
+  writeFileSync(join(cx.dir, "report.json"), JSON.stringify(cx.r));
+  writeFileSync(join(cx.dir, "ui-new.json"), JSON.stringify({ creative_direction: { basis: "new" } }));
+  writeFileSync(join(cx.dir, "ui-conform.json"), JSON.stringify({ creative_direction: { basis: "conform" } }));
+  const ui = (f) => spawnSync(process.execPath, [VALIDATE, join(cx.dir, "report.json"), "--ui", join(cx.dir, f)], { encoding: "utf8" });
+  assert.equal(ui("ui-new.json").status, 1);
+  assert.match(ui("ui-new.json").stderr + ui("ui-new.json").stdout, /needs a judged item for character/);
+  assert.equal(ui("ui-conform.json").status, 0, ui("ui-conform.json").stderr);
   writeFileSync(join(dir, "bad.json"), JSON.stringify({ ...r, result: "PASS" }));
   const bad = spawnSync(process.execPath, [VALIDATE, join(dir, "bad.json")], { encoding: "utf8" });
   assert.equal(bad.status, 1);

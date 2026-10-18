@@ -114,9 +114,9 @@ function knownIds(dirs) {
   ids.has2 = (d) => ids.has(d) || names.some((c) => c.startsWith(`${d}-`));
   const h1 = (f) => { try { const m = /^# Task: (\S+)/m.exec(readFileSync(f, "utf8")); if (m) ids.add(m[1]); } catch {} };
   for (const d of dirs) {
-    let names = [];
-    try { names = readdirSync(d); } catch { continue; }
-    for (const n of names) {
+    let entries = [];
+    try { entries = readdirSync(d); } catch { continue; }
+    for (const n of entries) {
       const f = join(d, n);
       if (n.endsWith(".md")) { ids.add(basename(n, ".md")); h1(f); }
       else { try { if (statSync(f).isDirectory()) {
