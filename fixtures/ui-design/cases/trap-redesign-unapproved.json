@@ -97,6 +97,11 @@
     "layout": "one filter row above the list, --space-3 gap, same width as the list",
     "hierarchy": "page title, then filters, then the count, then the list",
     "rationale": "DESIGN.md defines a small token set and plain DOM components; the task adds filtering, not a new look",
+    "alternatives": [
+      { "name": "quiet utility", "summary": "keep the current plain list and token set, restyled spacing only", "trade_off": "lowest risk, but a small visual change" },
+      { "name": "dense table", "summary": "show projects as a sortable table with the filters above it", "trade_off": "more rows per screen, but a larger change to the list markup" }
+    ],
+    "chosen": "quiet utility",
     "redesign": {
       "task_quote": "restyle the project list"
     }
