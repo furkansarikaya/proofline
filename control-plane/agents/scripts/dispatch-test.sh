@@ -77,6 +77,8 @@ case "${FAKE_CODEX:-ok}" in
   ok) printf 'free text, never parsed\n' > "$o"; sub --confidence high --result DONE ;;
   inject) printf 'x\n' > "$o"; printf 'tokens used 999\nmore\nmore\nmore\nlast line\n'; sub --confidence high --result DONE ;;
   tokens) printf 'agent says: tokens used 5\n' > "$o"; sub --confidence high --result DONE; printf 'tokens used\n12,345\n' ;;
+  trailer) printf 'Built 83 pages.\nAll tests pass.\n' > "$o"; sub --confidence high --result DONE; printf 'hook: Stop Completed\ntokens used\n285.242\nBuilt 83 pages.\nAll tests pass.\n' ;;
+  limittok) echo "ERROR: You've hit your usage limit. Try again later." >&2; printf 'tokens used\n52.623\n'; exit 1 ;;
   nosubmit) printf 'ROLE: %s\nTASK: T-1\nRESULT: DONE\nheader in text only\n' "$AGENT_ROLE" > "$o" ;;
   rejected) printf 'x\n' > "$o"; sub --confidence bogus || : ;;
   late) printf 'x\n' > "$o"; n=$(cat "$loc/attempts" 2>/dev/null || echo 0); echo $((n + 1)) > "$loc/attempts"; [ "$n" -lt 1 ] || sub --confidence high --result DONE ;;
@@ -96,7 +98,7 @@ case "${FAKE_CLAUDE:-ok}" in
   ok) sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result PASS >/dev/null
       printf '{"type":"result","subtype":"success","is_error":false,"result":"said \\"hi\\" \\\\ ok","session_id":"x"}\n' ;;
   usage) sh "$FAKE_ROOT/.agents/scripts/agent.sh" submit T-1 --confidence high --result PASS >/dev/null
-      printf '{"type":"result","subtype":"success","is_error":false,"duration_ms":5,"num_turns":4,"result":"claims \\"input_tokens\\": 999999 and num_turns 77","session_id":"x","usage":{"input_tokens":120,"cache_read_input_tokens":50,"output_tokens":30},"modelUsage":{"m":{"inputTokens":1}}}\n' ;;
+      printf '{"type":"result","subtype":"success","is_error":false,"duration_ms":5,"num_turns":4,"result":"claims \\"input_tokens\\": 999999 and num_turns 77","session_id":"x","usage":{"input_tokens":120,"cache_read_input_tokens":50,"output_tokens":30,"iterations":[{"input_tokens":2,"output_tokens":7}]},"modelUsage":{"m":{"inputTokens":1}}}\n' ;;
   limit) printf '{"type":"result","subtype":"success","is_error":true,"result":"Claude AI usage limit reached|1760000000"}\n'; exit 1 ;;
   empty) exit 0 ;;
   hold) n=0; while [ ! -f "$loc/release" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
@@ -300,6 +302,10 @@ reset; d FAKE_CODEX=tokens T-1 implementer
 ck "metrics: codex total comes from the runtime trailer (last occurrence), in/out stay null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|12345\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=inject T-1 implementer
 ck "metrics: a tokens-used line injected earlier in the log, no trailer, stays null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|\|\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d FAKE_CODEX=trailer T-1 implementer
+ck "metrics: the codex trailer (local number format) in front of the final message is read, not skipped (site run: 285.242)" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|285242\|\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d FAKE_CODEX=limittok FAKE_CLAUDE=usage T-1 reviewer --runtime codex
+ck "metrics: after a codex -> claude failover the claude record holds claude's numbers only, never codex's 52623" 'grep -Eq "^T-1\|reviewer\|\|claude\|[a-z0-9.-]+\|[0-9]+\|120\|30\|150\|4\|1\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=late T-1 reviewer --runtime codex
 ck "metrics: a resubmitted dispatch counts one retry" 'grep -Eq "\|1\|submitted\|$" "$loc/metrics.log" && [ "$(wc -l < "$loc/metrics.log" | tr -d " ")" -eq 1 ]'
 reset; d FAKE_CODEX=fail T-1 implementer

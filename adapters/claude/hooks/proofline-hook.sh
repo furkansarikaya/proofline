@@ -58,6 +58,22 @@ agent=$root/.agents/scripts/agent.sh
 # Not installed: every event is a no-op, except the merge guard of pretool (A136), which protects any project the hook runs in.
 installed=yes; { [ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ]; } || installed=no
 local_dir=$root/.agents/local
+# once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
+# once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side
+# effects (prompt, session).
+once() {
+  mkdir -p "$local_dir/hooklock" 2>/dev/null || return 0
+  find "$local_dir/hooklock" -type f -mmin +5 -exec rm -f {} + 2>/dev/null
+  o_k=$local_dir/hooklock/$ev.$(sha "$tmp/in" | cut -c1-16); o_n=$(date +%s)
+  ( set -C; printf '%s\n' "$o_n" > "$o_k" ) 2>/dev/null && return 0
+  o_p=$(cat "$o_k" 2>/dev/null); case "$o_p" in *[!0-9]*) o_p=0 ;; esac
+  if [ -z "$o_p" ] || [ $((o_n - o_p)) -le 1 ]; then exit 0; fi   # empty: the first copy is still writing its stamp
+  # an old stamp: one copy takes it over (mkdir is atomic), then checks that no other copy did
+  mkdir "$o_k.t" 2>/dev/null || exit 0
+  o_p=$(cat "$o_k" 2>/dev/null); case "$o_p" in ''|*[!0-9]*) o_p=0 ;; esac
+  if [ $((o_n - o_p)) -le 1 ]; then rmdir "$o_k.t"; exit 0; fi
+  printf '%s\n' "$o_n" > "$o_k"; rmdir "$o_k.t"
+}
 
 # Active run: the selector's single id; anything malformed counts as active (fail closed).
 act=''
@@ -120,6 +136,29 @@ target_ok() {
   if [ -L "$to_p" ]; then echo "the target is a symbolic link; writes through links are never allowed during a run"; return 1; fi
   if [ -f "$to_p" ] && [ -n "$(find "$to_p" -prune -links +1 2>/dev/null)" ]; then echo "the target has several hard links; writes through links are never allowed during a run"; return 1; fi
   path_ok "$(relpath "$1")"
+}
+# erasable P: may a deletion of P pass although the path policy refuses it? Only a file or symlink the run itself
+# created: in the run's scratch/, or elsewhere one git neither tracks nor ignores that changed after the run began
+# (an audit output in the repository root). Protected state (.git, .agents outside scratch, runtime config) never.
+erasable() {
+  er_r=$(relpath "$1")
+  case "$er_r" in
+    @*|.|.git|.git/*|.claude/*|.codex/*) return 1 ;;
+    .agents/runs/"$act"/scratch/*) ;;
+    .agents/*) return 1 ;;
+  esac
+  er_p=$1; case "$er_p" in /*) ;; *) er_p=$cwd/$er_p ;; esac
+  [ -f "$er_p" ] || [ -L "$er_p" ] || return 1
+  case "$er_r" in .agents/runs/"$act"/scratch/*) return 0 ;; esac
+  [ "$ro" = no ] || return 1   # A143: a read role leaves the project tree unchanged
+  ! always_protected "$er_r" || return 1
+  [ -z "$(git -C "$root" ls-files -- "$er_r" 2>/dev/null)" ] || return 1
+  ! git -C "$root" check-ignore -q -- "$er_r" 2>/dev/null || return 1
+  er_m=$(stat -c %Y "$er_p" 2>/dev/null) || er_m=$(stat -f %m "$er_p" 2>/dev/null)
+  er_s=$(sed -n 's/.* epoch=\([0-9]*\).*/\1/p' "$root/.agents/runs/$act/LEDGER.log" 2>/dev/null | head -n 1)
+  case "$er_m" in ''|*[!0-9]*) return 1 ;; esac
+  case "$er_s" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$er_m" -ge "$er_s" ]
 }
 # ro_operand KIND WORD (A143): may a read role pass WORD, an operand of an in-place editing command (KIND P: only an
 # existing file counts, the program text is also an operand) or of a script editor (KIND Q: any path counts)?
@@ -204,7 +243,9 @@ path_ok() {
   case "$role:$sub:$po" in
     implementer:yes:"$run"/*|designer:yes:"$run"/*) ;;
     implementer:yes:*|designer:yes:*)
-      [ -f "$local_dir/windows/$aidf" ] || { echo "no $role window is open for this subagent (SubagentStart window-open failed or was skipped); the change would be unattributed"; return 1; } ;;
+      # A headless specialist (dispatch.sh, also the failover codex -> claude) has AGENT_ROLE in the hook's
+      # environment: dispatch.sh opened its window before starting it; SubagentStart does not run in that process.
+      [ -f "$local_dir/windows/$aidf" ] || [ "$envrole" = "$role" ] || { echo "no $role window is open for this subagent (SubagentStart window-open failed or was skipped); the change would be unattributed"; return 1; } ;;
   esac
   return 0
 }
@@ -214,6 +255,7 @@ path_ok() {
 # skipped, `sh|bash -c STRING`, "$(...)" and "`...`" inside double quotes are scanned as nested commands.
 #   W path   the command writes path (redirection, tee, sed -i, perl -i, cp/mv/install/rsync/ln target, mv
 #            sources, touch/rm/truncate/unlink/rmdir/shred, chmod/chown/chgrp operands, dd of=)
+#   E path   additionally, for each operand of rm and unlink: the command deletes path (see erasable)
 #   P word   an operand (program text included) of a command that edits files in place (sed -i, perl/ruby -i,
 #            awk -i inplace, patch); only the read-role guard reads it (A143)
 #   Q word   an operand of an editor run from a script (ed, ex, vi, vim); only the read-role guard reads it (A143)
@@ -227,7 +269,7 @@ path_ok() {
 #   C word args   every simple command: its command word and its arguments joined with \003 (database guard)
 scan_cmd() {
   awk 'BEGIN { RS = "\001" }
-  function out(k, v) { if ((k == "W" || k == "P" || k == "Q") && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
+  function out(k, v) { if ((k == "W" || k == "E" || k == "P" || k == "Q") && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
   function base(x) { sub(/.*\//, "", x); return x }
   function isassign(x) { return x ~ /^[A-Za-z_][A-Za-z0-9_]*=/ }
   function push(t, d) {
@@ -346,7 +388,7 @@ scan_cmd() {
     else if (c ~ /^(touch|rm|truncate|unlink|rmdir|shred)$/) {
       for (j = k + 1; j <= nw; j++) {
         if (w[j] ~ /^-/) { if ((c == "truncate" && w[j] ~ /^-[sr]$/) || (c == "touch" && w[j] ~ /^-[tdr]$/)) j++; continue }
-        out("W", w[j])
+        out("W", w[j]); if (c ~ /^(rm|unlink)$/) out("E", w[j])
       }
     }
     else if (c ~ /^(chmod|chown|chgrp)$/) {
@@ -1046,7 +1088,8 @@ pretool)
               case "$role" in implementer|designer) case "$v" in *.agents*|*.claude/settings*|*.codex/*|*.git/*) deny "the command writes '$v', which may be protected run state" ;; esac; continue ;; esac
               deny "the command writes '$v', which cannot be resolved; while run $act is active the lead and read-only roles write only their run artifacts (shell write detection is a heuristic; use the Write tool on an allowed path)$(ro_tail)" ;;
           esac
-          why=$(target_ok "$v") || deny "the command writes '$v': $why$(ro_tail)" ;;
+          # A file the run created (untracked, or a link in scratch/) may be deleted by `rm`/`unlink` when that is the only write to it.
+          why=$(target_ok "$v") || { [ "$(grep -cFx "W$TAB$v" "$tmp/scan")" = "$(grep -cFx "E$TAB$v" "$tmp/scan")" ] && erasable "$v" && continue; deny "the command writes '$v': $why$(ro_tail)"; } ;;
         P|Q)
           [ "$ro" = yes ] || continue
           why=$(ro_operand "$k" "$v") || deny "the command edits '$v' in place: $why$(ro_tail)" ;;
@@ -1074,8 +1117,10 @@ pretool)
       set +f ;;
   esac
   [ -n "$act" ] || exit 0
+  case "$tool" in *[Pp]atch*) jget tool_input | grep -Eo '\*\*\* Delete File: [^\\"]+' | sed 's/^\*\*\* Delete File: //' > "$tmp/erase" || : ;; esac
   while IFS= read -r tg; do
-    why=$(target_ok "$tg") || deny "$tool $tg: $why$(ro_tail)"
+    # a patch that only deletes a file the run created (see erasable)
+    why=$(target_ok "$tg") || { [ "$(grep -cFx -- "$tg" "$tmp/targets")" = 1 ] && grep -qFx -- "$tg" "$tmp/erase" 2>/dev/null && erasable "$tg" && continue; deny "$tool $tg: $why$(ro_tail)"; }
     # A120: the file tools write nothing outside the copy (the shell guard handles shell writes, A97)
     [ "$(relpath "$tg")" != @outside ] || why=$(outside_ok "$tg") || deny "$tool $tg: $why"
   done < "$tmp/targets"
@@ -1084,7 +1129,10 @@ pretool)
 subagent-start)
   [ "$parsed" = yes ] && [ -n "$prole" ] && [ -n "$act" ] && [ "$act" != INVALID ] || exit 0
   mkdir -p "$local_dir/windows" "$local_dir/records" "$local_dir/submissions"
-  : > "$local_dir/submissions/$aidf.started"   # A127: submit trusts a typed --agent over PROOFLINE_AGENT only for a registered subagent
+  # A127: submit trusts a typed --agent over PROOFLINE_AGENT only for a registered subagent. The file holds the path of the
+  # subagent's session log, where agent.sh reads the tokens it used (metrics_step); the path is the runtime's own, never typed.
+  stp=$(jget agent_transcript_path); if [ -z "$stp" ]; then stp=$(jget transcript_path); [ -z "$stp" ] || stp=${stp%.jsonl}/subagents/agent-$aid.jsonl; fi
+  printf '%s\n' "$stp" > "$local_dir/submissions/$aidf.started"
   if [ "$prole" = implementer ] || [ "$prole" = designer ]; then
     if before=$(unset AGENT_ROLE; sh "$agent" window-open "$act" "$prole" 2>"$tmp/err"); then printf '%s\n' "$before" > "$local_dir/windows/$aidf"
     else printf 'proofline: window-open refused for proofline-%s (%s): %s\n' "$prole" "$aidf" "$(tr '\n' ' ' < "$tmp/err")" >> "$local_dir/records/$aidf.txt"; fi
@@ -1146,8 +1194,14 @@ prompt)
   # specialist, whose prompt is the lead's.
   [ "$parsed" = yes ] && [ "$sub" = no ] && [ "$role" = lead ] || exit 0
   jget prompt > "$tmp/text" || exit 0
+  # A finished background agent arrives as a "prompt" (<task-notification>): not the user's words. It must not replace
+  # the user's capture (an answer recorded afterwards compared against it) and cannot approve anything.
+  case "$(head -c 19 "$tmp/text")" in "<task-notification>") exit 0 ;; esac
+  once
   sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
   mkdir -p "$local_dir/prompts" || exit 0
+  # The previous run of this hook did not finish (killed at the runtime's timeout): say so plainly.
+  warn=''; if [ -f "$local_dir/prompts/.approving" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; fi
   h=$(sha "$tmp/text")
   printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$local_dir/prompts/.$sess.tmp" &&
     mv "$local_dir/prompts/.$sess.tmp" "$local_dir/prompts/$sess.json"
@@ -1156,7 +1210,14 @@ prompt)
   # Approvals are recorded here, by the runtime, from the user's own reply (A41): every open request this
   # prompt satisfies (approval phrase and kind word, single-use) becomes an approval. The lead never runs
   # `agent.sh approve`; a prompt that approves nothing changes nothing.
-  case "$act" in INVALID) ;; *) (unset AGENT_ROLE; sh "$agent" approve-pending "$act" >/dev/null 2>&1) || : ;; esac
+  # Fast path: agent.sh starts only when an approval request is open; a marker left behind means a timeout.
+  req=no; for f in "$root/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$local_dir/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
+  if [ "$act" != INVALID ] && [ "$req" = yes ]; then
+    : > "$local_dir/prompts/.approving"
+    (unset AGENT_ROLE; sh "$agent" approve-pending "$act" >/dev/null 2>&1) || :
+  fi
+  rm -f "$local_dir/prompts/.approving"
+  [ -z "$warn" ] || ctx UserPromptSubmit "$warn"
   exit 0 ;;
 
 stop)
@@ -1193,6 +1254,7 @@ stop)
 
 session)
   [ "$role" = lead ] && [ "$sub" = no ] || exit 0
+  once
   case "$rt" in
     codex) skill=.agents/skills/proofline-lead/SKILL.md ;;
     *) if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then skill=$CLAUDE_PLUGIN_ROOT/skills/proofline-lead/SKILL.md; else skill=.agents/skills/proofline-lead/SKILL.md; fi ;;

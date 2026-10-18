@@ -24,9 +24,10 @@ message; continue other steps of the run.
 
 ## 2. The user answers
 
-1. For each answered question `N`, pipe the user's own answer text (copied from their message, unchanged)
-   to `A answer <ID> <N>`. `answered_by: user` is recorded only when that text is contained in the latest
-   captured user prompt; anything else is recorded as `answered_by: lead` and shows in the report.
+1. For each answered question `N`, run `A answer <ID> <N> --captured`: the script records the user's own message
+   exactly as the prompt hook captured it (the oldest real prompt since the question, multi-line included) as
+   `answered_by: user`. Never retype or relay the text. Without `--captured`, text piped on stdin is `answered_by: user`
+   only when it is contained in the latest captured prompt; anything else is `answered_by: lead` and shows in the report.
 2. A partial answer: answer the answered ones, re-print the rest (`A questions <ID>`), STOP.
 3. "Use the recommended one" / "you decide" from the user: that sentence is the answer text; the
    specialist applies the recommended option.

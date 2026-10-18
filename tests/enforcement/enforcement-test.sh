@@ -165,6 +165,8 @@ subagent_guard() {
   out=$(sub_start proofline:proofline-implementer a7)
   [ -s .agents/local/windows/a7 ] && printf '%s' "$out" | grep -q 'AGENT_ROLE=implementer' || die "SubagentStart did not open the implementer window"; ok "SubagentStart opens the implementer window and briefs the role"
   [ -e .agents/local/submissions/a7.started ] || die "SubagentStart did not register the subagent id (A127)"
+  H subagent-start "{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"transcript_path\":\"/x/s1.jsonl\"$(who proofline:proofline-explorer e9)}" >/dev/null
+  [ "$(cat .agents/local/submissions/e9.started)" = /x/s1/subagents/agent-e9.jsonl ] || die "SubagentStart did not record the subagent's session log path for its token metrics"; ok "SubagentStart records the subagent's session log path (metrics tokens)"
   # A132: each explorer is told its own token-derived scratch report path
   out1=$(sub_start proofline:proofline-explorer e1); out2=$(sub_start proofline:proofline-explorer e2)
   printf '%s' "$out1" | grep -q 'scratch/e1-report.md' && printf '%s' "$out2" | grep -q 'scratch/e2-report.md' && ! printf '%s' "$out2" | grep -q 'scratch/e1-report.md' || die "SubagentStart did not name a per-token explorer scratch report"; ok "A132 SubagentStart names each explorer its own scratch report path"
@@ -192,6 +194,10 @@ subagent_guard() {
   # A headless specialist started by dispatch.sh carries AGENT_ROLE in the hook environment.
   allowed "dispatched implementer (env AGENT_ROLE) edits product code" "$(AGENT_ROLE=implementer pre_edit Edit impl.txt)"
   denied "dispatched reviewer (env AGENT_ROLE) edits product code" "$(AGENT_ROLE=reviewer pre_edit Edit impl.txt)"
+  # Failover codex -> claude: a separate `claude -p --agent proofline-implementer` carries agent_type AND AGENT_ROLE, and SubagentStart
+  # never runs in it, so no windows/<id> file exists; dispatch.sh holds the window (dispatch/004-implementer-claude.md).
+  allowed "failover claude -p implementer (agent_type + env AGENT_ROLE, no SubagentStart) edits an in-scope file" "$(AGENT_ROLE=implementer pre_edit Edit impl.txt proofline-implementer f1)"
+  denied "the same agent_type without env AGENT_ROLE and without a window stays denied" "$(pre_edit Edit impl.txt proofline-implementer f1)" "no implementer window"
   AGENT_ROLE=reviewer prompt 'approve commit' s9
   [ ! -f .agents/local/prompts/s9.json ] || die "a dispatched specialist's prompt was captured"; ok "a dispatched specialist's prompt is never captured as the user's"
 }
@@ -494,6 +500,22 @@ link_writes() { # H1: symlinks in every component, links into .agents/, every fi
   ln -s ../../../local/prompts/f.json .agents/runs/LC/amendments/f.json
   denied "H1 lead Write through a symlink in amendments/ to a prompt capture" "$(pre_edit Write .agents/runs/LC/amendments/f.json)" "symbolic link"
   denied "H1 lead shell write through a symlink in amendments/" "$(pre_bash 'printf x > .agents/runs/LC/amendments/f.json')" "symbolic link"
+  # A file the run itself created may be deleted: an untracked, unignored stray at the root (premium-audit.json, site run) and
+  # a symlink in scratch/ (scratch/cur). Never a tracked or older file, never a write to them, never protected state.
+  [ -s .agents/runs/LC/LEDGER.log ] || echo 'seq=1 epoch=1' > .agents/runs/LC/LEDGER.log
+  mkdir -p .agents/runs/LC/scratch; printf '{}' > premium-audit.json; printf x > old-user-file.txt; touch -t 200001010000 old-user-file.txt
+  printf x > tracked.txt; git add tracked.txt; ln -s ../../../../impl.txt .agents/runs/LC/scratch/cur
+  allowed "E1 lead removes an untracked file the run created" "$(pre_bash 'rm premium-audit.json')"
+  allowed "E1 an implementer removes the stray it created (out of scope)" "$(pre_bash 'rm -f premium-audit.json' proofline-implementer a7)"
+  allowed "E1 a QA removes a symlink in the run scratch" "$(pre_bash 'rm .agents/runs/LC/scratch/cur' proofline-qa q1)"
+  denied "E1 a write to the stray stays denied" "$(pre_bash 'printf x > premium-audit.json')"
+  denied "E1 rm plus a write to the stray stays denied" "$(pre_bash 'rm premium-audit.json; printf x > premium-audit.json')"
+  pj() { printf '{"hook_event_name":"PreToolUse","cwd":"%s","tool_name":"apply_patch","tool_input":{"input":"*** Begin Patch\\n*** Delete File: %s\\n*** End Patch"}}' "$PWD" "$1"; }
+  pd=$(H pretool "$(pj premium-audit.json)" codex); allowed "E1 a Codex apply_patch deletion of the stray" "$pd"
+  pd=$(H pretool "$(pj tracked.txt)" codex); denied "E1 a Codex apply_patch deletion of a tracked file" "$pd"
+  denied "E1 a tracked file is not removable" "$(pre_bash 'rm tracked.txt')"
+  denied "E1 an untracked file older than the run is not removable" "$(pre_bash 'rm old-user-file.txt')"
+  denied "E1 protected run state is not removable" "$(pre_bash 'rm .agents/runs/LC/RUN.yaml')"
   ln -s "$PWD/impl.txt" "$base/out.txt"
   denied "H1 Write through a symlink outside the project into product code" "$(pre_edit Write "$base/out.txt")" "symbolic link"
   ln -s ../../../local .agents/runs/LC/amendments/dl; ln -s ../../nowhere .agents/runs/LC/amendments/dangling
@@ -620,9 +642,28 @@ hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing
   mv "$base/hook.bak" .agents/hooks/proofline-hook.sh
   out=$(H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}")
   printf '%s' "$out" | grep -q '(.agents/skills/proofline-lead/SKILL.md)' || die "CLI-4 SessionStart skill path: $out"
+  sleep 2   # the same event within two seconds is a duplicate registration (below)
   out=$(CLAUDE_PLUGIN_ROOT=/plug H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}")
   printf '%s' "$out" | grep -q '/plug/skills/proofline-lead/SKILL.md' || die "CLI-4 plugin SessionStart skill path: $out"
   ok "CLI-4 SessionStart points the Claude lead to .agents/skills/proofline-lead/SKILL.md (plugin: CLAUDE_PLUGIN_ROOT)"
+  # One registration source: the plugin command stands down when the project settings already carry the hook.
+  pc=$(jcmd "$ENF_REPO/adapters/claude/hooks/hooks.json" SessionStart); sj="{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}"
+  sleep 2; mkdir -p .claude; printf '{"hooks":{"SessionStart":"proofline-hook.sh"}}' > .claude/settings.json
+  [ -z "$(printf '%s' "$sj" | CLAUDE_PROJECT_DIR=$PWD CLAUDE_PLUGIN_ROOT=$ENF_REPO sh -c "$pc")" ] || die "the plugin hook ran although the project settings register the hook"
+  rm .claude/settings.json
+  printf '%s' "$sj" | CLAUDE_PROJECT_DIR=$PWD CLAUDE_PLUGIN_ROOT=$ENF_REPO sh -c "$pc" | grep -q 'proofline installed' || die "the plugin hook did not run without project settings"
+  ok "the plugin hook stands down when the project settings register it, and runs alone otherwise"
+  # The same event started three times at once (Codex registers a hook up to three times) runs once.
+  sleep 2; for n in 1 2 3; do printf '%s' "$sj" | CLAUDE_PROJECT_DIR=$PWD CLAUDE_PLUGIN_ROOT=$ENF_REPO sh -c "$pc" > "$base/dup$n" & done; wait
+  [ "$(cat "$base"/dup1 "$base"/dup2 "$base"/dup3 | grep -c 'proofline installed')" = 1 ] || die "three simultaneous SessionStart events did not run exactly once"
+  ok "a duplicate registration of the same event runs once"
+  # A background-agent notification is not the user's prompt: no capture. A killed approval hook is reported at the next prompt.
+  prompt '<task-notification><summary>done</summary></task-notification>' sN
+  [ ! -e .agents/local/prompts/sN.json ] || die "a task notification was captured as a user prompt"
+  mkdir -p .agents/local/prompts; : > .agents/local/prompts/.approving
+  out=$(prompt 'approve plan' sM)
+  printf '%s' "$out" | grep -q 'NOT recorded' && [ ! -e .agents/local/prompts/.approving ] || die "a timed-out approval hook was not reported: $out"
+  ok "a task notification is not captured; an approval hook that timed out is reported to the user"
 }
 
 not_installed() {
