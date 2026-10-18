@@ -497,13 +497,14 @@ questions() {
 
 link_writes() { # H1: symlinks in every component, links into .agents/, every file-changing shell command
   fixture; mkdir -p .agents/runs/LC/amendments .agents/local/prompts
+  printf x > user-wip.txt   # the user's untracked work, there before the run's first hook event
   ln -s ../../../local/prompts/f.json .agents/runs/LC/amendments/f.json
   denied "H1 lead Write through a symlink in amendments/ to a prompt capture" "$(pre_edit Write .agents/runs/LC/amendments/f.json)" "symbolic link"
   denied "H1 lead shell write through a symlink in amendments/" "$(pre_bash 'printf x > .agents/runs/LC/amendments/f.json')" "symbolic link"
   # A file the run itself created may be deleted: an untracked, unignored stray at the root (premium-audit.json, site run) and
   # a symlink in scratch/ (scratch/cur). Never a tracked or older file, never a write to them, never protected state.
   [ -s .agents/runs/LC/LEDGER.log ] || echo 'seq=1 epoch=1' > .agents/runs/LC/LEDGER.log
-  mkdir -p .agents/runs/LC/scratch; printf '{}' > premium-audit.json; printf x > old-user-file.txt; touch -t 200001010000 old-user-file.txt
+  mkdir -p .agents/runs/LC/scratch; printf '{}' > premium-audit.json; printf y >> user-wip.txt
   printf x > tracked.txt; git add tracked.txt; ln -s ../../../../impl.txt .agents/runs/LC/scratch/cur
   allowed "E1 lead removes an untracked file the run created" "$(pre_bash 'rm premium-audit.json')"
   allowed "E1 an implementer removes the stray it created (out of scope)" "$(pre_bash 'rm -f premium-audit.json' proofline-implementer a7)"
@@ -514,7 +515,10 @@ link_writes() { # H1: symlinks in every component, links into .agents/, every fi
   pd=$(H pretool "$(pj premium-audit.json)" codex); allowed "E1 a Codex apply_patch deletion of the stray" "$pd"
   pd=$(H pretool "$(pj tracked.txt)" codex); denied "E1 a Codex apply_patch deletion of a tracked file" "$pd"
   denied "E1 a tracked file is not removable" "$(pre_bash 'rm tracked.txt')"
-  denied "E1 an untracked file older than the run is not removable" "$(pre_bash 'rm old-user-file.txt')"
+  denied "E1 the user's untracked file, edited after the run began, is not removable" "$(pre_bash 'rm user-wip.txt')"
+  # the run's override of the mutation budget is written only by agent.sh
+  denied "E2 an implementer writes the mutation_budget override" "$(pre_edit Write .agents/runs/LC/mutation_budget proofline-implementer a7)" "written only by agent.sh"
+  denied "E2 the lead writes the mutation_budget override" "$(pre_bash 'echo 99 > .agents/runs/LC/mutation_budget')" "written only by agent.sh"
   denied "E1 protected run state is not removable" "$(pre_bash 'rm .agents/runs/LC/RUN.yaml')"
   ln -s "$PWD/impl.txt" "$base/out.txt"
   denied "H1 Write through a symlink outside the project into product code" "$(pre_edit Write "$base/out.txt")" "symbolic link"
@@ -648,11 +652,14 @@ hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing
   ok "CLI-4 SessionStart points the Claude lead to .agents/skills/proofline-lead/SKILL.md (plugin: CLAUDE_PLUGIN_ROOT)"
   # One registration source: the plugin command stands down when the project settings already carry the hook.
   pc=$(jcmd "$ENF_REPO/adapters/claude/hooks/hooks.json" SessionStart); sj="{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}"
-  sleep 2; mkdir -p .claude; printf '{"hooks":{"SessionStart":"proofline-hook.sh"}}' > .claude/settings.json
-  [ -z "$(printf '%s' "$sj" | CLAUDE_PROJECT_DIR=$PWD CLAUDE_PLUGIN_ROOT=$ENF_REPO sh -c "$pc")" ] || die "the plugin hook ran although the project settings register the hook"
-  rm .claude/settings.json
-  printf '%s' "$sj" | CLAUDE_PROJECT_DIR=$PWD CLAUDE_PLUGIN_ROOT=$ENF_REPO sh -c "$pc" | grep -q 'proofline installed' || die "the plugin hook did not run without project settings"
-  ok "the plugin hook stands down when the project settings register it, and runs alone otherwise"
+  PS() { printf '%s' "$sj" | CLAUDE_PROJECT_DIR=$PWD CLAUDE_PLUGIN_ROOT=$ENF_REPO sh -c "$pc"; }
+  sleep 2; mkdir -p .claude; cp "$ENF_REPO/adapters/claude/settings.fragment.json" .claude/settings.json
+  [ -z "$(PS)" ] || die "the plugin hook ran although the project settings register the same event"
+  grep -v ' session claude' .claude/settings.json > "$base/s.json"; cp "$base/s.json" .claude/settings.json
+  PS | grep -q 'proofline installed' || die "the plugin hook stood down because the project registers other events only"
+  rm .claude/settings.json; sleep 2
+  PS | grep -q 'proofline installed' || die "the plugin hook did not run without project settings"
+  ok "the plugin hook stands down per event when the project settings register it, and runs alone otherwise"
   # The same event started three times at once (Codex registers a hook up to three times) runs once.
   sleep 2; for n in 1 2 3; do printf '%s' "$sj" | CLAUDE_PROJECT_DIR=$PWD CLAUDE_PLUGIN_ROOT=$ENF_REPO sh -c "$pc" > "$base/dup$n" & done; wait
   [ "$(cat "$base"/dup1 "$base"/dup2 "$base"/dup3 | grep -c 'proofline installed')" = 1 ] || die "three simultaneous SessionStart events did not run exactly once"
@@ -660,9 +667,11 @@ hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing
   # A background-agent notification is not the user's prompt: no capture. A killed approval hook is reported at the next prompt.
   prompt '<task-notification><summary>done</summary></task-notification>' sN
   [ ! -e .agents/local/prompts/sN.json ] || die "a task notification was captured as a user prompt"
-  mkdir -p .agents/local/prompts; : > .agents/local/prompts/.approving
+  mkdir -p .agents/local/prompts; : > .agents/local/prompts/.approving-sM
+  out=$(prompt 'approve plan' sOther)
+  ! printf '%s' "$out" | grep -q 'NOT recorded' || die "another session's killed approval hook was reported in this session: $out"
   out=$(prompt 'approve plan' sM)
-  printf '%s' "$out" | grep -q 'NOT recorded' && [ ! -e .agents/local/prompts/.approving ] || die "a timed-out approval hook was not reported: $out"
+  printf '%s' "$out" | grep -q 'NOT recorded' && [ ! -e .agents/local/prompts/.approving-sM ] || die "a timed-out approval hook was not reported: $out"
   ok "a task notification is not captured; an approval hook that timed out is reported to the user"
 }
 

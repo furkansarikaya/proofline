@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'grep -qs proofline-hook \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" session claude'",
+            "command": "sh -c 'grep -Eqs \"proofline-hook[.]sh.* session claude\" \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" session claude'",
             "timeout": 30
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'grep -qs proofline-hook \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" prompt claude'",
+            "command": "sh -c 'grep -Eqs \"proofline-hook[.]sh.* prompt claude\" \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" prompt claude'",
             "timeout": 30
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'grep -qs proofline-hook \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" pretool claude'",
+            "command": "sh -c 'grep -Eqs \"proofline-hook[.]sh.* pretool claude\" \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" pretool claude'",
             "timeout": 30
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'grep -qs proofline-hook \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" posttool claude'",
+            "command": "sh -c 'grep -Eqs \"proofline-hook[.]sh.* posttool claude\" \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" posttool claude'",
             "timeout": 30
           }
         ]
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'grep -qs proofline-hook \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" subagent-start claude'",
+            "command": "sh -c 'grep -Eqs \"proofline-hook[.]sh.* subagent-start claude\" \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" subagent-start claude'",
             "timeout": 60
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'grep -qs proofline-hook \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" subagent-stop claude'",
+            "command": "sh -c 'grep -Eqs \"proofline-hook[.]sh.* subagent-stop claude\" \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" subagent-stop claude'",
             "timeout": 120
           }
         ]
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'grep -qs proofline-hook \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" stop claude'",
+            "command": "sh -c 'grep -Eqs \"proofline-hook[.]sh.* stop claude\" \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" && exit 0; exec sh \"${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh\" stop claude'",
             "timeout": 30
           }
         ]

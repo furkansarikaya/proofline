@@ -64,7 +64,10 @@ function main(argv) {
       const dir = argv[2];
       if (dir) {
         const read = (f) => { try { return readFileSync(join(resolve(dir), f), "utf8"); } catch { return ""; } };
-        const floor = Math.max(minMutants(read("PLAN.md")), Number(read("mutation_budget").trim()) || 0);
+        // the override counts only with the raise-budget ledger row that wrote it (as agent.sh mutation_budget)
+        const ov = Number(read("mutation_budget").trim()) || 0;
+        const ledgered = ov > 0 && new RegExp(`event=raise-budget .*test_trust\\.mutation_budget ${ov} for this run`).test(read("LEDGER.log"));
+        const floor = Math.max(minMutants(read("PLAN.md")), ledgered ? ov : 0);
         if (floor > t.mutation_budget) { console.error(`note: mutation_budget raised from ${t.mutation_budget} to ${floor} (one mutant per criterion, or the user-approved override)`); t.mutation_budget = floor; }
       }
       console.log(`repeat=${t.repeat}\nmutation_budget=${t.mutation_budget}\nslow_ratio=${t.slow_ratio}`);

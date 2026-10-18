@@ -3382,6 +3382,8 @@ plan_test_acs() { awk '/^## /{ i = ($0 ~ /^## Tests/); next } i && match($0, /^[
 mutation_budget() {
   mb_b=$(cfg test_trust.mutation_budget 20); mb_o=$(cat "$(run_dir "$1")/mutation_budget" 2>/dev/null || :)
   case "$mb_b" in ''|*[!0-9]*) mb_b=20 ;; esac; case "$mb_o" in ''|*[!0-9]*) mb_o=0 ;; esac
+  # the override counts only with the raise-budget ledger row that wrote it (a file alone could be written by any role)
+  grep -q "event=raise-budget .*test_trust.mutation_budget $mb_o for this run" "$(ledger_file "$1")" 2>/dev/null || mb_o=0
   if [ "$mb_o" -gt "$mb_b" ]; then echo "$mb_o"; else echo "$mb_b"; fi
 }
 # Freeze: criteria above the budget are one question to the user now, not a BLOCKED REVIEW_TESTS later.
@@ -3861,7 +3863,9 @@ answer() {
       an_e=${an_h##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
       [ "$an_e" -ge "$an_a0" ] || continue
       grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
-      cat "$an_h" > "$an_t"; break
+      # one prompt answers one question: a prompt an earlier --captured answer used is skipped
+      ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
+      cat "$an_h" > "$an_t"; printf '%s\n' "${an_h##*/}" >> "$root/.agents/local/prompts/consumed"; break
     done
     [ -s "$an_t" ] || { rm -f "$an_t"; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
   else cat > "$an_t"; fi

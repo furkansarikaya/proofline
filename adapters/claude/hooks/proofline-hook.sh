@@ -154,11 +154,14 @@ erasable() {
   ! always_protected "$er_r" || return 1
   [ -z "$(git -C "$root" ls-files -- "$er_r" 2>/dev/null)" ] || return 1
   ! git -C "$root" check-ignore -q -- "$er_r" 2>/dev/null || return 1
-  er_m=$(stat -c %Y "$er_p" 2>/dev/null) || er_m=$(stat -f %m "$er_p" 2>/dev/null)
-  er_s=$(sed -n 's/.* epoch=\([0-9]*\).*/\1/p' "$root/.agents/runs/$act/LEDGER.log" 2>/dev/null | head -n 1)
-  case "$er_m" in ''|*[!0-9]*) return 1 ;; esac
-  case "$er_s" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$er_m" -ge "$er_s" ]
+  # not in the untracked set recorded when the run's first hook event came (the user's own work in progress is in it)
+  [ -f "$local_dir/baseline/$act" ] && ! grep -qxF -- "$er_r" "$local_dir/baseline/$act"
+}
+# baseline: once per run, the untracked, unignored files that exist before the run changes anything.
+baseline() {
+  [ "$installed" = yes ] && [ -n "$act" ] && [ "$act" != INVALID ] && [ ! -f "$local_dir/baseline/$act" ] || return 0
+  mkdir -p "$local_dir/baseline" 2>/dev/null || return 0
+  git -C "$root" ls-files --others --exclude-standard > "$local_dir/baseline/.$act.tmp" 2>/dev/null && mv "$local_dir/baseline/.$act.tmp" "$local_dir/baseline/$act"
 }
 # ro_operand KIND WORD (A143): may a read role pass WORD, an operand of an in-place editing command (KIND P: only an
 # existing file counts, the program text is also an operand) or of a script editor (KIND Q: any path counts)?
@@ -204,7 +207,7 @@ path_ok() {
   case "$po" in
     .claude/settings.json|.claude/settings.local.json|.codex/hooks.json|.codex/config.toml|.agents/hooks|.agents/hooks/*)
       echo "$po holds the runtime hooks; it is never edited during a run"; return 1 ;;
-    "$run"/RUN.yaml|"$run"/LEDGER.log|"$run"/gates/*|"$run"/approvals/*|"$run"/waivers/*|"$run"/questions/*|"$run"/decisions/*|"$run"/dispatch/*|"$run"/worker-evidence/*|"$run"/results/*.result.md|"$run"/results/dispatch-*|.agents/local|.agents/local/*)
+    "$run"/RUN.yaml|"$run"/LEDGER.log|"$run"/mutation_budget|"$run"/gates/*|"$run"/approvals/*|"$run"/waivers/*|"$run"/questions/*|"$run"/decisions/*|"$run"/dispatch/*|"$run"/worker-evidence/*|"$run"/results/*.result.md|"$run"/results/dispatch-*|.agents/local|.agents/local/*)
       echo "$po is written only by agent.sh and the runtime hooks"; return 1 ;;
   esac
   case "$role" in
@@ -1001,6 +1004,7 @@ pretool)
     exit 0
   fi
   [ "$act" != INVALID ] || deny ".agents/local/ACTIVE_RUN is malformed; fix it with agent.sh before editing"
+  baseline
   tool=$(jget tool_name)
   cmd=''
   case "$tool" in Bash|shell|local_shell|exec_command|unified_exec) cmd=$(jget tool_input.command tool_input.cmd) ;; esac
@@ -1201,7 +1205,7 @@ prompt)
   sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
   mkdir -p "$local_dir/prompts" || exit 0
   # The previous run of this hook did not finish (killed at the runtime's timeout): say so plainly.
-  warn=''; if [ -f "$local_dir/prompts/.approving" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; fi
+  warn=''; if [ -f "$local_dir/prompts/.approving-$sess" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; fi
   h=$(sha "$tmp/text")
   printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$local_dir/prompts/.$sess.tmp" &&
     mv "$local_dir/prompts/.$sess.tmp" "$local_dir/prompts/$sess.json"
@@ -1213,10 +1217,10 @@ prompt)
   # Fast path: agent.sh starts only when an approval request is open; a marker left behind means a timeout.
   req=no; for f in "$root/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$local_dir/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
   if [ "$act" != INVALID ] && [ "$req" = yes ]; then
-    : > "$local_dir/prompts/.approving"
+    printf '%s\n' "$h" > "$local_dir/prompts/.approving-$sess"
     (unset AGENT_ROLE; sh "$agent" approve-pending "$act" >/dev/null 2>&1) || :
   fi
-  rm -f "$local_dir/prompts/.approving"
+  rm -f "$local_dir/prompts/.approving-$sess"
   [ -z "$warn" ] || ctx UserPromptSubmit "$warn"
   exit 0 ;;
 

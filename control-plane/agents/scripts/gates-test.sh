@@ -894,6 +894,11 @@ sc_questions() {
   A answer LC 5 --captured >/dev/null
   grep -q '^answered_by: user' .agents/runs/LC/questions/005.answer.md || die "--captured did not record the user's message as the user's"
   sed '1,/^---$/d' .agents/runs/LC/questions/005.answer.md | cmp -s - "$h/$((now + 2))-bbbbbbbb.txt" || die "--captured did not record the captured multi-line message verbatim"
+  # one prompt answers one question: the next open question gets the next prompt, and none once they are used up
+  printf '1. Another?\n' | A ask LC >/dev/null; printf '1. And another?\n' | A ask LC >/dev/null
+  A answer LC 6 --captured >/dev/null
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | cmp -s - "$h/$((now + 3))-cccccccc.txt" || die "the second question did not get the next captured prompt"
+  expect_fail "a used-up captured prompt answered a second question" A answer LC 7 --captured
   # A92: a risk FOCUS on a task result does not open a second round for qa (C-14)
   QF=visual QR=qa expect_msg "a second NEEDS_INPUT from qa with FOCUS: visual" 'already asked its questions in this run' q 'QUESTIONS:
 1. And the dark theme?
