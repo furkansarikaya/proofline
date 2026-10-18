@@ -4,7 +4,7 @@ description: Designs the data side of a change for the project's actual database
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # data-design
@@ -71,8 +71,7 @@ this `SKILL.md`.
 
 - **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): output to
   `.agents/local/data-design/<target>/` (`<target>` = task id, `model` for reverse, `review-<slug>` for review;
-  nothing kept with `local_state: off`). Reverse mode writes `docs/design/DATA_MODEL.md` only after the user
-  confirms the path. The report ends with the next step, or with the approval question when destructive.
+  nothing kept with `local_state: off`). After the report, ask the user to approve the data model document (with the destructive-approval question when destructive); only after approval write it to `design_docs.data_model`. Final message, one line: the written path and the next step, or without approval "draft stayed under .agents/local/data-design/<target>/".
 - **Team** (dispatched by the lead): plan mode reads only the assignment, TASK.md, EVIDENCE.md (when present),
   PLAN `## Architecture` (when present) and the repository, and writes only `design/DATA.md` in the run folder
   and its ledger `design/data-ledger.md` (`ARTIFACT: design/DATA.md <sha256>`). Review mode writes only
@@ -166,7 +165,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
-- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
+- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.

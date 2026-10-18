@@ -152,14 +152,14 @@ subagent_guard() {
   denied "read-only role writes a gate record" "$(pre_edit Write .agents/runs/LC/gates/009-VERIFY.yaml proofline-verifier)"
   allowed "read-only role may write a run path (the hook allows it; submit refuses a self-named explorer report, A113)" "$(pre_edit Write .agents/runs/LC/reports/001-explorer.md proofline-explorer)"
   # owned paths (.agents/owns.conf) and hyphenated agent names
-  mkdir -p .agents; printf 'reviewer reviews/proof-review/ reviews/test-trust/\nsecurity_reviewer security/\ndesigner design/ /DESIGN.md /docs/design/\nimplementer PRODUCT_SCOPE\n' > .agents/owns.conf
+  mkdir -p .agents; printf 'reviewer reviews/proof-review/ reviews/test-trust/\nsecurity_reviewer security/\ndesigner design/ /docs/design/DESIGN.md\nimplementer PRODUCT_SCOPE\n' > .agents/owns.conf
   allowed "reviewer writes its report (owns.conf)" "$(pre_edit Write .agents/runs/LC/reviews/proof-review/rules/REPORT.md proofline-reviewer)"
   allowed "reviewer writes its report after cd into the run (relative path)" "$(pre_bash 'cd .agents/runs/LC && printf x > reviews/proof-review/rules/REPORT.md' proofline-reviewer)"
   denied "reviewer cannot write product code after cd (relative path)" "$(pre_bash 'cd src && printf x > app.js' proofline-reviewer)"
   denied "reviewer writes product code" "$(pre_edit Write src/app.js proofline-reviewer)" "outside the paths role reviewer owns"
   denied "reviewer writes another role's artifact" "$(pre_edit Write .agents/runs/LC/security/REPORT.md proofline-reviewer)"
   allowed "security-reviewer (hyphenated, plugin prefix) writes security/" "$(pre_edit Write .agents/runs/LC/security/REPORT.md proofline:proofline-security-reviewer)"
-  denied "designer writes DESIGN.md without a window (project-relative token)" "$(pre_edit Write DESIGN.md proofline-designer)" "no designer window"
+  denied "designer writes docs/design/DESIGN.md without a window (project-relative token)" "$(pre_edit Write docs/design/DESIGN.md proofline-designer)" "no designer window"
   denied "designer writes product code" "$(pre_edit Write src/app.js proofline-designer)"
   denied "implementer edits without an open window" "$(pre_edit Edit impl.txt proofline-implementer a7)" "no implementer window"
   out=$(sub_start proofline:proofline-implementer a7)
@@ -592,13 +592,13 @@ EOF')"
   # P1: exact file tokens; directory tokens stay prefixes
   denied "P1 reviewer writes a sibling of an exact token" "$(pre_edit Write .agents/runs/LC/reviews/data-design/REVIEW.mdx proofline-reviewer)" "outside the paths"
   allowed "P1 reviewer writes below a directory token" "$(pre_edit Write .agents/runs/LC/reviews/proof-review/rules/REPORT.md proofline-reviewer)"
-  denied "P1 designer writes DESIGN.mdx.js (exact /DESIGN.md)" "$(pre_edit Write DESIGN.mdx.js proofline-designer d1)" "outside the paths"
-  denied "P1 designer writes DESIGN.md without a window" "$(pre_edit Write DESIGN.md proofline-designer d1)" "no designer window"
+  denied "P1 designer writes docs/design/DESIGN.mdx.js (exact /docs/design/DESIGN.md)" "$(pre_edit Write docs/design/DESIGN.mdx.js proofline-designer d1)" "outside the paths"
+  denied "P1 designer writes docs/design/DESIGN.md without a window" "$(pre_edit Write docs/design/DESIGN.md proofline-designer d1)" "no designer window"
   allowed "P1 designer writes its run artifact without a window" "$(pre_edit Write .agents/runs/LC/design/UI.md proofline-designer d1)"
   sub_start proofline-designer d1 >/dev/null
   [ -s .agents/local/windows/d1 ] || die "SubagentStart did not open the designer window: $(cat .agents/local/records/d1.txt 2>/dev/null)"; ok "P1 SubagentStart opens the designer window"
-  allowed "P1 designer writes DESIGN.md inside its window" "$(pre_edit Write DESIGN.md proofline-designer d1)"
-  printf '# Design\n' > DESIGN.md
+  allowed "P1 designer writes docs/design/DESIGN.md inside its window" "$(pre_edit Write docs/design/DESIGN.md proofline-designer d1)"
+  mkdir -p docs/design; printf '# Design\n' > docs/design/DESIGN.md
   sub_stop proofline-designer d1 >/dev/null; sub_stop proofline-designer d1 true >/dev/null
   [ ! -f .agents/local/windows/d1 ] && grep -q 'role: "designer"' .agents/runs/LC/worker-evidence/WINDOW-*.yaml || die "SubagentStop did not close the designer window: $(post)"
   ok "P1 SubagentStop closes the designer window (WINDOW role designer)"

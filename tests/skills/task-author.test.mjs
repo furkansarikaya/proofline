@@ -184,3 +184,53 @@ test("the CRITICAL question reply stays user intent only and unchanged by A137",
   assert.match(r, /no longer needed/);
   assert.doesNotMatch(r, /migration|expand|contract|destructive|approve|plan|stage|later|\?/i);
 });
+
+test("front matter: accepts size/sprint/assignee/depends_on, rejects unknown size and unknown dependency", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fm-"));
+  mkdirSync(join(dir, "T-0"));
+  writeFileSync(join(dir, "T-0", "TASK.md"), GOOD.replace("T-1", "T-0"));
+  const fm = (extra) => GOOD.replace(/^(# Task:.*\n)/, `$1\n---\n${extra}\n---\n`);
+  const run = (t) => {
+    const f = join(dir, "x.md.txt");
+    writeFileSync(f, t);
+    return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" });
+  };
+  assert.equal(run(fm("size: M\nsprint: 2\nassignee: dev-1\ndepends_on: [T-0]")).status, 0);
+  const bad = run(fm("size: XL"));
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout + bad.stderr, /size must be one of S\|M\|L/);
+  const dep = run(fm("depends_on: [T-99]"));
+  assert.notEqual(dep.status, 0);
+  assert.match(dep.stdout + dep.stderr, /depends_on id "T-99" matches no task/);
+});
+
+test("front matter with a Status line after the H1 is still validated", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fms-"));
+  const f = join(dir, "x.md.txt");
+  const run = (extra) => {
+    writeFileSync(f, GOOD.replace(/^(# Task:.*\n)/, `$1\n**Status:** in-progress\n\n---\n${extra}\n---\n`));
+    return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" });
+  };
+  const bad = run("size: XL");
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout + bad.stderr, /size must be one of S\|M\|L/);
+  const dep = run("depends_on: [T-99]");
+  assert.notEqual(dep.status, 0);
+  assert.match(dep.stdout + dep.stderr, /depends_on id "T-99" matches no task/);
+});
+
+test("depends_on resolves ids across lifecycle folders (done/ -> todo/), unknown id still rejected", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lc-"));
+  mkdirSync(join(dir, "done")); mkdirSync(join(dir, "todo"));
+  writeFileSync(join(dir, "done", "T-1-a.md"), GOOD);
+  const run = (dep, withDir) => {
+    const f = join(dir, "todo", "T-2-x.md");
+    writeFileSync(f, GOOD.replace("T-1", "T-2").replace(/^(# Task:.*\n)/, `$1\n---\ndepends_on: [${dep}]\n---\n`));
+    return spawnSync("node", [SCRIPT, f, ...(withDir ? ["--tasks-dir", dir] : [])], { encoding: "utf8" });
+  };
+  assert.equal(run("T-1", true).status, 0);
+  assert.equal(run("T-1", false).status, 0);
+  const bad = run("T-9", true);
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout + bad.stderr, /depends_on id "T-9" matches no task/);
+});

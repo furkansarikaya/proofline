@@ -4,7 +4,7 @@ description: Audits how far a test suite can be trusted, using runnable evidence
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # test-trust
@@ -73,7 +73,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
-- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
+- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
@@ -107,7 +107,7 @@ All output goes to the output folder: `ledger.md`, `findings.json`, `REPORT.md`,
 
 - **Inside a run:** `.agents/runs/<TASK-ID>/reviews/test-trust/tests/` (gate) or `.../reviews/test-trust/qa/` (QA role, never a gate artifact). The run owns the folder; it is deleted with the run. Mutations and repeated runs happen only in the throwaway worktree; a write to the project tree is denied by the proofline hook and leaves the gate unrecorded.
 - **Outside a run:** `.agents/local/test-trust/<scope-slug>/` at the audited repo's root. Make sure it is git-ignored without touching the project's `.gitignore`: if `git check-ignore -q .agents/local/` fails, create `.agents/local/.gitignore` containing the single line `*`. `local_state: off` in `.agents/config.yaml` keeps nothing after the run: the same files live in a `mktemp -d "${TMPDIR:-/tmp}/test-trust-out-XXXXXX"` folder that is deleted at the end (re-runs start from scratch).
-- **Raw evidence is deleted once the report is written** (`evidence/`, and outside a run `REPORT.md`, after it was shown to the user). Before deleting, validate `findings.json`, then set `"evidence_pruned": true` in it. Outside a run only `ledger.md` and `findings.json` remain. Inside a run `REPORT.md` remains too and is the `ARTIFACT`.
+- **Raw evidence is deleted once the report is written** (`evidence/`, and outside a run `REPORT.md`, after it was shown to the user). Before deleting, validate `findings.json`, then set `"evidence_pruned": true` in it. Outside a run only `ledger.md` and `findings.json` remain; the final message names their folder. Inside a run `REPORT.md` remains too and is the `ARTIFACT`.
 - **Outside a run, a folder whose findings are all closed deletes itself:** when the final `findings.json` has no `confirmed` and no `needs_validation` finding (a re-run found everything fixed or cleared, or nothing was ever found), delete the whole scope folder and say so. Delete only the folder you resolved, only if it is not a symlink; every `rm` is its own command on a checked literal path.
 
 Delete raw evidence with the same care as in [HOLLOW.md](references/HOLLOW.md#5-clean-up): resolve with `realpath`, stay inside the output folder, never follow a symlink.

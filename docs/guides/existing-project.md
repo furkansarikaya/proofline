@@ -23,7 +23,7 @@ guesses. Run these once, in this order:
 proofline design system   # docs/design/ARCHITECTURE.md from the code (system-design skill)
 proofline design data     # docs/design/DATA_MODEL.md from schema or migrations (data-design skill)
 proofline design api      # edits your existing contract (OpenAPI, GraphQL, protobuf...) or writes docs/design/API.md
-proofline design ui       # DESIGN.md (tokens, typography, spacing, components) from the existing UI
+proofline design ui       # docs/design/DESIGN.md (tokens, typography, spacing, components) from the existing UI
 ```
 
 Every component maps to a verified repository path. Read the drafts and correct them; they are yours.

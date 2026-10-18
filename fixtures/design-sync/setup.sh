@@ -92,7 +92,7 @@ cat > src/styles/tokens.css <<'X'
   --radius-md: 6px;
 }
 X
-cat > DESIGN.md <<'X'
+cat > docs/design/DESIGN.md <<'X'
 # Design system
 
 ## Tokens

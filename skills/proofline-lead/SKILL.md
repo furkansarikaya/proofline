@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # proofline-lead
@@ -159,7 +159,7 @@ Specialist results that stop the flow:
 | `resume` | Boot with freshness and `verify-handoff`; continue Flow from `A next` ([FAILOVER.md](references/FAILOVER.md)). |
 | `queue` | List tasks in `tasks.dir` (`todo/`, then `backlog/`); run them one after another, each in its own run; the next starts only after the previous one is cleaned up ([FAILOVER.md](references/FAILOVER.md#3-queue-and-concurrency)). |
 | `task [--grill]` | Dispatch `task_author` (intent-grill first with `--grill`); writes the task file through the adapter; no run starts. |
-| `design system\|data\|api\|ui [--check]` | Outside a run: architect (system-design / api-design), data_architect (data-design), designer (ui-design) in standalone mode to reverse-engineer the configured `design_docs`; `--check` runs design-sync. |
+| `design system\|data\|api\|ui [--check]` | Outside a run: architect (system-design / api-design), data_architect (data-design), designer (ui-design) in standalone mode to reverse-engineer the configured `design_docs`; the document is written to its `design_docs` path only after the user approves it, otherwise the draft stays under `.agents/local/`; `--check` runs design-sync. |
 | `docs create\|update\|audit` | Outside a run: architect with docs-writer in standalone mode. `create <topic>` writes a document, `update [<range>]` updates the documents a diff makes stale, `audit` checks all documents against the code and fixes them. |
 | `explain <topic\|TASK-ID>` | Outside a run: architect with explain-html in standalone mode. Writes one self-contained offline HTML page to `.agents/local/explain/`; a TASK-ID is read from its run folder. |
 | `review` | proof-review standalone (working tree, branch or PR). |
@@ -211,7 +211,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
-- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
+- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.

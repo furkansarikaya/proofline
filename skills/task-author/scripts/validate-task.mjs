@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // Validates a canonical proofline TASK.md and handles per-target templates (D17, D25).
 // No dependencies. Exit codes: 0 valid, 1 invalid, 2 usage or read error.
-//   node validate-task.mjs TASK.md [--json]
+//   node validate-task.mjs TASK.md [--json] [--tasks-dir DIR]   (DIR: where depends_on ids are looked up)
 //   node validate-task.mjs --resolve-template <target> [--root DIR]
 //   node validate-task.mjs --import ISSUE.md --template T.md       (JSON: fields, custom, missing)
 //   node validate-task.mjs --check-export ISSUE.md --template T.md (every template section filled)
 
-import { readFileSync, existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
@@ -86,8 +86,62 @@ export function defectErrors(text) {
   return errors;
 }
 
-export function validate(text) {
+export const SIZES = ["S", "M", "L"];
+
+// Optional YAML front matter (size, sprint, assignee, depends_on); flat `key: value` lines only.
+export function frontMatter(text) {
+  // the block sits right after the `# Task:` line (line 1 stays the H1); a leading block is still accepted
+  let m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text), pre = "";
+  if (!m) {
+    const h = /^(# Task:[^\n]*\r?\n)(?:[ \t]*\r?\n)*(?:\*\*Status:\*\*[^\n]*\r?\n(?:[ \t]*\r?\n)*)?---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
+    if (!h) return { meta: {}, body: text };
+    m = [h[0], h[2]]; pre = h[1];
+  }
+  const meta = {};
+  let key = null;
+  for (const l of m[1].split(/\r?\n/)) {
+    const item = /^\s+-\s+(.*?)\s*$/.exec(l);
+    if (item && key) { meta[key] = [meta[key], item[1]].filter(Boolean).join(","); continue; }
+    const kv = /^([A-Za-z_]+):\s*(.*?)\s*$/.exec(l);
+    if (kv) { key = kv[1]; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
+  }
+  return { meta, body: pre + text.slice(m[0].length) };
+}
+
+// Task ids found next to a task: `<dir>/*.md` (file name and H1) and `<dir>/*/TASK.md` (H1).
+function knownIds(dirs) {
+  const ids = new Set(), names = [];
+  ids.has2 = (d) => ids.has(d) || names.some((c) => c.startsWith(`${d}-`));
+  const h1 = (f) => { try { const m = /^# Task: (\S+)/m.exec(readFileSync(f, "utf8")); if (m) ids.add(m[1]); } catch {} };
+  for (const d of dirs) {
+    let names = [];
+    try { names = readdirSync(d); } catch { continue; }
+    for (const n of names) {
+      const f = join(d, n);
+      if (n.endsWith(".md")) { ids.add(basename(n, ".md")); h1(f); }
+      else { try { if (statSync(f).isDirectory()) {
+        ids.add(n); h1(join(f, "TASK.md"));
+        // lifecycle folders (<dir>/{todo,done,...}/<ID>.md or <ID>-*.md)
+        for (const c of readdirSync(f)) if (c.endsWith(".md")) { ids.add(basename(c, ".md")); names.push(c); h1(join(f, c)); }
+      } } catch {} }
+    }
+  }
+  return ids;
+}
+
+export function validate(full, opts = {}) {
   const errors = [], warnings = [];
+  const { meta, body: text } = frontMatter(full);
+  if ("size" in meta && !SIZES.includes(meta.size)) errors.push(`front matter size must be one of ${SIZES.join("|")}`);
+  if ("sprint" in meta && !meta.sprint) errors.push("front matter sprint is empty (positive integer or label)");
+  if ("assignee" in meta && !meta.assignee) errors.push("front matter assignee is empty");
+  if ("depends_on" in meta) {
+    const deps = meta.depends_on.split(/[\s,]+/).filter(Boolean);
+    if (opts.tasksDirs?.length) {
+      const known = knownIds(opts.tasksDirs);
+      for (const d of deps) if (!known.has2(d)) errors.push(`depends_on id "${d}" matches no task in ${opts.tasksDirs.join(", ")}`);
+    }
+  }
   const t = parseTask(text);
   if (!t.id) errors.push("H1 must be `# Task: <ID> — <title>`");
   for (const name of REQUIRED) {
@@ -113,7 +167,7 @@ export function validate(text) {
   if (PLACEHOLDER.test(stripComments(text).replace(/^# Task:.*$/m, ""))) errors.push("unfilled placeholder (<...>, TBD, TODO or ???) remains");
   errors.push(...defectErrors(text));
   if (defectEntries(text).some((e) => /decision:\s*fix\b/i.test(e))) warnings.push("a pre-existing defect with `decision: fix` needs the user's own `scope` approval at freeze; an answer such as \"use your recommended option\" is not one");
-  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls } };
+  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, ...(Object.keys(meta).length ? { meta } : {}) } };
 }
 
 // ---- templates (D25) ----
@@ -201,9 +255,12 @@ function main(argv) {
     errs.forEach((e) => console.error(e));
     return errs.length ? 1 : 0;
   }
-  const file = argv.find((a) => !a.startsWith("--"));
+  const file = argv.find((a, i) => !a.startsWith("--") && argv[i - 1] !== "--tasks-dir");
   if (!file) { console.error("usage: validate-task.mjs TASK.md [--json]"); return 2; }
-  const r = validate(read(file));
+  const td = opt("--tasks-dir");
+  const own = dirname(resolve(file));
+  const tasksDirs = td ? [resolve(td)] : [own, dirname(own)];
+  const r = validate(read(file), { tasksDirs });
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
   else { r.errors.forEach((e) => console.error(`error: ${e}`)); r.warnings.forEach((w) => console.error(`warning: ${w}`)); }
   return r.valid ? 0 : 1;

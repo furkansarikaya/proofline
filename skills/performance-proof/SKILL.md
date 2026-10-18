@@ -4,14 +4,14 @@ description: Proves or refutes a performance regression by measurement, never by
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # performance-proof
 
 One rule: **no performance claim without a measurement of the same command on both sides.**
 
-Role: Reviewer, focus `performance` of REVIEW_RULES (REVIEW_SMALL on tier small), dispatched only when `agent.sh pipeline <ID>` lists `focus.<GATE>.performance` (PLAN.md `## Risk` `performance_critical: yes`, or the optional `performance_hint` content signal). Standalone: the user names a change (branch, commit range or working tree) and a base. Output: `performance.json` (embedded in `REPORT.md` as a fenced `json` block), `ledger.md`, the raw sample files.
+Role: Reviewer, focus `performance` of REVIEW_RULES (REVIEW_SMALL on tier small), dispatched only when `agent.sh pipeline <ID>` lists `focus.<GATE>.performance` (PLAN.md `## Risk` `performance_critical: yes`, or the optional `performance_hint` content signal). Standalone: the user names a change (branch, commit range or working tree) and a base. Output: `performance.json` (embedded in `REPORT.md` as a fenced `json` block), `ledger.md`, the raw sample files. Standalone: the final message names the report path.
 
 Talk to the user in their language. Machine files are English; identifiers, paths, commands and status values are never translated.
 
@@ -87,7 +87,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
-- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
+- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.

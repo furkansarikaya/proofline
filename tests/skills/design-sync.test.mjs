@@ -59,7 +59,7 @@ test("openapi parsing (yaml and json)", () => {
 });
 
 const PROJECT = {
-  ".agents/config.yaml": "design_docs:\n  design: DESIGN.md\n  architecture: docs/design/ARCHITECTURE.md\n  data_model: docs/design/DATA_MODEL.md\n  api: docs/design/API.md\n",
+  ".agents/config.yaml": "design_docs:\n  design: docs/design/DESIGN.md\n  architecture: docs/design/ARCHITECTURE.md\n  data_model: docs/design/DATA_MODEL.md\n  api: docs/design/API.md\n",
   "db/schema.sql": "CREATE TABLE users (id int);\nCREATE TABLE orders (id int);\n",
   "src/server/routes.js": "const router = require('express').Router();\nrouter.get('/users', h);\nrouter.post('/orders/:id/cancel', h);\n",
   "src/server/index.js": "x",
@@ -68,7 +68,7 @@ const PROJECT = {
   "docs/design/DATA_MODEL.md": "| Table | Purpose |\n|---|---|\n| `users` | accounts |\n| `orders` | orders |\n| `invoices` | billing |\n",
   "docs/design/ARCHITECTURE.md": "Server in `src/server/`; entry `src/server/index.js`; worker `src/worker/main.js`; glob `src/**/*.js`; link `/health`.\n",
   "docs/design/API.md": "GET /users\nPOST /api/orders/{orderId}/cancel\nDELETE /users/{id}\n",
-  "DESIGN.md": "Tokens: `--space-md`, `--color-missing`.\n\n| Component | Location |\n|---|---|\n| `Button` | `src/ui/Button.tsx` |\n| `Modal` | `src/ui/Modal.tsx` |\n| `Tooltip` | - |\n",
+  "docs/design/DESIGN.md": "Tokens: `--space-md`, `--color-missing`.\n\n| Component | Location |\n|---|---|\n| `Button` | `src/ui/Button.tsx` |\n| `Modal` | `src/ui/Modal.tsx` |\n| `Tooltip` | - |\n",
 };
 
 test("end to end: matched, unmatched (drift) and unverifiable are told apart", () => {
@@ -89,7 +89,7 @@ test("end to end: matched, unmatched (drift) and unverifiable are told apart", (
   assert.equal(status(out, "component", "Modal"), "unmatched");
   assert.ok(out.drift.includes("docs/design/DATA_MODEL.md:5 -> table invoices: 2 table definitions scanned, none named invoices"));
   assert.ok(out.drift.some((d) => /^docs\/design\/API\.md:3 -> endpoint DELETE \/users\/\{id\}/.test(d)));
-  assert.ok(out.drift.some((d) => /^DESIGN\.md:\d+ -> component Modal/.test(d)));
+  assert.ok(out.drift.some((d) => /^docs\/design\/DESIGN\.md:\d+ -> component Modal/.test(d)));
   assert.equal(out.summary.unmatched, out.drift.length);
 });
 

@@ -105,7 +105,7 @@ Pull request checklist:
 
 ## Versions
 
-Every fix round that reaches users raises the patch version (0.0.2 to 0.0.3, and so on) in the same pull request; 0.x.0 is for new features or behaviour changes, and 1.0.0 is not planned yet. A release pull request:
+Every fix round that reaches users raises the patch version (0.0.3 to 0.0.4, and so on) in the same pull request; 0.x.0 is for new features or behaviour changes, and 1.0.0 is not planned yet. A release pull request:
 
 - changes the version everywhere it appears, and nothing else: `bin/proofline` (`PROOFLINE_VERSION`), `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `control-plane/agents/config.yaml`, `playground/package.json`, every `skills/*/SKILL.md` (`metadata.version`), the `SKILL_VERSION` constants in `skills/exploit-proof/scripts/diff-manifests.mjs` and `skills/proof-review/scripts/check-config.mjs`, the README status lines, the heading in `adapters/README.md`, `docs/reference/skills.md` (regenerate: `sh docs/reference/generate-skills.sh`), and the version checks in `tests/cli/cli-test.sh`;
 - moves the `Unreleased` entries of `CHANGELOG.md` under a new `## <version> — <date>` heading.

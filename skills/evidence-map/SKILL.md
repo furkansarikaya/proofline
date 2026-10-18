@@ -4,7 +4,7 @@ description: "Bounded codebase investigation that returns compact, verified evid
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # evidence-map
@@ -30,7 +30,7 @@ Talk to the user in their language. Evidence documents are English; identifiers,
 
 ## Modes
 
-- **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the user's question becomes the assignment; ask once for any of objective, scope or stop condition that cannot be derived from it. Output `.agents/local/evidence-map/<slug>/evidence.md` (nothing kept with `local_state: off`; then the document is shown in chat only). Finish with the claims table and the question "Shall I widen the scope or go deeper on one claim?".
+- **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): the user's question becomes the assignment; ask once for any of objective, scope or stop condition that cannot be derived from it. Output `.agents/local/evidence-map/<slug>/evidence.md` (nothing kept with `local_state: off`; then the document is shown in chat only). Finish with the evidence path (or "shown in chat only"), the claims table and the question "Shall I widen the scope or go deeper on one claim?".
 - **Team** (dispatched by the lead): read only the assignment and the repository; write the report to your scratch folder and hand it over with `submit --report <file>`; the script assigns the numbered result artifact (contract: `reports/NNN-explorer.md` in the run folder), never the explorer. Return the result header, the claims table, and `QUESTIONS:` when the assignment itself is ambiguous (`NEEDS_INPUT`). Never `NEEDS_INPUT` for something the repository answers.
 
 ## Impact mode (A85)
@@ -89,7 +89,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
-- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
+- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.

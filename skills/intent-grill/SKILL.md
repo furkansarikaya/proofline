@@ -4,7 +4,7 @@ description: Interviews the user about a vague or high-stakes request before a t
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # intent-grill
@@ -46,6 +46,10 @@ Talk to the user in their language. `INTENT.md` is English except the quoted req
 8. **Derive** ([INTENT-FORMAT.md](references/INTENT-FORMAT.md#3-candidates)). Write `ACC-<n>` candidates for every resolved decision outside `non-goals` and `OOS-<n>` candidates for every resolved non-goal; set `## Status` `complete`; validate until exit 0. Node unavailable: check every rule in [INTENT-FORMAT.md](references/INTENT-FORMAT.md#4-validation-rules) by hand and say so.
 9. **Report.** Standalone: the decisions table (id, decision, decided_by), deferred items, candidates, notes, then the closing question and the absolute path of `INTENT.md`. Team: the result header and table.
 
+## Decision level and ADRs
+
+Mark every decision `[task]` or `[project]` at the start of its `question` cell ([INTENT-FORMAT.md](references/INTENT-FORMAT.md#2-decision-tree-table)). `[project]` = tech stack, content structure, language support, publishing, architecture patterns: it outlives this task. Before asking, list the ADRs in config `design_docs.adr_dir`; a `[project]` question that an accepted ADR already answers is a confirmation question quoting the ADR, and a different answer is a new decision that supersedes it, never an overwrite. `[task]` decisions go into the task. After the user approves, task-author writes the `[project]` ones as ADRs (new `NNNN` = highest + 1, the contradicted ADR set to `superseded by NNNN`) and links them from the task files; intent-grill itself writes no ADR. Do not open another decision store. When `.agents/local/team.yaml` exists, say once "team info recorded (N people), tell me to change it" instead of asking about the team again.
+
 ## Output
 
 `INTENT.md` ([format](references/INTENT-FORMAT.md), parsed form: [schema](schema/intent.schema.json)). task-author turns `ACC-<n>` into `AC-<n>`, `OOS-<n>` and deferred decisions into `## Out of scope` or `## Risks`; plan-contract reads it for `## Behavior`.
@@ -83,7 +87,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
-- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
+- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.

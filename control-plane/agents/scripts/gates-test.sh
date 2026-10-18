@@ -1157,11 +1157,11 @@ sc_open_runs() {
 # I5: knowledge-scope files are written after the SECRETS gate; DONE and delivery-check scan them.
 sc_knowledge_secrets() {
   scaffold orchestrated; to_code_done orchestrated
-  printf 'token: PLANTED_SECRET\n' > DESIGN.md
+  mkdir -p docs/design; printf 'token: PLANTED_SECRET\n' > docs/design/DESIGN.md
   A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null
   expect_msg "delivery-check over a secret in a knowledge file" 'found secrets' A delivery-check LC
   expect_msg "DONE over a secret in a knowledge file" 'found secrets' A handoff LC DONE
-  printf 'design notes\n' > DESIGN.md
+  printf 'design notes\n' > docs/design/DESIGN.md
   A handoff LC DONE >/dev/null
   ok "knowledge-scope files are secret-scanned at DONE and delivery-check"
 }
@@ -1174,7 +1174,7 @@ sc_wiki_knowledge_scope() {
   A knowledge-done LC >/dev/null
   expect_msg "a path outside the root counted as knowledge" 'no knowledge-scope changes' A verify-knowledge-scope LC
   rm -r notes
-  mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: docs/design/DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
   A verify-knowledge-scope LC >/dev/null
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
 }

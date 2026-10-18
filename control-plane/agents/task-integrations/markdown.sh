@@ -36,6 +36,17 @@ find_task() {   # ID -> relative path of the task file (first match across lifec
   return 1
 }
 
+strip_plan() {   # task file -> stdout without the planning block (and Status lines)
+    awk '!f && /^[[:space:]]*$/ { next } !f { f=1; if ($0=="---") { st=1; next } } st==1 { if ($0=="---") st=0; next }
+      !d && /^# / { d=1; st=2; next } st==2 && /^[[:space:]]*$/ { next } st==2 && /^\*\*Status:\*\*/ { next } st==2 && $0=="---" { st=3; next }
+      st==3 { if ($0=="---") st=0; next } { if (st==2) st=0 } /^\*\*Status:\*\*/ { next } { print }' "$1"
+}
+get_plan() {   # task file -> stdout: the planning block incl. both --- lines, or nothing
+  awk '!f && /^[[:space:]]*$/ { next } !f { f=1; if ($0=="---") { st=1; print; next } } st==1 { print; if ($0=="---") exit; next }
+      !d && /^# / { d=1; st=2; next } st==2 && /^[[:space:]]*$/ { next } st==2 && /^\*\*Status:\*\*/ { next } st==2 && $0=="---" { st=3; print; next }
+      st==3 { print; if ($0=="---") exit; next } { exit }' "$1"
+}
+
 case "$op" in
   create)
     [ $# -eq 4 ] || pl_usage 'markdown.sh create <TASK-ID> <title> <body-file>'
@@ -48,10 +59,14 @@ case "$op" in
     rel=$tdir/in-progress/$id-$slug.md
     [ ! -e "$root/$rel" ] || pl_die "task file already exists: $rel"
     tmp=$(mktemp "${TMPDIR:-/tmp}/md-create.XXXXXX")
-    rc=0; pl_import markdown "$body" "$tmp" "$id" "$title" "markdown $rel" || rc=$?
+    work=$(mktemp "${TMPDIR:-/tmp}/md-create.XXXXXX"); strip_plan "$body" > "$work"
+    rc=0; pl_import markdown "$work" "$tmp" "$id" "$title" "markdown $rel" || rc=$?
+    rm -f "$work"
     if [ "$rc" -ne 0 ]; then rm -f "$tmp"; exit "$rc"; fi
     mkdir -p "$root/$tdir/in-progress"
-    { sed -n '1p' "$tmp"; printf '\n**Status:** in-progress\n'; sed '1d' "$tmp"; } > "$root/$rel"
+    # the planning block stays right after the H1, behind the Status line (import reads both)
+    fm=$(get_plan "$body"); [ "$(printf '%s\n' "$fm" | tail -1)" = "---" ] || fm=''
+    { sed -n '1p' "$tmp"; printf '\n**Status:** in-progress\n'; [ -z "$fm" ] || printf '\n%s\n' "$fm"; sed '1d' "$tmp"; } > "$root/$rel"
     rm -f "$tmp"
     printf '%s\n' "$rel"
     ;;
@@ -67,9 +82,17 @@ case "$op" in
     case "$id" in ''|*[!A-Za-z0-9._-]*) b=$(basename "$src" .md); id=$(printf '%s' "$b" | sed -n 's/^\([A-Za-z][A-Za-z0-9]*-[0-9][0-9]*\).*/\1/p'); [ -n "$id" ] || id=$b ;; esac
     pl_id "$id"
     work=$(mktemp "${TMPDIR:-/tmp}/md-import.XXXXXX")
-    awk '!d && /^# / { d=1; next } /^\*\*Status:\*\*/ { next } { print }' "$src" > "$work"
+    # planning block (`---` ... `---`) directly after the H1, or leading in a hand-written file: not copied into the body
+    strip_plan "$src" > "$work"
     rc=0; pl_import markdown "$work" "$out" "$id" "$title" "markdown $src" || rc=$?
-    rm -f "$work"; exit "$rc"
+    rm -f "$work"
+    # keep the optional planning front matter (size, sprint, assignee, depends_on) parseable at the top of the run's TASK.md
+    fm=$(get_plan "$src")
+    if [ "$rc" -eq 0 ] && [ -f "$out" ] && [ -n "$fm" ] && [ "$(printf '%s\n' "$fm" | tail -1)" = "---" ]; then
+      fmt=$(mktemp "${TMPDIR:-/tmp}/md-fm.XXXXXX")
+      { sed -n '1p' "$out"; printf '\n%s\n' "$fm"; sed '1d' "$out"; } > "$fmt" && cat "$fmt" > "$out"; rm -f "$fmt"
+    fi
+    exit "$rc"
     ;;
   publish)
     [ $# -eq 3 ] || pl_usage 'markdown.sh publish <TASK-ID> <report-file>'

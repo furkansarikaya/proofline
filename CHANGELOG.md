@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.0.3 — 2026-10-18
+
+Fixes and additions since 0.0.2.
+
+- Standalone skill deliverables are written to their project location after the user approves them; evidence stays in `.agents/local`.
+- The default DESIGN.md location moves to `docs/design/DESIGN.md`. Existing installs keep their path; `upgrade` offers the move and never moves the file.
+- task-author splits large work into tasks, sizes them S, M or L, and groups them into sprints. Optional team distribution reads `.agents/local/team.yaml` (git-ignored). Tasks gain optional `size`, `sprint`, `assignee` and `depends_on` fields.
+- Project-wide grill decisions become ADRs; a new ADR that contradicts an older one supersedes it.
+
 ## 0.0.2 — 2026-10-18
 
 Fixes and additions since 0.0.1.

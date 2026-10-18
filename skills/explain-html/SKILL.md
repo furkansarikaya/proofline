@@ -4,7 +4,7 @@ description: Explains a topic, a task, a review or a completion report as one se
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # explain-html
@@ -49,7 +49,7 @@ Talk to the user in their language. Write the page in the language they use. The
 4. **Write** to `.agents/local/explain/<slug>.html` (`<slug>` from the topic or the TASK-ID). Before the first write, create `.agents/local/.gitignore` containing `*` if it is missing. With `local_state: off`, ask the user for a path. Copy the file elsewhere only when the user asks.
 5. **Prove.** `node <skill-dir>/scripts/check-html.mjs <file>` exits 0 only when the page passes. Fix every finding.
 6. **Judge** what the script does not check: landmarks, SVG titles, contrast, focus, the 320 px layout, and the writing profile on the page text.
-7. **Report** the path, the validator result and every `UNKNOWN`.
+7. **Report** the HTML path (it stays under `.agents/local/explain/`), the validator result and every `UNKNOWN`.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)
@@ -74,7 +74,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 
 When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the proofline lead:
 
-- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run they go to `.agents/local/<skill>/<target>/`, or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
+- Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
 - A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.

@@ -150,7 +150,7 @@ checks freshness before and after the adapter and restores the file byte for byt
 ## Knowledge transaction
 
 Optional, after CODE_DONE, only when the task changed a durable contract: update the design documents under
-`knowledge_scope_root` (`DESIGN.md docs/design/ docs/adr/ docs/wiki/`), then `knowledge-done <ID>`; otherwise
+`knowledge_scope_root` (`docs/design/ docs/adr/ docs/wiki/`), then `knowledge-done <ID>`; otherwise
 `knowledge-done <ID> not_applicable`. A knowledge write before CODE_DONE is out of scope; a write without
 `KNOWLEDGE_DONE`, or `KNOWLEDGE_DONE` without a write, FAILS DONE, delivery-check and validate.
 

@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
 # phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
 # validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.2
+proofline_version: 0.0.3
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -53,7 +53,7 @@ tasks:
   adapter: markdown
   dir: .agents/tasks
 design_docs:
-  design: DESIGN.md
+  design: docs/design/DESIGN.md
   architecture: docs/design/ARCHITECTURE.md
   data_model: docs/design/DATA_MODEL.md
   api: docs/design/API.md
@@ -181,7 +181,7 @@ active_run_file: .agents/local/ACTIVE_RUN
 policy_source: .agents/modes
 # Knowledge transaction (Transaction B) scope: space-separated; an entry ending in / is a directory
 # prefix, any other entry an exact path. A path listed in the frozen plan scope stays application scope.
-knowledge_scope_root: DESIGN.md docs/design/ docs/adr/ docs/wiki/
+knowledge_scope_root: docs/design/ docs/adr/ docs/wiki/
 safety:
   destructive_git_requires_explicit_authorization: true
   external_network_requires_task_authorization: true

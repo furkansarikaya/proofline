@@ -10,7 +10,7 @@ for t in --color-text --color-text-muted --color-primary --color-danger --color-
          --radius-md --font-size-sm --font-size-md; do
   grep -q -- "^  $t: " src/ui/styles/tokens.css || fail "token $t not defined"
 done
-grep -q 'deprecated' DESIGN.md || fail "deprecation notes missing"
+grep -q 'deprecated' docs/design/DESIGN.md || fail "deprecation notes missing"
 # The list page has loading/error/empty states but no filter yet.
 grep -q "status === 'loading'" src/ui/pages/ProjectList.js || fail "loading state missing"
 grep -q "status === 'error'" src/ui/pages/ProjectList.js || fail "error state missing"
