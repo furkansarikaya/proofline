@@ -280,6 +280,11 @@ head_before=$(git -C "$st" rev-parse HEAD)
 out=$(pl "$st" deliver T-1 2>&1); rc=$?
 [ "$rc" != 0 ] && expect "deliver refuses a run that is not CODE_DONE" "$out" "delivery blocked" || { LAST=$out; die "deliver passed for an unfinished run"; }
 [ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver never commits" || die "deliver changed HEAD"
+# a FAILED run: deliver offers a DRAFT pull request body from the records, never a merge
+sed 's/^  state: PLANNING$/  state: FAILED/' "$st/.agents/runs/T-1/RUN.yaml" > "$st/run.tmp" && cat "$st/run.tmp" > "$st/.agents/runs/T-1/RUN.yaml" && rm "$st/run.tmp"
+out=$(pl "$st" deliver T-1 2>&1); expect "deliver of a FAILED run prepares a DRAFT pull request body" "$out" "gh pr create --draft"
+expect "the draft body says it must not be merged" "$out" "Do not merge"
+[ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver of a FAILED run never commits" || die "deliver of a FAILED run changed HEAD"
 mkdir -p "$st/.agents/local/prompts"; echo x > "$st/.agents/local/prompts/s.json"
 nocheck "clean refuses without --yes (non-interactive)" pl "$st" clean
 [ -f "$st/.agents/local/prompts/s.json" ] && ok "...and removes nothing" || die "clean removed files without --yes"

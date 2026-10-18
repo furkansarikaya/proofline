@@ -62,7 +62,7 @@ state (works without an agent session)
   status                  active run and its next step (default command)
   resume                  run state, ledger tail, freshness and the next step after a pause or runtime switch
   queue                   task files and runs
-  deliver <TASK>          delivery check and what a commit / push would do (never commits)
+  deliver <TASK>          delivery check and what a commit / push would do (never commits); a FAILED run gets a DRAFT PR body
   clean [--yes]           remove .agents/local state and finished runs
   merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]
                           the only allowed merge path: checks that every check of the pull request is
@@ -161,6 +161,15 @@ cmd_queue() {
 cmd_deliver() {
   require_installed
   id=${1:-}; [ -n "$id" ] || die "usage: proofline deliver <TASK>"
+  # A FAILED run: the body of a DRAFT pull request is generated from the run records; opening it is the user's call.
+  if out=$(agent draft-pr-body "$id" 2>/dev/null); then
+    printf '%s\n\n' "$out"
+    say "run $id FAILED, not deliverable; nothing was committed or pushed. With your explicit approval the lead may open a DRAFT pull request:"
+    say "  push   : needs your push approval for this exact content (agent.sh request-approval - push), then the lead pushes the task branch"
+    say "  open   : gh pr create --draft --title \"DRAFT: $id failed its gates\" --body-file .agents/local/draft-pr-$id.md"
+    say "  never  : merge ('proofline merge' refuses a draft); cleanup, which waits for its own approval (agent.sh request-approval - cleanup)"
+    hint deliver "$id"; return 0
+  fi
   if ! out=$(agent delivery-check "$id" 2>&1); then
     printf '%s\n' "$out" >&2
     say "not deliverable yet; nothing was committed. The lead continues the run until every required gate passes."

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { validate, missingEvidence, checkConsistency, checkClaims } from "../../skills/test-trust/scripts/validate-findings.mjs";
-import { thresholds, computeGate } from "../../skills/test-trust/scripts/gate.mjs";
+import { thresholds, computeGate, minMutants } from "../../skills/test-trust/scripts/gate.mjs";
 
 const SCRIPT = new URL("../../skills/test-trust/scripts/validate-findings.mjs", import.meta.url).pathname;
 const schema = JSON.parse(readFileSync(new URL("../../skills/test-trust/schema/findings.schema.json", import.meta.url)));
@@ -285,4 +285,20 @@ test("claims: every criterion of PLAN ## Tests needs a claim", () => {
   const d = withClaims([claim("AC-2")]);
   assert.match(checkClaims(d, PLAN_TESTS).join("\n"), /AC-8: PLAN ## Tests names a test for it but findings.json has no claim mutant/);
   assert.deepEqual(checkClaims(d, undefined), []);
+});
+
+// The evidence run: 33 criteria in PLAN ## Tests against mutation_budget 20 blocked REVIEW_TESTS twice.
+test("mutation_budget: never below one mutant per criterion (validator and thresholds CLI)", () => {
+  const acs = Array.from({ length: 33 }, (_, i) => `- AC-${i + 1}: \`t.test.js\` "t${i + 1}"`).join("\n");
+  const plan = `## Tests\n\n${acs}\n\n## Verification commands\n\n- npm test\n`;
+  assert.equal(minMutants(plan), 33);
+  const d = withClaims(Array.from({ length: 33 }, (_, i) => claim(`AC-${i + 1}`)));
+  assert.match(checkClaims(d, plan).join("\n"), /mutation_budget 20 is below the 33 criteria/);
+  const run = mkdtempSync(join(tmpdir(), "tt-run-"));
+  writeFileSync(join(run, "PLAN.md"), plan);
+  const out = (...a) => execFileSync("node", [GATE, "thresholds", join(run, "none.yaml"), ...a], { stdio: ["ignore", "pipe", "ignore"] }).toString();
+  assert.match(out(run), /mutation_budget=33\n/);
+  writeFileSync(join(run, "mutation_budget"), "40\n");
+  assert.match(out(run), /mutation_budget=40\n/);
+  assert.match(out(), /mutation_budget=20\n/);
 });

@@ -238,6 +238,7 @@ scenario_bounded_fix() {
   A handoff LC IMPLEMENTED >/dev/null
   gfail VERIFY impl.txt                                                           # third failing content: rounds exhausted
   expect_msg "a third fix was allowed" 'fix rounds exhausted' A handoff LC IMPLEMENTING
+  A report-facts LC | grep -Fq -- '- Fix rounds: 2 of 2' || die "the report counts the unfixed third failing content as a fix round (3 of 2)"
   expect_fail "FAILED accepted without evidence" sh -c "printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: \n' | sh ./.agents/scripts/agent.sh terminate LC FAILED"
   mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: the plan must cover the empty-key contract\n' > .agents/runs/LC/amendments/001.md
   printf 'amended: empty-key contract\n' >> .agents/runs/LC/PLAN.md
@@ -899,7 +900,31 @@ scenario_freeze_scope_mapping() {
   ok "freeze validates scope mapping first"
 }
 
+# A FAILED run: the draft pull request body lists the non-passing gates from the records; the run evidence goes only
+# with a separate cleanup approval once that body exists.
+scenario_failed_draft_pr() {
+  export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl_test.txt 'test: default for an empty key'; A handoff LC IMPLEMENTED >/dev/null
+  gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'impl: second attempt at the empty key default'; A handoff LC IMPLEMENTED >/dev/null
+  gfail VERIFY impl.txt
+  expect_fail "a draft pull request body for a run that is not FAILED" A draft-pr-body LC
+  printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
+  A draft-pr-body LC > "$base/dp.out" || die "no draft pull request body for a FAILED run"
+  grep -q '^- VERIFY: fail' "$base/dp.out" && grep -q 'VERIFY-1|blocking|impl.txt:1|lookup returns the wrong value' "$base/dp.out" || die "the body lacks the failing gate and its recorded finding: $(cat "$base/dp.out")"
+  grep -q 'Fix rounds: 2 of 2' "$base/dp.out" || die "the body miscounts the fix rounds"
+  expect_msg "cleanup of a run with a draft pull request body needs its own approval" 'own approval' A cleanup LC
+  A request-approval - cleanup >/dev/null; capture 'approve the cleanup'; A approve - cleanup >/dev/null
+  A cleanup LC >/dev/null || die "cleanup refused after the separate approval"
+  [ ! -d .agents/runs/LC ] || die "the run directory survived the approved cleanup"
+  ok "FAILED run: draft pull request body from the records, cleanup behind a separate approval"
+}
+
 run_sc scenario_standalone
+run_sc scenario_failed_draft_pr
 run_sc scenario_approval_fail_closed
 run_sc scenario_evidence_order
 run_sc scenario_independence

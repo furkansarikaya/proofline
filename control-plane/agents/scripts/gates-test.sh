@@ -1755,7 +1755,49 @@ PLAN
   ok 'start: stdin, adapter task, ledger, classify/branch/baseline/freeze, duplicate/open/missing refusals'
 }
 
+# Evidence run: 33 criteria in PLAN ## Tests, test_trust.mutation_budget 20, REVIEW_TESTS BLOCKED twice. Now the
+# freeze asks the user once, and a user-approved per-run raise (config untouched) resolves it.
+sc_mutation_budget() {
+  SC_PLAN_EXTRA=$(printf '\n## Tests\n\n'; i=1; while [ "$i" -le 33 ]; do printf -- '- AC-%s: `impl_test.txt` "case %s"\n' "$i" "$i"; i=$((i + 1)); done)
+  export SC_PLAN_EXTRA; unfrozen STANDARD; unset SC_PLAN_EXTRA
+  cfg_before=$(tsha .agents/config.yaml)
+  expect_msg "a freeze with 33 criteria over budget 20" 'raise-budget LC 33' A freeze LC
+  A freeze LC >/dev/null 2>&1 || :
+  [ "$(ls .agents/runs/LC/approvals/*-request-mutation_budget.yaml | wc -l | tr -d ' ')" = 1 ] || die "the user was not asked exactly once"
+  expect_fail "raise-budget without the user's approval" A raise-budget LC 33
+  capture 'approve the mutation budget'; A approve LC mutation_budget >/dev/null
+  expect_fail "a raise below the criteria count" A raise-budget LC 30
+  A raise-budget LC 33 >/dev/null
+  [ "$(cat .agents/runs/LC/mutation_budget)" = 33 ] || die "the run override was not recorded"
+  [ "$(tsha .agents/config.yaml)" = "$cfg_before" ] || die "raise-budget edited .agents/config.yaml"
+  A freeze LC >/dev/null || die "the freeze still fails after the approved raise"
+  ok "mutation budget: freeze asks once, per-run raise needs the user's approval, config untouched"
+}
+
+# Evidence run: REVIEW_RULES and REVIEW_RULES:config were mixed in one report line. Each sub-focus has its own line.
+sc_report_focus_lines() {
+  scaffold standalone; printf 'KEY=\n' > .env.example
+  A report-facts LC > "$base/rf.out"
+  grep -q '^- Gate REVIEW_[A-Z]*: .*findings: none$' "$base/rf.out" && grep -q '^  - Focus REVIEW_[A-Z]*:config: [a-z_]*; findings: ' "$base/rf.out" || die "the config sub-focus has no line of its own: $(cat "$base/rf.out")"
+  ok "report facts: a risk sub-focus is shown on its own line"
+}
+
+# A user edit of a control-plane file under .agents/ is no task change: verify-scope lists it apart, the tier ignores it.
+sc_control_plane_edit() {
+  scaffold standalone; solo RED fail impl_test.txt 'test: lookup returns the stored value'
+  tier_before=$(A tier LC)
+  printf '# user note\n' >> .agents/config.yaml; printf 'x\n' > .agents/extra.yaml
+  A verify-scope LC > "$base/vs.out" || die "a user edit under .agents/ failed the scope check"
+  grep -q 'control-plane files changed under .agents/' "$base/vs.out" && grep -q '\.agents/config\.yaml' "$base/vs.out" || die "the control-plane edits are not listed apart"
+  [ "$(A tier LC)" = "$tier_before" ] || die "a control-plane edit raised the tier from $tier_before"
+  printf 'x\n' > stray.go; expect_fail "a task-introduced path outside the scope passed" A verify-scope LC
+  ok "control-plane edits under .agents/ are listed apart, not counted as task changes"
+}
+
 run_sc sc_tier
+run_sc sc_control_plane_edit
+run_sc sc_report_focus_lines
+run_sc sc_mutation_budget
 run_sc sc_tier_paths
 run_sc sc_record
 run_sc sc_submit
