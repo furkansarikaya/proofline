@@ -234,3 +234,18 @@ test("depends_on resolves ids across lifecycle folders (done/ -> todo/), unknown
   assert.notEqual(bad.status, 0);
   assert.match(bad.stdout + bad.stderr, /depends_on id "T-9" matches no task/);
 });
+
+test("depends_on matches a lifecycle-folder file by name (T-1-*.md) even when its H1 id differs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lcn-"));
+  mkdirSync(join(dir, "todo"));
+  writeFileSync(join(dir, "todo", "T-1-something.md"), GOOD.replace("T-1", "X-9"));
+  const f = join(dir, "todo", "T-2-x.md");
+  const run = (dep) => {
+    writeFileSync(f, GOOD.replace("T-1", "T-2").replace(/^(# Task:.*\n)/, `$1\n---\ndepends_on: [${dep}]\n---\n`));
+    return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" });
+  };
+  assert.equal(run("T-1").status, 0);
+  const bad = run("T-9");
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout + bad.stderr, /depends_on id "T-9" matches no task/);
+});
