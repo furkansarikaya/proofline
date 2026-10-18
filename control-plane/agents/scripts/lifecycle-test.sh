@@ -923,6 +923,16 @@ scenario_failed_draft_pr() {
   ok "FAILED run: draft pull request body from the records, cleanup behind a separate approval"
 }
 
+# 0.0.5: a designer window opened before any PLAN.md exists is refused for its real reason, with no grep error.
+scenario_window_open_no_plan() {
+  scaffold orchestrated no COMPLEX supervised
+  rm .agents/runs/LC/PLAN.md
+  out=$(A window-open LC designer 2>&1) && die "window-open succeeded before IMPLEMENTING"
+  printf '%s' "$out" | grep -Fq 'only while handoff state is IMPLEMENTING' || die "window-open refused for another reason: $out"
+  ! printf '%s' "$out" | grep -Fq 'No such file' || die "window-open leaked a missing-file error: $out"
+  ok "window-open without PLAN.md prints no missing-file error"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_draft_pr
 run_sc scenario_approval_fail_closed
@@ -958,4 +968,5 @@ run_sc scenario_task_source_status
 run_sc scenario_cleanup_after_delivery
 run_sc scenario_freeze_scope_mapping
 run_sc scenario_freeze_ac_coverage
+run_sc scenario_window_open_no_plan
 echo 'agent lifecycle tests passed'

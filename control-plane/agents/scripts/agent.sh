@@ -499,7 +499,7 @@ plan_migration_shape() {
   if [ "$pms" = single_step ] && ! grep -Eiq 'single[- ]step|one[- ]step|one migration|tek ad[ıi]m' "$(dirname "$1")/TASK.md" 2>/dev/null; then pms=missing; fi
   echo "$pms"
 }
-plan_section_present() { grep -q "^## $2[[:space:]]*\$" "$1"; }
+plan_section_present() { grep -q "^## $2[[:space:]]*\$" "$1" 2>/dev/null; }
 plan_destructive() { # PLAN -> yes|no|invalid|absent
   plan_section_present "$1" Data || { echo absent; return 0; }
   awk '/^## Data[[:space:]]*$/ { i=1; next } i && /^[[:space:]]*$/ { next } i { v=$0; if (v ~ /^destructive:[[:space:]]*(yes|no)[[:space:]]*$/) { sub(/^destructive:[[:space:]]*/, "", v); sub(/[[:space:]]*$/, "", v); print v } else print "invalid"; exit }' "$1" | grep . || echo invalid
