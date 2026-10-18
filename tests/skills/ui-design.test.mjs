@@ -112,6 +112,7 @@ const strong = () => ({
   criteria: [{ id: "AC-1", screens: ["S1"], visual_proof: "required", evidence: "S1 success and empty at 375 and 1280 px" }, { id: "AC-2", screens: ["S1"], visual_proof: "not_required" }],
 });
 const task = parseTask(TASK);
+const alts = () => ({ alternatives: [{ name: "Ledger", summary: "dense mono numerals, two neutral roles", trade_off: "less inviting for new users" }, { name: "Desk", summary: "roomier rows, one accent role", trade_off: "fewer rows per viewport" }], chosen: "Ledger" });
 test("existing spec stays valid without class; COMPLEX/CRITICAL require the new sections", () => {
   assert.deepEqual(errs(good()), []);
   assert.deepEqual(errs(good(), { root: repo, cls: "STANDARD", task }), []);
@@ -132,12 +133,12 @@ test("design_system.exists false while the file exists is rejected", () => {
   d.design_system.file = "docs/DESIGN.md"; assert.deepEqual(errs(d), []);
 });
 test("creative direction: new is invalid when DESIGN.md exists; new needs avoided", () => {
-  const d = strong(); d.creative_direction.basis = "new"; has(errs(d), "DESIGN.md exists");
+  const d = strong(); Object.assign(d.creative_direction, alts(), { basis: "new" }); has(errs(d), "DESIGN.md exists");
   d.design_system = { file: "docs/DESIGN.md", exists: false }; has(errs(d), "avoided");
   d.creative_direction.avoided = ["gradient hero: an internal tool has no landing page"]; assert.deepEqual(errs(d), []);
 });
 test("creative direction: an approval naming a meeting or review without a recorded answer is refused (A94)", () => {
-  const d = strong(); d.creative_direction.basis = "redesign";
+  const d = strong(); Object.assign(d.creative_direction, alts(), { basis: "redesign" });
   d.creative_direction.redesign = { task_quote: "redesign the orders page", user_approval: "" };
   for (const t of ["approved in the Q3 planning review", "the user approved it in the Q2 review meeting", "agreed in the design sync (Q4 planning)", "approved at the roadmap review", "Q4 launch, user said yes", "user said yes, Q3"]) {
     d.creative_direction.redesign.user_approval = t; has(errs(d, { root: repo, task }), "reference the recorded answer");
@@ -146,7 +147,7 @@ test("creative direction: an approval naming a meeting or review without a recor
   assert.deepEqual(errs(d, { root: repo, task }), []);
 });
 test("creative direction: redesign needs the task's request and the user's approval", () => {
-  const d = strong(); d.creative_direction.basis = "redesign"; has(errs(d), "redesign needs");
+  const d = strong(); Object.assign(d.creative_direction, alts(), { basis: "redesign" }); has(errs(d), "redesign needs");
   d.creative_direction.redesign = { task_quote: "redesign the orders page", user_approval: "" }; has(errs(d), "user's approval");
   d.creative_direction.redesign.user_approval = "assumed from the task"; has(errs(d), "must come from the user");
   d.creative_direction.redesign.user_approval = "Q-2 answered_by user: yes, redesign"; assert.deepEqual(errs(d, { root: repo, task }), []);
@@ -159,6 +160,30 @@ test("creative direction: redesign needs the task's request and the user's appro
   has(m, "not found in TASK.md"); has(m, "does not ask for a visual change");
   d.creative_direction.redesign.task_quote = "orders page"; has(errs(d), "does not ask for a visual change");
   const c = strong(); c.creative_direction.redesign = { task_quote: "x", user_approval: "y" }; has(errs(c), "only with basis redesign");
+});
+test("direction alternatives: required for new, refused for conform", () => {
+  const noDs = { file: "docs/DESIGN.md", exists: false };
+  const n = strong(); n.design_system = noDs; Object.assign(n.creative_direction, { basis: "new", avoided: ["gradient hero: no landing page"] });
+  has(errs(n), "2-3 alternatives");
+  Object.assign(n.creative_direction, alts()); assert.deepEqual(errs(n), []);
+  n.creative_direction.chosen = "Other"; has(errs(n), "name of one alternative");
+  n.creative_direction.chosen = "Ledger"; n.creative_direction.alternatives[1].name = "Ledger"; has(errs(n), "duplicate alternative");
+  const c = strong(); Object.assign(c.creative_direction, alts()); has(errs(c), "no direction alternatives");
+});
+test("redesign of UI code without DESIGN.md: user's sentence, inventory and avoided (no approval needed)", () => {
+  const app = mkdtempSync(join(tmpdir(), "ui-code-"));
+  mkdirSync(join(app, "src/ui"), { recursive: true });
+  writeFileSync(join(app, "src/ui/Button.tsx"), ""); writeFileSync(join(app, "src/ui/tokens.css"), "");
+  const o = { root: app };
+  const base = () => { const d = strong(); d.design_system = { file: "DESIGN.md", exists: false }; return d; };
+  const r = base(); Object.assign(r.creative_direction, alts(), { basis: "redesign", avoided: ["purple gradient hero found in src/pages/Home: decoration, not meaning"],
+    redesign: { task_quote: "Please redesign the orders page, it looks generic", inventory: ["Orders page: filter, table, create dialog", "Create order flow"] } });
+  assert.deepEqual(errs(r, o), []);
+  const m = base(); Object.assign(m.creative_direction, alts(), { basis: "redesign", redesign: { task_quote: "Please redesign the orders page, it looks generic" } });
+  const e = errs(m, o); has(e, "redesign.inventory"); has(e, "creative_direction.avoided");
+  r.creative_direction.redesign.user_approval = "I approve"; has(errs(r, o), "must come from the user");
+  r.creative_direction.redesign.task_quote = "make it prettier"; has(errs(r, o), "does not ask for a visual change");
+  assert.deepEqual(errs(base(), o), []);
 });
 test("ux patterns: two options, chosen among them", () => {
   const d = strong(); d.ux_patterns[0].options = ["table"]; has(errs(d), "at least two");
