@@ -81,3 +81,10 @@ gates (each: pass, waived with id, failed with open finding ids), fix rounds use
 runtime did what (from `## Execution`), waivers, failovers, and the next action the user can take
 (deliver, review the open findings, answer a question). For a defect task it also gives the one-sentence
 root cause of section 2 and the regression test. No raw output.
+
+**Commands proposal.** If `commands.build`, `commands.test` or `commands.lint` are empty in
+`.agents/config.yaml` and the run discovered a command for one of them and proved it (the exact command passed
+in a recorded implementer, QA or verifier step), ask the user ONE question at the end of the run, after cleanup
+(the config is locked during a run): the command per key, recommended answer "write them". On yes, edit only
+those empty keys in `.agents/config.yaml`; on no or no answer, change nothing. Never propose an unproven
+command or replace a configured one.
