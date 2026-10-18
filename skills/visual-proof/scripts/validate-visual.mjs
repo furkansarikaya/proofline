@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Validates a visual-proof report (report.json) and recomputes its result. No dependencies.
 //   node validate-visual.mjs <report.json> [--class STANDARD|COMPLEX|CRITICAL] [--plan PLAN.md] [--spec FILE]...
-//                            [--rows] [--json]
+//                            [--ui ui.json] [--rows] [--json]
 // Screenshot paths are relative to the report's directory; every one must exist with its recorded sha256.
 // Prints `RESULT: <PASS|FAIL|INCONCLUSIVE|UNSUPPORTED>` and one `SUMMARY:` line; `--rows` adds the finding rows
 // for `agent.sh submit --findings` (severity|path:line|finding|evidence).
@@ -23,7 +23,9 @@ export const CORE = ["viewport_overflow", "horizontal_scroll", "hidden_interacti
   "contrast", "touch_target", "state_rendered", "focus_order", "focus_visible"];
 export const INTERACTION_CHECKS = ["long_content", "form_validation", "modal_interaction", "dropdown_interaction"];
 export const CHECKS = [...CORE, ...INTERACTION_CHECKS, "a11y_scanner"];
-export const ASPECTS = ["hierarchy", "density", "consistency", "typography"];
+export const BASE_ASPECTS = ["hierarchy", "density", "consistency", "typography"];
+export const CHARACTER = "character"; // required only for COMPLEX/CRITICAL with creative_direction.basis new|redesign (--ui)
+export const ASPECTS = [...BASE_ASPECTS, CHARACTER];
 export const TOOL_KINDS = ["project-tool", "headless-browser", "runtime-adapter", "none"];
 export const CLASSES = ["STANDARD", "COMPLEX", "CRITICAL"];
 export const MIN_VIEWPORTS = { STANDARD: 2, COMPLEX: 3, CRITICAL: 3 };
@@ -267,7 +269,8 @@ export function validateReport(report, opt = {}) {
     }
   }
   if (!unsupported && report.class !== "STANDARD") {
-    for (const a of ASPECTS) if (!judged.some((j) => j.aspect === a)) err(`class ${report.class} needs a judged item for ${a}`);
+    const need = ["new", "redesign"].includes(opt.basis) ? ASPECTS : BASE_ASPECTS;
+    for (const a of need) if (!judged.some((j) => j.aspect === a)) err(`class ${report.class} needs a judged item for ${a}`);
   }
 
   // --- criteria ------------------------------------------------------------------------------------------
@@ -339,15 +342,16 @@ function rowsOf(report, fails, judged) {
 export const submitReason = (r) => `visual INCONCLUSIVE: ${r.reasons.slice(0, 6).join("; ").replace(/["|\n]/g, "/")}${r.reasons.length > 6 ? `; +${r.reasons.length - 6} more` : ""}; not a FAIL; measure the missing cells or the user waives`;
 
 function main(argv) {
-  const usage = "usage: validate-visual.mjs <report.json> [--class STANDARD|COMPLEX|CRITICAL] [--plan PLAN.md] [--spec FILE]... [--rows] [--json]";
+  const usage = "usage: validate-visual.mjs <report.json> [--class STANDARD|COMPLEX|CRITICAL] [--plan PLAN.md] [--spec FILE]... [--ui ui.json] [--rows] [--json]";
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
-  let file, cls, planText;
+  let file, cls, planText, basis;
   const specTexts = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--class") cls = argv[++i];
     else if (a === "--plan") planText = read(argv[++i]);
     else if (a === "--spec") specTexts.push(read(argv[++i]));
+    else if (a === "--ui") { try { basis = JSON.parse(read(argv[++i]))?.creative_direction?.basis; } catch (e) { console.error(`invalid JSON in --ui: ${e.message}`); return 2; } }
     else if (a === "--rows" || a === "--json") continue;
     else if (a.startsWith("--") || file) { console.error(usage); return 2; }
     else file = a;
@@ -355,7 +359,7 @@ function main(argv) {
   if (!file || (argv.includes("--class") && !CLASSES.concat("TRIVIAL").includes(cls))) { console.error(usage); return 2; }
   let report;
   try { report = JSON.parse(read(file)); } catch (e) { console.error(`invalid JSON in ${file}: ${e.message}`); return 2; }
-  const r = validateReport(report, { cls, planText, specTexts, root: dirname(resolve(file)) });
+  const r = validateReport(report, { cls, planText, specTexts, basis, root: dirname(resolve(file)) });
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
   else {
     r.errors.forEach((e) => console.error(`error: ${e}`));

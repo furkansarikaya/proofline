@@ -3,7 +3,10 @@
 Judgement covers what no measurement settles: **hierarchy** (what the eye reads first, whether it is the
 primary task), **density** (information per screen against the spec's stated density and the users' task),
 **consistency** (the same element looks and behaves the same across screens, states and the existing design
-system) and **typography** (scale, line length, weight contrast, legibility at each viewport).
+system) and **typography** (scale, line length, weight contrast, legibility at each viewport). A fifth aspect, **character**, asks whether the rendered UI reflects the visual
+character written in DESIGN.md and whether patterns listed in `creative_direction.avoided` have leaked back in.
+It is required only for COMPLEX and CRITICAL tasks whose `creative_direction.basis` is `new` or `redesign`
+(the validator reads it from `--ui <ui.json>`); otherwise it is accepted but optional. It follows the same rules below.
 
 Each item in `judged[]`:
 
@@ -24,6 +27,6 @@ Rules:
 3. `violation` only when a criterion written in the spec or plan says otherwise, quoted verbatim in
    `violates.quote` (the validator checks the quote against the `--spec` and `--plan` files). Taste, a
    generic best practice or a design-system preference that the spec does not state is a `concern`.
-4. At least one item per aspect; more where a screen or viewport differs. No `value` or `threshold`:
+4. At least one item per required aspect; more where a screen or viewport differs. No `value` or `threshold`:
    anything measurable belongs in `measured[]`.
 5. Judged items never close the gate alone: a report with judged items and no measured coverage is invalid.

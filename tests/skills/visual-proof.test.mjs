@@ -133,6 +133,11 @@ test("depth: TRIVIAL has no visual focus; STANDARD is 2 viewports and measured o
   noError.cells = noError.cells.filter((x) => x.state !== "error");
   noError.measured = noError.measured.filter((x) => x.state !== "error");
   assert.match(errs(noError, c.dir), /cell orders\|error\|phone required by class COMPLEX has no screenshot entry/);
+  // character: required only for basis new|redesign (validateReport opt.basis, as --ui feeds it)
+  assert.match(errs(c.r, c.dir, { basis: "new" }), /COMPLEX needs a judged item for character/);
+  const ch = clone(c.r); ch.judged.push({ ...ch.judged[0], id: "J-5", aspect: "character" });
+  assert.equal(errs(ch, c.dir, { basis: "redesign" }), "");
+  assert.equal(errs(c.r, c.dir, { basis: "conform" }), "");
   const noTypo = clone(c.r); noTypo.judged = noTypo.judged.filter((j) => j.aspect !== "typography");
   assert.match(errs(noTypo, c.dir), /COMPLEX needs a judged item for typography/);
   // judged alone never closes the gate: no measured coverage is invalid
