@@ -302,5 +302,7 @@ test("mutation_budget: never below one mutant per criterion (validator and thres
   assert.match(out(run), /mutation_budget=33\n/, "an override file without its ledger row is ignored");
   writeFileSync(join(run, "LEDGER.log"), "seq=9 prev=x event=raise-budget role=lead from=- to=- digest=x ts=t epoch=1 detail=test_trust.mutation_budget 40 for this run, approval 001\n");
   assert.match(out(run), /mutation_budget=40\n/);
+  writeFileSync(join(run, "mutation_budget"), "040\n");
+  assert.match(out(run), /mutation_budget=40\n/, "a leading zero is the same number as the ledger row's");
   assert.match(out(), /mutation_budget=20\n/);
 });

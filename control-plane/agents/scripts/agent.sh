@@ -3381,7 +3381,7 @@ plan_test_acs() { awk '/^## /{ i = ($0 ~ /^## Tests/); next } i && match($0, /^[
 # Budget in force: the larger of config test_trust.mutation_budget and the user-approved per-run override.
 mutation_budget() {
   mb_b=$(cfg test_trust.mutation_budget 20); mb_o=$(cat "$(run_dir "$1")/mutation_budget" 2>/dev/null || :)
-  case "$mb_b" in ''|*[!0-9]*) mb_b=20 ;; esac; case "$mb_o" in ''|*[!0-9]*) mb_o=0 ;; esac
+  case "$mb_b" in ''|*[!0-9]*) mb_b=20 ;; esac; case "$mb_o" in ''|*[!0-9]*) mb_o=0 ;; esac; mb_o=$(printf '%s' "$mb_o" | sed 's/^0*//'); [ -n "$mb_o" ] || mb_o=0
   # the override counts only with the raise-budget ledger row that wrote it (a file alone could be written by any role)
   grep -q "event=raise-budget .*test_trust.mutation_budget $mb_o for this run" "$(ledger_file "$1")" 2>/dev/null || mb_o=0
   if [ "$mb_o" -gt "$mb_b" ]; then echo "$mb_o"; else echo "$mb_b"; fi
@@ -3397,7 +3397,7 @@ require_mutation_budget() {
 # resolves a REVIEW_TESTS BLOCKED on the budget: raise, then dispatch the reviewer again.
 raise_budget() {
   rb_id=$1 rb_n=$2; require_run "$rb_id"; require_lead; require_open_run "$rb_id"; rb_d=$(run_dir "$rb_id")
-  case "$rb_n" in ''|*[!0-9]*) fail "usage: agent.sh raise-budget <ID> <N>" ;; esac
+  case "$rb_n" in ''|*[!0-9]*) fail "usage: agent.sh raise-budget <ID> <N>" ;; esac; rb_n=$(printf '%s' "$rb_n" | sed 's/^0*//'); [ -n "$rb_n" ] || rb_n=0   # "040" is 40 in the file and the ledger row
   [ "$rb_n" -gt "$(mutation_budget "$rb_id")" ] || fail "the mutation budget is already $(mutation_budget "$rb_id"); nothing to raise"
   [ "$rb_n" -ge "$(plan_test_acs "$rb_d/PLAN.md")" ] || fail "N must cover the $(plan_test_acs "$rb_d/PLAN.md") criteria of PLAN ## Tests"
   rb_app=$(find_approval "$rb_id" mutation_budget "$(hash_file "$rb_d/PLAN.md")") || fail "raising the mutation budget needs the user's approval: 'agent.sh request-approval $rb_id mutation_budget', relay it, then run this again"
@@ -3853,7 +3853,7 @@ answer() {
   an_q=$an_d/questions/$(printf '%03d' "$(printf '%s' "$an_n" | sed 's/^0*//; s/^$/0/')").md
   [ -f "$an_q" ] || fail "no question $an_n for $an_id"
   [ ! -e "${an_q%.md}.answer.md" ] || fail "question $an_n is already answered"
-  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no
+  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used=
   if [ "${3:-}" = --captured ]; then
     # The answer is the user's own message as the prompt hook captured it (the oldest real prompt since the question), not
     # text the lead relays: a lead's rewrite never matched, a short "1" was under the 3-character rule, and a later
@@ -3865,7 +3865,7 @@ answer() {
       grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
       # one prompt answers one question: a prompt an earlier --captured answer used is skipped
       ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
-      cat "$an_h" > "$an_t"; printf '%s\n' "${an_h##*/}" >> "$root/.agents/local/prompts/consumed"; break
+      cat "$an_h" > "$an_t"; an_used=${an_h##*/}; break
     done
     [ -s "$an_t" ] || { rm -f "$an_t"; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
   else cat > "$an_t"; fi
@@ -3894,7 +3894,7 @@ answer() {
   if [ -n "$an_tok" ] && printf '%s' "$an_norm" | grep -Eiq '^accept'; then
     if [ "$an_acc" = yes ]; then printf 'accept %s\n' "${an_tok%@*}" > "$an_t"; else an_by=lead; fi
   fi
-  { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"
+  { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
   # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is

@@ -497,13 +497,15 @@ questions() {
 
 link_writes() { # H1: symlinks in every component, links into .agents/, every file-changing shell command
   fixture; mkdir -p .agents/runs/LC/amendments .agents/local/prompts
-  printf x > user-wip.txt   # the user's untracked work, there before the run's first hook event
+  printf x > user-wip.txt; printf x > "wip-é.txt"; printf x > "$(printf 'wip\tt.txt')"   # the user's untracked work (quoted names too), there before the run's first hook event
   ln -s ../../../local/prompts/f.json .agents/runs/LC/amendments/f.json
   denied "H1 lead Write through a symlink in amendments/ to a prompt capture" "$(pre_edit Write .agents/runs/LC/amendments/f.json)" "symbolic link"
   denied "H1 lead shell write through a symlink in amendments/" "$(pre_bash 'printf x > .agents/runs/LC/amendments/f.json')" "symbolic link"
   # A file the run itself created may be deleted: an untracked, unignored stray at the root (premium-audit.json, site run) and
   # a symlink in scratch/ (scratch/cur). Never a tracked or older file, never a write to them, never protected state.
   [ -s .agents/runs/LC/LEDGER.log ] || echo 'seq=1 epoch=1' > .agents/runs/LC/LEDGER.log
+  # the baseline of the untracked files was taken by the first hook event above, before the stray below exists
+  grep -qxF user-wip.txt .agents/local/baseline/LC && grep -qxF "wip-é.txt" .agents/local/baseline/LC && grep -qxF "$(printf 'wip\tt.txt')" .agents/local/baseline/LC && ! grep -q premium-audit .agents/local/baseline/LC || die "E1 the run's untracked baseline is missing or wrong: $(cat .agents/local/baseline/LC 2>&1)"
   mkdir -p .agents/runs/LC/scratch; printf '{}' > premium-audit.json; printf y >> user-wip.txt
   printf x > tracked.txt; git add tracked.txt; ln -s ../../../../impl.txt .agents/runs/LC/scratch/cur
   allowed "E1 lead removes an untracked file the run created" "$(pre_bash 'rm premium-audit.json')"
@@ -516,6 +518,8 @@ link_writes() { # H1: symlinks in every component, links into .agents/, every fi
   pd=$(H pretool "$(pj tracked.txt)" codex); denied "E1 a Codex apply_patch deletion of a tracked file" "$pd"
   denied "E1 a tracked file is not removable" "$(pre_bash 'rm tracked.txt')"
   denied "E1 the user's untracked file, edited after the run began, is not removable" "$(pre_bash 'rm user-wip.txt')"
+  denied "E1 the user's untracked file with a non-ASCII name is not removable" "$(pre_bash 'rm wip-é.txt')"
+  denied "E1 the user's untracked file with a tab in its name is not removable" "$(pre_bash "rm 'wip$(printf '\t')t.txt'")"
   # the run's override of the mutation budget is written only by agent.sh
   denied "E2 an implementer writes the mutation_budget override" "$(pre_edit Write .agents/runs/LC/mutation_budget proofline-implementer a7)" "written only by agent.sh"
   denied "E2 the lead writes the mutation_budget override" "$(pre_bash 'echo 99 > .agents/runs/LC/mutation_budget')" "written only by agent.sh"
