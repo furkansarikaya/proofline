@@ -14,18 +14,19 @@ for n in 1 2; do
   dep=''; [ "$n" = 2 ] && dep='depends_on: T-1
 '
   cat > .agents/tasks/T-$n.md <<E2
+# Task: T-$n - Sample
+
 ---
 size: S
 sprint: 1
 assignee: dev-$n
 ${dep}---
-# Task: T-$n - Sample
 
 ## Goal
 Do thing $n.
 
 ## Context
-See [ADR 0001](../../docs/adr/0001-use-postgres.md).
+See [ADR 0001](/docs/adr/0001-use-postgres.md).
 
 ## Acceptance criteria
 - AC-1: The thing $n works and returns HTTP 200.

@@ -189,13 +189,13 @@ test("front matter: accepts size/sprint/assignee/depends_on, rejects unknown siz
   const dir = mkdtempSync(join(tmpdir(), "fm-"));
   mkdirSync(join(dir, "T-0"));
   writeFileSync(join(dir, "T-0", "TASK.md"), GOOD.replace("T-1", "T-0"));
-  const fm = (extra) => `---\n${extra}\n---\n${GOOD}`;
+  const fm = (extra) => GOOD.replace(/^(# Task:.*\n)/, `$1\n---\n${extra}\n---\n`);
   const run = (t) => {
     const f = join(dir, "x.md.txt");
     writeFileSync(f, t);
     return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" });
   };
-  assert.equal(run(fm("size: M\nsprint: 2\nassignee: ann\ndepends_on: [T-0]")).status, 0);
+  assert.equal(run(fm("size: M\nsprint: 2\nassignee: dev-1\ndepends_on: [T-0]")).status, 0);
   const bad = run(fm("size: XL"));
   assert.notEqual(bad.status, 0);
   assert.match(bad.stdout + bad.stderr, /size must be one of S\|M\|L/);

@@ -90,8 +90,13 @@ export const SIZES = ["S", "M", "L"];
 
 // Optional YAML front matter (size, sprint, assignee, depends_on); flat `key: value` lines only.
 export function frontMatter(text) {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
-  if (!m) return { meta: {}, body: text };
+  // the block sits right after the `# Task:` line (line 1 stays the H1); a leading block is still accepted
+  let m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text), pre = "";
+  if (!m) {
+    const h = /^(# Task:[^\n]*\r?\n)(?:[ \t]*\r?\n)*---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
+    if (!h) return { meta: {}, body: text };
+    m = [h[0], h[2]]; pre = h[1];
+  }
   const meta = {};
   let key = null;
   for (const l of m[1].split(/\r?\n/)) {
@@ -100,7 +105,7 @@ export function frontMatter(text) {
     const kv = /^([A-Za-z_]+):\s*(.*?)\s*$/.exec(l);
     if (kv) { key = kv[1]; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
   }
-  return { meta, body: text.slice(m[0].length) };
+  return { meta, body: pre + text.slice(m[0].length) };
 }
 
 // Task ids found next to a task: `<dir>/*.md` (file name and H1) and `<dir>/*/TASK.md` (H1).

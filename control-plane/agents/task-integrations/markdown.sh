@@ -67,13 +67,19 @@ case "$op" in
     case "$id" in ''|*[!A-Za-z0-9._-]*) b=$(basename "$src" .md); id=$(printf '%s' "$b" | sed -n 's/^\([A-Za-z][A-Za-z0-9]*-[0-9][0-9]*\).*/\1/p'); [ -n "$id" ] || id=$b ;; esac
     pl_id "$id"
     work=$(mktemp "${TMPDIR:-/tmp}/md-import.XXXXXX")
-    awk '!d && /^# / { d=1; next } /^\*\*Status:\*\*/ { next } { print }' "$src" > "$work"
+    # planning block (`---` ... `---`) directly after the H1, or leading in a hand-written file: not copied into the body
+    awk 'NR==1 && $0=="---" { st=1; next } st==1 { if ($0=="---") st=0; next }
+      !d && /^# / { d=1; st=2; next } st==2 && /^[[:space:]]*$/ { next } st==2 && $0=="---" { st=3; next }
+      st==3 { if ($0=="---") st=0; next } { if (st==2) st=0 } /^\*\*Status:\*\*/ { next } { print }' "$src" > "$work"
     rc=0; pl_import markdown "$work" "$out" "$id" "$title" "markdown $src" || rc=$?
     rm -f "$work"
     # keep the optional planning front matter (size, sprint, assignee, depends_on) parseable at the top of the run's TASK.md
-    fm=$(awk 'NR==1 && $0 != "---" { exit } { buf = buf $0 "\n" } NR>1 && $0 == "---" { printf "%s", buf; exit }' "$src")
-    if [ "$rc" -eq 0 ] && [ -f "$out" ] && [ -n "$fm" ]; then
-      fmt=$(mktemp "${TMPDIR:-/tmp}/md-fm.XXXXXX"); { printf '%s\n' "$fm"; cat "$out"; } > "$fmt" && cat "$fmt" > "$out"; rm -f "$fmt"
+    fm=$(awk 'NR==1 && $0=="---" { st=1; print; next } st==1 { print; if ($0=="---") exit; next }
+      !d && /^# / { d=1; st=2; next } st==2 && /^[[:space:]]*$/ { next } st==2 && $0=="---" { st=3; print; next }
+      st==3 { print; if ($0=="---") exit; next } { exit }' "$src")
+    if [ "$rc" -eq 0 ] && [ -f "$out" ] && [ -n "$fm" ] && [ "$(printf '%s\n' "$fm" | tail -1)" = "---" ]; then
+      fmt=$(mktemp "${TMPDIR:-/tmp}/md-fm.XXXXXX")
+      { sed -n '1p' "$out"; printf '\n%s\n' "$fm"; sed '1d' "$out"; } > "$fmt" && cat "$fmt" > "$out"; rm -f "$fmt"
     fi
     exit "$rc"
     ;;
