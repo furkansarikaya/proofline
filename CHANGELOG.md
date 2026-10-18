@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.0.5 — 2026-10-18
+
+- visual-proof no longer reports false alarms: non-HTML responses are not measured, content marked `data-vp-probe` is skipped, and overflow inside closed content causes no failure while the page does not scroll sideways.
+- During a run proofline's method skills replace overlapping skills from elsewhere; ecosystem skills stay free and no skill is blocked.
+- `proofline doctor` warns about foreign context hooks, overlapping skills and empty `commands.build|test|lint`.
+- The implementer instruction spells out the `tdd.json` block and the retry path on existing code (RED in a separate worktree at the base revision).
+- The lead proposes writing proven commands to the config in one question at run end.
+- Fix: no `PLAN.md: No such file` grep error when a worker window opens before the plan exists.
+- README: proofline works alongside ecosystem-specific skills.
+
 ## 0.0.4 — 2026-10-18
 
 - ui-design offers 2-3 evidence-derived design directions; the user picks one and the choice is recorded. Never for `conform`.
