@@ -37,12 +37,12 @@ find_task() {   # ID -> relative path of the task file (first match across lifec
 }
 
 strip_plan() {   # task file -> stdout without the planning block (and Status lines)
-    awk 'NR==1 && $0=="---" { st=1; next } st==1 { if ($0=="---") st=0; next }
+    awk '!f && /^[[:space:]]*$/ { next } !f { f=1; if ($0=="---") { st=1; next } } st==1 { if ($0=="---") st=0; next }
       !d && /^# / { d=1; st=2; next } st==2 && /^[[:space:]]*$/ { next } st==2 && /^\*\*Status:\*\*/ { next } st==2 && $0=="---" { st=3; next }
       st==3 { if ($0=="---") st=0; next } { if (st==2) st=0 } /^\*\*Status:\*\*/ { next } { print }' "$1"
 }
 get_plan() {   # task file -> stdout: the planning block incl. both --- lines, or nothing
-  awk 'NR==1 && $0=="---" { st=1; print; next } st==1 { print; if ($0=="---") exit; next }
+  awk '!f && /^[[:space:]]*$/ { next } !f { f=1; if ($0=="---") { st=1; print; next } } st==1 { print; if ($0=="---") exit; next }
       !d && /^# / { d=1; st=2; next } st==2 && /^[[:space:]]*$/ { next } st==2 && /^\*\*Status:\*\*/ { next } st==2 && $0=="---" { st=3; print; next }
       st==3 { print; if ($0=="---") exit; next } { exit }' "$1"
 }

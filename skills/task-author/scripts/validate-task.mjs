@@ -110,7 +110,8 @@ export function frontMatter(text) {
 
 // Task ids found next to a task: `<dir>/*.md` (file name and H1) and `<dir>/*/TASK.md` (H1).
 function knownIds(dirs) {
-  const ids = new Set();
+  const ids = new Set(), names = [];
+  ids.has2 = (d) => ids.has(d) || names.some((c) => c.startsWith(`${d}-`));
   const h1 = (f) => { try { const m = /^# Task: (\S+)/m.exec(readFileSync(f, "utf8")); if (m) ids.add(m[1]); } catch {} };
   for (const d of dirs) {
     let names = [];
@@ -118,7 +119,11 @@ function knownIds(dirs) {
     for (const n of names) {
       const f = join(d, n);
       if (n.endsWith(".md")) { ids.add(basename(n, ".md")); h1(f); }
-      else { try { if (statSync(f).isDirectory()) { ids.add(n); h1(join(f, "TASK.md")); } } catch {} }
+      else { try { if (statSync(f).isDirectory()) {
+        ids.add(n); h1(join(f, "TASK.md"));
+        // lifecycle folders (<dir>/{todo,done,...}/<ID>.md or <ID>-*.md)
+        for (const c of readdirSync(f)) if (c.endsWith(".md")) { ids.add(basename(c, ".md")); names.push(c); h1(join(f, c)); }
+      } } catch {} }
     }
   }
   return ids;
@@ -134,7 +139,7 @@ export function validate(full, opts = {}) {
     const deps = meta.depends_on.split(/[\s,]+/).filter(Boolean);
     if (opts.tasksDirs?.length) {
       const known = knownIds(opts.tasksDirs);
-      for (const d of deps) if (!known.has(d)) errors.push(`depends_on id "${d}" matches no task in ${opts.tasksDirs.join(", ")}`);
+      for (const d of deps) if (!known.has2(d)) errors.push(`depends_on id "${d}" matches no task in ${opts.tasksDirs.join(", ")}`);
     }
   }
   const t = parseTask(text);
@@ -254,7 +259,7 @@ function main(argv) {
   if (!file) { console.error("usage: validate-task.mjs TASK.md [--json]"); return 2; }
   const td = opt("--tasks-dir");
   const own = dirname(resolve(file));
-  const tasksDirs = td ? [resolve(td)] : basename(file) === "TASK.md" ? [own, dirname(own)] : [own];
+  const tasksDirs = td ? [resolve(td)] : [own, dirname(own)];
   const r = validate(read(file), { tasksDirs });
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
   else { r.errors.forEach((e) => console.error(`error: ${e}`)); r.warnings.forEach((w) => console.error(`warning: ${w}`)); }

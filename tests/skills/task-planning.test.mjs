@@ -89,3 +89,14 @@ test("markdown.sh create: planning block in the body is kept after Status and no
   assert.equal(sh("sh", [md, "import", file, join(d, "TASK.md")], d).status, 0);
   checkRun(join(d, "TASK.md"));
 });
+
+test("markdown.sh create: body with no H1 and a leading blank line keeps the block out of Context", () => {
+  const d = mdProject();
+  writeFileSync(join(d, "body.md"), `\n${BLOCK}\n${BODY}`);
+  const md = join(d, ".agents/task-integrations/markdown.sh");
+  const c = sh("sh", [md, "create", "T-3", "Sample", join(d, "body.md")], d);
+  assert.equal(c.status, 0, c.stderr + c.stdout);
+  const t = readFileSync(join(d, c.stdout.trim()), "utf8");
+  assert.match(t, /^# Task: [^\n]*\n\n\*\*Status:\*\* in-progress\n\n---\nsize: S\nsprint: 1\n---\n/);
+  assert.ok(!t.slice(t.indexOf("## Context")).includes("sprint: 1"), t);
+});

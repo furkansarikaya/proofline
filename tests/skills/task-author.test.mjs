@@ -218,3 +218,19 @@ test("front matter with a Status line after the H1 is still validated", () => {
   assert.notEqual(dep.status, 0);
   assert.match(dep.stdout + dep.stderr, /depends_on id "T-99" matches no task/);
 });
+
+test("depends_on resolves ids across lifecycle folders (done/ -> todo/), unknown id still rejected", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lc-"));
+  mkdirSync(join(dir, "done")); mkdirSync(join(dir, "todo"));
+  writeFileSync(join(dir, "done", "T-1-a.md"), GOOD);
+  const run = (dep, withDir) => {
+    const f = join(dir, "todo", "T-2-x.md");
+    writeFileSync(f, GOOD.replace("T-1", "T-2").replace(/^(# Task:.*\n)/, `$1\n---\ndepends_on: [${dep}]\n---\n`));
+    return spawnSync("node", [SCRIPT, f, ...(withDir ? ["--tasks-dir", dir] : [])], { encoding: "utf8" });
+  };
+  assert.equal(run("T-1", true).status, 0);
+  assert.equal(run("T-1", false).status, 0);
+  const bad = run("T-9", true);
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout + bad.stderr, /depends_on id "T-9" matches no task/);
+});
