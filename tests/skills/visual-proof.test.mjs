@@ -443,10 +443,12 @@ test("browser: non-HTML responses, data-vp-probe content and closed-details over
   const dir = mktmp(), out = join(dir, "out");
   writeFileSync(join(dir, "robots.txt"), "User-agent: *\nDisallow:\n");
   const page = (body) => `<!doctype html><meta name=viewport content="width=device-width"><body><main id=m><p>ok</p>${body}</main>`;
-  writeFileSync(join(dir, "index.html"), page(`<details><summary>Menu</summary><div style="position:absolute;left:900px;width:200px">closed</div></details>
-<div data-vp-probe style="width:2000px;height:20px">probe</div>`));
-  writeFileSync(join(dir, "wide.html"), page(`<div style="width:2000px;height:20px">wide</div>`));
-  const state = [{ name: "default", ready: "#m" }];
+  writeFileSync(join(dir, "index.html"), page(`<details><summary>Menu</summary><div style="position:absolute;left:900px;width:200px">closed</div></details>`));
+  // a page author's own data-vp-probe (any value, even a guessed one) does not hide an overflowing element
+  writeFileSync(join(dir, "wide.html"), page(`<div data-vp-probe="x" style="width:2000px;height:20px">wide</div>`));
+  // the setup script injects the wide probe with the run's token, so it is not measured
+  const inject = `const d = document.createElement("div"); d.dataset.vpProbe = window.__vp.token; d.style.cssText = "width:2000px;height:20px"; document.body.append(d);`;
+  const state = [{ name: "default", ready: "#m", setup: inject }];
   const cfg = { class: "STANDARD", base_url: pathToFileURL(dir + "/").href,
     viewports: [{ name: "phone", width: 360, height: 740 }, { name: "desktop", width: 1280, height: 800 }],
     screens: [{ id: "home", path: "index.html", states: state }, { id: "wide", path: "wide.html", states: state },

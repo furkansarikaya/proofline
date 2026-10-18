@@ -4,7 +4,7 @@
 
 ## 0.0.5 — 2026-10-18
 
-- visual-proof no longer reports false alarms: non-HTML responses are not measured, content marked `data-vp-probe` is skipped, and overflow inside closed content causes no failure while the page does not scroll sideways.
+- visual-proof no longer reports false alarms: non-HTML responses are not measured, content the setup script marks with the run token (`data-vp-probe`) is skipped, and overflow inside closed content causes no failure while the page does not scroll sideways.
 - During a run proofline's method skills replace overlapping skills from elsewhere; ecosystem skills stay free and no skill is blocked.
 - `proofline doctor` warns about foreign context hooks, overlapping skills and empty `commands.build|test|lint`.
 - The implementer instruction spells out the `tdd.json` block and the retry path on existing code (RED in a separate worktree at the base revision).

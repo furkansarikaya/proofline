@@ -90,8 +90,11 @@ function probeSource() {
   };
   // Content the user cannot reach: a closed <details>, [hidden], [inert]. Its overflow counts only when the page itself scrolls sideways.
   const closed = (el) => !!el.closest("[hidden],[inert],details:not([open]) > :not(summary)");
-  // Content a test setup injected to drive a state (an iframe, a probe note) carries data-vp-probe and is never measured.
-  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert],[data-vp-probe]")
+  // Content the state's setup script injected (an iframe, a probe note) carries data-vp-probe=<window.__vp.token> and is
+  // never measured. The token is random per page load, so page code cannot mark its own elements to hide them from the gate.
+  const token = Math.random().toString(36).slice(2);
+  const probeSel = `[data-vp-probe="${token}"]`;
+  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]," + probeSel)
     && e.getClientRects().length > 0 && getComputedStyle(e).visibility === "visible");
   const parse = (c) => {
     const m = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+%?))?\)$/.exec(c);
@@ -114,7 +117,7 @@ function probeSource() {
   };
 
   window.__vp = {
-    sel,
+    sel, token,
     T: [],
     tabbables() { this.T = tabbables(); this.seen = new Set(); return this.T.length; },
     // One Tab stop: "end" when focus is back on the document or on an element already visited; otherwise the
@@ -137,12 +140,15 @@ function probeSource() {
     visible(s) { const el = document.querySelector(s); return !!el && !hidden(el); },
     hscroll() { return document.documentElement.scrollWidth > document.documentElement.clientWidth; },
     measure(opts) {
+      const probes = [...document.querySelectorAll(probeSel)].map((e) => [e, e.style.getPropertyValue("display"), e.style.getPropertyPriority("display")]);
+      for (const [e] of probes) e.style.setProperty("display", "none", "important");
+      try { return this.run(opts); } finally { for (const [e, v, pr] of probes) e.style.setProperty("display", v, pr); }
+    },
+    run(opts) {
       const items = [], nm = [];
       const de = document.documentElement, cw = de.clientWidth;
       const add = (check, el, value, threshold, ok, extra = {}) => items.push({ check, selector: typeof el === "string" ? el : sel(el), value, threshold, status: ok ? "pass" : "fail", ...extra });
       const x0 = scrollX, y0 = scrollY;
-      const probes = [...document.querySelectorAll("[data-vp-probe]")].map((e) => [e, e.style.getPropertyValue("display"), e.style.getPropertyPriority("display")]);
-      for (const [e] of probes) e.style.setProperty("display", "none", "important");
 
       add("horizontal_scroll", "html", de.scrollWidth, `<= ${cw}`, de.scrollWidth <= cw, { client_width: cw });
 
@@ -223,7 +229,6 @@ function probeSource() {
       }
       if (!targetBad) items.push(minDim < Infinity ? { check: "touch_target", selector: "body", value: minDim, threshold: `>= ${min}`, status: "pass", ...(exempt.length ? { exempt_spacing: exempt } : {}) }
         : { check: "touch_target", selector: "body", value: "no non-exempt target", threshold: `>= ${min}`, status: "not_applicable", ...(exempt.length ? { exempt_spacing: exempt } : {}) });
-      for (const [e, v, pr] of probes) e.style.setProperty("display", v, pr);
       return { items, not_measured: nm };
     },
   };
