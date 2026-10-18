@@ -35,7 +35,7 @@ Bundled mappings:
 | jira | Summary (title), Description (goal), canonical sections, Labels, Components |
 | linear | canonical sections plus Labels |
 
-Planning fields (`size`, `sprint`, `assignee`, `depends_on`): `markdown` carries them as a YAML block (`---` ... `---`) right after the `# Task:` line of `TASK.md`, so line 1 stays the H1. For `github`, `jira` and `linear` they are not template sections: `sprint` goes to the milestone and `assignee` to the assignee where the tracker has them, anything else is one `Planning: size M, sprint 2, depends on TASK-001` line at the end of the description.
+Planning fields (`size`, `sprint`, `assignee`, `depends_on`): `markdown` carries them as a YAML block (`---` ... `---`) right after the `# Task:` line of `TASK.md` (after a `**Status:**` line when present), so line 1 stays the H1; leave a blank line before the closing `---` so the last key does not render as a heading. For `github`, `jira` and `linear` they are not template sections: `sprint` goes to the milestone and `assignee` to the assignee where the tracker has them, anything else is one `Planning: size M, sprint 2, depends on TASK-001` line at the end of the description.
 
 ## Export
 

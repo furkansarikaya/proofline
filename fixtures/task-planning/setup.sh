@@ -14,7 +14,7 @@ for n in 1 2; do
   dep=''; [ "$n" = 2 ] && dep='depends_on: T-1
 '
   cat > .agents/tasks/T-$n.md <<E2
-# Task: T-$n - Sample
+# Task: T-$n — Sample
 
 ---
 size: S

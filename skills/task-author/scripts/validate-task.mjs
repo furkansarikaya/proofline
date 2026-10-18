@@ -93,7 +93,7 @@ export function frontMatter(text) {
   // the block sits right after the `# Task:` line (line 1 stays the H1); a leading block is still accepted
   let m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text), pre = "";
   if (!m) {
-    const h = /^(# Task:[^\n]*\r?\n)(?:[ \t]*\r?\n)*---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
+    const h = /^(# Task:[^\n]*\r?\n)(?:[ \t]*\r?\n)*(?:\*\*Status:\*\*[^\n]*\r?\n(?:[ \t]*\r?\n)*)?---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
     if (!h) return { meta: {}, body: text };
     m = [h[0], h[2]]; pre = h[1];
   }

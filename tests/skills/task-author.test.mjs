@@ -203,3 +203,18 @@ test("front matter: accepts size/sprint/assignee/depends_on, rejects unknown siz
   assert.notEqual(dep.status, 0);
   assert.match(dep.stdout + dep.stderr, /depends_on id "T-99" matches no task/);
 });
+
+test("front matter with a Status line after the H1 is still validated", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fms-"));
+  const f = join(dir, "x.md.txt");
+  const run = (extra) => {
+    writeFileSync(f, GOOD.replace(/^(# Task:.*\n)/, `$1\n**Status:** in-progress\n\n---\n${extra}\n---\n`));
+    return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" });
+  };
+  const bad = run("size: XL");
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout + bad.stderr, /size must be one of S\|M\|L/);
+  const dep = run("depends_on: [T-99]");
+  assert.notEqual(dep.status, 0);
+  assert.match(dep.stdout + dep.stderr, /depends_on id "T-99" matches no task/);
+});
