@@ -10,6 +10,7 @@
 - The implementer instruction spells out the `tdd.json` block and the retry path on existing code (RED in a separate worktree at the base revision).
 - The lead proposes writing proven commands to the config in one question at run end.
 - Fix: no `PLAN.md: No such file` grep error when a worker window opens before the plan exists.
+- `/proofline knowledge TASK-ID` runs the knowledge step for FAILED and BLOCKED runs too; `deliver` (including a FAILED run's draft PR) refuses until it is done.
 - README: proofline works alongside ecosystem-specific skills.
 
 ## 0.0.4 — 2026-10-18

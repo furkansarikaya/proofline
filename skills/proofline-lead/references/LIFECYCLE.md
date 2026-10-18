@@ -131,7 +131,7 @@ editing the hash.
 
 ## 7. Knowledge
 
-After CODE_DONE. When the task changed a durable contract (an architecture component, a data model table,
+After CODE_DONE, and also for a run that ended FAILED or BLOCKED (`/proofline knowledge <ID>`; A147): `deliver` and the draft pull request of a FAILED run wait for it. When the task changed a durable contract (an architecture component, a data model table,
 an API endpoint, a design-system rule), update the configured `design_docs` from the run's `design/`
 drafts (D26), within `knowledge_scope_root`, then `A knowledge-done <ID>`. Otherwise
 `A knowledge-done <ID> not_applicable`. The wiki under `docs/wiki/` is knowledge scope too (A139): ingest and update it as the llm-wiki skill says, run its lint, resolve the errors, then `knowledge-done`. Design documents are not product code; the lead writes them only

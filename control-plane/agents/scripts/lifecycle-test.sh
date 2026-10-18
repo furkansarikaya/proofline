@@ -913,6 +913,8 @@ scenario_failed_draft_pr() {
   gfail VERIFY impl.txt
   expect_fail "a draft pull request body for a run that is not FAILED" A draft-pr-body LC
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
+  expect_msg "a draft pull request body before the knowledge step" 'knowledge step not complete' A draft-pr-body LC
+  A knowledge-done LC not_applicable >/dev/null || die "knowledge-done refused on a FAILED run"
   A draft-pr-body LC > "$base/dp.out" || die "no draft pull request body for a FAILED run"
   grep -q '^- VERIFY: fail' "$base/dp.out" && grep -q 'VERIFY-1|blocking|impl.txt:1|lookup returns the wrong value' "$base/dp.out" || die "the body lacks the failing gate and its recorded finding: $(cat "$base/dp.out")"
   grep -q 'Fix rounds: 2 of 2' "$base/dp.out" || die "the body miscounts the fix rounds"

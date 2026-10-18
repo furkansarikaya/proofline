@@ -162,7 +162,7 @@ cmd_deliver() {
   require_installed
   id=${1:-}; [ -n "$id" ] || die "usage: proofline deliver <TASK>"
   # A FAILED run: the body of a DRAFT pull request is generated from the run records; opening it is the user's call.
-  if out=$(agent draft-pr-body "$id" 2>/dev/null); then
+  if out=$(agent draft-pr-body "$id" 2>&1) || { case $out in *"knowledge step"*) printf '%s\n' "$out" >&2; say "not deliverable yet; run: /proofline knowledge $id"; hint deliver "$id"; return 1 ;; esac; false; }; then
     printf '%s\n\n' "$out"
     say "run $id FAILED, not deliverable; nothing was committed or pushed. With your explicit approval the lead may open a DRAFT pull request:"
     say "  push   : needs your push approval for this exact content (agent.sh request-approval - push), then the lead pushes the task branch"

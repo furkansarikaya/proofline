@@ -166,6 +166,7 @@ Specialist results that stop the flow:
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |
 | `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
+| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates, then `A knowledge-done <ID> [not_applicable]`. `deliver` refuses until it is done. |
 | `deliver <TASK>` | [DELIVERY.md](references/DELIVERY.md). |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 

@@ -296,6 +296,8 @@ out=$(pl "$st" deliver T-1 2>&1); rc=$?
 [ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver never commits" || die "deliver changed HEAD"
 # a FAILED run: deliver offers a DRAFT pull request body from the records, never a merge
 sed 's/^  state: PLANNING$/  state: FAILED/' "$st/.agents/runs/T-1/RUN.yaml" > "$st/run.tmp" && cat "$st/run.tmp" > "$st/.agents/runs/T-1/RUN.yaml" && rm "$st/run.tmp"
+out=$(pl "$st" deliver T-1 2>&1); expect "deliver of a FAILED run waits for the knowledge step" "$out" "/proofline knowledge T-1"
+sed 's/^  knowledge_state: .*$/  knowledge_state: not_applicable/' "$st/.agents/runs/T-1/RUN.yaml" > "$st/run.tmp" && cat "$st/run.tmp" > "$st/.agents/runs/T-1/RUN.yaml" && rm "$st/run.tmp"
 out=$(pl "$st" deliver T-1 2>&1); expect "deliver of a FAILED run prepares a DRAFT pull request body" "$out" "gh pr create --draft"
 expect "the draft body says it must not be merged" "$out" "Do not merge"
 [ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver of a FAILED run never commits" || die "deliver of a FAILED run changed HEAD"

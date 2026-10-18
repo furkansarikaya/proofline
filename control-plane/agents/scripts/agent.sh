@@ -1852,6 +1852,7 @@ delivery_check() {
   verify_scope "$id" 1
   verify_knowledge_scope "$id"
   scan_knowledge_secrets "$id"
+  require_knowledge_done "$id"
   verify_handoff "$id" 1
   patch=$(task_patch_fingerprint "$id"); [ "$(section_value "$dir" handoff implemented_patch_sha256)" = "$patch" ] || fail "delivery blocked: implementation stale or missing"
   [ "$(section_value "$dir" handoff code_done_patch_sha256)" = "$patch" ] || fail "delivery blocked: CODE_DONE handoff stale or missing"
@@ -4410,6 +4411,8 @@ report_facts() {
 draft_pr_body() {
   dp_id=$1; require_run "$dp_id"; require_lead; dp_d=$(run_dir "$dp_id")
   [ "$(run_state "$dp_d")" = FAILED ] || fail "a draft pull request is for a FAILED run; $dp_id is $(run_state "$dp_d") (a CODE_DONE run goes through 'delivery-check')"
+  require_knowledge_done "$dp_id"
+  if [ "$(baseline_status "$dp_d")" = captured ]; then verify_knowledge_scope "$dp_id" >/dev/null; scan_knowledge_secrets "$dp_id"; fi
   risk_prime "$dp_id"; dp_fp=$(content_fingerprint); dp_out=$root/.agents/local/draft-pr-$dp_id.md
   mkdir -p "$root/.agents/local"
   {
@@ -4536,15 +4539,20 @@ verify_completion_report() {
   echo "completion report publication verified: $id"
 }
 knowledge_done() {
-  id=$1 state=${2:-KNOWLEDGE_DONE}; require_run "$id"; dir=$(run_dir "$id"); require_lead; require_open_run "$id"
+  id=$1 state=${2:-KNOWLEDGE_DONE}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   case "$state" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "invalid knowledge state: $state" ;; esac
-  [ "$(run_state "$dir")" = CODE_DONE ] || fail "knowledge-done requires CODE_DONE first"
+  # A FAILED or BLOCKED run records what it learned too (A147); cleanup accepts 'knowledge-done' after 'terminate'.
+  case "$(run_state "$dir")" in CODE_DONE) term=0 ;; FAILED|BLOCKED) term=1 ;; *) fail "knowledge-done requires CODE_DONE (or a FAILED/BLOCKED run) first" ;; esac
   section_key_present "$dir" execution knowledge_state || fail "run schema has no execution.knowledge_state field to set"
   verify_seal "$id"
-  ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
+  [ "$term" = 1 ] || ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
   set_run_value "$id" execution knowledge_state "$state"
   if gates_enforced "$id"; then ledger_append "$id" knowledge-done "$(section_value "$dir" handoff state)" "$state" ""; fi
   echo "knowledge state recorded: $id $state"
+}
+# Delivery (a pull request, draft or not) waits for the knowledge step (A147).
+require_knowledge_done() {
+  case "$(section_value "$(run_dir "$1")" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "delivery blocked: knowledge step not complete; run '/proofline knowledge $1' (agent.sh knowledge-done $1 [not_applicable])" ;; esac
 }
 
 # --- Terminal outcomes and cleanup -----------------------------------------------------------
@@ -4574,7 +4582,7 @@ cleanup_run() {
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
-      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Fq "event=terminate " || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id"
+      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id"
       # A draft pull request was prepared for this run: its evidence goes only with the user's separate cleanup approval.
       if [ -f "$root/.agents/local/draft-pr-$id.md" ]; then
         cu_app=$(find_approval - cleanup "$(content_fingerprint)") || fail "cleanup after the draft pull request delivery needs its own approval: 'agent.sh request-approval - cleanup', relay it, then run cleanup again"
