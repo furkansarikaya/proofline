@@ -2,6 +2,8 @@
 
 Derived from the existing UI. Every item cites a path that exists.
 
+Holds only the system (tokens, typography, spacing, colour roles, components, accessibility). Page-specific decisions (a page's hero content, a specific diagram) belong in the task's UI spec.
+
 ## Tokens
 | Token | Value | Defined in |
 |---|---|---|

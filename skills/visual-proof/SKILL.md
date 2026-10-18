@@ -50,7 +50,7 @@ Talk to the user in their language. Files written for machines (`report.json`, `
 5. **Depth by class.** TRIVIAL: no visual focus. STANDARD: the changed screens in their default state x 2
    viewports, measured only (no judged items). COMPLEX and CRITICAL: every spec state (empty, loading, error,
    success, partial, permission-denied, each one the spec does not mark not applicable) x 3 viewports,
-   measured and judged (at least one judged item per aspect). The validator enforces both.
+   measured and judged (at least one judged item per aspect; `character` only when the task's `creative_direction.basis` is `new` or `redesign`). The validator enforces both.
 6. **A state is proven only by rendering it.** Each state needs a way to reach it (a URL, query or setup
    script) and a selector visible only in that state. A state that does not render is a measured failure;
    the other checks of that cell are not measured (nothing else is claimed about a state that is not there).
@@ -105,7 +105,7 @@ rows before the next step.
 6. **Judge** (COMPLEX/CRITICAL only): add `judged[]` items per [JUDGED.md](references/JUDGED.md). Add the
    `regression` record when the project has snapshot infrastructure and you ran its command.
 7. **Validate.** `node <skill-dir>/scripts/validate-visual.mjs <output>/report.json --class <CLASS> --plan
-   PLAN.md --spec <UI spec> --rows`. Fix the document (never a measurement) until it exits 0; it prints
+   PLAN.md --spec <UI spec> [--ui <ui.json>] --rows`. `--ui` supplies `creative_direction.basis`; without it `character` is not required. Fix the document (never a measurement) until it exits 0; it prints
    `RESULT`, `SUMMARY` and the finding rows. Write `REPORT.md` from [OUTPUT.template.md](assets/OUTPUT.template.md).
 
 ## Output and gate rule

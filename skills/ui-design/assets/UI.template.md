@@ -3,7 +3,8 @@
 UI languages: <list> | Design system: <DESIGN.md path>
 
 ## Creative direction
-Basis: <conform|redesign (task quote; user approval: question id)|new>
+Basis: <conform|redesign (task quote; user approval: question id, or inventory when no DESIGN.md)|new>
+Alternatives (new/redesign only): <2-3 directions, each name, summary, trade-off> | Chosen: <the user's pick>
 Visual character / Typography / Layout / Content hierarchy: <each with its reason>
 Rationale: <grounded in the users, the task and the existing system>
 Avoided (new only): <generic defaults rejected, and why>
