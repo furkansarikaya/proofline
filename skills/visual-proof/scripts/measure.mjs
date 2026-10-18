@@ -88,7 +88,10 @@ function probeSource() {
     }
     return false;
   };
-  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]")
+  // Content the user cannot reach: a closed <details>, [hidden], [inert]. Its overflow counts only when the page itself scrolls sideways.
+  const closed = (el) => !!el.closest("[hidden],[inert],details:not([open]) > :not(summary)");
+  // Content a test setup injected to drive a state (an iframe, a probe note) carries data-vp-probe and is never measured.
+  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert],[data-vp-probe]")
     && e.getClientRects().length > 0 && getComputedStyle(e).visibility === "visible");
   const parse = (c) => {
     const m = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+%?))?\)$/.exec(c);
@@ -138,12 +141,14 @@ function probeSource() {
       const de = document.documentElement, cw = de.clientWidth;
       const add = (check, el, value, threshold, ok, extra = {}) => items.push({ check, selector: typeof el === "string" ? el : sel(el), value, threshold, status: ok ? "pass" : "fail", ...extra });
       const x0 = scrollX, y0 = scrollY;
+      const probes = [...document.querySelectorAll("[data-vp-probe]")].map((e) => [e, e.style.getPropertyValue("display"), e.style.getPropertyPriority("display")]);
+      for (const [e] of probes) e.style.setProperty("display", "none", "important");
 
       add("horizontal_scroll", "html", de.scrollWidth, `<= ${cw}`, de.scrollWidth <= cw, { client_width: cw });
 
       const offenders = [];
       for (const el of [...document.body.querySelectorAll("*")].slice(0, 5000)) {
-        if (offenders.some((o) => o.contains(el)) || hidden(el) || clipped(el)) continue;
+        if (offenders.some((o) => o.contains(el)) || hidden(el) || clipped(el) || (de.scrollWidth <= cw && closed(el))) continue;
         const r = el.getBoundingClientRect();
         const over = Math.ceil(Math.max(r.right + scrollX - cw, -(r.left + scrollX)));
         if (over > 0) { offenders.push(el); add("viewport_overflow", el, over, "<= 0", false, { note: `extends ${over}px beyond the ${cw}px viewport` }); }
@@ -218,6 +223,7 @@ function probeSource() {
       }
       if (!targetBad) items.push(minDim < Infinity ? { check: "touch_target", selector: "body", value: minDim, threshold: `>= ${min}`, status: "pass", ...(exempt.length ? { exempt_spacing: exempt } : {}) }
         : { check: "touch_target", selector: "body", value: "no non-exempt target", threshold: `>= ${min}`, status: "not_applicable", ...(exempt.length ? { exempt_spacing: exempt } : {}) });
+      for (const [e, v, pr] of probes) e.style.setProperty("display", v, pr);
       return { items, not_measured: nm };
     },
   };
@@ -583,6 +589,8 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
         const cell = { screen: s.id, state: st.name, viewport: vp.name, items: [], not_measured: [] };
         try {
           cell.rendered = await p.open(url(st.path || s.path), vp, st.ready, st.setup);
+          const type = await p.ev("document.contentType");
+          if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) throw new Error(`not an HTML response (${type}): not measured`);
           cell.screenshot = file(s.id, st.name, vp.name);
           writeFileSync(join(outDir, cell.screenshot), await p.shot());
           if (cell.rendered) {

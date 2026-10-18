@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { validateReport, thresholdHolds, planVisualProof, requiredCells, CORE } from "../../skills/visual-proof/scripts/validate-visual.mjs";
 import { detect, checkConfig, assemble, pageUrl, PROBE } from "../../skills/visual-proof/scripts/measure.mjs";
 
@@ -434,4 +434,28 @@ test("re-review: horizontal_scroll's bound is the recorded client_width, capped 
   assert.match(thresholdError({ check: "horizontal_scroll", threshold: "<= 980", client_width: 980 }, tablet), /exceeds 768/);
   assert.match(thresholdError({ check: "horizontal_scroll", threshold: "<= 980", client_width: 360 }, phone), /weaker/);
   assert.equal(thresholdError({ check: "horizontal_scroll", threshold: "<= 345" }, phone), null);
+});
+
+// 0.0.5: false alarms seen in a real run (858 blocking rows). A text response, injected probe content and overflow
+// inside closed content are not failures; a real overflow on another page still is.
+const BROWSER = detect({ repo: tmpdir() }).kind === "headless-browser";
+test("browser: non-HTML responses, data-vp-probe content and closed-details overflow give no failure", { skip: !BROWSER && "no browser installed" }, () => {
+  const dir = mktmp(), out = join(dir, "out");
+  writeFileSync(join(dir, "robots.txt"), "User-agent: *\nDisallow:\n");
+  const page = (body) => `<!doctype html><meta name=viewport content="width=device-width"><body><main id=m><p>ok</p>${body}</main>`;
+  writeFileSync(join(dir, "index.html"), page(`<details><summary>Menu</summary><div style="position:absolute;left:900px;width:200px">closed</div></details>
+<div data-vp-probe style="width:2000px;height:20px">probe</div>`));
+  writeFileSync(join(dir, "wide.html"), page(`<div style="width:2000px;height:20px">wide</div>`));
+  const state = [{ name: "default", ready: "#m" }];
+  const cfg = { class: "STANDARD", base_url: pathToFileURL(dir + "/").href,
+    viewports: [{ name: "phone", width: 360, height: 740 }, { name: "desktop", width: 1280, height: 800 }],
+    screens: [{ id: "home", path: "index.html", states: state }, { id: "wide", path: "wide.html", states: state },
+      { id: "prep", path: "robots.txt", states: [{ name: "default", ready: "pre" }] }] };
+  writeFileSync(join(dir, "visual.json"), JSON.stringify(cfg));
+  const r = spawnSync(process.execPath, [MEASURE, "--config", join(dir, "visual.json"), "--out", out, "--repo", dir], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  const fails = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
+  const bad = fails.measured.filter((m) => m.status === "fail");
+  assert.deepEqual([...new Set(bad.map((m) => m.screen))], ["wide"], JSON.stringify(bad.map((m) => [m.screen, m.check, m.selector])));
+  assert.ok(fails.not_measured.some((n) => n.screen === "prep" && /not an HTML response/.test(n.reason)));
 });

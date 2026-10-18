@@ -28,6 +28,10 @@
   states a criterion names in `criteria[].states`). `ready` is a selector visible only in that state; a
   state without one cannot be proven. A state the app reaches only through data (an API error) needs a
   `setup` script or a project fixture route that produces it; none available -> the cell is `not_measured`.
+  A response that is not HTML (`robots.txt`, JSON) is `not_measured`, never measured. Content a `setup`
+  script injects (an iframe, a note) must carry `data-vp-probe`: it is hidden while measuring and has no Tab
+  stop. Overflow inside a closed `<details>`, `[hidden]` or `[inert]` is ignored while the page has no
+  horizontal scroll.
 - `interactions`: `check` is `form_validation`, `modal_interaction`, `dropdown_interaction` or `long_content`;
   steps `click`, `fill` (`text`, or `repeat` + `times` for long content), `press` (`Tab`, `Enter`, `Escape`,
   `ArrowDown`, `ArrowUp`, `" "`); expectations `visible`, `hidden`, `focus_within`, `no_horizontal_scroll`,
