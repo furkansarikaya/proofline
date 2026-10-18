@@ -29,8 +29,12 @@
   state without one cannot be proven. A state the app reaches only through data (an API error) needs a
   `setup` script or a project fixture route that produces it; none available -> the cell is `not_measured`.
   A response that is not HTML (`robots.txt`, JSON) is `not_measured`, never measured. Content a `setup`
-  script injects (an iframe, a note) must carry `data-vp-probe="<window.__vp.token>"` (a random value per page
-  load, so a marker the page itself wrote counts for nothing): it is hidden while measuring and has no Tab stop. Overflow inside a closed `<details>`, `[hidden]` or `[inert]` is ignored while the page has no
+  script injects (an iframe, a note) must be registered with `mark(el)`, a function the setup receives as its
+  argument (it is not a page global; a `data-vp-probe` attribute written by the page counts for nothing): a marked
+  element is hidden while measuring and has no Tab stop. The setup runs as `eval` text inside that function, so
+  `var` and function declarations stay local (assign to `window.x` for a global). Limit: the setup runs in the
+  page's own JS world, so page code that intercepts the setup could still obtain `mark`; the gate guards
+  against accident and convenience, not a page built to evade it. Overflow inside a closed `<details>`, `[hidden]` or `[inert]` is ignored while the page has no
   horizontal scroll.
 - `interactions`: `check` is `form_validation`, `modal_interaction`, `dropdown_interaction` or `long_content`;
   steps `click`, `fill` (`text`, or `repeat` + `times` for long content), `press` (`Tab`, `Enter`, `Escape`,

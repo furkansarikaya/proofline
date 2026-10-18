@@ -90,11 +90,14 @@ function probeSource() {
   };
   // Content the user cannot reach: a closed <details>, [hidden], [inert]. Its overflow counts only when the page itself scrolls sideways.
   const closed = (el) => !!el.closest("[hidden],[inert],details:not([open]) > :not(summary)");
-  // Content the state's setup script injected (an iframe, a probe note) carries data-vp-probe=<window.__vp.token> and is
-  // never measured. The token is random per page load, so page code cannot mark its own elements to hide them from the gate.
-  const token = Math.random().toString(36).slice(2);
-  const probeSel = `[data-vp-probe="${token}"]`;
-  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]," + probeSel)
+  // Content the state's setup script injected (an iframe, a probe note) is registered with mark(el) and is never measured.
+  // mark lives only in this closure; the first call returns it and open() hands it to the setup script as its argument,
+  // so it is not a page-readable global. shortcut: the setup runs in the page's own JS world, so page code that
+  // intercepts the setup could still obtain it; the gate guards against convenience and accident, not a hostile page.
+  const marks = [], marked = new WeakSet();
+  const mark = (el) => { marks.push(el); marked.add(el); return el; };
+  const isProbe = (e) => { for (let x = e; x; x = x.parentElement) if (marked.has(x)) return true; return false; };
+  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]") && !isProbe(e)
     && e.getClientRects().length > 0 && getComputedStyle(e).visibility === "visible");
   const parse = (c) => {
     const m = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+%?))?\)$/.exec(c);
@@ -117,7 +120,7 @@ function probeSource() {
   };
 
   window.__vp = {
-    sel, token,
+    sel,
     T: [],
     tabbables() { this.T = tabbables(); this.seen = new Set(); return this.T.length; },
     // One Tab stop: "end" when focus is back on the document or on an element already visited; otherwise the
@@ -140,7 +143,7 @@ function probeSource() {
     visible(s) { const el = document.querySelector(s); return !!el && !hidden(el); },
     hscroll() { return document.documentElement.scrollWidth > document.documentElement.clientWidth; },
     measure(opts) {
-      const probes = [...document.querySelectorAll(probeSel)].map((e) => [e, e.style.getPropertyValue("display"), e.style.getPropertyPriority("display")]);
+      const probes = marks.filter((e) => e.isConnected).map((e) => [e, e.style.getPropertyValue("display"), e.style.getPropertyPriority("display")]);
       for (const [e] of probes) e.style.setProperty("display", "none", "important");
       try { return this.run(opts); } finally { for (const [e, v, pr] of probes) e.style.setProperty("display", v, pr); }
     },
@@ -232,7 +235,7 @@ function probeSource() {
       return { items, not_measured: nm };
     },
   };
-  return true;
+  return mark;
 }
 export const PROBE = `(${probeSource.toString()})()`;
 
@@ -366,8 +369,9 @@ async function page(b, timeoutMs, base, net) {
       const loaded = b.once("Page.loadEventFired", sessionId);
       await s("Page.navigate", { url });
       await Promise.race([loaded, new Promise((_, f) => setTimeout(() => f(new Error(`load timed out: ${url}`)), timeoutMs))]);
-      await ev(PROBE);
-      if (setup) await ev(setup, true);
+      // The probe returns its private mark(el) function; the setup script receives it as `mark` and registers what it injects.
+      if (setup) await ev(`(async (mark) => eval(${JSON.stringify(setup)}))(${PROBE})`, true);
+      else await ev(`void ${PROBE}`);
       const until = Date.now() + Math.min(timeoutMs, 5000);
       let shown;
       for (;;) {
