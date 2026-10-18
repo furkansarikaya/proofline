@@ -1,11 +1,11 @@
 #!/bin/sh
-# Builds the task-planning fixture in $1: a repo as it looks after a grill (A: tasks written to tasks.dir,
+# Builds the task-planning fixture in $1: a repo as it looks after a grill (A: tasks written to tasks.dir as <ID>.md,
 # B: project-level ADR linked from a task, D: team.yaml under a self-ignoring .agents/local). Offline.
 set -eu
 [ $# -eq 1 ] || { echo "usage: sh setup.sh <target-dir>" >&2; exit 2; }
 mkdir -p "$1"; cd "$1"
 git init -q
-mkdir -p .agents/tasks/T-1 .agents/tasks/T-2 docs/adr .agents/local
+mkdir -p .agents/tasks docs/adr .agents/local
 cat > docs/adr/0001-use-postgres.md <<'E2'
 # ADR 0001: Use Postgres
 Status: accepted
@@ -13,7 +13,7 @@ E2
 for n in 1 2; do
   dep=''; [ "$n" = 2 ] && dep='depends_on: T-1
 '
-  cat > .agents/tasks/T-$n/TASK.md <<E2
+  cat > .agents/tasks/T-$n.md <<E2
 ---
 size: S
 sprint: 1
@@ -25,7 +25,7 @@ ${dep}---
 Do thing $n.
 
 ## Context
-See [ADR 0001](../../../docs/adr/0001-use-postgres.md).
+See [ADR 0001](../../docs/adr/0001-use-postgres.md).
 
 ## Acceptance criteria
 - AC-1: The thing $n works and returns HTTP 200.

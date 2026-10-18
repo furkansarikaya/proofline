@@ -69,7 +69,13 @@ case "$op" in
     work=$(mktemp "${TMPDIR:-/tmp}/md-import.XXXXXX")
     awk '!d && /^# / { d=1; next } /^\*\*Status:\*\*/ { next } { print }' "$src" > "$work"
     rc=0; pl_import markdown "$work" "$out" "$id" "$title" "markdown $src" || rc=$?
-    rm -f "$work"; exit "$rc"
+    rm -f "$work"
+    # keep the optional planning front matter (size, sprint, assignee, depends_on) parseable at the top of the run's TASK.md
+    fm=$(awk 'NR==1 && $0 != "---" { exit } { buf = buf $0 "\n" } NR>1 && $0 == "---" { printf "%s", buf; exit }' "$src")
+    if [ "$rc" -eq 0 ] && [ -f "$out" ] && [ -n "$fm" ]; then
+      fmt=$(mktemp "${TMPDIR:-/tmp}/md-fm.XXXXXX"); { printf '%s\n' "$fm"; cat "$out"; } > "$fmt" && cat "$fmt" > "$out"; rm -f "$fmt"
+    fi
+    exit "$rc"
     ;;
   publish)
     [ $# -eq 3 ] || pl_usage 'markdown.sh publish <TASK-ID> <report-file>'

@@ -41,8 +41,14 @@ test("upgrade --dry-run offers the DESIGN.md move and moves nothing", () => {
   writeFileSync(join(d, "DESIGN.md"), "# d\n");
   const pl = join(root, "bin/proofline");
   assert.equal(sh("sh", [pl, "init", "--yes", "--runtimes", "claude"], d).status, 0);
+  // A pre-0.0.3 install: the old template wrote design_docs.design: DESIGN.md.
+  const cfgPath = join(d, ".agents/config.yaml");
+  const old = readFileSync(cfgPath, "utf8").replace(/^  design: .*$/m, "  design: DESIGN.md");
+  writeFileSync(cfgPath, old);
   const r = sh("sh", [pl, "upgrade", "--dry-run"], d);
   assert.match(r.stdout, /offer: DESIGN\.md sits at the project root/);
-  assert.match(r.stdout, /Nothing was moved/);
+  assert.match(r.stdout, /git mv DESIGN\.md docs\/design\/DESIGN\.md/);
+  assert.match(r.stdout, /set design_docs\.design: docs\/design\/DESIGN\.md/);
   assert.equal(readFileSync(join(d, "DESIGN.md"), "utf8"), "# d\n");
+  assert.equal(readFileSync(cfgPath, "utf8"), old);
 });

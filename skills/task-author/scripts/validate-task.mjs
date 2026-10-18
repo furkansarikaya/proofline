@@ -93,9 +93,12 @@ export function frontMatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
   if (!m) return { meta: {}, body: text };
   const meta = {};
+  let key = null;
   for (const l of m[1].split(/\r?\n/)) {
+    const item = /^\s+-\s+(.*?)\s*$/.exec(l);
+    if (item && key) { meta[key] = [meta[key], item[1]].filter(Boolean).join(","); continue; }
     const kv = /^([A-Za-z_]+):\s*(.*?)\s*$/.exec(l);
-    if (kv) meta[kv[1]] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2");
+    if (kv) { key = kv[1]; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
   }
   return { meta, body: text.slice(m[0].length) };
 }

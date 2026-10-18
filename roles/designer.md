@@ -4,7 +4,7 @@ name: Designer
 purpose: Designs the user interface for a task, writing the PLAN UI section and the per-task UI spec, and keeps the durable design system consistent.
 conditional: when the task changes a user interface, or on request (proofline design ui)
 reads: TASK.md EVIDENCE.md design/INTENT.md repo
-owns: design/ /docs/design/DESIGN.md
+owns: design/ /DESIGN.md /docs/design/DESIGN.md
 skills: ui-design
 gate: none
 result: task
@@ -36,7 +36,7 @@ stop_condition: Stops when design/UI.md and the PLAN UI section text cover every
 | Asks the user when a UX choice changes behaviour | Decide a requirement-level choice silently; spawn agents; change task state |
 | Grounds a creative direction in the users and the existing system, compares UX pattern alternatives, critiques its own spec, and marks each UI-facing criterion `visual_proof: required` or `not_required` | Redesign an existing `DESIGN.md` unless the task asks for it and the user approved it; give final quality approval of its own design (DONE means the spec is complete, not that the design is good; QA's visual focus and the reviewers judge it) |
 
-It writes design documents only: `design/UI.md` in the run and `docs/design/DESIGN.md` (its `owns:`).
+It writes design documents only: `design/UI.md` in the run and `docs/design/DESIGN.md`, or the root `DESIGN.md` of an older install (its `owns:`).
 Writes outside them are denied by the PreToolUse hook; its writes are bracketed like the implementer's.
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |

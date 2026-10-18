@@ -433,7 +433,10 @@ cmd_upgrade() {
     say ""; say "conflicts: files you modified were kept. Compare each with its .proofline-new copy, merge by hand, then delete the copy."
   fi
   # The default design document moved out of the root (0.0.3); offer the move, never do it, never touch the config.
-  if [ -f "$ROOT/DESIGN.md" ] && [ "$(cfg_val "$cf" design_docs.design docs/design/DESIGN.md)" != DESIGN.md ]; then
-    say ""; say "offer: DESIGN.md sits at the project root; the default location is now docs/design/DESIGN.md. To move it: git mv DESIGN.md docs/design/DESIGN.md (then update design_docs.design if set). Nothing was moved."
+  dd=$(cfg_val "$cf" design_docs.design docs/design/DESIGN.md)
+  if [ -f "$ROOT/DESIGN.md" ] && { [ "$dd" = DESIGN.md ] || [ "$dd" = docs/design/DESIGN.md ]; }; then
+    say ""; say "offer: DESIGN.md sits at the project root; the default location is now docs/design/DESIGN.md. Nothing was moved or rewritten. To move it:"
+    say "  1. git mv DESIGN.md docs/design/DESIGN.md"
+    say "  2. set design_docs.design: docs/design/DESIGN.md in .agents/config.yaml (needed when it says DESIGN.md)"
   fi
 }
