@@ -161,7 +161,12 @@ erasable() {
 baseline() {
   [ "$installed" = yes ] && [ -n "$act" ] && [ "$act" != INVALID ] && [ ! -f "$local_dir/baseline/$act" ] || return 0
   mkdir -p "$local_dir/baseline" 2>/dev/null || return 0
-  git -C "$root" ls-files -z --others --exclude-standard 2>/dev/null | tr '\0' '\n' >"$local_dir/baseline/.$act.tmp" && mv "$local_dir/baseline/.$act.tmp" "$local_dir/baseline/$act"
+  # git's own status is checked (a pipe into tr would hide its failure); a failed git writes no baseline, so erasable() refuses
+  if git -C "$root" ls-files -z --others --exclude-standard >"$local_dir/baseline/.$act.raw" 2>/dev/null &&
+     tr '\0' '\n' <"$local_dir/baseline/.$act.raw" >"$local_dir/baseline/.$act.tmp"; then
+    mv "$local_dir/baseline/.$act.tmp" "$local_dir/baseline/$act"
+  fi
+  rm -f "$local_dir/baseline/.$act.raw" "$local_dir/baseline/.$act.tmp"
 }
 # ro_operand KIND WORD (A143): may a read role pass WORD, an operand of an in-place editing command (KIND P: only an
 # existing file counts, the program text is also an operand) or of a script editor (KIND Q: any path counts)?
