@@ -110,6 +110,31 @@ doctor_probes() {
   else d_pass "probe: the PreToolUse hook stays out of the way without an active run"; fi
 }
 
+# Foreign context sources (WARN only, never FAIL): hooks that add context to the prompt (SessionStart and
+# UserPromptSubmit commands that are not proofline's) and skills whose name overlaps a proofline method skill.
+# Heuristic and read-only: a hook is listed because it can add context, not because it did.
+doctor_foreign() {
+  if command -v jq >/dev/null 2>&1; then
+    for df_f in "$ROOT/.claude/settings.json" "$ROOT/.claude/settings.local.json" "$HOME/.claude/settings.json" "$HOME"/.claude/plugins/cache/*/*/*/hooks/hooks.json; do
+      [ -f "$df_f" ] || continue
+      case "$df_f" in */plugins/cache/proofline/*) continue ;; esac
+      df_l=$(jq -r --arg f "${df_f#"$HOME"/}" '(.hooks // {}) | to_entries[] | select(.key == "SessionStart" or .key == "UserPromptSubmit") | .key as $e
+        | (.value[]? | (.hooks // [])[]? | .command // "") | select(contains("proofline-hook.sh") | not)
+        | "WARN foreign hook: \($e) in \($f) may add context to the prompt: \(.[0:80])"' "$df_f" 2>/dev/null) || df_l=''
+      [ -z "$df_l" ] || { printf '%s\n' "$df_l"; D_WARNS=$((D_WARNS + $(printf '%s\n' "$df_l" | wc -l))); }
+    done
+  fi
+  for df_d in "$HOME"/.claude/skills/* "$ROOT"/.claude/skills/* "$HOME"/.claude/plugins/cache/*/*/*/skills/*; do
+    [ -d "$df_d" ] || continue
+    case "$df_d" in */plugins/cache/proofline/*) continue ;; esac
+    df_n=${df_d##*/}
+    case "$df_n" in proofline*) continue ;; esac
+    [ ! -d "$ROOT/.agents/skills/$df_n" ] || continue
+    printf '%s\n' "$df_n" | grep -Eq '(^|-)(tdd|debug|debugging|review|plan|planning|plans|ui-audit)(-|$)|test-driven' || continue
+    d_warn "overlapping skill: $df_n (${df_d%/*/*}) overlaps a proofline method skill; during a run proofline's own skill is used"
+  done
+}
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   CFG=$ROOT/.agents/config.yaml; A=$ROOT/.agents/scripts/agent.sh
@@ -202,6 +227,11 @@ EOF
     d_warn "codex trust: Codex loads project hooks only once the project is trusted and the hooks are reviewed; open codex here and approve them with /hooks (doctor cannot check this)"
   fi
 
+  dc_empty=''
+  for dc_k in build test lint; do [ -n "$(cfg_val "$CFG" "commands.$dc_k" '')" ] || dc_empty="$dc_empty $dc_k"; done
+  [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them; proofline proposes the ones proven in a run when it ends)"
+
+  doctor_foreign
   doctor_identity
   doctor_probes
   printf 'doctor: %s FAIL, %s WARN\n' "$D_FAILS" "$D_WARNS"

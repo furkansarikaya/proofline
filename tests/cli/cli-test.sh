@@ -217,6 +217,20 @@ expect "doctor runs the PreToolUse probe" "$out" "Claude PreToolUse hook denies 
 expect "doctor runs the Codex PreToolUse probe" "$out" "Codex PreToolUse hook denies"
 expect "doctor notes the Codex hook trust step" "$out" "codex trust"
 reject "doctor never prints the configured identity patterns" "$out" "forbidden-zz"
+reject "doctor stays quiet about commands when all three are configured" "$out" "WARN commands"
+dz=$T/dz; cp -R "$base" "$dz"; sed -e 's/^  build:.*/  build:/' -e 's/^  lint:.*/  lint:/' "$dz/.agents/config.yaml" > "$dz/cfg.tmp" && mv "$dz/cfg.tmp" "$dz/.agents/config.yaml"
+out=$(pl "$dz" doctor 2>&1)
+expect "doctor warns about empty commands.build and commands.lint" "$out" "WARN commands: empty in .agents/config.yaml: build lint ("
+reject "doctor lists no foreign hook or skill on a clean HOME" "$out" "WARN foreign hook"
+# 0.0.5: foreign context hooks and overlapping skills are listed as WARN, never FAIL, and the exit stays 0
+mkdir -p "$HOME/.claude/skills/test-driven-dev" "$HOME/.claude/skills/rust-lint"
+printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo foreign-ctx"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo not-listed"}]}]}}\n' > "$HOME/.claude/settings.json"
+out=$(pl "$d1" doctor 2>&1); rc=$?
+rm -rf "$HOME/.claude"
+[ "$rc" = 0 ] && expect "doctor lists a foreign SessionStart hook as WARN only" "$out" "WARN foreign hook: SessionStart in .claude/settings.json may add context to the prompt: echo foreign-ctx" || { LAST=$out; die "foreign hook: rc=$rc"; }
+expect "doctor lists an overlapping skill as WARN" "$out" "WARN overlapping skill: test-driven-dev"
+reject "doctor leaves ecosystem skills and other events alone" "$out" "rust-lint"
+reject "doctor ignores a foreign PreToolUse hook" "$out" "not-listed"
 d2=$T/d2; cp -R "$base" "$d2"; git -C "$d2" config --local --unset core.hooksPath
 out=$(pl "$d2" doctor 2>&1); rc=$?
 [ "$rc" != 0 ] && expect "doctor FAILs when core.hooksPath is unset" "$out" "FAIL git hooks: core.hooksPath is not set" || { LAST=$out; die "doctor passed without core.hooksPath"; }
