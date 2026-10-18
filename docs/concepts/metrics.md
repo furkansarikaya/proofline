@@ -41,9 +41,9 @@ meaning; adding a key keeps the version number only if existing keys are untouch
 | `runtime` | string or null | `claude`, `codex` or a configured command-template runtime; for a failed-over dispatch, the runtime of the last attempt |
 | `model` | string or null | model of the (last) decision |
 | `duration_s` | integer or null | wall-clock seconds: `dispatch` = the whole `dispatch.sh` call including retries; `step` = decision to recorded result; `run` = first ledger entry to end |
-| `tokens_in` | integer or null | `input_tokens` the runtime reported, summed over attempts. Excludes cache-read tokens |
-| `tokens_out` | integer or null | `output_tokens` the runtime reported, summed over attempts |
-| `tokens_total` | integer or null | total the runtime reported (Codex), or `tokens_in + tokens_out` when both were reported |
+| `tokens_in` | integer or null | `input_tokens` plus `cache_creation_input_tokens` of the run's own `usage` (not one turn of its `iterations`). Excludes cache-read tokens. A `step` record of a Claude subagent gets it from the subagent's session log (one count per message id) |
+| `tokens_out` | integer or null | `output_tokens` the runtime reported (Claude: the run's own `usage`; a subagent step: its session log) |
+| `tokens_total` | integer or null | total the runtime reported (Codex; the number after its `tokens used` line, in any local format such as 285.242 or 285,242), or `tokens_in + tokens_out` when both were reported |
 | `turns` | integer or null | `num_turns` the runtime reported, summed over attempts |
 | `retries` | integer or null | `dispatch` only: extra attempts of this dispatch (resubmission after no valid submission, or a failover re-run). `0` = first attempt succeeded or failed outright |
 | `delegations` | integer or null | `run` only: number of specialist decisions (`decisions/NNN-*.decision`) in the run, i.e. delegated steps including repeats |
@@ -64,7 +64,7 @@ record carries cost, the `step` record carries the gate verdict.
 ## Rules
 
 - **Tokens and turns are never estimated.** Claude's `--output-format json` result (`usage`, `num_turns`) and Codex's
-  `tokens used` trailer (only within the last non-empty lines of the runtime log) are read when present. A runtime that reports nothing (a command-template runtime, a
+  `tokens used` trailer (the last non-empty lines of the log, after the final message when the log ends with it) are read when present. Numbers are never carried across runtimes: after a failover the record holds the last runtime's own. A runtime that reports nothing (a command-template runtime, a
   crashed process, a runtime version without the field) leaves the keys `null`. `null` is not zero: sum only the
   non-null values and report how many records had none.
 - **No free text.** Findings, prompts, results and file paths are never written. Identifier strings (task, role,

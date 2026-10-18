@@ -882,6 +882,18 @@ sc_questions() {
   capture 'ok'
   printf 'ok\n' | A answer LC 4 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/004.answer.md || die "a two-character answer is answered_by user"
+  # --captured: the answer is the user's own captured message (multi-line, skipping a task notification, ignoring a later
+  # prompt), not text the lead relays (site run: lead-rewritten and one-character answers were recorded as the lead's)
+  QR=data_architect q 'QUESTIONS:
+1. Which fix?
+' >/dev/null
+  h=.agents/local/prompts/history; mkdir -p "$h"; now=$(date +%s)
+  printf '<task-notification>\nAgent done\n</task-notification>\n' > "$h/$((now + 1))-aaaaaaaa.txt"
+  printf '1: fix qa-1 now\n   (CSS in Base.astro)\n2: waive drift\n' > "$h/$((now + 2))-bbbbbbbb.txt"
+  printf 'Confirm that these answers are recorded as mine\n' > "$h/$((now + 3))-cccccccc.txt"
+  A answer LC 5 --captured >/dev/null
+  grep -q '^answered_by: user' .agents/runs/LC/questions/005.answer.md || die "--captured did not record the user's message as the user's"
+  sed '1,/^---$/d' .agents/runs/LC/questions/005.answer.md | cmp -s - "$h/$((now + 2))-bbbbbbbb.txt" || die "--captured did not record the captured multi-line message verbatim"
   # A92: a risk FOCUS on a task result does not open a second round for qa (C-14)
   QF=visual QR=qa expect_msg "a second NEEDS_INPUT from qa with FOCUS: visual" 'already asked its questions in this run' q 'QUESTIONS:
 1. And the dark theme?
@@ -981,6 +993,14 @@ sc_decide() {
   mj=.agents/local/metrics/records.jsonl
   grep -q '^{"schema":"proofline.metrics/1","kind":"step","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules+tests"' "$mj" 2>/dev/null || die "step record missing/malformed: $(cat "$mj" 2>/dev/null)"
   grep '"kind":"step"' "$mj" | grep -q '"tokens_in":null,"tokens_out":null,"tokens_total":null,"turns":null' || die "step record invented token/turn data: $(cat "$mj")"
+  # a Claude subagent's step tokens come from its session log: one count per message id (the last line of it), cache reads excluded
+  tr=$base/agent-t9.jsonl
+  { printf '{"message":{"id":"msg_A","role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":5000,"output_tokens":3}}}\n'
+    printf '{"message":{"id":"msg_A","role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":5000,"output_tokens":40}}}\n'
+    printf '{"message":{"id":"msg_B","role":"assistant","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":6000,"output_tokens":10}}}\n'; } > "$tr"
+  mkdir -p .agents/local/submissions; printf '%s\n' "$tr" > .agents/local/submissions/t9.started
+  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced'; unset PROOFLINE_STEP_AGENT
+  tail -1 "$mj" | grep -q '"kind":"step".*"tokens_in":103,"tokens_out":50,"tokens_total":153,' || die "step record without the subagent's session-log tokens: $(tail -1 "$mj")"
   # dispatch record: numbers kept, strings sanitized (no free text, so no secret), non-lead refused
   A metrics-dispatch LC reviewer rules claude 'sonnet"; sk-LIVE secret' 12 100 50 150 3 1 submitted >/dev/null
   tail -1 "$mj" | grep -q '"kind":"dispatch","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules","gate":"REVIEW_RULES","runtime":"claude","model":"sonnetsk-LIVEsecret","duration_s":12,"tokens_in":100,"tokens_out":50,"tokens_total":150,"turns":3,"retries":1,"delegations":null,"fix_rounds":null,"result":"submitted"' || die "dispatch record shape: $(tail -1 "$mj")"

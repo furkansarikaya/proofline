@@ -3314,7 +3314,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
       else printf '%s\n' "${sb_reason:-}"; fi
     fi
   } > "$sb_tmp/raw"
-  sb_rc=0; AGENT_ROLE=$execution_role sh "$scripts/agent.sh" record "$sb_id" --file "$sb_tmp/raw" > "$sb_tmp/out" 2> "$sb_tmp/err" || sb_rc=$?
+  sb_rc=0; AGENT_ROLE=$execution_role PROOFLINE_STEP_AGENT=$sb_agent sh "$scripts/agent.sh" record "$sb_id" --file "$sb_tmp/raw" > "$sb_tmp/out" 2> "$sb_tmp/err" || sb_rc=$?
   if [ "$sb_rc" -ne 0 ]; then
     sb_msg=$(sed 's/^record rejected: //' "$sb_tmp/err" "$sb_tmp/out" | tr '\n' ' ')
     submit_fail "$sb_msg"
@@ -3851,7 +3851,20 @@ answer() {
   an_q=$an_d/questions/$(printf '%03d' "$(printf '%s' "$an_n" | sed 's/^0*//; s/^$/0/')").md
   [ -f "$an_q" ] || fail "no question $an_n for $an_id"
   [ ! -e "${an_q%.md}.answer.md" ] || fail "question $an_n is already answered"
-  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); cat > "$an_t"
+  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no
+  if [ "${3:-}" = --captured ]; then
+    # The answer is the user's own message as the prompt hook captured it (the oldest real prompt since the question), not
+    # text the lead relays: a lead's rewrite never matched, a short "1" was under the 3-character rule, and a later
+    # prompt (a follow-up, a task notification) replaced the newest capture.
+    an_cm=yes; an_a0=$(gate_field "$an_q" asked_at); case "$an_a0" in ''|*[!0-9]*) an_a0=0 ;; esac
+    for an_h in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
+      an_e=${an_h##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
+      [ "$an_e" -ge "$an_a0" ] || continue
+      grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
+      cat "$an_h" > "$an_t"; break
+    done
+    [ -s "$an_t" ] || { rm -f "$an_t"; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
+  else cat > "$an_t"; fi
   grep -q '[^[:space:]]' "$an_t" || { rm -f "$an_t"; fail "empty answer"; }
   # answered_by user only when the newest prompt capture is not older than the question (epoch seconds), its sha256 matches its
   # text, and the trimmed answer (at least 3 characters) is contained in it.
@@ -3859,7 +3872,9 @@ answer() {
   an_tok=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/\1/p' "$an_q" | head -1); an_acc=no
   an_by=lead an_asked=$(gate_field "$an_q" asked_at); case "$an_asked" in ''|*[!0-9]*) an_asked='' ;; esac
   an_norm=$(tr -s '[:space:]' ' ' < "$an_t" | sed 's/^ //; s/ $//')
-  if [ -n "$an_asked" ] && [ "${#an_norm}" -ge 3 ] && an_cap=$(latest_capture); then
+  if [ "$an_cm" = yes ]; then
+    an_by=user; if [ -n "$an_tok" ] && assumption_prompt_accepts "$an_norm" "${an_tok%@*}"; then an_acc=yes; fi
+  elif [ -n "$an_asked" ] && [ "${#an_norm}" -ge 3 ] && an_cap=$(latest_capture); then
     an_ct=$(mktemp "${TMPDIR:-/tmp}/proofline-capture.XXXXXX")
     capture_field "$an_cap" text > "$an_ct" || :
     an_ctime=$(capture_field "$an_cap" time 2>/dev/null || echo 0)
@@ -3998,7 +4013,23 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
   fi
   metrics_line "$1" "$2" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$4"
   ms_g=$(gate_of "$2" "$3" "$1" 2>/dev/null || true)
-  metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" - - - - - - - "$4"
+  # A Claude subagent (not a dispatch.sh worker, whose dispatch record has the tokens): read what it used from its session log
+  # (usage of each assistant message, one count per message id; cache reads excluded). Null when the log is not there.
+  ms_in=- ms_out=- ms_tot=-
+  ms_tp=''; case "${PROOFLINE_STEP_AGENT:-}" in ''|*[!A-Za-z0-9_.-]*) ;; *) ms_tp=$(sed -n 1p "$(submission_dir)/$PROOFLINE_STEP_AGENT.started" 2>/dev/null || true) ;; esac
+  case "$ms_tp" in /*.jsonl) [ -f "$ms_tp" ] && [ "$ms_rt" = claude ] || ms_tp='' ;; *) ms_tp='' ;; esac
+  if [ -n "$ms_tp" ]; then
+    ms_u=$(awk '/"role":"assistant"/ && match($0, /"id":"msg_[A-Za-z0-9_]+"/) {
+        id = substr($0, RSTART, RLENGTH); u = $0; sub(/.*"usage":\{/, "", u); u = substr(u, 1, 400); i = 0; c = 0; o = 0
+        if (match(u, /"input_tokens":[0-9]+/)) i = substr(u, RSTART + 15, RLENGTH - 15)
+        if (match(u, /"cache_creation_input_tokens":[0-9]+/)) c = substr(u, RSTART + 30, RLENGTH - 30)
+        if (match(u, /"output_tokens":[0-9]+/)) o = substr(u, RSTART + 16, RLENGTH - 16)
+        if (!(id in I)) n++
+        I[id] = i + c; O[id] = o }
+      END { if (n) { for (k in I) { ti += I[k]; to += O[k] }; printf "%d %d\n", ti, to } }' "$ms_tp" 2>/dev/null || true)
+    [ -z "$ms_u" ] || { ms_in=${ms_u% *} ms_out=${ms_u#* }; ms_tot=$((ms_in + ms_out)); }
+  fi
+  metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$ms_in" "$ms_out" "$ms_tot" - - - - "$4"
 }
 metrics_run() { # ID OUTCOME
   mr_first=$(head -1 "$(ledger_file "$1")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p'); mr_dur=-
@@ -4063,7 +4094,7 @@ next_step() {
   o() { printf 'next=%s\n' "$*"; }
   r() { printf 'reason=%s\n' "$*"; }
   case "$ns_st" in FAILED|BLOCKED) o "report the evidence, then: agent.sh cleanup $ns_id"; r "run is terminal ($ns_st)"; return 0 ;; esac
-  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> < answer"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
+  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> --captured"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_stale=$(inflight_sweep "$ns_id")
   if ns_if=$(inflight_dispatch "$ns_id"); then
     o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; return 0
@@ -4705,7 +4736,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND> | approval-consume <ID> <KIND> [FINGERPRINT]
-  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> (answer on stdin)
+  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
   terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | knowledge-done <ID> [not_applicable]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | draft-pr-body <ID> | cleanup <ID>
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
@@ -4764,7 +4795,7 @@ case "$command" in
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
-  answer) answer "${2:?usage: agent.sh answer <ID> <N>}" "${3:?usage: agent.sh answer <ID> <N>}" ;;
+  answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured]}" "${3:?usage: agent.sh answer <ID> <N> [--captured]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
   cleanup) require_lead; cleanup_run "${2:?usage: agent.sh cleanup <ID>}" ;;
   amend) require_lead; amend_run "${2:?usage: agent.sh amend <ID>}" ;;
