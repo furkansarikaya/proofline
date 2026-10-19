@@ -139,7 +139,7 @@ CODE_DONE patch, every required gate must still pass, the knowledge scope must h
 task-owned path to be committed exactly (no difference between HEAD and the working tree there). FAILED/BLOCKED runs (`terminate`) are cleaned up after their
 evidence is reported. `amend` is the only way to reopen a CODE_DONE/DONE run before delivery. A FAILED/BLOCKED run is
 never delivered; `agent.sh reopen <ID>` (reason on stdin) takes it back to the state it had when it was terminated,
-only with the user's `reopen:<ID>` approval (a mutation-budget decision is asked first when PLAN `## Tests` needs it):
+only with the user's `reopen:<ID>` approval (a mutation-budget decision PLAN `## Tests` needs is asked in the same question, one reply answers both, A154):
 the plan stays frozen and its scope is checked again, gate records that passed on unchanged inputs stay, any other gate
 runs again, the fix-round allowance restarts, and the knowledge step starts over. When the gates pass the run is
 CODE_DONE and delivery works (A152).

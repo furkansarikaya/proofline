@@ -1039,6 +1039,85 @@ scenario_reopen_approval_kinds() {
   ok "reopen approval: own id only, FAILED or BLOCKED runs only"
 }
 
+# A154: what `proofline upgrade` installs outside .agents/ is control plane: no scope error, no fingerprint change, no stale gate.
+upgrade_files() {
+  mkdir -p .claude/agents .codex/agents .claude/skills/proofline
+  printf 'agent\n' > .claude/agents/proofline-x.md; printf 'agent\n' > .codex/agents/proofline-x.toml; printf 'skill\n' > .claude/skills/proofline/SKILL.md
+  printf '# version: 0.0.12\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
+}
+scenario_reopen_after_upgrade() {
+  SC_AGENTS_MD=1 reopen_failed_run; fp0=$(A fingerprint LC)
+  upgrade_files; sed -i.bak 's/^block v1$/block v2/' AGENTS.md; rm -f AGENTS.md.bak
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "installed files or the proofline block changed the content fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' && die "an upgrade made a gate stale"
+  ro_approve; ro A reopen LC >/dev/null || die "reopen after an upgrade refused: $(ro A reopen LC 2>&1 | tail -2)"
+  ok "reopen after an upgrade: installed files and the proofline block are control plane"
+}
+scenario_upgrade_product_edits() {
+  SC_AGENTS_MD=1 reopen_failed_run; fp0=$(A fingerprint LC)
+  sed -i.bak 's/^keep it small$/keep it tiny/' AGENTS.md; rm -f AGENTS.md.bak
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "an edit outside the proofline block did not change the fingerprint"
+  ro_approve; expect_msg "AGENTS.md edit outside the block" 'outside the frozen scope' ro A reopen LC
+  ok "an AGENTS.md edit outside the proofline block is a product change"
+}
+scenario_upgrade_named_path() {
+  SC_SCOPE_NAMED=.claude/skills/proofline/named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
+  printf '# version: 0.0.12\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
+  fp0=$(A fingerprint LC); mkdir -p .claude/skills/proofline; printf 'edit\n' > .claude/skills/proofline/named.md
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named installed file left the fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named installed file changed"
+  printf '0000  .claude/skills/proofline/other.md\n' >> .agents/.proofline-manifest
+  printf 'other\n' > .claude/skills/proofline/other.md; fp1=$(A fingerprint LC); printf 'more\n' >> .claude/skills/proofline/other.md
+  [ "$(A fingerprint LC)" = "$fp1" ] || die "an unnamed installed file counts as content"
+  ok "a plan-scope-named installed file stays tracked"
+}
+scenario_upgrade_named_pattern_path() {
+  SC_SCOPE_NAMED=.claude/agents/proofline-named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
+  fp0=$(A fingerprint LC); printf 'edit\n' >> .claude/agents/proofline-named.md
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named proofline-*.md file left the fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named proofline-*.md edit"
+  fp1=$(A fingerprint LC); printf 'other\n' > .claude/agents/proofline-other.md
+  [ "$(A fingerprint LC)" = "$fp1" ] || die "an unnamed proofline-*.md file counts as content"
+  ok "a plan-scope-named installed pattern file stays tracked, an unnamed one does not"
+}
+# A154: an upgrade-style change leaves the tier and the required gates alone; a product change still raises the tier.
+scenario_upgrade_keeps_tier() {
+  SC_AGENTS_MD=1 scaffold orchestrated; pl0=$(A pipeline LC | grep -v '^gate\.')
+  upgrade_files; sed -i.bak 's/^block v1$/block v2/' AGENTS.md; rm -f AGENTS.md.bak
+  [ "$(A pipeline LC | grep -v '^gate\.')" = "$pl0" ] || die "an upgrade changed the pipeline (tier or required gates)"
+  to_code_done orchestrated
+  for f in a b c; do printf 'x\n' > "prod-$f.js"; done
+  [ "$(A pipeline LC | grep -v '^gate\.')" != "$pl0" ] || die "a product change no longer raises the tier"
+  ok "upgrade keeps the tier and CODE_DONE reachable; a product change still raises the tier"
+}
+
+# A154: budget decision and reopen approval are one question; the one reply records both approvals.
+joint_run() {
+  SC_PLAN_EXTRA=$(printf '\n## Tests\n\n- AC-1: `impl.txt` "one"\n- AC-2: `impl_test.txt` "two"\n'); export SC_PLAN_EXTRA; reopen_failed_run; unset SC_PLAN_EXTRA
+  sed -i.bak 's/^  mutation_budget: .*/  mutation_budget: 1/' .agents/config.yaml; rm -f .agents/config.yaml.bak
+}
+scenario_reopen_one_question() {
+  joint_run
+  out=$(ro A reopen LC 2>&1) && die "reopen ran without any answer"
+  printf '%s' "$out" | grep -Fq 'Raise the budget to 2 and reopen the run LC?' || die "no joint question: $out"
+  [ "$(printf '%s' "$out" | grep -c 'REOPEN SUMMARY')" = 1 ] || die "more than one summary: $out"
+  [ "$(ls .agents/runs/LC/approvals/*-request-* | wc -l | tr -d ' ')" = 2 ] || die "expected exactly the two joint requests"
+  ro A reopen LC >/dev/null 2>&1 && die "second run without an answer applied"
+  [ "$(ls .agents/runs/LC/approvals/*-request-* | wc -l | tr -d ' ')" = 2 ] || die "a repeated reopen wrote more requests"
+  expect_fail "a model approved the joint question" A approve LC reopen:LC
+  capture 'approve mutation budget'
+  expect_fail "budget words alone approved the joint budget request" A approve LC mutation_budget
+  expect_fail "budget words alone approved the joint reopen request" A approve LC reopen:LC
+  for f in .agents/runs/LC/approvals/*; do case "$f" in *-request-*) ;; *) die "a budget-only reply approved something: $f" ;; esac; done
+  capture 'I approve the reopen of LC'
+  A approve LC mutation_budget >/dev/null || die "the one reply did not approve the budget"
+  A approve LC reopen:LC >/dev/null || die "the one reply did not approve the reopen"
+  ro A reopen LC >/dev/null || die "reopen refused after the joint reply: $(ro A reopen LC 2>&1 | tail -2)"
+  [ "$(cat .agents/runs/LC/mutation_budget)" = 2 ] || die "the budget was not raised"
+  expect_state execution state PLANNING
+  ok "reopen: one joint question, one reply records both approvals, then reopen applies budget and reopen"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
@@ -1081,4 +1160,10 @@ run_sc scenario_reopen_blocked_and_state
 run_sc scenario_fingerprint_excludes_agents
 run_sc scenario_fingerprint_scoped_agents_path
 run_sc scenario_reopen_approval_kinds
+run_sc scenario_reopen_after_upgrade
+run_sc scenario_upgrade_product_edits
+run_sc scenario_upgrade_named_path
+run_sc scenario_upgrade_named_pattern_path
+run_sc scenario_upgrade_keeps_tier
+run_sc scenario_reopen_one_question
 echo 'agent lifecycle tests passed'

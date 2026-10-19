@@ -412,29 +412,29 @@ final_report_tokens() {
   need=$(A report-tokens LC | tr '\n' ' ')
   case "$need" in "CODE_DONE COMPLEX "*" commit push RED GREEN ") ;; *) die "A44-1 report-tokens: $need" ;; esac
   ok "A44-1 report-tokens names the state, the class and every required gate: $need"
+  # A154: a message that lacks identifiers is never sent back; the hook supplies the `agent.sh summary` lines as a systemMessage.
+  summ=$(A summary LC)
   out=$(stop_ev "Tüm kapılar geçti: gizli taraması, küçük inceleme ve doğrulama tamam. Teslim onayınızı bekliyorum.")
-  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-2 a translated report was accepted: $out"
-  printf '%s' "$out" | grep -q 'SECRETS' || die "A44-2 the refusal does not name the missing identifiers: $out"
-  ok "A44-2 a report that translated the gate names is sent back once, naming the identifiers"
-  out=$(stop_ev "Tüm kapılar geçti." true)
-  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-3 a second draft that still lacks them was accepted: $out"
-  out=$(stop_ev "Tüm kapılar geçti." true)
-  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-3 the third draft was accepted: $out"
-  out=$(stop_ev "Tüm kapılar geçti." true)
-  [ -z "$out" ] || die "A44-3 the fourth stop was blocked again (no endless loop): $out"; ok "A44-3 a draft is checked up to three times, then accepted"
-  rm -f .agents/local/report-check/LC.CODE_DONE.tries
+  ! printf '%s' "$out" | grep -Eq '"decision"|"block"' || die "A44-2 the Stop hook blocked: $out"
+  printf '%s' "$out" | grep -q '"systemMessage"' || die "A44-2 no system message for a report without identifiers: $out"
+  printf '%s' "$out" | grep -q 'SECRETS' || die "A44-2 the message does not name the missing identifiers: $out"
+  printf '%s\n' "$summ" | grep -w SECRETS | head -n 1 | while IFS= read -r l; do printf '%s' "$out" | grep -Fq -- "$(jstr "$l")" || die "A44-2 the summary line is not verbatim: $l // $out"; done
+  ok "A44-2 a report that translated the gate names gets a systemMessage with the verbatim summary lines, no block"
+  out=$(stop_ev "Tüm kapılar geçti." true); out2=$(stop_ev "Tüm kapılar geçti." true)
+  [ "$out" = "$out2" ] && ! printf '%s' "$out$out2" | grep -q '"decision"' || die "A44-3 repeated drafts differ or block: $out // $out2"
+  [ ! -e .agents/local/report-check ] || ! ls .agents/local/report-check/*.tries >/dev/null 2>&1 || die "A44-3 a .tries counter was written"
+  ok "A44-3 a repeated draft gets the same message, never a block and no counter"
   out=$(stop_ev "Tüm kapılar geçti: SECRETS REVIEW_SMALL QA VERIFY, durum CODE_DONE, sınıf COMPLEX. Commit onayınızı bekliyorum.")
-  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-4b a report that never says push awaits approval was accepted: $out"
-  printf '%s' "$out" | grep -q 'push' || die "A44-4b the refusal does not name push: $out"
-  ok "A44-4b a report that omits push is sent back, naming it"
+  printf '%s' "$out" | grep -q '"systemMessage"' && ! printf '%s' "$out" | grep -q '"decision"' || die "A44-4b a report that omits push got no system message or was blocked: $out"
+  printf '%s' "$out" | grep -q 'push' || die "A44-4b the message does not name push: $out"
+  ok "A44-4b a report that omits push gets a system message naming it"
   out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Teslim onayınızı bekliyorum.")
-  out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Teslim onayınızı bekliyorum.")
-  [ -z "$out" ] || die "A44-4 a report with the identifiers was blocked: $out"; ok "A44-4 a report that carries the identifiers verbatim is accepted"
+  [ -z "$out" ] || die "A44-4 a report with the identifiers produced output: $out"; ok "A44-4 a report that carries the identifiers verbatim yields no message"
   out=$(stop_ev "Başka bir soru: commit mesajı ne olsun?")
-  printf '%s' "$out" | grep -q '"decision":"block"' || die "A44-5 a later final message without the identifiers was accepted: $out"
+  printf '%s' "$out" | grep -q '"systemMessage"' || die "A44-5 a later final message without the identifiers got no message: $out"
   out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Commit ve push onayınızı bekliyorum.")
-  [ -z "$out" ] || die "A44-5 a later final message with the identifiers was blocked: $out"
-  ok "A44-5 every final message of the state is checked; one that carries the identifiers passes"
+  [ -z "$out" ] || die "A44-5 a later final message with the identifiers produced output: $out"
+  ok "A44-5 every final message of the state is checked; one that carries the identifiers yields no message"
 }
 
 # A41: the lead never approves; the runtime's prompt hook records an approval from the user's own reply.

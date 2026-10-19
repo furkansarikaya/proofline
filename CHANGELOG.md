@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.12 — 2026-10-19
+
+- Everything `proofline upgrade` installs is control plane: the files listed in `.agents/.proofline-manifest` (agent definitions under `.claude/agents/` and `.codex/agents/`, the entry skill) and the proofline block of `AGENTS.md` and `CLAUDE.md` no longer count as out-of-scope changes, no longer change the content fingerprint and no longer make a gate stale. `/proofline reopen` no longer refuses after an upgrade. A path the plan scope names stays tracked; edits outside the proofline block of `AGENTS.md`/`CLAUDE.md` (for example `## Project rules`) still count as product changes.
+- `/proofline reopen` asks one question: when the plan needs a higher mutation budget, the budget raise and the reopen are one summary and one question ("raise the budget to N and reopen the run?"), and your one reply records both approvals. The command no longer needs two runs.
+- The Stop hook no longer sends the lead back to rewrite a final report that lacks gate names, class, state or `RED`/`GREEN`: it shows the missing lines, verbatim from `agent.sh summary`, as a system message next to the report.
+
 ## 0.0.11 — 2026-10-19
 
 - The plan review fails a hunk inside the plan scope that changes behaviour and ties to no acceptance criterion (blocking `unrequested` record). Hunks that do not change behaviour stay informational, and so does any hunk the reviewer is unsure about.

@@ -1231,8 +1231,10 @@ prompt)
 
 stop)
   # The final report to the user carries the run's state, class and gate names verbatim (A44, TR-2): they are
-  # identifiers, never translated. Checked once per reporting state; a rewrite that carries them satisfies it,
-  # and a second stop (stop_hook_active) is always accepted.
+  # identifiers, never translated. Every final message of a reporting state is checked (A68). A154: a message that
+  # lacks identifiers is no longer sent back for a rewrite. A Stop hook cannot edit the assistant's message, so the
+  # hook supplies the missing lines itself, taken verbatim from `agent.sh summary`, as a systemMessage shown to the
+  # user next to the report; the turn ends (no block, no loop).
   [ "$parsed" = yes ] && [ "$sub" = no ] && [ "$role" = lead ] || exit 0
   [ -n "$act" ] && [ "$act" != INVALID ] || exit 0
   need=$(unset AGENT_ROLE; sh "$agent" report-tokens "$act" 2>/dev/null) || exit 0
@@ -1245,20 +1247,22 @@ stop)
     fi
   fi
   [ -n "$msg" ] || exit 0
-  state=$(printf '%s\n' "$need" | head -n 1)
-  mkdir -p "$local_dir/report-check" 2>/dev/null || exit 0
-  mark=$local_dir/report-check/$act.$state
   missing=''
   for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
-  # Every final message of a reporting state is checked (the last one is what the user reads); a message that
-  # carries the identifiers resets the counter. A message is sent back at most three times in a row, then accepted
-  # (never an endless loop).
-  if [ -z "$missing" ]; then rm -f "$mark.tries"; exit 0; fi
-  tries=$(cat "$mark.tries" 2>/dev/null || echo 0)
-  case "$tries" in *[!0-9]*) tries=0 ;; esac
-  [ "$tries" -lt 3 ] || exit 0
-  printf '%s\n' $((tries + 1)) > "$mark.tries"
-  printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: the final report must carry these identifiers verbatim, untranslated, in any language:$missing. Gate names, the class, the state and result values are never translated; write the prose around them in the user's language, or paste the lines of 'agent.sh summary $act'. Then finish.")"
+  [ -n "$missing" ] || exit 0
+  summ=$(unset AGENT_ROLE; sh "$agent" summary "$act" 2>/dev/null) || summ=''
+  lines=''
+  for tk in $missing; do
+    l=$(printf '%s\n' "$summ" | grep -Fw -- "$tk" | head -n 1)
+    [ -n "$l" ] || l=$tk
+    case "
+$lines
+" in *"
+$l
+"*) ;; *) lines="$lines
+$l" ;; esac
+  done
+  printf '{"systemMessage":"%s"}\n' "$(jesc "proofline: the final report lacks these identifiers:$missing. They are appended here verbatim from 'agent.sh summary $act' (never translated):$lines")"
   exit 0 ;;
 
 session)
