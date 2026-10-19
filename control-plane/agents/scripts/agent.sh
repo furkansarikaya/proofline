@@ -4701,6 +4701,24 @@ summary_run() {
   printf 'DELIVERY: completion report published %s\n' "$(ua "$(section_value "$sm_d" completion_report published)")"
 }
 
+# plan-section ID SECTION: one PLAN.md section (heading to the next `## `), or `scope` for the YAML front matter.
+plan_section() {
+  ps_id=$1 ps_n=$2; require_run "$ps_id"; ps_f=$(run_dir "$ps_id")/PLAN.md; [ -f "$ps_f" ] || fail "PLAN.md not found: $ps_id"
+  if [ "$ps_n" = scope ]; then awk 'NR==1 && /^---[[:space:]]*$/ { i=1; next } i && /^---[[:space:]]*$/ { exit } i' "$ps_f"; return 0; fi
+  plan_section_present "$ps_f" "$ps_n" || fail "no PLAN.md section '$ps_n' in $ps_id (sections: scope $(sed -n 's/^## \(.*[^[:space:]]\)[[:space:]]*$/\1/p' "$ps_f" | tr '\n' ' '))"
+  awk -v n="$ps_n" '$0 ~ "^## " n "[[:space:]]*$" { i=1; print; next } i && /^## / { exit } i' "$ps_f"
+}
+
+# digest ID: stage, gates, open questions and the next step from the records alone (A150); the lead reads this
+# instead of large outputs, and a fresh process rebuilds it after a context reset.
+digest_run() {
+  dg_id=$1; require_run "$dg_id"; dg_d=$(run_dir "$dg_id"); dg_q=0
+  for dg_f in "$dg_d"/questions/[0-9][0-9][0-9].md; do if [ -e "$dg_f" ] && [ ! -e "${dg_f%.md}.answer.md" ]; then dg_q=$((dg_q + 1)); fi; done
+  summary_run "$dg_id"
+  printf 'OPEN QUESTIONS: %s\n' "$dg_q"
+  next_step "$dg_id" | sed -n 's/^next=/NEXT: /p;s/^reason=/WHY: /p'
+}
+
 run_suites() { # every sibling *-test.sh
   for rs_t in "$scripts"/*-test.sh; do [ -f "$rs_t" ] || continue; echo "== ${rs_t##*/}"; sh "$rs_t"; done
 }
@@ -4708,7 +4726,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='report-facts role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='report-facts role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -4738,7 +4756,7 @@ usage() {
 usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   role | status | effective [ID] | fingerprint [ID] | config-get <dotted.key> | config-check [FILE]
   start <ID> [--title TITLE] [--task-file PATH]
-  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID]
+  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID] | digest <ID> | plan-section <ID> <section>
   branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
@@ -4775,6 +4793,8 @@ case "$command" in
   tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
   summary) summary_run "${2:-}" ;;
+  plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
+  digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;

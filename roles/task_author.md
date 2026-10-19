@@ -43,6 +43,8 @@ stop_condition: Stops when TASK.md passes the task-author self-check, or after o
 
 ## Method
 
+0. In an interactive session the lead runs intent-grill and task-author itself in the main session (standalone mode, talking
+   to the user directly). You are dispatched only headless, or for an import that needs no questions.
 1. Read the assignment: the request text or imported issue, the task adapter (`tasks.adapter`) and its
    template in `.agents/templates/tasks/`. Read the repository only to name real components and commands.
 2. COMPLEX or CRITICAL indicators, or a grill request: follow {{skill:intent-grill}} in team mode and write
