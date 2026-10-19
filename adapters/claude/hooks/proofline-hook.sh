@@ -1044,7 +1044,7 @@ kill_guard() {
           [ "$kg_a" = '{}' ] || kg_ops=$((kg_ops + 1))
           [ "$kg_a" != 0 ] || deny "kill 0 signals the whole process group: $KG_MSG"
           # the scan leaves a bare `$` for "$(...)" and nothing for a backtick; the substituted command is the next record
-          case "$kg_a" in *'$') kg_pend=yes ;; esac
+          case "$kg_a" in *'$('*|*'$') kg_pend=yes ;; esac
         done <<KGARGS
 $kg_args
 KGARGS
