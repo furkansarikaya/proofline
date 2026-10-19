@@ -90,7 +90,31 @@ scenario_failed_refused() {
   ok "deliver: a FAILED run is refused (no draft pull request) and names the reopen command"
 }
 
+# A152: a FAILED run reopened with the user's approval reaches CODE_DONE and is delivered like any run.
+scenario_reopened_run_delivers() {
+  export SC_BRANCH=1 SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_BRANCH SC_TEST_CRIT SC_TASK_EXTRA; hooks
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null; gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl_test.txt 'test: default for an empty key'; A handoff LC IMPLEMENTED >/dev/null; gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null; gfail VERIFY impl.txt
+  printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
+  expect_msg "deliver-plan of the FAILED run" 'to reopen: /proofline reopen LC' A deliver-plan LC
+  A request-approval LC reopen:LC >/dev/null; capture 'I approve the reopen of LC'; A approve LC reopen:LC >/dev/null
+  printf 'reason: the verifier false alarm is fixed and the budget decided\n' | A reopen LC >/dev/null || die "approved reopen refused"
+  pass_all; A handoff LC CODE_DONE >/dev/null
+  # knowledge missing: exit 0, the not-ready notice, nothing written, no question
+  has 'not ready to summarize' A deliver-plan LC
+  [ ! -e .agents/local/deliver/LC ] || die "deliver-plan wrote a summary before the knowledge step"
+  finish_done '' '## Reopen History' 'Reopened once with the user approval after a FAILED verify gate.'
+  A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused the reopened, finished run"
+  grep -q '^steps: commit push pr merge cleanup$' "$base/plan.out" && grep -q 'approve delivery' "$base/plan.out" || die "summary: $(cat "$base/plan.out")"
+  capture 'approve delivery'; A approve-pending LC >/dev/null
+  S commit >/dev/null || die "the one approval did not carry the commit step: $(S commit 2>&1 | tail -1)"
+  ok "deliver: a reopened run is delivered with the one approval; an unfinished knowledge step only prints what is left"
+}
+
 run_sc scenario_normal_chain
 run_sc scenario_content_change_stops
 run_sc scenario_failed_refused
+run_sc scenario_reopened_run_delivers
 echo 'deliver tests passed'

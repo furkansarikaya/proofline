@@ -947,6 +947,73 @@ scenario_window_open_no_plan() {
   ok "window-open without PLAN.md prints no missing-file error"
 }
 
+# A152: drive an orchestrated run to FAILED. QA and REVIEW_SMALL pass on the final content, VERIFY fails on it.
+reopen_failed_run() {
+  export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null; gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl_test.txt 'test: default for an empty key'; A handoff LC IMPLEMENTED >/dev/null; gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null; gpass REVIEW_SMALL; gpass QA; gfail VERIFY impl.txt
+  printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
+}
+ro() { printf 'reason: the budget decision was made and the verifier false alarm is fixed\n' | "$@"; }
+ro_approve() { A request-approval LC reopen:LC >/dev/null; capture 'I approve the reopen of LC'; A approve LC reopen:LC >/dev/null; }
+
+# reopen of a FAILED run (A152): refused without the user's approval, by non-lead roles and on a non-terminal run; with it,
+# passing gates stay, the failed gate and the fix rounds restart, knowledge restarts, the scope is checked, CODE_DONE is reachable.
+scenario_reopen_failed() {
+  reopen_failed_run
+  expect_msg "deliver-plan of a FAILED run" 'to reopen: /proofline reopen LC' A deliver-plan LC
+  A knowledge-done LC not_applicable >/dev/null
+  expect_msg "reopen without the approval" 'needs the user' ro A reopen LC
+  for r in implementer qa reviewer verifier; do expect_fail "$r reopened a run" ro env AGENT_ROLE=$r sh ./.agents/scripts/agent.sh reopen LC; done
+  ro_approve
+  expect_fail "a non-lead used the approved reopen" ro env AGENT_ROLE=implementer sh ./.agents/scripts/agent.sh reopen LC
+  printf 'x\n' > far.txt
+  expect_msg "reopen with a change outside the frozen scope" 'outside the frozen scope' ro A reopen LC
+  rm far.txt
+  ro A reopen LC >/dev/null || die "approved reopen refused: $(ro A reopen LC 2>&1 | tail -1)"
+  expect_state execution state PLANNING
+  expect_state execution knowledge_state not_started
+  [ "$(pipe_val fix_round)" = 0 ] || die "the reopen did not restart the fix rounds: $(pipe_val fix_round)"
+  A report-facts LC | grep -Fq -- '- Fix rounds: 0 of 2' || die "the report does not count the fix rounds from 0 of 2"
+  expect_fail "the approval was reusable" ro A reopen LC
+  A pipeline LC > "$base/pl.out"
+  grep -q '^gate.REVIEW_SMALL=pass' "$base/pl.out" && grep -q '^gate.QA=pass' "$base/pl.out" || die "passing gates on unchanged inputs did not stay: $(cat "$base/pl.out")"
+  grep -q '^gate.VERIFY=pass' "$base/pl.out" && die "the failed gate still counts as passed after the reopen"
+  expect_fail "CODE_DONE with the failed gate not rerun" A handoff LC CODE_DONE
+  # a gate whose inputs changed after the reopen runs again
+  printf 'late fix\n' >> impl.txt; A pipeline LC | grep -q '^gate.QA=pass' && die "QA still passes after the task-owned content changed"
+  sed -i.bak '$d' impl.txt; rm -f impl.txt.bak
+  gpass VERIFY; expect_msg "CODE_DONE with a never-concluded gate" 'required gate SECRETS' A handoff LC CODE_DONE
+  A secret-scan LC >/dev/null; A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the gates passed"
+  ok "reopen: approval, roles, scope, kept passes, fix rounds 0 of 2, knowledge restarted, CODE_DONE"
+}
+
+# reopen takes terminal runs only, and a BLOCKED run is refused by deliver-plan like a FAILED one.
+scenario_reopen_blocked_and_state() {
+  scaffold standalone
+  expect_msg "reopen of a non-terminal run" 'FAILED or BLOCKED run only' ro A reopen LC
+  printf 'reason: the verification toolchain is unavailable in this environment\nevidence: go test exited 127 because the go binary is missing\n' | A terminate LC BLOCKED >/dev/null
+  expect_msg "deliver-plan of a BLOCKED run" 'to reopen: /proofline reopen LC' A deliver-plan LC
+  expect_msg "reopen of a BLOCKED run without the approval" 'needs the user' ro A reopen LC
+  ro_approve; ro A reopen LC >/dev/null || die "reopen of a BLOCKED run refused: $(ro A reopen LC 2>&1 | tail -1)"
+  expect_state execution state PLANNING
+  ok "reopen: BLOCKED is refused by deliver-plan and reopened with the approval; a non-terminal run is refused"
+}
+
+# A152: a change under .agents/ leaves the content fingerprint (and so every gate) unchanged; a product change alters it.
+scenario_fingerprint_excludes_agents() {
+  scaffold orchestrated; to_code_done orchestrated
+  fp0=$(A fingerprint LC)
+  printf '# changed control plane\n' >> .agents/config.yaml; printf 'x\n' > .agents/scripts/new-helper.sh
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "a change under .agents/ altered the content fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' && die "a change under .agents/ made a gate stale"
+  printf 'more\n' >> impl.txt
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "a product change did not alter the content fingerprint"
+  ok "fingerprint: .agents/ changes are not content, product changes are"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
@@ -984,4 +1051,7 @@ run_sc scenario_freeze_scope_mapping
 run_sc scenario_freeze_ac_coverage
 run_sc scenario_window_open_no_plan
 run_sc scenario_digest_resume
+run_sc scenario_reopen_failed
+run_sc scenario_reopen_blocked_and_state
+run_sc scenario_fingerprint_excludes_agents
 echo 'agent lifecycle tests passed'

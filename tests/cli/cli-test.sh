@@ -296,7 +296,9 @@ out=$(pl "$st" deliver T-1 2>&1); rc=$?
 [ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver never commits" || die "deliver changed HEAD"
 # a FAILED run is refused with the reopen command (A152): no draft pull request
 sed 's/^  state: PLANNING$/  state: FAILED/' "$st/.agents/runs/T-1/RUN.yaml" > "$st/run.tmp" && cat "$st/run.tmp" > "$st/.agents/runs/T-1/RUN.yaml" && rm "$st/run.tmp"
-out=$(pl "$st" deliver T-1 2>&1); expect "deliver of a FAILED run is refused and names the reopen command" "$out" "to reopen: /proofline reopen T-1"
+out=$(pl "$st" deliver T-1 2>&1); rc=$?
+[ "$rc" = 1 ] && ok "deliver of a FAILED run exits 1" || die "deliver of a FAILED run exited $rc"
+expect "deliver of a FAILED run is refused and names the reopen command" "$out" "to reopen: /proofline reopen T-1"
 [ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver of a FAILED run never commits" || die "deliver of a FAILED run changed HEAD"
 mkdir -p "$st/.agents/local/prompts"; echo x > "$st/.agents/local/prompts/s.json"
 nocheck "clean refuses without --yes (non-interactive)" pl "$st" clean
