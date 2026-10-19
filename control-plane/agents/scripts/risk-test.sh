@@ -568,6 +568,9 @@ sc_selective_focus() {
   printf 'export const a = 2;\n' > src/a.js
   [ "$(focus_st SECURITY dependencies)" = pass ] || die "a change outside the manifests staled the dependencies focus: $(focus_st SECURITY dependencies)"
   [ "$(gate_st SECURITY)" = stale ] || die "the SECURITY own focus did not go stale: $(gate_st SECURITY)"
+  printf 'x\n' > stray.txt   # not task-owned: the fingerprint changes, the explained delta does not cover it
+  [ "$(focus_st SECURITY dependencies)" = stale ] || die "a path that is not task-owned left the focus fresh: $(focus_st SECURITY dependencies)"
+  rm stray.txt
   printf '{ "name": "x" }\n' > package.json
   [ "$(focus_st SECURITY dependencies)" = stale ] || die "a package.json change left the dependencies focus fresh: $(focus_st SECURITY dependencies)"
   ok "selective repetition: a change outside the dependency manifests keeps SECURITY:dependencies fresh (own focus stale); package.json stales it"
