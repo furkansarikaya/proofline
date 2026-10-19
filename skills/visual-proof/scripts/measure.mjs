@@ -766,6 +766,11 @@ export function checkConfig(c) {
       if (q.site_url !== undefined) { try { if (!/^https?:$/.test(new URL(q.site_url).protocol)) throw new Error(); } catch { e.push("seo.site_url must be an http(s) URL (the deployed address the canonical links use)"); } }
       if (q.pages !== undefined && !(Array.isArray(q.pages) && q.pages.length && q.pages.every((x) => typeof x === "string"))) e.push("seo.pages must be a non-empty list of paths");
       for (const path of Array.isArray(q.pages) ? q.pages : []) if (typeof path === "string" && u && !pageUrl(c.base_url, path)) e.push(`seo page ${path} leaves base_url`);
+      if (q.analytics !== undefined) {
+        const an = q.analytics;
+        if (!an || typeof an !== "object" || Array.isArray(an)) e.push("seo.analytics must be an object { hosts: [], globals: [] }");
+        else for (const k of ["hosts", "globals"]) if (an[k] !== undefined && !(Array.isArray(an[k]) && an[k].every((x) => typeof x === "string" && x.trim()))) e.push(`seo.analytics.${k} must be a list of non-empty strings`);
+      }
     }
   }
   for (const it of c.interactions || []) if (!it?.name || !INTERACTION_CHECKS.includes(it.check) || !it.screen || !it.state) e.push(`interaction ${it?.name}: needs name, check (${INTERACTION_CHECKS.join("|")}), screen, state`);

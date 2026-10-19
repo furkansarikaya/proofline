@@ -140,8 +140,7 @@ test("an inert consent-gated placeholder (type=text/plain) is not a load; the sa
 const analyticsCfg = (analytics) => ({ class: "STANDARD", base_url: BASE, viewports: [{ name: "a", width: 360, height: 740 }, { name: "b", width: 768, height: 1024 }],
   screens: [{ id: "home", path: "index.html", states: [{ name: "default", path: "index.html", ready: "main" }] }], seo: { public_html: true, analytics } });
 
-// todo: measure.mjs checkConfig does not validate seo.analytics at all (product bug, reported in A158 test round); remove `todo` once it does.
-test("seo.analytics {hosts, globals} is validated by the config check", { todo: "checkConfig accepts any seo.analytics shape" }, () => {
+test("seo.analytics {hosts, globals} is validated by the config check", () => {
   const errs = (a) => measure.checkConfig(analyticsCfg(a)).join("\n");
   assert.equal(errs({ hosts: ["stats.example.net"], globals: ["siteStats"] }), "");
   assert.equal(errs(undefined), "");
