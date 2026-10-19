@@ -2219,12 +2219,31 @@ gate_status() {
   printf '%s\n' "$gs_worst"
 }
 status_rank() { case "$1" in pass|unsupported) echo 0 ;; waived) echo 1 ;; pass_low) echo 2 ;; missing) echo 3 ;; stale) echo 4 ;; *) echo 5 ;; esac; }
+# Selective repetition: a risk-focus record stays fresh when the task-owned paths changed since its manifest
+# (the file set it looked at) and none matches the focus's `risk.*.paths`. Safe side = stale: the gate's own focus,
+# SECRETS, a focus with a `content` signal, no path set, or no determinable change (delta empty) always rerun.
+focus_untouched() { # ID RECORD FOCUS
+  fu_pats=''
+  case "$3" in -|'') return 1 ;; esac
+  [ "$(gate_field "$2" gate)" != SECRETS ] || return 1
+  for fu_n in $(risk_names); do
+    [ "$(cfg "risk.$fu_n.check")" = "$3" ] || continue
+    [ -z "$(cfg "risk.$fu_n.content")" ] || return 1
+    fu_pats="$fu_pats $(cfg "risk.$fu_n.paths")"
+  done
+  [ -n "${fu_pats# }" ] || return 1
+  fu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
+  [ -n "$fu_delta" ] || return 1
+  for fu_p in $fu_delta; do ! path_matches "$fu_p" "$fu_pats" || return 1; done
+  return 0
+}
 # gate_focus_status ID GATE FOCUS MODE NOW: the latest record of that gate and focus ('-' = the gate's own focus).
 gate_focus_status() {
   gfs_id=$1 gfs_gate=$2; gfs_key=fingerprint; [ "$4" = strict ] || gfs_key=patch_sha256
   gfs_last=$(gate_latest_file "$gfs_id" "$gfs_gate" "$3")
   [ -n "$gfs_last" ] || { echo missing; return 0; }
-  if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] || ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
+  if ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
+  if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] && ! focus_untouched "$gfs_id" "$gfs_last" "$3"; then echo stale; return 0; fi
   case "$(gate_field "$gfs_last" result)" in
     pass) echo pass ;; pass_low) echo pass_low ;; unsupported) echo unsupported ;;
     fail) if fail_fully_waived "$gfs_id" "$gfs_last"; then echo waived; else echo fail; fi ;;

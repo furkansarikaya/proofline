@@ -557,6 +557,22 @@ sc_not_contract_drift() {
   ok "not-a-contract list equals contract-proof's"
 }
 
+# Selective repetition: a risk-focus record stays fresh while the changed paths miss the focus's `risk.*.paths`;
+# the gate's own focus (and SECRETS) is stale on any task-owned change.
+sc_selective_focus() {
+  rrun COMPLEX 'package.json src/a.js'; frozen
+  mkdir -p src; printf 'export const a = 1;\n' > src/a.js
+  implement package.json '{}'
+  pass_all >/dev/null
+  [ "$(focus_st SECURITY dependencies)" = pass ] || die "dependencies focus not pass after pass_all: $(focus_st SECURITY dependencies)"
+  printf 'export const a = 2;\n' > src/a.js
+  [ "$(focus_st SECURITY dependencies)" = pass ] || die "a change outside the manifests staled the dependencies focus: $(focus_st SECURITY dependencies)"
+  [ "$(gate_st SECURITY)" = stale ] || die "the SECURITY own focus did not go stale: $(gate_st SECURITY)"
+  printf '{ "name": "x" }\n' > package.json
+  [ "$(focus_st SECURITY dependencies)" = stale ] || die "a package.json change left the dependencies focus fresh: $(focus_st SECURITY dependencies)"
+  ok "selective repetition: a change outside the dependency manifests keeps SECURITY:dependencies fresh (own focus stale); package.json stales it"
+}
+
 run_sc sc_mapping
 run_sc sc_dependency_manifests
 run_sc sc_not_contract_drift
@@ -575,3 +591,4 @@ run_sc sc_unsupported_probes
 run_sc sc_probe_drift
 run_sc sc_frozen
 run_sc sc_prefreeze
+run_sc sc_selective_focus
