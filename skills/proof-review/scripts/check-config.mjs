@@ -11,7 +11,7 @@ import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SKILL_VERSION = "0.0.8";
+export const SKILL_VERSION = "0.0.9";
 export const ALLOW_MARKER = "proofline:allow-secret";
 const MAX_BYTES = 1024 * 1024, MAX_FILES = 5000;
 const AMBIENT = new Set(["PATH", "HOME", "USER", "USERNAME", "LOGNAME", "SHELL", "PWD", "OLDPWD", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM", "HOSTNAME", "TZ", "EDITOR", "CI", "NODE_ENV", "DEBUG", "COLUMNS", "LINES", "NO_COLOR", "FORCE_COLOR"]);
