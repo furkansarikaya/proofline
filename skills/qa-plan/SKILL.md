@@ -4,7 +4,7 @@ description: Independent QA in two phases. Before implementation, writes QA_PLAN
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.8"
+  version: "0.0.9"
 ---
 
 # qa-plan

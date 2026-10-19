@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.0.9 — 2026-10-19
+
+- One-command delivery: `deliver` prepares the run (knowledge first if not done) and `agent.sh deliver-plan` writes `SUMMARY.md` (changed and knowledge paths, commit message, branch, PR kind and body, when merge and cleanup happen, open `rule:*` requests listed separately). One "approve delivery" is recorded as separate approvals for commit, push, pr, merge and cleanup, each bound to the content fingerprint and the summary sha256.
+- `agent.sh deliver-step` re-checks content, branch, message, body, HEAD and the step's approval, then prints the commands the lead runs; `agent.sh` never commits, pushes or merges itself. A FAILED run gets a draft PR and no merge step; a normal PR waits for `gh pr checks --watch`, then `proofline merge`, and cleanup runs only when MERGED. `rule:*` promotions are not covered by the delivery approval.
+
 ## 0.0.8 — 2026-10-19
 
 - `/proofline knowledge TASK-ID` is listed in the entry skill and in `proofline help`; the help/entry test also compares the lead skill Commands table.

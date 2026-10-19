@@ -67,7 +67,8 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 
 | Goal | Prompt |
 |---|---|
-| What would a commit or push do? | `/proofline deliver TASK-001` |
+| Deliver it: commit, push, PR, merge when green, cleanup (one summary) | `/proofline deliver TASK-001` |
+| Approve that whole summary | `approve delivery` (or `I approve the delivery`) |
 | Commit | `I approve the commit for TASK-001` |
 | Push | `I approve the push for TASK-001` |
 | Clean finished runs | `proofline clean --yes` |

@@ -23,7 +23,8 @@ working tree is on that exact branch. The implementer never runs `branch`.
 
 ## Commit, push, PR
 
-The agent never merges or tags. Commit and push run through the git hooks installed with
+The agent never tags, and merges only inside `deliver` through `proofline merge` (every check green, never a
+draft; `agent.sh deliver-plan` / `deliver-step`, GATES.md "Approvals"). Commit and push run through the git hooks installed with
 `core.hooksPath=.agents/githooks`:
 
 - pre-commit: identity guard (`git.forbidden_identities`), protected branches (`git.protected_branches`,

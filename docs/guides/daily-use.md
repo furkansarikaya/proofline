@@ -8,8 +8,8 @@ Turkish version: [gunluk-kullanim.md](tr/gunluk-kullanim.md).
 2. Describe the work. Small and clear: just say it. Vague or large: `proofline task --grill "<text>"` interviews you first and writes a task file.
 3. `proofline run <TASK>` - the lead takes the task through the full workflow.
 4. Answer the questions the lead relays (they are verbatim from the specialist). Approve the plan when asked (COMPLEX and CRITICAL).
-5. When the run reaches CODE_DONE, read the completion report, then `proofline deliver <TASK>` to see what a commit or push would do.
-6. Tell the agent to commit (and push) in your own words. Each needs your approval in that message and a gate pass for the exact content.
+5. When the run reaches CODE_DONE, read the completion report, then `proofline deliver <TASK>` to see what delivery will do.
+6. `/proofline deliver <TASK>` in the agent session shows one summary (commit, push, pull request, merge when green, cleanup). Reply `approve delivery` to approve every step of it; any change before a step stops the chain and asks again.
 
 Inside Claude Code the same commands are `/proofline status`, `/proofline run <TASK>`, and so on.
 
@@ -24,7 +24,7 @@ Inside Claude Code the same commands are `/proofline status`, `/proofline run <T
 | `proofline design system\|data\|api\|ui [--check]` | design documents; `--check` reports drift |
 | `proofline review`, `audit`, `debug` | proof-review, test-trust and debug-proof standalone |
 | `/proofline wiki ingest\|query\|lint` | persistent project wiki (llm-wiki skill; slash command only); the wiki lives in `docs/wiki/`, which is in the default `knowledge_scope_root`, so the run's optional Knowledge step may update it |
-| `proofline deliver <TASK>` | delivery check; never commits |
+| `proofline deliver <TASK>` | delivery check; never commits (`/proofline deliver` in the session delivers after one `approve delivery`) |
 | `proofline clean [--yes]` | remove `.agents/local` state and finished runs |
 | `proofline merge <PR> [--squash\|--rebase] [--delete-branch]` | the only allowed merge: merges the pull request only when every check is green on its current head (A136); the hook denies `gh pr merge` and the other merge paths |
 | `proofline insights [--run ID] [--json]` | read-only report: cost per run, role and model (tokens only where the runtime reported them) and recurring failures with suggestions; changes nothing |

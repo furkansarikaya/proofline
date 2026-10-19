@@ -36,11 +36,42 @@ A PR is a separate stop point: `A ask <ID>` with the D13 block, relay `A questio
 only when the user's current message approves it (`A answer <ID> <N>` with their words). Body = the completion report's summary, gates and fix rounds, waivers, and open follow-ups
 (from `COMPLETION_REPORT.md`, nothing invented). GitHub: `gh pr create --base <canonical_branch> --head
 <task branch> --title <commit subject> --body-file .agents/local/assignments/<ID>/PR_BODY.md` (the only `.agents/local/` directory the lead
-writes; never `$TMPDIR`). The lead never merges,
-approves, tags or closes.
+writes; never `$TMPDIR`). The lead never approves, tags or closes, and merges only in `deliver` (section 5),
+through `proofline merge`.
 
-## 5. `deliver <TASK>`
+## 5. `deliver <TASK>`: the whole delivery in one command
 
-The command runs sections 1 to 4 for a run that is already DONE (`A next` must print the commit request);
-a run that is not DONE is reported with its `next=` step instead. After delivery (or when the user declines
-it): `A cleanup <ID>`, final report, STOP.
+The same flow for Claude Code and Codex. `deliver` does knowledge, commit, push, pull request, merge and cleanup
+with ONE question to the user. It applies to a DONE run (a pull request) and to a FAILED run (a DRAFT pull request).
+
+1. **Knowledge first.** `A deliver-plan <ID>` refuses with `knowledge step not complete` until the knowledge step is
+   done: run it now ([LIFECYCLE.md](LIFECYCLE.md#7-knowledge)), and request each `rule:<CAND>` promotion approval
+   without stopping. A run that is not DONE (and not FAILED) is reported with its `next=` step; STOP.
+2. **Prepare.** `A deliver-plan <ID> [--message "<type>(<scope>): <subject> (<ID>)"]` (the message follows
+   `git.commit_format`; one line, no `"`, `` ` ``, `$` or `\`). It writes `.agents/local/deliver/<ID>/SUMMARY.md`:
+   the changed paths, the files the knowledge step changed, the commit message, the branch, the PR kind, title
+   and body (`PR_BODY.md`: the published completion report, or the draft body from the run records), when the
+   merge happens (DONE: only with every check green, through `proofline merge`; FAILED: never) and when cleanup
+   happens (after the merge; for a draft right after the pull request is opened). It records one approval request
+   per step (`commit`, `push`, `pr`, `merge`, `cleanup`), each bound to the content fingerprint and to the
+   summary's sha256. Relay its output verbatim (the summary, the separate decisions and the question). STOP.
+3. **One reply.** Only the user's own reply `approve delivery` (or `I approve the delivery`, `teslimatı onaylıyorum`)
+   records the step approvals (the prompt hook; the lead never runs `approve`). It does not approve a lesson
+   promotion: the summary lists open `rule:<CAND>` requests as separate decisions. A rule the user approves in
+   its own reply is promoted (`A lessons promote`) and the delivery is prepared again (step 2); without it
+   delivery goes on without the promotion.
+4. **Steps.** Before each step run `A deliver-step <ID> <step> [PR]` and run exactly the `run:` lines it prints,
+   then the `then:` line. It refuses, and the chain STOPS, when the content, the branch, the commit message or
+   the body changed, when HEAD is not the one delivery commit on top of the summary's HEAD (a new commit), or
+   when the step's approval for this summary is missing; then go back to step 2 and ask again.
+   - `commit`: `git add -A`, `git commit -F .agents/local/deliver/<ID>/COMMIT_MSG` (the pre-commit hook
+     consumes the approval).
+   - `push`: `git push -u origin <task branch>` (the pre-push hook consumes it).
+   - `pr`: `gh pr create [--draft] ... --body-file .agents/local/deliver/<ID>/PR_BODY.md`; note the number.
+   - `merge <PR>` (DONE only; a draft is never merged): `gh pr checks <PR> --watch --fail-fast`, then
+     `proofline merge <PR>`. A failed check or a refused merge: STOP, no cleanup, report the state.
+   - `cleanup <PR>`: checks that the pull request is this delivery's (head commit = HEAD, head and base branch
+     as in the summary, head repository owned by the owner of `origin`, so a fork's pull request never counts, the merge step ran for that number; a draft: the pr step ran) and is merged (a draft:
+     open), then runs `A cleanup <ID>` itself. `merge` checks the same head, branches and that the pr step ran.
+5. Final report, STOP. Without the user's approval nothing is committed; `A cleanup <ID>` is run when the
+   user declines delivery.

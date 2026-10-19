@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.8
+PROOFLINE_VERSION=0.0.9
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -62,7 +62,8 @@ state (works without an agent session)
   status                  active run and its next step (default command)
   resume                  run state, ledger tail, freshness and the next step after a pause or runtime switch
   queue                   task files and runs
-  deliver <TASK>          delivery check and what a commit / push would do (never commits); a FAILED run gets a DRAFT PR body
+  deliver <TASK>          delivery check and what delivery will do (never commits): knowledge, commit, push, PR, merge
+                            when green, cleanup, after one "approve delivery"; a FAILED run gets a DRAFT PR, never merged
   clean [--yes]           remove .agents/local state and finished runs
   merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]
                           the only allowed merge path: checks that every check of the pull request is
@@ -165,10 +166,10 @@ cmd_deliver() {
   # A FAILED run: the body of a DRAFT pull request is generated from the run records; opening it is the user's call.
   if out=$(agent draft-pr-body "$id" 2>&1) || { case $out in *"knowledge step"*) printf '%s\n' "$out" >&2; say "not deliverable yet; run: /proofline knowledge $id"; hint deliver "$id"; return 1 ;; esac; false; }; then
     printf '%s\n\n' "$out"
-    say "run $id FAILED, not deliverable; nothing was committed or pushed. With your explicit approval the lead may open a DRAFT pull request:"
-    say "  push   : needs your push approval for this exact content (agent.sh request-approval - push), then the lead pushes the task branch"
-    say "  open   : gh pr create --draft --title \"DRAFT: $id failed its gates\" --body-file .agents/local/draft-pr-$id.md"
-    say "  never  : merge ('proofline merge' refuses a draft); cleanup, which waits for its own approval (agent.sh request-approval - cleanup)"
+    say "run $id FAILED, not deliverable; nothing was committed or pushed. With your one approval the lead opens a DRAFT pull request:"
+    say "  prepare: agent.sh deliver-plan $id shows one summary; your reply \"approve delivery\" approves each step of it"
+    say "  steps  : commit, push, gh pr create --draft (body from the run records), then cleanup right after the pull request is opened"
+    say "  never  : merge ('proofline merge' refuses a draft)"
     hint deliver "$id"; return 0
   fi
   if ! out=$(agent delivery-check "$id" 2>&1); then
@@ -182,9 +183,12 @@ cmd_deliver() {
   say ""
   say "what delivery would do (proofline never commits by itself):"
   say "  commit : $n changed path(s) on branch $br, message format $(cfg_val "$CFG" git.commit_format conventional), identity $(git -C "$ROOT" var GIT_AUTHOR_IDENT 2>/dev/null | sed 's/ [0-9]* [-+][0-9]*$//')"
-  say "           needs your commit approval for this exact content (agent.sh request-approval $id commit)"
-  say "  push   : approval required = $(cfg_val "$CFG" git.push_requires_approval true); remote(s): $(git -C "$ROOT" remote 2>/dev/null | tr '\n' ' ')"
-  say "  never  : merge, tag, force-push, touch a protected branch (configured: $(cfg_val "$CFG" git.protected_branches none))"
+  say "  push   : remote(s): $(git -C "$ROOT" remote 2>/dev/null | tr '\n' ' ')"
+  say "  pr     : a pull request with the completion report as its body"
+  say "  merge  : only when every check is green, through 'proofline merge'; a red check stops before cleanup"
+  say "  cleanup: after the merge"
+  say "  one approval: agent.sh deliver-plan $id shows one summary; your reply \"approve delivery\" approves each step of it, bound to this content"
+  say "  never  : tag, force-push, touch a protected branch (configured: $(cfg_val "$CFG" git.protected_branches none))"
   hint deliver "$id"
 }
 

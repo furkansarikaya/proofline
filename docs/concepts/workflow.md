@@ -63,7 +63,13 @@ the freeze; `autonomous` (default for TRIVIAL and STANDARD) runs to CODE_DONE.
 
 `CODE_DONE` needs every required gate to pass or be waived, and grants no delivery right. `DONE` additionally needs
 the knowledge step (durable design documents updated, or `not_applicable`) and a published completion report.
-`proofline deliver <TASK>` checks delivery readiness and shows what a commit or push would do; it never commits.
+`proofline deliver <TASK>` checks delivery readiness and shows what delivery will do; it never commits.
+`/proofline deliver <TASK>` in the agent session does the whole delivery: the knowledge step if it is not done, then one
+summary (`agent.sh deliver-plan`) and one question. Your reply `approve delivery` approves each step of that summary:
+commit, push, pull request, merge (only when every check is green, through `proofline merge`; never for the draft
+pull request of a FAILED run) and cleanup (after the merge; for a draft, after the pull request is opened). Each step
+is checked against the summary first (`agent.sh deliver-step`); a change in between stops the chain and you are asked
+again. A lesson promotion is not covered by that reply: it needs its own.
 Cleanup deletes the run directory so the git hooks no longer see the run; then the lead stops.
 
 ## Sources of truth

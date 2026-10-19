@@ -67,7 +67,8 @@ English: [../prompt-catalogue.md](../prompt-catalogue.md).
 
 | Amaç | Prompt |
 |---|---|
-| Commit veya push ne yapar? | `/proofline deliver TASK-001` |
+| Teslim et: commit, push, PR, yeşilse merge, temizlik (tek özet) | `/proofline deliver TASK-001` |
+| Özetin tamamını onayla | `approve delivery` (veya `teslimatı onaylıyorum`) |
 | Commit | `TASK-001 için commit'i onaylıyorum` |
 | Push | `TASK-001 için push'u onaylıyorum` |
 | Biten run'ları temizle | `proofline clean --yes` |
