@@ -1431,7 +1431,10 @@ verify_freshness() {
   if [ "$base" != "$head" ] && ! { [ "$ctp_base" = "$base" ] && git -C "$root" merge-base --is-ancestor "$base" HEAD; }; then
     # A155: a commit of control-plane files only (an upgrade, a refreshed agent file or proofline block) is not a plan change
     base_moved_control_only "$base" || fail "stale plan: repository.base_sha changed ($base -> $head); amendment and refreeze required"
-    echo "base_sha moved ($base -> $head): the commits between touch control-plane files only; the plan stays fresh"
+    bm_line="base_sha moved ($base -> $head): the commits between touch control-plane files only; the plan stays fresh"
+    echo "$bm_line"
+    # once per accepted move: the ledger line is the record
+    grep -qF "detail=$bm_line" "$(ledger_file "$id")" 2>/dev/null || ledger_if "$id" base-moved - - "$bm_line"
   fi
   type=$(section_value "$dir" task_source type); revision=$(section_value "$dir" task_source revision)
   case "$type:$revision" in
@@ -4491,7 +4494,8 @@ reopen_run() {
   [ -n "$ro_prev" ] || fail "reopen: the ledger has no terminate transition for $ro_id"
   enforce_task_branch "$ro_id"
   # 1. the plan is unchanged and the scope still holds (product changes made outside the run show up here)
-  verify_freshness "$ro_id" >/dev/null
+  ro_fr=$(verify_freshness "$ro_id") || exit 1
+  printf '%s\n' "$ro_fr" | grep -v '^planning freshness verified' || :
   verify_scope "$ro_id" 1 >/dev/null || fail "reopen blocked: files changed outside the frozen scope (listed above); the user resolves them first"
   # 2. the approvals, asked as ONE question (A154): the budget decision the plan needs (criteria above the mutation
   # budget) and the reopen itself. One reply of the user records both; each is still a normal single-use approval.
