@@ -1227,6 +1227,17 @@ scenario_base_moved_updates_base() {
   ok "an accepted move writes the new HEAD to base_sha, the ledger keeps the old one, product changes are still seen, reopen works"
 }
 
+# A156: a new block-only AGENTS.md/CLAUDE.md after an upgrade leaves the content fingerprint (and the gates) unchanged; extra text changes it.
+scenario_fingerprint_new_block_file() {
+  reopen_failed_run; fp0=$(A fingerprint LC); f=$1
+  upgrade_files; printf '<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n' > "$f"
+  git add .claude .codex "$f"; git commit -qm 'chore: upgrade'
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "a new block-only $f changed the content fingerprint"
+  printf 'a project rule\n' >> "$f"
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "text outside the block of a new $f did not change the fingerprint"
+  ok "fingerprint: a new block-only $f is control plane, extra text in it is content"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
@@ -1285,4 +1296,6 @@ run_sc scenario_second_marker_pair
 run_sc scenario_base_moved_new_block_file AGENTS.md
 run_sc scenario_base_moved_new_block_file CLAUDE.md
 run_sc scenario_base_moved_updates_base
+run_sc scenario_fingerprint_new_block_file AGENTS.md
+run_sc scenario_fingerprint_new_block_file CLAUDE.md
 echo 'agent lifecycle tests passed'
