@@ -4220,6 +4220,7 @@ next_step() {
         [ "$ns_ac" -eq 0 ] || o "re-dispatch the verifier citing only a configured or planned command with a recorded exit status and one stable output line (A107 rows); a command missing from Verification commands needs the amendment route"
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
+        o "agent.sh build-record $ns_id run   (once per tree, before the gate wave; dispatch.sh of a reviewer or verifier runs it too; they only read it with 'show')"
         for ns_x in $ns_todo; do
           ns_g=${ns_x%%:*}
           case "$ns_g" in SECRETS) o "agent.sh secret-scan $ns_id" ;; *)
@@ -4745,7 +4746,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='report-facts role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='report-facts build-record role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -4791,6 +4792,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
+  build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
 USAGE
@@ -4814,6 +4816,7 @@ case "$command" in
   summary) summary_run "${2:-}" ;;
   plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
   digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
+  build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
