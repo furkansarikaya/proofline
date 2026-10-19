@@ -19,7 +19,7 @@ pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","too
 denies() { out=$(pre "$1"); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "not denied: $1 -> $out"; printf '%s' "$out" | grep -Fq 'A156' || die "denial is not the kill guard: $1 -> $out"; }
 allows() { out=$(pre "$1"); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "denied: $1 -> $out"; }
 
-scenarios='denied allowed signal_zero quoted_text installed'
+scenarios='denied allowed signal_zero quoted_text quoted_substitution installed'
 for sc in $scenarios; do
   [ -z "${LC_EXACT:-}" ] || [ "$LC_EXACT" = "$sc" ] || continue
   case "$sc" in
@@ -42,6 +42,10 @@ for sc in $scenarios; do
     allows 'gh pr create --title t --body "text: kill $(pgrep x) and pkill x are denied"'
     allows 'command -v killall'; allows 'pkill --help'
     ok "kill text in a commit message, a heredoc and a PR body, command -v killall and pkill --help are allowed" ;;
+  quoted_substitution)   # a double-quoted process-search substitution is still a kill by pattern
+    denies 'kill -9 "$(lsof -ti :3000)"'; denies 'kill "$(pgrep x)"'; denies 'kill -TERM "$(pgrep x)"'
+    denies 'kill -9 -- "$(pgrep x)"'; denies 'kill -s TERM "$(pgrep x)"'; allows 'kill "$(cat app.pid)"'
+    ok "kill with a quoted \$(pgrep) or \$(lsof) substitution is denied, kill \"\$(cat app.pid)\" is allowed" ;;
   installed)   # the guard runs in an installed project too
     mkdir -p "$proj/.agents/scripts"; : > "$proj/.agents/config.yaml"; printf 'echo main\n' > "$proj/.agents/scripts/agent.sh"
     denies 'pkill node'; allows 'kill 1234'; ok "the guard also runs in an installed project" ;;
