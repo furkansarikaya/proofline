@@ -144,7 +144,7 @@ source (`gate:<ID>/<NNN-GATE>#<FINDING-ID>@<sha256 of the record>`, as `derive` 
 (link it from `index.md`); a candidate whose source does not resolve is refused, and `knowledge-done` fails while
 the page holds a row without a valid source (`A lessons validate`). Then `A lessons count`: it counts, by script,
 the different runs in which a finding of the same kind (gate and risk focus) appeared, from the page rows and
-the runs now on disk. At the second repeat (`repeats=2`, so `propose=yes`) propose promotion: show the user the
+the runs now on disk. At the first repeat, the second run (`repeats=1`, so `propose=yes`), propose promotion: show the user the
 candidate text and ask with `A request-approval <ID> rule:<CAND>` (relay it; the runtime records the user's own
 reply). Only after that approval run `A lessons promote <ID> <CAND>`: it adds the rule to the "Project rules"
 section of `AGENTS.md` and marks the row promoted; it refuses without the recorded approval. The edit to

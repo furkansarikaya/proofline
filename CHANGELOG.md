@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.8 — 2026-10-19
+
+- `/proofline knowledge TASK-ID` is listed in the entry skill and in `proofline help`; the help/entry test also compares the lead skill Commands table.
+- Lesson promotion is proposed at the second run (one repeat), not the third.
+- visual-proof `focus_order` no longer reports false alarms: links inside closed `<details>` (`details:not([open]) > :not(summary)`) are skipped because a real Tab never reaches them, and the sequential-focus start is reset to `body` after the checked elements are focused, so the first Tab does not start mid-page (matters with more than 40 tab stops).
+
 ## 0.0.7 — 2026-10-19
 
 - Learning: lesson candidates come from run evidence only (each with a source gate or finding id), repeats are counted by script across runs, and a promotion into `AGENTS.md` `## Project rules` needs a `rule:<ID>` approval.

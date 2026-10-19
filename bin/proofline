@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.7
+PROOFLINE_VERSION=0.0.8
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -79,6 +79,7 @@ agent session (prints the exact instruction for your runtime)
   run <TASK>              take a task through the full workflow
   review | audit | debug  proof-review, test-trust and debug-proof standalone
   wiki ingest|query|lint  keep a persistent project wiki in docs/wiki/
+  knowledge <TASK>        knowledge step of a finished run: wiki, ADRs, lesson candidates; deliver needs it
 EOF
 }
 

@@ -146,7 +146,7 @@ EOF
     } | sort -u | awk -F'\t' -v want="$want" '$1 != "" && (want == "" || $1 == want) { n[$1]++ } END { for (k in n) print k "\t" n[k] }' | sort |
     while IFS="$(printf '\t')" read -r kind n; do
       prom=no; rows | grep -F -- "| kind=$kind |" | grep -q '| status=promoted |' && prom=yes
-      pr=no; [ "$((n - 1))" -ge 2 ] && [ "$prom" = no ] && pr=yes
+      pr=no; [ "$((n - 1))" -ge 1 ] && [ "$prom" = no ] && pr=yes
       printf '%s | runs=%s | repeats=%s | propose=%s\n' "$kind" "$n" "$((n - 1))" "$pr"
     done ;;
   bound)
