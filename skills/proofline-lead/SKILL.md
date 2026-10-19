@@ -86,7 +86,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    language by the script (A99), relay those unchanged; any other English block is shown with its translation
    in the user's language, keeping `approve`, `reject`, `accept AS-n`, kinds, ids and hashes exactly;
    assignments, files and stored questions are English.
-3. **State.** `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the
+3. **State.** `A digest <ID>` is the one short read of a run (stage, gates, open questions, next step, from the records);
+   use it instead of large outputs, and `A plan-section <ID> <section>` instead of reading all of PLAN.md. `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the
    effective policy). An active run: `A next <ID>` and continue in "Flow"; on `resume` or after another
    runtime held the run, first `A freshness <ID>` and `A verify-handoff <ID>` ([FAILOVER.md](references/FAILOVER.md)).
    No active run: show the queue (`tasks.dir`) and ask what to run.
@@ -100,8 +101,10 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 
 1. **Source** ([LIFECYCLE.md](references/LIFECYCLE.md#1-intake)). A task reference (a file in
    `tasks.dir`, a GitHub issue, a Jira or Linear key) is imported through the task adapter as data. Free
-   text, or a request with COMPLEX/CRITICAL indicators, or `--grill`: dispatch `task_author` (intent-grill
-   first for vague, COMPLEX or CRITICAL requests or `--grill`).
+   text, or a request with COMPLEX/CRITICAL indicators, or `--grill`: in an interactive session do it yourself
+   in the main session, talking to the user directly with task-author (intent-grill first for vague, COMPLEX or
+   CRITICAL requests or `--grill`) in standalone mode, never through a sub-agent relay; dispatch `task_author` only
+   headless (no user attached) or for an import that needs no questions.
 2. **Run.** Task id = the issue key, else the next free `T-<n>`. Use
    `A start <ID> --task-file <path>` for a canonical task under `tasks.dir`, or
    `A start <ID> --title "<title>"` with the canonical TASK.md body on stdin. `start` creates the run,
@@ -136,6 +139,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 | `agent.sh request-approval <ID> commit` | DELIVERY stop ([DELIVERY.md](references/DELIVERY.md)); final report; STOP. |
 | `report the evidence, then: agent.sh cleanup` | Final report, then `A cleanup <ID>`, then the commands proposal ([REPORT.md](references/REPORT.md#3-final-report-to-the-user)). |
 
+**Context reset (one line).** After the plan freeze and after each gate wave (all required gates of a round recorded), tell the user in one line, in the user's language, that resetting the context is safe and how to continue: `/proofline resume <ID>` (English: "safe to reset the context: /proofline resume <ID>"). Everything the lead needs is in the run files: `A digest <ID>` and `A next <ID>` rebuild the step.
+
 After every dispatch: `A next <ID>` again. A specialist result is consumed only as
 `node scripts/check-result.mjs <file> --role <role> --task <ID>` JSON (dispatch.sh path) or as the header and
 table the subagent returned (Agent path); JSON shape: [result-summary.schema.json](schema/result-summary.schema.json).
@@ -158,7 +163,7 @@ Specialist results that stop the flow:
 | `run <TASK>` | Intake for `<TASK>` (task file, issue key, or text), then Flow to the first stop point. |
 | `resume` | Boot with freshness and `verify-handoff`; continue Flow from `A next` ([FAILOVER.md](references/FAILOVER.md)). |
 | `queue` | List tasks in `tasks.dir` (`todo/`, then `backlog/`); run them one after another, each in its own run; the next starts only after the previous one is cleaned up ([FAILOVER.md](references/FAILOVER.md#3-queue-and-concurrency)). |
-| `task [--grill]` | Dispatch `task_author` (intent-grill first with `--grill`); writes the task file through the adapter; no run starts. |
+| `task [--grill]` | Interactive: run task-author (intent-grill first with `--grill`) in the main session with the user; headless: dispatch `task_author`; writes the task file through the adapter; no run starts. |
 | `design system\|data\|api\|ui [--check]` | Outside a run: architect (system-design / api-design), data_architect (data-design), designer (ui-design) in standalone mode to reverse-engineer the configured `design_docs`; the document is written to its `design_docs` path only after the user approves it, otherwise the draft stays under `.agents/local/`; `--check` runs design-sync. |
 | `docs create\|update\|audit` | Outside a run: architect with docs-writer in standalone mode. `create <topic>` writes a document, `update [<range>]` updates the documents a diff makes stale, `audit` checks all documents against the code and fixes them. |
 | `explain <topic\|TASK-ID>` | Outside a run: architect with explain-html in standalone mode. Writes one self-contained offline HTML page to `.agents/local/explain/`; a TASK-ID is read from its run folder. |

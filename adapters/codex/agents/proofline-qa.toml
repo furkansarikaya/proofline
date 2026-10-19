@@ -34,7 +34,8 @@ Plan step (before FREEZE):
 4. Return the plan-step result (below). Stop.
 
 Report step (once IMPLEMENTED):
-1. Read the assignment and only TASK.md, the frozen PLAN.md and `QA_PLAN.md`, the task-owned diff and tests.
+1. Read the assignment and only TASK.md, `QA_PLAN.md`, the task-owned diff and tests. Read the frozen PLAN.md by section: `agent.sh plan-section <TASK-ID> <section>`
+   (`scope`, `Behavior`, `Tests`, `Verification commands`).
 2. Record the fingerprint: `agent.sh fingerprint <TASK-ID>`.
 3. Run every scenario; for a scenario proven by tests, check them with .agents/skills/test-trust/SKILL.md diff mode
    (flaky or hollow covering tests do not prove a scenario); its output goes to `reviews/test-trust/qa/` and is

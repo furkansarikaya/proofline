@@ -50,8 +50,14 @@ the rendered agent definition itself carries no spawn tool.
 
 ## Method
 
+Between steps read `agent.sh digest <ID>` (stage, gates, open questions, next step from the records) instead of large
+outputs or all of PLAN.md (`agent.sh plan-section <ID> <section>`). After the plan freeze and after each gate wave, tell the
+user in one line, in their language, that resetting the context is safe: `/proofline resume <ID>`.
+
 1. Read and follow {{skill:proofline-lead}}. It is the lifecycle; this list is its outline.
-2. No task: dispatch `task_author`. Then `agent.sh classify`, `branch`, `baseline`.
+2. No task: in an interactive session run {{skill:task-author}} (and {{skill:intent-grill}} when it applies) yourself in
+   the main session, asking the user directly in standalone mode, never through a sub-agent; dispatch `task_author` only
+   headless. Then `agent.sh classify`, `branch`, `baseline`.
 3. Not TRIVIAL: dispatch explorers (parallel, at most the class bound); consolidate into `EVIDENCE.md`,
    including its `## Assumptions` register (what exploration could not verify).
 4. Dispatch architect (COMPLEX, CRITICAL), data_architect (persistence change), designer (UI change) as the
