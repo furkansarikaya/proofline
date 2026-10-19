@@ -87,12 +87,12 @@ test("a project without HTML: the seo group does not run, and the validator reje
 });
 
 test("an analytics script loaded without consent is caught; a project without analytics gets no analytics item", () => {
-  const dirty = page("index.html", { scripts: ["https://www.googletagmanager.com/gtag/js?id=G-1"], globals: ["dataLayer"], requests: ["https://www.googletagmanager.com/gtag/js?id=G-1"], source: '<script src="https://www.googletagmanager.com/gtag/js?id=G-1"></script>' });
+  const dirty = page("index.html", { scripts: ["https://analytics.example.org/tag.js?id=G-1"], globals: ["dataLayer"], requests: ["https://analytics.example.org/tag.js?id=G-1"], source: '<script src="https://analytics.example.org/tag.js?id=G-1"></script>' });
   const r = seoEvaluate([dirty], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
   const a = r.items.find((m) => m.check === "seo_analytics_consent");
   assert.equal(a.status, "fail");
-  assert.match(a.note, /before consent: script element https:\/\/www\.googletagmanager\.com/);
-  assert.deepEqual(r.pages[0].analytics_detected, ["tag-manager"]);
+  assert.match(a.note, /before consent: script element https:\/\/analytics\.example\.org/);
+  assert.deepEqual(r.pages[0].analytics_detected, ["analytics", "dataLayer"]);
   const full = run({ ...SEO, pages: ["index.html"] }, { pages: [dirty], site: SITEFACTS(["index.html"]) });
   assert.equal(full.report.result, "FAIL");
   assert.equal(full.v.valid, true, full.v.errors.join("\n"));

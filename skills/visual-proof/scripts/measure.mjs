@@ -162,7 +162,9 @@ function probeSource() {
         jsonld: q('script[type="application/ld+json"]').map((e) => e.textContent),
         alternates: q('link[rel~="alternate" i][hreflang]').map((e) => ({ hreflang: (e.getAttribute("hreflang") || "").trim(), href: e.href })),
         robots_meta: q('meta[name="robots" i],meta[name="googlebot" i]').map(content),
-        scripts: q("script[src]").map((e) => e.src),
+        // only a script element that can execute: no type, "module" or a JavaScript MIME type; a placeholder such as
+        // <script type="text/plain" data-consent src=...> never runs and is not listed
+        scripts: q("script[src]").filter((e) => { const t = (e.getAttribute("type") || "").trim().toLowerCase().split(";")[0].trim(); return t === "" || t === "module" || /^(application|text)\/(x-)?(java|ecma)script$/.test(t); }).map((e) => e.src),
         globals: names.filter((n) => n in window),
       };
     },
@@ -267,20 +269,22 @@ export const PROBE = `(${probeSource.toString()})()`;
 
 
 // --- technical SEO (A158) ----------------------------------------------------------------------------------
-// Well-known analytics hosts and globals, in this one place. `pattern` is tested against script URLs, request
-// URLs and the page source as served (detection); a script element, a request or a global found while the page
-// loads, before any consent interaction, is a script that ran without consent.
-export const ANALYTICS = [
-  { name: "tag-manager", pattern: /googletagmanager\.com|google-analytics\.com|\bgtag\s*\(|\bga\s*\(\s*['"]create/i, globals: ["gtag", "dataLayer", "GoogleAnalyticsObject", "_gaq"] },
-  { name: "plausible", pattern: /plausible/i, globals: ["plausible"] },
-  { name: "matomo", pattern: /matomo|piwik|\b_paq\b/i, globals: ["_paq"] },
-  { name: "segment", pattern: /cdn\.segment\.(com|io)|\banalytics\.load\s*\(/i, globals: [] },
-  { name: "mixpanel", pattern: /mixpanel/i, globals: ["mixpanel"] },
-  { name: "hotjar", pattern: /hotjar|\bhj\s*\(/i, globals: ["hj"] },
-  { name: "fathom", pattern: /usefathom\.com|\bfathom\b/i, globals: ["fathom"] },
-  { name: "umami", pattern: /umami/i, globals: ["umami"] },
-];
-export const ANALYTICS_GLOBALS = [...new Set(ANALYTICS.flatMap((a) => a.globals))];
+// Analytics detection by shape, not by vendor: a host or path word that names the job (analytics, tracker, ...) and
+// the neutral global `dataLayer`. A project names its own vendor in visual.json `seo.analytics` ({ hosts, globals }).
+// A detected script URL, request URL or global that is present while the page loads, before any consent
+// interaction, is a script that ran without consent.
+export const ANALYTICS_WORDS = ["analytics", "tracker", "tracking", "telemetry", "metrics", "stats", "beacon", "pixel", "tag-manager"];
+const WORD_RE = /(?:^|[^a-z0-9])(analytics|tracker|tracking|telemetry|metrics|stats|beacon|pixel|tag-?manager)(?![a-z0-9])/i;
+export const ANALYTICS_GLOBALS = ["dataLayer"];
+export const analyticsGlobals = (opt) => [...new Set([...ANALYTICS_GLOBALS, ...(opt?.analytics?.globals || [])])];
+// The generic label (or the user's own host) a URL matches, else null.
+export function analyticsUrlLabel(u, opt) {
+  const t = String(u || "");
+  for (const h of opt?.analytics?.hosts || []) if (h && t.toLowerCase().includes(String(h).toLowerCase())) return h;
+  const m = WORD_RE.exec(t);
+  return m ? m[1].toLowerCase().replace("tagmanager", "tag-manager") : null;
+}
+const srcUrls = (html) => [...String(html || "").matchAll(/\b(?:src|data-src)\s*=\s*["']?([^"'\s>]+)/gi)].map((m) => m[1]);
 
 const LANG_TAG = /^(x-default|[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?)$/i;
 const clip = (v, n = 300) => { const t = typeof v === "string" ? v : JSON.stringify(v); return t.length > n ? t.slice(0, n - 3) + "..." : t; };
@@ -376,8 +380,9 @@ export function seoEvaluate(pages, site, opt) {
     if (/\bnoindex\b|\bnone\b/i.test(p.x_robots || "")) reasons.push("X-Robots-Tag noindex");
     if (p.not_measured) { out.pages.push({ path: p.path, status: "not_measured", reason: p.not_measured }); continue; }
     if (reasons.length) { out.pages.push({ path: p.path, status: "not_applicable", reason: "robots", detail: reasons.join("; ") }); continue; }
-    const hay = [p.source || "", ...(p.scripts || []), ...(p.requests || [])];
-    const detected = ANALYTICS.filter((a) => hay.some((t) => a.pattern.test(t)) || a.globals.some((g) => (p.globals || []).includes(g))).map((a) => a.name);
+    const hay = [...srcUrls(p.source), ...(p.scripts || []), ...(p.requests || [])];
+    const gl = analyticsGlobals(opt).filter((g) => (p.globals || []).includes(g));
+    const detected = [...new Set([...hay.map((t) => analyticsUrlLabel(t, opt)).filter(Boolean), ...gl])];
     out.pages.push({ path: p.path, status: "measured", ...(detected.length ? { analytics_detected: detected } : {}) });
     published.push(p);
     const P = p.path;
@@ -437,8 +442,8 @@ export function seoEvaluate(pages, site, opt) {
 
     if (detected.length) {
       const loaded = [];
-      for (const s of p.scripts || []) if (ANALYTICS.some((a) => a.pattern.test(s))) loaded.push(`script element ${s}`);
-      for (const r of p.requests || []) if (ANALYTICS.some((a) => a.pattern.test(r))) loaded.push(`request ${r}`);
+      for (const s of p.scripts || []) if (analyticsUrlLabel(s, opt)) loaded.push(`script element ${s}`);
+      for (const r of p.requests || []) if (analyticsUrlLabel(r, opt)) loaded.push(`request ${r}`);
       for (const g of p.globals || []) loaded.push(`window.${g}`);
       item("seo_analytics_consent", P, "script[src], window, network", [...new Set(loaded)].map((l) => `before consent: ${l}`), { detected, before_consent: [...new Set(loaded)] }, []);
     }
@@ -473,7 +478,7 @@ async function siteRead(base, rel, withHeaders) {
   if (!url) return { text: null };
   try {
     if (url.startsWith("file:")) return { text: readFileSync(new URL(url), "utf8") };
-    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const r = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(10000) });
     const headers = withHeaders ? { x_robots: r.headers.get("x-robots-tag") || "" } : {};
     return r.ok ? { text: await r.text(), ...headers } : { text: null, ...headers };
   } catch { return { text: null }; }
@@ -836,7 +841,7 @@ export function assemble(raw, outDir) {
     return { id: k.id, required: !!k.required, status: items.some((m) => m.status === "fail") ? "failed" : items.some((m) => m.status === "pass") ? "proven" : "unproven" };
   });
   if (c.seo) {
-    const opt = { base_url: c.base_url, site_url: c.seo.site_url };
+    const opt = { base_url: c.base_url, site_url: c.seo.site_url, analytics: c.seo.analytics };
     if (c.seo.public_html === false || raw.seo?.not_applicable) report.seo = { status: "not_applicable", note: SEO_NOT_APPLICABLE_NOTE };
     else if (Array.isArray(raw.seo?.pages)) report.seo = { status: "run", ...seoEvaluate(raw.seo.pages, raw.seo.site || {}, opt) };
     else report.seo = { status: "run", pages: seoPagePaths(c).map((path) => ({ path, status: "not_measured", reason: "the tool supplied no seo facts" })), items: [] };
@@ -848,7 +853,7 @@ export function assemble(raw, outDir) {
 
 // Technical SEO facts of every seo page, loaded once with no interaction (so before any consent) in the first viewport.
 async function measureSeo(p, config, reqLog, url) {
-  const opt = { base_url: config.base_url, site_url: config.seo.site_url };
+  const opt = { base_url: config.base_url, site_url: config.seo.site_url, analytics: config.seo.analytics };
   const pages = [];
   for (const path of seoPagePaths(config)) {
     reqLog.length = 0;
@@ -857,7 +862,7 @@ async function measureSeo(p, config, reqLog, url) {
       await new Promise((r) => setTimeout(r, 800)); // late analytics requests
       const type = await p.ev("document.contentType");
       if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) { pages.push({ path, url: url(path), not_measured: `not an HTML response (${type})` }); continue; }
-      const f = await p.ev(`window.__vp.seo(${JSON.stringify(ANALYTICS_GLOBALS)})`);
+      const f = await p.ev(`window.__vp.seo(${JSON.stringify(analyticsGlobals(opt))})`);
       const src = await siteRead(config.base_url, path, true);
       pages.push({ ...f, path, requests: [...reqLog], source: src.text || "", x_robots: src.x_robots || "" });
     } catch (e) { pages.push({ path, url: url(path), not_measured: e.message }); }

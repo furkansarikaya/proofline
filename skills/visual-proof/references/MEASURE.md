@@ -40,10 +40,10 @@
   steps `click`, `fill` (`text`, or `repeat` + `times` for long content), `press` (`Tab`, `Enter`, `Escape`,
   `ArrowDown`, `ArrowUp`, `" "`); expectations `visible`, `hidden`, `focus_within`, `no_horizontal_scroll`,
   `text_contains: [selector, text]`; optional `viewports` (default all). Value = failed expectations, `== 0`.
-- `seo` (optional, A158): `{ "public_html": true|false, "pages": ["index.html", "de/index.html"], "site_url": "https://example.org" }`.
+- `seo` (optional, A158): `{ "public_html": true|false, "pages": ["index.html", "de/index.html"], "site_url": "https://example.org", "analytics": { "hosts": ["stats.example.net"], "globals": ["myTracker"] } }`.
   Absent: the group is not requested. `public_html: false`: the project produces no public HTML pages; the group does not run
   ([Technical SEO](#technical-seo)). `pages`: paths under `base_url` (default: the `path` of every screen). `site_url`: the deployed
-  address the canonical links use (default: the origin the pages' canonical links or the sitemap name).
+  address the canonical links use (default: the origin the pages' canonical links or the sitemap name). `analytics` (optional): `hosts` (a substring of a script or request URL) and `globals` (`window` names) of the project's own analytics service, added to the built-in generic list.
 - `criteria`: per criterion the checks that prove it (optionally `screens`, `states`); `required: true` for
   each id on the PLAN `visual_proof:` line. A measured item is tagged with every criterion whose checks,
   screens and states match.
@@ -97,15 +97,19 @@ site, written to `report.seo`. It runs only when the project produces public HTM
 | `seo_structured_data` | each | an `application/ld+json` block that is not valid JSON (no block is fine) |
 | `seo_sitemap` | `site` | a published page not listed in `sitemap.xml`, or a listed page that does not exist |
 | `seo_robots` | `site` | no `Sitemap:` line in `robots.txt`, or a sitemap page that `robots.txt` disallows |
-| `seo_analytics_consent` | only a page that contains an analytics script | a script element, a request or a `window` global (`dataLayer`, `gtag` and the like) of a well-known analytics service present before consent |
+| `seo_analytics_consent` | only a page that contains an analytics script | an executable script element, a request or a `window` global (`dataLayer` and the project's own) of an analytics service present before consent |
 
-- Analytics: detection uses one list, `ANALYTICS` in `scripts/measure.mjs` (well-known analytics hosts and globals), matched against the
-  page source as served, script URLs and the page's requests. A page without an analytics script gets no `seo_analytics_consent` item, and
+- Analytics: detection is by shape, one generic list in `scripts/measure.mjs`: a host or path word (`analytics`, `tracker`, `tracking`,
+  `telemetry`, `metrics`, `stats`, `beacon`, `pixel`, `tag-manager`) in a script URL, a request URL or a `src` of the page source as served,
+  and the global `dataLayer`; the report names the matched generic label, never a vendor. A vendor whose host has no generic word is detected
+  only through the user list `seo.analytics` in `visual.json`. Only a script element that can execute counts (no `type`, `module` or a
+  JavaScript MIME type); a placeholder such as `<script type="text/plain" data-consent src=...>` never runs and is not a load (its
+  requests and globals still count if they happen). A page without an analytics script gets no `seo_analytics_consent` item, and
   nothing about analytics is suggested. A blocked third-party analytics request (it is in `network.blocked`) counts as an attempted request.
 - Canonical, hreflang, Open Graph and sitemap addresses are mapped to files under `base_url` by their path (the deployed origin is ignored);
   an address on another site is `not_measured`. A missing `sitemap.xml` or `robots.txt`, and a sitemap index, are `not_measured`.
 - Out of scope, never measured, judged or reported: content SEO (keywords, text quality, readability, length).
-- Limits: `dataLayer` and `gtag` are also defined by consent-mode snippets that load nothing (a measured failure the user may waive,
+- Limits: `dataLayer` is also defined by consent-mode snippets that load nothing (a measured failure the user may waive,
   never one to edit away); the robots.txt reader handles the `*` group only; reciprocity of a target outside the measured pages is read
   from its served HTML.
 

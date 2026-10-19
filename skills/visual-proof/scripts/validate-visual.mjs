@@ -322,6 +322,7 @@ export function validateReport(report, opt = {}) {
         if (!isObj(p) || !str(p.path) || !SEO_PAGE_STATUSES.includes(p.status) || pg.has(p.path)) { err(`${w}: needs a unique path and status ${SEO_PAGE_STATUSES.join("|")}`); continue; }
         pg.set(p.path, p);
         if (p.status === "not_applicable" && p.reason !== "robots") err(`${w}: not_applicable is only for a page blocked by robots (reason: robots)`);
+        if (p.status === "not_applicable" && !str(p.detail)) err(`${w}: not_applicable needs a non-empty detail (why robots blocks the page)`);
         if (p.status === "not_measured" && !str(p.reason)) err(`${w}: not_measured needs a reason`);
         if (p.analytics_detected !== undefined && !(Array.isArray(p.analytics_detected) && p.analytics_detected.every(str))) err(`${w}: analytics_detected must be a list of names`);
       }
