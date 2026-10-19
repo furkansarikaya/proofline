@@ -508,6 +508,8 @@ content_fingerprint() {
         case " $cf_named " in *" $cf_b "*) continue ;; esac
         [ -f "$root/$cf_b" ] && [ ! -L "$root/$cf_b" ] || continue
         grep -qx '<!-- proofline:begin -->' "$root/$cf_b" && grep -qx '<!-- proofline:end -->' "$root/$cf_b" || continue
+        # A156: a file that is only the block leaves the tree like a missing file, so an upgrade that creates it keeps the gates fresh
+        if block_only_file "$root/$cf_b"; then git -C "$root" rm -q --cached --ignore-unmatch -- "$cf_b" >/dev/null 2>&1; continue; fi
         cf_blob=$(strip_proofline_block "$root/$cf_b" | git -C "$root" hash-object -w --stdin) || exit 1
         git -C "$root" update-index --add --cacheinfo "100644,$cf_blob,$cf_b" >/dev/null 2>&1 || exit 1
       done

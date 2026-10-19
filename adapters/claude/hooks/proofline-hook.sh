@@ -1008,6 +1008,7 @@ MGARGS
 # like the merge guard; this hook sees only the model's own tool calls (A156, known limits).
 KG_MSG='kill only a process you started yourself, by its PID (kill <pid>, kill $!); pkill, killall and kill by pattern, by name or by port are forbidden (A156)'
 kill_guard() {
+  kg_prev='' kg_pend=no   # command words seen so far, for `pgrep ... | xargs kill`
   while IFS= read -r kg_rec; do
     case "$kg_rec" in C"$TAB"*) ;; *) continue ;; esac
     kg_rest=${kg_rec#*"$TAB"}; kg_cw=${kg_rest%%"$TAB"*}
@@ -1015,21 +1016,46 @@ kill_guard() {
     if [ "$kg_cw" = busybox ]; then   # busybox pkill / busybox kill: the applet is the first word
       kg_cw=$(printf '%s\n' "$kg_args" | head -n 1); kg_args=$(printf '%s\n' "$kg_args" | sed 1d)
     fi
+    kg_was=$kg_pend; kg_pend=no
+    if [ "$kg_was" = yes ]; then
+      case "$kg_cw" in pgrep|pidof|ps|lsof|fuser|pkill) deny "kill with PIDs taken from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG" ;; esac
+    fi
     case "$kg_cw" in
-      pkill|killall|killall5|skill|slay) deny "$kg_cw kills by name or pattern: $KG_MSG" ;;
+      pkill|killall|killall5|skill|slay)
+        # no arguments (a usage error, also what `command -v killall` leaves) and --help / --version read only
+        case "$(printf '%s\n' "$kg_args" | head -n 1)" in ""|--help|-h|--version|-V) ;; *) deny "$kg_cw kills by name or pattern: $KG_MSG" ;; esac ;;
       fuser) ! printf '%s\n' "$kg_args" | grep -Eq '^-[A-Za-z]*k' || deny "fuser -k kills whatever uses a file or port: $KG_MSG" ;;
       kill)
-        ! printf '%s\n' "$kg_args" | grep -Eq '^(-1|0|-0)$' || deny "kill -1 / kill 0 signals every process (or the whole process group): $KG_MSG" ;;
+        # signal options (-0 liveness probe, -s 0, -TERM) are not PIDs; an operand 0 or -1 signals everything
+        kg_ops=0; kg_dd=no; kg_skip=no
+        while IFS= read -r kg_a; do
+          if [ "$kg_skip" = yes ]; then kg_skip=no; continue; fi
+          if [ "$kg_dd" = no ]; then
+            case "$kg_a" in
+              --) kg_dd=yes; continue ;;
+              -1) deny "kill -1 signals every process: $KG_MSG" ;;
+              -s|-n|--signal) kg_skip=yes; continue ;;
+              -*) continue ;;
+            esac
+          else
+            [ "$kg_a" != -1 ] || deny "kill -- -1 signals every process: $KG_MSG"
+          fi
+          [ -n "$kg_a" ] || continue
+          [ "$kg_a" = '{}' ] || kg_ops=$((kg_ops + 1))
+          [ "$kg_a" != 0 ] || deny "kill 0 signals the whole process group: $KG_MSG"
+          # the scan leaves a bare `$` for "$(...)" and nothing for a backtick; the substituted command is the next record
+          case "$kg_a" in *'$') kg_pend=yes ;; esac
+        done <<KGARGS
+$kg_args
+KGARGS
+        # no PID operand (or only xargs' {}) after a process search: the PIDs arrive on stdin
+        [ "$kg_ops" != 0 ] || kg_pend=yes   # a backtick substitution, or PIDs on stdin (xargs)
+        if [ "$kg_ops" = 0 ]; then
+          case " $kg_prev " in *" pgrep "*|*" pidof "*|*" ps "*|*" lsof "*|*" fuser "*|*" pkill "*) deny "kill fed from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG" ;; esac
+        fi ;;
     esac
+    kg_prev="$kg_prev $kg_cw"
   done < "$tmp/scan"
-  kg_flat=$(printf '%s' "$cmd" | tr '\n' ' ')
-  kg_src='(^|[^[:alnum:]_./-])(pgrep|pidof|ps|lsof|fuser|pkill)([[:space:]]|$)'
-  # kill $(pgrep ...) and kill `pidof ...`
-  printf '%s' "$kg_flat" | grep -Eq "(^|[^[:alnum:]_./-])kill[[:space:]][^;&|]*(\\\$\\(|\`)([^)\`]*[^[:alnum:]_./-])?(pgrep|pidof|ps|lsof|fuser|pkill)([[:space:])\`]|\$)" \
-    && deny "kill with PIDs taken from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG"
-  # pgrep ... | xargs kill
-  printf '%s' "$kg_flat" | grep -Eq "${kg_src}[^;]*\\|[[:space:]]*((sudo|doas|command|env)[[:space:]]+)*xargs[[:space:]]+([^;&|]*[[:space:]])?kill([[:space:]]|\$|;)" \
-    && deny "kill fed by xargs from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG"
   return 0
 }
 
