@@ -455,7 +455,8 @@ test("browser: non-HTML responses, data-vp-probe content and closed-details over
     screens: [{ id: "home", path: "index.html", states: state }, { id: "wide", path: "wide.html", states: state },
       { id: "prep", path: "robots.txt", states: [{ name: "default", ready: "pre" }] }] };
   writeFileSync(join(dir, "visual.json"), JSON.stringify(cfg));
-  const r = spawnSync(process.execPath, [MEASURE, "--config", join(dir, "visual.json"), "--out", out, "--repo", dir], { encoding: "utf8" });
+  // the Linux CI runner kernel restricts unprivileged user namespaces (same reason as --no-sandbox in ci.yml browser-check)
+  const r = spawnSync(process.execPath, [MEASURE, "--config", join(dir, "visual.json"), "--out", out, "--repo", dir, ...(process.env.CI ? ["--no-sandbox"] : [])], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   const fails = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
   const bad = fails.measured.filter((m) => m.status === "fail");
