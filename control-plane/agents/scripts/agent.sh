@@ -363,6 +363,12 @@ strip_proofline_block() {
     awk '/^<!-- proofline:begin -->$/ && !d && !s { s = 1; next } /^<!-- proofline:end -->$/ && s { s = 0; d = 1; next } !s { print }' "$1"
   else cat "$1"; fi
 }
+# block_only_file FILE (A156): the whole file is the first marked proofline block: both markers present and nothing but
+# whitespace outside them (text after the end marker, a second pair or a lone marker is product text).
+block_only_file() {
+  grep -qx '<!-- proofline:begin -->' "$1" && grep -qx '<!-- proofline:end -->' "$1" || return 1
+  ! strip_proofline_block "$1" | grep -q '[^[:space:]]'
+}
 # control_plane_only PATH: a changed path whose change is control plane only: an installed file, or AGENTS.md/CLAUDE.md
 # whose content outside the proofline block equals the committed one (HEAD).
 control_plane_only() {
@@ -385,6 +391,9 @@ control_plane_range_only() {
   cpr_a=$(mktemp "${TMPDIR:-/tmp}/agent-cpr.XXXXXX"); cpr_b=$(mktemp "${TMPDIR:-/tmp}/agent-cpr.XXXXXX")
   if git -C "$root" show "$1:$2" > "$cpr_a" 2>/dev/null && git -C "$root" show "HEAD:$2" > "$cpr_b" 2>/dev/null; then
     [ "$(strip_proofline_block "$cpr_a" | sha256)" = "$(strip_proofline_block "$cpr_b" | sha256)" ]; cpr_rc=$?
+  elif ! git -C "$root" cat-file -e "$1:$2" 2>/dev/null && git -C "$root" show "HEAD:$2" > "$cpr_b" 2>/dev/null; then
+    # A156: the file was created in the range (missing at BASE, committed at HEAD): control plane only when the whole file is the block
+    block_only_file "$cpr_b"; cpr_rc=$?
   else cpr_rc=1; fi
   rm -f "$cpr_a" "$cpr_b"; return "$cpr_rc"
 }
@@ -1437,6 +1446,8 @@ verify_freshness() {
     echo "$bm_line"
     # once per accepted move: the ledger line is the record
     grep -qF "detail=$bm_line" "$(ledger_file "$id")" 2>/dev/null || ledger_if "$id" base-moved - - "$bm_line"
+    # A156: later diffs start at the new base; the old value stays in the ledger line above. Nothing frozen or sealed hashes base_sha.
+    set_run_value "$id" repository base_sha "$head"
   fi
   type=$(section_value "$dir" task_source type); revision=$(section_value "$dir" task_source revision)
   case "$type:$revision" in
@@ -4497,6 +4508,7 @@ reopen_run() {
   enforce_task_branch "$ro_id"
   # 1. the plan is unchanged and the scope still holds (product changes made outside the run show up here)
   ro_fr=$(verify_freshness "$ro_id") || exit 1
+  sv_reset   # the subshell may have moved repository.base_sha (A156)
   printf '%s\n' "$ro_fr" | grep -v '^planning freshness verified' || :
   verify_scope "$ro_id" 1 >/dev/null || fail "reopen blocked: files changed outside the frozen scope (listed above); the user resolves them first"
   # 2. the approvals, asked as ONE question (A154): the budget decision the plan needs (criteria above the mutation

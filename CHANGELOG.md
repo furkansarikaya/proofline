@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.14 — 2026-10-19
+
+- An `AGENTS.md` or `CLAUDE.md` that `proofline upgrade` creates for the first time no longer makes the plan stale when the whole file is the proofline block (nothing outside the begin/end markers but whitespace). Any other text in it keeps the plan stale, as before.
+- After an accepted `base_sha` move (control-plane commits only) the run records the new commit as `repository.base_sha`; the old value stays in the `base-moved` ledger line. Later diffs start at the new base.
+- Agents stop only processes they started themselves, by PID. The role rules say so, and the runtime hook denies `pkill`, `killall`, `fuser -k`, `kill -1`, `kill 0`, `kill $(pgrep ...)` and `pgrep ... | xargs kill` for agent tool calls. Commands you type yourself are not affected.
+
 ## 0.0.13 — 2026-10-19
 
 - Committing what `proofline upgrade` installed no longer makes the plan stale: when the commits between the run's `base_sha` and HEAD touch only control-plane files (manifest-listed files, `.claude/agents/proofline-*.md`, `.codex/agents/proofline-*.toml`, the proofline block of `AGENTS.md`/`CLAUDE.md`), the moved `base_sha` is accepted and noted in one line, and `reopen` works. Any other changed file still means a stale plan (amendment and refreeze). A path the plan scope names stays tracked.

@@ -39,6 +39,9 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
   review, plan, UI audit). Language- and ecosystem-specific skills stay free. Files other skills produce go
   to the run's `scratch/` folder. No skill is blocked.
 - Never install anything into the project. Never touch global git configuration.
+- Stop only a process you started yourself, by its own PID. `pkill`, `killall` and `kill` by pattern, name or
+  port (`kill $(pgrep ...)`, `pgrep ... | xargs kill`, `fuser -k`) are forbidden, as are mass kills (`kill -1`,
+  `kill 0`); the runtime hook denies them for agents.
 
 ## Codex lead
 

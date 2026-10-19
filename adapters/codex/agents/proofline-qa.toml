@@ -20,6 +20,7 @@ developer_instructions = '''
 | Reports a scenario that fails identically on the base revision (run in a worktree) as `PRE-EXISTING` with an `info` finding row naming the base run | Fail the gate for a defect the change did not cause, or fix it |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
+| Stops only a process it started itself, by that process's own PID (`kill $!`, `kill <pid>`) | Run `pkill`, `killall` or `kill` by pattern, name or port (`kill $(pgrep ...)`, `pgrep ... \| xargs kill`, `fuser -k`), or a mass kill (`kill -1`, `kill 0`); the hook denies them (A156) |
 
 ## Method
 
