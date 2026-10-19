@@ -12,6 +12,13 @@ Tool: <kind: name version, how detected | none: what is missing>. Screenshots: `
 | id | check | screen/state/viewport | selector | value | threshold | screenshot |
 |---|---|---|---|---|---|---|
 
+## Technical SEO (only when the report has `seo`)
+
+seo: <run: pages measured, skipped (robots), failed items | not applicable: no public HTML pages>
+
+| id | check | page | selector | problems | note |
+|---|---|---|---|---|---|
+
 ## Criteria
 
 | criterion | required | status | measured items |

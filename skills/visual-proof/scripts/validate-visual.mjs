@@ -43,6 +43,16 @@ export const NOT_APPLICABLE = { hidden_interactive: "no focusable element", focu
   overlapping_interactive: "no visible interactive element", contrast: "no visible text", touch_target: "no non-exempt target" };
 const NO_FOCUSABLE = ["hidden_interactive", "focus_order", "focus_visible"];
 
+// Technical SEO group (A158): measured per public HTML page and once per site, in `report.seo`, outside the
+// screen x state x viewport cells. Every pass or fail item has value = the number of problems found, `== 0`.
+export const SEO_PAGE_CHECKS = ["seo_title", "seo_description", "seo_canonical", "seo_h1", "seo_open_graph", "seo_structured_data"];
+export const SEO_OPTIONAL_PAGE_CHECKS = ["seo_hreflang", "seo_analytics_consent"]; // hreflang: multilingual pages only; analytics: pages that contain an analytics script only
+export const SEO_SITE_CHECKS = ["seo_sitemap", "seo_robots"];
+export const SEO_CHECKS = [...SEO_PAGE_CHECKS, ...SEO_OPTIONAL_PAGE_CHECKS, ...SEO_SITE_CHECKS];
+export const SEO_NOT_APPLICABLE_NOTE = "seo not applicable: no public HTML pages"; // the only text of a project without HTML pages
+export const SEO_SITE = "site";
+const SEO_PAGE_STATUSES = ["measured", "not_applicable", "not_measured"];
+
 // null when the threshold is the documented one or stricter, else the reason it is not.
 export function thresholdError(m, viewport) {
   const t = /^(<=|>=|==|<|>)\s*(-?\d+(?:\.\d+)?)$/.exec(String(m.threshold ?? "").trim());
@@ -295,6 +305,61 @@ export function validateReport(report, opt = {}) {
     }
   }
 
+  // --- seo (A158): optional; consistency of the technical SEO group ----------------------------------------
+  const seo = report.seo;
+  const seoItems = [];
+  if (seo !== undefined) {
+    if (unsupported) err("seo must be absent when tool.kind is none (nothing was rendered)");
+    else if (!isObj(seo) || !["run", "not_applicable"].includes(seo.status)) err("seo.status must be run or not_applicable");
+    else if (seo.status === "not_applicable") {
+      if (seo.note !== SEO_NOT_APPLICABLE_NOTE) err(`seo not_applicable needs the fixed note "${SEO_NOT_APPLICABLE_NOTE}"`);
+      if ((seo.pages !== undefined && !(Array.isArray(seo.pages) && !seo.pages.length)) || (seo.items !== undefined && !(Array.isArray(seo.items) && !seo.items.length))) err("seo not_applicable: the group does not run, so pages and items must be empty or absent");
+    } else if (!Array.isArray(seo.pages) || !Array.isArray(seo.items)) err("seo run needs pages[] and items[]");
+    else {
+      const pg = new Map();
+      for (const [i, p] of seo.pages.entries()) {
+        const w = `seo.pages[${i}]`;
+        if (!isObj(p) || !str(p.path) || !SEO_PAGE_STATUSES.includes(p.status) || pg.has(p.path)) { err(`${w}: needs a unique path and status ${SEO_PAGE_STATUSES.join("|")}`); continue; }
+        pg.set(p.path, p);
+        if (p.status === "not_applicable" && p.reason !== "robots") err(`${w}: not_applicable is only for a page blocked by robots (reason: robots)`);
+        if (p.status === "not_applicable" && !str(p.detail)) err(`${w}: not_applicable needs a non-empty detail (why robots blocks the page)`);
+        if (p.status === "not_measured" && !str(p.reason)) err(`${w}: not_measured needs a reason`);
+        if (p.analytics_detected !== undefined && !(Array.isArray(p.analytics_detected) && p.analytics_detected.every(str))) err(`${w}: analytics_detected must be a list of names`);
+      }
+      const sids = new Set(), seen = new Set();
+      for (const [i, m] of seo.items.entries()) {
+        const w = `seo.items[${i}]`;
+        if (!isObj(m)) { err(`${w}: must be an object`); continue; }
+        if (!/^S-\d+$/.test(m.id || "") || sids.has(m.id)) err(`${w}: id must be a unique S-<n>`);
+        sids.add(m.id);
+        if (!SEO_CHECKS.includes(m.check)) { err(`${w}: unknown check ${m.check}`); continue; }
+        const site = SEO_SITE_CHECKS.includes(m.check);
+        const p = pg.get(m.page);
+        if (site ? m.page !== SEO_SITE : !p || p.status !== "measured") err(`${w}: ${m.check} belongs to ${site ? `page "${SEO_SITE}"` : "a measured page listed in seo.pages"} (got ${JSON.stringify(m.page)})`);
+        if (seen.has(`${m.page}|${m.check}`)) err(`${w}: duplicate ${m.check} for ${m.page}`);
+        seen.add(`${m.page}|${m.check}`);
+        if (!str(m.selector)) err(`${w}: selector is required`);
+        if (m.threshold !== "== 0") err(`${w}: threshold must be "== 0" (value = problems found)`);
+        if (m.status === "not_measured") { if (!str(m.reason)) err(`${w}: not_measured needs a reason`); }
+        else if (m.status === "pass" || m.status === "fail") {
+          if (!Number.isInteger(m.value) || m.value < 0) err(`${w}: a ${m.status} item needs a non-negative integer value (problems found)`);
+          else if ((m.value === 0) !== (m.status === "pass")) err(`${w}: status ${m.status} contradicts value ${m.value} == 0`);
+          if (!str(m.evidence)) err(`${w}: evidence (the observed values) is required`);
+          if (m.status === "fail" && !str(m.note)) err(`${w}: a failing item says what is wrong (note)`);
+        } else err(`${w}: status must be pass|fail|not_measured`);
+        if (m.check === "seo_analytics_consent" && p && !(p.analytics_detected || []).length) err(`${w}: no analytics script was detected on ${m.page}: nothing is measured or recommended`);
+        seoItems.push(m);
+      }
+      const measuredPages = [...pg.values()].filter((p) => p.status === "measured");
+      for (const p of measuredPages) {
+        for (const c of SEO_PAGE_CHECKS) if (!seen.has(`${p.path}|${c}`)) err(`seo page ${p.path}: ${c} is neither measured nor listed as not_measured`);
+        if ((p.analytics_detected || []).length && !seen.has(`${p.path}|seo_analytics_consent`)) err(`seo page ${p.path}: an analytics script was detected, seo_analytics_consent is required`);
+      }
+      if (measuredPages.length) for (const c of SEO_SITE_CHECKS) if (!seen.has(`${SEO_SITE}|${c}`)) err(`seo site: ${c} is neither measured nor listed as not_measured`);
+      for (const p of pg.values()) if (p.status !== "measured" && seo.items.some((m) => m?.page === p.path)) err(`seo page ${p.path}: a page that is not measured has no items`);
+    }
+  }
+
   // --- result --------------------------------------------------------------------------------------------
   const reasons = [];
   let computed;
@@ -302,6 +367,7 @@ export function validateReport(report, opt = {}) {
   else {
     for (const m of measured) if (m.status === "fail") reasons.push(`${m.id} ${m.check} failed`);
     for (const j of judged) if (j.status === "violation") reasons.push(`${j.id} violates ${j.violates?.ref}`);
+    for (const m of seoItems) if (m.status === "fail") reasons.push(`${m.id} ${m.check} failed`);
     if (reg?.status === "run" && reg.exit !== 0) reasons.push("visual regression failed");
     if (reasons.length) computed = "FAIL";
     else {
@@ -321,14 +387,15 @@ export function validateReport(report, opt = {}) {
   const na = measured.filter((m) => m.status === "not_applicable").length;
   const blocked = Array.isArray(net?.blocked) ? net.blocked.length : 0;
   const writesNote = writes.length ? ` same_origin_writes=${writes.length}${writesAllowed ? " (allowed)" : ""};` : "";
-  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}`;
-  return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged) };
+  const seoNote = isObj(seo) ? (seo.status === "run" ? `; seo=${seoItems.filter((m) => m.status === "pass").length}/${seoItems.length} pass, ${seoItems.filter((m) => m.status === "fail").length} fail, ${seoItems.filter((m) => m.status === "not_measured").length} not_measured` : "; seo=not_applicable") : "";
+  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}${seoNote}`;
+  return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged, seoItems) };
 }
 
 // Finding rows for `agent.sh submit --findings`: one blocking row per failed measurement or judged violation,
 // one info row per judged concern. The location is `<screen path>:<selector>`; replace it with the source
 // `path:line` once the rule is located.
-function rowsOf(report, fails, judged) {
+function rowsOf(report, fails, judged, seoItems = []) {
   const clean = (s) => String(s).replace(/\|/g, "/").replace(/\s+/g, " ").trim();
   const path = (id) => (report.screens || []).find((s) => s?.id === id)?.path || id;
   const rows = fails.map((m) => ["blocking", `${path(m.screen)}:${m.selector}`, `${m.id} ${m.check}: ${m.value} fails ${m.threshold} at ${m.screen}/${m.state}/${m.viewport}${m.criteria?.length ? " (" + m.criteria.join(",") + ")" : ""}`, `measured; ${m.evidence?.path} sha256:${String(m.evidence?.sha256).slice(0, 12)}`]);
@@ -336,6 +403,12 @@ function rowsOf(report, fails, judged) {
     if (j.status === "ok") continue;
     rows.push([j.status === "violation" ? "blocking" : "info", `${path(j.screen)}:${j.aspect}`, `${j.id} judged ${j.aspect}: ${j.observation}${j.status === "violation" ? ` (violates ${j.violates?.ref})` : ""}`, `judged; ${j.screenshot?.path} against ${j.spec_ref}`]);
   }
+  // seo (A158): a failed item blocks; an item that could not be measured is informational, never blocking.
+  for (const m of seoItems) {
+    if (m.status === "fail") rows.push(["blocking", `${m.page}:${m.selector}`, `${m.id} ${m.check}: ${m.value} problem(s): ${m.note}`, `measured; seo ${String(m.evidence).slice(0, 120)}`]);
+    else if (m.status === "not_measured") rows.push(["info", `${m.page}:${m.selector}`, `${m.id} ${m.check} not measured: ${m.reason}`, "not_measured"]);
+  }
+  for (const p of Array.isArray(report.seo?.pages) ? report.seo.pages : []) if (p?.status === "not_measured") rows.push(["info", `${p.path}:seo`, `seo not measured for ${p.path}: ${p.reason}`, "not_measured"]);
   return rows.map((r) => r.map(clean).join("|"));
 }
 

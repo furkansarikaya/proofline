@@ -1043,7 +1043,7 @@ scenario_reopen_approval_kinds() {
 upgrade_files() {
   mkdir -p .claude/agents .codex/agents .claude/skills/proofline
   printf 'agent\n' > .claude/agents/proofline-x.md; printf 'agent\n' > .codex/agents/proofline-x.toml; printf 'skill\n' > .claude/skills/proofline/SKILL.md
-  printf '# version: 0.0.15\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.16\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
 }
 scenario_reopen_after_upgrade() {
   SC_AGENTS_MD=1 reopen_failed_run; fp0=$(A fingerprint LC)
@@ -1062,7 +1062,7 @@ scenario_upgrade_product_edits() {
 }
 scenario_upgrade_named_path() {
   SC_SCOPE_NAMED=.claude/skills/proofline/named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
-  printf '# version: 0.0.15\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.16\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
   fp0=$(A fingerprint LC); mkdir -p .claude/skills/proofline; printf 'edit\n' > .claude/skills/proofline/named.md
   [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named installed file left the fingerprint"
   A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named installed file changed"
