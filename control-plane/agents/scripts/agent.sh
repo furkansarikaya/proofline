@@ -4682,7 +4682,27 @@ cleanup_run() {
 # the command the lead runs (agent.sh never commits, pushes or merges; the git hooks consume commit and push).
 deliver_dir() { printf '%s/.agents/local/deliver/%s\n' "$root" "$1"; }
 deliver_target() { case "$(run_state "$(run_dir "$1")")" in FAILED|BLOCKED) echo - ;; *) printf '%s\n' "$1" ;; esac; }
-deliver_gh() { if [ "${PROOFLINE_TEST:-}" = 1 ]; then printf '%s\n' "${PROOFLINE_GH:-gh}"; else echo gh; fi; }   # test seam only
+# deliver_pr_view PR -> "STATE ISDRAFT HEAD-SHA HEAD-BRANCH BASE-BRANCH", or "unreadable". Runs before the locks are
+# taken (a slow gh never holds them). No env seam: gh comes from PATH and, like `proofline merge`, is refused when it
+# resolves into the project, the working directory or a temp directory (PROOFLINE_SELFTEST=1 lifts that for the
+# self-tests; the runtime hook denies any command naming it).
+deliver_pr_view() {
+  dv_g=$(command -v gh 2>/dev/null) || { echo unreadable; return 0; }
+  case "$dv_g" in /*) ;; *) echo unreadable; return 0 ;; esac
+  if [ "${PROOFLINE_SELFTEST:-}" != 1 ]; then
+    case "$dv_g" in "$root"/*|"$PWD"/*|/tmp/*|/private/tmp/*|/var/folders/*|/dev/shm/*|"${TMPDIR:-/nonexistent}"/*) echo "unreadable (gh at $dv_g may be shadowed)"; return 0 ;; esac
+  fi
+  "$dv_g" pr view "$1" --json state,isDraft,headRefOid,headRefName,baseRefName \
+    --jq '.state + " " + (.isDraft | tostring) + " " + .headRefOid + " " + .headRefName + " " + .baseRefName' 2>/dev/null </dev/null || echo unreadable
+}
+# deliver_consumed TARGET KIND HASH: this summary's KIND approval exists and was consumed (its step ran).
+deliver_consumed() {
+  for dc_f in "$(approvals_dir "$1")"/[0-9][0-9][0-9]-"$2".yaml; do
+    safe_state_file "$dc_f" || continue
+    [ "$(gate_field "$dc_f" consumed)" = true ] && [ "$(gate_field "$dc_f" delivery)" = "$3" ] && return 0
+  done
+  return 1
+}
 deliver_plan() {
   dl_id=$1; shift; dl_msg=''
   while [ $# -gt 0 ]; do case "$1" in --message) dl_msg=${2:-}; shift 2 || shift ;; *) fail "unknown deliver-plan argument: $1" ;; esac; done
@@ -4769,7 +4789,8 @@ deliver_step() {
   fi
   ds_app=$(find_approval "$ds_t" "$ds_s" "$(ds_v content)" "$ds_h") || ds_stop "no unconsumed $ds_s approval of the user for this summary"
   case "$ds_s:$ds_pr" in merge:|cleanup:) fail "usage: agent.sh deliver-step $ds_id $ds_s <PR-NUMBER>" ;; merge:*[!0-9]*|cleanup:*[!0-9]*) fail "the pull request is a plain number: $ds_pr" ;; esac
-  ds_view() { "$(deliver_gh)" pr view "$ds_pr" --json state,isDraft,headRefOid --jq '.state + " " + (.isDraft | tostring) + " " + .headRefOid' 2>/dev/null || ds_stop "gh pr view $ds_pr failed"; }
+  # the pull request must be this delivery's: its head commit, head branch and base branch (read before the locks)
+  ds_want="$ds_head $ds_br $(ds_v base)"; ds_pv=${deliver_pv:-unreadable}
   case "$ds_s" in
     commit)
       [ "$ds_t" != - ] || consume_approval - "$ds_app"   # no open run: the pre-commit hook consumes nothing
@@ -4786,16 +4807,18 @@ deliver_step() {
       else printf 'then: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$ds_id"; fi ;;
     merge)
       [ "$ds_k" != draft ] || ds_stop "a draft pull request is never merged"
-      ds_pv=$(ds_view); [ "$ds_pv" = "OPEN false $ds_head" ] || ds_stop "pull request $ds_pr is not an open, non-draft pull request at HEAD $ds_head (gh: $ds_pv)"
-      consume_approval "$ds_t" "$ds_app"
+      deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
+      [ "$ds_pv" = "OPEN false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open, non-draft pull request ($ds_want; gh: $ds_pv)"
+      consume_approval "$ds_t" "$ds_app"; printf '%s\n' "$ds_pr" > "$ds_dir/PR"
       printf 'run: gh pr checks %s --watch --fail-fast\nrun: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\nthen: agent.sh deliver-step %s cleanup %s\n' "$ds_pr" "$ds_pr" "$ds_id" "$ds_pr" ;;
     cleanup)
-      ds_pv=$(ds_view)
       if [ "$ds_k" = draft ]; then
-        case "$ds_pv" in "OPEN true "*) ;; *) ds_stop "the draft pull request $ds_pr is not open (gh: $ds_pv)" ;; esac
+        deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
+        [ "$ds_pv" = "OPEN true $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open draft pull request ($ds_want; gh: $ds_pv)"
         # cleanup_run consumes the no-run cleanup approval of a draft delivery itself
       else
-        case "$ds_pv" in "MERGED "*) ;; *) ds_stop "pull request $ds_pr is not merged (gh: $ds_pv); no cleanup before the merge" ;; esac
+        deliver_consumed "$ds_t" merge "$ds_h" && [ "$(cat "$ds_dir/PR" 2>/dev/null)" = "$ds_pr" ] || ds_stop "the merge step of this delivery did not run for pull request $ds_pr"
+        [ "$ds_pv" = "MERGED false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's merged pull request ($ds_want; gh: $ds_pv); no cleanup before the merge"
         consume_approval "$ds_t" "$ds_app"
       fi
       cleanup_run "$ds_id"; rm -rf "$ds_dir"
@@ -4918,6 +4941,9 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
 if [ "$command" = approve-pending ] || [ "$command" = friction ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
+# deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
+deliver_pv=''
+if [ "$command" = deliver-step ]; then case "${3:-}:${4:-}" in merge:*[!0-9]*|cleanup:*[!0-9]*|merge:|cleanup:) ;; merge:*|cleanup:*) deliver_pv=$(deliver_pr_view "$4") ;; esac; fi
 if [ "$lock_command" = yes ]; then
   mkdir -p "$agents/local"
   trap 'release_locks' 0
