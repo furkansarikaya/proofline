@@ -224,6 +224,7 @@ scaffold() {
     printf '# LC task\n' > tasks/LC.md
   fi
   [ -z "${SC_AGENTS_MD:-}" ] || printf '# Project\n\n## Project rules\n\nkeep it small\n\n<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n' > AGENTS.md
+  [ "${SC_AGENTS_MD:-}" != 2 ] || printf '\n## Notes\n\n<!-- proofline:begin -->\nsecond pair\n<!-- proofline:end -->\n' >> AGENTS.md   # a second marker pair is product text (A155)
   [ -z "${SC_SCOPE_NAMED:-}" ] || { mkdir -p "$(dirname "$SC_SCOPE_NAMED")"; : > "$SC_SCOPE_NAMED"; }
   git add -A; git commit -qm baseline
   if [ "$layout" = yes ]; then mkdir -p tasks/in-progress; git mv tasks/todo/LC.md tasks/in-progress/LC.md; tc_status tasks/in-progress/LC.md in-progress; fi
