@@ -463,8 +463,11 @@ content_fingerprint() {
       git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$cf_td" >/dev/null 2>&1
       for cf_k in $cf_keep; do git -C "$root" add -f -- "$cf_k" >/dev/null 2>&1 || exit 1; done
       for cf_i in '.claude/agents/proofline-*.md' '.codex/agents/proofline-*.toml' $(installed_control_paths); do
-        case " $cf_named " in *" $cf_i "*) continue ;; esac
         git -C "$root" rm -r -q --cached --ignore-unmatch -- "$cf_i" >/dev/null 2>&1
+      done
+      # an installed file a plan scope names stays tracked: put back each named one (matched per file, not per pattern)
+      for cf_n in $cf_named; do
+        if installed_control_path "$cf_n" && [ -f "$root/$cf_n" ]; then git -C "$root" add -f -- "$cf_n" >/dev/null 2>&1 || exit 1; fi
       done
       for cf_b in AGENTS.md CLAUDE.md; do
         case " $cf_named " in *" $cf_b "*) continue ;; esac
@@ -720,6 +723,8 @@ task_changed_paths() {
     case "$tcp_p" in .agents/runs/*|.agents/local/*|"$tcp_tasks"/*) continue ;; esac
     # a control-plane file the plan scope does not name is the user's edit, not a task change (verify-scope lists it)
     case "$tcp_p" in .agents/*) authorized_path "$tcp_maps" "$tcp_p" || continue ;; esac
+    # A154: nor is a file `upgrade` installs (or the proofline block of AGENTS.md/CLAUDE.md): an upgrade never moves the tier
+    if control_plane_only "$tcp_p" && ! authorized_path "$tcp_maps" "$tcp_p"; then continue; fi
     tcp_prior=$(baseline_fingerprint tracked "$tcp_p" "$tcp_d"); [ -n "$tcp_prior" ] || tcp_prior=$(baseline_fingerprint untracked "$tcp_p" "$tcp_d")
     if [ -n "$tcp_prior" ] && [ "$tcp_prior" = "$(fingerprint_path "$tcp_p")" ]; then continue; fi
     printf '%s\n' "$tcp_p"
