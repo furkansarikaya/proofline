@@ -73,6 +73,32 @@ is checked against the summary first (`agent.sh deliver-step`); a change in betw
 again. A lesson promotion is not covered by that reply: it needs its own.
 Cleanup deletes the run directory so the git hooks no longer see the run; then the lead stops.
 
+## Night mode
+
+`/proofline batch <ID...|all>` (`agent.sh batch-plan`) is for several tasks that would each wait for your plan and delivery
+approval. It orders the tasks by `depends_on` (a cycle refuses the whole batch), leaves out every CRITICAL task, every task
+without a parseable `## Suggested class` and every task that depends on one of those or on a task that is neither in the batch
+nor in `done/`, and writes one summary (`.agents/local/batch/SUMMARY.md`): the order, what the approval covers, what it
+does not, the mutation budget cap and the stop rules. `all` means the top-level and `todo/` task files, in ID order. Your
+reply "approve batch" is the one approval; it is bound to the sha256 of that summary, never consumed, and stops being valid
+when the summary changes. It reads task files through the markdown adapter only.
+
+`proofline batch run` (a terminal, no agent session) starts the driver. It refuses without a valid batch approval, a clean
+tree on the canonical branch and an authenticated `gh`, and runs one task at a time (`.agents/local/batch/LOCK`). Before each
+task it updates the canonical branch and checks its CI; for each task it starts a clean headless lead session
+(`claude -p`, or `codex exec`; the next runtime takes over when one hits its usage limit). In that session the lead calls
+`agent.sh batch-cover <ID> <plan|delivery|mutation_budget>`, which records the approval of that request as yours only while
+the batch approval is valid, the task is in the batch, its run is open and not CRITICAL and the request is pending; a mutation
+budget stays within `batch.mutation_budget_cap` (40). Every other approval kind (waiver, scope, reopen, destructive,
+single_step, rule, report, a fix-round budget) is refused: the lead records the question with `agent.sh ask` and the
+session ends. The driver decides each outcome from records (`merged.tsv`, the run state, the run's questions), parks the
+task, skips the tasks that depend on it and goes on with the next independent one. It stops, leaving the rest pending,
+when main CI is red or still running after `batch.ci_wait_minutes`, when every runtime hit its limit, or when one is not
+logged in. After every task it removes the worktrees the session added and returns to the canonical branch.
+`proofline batch run` again resumes: a parked task whose question was answered (or whose run was reopened) is resumed.
+`proofline batch status` (`agent.sh batch-status`) prints the morning table (task, result, PR, merge time, park reason,
+pending question) from the records, never from a session log, with the friction report under it.
+
 ## Commands
 
 | Command | What it does |
@@ -86,6 +112,7 @@ Cleanup deletes the run directory so the git hooks no longer see the run; then t
 | `knowledge <TASK>` | the knowledge step of a finished run |
 | `reopen <TASK>` | take a FAILED or BLOCKED run back into the workflow, only with your approval |
 | `deliver <TASK>` | commit, push, pull request, merge and cleanup after one approval |
+| `batch <ID...\|all>` | night mode: one approval of one summary for several tasks (`batch run`, `batch status`) |
 | `debt` | list the shortcut comments in the code; read-only, needs no run |
 | `clean`, `merge`, `insights` | clean up, the only allowed merge, cost and recurring failures |
 

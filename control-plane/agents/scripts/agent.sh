@@ -130,7 +130,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies")
@@ -161,6 +161,9 @@ config_check() {
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
+      else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
+      else if (k == "batch.runtimes") { nr = split(v, rt, " "); for (ri = 1; ri <= nr; ri++) en(k, rt[ri], "claude|codex") }
+      else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
       else if (k == "dispatch.claude_permission_mode") en(k, v, "bypassPermissions|acceptEdits|default")
       else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad("dispatch.timeout_seconds must be at least 30") }
       seen[k] = 1
@@ -3552,6 +3555,8 @@ raise_budget() {
   [ "$rb_n" -gt "$(mutation_budget "$rb_id")" ] || fail "the mutation budget is already $(mutation_budget "$rb_id"); nothing to raise"
   [ "$rb_n" -ge "$(plan_test_acs "$rb_d/PLAN.md")" ] || fail "N must cover the $(plan_test_acs "$rb_d/PLAN.md") criteria of PLAN ## Tests"
   rb_app=$(find_approval "$rb_id" mutation_budget "$(hash_file "$rb_d/PLAN.md")") || fail "raising the mutation budget needs the user's approval: 'agent.sh request-approval $rb_id mutation_budget', relay it, then run this again"
+  # A157: an approval that came through the batch approval stops at the batch cap
+  [ -z "$(gate_field "$rb_app" via_batch)" ] || [ "$rb_n" -le "$(gate_field "$rb_app" cap)" ] || fail "the batch approval covers a mutation budget up to $(gate_field "$rb_app" cap); $rb_n is above it. Park the task with 'agent.sh ask $rb_id'"
   printf '%s\n' "$rb_n" > "$rb_d/mutation_budget"; consume_approval "$rb_id" "$rb_app"
   ledger_if "$rb_id" raise-budget - - "test_trust.mutation_budget $rb_n for this run, approval $(basename "$rb_app")"
   echo "mutation budget raised to $rb_n for $rb_id (dispatch the reviewer again if REVIEW_TESTS was BLOCKED)"
@@ -3562,7 +3567,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch) return 0 ;;
     waive:*|rule:*|reopen:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -3571,8 +3576,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then printf '%s/.agents/local/approvals\n' "$root"; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
   case "$2" in
@@ -3589,6 +3594,7 @@ approval_bound() { # ID KIND
   case "$2" in
     commit|push|pr|merge|cleanup) content_fingerprint ;;
     report) hash_file "$root/.agents/local/friction/latest.md" ;;
+    batch) hash_file "$root/.agents/local/batch/SUMMARY.md" ;;
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
@@ -3837,7 +3843,8 @@ request_approval() {
     rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
-  if [ "$rq_tr" = 1 ]; then printf 'QUESTIONS:\n1. %s için %s onaylansın mı?\n' "$rq_id" "$rq_kind"
+  if [ "$rq_kind" = batch ]; then printf 'QUESTIONS:\n1. Approve the night batch shown above (batch %s)?\n' "$(printf '%s' "$rq_bound" | cut -c1-12)"
+  elif [ "$rq_tr" = 1 ]; then printf 'QUESTIONS:\n1. %s için %s onaylansın mı?\n' "$rq_id" "$rq_kind"
   else printf 'QUESTIONS:\n1. Approve %s for %s?\n' "$rq_kind" "$rq_id"; fi
   [ -z "$rq_steps" ] || printf '%s\n' "$rq_steps"
   [ -z "$rq_rows" ] || printf '%s\n' "$rq_rows"
@@ -3859,6 +3866,7 @@ approval_why() { # KIND BOUND [tr]
       reopen:*) echo 'başarısız veya engellenmiş koşu yalnızca kullanıcı onayıyla yeniden açılır; plan değişmez, geçmeyen kapılar yeniden çalışır' ;;
       rule:*) echo "kanıttan çıkan ders proje kuralı olur: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
+      batch) echo 'gece modu: bu tek özet, listelenen görevlerin plan, teslimat ve mutasyon bütçesi onaylarının yerine geçer; başka hiçbir şeyin yerine geçmez' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
     esac
     return 0
@@ -3875,6 +3883,7 @@ approval_why() { # KIND BOUND [tr]
     reopen:*) echo 'a FAILED or BLOCKED run is reopened only with your approval: the plan stays frozen, only gates that did not pass or whose inputs changed run again, and the fix-round allowance restarts' ;;
     rule:*) echo "a lesson from run evidence becomes a project rule: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
+    batch) echo 'night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
   esac
 }
@@ -3947,6 +3956,65 @@ approval_consume() { # ID KIND [FINGERPRINT] — for the git hooks; exit 0 iff a
   acn_f=$(find_approval "$acn_id" "$acn_kind" "$acn_b") || fail "no unconsumed $acn_kind approval bound to $acn_b for $acn_id"
   consume_approval "$acn_id" "$acn_f"
   echo "approval consumed: $acn_id $acn_kind $(basename "$acn_f")"
+}
+
+# --- Night mode (A157): one approval of one summary stands in for the plan, delivery and mutation budget approvals of the
+# listed tasks. The plan, the driver and the report are batch.sh; here are only the approval checks and the cover.
+batch_dir() { printf '%s/.agents/local/batch\n' "$root"; }
+# batch_approval: the batch approval file, valid only while SUMMARY.md still has the hash it is bound to; it is never consumed.
+batch_approval() {
+  ba_s=$(batch_dir)/SUMMARY.md; [ -f "$ba_s" ] || return 1
+  ba_f=$(find_approval - batch "$(hash_file "$ba_s")") || return 1
+  [ "$(gate_field "$ba_f" answered_by)" = user ] || return 1
+  case "$(gate_field "$ba_f" source)" in prompt_capture|tty) printf '%s\n' "$ba_f" ;; *) return 1 ;; esac
+}
+batch_check() { batch_approval >/dev/null || fail "no valid batch approval for the current summary (agent.sh batch-plan, then the user's reply \"approve batch\")"; hash_file "$(batch_dir)/SUMMARY.md"; }
+batch_plan() {
+  require_lead; mkdir -p "$agents/local"
+  sh "$scripts/batch.sh" plan "$@" || return 1
+  request_approval - batch
+}
+# batch_record ID KIND REQUEST BATCH-HASH [DELIVERY [CAP]]: an approval as `approve` writes it, marked source batch.
+batch_record() {
+  br_ad=$(approvals_dir "$1"); br_slug=$(kind_slug "$2"); br_n=$(next_num "$br_ad"); br_f=$br_ad/$br_n-$br_slug.yaml
+  printf 'kind: "%s"\nbound: "%s"\nsource: "batch"\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\nvia_batch: "%s"\n' \
+    "$2" "$(gate_field "$3" bound)" "$(basename "$3")" "$(now_epoch)" "$4" > "$br_f"
+  [ -z "${5:-}" ] || printf 'delivery: "%s"\n' "$5" >> "$br_f"
+  [ -z "${6:-}" ] || printf 'cap: "%s"\n' "$6" >> "$br_f"
+  ledger_if "$1" approval - - "$(ledger_token "approvals/$br_n-$br_slug.yaml" "$1") $2 source=batch answered_by=user bound=$(gate_field "$3" bound) via_batch=$4"
+  echo "batch approval recorded: $1 $2"
+}
+# batch_cover ID KIND: records the approval of a plan, a delivery or a mutation budget as the user's, only while every check holds.
+batch_cover() {
+  bc_id=$1 bc_k=$2; require_lead
+  case "$bc_k" in plan|delivery|mutation_budget) ;; *) fail "$bc_k is not covered by the batch approval (only plan, delivery, mutation_budget)" ;; esac
+  batch_approval >/dev/null || fail "no valid batch approval for the current summary"
+  bc_h=$(hash_file "$(batch_dir)/SUMMARY.md")
+  awk -F'\t' -v t="$bc_id" '$1 == t { f = 1 } END { exit !f }' "$(batch_dir)/order.tsv" 2>/dev/null || fail "$bc_id is not in the batch (excluded or never planned)"
+  require_run "$bc_id"; require_open_run "$bc_id"
+  bc_c=$(pipeline_class "$bc_id")
+  { pipeline_class_valid "$bc_c" && [ "$bc_c" != CRITICAL ]; } || fail "run $bc_id is classified ${bc_c:-unknown}: CRITICAL or unclassified work is not covered by the batch approval"
+  bc_list=''
+  if [ "$bc_k" = delivery ]; then
+    [ -f "$(deliver_dir "$bc_id")/SUMMARY.md" ] || fail "no delivery summary for $bc_id (agent.sh deliver-plan $bc_id first)"
+    bc_dh=$(hash_file "$(deliver_dir "$bc_id")/SUMMARY.md")
+    for bc_s in commit push pr merge cleanup; do
+      bc_rq=$(pending_request "$bc_id" "$bc_s") || continue
+      [ "$(gate_field "$bc_rq" delivery)" = "$bc_dh" ] && [ "$(gate_field "$bc_rq" bound)" = "$(approval_bound "$bc_id" "$bc_s")" ] || continue
+      bc_list="$bc_list $bc_s"
+    done
+    [ -n "$bc_list" ] || fail "no pending delivery step request of the current summary for $bc_id"
+    for bc_s in $bc_list; do batch_record "$bc_id" "$bc_s" "$(pending_request "$bc_id" "$bc_s")" "$bc_h" "$bc_dh"; done
+    return 0
+  fi
+  bc_rq=$(pending_request "$bc_id" "$bc_k") || fail "no pending $bc_k request for $bc_id"
+  [ "$(gate_field "$bc_rq" bound)" = "$(approval_bound "$bc_id" "$bc_k")" ] || fail "the content changed since the $bc_k request; request again"
+  if [ "$bc_k" = mutation_budget ]; then
+    bc_cap=$(cfg batch.mutation_budget_cap 40); case "$bc_cap" in ''|*[!0-9]*) bc_cap=40 ;; esac
+    bc_n=$(plan_test_acs "$(run_dir "$bc_id")/PLAN.md")
+    [ "$bc_n" -le "$bc_cap" ] || fail "mutation budget: PLAN ## Tests names $bc_n criteria, above the batch cap $bc_cap: not covered by the batch approval"
+    batch_record "$bc_id" "$bc_k" "$bc_rq" "$bc_h" '' "$bc_cap"
+  else batch_record "$bc_id" "$bc_k" "$bc_rq" "$bc_h"; fi
 }
 
 # --- Waivers (D16) -------------------------------------------------------------------------
@@ -5017,7 +5085,10 @@ deliver_step() {
       deliver_consumed "$ds_t" merge "$ds_h" && [ "$(cat "$ds_dir/PR" 2>/dev/null)" = "$ds_pr" ] || ds_stop "the merge step of this delivery did not run for pull request $ds_pr"
       [ "$ds_pv" = "MERGED false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's merged pull request ($ds_want; gh: $ds_pv); no cleanup before the merge"
       consume_approval "$ds_t" "$ds_app"
-      cleanup_run "$ds_id"; rm -rf "$ds_dir"
+      cleanup_run "$ds_id"
+      # A157: the run evidence is gone after this; a batch keeps its own record of the merge
+      [ ! -d "$root/.agents/local/batch" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$root/.agents/local/batch/merged.tsv"
+      rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
 }
@@ -5135,7 +5206,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 # deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
 deliver_pv=''
@@ -5168,6 +5239,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
   terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
+  batch-plan <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check   (A157: night mode; lead only)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup> [PR]   (one summary, one "approve delivery", one approval per step)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
@@ -5239,6 +5311,10 @@ case "$command" in
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured]}" "${3:?usage: agent.sh answer <ID> <N> [--captured]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
   cleanup) require_lead; cleanup_run "${2:?usage: agent.sh cleanup <ID>}" ;;
+  batch-plan) shift; batch_plan "$@" ;;
+  batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" ;;
+  batch-status) sh "$scripts/batch.sh" status ;;
+  batch-check) batch_check ;;
   deliver-plan) require_lead; dpid=${2:?usage: agent.sh deliver-plan <ID> [--message MSG]}; shift 2; deliver_plan "$dpid" "$@" ;;
   deliver-step) require_lead; deliver_step "${2:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${3:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${4:-}" ;;
   amend) require_lead; amend_run "${2:?usage: agent.sh amend <ID>}" ;;
