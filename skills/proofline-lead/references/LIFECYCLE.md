@@ -139,7 +139,7 @@ in this step.
 
 **Lessons.** A lesson comes only from evidence; it becomes a rule only with the user's approval. In this step
 run `A lessons derive <ID>`: it lists one candidate per non-info finding of the run's gate records, each with its
-source (`gate:<ID>/<NNN-GATE>#<FINDING-ID>`) and kind. Write the ones worth keeping with
+source (`gate:<ID>/<NNN-GATE>#<FINDING-ID>@<sha256 of the record>`, as `derive` prints it) and kind. Write the ones worth keeping with
 `A lessons write <ID> <SOURCE> "<one-line lesson>"` into the wiki page `docs/wiki/lessons/observations.md`
 (link it from `index.md`); a candidate whose source does not resolve is refused, and `knowledge-done` fails while
 the page holds a row without a valid source (`A lessons validate`). Then `A lessons count`: it counts, by script,

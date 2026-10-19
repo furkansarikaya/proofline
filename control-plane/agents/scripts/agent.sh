@@ -4841,7 +4841,7 @@ case "$command" in
   friction) case "${2:-}" in report|send) require_lead ;; esac; sh "$scripts/friction.sh" "${2:-}" "${3:-}" ;;
   calibrate) sh "$scripts/friction.sh" calibrate ;;
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
-  lessons) shift; sh "$scripts/lessons.sh" "$@" ;;
+  lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
