@@ -378,6 +378,8 @@ control_plane_only() {
 # A path the plan scope names (MAPS) stays tracked.
 control_plane_range_only() {
   authorized_path "$3" "$2" && return 1
+  # like the fingerprint (task_changed_paths, verify_scope): .agents/ is control plane, except run evidence, local state and the tasks directory
+  case "$2" in .agents/runs/*|.agents/local/*|"$(cfg tasks.dir .agents/tasks)"/*) return 1 ;; .agents/*) return 0 ;; esac
   installed_control_path "$2" && return 0
   is_block_file "$2" || return 1
   cpr_a=$(mktemp "${TMPDIR:-/tmp}/agent-cpr.XXXXXX"); cpr_b=$(mktemp "${TMPDIR:-/tmp}/agent-cpr.XXXXXX")
