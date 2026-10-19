@@ -206,7 +206,7 @@ scaffold() {
   printf '# Task: LC — lookup\n\n## Acceptance criteria\n\n- AC-1: lookup behavior\n' > "$d/TASK.md"
   [ -z "${SC_TASK_EXTRA:-}" ] || printf '%s\n' "$SC_TASK_EXTRA" >> "$d/TASK.md"
   case "$class" in TRIVIAL) ;; *) printf '%s\n' '# Evidence' '' '## Assumptions' 'none' '' '## Claims' > "$d/EVIDENCE.md"; printf '# QA plan\n\n- QA-1 (AC-1): lookup returns the stored value\n' > "$d/QA_PLAN.md"; [ "${SC_TEST_CRIT:-${SC_SCOPE_OTHER:-AC-1}}" = AC-1 ] || printf -- '- QA-2 (%s): second behavior\n' "${SC_TEST_CRIT:-$SC_SCOPE_OTHER}" >> "$d/QA_PLAN.md" ;; esac
-  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} '  - path: impl_test.txt' "    criteria: [${SC_TEST_CRIT:-AC-1}]" ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_EXTRA:+'  - path: other.txt' "    criteria: [$SC_SCOPE_EXTRA]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_OTHER:+'  - path: far.txt' "    criteria: [$SC_SCOPE_OTHER]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_AGENTS:+'  - path: .agents/impl.txt' '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'one storage map; no new module' > "$d/PLAN.md"
+  printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} '  - path: impl_test.txt' "    criteria: [${SC_TEST_CRIT:-AC-1}]" ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_EXTRA:+'  - path: other.txt' "    criteria: [$SC_SCOPE_EXTRA]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_OTHER:+'  - path: far.txt' "    criteria: [$SC_SCOPE_OTHER]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_AGENTS:+'  - path: .agents/impl.txt' '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_NAMED:+"  - path: $SC_SCOPE_NAMED" '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'one storage map; no new module' > "$d/PLAN.md"
   [ -z "${SC_PLAN_EXTRA:-}" ] || printf '%s\n' "$SC_PLAN_EXTRA" >> "$d/PLAN.md"
   printf '%s\n' 'task:' '  id: LC' 'repository:' '  base_sha: PENDING' "${SC_BRANCH:+  canonical_branch: PENDING}" "${SC_BRANCH:+  task_branch: PENDING}" 'task_source:' '  type: local_markdown' "  path: $tpath" '  revision: PENDING' \
     'execution:' '  mode: deterministic' '  profile: PENDING' "  autonomy: $auto" "  topology: $topo" '  state: PLANNING' '  knowledge_state: not_started' '  awaiting_input: false' \
@@ -223,6 +223,8 @@ scaffold() {
   else
     printf '# LC task\n' > tasks/LC.md
   fi
+  [ -z "${SC_AGENTS_MD:-}" ] || printf '# Project\n\n## Project rules\n\nkeep it small\n\n<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n' > AGENTS.md
+  [ -z "${SC_SCOPE_NAMED:-}" ] || { mkdir -p "$(dirname "$SC_SCOPE_NAMED")"; : > "$SC_SCOPE_NAMED"; }
   git add -A; git commit -qm baseline
   if [ "$layout" = yes ]; then mkdir -p tasks/in-progress; git mv tasks/todo/LC.md tasks/in-progress/LC.md; tc_status tasks/in-progress/LC.md in-progress; fi
   A classify LC "$class" >/dev/null

@@ -115,6 +115,14 @@ while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" 
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
 [ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.12' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+# A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
+bad=''; cnt=0
+while IFS= read -r f; do
+  cnt=$((cnt + 1)); case "$f" in .claude/agents/proofline-*.md|.codex/agents/proofline-*.toml|.claude/skills/proofline/SKILL.md) ;; *) bad="$bad $f" ;; esac
+done <<EOF
+$(grep -v '^#' "$base/.agents/.proofline-manifest" | awk '$2 !~ /^\.agents\// { print $2 }')
+EOF
+[ -z "$bad" ] && [ "$cnt" -ge 20 ] && ok "manifest paths outside .agents/ are the installed_control_paths set (agent files, entry skill)" || die "manifest lists unexpected installed paths:$bad ($cnt)"
 
 # ---- init: idempotent -------------------------------------------------------------------------------------
 before=$(sig "$base"); cp "$base/.agents/.proofline-manifest" "$T/manifest.before"
