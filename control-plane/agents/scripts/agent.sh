@@ -4229,7 +4229,6 @@ next_step() {
         [ "$ns_ac" -eq 0 ] || o "re-dispatch the verifier citing only a configured or planned command with a recorded exit status and one stable output line (A107 rows); a command missing from Verification commands needs the amendment route"
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
-        o "agent.sh build-record $ns_id run   (once per tree, before the gate wave; dispatch.sh of a reviewer or verifier runs it too; they only read it with 'show')"
         for ns_x in $ns_todo; do
           ns_g=${ns_x%%:*}
           case "$ns_g" in SECRETS) o "agent.sh secret-scan $ns_id" ;; *)
