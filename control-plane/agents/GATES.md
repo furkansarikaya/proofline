@@ -163,12 +163,18 @@ exists (receipt recorded; `pending` otherwise).
 ## Approvals (D3)
 
 Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the PLAN.md sha256), `commit`, `push`,
-`pr`, `merge`, `cleanup` (bound to the content fingerprint), `reopen:<ID>` (bound to the PLAN.md sha256), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
+`pr`, `merge`, `cleanup` (bound to the content fingerprint), `reopen:<ID>` (bound to the PLAN.md sha256), `batch` (no run: `agent.sh batch-plan` requests it; bound to the sha256 of `.agents/local/batch/SUMMARY.md`; never consumed; `agent.sh batch-cover` answers a pending `plan`, `delivery` or `mutation_budget` request as the user's while it is valid, A157), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
 
 - `mutation_budget`: `test_trust.mutation_budget` is never below one mutant per criterion of PLAN `## Tests`. Freeze
   records one request when the criteria exceed the budget; after the user approves, `agent.sh raise-budget <ID> <N>`
   writes the per-run override (`.agents/runs/<ID>/mutation_budget`; `.agents/config.yaml` is not edited). The same
   command resolves a REVIEW_TESTS that is BLOCKED on the budget: raise, then dispatch the reviewer again.
+- `batch` (A157): one approval of one summary (`approve batch`) for the tasks in `.agents/local/batch/order.tsv`. It is valid only
+  while SUMMARY.md has the hash it is bound to. `agent.sh batch-cover <ID> <KIND>` (lead only) writes an approval file marked
+  `source: "batch"` and `via_batch: "<summary hash>"` for a pending request of kind `plan`, a `mutation_budget` within the cap
+  (the file stores `cap:`; `raise-budget` refuses a larger N for it) or the pending step requests of the current delivery
+  summary (commit, push, pr, merge, cleanup, each with its `delivery:` hash). It refuses every other kind, a task outside the
+  batch, a run classified CRITICAL (or not classified) and a FAILED or BLOCKED run, and writes nothing then.
 - `reopen:<ID>` (bound to the PLAN.md sha256, accepted on a FAILED or BLOCKED run, named for that run only): the
   user's approval for `agent.sh reopen <ID>` (A152), which consumes it. `mutation_budget` is accepted on such a run
   too; when PLAN `## Tests` has more criteria than the budget, `reopen` asks both in one summary and one question

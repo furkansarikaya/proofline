@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
 # phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
 # validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.14
+proofline_version: 0.0.15
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -254,6 +254,14 @@ capabilities:
     gpt-6-luna: 1
     gpt-6-sol: 2
     gpt-6-astra: 3
+# Night mode (A157): `proofline batch`. mutation_budget_cap is the highest mutation budget the batch approval may raise
+# to (a task that needs more is parked with a question); ci_wait_minutes is how long the driver waits for a running CI
+# on the canonical branch before it stops; runtimes (space separated, claude|codex) is the order of headless lead
+# sessions, empty = runtime.lead, then the other runtime when its CLI exists.
+batch:
+  mutation_budget_cap: 40
+  ci_wait_minutes: 30
+  runtimes:
 dispatch:
   # Timeout of one specialist run in seconds (minimum 30).
   timeout_seconds: 1800

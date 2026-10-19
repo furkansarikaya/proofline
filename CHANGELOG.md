@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.15 — 2026-10-19
+
+- Night mode: `/proofline batch <ID...|all>` orders tasks by `depends_on`, leaves out CRITICAL and unclassified tasks (and tasks that depend on them) and asks one question ("approve batch") about one summary. `proofline batch run` then runs the tasks one at a time, each in a clean headless lead session; the batch approval stands in for the plan approval, the delivery approval (commit, push, pull request, merge when CI is green, cleanup) and a mutation budget raise up to `batch.mutation_budget_cap` (40), and for nothing else. A waiver, scope expansion, new dependency, reopen, destructive change, rule promotion, friction report and fix-round budget park the task with its question; dependents are skipped and the next independent task still runs. `proofline batch status` is the morning table, from records only. New config block `batch:`; new approval kind `batch` (A157).
+
 ## 0.0.14 — 2026-10-19
 
 - An `AGENTS.md` or `CLAUDE.md` that `proofline upgrade` creates for the first time no longer makes the plan stale when the whole file is the proofline block (nothing outside the begin/end markers but whitespace). Any other text in it keeps the plan stale, as before.

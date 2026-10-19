@@ -15,7 +15,7 @@
 
 ## Status
 
-Version 0.0.14 is an early release.
+Version 0.0.15 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -100,9 +100,12 @@ wiki ingest|query|lint                keep the project wiki in docs/wiki/
 knowledge <TASK>                      knowledge step of a finished run
 reopen <TASK>                         take a FAILED or BLOCKED run back into the workflow, with your approval
 deliver <TASK>                        commit, push, pull request, merge and cleanup after one approval
+batch <ID...|all>                     night mode: one approval of one summary for several tasks; batch run, batch status
 debt                                  list the shortcut comments in the code (read-only, needs no run)
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
+
+**Night mode.** `/proofline batch <ID...|all>` orders the listed tasks by `depends_on` and shows one summary: the order, what the approval covers, what it does not, and the tasks left out (CRITICAL or unclassified tasks, and tasks that depend on them). Your one reply "approve batch" is bound to that summary. `proofline batch run` then works through the tasks one at a time, each in a clean headless lead session, and the summary's approval stands in for the plan approval, the delivery approval (commit, push, pull request, merge only when CI is green and every gate passed, cleanup) and a mutation budget raise up to `batch.mutation_budget_cap`. A waiver, a scope expansion, a new dependency, a reopen, a destructive data change, a rule promotion, sending the friction report and a new fix-round budget are never covered: the task is parked with its question, tasks that depend on it are skipped, and the next independent task still runs. The driver stops when main CI is red, when every runtime hit its usage limit, or when a runtime is not logged in. `proofline batch status` is the morning table, generated from records only. Known limits: markdown task files only, and the headless session runs with the permission mode of `dispatch.claude_permission_mode` (the PreToolUse hook confines it).
 
 **Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition. The knowledge step writes the same list to one wiki page. A removed shortcut drops off it.
 
@@ -151,7 +154,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.14**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.15**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 
