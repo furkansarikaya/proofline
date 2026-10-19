@@ -73,6 +73,39 @@ is checked against the summary first (`agent.sh deliver-step`); a change in betw
 again. A lesson promotion is not covered by that reply: it needs its own.
 Cleanup deletes the run directory so the git hooks no longer see the run; then the lead stops.
 
+## Commands
+
+| Command | What it does |
+|---|---|
+| `init`, `upgrade`, `doctor`, `version` | install, update, verify, version |
+| `status`, `resume`, `queue` | state of the active run and the task queue |
+| `task`, `design`, `docs`, `explain` | write a task, design documents, documentation, an explanation page |
+| `run <TASK>` | take a task through the whole workflow |
+| `review`, `audit`, `debug` | proof-review, test-trust and debug-proof standalone |
+| `wiki ingest\|query\|lint` | keep the project wiki in `docs/wiki/` |
+| `knowledge <TASK>` | the knowledge step of a finished run |
+| `reopen <TASK>` | take a FAILED or BLOCKED run back into the workflow, only with your approval |
+| `deliver <TASK>` | commit, push, pull request, merge and cleanup after one approval |
+| `debt` | list the shortcut comments in the code; read-only, needs no run |
+| `clean`, `merge`, `insights` | clean up, the only allowed merge, cost and recurring failures |
+
+## Shortcut debt
+
+When the implementer cuts a corner on purpose, it writes a comment next to it: `shortcut: <limit>, <when to improve>`
+(any comment marker). `proofline debt` (`agent.sh debt`) finds those comments with grep and prints `file:line`, the
+limit and the improvement condition. It is read-only and needs no run. In the knowledge step `agent.sh debt page`
+rewrites the one wiki page `docs/wiki/concepts/shortcut-debt.md` from the same comments.
+A shortcut removed from the code drops off the page.
+
+## Observations and unrelated changes
+
+The implementer lists issues it saw but left alone, because they are out of scope, under `## Observations`
+in its report (`file:line` and one sentence). The knowledge step proposes them to you as new tasks.
+The task author writes a task into `tasks.dir` only after you approve it. The implementer never fixes an observation.
+
+Inside the scope, the plan review fails a hunk that changes behaviour but ties to no acceptance criterion.
+Formatting, comments and import order only produce a note. So does a hunk the reviewer cannot judge.
+
 ## Sources of truth
 
 1. Current source code: authoritative for behaviour.

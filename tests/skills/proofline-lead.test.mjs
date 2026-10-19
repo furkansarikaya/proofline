@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.10"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.11"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -370,4 +370,23 @@ test("the lead's own questions go through agent.sh ask, which agent.sh and dispa
   const agentSh = readFileSync(join(repoRoot, "control-plane/agents/scripts/agent.sh"), "utf8");
   assert.match(agentSh, /^ {2}ask\) require_lead;/m);
   assert.match(readFileSync(join(repoRoot, "control-plane/agents/scripts/dispatch.sh"), "utf8"), /"\$agent" ask "\$id" --file/);
+});
+
+// ---- A153: observations become tasks only after the user approves; debt page is a script ----
+test("LIFECYCLE section 7: observations are proposed, written by the task author only after approval", () => {
+  const life = readFileSync(join(skill, "references/LIFECYCLE.md"), "utf8");
+  const s7 = life.slice(life.indexOf("## 7. Knowledge"), life.indexOf("## 8. "));
+  const obs = s7.slice(s7.indexOf("**Observations.**")).split("\n\n")[0].replace(/\s+/g, " ");
+  assert.match(obs, /Show them to the user as proposed new tasks/);
+  assert.match(obs, /ask which to keep/);
+  assert.match(obs, /For each the user approves, dispatch the task-author .*writes the task to `tasks\.dir`/);
+  assert.match(obs, /Without the user's approval nothing is written/);
+  assert.match(obs, /implementer never fixes them and no gate counts them/);
+  // the other sources say the same: the knowledge step and the implementer role
+  const know = readFileSync(join(repoRoot, "control-plane/agents/KNOWLEDGE.md"), "utf8");
+  assert.match(know, /`## Observations`\) are proposed to the user as new tasks and written to `tasks\.dir` by the task author only after the user approves/);
+  assert.match(know, /`agent\.sh debt page` rewrites the one wiki page `docs\/wiki\/concepts\/shortcut-debt\.md`/);
+  const impl = readFileSync(join(repoRoot, "roles/implementer.md"), "utf8");
+  assert.match(impl, /Fix an observation, or write it to the task folder/);
+  assert.match(impl, /Nothing in an observation is fixed, tested or written to a task by you/);
 });

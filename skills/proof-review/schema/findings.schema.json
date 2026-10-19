@@ -348,6 +348,10 @@
             "type": "string",
             "minLength": 1,
             "pattern": "\\S"
+          },
+          "blocking": {
+            "const": true,
+            "description": "Inside a proofline run only: a hunk in the plan scope that changes behaviour and ties to no acceptance criterion (A153). Fails the gate. Absent for informational records."
           }
         }
       }

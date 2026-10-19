@@ -13,7 +13,7 @@ const SCHEMA = JSON.parse(readFileSync(new URL("../../skills/proof-review/schema
 const loc = { file: "src/shop.ts", line: 12 };
 // structuredClone: tests mutate documents, and `loc` must not be shared between them.
 const doc = () => structuredClone({
-  schema_version: 1, skill_version: "0.0.10", generated_at: "2026-10-08T12:00:00Z",
+  schema_version: 1, skill_version: "0.0.11", generated_at: "2026-10-08T12:00:00Z",
   target: { type: "branch", name: "feature/discount", slug: "feature-discount", base: "aaa111", head: "bbb222" },
   scope: { changed_files: 2, changed_lines: 40, excluded: ["package-lock.json"], not_reviewed: [{ path: "docs/", reason: "docs only" }], rule_files_read: ["CLAUDE.md"], rule_files_not_read: [] },
   claims: [
@@ -489,4 +489,28 @@ test("fingerprint command works where .agents/local/ exists and is ignored, and 
   assert.notEqual(sh(docCommand(MD(FP_DOCS[0]))).stdout.trim(), id, "an untracked file does");
   assert.equal(sh("git status --porcelain").stdout.trim(), "?? b.txt", "the real index is untouched");
   rmSync(repo, { recursive: true, force: true });
+});
+
+// ---- A153: a blocking unrequested hunk inside the plan scope fails the plan gate ----
+const blockU = { id: "U002", files: ["src/cache.ts"], description: "Adds a cache TTL nobody asked for.", blocking: true };
+
+test("a blocking unrequested record fails the gate and lists its id; the run document is valid", () => {
+  const d = runDoc("plan", { claims: [planClaim("C001", "done")], unrequested: [blockU] });
+  assert.deepEqual(d.gate, { result: "FAIL", failing: ["U002"] });
+  assert.equal(runAll(d), "");
+  assert.deepEqual(computeGate({ unrequested: [{ id: "U001", files: ["a.ts"], description: "d" }, blockU] }), { result: "FAIL", failing: ["U002"] });
+});
+
+test("informational unrequested records (no blocking mark) stay PASS", () => {
+  const info = ["formatting only", "comment reworded", "import order", "doubtful whether it changes behaviour"]
+    .map((description, i) => ({ id: `U00${i + 1}`, files: ["src/a.ts"], description }));
+  const d = runDoc("plan", { claims: [planClaim("C001", "done")], unrequested: info });
+  assert.deepEqual(d.gate, { result: "PASS", failing: [] });
+  assert.equal(runAll(d), "");
+});
+
+test("blocking: false is rejected, and blocking outside a run is rejected", () => {
+  assert.match(runAll(runDoc("plan", { unrequested: [{ ...blockU, blocking: false }] })), /unrequested\[0\]\.blocking.*must be true when present/);
+  const plain = doc(); plain.unrequested = [{ ...blockU }];
+  assert.match(validate(plain).join("\n"), /unrequested\[0\]\.blocking.*allowed only inside a proofline run/);
 });

@@ -55,7 +55,7 @@ For each claim, find the code that implements it in the target's head state (for
 
 ## 4. Unrequested changes
 
-Changes in the diff that match no claim are recorded as `unrequested`, `U001`, `U002`, ...: the affected files and one neutral sentence on what the change does. They are not defects and are not judged.
+Changes in the diff that match no claim are recorded as `unrequested`, `U001`, `U002`, ...: the affected files and one neutral sentence on what the change does. They are not defects and are not judged. (Inside a run, a behaviour-changing hunk in the scope that ties to no criterion is blocking: [PLAN-CHECK.md](PLAN-CHECK.md#2-unrequested-changes-in-a-run).)
 
 - Supporting changes belong to the claim they serve, not here: tests for a claim, imports, types, wiring, config, and migrations it needs.
 - Skip hunks that only change whitespace, formatting, or comments.

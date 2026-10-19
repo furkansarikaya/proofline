@@ -30,7 +30,7 @@ stop_condition: Stops after one result for the assigned focus on the current fin
 | Does | Must not |
 |---|---|
 | Reviews the actual task-owned diff for exactly one assigned focus | Repair code, tests, plans or artifacts; "tests passed, so PASS"; write outside its focus's report directory |
-| Treats the frozen PLAN.md as the intent source: each acceptance criterion is a claim, every changed path outside `scope:` is unrequested | Accept a claim on the implementer's word; review the lead's or another reviewer's conversation |
+| Treats the frozen PLAN.md as the intent source: each acceptance criterion is a claim, every changed path outside `scope:` is unrequested (informational); a hunk inside the scope that changes behaviour and ties to no criterion is blocking, a hunk that does not change behaviour (formatting, comments, import order) or a doubtful one is informational (A153) | Accept a claim on the implementer's word; review the lead's or another reviewer's conversation |
 | FAILs a new dependency not listed in `## Dependencies` and a versioned contract change not named in `## Contracts` | Report suspicions as findings, or style preferences as rule violations |
 | Classifies database changes from the diff only | Trust PLAN `destructive: no` over what the diff does |
 | Reads the build record for the configured build and test (`agent.sh build-record <TASK-ID> show`: the lead made it once for this tree, keyed by commit hash, in its own export directory; the full output is the `.out` file under `.agents/local/builds/`). Exit 3 means no record: say so in the report, do not build | Run `build-record ... run`, the configured build, test or `npm ci` itself, or run them again when a record for this tree exists |

@@ -19,11 +19,16 @@ The statuses `done`, `partial`, `missing` and their evidence rules are those of 
 
 ## 2. Unrequested changes in a run
 
-Two checks, both recorded as `unrequested` (`U001`, ...), neither fails the gate:
+Three checks, recorded as `unrequested` (`U001`, ...). Only check 3 can fail the gate, and only when a hunk is proven to change behaviour (A153):
 
-1. **Outside the plan scope (path level).** Every path of the task diff ([TARGET.md](TARGET.md#1-choose-the-target), `base_sha` against the working tree, untracked included, `.agents/runs/` and `.agents/local/` excluded) must be named by a `scope:` entry: an entry equals the path exactly, or ends with `/` and is a prefix of it. A changed path no entry names is unrequested. One record per path (group a whole new directory into one record), description starting `Outside PLAN scope:` plus one neutral sentence on what changed.
-3. **Behaviour change of an existing unit (A60).** A hunk that changes how an *existing* function, route or test expectation behaves is `unrequested` unless the task's `## Context` request quotes the user asking for exactly that, or TASK `## Pre-existing defects` lists it as `decision: fix` with a recorded `scope` approval. A unit listed there as `decision: report` that the diff changes is a **blocking** `unrequested` finding.
-2. **Matches no criterion (hunk level).** As in [INTENT.md](INTENT.md#4-unrequested-changes): hunks inside the scope that serve no criterion, grouped, supporting changes (tests, imports, types, wiring) belonging to the criterion they serve.
+1. **Outside the plan scope (path level).** Every path of the task diff ([TARGET.md](TARGET.md#1-choose-the-target), `base_sha` against the working tree, untracked included, `.agents/runs/` and `.agents/local/` excluded) must be named by a `scope:` entry: an entry equals the path exactly, or ends with `/` and is a prefix of it. A changed path no entry names is unrequested, informational. One record per path (group a whole new directory into one record), description starting `Outside PLAN scope:` plus one neutral sentence on what changed.
+2. **Behaviour change of an existing unit (A60).** A hunk that changes how an *existing* function, route or test expectation behaves is `unrequested` unless the task's `## Context` request quotes the user asking for exactly that, or TASK `## Pre-existing defects` lists it as `decision: fix` with a recorded `scope` approval. A unit listed there as `decision: report` that the diff changes is a **blocking** `unrequested` finding (`"blocking": true`).
+3. **Matches no criterion (hunk level, A153).** As in [INTENT.md](INTENT.md#4-unrequested-changes), for every hunk inside the scope: tie it to an acceptance criterion through the `scope:` entry's `criteria:` and the claim it serves (supporting changes - tests, imports, types, wiring - belong to the criterion they serve). A hunk that ties to no criterion is judged by what it does:
+   - it **changes behaviour** (a different result, side effect, branch, error, output, default or public interface for some input) and no criterion, `## Behavior` line or `scope:` entry explains it: record it with `"blocking": true`. The description names the hunk (`file:line`) and the behaviour that changed. It is a blocking finding: the gate fails.
+   - it **does not change behaviour** (formatting, whitespace, comments, import order, a rename with no effect outside the file): informational, `"blocking"` absent. Skip whitespace-only hunks as before.
+   - **when unsure, informational.** Blocking needs a behaviour change you can state in one sentence from the diff; a hunk you cannot place is never blocking.
+
+   Group related informational hunks into one record; a blocking record is one hunk (or one tightly related set) so that the fix is bounded.
 
 Record every path checked and the entry that named it (or none) in the ledger's `Plan check` table. Moving or renaming a file counts as the new path (and the old one when it is not in scope either).
 
@@ -54,4 +59,4 @@ Not named: one `plan_deviations` record, kind `contract_change`, `subject` "<pat
 
 ## 5. Output of this phase
 
-Fill `claims`, `unrequested` and `plan_deviations` in `findings.json` (all three, even when empty, for focus `plan` and `all`), the `Plan check` table in the ledger, and the matching sections of `REPORT.md` ([REPORTING.md](REPORTING.md#reportmd)). Gate: any `partial` or `missing` claim, any `plan_deviations` record -> `FAIL`; otherwise `PASS` (unrequested changes are listed, never blocking).
+Fill `claims`, `unrequested` and `plan_deviations` in `findings.json` (all three, even when empty, for focus `plan` and `all`), the `Plan check` table in the ledger, and the matching sections of `REPORT.md` ([REPORTING.md](REPORTING.md#reportmd)). Gate: any `partial` or `missing` claim, any `plan_deviations` record, any `unrequested` record with `"blocking": true` -> `FAIL`; otherwise `PASS` (other unrequested changes are listed, never blocking).

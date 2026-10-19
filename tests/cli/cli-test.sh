@@ -61,8 +61,8 @@ sig() { ( cd "$1" && find . -path ./.git -prune -o -type f -print | sort | while
 jqe() { jq -e "$1" "$2" >/dev/null 2>&1; }
 
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.10" "$out" "proofline 0.0.10"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.10 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.11" "$out" "proofline 0.0.11"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.11 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -79,7 +79,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.10 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.11 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -114,7 +114,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.10' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.11' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 
 # ---- init: idempotent -------------------------------------------------------------------------------------
 before=$(sig "$base"); cp "$base/.agents/.proofline-manifest" "$T/manifest.before"
@@ -343,7 +343,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.10" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.11" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -411,10 +411,10 @@ out=$(sh "$PL" help); expect "help lists insights" "$out" "insights [--run ID] [
 
 # ---- help and the entry skill list the same session commands (A144) --------------------------------------------
 # skill: the first cell of the routing row that starts with `run <TASK>`; help: the "agent session" section plus
-# resume and deliver, which help lists under "state".
+# resume, deliver and debt, which help lists under "state".
 sk_list=$(grep '^| `run <TASK>`' "$repo/skills/proofline/SKILL.md" | sed 's/^| //; s/` | .*//; s/\\|/|/g; s/^`//; s/`, `/@@/g' | tr -s '@' '\n' | sort)
 hp_all=$(sh "$PL" help)
-hp_list=$(printf '%s\n' "$hp_all" | awk '/^agent session/ { on = 1; next } on && /^  [a-z]/ { print } /^  (resume|deliver)/ { print }' | sed 's/^  //; s/  .*//; s/ | /@@/g' | tr -s '@' '\n' | sort)
+hp_list=$(printf '%s\n' "$hp_all" | awk '/^agent session/ { on = 1; next } on && /^  [a-z]/ { print } /^  (resume|deliver|debt)/ { print }' | sed 's/^  //; s/  .*//; s/ | /@@/g' | tr -s '@' '\n' | sort)
 [ -n "$sk_list" ] && [ -n "$hp_list" ] || die "help and skill command lists are empty"
 if [ "$sk_list" = "$hp_list" ]; then ok "help lists exactly the session commands of the entry skill"
 else LAST=$(printf 'skill:\n%s\nhelp:\n%s\n' "$sk_list" "$hp_list"); die "help and skills/proofline/SKILL.md list different session commands"; fi
@@ -423,6 +423,21 @@ ld_list=$(awk '/^## Commands/ { on = 1; next } /^## / { on = 0 } on && /^\| `/ {
 sk_cmp=$(printf '%s\n' "$sk_list" | sed 's/ <text>$//' | grep -vxE 'queue|clean' | sort)
 if [ "$sk_cmp" = "$ld_list" ]; then ok "the lead skill Commands table lists exactly the entry skill session commands"
 else LAST=$(printf 'entry:\n%s\nlead:\n%s\n' "$sk_cmp" "$ld_list"); die "skills/proofline-lead/SKILL.md Commands table and the entry skill list different commands"; fi
+# README: the command list in its "Commands" block names every command `proofline help` lists, and no other (A153)
+cmd_words='{ n = split($0, parts, /, | \| /); for (i = 1; i <= n; i++) { split(parts[i], w, " "); if (w[1] != "") print w[1] } }'
+hp_cmds=$(printf '%s\n' "$hp_all" | awk '/^  [a-z]/' | sed 's/^  //; s/  .*//' | awk "$cmd_words" | sort -u)
+rd_list() { awk '/^## Commands/ { on = 1; next } on && /^```/ { f++; next } on && f == 1' "$1" | sed 's/  .*//' | awk "$cmd_words" | sort -u; }
+rd_cmds=$(rd_list "$repo/README.md")
+[ -n "$hp_cmds" ] && [ -n "$rd_cmds" ] || die "help or README command list is empty"
+if [ "$hp_cmds" = "$rd_cmds" ]; then ok "the README command list names exactly the commands of proofline help"
+else LAST=$(printf 'help:\n%s\nREADME:\n%s\n' "$hp_cmds" "$rd_cmds"); die "README.md Commands list and proofline help name different commands"; fi
+# negative: a command missing from the README block (or an invented one) makes the same comparison fail
+mkdir -p "$T/rdneg"
+grep -v '^debt  ' "$repo/README.md" > "$T/rdneg/missing.md"
+awk '{ print } /^debt  / { print "frobnicate                            invented command" }' "$repo/README.md" > "$T/rdneg/extra.md"
+[ "$(rd_list "$T/rdneg/missing.md")" != "$hp_cmds" ] && ! rd_list "$T/rdneg/missing.md" | grep -qx debt || { LAST=$(rd_list "$T/rdneg/missing.md"); die "README without debt still equals proofline help"; }
+[ "$(rd_list "$T/rdneg/extra.md")" != "$hp_cmds" ] && rd_list "$T/rdneg/extra.md" | grep -qx frobnicate || die "README with an invented command still equals proofline help"
+ok "the README comparison fails when a command is missing from the README block or an extra one is listed"
 expect "help lists docs, explain and wiki" "$hp_all" "wiki ingest|query|lint"
 expect "help shows init --role" "$hp_all" "--role ROLE=RUNTIME (repeatable)"
 

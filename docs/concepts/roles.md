@@ -23,7 +23,7 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 - Communication is lead, bounded assignment, specialist, owned artifact plus a structured result, lead.
 - Results start with a fixed header (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`). A hook or `agent.sh record` parses and stores it; the lead can never write a verdict.
 - A specialist that needs the user returns `RESULT: NEEDS_INPUT` with numbered questions; the lead relays them verbatim and never answers for the user.
-- A role writes only the paths it owns (`owns.conf`); only the implementer writes product code.
+- A role writes only the paths it owns (`owns.conf`); only the implementer writes product code. It checks first (needed, already in the codebase, in the standard library, in an installed dependency, then minimum code), marks a deliberate shortcut with a `shortcut: <limit>, <when to improve>` comment (`proofline debt` lists them) and lists out-of-scope issues it saw under `## Observations` instead of fixing them.
 
 ## Choosing runtime and model
 

@@ -9,7 +9,7 @@ Must conform to [the schema](../schema/findings.schema.json). Written in English
 ```json
 {
   "schema_version": 1,
-  "skill_version": "0.0.10",
+  "skill_version": "0.0.11",
   "generated_at": "2026-10-08T12:00:00Z",
   "target": { "type": "branch", "name": "feature/discount", "slug": "feature-discount", "base": "3f2a9c1...", "head": "9be41d0..." },
   "scope": { "changed_files": 4, "changed_lines": 120, "excluded": ["package-lock.json"], "not_reviewed": [], "rule_files_read": ["CLAUDE.md"], "rule_files_not_read": [] },
@@ -37,7 +37,7 @@ Field rules:
 - `claims` (`C001`...): `text` is one individually checkable claim. `source` is `user`, `pr_description`, `issue`, `commit`, or (inside a run only) `plan`; a `plan` claim also carries `criterion`, the acceptance criterion id (`AC-1`), and every claim of a run is a `plan` claim. `status` is `done`, `partial`, or `missing` ([INTENT.md](INTENT.md#3-statuses)). `locations` has at least one `{file, line}` unless the status is `missing` (then it may be empty). `missing_part` is required and non-empty if and only if the status is `partial`; it names concretely what is absent.
 - `rules` (`R001`...), required, may be empty: a violation of a checkable project rule, introduced by the diff ([RULES.md](RULES.md#3-check-the-diff)). `rule` is the verbatim quote, non-empty. `source` is `{file, line}` of the rule in its rule file. `location` is `{file, line}` of the violating line in the reviewed code. `violation` is one or two sentences, non-empty. Vague rules never go here (at most a suspicion). No evidence fields.
 - `plan_deviations` (`P001`...), inside a run, required for focus `plan` and `all` (may be empty): `kind` is `new_dependency` or `contract_change`, `subject` the package or the contract and version, `location` the changed line in the head state, `description` one or two sentences naming what the plan does not say ([PLAN-CHECK.md](PLAN-CHECK.md#3-new-dependencies)). Each fails the gate.
-- `unrequested` (`U001`...): `files` (at least one path) and a one-sentence `description` of a change that matches no claim. Inside a run this includes every changed path outside the plan's `scope:`.
+- `unrequested` (`U001`...): `files` (at least one path) and a one-sentence `description` of a change that matches no claim. Inside a run this includes every changed path outside the plan's `scope:` (informational). `blocking` (optional, only `true`, only inside a run) marks a hunk inside the scope that changes behaviour and ties to no acceptance criterion; it fails the gate ([PLAN-CHECK.md](PLAN-CHECK.md#2-unrequested-changes-in-a-run)). Absent means informational; when unsure, leave it out.
 - `bugs` (`F001`...): only findings that have a concrete `input` and path.
   - `evidence` is `reproduced` or `traced`.
   - `input`, `expected`, `actual`: concrete values, not descriptions of categories.

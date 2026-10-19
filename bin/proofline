@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.10
+PROOFLINE_VERSION=0.0.11
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -64,6 +64,8 @@ state (works without an agent session)
   queue                   task files and runs
   deliver <TASK>          delivery check and what delivery will do (never commits): knowledge, commit, push, PR, merge
                             when green, cleanup, after one "approve delivery"; a FAILED or BLOCKED run is refused (reopen it first)
+  debt                    list the shortcut comments in the code (`shortcut: <limit>, <when to improve>`) with
+                            file:line, limit and improvement condition; read-only, needs no run
   clean [--yes]           remove .agents/local state and finished runs
   merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]
                           the only allowed merge path: checks that every check of the pull request is
@@ -159,6 +161,11 @@ cmd_queue() {
   done
   [ "$found" = 1 ] || say "  (none)"
   say "(* = active run)"
+}
+
+cmd_debt() {
+  require_installed
+  agent debt
 }
 
 cmd_deliver() {
@@ -266,6 +273,7 @@ main() {
     resume) cmd_resume ;;
     queue) cmd_queue ;;
     deliver) cmd_deliver "$@" ;;
+    debt) cmd_debt ;;
     clean) cmd_clean "$@" ;;
     merge) cmd_merge "$@" ;;
     insights) cmd_insights "$@" ;;
