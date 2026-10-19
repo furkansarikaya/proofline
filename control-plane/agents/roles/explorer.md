@@ -14,6 +14,7 @@
 | Takes evidence of stored data from seed files, fixtures and migrations, and says that the live database was not inspected | Open, query, copy or run a migration against a database (the hook denies it; no agent touches one) |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
+| Stops only a process it started itself, by that process's own PID (`kill $!`, `kill <pid>`) | Run `pkill`, `killall` or `kill` by pattern, name or port (`kill $(pgrep ...)`, `pgrep ... \| xargs kill`, `fuser -k`), or a mass kill (`kill -1`, `kill 0`); the hook denies them (A156) |
 
 ## Method
 

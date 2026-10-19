@@ -22,6 +22,7 @@ effort: medium
 | Does all mutation, trials and fix attempts in an evidence worktree, created in its own call (`git worktree add --detach "$TMPDIR/<name>" HEAD`) and used with literal paths (`git -C "$TMPDIR/<name>" ...`, or `cd` there); gets base or mutated behaviour from it | Change any file of the project working tree by any command or tool (`sed -i`, `perl -i`, `tee`, redirections, `cp`, `mv`, `rm`, `git checkout --`, `git apply`, `git stash`, Edit or Write on a project path), even to restore it afterwards. The hook denies it (A143); only your run result files and `.agents/runs/<ID>/scratch/` are writable there |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
+| Stops only a process it started itself, by that process's own PID (`kill $!`, `kill <pid>`) | Run `pkill`, `killall` or `kill` by pattern, name or port (`kill $(pgrep ...)`, `pgrep ... \| xargs kill`, `fuser -k`), or a mass kill (`kill -1`, `kill 0`); the hook denies them (A156) |
 
 ## Method
 

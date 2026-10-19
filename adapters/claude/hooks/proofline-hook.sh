@@ -1000,6 +1000,65 @@ MGARGS
   done < "$tmp/scan"
 }
 
+# --- kill guard (A156) ---------------------------------------------------------------------------
+# A process is stopped only by the PID of one the agent started itself. Denied for every caller, a run open or not,
+# proofline installed or not: pkill, killall, skill, slay, fuser -k (kill by name or port), `kill` aimed at everything
+# (-1, 0) and `kill` whose PIDs come from pgrep / pidof / ps / lsof / fuser, as a substitution or through xargs.
+# `kill <pid>`, `kill $!`, `kill $PID` and `kill $(cat pidfile)` pass. Token matching on the scan's command records,
+# like the merge guard; this hook sees only the model's own tool calls (A156, known limits).
+KG_MSG='kill only a process you started yourself, by its PID (kill <pid>, kill $!); pkill, killall and kill by pattern, by name or by port are forbidden (A156)'
+kill_guard() {
+  kg_prev='' kg_pend=no   # command words seen so far, for `pgrep ... | xargs kill`
+  while IFS= read -r kg_rec; do
+    case "$kg_rec" in C"$TAB"*) ;; *) continue ;; esac
+    kg_rest=${kg_rec#*"$TAB"}; kg_cw=${kg_rest%%"$TAB"*}
+    case "$kg_rest" in *"$TAB"*) kg_args=$(printf '%s' "${kg_rest#*"$TAB"}" | tr '\003\002' '\n\n') ;; *) kg_args='' ;; esac
+    if [ "$kg_cw" = busybox ]; then   # busybox pkill / busybox kill: the applet is the first word
+      kg_cw=$(printf '%s\n' "$kg_args" | head -n 1); kg_args=$(printf '%s\n' "$kg_args" | sed 1d)
+    fi
+    kg_was=$kg_pend; kg_pend=no
+    if [ "$kg_was" = yes ]; then
+      case "$kg_cw" in pgrep|pidof|ps|lsof|fuser|pkill) deny "kill with PIDs taken from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG" ;; esac
+    fi
+    case "$kg_cw" in
+      pkill|killall|killall5|skill|slay)
+        # no arguments (a usage error, also what `command -v killall` leaves) and --help / --version read only
+        case "$(printf '%s\n' "$kg_args" | head -n 1)" in ""|--help|-h|--version|-V) ;; *) deny "$kg_cw kills by name or pattern: $KG_MSG" ;; esac ;;
+      fuser) ! printf '%s\n' "$kg_args" | grep -Eq '^-[A-Za-z]*k' || deny "fuser -k kills whatever uses a file or port: $KG_MSG" ;;
+      kill)
+        # signal options (-0 liveness probe, -s 0, -TERM) are not PIDs; an operand 0 or -1 signals everything
+        kg_ops=0; kg_dd=no; kg_skip=no
+        while IFS= read -r kg_a; do
+          if [ "$kg_skip" = yes ]; then kg_skip=no; continue; fi
+          if [ "$kg_dd" = no ]; then
+            case "$kg_a" in
+              --) kg_dd=yes; continue ;;
+              -1) deny "kill -1 signals every process: $KG_MSG" ;;
+              -s|-n|--signal) kg_skip=yes; continue ;;
+              -*) continue ;;
+            esac
+          else
+            [ "$kg_a" != -1 ] || deny "kill -- -1 signals every process: $KG_MSG"
+          fi
+          [ -n "$kg_a" ] || continue
+          [ "$kg_a" = '{}' ] || kg_ops=$((kg_ops + 1))
+          [ "$kg_a" != 0 ] || deny "kill 0 signals the whole process group: $KG_MSG"
+          # the scan leaves a bare `$` for "$(...)" and nothing for a backtick; the substituted command is the next record
+          case "$kg_a" in *'$('*|*'$') kg_pend=yes ;; esac
+        done <<KGARGS
+$kg_args
+KGARGS
+        # no PID operand (or only xargs' {}) after a process search: the PIDs arrive on stdin
+        [ "$kg_ops" != 0 ] || kg_pend=yes   # a backtick substitution, or PIDs on stdin (xargs)
+        if [ "$kg_ops" = 0 ]; then
+          case " $kg_prev " in *" pgrep "*|*" pidof "*|*" ps "*|*" lsof "*|*" fuser "*|*" pkill "*) deny "kill fed from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG" ;; esac
+        fi ;;
+    esac
+    kg_prev="$kg_prev $kg_cw"
+  done < "$tmp/scan"
+  return 0
+}
+
 # --- events -----------------------------------------------------------------------------------
 [ "$ev" = pretool ] || [ "$installed" = yes ] || exit 0
 case "$ev" in
@@ -1015,7 +1074,7 @@ pretool)
   case "$tool" in Bash|shell|local_shell|exec_command|unified_exec) cmd=$(jget tool_input.command tool_input.cmd) ;; esac
   TAB=$(printf '\t')
   if [ "$installed" = no ]; then   # installed projects run merge_guard below, after the older rules, so their reasons win
-    [ -z "$cmd" ] || { printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"; merge_guard; }
+    [ -z "$cmd" ] || { printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"; merge_guard; kill_guard; }
     exit 0
   fi
   if [ -n "$cmd" ]; then
@@ -1050,6 +1109,7 @@ pretool)
     done < "$tmp/scan"
     # The merge guard is not run-scoped either (A136).
     merge_guard
+    kill_guard
     # The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
     db_guard_cmd "$cmd"
     [ -n "$act" ] || { scratch_guard; lead_tmp_check; exit 0; }

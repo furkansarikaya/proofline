@@ -1043,7 +1043,7 @@ scenario_reopen_approval_kinds() {
 upgrade_files() {
   mkdir -p .claude/agents .codex/agents .claude/skills/proofline
   printf 'agent\n' > .claude/agents/proofline-x.md; printf 'agent\n' > .codex/agents/proofline-x.toml; printf 'skill\n' > .claude/skills/proofline/SKILL.md
-  printf '# version: 0.0.13\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.14\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
 }
 scenario_reopen_after_upgrade() {
   SC_AGENTS_MD=1 reopen_failed_run; fp0=$(A fingerprint LC)
@@ -1062,7 +1062,7 @@ scenario_upgrade_product_edits() {
 }
 scenario_upgrade_named_path() {
   SC_SCOPE_NAMED=.claude/skills/proofline/named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
-  printf '# version: 0.0.13\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.14\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
   fp0=$(A fingerprint LC); mkdir -p .claude/skills/proofline; printf 'edit\n' > .claude/skills/proofline/named.md
   [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named installed file left the fingerprint"
   A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named installed file changed"
@@ -1196,6 +1196,48 @@ scenario_second_marker_pair() {
   ok "an edit in the second marker pair is a product change, the first pair stays control plane"
 }
 
+scenario_base_moved_new_block_file() { # A156: a file created after the freeze whose whole content is the block is control plane
+  reopen_failed_run; b0=$(git rev-parse HEAD); st='stale plan: repository.base_sha changed'; f=$1
+  blk='<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n'
+  for c in "# Rules\n\n$blk" "$blk\nmore text\n" "$blk$blk" '<!-- proofline:begin -->\nblock v1\n' 'just text\n'; do
+    printf '%b' "$c" > "$f"; git add "$f"; git commit -qm new
+    expect_msg "new $f: $c" "$st" A freshness LC
+    git reset -q --hard "$b0"
+  done
+  printf '\n\n%b\n\n' "$blk" > "$f"; git add "$f"; git commit -qm new   # whitespace around the block is accepted
+  out=$(A freshness LC 2>&1) || die "a new block-only $f with surrounding whitespace staled the plan: $out"
+  printf '%s' "$out" | grep -Fq 'base_sha moved' || die "no base-moved line for $f: $out"
+  ok "a new block-only $f keeps the plan fresh; text before or after the block, a second pair, a lone marker and no markers stale it"
+}
+# A156: after an accepted move base_sha is the new HEAD, the ledger keeps the old value, product changes are still seen.
+scenario_base_moved_updates_base() {
+  SC_AGENTS_MD=1 reopen_failed_run; b0=$(rv repository base_sha); st='stale plan: repository.base_sha changed'
+  cp_commit; h1=$(git rev-parse HEAD)
+  A freshness LC >/dev/null || die "a control-plane-only commit staled the plan"
+  [ "$(rv repository base_sha)" = "$h1" ] || die "base_sha is not the new HEAD: $(rv repository base_sha)"
+  grep 'base-moved' .agents/runs/LC/LEDGER.log | grep -Fq "$b0" || die "the ledger line does not hold the old base $b0"
+  A freshness LC >/dev/null; [ "$(base_moves)" = 1 ] || die "a second freshness added a ledger line: $(base_moves)"
+  [ "$(rv repository base_sha)" = "$h1" ] || die "base_sha changed on the second freshness"
+  printf 'x\n' > far.txt   # a product file after the move is still seen, the diff starts at the new base
+  ro_approve; expect_msg "product file after the move" 'outside the frozen scope' ro A reopen LC
+  git add far.txt; git commit -qm product
+  expect_msg "committed product file after the move" "$st" A freshness LC
+  git reset -q --hard "$h1"
+  ro_approve; ro A reopen LC >/dev/null || die "reopen after the base update refused: $(ro A reopen LC 2>&1 | tail -2)"
+  ok "an accepted move writes the new HEAD to base_sha, the ledger keeps the old one, product changes are still seen, reopen works"
+}
+
+# A156: a new block-only AGENTS.md/CLAUDE.md after an upgrade leaves the content fingerprint (and the gates) unchanged; extra text changes it.
+scenario_fingerprint_new_block_file() {
+  reopen_failed_run; fp0=$(A fingerprint LC); f=$1
+  upgrade_files; printf '<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n' > "$f"
+  git add .claude .codex "$f"; git commit -qm 'chore: upgrade'
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "a new block-only $f changed the content fingerprint"
+  printf 'a project rule\n' >> "$f"
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "text outside the block of a new $f did not change the fingerprint"
+  ok "fingerprint: a new block-only $f is control plane, extra text in it is content"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
@@ -1251,4 +1293,9 @@ run_sc scenario_base_moved_agents_files
 run_sc scenario_base_moved_agents_named
 run_sc scenario_second_reopen
 run_sc scenario_second_marker_pair
+run_sc scenario_base_moved_new_block_file AGENTS.md
+run_sc scenario_base_moved_new_block_file CLAUDE.md
+run_sc scenario_base_moved_updates_base
+run_sc scenario_fingerprint_new_block_file AGENTS.md
+run_sc scenario_fingerprint_new_block_file CLAUDE.md
 echo 'agent lifecycle tests passed'

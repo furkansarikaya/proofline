@@ -103,7 +103,7 @@ Any other file in the run directory is an unexpected artifact and FAILS `verify-
 - **Amendment**: `amendments/<file>` + `agent.sh refreeze <ID> <file>`. One amendment authorizes one
   refreeze; a no-change refreeze FAILS. Added scope paths need a `scope` approval. A refreeze from
   IMPLEMENTED returns to IMPLEMENTING, voids every gate and starts a fresh fix budget.
-- **Planning freshness**: `agent.sh freshness` also requires `repository.base_sha` = HEAD and the frozen
+- **Planning freshness**: `agent.sh freshness` also requires `repository.base_sha` = HEAD, or a base that moved only through control-plane commits (A155, A156: the check then records a `base-moved` ledger line and sets `repository.base_sha` to the new HEAD), and the frozen
   task contract (see below).
 
 ## Branch, baseline, discovery

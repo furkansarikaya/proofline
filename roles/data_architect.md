@@ -41,6 +41,7 @@ stop_condition: Stops when design/DATA.md and the PLAN Data text cover every sch
 | Takes evidence of stored data from seed files, fixtures and migrations; says that the live database was not inspected (no agent opens one) and must be assumed to hold data for a column the seeds fill | Open, query or copy any database file |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
+| Stops only a process it started itself, by that process's own PID (`kill $!`, `kill <pid>`) | Run `pkill`, `killall` or `kill` by pattern, name or port (`kill $(pgrep ...)`, `pgrep ... \| xargs kill`, `fuser -k`), or a mass kill (`kill -1`, `kill 0`); the hook denies them (A156) |
 
 ## Method
 
