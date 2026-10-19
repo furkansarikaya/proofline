@@ -1071,6 +1071,25 @@ scenario_upgrade_named_path() {
   [ "$(A fingerprint LC)" = "$fp1" ] || die "an unnamed installed file counts as content"
   ok "a plan-scope-named installed file stays tracked"
 }
+scenario_upgrade_named_pattern_path() {
+  SC_SCOPE_NAMED=.claude/agents/proofline-named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
+  fp0=$(A fingerprint LC); printf 'edit\n' >> .claude/agents/proofline-named.md
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named proofline-*.md file left the fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named proofline-*.md edit"
+  fp1=$(A fingerprint LC); printf 'other\n' > .claude/agents/proofline-other.md
+  [ "$(A fingerprint LC)" = "$fp1" ] || die "an unnamed proofline-*.md file counts as content"
+  ok "a plan-scope-named installed pattern file stays tracked, an unnamed one does not"
+}
+# A154: an upgrade-style change leaves the tier and the required gates alone; a product change still raises the tier.
+scenario_upgrade_keeps_tier() {
+  SC_AGENTS_MD=1 scaffold orchestrated; pl0=$(A pipeline LC | grep -v '^gate\.')
+  upgrade_files; sed -i.bak 's/^block v1$/block v2/' AGENTS.md; rm -f AGENTS.md.bak
+  [ "$(A pipeline LC | grep -v '^gate\.')" = "$pl0" ] || die "an upgrade changed the pipeline (tier or required gates)"
+  to_code_done orchestrated
+  for f in a b c; do printf 'x\n' > "prod-$f.js"; done
+  [ "$(A pipeline LC | grep -v '^gate\.')" != "$pl0" ] || die "a product change no longer raises the tier"
+  ok "upgrade keeps the tier and CODE_DONE reachable; a product change still raises the tier"
+}
 
 # A154: budget decision and reopen approval are one question; the one reply records both approvals.
 joint_run() {
@@ -1144,5 +1163,7 @@ run_sc scenario_reopen_approval_kinds
 run_sc scenario_reopen_after_upgrade
 run_sc scenario_upgrade_product_edits
 run_sc scenario_upgrade_named_path
+run_sc scenario_upgrade_named_pattern_path
+run_sc scenario_upgrade_keeps_tier
 run_sc scenario_reopen_one_question
 echo 'agent lifecycle tests passed'
