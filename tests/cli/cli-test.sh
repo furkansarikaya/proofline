@@ -419,6 +419,11 @@ hp_list=$(printf '%s\n' "$hp_all" | awk '/^agent session/ { on = 1; next } on &&
 [ -n "$sk_list" ] && [ -n "$hp_list" ] || die "help and skill command lists are empty"
 if [ "$sk_list" = "$hp_list" ]; then ok "help lists exactly the session commands of the entry skill"
 else LAST=$(printf 'skill:\n%s\nhelp:\n%s\n' "$sk_list" "$hp_list"); die "help and skills/proofline/SKILL.md list different session commands"; fi
+# lead skill: first cells of its "Commands" table, minus the boot row, queue and clean, equal the entry list (no gap like `knowledge`)
+ld_list=$(awk '/^## Commands/ { on = 1; next } /^## / { on = 0 } on && /^\| `/ { print }' "$repo/skills/proofline-lead/SKILL.md" | sed 's/^| //; s/` | .*//; s/\\|/|/g; s/^`//; s/`, `/@@/g' | tr -s '@' '\n' | sed 's/<TASK-ID>/<TASK>/; s/ <text>$//' | grep -vxE '/proofline|queue|clean' | sort)
+sk_cmp=$(printf '%s\n' "$sk_list" | sed 's/ <text>$//' | grep -vxE 'queue|clean' | sort)
+if [ "$sk_cmp" = "$ld_list" ]; then ok "the lead skill Commands table lists exactly the entry skill session commands"
+else LAST=$(printf 'entry:\n%s\nlead:\n%s\n' "$sk_cmp" "$ld_list"); die "skills/proofline-lead/SKILL.md Commands table and the entry skill list different commands"; fi
 expect "help lists docs, explain and wiki" "$hp_all" "wiki ingest|query|lint"
 expect "help shows init --role" "$hp_all" "--role ROLE=RUNTIME (repeatable)"
 

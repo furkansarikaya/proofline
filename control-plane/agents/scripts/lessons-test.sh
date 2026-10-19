@@ -51,16 +51,16 @@ ok "a candidate without a source is refused by write and validate"
 # --- ITEM 3: repeat count over different runs ---
 gate_rec LC2 001-REVIEW_SMALL REVIEW_SMALL rules+tests 'REVIEW_SMALL-1|blocking|other.txt:3|same kind again|traced'
 gate_rec LC2 002-QA QA "" 'QA-1|blocking|-|different kind|traced'
-c=$(L count REVIEW_SMALL:rules+tests); [ "$c" = "REVIEW_SMALL:rules+tests | runs=2 | repeats=1 | propose=no" ] || die "count of two runs: $c"
+c=$(L count REVIEW_SMALL:rules+tests); [ "$c" = "REVIEW_SMALL:rules+tests | runs=2 | repeats=1 | propose=yes" ] || die "second run does not propose: $c"
 c=$(L count QA:-); [ "$c" = "QA:- | runs=1 | repeats=0 | propose=no" ] || die "count of one run: $c"
 gate_rec LC2 003-REVIEW_SMALL REVIEW_SMALL rules+tests 'REVIEW_SMALL-1|blocking|other.txt:4|again, same run|traced'
-c=$(L count REVIEW_SMALL:rules+tests); [ "$c" = "REVIEW_SMALL:rules+tests | runs=2 | repeats=1 | propose=no" ] || die "a second record of one run counted twice: $c"
+c=$(L count REVIEW_SMALL:rules+tests); [ "$c" = "REVIEW_SMALL:rules+tests | runs=2 | repeats=1 | propose=yes" ] || die "a second record of one run counted twice: $c"
 rm -rf .agents/runs/LC2   # a cleaned run is still counted from the page row it left
 c=$(L count REVIEW_SMALL:rules+tests); [ "$c" = "REVIEW_SMALL:rules+tests | runs=1 | repeats=0 | propose=no" ] || die "page row of the live run: $c"
 gate_rec LC3 001-REVIEW_SMALL REVIEW_SMALL rules+tests 'REVIEW_SMALL-1|blocking|a.txt:1|third run|traced'
 gate_rec LC4 001-REVIEW_SMALL REVIEW_SMALL rules+tests 'REVIEW_SMALL-1|blocking|a.txt:1|fourth run|traced'
-c=$(L count REVIEW_SMALL:rules+tests); [ "$c" = "REVIEW_SMALL:rules+tests | runs=3 | repeats=2 | propose=yes" ] || die "second repeat does not propose: $c"
-ok "the repeat count is per distinct run; the second repeat proposes promotion"
+c=$(L count REVIEW_SMALL:rules+tests); [ "$c" = "REVIEW_SMALL:rules+tests | runs=3 | repeats=2 | propose=yes" ] || die "a repeat does not propose: $c"
+ok "the repeat count is per distinct run; the first repeat (second run) proposes promotion"
 gate_rec LC5 001-QA QA "" 'QA-1|blocking|-|a cleaned run|traced'
 L write LC5 "gate:LC5/001-QA#QA-1@$(tsha .agents/runs/LC5/gates/001-QA.yaml)" "Cleaned-run lesson." >/dev/null || die "write for LC5 failed"
 rm -rf .agents/runs/LC5

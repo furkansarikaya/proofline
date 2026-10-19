@@ -28,4 +28,4 @@ lesson. A project that keeps no wiki simply never writes under `docs/wiki/`.
 Run artifacts (evidence, plans, QA, reviews) are disposable and are never promoted wholesale into
 documentation; their summary goes into the completion report.
 
-Lesson candidates (`agent.sh lessons`) are derived from the run's gate and finding records and live as rows of one wiki page, `docs/wiki/lessons/observations.md`; a row needs a source that resolves to a gate record or finding, or `knowledge-done` fails. A row becomes a project rule in `AGENTS.md` only through `lessons promote`, which needs the user's recorded `rule:<ID>` approval. Nothing else writes a rule.
+Lesson candidates (`agent.sh lessons`) are derived from the run's gate and finding records and live as rows of one wiki page, `docs/wiki/lessons/observations.md`; a row needs a source that resolves to a gate record or finding, or `knowledge-done` fails. A row becomes a project rule in `AGENTS.md` only through `lessons promote`, which needs the user's recorded `rule:<ID>` approval. Promotion is proposed once the same kind of finding appears in a second run (`repeats=1`). Nothing else writes a rule.
