@@ -356,10 +356,11 @@ installed_control_paths() { # one path per line: manifest-listed files outside .
   awk '!/^#/ && NF >= 2 && $2 !~ /^\.agents\// { print $2 }' "$root/.agents/.proofline-manifest"
 }
 is_block_file() { case "$1" in AGENTS.md|CLAUDE.md) return 0 ;; esac; return 1; }
-# strip_proofline_block FILE: the file without its marked proofline block (a begin marker without an end marker is left whole).
+# strip_proofline_block FILE: the file without its FIRST marked proofline block (A155: a second begin/end pair and everything
+# after the first end marker is product text). A begin marker without an end marker is left whole.
 strip_proofline_block() {
   if grep -qx '<!-- proofline:begin -->' "$1" && grep -qx '<!-- proofline:end -->' "$1"; then
-    awk '/^<!-- proofline:begin -->$/ { s = 1; next } /^<!-- proofline:end -->$/ { s = 0; next } !s { print }' "$1"
+    awk '/^<!-- proofline:begin -->$/ && !d && !s { s = 1; next } /^<!-- proofline:end -->$/ && s { s = 0; d = 1; next } !s { print }' "$1"
   else cat "$1"; fi
 }
 # control_plane_only PATH: a changed path whose change is control plane only: an installed file, or AGENTS.md/CLAUDE.md
@@ -371,6 +372,31 @@ control_plane_only() {
   git -C "$root" show "HEAD:$1" > "$cpo_t" 2>/dev/null || { rm -f "$cpo_t"; return 1; }
   cpo_a=$(strip_proofline_block "$cpo_t" | sha256); cpo_b=$(strip_proofline_block "$root/$1" | sha256); rm -f "$cpo_t"
   [ "$cpo_a" = "$cpo_b" ]
+}
+# control_plane_range_only BASE PATH MAPS (A155): the change of PATH between BASE and HEAD is control plane only, by the
+# same definition as control_plane_only (an installed file, or AGENTS.md/CLAUDE.md outside its first proofline block).
+# A path the plan scope names (MAPS) stays tracked.
+control_plane_range_only() {
+  authorized_path "$3" "$2" && return 1
+  # like the fingerprint (task_changed_paths, verify_scope): .agents/ is control plane, except run evidence, local state and the tasks directory
+  case "$2" in .agents/runs/*|.agents/local/*|"$(cfg tasks.dir .agents/tasks)"/*) return 1 ;; .agents/*) return 0 ;; esac
+  installed_control_path "$2" && return 0
+  is_block_file "$2" || return 1
+  cpr_a=$(mktemp "${TMPDIR:-/tmp}/agent-cpr.XXXXXX"); cpr_b=$(mktemp "${TMPDIR:-/tmp}/agent-cpr.XXXXXX")
+  if git -C "$root" show "$1:$2" > "$cpr_a" 2>/dev/null && git -C "$root" show "HEAD:$2" > "$cpr_b" 2>/dev/null; then
+    [ "$(strip_proofline_block "$cpr_a" | sha256)" = "$(strip_proofline_block "$cpr_b" | sha256)" ]; cpr_rc=$?
+  else cpr_rc=1; fi
+  rm -f "$cpr_a" "$cpr_b"; return "$cpr_rc"
+}
+# base_moved_control_only BASE: true iff every file changed between BASE and HEAD is control plane only (A155).
+base_moved_control_only() {
+  bmc_maps=$(scope_mappings "$dir/PLAN.md" 2>/dev/null) || bmc_maps=''
+  git -C "$root" merge-base --is-ancestor "$1" HEAD 2>/dev/null || return 1
+  bmc_list=$(git -C "$root" diff --no-renames --name-only "$1" HEAD 2>/dev/null) || return 1
+  printf '%s\n' "$bmc_list" | while IFS= read -r bmc_p; do
+    [ -n "$bmc_p" ] || continue
+    control_plane_range_only "$1" "$bmc_p" "$bmc_maps" || exit 1
+  done
 }
 current_tracked_paths() {
   if [ -n "$ctp_base" ]; then git -C "$root" diff --no-renames --name-only "$ctp_base"
@@ -1404,7 +1430,14 @@ verify_freshness() {
   id=$1; require_run "$id"; dir=$(run_dir "$id")
   verify_freeze "$id"
   base=$(repository_base_sha "$dir"); head=$(git -C "$root" rev-parse HEAD)
-  [ "$base" = "$head" ] || { [ "$ctp_base" = "$base" ] && git -C "$root" merge-base --is-ancestor "$base" HEAD; } || fail "stale plan: repository.base_sha changed ($base -> $head); amendment and refreeze required"
+  if [ "$base" != "$head" ] && ! { [ "$ctp_base" = "$base" ] && git -C "$root" merge-base --is-ancestor "$base" HEAD; }; then
+    # A155: a commit of control-plane files only (an upgrade, a refreshed agent file or proofline block) is not a plan change
+    base_moved_control_only "$base" || fail "stale plan: repository.base_sha changed ($base -> $head); amendment and refreeze required"
+    bm_line="base_sha moved ($base -> $head): the commits between touch control-plane files only; the plan stays fresh"
+    echo "$bm_line"
+    # once per accepted move: the ledger line is the record
+    grep -qF "detail=$bm_line" "$(ledger_file "$id")" 2>/dev/null || ledger_if "$id" base-moved - - "$bm_line"
+  fi
   type=$(section_value "$dir" task_source type); revision=$(section_value "$dir" task_source revision)
   case "$type:$revision" in
     local_markdown:*)
@@ -3709,6 +3742,17 @@ approval_wait_o() {
 latest_request() { # ID KIND -> request file
   ls -1 "$(approvals_dir "$1")" 2>/dev/null | grep -E "^[0-9]{3}-request-$(kind_slug "$2")\.yaml\$" | sort | tail -1 | sed "s#^#$(approvals_dir "$1")/#" | grep . || return 1
 }
+# pending_request ID KIND -> the latest request file, only while no approval of that kind answers it (A155): a request
+# that was approved (and perhaps consumed) is used up and never reused, even when its bound hash is unchanged.
+pending_request() {
+  pr_r=$(latest_request "$1" "$2") || return 1
+  pr_n=$(basename "$pr_r" | cut -c1-3 | sed 's/^0*//')
+  for pr_f in "$(approvals_dir "$1")"/[0-9][0-9][0-9]-"$(kind_slug "$2")".yaml; do
+    [ -e "$pr_f" ] || continue
+    [ "$(basename "$pr_f" | cut -c1-3 | sed 's/^0*//')" -lt "$pr_n" ] || return 1
+  done
+  printf '%s\n' "$pr_r"
+}
 # approve_pending [ID]: run by the runtime's prompt hook right after it stored the user's prompt capture
 # (A41). Every open approval request of the run (and of the no-run scope: commit, push) that this prompt
 # satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
@@ -4424,7 +4468,7 @@ reopen_question() {
   rq2_ad=$(approvals_dir "$rq2_id"); mkdir -p "$rq2_ad"
   for rq2_k in mutation_budget "reopen:$rq2_id"; do
     approval_target "$rq2_id" "$rq2_k"
-    rq2_r=$(latest_request "$rq2_id" "$rq2_k") && [ "$(gate_field "$rq2_r" bound)" = "$rq2_ph" ] && [ "$(gate_field "$rq2_r" joint)" = "reopen:$rq2_id" ] && continue
+    rq2_r=$(pending_request "$rq2_id" "$rq2_k") && [ "$(gate_field "$rq2_r" bound)" = "$rq2_ph" ] && [ "$(gate_field "$rq2_r" joint)" = "reopen:$rq2_id" ] && continue
     printf 'kind: "%s"\nbound: "%s"\nrequested_at: %s\njoint: "reopen:%s"\n' "$rq2_k" "$rq2_ph" "$(now_epoch)" "$rq2_id" > "$rq2_ad/$(next_num "$rq2_ad")-request-$(kind_slug "$rq2_k").yaml"
     ledger_if "$rq2_id" approval-request - - "$rq2_k bound=$rq2_ph joint=reopen:$rq2_id"
   done
@@ -4452,7 +4496,8 @@ reopen_run() {
   [ -n "$ro_prev" ] || fail "reopen: the ledger has no terminate transition for $ro_id"
   enforce_task_branch "$ro_id"
   # 1. the plan is unchanged and the scope still holds (product changes made outside the run show up here)
-  verify_freshness "$ro_id" >/dev/null
+  ro_fr=$(verify_freshness "$ro_id") || exit 1
+  printf '%s\n' "$ro_fr" | grep -v '^planning freshness verified' || :
   verify_scope "$ro_id" 1 >/dev/null || fail "reopen blocked: files changed outside the frozen scope (listed above); the user resolves them first"
   # 2. the approvals, asked as ONE question (A154): the budget decision the plan needs (criteria above the mutation
   # budget) and the reopen itself. One reply of the user records both; each is still a normal single-use approval.
@@ -4467,10 +4512,10 @@ reopen_run() {
       fail "reopen $ro_id needs the user's answer to the question above (raise the budget to $ro_n and reopen): relay it, wait for the user's reply, then run reopen again (reason on stdin)"
     fi
     if [ -z "$ro_budget" ] && [ "$ro_need_b" = 1 ]; then
-      ro_r=$(latest_request "$ro_id" mutation_budget) && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" mutation_budget
+      ro_r=$(pending_request "$ro_id" mutation_budget) && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" mutation_budget
       fail "reopen $ro_id: PLAN ## Tests names $ro_n criteria above the mutation budget $(mutation_budget "$ro_id"). Relay the budget question above, wait for the user's answer, then run reopen again"
     fi
-    ro_r=$(latest_request "$ro_id" "$ro_kind") && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" "$ro_kind"
+    ro_r=$(pending_request "$ro_id" "$ro_kind") && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" "$ro_kind"
     fail "reopen $ro_id needs the user's approval: relay the question above, wait for the user's answer, then run reopen again (reason on stdin)"
   fi
   # 4. apply: the record is written like amend's, marked terminal (it restarts the fix rounds only)

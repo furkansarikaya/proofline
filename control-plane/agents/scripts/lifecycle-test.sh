@@ -1043,7 +1043,7 @@ scenario_reopen_approval_kinds() {
 upgrade_files() {
   mkdir -p .claude/agents .codex/agents .claude/skills/proofline
   printf 'agent\n' > .claude/agents/proofline-x.md; printf 'agent\n' > .codex/agents/proofline-x.toml; printf 'skill\n' > .claude/skills/proofline/SKILL.md
-  printf '# version: 0.0.12\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.13\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
 }
 scenario_reopen_after_upgrade() {
   SC_AGENTS_MD=1 reopen_failed_run; fp0=$(A fingerprint LC)
@@ -1062,7 +1062,7 @@ scenario_upgrade_product_edits() {
 }
 scenario_upgrade_named_path() {
   SC_SCOPE_NAMED=.claude/skills/proofline/named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
-  printf '# version: 0.0.12\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.13\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
   fp0=$(A fingerprint LC); mkdir -p .claude/skills/proofline; printf 'edit\n' > .claude/skills/proofline/named.md
   [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named installed file left the fingerprint"
   A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named installed file changed"
@@ -1118,6 +1118,84 @@ scenario_reopen_one_question() {
   ok "reopen: one joint question, one reply records both approvals, then reopen applies budget and reopen"
 }
 
+# A155: a commit of control-plane files only moves repository.base_sha without staling the plan.
+cp_commit() { # commit an upgrade-style change: installed files, a manifest and the proofline block
+  upgrade_files; sed -i.bak 's/^block v1$/block v2/' AGENTS.md; rm -f AGENTS.md.bak
+  git add .claude .codex AGENTS.md; git commit -qm 'chore: upgrade'
+}
+base_moves() { grep -c 'base-moved' .agents/runs/LC/LEDGER.log || :; }
+scenario_base_moved_control_only() {
+  SC_AGENTS_MD=1 reopen_failed_run; b0=$(rv repository base_sha)
+  cp_commit; [ "$(git rev-parse HEAD)" != "$b0" ] || die "no commit was made"
+  out=$(A freshness LC 2>&1) || die "a control-plane-only commit staled the plan: $out"
+  printf '%s' "$out" | grep -Fq 'base_sha moved' || die "no base-moved line: $out"
+  [ "$(base_moves)" = 1 ] || die "expected one base-moved ledger line, got $(base_moves)"
+  A freshness LC >/dev/null; ro A reopen LC >/dev/null 2>&1 || :
+  [ "$(base_moves)" = 1 ] || die "the base-moved line was duplicated: $(base_moves)"
+  ro_approve; ro A reopen LC >/dev/null || die "reopen after a control-plane commit refused: $(ro A reopen LC 2>&1 | tail -2)"
+  ok "a control-plane-only commit keeps the plan fresh, one base-moved ledger line, reopen succeeds"
+}
+scenario_base_moved_stale() {
+  SC_AGENTS_MD=1 reopen_failed_run; b0=$(git rev-parse HEAD); st='stale plan: repository.base_sha changed'
+  cp_commit; printf 'x\n' > prod.txt; git add prod.txt; git commit -qm product
+  expect_msg "control-plane files plus one product file" "$st" A freshness LC
+  git reset -q --hard "$b0"
+  sed -i.bak 's/^keep it small$/keep it tiny/' AGENTS.md; rm -f AGENTS.md.bak; git commit -qam rules
+  expect_msg "AGENTS.md edit outside the block" "$st" A freshness LC
+  git reset -q --hard "$b0"
+  git checkout -q --orphan other; git commit -qm other
+  expect_msg "base not an ancestor of HEAD" "$st" A freshness LC
+  ok "product file, AGENTS.md edit outside the block and a foreign base still stale the plan"
+}
+scenario_base_moved_agents_files() {
+  SC_AGENTS_MD=1 reopen_failed_run; b0=$(git rev-parse HEAD); st='stale plan: repository.base_sha changed'
+  printf '# upgraded\n' >> .agents/scripts/exec-policy.sh; cp_commit; git add -f .agents/.proofline-manifest .agents/scripts/exec-policy.sh; git commit -qm 'chore: .agents upgrade'
+  out=$(A freshness LC 2>&1) || die "a tracked .agents manifest and script staled the plan: $out"
+  A freshness LC >/dev/null; [ "$(base_moves)" = 1 ] || die "expected one base-moved line, got $(base_moves)"
+  ro_approve; ro A reopen LC >/dev/null || die "reopen after an .agents upgrade commit refused: $(ro A reopen LC 2>&1 | tail -2)"
+  git reset -q --hard "$b0"; printf 'x\n' > .agents/runs/LC/extra.txt; git add -f .agents/runs/LC/extra.txt; git commit -qm 'run evidence'
+  expect_msg "a commit touching .agents/runs" "$st" A freshness LC
+  ok ".agents manifest and scripts in the base range keep the plan fresh, .agents/runs still stales it"
+}
+scenario_base_moved_agents_named() {
+  SC_SCOPE_AGENTS=1 scaffold orchestrated; unset SC_SCOPE_AGENTS; to_code_done orchestrated
+  printf 'edit\n' >> .agents/impl.txt; git add -f .agents/impl.txt; git commit -qm named
+  expect_msg "plan-scope-named .agents file" 'stale plan: repository.base_sha changed' A freshness LC
+  ok "a plan-scope-named .agents file in a commit stales the plan"
+}
+scenario_base_moved_named_path() {
+  SC_SCOPE_NAMED=.claude/agents/proofline-named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
+  printf 'edit\n' >> .claude/agents/proofline-named.md; git add -A .claude; git commit -qm named
+  expect_msg "plan-scope-named installed path" 'stale plan: repository.base_sha changed' A freshness LC
+  ok "a plan-scope-named installed path in a commit stales the plan"
+}
+
+# A155: every reopen has its own approval; a pending unused request is reused.
+scenario_second_reopen() {
+  reopen_failed_run
+  ro_approve; ro A reopen LC >/dev/null || die "first reopen refused"
+  n1=$(ls .agents/runs/LC/approvals/*-request-reopen* | wc -l | tr -d ' ')
+  printf 'reason: the second attempt failed the same gate again\nevidence: gates/*-VERIFY.yaml fail on the new content\n' | A terminate LC BLOCKED >/dev/null || die "second terminate refused"
+  out=$(ro A reopen LC 2>&1) && die "second reopen ran without a new answer"
+  printf '%s' "$out" | grep -Fq 'already approved' && die "second reopen stuck on the used approval: $out"
+  [ "$(ls .agents/runs/LC/approvals/*-request-reopen* | wc -l | tr -d ' ')" = $((n1 + 1)) ] || die "no new request number: $out"
+  ro A reopen LC >/dev/null 2>&1 || :
+  [ "$(ls .agents/runs/LC/approvals/*-request-reopen* | wc -l | tr -d ' ')" = $((n1 + 1)) ] || die "a pending request was not reused"
+  ro_approve; ro A reopen LC >/dev/null || die "second reopen refused after its approval: $(ro A reopen LC 2>&1 | tail -2)"
+  ok "second reopen: a new request, no stuck approval, a pending request reused"
+}
+
+# A155: only the first proofline marker pair of AGENTS.md is the block.
+scenario_second_marker_pair() {
+  SC_AGENTS_MD=2 reopen_failed_run; fp0=$(A fingerprint LC)
+  sed -i.bak 's/^block v1$/block v2/' AGENTS.md; rm -f AGENTS.md.bak
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "an edit in the first pair changed the fingerprint"
+  sed -i.bak 's/^second pair$/second edit/' AGENTS.md; rm -f AGENTS.md.bak
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "an edit inside the second pair did not change the fingerprint"
+  ro_approve; expect_msg "edit inside the second pair" 'outside the frozen scope' ro A reopen LC
+  ok "an edit in the second marker pair is a product change, the first pair stays control plane"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
@@ -1166,4 +1244,11 @@ run_sc scenario_upgrade_named_path
 run_sc scenario_upgrade_named_pattern_path
 run_sc scenario_upgrade_keeps_tier
 run_sc scenario_reopen_one_question
+run_sc scenario_base_moved_control_only
+run_sc scenario_base_moved_stale
+run_sc scenario_base_moved_named_path
+run_sc scenario_base_moved_agents_files
+run_sc scenario_base_moved_agents_named
+run_sc scenario_second_reopen
+run_sc scenario_second_marker_pair
 echo 'agent lifecycle tests passed'
