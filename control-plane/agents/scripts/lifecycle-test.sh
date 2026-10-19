@@ -1147,6 +1147,22 @@ scenario_base_moved_stale() {
   expect_msg "base not an ancestor of HEAD" "$st" A freshness LC
   ok "product file, AGENTS.md edit outside the block and a foreign base still stale the plan"
 }
+scenario_base_moved_agents_files() {
+  SC_AGENTS_MD=1 reopen_failed_run; b0=$(git rev-parse HEAD); st='stale plan: repository.base_sha changed'
+  printf '# upgraded\n' >> .agents/scripts/exec-policy.sh; cp_commit; git add -f .agents/.proofline-manifest .agents/scripts/exec-policy.sh; git commit -qm 'chore: .agents upgrade'
+  out=$(A freshness LC 2>&1) || die "a tracked .agents manifest and script staled the plan: $out"
+  A freshness LC >/dev/null; [ "$(base_moves)" = 1 ] || die "expected one base-moved line, got $(base_moves)"
+  ro_approve; ro A reopen LC >/dev/null || die "reopen after an .agents upgrade commit refused: $(ro A reopen LC 2>&1 | tail -2)"
+  git reset -q --hard "$b0"; printf 'x\n' > .agents/runs/LC/extra.txt; git add -f .agents/runs/LC/extra.txt; git commit -qm 'run evidence'
+  expect_msg "a commit touching .agents/runs" "$st" A freshness LC
+  ok ".agents manifest and scripts in the base range keep the plan fresh, .agents/runs still stales it"
+}
+scenario_base_moved_agents_named() {
+  SC_SCOPE_AGENTS=1 scaffold orchestrated; unset SC_SCOPE_AGENTS; to_code_done orchestrated
+  printf 'edit\n' >> .agents/impl.txt; git add -f .agents/impl.txt; git commit -qm named
+  expect_msg "plan-scope-named .agents file" 'stale plan: repository.base_sha changed' A freshness LC
+  ok "a plan-scope-named .agents file in a commit stales the plan"
+}
 scenario_base_moved_named_path() {
   SC_SCOPE_NAMED=.claude/agents/proofline-named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
   printf 'edit\n' >> .claude/agents/proofline-named.md; git add -A .claude; git commit -qm named
@@ -1231,6 +1247,8 @@ run_sc scenario_reopen_one_question
 run_sc scenario_base_moved_control_only
 run_sc scenario_base_moved_stale
 run_sc scenario_base_moved_named_path
+run_sc scenario_base_moved_agents_files
+run_sc scenario_base_moved_agents_named
 run_sc scenario_second_reopen
 run_sc scenario_second_marker_pair
 echo 'agent lifecycle tests passed'
