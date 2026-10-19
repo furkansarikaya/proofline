@@ -426,10 +426,18 @@ else LAST=$(printf 'entry:\n%s\nlead:\n%s\n' "$sk_cmp" "$ld_list"); die "skills/
 # README: the command list in its "Commands" block names every command `proofline help` lists, and no other (A153)
 cmd_words='{ n = split($0, parts, /, | \| /); for (i = 1; i <= n; i++) { split(parts[i], w, " "); if (w[1] != "") print w[1] } }'
 hp_cmds=$(printf '%s\n' "$hp_all" | awk '/^  [a-z]/' | sed 's/^  //; s/  .*//' | awk "$cmd_words" | sort -u)
-rd_cmds=$(awk '/^## Commands/ { on = 1; next } on && /^```/ { f++; next } on && f == 1' "$repo/README.md" | sed 's/  .*//' | awk "$cmd_words" | sort -u)
+rd_list() { awk '/^## Commands/ { on = 1; next } on && /^```/ { f++; next } on && f == 1' "$1" | sed 's/  .*//' | awk "$cmd_words" | sort -u; }
+rd_cmds=$(rd_list "$repo/README.md")
 [ -n "$hp_cmds" ] && [ -n "$rd_cmds" ] || die "help or README command list is empty"
 if [ "$hp_cmds" = "$rd_cmds" ]; then ok "the README command list names exactly the commands of proofline help"
 else LAST=$(printf 'help:\n%s\nREADME:\n%s\n' "$hp_cmds" "$rd_cmds"); die "README.md Commands list and proofline help name different commands"; fi
+# negative: a command missing from the README block (or an invented one) makes the same comparison fail
+mkdir -p "$T/rdneg"
+grep -v '^debt  ' "$repo/README.md" > "$T/rdneg/missing.md"
+awk '{ print } /^debt  / { print "frobnicate                            invented command" }' "$repo/README.md" > "$T/rdneg/extra.md"
+[ "$(rd_list "$T/rdneg/missing.md")" != "$hp_cmds" ] && ! rd_list "$T/rdneg/missing.md" | grep -qx debt || { LAST=$(rd_list "$T/rdneg/missing.md"); die "README without debt still equals proofline help"; }
+[ "$(rd_list "$T/rdneg/extra.md")" != "$hp_cmds" ] && rd_list "$T/rdneg/extra.md" | grep -qx frobnicate || die "README with an invented command still equals proofline help"
+ok "the README comparison fails when a command is missing from the README block or an extra one is listed"
 expect "help lists docs, explain and wiki" "$hp_all" "wiki ingest|query|lint"
 expect "help shows init --role" "$hp_all" "--role ROLE=RUNTIME (repeatable)"
 
