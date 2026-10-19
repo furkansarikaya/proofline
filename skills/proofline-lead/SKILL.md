@@ -134,6 +134,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 | `agent.sh terminate <ID> FAILED` | Terminate with reason and evidence; final report with open findings. |
 | `agent.sh handoff <ID> CODE_DONE` | Run it. |
 | `agent.sh knowledge-done` | Knowledge step ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)). |
+| `agent.sh lessons` | Lesson candidates from run evidence, repeat count, promotion to `AGENTS.md` with the user's approval ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)). |
 | `write COMPLETION_REPORT.md` | [REPORT.md](references/REPORT.md); `A publish-completion-report <ID>`. |
 | `agent.sh handoff <ID> DONE` | Run it; `A delivery-check <ID>`. |
 | `agent.sh request-approval <ID> commit` | DELIVERY stop ([DELIVERY.md](references/DELIVERY.md)); final report; STOP. |
@@ -171,7 +172,7 @@ Specialist results that stop the flow:
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |
 | `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
-| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates, then `A knowledge-done <ID> [not_applicable]`. `deliver` refuses until it is done. |
+| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID> [not_applicable]`. `deliver` refuses until it is done. |
 | `deliver <TASK>` | [DELIVERY.md](references/DELIVERY.md). |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 
