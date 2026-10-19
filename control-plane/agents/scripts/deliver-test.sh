@@ -2,14 +2,14 @@
 # shellcheck disable=SC2015,SC2154 # assertion chains; tl_agents and base come from test-lib.sh
 # One-command delivery: deliver-plan shows one summary, the user's one reply "approve delivery" records one approval
 # per step, deliver-step checks the shown content and the step's approval before each step. Nothing is pushed and
-# gh never runs: a push is simulated by setting the remote-tracking ref, gh is a fake (PROOFLINE_GH, honoured only
-# under PROOFLINE_TEST=1).
+# gh never runs: a push is simulated by setting the remote-tracking ref, gh is a PATH shim in the test's temp dir
+# (accepted only under PROOFLINE_SELFTEST=1, as for proofline merge; there is no env seam naming the gh binary).
 set -eu
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
-PROOFLINE_TEST=1 PROOFLINE_GH=$base/gh PROOFLINE_NO_TTY=1; export PROOFLINE_TEST PROOFLINE_GH PROOFLINE_NO_TTY
-printf '#!/bin/sh\ncat "%s/ghstate"\n' "$base" > "$base/gh"; chmod +x "$base/gh"
-gh_says() { printf '%s\n' "$1" > "$base/ghstate"; }
+mkdir -p "$base/bin"; printf '#!/bin/sh\ncat "%s/ghstate"\n' "$base" > "$base/bin/gh"; chmod +x "$base/bin/gh"
+PATH=$base/bin:$PATH PROOFLINE_SELFTEST=1 PROOFLINE_NO_TTY=1; export PATH PROOFLINE_SELFTEST PROOFLINE_NO_TTY
+gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lc main}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE]
 S() { A deliver-step LC "$@"; }
 # has PATTERN CMD...: CMD succeeds and prints a line matching PATTERN (no pipe into grep -q: SIGPIPE would leave a stale lock)
 has() { hs_p=$1; shift; "$@" > "$base/has.out" || die "$* failed: $(cat "$base/has.out")"; grep -q -- "$hs_p" "$base/has.out" || die "$* printed no '$hs_p': $(cat "$base/has.out")"; }
@@ -37,13 +37,22 @@ scenario_normal_chain() {
   expect_msg "pr before the push" 'push first' S pr
   pushed LC
   S pr > "$base/pr.out"; grep -q '^run: gh pr create --base main --head proofline/LC-lc --title "feat: lookup (LC)"' "$base/pr.out" && ! grep -q -- '--draft' "$base/pr.out" || die "pr step: $(cat "$base/pr.out")"
-  gh_says "OPEN false $(git rev-parse HEAD)"
-  expect_msg "cleanup before the merge" 'not merged' S cleanup 7
+  gh_says "MERGED false"
+  expect_msg "cleanup before the merge step" 'merge step of this delivery did not run' S cleanup 7
+  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lc release"
+  expect_msg "merge of a pull request into another base" "not this delivery's open" S merge 7
+  gh_says "OPEN false" "$(git rev-parse HEAD^) proofline/LC-lc main"
+  expect_msg "merge of a pull request at another head" "not this delivery's open" S merge 7
+  expect_msg "gh outside PATH rules" 'may be shadowed' env -u PROOFLINE_SELFTEST sh ./.agents/scripts/agent.sh deliver-step LC merge 7
+  gh_says "OPEN false"
   has '^run: proofline merge 7$' S merge 7
-  gh_says "OPEN false $(git rev-parse HEAD)"   # CI red: proofline merge refused, the pull request stays open
-  expect_msg "cleanup after a failed merge" 'not merged' S cleanup 7
+  # CI red: proofline merge refused, the pull request stays open
+  expect_msg "cleanup after a failed merge" "not this delivery's merged" S cleanup 7
   [ -d .agents/runs/LC ] || die "the run went after a failed merge"
-  gh_says "MERGED false $(git rev-parse HEAD)"
+  gh_says "MERGED false" "$(git rev-parse HEAD^) proofline/LC-lc main"
+  expect_msg "cleanup on another merged pull request" "not this delivery's merged" S cleanup 7
+  gh_says "MERGED false"
+  expect_msg "cleanup naming another pull request number" 'did not run for pull request 8' S cleanup 8
   S cleanup 7 >/dev/null || die "cleanup after the merge refused: $(S cleanup 7 2>&1 | tail -1)"
   [ ! -e .agents/runs/LC ] && [ ! -e .agents/local/deliver/LC ] || die "the run survived the delivery"
   ok "deliver: knowledge first, one reply approves every step, merge only on a ready PR, cleanup only after the merge"
@@ -76,9 +85,13 @@ scenario_draft_never_merged() {
   capture 'approve delivery'; A approve-pending LC >/dev/null
   S commit >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG
   pushed -
+  gh_says "OPEN true"
+  expect_msg "draft cleanup before the pr step" 'the pr step of this delivery has not run' S cleanup 7
   has '^run: gh pr create --draft ' S pr
   expect_msg "a draft merged" 'not a step of this delivery' S merge 7
-  gh_says "OPEN true $(git rev-parse HEAD)"
+  gh_says "OPEN true" "$(git rev-parse HEAD) other-branch main"
+  expect_msg "draft cleanup on another branch's pull request" "not this delivery's open draft" S cleanup 7
+  gh_says "OPEN true"
   S cleanup 7 >/dev/null || die "cleanup after the draft pull request refused: $(S cleanup 7 2>&1 | tail -1)"
   [ ! -e .agents/runs/LC ] || die "the run survived the draft delivery"
   ok "deliver: a FAILED run gets a draft pull request, is never merged, and is cleaned up after the pull request"
