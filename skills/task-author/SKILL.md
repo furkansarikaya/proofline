@@ -4,7 +4,7 @@ description: Turns a one-sentence request or an external issue (GitHub, Jira, Li
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.5"
+  version: "0.0.6"
 ---
 
 # task-author
@@ -35,6 +35,8 @@ Output is the canonical `TASK.md`. It is the contract that planning, QA and veri
 | create | a request in the user's words | `TASK.md` |
 | import | an issue (pasted text, file, or text fetched by the adapter) and a target | `TASK.md`, or NEEDS_INPUT listing the missing fields |
 | export | an existing `TASK.md` and a target | the issue text in the target's template (`<target>.md` next to `TASK.md`) |
+
+Interactive session: the lead (main session) applies this skill, and intent-grill, itself in standalone mode and talks to the user directly; a sub-agent relay adds a hop per round. Team mode (a dispatched `task_author`) is for headless use (`dispatch.sh`, no user attached) and imports that need no questions.
 
 Targets: `markdown` (default), `github`, `jira`, `linear`. Jira and Linear are written to the template contract and are untested against live trackers.
 

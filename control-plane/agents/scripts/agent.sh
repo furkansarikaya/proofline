@@ -956,12 +956,12 @@ pipeline_show() {
     "$( [ "$ps_round" -ge 2 ] && echo yes || echo no )" "$ps_gates"
   ps_fp=$(content_fingerprint)
   for ps_g in $ps_gates; do
-    printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" strict "$ps_fp")"
-    ps_u=$(gate_unsupported_focuses "$id" "$ps_g" strict "$ps_fp"); [ -z "$ps_u" ] || printf 'gate.%s.unsupported=%s (unproven, reported; the gate is not a full pass)\n' "$ps_g" "$ps_u"
+    printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" reuse "$ps_fp")"
+    ps_u=$(gate_unsupported_focuses "$id" "$ps_g" reuse "$ps_fp"); [ -z "$ps_u" ] || printf 'gate.%s.unsupported=%s (unproven, reported; the gate is not a full pass)\n' "$ps_g" "$ps_u"
   done
   # A78: risk signals, the focus each one adds to a gate, the per-focus status and the design roles to dispatch.
   for ps_g in $ps_gates; do
-    for ps_f in $(risk_gate_focuses "$id" "$ps_g"); do printf 'focus.%s.%s=%s\n' "$ps_g" "$ps_f" "$(gate_focus_status "$id" "$ps_g" "$ps_f" strict "$ps_fp")"; done
+    for ps_f in $(risk_gate_focuses "$id" "$ps_g"); do printf 'focus.%s.%s=%s\n' "$ps_g" "$ps_f" "$(gate_focus_status "$id" "$ps_g" "$ps_f" reuse "$ps_fp")"; done
   done
   risk_show "$id"
   risk_not_rerun "$id" | while IFS= read -r ps_n; do printf 'not_rerun.%s=NOT_RERUN (not reproduced proof): %s\n' "${ps_n%% *}" "${ps_n#* }"; done
@@ -1804,7 +1804,7 @@ record_handoff() {
       [ "$(section_value "$dir" execution awaiting_input)" != true ] || fail "CODE_DONE blocked: questions are pending ('agent.sh questions $id')"
       if gates_enforced "$id"; then
         verify_mutation_ownership "$id"
-        verify_required_gates "$id" strict "CODE_DONE blocked"
+        verify_required_gates "$id" reuse "CODE_DONE blocked"
       fi
       set_run_value "$id" handoff code_done_patch_sha256 "$patch" ;;
     DONE)
@@ -2203,13 +2203,14 @@ fail_fully_waived() { # ID GATE-RECORD-FILE
 blocking_finding_ids() { sed -n 's/^finding: \([^|]*\)|\([a-z]*\)|.*/\1 \2/p' "$1" | awk '$2 != "info" { print $1 }'; }
 # gate_status ID GATE [strict|patch] [NOW]: pass | pass_low | waived | fail | stale | missing.
 # strict binds the content fingerprint (any byte); patch binds the task-owned patch (after CODE_DONE,
-# when knowledge and report bookkeeping legitimately change the tree).
+# when knowledge and report bookkeeping legitimately change the tree). reuse is strict plus selective repetition
+# (focus_untouched): the view `next`, the digest, the summary and the CODE_DONE handoff share after a fix round.
 # A gate is the worst status over its own focus and every risk focus it carries for the run (A78), so a gate
 # is never satisfied while a required focus result is missing, stale or failing. A98: a focus recorded
 # `unsupported` (unproven, reported) does not hold the gate open; it is never `pass` and the report lists it.
 gate_status() {
   gs_id=$1 gs_gate=$2 gs_mode=${3:-strict} gs_now=${4:-}
-  if [ "$gs_mode" = strict ]; then [ -n "$gs_now" ] || gs_now=$(content_fingerprint)
+  if [ "$gs_mode" != patch ]; then [ -n "$gs_now" ] || gs_now=$(content_fingerprint)
   else [ -n "$gs_now" ] || gs_now=$(task_patch_fingerprint "$gs_id"); fi
   gs_worst=pass
   for gs_fc in - $(risk_gate_focuses "$gs_id" "$gs_gate"); do
@@ -2219,12 +2220,39 @@ gate_status() {
   printf '%s\n' "$gs_worst"
 }
 status_rank() { case "$1" in pass|unsupported) echo 0 ;; waived) echo 1 ;; pass_low) echo 2 ;; missing) echo 3 ;; stale) echo 4 ;; *) echo 5 ;; esac; }
+# Selective repetition (modes patch and reuse only, never strict): a `pass` risk-focus record stays fresh when the
+# task-owned paths changed since its manifest (the file set it looked at) and none matches the focus's
+# `risk.*.paths`. In reuse mode every path that differs between the record's tree and the current tree must also
+# be one of those task-owned paths. Safe side = stale: the gate's own focus, SECRETS, a focus with a `content`
+# signal, no path set, or no determinable change (delta empty) always rerun.
+focus_untouched() { # ID RECORD FOCUS MODE NOW
+  fu_pats=''
+  case "$3" in -|'') return 1 ;; esac
+  [ "$(gate_field "$2" gate)" != SECRETS ] || return 1
+  for fu_n in $(risk_names); do
+    [ "$(cfg "risk.$fu_n.check")" = "$3" ] || continue
+    [ -z "$(cfg "risk.$fu_n.content")" ] || return 1
+    fu_pats="$fu_pats $(cfg "risk.$fu_n.paths")"
+  done
+  [ -n "${fu_pats# }" ] || return 1
+  fu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
+  [ -n "$fu_delta" ] || return 1
+  for fu_p in $fu_delta; do ! path_matches "$fu_p" "$fu_pats" || return 1; done
+  [ "$4" = reuse ] || return 0
+  fu_tree=$(git -C "$root" diff-tree -r --name-only "$(gate_field "$2" fingerprint)" "$5" 2>/dev/null) || return 1
+  [ -n "$fu_tree" ] || return 1
+  for fu_p in $fu_tree; do printf '%s\n' "$fu_delta" | grep -Fxq -- "$fu_p" || return 1; done
+  return 0
+}
 # gate_focus_status ID GATE FOCUS MODE NOW: the latest record of that gate and focus ('-' = the gate's own focus).
 gate_focus_status() {
-  gfs_id=$1 gfs_gate=$2; gfs_key=fingerprint; [ "$4" = strict ] || gfs_key=patch_sha256
+  gfs_id=$1 gfs_gate=$2; gfs_key=fingerprint; [ "$4" != patch ] || gfs_key=patch_sha256
   gfs_last=$(gate_latest_file "$gfs_id" "$gfs_gate" "$3")
   [ -n "$gfs_last" ] || { echo missing; return 0; }
-  if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] || ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
+  if ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
+  if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ]; then
+    { [ "$4" != strict ] && [ "$(gate_field "$gfs_last" result)" = pass ] && focus_untouched "$gfs_id" "$gfs_last" "$3" "$4" "$5"; } || { echo stale; return 0; }
+  fi
   case "$(gate_field "$gfs_last" result)" in
     pass) echo pass ;; pass_low) echo pass_low ;; unsupported) echo unsupported ;;
     fail) if fail_fully_waived "$gfs_id" "$gfs_last"; then echo waived; else echo fail; fi ;;
@@ -2245,7 +2273,7 @@ gate_label() { # ID GATE MODE NOW
 }
 gate_satisfied() { case "$1" in pass|waived|unsupported) return 0 ;; *) return 1 ;; esac; }
 verify_required_gates() { # ID strict|patch MESSAGE
-  vrg_now=''; [ "$2" != strict ] || vrg_now=$(content_fingerprint); risk_prime "$1"
+  vrg_now=''; [ "$2" = patch ] || vrg_now=$(content_fingerprint); risk_prime "$1"
   for vrg_g in $(required_gates "$1"); do
     vrg_s=$(gate_status "$1" "$vrg_g" "$2" "$vrg_now")
     gate_satisfied "$vrg_s" || fail "$3: required gate $vrg_g of $1 is $vrg_s for the current content (see 'agent.sh pipeline $1')"
@@ -4161,7 +4189,7 @@ next_step() {
     IMPLEMENTED)
       ns_fp=$(content_fingerprint); ns_fail='' ns_todo=''
       for ns_g in $(required_gates "$ns_id"); do
-        ns_s=$(gate_status "$ns_id" "$ns_g" strict "$ns_fp")
+        ns_s=$(gate_status "$ns_id" "$ns_g" reuse "$ns_fp")
         case "$ns_s" in pass|waived) ;; fail) ns_fail="$ns_fail $ns_g" ;; *) ns_todo="$ns_todo $ns_g:$ns_s" ;; esac
       done
       if [ -n "$ns_fail" ]; then
@@ -4205,7 +4233,7 @@ next_step() {
           ns_g=${ns_x%%:*}
           case "$ns_g" in SECRETS) o "agent.sh secret-scan $ns_id" ;; *)
             for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
-              gate_satisfied "$(gate_focus_status "$ns_id" "$ns_g" "$ns_fc" strict "$ns_fp")" && continue
+              gate_satisfied "$(gate_focus_status "$ns_id" "$ns_g" "$ns_fc" reuse "$ns_fp")" && continue
               if [ "$ns_fc" = - ]; then case "$ns_g" in REVIEW_*) o "dispatch.sh $ns_id reviewer --focus $(gate_focus "$ns_g")" ;; *) o "dispatch.sh $ns_id $(gate_owner "$ns_g")" ;; esac
               else o "dispatch.sh $ns_id $(gate_owner "$ns_g") --focus $ns_fc"; fi
             done ;;
@@ -4394,11 +4422,11 @@ report_facts() {
   printf -- '- Class: %s\n- Required gates: %s\n' "$(pipeline_class "$rf_id")" "$(printf '%s\n' "$rf_gl" | grep -c .)"
   for rf_g in $rf_gl; do
     rf_i=$(gate_report_ids "$rf_id" "$rf_g" - | tr '\n' ' ' | sed 's/ $//')
-    printf -- '- Gate %s: %s; findings: %s\n' "$rf_g" "$(gate_label "$rf_id" "$rf_g" strict "$rf_fp")" "${rf_i:-none}"
+    printf -- '- Gate %s: %s; findings: %s\n' "$rf_g" "$(gate_label "$rf_id" "$rf_g" reuse "$rf_fp")" "${rf_i:-none}"
     # each risk sub-focus on a line of its own: its status and findings are never folded into the gate's
     for rf_fc in $(risk_gate_focuses "$rf_id" "$rf_g"); do
       rf_i=$(gate_report_ids "$rf_id" "$rf_g" "$rf_fc" | tr '\n' ' ' | sed 's/ $//')
-      printf -- '  - Focus %s:%s: %s; findings: %s\n' "$rf_g" "$rf_fc" "$(gate_focus_status "$rf_id" "$rf_g" "$rf_fc" strict "$rf_fp")" "${rf_i:-none}"
+      printf -- '  - Focus %s:%s: %s; findings: %s\n' "$rf_g" "$rf_fc" "$(gate_focus_status "$rf_id" "$rf_g" "$rf_fc" reuse "$rf_fp")" "${rf_i:-none}"
     done
   done
   printf -- '- Fix rounds: %s of %s\n- Refreezes: %s\n- Files changed (task-owned paths): %s\n' "$(fix_rounds_done "$rf_id")" "$(max_fix_rounds)" \
@@ -4419,7 +4447,7 @@ draft_pr_body() {
     printf '# DRAFT: %s did not pass its gates\n\nGenerated from the run records. Do not merge: proofline merge refuses a draft.\n\n## Non-passing gates\n\n' "$dp_id"
     for dp_g in $(required_gates "$dp_id"); do
       for dp_fc in - $(risk_gate_focuses "$dp_id" "$dp_g"); do
-        dp_s=$(gate_focus_status "$dp_id" "$dp_g" "$dp_fc" strict "$dp_fp"); gate_satisfied "$dp_s" && continue
+        dp_s=$(gate_focus_status "$dp_id" "$dp_g" "$dp_fc" reuse "$dp_fp"); gate_satisfied "$dp_s" && continue
         dp_n=$dp_g; [ "$dp_fc" = - ] || dp_n=$dp_g:$dp_fc
         printf -- '- %s: %s\n' "$dp_n" "$dp_s"
         dp_f=$(gate_latest_file "$dp_id" "$dp_g" "$dp_fc")
@@ -4695,10 +4723,28 @@ summary_run() {
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
     sm_fp=$(content_fingerprint)
     printf 'TIER: %s\n' "$(tier_effective "$sm_id")"
-    for sm_g in $(required_gates "$sm_id"); do printf '%s: %s\n' "$sm_g" "$(gate_label "$sm_id" "$sm_g" strict "$sm_fp")"; done
+    for sm_g in $(required_gates "$sm_id"); do printf '%s: %s\n' "$sm_g" "$(gate_label "$sm_id" "$sm_g" reuse "$sm_fp")"; done
     printf 'FIX ROUNDS: %s of %s\n' "$(fix_rounds_done "$sm_id")" "$(max_fix_rounds)"
   fi
   printf 'DELIVERY: completion report published %s\n' "$(ua "$(section_value "$sm_d" completion_report published)")"
+}
+
+# plan-section ID SECTION: one PLAN.md section (heading to the next `## `), or `scope` for the YAML front matter.
+plan_section() {
+  ps_id=$1 ps_n=$2; require_run "$ps_id"; ps_f=$(run_dir "$ps_id")/PLAN.md; [ -f "$ps_f" ] || fail "PLAN.md not found: $ps_id"
+  if [ "$ps_n" = scope ]; then awk 'NR==1 && /^---[[:space:]]*$/ { i=1; next } i && /^---[[:space:]]*$/ { exit } i' "$ps_f"; return 0; fi
+  plan_section_present "$ps_f" "$ps_n" || fail "no PLAN.md section '$ps_n' in $ps_id (sections: scope $(sed -n 's/^## \(.*[^[:space:]]\)[[:space:]]*$/\1/p' "$ps_f" | tr '\n' ' '))"
+  awk -v n="$ps_n" '$0 ~ "^## " n "[[:space:]]*$" { i=1; print; next } i && /^## / { exit } i' "$ps_f"
+}
+
+# digest ID: stage, gates, open questions and the next step from the records alone (A150); the lead reads this
+# instead of large outputs, and a fresh process rebuilds it after a context reset.
+digest_run() {
+  dg_id=$1; require_run "$dg_id"; dg_d=$(run_dir "$dg_id"); dg_q=0
+  for dg_f in "$dg_d"/questions/[0-9][0-9][0-9].md; do if [ -e "$dg_f" ] && [ ! -e "${dg_f%.md}.answer.md" ]; then dg_q=$((dg_q + 1)); fi; done
+  summary_run "$dg_id"
+  printf 'OPEN QUESTIONS: %s\n' "$dg_q"
+  next_step "$dg_id" | sed -n 's/^next=/NEXT: /p;s/^reason=/WHY: /p'
 }
 
 run_suites() { # every sibling *-test.sh
@@ -4708,7 +4754,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='report-facts role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='report-facts build-record role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -4738,7 +4784,7 @@ usage() {
 usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   role | status | effective [ID] | fingerprint [ID] | config-get <dotted.key> | config-check [FILE]
   start <ID> [--title TITLE] [--task-file PATH]
-  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID]
+  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID] | digest <ID> | plan-section <ID> <section>
   branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
@@ -4754,6 +4800,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
+  build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
 USAGE
@@ -4775,6 +4822,9 @@ case "$command" in
   tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
   summary) summary_run "${2:-}" ;;
+  plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
+  digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
+  build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;

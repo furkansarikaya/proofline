@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.0.6 — 2026-10-19
+
+- Efficiency: a gate repeats only when the files it looked at changed (unknown file set = stale; SECRETS and SECURITY always repeat on a product change).
+- One build and test run per commit (`build-record.sh`), recorded and shared by reviewers and the verifier; the verifier still re-runs on its own.
+- `agent.sh plan-section` prints one PLAN.md section; `agent.sh digest` prints a short run summary. Stage transitions say that a context reset is safe (`/proofline resume ID`).
+- task-author and intent-grill run in the main interactive session.
+
 ## 0.0.5 — 2026-10-18
 
 - visual-proof no longer reports false alarms: non-HTML responses are not measured, content the setup script registers with its `mark(el)` argument is skipped, and overflow inside closed content causes no failure while the page does not scroll sideways.

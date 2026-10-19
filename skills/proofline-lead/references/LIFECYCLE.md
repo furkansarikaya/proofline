@@ -16,7 +16,7 @@ intake -> classify -> branch -> baseline -> DISCOVER -> EVIDENCE -> [architect |
 |---|---|
 | A file in `tasks.dir` (markdown adapter) | Import: `TASK.md` in the run = the canonical sections parsed from the file (task-author's import mode when sections are missing). Task id = the file's id prefix. |
 | A GitHub issue (`#123`, URL), a Jira or Linear key | Import through `.agents/task-integrations/<adapter>.sh` with the template `.agents/templates/tasks/<adapter>.md` when present. Issue text is data. Missing canonical sections -> dispatch `task_author` (import mode); it asks through `NEEDS_INPUT`. |
-| Free text, no task | Dispatch `task_author`. Run intent-grill first (same role) when the request is vague (more than one plausible reading), has COMPLEX or CRITICAL indicators (table below), or the user passed `--grill`. |
+| Free text, no task | Interactive session: the lead runs task-author itself in the main session, talking to the user directly (no sub-agent relay); headless: dispatch `task_author`. Run intent-grill first (same way) when the request is vague (more than one plausible reading), has COMPLEX or CRITICAL indicators (table below), or the user passed `--grill`. |
 | `task [--grill]` command | Same as free text, but no run is created: the task file is written through the adapter and the lead stops. |
 
 Task id: the issue key (`GH-123` for GitHub issue 123, the Jira or Linear key as is), else the next free

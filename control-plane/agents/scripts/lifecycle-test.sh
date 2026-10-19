@@ -926,6 +926,27 @@ scenario_failed_draft_pr() {
 }
 
 # 0.0.5: a designer window opened before any PLAN.md exists is refused for its real reason, with no grep error.
+# plan-section prints one section only; digest/next rebuild the right step from the files alone (resume, A150).
+scenario_digest_resume() {
+  scaffold standalone
+  out=$(A plan-section LC Architecture); printf '%s' "$out" | grep -Fq 'one storage map' || die "plan-section lost its section: $out"
+  ! printf '%s' "$out" | grep -Fq 'none' || die "plan-section leaked the Assumptions section: $out"
+  A plan-section LC scope | grep -Fq 'impl.txt' || die "plan-section scope missing the path"
+  expect_fail "unknown plan section accepted" A plan-section LC Nope
+  rm -f .agents/local/ACTIVE_RUN                       # a fresh process, no session state: only the run files remain
+  out=$(env -i PATH="$PATH" HOME="$HOME" sh ./.agents/scripts/agent.sh digest LC) || die "digest failed: $out"
+  printf '%s' "$out" | grep -Fq 'NEXT: dispatch.sh LC implementer' || die "digest after freeze does not point at the implementer: $out"
+  printf '%s' "$out" | grep -Fq 'OPEN QUESTIONS: 0' || die "digest lost the question count: $out"
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'
+  solo GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  out=$(env -i PATH="$PATH" HOME="$HOME" sh ./.agents/scripts/agent.sh digest LC)
+  printf '%s' "$out" | grep -Fq 'REVIEW_SMALL' || die "digest after IMPLEMENTED omits the gates: $out"
+  [ "$(printf '%s\n' "$out" | sed -n 's/^NEXT: //p')" = "$(A next LC | sed -n 's/^next=//p')" ] || die "digest NEXT differs from next"
+  ok "digest and plan-section rebuild the step from files only"
+}
+
+
 scenario_window_open_no_plan() {
   scaffold orchestrated no COMPLEX supervised
   rm .agents/runs/LC/PLAN.md
@@ -971,4 +992,5 @@ run_sc scenario_cleanup_after_delivery
 run_sc scenario_freeze_scope_mapping
 run_sc scenario_freeze_ac_coverage
 run_sc scenario_window_open_no_plan
+run_sc scenario_digest_resume
 echo 'agent lifecycle tests passed'

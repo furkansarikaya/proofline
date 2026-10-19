@@ -4,7 +4,7 @@ description: Interviews the user about a vague or high-stakes request before a t
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.5"
+  version: "0.0.6"
 ---
 
 # intent-grill
@@ -31,7 +31,7 @@ Talk to the user in their language. `INTENT.md` is English except the quoted req
 
 ## Modes
 
-- **Standalone** (no `.agents/local/ACTIVE_RUN`, or not dispatched by the lead): output `.agents/local/intent-grill/<slug>/INTENT.md` (`<slug>`: kebab-case of the request's first five words; nothing kept with `local_state: off`, then the content is shown in chat only). Questions go to the user directly, one per message. Finish with the report and the question "Shall task-author write the task from this?".
+- **Standalone** (no `.agents/local/ACTIVE_RUN`, not dispatched by the lead, or the lead itself in an interactive session: an interview is never relayed through a sub-agent, the main session asks the user directly): output `.agents/local/intent-grill/<slug>/INTENT.md` (`<slug>`: kebab-case of the request's first five words; nothing kept with `local_state: off`, then the content is shown in chat only). Questions go to the user directly, one per message. Finish with the report and the question "Shall task-author write the task from this?".
 - **Team** (dispatched by the lead inside a run): read only the assignment, the request, and `TASK.md` if a draft exists; write only `design/INTENT.md` in the run folder. Each round ends with the result header, `RESULT: NEEDS_INPUT` and one question under `QUESTIONS:`; the lead relays it verbatim and restarts the skill with an `ANSWERS` block ([QUESTIONS.md](references/QUESTIONS.md#3-team-mode)). The final round ends with `RESULT: DONE`.
 
 ## Flow
