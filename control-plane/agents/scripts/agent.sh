@@ -4689,11 +4689,20 @@ deliver_target() { case "$(run_state "$(run_dir "$1")")" in FAILED|BLOCKED) echo
 deliver_pr_view() {
   dv_g=$(command -v gh 2>/dev/null) || { echo unreadable; return 0; }
   case "$dv_g" in /*) ;; *) echo unreadable; return 0 ;; esac
+  # the real location: directory symlinks (pwd -P) and a symlinked gh itself are resolved before the check
+  dv_n=0
+  while [ -L "$dv_g" ] && [ "$dv_n" -lt 20 ]; do
+    dv_l=$(readlink "$dv_g"); case "$dv_l" in /*) dv_g=$dv_l ;; *) dv_g=$(dirname "$dv_g")/$dv_l ;; esac; dv_n=$((dv_n + 1))
+  done
+  dv_g=$(CDPATH='' cd "$(dirname "$dv_g")" 2>/dev/null && pwd -P)/$(basename "$dv_g") || { echo unreadable; return 0; }
   if [ "${PROOFLINE_SELFTEST:-}" != 1 ]; then
-    case "$dv_g" in "$root"/*|"$PWD"/*|/tmp/*|/private/tmp/*|/var/folders/*|/dev/shm/*|"${TMPDIR:-/nonexistent}"/*) echo "unreadable (gh at $dv_g may be shadowed)"; return 0 ;; esac
+    for dv_d in "$root" "$PWD" "${TMPDIR:-/nonexistent}" /tmp /var/folders /dev/shm; do
+      dv_r=$(CDPATH='' cd "$dv_d" 2>/dev/null && pwd -P) || dv_r=$dv_d
+      case "$dv_g" in "$dv_d"/*|"$dv_r"/*) echo "unreadable (gh at $dv_g may be shadowed)"; return 0 ;; esac
+    done
   fi
-  "$dv_g" pr view "$1" --json state,isDraft,headRefOid,headRefName,baseRefName \
-    --jq '.state + " " + (.isDraft | tostring) + " " + .headRefOid + " " + .headRefName + " " + .baseRefName' 2>/dev/null </dev/null || echo unreadable
+  "$dv_g" pr view "$1" --json state,isDraft,headRefOid,headRefName,baseRefName,headRepositoryOwner \
+    --jq '.state + " " + (.isDraft | tostring) + " " + .headRefOid + " " + .headRefName + " " + .baseRefName + " " + (.headRepositoryOwner.login // "-")' 2>/dev/null </dev/null || echo unreadable
 }
 # deliver_consumed TARGET KIND HASH: this summary's KIND approval exists and was consumed (its step ran).
 deliver_consumed() {
@@ -4725,6 +4734,9 @@ deliver_plan() {
   [ "$(printf '%s\n' "$dl_msg" | wc -l | tr -d ' ')" = 1 ] || fail "the commit message is one line"
   dl_br=$(git -C "$root" branch --show-current); dl_base=$(cfg canonical_branch main)
   [ -n "$dl_br" ] && [ "$dl_br" != "$dl_base" ] || fail "delivery blocked: deliver from the task branch, not '${dl_br:-detached HEAD}'"
+  # the owner of origin on GitHub: the pull request's head repository must be it (a fork's PR never counts)
+  dl_own=$(git -C "$root" remote get-url origin 2>/dev/null | sed -n 's#^.*github\.com[:/]\([^/]*\)/.*$#\1#p')
+  [ -n "$dl_own" ] || fail "delivery blocked: the origin remote is not a GitHub repository (git remote get-url origin)"
   dl_paths=$(git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || true)
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
   dl_kn=$(knowledge_owned_paths "$dl_id" 2>/dev/null || true)
@@ -4733,7 +4745,9 @@ deliver_plan() {
   else cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg; fi
   dl_fp=$(content_fingerprint)
   {
-    printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
+    printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nowner: %s\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$dl_own" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
+    # a fresh nonce per plan: an approval or consumed step of an earlier, otherwise identical summary never counts
+    printf 'nonce: %s-%s\n' "$(now_epoch)" "$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || echo $$)"
     printf 'kind: %s\nsteps: %s\nmessage: %s\nmessage_sha256: %s\ntitle: %s\nbody: .agents/local/deliver/%s/PR_BODY.md\nbody_sha256: %s\n' "$dl_kind" "$dl_steps" "$dl_msg" "$(hash_file "$dl_dir/COMMIT_MSG")" "$dl_prt" "$dl_id" "$(hash_file "$dl_dir/PR_BODY.md")"
     printf '\nchanged paths (the commit):\n'; printf '%s\n' "${dl_paths:-  none (nothing to commit; HEAD is pushed as it is)}" | sed 's/^/  /'
     printf 'changed by the knowledge step:\n'; printf '%s\n' "${dl_kn:-none}" | sed 's/^/  /'
@@ -4790,7 +4804,7 @@ deliver_step() {
   ds_app=$(find_approval "$ds_t" "$ds_s" "$(ds_v content)" "$ds_h") || ds_stop "no unconsumed $ds_s approval of the user for this summary"
   case "$ds_s:$ds_pr" in merge:|cleanup:) fail "usage: agent.sh deliver-step $ds_id $ds_s <PR-NUMBER>" ;; merge:*[!0-9]*|cleanup:*[!0-9]*) fail "the pull request is a plain number: $ds_pr" ;; esac
   # the pull request must be this delivery's: its head commit, head branch and base branch (read before the locks)
-  ds_want="$ds_head $ds_br $(ds_v base)"; ds_pv=${deliver_pv:-unreadable}
+  ds_want="$ds_head $ds_br $(ds_v base) $(ds_v owner)"; ds_pv=${deliver_pv:-unreadable}
   case "$ds_s" in
     commit)
       [ "$ds_t" != - ] || consume_approval - "$ds_app"   # no open run: the pre-commit hook consumes nothing

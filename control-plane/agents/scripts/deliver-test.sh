@@ -9,12 +9,13 @@ set -eu
 . "$(dirname "$0")/test-lib.sh"
 mkdir -p "$base/bin"; printf '#!/bin/sh\ncat "%s/ghstate"\n' "$base" > "$base/bin/gh"; chmod +x "$base/bin/gh"
 PATH=$base/bin:$PATH PROOFLINE_SELFTEST=1 PROOFLINE_NO_TTY=1; export PATH PROOFLINE_SELFTEST PROOFLINE_NO_TTY
-gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lc main}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE]
+gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lc main acme}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE OWNER]
 S() { A deliver-step LC "$@"; }
 # has PATTERN CMD...: CMD succeeds and prints a line matching PATTERN (no pipe into grep -q: SIGPIPE would leave a stale lock)
 has() { hs_p=$1; shift; "$@" > "$base/has.out" || die "$* failed: $(cat "$base/has.out")"; grep -q -- "$hs_p" "$base/has.out" || die "$* printed no '$hs_p': $(cat "$base/has.out")"; }
+origin() { git remote add origin https://github.com/acme/app.git; }   # never fetched or pushed
 hooks() {
-  mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit"
+  origin; mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit"
   git config core.hooksPath "$base/hooks"
 }
 pushed() { git update-ref "refs/remotes/origin/$(git branch --show-current)" HEAD; A approval-consume "$1" push >/dev/null; }   # what git push and pre-push do
@@ -39,17 +40,19 @@ scenario_normal_chain() {
   S pr > "$base/pr.out"; grep -q '^run: gh pr create --base main --head proofline/LC-lc --title "feat: lookup (LC)"' "$base/pr.out" && ! grep -q -- '--draft' "$base/pr.out" || die "pr step: $(cat "$base/pr.out")"
   gh_says "MERGED false"
   expect_msg "cleanup before the merge step" 'merge step of this delivery did not run' S cleanup 7
-  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lc release"
+  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lc release acme"
   expect_msg "merge of a pull request into another base" "not this delivery's open" S merge 7
-  gh_says "OPEN false" "$(git rev-parse HEAD^) proofline/LC-lc main"
+  gh_says "OPEN false" "$(git rev-parse HEAD^) proofline/LC-lc main acme"
   expect_msg "merge of a pull request at another head" "not this delivery's open" S merge 7
+  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lc main forker"
+  expect_msg "merge of a fork's pull request with the same head, branch and base" "not this delivery's open" S merge 7
   expect_msg "gh outside PATH rules" 'may be shadowed' env -u PROOFLINE_SELFTEST sh ./.agents/scripts/agent.sh deliver-step LC merge 7
   gh_says "OPEN false"
   has '^run: proofline merge 7$' S merge 7
   # CI red: proofline merge refused, the pull request stays open
   expect_msg "cleanup after a failed merge" "not this delivery's merged" S cleanup 7
   [ -d .agents/runs/LC ] || die "the run went after a failed merge"
-  gh_says "MERGED false" "$(git rev-parse HEAD^) proofline/LC-lc main"
+  gh_says "MERGED false" "$(git rev-parse HEAD^) proofline/LC-lc main acme"
   expect_msg "cleanup on another merged pull request" "not this delivery's merged" S cleanup 7
   gh_says "MERGED false"
   expect_msg "cleanup naming another pull request number" 'did not run for pull request 8' S cleanup 8
@@ -73,7 +76,7 @@ scenario_content_change_stops() {
 }
 
 scenario_draft_never_merged() {
-  export SC_BRANCH=1 SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_BRANCH SC_TEST_CRIT SC_TASK_EXTRA
+  export SC_BRANCH=1 SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_BRANCH SC_TEST_CRIT SC_TASK_EXTRA; origin
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null; gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl_test.txt 'test: default for an empty key'; A handoff LC IMPLEMENTED >/dev/null; gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
@@ -89,9 +92,15 @@ scenario_draft_never_merged() {
   expect_msg "draft cleanup before the pr step" 'the pr step of this delivery has not run' S cleanup 7
   has '^run: gh pr create --draft ' S pr
   expect_msg "a draft merged" 'not a step of this delivery' S merge 7
-  gh_says "OPEN true" "$(git rev-parse HEAD) other-branch main"
+  gh_says "OPEN true" "$(git rev-parse HEAD) other-branch main acme"
   expect_msg "draft cleanup on another branch's pull request" "not this delivery's open draft" S cleanup 7
+  # a later, otherwise identical plan: the pr step consumed under the earlier one does not count for it
+  A deliver-plan LC >/dev/null; capture 'approve delivery' $(( $(date +%s) + 5000 )); A approve-pending LC >/dev/null
+  A approval-consume - push >/dev/null; has '^run: gh pr create --draft ' S pr
+  A deliver-plan LC >/dev/null; capture 'approve delivery' $(( $(date +%s) + 6000 )); A approve-pending LC >/dev/null
   gh_says "OPEN true"
+  expect_msg "a pr step of an identical earlier plan" 'the pr step of this delivery has not run' S cleanup 7
+  has '^run: gh pr create --draft ' S pr
   S cleanup 7 >/dev/null || die "cleanup after the draft pull request refused: $(S cleanup 7 2>&1 | tail -1)"
   [ ! -e .agents/runs/LC ] || die "the run survived the draft delivery"
   ok "deliver: a FAILED run gets a draft pull request, is never merged, and is cleaned up after the pull request"

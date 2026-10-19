@@ -71,7 +71,7 @@ with ONE question to the user. It applies to a DONE run (a pull request) and to 
    - `merge <PR>` (DONE only; a draft is never merged): `gh pr checks <PR> --watch --fail-fast`, then
      `proofline merge <PR>`. A failed check or a refused merge: STOP, no cleanup, report the state.
    - `cleanup <PR>`: checks that the pull request is this delivery's (head commit = HEAD, head and base branch
-     as in the summary, the merge step ran for that number; a draft: the pr step ran) and is merged (a draft:
+     as in the summary, head repository owned by the owner of `origin`, so a fork's pull request never counts, the merge step ran for that number; a draft: the pr step ran) and is merged (a draft:
      open), then runs `A cleanup <ID>` itself. `merge` checks the same head, branches and that the pr step ran.
 5. Final report, STOP. Without the user's approval nothing is committed; `A cleanup <ID>` is run when the
    user declines delivery.
