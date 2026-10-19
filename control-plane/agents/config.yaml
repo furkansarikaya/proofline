@@ -44,6 +44,9 @@ git:
 approval:
   phrases: approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur
 commands:
+  # Optional: installs dependencies in the build record's export directory (agent.sh build-record); without it
+  # node_modules, vendor and .venv of the project root are linked into the export.
+  install:
   build:
   test:
   lint:

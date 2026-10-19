@@ -352,6 +352,8 @@ attempt() {
   before='' fp_before='' gs_before=$(git_state)
   if [ "$writes_code" = no ]; then
     fp_before=$("$agent" fingerprint "$id") && [ -n "$fp_before" ] || { echo "dispatch: no product-tree fingerprint; $role not started" >&2; exit 1; }
+    # One build and test run per tree: the first reviewer or verifier dispatch makes the record, later ones reuse it. Its result never stops a dispatch.
+    case "$role" in reviewer|verifier) "$agent" build-record "$id" run > "$work/build-record.txt" 2>&1 || : ;; esac
   else
     before=$("$agent" window-open "$id" "$role") || { echo "dispatch: window-open refused; $role not started" >&2; exit 1; }
   fi

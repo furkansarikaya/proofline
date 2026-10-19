@@ -1071,7 +1071,7 @@ pretool)
           if [ "$sub" = yes ] || [ "$role" != lead ]; then
             case "$sc" in approve|waive|answer) deny "a subagent never approves, waives or answers; only the user does, through the lead (D13, D16)" ;; esac
             case "$role:$sc" in
-              *:status|*:pipeline|*:fingerprint|*:verify-*) ;;
+              *:status|*:pipeline|*:fingerprint|*:verify-*|*:build-record) ;;   # build-record: `run` is refused for a non-lead role by the script itself
               *:submit)
                 [ "$role" != lead ] || deny "the lead never submits a specialist result (D12)"
                 [ "$has_role" = yes ] || deny "agent.sh submit runs as your role: prefix AGENT_ROLE=$role"
