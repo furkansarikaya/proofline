@@ -3440,7 +3440,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|cleanup) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|cleanup|report) return 0 ;;
     waive:*) case "${1#waive:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -3449,8 +3449,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then printf '%s/.agents/local/approvals\n' "$root"; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|cleanup|waive:<FINDING-ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push|cleanup) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|cleanup|report|waive:<FINDING-ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|cleanup|report) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"; require_open_run "$1"
 }
 ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; fi; }
@@ -3459,6 +3459,7 @@ ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; 
 approval_bound() { # ID KIND
   case "$2" in
     commit|push|cleanup) content_fingerprint ;;
+    report) hash_file "$root/.agents/local/friction/latest.md" ;;
     plan|destructive|single_step|scope|budget|mutation_budget) hash_file "$(run_dir "$1")/PLAN.md" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
   esac
@@ -3541,6 +3542,7 @@ approval_sentences() {
     mutation_budget) as_en='the mutation budget'; as_tr='mutasyon bütçesini|mutasyon butcesini' ;;
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
     cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
+    report) as_en='the report'; as_tr='raporu' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
     push) as_en='the push'; as_tr="push'u" ;;
     waive:*) as_en="the waiver of $as_id"; as_tr="$as_id feragatini" ;;
@@ -3703,6 +3705,7 @@ approval_why() { # KIND BOUND [tr]
       mutation_budget) echo 'test_trust.mutation_budget planın ## Tests ölçütlerinden az: ölçüt başına bir mutant gerekir; bütçe yalnızca bu koşuda artar' ;;
       commit|push) echo "içerik $2 için teslim açık onay gerektirir" ;;
       cleanup) echo 'taslak PR tesliminden sonra koşu kanıtı ayrı bir onayla silinir' ;;
+      report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
     esac
     return 0
@@ -3716,6 +3719,7 @@ approval_why() { # KIND BOUND [tr]
     mutation_budget) echo 'test_trust.mutation_budget is below the criteria of PLAN ## Tests (one mutant each is the minimum): the budget is raised for this run only, .agents/config.yaml is not edited' ;;
     commit|push) echo "delivery of content $2 needs explicit approval" ;;
     cleanup) echo 'after the draft pull request delivery the run evidence is deleted only on a separate approval' ;;
+    report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
   esac
 }
@@ -4070,6 +4074,7 @@ metrics_run() { # ID OUTCOME
   metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
   mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
   metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2"
+  sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A152: the friction report is built at run end, never sent unasked
 }
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
 #   DELEGATIONS FIX_ROUNDS RESULT -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
@@ -4250,7 +4255,7 @@ next_step() {
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
         *) o "agent.sh knowledge-done $ns_id [not_applicable]"; r "knowledge transaction not recorded" ;;
       esac ;;
-    DONE) o "agent.sh request-approval $ns_id commit (delivery needs the user's approval)"; o "agent.sh cleanup $ns_id (after delivery)"; r "run DONE" ;;
+    DONE) o "agent.sh request-approval $ns_id commit (delivery needs the user's approval)"; o "agent.sh cleanup $ns_id (after delivery)"; o "optional: agent.sh friction show; send it as a GitHub issue only if the user wants it: agent.sh request-approval - report, then agent.sh friction send"; r "run DONE" ;;
   esac
 }
 next_without_run() {
@@ -4754,7 +4759,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='report-facts build-record role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='report-facts build-record role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions calibrate'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -4767,7 +4772,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ]; then lock_command=no; fi
+if [ "$command" = approve-pending ] || [ "$command" = friction ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 if [ "$lock_command" = yes ]; then
   mkdir -p "$agents/local"
@@ -4800,6 +4805,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
+  friction <report ID|show|issue-cmd|send>   (A152: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)
+  calibrate   (A153: config suggestions from metrics and plans; read-only, never edits a file)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
@@ -4824,6 +4831,8 @@ case "$command" in
   summary) summary_run "${2:-}" ;;
   plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
   digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
+  friction) case "${2:-}" in report|send) require_lead ;; esac; sh "$scripts/friction.sh" "${2:-}" "${3:-}" ;;
+  calibrate) sh "$scripts/friction.sh" calibrate ;;
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
