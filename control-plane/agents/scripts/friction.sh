@@ -1,5 +1,5 @@
 #!/bin/sh
-# Friction report (A152) and calibration suggestions (A153). Run through `agent.sh friction ...` / `agent.sh calibrate`.
+# Friction report and calibration suggestions (A149). Run through `agent.sh friction ...` / `agent.sh calibrate`.
 #   friction.sh report <ID>   build .agents/local/friction/latest.md from the run's LEDGER.log and records.jsonl
 #                             (called by agent.sh when a run ends); counts only, anonymous, validated before it is written
 #   friction.sh show          print the report

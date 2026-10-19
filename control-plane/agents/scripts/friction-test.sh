@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tests for friction.sh (A152, A153): the anonymous friction report from a run's records, the approval before a
+# Tests for friction.sh (A149): the anonymous friction report from a run's records, the approval before a
 # send (gh is never started: PROOFLINE_GH points at echo), and the read-only calibration suggestions.
 # shellcheck disable=SC2015,SC2154 # assertion chains; tl_agents and base come from test-lib.sh
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh

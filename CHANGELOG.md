@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.7 — 2026-10-19
+
+- Learning: lesson candidates come from run evidence only (each with a source gate or finding id), repeats are counted by script across runs, and a promotion into `AGENTS.md` `## Project rules` needs a `rule:<ID>` approval.
+- `agent.sh calibrate` prints config suggestions from metrics and plans; it never edits a file.
+- Friction report at run end (`agent.sh friction`): anonymous and scrubbed; `friction send` files a GitHub issue only after a `report` approval bound to the report hash.
+
 ## 0.0.6 — 2026-10-19
 
 - Efficiency: a gate repeats only when the files it looked at changed (unknown file set = stale; SECRETS and SECURITY always repeat on a product change).

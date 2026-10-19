@@ -111,7 +111,7 @@ part reports "no metrics recorded"; the failure part still reads the ledgers.
 
 `--json` prints the same data as one object, `proofline.insights/1`.
 
-## Friction report and calibration (A152, A153)
+## Friction report and calibration (A149)
 
 **Friction report.** When a run ends (`handoff DONE`, `terminate`), `friction.sh` builds
 `.agents/local/friction/latest.md` from the run's `LEDGER.log` and `records.jsonl`: how many times the user was

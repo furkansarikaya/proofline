@@ -4079,7 +4079,7 @@ metrics_run() { # ID OUTCOME
   metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
   mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
   metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2"
-  sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A152: the friction report is built at run end, never sent unasked
+  sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A149: the friction report is built at run end, never sent unasked
 }
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
 #   DELEGATIONS FIX_ROUNDS RESULT -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
@@ -4812,8 +4812,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
   lessons derive|write|validate|count|bound|text|promote   (lesson candidates from run evidence, repeat count, promotion to AGENTS.md only with a rule:<ID> approval; `write` and `promote` are lead-only)
-  friction <report ID|show|issue-cmd|send>   (A152: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)
-  calibrate   (A153: config suggestions from metrics and plans; read-only, never edits a file)
+  friction <report ID|show|issue-cmd|send>   (A149: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)
+  calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
