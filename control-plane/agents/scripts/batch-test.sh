@@ -123,7 +123,7 @@ calls() { cat "$FAKE/calls.log" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'; }
 state_of() { awk -F'\t' -v t="$1" -v c="$2" '$1 == t { print $c }' .agents/local/batch/state.tsv; }
 order_ids() { cut -f1 .agents/local/batch/order.tsv | tr '\n' ' ' | sed 's/ *$//'; }
 # nfiles DIR GLOB: how many files match (a refused command must write none)
-nfiles() { ls -1 "$1" 2>/dev/null | grep -c "$2" || :; }
+nfiles() { case "$2" in -*) nf_p="^[0-9][0-9][0-9]$2" ;; *) nf_p=$2 ;; esac; ls -1 "$1" 2>/dev/null | grep -c -e "$nf_p" || :; }
 
 # --- 1. depends_on order and cycle rejection ---------------------------------------------------------------------------
 sc_order_and_cycle() {
