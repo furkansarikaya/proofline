@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.11"
+  version: "0.0.12"
 ---
 
 # proofline-lead
@@ -81,7 +81,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 
 1. **Installed?** `.agents/config.yaml` and `.agents/scripts/agent.sh` exist. If not: say proofline is not
    installed here, suggest `proofline init`, stop.
-2. **Language.** The user's language is the language of their messages (default English). Gate names (`SECRETS`, `REVIEW_SMALL`, ...), classes, states and results stay verbatim inside it: the runtime's Stop hook checks that a final report carries the state, class and every gate name from `A report-tokens <ID>` (paste the lines of `A summary <ID>`; translate only the prose around them). Reports and
+2. **Language.** The user's language is the language of their messages (default English). Gate names (`SECRETS`, `REVIEW_SMALL`, ...), classes, states and results stay verbatim inside it: the runtime's Stop hook checks that a final report carries the state, class and every gate name from `A report-tokens <ID>` (paste the lines of `A summary <ID>`; translate only the prose around them); it does not send the report back: lines that are missing are supplied by the hook from `A summary <ID>` and shown to the user next to the report (A154). Reports and
    a relayed question is shown verbatim (English, as stored) with a line and a marked translation in it;
    when the user's language is not English, never leave a `QUESTIONS:` block in English as the last words of
    the message: `request-approval` and the assumption and failover questions are already printed in the run's
@@ -177,7 +177,7 @@ Specialist results that stop the flow:
 | `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
 | `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID> [not_applicable]`. |
 | `deliver <TASK>` | The whole delivery in one command ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)): a CODE_DONE run only (FAILED and BLOCKED are refused with `to reopen: /proofline reopen <ID>`). If the knowledge step, the report or DONE is missing, run them now without asking, then `A deliver-plan <ID>` (relay the one summary, STOP), then after the user's `approve delivery` `A deliver-step <ID> commit\|push\|pr\|merge\|cleanup [PR]` in order, running the commands each prints. A refusal stops the chain: prepare and ask again. |
-| `reopen <TASK-ID>` | Take a FAILED or BLOCKED run back into the workflow ([GATES-AND-FIXES.md](references/GATES-AND-FIXES.md#5-reopen-a-failed-or-blocked-run)): `printf 'reason: <what changed>\n' \| A reopen <ID>`. It asks in this order, each time you relay the question and STOP: the mutation-budget decision (only when PLAN `## Tests` has more criteria than the budget), then `reopen:<ID>`; after each of the user's replies run the same command again. The plan stays frozen, only gates that did not pass or whose inputs changed run again, the fix rounds restart. When the gates pass the run is CODE_DONE and `deliver` works. Never reopen on your own. |
+| `reopen <TASK-ID>` | Take a FAILED or BLOCKED run back into the workflow ([GATES-AND-FIXES.md](references/GATES-AND-FIXES.md#5-reopen-a-failed-or-blocked-run)): `printf 'reason: <what changed>\n' \| A reopen <ID>`. It asks ONE question (the reopen, plus the mutation-budget raise in the same summary when PLAN `## Tests` has more criteria than the budget): relay it and STOP; the user's one reply records both approvals, then run the same command again. Files `proofline upgrade` installed never count as out-of-scope changes. The plan stays frozen, only gates that did not pass or whose inputs changed run again, the fix rounds restart. When the gates pass the run is CODE_DONE and `deliver` works. Never reopen on your own. |
 | `debt` | The project's shortcut debt, read-only and without a run: `A debt` lists every `shortcut: <limit>, <when to improve>` code comment with `file:line`, limit and improvement condition (grep, not a model). Relay the list; change nothing. The knowledge step writes the same list to one wiki page ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)). |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 

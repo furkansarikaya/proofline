@@ -92,14 +92,16 @@ it was in, but only with the user's approval, and `deliver` stays refused until 
 
 1. Start with the cause: a fixed tool, a raised budget, a changed environment. Write one specific reason (what
    changed since the run ended): `printf 'reason: <what changed>\n' | A reopen <ID>`.
-2. The command asks, in this order, and each time stops with the question: the mutation-budget decision first
-   (`mutation_budget`, only when PLAN `## Tests` names more criteria than the budget), then `reopen:<ID>`. Relay
-   the question verbatim, STOP; the runtime records the user's reply (the lead never runs `approve`). After each
-   reply run the same command again. It refuses when the plan or the task changed since the freeze, when the
+2. The command checks the plan and the scope, then asks ONE question and stops: the reopen, and in the same
+   summary the mutation-budget decision when PLAN `## Tests` names more criteria than the budget ("raise the budget to
+   N and reopen the run?"). Relay the question verbatim, STOP; the runtime records the user's one reply as both
+   approvals (the lead never runs `approve`). After the reply run the same command again. It refuses when the plan or the task changed since the freeze, when the
    branch is not the task branch, or when files outside the frozen scope changed (the scope check lists them).
 3. Reopened: the plan stays frozen and the fix-round allowance restarts at 0 (`review.max_fix_rounds` is
    unchanged). `A next <ID>` then names only the gates that did not pass (failed, BLOCKED, never recorded) or
-   whose inputs changed. A gate that passed on unchanged inputs stays. A change confined to `.agents/` (the control
-   plane, `proofline upgrade` included) never makes a gate stale.
+   whose inputs changed. A gate that passed on unchanged inputs stays. A change confined to the control plane never makes
+   a gate stale and never blocks the reopen: `.agents/`, the files `proofline upgrade` installs (`.claude/agents/proofline-*.md`,
+   `.codex/agents/proofline-*.toml`, the entry skill) and the proofline block of `AGENTS.md`/`CLAUDE.md` (A154). A path the
+   plan scope names stays tracked; edits outside the block (for example `## Project rules`) are product changes.
 4. The knowledge step restarts (`not_started`). When every gate passes: `handoff CODE_DONE`, knowledge, report,
    DONE, then `deliver`.

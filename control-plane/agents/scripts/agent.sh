@@ -342,6 +342,36 @@ fingerprint_path() {
   [ ! -e "$target" ] && { printf '%s\n' missing; return 0; }
   fail "cannot baseline non-regular file: $path"
 }
+# A154: files `proofline init/upgrade` installs outside .agents/ are control plane, not product: the files the manifest
+# lists (agent definitions, the entry skill) and, by pattern, the agent files of both runtimes, plus the proofline block
+# of AGENTS.md and CLAUDE.md (only the block; the rest of those files is the project's). A path a plan scope names
+# stays tracked (A152).
+installed_control_path() { # PATH
+  case "$1" in .claude/agents/proofline-*.md|.codex/agents/proofline-*.toml) return 0 ;; esac
+  [ -f "$root/.agents/.proofline-manifest" ] || return 1
+  awk -v p="$1" '!/^#/ && $2 == p { f = 1 } END { exit !f }' "$root/.agents/.proofline-manifest"
+}
+installed_control_paths() { # one path per line: manifest-listed files outside .agents/
+  [ -f "$root/.agents/.proofline-manifest" ] || return 0
+  awk '!/^#/ && NF >= 2 && $2 !~ /^\.agents\// { print $2 }' "$root/.agents/.proofline-manifest"
+}
+is_block_file() { case "$1" in AGENTS.md|CLAUDE.md) return 0 ;; esac; return 1; }
+# strip_proofline_block FILE: the file without its marked proofline block (a begin marker without an end marker is left whole).
+strip_proofline_block() {
+  if grep -qx '<!-- proofline:begin -->' "$1" && grep -qx '<!-- proofline:end -->' "$1"; then
+    awk '/^<!-- proofline:begin -->$/ { s = 1; next } /^<!-- proofline:end -->$/ { s = 0; next } !s { print }' "$1"
+  else cat "$1"; fi
+}
+# control_plane_only PATH: a changed path whose change is control plane only: an installed file, or AGENTS.md/CLAUDE.md
+# whose content outside the proofline block equals the committed one (HEAD).
+control_plane_only() {
+  installed_control_path "$1" && return 0
+  { is_block_file "$1" && [ -f "$root/$1" ] && [ ! -L "$root/$1" ]; } || return 1
+  cpo_t=$(mktemp "${TMPDIR:-/tmp}/agent-cpo.XXXXXX")
+  git -C "$root" show "HEAD:$1" > "$cpo_t" 2>/dev/null || { rm -f "$cpo_t"; return 1; }
+  cpo_a=$(strip_proofline_block "$cpo_t" | sha256); cpo_b=$(strip_proofline_block "$root/$1" | sha256); rm -f "$cpo_t"
+  [ "$cpo_a" = "$cpo_b" ]
+}
 current_tracked_paths() {
   if [ -n "$ctp_base" ]; then git -C "$root" diff --no-renames --name-only "$ctp_base"
   else git -C "$root" diff --no-renames --name-only; git -C "$root" diff --cached --no-renames --name-only; fi | sort -u
@@ -397,7 +427,8 @@ validate_captured_baseline() {
 
 # --- Content fingerprint (D12/D14): git tree id of the working tree incl. untracked files,
 # excluding .agents/ (A152: the control plane, `proofline upgrade` included, is not product content and must not make
-# a gate stale; runs, local state and the task directory are part of it). Built in a temporary index; never touches
+# a gate stale; runs, local state and the task directory are part of it) and, since A154, the other files upgrade
+# installs (manifest-listed files, the agent files, the proofline block of AGENTS.md/CLAUDE.md). Built in a temporary index; never touches
 # the real one.
 content_fingerprint() {
   cf_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-fp.XXXXXX")
@@ -410,10 +441,13 @@ content_fingerprint() {
   # them into a private directory and reads the repository's objects through an alternate: the tree id is
   # content-addressed, so it is the same value either way.
   # A152: a path under .agents/ that a run's plan scope names is task-owned product content, so it stays in the tree.
-  cf_td=$(cfg tasks.dir .agents/tasks); cf_keep=''
+  # A154: the files `upgrade` installs (installed_control_paths, the agent-file patterns) and the proofline block of
+  # AGENTS.md/CLAUDE.md are control plane too; a path a plan scope names (cf_named) stays in whole.
+  cf_td=$(cfg tasks.dir .agents/tasks); cf_keep='' cf_named=''
   for cf_pl in "$root"/.agents/runs/*/PLAN.md; do
     [ -f "$cf_pl" ] || continue
     for cf_p in $(scope_mappings "$cf_pl" 2>/dev/null | cut -d '|' -f1); do
+      cf_named="$cf_named $cf_p"
       case "$cf_p" in .agents/runs/*|.agents/local/*) continue ;; .agents/*) ;; *) continue ;; esac
       case "$cf_p" in "$cf_td"|"$cf_td"/*) continue ;; esac
       [ -f "$root/$cf_p" ] && cf_keep="$cf_keep $cf_p"
@@ -428,6 +462,17 @@ content_fingerprint() {
       git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
       git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$cf_td" >/dev/null 2>&1
       for cf_k in $cf_keep; do git -C "$root" add -f -- "$cf_k" >/dev/null 2>&1 || exit 1; done
+      for cf_i in '.claude/agents/proofline-*.md' '.codex/agents/proofline-*.toml' $(installed_control_paths); do
+        case " $cf_named " in *" $cf_i "*) continue ;; esac
+        git -C "$root" rm -r -q --cached --ignore-unmatch -- "$cf_i" >/dev/null 2>&1
+      done
+      for cf_b in AGENTS.md CLAUDE.md; do
+        case " $cf_named " in *" $cf_b "*) continue ;; esac
+        [ -f "$root/$cf_b" ] && [ ! -L "$root/$cf_b" ] || continue
+        grep -qx '<!-- proofline:begin -->' "$root/$cf_b" && grep -qx '<!-- proofline:end -->' "$root/$cf_b" || continue
+        cf_blob=$(strip_proofline_block "$root/$cf_b" | git -C "$root" hash-object -w --stdin) || exit 1
+        git -C "$root" update-index --add --cacheinfo "100644,$cf_blob,$cf_b" >/dev/null 2>&1 || exit 1
+      done
       git -C "$root" write-tree 2>/dev/null
     )
   }
@@ -1445,11 +1490,15 @@ verify_scope() {
       if [ -n "$prior" ] && [ "$prior" = "$current" ]; then continue; fi
       # A control-plane file under .agents/ outside the plan scope is the user's, not a task change: listed apart, never a failure.
       if authorized_path "$mappings" "$changed"; then continue; fi
-      case "$changed" in .agents/*) printf '%s\n' "$changed" >> "$tmpcp" ;; *) printf '%s\n' "$changed" >> "$tmp" ;; esac
+      case "$changed" in .agents/*) printf '%s\n' "$changed" >> "$tmpcp"; continue ;; esac
+      # A154: a file `proofline upgrade` installs (and the proofline block of AGENTS.md/CLAUDE.md) is control plane too
+      if control_plane_only "$changed"; then printf '%s\n' "$changed" >> "$tmpcp.in"; continue; fi
+      printf '%s\n' "$changed" >> "$tmp"
     done
   done
   unexpected=$(cat "$tmp"); rm "$tmp"
   if [ -s "$tmpcp" ]; then echo "control-plane files changed under .agents/ (not task changes, outside the plan scope):"; sed 's/^/  /' "$tmpcp"; fi; rm -f "$tmpcp"
+  if [ -s "$tmpcp.in" ]; then echo "installed proofline files changed (not task changes, outside the plan scope):"; sed 's/^/  /' "$tmpcp.in"; fi; rm -f "$tmpcp.in"
   [ -z "$unexpected" ] || { echo "unexpected or unmapped task-introduced paths:" >&2; printf '%s\n' "$unexpected" >&2; return 1; }; echo "scope check passed: $id"
 }
 # Knowledge-scope paths the task changed outside the frozen plan scope (written by the knowledge step).
@@ -3780,6 +3829,8 @@ approve() {
   [ "$ap_bound" = "$(gate_field "$ap_req" bound)" ] || fail "the content changed since the approval request; request again"
   # a step request of a delivery summary (deliver-plan) is answered by the one reply that approves the delivery
   ap_dlv=$(gate_field "$ap_req" delivery); ap_words=$ap_kind; [ -z "$ap_dlv" ] || ap_words=delivery
+  # A154: the two requests of one reopen question carry `joint: reopen:<ID>`; the one reply approving that reopen answers both
+  ap_jt=$(gate_field "$ap_req" joint); [ -z "$ap_jt" ] || ap_words=$ap_jt
   ap_txt=$(mktemp "${TMPDIR:-/tmp}/proofline-approve.XXXXXX")
   if [ -t 0 ] && [ -t 1 ]; then
     printf 'Approve %s for %s? Type an approval phrase (%s; for example "approve %s"): ' "$ap_kind" "$ap_id" "$(approval_phrases)" "$(kind_words "$ap_kind" | cut -d' ' -f1)" >&2
@@ -4360,7 +4411,29 @@ amend_run() {
 # `reopen:<ID>` approval (bound to the PLAN.md hash; no model can create it). The plan stays frozen and its scope
 # is checked again. Gate records that passed on unchanged inputs stay; a gate that failed, was BLOCKED or never
 # concluded, or whose inputs changed, runs again (gate_focus_status, `reuse`). The fix-round allowance restarts.
-# A mutation-budget decision the plan needs is asked first, before anything else is checked.
+# A mutation-budget decision the plan needs is asked together with the reopen approval (A154): one summary, one question.
+# reopen_question ID PLANHASH N STATE PREV: writes the two requests (mutation_budget and reopen:ID, both marked `joint`,
+# so the one reply that approves the reopen answers both) unless they already stand for this plan, and prints the summary.
+reopen_question() {
+  rq2_id=$1 rq2_ph=$2 rq2_n=$3 rq2_st=$4 rq2_prev=$5; require_lead
+  rq2_ad=$(approvals_dir "$rq2_id"); mkdir -p "$rq2_ad"
+  for rq2_k in mutation_budget "reopen:$rq2_id"; do
+    approval_target "$rq2_id" "$rq2_k"
+    rq2_r=$(latest_request "$rq2_id" "$rq2_k") && [ "$(gate_field "$rq2_r" bound)" = "$rq2_ph" ] && [ "$(gate_field "$rq2_r" joint)" = "reopen:$rq2_id" ] && continue
+    printf 'kind: "%s"\nbound: "%s"\nrequested_at: %s\njoint: "reopen:%s"\n' "$rq2_k" "$rq2_ph" "$(now_epoch)" "$rq2_id" > "$rq2_ad/$(next_num "$rq2_ad")-request-$(kind_slug "$rq2_k").yaml"
+    ledger_if "$rq2_id" approval-request - - "$rq2_k bound=$rq2_ph joint=reopen:$rq2_id"
+  done
+  rq2_b=$(mutation_budget "$rq2_id")
+  if [ "$(run_language "$rq2_id")" = tr ]; then
+    printf 'YENİDEN AÇMA ÖZETİ (%s)\n  koşu: %s, açılışta dönülecek durum: %s\n  plan: dondurulmuş (sha256 %s), kapsam yeniden denetlendi\n  mutasyon bütçesi: %s -> %s (PLAN ## Tests %s ölçüt adlandırıyor; yalnızca bu koşuda artar)\n  kapılar: değişmemiş girdilerle geçenler kalır, geçmeyenler ve girdisi değişenler yeniden çalışır; düzeltme turu hakkı sıfırlanır\n' "$rq2_id" "$rq2_st" "$rq2_prev" "$rq2_ph" "$rq2_b" "$rq2_n" "$rq2_n"
+    printf '\nQUESTIONS:\n1. Bütçeyi %s değerine çıkarıp %s koşusunu yeniden açalım mı?\n' "$rq2_n" "$rq2_id"
+    printf '   seçenekler: approve | reject\n   kabul edilen yanıtlar: %s (tek yanıt iki kararı da kaydeder: bütçe artışı ve yeniden açma; başka sözcük onay sayılmaz)\n   önerilen: yok (karar sizin)\n' "$(approval_example "reopen:$rq2_id")"
+  else
+    printf 'REOPEN SUMMARY (%s)\n  run: %s, state it returns to: %s\n  plan: frozen (sha256 %s), scope checked again\n  mutation budget: %s -> %s (PLAN ## Tests names %s criteria; raised for this run only)\n  gates: those that passed on unchanged inputs stay, the others run again; the fix-round allowance restarts\n' "$rq2_id" "$rq2_st" "$rq2_prev" "$rq2_ph" "$rq2_b" "$rq2_n" "$rq2_n"
+    printf '\nQUESTIONS:\n1. Raise the budget to %s and reopen the run %s?\n' "$rq2_n" "$rq2_id"
+    printf '   options: approve | reject\n   accepted answers: %s (one reply records both decisions, the budget raise and the reopen; any other word approves nothing)\n   recommended: none (the user decides)\n' "$(approval_example "reopen:$rq2_id")"
+  fi
+}
 reopen_run() {
   ro_id=$1; require_run "$ro_id"; ro_d=$(run_dir "$ro_id"); require_lead
   gates_enforced "$ro_id" || fail "reopen requires the lifecycle_gates policy: run $ro_id has none; open a new task"
@@ -4373,23 +4446,28 @@ reopen_run() {
   ro_prev=$(grep ' event=terminate ' "$(ledger_file "$ro_id")" | tail -1 | sed -n 's/.* from=\([^ ]*\) .*/\1/p')
   [ -n "$ro_prev" ] || fail "reopen: the ledger has no terminate transition for $ro_id"
   enforce_task_branch "$ro_id"
-  # 1. the budget decision, first: criteria above the mutation budget are one question now, not a BLOCKED gate later
-  ro_ph=$(hash_file "$ro_d/PLAN.md"); ro_n=$(plan_test_acs "$ro_d/PLAN.md"); ro_budget=''
-  if [ "$ro_n" -gt "$(mutation_budget "$ro_id")" ]; then
-    ro_budget=$(find_approval "$ro_id" mutation_budget "$ro_ph") || {
-      ro_r=$(latest_request "$ro_id" mutation_budget) && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" mutation_budget
-      fail "reopen $ro_id: PLAN ## Tests names $ro_n criteria above the mutation budget $(mutation_budget "$ro_id"). Relay the budget question above, wait for the user's answer, then run reopen again"
-    }
-  fi
-  # 2. the plan is unchanged and the scope still holds (product changes made outside the run show up here)
+  # 1. the plan is unchanged and the scope still holds (product changes made outside the run show up here)
   verify_freshness "$ro_id" >/dev/null
   verify_scope "$ro_id" 1 >/dev/null || fail "reopen blocked: files changed outside the frozen scope (listed above); the user resolves them first"
-  # 3. the user's approval
-  ro_kind=reopen:$ro_id
-  ro_app=$(find_approval "$ro_id" "$ro_kind" "$ro_ph") || {
+  # 2. the approvals, asked as ONE question (A154): the budget decision the plan needs (criteria above the mutation
+  # budget) and the reopen itself. One reply of the user records both; each is still a normal single-use approval.
+  ro_ph=$(hash_file "$ro_d/PLAN.md"); ro_n=$(plan_test_acs "$ro_d/PLAN.md"); ro_budget=''; ro_kind=reopen:$ro_id; ro_need_b=0
+  if [ "$ro_n" -gt "$(mutation_budget "$ro_id")" ]; then
+    ro_need_b=1; ro_budget=$(find_approval "$ro_id" mutation_budget "$ro_ph") || ro_budget=''
+  fi
+  ro_app=$(find_approval "$ro_id" "$ro_kind" "$ro_ph") || ro_app=''
+  if [ -z "$ro_app" ] || { [ "$ro_need_b" = 1 ] && [ -z "$ro_budget" ]; }; then
+    if [ -z "$ro_app" ] && [ "$ro_need_b" = 1 ] && [ -z "$ro_budget" ]; then
+      reopen_question "$ro_id" "$ro_ph" "$ro_n" "$ro_st" "$ro_prev"
+      fail "reopen $ro_id needs the user's answer to the question above (raise the budget to $ro_n and reopen): relay it, wait for the user's reply, then run reopen again (reason on stdin)"
+    fi
+    if [ -z "$ro_budget" ] && [ "$ro_need_b" = 1 ]; then
+      ro_r=$(latest_request "$ro_id" mutation_budget) && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" mutation_budget
+      fail "reopen $ro_id: PLAN ## Tests names $ro_n criteria above the mutation budget $(mutation_budget "$ro_id"). Relay the budget question above, wait for the user's answer, then run reopen again"
+    fi
     ro_r=$(latest_request "$ro_id" "$ro_kind") && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" "$ro_kind"
     fail "reopen $ro_id needs the user's approval: relay the question above, wait for the user's answer, then run reopen again (reason on stdin)"
-  }
+  fi
   # 4. apply: the record is written like amend's, marked terminal (it restarts the fix rounds only)
   ro_seq=$(next_gate_seq "$ro_id"); ro_name=$(printf '%03d-REOPEN' "$ro_seq"); ro_gd=$(gates_dir "$ro_id"); mkdir -p "$ro_gd"
   patch_manifest "$ro_id" > "$ro_gd/$ro_name.manifest" || fail "could not write reopen manifest"

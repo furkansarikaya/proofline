@@ -12,7 +12,7 @@ export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GI
 git init -q; git symbolic-ref HEAD refs/heads/main; git config commit.gpgsign false
 printf '# app\n' > README.md; git add README.md; git commit -q -m init
 mkdir -p .agents/scripts .agents/local/metrics
-printf 'proofline_version: 0.0.11\nmetrics: on\n' > .agents/config.yaml
+printf 'proofline_version: 0.0.12\nmetrics: on\n' > .agents/config.yaml
 printf '#!/bin/sh\nexit 0\n' > .agents/scripts/agent.sh
 
 H=0000000000000000000000000000000000000000000000000000000000000000
