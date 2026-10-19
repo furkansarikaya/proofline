@@ -409,6 +409,16 @@ content_fingerprint() {
   # database. A read-only .git (a Codex workspace-write sandbox) cannot take new objects, so the retry writes
   # them into a private directory and reads the repository's objects through an alternate: the tree id is
   # content-addressed, so it is the same value either way.
+  # A152: a path under .agents/ that a run's plan scope names is task-owned product content, so it stays in the tree.
+  cf_td=$(cfg tasks.dir .agents/tasks); cf_keep=''
+  for cf_pl in "$root"/.agents/runs/*/PLAN.md; do
+    [ -f "$cf_pl" ] || continue
+    for cf_p in $(scope_mappings "$cf_pl" 2>/dev/null | cut -d '|' -f1); do
+      case "$cf_p" in .agents/runs/*|.agents/local/*) continue ;; .agents/*) ;; *) continue ;; esac
+      case "$cf_p" in "$cf_td"|"$cf_td"/*) continue ;; esac
+      [ -f "$root/$cf_p" ] && cf_keep="$cf_keep $cf_p"
+    done
+  done
   cf_try() {
     [ ! -f "$cf_idx" ] || cp "$cf_idx" "$cf_tmp/index"
     (
@@ -416,7 +426,8 @@ content_fingerprint() {
       if [ -n "$1" ]; then GIT_OBJECT_DIRECTORY=$1; GIT_ALTERNATE_OBJECT_DIRECTORIES=$cf_objs; export GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; fi
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
       git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
-      git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$(cfg tasks.dir .agents/tasks)" >/dev/null 2>&1
+      git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$cf_td" >/dev/null 2>&1
+      for cf_k in $cf_keep; do git -C "$root" add -f -- "$cf_k" >/dev/null 2>&1 || exit 1; done
       git -C "$root" write-tree 2>/dev/null
     )
   }
@@ -3464,7 +3475,11 @@ approval_target() {
   if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
-  case "$2" in reopen:*) [ "${2#reopen:}" = "$1" ] || fail "approval kind $2 names another run; the kind for $1 is reopen:$1"; return 0 ;; mutation_budget) return 0 ;; esac
+  case "$2" in
+    reopen:*) [ "${2#reopen:}" = "$1" ] || fail "approval kind $2 names another run; the kind for $1 is reopen:$1"
+      case "$(run_state "$(run_dir "$1")")" in FAILED|BLOCKED) return 0 ;; *) fail "approval kind $2 is for a FAILED or BLOCKED run; $1 is $(run_state "$(run_dir "$1")")" ;; esac ;;
+    mutation_budget) return 0 ;;
+  esac
   require_open_run "$1"
 }
 ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; fi; }

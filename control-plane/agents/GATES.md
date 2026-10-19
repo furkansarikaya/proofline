@@ -172,6 +172,8 @@ Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the
 - `reopen:<ID>` (bound to the PLAN.md sha256, accepted on a FAILED or BLOCKED run, named for that run only): the
   user's approval for `agent.sh reopen <ID>` (A152), which consumes it. `mutation_budget` is accepted on such a run
   too; `reopen` asks it first when PLAN `## Tests` has more criteria than the budget and applies it itself.
+  After a reopen a gate that had failed reads `stale`, not `fail`: it runs again first. A fix round starts only if it
+  fails again (handoff `IMPLEMENTING` is not offered before that).
 - A FAILED or BLOCKED run is never delivered (no draft pull request): `deliver-plan` and `proofline deliver` refuse in
   one line, `to reopen: /proofline reopen <ID>`.
 - One-command delivery: `agent.sh deliver-plan <ID>` writes `.agents/local/deliver/<ID>/SUMMARY.md` and one request
