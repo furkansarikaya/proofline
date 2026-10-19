@@ -9,7 +9,7 @@
 import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { computeGate } from "./gate.mjs";
+import { computeGate, minMutants } from "./gate.mjs";
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "schema", "findings.schema.json");
 
@@ -141,6 +141,8 @@ export function checkClaims(doc, planText) {
   if (planText !== undefined && (doc.scope?.diff?.tests ?? []).length > 0) {
     const m = /^## Tests[^\n]*\n([\s\S]*?)(?=^## |\s*$(?![\s\S]))/m.exec(planText);
     const acs = [...(m ? m[1] : "").matchAll(/^\s*[-*]\s+(AC-\d+):/gm)].map((x) => x[1]);
+    const budget = doc.scope.diff.thresholds?.mutation_budget;
+    if (budget < minMutants(planText)) errors.push(`scope.diff.thresholds.mutation_budget ${budget} is below the ${minMutants(planText)} criteria of PLAN ## Tests (one claim mutant each): raise it (the user approves, 'agent.sh raise-budget')`);
     for (const ac of new Set(acs)) if (!claims.some((c) => c.ac === ac)) errors.push(`${ac}: PLAN ## Tests names a test for it but findings.json has no claim mutant for it (scope.diff.claims)`);
   }
   return errors;

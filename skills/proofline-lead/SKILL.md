@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.4"
+  version: "0.0.5"
 ---
 
 # proofline-lead
@@ -134,7 +134,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 | `write COMPLETION_REPORT.md` | [REPORT.md](references/REPORT.md); `A publish-completion-report <ID>`. |
 | `agent.sh handoff <ID> DONE` | Run it; `A delivery-check <ID>`. |
 | `agent.sh request-approval <ID> commit` | DELIVERY stop ([DELIVERY.md](references/DELIVERY.md)); final report; STOP. |
-| `report the evidence, then: agent.sh cleanup` | Final report, then `A cleanup <ID>`. |
+| `report the evidence, then: agent.sh cleanup` | Final report, then `A cleanup <ID>`, then the commands proposal ([REPORT.md](references/REPORT.md#3-final-report-to-the-user)). |
 
 After every dispatch: `A next <ID>` again. A specialist result is consumed only as
 `node scripts/check-result.mjs <file> --role <role> --task <ID>` JSON (dispatch.sh path) or as the header and
@@ -166,6 +166,7 @@ Specialist results that stop the flow:
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |
 | `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
+| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates, then `A knowledge-done <ID> [not_applicable]`. `deliver` refuses until it is done. |
 | `deliver <TASK>` | [DELIVERY.md](references/DELIVERY.md). |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 

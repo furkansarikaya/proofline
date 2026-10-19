@@ -35,6 +35,9 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
 - `CODE_DONE` FAILS on any missing or failing required gate, a freeze or freshness mismatch, an unmapped
   path, a stale fingerprint, missing implementation evidence or a pending question. It grants no delivery
   right.
+- During an active run, proofline's method skills replace overlapping skills from elsewhere (TDD, debug,
+  review, plan, UI audit). Language- and ecosystem-specific skills stay free. Files other skills produce go
+  to the run's `scratch/` folder. No skill is blocked.
 - Never install anything into the project. Never touch global git configuration.
 
 ## Codex lead

@@ -196,22 +196,49 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX")
 # script's own clock; tokens and turns are read from the runtime's structured output trailer (claude --output-format
 # json: usage.input_tokens/output_tokens, num_turns; codex exec: its "tokens used" trailer). Absent = empty = null,
 # never estimated. `metrics: off` is honoured by agent.sh. Never changes the exit status.
-t0=$(date +%s); attempts=0 running='' noout=no m_in='' m_out='' m_tot='' m_turns=''
-num_last() { grep -o "\"$1\":[[:space:]]*[0-9][0-9]*" "$log" 2>/dev/null | tail -n 1 | tr -cd '0-9'; }
+t0=$(date +%s); attempts=0 running='' noout=no m_in='' m_out='' m_tot='' m_turns='' m_rt=''
 num_first() { grep -o "\"$1\":[[:space:]]*[0-9][0-9]*" "$log" 2>/dev/null | head -n 1 | tr -cd '0-9'; }
 add_n() { # VALUE ACCUMULATOR-VALUE : sum when VALUE is a number, else keep the accumulator
   case "$1" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$(( ${2:-0} + $1 ))" ;; esac
 }
+# Claude's result JSON carries the run's own `usage`; its `iterations` list repeats the fields per turn, so the LAST
+# input_tokens/output_tokens in the log is one turn, not the total. Read the last `"usage":{` object, its first 400 characters.
+# shortcut: fields are found by text, not parsed; use jq if the result JSON ever reorders them past 400 characters.
+cl_usage() { sed -n 's/.*"usage":{//p' "$log" 2>/dev/null | tail -n 1 | cut -c1-400; }
+cl_n() { printf '%s' "$1" | grep -o "\"$2\":[0-9][0-9]*" | head -n 1 | tr -cd '0-9'; }
+# codex_total: the number after the "tokens used" trailer line, in the runtime's local format (285.242, 285,242, 285 242).
+# The trailer sits right before the final message, which is also in $out: when the log ends with that message it is
+# dropped first, then the last three non-empty lines are read (a "tokens used" line earlier in the log is model text).
+codex_total() {
+  { [ -s "$out" ] && cat "$out"; printf '\001\n'; cat "$log"; } 2>/dev/null | awk '
+    !sep && $0 == "\001" { sep = 1; next }
+    !sep { sub(/[[:space:]]+$/, ""); b[++n] = $0; next }
+    { sub(/[[:space:]]+$/, ""); a[++m] = $0 }
+    END {
+      while (n > 0 && b[n] == "") n--
+      e = m; while (e > 0 && a[e] == "") e--
+      if (n > 0 && e >= n) { ok = 1; for (k = 1; k <= n; k++) if (a[e - n + k] != b[k]) { ok = 0; break }; if (ok) e -= n }
+      c = 0; for (i = e; i >= 1 && c < 3; i--) if (a[i] != "") l[++c] = i
+      for (j = c; j >= 1; j--) {
+        s = a[l[j]]
+        if (f) { t = s; gsub(/[^0-9]/, "", t); if (t != "" && s ~ /^[0-9][0-9.,[:space:]]*$/) v = t; f = 0 }
+        if (tolower(s) ~ /tokens used/) { t = s; sub(/.*[Uu]sed/, "", t); gsub(/[^0-9]/, "", t); if (t != "") v = t; else f = 1 }
+      }
+      print v
+    }'
+}
 harvest() { # after one attempt: add what the runtime reported
   [ -z "$tmpl" ] && [ -f "$log" ] || return 0
+  # the numbers belong to one runtime: after a failover the record carries the last runtime's own, never a sum with the first's
+  [ "$m_rt" = "$rt" ] || { m_in='' m_out='' m_tot='' m_turns=''; m_rt=$rt; }
   case "$rt" in
     claude)
-      m_in=$(add_n "$(num_last input_tokens)" "$m_in"); m_out=$(add_n "$(num_last output_tokens)" "$m_out")
+      cu=$(cl_usage); ci=$(cl_n "$cu" input_tokens); cc=$(cl_n "$cu" cache_creation_input_tokens); co=$(cl_n "$cu" output_tokens)
+      # input = fresh input plus cache-creation tokens (billed input); cache reads are excluded (docs/concepts/metrics.md)
+      [ -z "$ci" ] || ci=$((ci + ${cc:-0}))
+      m_in=$(add_n "$ci" "$m_in"); m_out=$(add_n "$co" "$m_out")
       m_turns=$(add_n "$(num_first num_turns)" "$m_turns") ;;
-    codex)
-      m_tot=$(add_n "$(grep -v "^[[:space:]]*$" "$log" 2>/dev/null | tail -n 3 | awk 'f { s = $0; gsub(/[^0-9]/, "", s); if (s != "") v = s; f = 0 }
-        tolower($0) ~ /tokens used/ { s = $0; sub(/.*[Uu]sed/, "", s); gsub(/[^0-9]/, "", s); if (s != "") v = s; else f = 1 }
-        END { print v }')" "$m_tot") ;;
+    codex) m_tot=$(add_n "$(codex_total)" "$m_tot") ;;
   esac
 }
 finish() {

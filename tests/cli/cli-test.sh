@@ -61,8 +61,8 @@ sig() { ( cd "$1" && find . -path ./.git -prune -o -type f -print | sort | while
 jqe() { jq -e "$1" "$2" >/dev/null 2>&1; }
 
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.4" "$out" "proofline 0.0.4"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.4 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.5" "$out" "proofline 0.0.5"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.5 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -79,7 +79,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.4 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.5 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -114,7 +114,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.4' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.5' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 
 # ---- init: idempotent -------------------------------------------------------------------------------------
 before=$(sig "$base"); cp "$base/.agents/.proofline-manifest" "$T/manifest.before"
@@ -217,6 +217,20 @@ expect "doctor runs the PreToolUse probe" "$out" "Claude PreToolUse hook denies 
 expect "doctor runs the Codex PreToolUse probe" "$out" "Codex PreToolUse hook denies"
 expect "doctor notes the Codex hook trust step" "$out" "codex trust"
 reject "doctor never prints the configured identity patterns" "$out" "forbidden-zz"
+reject "doctor stays quiet about commands when all three are configured" "$out" "WARN commands"
+dz=$T/dz; cp -R "$base" "$dz"; sed -e 's/^  build:.*/  build:/' -e 's/^  lint:.*/  lint:/' "$dz/.agents/config.yaml" > "$dz/cfg.tmp" && mv "$dz/cfg.tmp" "$dz/.agents/config.yaml"
+out=$(pl "$dz" doctor 2>&1)
+expect "doctor warns about empty commands.build and commands.lint" "$out" "WARN commands: empty in .agents/config.yaml: build lint ("
+reject "doctor lists no foreign hook or skill on a clean HOME" "$out" "WARN foreign hook"
+# 0.0.5: foreign context hooks and overlapping skills are listed as WARN, never FAIL, and the exit stays 0
+mkdir -p "$HOME/.claude/skills/test-driven-dev" "$HOME/.claude/skills/rust-lint"
+printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo foreign-ctx"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo not-listed"}]}]}}\n' > "$HOME/.claude/settings.json"
+out=$(pl "$d1" doctor 2>&1); rc=$?
+rm -rf "$HOME/.claude"
+[ "$rc" = 0 ] && expect "doctor lists a foreign SessionStart hook as WARN only" "$out" "WARN foreign hook: SessionStart in .claude/settings.json may add context to the prompt: echo foreign-ctx" || { LAST=$out; die "foreign hook: rc=$rc"; }
+expect "doctor lists an overlapping skill as WARN" "$out" "WARN overlapping skill: test-driven-dev"
+reject "doctor leaves ecosystem skills and other events alone" "$out" "rust-lint"
+reject "doctor ignores a foreign PreToolUse hook" "$out" "not-listed"
 d2=$T/d2; cp -R "$base" "$d2"; git -C "$d2" config --local --unset core.hooksPath
 out=$(pl "$d2" doctor 2>&1); rc=$?
 [ "$rc" != 0 ] && expect "doctor FAILs when core.hooksPath is unset" "$out" "FAIL git hooks: core.hooksPath is not set" || { LAST=$out; die "doctor passed without core.hooksPath"; }
@@ -280,6 +294,13 @@ head_before=$(git -C "$st" rev-parse HEAD)
 out=$(pl "$st" deliver T-1 2>&1); rc=$?
 [ "$rc" != 0 ] && expect "deliver refuses a run that is not CODE_DONE" "$out" "delivery blocked" || { LAST=$out; die "deliver passed for an unfinished run"; }
 [ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver never commits" || die "deliver changed HEAD"
+# a FAILED run: deliver offers a DRAFT pull request body from the records, never a merge
+sed 's/^  state: PLANNING$/  state: FAILED/' "$st/.agents/runs/T-1/RUN.yaml" > "$st/run.tmp" && cat "$st/run.tmp" > "$st/.agents/runs/T-1/RUN.yaml" && rm "$st/run.tmp"
+out=$(pl "$st" deliver T-1 2>&1); expect "deliver of a FAILED run waits for the knowledge step" "$out" "/proofline knowledge T-1"
+sed 's/^  knowledge_state: .*$/  knowledge_state: not_applicable/' "$st/.agents/runs/T-1/RUN.yaml" > "$st/run.tmp" && cat "$st/run.tmp" > "$st/.agents/runs/T-1/RUN.yaml" && rm "$st/run.tmp"
+out=$(pl "$st" deliver T-1 2>&1); expect "deliver of a FAILED run prepares a DRAFT pull request body" "$out" "gh pr create --draft"
+expect "the draft body says it must not be merged" "$out" "Do not merge"
+[ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver of a FAILED run never commits" || die "deliver of a FAILED run changed HEAD"
 mkdir -p "$st/.agents/local/prompts"; echo x > "$st/.agents/local/prompts/s.json"
 nocheck "clean refuses without --yes (non-interactive)" pl "$st" clean
 [ -f "$st/.agents/local/prompts/s.json" ] && ok "...and removes nothing" || die "clean removed files without --yes"
@@ -323,7 +344,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.4" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.5" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1

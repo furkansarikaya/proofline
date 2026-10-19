@@ -69,7 +69,9 @@ sc_base() {
   printf 'again\n' >> authorized.txt
   expect_fail "CODE_DONE on content changed after IMPLEMENTED" A handoff FIX CODE_DONE
   expect_fail "verify-handoff on stale content" A verify-handoff FIX
-  A handoff FIX IMPLEMENTED >/dev/null; A handoff FIX CODE_DONE >/dev/null; A delivery-check FIX >/dev/null
+  A handoff FIX IMPLEMENTED >/dev/null; A handoff FIX CODE_DONE >/dev/null
+  expect_fail "delivery-check before the knowledge step" A delivery-check FIX
+  A knowledge-done FIX not_applicable >/dev/null; A delivery-check FIX >/dev/null
   printf 'post-review\n' >> authorized.txt; expect_fail "delivery-check after a post-review edit" A delivery-check FIX
   printf 'MISSING\n' > .agents/local/ACTIVE_RUN; expect_fail "status with a dangling selector" A status
   : > .agents/local/ACTIVE_RUN; A status | grep -Fxq 'active_task=none'
@@ -167,7 +169,7 @@ sc_knowledge() {
   A baseline K >/dev/null; A freeze K >/dev/null; A handoff K IMPLEMENTING >/dev/null
   ev implementer K RED fail impl.txt >/dev/null; printf 'implemented\n' > impl.txt; ev implementer K GREEN pass impl.txt >/dev/null
   A handoff K IMPLEMENTED >/dev/null; A handoff K CODE_DONE >/dev/null
-  report K; A publish-completion-report K markdown >/dev/null; A validate K >/dev/null; A delivery-check K >/dev/null
+  report K; A publish-completion-report K markdown >/dev/null; A validate K >/dev/null; expect_fail "delivery-check before knowledge-done" A delivery-check K
   printf 'rogue\n' > rogue.txt
   expect_fail "DONE with an unmapped application path" A handoff K DONE
   expect_fail "validate with an unmapped application path" A validate K
@@ -204,7 +206,7 @@ sc_branch() {
   git checkout -q --detach "$tip"; expect_fail "handoff on a detached HEAD" A handoff BR IMPLEMENTED
   git checkout -q -b random-feature; expect_fail "handoff on another branch" A handoff BR IMPLEMENTED
   git checkout -q proofline/BR-sample-feature; git branch -D random-feature >/dev/null
-  A handoff BR IMPLEMENTED >/dev/null; A handoff BR CODE_DONE >/dev/null; A delivery-check BR >/dev/null
+  A handoff BR IMPLEMENTED >/dev/null; A handoff BR CODE_DONE >/dev/null; A knowledge-done BR not_applicable >/dev/null; A delivery-check BR >/dev/null
   # an existing same-named branch at another tip is never reused or overwritten
   new_repo; REPO_EXTRA='  canonical_branch: PENDING
   task_branch: PENDING' layer_run CF tracked.txt

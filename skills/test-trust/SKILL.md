@@ -4,7 +4,7 @@ description: Audits how far a test suite can be trusted, using runnable evidence
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.4"
+  version: "0.0.5"
 ---
 
 # test-trust
@@ -39,7 +39,7 @@ Outside a run the output folder is `.agents/local/test-trust/<scope-slug>/` (dif
 
 ### Thresholds (diff mode)
 
-Read the `test_trust:` block of `.agents/config.yaml` when the file exists, defaults otherwise: `repeat` 5, `mutation_budget` 20, `slow_ratio` 3. With Node: `node <skill-dir>/scripts/gate.mjs thresholds <repo-root>/.agents/config.yaml` prints the values (invalid values fall back to the default and are reported on stderr). Without Node, read the file by eye with the same rules: `repeat` is an integer of at least 2, `mutation_budget` an integer of at least 1, `slow_ratio` a number above 1. Record the values used, and where they came from, in the ledger.
+Read the `test_trust:` block of `.agents/config.yaml` when the file exists, defaults otherwise: `repeat` 5, `mutation_budget` 20, `slow_ratio` 3. With Node: `node <skill-dir>/scripts/gate.mjs thresholds <repo-root>/.agents/config.yaml <run-dir>` prints the values (with a team run's directory, `mutation_budget` is never below one mutant per `## Tests` criterion of its PLAN.md or the user-approved override; a validator error naming a budget below that is fixed by `agent.sh raise-budget`, never by dropping claims) (invalid values fall back to the default and are reported on stderr). Without Node, read the file by eye with the same rules: `repeat` is an integer of at least 2, `mutation_budget` an integer of at least 1, `slow_ratio` a number above 1. Record the values used, and where they came from, in the ledger.
 
 ### Gate rule (diff mode)
 

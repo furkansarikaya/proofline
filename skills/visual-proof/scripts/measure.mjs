@@ -88,7 +88,16 @@ function probeSource() {
     }
     return false;
   };
-  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]")
+  // Content the user cannot reach: a closed <details>, [hidden], [inert]. Its overflow counts only when the page itself scrolls sideways.
+  const closed = (el) => !!el.closest("[hidden],[inert],details:not([open]) > :not(summary)");
+  // Content the state's setup script injected (an iframe, a probe note) is registered with mark(el) and is never measured.
+  // mark lives only in this closure; the first call returns it and open() hands it to the setup script as its argument,
+  // so it is not a page-readable global. shortcut: the setup runs in the page's own JS world, so page code that
+  // intercepts the setup could still obtain it; the gate guards against convenience and accident, not a hostile page.
+  const marks = [], marked = new WeakSet();
+  const mark = (el) => { marks.push(el); marked.add(el); return el; };
+  const isProbe = (e) => { for (let x = e; x; x = x.parentElement) if (marked.has(x)) return true; return false; };
+  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]") && !isProbe(e)
     && e.getClientRects().length > 0 && getComputedStyle(e).visibility === "visible");
   const parse = (c) => {
     const m = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+%?))?\)$/.exec(c);
@@ -134,6 +143,11 @@ function probeSource() {
     visible(s) { const el = document.querySelector(s); return !!el && !hidden(el); },
     hscroll() { return document.documentElement.scrollWidth > document.documentElement.clientWidth; },
     measure(opts) {
+      const probes = marks.filter((e) => e.isConnected).map((e) => [e, e.style.getPropertyValue("display"), e.style.getPropertyPriority("display")]);
+      for (const [e] of probes) e.style.setProperty("display", "none", "important");
+      try { return this.run(opts); } finally { for (const [e, v, pr] of probes) e.style.setProperty("display", v, pr); }
+    },
+    run(opts) {
       const items = [], nm = [];
       const de = document.documentElement, cw = de.clientWidth;
       const add = (check, el, value, threshold, ok, extra = {}) => items.push({ check, selector: typeof el === "string" ? el : sel(el), value, threshold, status: ok ? "pass" : "fail", ...extra });
@@ -143,7 +157,7 @@ function probeSource() {
 
       const offenders = [];
       for (const el of [...document.body.querySelectorAll("*")].slice(0, 5000)) {
-        if (offenders.some((o) => o.contains(el)) || hidden(el) || clipped(el)) continue;
+        if (offenders.some((o) => o.contains(el)) || hidden(el) || clipped(el) || (de.scrollWidth <= cw && closed(el))) continue;
         const r = el.getBoundingClientRect();
         const over = Math.ceil(Math.max(r.right + scrollX - cw, -(r.left + scrollX)));
         if (over > 0) { offenders.push(el); add("viewport_overflow", el, over, "<= 0", false, { note: `extends ${over}px beyond the ${cw}px viewport` }); }
@@ -221,7 +235,7 @@ function probeSource() {
       return { items, not_measured: nm };
     },
   };
-  return true;
+  return mark;
 }
 export const PROBE = `(${probeSource.toString()})()`;
 
@@ -355,8 +369,9 @@ async function page(b, timeoutMs, base, net) {
       const loaded = b.once("Page.loadEventFired", sessionId);
       await s("Page.navigate", { url });
       await Promise.race([loaded, new Promise((_, f) => setTimeout(() => f(new Error(`load timed out: ${url}`)), timeoutMs))]);
-      await ev(PROBE);
-      if (setup) await ev(setup, true);
+      // The probe returns its private mark(el) function; the setup script receives it as `mark` and registers what it injects.
+      if (setup) await ev(`(async (mark) => eval(${JSON.stringify(setup)}))(${PROBE})`, true);
+      else await ev(`void ${PROBE}`);
       const until = Date.now() + Math.min(timeoutMs, 5000);
       let shown;
       for (;;) {
@@ -583,6 +598,8 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
         const cell = { screen: s.id, state: st.name, viewport: vp.name, items: [], not_measured: [] };
         try {
           cell.rendered = await p.open(url(st.path || s.path), vp, st.ready, st.setup);
+          const type = await p.ev("document.contentType");
+          if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) throw new Error(`not an HTML response (${type}): not measured`);
           cell.screenshot = file(s.id, st.name, vp.name);
           writeFileSync(join(outDir, cell.screenshot), await p.shot());
           if (cell.rendered) {

@@ -31,7 +31,21 @@ developer_instructions = '''
    contract change or a destructive operation the plan does not declare: stop, change nothing more, return
    BLOCKED with the needed addition, reason and impact (the lead decides on an amendment).
 3. Per scope path follow .agents/skills/tdd-proof/SKILL.md in team mode: write the test, run it, record RED with
-   `expected_failure`; implement; record GREEN; refactor only if useful and record it.
+   `expected_failure`; implement; record GREEN; refactor only if useful and record it. RED and GREEN alone are
+   not enough: put the `tdd.json` ledger in your report `reports/NNN-implementer.md` as ONE fenced `json` block,
+   one `cycles` entry per non-exempt scope path and criterion (`validate-tdd.mjs` reads it; a missing or invalid
+   block exits 2 and the handoff fails):
+   ```json
+   {"schema_version":1,"mode":"team","task":"<TASK-ID>","exemptions":[{"path":"<path>","reason":"<plan reason, 20+ chars>"}],
+    "cycles":[{"path":"<scope path>","criterion":"AC-1","test":{"file":"<test file>","name":"<test name>"},
+     "red":{"command":"<cmd>","exit_code":1,"failure_class":"assertion","expected_failure":"<behaviour that fails, 20+ chars>","output_excerpt":"<failing line>","stub_written":false},
+     "green":{"command":"<cmd>","exit_code":0,"suite_command":"<suite cmd>","suite_exit_code":0},
+     "hollow_check":{"method":"revert","worktree":"<path>","command":"<cmd>","exit_code":1,"output_excerpt":"<failing line>","failed_for_expected_reason":true},
+     "refactor":null}]}
+   ```
+   Retry of a blocked run on code that already exists (the change is already in the tree): do not ask the user.
+   Write or keep the test first, run it in a separate `git worktree` at the base revision (the code without the
+   change) to get RED, then run it in the live tree for GREEN. Never revert the live tree.
 4. For a defect (TASK.md describes a bug, a wrong result or a regression; or a FAIL finding naming a bug),
    follow .agents/skills/debug-proof/SKILL.md in team mode: reproduce, prove the root cause, write `reports/NNN-debug.md`
    and keep the regression test inside scope.

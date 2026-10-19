@@ -882,6 +882,23 @@ sc_questions() {
   capture 'ok'
   printf 'ok\n' | A answer LC 4 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/004.answer.md || die "a two-character answer is answered_by user"
+  # --captured: the answer is the user's own captured message (multi-line, skipping a task notification, ignoring a later
+  # prompt), not text the lead relays (site run: lead-rewritten and one-character answers were recorded as the lead's)
+  QR=data_architect q 'QUESTIONS:
+1. Which fix?
+' >/dev/null
+  h=.agents/local/prompts/history; mkdir -p "$h"; now=$(date +%s)
+  printf '<task-notification>\nAgent done\n</task-notification>\n' > "$h/$((now + 1))-aaaaaaaa.txt"
+  printf '1: fix qa-1 now\n   (CSS in Base.astro)\n2: waive drift\n' > "$h/$((now + 2))-bbbbbbbb.txt"
+  printf 'Confirm that these answers are recorded as mine\n' > "$h/$((now + 3))-cccccccc.txt"
+  A answer LC 5 --captured >/dev/null
+  grep -q '^answered_by: user' .agents/runs/LC/questions/005.answer.md || die "--captured did not record the user's message as the user's"
+  sed '1,/^---$/d' .agents/runs/LC/questions/005.answer.md | cmp -s - "$h/$((now + 2))-bbbbbbbb.txt" || die "--captured did not record the captured multi-line message verbatim"
+  # one prompt answers one question: the next open question gets the next prompt, and none once they are used up
+  printf '1. Another?\n' | A ask LC >/dev/null; printf '1. And another?\n' | A ask LC >/dev/null
+  A answer LC 6 --captured >/dev/null
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | cmp -s - "$h/$((now + 3))-cccccccc.txt" || die "the second question did not get the next captured prompt"
+  expect_fail "a used-up captured prompt answered a second question" A answer LC 7 --captured
   # A92: a risk FOCUS on a task result does not open a second round for qa (C-14)
   QF=visual QR=qa expect_msg "a second NEEDS_INPUT from qa with FOCUS: visual" 'already asked its questions in this run' q 'QUESTIONS:
 1. And the dark theme?
@@ -981,6 +998,14 @@ sc_decide() {
   mj=.agents/local/metrics/records.jsonl
   grep -q '^{"schema":"proofline.metrics/1","kind":"step","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules+tests"' "$mj" 2>/dev/null || die "step record missing/malformed: $(cat "$mj" 2>/dev/null)"
   grep '"kind":"step"' "$mj" | grep -q '"tokens_in":null,"tokens_out":null,"tokens_total":null,"turns":null' || die "step record invented token/turn data: $(cat "$mj")"
+  # a Claude subagent's step tokens come from its session log: one count per message id (the last line of it), cache reads excluded
+  tr=$base/agent-t9.jsonl
+  { printf '{"message":{"id":"msg_A","role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":5000,"output_tokens":3}}}\n'
+    printf '{"message":{"id":"msg_A","role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":5000,"output_tokens":40}}}\n'
+    printf '{"message":{"id":"msg_B","role":"assistant","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":6000,"output_tokens":10}}}\n'; } > "$tr"
+  mkdir -p .agents/local/submissions; printf '%s\n' "$tr" > .agents/local/submissions/t9.started
+  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced'; unset PROOFLINE_STEP_AGENT
+  tail -1 "$mj" | grep -q '"kind":"step".*"tokens_in":103,"tokens_out":50,"tokens_total":153,' || die "step record without the subagent's session-log tokens: $(tail -1 "$mj")"
   # dispatch record: numbers kept, strings sanitized (no free text, so no secret), non-lead refused
   A metrics-dispatch LC reviewer rules claude 'sonnet"; sk-LIVE secret' 12 100 50 150 3 1 submitted >/dev/null
   tail -1 "$mj" | grep -q '"kind":"dispatch","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules","gate":"REVIEW_RULES","runtime":"claude","model":"sonnetsk-LIVEsecret","duration_s":12,"tokens_in":100,"tokens_out":50,"tokens_total":150,"turns":3,"retries":1,"delegations":null,"fix_rounds":null,"result":"submitted"' || die "dispatch record shape: $(tail -1 "$mj")"
@@ -1755,7 +1780,49 @@ PLAN
   ok 'start: stdin, adapter task, ledger, classify/branch/baseline/freeze, duplicate/open/missing refusals'
 }
 
+# Evidence run: 33 criteria in PLAN ## Tests, test_trust.mutation_budget 20, REVIEW_TESTS BLOCKED twice. Now the
+# freeze asks the user once, and a user-approved per-run raise (config untouched) resolves it.
+sc_mutation_budget() {
+  SC_PLAN_EXTRA=$(printf '\n## Tests\n\n'; i=1; while [ "$i" -le 33 ]; do printf -- '- AC-%s: `impl_test.txt` "case %s"\n' "$i" "$i"; i=$((i + 1)); done)
+  export SC_PLAN_EXTRA; unfrozen STANDARD; unset SC_PLAN_EXTRA
+  cfg_before=$(tsha .agents/config.yaml)
+  expect_msg "a freeze with 33 criteria over budget 20" 'raise-budget LC 33' A freeze LC
+  A freeze LC >/dev/null 2>&1 || :
+  [ "$(ls .agents/runs/LC/approvals/*-request-mutation_budget.yaml | wc -l | tr -d ' ')" = 1 ] || die "the user was not asked exactly once"
+  expect_fail "raise-budget without the user's approval" A raise-budget LC 33
+  capture 'approve the mutation budget'; A approve LC mutation_budget >/dev/null
+  expect_fail "a raise below the criteria count" A raise-budget LC 30
+  A raise-budget LC 33 >/dev/null
+  [ "$(cat .agents/runs/LC/mutation_budget)" = 33 ] || die "the run override was not recorded"
+  [ "$(tsha .agents/config.yaml)" = "$cfg_before" ] || die "raise-budget edited .agents/config.yaml"
+  A freeze LC >/dev/null || die "the freeze still fails after the approved raise"
+  ok "mutation budget: freeze asks once, per-run raise needs the user's approval, config untouched"
+}
+
+# Evidence run: REVIEW_RULES and REVIEW_RULES:config were mixed in one report line. Each sub-focus has its own line.
+sc_report_focus_lines() {
+  scaffold standalone; printf 'KEY=\n' > .env.example
+  A report-facts LC > "$base/rf.out"
+  grep -q '^- Gate REVIEW_[A-Z]*: .*findings: none$' "$base/rf.out" && grep -q '^  - Focus REVIEW_[A-Z]*:config: [a-z_]*; findings: ' "$base/rf.out" || die "the config sub-focus has no line of its own: $(cat "$base/rf.out")"
+  ok "report facts: a risk sub-focus is shown on its own line"
+}
+
+# A user edit of a control-plane file under .agents/ is no task change: verify-scope lists it apart, the tier ignores it.
+sc_control_plane_edit() {
+  scaffold standalone; solo RED fail impl_test.txt 'test: lookup returns the stored value'
+  tier_before=$(A tier LC)
+  printf '# user note\n' >> .agents/config.yaml; printf 'x\n' > .agents/extra.yaml
+  A verify-scope LC > "$base/vs.out" || die "a user edit under .agents/ failed the scope check"
+  grep -q 'control-plane files changed under .agents/' "$base/vs.out" && grep -q '\.agents/config\.yaml' "$base/vs.out" || die "the control-plane edits are not listed apart"
+  [ "$(A tier LC)" = "$tier_before" ] || die "a control-plane edit raised the tier from $tier_before"
+  printf 'x\n' > stray.go; expect_fail "a task-introduced path outside the scope passed" A verify-scope LC
+  ok "control-plane edits under .agents/ are listed apart, not counted as task changes"
+}
+
 run_sc sc_tier
+run_sc sc_control_plane_edit
+run_sc sc_report_focus_lines
+run_sc sc_mutation_budget
 run_sc sc_tier_paths
 run_sc sc_record
 run_sc sc_submit

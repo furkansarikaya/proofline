@@ -499,7 +499,7 @@ plan_migration_shape() {
   if [ "$pms" = single_step ] && ! grep -Eiq 'single[- ]step|one[- ]step|one migration|tek ad[ıi]m' "$(dirname "$1")/TASK.md" 2>/dev/null; then pms=missing; fi
   echo "$pms"
 }
-plan_section_present() { grep -q "^## $2[[:space:]]*\$" "$1"; }
+plan_section_present() { grep -q "^## $2[[:space:]]*\$" "$1" 2>/dev/null; }
 plan_destructive() { # PLAN -> yes|no|invalid|absent
   plan_section_present "$1" Data || { echo absent; return 0; }
   awk '/^## Data[[:space:]]*$/ { i=1; next } i && /^[[:space:]]*$/ { next } i { v=$0; if (v ~ /^destructive:[[:space:]]*(yes|no)[[:space:]]*$/) { sub(/^destructive:[[:space:]]*/, "", v); sub(/[[:space:]]*$/, "", v); print v } else print "invalid"; exit }' "$1" | grep . || echo invalid
@@ -656,10 +656,12 @@ tier_max() { if [ "$(tier_rank "$1")" -ge "$(tier_rank "$2")" ]; then echo "$1";
 # directory, .agents/local/, the task files directory and baseline files whose content is unchanged.
 task_changed_paths() {
   tcp_d=$(run_dir "$1"); tcp_base=$(repository_base_sha "$tcp_d"); case "$tcp_base" in ''|PENDING) tcp_base=HEAD ;; esac
-  tcp_tasks=$(cfg tasks.dir .agents/tasks)
+  tcp_tasks=$(cfg tasks.dir .agents/tasks); tcp_maps=$(scope_mappings "$tcp_d/PLAN.md" 2>/dev/null) || tcp_maps=''
   { git -C "$root" diff --no-renames --name-only "$tcp_base" -- 2>/dev/null; current_untracked_paths; } | sort -u | while IFS= read -r tcp_p; do
     [ -n "$tcp_p" ] || continue
     case "$tcp_p" in .agents/runs/*|.agents/local/*|"$tcp_tasks"/*) continue ;; esac
+    # a control-plane file the plan scope does not name is the user's edit, not a task change (verify-scope lists it)
+    case "$tcp_p" in .agents/*) authorized_path "$tcp_maps" "$tcp_p" || continue ;; esac
     tcp_prior=$(baseline_fingerprint tracked "$tcp_p" "$tcp_d"); [ -n "$tcp_prior" ] || tcp_prior=$(baseline_fingerprint untracked "$tcp_p" "$tcp_d")
     if [ -n "$tcp_prior" ] && [ "$tcp_prior" = "$(fingerprint_path "$tcp_p")" ]; then continue; fi
     printf '%s\n' "$tcp_p"
@@ -1247,6 +1249,7 @@ freeze() {
   # A79: the mandatory `## Assumptions` registers are well-formed and no unverified high-risk assumption stands
   # without the user's `accept` answer (the missing ones are recorded as NEEDS_INPUT questions).
   verify_assumptions "$id" ask >/dev/null
+  if gates_enforced "$id"; then require_mutation_budget "$id"; fi
   if gates_enforced "$id"; then verify_qa_plan_bound "$id"; fi
   fz_lang=$(for fz_f in TASK.md PLAN.md EVIDENCE.md QA_PLAN.md; do [ ! -f "$dir/$fz_f" ] || printf '%s\n' "$dir/$fz_f"; done)
   # shellcheck disable=SC2086
@@ -1417,7 +1420,7 @@ verify_scope() {
   id=$1 allow_knowledge=${2:-0}; require_run "$id"; dir=$(run_dir "$id"); enforce_task_branch "$id"; require_scope_mapping "$id"; mappings=$(scope_mappings "$dir/PLAN.md")
   status=$(baseline_status "$dir"); [ "$status" = captured ] || fail "baseline required before scope verification: $id"
   validate_control_artifacts "$id"
-  tmp=$(mktemp "${TMPDIR:-/tmp}/agent-scope.XXXXXX")
+  tmp=$(mktemp "${TMPDIR:-/tmp}/agent-scope.XXXXXX"); tmpcp=$tmp.cp
   for type in tracked untracked; do
     paths=$( [ "$type" = tracked ] && current_tracked_paths || current_untracked_paths )
     printf '%s\n' "$paths" | while IFS= read -r changed; do
@@ -1427,10 +1430,13 @@ verify_scope() {
       if [ "$allow_knowledge" = 1 ] && in_knowledge_scope "$changed" && ! authorized_path "$mappings" "$changed"; then continue; fi
       prior=$(baseline_fingerprint "$type" "$changed" "$dir"); current=$(fingerprint_path "$changed")
       if [ -n "$prior" ] && [ "$prior" = "$current" ]; then continue; fi
-      authorized_path "$mappings" "$changed" || printf '%s\n' "$changed" >> "$tmp"
+      # A control-plane file under .agents/ outside the plan scope is the user's, not a task change: listed apart, never a failure.
+      if authorized_path "$mappings" "$changed"; then continue; fi
+      case "$changed" in .agents/*) printf '%s\n' "$changed" >> "$tmpcp" ;; *) printf '%s\n' "$changed" >> "$tmp" ;; esac
     done
   done
   unexpected=$(cat "$tmp"); rm "$tmp"
+  if [ -s "$tmpcp" ]; then echo "control-plane files changed under .agents/ (not task changes, outside the plan scope):"; sed 's/^/  /' "$tmpcp"; fi; rm -f "$tmpcp"
   [ -z "$unexpected" ] || { echo "unexpected or unmapped task-introduced paths:" >&2; printf '%s\n' "$unexpected" >&2; return 1; }; echo "scope check passed: $id"
 }
 # Knowledge-scope paths the task changed outside the frozen plan scope (written by the knowledge step).
@@ -1495,7 +1501,7 @@ known_control_artifact() {
   esac
   kc_rel=${path#.agents/runs/"$id"/}
   case "$kc_rel" in
-    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md|.lock/pid) return 0 ;;
+    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md|mutation_budget|.lock/pid) return 0 ;;
     amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|reports/*|questions/*|approvals/*|waivers/*|security/*) return 0 ;;
     scratch/*) return 0 ;;
     reviews/proof-review/plan/*|reviews/proof-review/rules/*|reviews/proof-review/small/*|reviews/test-trust/tests/*|reviews/test-trust/qa/*|reviews/data-design/*) return 0 ;;
@@ -1846,6 +1852,7 @@ delivery_check() {
   verify_scope "$id" 1
   verify_knowledge_scope "$id"
   scan_knowledge_secrets "$id"
+  require_knowledge_done "$id"
   verify_handoff "$id" 1
   patch=$(task_patch_fingerprint "$id"); [ "$(section_value "$dir" handoff implemented_patch_sha256)" = "$patch" ] || fail "delivery blocked: implementation stale or missing"
   [ "$(section_value "$dir" handoff code_done_patch_sha256)" = "$patch" ] || fail "delivery blocked: CODE_DONE handoff stale or missing"
@@ -2257,6 +2264,9 @@ fix_rounds_used() {
     gate_field "$fr_f" fingerprint
   done | sort -u | wc -l | tr -d ' '
 }
+# Fix rounds performed: fix_rounds_used counts failing contents, and the last failing content after the final fix
+# has no round left (3 failing contents with a maximum of 2 is 2 rounds done), so reports never say "3 of 2".
+fix_rounds_done() { fd_u=$(fix_rounds_used "$1"); fd_m=$(max_fix_rounds); if [ "$fd_u" -gt "$fd_m" ]; then echo "$fd_m"; else echo "$fd_u"; fi; }
 latest_finding_file() {
   g_hit=''
   for g_n in $(gate_names "$1"); do
@@ -3305,7 +3315,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
       else printf '%s\n' "${sb_reason:-}"; fi
     fi
   } > "$sb_tmp/raw"
-  sb_rc=0; AGENT_ROLE=$execution_role sh "$scripts/agent.sh" record "$sb_id" --file "$sb_tmp/raw" > "$sb_tmp/out" 2> "$sb_tmp/err" || sb_rc=$?
+  sb_rc=0; AGENT_ROLE=$execution_role PROOFLINE_STEP_AGENT=$sb_agent sh "$scripts/agent.sh" record "$sb_id" --file "$sb_tmp/raw" > "$sb_tmp/out" 2> "$sb_tmp/err" || sb_rc=$?
   if [ "$sb_rc" -ne 0 ]; then
     sb_msg=$(sed 's/^record rejected: //' "$sb_tmp/err" "$sb_tmp/out" | tr '\n' ' ')
     submit_fail "$sb_msg"
@@ -3367,12 +3377,42 @@ secret_scan() {
   rm -rf "$ss_tmp"
 }
 
+# --- Mutation budget floor: one claim mutant per distinct AC of PLAN `## Tests` ----------------
+plan_test_acs() { awk '/^## /{ i = ($0 ~ /^## Tests/); next } i && match($0, /^[ \t]*[-*][ \t]+AC-[0-9]+:/) { a = substr($0, RSTART, RLENGTH); sub(/^[^A]*/, "", a); seen[a] = 1 } END { n = 0; for (k in seen) n++; print n }' "$1"; }
+# Budget in force: the larger of config test_trust.mutation_budget and the user-approved per-run override.
+mutation_budget() {
+  mb_b=$(cfg test_trust.mutation_budget 20); mb_o=$(cat "$(run_dir "$1")/mutation_budget" 2>/dev/null || :)
+  case "$mb_b" in ''|*[!0-9]*) mb_b=20 ;; esac; case "$mb_o" in ''|*[!0-9]*) mb_o=0 ;; esac; mb_o=$(printf '%s' "$mb_o" | sed 's/^0*//'); [ -n "$mb_o" ] || mb_o=0
+  # the override counts only with the raise-budget ledger row that wrote it (a file alone could be written by any role)
+  grep -q "event=raise-budget .*test_trust.mutation_budget $mb_o for this run" "$(ledger_file "$1")" 2>/dev/null || mb_o=0
+  if [ "$mb_o" -gt "$mb_b" ]; then echo "$mb_o"; else echo "$mb_b"; fi
+}
+# Freeze: criteria above the budget are one question to the user now, not a BLOCKED REVIEW_TESTS later.
+require_mutation_budget() {
+  rmb_n=$(plan_test_acs "$(run_dir "$1")/PLAN.md"); rmb_b=$(mutation_budget "$1")
+  [ "$rmb_n" -gt "$rmb_b" ] || return 0
+  rmb_r=$(latest_request "$1" mutation_budget) && [ "$(gate_field "$rmb_r" bound)" = "$(approval_bound "$1" mutation_budget)" ] || request_approval "$1" mutation_budget
+  fail "PLAN ## Tests names $rmb_n criteria but the mutation budget is $rmb_b (one claim mutant per criterion is the minimum): relay the approval request above once; after the user's approval run 'agent.sh raise-budget $1 $rmb_n' and freeze again (or cut criteria from the plan)"
+}
+# raise-budget ID N: a budget above config for this run only, with the user's mutation_budget approval. It also
+# resolves a REVIEW_TESTS BLOCKED on the budget: raise, then dispatch the reviewer again.
+raise_budget() {
+  rb_id=$1 rb_n=$2; require_run "$rb_id"; require_lead; require_open_run "$rb_id"; rb_d=$(run_dir "$rb_id")
+  case "$rb_n" in ''|*[!0-9]*) fail "usage: agent.sh raise-budget <ID> <N>" ;; esac; rb_n=$(printf '%s' "$rb_n" | sed 's/^0*//'); [ -n "$rb_n" ] || rb_n=0   # "040" is 40 in the file and the ledger row
+  [ "$rb_n" -gt "$(mutation_budget "$rb_id")" ] || fail "the mutation budget is already $(mutation_budget "$rb_id"); nothing to raise"
+  [ "$rb_n" -ge "$(plan_test_acs "$rb_d/PLAN.md")" ] || fail "N must cover the $(plan_test_acs "$rb_d/PLAN.md") criteria of PLAN ## Tests"
+  rb_app=$(find_approval "$rb_id" mutation_budget "$(hash_file "$rb_d/PLAN.md")") || fail "raising the mutation budget needs the user's approval: 'agent.sh request-approval $rb_id mutation_budget', relay it, then run this again"
+  printf '%s\n' "$rb_n" > "$rb_d/mutation_budget"; consume_approval "$rb_id" "$rb_app"
+  ledger_if "$rb_id" raise-budget - - "test_trust.mutation_budget $rb_n for this run, approval $(basename "$rb_app")"
+  echo "mutation budget raised to $rb_n for $rb_id (dispatch the reviewer again if REVIEW_TESTS was BLOCKED)"
+}
+
 # --- Approvals (D3/D16): single-use, from a TTY or a runtime prompt capture ----------------
 # Prompt capture: .agents/local/prompts/<session>.json, one JSON object written by a runtime hook:
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|commit|push) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|cleanup) return 0 ;;
     waive:*) case "${1#waive:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -3381,8 +3421,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then printf '%s/.agents/local/approvals\n' "$root"; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|commit|push|waive:<FINDING-ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|cleanup|waive:<FINDING-ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|cleanup) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"; require_open_run "$1"
 }
 ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; fi; }
@@ -3390,8 +3430,8 @@ ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; 
 # record (name and sha256) and the finding id, so a later round's same-numbered finding never reuses it.
 approval_bound() { # ID KIND
   case "$2" in
-    commit|push) content_fingerprint ;;
-    plan|destructive|single_step|scope|budget) hash_file "$(run_dir "$1")/PLAN.md" ;;
+    commit|push|cleanup) content_fingerprint ;;
+    plan|destructive|single_step|scope|budget|mutation_budget) hash_file "$(run_dir "$1")/PLAN.md" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
   esac
 }
@@ -3400,6 +3440,7 @@ kind_words() {
     destructive) echo 'destructive migration delete drop' ;;
     single_step) echo 'single step single-step one step tek adım tek adim' ;;
     budget) echo 'budget round rounds' ;;
+    mutation_budget) echo 'mutation budget mutants' ;;
     waive:*) printf '%s\n' "${1#waive:}" | tr '[:upper:]' '[:lower:]' ;;
     *) printf '%s\n' "$1" ;;
   esac
@@ -3469,7 +3510,9 @@ approval_sentences() {
     destructive) as_en='the destructive step|the destructive change'; as_tr='yıkıcı adımı|yikici adimi|yıkıcı değişikliği|yikici degisikligi' ;;
     single_step) as_en='the single step'; as_tr='tek adımı|tek adimi' ;;
     scope) as_en='the scope'; as_tr='kapsamı|kapsami' ;;
+    mutation_budget) as_en='the mutation budget'; as_tr='mutasyon bütçesini|mutasyon butcesini' ;;
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
+    cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
     push) as_en='the push'; as_tr="push'u" ;;
     waive:*) as_en="the waiver of $as_id"; as_tr="$as_id feragatini" ;;
@@ -3612,6 +3655,7 @@ request_approval() {
     # opens a database): the user's question says how much data the step destroys.
     rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
+  [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
   if [ "$rq_tr" = 1 ]; then printf 'QUESTIONS:\n1. %s için %s onaylansın mı?\n' "$rq_id" "$rq_kind"
   else printf 'QUESTIONS:\n1. Approve %s for %s?\n' "$rq_kind" "$rq_id"; fi
   [ -z "$rq_steps" ] || printf '%s\n' "$rq_steps"
@@ -3628,7 +3672,9 @@ approval_why() { # KIND BOUND [tr]
       single_step) echo 'yıkıcı değişiklikte expand/contract adımı yok: okuma ile silme arasında durulacak nokta olmadan tek adımda çalışır' ;;
       scope) echo 'değişiklik kapsama yol ekliyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor' ;;
       budget) echo 'düzeltme turları bitti: yeniden dondurma yeni bir düzeltme bütçesi başlatır' ;;
+      mutation_budget) echo 'test_trust.mutation_budget planın ## Tests ölçütlerinden az: ölçüt başına bir mutant gerekir; bütçe yalnızca bu koşuda artar' ;;
       commit|push) echo "içerik $2 için teslim açık onay gerektirir" ;;
+      cleanup) echo 'taslak PR tesliminden sonra koşu kanıtı ayrı bir onayla silinir' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
     esac
     return 0
@@ -3639,7 +3685,9 @@ approval_why() { # KIND BOUND [tr]
     single_step) echo 'the destructive change has no expand/contract steps: it would run as one step, with no point to stop between reading and dropping' ;;
     scope) echo 'the amendment adds scope paths, or the task fixes a pre-existing defect nobody asked about' ;;
     budget) echo 'the fix rounds are exhausted: a refreeze would start a fresh fix budget' ;;
+    mutation_budget) echo 'test_trust.mutation_budget is below the criteria of PLAN ## Tests (one mutant each is the minimum): the budget is raised for this run only, .agents/config.yaml is not edited' ;;
     commit|push) echo "delivery of content $2 needs explicit approval" ;;
+    cleanup) echo 'after the draft pull request delivery the run evidence is deleted only on a separate approval' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
   esac
 }
@@ -3806,7 +3854,22 @@ answer() {
   an_q=$an_d/questions/$(printf '%03d' "$(printf '%s' "$an_n" | sed 's/^0*//; s/^$/0/')").md
   [ -f "$an_q" ] || fail "no question $an_n for $an_id"
   [ ! -e "${an_q%.md}.answer.md" ] || fail "question $an_n is already answered"
-  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); cat > "$an_t"
+  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used=
+  if [ "${3:-}" = --captured ]; then
+    # The answer is the user's own message as the prompt hook captured it (the oldest real prompt since the question), not
+    # text the lead relays: a lead's rewrite never matched, a short "1" was under the 3-character rule, and a later
+    # prompt (a follow-up, a task notification) replaced the newest capture.
+    an_cm=yes; an_a0=$(gate_field "$an_q" asked_at); case "$an_a0" in ''|*[!0-9]*) an_a0=0 ;; esac
+    for an_h in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
+      an_e=${an_h##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
+      [ "$an_e" -ge "$an_a0" ] || continue
+      grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
+      # one prompt answers one question: a prompt an earlier --captured answer used is skipped
+      ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
+      cat "$an_h" > "$an_t"; an_used=${an_h##*/}; break
+    done
+    [ -s "$an_t" ] || { rm -f "$an_t"; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
+  else cat > "$an_t"; fi
   grep -q '[^[:space:]]' "$an_t" || { rm -f "$an_t"; fail "empty answer"; }
   # answered_by user only when the newest prompt capture is not older than the question (epoch seconds), its sha256 matches its
   # text, and the trimmed answer (at least 3 characters) is contained in it.
@@ -3814,7 +3877,9 @@ answer() {
   an_tok=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/\1/p' "$an_q" | head -1); an_acc=no
   an_by=lead an_asked=$(gate_field "$an_q" asked_at); case "$an_asked" in ''|*[!0-9]*) an_asked='' ;; esac
   an_norm=$(tr -s '[:space:]' ' ' < "$an_t" | sed 's/^ //; s/ $//')
-  if [ -n "$an_asked" ] && [ "${#an_norm}" -ge 3 ] && an_cap=$(latest_capture); then
+  if [ "$an_cm" = yes ]; then
+    an_by=user; if [ -n "$an_tok" ] && assumption_prompt_accepts "$an_norm" "${an_tok%@*}"; then an_acc=yes; fi
+  elif [ -n "$an_asked" ] && [ "${#an_norm}" -ge 3 ] && an_cap=$(latest_capture); then
     an_ct=$(mktemp "${TMPDIR:-/tmp}/proofline-capture.XXXXXX")
     capture_field "$an_cap" text > "$an_ct" || :
     an_ctime=$(capture_field "$an_cap" time 2>/dev/null || echo 0)
@@ -3830,7 +3895,7 @@ answer() {
   if [ -n "$an_tok" ] && printf '%s' "$an_norm" | grep -Eiq '^accept'; then
     if [ "$an_acc" = yes ]; then printf 'accept %s\n' "${an_tok%@*}" > "$an_t"; else an_by=lead; fi
   fi
-  { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"
+  { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
   # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is
@@ -3953,7 +4018,23 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
   fi
   metrics_line "$1" "$2" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$4"
   ms_g=$(gate_of "$2" "$3" "$1" 2>/dev/null || true)
-  metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" - - - - - - - "$4"
+  # A Claude subagent (not a dispatch.sh worker, whose dispatch record has the tokens): read what it used from its session log
+  # (usage of each assistant message, one count per message id; cache reads excluded). Null when the log is not there.
+  ms_in=- ms_out=- ms_tot=-
+  ms_tp=''; case "${PROOFLINE_STEP_AGENT:-}" in ''|*[!A-Za-z0-9_.-]*) ;; *) ms_tp=$(sed -n 1p "$(submission_dir)/$PROOFLINE_STEP_AGENT.started" 2>/dev/null || true) ;; esac
+  case "$ms_tp" in /*.jsonl) [ -f "$ms_tp" ] && [ "$ms_rt" = claude ] || ms_tp='' ;; *) ms_tp='' ;; esac
+  if [ -n "$ms_tp" ]; then
+    ms_u=$(awk '/"role":"assistant"/ && match($0, /"id":"msg_[A-Za-z0-9_]+"/) {
+        id = substr($0, RSTART, RLENGTH); u = $0; sub(/.*"usage":\{/, "", u); u = substr(u, 1, 400); i = 0; c = 0; o = 0
+        if (match(u, /"input_tokens":[0-9]+/)) i = substr(u, RSTART + 15, RLENGTH - 15)
+        if (match(u, /"cache_creation_input_tokens":[0-9]+/)) c = substr(u, RSTART + 30, RLENGTH - 30)
+        if (match(u, /"output_tokens":[0-9]+/)) o = substr(u, RSTART + 16, RLENGTH - 16)
+        if (!(id in I)) n++
+        I[id] = i + c; O[id] = o }
+      END { if (n) { for (k in I) { ti += I[k]; to += O[k] }; printf "%d %d\n", ti, to } }' "$ms_tp" 2>/dev/null || true)
+    [ -z "$ms_u" ] || { ms_in=${ms_u% *} ms_out=${ms_u#* }; ms_tot=$((ms_in + ms_out)); }
+  fi
+  metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$ms_in" "$ms_out" "$ms_tot" - - - - "$4"
 }
 metrics_run() { # ID OUTCOME
   mr_first=$(head -1 "$(ledger_file "$1")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p'); mr_dur=-
@@ -4018,7 +4099,7 @@ next_step() {
   o() { printf 'next=%s\n' "$*"; }
   r() { printf 'reason=%s\n' "$*"; }
   case "$ns_st" in FAILED|BLOCKED) o "report the evidence, then: agent.sh cleanup $ns_id"; r "run is terminal ($ns_st)"; return 0 ;; esac
-  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> < answer"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
+  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> --captured"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_stale=$(inflight_sweep "$ns_id")
   if ns_if=$(inflight_dispatch "$ns_id"); then
     o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; return 0
@@ -4204,9 +4285,10 @@ unsupported_next() { # ID
   o "surface these unsupported checks to the user in your reply: they were not proven, never passed"
 }
 # A130: the finding ids of a required gate (info rows included, UNSUPPORTED rows are A98's) over its current records.
-gate_report_ids() { # ID GATE -> ids, one per line
-  gri_id=$1 gri_g=$2
-  for gri_fc in - $(risk_gate_focuses "$gri_id" "$gri_g"); do
+gate_report_ids() { # ID GATE [FOCUS] -> ids, one per line (FOCUS '-' = the gate's own; none = every focus)
+  gri_id=$1 gri_g=$2 gri_fl=${3:-}
+  [ -n "$gri_fl" ] || gri_fl="- $(risk_gate_focuses "$gri_id" "$gri_g")"
+  for gri_fc in $gri_fl; do
     gri_f=$(gate_latest_file "$gri_id" "$gri_g" "$gri_fc"); [ -n "$gri_f" ] || continue
     sed -n 's/^finding: \([^|]*\)|[a-z]*|[^|]*|\([^|]*\)|.*/\1|\2/p' "$gri_f" | grep -v '|UNSUPPORTED ' | cut -d'|' -f1
   done | sort -u
@@ -4311,13 +4393,45 @@ report_facts() {
   printf '%s\n## Facts\n\nGenerated from the run records by %s when the report is published; never edited by hand. Numbers in the text above must match it.\n\n' "$REPORT_FACTS_BEGIN" "\`agent.sh report-facts $rf_id\`"
   printf -- '- Class: %s\n- Required gates: %s\n' "$(pipeline_class "$rf_id")" "$(printf '%s\n' "$rf_gl" | grep -c .)"
   for rf_g in $rf_gl; do
-    rf_i=$(gate_report_ids "$rf_id" "$rf_g" | tr '\n' ' ' | sed 's/ $//')
+    rf_i=$(gate_report_ids "$rf_id" "$rf_g" - | tr '\n' ' ' | sed 's/ $//')
     printf -- '- Gate %s: %s; findings: %s\n' "$rf_g" "$(gate_label "$rf_id" "$rf_g" strict "$rf_fp")" "${rf_i:-none}"
+    # each risk sub-focus on a line of its own: its status and findings are never folded into the gate's
+    for rf_fc in $(risk_gate_focuses "$rf_id" "$rf_g"); do
+      rf_i=$(gate_report_ids "$rf_id" "$rf_g" "$rf_fc" | tr '\n' ' ' | sed 's/ $//')
+      printf -- '  - Focus %s:%s: %s; findings: %s\n' "$rf_g" "$rf_fc" "$(gate_focus_status "$rf_id" "$rf_g" "$rf_fc" strict "$rf_fp")" "${rf_i:-none}"
+    done
   done
-  printf -- '- Fix rounds: %s of %s\n- Refreezes: %s\n- Files changed (task-owned paths): %s\n' "$(fix_rounds_used "$rf_id")" "$(max_fix_rounds)" \
+  printf -- '- Fix rounds: %s of %s\n- Refreezes: %s\n- Files changed (task-owned paths): %s\n' "$(fix_rounds_done "$rf_id")" "$(max_fix_rounds)" \
     "$(grep -c 'event=refreeze ' "$(ledger_file "$rf_id")" 2>/dev/null || true)" "$(task_owned_paths "$rf_id" 2>/dev/null | grep -c . || true)"
   printf -- '- Worker-evidence run records: total %s, ended pass %s, ended fail %s (a RED record ends fail on purpose; this is not a count of failing tests)\n' "$rf_wt" "$rf_wp" "$((rf_wt - rf_wp))"
   printf -- '- Test cases: no record carries the number of individual tests, so no such number is stated here.\n%s\n' "$REPORT_FACTS_END"
+}
+# Body of the DRAFT pull request for a FAILED run (delivery of a failure, with the user's approval): the non-passing
+# gates, their recorded blocking findings and BLOCKED reasons, copied from the run records. No model-written text.
+draft_pr_body() {
+  dp_id=$1; require_run "$dp_id"; require_lead; dp_d=$(run_dir "$dp_id")
+  [ "$(run_state "$dp_d")" = FAILED ] || fail "a draft pull request is for a FAILED run; $dp_id is $(run_state "$dp_d") (a CODE_DONE run goes through 'delivery-check')"
+  require_knowledge_done "$dp_id"
+  if [ "$(baseline_status "$dp_d")" = captured ]; then verify_knowledge_scope "$dp_id" >/dev/null; scan_knowledge_secrets "$dp_id"; fi
+  risk_prime "$dp_id"; dp_fp=$(content_fingerprint); dp_out=$root/.agents/local/draft-pr-$dp_id.md
+  mkdir -p "$root/.agents/local"
+  {
+    printf '# DRAFT: %s did not pass its gates\n\nGenerated from the run records. Do not merge: proofline merge refuses a draft.\n\n## Non-passing gates\n\n' "$dp_id"
+    for dp_g in $(required_gates "$dp_id"); do
+      for dp_fc in - $(risk_gate_focuses "$dp_id" "$dp_g"); do
+        dp_s=$(gate_focus_status "$dp_id" "$dp_g" "$dp_fc" strict "$dp_fp"); gate_satisfied "$dp_s" && continue
+        dp_n=$dp_g; [ "$dp_fc" = - ] || dp_n=$dp_g:$dp_fc
+        printf -- '- %s: %s\n' "$dp_n" "$dp_s"
+        dp_f=$(gate_latest_file "$dp_id" "$dp_g" "$dp_fc")
+        [ -z "$dp_f" ] || grep '^finding: [^|]*|blocking|' "$dp_f" | sed 's/^finding: /  - /' || :
+        [ "$dp_fc" != - ] || { dp_b=$(grep "event=record:[a-z_]*:BLOCKED" "$(ledger_file "$dp_id")" | grep " gate=$dp_g\$" | tail -1 | sed 's/.* detail=\([^ ]*\) .*/\1/')
+          [ -z "$dp_b" ] || sed -n 's/^BLOCKED_REASON:[[:space:]]*/  - BLOCKED: /p' "$dp_d/$dp_b" | head -1; }
+      done
+    done
+    printf '\n## Run facts\n\n- Fix rounds: %s of %s\n- Refreezes: %s\n' "$(fix_rounds_done "$dp_id")" "$(max_fix_rounds)" "$(grep -c 'event=refreeze ' "$(ledger_file "$dp_id")" 2>/dev/null || true)"
+  } > "$dp_out"
+  echo "draft pull request body written: .agents/local/draft-pr-$dp_id.md"
+  cat "$dp_out"
 }
 REPORT_FACTS_BEGIN='<!-- proofline:facts:begin -->'
 REPORT_FACTS_END='<!-- proofline:facts:end -->'
@@ -4335,7 +4449,7 @@ report_claims_check() {
   rc_fr=$(fix_rounds_used "$rc_id"); rc_fm=$(max_fix_rounds)
   rc_rz=$(grep -c 'event=refreeze ' "$(ledger_file "$rc_id")" 2>/dev/null || true)
   rc_bad=$(awk -v tests="$rc_wt $rc_wp $((rc_wt - rc_wp))" -v tlab="worker-evidence run records: total $rc_wt, ended pass $rc_wp, ended fail $((rc_wt - rc_wp)); no record counts individual tests" \
-    -v gates="$rc_gn 0" -v glab="required gates $rc_gn" -v rounds="$rc_fr $rc_fm" -v rlab="used $rc_fr, maximum $rc_fm" -v refz="$rc_rz" -v zlab="refreezes $rc_rz" '
+    -v gates="$rc_gn 0" -v glab="required gates $rc_gn" -v rounds="$rc_fr $rc_fm $(fix_rounds_done "$rc_id")" -v rlab="used $(fix_rounds_done "$rc_id"), maximum $rc_fm" -v refz="$rc_rz" -v zlab="refreezes $rc_rz" '
     function allowed(set, n,   a, i, k) { k = split(set, a, " "); for (i = 1; i <= k; i++) if (a[i] + 0 == n + 0) return 1; return 0 }
     # number words one..twenty become digits, so "Two tests" is read like "2 tests"
     function numwords(s,   i, w, m, lead, trail) {
@@ -4425,15 +4539,20 @@ verify_completion_report() {
   echo "completion report publication verified: $id"
 }
 knowledge_done() {
-  id=$1 state=${2:-KNOWLEDGE_DONE}; require_run "$id"; dir=$(run_dir "$id"); require_lead; require_open_run "$id"
+  id=$1 state=${2:-KNOWLEDGE_DONE}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   case "$state" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "invalid knowledge state: $state" ;; esac
-  [ "$(run_state "$dir")" = CODE_DONE ] || fail "knowledge-done requires CODE_DONE first"
+  # A FAILED or BLOCKED run records what it learned too (A147); cleanup accepts 'knowledge-done' after 'terminate'.
+  case "$(run_state "$dir")" in CODE_DONE) term=0 ;; FAILED|BLOCKED) term=1 ;; *) fail "knowledge-done requires CODE_DONE (or a FAILED/BLOCKED run) first" ;; esac
   section_key_present "$dir" execution knowledge_state || fail "run schema has no execution.knowledge_state field to set"
   verify_seal "$id"
-  ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
+  [ "$term" = 1 ] || ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
   set_run_value "$id" execution knowledge_state "$state"
   if gates_enforced "$id"; then ledger_append "$id" knowledge-done "$(section_value "$dir" handoff state)" "$state" ""; fi
   echo "knowledge state recorded: $id $state"
+}
+# Delivery (a pull request, draft or not) waits for the knowledge step (A147).
+require_knowledge_done() {
+  case "$(section_value "$(run_dir "$1")" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "delivery blocked: knowledge step not complete; run '/proofline knowledge $1' (agent.sh knowledge-done $1 [not_applicable])" ;; esac
 }
 
 # --- Terminal outcomes and cleanup -----------------------------------------------------------
@@ -4463,7 +4582,12 @@ cleanup_run() {
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
-      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Fq "event=terminate " || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
+      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id"
+      # A draft pull request was prepared for this run: its evidence goes only with the user's separate cleanup approval.
+      if [ -f "$root/.agents/local/draft-pr-$id.md" ]; then
+        cu_app=$(find_approval - cleanup "$(content_fingerprint)") || fail "cleanup after the draft pull request delivery needs its own approval: 'agent.sh request-approval - cleanup', relay it, then run cleanup again"
+        consume_approval - "$cu_app"
+      fi ;;
     *)
       [ "$(section_value "$dir" handoff state)" = DONE ] || fail "cleanup requires handoff DONE (or a FAILED/BLOCKED run): $id"
       cu_base=$(repository_base_sha "$dir")
@@ -4498,7 +4622,7 @@ cleanup_run() {
   if [ -f "$marker" ] && [ "$(sed '/^[[:space:]]*$/d' "$marker")" = "$id" ]; then : > "$marker"; fi
   # assignments first: if this rm fails the run still exists and cleanup can be retried
   [ ! -d "$adir" ] || rm -rf "$adir" || fail "could not remove $adir; the run is kept, retry cleanup"
-  rm -rf "$dir"
+  rm -rf "$dir"; rm -f "$root/.agents/local/draft-pr-$id.md"
   echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
 }
 
@@ -4572,7 +4696,7 @@ summary_run() {
     sm_fp=$(content_fingerprint)
     printf 'TIER: %s\n' "$(tier_effective "$sm_id")"
     for sm_g in $(required_gates "$sm_id"); do printf '%s: %s\n' "$sm_g" "$(gate_label "$sm_id" "$sm_g" strict "$sm_fp")"; done
-    printf 'FIX ROUNDS: %s of %s\n' "$(fix_rounds_used "$sm_id")" "$(max_fix_rounds)"
+    printf 'FIX ROUNDS: %s of %s\n' "$(fix_rounds_done "$sm_id")" "$(max_fix_rounds)"
   fi
   printf 'DELIVERY: completion report published %s\n' "$(ua "$(section_value "$sm_d" completion_report published)")"
 }
@@ -4624,9 +4748,9 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND> | approval-consume <ID> <KIND> [FINGERPRINT]
-  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> (answer on stdin)
-  terminate <ID> <FAILED|BLOCKED> | amend <ID> | knowledge-done <ID> [not_applicable]
-  publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
+  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
+  terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | knowledge-done <ID> [not_applicable]
+  publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | draft-pr-body <ID> | cleanup <ID>
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
@@ -4662,6 +4786,7 @@ case "$command" in
   freshness) verify_freshness "${2:?usage: agent.sh freshness <ID>}" ;;
   handoff) [ "$execution_role" = lead ] || [ "${3:-}" = IMPLEMENTING ] || fail "handoff phase denied for $execution_role"; record_handoff "${2:?usage: agent.sh handoff <ID> <PHASE>}" "${3:?usage: agent.sh handoff <ID> <PHASE>}" ;;
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
+  draft-pr-body) draft_pr_body "${2:?usage: agent.sh draft-pr-body <ID>}" ;;
   delivery-check) require_lead; delivery_check "${2:?usage: agent.sh delivery-check <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
   verify-assumptions) verify_assumptions "${2:?usage: agent.sh verify-assumptions <ID>}" ;;
@@ -4676,12 +4801,13 @@ case "$command" in
   run-language) run_language "${2:--}" ;;
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) approval_consume "${2:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${3:?usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT]}" "${4:-}" ;;
+  raise-budget) raise_budget "${2:?usage: agent.sh raise-budget <ID> <N>}" "${3:?usage: agent.sh raise-budget <ID> <N>}" ;;
   waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
-  answer) answer "${2:?usage: agent.sh answer <ID> <N>}" "${3:?usage: agent.sh answer <ID> <N>}" ;;
+  answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured]}" "${3:?usage: agent.sh answer <ID> <N> [--captured]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
   cleanup) require_lead; cleanup_run "${2:?usage: agent.sh cleanup <ID>}" ;;
   amend) require_lead; amend_run "${2:?usage: agent.sh amend <ID>}" ;;
