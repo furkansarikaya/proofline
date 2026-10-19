@@ -340,6 +340,20 @@ sc_status_from_records() {
   ok "batch status: table from state.tsv, merged.tsv and the parked run's records; no log-only text; edits to the records change the table"
 }
 
+# --- 7. stale log text is not this session's output ---------------------------------------------------------------------------
+sc_stale_log() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  mkdir -p .agents/local/batch/logs; printf 'usage limit reached yesterday; 401 rate limit quota\n' > .agents/local/batch/logs/T-1.log
+  printf 'nothing\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-2"
+  BB run > "$base/run.out" 2>&1 || :
+  [ "$(calls)" = "T-1 T-2" ] || die "stale log text stopped the batch or switched runtime: '$(calls)'; $(tail -5 "$base/run.out")"
+  [ "$(state_of T-1 2)" = parked ] && state_of T-1 3 | grep -q 'session ended without a result' || die "T-1: $(state_of T-1 2) $(state_of T-1 3)"
+  [ "$(state_of T-2 2)" = merged ] || die "the next task did not run: $(cat .agents/local/batch/state.tsv)"
+  grep -q '^# stopped' .agents/local/batch/state.tsv && die "the batch recorded a stop"
+  ok "batch run: stale limit/auth text in the cumulative log is ignored; no-result session parks, next task still runs"
+}
+
 run_sc sc_order_and_cycle
 run_sc sc_no_approval_no_start
 run_sc sc_cover_limits
@@ -350,4 +364,5 @@ run_sc sc_late_critical
 run_sc sc_park_skip_continue
 run_sc sc_lock
 run_sc sc_status_from_records
+run_sc sc_stale_log
 echo 'batch tests passed'

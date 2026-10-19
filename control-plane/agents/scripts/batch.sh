@@ -179,11 +179,12 @@ session() {
   s_log=$bd/logs/$1.log; s_p=$(prompt_for "$1"); mkdir -p "$bd/logs"; printf '\n--- session %s runtime=%s ---\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" >> "$s_log"
   s_pm=$(cfgv dispatch.claude_permission_mode bypassPermissions)
   case "$s_pm" in bypassPermissions|acceptEdits|default) ;; *) die "invalid dispatch.claude_permission_mode: $s_pm" ;; esac
-  s_rc=0
+  s_rc=0; s_cur=$bd/logs/$1.cur; : > "$s_cur"   # this session's own output: limit and auth detection read only it, never the cumulative log
   case "$2" in
-    codex) (cd "$root" && codex exec -C "$root" -s danger-full-access -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$s_p") >> "$s_log" 2>&1 < /dev/null || s_rc=$? ;;
-    *) (cd "$root" && claude -p "$s_p" --permission-mode "$s_pm") >> "$s_log" 2>&1 < /dev/null || s_rc=$? ;;
+    codex) (cd "$root" && codex exec -C "$root" -s danger-full-access -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$s_p") >> "$s_cur" 2>&1 < /dev/null || s_rc=$? ;;
+    *) (cd "$root" && claude -p "$s_p" --permission-mode "$s_pm") >> "$s_cur" 2>&1 < /dev/null || s_rc=$? ;;
   esac
+  cat "$s_cur" >> "$s_log"
   return "$s_rc"
 }
 outcome() { # ID -> merged | FAILED | BLOCKED | question | none  (records only)
@@ -241,8 +242,8 @@ run() {
       sess_rc=0; session "$id" "$rt" || sess_rc=$?
       out=$(outcome "$id")
       if [ "$out" != merged ] && { [ "$sess_rc" -ne 0 ] || [ "$out" = none ]; }; then
-        if [ "$sess_rc" -ne 0 ] && grep -Eiq 'not logged in|authentication|invalid api key|please run /login|401' "$bd/logs/$id.log"; then st_set "$id" pending; stop "runtime $rt is not authenticated"; fi
-        if grep -Eiq 'usage limit|rate limit|limit reached|quota' "$bd/logs/$id.log"; then exhausted="$exhausted $rt"; continue; fi
+        if [ "$sess_rc" -ne 0 ] && grep -Eiq 'not logged in|authentication|invalid api key|please run /login|401' "$bd/logs/$id.cur"; then st_set "$id" pending; stop "runtime $rt is not authenticated"; fi
+        if grep -Eiq 'usage limit|rate limit|limit reached|quota' "$bd/logs/$id.cur"; then exhausted="$exhausted $rt"; continue; fi
       fi
       break
     done
@@ -264,8 +265,8 @@ run() {
 # --- status ----------------------------------------------------------------------------------------------------------
 status() {
   [ -f "$bd/SUMMARY.md" ] || { echo "no batch planned (agent.sh batch-plan <ID...|all>)"; return 0; }
-  ap=$(ls -1 "$root/.agents/local/approvals" 2>/dev/null | grep -E '^[0-9]{3}-batch\.yaml$' | sort | tail -1 || :)
-  at=''; [ -z "$ap" ] || at=$(sed -n 's/^approved_at: //p' "$root/.agents/local/approvals/$ap" | head -1)
+  ap=$(grep -l "^bound: \"$(sha "$bd/SUMMARY.md")\"" "$root"/.agents/local/approvals/[0-9][0-9][0-9]-batch.yaml 2>/dev/null | sort | tail -1 || :)
+  at=''; [ -z "$ap" ] || at=$(sed -n 's/^approved_at: //p' "$ap" | head -1)
   [ -z "$at" ] || at=$(date -r "$at" '+%Y-%m-%d %H:%M' 2>/dev/null || date -d "@$at" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$at")
   stopped=''; [ ! -f "$bd/state.tsv" ] || stopped=$(sed -n 's/^# stopped: //p' "$bd/state.tsv" | tail -1)
   printf 'batch %s, approved at %s\n' "$(bid)" "${at:-never}"
