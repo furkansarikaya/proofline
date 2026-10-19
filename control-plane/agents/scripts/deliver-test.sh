@@ -22,7 +22,8 @@ pushed() { git update-ref "refs/remotes/origin/$(git branch --show-current)" HEA
 
 scenario_normal_chain() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks
-  expect_msg "deliver-plan before the knowledge step" 'knowledge step not complete' A deliver-plan LC
+  has 'not ready to summarize' A deliver-plan LC   # A152: no refusal, no summary, no question
+  [ ! -e .agents/local/deliver/LC ] || die "deliver-plan wrote a summary before the knowledge step"
   finish_done
   A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused a DONE run: $(A deliver-plan LC 2>&1 | tail -1)"
   grep -q '^steps: commit push pr merge cleanup$' "$base/plan.out" && grep -q 'approve delivery' "$base/plan.out" || die "summary: $(cat "$base/plan.out")"
@@ -75,38 +76,45 @@ scenario_content_change_stops() {
   ok "deliver: a changed file, message or a new commit after the approval stops the chain"
 }
 
-scenario_draft_never_merged() {
+scenario_failed_refused() {
   export SC_BRANCH=1 SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_BRANCH SC_TEST_CRIT SC_TASK_EXTRA; origin
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null; gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl_test.txt 'test: default for an empty key'; A handoff LC IMPLEMENTED >/dev/null; gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null; gfail VERIFY impl.txt
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
-  expect_msg "a draft delivery before the knowledge step" 'knowledge step' A deliver-plan LC
+  expect_msg "a FAILED run is refused with the next step" 'to reopen: /proofline reopen LC' A deliver-plan LC
   A knowledge-done LC not_applicable >/dev/null
-  has '^steps: commit push pr cleanup$' A deliver-plan LC
+  expect_msg "a FAILED run is refused after the knowledge step too" 'to reopen: /proofline reopen LC' A deliver-plan LC
+  [ ! -e .agents/local/deliver/LC ] || die "a refused delivery wrote a summary"
+  ok "deliver: a FAILED run is refused (no draft pull request) and names the reopen command"
+}
+
+# A152: a FAILED run reopened with the user's approval reaches CODE_DONE and is delivered like any run.
+scenario_reopened_run_delivers() {
+  export SC_BRANCH=1 SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_BRANCH SC_TEST_CRIT SC_TASK_EXTRA; hooks
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null; gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl_test.txt 'test: default for an empty key'; A handoff LC IMPLEMENTED >/dev/null; gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null; gfail VERIFY impl.txt
+  printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
+  expect_msg "deliver-plan of the FAILED run" 'to reopen: /proofline reopen LC' A deliver-plan LC
+  A request-approval LC reopen:LC >/dev/null; capture 'I approve the reopen of LC'; A approve LC reopen:LC >/dev/null
+  printf 'reason: the verifier false alarm is fixed and the budget decided\n' | A reopen LC >/dev/null || die "approved reopen refused"
+  pass_all; A handoff LC CODE_DONE >/dev/null
+  # knowledge missing: exit 0, the not-ready notice, nothing written, no question
+  has 'not ready to summarize' A deliver-plan LC
+  [ ! -e .agents/local/deliver/LC ] || die "deliver-plan wrote a summary before the knowledge step"
+  finish_done '' '## Reopen History' 'Reopened once with the user approval after a FAILED verify gate.'
+  A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused the reopened, finished run"
+  grep -q '^steps: commit push pr merge cleanup$' "$base/plan.out" && grep -q 'approve delivery' "$base/plan.out" || die "summary: $(cat "$base/plan.out")"
   capture 'approve delivery'; A approve-pending LC >/dev/null
-  S commit >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG
-  pushed -
-  gh_says "OPEN true"
-  expect_msg "draft cleanup before the pr step" 'the pr step of this delivery has not run' S cleanup 7
-  has '^run: gh pr create --draft ' S pr
-  expect_msg "a draft merged" 'not a step of this delivery' S merge 7
-  gh_says "OPEN true" "$(git rev-parse HEAD) other-branch main acme"
-  expect_msg "draft cleanup on another branch's pull request" "not this delivery's open draft" S cleanup 7
-  # a later, otherwise identical plan: the pr step consumed under the earlier one does not count for it
-  A deliver-plan LC >/dev/null; capture 'approve delivery' $(( $(date +%s) + 5000 )); A approve-pending LC >/dev/null
-  A approval-consume - push >/dev/null; has '^run: gh pr create --draft ' S pr
-  A deliver-plan LC >/dev/null; capture 'approve delivery' $(( $(date +%s) + 6000 )); A approve-pending LC >/dev/null
-  gh_says "OPEN true"
-  expect_msg "a pr step of an identical earlier plan" 'the pr step of this delivery has not run' S cleanup 7
-  has '^run: gh pr create --draft ' S pr
-  S cleanup 7 >/dev/null || die "cleanup after the draft pull request refused: $(S cleanup 7 2>&1 | tail -1)"
-  [ ! -e .agents/runs/LC ] || die "the run survived the draft delivery"
-  ok "deliver: a FAILED run gets a draft pull request, is never merged, and is cleaned up after the pull request"
+  S commit >/dev/null || die "the one approval did not carry the commit step: $(S commit 2>&1 | tail -1)"
+  ok "deliver: a reopened run is delivered with the one approval; an unfinished knowledge step only prints what is left"
 }
 
 run_sc scenario_normal_chain
 run_sc scenario_content_change_stops
-run_sc scenario_draft_never_merged
+run_sc scenario_failed_refused
+run_sc scenario_reopened_run_delivers
 echo 'deliver tests passed'

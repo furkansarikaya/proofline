@@ -899,10 +899,8 @@ scenario_freeze_scope_mapping() {
   grep -q 'scope_paths: "impl.txt,impl_test.txt"' .agents/runs/LC/RUN.yaml || die "scope_paths not recorded"
   ok "freeze validates scope mapping first"
 }
-
-# A FAILED run: the draft pull request body lists the non-passing gates from the records; the run evidence goes only
-# with a separate cleanup approval once that body exists.
-scenario_failed_draft_pr() {
+# A FAILED run is cleaned up after its evidence is reported; deliver never opens a draft pull request (A152).
+scenario_failed_run_cleanup() {
   export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
@@ -911,18 +909,11 @@ scenario_failed_draft_pr() {
   gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl.txt 'impl: second attempt at the empty key default'; A handoff LC IMPLEMENTED >/dev/null
   gfail VERIFY impl.txt
-  expect_fail "a draft pull request body for a run that is not FAILED" A draft-pr-body LC
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
-  expect_msg "a draft pull request body before the knowledge step" 'knowledge step not complete' A draft-pr-body LC
   A knowledge-done LC not_applicable >/dev/null || die "knowledge-done refused on a FAILED run"
-  A draft-pr-body LC > "$base/dp.out" || die "no draft pull request body for a FAILED run"
-  grep -q '^- VERIFY: fail' "$base/dp.out" && grep -q 'VERIFY-1|blocking|impl.txt:1|lookup returns the wrong value' "$base/dp.out" || die "the body lacks the failing gate and its recorded finding: $(cat "$base/dp.out")"
-  grep -q 'Fix rounds: 2 of 2' "$base/dp.out" || die "the body miscounts the fix rounds"
-  expect_msg "cleanup of a run with a draft pull request body needs its own approval" 'own approval' A cleanup LC
-  A request-approval - cleanup >/dev/null; capture 'approve the cleanup'; A approve - cleanup >/dev/null
-  A cleanup LC >/dev/null || die "cleanup refused after the separate approval"
-  [ ! -d .agents/runs/LC ] || die "the run directory survived the approved cleanup"
-  ok "FAILED run: draft pull request body from the records, cleanup behind a separate approval"
+  A cleanup LC >/dev/null || die "cleanup of a FAILED run refused"
+  [ ! -d .agents/runs/LC ] || die "the run directory survived the cleanup"
+  ok "FAILED run: no draft pull request (deliver is refused, A152); cleanup needs no extra approval"
 }
 
 # 0.0.5: a designer window opened before any PLAN.md exists is refused for its real reason, with no grep error.
@@ -956,8 +947,100 @@ scenario_window_open_no_plan() {
   ok "window-open without PLAN.md prints no missing-file error"
 }
 
+# A152: drive an orchestrated run to FAILED. QA and REVIEW_SMALL pass on the final content, VERIFY fails on it.
+reopen_failed_run() {
+  export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null; gfail REVIEW_SMALL impl_test.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl_test.txt 'test: default for an empty key'; A handoff LC IMPLEMENTED >/dev/null; gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null; gpass REVIEW_SMALL; gpass QA; gfail VERIFY impl.txt
+  printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
+}
+ro() { printf 'reason: the budget decision was made and the verifier false alarm is fixed\n' | "$@"; }
+ro_approve() { A request-approval LC reopen:LC >/dev/null; capture 'I approve the reopen of LC'; A approve LC reopen:LC >/dev/null; }
+
+# reopen of a FAILED run (A152): refused without the user's approval, by non-lead roles and on a non-terminal run; with it,
+# passing gates stay, the failed gate and the fix rounds restart, knowledge restarts, the scope is checked, CODE_DONE is reachable.
+scenario_reopen_failed() {
+  reopen_failed_run
+  expect_msg "deliver-plan of a FAILED run" 'to reopen: /proofline reopen LC' A deliver-plan LC
+  A knowledge-done LC not_applicable >/dev/null
+  expect_msg "reopen without the approval" 'needs the user' ro A reopen LC
+  for r in implementer qa reviewer verifier; do expect_fail "$r reopened a run" ro env AGENT_ROLE=$r sh ./.agents/scripts/agent.sh reopen LC; done
+  ro_approve
+  expect_fail "a non-lead used the approved reopen" ro env AGENT_ROLE=implementer sh ./.agents/scripts/agent.sh reopen LC
+  printf 'x\n' > far.txt
+  expect_msg "reopen with a change outside the frozen scope" 'outside the frozen scope' ro A reopen LC
+  rm far.txt
+  ro A reopen LC >/dev/null || die "approved reopen refused: $(ro A reopen LC 2>&1 | tail -1)"
+  expect_state execution state PLANNING
+  expect_state execution knowledge_state not_started
+  [ "$(pipe_val fix_round)" = 0 ] || die "the reopen did not restart the fix rounds: $(pipe_val fix_round)"
+  A report-facts LC | grep -Fq -- '- Fix rounds: 0 of 2' || die "the report does not count the fix rounds from 0 of 2"
+  expect_fail "the approval was reusable" ro A reopen LC
+  A pipeline LC > "$base/pl.out"
+  grep -q '^gate.REVIEW_SMALL=pass' "$base/pl.out" && grep -q '^gate.QA=pass' "$base/pl.out" || die "passing gates on unchanged inputs did not stay: $(cat "$base/pl.out")"
+  grep -q '^gate.VERIFY=pass' "$base/pl.out" && die "the failed gate still counts as passed after the reopen"
+  expect_fail "CODE_DONE with the failed gate not rerun" A handoff LC CODE_DONE
+  # a gate whose inputs changed after the reopen runs again
+  printf 'late fix\n' >> impl.txt; A pipeline LC | grep -q '^gate.QA=pass' && die "QA still passes after the task-owned content changed"
+  sed -i.bak '$d' impl.txt; rm -f impl.txt.bak
+  gpass VERIFY; expect_msg "CODE_DONE with a never-concluded gate" 'required gate SECRETS' A handoff LC CODE_DONE
+  A secret-scan LC >/dev/null; A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the gates passed"
+  ok "reopen: approval, roles, scope, kept passes, fix rounds 0 of 2, knowledge restarted, CODE_DONE"
+}
+
+# reopen takes terminal runs only, and a BLOCKED run is refused by deliver-plan like a FAILED one.
+scenario_reopen_blocked_and_state() {
+  scaffold standalone
+  expect_msg "reopen of a non-terminal run" 'FAILED or BLOCKED run only' ro A reopen LC
+  printf 'reason: the verification toolchain is unavailable in this environment\nevidence: go test exited 127 because the go binary is missing\n' | A terminate LC BLOCKED >/dev/null
+  expect_msg "deliver-plan of a BLOCKED run" 'to reopen: /proofline reopen LC' A deliver-plan LC
+  expect_msg "reopen of a BLOCKED run without the approval" 'needs the user' ro A reopen LC
+  ro_approve; ro A reopen LC >/dev/null || die "reopen of a BLOCKED run refused: $(ro A reopen LC 2>&1 | tail -1)"
+  expect_state execution state PLANNING
+  ok "reopen: BLOCKED is refused by deliver-plan and reopened with the approval; a non-terminal run is refused"
+}
+
+# A152: a change under .agents/ leaves the content fingerprint (and so every gate) unchanged; a product change alters it.
+scenario_fingerprint_excludes_agents() {
+  scaffold orchestrated; to_code_done orchestrated
+  fp0=$(A fingerprint LC)
+  printf '# changed control plane\n' >> .agents/config.yaml; printf 'x\n' > .agents/scripts/new-helper.sh
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "a change under .agents/ altered the content fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' && die "a change under .agents/ made a gate stale"
+  printf 'more\n' >> impl.txt
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "a product change did not alter the content fingerprint"
+  ok "fingerprint: .agents/ changes are not content, product changes are"
+}
+
+# A152: a path under .agents/ that the plan scope names is task-owned content: it changes the fingerprint and stales the gates.
+scenario_fingerprint_scoped_agents_path() {
+  SC_SCOPE_AGENTS=1 scaffold orchestrated; unset SC_SCOPE_AGENTS; to_code_done orchestrated
+  fp0=$(A fingerprint LC)
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' && die "gates stale before any change"
+  printf 'edit\n' >> .agents/impl.txt
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "an edit of a plan-scoped .agents/ file did not change the fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates did not read stale after a plan-scoped .agents/ edit: $(A pipeline LC | grep '^gate\.')"
+  printf 'edit\n' >> .agents/config.yaml
+  fp1=$(A fingerprint LC); printf 'more\n' >> .agents/config.yaml
+  [ "$(A fingerprint LC)" = "$fp1" ] || die "an unscoped .agents/ file counts as content again"
+  ok "fingerprint: a plan-scoped .agents/ path is content"
+}
+
+# A152: the reopen approval is requested only for a FAILED or BLOCKED run, and only for that run's own id.
+scenario_reopen_approval_kinds() {
+  reopen_failed_run
+  expect_msg "a reopen approval for another run" 'names another run' A request-approval LC reopen:OTHER
+  A request-approval LC reopen:LC >/dev/null || die "the reopen approval was refused for a FAILED run"
+  capture 'I approve the reopen of OTHER'; expect_fail "an approval for another run id" A approve LC reopen:OTHER
+  ro_approve; ro A reopen LC >/dev/null || die "reopen refused: $(ro A reopen LC 2>&1 | tail -1)"
+  expect_msg "a reopen approval on a run that is no longer terminal" 'FAILED or BLOCKED run' A request-approval LC reopen:LC
+  ok "reopen approval: own id only, FAILED or BLOCKED runs only"
+}
+
 run_sc scenario_standalone
-run_sc scenario_failed_draft_pr
+run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
 run_sc scenario_evidence_order
 run_sc scenario_independence
@@ -993,4 +1076,9 @@ run_sc scenario_freeze_scope_mapping
 run_sc scenario_freeze_ac_coverage
 run_sc scenario_window_open_no_plan
 run_sc scenario_digest_resume
+run_sc scenario_reopen_failed
+run_sc scenario_reopen_blocked_and_state
+run_sc scenario_fingerprint_excludes_agents
+run_sc scenario_fingerprint_scoped_agents_path
+run_sc scenario_reopen_approval_kinds
 echo 'agent lifecycle tests passed'

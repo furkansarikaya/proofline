@@ -137,7 +137,12 @@ checks freshness and handoff integrity as usual; after it (HEAD moved past `repo
 `base_sha` to be an ancestor of HEAD, measures the task-owned paths from `base_sha` (the patch must equal the
 CODE_DONE patch, every required gate must still pass, the knowledge scope must hold) and requires every
 task-owned path to be committed exactly (no difference between HEAD and the working tree there). FAILED/BLOCKED runs (`terminate`) are cleaned up after their
-evidence is reported. `amend` is the only way to reopen a CODE_DONE/DONE run before delivery.
+evidence is reported. `amend` is the only way to reopen a CODE_DONE/DONE run before delivery. A FAILED/BLOCKED run is
+never delivered; `agent.sh reopen <ID>` (reason on stdin) takes it back to the state it had when it was terminated,
+only with the user's `reopen:<ID>` approval (a mutation-budget decision is asked first when PLAN `## Tests` needs it):
+the plan stays frozen and its scope is checked again, gate records that passed on unchanged inputs stay, any other gate
+runs again, the fix-round allowance restarts, and the knowledge step starts over. When the gates pass the run is
+CODE_DONE and delivery works (A152).
 
 ## Task-source contract
 

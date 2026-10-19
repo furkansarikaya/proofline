@@ -84,3 +84,22 @@ against the hook-captured user prompt.
 4. A gate counts as `waived` only when every blocking finding of its record is waived; one unwaived
    finding keeps it closed. Every waiver goes into `## Waivers` of the completion report; with
    `review.waiver_followup: task` agent.sh writes a follow-up task.
+
+## 5. Reopen a FAILED or BLOCKED run
+
+`terminate` is not final (A152). `/proofline reopen <ID>` takes a run that ended FAILED or BLOCKED back to the state
+it was in, but only with the user's approval, and `deliver` stays refused until the run is CODE_DONE again.
+
+1. Start with the cause: a fixed tool, a raised budget, a changed environment. Write one specific reason (what
+   changed since the run ended): `printf 'reason: <what changed>\n' | A reopen <ID>`.
+2. The command asks, in this order, and each time stops with the question: the mutation-budget decision first
+   (`mutation_budget`, only when PLAN `## Tests` names more criteria than the budget), then `reopen:<ID>`. Relay
+   the question verbatim, STOP; the runtime records the user's reply (the lead never runs `approve`). After each
+   reply run the same command again. It refuses when the plan or the task changed since the freeze, when the
+   branch is not the task branch, or when files outside the frozen scope changed (the scope check lists them).
+3. Reopened: the plan stays frozen and the fix-round allowance restarts at 0 (`review.max_fix_rounds` is
+   unchanged). `A next <ID>` then names only the gates that did not pass (failed, BLOCKED, never recorded) or
+   whose inputs changed. A gate that passed on unchanged inputs stays. A change confined to `.agents/` (the control
+   plane, `proofline upgrade` included) never makes a gate stale.
+4. The knowledge step restarts (`not_started`). When every gate passes: `handoff CODE_DONE`, knowledge, report,
+   DONE, then `deliver`.

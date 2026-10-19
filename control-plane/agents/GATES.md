@@ -45,7 +45,7 @@ the frozen hashes, the pipeline, the author role, the artifact sha256 and the ra
 no order and run in parallel; several gates may record on the same content.
 
 Provenance: a gate record, waiver or approval counts only when the command that writes it (`record`, `gate`,
-`secret-scan`, `amend`, `waive`, `approve`) bound `<dir>/<file>@<sha256>` in a ledger entry of its own event.
+`secret-scan`, `amend`, `reopen`, `waive`, `approve`) bound `<dir>/<file>@<sha256>` in a ledger entry of its own event.
 A hand-written or later edited file is ignored by every evaluation; `validate` names unbound gate records and
 waivers.
 
@@ -163,22 +163,26 @@ exists (receipt recorded; `pending` otherwise).
 ## Approvals (D3)
 
 Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the PLAN.md sha256), `commit`, `push`,
-`pr`, `merge`, `cleanup` (bound to the content fingerprint), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
+`pr`, `merge`, `cleanup` (bound to the content fingerprint), `reopen:<ID>` (bound to the PLAN.md sha256), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
 
 - `mutation_budget`: `test_trust.mutation_budget` is never below one mutant per criterion of PLAN `## Tests`. Freeze
   records one request when the criteria exceed the budget; after the user approves, `agent.sh raise-budget <ID> <N>`
   writes the per-run override (`.agents/runs/<ID>/mutation_budget`; `.agents/config.yaml` is not edited). The same
   command resolves a REVIEW_TESTS that is BLOCKED on the budget: raise, then dispatch the reviewer again.
-- FAILED run: `proofline deliver <ID>` writes the DRAFT pull request body (`agent.sh draft-pr-body <ID>`): the
-  non-passing gates and their recorded findings, from the run records. The push needs the `push` approval, a draft
-  is refused by `proofline merge`, and cleanup of that run needs its own `cleanup` approval (`request-approval - cleanup`).
+- `reopen:<ID>` (bound to the PLAN.md sha256, accepted on a FAILED or BLOCKED run, named for that run only): the
+  user's approval for `agent.sh reopen <ID>` (A152), which consumes it. `mutation_budget` is accepted on such a run
+  too; `reopen` asks it first when PLAN `## Tests` has more criteria than the budget and applies it itself.
+  After a reopen a gate that had failed reads `stale`, not `fail`: it runs again first. A fix round starts only if it
+  fails again (handoff `IMPLEMENTING` is not offered before that).
+- A FAILED or BLOCKED run is never delivered (no draft pull request): `deliver-plan` and `proofline deliver` refuse in
+  one line, `to reopen: /proofline reopen <ID>`.
 - One-command delivery: `agent.sh deliver-plan <ID>` writes `.agents/local/deliver/<ID>/SUMMARY.md` and one request
-  per step (`commit`, `push`, `pr`, `merge` for a DONE run only, `cleanup`; in `-` for a FAILED run), each carrying
+  per step (`commit`, `push`, `pr`, `merge`, `cleanup`), each carrying
   `delivery: <sha256 of the summary>`. Such a request is approved only by the delivery words (`approve delivery`,
   `I approve the delivery`, `teslimatı onaylıyorum`), never by a kind word, and the approval keeps the summary hash.
   `agent.sh deliver-step <ID> <step> [PR]` refuses unless the content fingerprint, branch, commit message, body
   and HEAD still match the summary and an unconsumed approval of that step carries its hash. The git hooks
-  consume `commit` and `push`; `deliver-step` consumes the others (and `commit` when no run is open). A `rule:<ID>`
+  consume `commit` and `push`; `deliver-step` consumes the others. A `rule:<ID>`
   request is never approved by the delivery reply.
 
 1. `agent.sh request-approval <ID> <KIND>` records the request time and binding and prints the D13 question.
