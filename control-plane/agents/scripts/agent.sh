@@ -3471,6 +3471,7 @@ kind_words() {
     single_step) echo 'single step single-step one step tek adım tek adim' ;;
     budget) echo 'budget round rounds' ;;
     mutation_budget) echo 'mutation budget mutants' ;;
+    report) echo 'friction report sürtünme surtunme raporu raporunu' ;;
     rule:*) printf 'rule %s\n' "${1#rule:}" ;;
     waive:*) printf '%s\n' "${1#waive:}" | tr '[:upper:]' '[:lower:]' ;;
     *) printf '%s\n' "$1" ;;
@@ -3544,7 +3545,7 @@ approval_sentences() {
     mutation_budget) as_en='the mutation budget'; as_tr='mutasyon bütçesini|mutasyon butcesini' ;;
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
     cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
-    report) as_en='the report'; as_tr='raporu' ;;
+    report) as_en='the friction report'; as_tr='sürtünme raporunu|surtunme raporunu' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
     push) as_en='the push'; as_tr="push'u" ;;
     waive:*) as_en="the waiver of $as_id"; as_tr="$as_id feragatini" ;;
