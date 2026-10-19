@@ -466,13 +466,13 @@ test("browser: non-HTML responses, data-vp-probe content and closed-details over
 });
 
 // 0.0.8: focus_order false alarms (840 of 858 blocking rows in a real run). A link inside a closed <details> is not
-// tabbable, and the visibility probe's focus()/blur() on a hidden link at the end of the page must not leave the Tab start there.
+// tabbable, and more than 40 stops (the screenshot loop scrolls item 40 into view, which moves the Tab start there) must not make the first Tab start mid-page.
+// The closed-details link has client rects in Chrome (verified: the test fails without the filter, and without the Tab-start reset).
 test("browser: focus_order ignores closed-details links and starts Tab at the top after the focus probe", { skip: !BROWSER && "no browser installed" }, () => {
   const dir = mktmp(), out = join(dir, "out");
   writeFileSync(join(dir, "index.html"), `<!doctype html><meta name=viewport content="width=device-width"><body><main id=m>
     <details><summary>Menu</summary><a href="#x">inside closed</a></details>
-    <a href="#a">one</a> <a href="#b">two</a> <a href="#c">three</a>
-    <a href="#s" style="position:absolute;left:-9999px">last, off-screen until focused</a></main>`);
+    ${Array.from({ length: 45 }, (_, i) => `<a href="#l${i}">link ${i}</a>`).join("\n")}</main>`);
   const cfg = { class: "STANDARD", base_url: pathToFileURL(dir + "/").href, viewports: [{ name: "phone", width: 360, height: 740 }, { name: "desktop", width: 1280, height: 800 }],
     screens: [{ id: "home", path: "index.html", states: [{ name: "default", ready: "#m" }] }] };
   writeFileSync(join(dir, "visual.json"), JSON.stringify(cfg));
@@ -480,5 +480,5 @@ test("browser: focus_order ignores closed-details links and starts Tab at the to
   assert.equal(r.status, 0, r.stderr);
   const rows = JSON.parse(readFileSync(join(out, "report.json"), "utf8")).measured.filter((m) => m.check === "focus_order");
   assert.deepEqual(rows.filter((m) => m.status === "fail").map((m) => [m.viewport, m.selector, m.note]), []);
-  assert.ok(rows.some((m) => m.status === "pass" && /5 tab stops/.test(m.note)), JSON.stringify(rows));
+  assert.ok(rows.some((m) => m.status === "pass" && /46 tab stops/.test(m.note)), JSON.stringify(rows));
 });

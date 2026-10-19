@@ -97,7 +97,7 @@ function probeSource() {
   const marks = [], marked = new WeakSet();
   const mark = (el) => { marks.push(el); marked.add(el); return el; };
   const isProbe = (e) => { for (let x = e; x; x = x.parentElement) if (marked.has(x)) return true; return false; };
-  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]") && !closed(e) && !isProbe(e)
+  const tabbables = () => [...document.querySelectorAll(INTERACTIVE)].filter((e) => e.tabIndex >= 0 && !e.disabled && !e.closest("[inert]") && !e.closest("details:not([open]) > :not(summary)") && !isProbe(e)
     && e.getClientRects().length > 0 && getComputedStyle(e).visibility === "visible");
   const parse = (c) => {
     const m = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+%?))?\)$/.exec(c);
@@ -139,8 +139,8 @@ function probeSource() {
       const r = el.getBoundingClientRect();
       return { x: Math.max(0, r.left + scrollX - 4), y: Math.max(0, r.top + scrollY - 4), width: Math.max(1, r.width + 8), height: Math.max(1, r.height + 8), scale: 1 };
     },
-    // Blur, and move the sequential-focus starting point back to the top: blur() alone leaves it on the last
-    // element that held focus, so the next Tab would start mid-page and skip everything before it.
+    // Blur, and move the sequential-focus starting point back to the top: blur() and scrollTo(0, 0) leave it on
+    // the last element focused or scrolled into view, so the next Tab would start mid-page and skip everything before it.
     blur() {
       if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
       const b = document.body, t = b.getAttribute("tabindex");
