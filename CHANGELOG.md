@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.13 — 2026-10-19
+
+- Committing what `proofline upgrade` installed no longer makes the plan stale: when the commits between the run's `base_sha` and HEAD touch only control-plane files (manifest-listed files, `.claude/agents/proofline-*.md`, `.codex/agents/proofline-*.toml`, the proofline block of `AGENTS.md`/`CLAUDE.md`), the moved `base_sha` is accepted and noted in one line, and `reopen` works. Any other changed file still means a stale plan (amendment and refreeze). A path the plan scope names stays tracked.
+- A second `reopen` of the same run asks its own question and takes its own approval; an already used request is never reused (it used to stop with "request ... is already approved; request again").
+- Only the first `proofline:begin/end` pair in `AGENTS.md`/`CLAUDE.md` is the control-plane block; anything after it is product text.
+
 ## 0.0.12 — 2026-10-19
 
 - Everything `proofline upgrade` installs is control plane: the files listed in `.agents/.proofline-manifest` (agent definitions under `.claude/agents/` and `.codex/agents/`, the entry skill) and the proofline block of `AGENTS.md` and `CLAUDE.md` no longer count as out-of-scope changes, no longer change the content fingerprint and no longer make a gate stale. `/proofline reopen` no longer refuses after an upgrade. A path the plan scope names stays tracked; edits outside the proofline block of `AGENTS.md`/`CLAUDE.md` (for example `## Project rules`) still count as product changes.

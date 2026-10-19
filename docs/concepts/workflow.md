@@ -68,7 +68,7 @@ the knowledge step (durable design documents updated, or `not_applicable`) and a
 a stop), then one summary (`agent.sh deliver-plan`) and one question. Your reply `approve delivery` approves each step of
 that summary: commit, push, pull request, merge (only when every check is green, through `proofline merge`) and cleanup
 (after the merge). A FAILED or BLOCKED run is not delivered: `/proofline reopen <TASK>` takes it back into the workflow,
-only with your approval (one question; a mutation-budget raise the plan needs is part of it), and delivery works once its gates pass. Files `proofline upgrade` installed (`.agents/`, the agent files, the proofline block of `AGENTS.md`/`CLAUDE.md`) never block the reopen or make a gate stale. Each step
+only with your approval (one question; a mutation-budget raise the plan needs is part of it), and delivery works once its gates pass. Files `proofline upgrade` installed (`.agents/`, the agent files, the proofline block of `AGENTS.md`/`CLAUDE.md`) never block the reopen or make a gate stale, and committing them (a moved `base_sha`) does not make the plan stale; any other committed file does, as before. Each reopen is asked and approved on its own, so a second reopen of the same run works. Only the first `proofline:begin/end` pair of those two files counts as the block. Each step
 is checked against the summary first (`agent.sh deliver-step`); a change in between stops the chain and you are asked
 again. A lesson promotion is not covered by that reply: it needs its own.
 Cleanup deletes the run directory so the git hooks no longer see the run; then the lead stops.
