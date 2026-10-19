@@ -64,7 +64,9 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    prompt is what the approval and `waive` verify), and is never possible for `SECRETS` or `SECURITY`.
 8. **Delivery needs the user (D19, D34)** ([DELIVERY.md](references/DELIVERY.md)). Commit, push and PR only
    with the user's explicit approval in the current message and every required gate passing for the
-   current content. Never merge, tag, force-push, or touch a protected branch.
+   current content. `deliver` asks once: `A deliver-plan` shows one summary, the user's `approve delivery`
+   records one approval per step, and `A deliver-step` checks it before each step. Merge only there, through
+   `proofline merge`; never tag, force-push, or touch a protected branch.
 9. **Context hygiene.** Read only result headers, findings tables and `A next`/`pipeline`/`status`
    output. Never paste a raw result, log, diff or transcript into the context or into an assignment;
    never re-read a large unchanged file; summarise results with `scripts/check-result.mjs`.
@@ -173,7 +175,7 @@ Specialist results that stop the flow:
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |
 | `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
 | `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID> [not_applicable]`. `deliver` refuses until it is done. |
-| `deliver <TASK>` | [DELIVERY.md](references/DELIVERY.md). |
+| `deliver <TASK>` | The whole delivery in one command ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)): the knowledge step if not done, then `A deliver-plan <ID>` (relay the one summary, STOP), then after the user's `approve delivery` `A deliver-step <ID> commit\|push\|pr\|merge\|cleanup [PR]` in order, running the commands each prints. A refusal stops the chain: prepare and ask again. |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 
 `init`, `upgrade`, `doctor` are CLI commands (`proofline init|upgrade|doctor`), not part of this skill.

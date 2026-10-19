@@ -163,7 +163,7 @@ exists (receipt recorded; `pending` otherwise).
 ## Approvals (D3)
 
 Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the PLAN.md sha256), `commit`, `push`,
-`cleanup` (bound to the content fingerprint), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
+`pr`, `merge`, `cleanup` (bound to the content fingerprint), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
 
 - `mutation_budget`: `test_trust.mutation_budget` is never below one mutant per criterion of PLAN `## Tests`. Freeze
   records one request when the criteria exceed the budget; after the user approves, `agent.sh raise-budget <ID> <N>`
@@ -172,6 +172,14 @@ Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the
 - FAILED run: `proofline deliver <ID>` writes the DRAFT pull request body (`agent.sh draft-pr-body <ID>`): the
   non-passing gates and their recorded findings, from the run records. The push needs the `push` approval, a draft
   is refused by `proofline merge`, and cleanup of that run needs its own `cleanup` approval (`request-approval - cleanup`).
+- One-command delivery: `agent.sh deliver-plan <ID>` writes `.agents/local/deliver/<ID>/SUMMARY.md` and one request
+  per step (`commit`, `push`, `pr`, `merge` for a DONE run only, `cleanup`; in `-` for a FAILED run), each carrying
+  `delivery: <sha256 of the summary>`. Such a request is approved only by the delivery words (`approve delivery`,
+  `I approve the delivery`, `teslimatı onaylıyorum`), never by a kind word, and the approval keeps the summary hash.
+  `agent.sh deliver-step <ID> <step> [PR]` refuses unless the content fingerprint, branch, commit message, body
+  and HEAD still match the summary and an unconsumed approval of that step carries its hash. The git hooks
+  consume `commit` and `push`; `deliver-step` consumes the others (and `commit` when no run is open). A `rule:<ID>`
+  request is never approved by the delivery reply.
 
 1. `agent.sh request-approval <ID> <KIND>` records the request time and binding and prints the D13 question.
    The lead relays it verbatim.
@@ -190,7 +198,7 @@ Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the
      be a symlink; otherwise `approve` and `answer` refuse every capture and the approval is not found.
 3. Approvals are single-use: `freeze`/`refreeze` (plan, scope, budget), `handoff IMPLEMENTING` from PLANNED (destructive, single_step), `waive`, and the git hooks
    through `agent.sh approval-consume <ID|-> <commit|push> [FINGERPRINT]` (exit 0 = consumed) consume them.
-   `-` is the no-run scope (commit and push only, kept in `.agents/local/approvals/`).
+   `-` is the no-run scope (commit, push, pr, merge, cleanup and report only, kept in `.agents/local/approvals/`).
 
 Where approvals are required: supervised freeze (`plan`), a `destructive: yes` plan after the freeze, before
 IMPLEMENT (`destructive`, any autonomy; `single_step` for a one-step migration; both bound to the frozen PLAN.md hash,

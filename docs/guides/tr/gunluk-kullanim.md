@@ -8,8 +8,8 @@ English version: [daily-use.md](../daily-use.md).
 2. İşi anlat. Küçük ve netse doğrudan söylemen yeterli. Belirsiz veya büyükse `proofline task --grill "<metin>"` önce seninle konuşur, sonra bir task dosyası yazar.
 3. `proofline run <TASK>` - lead görevi tüm workflow boyunca yürütür.
 4. Lead'in aktardığı soruları cevapla (sorular uzmandan olduğu gibi gelir). COMPLEX ve CRITICAL görevlerde planı onayla.
-5. Run CODE_DONE'a geldiğinde tamamlanma raporunu oku, sonra `proofline deliver <TASK>` ile commit veya push'un ne yapacağını gör.
-6. Commit (ve push) için kendi cümlenle onay ver. Her biri, o mesajda senin onayını ve o içeriğe ait bir gate geçişini gerektirir.
+5. Run CODE_DONE'a geldiğinde tamamlanma raporunu oku, sonra `proofline deliver <TASK>` ile teslimin ne yapacağını gör.
+6. Ajan oturumunda `/proofline deliver <TASK>` tek bir özet gösterir (commit, push, pull request, yeşilse merge, temizlik). Her adımı onaylamak için `approve delivery` (veya `teslimatı onaylıyorum`) yaz; bir adımdan önce içerik değişirse zincir durur ve yeniden sorulur.
 
 Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` biçimindedir.
 
@@ -23,7 +23,7 @@ Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` 
 | `proofline run <TASK>` | tam workflow |
 | `proofline design system\|data\|api\|ui [--check]` | tasarım dokümanları; `--check` sapmayı raporlar |
 | `proofline review`, `audit`, `debug` | proof-review, test-trust ve debug-proof tek başına |
-| `proofline deliver <TASK>` | teslim kontrolü; asla commit atmaz |
+| `proofline deliver <TASK>` | teslim kontrolü; asla commit atmaz (oturumda `/proofline deliver` tek bir `approve delivery` ile teslim eder) |
 | `proofline clean [--yes]` | `.agents/local` durumunu ve biten run'ları sil |
 | `proofline insights [--run ID] [--json]` | salt okunur rapor: run, rol ve model bazında maliyet (token sadece runtime bildirdiyse) ve tekrar eden başarısızlıklar, öneriler; hiçbir şeyi değiştirmez |
 
