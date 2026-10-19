@@ -117,3 +117,62 @@ test("a robots-blocked page is skipped; unreadable facts are not_measured, which
   assert.equal(v.valid, true, v.errors.join("\n"));
   assert.ok(v.rows.filter((x) => /seo_(sitemap|robots)/.test(x)).every((x) => x.startsWith("info|")));
 });
+
+test("an inert consent-gated placeholder (type=text/plain) is not a load; the same host as an executable script fails", () => {
+  // The probe lists only executable scripts in `scripts` (no type, module, JavaScript MIME); an inert placeholder stays in the source only.
+  const placeholder = '<script type="text/plain" data-src="https://analytics.example.org/tag.js"></script>';
+  const inert = page("index.html", { scripts: [], source: `<html>${placeholder}</html>` });
+  const ri = seoEvaluate([inert], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
+  assert.deepEqual(ri.pages[0].analytics_detected, ["analytics"]); // mentioned in the source, so the item exists ...
+  const ai = ri.items.find((m) => m.check === "seo_analytics_consent");
+  assert.equal(ai.status, "pass", JSON.stringify(ai)); // ... and passes: nothing ran before consent
+  const full = run({ ...SEO, pages: ["index.html"] }, { pages: [inert], site: SITEFACTS(["index.html"]) });
+  assert.equal(full.report.result, "PASS");
+  assert.equal(full.v.valid, true, full.v.errors.join("\n"));
+
+  const live = page("index.html", { scripts: ["https://analytics.example.org/tag.js"], source: `<html>${placeholder}</html>` });
+  const rl = seoEvaluate([live], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
+  const al = rl.items.find((m) => m.check === "seo_analytics_consent");
+  assert.equal(al.status, "fail");
+  assert.match(al.note, /before consent: script element https:\/\/analytics\.example\.org/);
+});
+
+const analyticsCfg = (analytics) => ({ class: "STANDARD", base_url: BASE, viewports: [{ name: "a", width: 360, height: 740 }, { name: "b", width: 768, height: 1024 }],
+  screens: [{ id: "home", path: "index.html", states: [{ name: "default", path: "index.html", ready: "main" }] }], seo: { public_html: true, analytics } });
+
+// todo: measure.mjs checkConfig does not validate seo.analytics at all (product bug, reported in A158 test round); remove `todo` once it does.
+test("seo.analytics {hosts, globals} is validated by the config check", { todo: "checkConfig accepts any seo.analytics shape" }, () => {
+  const errs = (a) => measure.checkConfig(analyticsCfg(a)).join("\n");
+  assert.equal(errs({ hosts: ["stats.example.net"], globals: ["siteStats"] }), "");
+  assert.equal(errs(undefined), "");
+  for (const bad of ["stats.example.net", [], { hosts: "stats.example.net" }, { hosts: [1] }, { globals: "siteStats" }, { globals: [{}] }, { hosts: [""] }]) {
+    assert.match(errs(bad), /seo\.analytics/, `accepted ${JSON.stringify(bad)}`);
+  }
+});
+
+test("a project-named analytics host and global (seo.analytics) are detected and fail when loaded without consent", () => {
+  assert.equal(measure.checkConfig(analyticsCfg({ hosts: ["collect.example.net"], globals: ["siteStats"] })).join("\n"), "");
+  // collect.example.net holds no generic analytics word, so only the project list can name it.
+  const opt = { base_url: BASE, site_url: SITE, analytics: { hosts: ["collect.example.net"], globals: ["siteStats"] } };
+  const dirty = page("index.html", { scripts: ["https://collect.example.net/a.js"], globals: ["siteStats"], source: "<html></html>" });
+  const withList = seoEvaluate([dirty], SITEFACTS(["index.html"]), opt);
+  assert.deepEqual(withList.pages[0].analytics_detected, ["collect.example.net", "siteStats"]);
+  const a = withList.items.find((m) => m.check === "seo_analytics_consent");
+  assert.equal(a.status, "fail");
+  assert.match(a.note, /before consent: script element https:\/\/collect\.example\.net/);
+  assert.match(a.note, /before consent: window\.siteStats/);
+  const without = seoEvaluate([dirty], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
+  assert.equal(without.items.some((m) => m.check === "seo_analytics_consent"), false);
+});
+
+test("a robots not_applicable page without a non-empty detail is rejected by the validator", () => {
+  const blocked = page("de/index.html", { robots_meta: ["noindex"] });
+  const { report, dir } = run({ ...SEO, pages: ["index.html", "de/index.html"] }, { pages: [page("index.html"), blocked], site: SITEFACTS(["index.html"]) });
+  assert.equal(validateReport(report, { root: dir }).valid, true);
+  for (const detail of [undefined, "", "   "]) {
+    const pages = report.seo.pages.map((p) => (p.path === "de/index.html" ? { path: p.path, status: p.status, reason: p.reason, ...(detail === undefined ? {} : { detail }) } : p));
+    const r = validateReport({ ...report, seo: { ...report.seo, pages } }, { root: dir });
+    assert.equal(r.valid, false, `accepted detail ${JSON.stringify(detail)}`);
+    assert.match(r.errors.join("\n"), /not_applicable needs a non-empty detail/);
+  }
+});
