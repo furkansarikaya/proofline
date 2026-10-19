@@ -4980,7 +4980,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='report-facts build-record lessons calibrate role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -5033,6 +5033,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   lessons derive|write|validate|count|bound|text|promote   (lesson candidates from run evidence, repeat count, promotion to AGENTS.md only with a rule:<ID> approval; `write` and `promote` are lead-only)
   friction <report ID|show|issue-cmd|send>   (A149: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)
   calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)
+  debt [list|page]   (A153: the project's `shortcut: <limit>, <when to improve>` code comments with file:line; read-only, needs no run; `page` is lead-only and rewrites the one wiki page)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
@@ -5059,6 +5060,7 @@ case "$command" in
   digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
   friction) case "${2:-}" in report|send) require_lead ;; esac; sh "$scripts/friction.sh" "${2:-}" "${3:-}" ;;
   calibrate) sh "$scripts/friction.sh" calibrate ;;
+  debt) case "${2:-}" in page) require_lead ;; esac; sh "$scripts/debt.sh" "${2:-list}" ;;
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;

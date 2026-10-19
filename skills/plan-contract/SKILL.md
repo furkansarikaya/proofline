@@ -4,7 +4,7 @@ description: "Writes an executable, scoped PLAN.md for one task and validates it
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.10"
+  version: "0.0.11"
 ---
 
 # plan-contract
@@ -49,7 +49,7 @@ Talk to the user in their language. `PLAN.md` is English; identifiers, paths, co
 
 ## Gate rule
 
-This skill records no gate. A plan is ready only with validator exit 0. The plan focus reviewer (proof-review, FOCUS plan) and the Verifier treat any changed path outside `scope:` as unrequested, any dependency not in `## Dependencies` as a FAIL, and any versioned contract change not in `## Contracts` as a FAIL.
+This skill records no gate. A plan is ready only with validator exit 0. The plan focus reviewer (proof-review, FOCUS plan) and the Verifier treat any changed path outside `scope:` as unrequested, any dependency not in `## Dependencies` as a FAIL, and any versioned contract change not in `## Contracts` as a FAIL; a hunk inside the scope that changes behaviour and ties to no acceptance criterion is a blocking finding (A153), so every behaviour the plan scope allows must be explained by a criterion.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)

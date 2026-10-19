@@ -159,8 +159,12 @@ export function validate(doc) {
   if (array(doc.unrequested, "$.unrequested")) {
     doc.unrequested.forEach((u, i) => {
       const p = `$.unrequested[${i}]`;
-      if (!object(u, p, ["id", "files", "description"])) return;
+      if (!object(u, p, ["id", "files", "description"], ["blocking"])) return;
       id(u.id, `${p}.id`, "U");
+      if ("blocking" in u) {
+        if (u.blocking !== true) err(`${p}.blocking`, "must be true when present (omit it for an informational record)");
+        else if (!inRun) err(`${p}.blocking`, "allowed only inside a proofline run");
+      }
       if (array(u.files, `${p}.files`)) {
         if (u.files.length < 1) err(`${p}.files`, "needs at least 1 file");
         u.files.forEach((f, j) => str(f, `${p}.files[${j}]`));

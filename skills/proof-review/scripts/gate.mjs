@@ -27,12 +27,15 @@ export const HEADER_FOCUS = { "rules+bugs": "rules" };
 
 // Gate rule: a missing or partial claim, a reproduced or traced bug that is still open, a
 // project rule violation, or a plan deviation (new dependency, versioned contract change not
-// named in the plan) fails. Suspicions, unrequested changes and done claims never do.
+// named in the plan) fails, and so does an unrequested record marked blocking (A153: a hunk inside the
+// scope that changes behaviour and ties to no criterion). Suspicions, other unrequested changes and done
+// claims never do.
 export function computeGate(doc) {
   const failing = [
     ...(doc.claims ?? []).filter((c) => c.status === "partial" || c.status === "missing").map((c) => c.id),
     ...(doc.rules ?? []).map((r) => r.id),
     ...(doc.plan_deviations ?? []).map((p) => p.id),
+    ...(doc.unrequested ?? []).filter((u) => u.blocking === true).map((u) => u.id),
     ...(doc.bugs ?? []).filter((b) => b.status !== "fixed").map((b) => b.id),
   ].sort();
   return { result: failing.length ? "FAIL" : "PASS", failing };

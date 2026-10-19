@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.10"
+  version: "0.0.11"
 ---
 
 # proofline-lead
@@ -136,6 +136,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 | `agent.sh terminate <ID> FAILED` | Terminate with reason and evidence; final report with open findings. |
 | `agent.sh handoff <ID> CODE_DONE` | Run it. |
 | `agent.sh knowledge-done` | Knowledge step ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)). |
+| `agent.sh debt` | Shortcut debt: list (read-only) or `page` (lead, knowledge step) ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)). |
 | `agent.sh lessons` | Lesson candidates from run evidence, repeat count, promotion to `AGENTS.md` with the user's approval ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)). |
 | `write COMPLETION_REPORT.md` | [REPORT.md](references/REPORT.md); `A publish-completion-report <ID>`. |
 | `agent.sh handoff <ID> DONE` | Run it; `A delivery-check <ID>`. |
@@ -177,6 +178,7 @@ Specialist results that stop the flow:
 | `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID> [not_applicable]`. |
 | `deliver <TASK>` | The whole delivery in one command ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)): a CODE_DONE run only (FAILED and BLOCKED are refused with `to reopen: /proofline reopen <ID>`). If the knowledge step, the report or DONE is missing, run them now without asking, then `A deliver-plan <ID>` (relay the one summary, STOP), then after the user's `approve delivery` `A deliver-step <ID> commit\|push\|pr\|merge\|cleanup [PR]` in order, running the commands each prints. A refusal stops the chain: prepare and ask again. |
 | `reopen <TASK-ID>` | Take a FAILED or BLOCKED run back into the workflow ([GATES-AND-FIXES.md](references/GATES-AND-FIXES.md#5-reopen-a-failed-or-blocked-run)): `printf 'reason: <what changed>\n' \| A reopen <ID>`. It asks in this order, each time you relay the question and STOP: the mutation-budget decision (only when PLAN `## Tests` has more criteria than the budget), then `reopen:<ID>`; after each of the user's replies run the same command again. The plan stays frozen, only gates that did not pass or whose inputs changed run again, the fix rounds restart. When the gates pass the run is CODE_DONE and `deliver` works. Never reopen on your own. |
+| `debt` | The project's shortcut debt, read-only and without a run: `A debt` lists every `shortcut: <limit>, <when to improve>` code comment with `file:line`, limit and improvement condition (grep, not a model). Relay the list; change nothing. The knowledge step writes the same list to one wiki page ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)). |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 
 `init`, `upgrade`, `doctor` are CLI commands (`proofline init|upgrade|doctor`), not part of this skill.

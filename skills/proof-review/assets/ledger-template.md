@@ -73,7 +73,7 @@ Rule files found but skipped because of the ~50 KB budget, one path per line, wi
 
 ## Plan check
 
-Inside a run only (PLAN-CHECK.md in `<skill-dir>/references/`). One row per changed path outside the plan scope, per dependency manifest line added, and per versioned contract touched, with what was searched in the plan.
+Inside a run only (PLAN-CHECK.md in `<skill-dir>/references/`). One row per changed path outside the plan scope, per in-scope hunk that ties to no criterion (blocking only when it changes behaviour), per dependency manifest line added, and per versioned contract touched, with what was searched in the plan.
 
 | Kind | Subject | Location | Searched in the plan | Named in the plan | Outcome (unrequested / new_dependency / contract_change / none) |
 |---|---|---|---|---|---|

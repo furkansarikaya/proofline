@@ -153,6 +153,10 @@ proof-review `rules`; there is no other mechanism, no model-written rule, no sto
 promotion into `.agents/config.yaml` is an ordinary, user-requested config change, not part of `lessons`.
 A terminal (FAILED or BLOCKED) run cannot take an approval: its candidates stay observations.
 
+**Observations.** Read the `## Observations` section of the implementer report(s) (`reports/NNN-implementer.md`), if any. They are issues the implementer saw and left alone because they are out of scope. Show them to the user as proposed new tasks, one line each (`file:line`, the sentence, a suggested title), and ask which to keep. For each the user approves, dispatch the task-author with the observation as the request; it writes the task to `tasks.dir`. Without the user's approval nothing is written, and the observations are only named in the completion report. The implementer never fixes them and no gate counts them.
+
+**Shortcut debt.** Implementers mark a deliberate shortcut with a comment `shortcut: <limit>, <when to improve>`. When the project keeps a wiki (`docs/wiki/` exists), run `A debt page`: a script (grep, not a model) rewrites the one page `docs/wiki/concepts/shortcut-debt.md` from every such comment in the code, so a removed shortcut drops off it; link the page from `index.md` once. `A debt` (or `/proofline debt`) prints the same list at any time, read-only, without a run.
+
 When the task changed user-visible behaviour (a command, flag, config key, output or error text), also run
 docs-writer `update` on the affected documents: those under `knowledge_scope_root` in this step, any other
 document as a path in the frozen plan scope. No document is left stale.

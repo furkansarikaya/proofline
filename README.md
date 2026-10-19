@@ -15,7 +15,7 @@
 
 ## Status
 
-Version 0.0.10 is an early release.
+Version 0.0.11 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -86,6 +86,30 @@ approve every commit and push. `proofline status` shows the next step at any tim
 
 Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's environment markers, not by a terminal.
 
+## Commands
+
+`proofline <command>` in a terminal, `/proofline <command>` in an agent session. `proofline help` prints the same list.
+
+```text
+init, upgrade, doctor, version        install, update, verify, version
+status, resume, queue                 state of the active run, the task queue
+task, design, docs, explain           write a task, design documents, documentation, an explanation page
+run <TASK>                            take a task through the whole workflow
+review, audit, debug                  proof-review, test-trust and debug-proof standalone
+wiki ingest|query|lint                keep the project wiki in docs/wiki/
+knowledge <TASK>                      knowledge step of a finished run
+reopen <TASK>                         take a FAILED or BLOCKED run back into the workflow, with your approval
+deliver <TASK>                        commit, push, pull request, merge and cleanup after one approval
+debt                                  list the shortcut comments in the code (read-only, needs no run)
+clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
+```
+
+**Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition. The knowledge step writes the same list to one wiki page. A removed shortcut drops off it.
+
+**Observations.** The implementer lists issues it saw but did not touch because they are out of scope. The knowledge step proposes them to you as new tasks and writes a task only after you approve it.
+
+**Unrelated changes.** The plan review fails a change inside the scope that alters behaviour but serves no acceptance criterion. Formatting, comments and import order only produce a note.
+
 ## Real output
 
 The lead's final message from a real end-to-end run (STANDARD bug fix in the playground, Claude-only team,
@@ -125,7 +149,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.10**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.11**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

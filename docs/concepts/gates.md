@@ -91,7 +91,7 @@ Two of these focuses are tool-free (decision A88):
   a feature flag added with default on that the plan does not name; a flag removed while still referenced.
 
 Other FAIL rules: a failing test that also fails at the base in a clean worktree is reported as pre-existing;
-a new dependency not named in the plan is a FAIL; so is a change to a versioned contract the plan does not name.
+a new dependency not named in the plan is a FAIL; so is a change to a versioned contract the plan does not name. Inside the plan scope, a hunk that changes behaviour and ties to no acceptance criterion is a blocking finding of the plan review (A153); a hunk that does not change behaviour (formatting, comments, import order), and any hunk the reviewer is unsure about, stays informational.
 
 ## Fix loop
 

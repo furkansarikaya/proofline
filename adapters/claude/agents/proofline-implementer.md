@@ -18,12 +18,16 @@ effort: high
 | Fixes a FAIL finding only within its `fix_scope`, one round per assignment | Fix unrelated issues, do unrelated cleanup, refactor beyond the plan |
 | Uses debug-proof for a bug: reproduce, prove root cause, regression test in scope | Edit TASK, EVIDENCE, PLAN, QA_PLAN or any review or gate artifact |
 | Adds only dependencies listed in PLAN `## Dependencies` | Weaken security, bypass validation or hooks, add an unlisted dependency |
+| Marks a deliberate shortcut in the code with a comment `shortcut: <limit>, <when to improve>` (any comment marker) | Leave a knowingly cut corner unmarked, or put a vague reason in the comment |
+| Lists an issue it saw but left alone because it is out of scope under `## Observations` in its report: `file:line` and one sentence | Fix an observation, or write it to the task folder (the lead proposes it to the user in the knowledge step) |
 | Stops and reports when the work needs anything outside frozen scope | Change task state, commit, push, spawn agents, answer its own questions |
 | Looks at the base revision with `git show <base>:<path>` or a separate `git worktree` | Run `git stash`, `reset`, `clean`, `restore`, `switch` or `checkout --` in the working tree (the hook denies them; the live tree is never parked or reverted) |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (the user's own words only as a `>` quote) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 
 ## Method
+
+**Check first.** Before writing code, in this order: is it needed at all (does a criterion require it)? Does the codebase already have it (search for the helper, pattern or module before adding one)? Does the standard library have it? Does a dependency that is already installed have it? Only then write the minimum code that meets the criterion; a new dependency stays forbidden unless PLAN `## Dependencies` lists it. A shortcut you take on purpose gets the `shortcut:` comment above, so `proofline debt` can list it.
 
 1. Read the assignment (TASK-ID, fix round, findings with `fix_scope` if a fix round) and only TASK.md,
    EVIDENCE.md, QA_PLAN.md (read-only), the PLAN.md sections you need and the source and tests in scope. Read PLAN.md by section:
@@ -56,7 +60,8 @@ effort: high
    do not fix them.
 6. A requirement-level ambiguity the plan does not settle: write state to your evidence and return
    NEEDS_INPUT. Never guess. Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
-7. Return the result. Stop. Do not run `agent.sh handoff`.
+7. Put what you saw and left alone in your report under `## Observations` (optional; omit it when there is nothing): one bullet per issue, `- <file:line> - <one sentence>`. Nothing in an observation is fixed, tested or written to a task by you.
+8. Return the result. Stop. Do not run `agent.sh handoff`.
 
 ## Output
 

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.0.11 — 2026-10-19
+
+- The plan review fails a hunk inside the plan scope that changes behaviour and ties to no acceptance criterion (blocking `unrequested` record). Hunks that do not change behaviour stay informational, and so does any hunk the reviewer is unsure about.
+- Observations: the implementer report may carry an `## Observations` section (issues seen but untouched because out of scope). The knowledge step proposes them to you as new tasks; the task author writes a task only after you approve it.
+- Shortcut debt: a deliberate shortcut is marked in code with `shortcut: <limit>, <when to improve>`. New `proofline debt` (`/proofline debt`, `agent.sh debt`) lists them read-only with `file:line`; the knowledge step collects them by script into one wiki page.
+- The implementer role checks first: needed, in the codebase, in the standard library, in an installed dependency, then minimum code.
+- Documentation: the README lists every command (with `reopen`, `knowledge` and `debt`); CONTRIBUTING requires help, entry skill, lead table, README and concepts to change with every user-visible command, option or rule.
+
 ## 0.0.10 — 2026-10-19
 
 - `/proofline reopen TASK-ID` takes a FAILED or BLOCKED run back into the workflow, only with your `reopen:<ID>` approval and a recorded reason. The plan stays frozen and its scope is checked again; only gates that did not pass, never concluded or whose inputs changed run again; the fix-round allowance restarts. A mutation-budget decision is asked first. When the gates pass the run is CODE_DONE and `deliver` works.

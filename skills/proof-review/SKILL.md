@@ -4,7 +4,7 @@ description: "Reviews a code change (uncommitted work, a branch, or a PR) and re
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.10"
+  version: "0.0.11"
 ---
 
 # proof-review
@@ -77,8 +77,9 @@ waivable review gate, but a plain-text secret is also a SECRETS gate finding, wh
 
 Computed from the findings, never from judgement:
 
-- a `partial` or `missing` claim, a `reproduced` or `traced` bug, a project rule violation, or a plan deviation (a new dependency, or a change to a versioned contract, that the plan does not name) -> `FAIL`;
-- otherwise `PASS`. Suspicions, unrequested changes and `done` claims never fail the gate.
+- a `partial` or `missing` claim, a `reproduced` or `traced` bug, a project rule violation, or a plan deviation (a new dependency, or a change to a versioned contract, that the plan does not name), or
+- an `unrequested` record marked `"blocking": true` (inside a run only: a hunk in the plan scope that changes behaviour and ties to no acceptance criterion, [PLAN-CHECK.md](references/PLAN-CHECK.md#2-unrequested-changes-in-a-run)) -> `FAIL`;
+- otherwise `PASS`. Suspicions, other unrequested changes and `done` claims never fail the gate.
 
 `findings.json` carries `gate: {result, failing}`; `node <skill-dir>/scripts/validate-findings.mjs` recomputes it and rejects a mismatch or a focus that reports another focus's series. `node <skill-dir>/scripts/gate.mjs <findings.json>` prints the result.
 
@@ -252,7 +253,7 @@ BLOCKED_REASON: <only for BLOCKED>
 ```
 
 - `FOCUS` is the assigned focus (the risk focus `config` is also valid, see [Config focus](#config-focus)): `plan` -> gate `REVIEW_PLAN`, dir `plan`; `rules` (skill focus `rules+bugs`) -> `REVIEW_RULES`, dir `rules`; `rules+tests` -> `REVIEW_SMALL`, dir `small`; `config` (risk focus) -> the gate that carries it (`REVIEW_RULES`, or `REVIEW_SMALL` on tier small), dir `config`; its rows come from `validate-config.mjs --table`, the item id (`G001`) opens the finding text. Row ids are `<GATE>-<n>` (`REVIEW_PLAN-1`, `REVIEW_RULES-2`, `REVIEW_SMALL-1`), numbered from 1 in the order of the internal ids, no gaps, no repeats. The skill's own ids (`C002`, `P001`, `R001`, `F001`, `U001`, `S001`) stay in `findings.json` and `REPORT.md` and open the row's finding text; they are never the row id.
-- `severity` is exactly `blocking` or `info`. Every finding that fails the gate (a `partial` or `missing` claim, a rule violation, an open `reproduced` or `traced` bug, a plan deviation) is one `blocking` row. Unrequested changes and suspicions are `info` rows. `done` claims and `needs_validation` notes produce no row. `evidence` is `reproduced`, `traced`, the rule's `file:line`, or `-`. Zero rows on a clean `PASS`.
+- `severity` is exactly `blocking` or `info`. Every finding that fails the gate (a `partial` or `missing` claim, a rule violation, an open `reproduced` or `traced` bug, a plan deviation, an `unrequested` record with `"blocking": true`) is one `blocking` row. Other unrequested changes and suspicions are `info` rows. `done` claims and `needs_validation` notes produce no row. `evidence` is `reproduced`, `traced`, the rule's `file:line`, or `-`. Zero rows on a clean `PASS`.
 - `RESULT` is the computed gate result: `FAIL` exactly when at least one `blocking` row exists, else `PASS`; never `NEEDS_INPUT` or `DONE`. `BLOCKED` when the review could not run (no plan or task file, no command execution, not a git repository, content changed during the review, no diff base, size decision of step 3, worktree build failure of step 9); `BLOCKED_REASON` names the decision or the missing capability. A `BLOCKED` result has no `blocking` row.
 - `CONFIDENCE`: `high` when every phase of the focus completed, every bug survived refutation, and nothing is in `scope.not_reviewed`; `medium` when something was not reviewed (size or risk order, rule files over the budget) or a bug is `traced` only because running was not possible; `low` when a refutation was inconclusive for a finding that decides the result or a claim could not be judged from the plan's wording. A `PASS` with `low` does not satisfy the gate.
 - `ARTIFACT` is the run-relative path of `<dir>/REPORT.md` and its sha256 (`shasum -a 256`, or `sha256sum`), computed after the report is final.
