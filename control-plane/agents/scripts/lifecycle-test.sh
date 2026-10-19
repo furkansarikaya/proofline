@@ -899,10 +899,8 @@ scenario_freeze_scope_mapping() {
   grep -q 'scope_paths: "impl.txt,impl_test.txt"' .agents/runs/LC/RUN.yaml || die "scope_paths not recorded"
   ok "freeze validates scope mapping first"
 }
-
-# A FAILED run: the draft pull request body lists the non-passing gates from the records; the run evidence goes only
-# with a separate cleanup approval once that body exists.
-scenario_failed_draft_pr() {
+# A FAILED run is cleaned up after its evidence is reported; deliver never opens a draft pull request (A152).
+scenario_failed_run_cleanup() {
   export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
@@ -911,18 +909,11 @@ scenario_failed_draft_pr() {
   gfail QA impl.txt; A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl.txt 'impl: second attempt at the empty key default'; A handoff LC IMPLEMENTED >/dev/null
   gfail VERIFY impl.txt
-  expect_fail "a draft pull request body for a run that is not FAILED" A draft-pr-body LC
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
-  expect_msg "a draft pull request body before the knowledge step" 'knowledge step not complete' A draft-pr-body LC
   A knowledge-done LC not_applicable >/dev/null || die "knowledge-done refused on a FAILED run"
-  A draft-pr-body LC > "$base/dp.out" || die "no draft pull request body for a FAILED run"
-  grep -q '^- VERIFY: fail' "$base/dp.out" && grep -q 'VERIFY-1|blocking|impl.txt:1|lookup returns the wrong value' "$base/dp.out" || die "the body lacks the failing gate and its recorded finding: $(cat "$base/dp.out")"
-  grep -q 'Fix rounds: 2 of 2' "$base/dp.out" || die "the body miscounts the fix rounds"
-  expect_msg "cleanup of a run with a draft pull request body needs its own approval" 'own approval' A cleanup LC
-  A request-approval - cleanup >/dev/null; capture 'approve the cleanup'; A approve - cleanup >/dev/null
-  A cleanup LC >/dev/null || die "cleanup refused after the separate approval"
-  [ ! -d .agents/runs/LC ] || die "the run directory survived the approved cleanup"
-  ok "FAILED run: draft pull request body from the records, cleanup behind a separate approval"
+  A cleanup LC >/dev/null || die "cleanup of a FAILED run refused"
+  [ ! -d .agents/runs/LC ] || die "the run directory survived the cleanup"
+  ok "FAILED run: no draft pull request (deliver is refused, A152); cleanup needs no extra approval"
 }
 
 # 0.0.5: a designer window opened before any PLAN.md exists is refused for its real reason, with no grep error.
@@ -957,7 +948,7 @@ scenario_window_open_no_plan() {
 }
 
 run_sc scenario_standalone
-run_sc scenario_failed_draft_pr
+run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
 run_sc scenario_evidence_order
 run_sc scenario_independence

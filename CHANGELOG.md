@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.0.10 — 2026-10-19
+
+- `/proofline reopen TASK-ID` takes a FAILED or BLOCKED run back into the workflow, only with your `reopen:<ID>` approval and a recorded reason. The plan stays frozen and its scope is checked again; only gates that did not pass, never concluded or whose inputs changed run again; the fix-round allowance restarts. A mutation-budget decision is asked first. When the gates pass the run is CODE_DONE and `deliver` works.
+- `deliver` refuses a FAILED or BLOCKED run in one line (`to reopen: /proofline reopen <ID>`). The draft pull request for a FAILED run (0.0.5/0.0.9) is removed.
+- `deliver` no longer stops with `knowledge step not complete`: the lead runs the knowledge step, report and DONE first, then asks once; the summary lists what the knowledge step changed.
+- A change confined to `.agents/` (the control plane, `proofline upgrade` included) no longer makes gates stale: the content fingerprint counts product files only.
+
 ## 0.0.9 — 2026-10-19
 
 - One-command delivery: `deliver` prepares the run (knowledge first if not done) and `agent.sh deliver-plan` writes `SUMMARY.md` (changed and knowledge paths, commit message, branch, PR kind and body, when merge and cleanup happen, open `rule:*` requests listed separately). One "approve delivery" is recorded as separate approvals for commit, push, pr, merge and cleanup, each bound to the content fingerprint and the summary sha256.

@@ -396,7 +396,9 @@ validate_captured_baseline() {
 }
 
 # --- Content fingerprint (D12/D14): git tree id of the working tree incl. untracked files,
-# excluding .agents/runs/ and .agents/local/. Built in a temporary index; never touches the real one.
+# excluding .agents/ (A152: the control plane, `proofline upgrade` included, is not product content and must not make
+# a gate stale; runs, local state and the task directory are part of it). Built in a temporary index; never touches
+# the real one.
 content_fingerprint() {
   cf_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-fp.XXXXXX")
   cf_idx=$(git -C "$root" rev-parse --git-path index)
@@ -414,7 +416,7 @@ content_fingerprint() {
       if [ -n "$1" ]; then GIT_OBJECT_DIRECTORY=$1; GIT_ALTERNATE_OBJECT_DIRECTORIES=$cf_objs; export GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; fi
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
       git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
-      git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents/runs .agents/local "$(cfg tasks.dir .agents/tasks)" >/dev/null 2>&1
+      git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$(cfg tasks.dir .agents/tasks)" >/dev/null 2>&1
       git -C "$root" write-tree 2>/dev/null
     )
   }
@@ -2154,9 +2156,15 @@ next_gate_seq() {
   for f in $(gate_names_all "$1"); do s=$(printf '%s' "$f" | cut -c1-3 | sed 's/^0*//'); if [ "${s:-0}" -gt "$n" ]; then n=$s; fi; done
   printf '%d\n' $((n + 1))
 }
+# last_reopen_seq ID [any|terminal]: the seq of the last REOPEN record. Default: an `amend` reopen, which discards every
+# earlier gate record. `terminal`: the last `reopen` of a FAILED/BLOCKED run (A152, marked `reopened_from`); its passing
+# records stay, its non-passing ones do not. `any`: both (the fix-round allowance restarts at either).
 last_reopen_seq() {
   n=0
-  for f in $(gate_names "$1"); do case "$f" in *-REOPEN.yaml) n=$(gate_field "$(gates_dir "$1")/$f" seq) ;; esac; done
+  for f in $(gate_names "$1"); do case "$f" in *-REOPEN.yaml)
+    lr_t=$(gate_field "$(gates_dir "$1")/$f" reopened_from)
+    case "${2:-amend}:$lr_t" in amend:|any:*|terminal:?*) ;; *) continue ;; esac
+    n=$(gate_field "$(gates_dir "$1")/$f" seq) ;; esac; done
   printf '%s\n' "$n"
 }
 patch_manifest() { task_owned_paths "$1" | while IFS= read -r p; do if [ -n "$p" ]; then printf '%s|%s\n' "$p" "$(fingerprint_path "$p")"; fi; done; }
@@ -2255,7 +2263,10 @@ gate_focus_status() {
   fi
   case "$(gate_field "$gfs_last" result)" in
     pass) echo pass ;; pass_low) echo pass_low ;; unsupported) echo unsupported ;;
-    fail) if fail_fully_waived "$gfs_id" "$gfs_last"; then echo waived; else echo fail; fi ;;
+    fail)
+      if fail_fully_waived "$gfs_id" "$gfs_last"; then echo waived
+      elif [ "$(gate_field "$gfs_last" seq)" -le "$(last_reopen_seq "$gfs_id" terminal)" ]; then echo stale   # A152: a failure from before a reopen runs again
+      else echo fail; fi ;;
     *) echo stale ;;
   esac
 }
@@ -2282,7 +2293,7 @@ verify_required_gates() { # ID strict|patch MESSAGE
 # Fix rounds (D15): one round per distinct content that collected an unwaived blocking FAIL
 # under the current frozen contract since the last reopen.
 fix_rounds_used() {
-  fr_reopen=$(last_reopen_seq "$1")
+  fr_reopen=$(last_reopen_seq "$1" any)
   for fr_n in $(gate_names "$1"); do
     fr_f=$(gates_dir "$1")/$fr_n
     [ "$(gate_field "$fr_f" result)" = fail ] || continue
@@ -3441,7 +3452,7 @@ raise_budget() {
 valid_approval_kind() {
   case "$1" in
     plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report) return 0 ;;
-    waive:*|rule:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
+    waive:*|rule:*|reopen:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -3449,9 +3460,12 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then printf '%s/.agents/local/approvals\n' "$root"; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|waive:<FINDING-ID>|rule:<LESSON-ID>)"
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>)"
   if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
-  require_run "$1"; require_open_run "$1"
+  require_run "$1"
+  # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
+  case "$2" in reopen:*) [ "${2#reopen:}" = "$1" ] || fail "approval kind $2 names another run; the kind for $1 is reopen:$1"; return 0 ;; mutation_budget) return 0 ;; esac
+  require_open_run "$1"
 }
 ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; fi; }
 # commit/push bind the content fingerprint, plan-like kinds the PLAN.md hash, waive:<F> the failing gate
@@ -3460,7 +3474,7 @@ approval_bound() { # ID KIND
   case "$2" in
     commit|push|pr|merge|cleanup) content_fingerprint ;;
     report) hash_file "$root/.agents/local/friction/latest.md" ;;
-    plan|destructive|single_step|scope|budget|mutation_budget) hash_file "$(run_dir "$1")/PLAN.md" ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
   esac
@@ -3475,6 +3489,7 @@ kind_words() {
     pr) echo 'pr pull request' ;;
     delivery) echo 'delivery teslimat teslimatı teslimati' ;;
     rule:*) printf 'rule %s\n' "${1#rule:}" ;;
+    reopen:*) printf 'reopen %s\n' "$(printf '%s' "${1#reopen:}" | tr '[:upper:]' '[:lower:]')" ;;
     waive:*) printf '%s\n' "${1#waive:}" | tr '[:upper:]' '[:lower:]' ;;
     *) printf '%s\n' "$1" ;;
   esac
@@ -3538,7 +3553,7 @@ approval_fillers() { echo 'the, a, an, it, this, please, for, with, to, and, lü
 # variants too; Turkish case folding is ASCII only, so an upper-case non-ASCII letter does not match). A reply that
 # equals one of them after normalisation approves (with a run id also `... for <ID>` and `<ID> için ...`). The object word is the kind's own: a sentence of another kind never matches.
 approval_sentences() {
-  as_id=${1#waive:}; as_id=${as_id#rule:}
+  as_id=${1#waive:}; as_id=${as_id#rule:}; as_id=${as_id#reopen:}
   case "$1" in
     plan) as_en='the plan'; as_tr='planı|plani' ;;
     destructive) as_en='the destructive step|the destructive change'; as_tr='yıkıcı adımı|yikici adimi|yıkıcı değişikliği|yikici degisikligi' ;;
@@ -3555,9 +3570,10 @@ approval_sentences() {
     delivery) as_en='the delivery'; as_tr='teslimatı|teslimati' ;;
     waive:*) as_en="the waiver of $as_id"; as_tr="$as_id feragatini" ;;
     rule:*) as_en="the rule $as_id"; as_tr="$as_id kuralını" ;;
+    reopen:*) as_en="the reopen of $as_id"; as_tr="$as_id yeniden açılışını|$as_id yeniden acilisini" ;;
     *) return 0 ;;
   esac
-  case "$1:${2:--}" in waive:*|rule:*|*:-) as_run='' ;; *) as_run=$2 ;; esac
+  case "$1:${2:--}" in waive:*|rule:*|reopen:*|*:-) as_run='' ;; *) as_run=$2 ;; esac
   printf '%s\n' "$as_en" | tr '|' '\n' | while IFS= read -r as_o; do
     printf 'i approve %s\ni approved %s\n' "$as_o" "$as_o"
     [ -z "$as_run" ] || printf 'i approve %s for %s\ni approved %s for %s\n' "$as_o" "$as_run" "$as_o" "$as_run"
@@ -3713,7 +3729,8 @@ approval_why() { # KIND BOUND [tr]
       budget) echo 'düzeltme turları bitti: yeniden dondurma yeni bir düzeltme bütçesi başlatır' ;;
       mutation_budget) echo 'test_trust.mutation_budget planın ## Tests ölçütlerinden az: ölçüt başına bir mutant gerekir; bütçe yalnızca bu koşuda artar' ;;
       commit|push|pr|merge) echo "içerik $2 için teslim açık onay gerektirir" ;;
-      cleanup) echo 'taslak PR tesliminden sonra koşu kanıtı ayrı bir onayla silinir' ;;
+      cleanup) echo 'birleştirmeden sonra koşu kanıtı silinir' ;;
+      reopen:*) echo 'başarısız veya engellenmiş koşu yalnızca kullanıcı onayıyla yeniden açılır; plan değişmez, geçmeyen kapılar yeniden çalışır' ;;
       rule:*) echo "kanıttan çıkan ders proje kuralı olur: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
@@ -3728,7 +3745,8 @@ approval_why() { # KIND BOUND [tr]
     budget) echo 'the fix rounds are exhausted: a refreeze would start a fresh fix budget' ;;
     mutation_budget) echo 'test_trust.mutation_budget is below the criteria of PLAN ## Tests (one mutant each is the minimum): the budget is raised for this run only, .agents/config.yaml is not edited' ;;
     commit|push|pr|merge) echo "delivery of content $2 needs explicit approval" ;;
-    cleanup) echo 'after the draft pull request delivery the run evidence is deleted only on a separate approval' ;;
+    cleanup) echo 'after the merge the run evidence is deleted' ;;
+    reopen:*) echo 'a FAILED or BLOCKED run is reopened only with your approval: the plan stays frozen, only gates that did not pass or whose inputs changed run again, and the fix-round allowance restarts' ;;
     rule:*) echo "a lesson from run evidence becomes a project rule: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
@@ -4322,6 +4340,60 @@ amend_run() {
   echo "run reopened: $g_id ($g_name); handoff IMPLEMENTING, execution AMENDING — implement the bounded fix, then every required gate runs again"
 }
 
+# --- Reopen a FAILED or BLOCKED run (A152) ----------------------------------------------------
+# reopen ID (reason on stdin): the way from FAILED/BLOCKED back to the run's earlier state, only with the user's
+# `reopen:<ID>` approval (bound to the PLAN.md hash; no model can create it). The plan stays frozen and its scope
+# is checked again. Gate records that passed on unchanged inputs stay; a gate that failed, was BLOCKED or never
+# concluded, or whose inputs changed, runs again (gate_focus_status, `reuse`). The fix-round allowance restarts.
+# A mutation-budget decision the plan needs is asked first, before anything else is checked.
+reopen_run() {
+  ro_id=$1; require_run "$ro_id"; ro_d=$(run_dir "$ro_id"); require_lead
+  gates_enforced "$ro_id" || fail "reopen requires the lifecycle_gates policy: run $ro_id has none; open a new task"
+  ro_st=$(run_state "$ro_d")
+  case "$ro_st" in FAILED|BLOCKED) ;; *) fail "reopen takes a FAILED or BLOCKED run only ($ro_id is $ro_st); a CODE_DONE run is reopened with 'agent.sh amend'" ;; esac
+  verify_seal "$ro_id"
+  ro_scratch=$(mktemp "${TMPDIR:-/tmp}/agent-reopen.XXXXXX"); cat > "$ro_scratch"
+  ro_reason=$(field_from "$ro_scratch" reason); rm -f "$ro_scratch"
+  reject_generic_justification "$ro_reason" || fail "reopen requires a specific 'reason:' on stdin (>=20 chars: what changed since the run ended)"
+  ro_prev=$(grep ' event=terminate ' "$(ledger_file "$ro_id")" | tail -1 | sed -n 's/.* from=\([^ ]*\) .*/\1/p')
+  [ -n "$ro_prev" ] || fail "reopen: the ledger has no terminate transition for $ro_id"
+  enforce_task_branch "$ro_id"
+  # 1. the budget decision, first: criteria above the mutation budget are one question now, not a BLOCKED gate later
+  ro_ph=$(hash_file "$ro_d/PLAN.md"); ro_n=$(plan_test_acs "$ro_d/PLAN.md"); ro_budget=''
+  if [ "$ro_n" -gt "$(mutation_budget "$ro_id")" ]; then
+    ro_budget=$(find_approval "$ro_id" mutation_budget "$ro_ph") || {
+      ro_r=$(latest_request "$ro_id" mutation_budget) && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" mutation_budget
+      fail "reopen $ro_id: PLAN ## Tests names $ro_n criteria above the mutation budget $(mutation_budget "$ro_id"). Relay the budget question above, wait for the user's answer, then run reopen again"
+    }
+  fi
+  # 2. the plan is unchanged and the scope still holds (product changes made outside the run show up here)
+  verify_freshness "$ro_id" >/dev/null
+  verify_scope "$ro_id" 1 >/dev/null || fail "reopen blocked: files changed outside the frozen scope (listed above); the user resolves them first"
+  # 3. the user's approval
+  ro_kind=reopen:$ro_id
+  ro_app=$(find_approval "$ro_id" "$ro_kind" "$ro_ph") || {
+    ro_r=$(latest_request "$ro_id" "$ro_kind") && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" "$ro_kind"
+    fail "reopen $ro_id needs the user's approval: relay the question above, wait for the user's answer, then run reopen again (reason on stdin)"
+  }
+  # 4. apply: the record is written like amend's, marked terminal (it restarts the fix rounds only)
+  ro_seq=$(next_gate_seq "$ro_id"); ro_name=$(printf '%03d-REOPEN' "$ro_seq"); ro_gd=$(gates_dir "$ro_id"); mkdir -p "$ro_gd"
+  patch_manifest "$ro_id" > "$ro_gd/$ro_name.manifest" || fail "could not write reopen manifest"
+  ro_hs=$(section_value "$ro_d" handoff state)
+  {
+    printf 'task_id: "%s"\nseq: %s\ngate: "REOPEN"\nresult: "reopen"\nrole: "%s"\n' "$ro_id" "$ro_seq" "$execution_role"
+    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(content_fingerprint)" "$(task_patch_fingerprint "$ro_id")" "$(hash_file "$ro_gd/$ro_name.manifest")"
+    printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$ro_d" freeze task_sha256)" "$(section_value "$ro_d" freeze evidence_sha256)" "$(section_value "$ro_d" freeze plan_sha256)" "$(section_value "$ro_d" freeze qa_plan_sha256)"
+    printf 'reason: %s\nauthorized_by: user approval %s\nreopened_from: "%s"\nrestored_execution_state: "%s"\nhandoff_state: "%s"\n' "$(one_line "$ro_reason")" "$(basename "$ro_app")" "$ro_st" "$ro_prev" "$ro_hs"
+    printf 'previous_knowledge_state: "%s"\ntimestamp: "%s"\n' "$(section_value "$ro_d" execution knowledge_state)" "$(now_iso)"
+  } > "$ro_gd/$ro_name.yaml" || fail "could not write reopen record"
+  consume_approval "$ro_id" "$ro_app"
+  set_run_value "$ro_id" execution state "$ro_prev"
+  if section_key_present "$ro_d" execution knowledge_state; then set_run_value "$ro_id" execution knowledge_state not_started; fi
+  ledger_append "$ro_id" REOPEN "$ro_hs" "$ro_hs" "$(ledger_token "gates/$ro_name.yaml" "$ro_id") reopened from $ro_st, authorized_by=user approval $(basename "$ro_app"): $ro_reason"
+  if [ -n "$ro_budget" ]; then raise_budget "$ro_id" "$ro_n" >/dev/null; fi
+  echo "run reopened: $ro_id ($ro_name); execution $ro_st -> $ro_prev, handoff $ro_hs, fix rounds restart at 0; gates that did not pass or whose inputs changed run again (agent.sh next $ro_id)"
+}
+
 # --- Completion report (task-system agnostic; adapters in .agents/task-integrations/) ------
 # A98: `next` names every UNSUPPORTED focus before CODE_DONE and the report: unproven, never a PASS.
 unsupported_next() { # ID
@@ -4453,33 +4525,6 @@ report_facts() {
   printf -- '- Worker-evidence run records: total %s, ended pass %s, ended fail %s (a RED record ends fail on purpose; this is not a count of failing tests)\n' "$rf_wt" "$rf_wp" "$((rf_wt - rf_wp))"
   printf -- '- Test cases: no record carries the number of individual tests, so no such number is stated here.\n%s\n' "$REPORT_FACTS_END"
 }
-# Body of the DRAFT pull request for a FAILED run (delivery of a failure, with the user's approval): the non-passing
-# gates, their recorded blocking findings and BLOCKED reasons, copied from the run records. No model-written text.
-draft_pr_body() {
-  dp_id=$1; require_run "$dp_id"; require_lead; dp_d=$(run_dir "$dp_id")
-  [ "$(run_state "$dp_d")" = FAILED ] || fail "a draft pull request is for a FAILED run; $dp_id is $(run_state "$dp_d") (a CODE_DONE run goes through 'delivery-check')"
-  require_knowledge_done "$dp_id"
-  if [ "$(baseline_status "$dp_d")" = captured ]; then verify_knowledge_scope "$dp_id" >/dev/null; scan_knowledge_secrets "$dp_id"; fi
-  risk_prime "$dp_id"; dp_fp=$(content_fingerprint); dp_out=$root/.agents/local/draft-pr-$dp_id.md
-  mkdir -p "$root/.agents/local"
-  {
-    printf '# DRAFT: %s did not pass its gates\n\nGenerated from the run records. Do not merge: proofline merge refuses a draft.\n\n## Non-passing gates\n\n' "$dp_id"
-    for dp_g in $(required_gates "$dp_id"); do
-      for dp_fc in - $(risk_gate_focuses "$dp_id" "$dp_g"); do
-        dp_s=$(gate_focus_status "$dp_id" "$dp_g" "$dp_fc" reuse "$dp_fp"); gate_satisfied "$dp_s" && continue
-        dp_n=$dp_g; [ "$dp_fc" = - ] || dp_n=$dp_g:$dp_fc
-        printf -- '- %s: %s\n' "$dp_n" "$dp_s"
-        dp_f=$(gate_latest_file "$dp_id" "$dp_g" "$dp_fc")
-        [ -z "$dp_f" ] || grep '^finding: [^|]*|blocking|' "$dp_f" | sed 's/^finding: /  - /' || :
-        [ "$dp_fc" != - ] || { dp_b=$(grep "event=record:[a-z_]*:BLOCKED" "$(ledger_file "$dp_id")" | grep " gate=$dp_g\$" | tail -1 | sed 's/.* detail=\([^ ]*\) .*/\1/')
-          [ -z "$dp_b" ] || sed -n 's/^BLOCKED_REASON:[[:space:]]*/  - BLOCKED: /p' "$dp_d/$dp_b" | head -1; }
-      done
-    done
-    printf '\n## Run facts\n\n- Fix rounds: %s of %s\n- Refreezes: %s\n' "$(fix_rounds_done "$dp_id")" "$(max_fix_rounds)" "$(grep -c 'event=refreeze ' "$(ledger_file "$dp_id")" 2>/dev/null || true)"
-  } > "$dp_out"
-  echo "draft pull request body written: .agents/local/draft-pr-$dp_id.md"
-  cat "$dp_out"
-}
 REPORT_FACTS_BEGIN='<!-- proofline:facts:begin -->'
 REPORT_FACTS_END='<!-- proofline:facts:end -->'
 report_strip_facts() { # FILE: remove an earlier Facts block
@@ -4598,7 +4643,7 @@ knowledge_done() {
   if gates_enforced "$id"; then ledger_append "$id" knowledge-done "$(section_value "$dir" handoff state)" "$state" ""; fi
   echo "knowledge state recorded: $id $state"
 }
-# Delivery (a pull request, draft or not) waits for the knowledge step (A147).
+# Delivery waits for the knowledge step (A147); deliver-plan runs it as part of the delivery (A152) instead of stopping.
 require_knowledge_done() {
   case "$(section_value "$(run_dir "$1")" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "delivery blocked: knowledge step not complete; run '/proofline knowledge $1' (agent.sh knowledge-done $1 [not_applicable])" ;; esac
 }
@@ -4630,12 +4675,7 @@ cleanup_run() {
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
-      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id"
-      # A draft pull request was prepared for this run: its evidence goes only with the user's separate cleanup approval.
-      if [ -f "$root/.agents/local/draft-pr-$id.md" ]; then
-        cu_app=$(find_approval - cleanup "$(content_fingerprint)") || fail "cleanup after the draft pull request delivery needs its own approval: 'agent.sh request-approval - cleanup', relay it, then run cleanup again"
-        consume_approval - "$cu_app"
-      fi ;;
+      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
     *)
       [ "$(section_value "$dir" handoff state)" = DONE ] || fail "cleanup requires handoff DONE (or a FAILED/BLOCKED run): $id"
       cu_base=$(repository_base_sha "$dir")
@@ -4670,7 +4710,7 @@ cleanup_run() {
   if [ -f "$marker" ] && [ "$(sed '/^[[:space:]]*$/d' "$marker")" = "$id" ]; then : > "$marker"; fi
   # assignments first: if this rm fails the run still exists and cleanup can be retried
   [ ! -d "$adir" ] || rm -rf "$adir" || fail "could not remove $adir; the run is kept, retry cleanup"
-  rm -rf "$dir"; rm -f "$root/.agents/local/draft-pr-$id.md"
+  rm -rf "$dir"
   echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
 }
 
@@ -4681,7 +4721,6 @@ cleanup_run() {
 # deliver-step checks the shown content still holds and its step's approval exists before each step, then prints
 # the command the lead runs (agent.sh never commits, pushes or merges; the git hooks consume commit and push).
 deliver_dir() { printf '%s/.agents/local/deliver/%s\n' "$root" "$1"; }
-deliver_target() { case "$(run_state "$(run_dir "$1")")" in FAILED|BLOCKED) echo - ;; *) printf '%s\n' "$1" ;; esac; }
 # deliver_pr_view PR -> "STATE ISDRAFT HEAD-SHA HEAD-BRANCH BASE-BRANCH", or "unreadable". Runs before the locks are
 # taken (a slow gh never holds them). No env seam: gh comes from PATH and, like `proofline merge`, is refused when it
 # resolves into the project, the working directory or a temp directory (PROOFLINE_SELFTEST=1 lifts that for the
@@ -4716,19 +4755,21 @@ deliver_plan() {
   dl_id=$1; shift; dl_msg=''
   while [ $# -gt 0 ]; do case "$1" in --message) dl_msg=${2:-}; shift 2 || shift ;; *) fail "unknown deliver-plan argument: $1" ;; esac; done
   require_run "$dl_id"; require_lead; dl_d=$(run_dir "$dl_id"); dl_state=$(run_state "$dl_d")
-  dl_dir=$(deliver_dir "$dl_id"); dl_t=$(deliver_target "$dl_id")
+  dl_dir=$(deliver_dir "$dl_id"); dl_t=$dl_id
   dl_title=$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$dl_d/TASK.md" 2>/dev/null | tr -d '"`$\\'); [ -n "$dl_title" ] || dl_title=$dl_id
   case "$dl_state" in
-    FAILED) dl_kind=draft dl_steps='commit push pr cleanup'
-      draft_pr_body "$dl_id" >/dev/null
-      enforce_task_branch "$dl_id"
-      [ -n "$dl_msg" ] || dl_msg="chore: $dl_title ($dl_id, gates failed)" ;;
+    FAILED|BLOCKED) fail "delivery refused: $dl_id is $dl_state; to reopen: /proofline reopen $dl_id" ;;   # A152: no draft pull request
     CODE_DONE) dl_kind=normal dl_steps='commit push pr merge cleanup'
-      require_knowledge_done "$dl_id"
-      [ "$(section_value "$dl_d" handoff state)" = DONE ] || fail "delivery blocked: $dl_id is not DONE yet (completion report published, handoff DONE); next step: agent.sh next $dl_id"
+      # A152: an unfinished knowledge step or report is not a stop. Print what to do now (no question, nothing written);
+      # the knowledge step's changed paths are listed in the one summary the user approves.
+      case "$(section_value "$dl_d" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) dl_kd=1 ;; *) dl_kd=0 ;; esac
+      if [ "$dl_kd" = 0 ] || [ "$(section_value "$dl_d" handoff state)" != DONE ]; then
+        printf 'delivery of %s is not ready to summarize; this is no refusal and no question to the user yet.\nRun the rest of the run now: the knowledge step (/proofline knowledge %s; its changed paths are listed in the one delivery summary), the completion report and DONE. Then run deliver-plan again and ask once.\n' "$dl_id" "$dl_id"
+        next_step "$dl_id"; return 0
+      fi
       delivery_check "$dl_id" >/dev/null
       [ -n "$dl_msg" ] || dl_msg="feat: $dl_title ($dl_id)" ;;
-    *) fail "delivery blocked: $dl_id is $dl_state; a DONE run gets a pull request, a FAILED run a draft pull request" ;;
+    *) fail "delivery blocked: $dl_id is $dl_state, not CODE_DONE; next step: agent.sh next $dl_id" ;;
   esac
   case "$dl_msg" in *[\"\`\$\\]*) fail "the commit message must not hold \" \` \$ or \\" ;; esac
   [ "$(printf '%s\n' "$dl_msg" | wc -l | tr -d ' ')" = 1 ] || fail "the commit message is one line"
@@ -4741,8 +4782,7 @@ deliver_plan() {
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
   dl_kn=$(knowledge_owned_paths "$dl_id" 2>/dev/null || true)
   mkdir -p "$dl_dir"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
-  if [ "$dl_kind" = draft ]; then cp "$root/.agents/local/draft-pr-$dl_id.md" "$dl_dir/PR_BODY.md"; dl_prt="DRAFT: $dl_id failed its gates"
-  else cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg; fi
+  cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg
   dl_fp=$(content_fingerprint)
   {
     printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nowner: %s\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$dl_own" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
@@ -4754,13 +4794,9 @@ deliver_plan() {
     printf '\nsteps, in order:\n'
     case " $dl_steps " in *" commit "*) printf '  commit : git commit -F .agents/local/deliver/%s/COMMIT_MSG on %s (the pre-commit hook checks the gated content)\n' "$dl_id" "$dl_br" ;; esac
     printf '  push   : git push -u origin %s\n' "$dl_br"
-    if [ "$dl_kind" = draft ]; then
-      printf '  pr     : a DRAFT pull request into %s, body from the run records\n  merge  : never (a draft pull request is never merged; proofline merge refuses it)\n  cleanup: right after the draft pull request is opened\n' "$dl_base"
-    else
-      printf '  pr     : a pull request into %s, body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a red or failed check stops here (no cleanup)\n  cleanup: after the merge\n' "$dl_base"
-    fi
+    printf '  pr     : a pull request into %s, body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a red or failed check stops here (no cleanup)\n  cleanup: after the merge\n' "$dl_base"
     dl_r=''
-    [ "$dl_t" = - ] || for dl_rq in "$(approvals_dir "$dl_id")"/[0-9][0-9][0-9]-request-rule-*.yaml; do
+    for dl_rq in "$(approvals_dir "$dl_id")"/[0-9][0-9][0-9]-request-rule-*.yaml; do
       [ -f "$dl_rq" ] || continue; dl_rk=$(gate_field "$dl_rq" kind)
       ls "$(approvals_dir "$dl_id")"/[0-9][0-9][0-9]-"$(kind_slug "$dl_rk")".yaml >/dev/null 2>&1 && continue
       case " $dl_r " in *" $dl_rk "*) continue ;; esac; dl_r="$dl_r $dl_rk"
@@ -4789,7 +4825,7 @@ deliver_step() {
   ds_v() { sed -n "s/^$1: //p" "$ds_sum" | head -1; }
   ds_stop() { fail "delivery of $ds_id stopped before $ds_s: $1. Nothing was run. Prepare it again (agent.sh deliver-plan $ds_id), relay the new summary and wait for the user's reply"; }
   case " $(ds_v steps) " in *" $ds_s "*) ;; *) ds_stop "$ds_s is not a step of this delivery (steps: $(ds_v steps))" ;; esac
-  ds_h=$(hash_file "$ds_sum"); ds_t=$(deliver_target "$ds_id"); ds_k=$(ds_v kind); ds_br=$(ds_v branch); ds_rel=.agents/local/deliver/$ds_id
+  ds_h=$(hash_file "$ds_sum"); ds_t=$ds_id; ds_br=$(ds_v branch); ds_rel=.agents/local/deliver/$ds_id
   [ "$(content_fingerprint)" = "$(ds_v content)" ] || ds_stop "the content changed since the approved summary"
   [ "$(git -C "$root" branch --show-current)" = "$ds_br" ] || ds_stop "the branch is not $ds_br"
   [ "$(hash_file "$ds_dir/COMMIT_MSG")" = "$(ds_v message_sha256)" ] && [ "$(hash_file "$ds_dir/PR_BODY.md")" = "$(ds_v body_sha256)" ] || ds_stop "the commit message or the pull request body changed"
@@ -4807,7 +4843,6 @@ deliver_step() {
   ds_want="$ds_head $ds_br $(ds_v base) $(ds_v owner)"; ds_pv=${deliver_pv:-unreadable}
   case "$ds_s" in
     commit)
-      [ "$ds_t" != - ] || consume_approval - "$ds_app"   # no open run: the pre-commit hook consumes nothing
       printf 'run: git add -A\nrun: git commit -F %s/COMMIT_MSG\nthen: agent.sh deliver-step %s push\n' "$ds_rel" "$ds_id" ;;
     push)
       [ "$(cfg git.push_requires_approval true)" != false ] || consume_approval "$ds_t" "$ds_app"
@@ -4815,26 +4850,16 @@ deliver_step() {
     pr)
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
       consume_approval "$ds_t" "$ds_app"
-      ds_d=''; [ "$ds_k" != draft ] || ds_d=' --draft'
-      printf 'run: gh pr create%s --base %s --head %s --title "%s" --body-file %s/PR_BODY.md\n' "$ds_d" "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel"
-      if [ "$ds_k" = draft ]; then printf 'then: agent.sh deliver-step %s cleanup <PR-NUMBER> (never merge a draft)\n' "$ds_id"
-      else printf 'then: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$ds_id"; fi ;;
+      printf 'run: gh pr create --base %s --head %s --title "%s" --body-file %s/PR_BODY.md\nthen: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel" "$ds_id" ;;
     merge)
-      [ "$ds_k" != draft ] || ds_stop "a draft pull request is never merged"
       deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
       [ "$ds_pv" = "OPEN false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open, non-draft pull request ($ds_want; gh: $ds_pv)"
       consume_approval "$ds_t" "$ds_app"; printf '%s\n' "$ds_pr" > "$ds_dir/PR"
       printf 'run: gh pr checks %s --watch --fail-fast\nrun: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\nthen: agent.sh deliver-step %s cleanup %s\n' "$ds_pr" "$ds_pr" "$ds_id" "$ds_pr" ;;
     cleanup)
-      if [ "$ds_k" = draft ]; then
-        deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
-        [ "$ds_pv" = "OPEN true $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open draft pull request ($ds_want; gh: $ds_pv)"
-        # cleanup_run consumes the no-run cleanup approval of a draft delivery itself
-      else
-        deliver_consumed "$ds_t" merge "$ds_h" && [ "$(cat "$ds_dir/PR" 2>/dev/null)" = "$ds_pr" ] || ds_stop "the merge step of this delivery did not run for pull request $ds_pr"
-        [ "$ds_pv" = "MERGED false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's merged pull request ($ds_want; gh: $ds_pv); no cleanup before the merge"
-        consume_approval "$ds_t" "$ds_app"
-      fi
+      deliver_consumed "$ds_t" merge "$ds_h" && [ "$(cat "$ds_dir/PR" 2>/dev/null)" = "$ds_pr" ] || ds_stop "the merge step of this delivery did not run for pull request $ds_pr"
+      [ "$ds_pv" = "MERGED false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's merged pull request ($ds_want; gh: $ds_pv); no cleanup before the merge"
+      consume_approval "$ds_t" "$ds_app"
       cleanup_run "$ds_id"; rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
@@ -4984,8 +5009,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND> | approval-consume <ID> <KIND> [FINGERPRINT]
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
-  terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | knowledge-done <ID> [not_applicable]
-  publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | draft-pr-body <ID> | cleanup <ID>
+  terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable]
+  publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup> [PR]   (one summary, one "approve delivery", one approval per step)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
@@ -5032,7 +5057,6 @@ case "$command" in
   freshness) verify_freshness "${2:?usage: agent.sh freshness <ID>}" ;;
   handoff) [ "$execution_role" = lead ] || [ "${3:-}" = IMPLEMENTING ] || fail "handoff phase denied for $execution_role"; record_handoff "${2:?usage: agent.sh handoff <ID> <PHASE>}" "${3:?usage: agent.sh handoff <ID> <PHASE>}" ;;
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
-  draft-pr-body) draft_pr_body "${2:?usage: agent.sh draft-pr-body <ID>}" ;;
   delivery-check) require_lead; delivery_check "${2:?usage: agent.sh delivery-check <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
   verify-assumptions) verify_assumptions "${2:?usage: agent.sh verify-assumptions <ID>}" ;;
@@ -5059,6 +5083,7 @@ case "$command" in
   deliver-plan) require_lead; dpid=${2:?usage: agent.sh deliver-plan <ID> [--message MSG]}; shift 2; deliver_plan "$dpid" "$@" ;;
   deliver-step) require_lead; deliver_step "${2:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${3:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${4:-}" ;;
   amend) require_lead; amend_run "${2:?usage: agent.sh amend <ID>}" ;;
+  reopen) require_lead; reopen_run "${2:?usage: agent.sh reopen <ID>   (reason: on stdin; needs the approval reopen:<ID>)}" ;;
   patch-fingerprint) require_run "${2:?usage: agent.sh patch-fingerprint <ID>}"; task_patch_fingerprint "$2" ;;
   window-open) require_lead; window_open "${2:?usage: agent.sh window-open <ID> [implementer|designer]}" "${3:-}" ;;
   window-close) require_lead; window_close "${2:?usage: agent.sh window-close <ID> <BEFORE> [EXIT-STATUS] [implementer|designer]}" "${3:-}" "${4:-0}" "${5:-}" ;;

@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.9"
+  version: "0.0.10"
 ---
 
 # proofline-lead
@@ -174,8 +174,9 @@ Specialist results that stop the flow:
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |
 | `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
-| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID> [not_applicable]`. `deliver` refuses until it is done. |
-| `deliver <TASK>` | The whole delivery in one command ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)): the knowledge step if not done, then `A deliver-plan <ID>` (relay the one summary, STOP), then after the user's `approve delivery` `A deliver-step <ID> commit\|push\|pr\|merge\|cleanup [PR]` in order, running the commands each prints. A refusal stops the chain: prepare and ask again. |
+| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID> [not_applicable]`. |
+| `deliver <TASK>` | The whole delivery in one command ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)): a CODE_DONE run only (FAILED and BLOCKED are refused with `to reopen: /proofline reopen <ID>`). If the knowledge step, the report or DONE is missing, run them now without asking, then `A deliver-plan <ID>` (relay the one summary, STOP), then after the user's `approve delivery` `A deliver-step <ID> commit\|push\|pr\|merge\|cleanup [PR]` in order, running the commands each prints. A refusal stops the chain: prepare and ask again. |
+| `reopen <TASK-ID>` | Take a FAILED or BLOCKED run back into the workflow ([GATES-AND-FIXES.md](references/GATES-AND-FIXES.md#5-reopen-a-failed-or-blocked-run)): `printf 'reason: <what changed>\n' \| A reopen <ID>`. It asks in this order, each time you relay the question and STOP: the mutation-budget decision (only when PLAN `## Tests` has more criteria than the budget), then `reopen:<ID>`; after each of the user's replies run the same command again. The plan stays frozen, only gates that did not pass or whose inputs changed run again, the fix rounds restart. When the gates pass the run is CODE_DONE and `deliver` works. Never reopen on your own. |
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 
 `init`, `upgrade`, `doctor` are CLI commands (`proofline init|upgrade|doctor`), not part of this skill.

@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.9
+PROOFLINE_VERSION=0.0.10
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -63,7 +63,7 @@ state (works without an agent session)
   resume                  run state, ledger tail, freshness and the next step after a pause or runtime switch
   queue                   task files and runs
   deliver <TASK>          delivery check and what delivery will do (never commits): knowledge, commit, push, PR, merge
-                            when green, cleanup, after one "approve delivery"; a FAILED run gets a DRAFT PR, never merged
+                            when green, cleanup, after one "approve delivery"; a FAILED or BLOCKED run is refused (reopen it first)
   clean [--yes]           remove .agents/local state and finished runs
   merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]
                           the only allowed merge path: checks that every check of the pull request is
@@ -80,7 +80,8 @@ agent session (prints the exact instruction for your runtime)
   run <TASK>              take a task through the full workflow
   review | audit | debug  proof-review, test-trust and debug-proof standalone
   wiki ingest|query|lint  keep a persistent project wiki in docs/wiki/
-  knowledge <TASK>        knowledge step of a finished run: wiki, ADRs, lesson candidates; deliver needs it
+  knowledge <TASK>        knowledge step of a finished run: wiki, ADRs, lesson candidates; deliver runs it when missing
+  reopen <TASK>           take a FAILED or BLOCKED run back into the workflow, only with your approval
 EOF
 }
 
@@ -163,16 +164,16 @@ cmd_queue() {
 cmd_deliver() {
   require_installed
   id=${1:-}; [ -n "$id" ] || die "usage: proofline deliver <TASK>"
-  # A FAILED run: the body of a DRAFT pull request is generated from the run records; opening it is the user's call.
-  if out=$(agent draft-pr-body "$id" 2>&1) || { case $out in *"knowledge step"*) printf '%s\n' "$out" >&2; say "not deliverable yet; run: /proofline knowledge $id"; hint deliver "$id"; return 1 ;; esac; false; }; then
-    printf '%s\n\n' "$out"
-    say "run $id FAILED, not deliverable; nothing was committed or pushed. With your one approval the lead opens a DRAFT pull request:"
-    say "  prepare: agent.sh deliver-plan $id shows one summary; your reply \"approve delivery\" approves each step of it"
-    say "  steps  : commit, push, gh pr create --draft (body from the run records), then cleanup right after the pull request is opened"
-    say "  never  : merge ('proofline merge' refuses a draft)"
-    hint deliver "$id"; return 0
-  fi
+  # A152: a FAILED or BLOCKED run is not delivered (no draft pull request); reopening it is the user's call.
+  st=$(agent next "$id" 2>/dev/null | sed -n 's/^state=//p')
+  case "$st" in FAILED|BLOCKED) say "delivery refused: $id is $st; to reopen: /proofline reopen $id" >&2; return 1 ;; esac
   if ! out=$(agent delivery-check "$id" 2>&1); then
+    case $out in
+      *"knowledge step"*)
+        # A152: an unfinished knowledge step is part of the delivery, not a stop: the one summary lists what it changed.
+        say "knowledge step not done yet: the lead runs it as part of this delivery (/proofline knowledge $id), then asks once."
+        hint deliver "$id"; return 0 ;;
+    esac
     printf '%s\n' "$out" >&2
     say "not deliverable yet; nothing was committed. The lead continues the run until every required gate passes."
     hint deliver "$id"; return 1

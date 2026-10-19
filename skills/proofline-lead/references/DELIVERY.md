@@ -42,17 +42,20 @@ through `proofline merge`.
 ## 5. `deliver <TASK>`: the whole delivery in one command
 
 The same flow for Claude Code and Codex. `deliver` does knowledge, commit, push, pull request, merge and cleanup
-with ONE question to the user. It applies to a DONE run (a pull request) and to a FAILED run (a DRAFT pull request).
+with ONE question to the user. It applies to a CODE_DONE run only. A FAILED or BLOCKED run is refused with one line,
+`to reopen: /proofline reopen <ID>` (A152); there is no draft pull request.
 
-1. **Knowledge first.** `A deliver-plan <ID>` refuses with `knowledge step not complete` until the knowledge step is
-   done: run it now ([LIFECYCLE.md](LIFECYCLE.md#7-knowledge)), and request each `rule:<CAND>` promotion approval
-   without stopping. A run that is not DONE (and not FAILED) is reported with its `next=` step; STOP.
+1. **Knowledge first, without a stop.** When the knowledge step, the completion report or DONE is missing,
+   `A deliver-plan <ID>` prints no refusal and asks nothing; it prints what is left (`next=`). Do it now, without
+   asking the user: the knowledge step ([LIFECYCLE.md](LIFECYCLE.md#7-knowledge)), the report and DONE (request
+   each `rule:<CAND>` promotion approval without stopping). The files the knowledge step changes are listed in the
+   one summary below, so the one approval covers them; nothing is committed before it. A run that is not CODE_DONE
+   is reported with its `next=` step; STOP.
 2. **Prepare.** `A deliver-plan <ID> [--message "<type>(<scope>): <subject> (<ID>)"]` (the message follows
    `git.commit_format`; one line, no `"`, `` ` ``, `$` or `\`). It writes `.agents/local/deliver/<ID>/SUMMARY.md`:
    the changed paths, the files the knowledge step changed, the commit message, the branch, the PR kind, title
-   and body (`PR_BODY.md`: the published completion report, or the draft body from the run records), when the
-   merge happens (DONE: only with every check green, through `proofline merge`; FAILED: never) and when cleanup
-   happens (after the merge; for a draft right after the pull request is opened). It records one approval request
+   and body (`PR_BODY.md`: the published completion report), when the merge happens (only with every check
+   green, through `proofline merge`) and when cleanup happens (after the merge). It records one approval request
    per step (`commit`, `push`, `pr`, `merge`, `cleanup`), each bound to the content fingerprint and to the
    summary's sha256. Relay its output verbatim (the summary, the separate decisions and the question). STOP.
 3. **One reply.** Only the user's own reply `approve delivery` (or `I approve the delivery`, `teslimatı onaylıyorum`)
@@ -67,11 +70,10 @@ with ONE question to the user. It applies to a DONE run (a pull request) and to 
    - `commit`: `git add -A`, `git commit -F .agents/local/deliver/<ID>/COMMIT_MSG` (the pre-commit hook
      consumes the approval).
    - `push`: `git push -u origin <task branch>` (the pre-push hook consumes it).
-   - `pr`: `gh pr create [--draft] ... --body-file .agents/local/deliver/<ID>/PR_BODY.md`; note the number.
-   - `merge <PR>` (DONE only; a draft is never merged): `gh pr checks <PR> --watch --fail-fast`, then
+   - `pr`: `gh pr create ... --body-file .agents/local/deliver/<ID>/PR_BODY.md`; note the number.
+   - `merge <PR>`: `gh pr checks <PR> --watch --fail-fast`, then
      `proofline merge <PR>`. A failed check or a refused merge: STOP, no cleanup, report the state.
    - `cleanup <PR>`: checks that the pull request is this delivery's (head commit = HEAD, head and base branch
-     as in the summary, head repository owned by the owner of `origin`, so a fork's pull request never counts, the merge step ran for that number; a draft: the pr step ran) and is merged (a draft:
-     open), then runs `A cleanup <ID>` itself. `merge` checks the same head, branches and that the pr step ran.
+     as in the summary, head repository owned by the owner of `origin`, so a fork's pull request never counts, the merge step ran for that number) and is merged, then runs `A cleanup <ID>` itself. `merge` checks the same head, branches and that the pr step ran.
 5. Final report, STOP. Without the user's approval nothing is committed; `A cleanup <ID>` is run when the
    user declines delivery.
