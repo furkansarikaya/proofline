@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, requiredCells, validateReport } from "./validate-visual.mjs";
+import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, SEO_NOT_APPLICABLE_NOTE, SEO_SITE, requiredCells, validateReport } from "./validate-visual.mjs";
 
 const BROWSER_NAMES = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "microsoft-edge", "microsoft-edge-stable", "msedge", "brave-browser"];
 const APP_PATHS = [
@@ -147,6 +147,25 @@ function probeSource() {
       b.tabIndex = -1; b.focus({ preventScroll: true }); b.blur();
       if (t === null) b.removeAttribute("tabindex"); else b.setAttribute("tabindex", t);
     },
+    // Technical SEO facts of the loaded page (A158); the checks themselves run in seoEvaluate. names = analytics globals to look for.
+    seo(names) {
+      const q = (x) => [...document.querySelectorAll(x)];
+      const content = (e) => (e.getAttribute("content") || "").trim();
+      return {
+        url: location.href,
+        titles: q("title").filter((e) => !e.closest("svg")).map((e) => e.textContent.trim()),
+        descriptions: q('meta[name="description" i]').map(content),
+        canonicals: q('link[rel~="canonical" i]').map((e) => ({ raw: (e.getAttribute("href") || "").trim(), href: e.href })),
+        h1: q("h1").length,
+        og_title: q('meta[property="og:title"]').map(content),
+        og_image: q('meta[property="og:image"]').map((e) => ({ raw: content(e), href: content(e) ? new URL(content(e), document.baseURI).href : "" })),
+        jsonld: q('script[type="application/ld+json"]').map((e) => e.textContent),
+        alternates: q('link[rel~="alternate" i][hreflang]').map((e) => ({ hreflang: (e.getAttribute("hreflang") || "").trim(), href: e.href })),
+        robots_meta: q('meta[name="robots" i],meta[name="googlebot" i]').map(content),
+        scripts: q("script[src]").map((e) => e.src),
+        globals: names.filter((n) => n in window),
+      };
+    },
     visible(s) { const el = document.querySelector(s); return !!el && !hidden(el); },
     hscroll() { return document.documentElement.scrollWidth > document.documentElement.clientWidth; },
     measure(opts) {
@@ -246,6 +265,234 @@ function probeSource() {
 }
 export const PROBE = `(${probeSource.toString()})()`;
 
+
+// --- technical SEO (A158) ----------------------------------------------------------------------------------
+// Well-known analytics hosts and globals, in this one place. `pattern` is tested against script URLs, request
+// URLs and the page source as served (detection); a script element, a request or a global found while the page
+// loads, before any consent interaction, is a script that ran without consent.
+export const ANALYTICS = [
+  { name: "tag-manager", pattern: /googletagmanager\.com|google-analytics\.com|\bgtag\s*\(|\bga\s*\(\s*['"]create/i, globals: ["gtag", "dataLayer", "GoogleAnalyticsObject", "_gaq"] },
+  { name: "plausible", pattern: /plausible/i, globals: ["plausible"] },
+  { name: "matomo", pattern: /matomo|piwik|\b_paq\b/i, globals: ["_paq"] },
+  { name: "segment", pattern: /cdn\.segment\.(com|io)|\banalytics\.load\s*\(/i, globals: [] },
+  { name: "mixpanel", pattern: /mixpanel/i, globals: ["mixpanel"] },
+  { name: "hotjar", pattern: /hotjar|\bhj\s*\(/i, globals: ["hj"] },
+  { name: "fathom", pattern: /usefathom\.com|\bfathom\b/i, globals: ["fathom"] },
+  { name: "umami", pattern: /umami/i, globals: ["umami"] },
+];
+export const ANALYTICS_GLOBALS = [...new Set(ANALYTICS.flatMap((a) => a.globals))];
+
+const LANG_TAG = /^(x-default|[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?)$/i;
+const clip = (v, n = 300) => { const t = typeof v === "string" ? v : JSON.stringify(v); return t.length > n ? t.slice(0, n - 3) + "..." : t; };
+
+// A URL as a path under the site root (the base_url folder), or null when it names another site. A file: page and
+// the base_url origin map by their position under the folder; the site's public origin (config seo.site_url, or the
+// origin the page declares) maps by its path, because a canonical points at the deployed address.
+function siteRef(href, ctx) {
+  let u, b;
+  try { b = new URL(ctx.base); u = new URL(href, b); } catch { return null; }
+  let rel;
+  const dir = decodeURIComponent(b.pathname.replace(/[^/]*$/, ""));
+  if (b.protocol === "file:" ? u.protocol === "file:" : u.origin === b.origin) {
+    const p = decodeURIComponent(u.pathname);
+    rel = p.startsWith(dir) ? p.slice(dir.length) : p.replace(/^\//, "");
+  } else if (ctx.origins.has(u.origin)) rel = decodeURIComponent(u.pathname).replace(/^\//, "");
+  else return null;
+  if (rel === "" || rel.endsWith("/")) rel += "index.html";
+  return rel;
+}
+// Two spellings of one page: `a/`, `a/index.html`, `a.html` and `a`.
+const pageKey = (rel) => rel.replace(/(^|\/)index\.html$/, "$1").replace(/\.html$/, "").replace(/\/$/, "");
+export const siteCandidates = (rel) => [...new Set([rel, ...(/\.[a-z0-9]+$/i.test(rel) ? [] : [rel + ".html", rel + "/index.html"])])];
+
+// robots.txt: is `path` (site-root relative) disallowed for every crawler (the `*` group; longest match wins, Allow wins a tie)?
+export function robotsBlocks(text, rel) {
+  if (typeof text !== "string") return false;
+  const path = "/" + rel.replace(/(^|\/)index\.html$/, "$1");
+  let star = false, rules = [], inGroup = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^\s*([A-Za-z-]+)\s*:\s*(.*?)\s*(?:#.*)?$/.exec(raw);
+    if (!m) { if (!raw.trim()) inGroup = false; continue; }
+    const k = m[1].toLowerCase();
+    if (k === "user-agent") { if (!inGroup) star = false; inGroup = true; if (m[2] === "*") star = true; }
+    else if (star && (k === "disallow" || k === "allow")) { inGroup = false; if (m[2] || k === "allow") rules.push([k, m[2]]); }
+  }
+  let best = null;
+  for (const [k, v] of rules) {
+    const re = new RegExp("^" + v.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\\\$$/, "$"));
+    if (v && re.test(path) && (!best || v.length > best[1].length || (v.length === best[1].length && k === "allow"))) best = [k, v];
+  }
+  return !!best && best[0] === "disallow";
+}
+export const sitemapLocs = (xml) => [...String(xml).matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)].map((m) => m[1].replace(/&amp;/g, "&"));
+
+function seoContext(pages, site, opt) {
+  const origins = new Set();
+  const add = (v) => { try { origins.add(new URL(v).origin); } catch { /* not absolute */ } };
+  if (opt.site_url) add(opt.site_url);
+  else {
+    for (const p of pages) for (const c of p.canonicals || []) { if (/^[a-z][a-z0-9+.-]*:/i.test(c.raw || "")) { add(c.raw); } }
+    if (!origins.size && site?.sitemap_xml) for (const l of sitemapLocs(site.sitemap_xml).slice(0, 1)) add(l);
+  }
+  origins.delete("null");
+  return { base: opt.base_url, origins };
+}
+
+// Every site path the checks need to know exists, or whose hreflang list they need (the measure step resolves them).
+export function seoLookups(pages, site, opt) {
+  const ctx = seoContext(pages, site, opt), out = { exists: new Set(), alternates: new Set() };
+  const own = new Set(pages.map((p) => { const r = siteRef(p.url, ctx); return r && pageKey(r); }));
+  for (const p of pages) {
+    for (const c of p.canonicals || []) { const r = c.href && siteRef(c.href, ctx); if (r) out.exists.add(r); }
+    for (const a of p.alternates || []) { const r = a.href && siteRef(a.href, ctx); if (r) { out.exists.add(r); if (!own.has(pageKey(r))) out.alternates.add(r); } }
+    for (const i of p.og_image || []) { const r = i.href && siteRef(i.href, ctx); if (r) out.exists.add(r); }
+  }
+  if (site?.sitemap_xml) for (const l of sitemapLocs(site.sitemap_xml)) { const r = siteRef(l, ctx); if (r) out.exists.add(r); }
+  return { exists: [...out.exists], alternates: [...out.alternates] };
+}
+
+// Pure: page facts (probe `seo()` plus `path`, `source`, `x_robots`, `requests`) and site facts
+// ({ robots_txt, sitemap_xml, exists: {path: true|false|null}, alternates: {path: [{hreflang, href}]|null} })
+// -> { pages, items } of report.seo. A fact that cannot be known is a not_measured item, never a pass or a fail.
+export function seoEvaluate(pages, site, opt) {
+  const ctx = seoContext(pages, site || {}, opt);
+  const exists = (href) => { const r = href && siteRef(href, ctx); if (!r) return null; for (const c of siteCandidates(r)) if (site?.exists?.[c] === true) return true; return siteCandidates(r).some((c) => site?.exists?.[c] === false) ? false : null; };
+  const out = { pages: [], items: [] };
+  const item = (check, page, selector, problems, evidence, uncertain) => {
+    const base = { id: `S-${out.items.length + 1}`, check, page, selector, threshold: "== 0" };
+    if (!problems.length && uncertain.length) out.items.push({ ...base, status: "not_measured", reason: uncertain.join("; ") });
+    else out.items.push({ ...base, value: problems.length, status: problems.length ? "fail" : "pass", evidence: clip(evidence), ...(problems.length ? { note: problems.join("; ") } : {}) });
+  };
+  const keyOf = (p) => { const r = siteRef(p.url, ctx); return r ? pageKey(r) : p.path; };
+  const lists = new Map(); // page key -> its alternates (keys), for reciprocity
+  for (const p of pages) lists.set(keyOf(p), (p.alternates || []).map((a) => { const r = siteRef(a.href, ctx); return r && pageKey(r); }));
+  const published = [];
+  const robotsTxt = site?.robots_txt ?? null;
+  for (const p of pages) {
+    const rel = siteRef(p.url, ctx);
+    const reasons = [];
+    if (rel && robotsBlocks(robotsTxt, rel)) reasons.push("robots.txt disallows it");
+    if ((p.robots_meta || []).some((c) => /\bnoindex\b|\bnone\b/i.test(c))) reasons.push("meta robots noindex");
+    if (/\bnoindex\b|\bnone\b/i.test(p.x_robots || "")) reasons.push("X-Robots-Tag noindex");
+    if (p.not_measured) { out.pages.push({ path: p.path, status: "not_measured", reason: p.not_measured }); continue; }
+    if (reasons.length) { out.pages.push({ path: p.path, status: "not_applicable", reason: "robots", detail: reasons.join("; ") }); continue; }
+    const hay = [p.source || "", ...(p.scripts || []), ...(p.requests || [])];
+    const detected = ANALYTICS.filter((a) => hay.some((t) => a.pattern.test(t)) || a.globals.some((g) => (p.globals || []).includes(g))).map((a) => a.name);
+    out.pages.push({ path: p.path, status: "measured", ...(detected.length ? { analytics_detected: detected } : {}) });
+    published.push(p);
+    const P = p.path;
+
+    const titles = p.titles || [], tp = [];
+    if (titles.length !== 1) tp.push(`${titles.length} <title> elements, exactly 1 required`);
+    if (titles.some((t) => !t)) tp.push("empty <title>");
+    item("seo_title", P, "title", tp, titles, []);
+
+    const ds = p.descriptions || [], dp = [];
+    if (ds.length !== 1) dp.push(`${ds.length} meta description elements, exactly 1 required`);
+    if (ds.some((t) => !t)) dp.push("empty meta description");
+    item("seo_description", P, 'meta[name="description"]', dp, ds, []);
+
+    const cs = p.canonicals || [], cp = [], cu = [];
+    if (cs.length !== 1) cp.push(`${cs.length} link[rel=canonical] elements, exactly 1 required`);
+    for (const c of cs) {
+      if (!c.raw) { cp.push("empty canonical href"); continue; }
+      const r = siteRef(c.href, ctx);
+      if (r && pageKey(r) === keyOf(p)) continue;
+      const e = exists(c.href);
+      if (e === false) cp.push(`canonical points at a page that does not exist: ${c.raw}`);
+      else if (e === null) cu.push(`canonical ${c.raw} could not be resolved inside the site`);
+    }
+    item("seo_canonical", P, "link[rel=canonical]", cp, cs.map((c) => c.raw), cu);
+
+    const alts = p.alternates || [];
+    if (alts.length) {
+      const hp = [], hu = [], me = keyOf(p);
+      for (const a of alts) if (!LANG_TAG.test(a.hreflang)) hp.push(`invalid hreflang value "${a.hreflang}"`);
+      if (!alts.some((a) => { const r = siteRef(a.href, ctx); return r && pageKey(r) === me; })) hp.push("no self-referencing hreflang");
+      if (!alts.some((a) => a.hreflang.toLowerCase() === "x-default")) hp.push("no x-default alternate");
+      for (const a of alts) {
+        const r = siteRef(a.href, ctx);
+        if (!r) { hu.push(`${a.hreflang} target ${a.href} is outside the site`); continue; }
+        const k = pageKey(r);
+        if (k === me) continue;
+        if (exists(a.href) === false) { hp.push(`hreflang ${a.hreflang} target does not exist: ${a.href}`); continue; }
+        const back = lists.has(k) ? lists.get(k) : (site?.alternates?.[r] ? site.alternates[r].map((x) => { const q = siteRef(x.href, ctx); return q && pageKey(q); }) : null);
+        if (back === null) hu.push(`${a.hreflang} target ${a.href} could not be read to check the return link`);
+        else if (!back.includes(me)) hp.push(`hreflang ${a.hreflang} target ${a.href} does not list this page back (not reciprocal)`);
+      }
+      item("seo_hreflang", P, "link[rel=alternate][hreflang]", [...new Set(hp)], alts, hu);
+    }
+
+    item("seo_h1", P, "h1", p.h1 === 1 ? [] : [`${p.h1} <h1> elements, exactly 1 required`], { h1: p.h1 }, []);
+
+    const op = [], ou = [], ot = p.og_title || [], oi = p.og_image || [];
+    if (!ot.length || ot.every((t) => !t)) op.push("og:title missing or empty");
+    if (!oi.length || oi.every((i) => !i.raw)) op.push("og:image missing or empty");
+    else for (const i of oi) if (i.raw) { const e = exists(i.href); if (e === false) op.push(`og:image does not resolve inside the site: ${i.raw}`); else if (e === null) ou.push(`og:image ${i.raw} could not be resolved inside the site`); }
+    item("seo_open_graph", P, 'meta[property^="og:"]', op, { "og:title": ot, "og:image": oi.map((i) => i.raw) }, ou);
+
+    const jp = [];
+    (p.jsonld || []).forEach((t, i) => { try { JSON.parse(t); } catch (e) { jp.push(`ld+json block ${i + 1} is not valid JSON (${e.message.slice(0, 60)})`); } });
+    item("seo_structured_data", P, 'script[type="application/ld+json"]', jp, { blocks: (p.jsonld || []).length }, []);
+
+    if (detected.length) {
+      const loaded = [];
+      for (const s of p.scripts || []) if (ANALYTICS.some((a) => a.pattern.test(s))) loaded.push(`script element ${s}`);
+      for (const r of p.requests || []) if (ANALYTICS.some((a) => a.pattern.test(r))) loaded.push(`request ${r}`);
+      for (const g of p.globals || []) loaded.push(`window.${g}`);
+      item("seo_analytics_consent", P, "script[src], window, network", [...new Set(loaded)].map((l) => `before consent: ${l}`), { detected, before_consent: [...new Set(loaded)] }, []);
+    }
+  }
+  if (published.length) {
+    const keys = published.map((p) => keyOf(p));
+    const locs = site?.sitemap_xml ? sitemapLocs(site.sitemap_xml) : null;
+    const sp = [], su = [];
+    if (locs === null) su.push("sitemap.xml was not found at the site root");
+    else if (/<sitemapindex/i.test(site.sitemap_xml)) su.push("sitemap index: the child sitemaps are not followed");
+    else {
+      const listed = new Set(locs.map((l) => { const r = siteRef(l, ctx); return r && pageKey(r); }));
+      for (const p of published) if (!listed.has(keyOf(p))) sp.push(`${p.path} is not listed`);
+      for (const l of locs) { const r = siteRef(l, ctx); if (!r) { su.push(`${l} is outside the site and was not checked`); continue; } const e = exists(l); if (e === false) sp.push(`lists a page that does not exist: ${l}`); else if (e === null) su.push(`${l} could not be checked for existence`); }
+    }
+    item("seo_sitemap", SEO_SITE, "sitemap.xml", sp, { pages: keys, locs: locs ? locs.slice(0, 20) : null }, su);
+
+    const rp = [], ru = [];
+    if (robotsTxt === null) ru.push("robots.txt was not found at the site root");
+    else {
+      if (!/^\s*sitemap\s*:\s*\S+/im.test(robotsTxt)) rp.push("robots.txt has no Sitemap: line");
+      for (const l of locs || []) { const r = siteRef(l, ctx); if (r && robotsBlocks(robotsTxt, r)) rp.push(`robots.txt disallows a sitemap page: ${l}`); }
+    }
+    item("seo_robots", SEO_SITE, "robots.txt", rp, { sitemap_line: robotsTxt === null ? null : /^\s*sitemap\s*:/im.test(robotsTxt) }, ru);
+  }
+  return out;
+}
+
+// Reads a site file: a file: base from disk, an http(s) localhost base through the same-origin request.
+async function siteRead(base, rel, withHeaders) {
+  const url = pageUrl(base, rel);
+  if (!url) return { text: null };
+  try {
+    if (url.startsWith("file:")) return { text: readFileSync(new URL(url), "utf8") };
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const headers = withHeaders ? { x_robots: r.headers.get("x-robots-tag") || "" } : {};
+    return r.ok ? { text: await r.text(), ...headers } : { text: null, ...headers };
+  } catch { return { text: null }; }
+}
+// Resolves the lookups seoLookups names; page facts are filled by the caller.
+export async function seoSite(base, pages, opt) {
+  const site = { robots_txt: (await siteRead(base, "robots.txt")).text, sitemap_xml: (await siteRead(base, "sitemap.xml")).text, exists: {}, alternates: {} };
+  const want = seoLookups(pages, site, opt);
+  for (const rel of want.exists) site.exists[rel] = (await siteRead(base, rel)).text !== null;
+  for (const rel of want.alternates) {
+    let text = null;
+    for (const c of siteCandidates(rel)) { text = (await siteRead(base, c)).text; if (text !== null) break; }
+    site.alternates[rel] = text === null ? null : [...text.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]).filter((t) => /rel\s*=\s*["']?alternate/i.test(t) && /hreflang/i.test(t))
+      .map((t) => ({ hreflang: (/hreflang\s*=\s*["']?([^"'\s>]+)/i.exec(t) || [])[1] || "", href: (/href\s*=\s*["']?([^"'\s>]+)/i.exec(t) || [])[1] || "" }))
+      .map((a) => { try { return { ...a, href: new URL(a.href, new URL(pageUrl(base, rel))).href }; } catch { return a; } });
+  }
+  return site;
+}
+
 // --- DevTools protocol over a plain WebSocket ----------------------------------------------------------------
 async function launch(path, timeoutMs, noSandbox) {
   const profile = mkdtempSync(join(tmpdir(), "visual-proof-profile-"));
@@ -332,13 +579,14 @@ const NO_SW = `try { const rec = (u, t) => console.debug("__vp_blocked", String(
   if (navigator.serviceWorker) navigator.serviceWorker.register = function (u) { rec(u, "ServiceWorker"); return Promise.reject(new DOMException("service worker blocked by visual-proof", "SecurityError")); };
   if (window.SharedWorker) window.SharedWorker = function (u) { rec(u, "SharedWorker"); throw new DOMException("shared worker blocked by visual-proof", "SecurityError"); };
 } catch (e) {}`;
-async function page(b, timeoutMs, base, net) {
+async function page(b, timeoutMs, base, net, log) {
   const { targetId } = await b.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await b.send("Target.attachToTarget", { targetId, flatten: true });
   const s = (m, p) => b.send(m, p, sessionId);
   const record = (list, item) => { if (!list.some((x) => x.url === item.url && x.type === item.type && x.method === item.method)) list.push(item); };
   const guard = async (sid, type = "page") => {
     b.on("Fetch.requestPaused", sid, (q) => {
+      log?.push(q.request.url);
       if (allowRequest(base, q.request.url)) {
         if (!/^(GET|HEAD|OPTIONS)$/i.test(q.request.method)) record(net.same_origin_writes, { method: q.request.method, url: q.request.url });
         return b.send("Fetch.continueRequest", { requestId: q.requestId }, sid).catch(() => {});
@@ -505,14 +753,28 @@ export function checkConfig(c) {
       if (u && !pageUrl(c.base_url, path)) e.push(`screen ${s.id}: path ${path} leaves base_url (a file: page stays under its folder, an http(s) page on its localhost origin)`);
     }
   }
+  if (c.seo !== undefined) {
+    const q = c.seo;
+    if (!q || typeof q !== "object" || Array.isArray(q)) e.push("seo must be an object");
+    else {
+      if (q.public_html !== undefined && typeof q.public_html !== "boolean") e.push("seo.public_html must be true or false (false: the project produces no public HTML pages)");
+      if (q.site_url !== undefined) { try { if (!/^https?:$/.test(new URL(q.site_url).protocol)) throw new Error(); } catch { e.push("seo.site_url must be an http(s) URL (the deployed address the canonical links use)"); } }
+      if (q.pages !== undefined && !(Array.isArray(q.pages) && q.pages.length && q.pages.every((x) => typeof x === "string"))) e.push("seo.pages must be a non-empty list of paths");
+      for (const path of Array.isArray(q.pages) ? q.pages : []) if (typeof path === "string" && u && !pageUrl(c.base_url, path)) e.push(`seo page ${path} leaves base_url`);
+    }
+  }
   for (const it of c.interactions || []) if (!it?.name || !INTERACTION_CHECKS.includes(it.check) || !it.screen || !it.state) e.push(`interaction ${it?.name}: needs name, check (${INTERACTION_CHECKS.join("|")}), screen, state`);
   for (const k of c.criteria || []) if (!/^AC-\d+$/.test(k?.id || "") || !Array.isArray(k.checks)) e.push("each criterion needs id AC-<n> and checks[]");
   return e;
 }
 
+// The pages the seo group measures: seo.pages, else the path of every screen.
+export const seoPagePaths = (c) => [...new Set(c.seo?.pages || (c.screens || []).map((x) => x.path))];
+
 // --- assemble: raw cells (from this script or any other tool) -> report.json -------------------------------
 // raw = { tool, config, a11y_scanner?, cells: [{ screen, state, viewport, screenshot, rendered, error?, items, not_measured }],
-//         interactions: [{ name, viewport, screenshot, item } | { name, viewport, error }] }
+//         interactions: [{ name, viewport, screenshot, item } | { name, viewport, error }],
+//         seo?: { pages: [facts], site: {...} } | { not_applicable: true } }   (A158: see seoEvaluate)
 export function assemble(raw, outDir) {
   const c = raw.config;
   const sha = (p) => createHash("sha256").update(readFileSync(join(outDir, p))).digest("hex");
@@ -573,9 +835,35 @@ export function assemble(raw, outDir) {
     const items = report.measured.filter((m) => m.criteria?.includes(k.id));
     return { id: k.id, required: !!k.required, status: items.some((m) => m.status === "fail") ? "failed" : items.some((m) => m.status === "pass") ? "proven" : "unproven" };
   });
+  if (c.seo) {
+    const opt = { base_url: c.base_url, site_url: c.seo.site_url };
+    if (c.seo.public_html === false || raw.seo?.not_applicable) report.seo = { status: "not_applicable", note: SEO_NOT_APPLICABLE_NOTE };
+    else if (Array.isArray(raw.seo?.pages)) report.seo = { status: "run", ...seoEvaluate(raw.seo.pages, raw.seo.site || {}, opt) };
+    else report.seo = { status: "run", pages: seoPagePaths(c).map((path) => ({ path, status: "not_measured", reason: "the tool supplied no seo facts" })), items: [] };
+  }
   const v = validateReport({ ...report, result: "PASS" }, { root: outDir });
   report.result = v.computed;
   return report;
+}
+
+// Technical SEO facts of every seo page, loaded once with no interaction (so before any consent) in the first viewport.
+async function measureSeo(p, config, reqLog, url) {
+  const opt = { base_url: config.base_url, site_url: config.seo.site_url };
+  const pages = [];
+  for (const path of seoPagePaths(config)) {
+    reqLog.length = 0;
+    try {
+      await p.open(url(path), config.viewports[0], null, undefined);
+      await new Promise((r) => setTimeout(r, 800)); // late analytics requests
+      const type = await p.ev("document.contentType");
+      if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) { pages.push({ path, url: url(path), not_measured: `not an HTML response (${type})` }); continue; }
+      const f = await p.ev(`window.__vp.seo(${JSON.stringify(ANALYTICS_GLOBALS)})`);
+      const src = await siteRead(config.base_url, path, true);
+      pages.push({ ...f, path, requests: [...reqLog], source: src.text || "", x_robots: src.x_robots || "" });
+    } catch (e) { pages.push({ path, url: url(path), not_measured: e.message }); }
+  }
+  if (pages.length && pages.every((x) => /^not an HTML response/.test(x.not_measured || ""))) return { not_applicable: true };
+  return { pages, site: await seoSite(config.base_url, pages.filter((x) => !x.not_measured), opt) };
 }
 
 async function measure(config, outDir, tool, timeoutMs, noSandbox) {
@@ -595,7 +883,8 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
   const file = (...parts) => `screenshots/${parts.join("-").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`;
   try {
     raw.network = { interception: "on", allowed: "base_url origin only (file: folder or localhost origin), data:, blob:; no WebSocket, no service worker", blocked: [], same_origin_writes: [], unguarded: [] };
-    const p = await page(b, timeoutMs, config.base_url, raw.network);
+    const reqLog = [];
+    const p = await page(b, timeoutMs, config.base_url, raw.network, reqLog);
     const deep = config.class !== "STANDARD";
     const wanted = new Set(requiredCells({ class: config.class, viewports: config.viewports, screens: config.screens.map((s) => ({ id: s.id, states: s.states.map((x) => x.name) })) }).map((x) => `${x.screen}|${x.state}`));
     for (const k of config.criteria || []) for (const s of config.screens) if (!k.screens || k.screens.includes(s.id)) for (const st of k.states || []) wanted.add(`${s.id}|${st}`);
@@ -625,6 +914,7 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
         raw.cells.push(cell);
       }
     }
+    if (config.seo && config.seo.public_html !== false) raw.seo = await measureSeo(p, config, reqLog, url);
     for (const it of config.interactions || []) {
       const s = config.screens.find((x) => x.id === it.screen), st = s?.states.find((x) => x.name === it.state);
       for (const vp of config.viewports.filter((v) => !it.viewports || it.viewports.includes(v.name))) {

@@ -72,7 +72,7 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
   and a PASS whose thresholds were not recomputed from the config and the plan is submitted as UNSUPPORTED (A93).
 - The `visual` focus (visual-proof skill, A82) uses the same INCONCLUSIVE mapping: a required cell or criterion
   it could not measure is submitted as UNSUPPORTED with a `visual INCONCLUSIVE:` reason (A93). Its browser
-  blocks every request outside the page's own origin, and it never drives a backend with a real database.
+  blocks every request outside the page's own origin, and it never drives a backend with a real database. A failed technical SEO item (A158) is a blocking row like any measured failure; a fact it cannot measure is an info row.
 - The mapping lives in `.agents/config.yaml` and is frozen with the plan; the lead cannot change it during a run.
 
 Two of these focuses are tool-free (decision A88):

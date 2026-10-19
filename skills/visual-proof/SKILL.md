@@ -1,10 +1,10 @@
 ---
 name: visual-proof
-description: Visual proof of a UI change with the browser tooling the project or machine already has (a project browser-test dependency or an installed headless Chromium-family browser; a runtime browser tool only as an adapter). Measures, per changed screen, state and viewport, page overflow and horizontal scroll, invisible or covered interactive elements, computed text contrast, touch-target size, focus order and focus visibility, that every spec state actually renders, form validation, modal and dropdown behaviour and long content, plus the project's accessibility scanner findings when one is installed; every measurement carries a selector, value, threshold and a screenshot with its sha256. Hierarchy, density, consistency, typography and (new or redesign UI) character are judged separately against the spec and never close the gate alone. No tooling means UNSUPPORTED, never PASS. Used by QA for the QA gate's visual focus or standalone on request.
+description: Visual proof of a UI change with the browser tooling the project or machine already has (a project browser-test dependency or an installed headless Chromium-family browser; a runtime browser tool only as an adapter). Measures, per changed screen, state and viewport, page overflow and horizontal scroll, invisible or covered interactive elements, computed text contrast, touch-target size, focus order and focus visibility, that every spec state actually renders, form validation, modal and dropdown behaviour and long content, plus the project's accessibility scanner findings when one is installed and, for public HTML pages, technical SEO and analytics before consent; every measurement carries a selector, value, threshold and a screenshot with its sha256. Hierarchy, density, consistency, typography and (new or redesign UI) character are judged separately against the spec and never close the gate alone. No tooling means UNSUPPORTED, never PASS. Used by QA for the QA gate's visual focus or standalone on request.
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.15"
+  version: "0.0.16"
 ---
 
 # visual-proof
@@ -58,6 +58,11 @@ Talk to the user in their language. Files written for machines (`report.json`, `
    project's command). Record its command and exit; never create or update a baseline.
 8. **Screenshots are run artifacts.** They live next to `report.json` (`screenshots/`), each referenced with
    its sha256, and are deleted with the run (team) or the output folder (standalone). Never commit them.
+9. **Technical SEO is a measured group (A158).** Only for a project that produces public
+   HTML pages ([MEASURE.md](references/MEASURE.md#technical-seo)); a project without HTML pages (library, CLI,
+   API, backend only) runs no seo item at all. A page blocked by robots is skipped. Content SEO (keywords, text
+   quality, readability, length) is out of scope: never measured, never judged, never a finding. Without an
+   analytics script on the page nothing is measured and nothing is recommended about analytics.
 
 **Limits.** The validator checks a report's consistency: statuses against values and the documented
 thresholds, screenshot hashes, coverage and the network record. It cannot detect a report fabricated
@@ -98,7 +103,8 @@ rows before the next step.
 4. **Config.** Write `visual.json` ([MEASURE.md](references/MEASURE.md#config)): class, base URL, viewports
    (phone 360x740, tablet 768x1024, desktop 1280x800 unless the spec names its breakpoints; STANDARD uses
    two), screens with each state's path and ready selector, interactions the spec describes (form validation,
-   modal, dropdown, long content), and the criteria with the checks that prove them.
+   modal, dropdown, long content), the criteria with the checks that prove them and, for a project that
+   produces public HTML pages, the `seo` block (`"seo": { "public_html": false }` when it produces none).
 5. **Measure.** `node <skill-dir>/scripts/measure.mjs --config visual.json --out <output>` (browser) or, with a
    project tool or runtime adapter, the probe and `--assemble` path ([TOOLING.md](references/TOOLING.md#adapters)).
    It writes `report.json` and `screenshots/`. Never edit a measured item.
@@ -116,7 +122,7 @@ of the run folder, standalone in `.agents/local/visual-proof/<slug>/`. Rules in 
 | validator RESULT | submit (`--focus visual`) |
 |---|---|
 | PASS | the rows printed (none blocking); PASS |
-| FAIL (a measured failure, a judged violation of a written criterion, a failing regression run) | each printed `blocking` row; FAIL |
+| FAIL (a measured failure, a failed seo item, a judged violation of a written criterion, a failing regression run) | each printed `blocking` row; FAIL |
 | INCONCLUSIVE (a required cell not measured, a required criterion unproven, no failure) | `--result UNSUPPORTED --reason "visual INCONCLUSIVE: <what could not be measured>; not a FAIL; ..."` (the `SUBMIT:` line `--rows` prints; same mapping as performance-proof): blocking, never a PASS, re-measured or waived only by the user, listed under `## Unsupported Checks` |
 | UNSUPPORTED (no tooling) | `--result UNSUPPORTED --reason "<what is missing>"`: never a PASS; unproven and reported under `## Unsupported Checks` with `not proven: <what>` (blocking only under `risk.unsupported: block`) |
 

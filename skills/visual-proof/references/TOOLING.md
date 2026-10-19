@@ -61,6 +61,14 @@ script in the page, press Tab and take a screenshot can drive them:
    "interactions": [{ "name", "viewport", "screenshot", "item" }] }` and run `measure.mjs --assemble raw.json
    --out <output>`: it hashes the screenshots, numbers the items, tags criteria and computes the result.
 
+4. Technical SEO (only when the config has a `seo` block whose `public_html` is not false): per seo page load the URL once in the first
+   viewport with no interaction, wait about a second, and evaluate `__vp.seo(<analytics global names>)` (the names are `ANALYTICS_GLOBALS`,
+   exported by `measure.mjs`). Add `path`, `requests` (every URL the page requested), `source` (the HTML as served) and `x_robots` (the
+   `X-Robots-Tag` header value, if any) to that object. Put the page objects in `raw.seo.pages` and the site facts in `raw.seo.site`
+   (`{ robots_txt, sitemap_xml, exists: { "<site path>": true|false }, alternates: { "<site path>": [{hreflang, href}] } }`;
+   `seoLookups` lists the paths); `{ "not_applicable": true }` for a project without HTML. `--assemble` runs the checks (`seoEvaluate`).
+   Without `raw.seo`, each seo page is `not_measured`.
+
 A runtime's own browser tool (an agent browser integration) is such an adapter; use it only when it can do
 every step above for the cells the class requires, and name it in `tool.name`. A cell it cannot measure is a
 cell-level `not_measured` entry, not a pass.

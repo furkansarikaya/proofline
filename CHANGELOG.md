@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.16 — 2026-10-20
+
+- visual-proof measures technical SEO of public HTML pages (A158). New optional `seo` block in `visual.json` and `seo` section in `report.json`: one `<title>`, one meta description, one valid canonical, hreflang (reciprocal, self reference, `x-default`, valid tags) on multilingual pages, one `<h1>`, Open Graph `og:title` and `og:image`, valid JSON-LD, and per site `sitemap.xml` against the published pages and `robots.txt` (a `Sitemap:` line, no sitemap page blocked). A page that contains an analytics script is also checked for scripts, requests and globals present before consent; a page without one gets nothing about analytics. A project without public HTML pages runs no seo item (one fixed note), a page blocked by robots is skipped, and an unmeasurable fact is informational, never blocking. Content SEO is out of scope. Reports without `seo` stay valid.
+
 ## 0.0.15 — 2026-10-19
 
 - Night mode: `/proofline batch <ID...|all>` orders tasks by `depends_on`, leaves out CRITICAL and unclassified tasks (and tasks that depend on them) and asks one question ("approve batch") about one summary. `proofline batch run` then runs the tasks one at a time, each in a clean headless lead session; the batch approval stands in for the plan approval, the delivery approval (commit, push, pull request, merge when CI is green, cleanup) and a mutation budget raise up to `batch.mutation_budget_cap` (40), and for nothing else. A waiver, scope expansion, new dependency, reopen, destructive change, rule promotion, friction report and fix-round budget park the task with its question; dependents are skipped and the next independent task still runs. `proofline batch status` is the morning table, from records only. New config block `batch:`; new approval kind `batch` (A157).
