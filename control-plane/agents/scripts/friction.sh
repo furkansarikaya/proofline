@@ -15,7 +15,8 @@ here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
 out=$root/.agents/local/friction
 repo=furkansarikaya/proofline
-gh_bin=${PROOFLINE_GH:-gh}   # test seam: the binary that would run (a test points it at echo)
+gh_bin=gh
+[ "${PROOFLINE_TEST:-}" != 1 ] || gh_bin=${PROOFLINE_GH:-gh}   # test seam only: the env never picks the binary that runs after an approval
 cfgv() { sh "$here/agent.sh" config-get "$1" 2>/dev/null || echo "$2"; }
 # jsum FILE ID KEY: sum of the non-null integer KEY over the records of run ID, then "reported/total"
 tokens_of() {

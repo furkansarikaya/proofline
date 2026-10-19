@@ -4,6 +4,7 @@
 # shellcheck disable=SC2015,SC2154 # assertion chains; tl_agents and base come from test-lib.sh
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
+PROOFLINE_TEST=1; export PROOFLINE_TEST
 new_repo
 cp "$tl_agents/scripts/friction.sh" .agents/scripts/
 fixd=$tl_agents/../../tests/fixtures/friction
@@ -33,11 +34,12 @@ ok "scrub: a report mentioning the repository user is not written"
 # sending: nothing without the user's approval; the printed command; single use
 exp='gh issue create --repo furkansarikaya/proofline --title "proofline friction report" --body-file .agents/local/friction/latest.md'
 [ "$(F issue-cmd)" = "$exp" ] || die "issue-cmd printed: $(F issue-cmd)"
+[ "$(env -u PROOFLINE_TEST PROOFLINE_GH=echo sh ./.agents/scripts/agent.sh friction issue-cmd)" = "$exp" ] || die "PROOFLINE_GH was honoured outside a test"
 expect_msg "send without approval" "nothing sent" env PROOFLINE_GH=false sh ./.agents/scripts/agent.sh friction send
-A request-approval - report > /dev/null; capture 'approve the report'; A approve - report > /dev/null
+A request-approval - report > /dev/null; capture 'approve the friction report'; A approve - report > /dev/null
 [ "$(env PROOFLINE_GH=echo sh ./.agents/scripts/agent.sh friction send | tail -1)" = "issue create --repo furkansarikaya/proofline --title proofline friction report --body-file .agents/local/friction/latest.md" ] || die "send ran another command"
 expect_msg "approval is single use" "nothing sent" env PROOFLINE_GH=false sh ./.agents/scripts/agent.sh friction send
-A request-approval - report > /dev/null; capture 'approve the report'; A approve - report > /dev/null
+A request-approval - report > /dev/null; capture 'approve the friction report'; A approve - report > /dev/null
 echo 'changed' >> "$r"
 expect_msg "an edited report is not covered by the approval" "nothing sent" env PROOFLINE_GH=false sh ./.agents/scripts/agent.sh friction send
 ok "send: approval first, bound to the report hash, single use; the printed command is the one that runs"
