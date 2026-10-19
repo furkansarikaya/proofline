@@ -110,3 +110,22 @@ only when a ledger row binds them, as in the control plane itself. `metrics: off
 part reports "no metrics recorded"; the failure part still reads the ledgers.
 
 `--json` prints the same data as one object, `proofline.insights/1`.
+
+## Friction report and calibration (A149)
+
+**Friction report.** When a run ends (`handoff DONE`, `terminate`), `friction.sh` builds
+`.agents/local/friction/latest.md` from the run's `LEDGER.log` and `records.jsonl`: how many times the user was
+asked (questions plus approval requests), failed gates and blocked steps per gate and role, runtime failovers and
+dispatch timeouts, fix rounds and delegated steps, run duration, and tokens (sums of the reported values only,
+`n/a` when none). It holds counts and controlled identifiers only: no run id, no path, no name, no free text.
+A scrub check refuses to write it when a line has a character outside a small set or mentions the project
+directory, the repository user, the repository email or `$USER`. `agent.sh friction show` prints it.
+
+Sending is never automatic. `agent.sh friction issue-cmd` prints the `gh issue create` command a send would run.
+`agent.sh request-approval - report` asks the user; only after their `report` approval (bound to the sha256 of the
+report, single use) does `agent.sh friction send` run that command. A report edited after the request needs a new
+approval.
+
+**Calibration.** `agent.sh calibrate` prints suggestions only: `test_trust.mutation_budget` against the largest
+criteria count of the plans on disk, `dispatch.timeout_seconds` against the slowest dispatch and recorded timeouts,
+and `review.max_fix_rounds` when two or more runs used all of it. It never edits a file.

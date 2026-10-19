@@ -163,7 +163,7 @@ exists (receipt recorded; `pending` otherwise).
 ## Approvals (D3)
 
 Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the PLAN.md sha256), `commit`, `push`,
-`cleanup` (bound to the content fingerprint), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
+`cleanup` (bound to the content fingerprint), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
 
 - `mutation_budget`: `test_trust.mutation_budget` is never below one mutant per criterion of PLAN `## Tests`. Freeze
   records one request when the criteria exceed the budget; after the user approves, `agent.sh raise-budget <ID> <N>`

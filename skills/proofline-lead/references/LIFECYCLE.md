@@ -137,6 +137,22 @@ drafts (D26), within `knowledge_scope_root`, then `A knowledge-done <ID>`. Other
 `A knowledge-done <ID> not_applicable`. The wiki under `docs/wiki/` is knowledge scope too (A139): ingest and update it as the llm-wiki skill says, run its lint, resolve the errors, then `knowledge-done`. Design documents are not product code; the lead writes them only
 in this step.
 
+**Lessons.** A lesson comes only from evidence; it becomes a rule only with the user's approval. In this step
+run `A lessons derive <ID>`: it lists one candidate per non-info finding of the run's gate records, each with its
+source (`gate:<ID>/<NNN-GATE>#<FINDING-ID>@<sha256 of the record>`, as `derive` prints it) and kind. Write the ones worth keeping with
+`A lessons write <ID> <SOURCE> "<one-line lesson>"` into the wiki page `docs/wiki/lessons/observations.md`
+(link it from `index.md`); a candidate whose source does not resolve is refused, and `knowledge-done` fails while
+the page holds a row without a valid source (`A lessons validate`). Then `A lessons count`: it counts, by script,
+the different runs in which a finding of the same kind (gate and risk focus) appeared, from the page rows and
+the runs now on disk. At the second repeat (`repeats=2`, so `propose=yes`) propose promotion: show the user the
+candidate text and ask with `A request-approval <ID> rule:<CAND>` (relay it; the runtime records the user's own
+reply). Only after that approval run `A lessons promote <ID> <CAND>`: it adds the rule to the "Project rules"
+section of `AGENTS.md` and marks the row promoted; it refuses without the recorded approval. The edit to
+`AGENTS.md` is a change like any other (it must be in `knowledge_scope_root` or the plan scope) and is checked by
+proof-review `rules`; there is no other mechanism, no model-written rule, no store besides the wiki page. A
+promotion into `.agents/config.yaml` is an ordinary, user-requested config change, not part of `lessons`.
+A terminal (FAILED or BLOCKED) run cannot take an approval: its candidates stay observations.
+
 When the task changed user-visible behaviour (a command, flag, config key, output or error text), also run
 docs-writer `update` on the affected documents: those under `knowledge_scope_root` in this step, any other
 document as a path in the frozen plan scope. No document is left stale.
