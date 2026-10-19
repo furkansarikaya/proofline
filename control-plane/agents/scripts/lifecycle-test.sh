@@ -1014,6 +1014,31 @@ scenario_fingerprint_excludes_agents() {
   ok "fingerprint: .agents/ changes are not content, product changes are"
 }
 
+# A152: a path under .agents/ that the plan scope names is task-owned content: it changes the fingerprint and stales the gates.
+scenario_fingerprint_scoped_agents_path() {
+  SC_SCOPE_AGENTS=1 scaffold orchestrated; unset SC_SCOPE_AGENTS; to_code_done orchestrated
+  fp0=$(A fingerprint LC)
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' && die "gates stale before any change"
+  printf 'edit\n' >> .agents/impl.txt
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "an edit of a plan-scoped .agents/ file did not change the fingerprint"
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates did not read stale after a plan-scoped .agents/ edit: $(A pipeline LC | grep '^gate\.')"
+  printf 'edit\n' >> .agents/config.yaml
+  fp1=$(A fingerprint LC); printf 'more\n' >> .agents/config.yaml
+  [ "$(A fingerprint LC)" = "$fp1" ] || die "an unscoped .agents/ file counts as content again"
+  ok "fingerprint: a plan-scoped .agents/ path is content"
+}
+
+# A152: the reopen approval is requested only for a FAILED or BLOCKED run, and only for that run's own id.
+scenario_reopen_approval_kinds() {
+  reopen_failed_run
+  expect_msg "a reopen approval for another run" 'names another run' A request-approval LC reopen:OTHER
+  A request-approval LC reopen:LC >/dev/null || die "the reopen approval was refused for a FAILED run"
+  capture 'I approve the reopen of OTHER'; expect_fail "an approval for another run id" A approve LC reopen:OTHER
+  ro_approve; ro A reopen LC >/dev/null || die "reopen refused: $(ro A reopen LC 2>&1 | tail -1)"
+  expect_msg "a reopen approval on a run that is no longer terminal" 'FAILED or BLOCKED run' A request-approval LC reopen:LC
+  ok "reopen approval: own id only, FAILED or BLOCKED runs only"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
@@ -1054,4 +1079,6 @@ run_sc scenario_digest_resume
 run_sc scenario_reopen_failed
 run_sc scenario_reopen_blocked_and_state
 run_sc scenario_fingerprint_excludes_agents
+run_sc scenario_fingerprint_scoped_agents_path
+run_sc scenario_reopen_approval_kinds
 echo 'agent lifecycle tests passed'
