@@ -85,8 +85,14 @@ when the summary changes. It reads task files through the markdown adapter only.
 
 `proofline batch run` (a terminal, no agent session) starts the driver. It refuses without a valid batch approval, a clean
 tree on the canonical branch and an authenticated `gh`, and runs one task at a time (`.agents/local/batch/LOCK`). Before each
-task it updates the canonical branch and checks its CI; for each task it starts a clean headless lead session
-(`claude -p`, or `codex exec`; the next runtime takes over when one hits its usage limit). In that session the lead calls
+task it updates the canonical branch and checks the CI run of its HEAD (no run yet is no signal); for each task it starts a
+clean headless lead session (`claude -p`, or `codex exec -s workspace-write` with network access; the next runtime takes
+over when one hits its usage limit). Each session is the leader of its own process group; when it ends, or runs longer than
+`batch.task_timeout` minutes (120), the driver closes that group (TERM, a short grace, KILL) and nothing else (without a terminal and without `setsid` only the session pid is signalled), and a timed-out
+task is parked with the reason `timeout`. `agent.sh batch-plan <ID...|all> --codex-danger-full-access` is the only way to
+run Codex sessions with `danger-full-access`: the summary says so with a warning line and the approval hash covers it, the
+driver reads the choice from the approved summary only, never from config or environment. Start the driver yourself in a
+terminal (or `proofline batch run`): the runtime hook's kill guard (A156) concerns an agent's own tool calls, not this program. In that session the lead calls
 `agent.sh batch-cover <ID> <plan|delivery|mutation_budget>`, which records the approval of that request as yours only while
 the batch approval is valid, the task is in the batch, its run is open and not CRITICAL and the request is pending; a mutation
 budget stays within `batch.mutation_budget_cap` (40). Every other approval kind (waiver, scope, reopen, destructive,
@@ -94,7 +100,8 @@ single_step, rule, report, a fix-round budget) is refused: the lead records the 
 session ends. The driver decides each outcome from records (`merged.tsv`, the run state, the run's questions), parks the
 task, skips the tasks that depend on it and goes on with the next independent one. It stops, leaving the rest pending,
 when main CI is red or still running after `batch.ci_wait_minutes`, when every runtime hit its limit, or when one is not
-logged in. After every task it removes the worktrees the session added and returns to the canonical branch.
+logged in. After each merge it takes the merge commit's own SHA, pulls, and waits for the CI run of that SHA (never the
+latest run): red stops the batch, and so does no run for that SHA within `batch.ci_appear_minutes` (10). After every task it removes the worktrees the session added and returns to the canonical branch.
 `proofline batch run` again resumes: a parked task whose question was answered (or whose run was reopened) is resumed.
 `proofline batch status` (`agent.sh batch-status`) prints the morning table (task, result, PR, merge time, park reason,
 pending question) from the records, never from a session log, with the friction report under it.

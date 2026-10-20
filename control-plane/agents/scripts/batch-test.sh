@@ -66,6 +66,7 @@ case "$beh" in
     printf 'from: lead\nasked_at: %s\n---\n1. Which cache do we use for %s?\n   options: a | b\n' "$(date +%s)" "$id" > ".agents/runs/$id/questions/001.md" ;;
   failed) mkrun FAILED false ;;
   limit) echo "usage limit reached, try later"; exit 1 ;;
+  hang) sleep 300 & echo $! > "$FAKE/grandchild.pid"; sleep 20 ;;   # A160: a session that outlives batch.task_timeout, with a grandchild of its own
   nothing) : ;;
 esac
 exit 0
@@ -73,13 +74,28 @@ EOF
 # fake gh: authenticated, main CI green
 cat > "$FAKE/bin/gh" <<'EOF'
 #!/bin/sh
+# A160: `run list --commit <sha>` answers from $FAKE/ci/<sha> (the JSON) or $FAKE/ci/<sha>.none (no run); any other query is green
+sha=''; prev=''; for a in "$@"; do [ "$prev" != --commit ] || sha=$a; prev=$a; done
+if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha" ]; then cat "$FAKE/ci/$sha"; exit 0; fi
+if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha.none" ]; then echo '[]'; exit 0; fi
 case "$*" in
   *"run list"*) echo '[{"status":"completed","conclusion":"success"}]' ;;
+  *"pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;   # the merge commit of a PR (A160: the driver waits for the CI of that SHA)
   *) : ;;
 esac
 exit 0
 EOF
-chmod +x "$FAKE/bin/claude" "$FAKE/bin/gh"
+# fake codex: records its argv, then behaves like the fake claude for the task named in the last argument (the prompt)
+cat > "$FAKE/bin/codex" <<'EOF'
+#!/bin/sh
+for a in "$@"; do last=$a; done
+printf '%s\n' "$*" >> "$FAKE/codex.argv"
+# A160: a session that rewrites the approved summary to widen the sandbox for the sessions after it
+if [ -f "$FAKE/codex.tamper" ]; then sed 's/^codex sandbox: .*/codex sandbox: danger-full-access/' .agents/local/batch/SUMMARY.md > .agents/local/batch/SUMMARY.tmp && mv .agents/local/batch/SUMMARY.tmp .agents/local/batch/SUMMARY.md; fi
+exec claude -p "$last"
+EOF
+chmod +x "$FAKE/bin/claude" "$FAKE/bin/gh" "$FAKE/bin/codex"
+mkdir -p "$FAKE/ci"; MSHA=0123456789abcdef0123456789abcdef01234567   # the merge commit the fake gh reports for every PR
 
 # --- fixture helpers ------------------------------------------------------------------------------------------
 # mktask ID CLASS|none [DEPS] [DIR]: a markdown task file under .agents/tasks[/DIR]
@@ -115,6 +131,8 @@ cfg_batch() {
   awk '/^batch:/ { skip=1; next } skip && /^[^[:space:]#]/ { skip=0 } !skip { print }' .agents/config.yaml > .agents/config.tmp
   printf 'batch:\n  mutation_budget_cap: %s\n  ci_wait_minutes: 1\n' "$1" >> .agents/config.tmp; mv .agents/config.tmp .agents/config.yaml
 }
+# cfg_extra LINE...: more keys inside the batch: block (after cfg_batch)
+cfg_extra() { for ce_l in "$@"; do awk -v l="$ce_l" '{ print } /^batch:/ { print l }' .agents/config.yaml > .agents/config.tmp; mv .agents/config.tmp .agents/config.yaml; done; }
 BP() { A batch-plan "$@"; }
 BB() { sh ./.agents/scripts/batch.sh "$@"; }
 batch_approve() { capture 'approve batch'; A approve-pending >/dev/null; }
@@ -354,6 +372,89 @@ sc_stale_log() {
   ok "batch run: stale limit/auth text in the cumulative log is ignored; no-result session parks, next task still runs"
 }
 
+# --- 8. (A160) a session that outlives batch.task_timeout is parked with its whole process group closed -------------------------
+sc_task_timeout() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; cfg_batch 40; cfg_extra '  task_timeout: 1'; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'hang\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-3"; rm -f "$FAKE/grandchild.pid"
+  ( PROOFLINE_BATCH_MINUTE=3; export PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :
+  gc=$(cat "$FAKE/grandchild.pid" 2>/dev/null || :); [ -n "$gc" ] || die "test setup: the fake session spawned no grandchild"
+  if kill -0 "$gc" 2>/dev/null; then kill "$gc" 2>/dev/null || :; die "the grandchild of the timed-out session (pid $gc) is still alive: its process group was not closed"; fi
+  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = timeout ] || die "T-1 after the timeout: $(cat .agents/local/batch/state.tsv); $(tail -5 "$base/run.out")"
+  state_of T-1 4 | grep -q 'no result within 1 minutes' || die "T-1 reason text: $(state_of T-1 4)"
+  [ "$(state_of T-2 2)" = skipped ] && state_of T-2 3 | grep -q 'depends on T-1 (parked)' || die "T-2: $(state_of T-2 2) $(state_of T-2 3)"
+  [ "$(state_of T-3 2)" = merged ] && [ "$(calls)" = "T-1 T-3" ] || die "the batch did not go on after the timeout: '$(calls)' $(cat .agents/local/batch/state.tsv)"
+  ok "batch run: a hanging session is parked (timeout), its dependent skipped, the next task merged, the grandchild of its process group is dead"
+}
+
+# --- 9. (A160) Codex sessions run sandboxed; danger-full-access only when the approved summary says so ---------------------------
+sc_codex_sandbox() {
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
+  printf 'merge\n' > "$FAKE/behave/T-1"
+  # default: workspace-write with network for package installs; the summary says so and carries no warning
+  BP all >/dev/null || die "batch-plan failed"
+  grep -q '^codex sandbox: workspace-write' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
+  batch_approve; : > "$FAKE/codex.argv"
+  BB run >/dev/null 2>&1 || :
+  grep -q -- '-s workspace-write' "$FAKE/codex.argv" && grep -q 'sandbox_workspace_write.network_access=true' "$FAKE/codex.argv" || die "codex argv: $(cat "$FAKE/codex.argv")"
+  if grep -q 'danger-full-access' "$FAKE/codex.argv"; then die "danger-full-access without the flag: $(cat "$FAKE/codex.argv")"; fi
+  # config and environment cannot enable it: only the flag at plan time, visible with the warning
+  cg_reset() { rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/codex.argv"; }
+  cg_reset; cfg_extra '  codex_sandbox: danger-full-access' '  sandbox: danger-full-access'
+  git add -A; git commit -qm 'extra config keys'
+  BP all >/dev/null || die "batch-plan with extra config keys failed"; batch_approve
+  ( PROOFLINE_CODEX_SANDBOX=danger-full-access; CODEX_SANDBOX=danger-full-access; export PROOFLINE_CODEX_SANDBOX CODEX_SANDBOX; BB run >/dev/null 2>&1 ) || :
+  grep -q -- '-s workspace-write' "$FAKE/codex.argv" && ! grep -q 'danger-full-access' "$FAKE/codex.argv" || die "config/env enabled danger-full-access: $(cat "$FAKE/codex.argv")"
+  for pos in first last; do   # the flag in any position
+    if [ $pos = first ]; then BP --codex-danger-full-access all > "$base/plan.out" || die "flag first refused: $(cat "$base/plan.out")"
+    else BP all --codex-danger-full-access > "$base/plan.out" || die "flag last refused: $(cat "$base/plan.out")"; fi
+    grep -q '^codex sandbox: danger-full-access' "$summary" && grep -q '^WARNING:' "$summary" || die "flag $pos: summary lacks the sandbox line or the warning: $(grep -i 'sandbox\|WARNING' "$summary")"
+  done
+  cg_reset; BP all --codex-danger-full-access >/dev/null || die "batch-plan with the flag failed"; batch_approve; BB run >/dev/null 2>&1 || :
+  grep -q -- '-s danger-full-access' "$FAKE/codex.argv" && ! grep -q 'workspace-write' "$FAKE/codex.argv" || die "codex argv with the flag: $(cat "$FAKE/codex.argv")"
+  ok "codex: -s workspace-write (+network) by default; danger-full-access only via --codex-danger-full-access in the approved summary (with WARNING), never config or env"
+}
+
+sc_codex_sandbox_tamper() {
+  # session 1 rewrites SUMMARY.md to danger-full-access: the driver read the approved choice once, so session 2 stays workspace-write
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
+  printf 'merge\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-2"
+  BP all >/dev/null || die "batch-plan failed"; batch_approve; : > "$FAKE/codex.argv"; : > "$FAKE/codex.tamper"
+  BB run >/dev/null 2>&1 || :
+  rm -f "$FAKE/codex.tamper"
+  [ "$(calls)" = "T-1 T-2" ] || die "both tasks should have run: '$(calls)'"
+  grep -q '^codex sandbox: danger-full-access' .agents/local/batch/SUMMARY.md || die "the fake codex did not rewrite SUMMARY.md"
+  [ "$(wc -l < "$FAKE/codex.argv" | tr -d ' ')" = 2 ] || die "expected two codex sessions: $(cat "$FAKE/codex.argv")"
+  sed -n 2p "$FAKE/codex.argv" | grep -q -- '-s workspace-write' || die "session 2 argv lacks -s workspace-write: $(sed -n 2p "$FAKE/codex.argv")"
+  if grep -q 'danger-full-access' "$FAKE/codex.argv"; then die "danger-full-access reached a session: $(cat "$FAKE/codex.argv")"; fi
+  ok "codex sandbox is read once at run start: a session editing SUMMARY.md cannot widen it for the next session"
+}
+
+# --- 10. (A160) the CI that gates the next task is the one of the merge commit ---------------------------------------------------
+ci_setup() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; cfg_batch 40; cfg_extra '  ci_appear_minutes: 1'; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve; printf 'merge\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-2"; rm -f "$FAKE/ci"/*
+}
+ci_run() { ( PROOFLINE_BATCH_MINUTE=1; export PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :; }
+sc_merge_commit_ci() {
+  # an old green run on main exists (the fake answers green to any query that is not about the merge commit); the merge commit's run is red
+  ci_setup; printf '[{"status":"completed","conclusion":"failure"}]\n' > "$FAKE/ci/$MSHA"; ci_run
+  [ "$(calls)" = "T-1" ] || die "a red run of the merge commit did not stop the batch: '$(calls)'; $(tail -3 "$base/run.out")"
+  grep -q '^# stopped: main CI is red (run of 0123456)' .agents/local/batch/state.tsv || die "stop reason: $(tail -2 .agents/local/batch/state.tsv)"
+  [ "$(state_of T-2 2)" = pending ] || die "T-2 after the stop: $(state_of T-2 2)"
+  # a running run next to a red one is red
+  ci_setup; printf '[{"status":"in_progress","conclusion":""},{"status":"completed","conclusion":"failure"}]\n' > "$FAKE/ci/$MSHA"; ci_run
+  [ "$(calls)" = "T-1" ] || die "red + running did not stop the batch: '$(calls)'"
+  # no run for the merge commit appears within ci_appear_minutes
+  ci_setup; : > "$FAKE/ci/$MSHA.none"; ci_run
+  [ "$(calls)" = "T-1" ] || die "no run for the merge commit did not stop the batch: '$(calls)'; $(tail -3 "$base/run.out")"
+  grep -q '^# stopped: no CI run appeared for 0123456' .agents/local/batch/state.tsv || die "stop reason: $(tail -2 .agents/local/batch/state.tsv)"
+  # a green run for the merge commit lets the batch go on
+  ci_setup; printf '[{"status":"completed","conclusion":"success"}]\n' > "$FAKE/ci/$MSHA"; ci_run
+  [ "$(calls)" = "T-1 T-2" ] && [ "$(state_of T-2 2)" = merged ] || die "a green run of the merge commit stopped the batch: '$(calls)'; $(tail -3 "$base/run.out")"
+  ok "merge-commit CI: red run of the SHA stops (an old green main run does not count), no run in ci_appear_minutes stops, green run continues"
+}
+
 run_sc sc_order_and_cycle
 run_sc sc_no_approval_no_start
 run_sc sc_cover_limits
@@ -365,4 +466,8 @@ run_sc sc_park_skip_continue
 run_sc sc_lock
 run_sc sc_status_from_records
 run_sc sc_stale_log
+run_sc sc_task_timeout
+run_sc sc_codex_sandbox
+run_sc sc_codex_sandbox_tamper
+run_sc sc_merge_commit_ci
 echo 'batch tests passed'

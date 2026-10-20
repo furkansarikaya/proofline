@@ -91,7 +91,7 @@ test("an analytics script loaded without consent is caught; a project without an
   const r = seoEvaluate([dirty], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
   const a = r.items.find((m) => m.check === "seo_analytics_consent");
   assert.equal(a.status, "fail");
-  assert.match(a.note, /before consent: script element https:\/\/analytics\.example\.org/);
+  assert.match(a.note, /before consent: third-party request https:\/\/analytics\.example\.org/);
   assert.deepEqual(r.pages[0].analytics_detected, ["analytics", "dataLayer"]);
   const full = run({ ...SEO, pages: ["index.html"] }, { pages: [dirty], site: SITEFACTS(["index.html"]) });
   assert.equal(full.report.result, "FAIL");
@@ -123,18 +123,17 @@ test("an inert consent-gated placeholder (type=text/plain) is not a load; the sa
   const placeholder = '<script type="text/plain" data-src="https://analytics.example.org/tag.js"></script>';
   const inert = page("index.html", { scripts: [], source: `<html>${placeholder}</html>` });
   const ri = seoEvaluate([inert], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
-  assert.deepEqual(ri.pages[0].analytics_detected, ["analytics"]); // mentioned in the source, so the item exists ...
-  const ai = ri.items.find((m) => m.check === "seo_analytics_consent");
-  assert.equal(ai.status, "pass", JSON.stringify(ai)); // ... and passes: nothing ran before consent
+  assert.deepEqual(ri.pages[0].analytics_detected, ["analytics"]); // mentioned in the source: a candidate by name, information only (A160) ...
+  assert.equal(ri.items.some((m) => m.check === "seo_analytics_consent"), false); // ... no item: nothing requested before consent
   const full = run({ ...SEO, pages: ["index.html"] }, { pages: [inert], site: SITEFACTS(["index.html"]) });
   assert.equal(full.report.result, "PASS");
   assert.equal(full.v.valid, true, full.v.errors.join("\n"));
 
-  const live = page("index.html", { scripts: ["https://analytics.example.org/tag.js"], source: `<html>${placeholder}</html>` });
+  const live = page("index.html", { scripts: ["https://analytics.example.org/tag.js"], requests: ["https://analytics.example.org/tag.js"], source: `<html>${placeholder}</html>` });
   const rl = seoEvaluate([live], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
   const al = rl.items.find((m) => m.check === "seo_analytics_consent");
   assert.equal(al.status, "fail");
-  assert.match(al.note, /before consent: script element https:\/\/analytics\.example\.org/);
+  assert.match(al.note, /before consent: third-party request https:\/\/analytics\.example\.org/);
 });
 
 const analyticsCfg = (analytics) => ({ class: "STANDARD", base_url: BASE, viewports: [{ name: "a", width: 360, height: 740 }, { name: "b", width: 768, height: 1024 }],
@@ -153,13 +152,12 @@ test("a project-named analytics host and global (seo.analytics) are detected and
   assert.equal(measure.checkConfig(analyticsCfg({ hosts: ["collect.example.net"], globals: ["siteStats"] })).join("\n"), "");
   // collect.example.net holds no generic analytics word, so only the project list can name it.
   const opt = { base_url: BASE, site_url: SITE, analytics: { hosts: ["collect.example.net"], globals: ["siteStats"] } };
-  const dirty = page("index.html", { scripts: ["https://collect.example.net/a.js"], globals: ["siteStats"], source: "<html></html>" });
+  const dirty = page("index.html", { scripts: ["https://collect.example.net/a.js"], requests: ["https://collect.example.net/a.js"], globals: ["siteStats"], source: "<html></html>" });
   const withList = seoEvaluate([dirty], SITEFACTS(["index.html"]), opt);
   assert.deepEqual(withList.pages[0].analytics_detected, ["collect.example.net", "siteStats"]);
   const a = withList.items.find((m) => m.check === "seo_analytics_consent");
   assert.equal(a.status, "fail");
-  assert.match(a.note, /before consent: script element https:\/\/collect\.example\.net/);
-  assert.match(a.note, /before consent: window\.siteStats/);
+  assert.match(a.note, /before consent: third-party request https:\/\/collect\.example\.net/);
   const without = seoEvaluate([dirty], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
   assert.equal(without.items.some((m) => m.check === "seo_analytics_consent"), false);
 });
@@ -174,4 +172,96 @@ test("a robots not_applicable page without a non-empty detail is rejected by the
     assert.equal(r.valid, false, `accepted detail ${JSON.stringify(detail)}`);
     assert.match(r.errors.join("\n"), /not_applicable needs a non-empty detail/);
   }
+});
+
+// --- A160: analytics by behaviour, robots.txt per bot ---------------------------------------------------------------
+const consent = (pg, opt = {}) => seoEvaluate([pg], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE, ...opt });
+const req = (url, over = {}) => ({ url, third_party: true, phase: "before_consent", ...over });
+
+test("a name alone (own-origin pixel-art.js, a lone dataLayer) is information, never blocking; a third-party request before consent fails", () => {
+  const art = page("index.html", { scripts: [BASE + "assets/pixel-art.js"], requests: [req(BASE + "assets/pixel-art.js", { third_party: false })] });
+  const ra = consent(art);
+  assert.deepEqual(ra.pages[0].analytics_detected, ["pixel"]);
+  assert.equal(ra.items.some((m) => m.check === "seo_analytics_consent"), false, "an own-origin pixel-art.js blocked the page");
+  const full = run({ ...SEO, pages: ["index.html"] }, { pages: [art], site: SITEFACTS(["index.html"]) });
+  assert.equal(full.report.result, "PASS");
+
+  const defined = page("index.html", { globals: ["dataLayer"] }); // defined, nothing requested
+  const rd = consent(defined);
+  assert.deepEqual(rd.pages[0].analytics_detected, ["dataLayer"]);
+  assert.equal(rd.items.some((m) => m.check === "seo_analytics_consent"), false, "a defined-only dataLayer counted as loaded");
+
+  const fonts = consent(page("index.html", { requests: [req("https://fonts.example.com/f.css")] }));
+  assert.equal(fonts.items.some((m) => m.check === "seo_analytics_consent"), false, "a non-analytics third party failed the consent check");
+
+  const bad = consent(page("index.html", { requests: [req("https://stats.example.org/c.js")] }));
+  const item = bad.items.find((m) => m.check === "seo_analytics_consent");
+  assert.equal(item.status, "fail");
+  assert.match(item.note, /before consent: third-party request https:\/\/stats\.example\.org\/c\.js/);
+  const viaInit = consent(page("index.html", { requests: [req("https://cdn.example.com/x.gif", { initiator: "https://analytics.example.org/tag.js" })] }));
+  assert.equal(viaInit.items.find((m) => m.check === "seo_analytics_consent").status, "fail", "a request initiated by an analytics script was not attributed");
+  const after = consent(page("index.html", { requests: [req("https://stats.example.org/c.js", { phase: "after_consent" })] }));
+  assert.equal(after.items.some((m) => m.check === "seo_analytics_consent"), false, "a request after consent failed");
+});
+
+test("robots.txt is read per bot: Googlebot uses its own group, Bingbot falls to *, longest match and Allow-on-tie", () => {
+  const txt = "User-agent: Googlebot\nDisallow: /private/\nAllow: /private/open.html\nDisallow: /tie\nAllow: /tie\n\nUser-agent: *\nDisallow: /\n";
+  const b = (rel, bot) => measure.robotsBlocks(txt, rel, bot);
+  assert.equal(b("index.html", "googlebot"), false, "Googlebot must not inherit the * group");
+  assert.equal(b("private/x.html", "googlebot"), true);
+  assert.equal(b("private/open.html", "googlebot"), false, "the longer Allow wins");
+  assert.equal(b("tie", "googlebot"), false, "Allow wins an equal-length tie");
+  assert.equal(b("index.html", "bingbot"), true, "Bingbot has no group and falls to *");
+  assert.deepEqual(measure.ROBOTS_BOTS, ["googlebot", "bingbot"]);
+  assert.deepEqual(measure.robotsBlockedFor(txt, "index.html"), ["bingbot"]);
+  assert.deepEqual(measure.robotsBlockedFor(txt, "private/x.html"), ["googlebot", "bingbot"]);
+  // consecutive user-agent lines share one group
+  assert.equal(measure.robotsBlocks("User-agent: Bingbot\nUser-agent: Googlebot\nDisallow: /a\n", "a", "googlebot"), true);
+
+  const only = "User-agent: Bingbot\nDisallow: /de/\n\nUser-agent: *\nDisallow:\nSitemap: " + SITE + "/sitemap.xml\n";
+  const r = seoEvaluate([page("index.html"), page("de/index.html")], { ...SITEFACTS(["index.html", "de/index.html"]), robots_txt: only }, { base_url: BASE, site_url: SITE });
+  const item = r.items.find((m) => m.check === "seo_robots");
+  assert.equal(item.status, "fail");
+  assert.match(item.note, /robots\.txt disallows de\/index\.html for bingbot/);
+  assert.doesNotMatch(item.note, /disallows index\.html/);
+});
+
+test("robots.txt blocking the page for every tested bot is not_applicable (robots); for one bot it stays measured; a blocked sitemap page still fails seo_robots (A160)", () => {
+  const sf = (txt, paths) => ({ ...SITEFACTS(paths, { "admin/index.html": true }), robots_txt: txt });
+  const opt = { base_url: BASE, site_url: SITE };
+  const all = seoEvaluate([page("admin/index.html")], sf("User-agent: *\nDisallow: /admin/\n", []), opt);
+  const pg = all.pages.find((p) => p.path === "admin/index.html");
+  assert.equal(pg.status, "not_applicable");
+  assert.equal(pg.reason, "robots");
+  assert.match(pg.detail, /googlebot/);
+  assert.match(pg.detail, /bingbot/);
+  assert.equal(all.items.some((m) => m.check === "seo_robots" && /admin/.test(m.note || "")), false, "a skipped page produced a seo_robots item");
+
+  const some = seoEvaluate([page("admin/index.html")], sf("User-agent: Googlebot\nDisallow: /admin/\n", []), opt);
+  assert.notEqual(some.pages.find((p) => p.path === "admin/index.html").status, "not_applicable");
+  const item = some.items.find((m) => m.check === "seo_robots");
+  assert.equal(item.status, "fail");
+  assert.match(item.note, /admin\/index\.html for googlebot/);
+
+  const inMap = seoEvaluate([page("index.html"), page("admin/index.html")], sf("User-agent: *\nDisallow: /admin/\n", ["index.html", "admin/index.html"]), opt);
+  const mi = inMap.items.find((m) => m.check === "seo_robots");
+  assert.ok(mi && mi.status === "fail", "a blocked page listed in the sitemap must still fail seo_robots");
+  assert.match(mi.note, /disallows a sitemap page for googlebot, bingbot: https:\/\/example\.org\/admin\/index\.html/);
+});
+
+test("a request initiated by the document itself is not attributed to analytics; a script initiator is; the site's own origin is first party (A160)", () => {
+  const url = BASE + "stats/index.html";
+  const mk = (initiator) => seoEvaluate([page("stats/index.html", { url, requests: [req("https://cdn.x.example.com/a.css", { initiator })] })],
+    SITEFACTS(["index.html"], { "stats/index.html": true }), { base_url: BASE, site_url: SITE });
+  const doc = mk(url);
+  assert.equal(doc.items.some((m) => m.check === "seo_analytics_consent"), false, "the document URL (stats) counted as an analytics initiator");
+  const script = mk("https://cdn.x.example.com/tracking.js");
+  assert.equal(script.items.find((m) => m.check === "seo_analytics_consent")?.status, "fail", "a tracking script initiator was not attributed");
+
+  const own = page("index.html", { requests: [req("https://example.org/assets/pixel-art.js", { third_party: undefined })] });
+  const r = consent(own);
+  assert.equal(r.items.some((m) => m.check === "seo_analytics_consent"), false, "the site's own origin pixel-art.js blocked the page");
+  const pa = r.pages[0], u = "https://example.org/assets/pixel-art.js";
+  assert.equal((pa.analytics_before_consent || []).includes(u), false, "own-origin request listed in analytics_before_consent");
+  assert.equal((pa.third_party_requests || []).includes(u), false, "own-origin request listed in third_party_requests");
 });

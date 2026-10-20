@@ -16,7 +16,7 @@
 | `network` | `interception` (`on` for measure.mjs and a guarded adapter, else `none`: at most INCONCLUSIVE), `blocked[]` `{url, type}`: requests outside the page's origin, WebSockets and service-worker registrations that were failed, never sent; `same_origin_writes[]` `{method, url}` (POST/PUT/PATCH/DELETE to the page's own origin: at most INCONCLUSIVE without a `visual_writes:` line in the plan or spec); `unguarded[]` (child targets without the guard: at most INCONCLUSIVE) |
 | `a11y_scanner` | `{status: run, tool}` or `{status: not_available}`; when run, it is a core check of every cell |
 | `regression` | `{status: not_available, reason}` or `{status: run, command, exit, baselines: existing}`; `baselines_created` is never true |
-| `seo` | optional (A158): `{status: run, pages[], items[]}` or `{status: not_applicable, note}` ([MEASURE.md](MEASURE.md#technical-seo)); `pages[]` `{path, status measured|not_applicable|not_measured, reason, analytics_detected[]}`; `items[]` `{id S-n, check, page, selector, value, threshold, status pass|fail|not_measured, evidence, note, reason}`; absent when `tool.kind` is `none` |
+| `seo` | optional (A158): `{status: run, pages[], items[]}` or `{status: not_applicable, note}` ([MEASURE.md](MEASURE.md#technical-seo)); `pages[]` `{path, status measured|not_applicable|not_measured, reason, analytics_detected[], analytics_before_consent[], third_party_requests[]}`; `items[]` `{id S-n, check, page, selector, value, threshold, status pass|fail|not_measured, evidence, note, reason}`; absent when `tool.kind` is `none` |
 | `criteria[]` | `id`, `required`, `status` `proven|failed|unproven` (recomputed) |
 
 Validator checks (`validate-visual.mjs`): every screenshot path is relative to the report folder, exists and
@@ -26,7 +26,7 @@ status consistent with value and threshold; `not_applicable` only as the fixed i
 the page has nothing of that kind (selector `body`, the reason as value, alone for its check in the cell),
 counted apart from passes in `SUMMARY`; a `headless-browser` report carries `network.interception: on`; every cell the class requires exists and accounts for every core check; STANDARD has no
 judged items and at least 2 viewports; COMPLEX/CRITICAL have 3 viewports, every state and a judged item per
-aspect; with `seo`: a fixed note and no items when not applicable, every measured page accounts for the six per-page seo checks (a measured item or a `not_measured` item), `seo_hreflang` only where the page has alternates, `seo_analytics_consent` exactly when `analytics_detected` is non-empty, `seo_sitemap` and `seo_robots` once per site, a pass or fail item has an integer problem count whose status agrees with `== 0`; a judged violation quotes a criterion found in `--spec`/`--plan`; with `--plan`, every id on the
+aspect; with `seo`: a fixed note and no items when not applicable, every measured page accounts for the six per-page seo checks (a measured item or a `not_measured` item), `seo_hreflang` only where the page has alternates, `seo_analytics_consent` exactly when `analytics_before_consent` is non-empty (reports without that field: when `analytics_detected` is), `seo_sitemap` and `seo_robots` once per site, a pass or fail item has an integer problem count whose status agrees with `== 0`; a judged violation quotes a criterion found in `--spec`/`--plan`; with `--plan`, every id on the
 `visual_proof:` line is a required criterion.
 
 ## Result

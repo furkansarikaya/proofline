@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.18 — 2026-10-20
+
+- Night mode is safer (A160, issue #135). A headless session that outlives `batch.task_timeout` (minutes, default 120, shown in the summary) is closed together with its process group, the task is parked with the reason `timeout`, its dependents are skipped and the batch goes on. Every session runs as the leader of its own process group and the driver closes only that group when the task ends, so no leftover process outlives a task. A Codex night session runs `codex exec -s workspace-write` with network access for package installs; `danger-full-access` only when you plan with `agent.sh batch-plan <IDs> --codex-danger-full-access` (a warning in the summary, bound to the approval hash; config and environment cannot enable it). After a merge the driver waits for the CI run of the merge commit's own SHA (never the latest run) and stops when it is red or when no run appears within the new `batch.ci_appear_minutes` (default 10).
+- visual-proof SEO is more accurate (A160, issue #137). Analytics counts as loaded only when a third-party request before consent was measured and it belongs to an analytics candidate (generic words or `seo.analytics` hosts, or its initiator); a candidate found by name only (`pixel-art.js` on the page's own origin, a lone `dataLayer`) is an info row, never blocking. `robots.txt` is read per RFC 9309 for Googlebot and Bingbot (the group of the bot's token, else `*`; longest match, Allow wins a tie, `*` and `$`), and a published or sitemap page blocked for a bot is a blocking `seo_robots` failure naming the bot; a page blocked for every tested bot is skipped as `not_applicable` (reason `robots`). The site's own origin (`seo.site_url`) is first party and a document URL is never an analytics initiator. Night mode reads the Codex sandbox choice once after `batch-check`; without a terminal and without `setsid` only the session pid is signalled.
+- A report from before 0.0.18 stays valid: page `requests` may still be plain URL strings, and a report without `analytics_before_consent` keeps the old `analytics_detected` rule.
+
 ## 0.0.17 — 2026-10-20
 
 - The knowledge step can write the wiki (A159). After CODE_DONE, and for a FAILED or BLOCKED run, the runtime hook lets the lead write `knowledge_scope_root` (`docs/design/ docs/adr/ docs/wiki/`) and the `design_docs` paths, and nothing else; any other stage keeps the ban. New read-only `agent.sh in-knowledge-scope <path>`.
