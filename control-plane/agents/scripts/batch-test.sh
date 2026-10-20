@@ -72,6 +72,8 @@ case "$beh" in
     sh -c 'sleep 301 & echo $! >> "$FAKE/descendants.pids"; sleep 302' & echo $! >> "$FAKE/descendants.pids"
     ( trap '' TERM; sleep 303 & echo $! >> "$FAKE/descendants.pids"; sleep 304; sleep 305 ) & echo $! >> "$FAKE/descendants.pids"
     sleep 20 ;;
+  limitchmod) # A161: the usage limit, after the package cache dir was made group-readable (the dir is unsafe by the time codex is tried)
+    chmod 755 "$(cat "$FAKE/pkgdir")"; echo "usage limit reached, try later"; exit 1 ;;
   nothing) : ;;
 esac
 exit 0
@@ -630,6 +632,57 @@ sc_codex_pkg_env() {
   ok "codex argv: shell_environment_policy.set puts npm/pnpm/yarn/pip/go caches under the proofline-pkg temp dir, none under \$HOME; absent with --codex-danger-full-access"
 }
 
+# --- (A161) the Codex package cache dir: created with mkdir -m 700, never followed or changed, refused when it is not private ---
+pk_load() { sed -n '/^codex_pkg_check() {/,/^}/p' .agents/scripts/batch.sh > "$base/pkcheck.sh"; [ -s "$base/pkcheck.sh" ] || die "codex_pkg_check is not in batch.sh"; }
+pk_try() { # TMPDIR-DIR: run codex_pkg_check with that TMPDIR; sets pk_rc, pk_msg, pk_ce
+  pk_out=$( ( TMPDIR=$1; export TMPDIR; . "$base/pkcheck.sh"; rc=0; codex_pkg_check || rc=$?; printf '%s\n%s\n' "$rc" "$CE"; printf '%s' "$PKG_BAD" ) 2>&1 )
+  pk_rc=$(printf '%s\n' "$pk_out" | sed -n 1p); pk_ce=$(printf '%s\n' "$pk_out" | sed -n 2p); pk_msg=$(printf '%s\n' "$pk_out" | sed -n '3,$p')
+}
+sc_codex_pkg_dir() {
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; pk_load; uid=$(id -u)
+  # a normal fresh dir is accepted and made with mode 700
+  t1=$base/pk1; mkdir -p "$t1"; pk_try "$t1"
+  [ "$pk_rc" = 0 ] && [ "$pk_ce" = "$t1/proofline-pkg-$uid" ] && [ -z "$pk_msg" ] || die "fresh dir refused: rc=$pk_rc ce=$pk_ce $pk_msg"
+  ls -ld "$pk_ce" | grep -q '^drwx------' || die "the new dir is not mode 700: $(ls -ld "$pk_ce")"
+  pk_try "$t1"; [ "$pk_rc" = 0 ] || die "an existing private dir was refused: $pk_msg"
+  # a symlink in its place is refused and not followed
+  t2=$base/pk2; mkdir -p "$t2/other"; ln -s "$t2/other" "$t2/proofline-pkg-$uid"; chmod 700 "$t2/other"; pk_try "$t2"
+  [ "$pk_rc" = 1 ] && printf '%s' "$pk_msg" | grep -q 'is a symlink or not a directory' || die "symlinked dir not refused: rc=$pk_rc $pk_msg"
+  # a regular file in its place is refused
+  t2f=$base/pk2f; mkdir -p "$t2f"; : > "$t2f/proofline-pkg-$uid"; pk_try "$t2f"
+  [ "$pk_rc" = 1 ] && printf '%s' "$pk_msg" | grep -q 'is a symlink or not a directory' || die "a file in its place not refused: rc=$pk_rc $pk_msg"
+  # mode 755 is refused and left as it was
+  t3=$base/pk3; mkdir -p "$t3/proofline-pkg-$uid"; chmod 755 "$t3/proofline-pkg-$uid"; pk_try "$t3"
+  [ "$pk_rc" = 1 ] && printf '%s' "$pk_msg" | grep -q "found uid $uid, drwxr-xr-x" || die "mode 755 not refused: rc=$pk_rc $pk_msg"
+  ls -ld "$t3/proofline-pkg-$uid" | grep -q '^drwxr-xr-x' || die "the refused dir was changed"
+  # a foreign owner: id -u prints another uid
+  mkdir -p "$base/idstub"; printf '#!/bin/sh\n[ "$1" = -u ] && { echo %s; exit 0; }\nexec /usr/bin/id "$@"\n' "$((uid + 1))" > "$base/idstub/id"; chmod +x "$base/idstub/id"
+  t4=$base/pk4; mkdir -p "$t4"
+  pk_out=$( ( PATH=$base/idstub:$PATH; TMPDIR=$t4; export PATH TMPDIR; . "$base/pkcheck.sh"; rc=0; codex_pkg_check || rc=$?; echo "$rc"; printf '%s' "$PKG_BAD" ) 2>&1 )
+  [ "$(printf '%s\n' "$pk_out" | sed -n 1p)" = 1 ] && printf '%s' "$pk_out" | grep -q "not owned by uid $((uid + 1)) with mode 700 (found uid $uid" || die "foreign owner not refused: $pk_out"
+  ok "codex package cache dir: a fresh dir is made 700 and accepted; a symlink, a file, mode 755 and a foreign owner are refused (and nothing is followed or changed)"
+}
+sc_codex_pkg_batch() {
+  uid=$(id -u); mkdir -p "$base/tmp"
+  pkb_run() { ( TMPDIR=$base/tmp; export TMPDIR; BB run > "$base/run.out" 2>&1 ) && pkb_rc=0 || pkb_rc=$?; }
+  pkb_bad() { rm -rf "$base/tmp/proofline-pkg-$uid" "$base/tmp/other"; mkdir "$base/tmp/other"; ln -s "$base/tmp/other" "$base/tmp/proofline-pkg-$uid"; }
+  # batch.runtimes names codex: refused, no session
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall; cv_plan; pkb_bad; pkb_run
+  [ "$pkb_rc" != 0 ] && grep -q 'is a symlink or not a directory' "$base/run.out" && [ -z "$(calls)" ] && [ ! -s "$FAKE/codex.argv" ] || die "batch.runtimes codex with a symlinked cache dir: rc=$pkb_rc calls='$(calls)' $(cat "$base/run.out")"
+  # codex only an installed fallback: left out with one line, the batch goes on with claude
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; pkb_bad; pkb_run
+  [ "$(grep -c 'Codex is left out of this batch' "$base/run.out")" = 1 ] && grep -q '^batch: .*is a symlink or not a directory.*: Codex is left out of this batch$' "$base/run.out" && [ ! -s "$FAKE/codex.argv" ] || die "fallback codex with a symlinked cache dir: $(cat "$base/run.out")"
+  # run_session itself refuses (the dir became unsafe after the start): the line is printed and no session starts
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; cv_plan; printf 'limitchmod\n' > "$FAKE/behave/T-1"
+  rm -rf "$base/tmp/proofline-pkg-$uid" "$base/tmp/other"; mkdir -m 700 "$base/tmp/proofline-pkg-$uid"; printf '%s\n' "$base/tmp/proofline-pkg-$uid" > "$FAKE/pkgdir"; pkb_run
+  grep -q 'batch: the Codex package cache .* is not owned by uid .* with mode 700 (found uid .*drwxr-xr-x).*; no Codex session is started' .agents/local/batch/logs/T-1.log || die "run_session did not refuse: $(cat .agents/local/batch/logs/T-1.log) / $(cat "$base/run.out")"
+  [ ! -s "$FAKE/codex.argv" ] || die "a codex session started on an unsafe cache dir: $(cat "$FAKE/codex.argv")"
+  # a good dir: the codex session runs
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall; cv_plan; rm -rf "$base/tmp/proofline-pkg-$uid" "$base/tmp/other"; pkb_run
+  [ -s "$FAKE/codex.argv" ] || die "a good cache dir was refused: $(cat "$base/run.out")"
+  ok "batch: a refused package cache dir refuses batch.runtimes codex, leaves out an installed fallback with one line, and run_session starts no Codex session; a private dir runs"
+}
+
 # --- 9e. (A161) plan-time WARNING: a Codex lead whose workers also run on Codex ------------------------------------------------------
 wn_setup() { # LEAD WORKER [QA-RUNTIME]: the real exec-policy.sh (the fixture stubs it) and the runtime keys
   bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall no; cp "$tl_agents/scripts/exec-policy.sh" .agents/scripts/exec-policy.sh
@@ -717,6 +770,8 @@ run_sc sc_codex_sandbox_tamper
 run_sc sc_codex_version
 run_sc sc_codex_summary_version
 run_sc sc_codex_pkg_env
+run_sc sc_codex_pkg_dir
+run_sc sc_codex_pkg_batch
 run_sc sc_pgroup_method setm
 run_sc sc_pgroup_method setsid
 run_sc sc_pgroup_method perl

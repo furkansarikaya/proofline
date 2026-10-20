@@ -19,7 +19,7 @@ pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","too
 denies() { out=$(pre "$1"); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "not denied: $1 -> $out"; printf '%s' "$out" | grep -Fq 'A156' || die "denial is not the kill guard: $1 -> $out"; }
 allows() { out=$(pre "$1"); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "denied: $1 -> $out"; }
 
-scenarios='denied allowed signal_zero quoted_text quoted_substitution installed heredoc_indirect zero_spellings pid_derivation find_xargs interpreters script_files script_files_allowed eval_variable indirect_allowed taint_deny script_runners script_runners_allowed allowed_misc deny_message budget'
+scenarios='denied allowed signal_zero quoted_text quoted_substitution installed heredoc_indirect zero_spellings pid_derivation find_xargs interpreters script_files script_files_allowed eval_variable indirect_allowed taint_deny script_runners script_runners_allowed allowed_misc deny_message budget budget_whole_hook hook_stderr'
 for sc in $scenarios; do
   [ -z "${LC_EXACT:-}" ] || [ "$LC_EXACT" = "$sc" ] || continue
   case "$sc" in
@@ -171,6 +171,28 @@ EOF
     printf '%s' "$out" | grep -Fq 'ran out of time' || die "budget denial text missing: $out"
     out=$(pre_b 'sh bn.sh'); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0 denied a script without a kill word: $out"
     ok "with PROOFLINE_KG_BUDGET=0 a script holding kill 12 is denied and one without a kill word is allowed" ;;
+  budget_whole_hook)   # A161: the budget covers the whole hook and a long script is scanned in the background; BGMIN=1 forces that path
+    pad=$(head -c 300 /dev/zero | tr '\0' 'a')
+    { echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo 'kill 12'; } > "$proj/wk.sh"
+    { echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo 'echo hi'; } > "$proj/wn.sh"
+    [ "$(wc -c < "$proj/wk.sh")" -ge 1024 ] || die "fixture script under 1 KB"
+    pre_w() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | PROOFLINE_KG_BUDGET=0 PROOFLINE_KG_BGMIN=1 sh "$hook" pretool claude; }
+    out=$(pre_w 'sh wk.sh'); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0, background path: a script holding kill not denied: $out"
+    printf '%s' "$out" | grep -Fq 'ran out of time' || die "budget denial text missing: $out"
+    out=$(pre_w 'sh wn.sh'); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0, background path: a script without a kill word denied: $out"
+    allows 'sh wn.sh'; allows 'sh wk.sh'   # default budget and BGMIN: a small script is scanned in the foreground, kill 12 is a pid
+    ok "with PROOFLINE_KG_BUDGET=0 and PROOFLINE_KG_BGMIN=1 a 1 KB script holding kill 12 is denied (ran out of time), one without a kill word passes, and the defaults leave small scripts alone" ;;
+  hook_stderr)   # A161: a large script scanned with grep -q made printf report "write error: Broken pipe" on stderr
+    { echo 'K=echo; $K start'; i=0; while [ $i -lt 1300 ]; do echo "echo ordinary command number $i; ls -la /tmp >/dev/null; grep -c x /dev/null || true"; i=$((i + 1)); done; echo 'echo tail without the word'; } > "$proj/big2.sh"
+    [ "$(wc -c < "$proj/big2.sh")" -ge 100000 ] || die "fixture script under 100 KB"
+    j=$(printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"sh big2.sh"}}' "$proj")
+    n=0; while [ $n -lt 3 ]; do
+      printf '%s' "$j" | sh "$hook" pretool claude > "$base/hs.out" 2> "$base/hs.err"
+      [ ! -s "$base/hs.err" ] || die "the hook wrote to stderr: $(head -c 300 "$base/hs.err")"
+      ! grep -q '"permissionDecision":"deny"' "$base/hs.out" || die "a kill-free big script was denied: $(cat "$base/hs.out")"
+      n=$((n + 1))
+    done
+    ok "the hook running a 100 KB kill-free script prints nothing on stderr (no Broken pipe) and allows it" ;;
   esac
 done
 echo "kill guard tests passed"
