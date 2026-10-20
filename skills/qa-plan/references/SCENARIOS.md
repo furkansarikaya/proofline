@@ -40,7 +40,7 @@ Include a category only when it applies to a criterion; each scenario names the 
 | `ui-states` | a screen or component | empty, loading, error, long text, narrow viewport, repeated click |
 | `error-paths` | dependencies can fail | dependency timeout or error; disk full; partial failure midway |
 
-Mandatory (A162): an entry point that takes external input (HTTP endpoint, form handler, CLI argument, queue consumer, webhook) listed in the plan's `## Contracts` always gets at least one `invalid-input` scenario naming it, with an input the server must reject (the plan's `## Validation` line says what is accepted, the limits and where it is rejected: probe just outside each). `validate-qa.mjs plan --plan PLAN.md [--entry-words REGEX]` checks it.
+Mandatory (A162): an entry point that takes external input (HTTP endpoint, form handler, CLI argument, queue consumer, webhook) listed in the plan's `## Contracts` always gets at least one `invalid-input` scenario naming it, with an input the server must reject (the plan's `## Validation` line says what is accepted, the limits and where it is rejected: probe just outside each). `validate-qa.mjs plan --plan PLAN.md [--entry-words REGEX]` checks it, with the project's `validation.*` keys read from `.agents/config.yaml` (the same words as the freeze); only a mandatory entry point is checked, a bullet that merely mentions one is information. The scenario is adversarial, so it sits in `## Adversarial scenarios` (the validator refuses a category on an acceptance scenario).
 
 Rules: no scenario without a criterion; no category listed "for completeness"; if nothing applies write `None applicable: <reason>` (for example a documentation-only change).
 

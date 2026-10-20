@@ -1,0 +1,71 @@
+# A162 corpus: label<TAB>PLAN.md ## Contracts bullet body. M mandatory, I information only, N nothing.
+# Decisions per class: a declared entry point (method+path, endpoint, webhook, queue consumer, rpc method, graphql mutation,
+# cli flag or command) with new or changed input is M; a bare noun mention, an unchanged or output-only bullet, or a
+# declared entry point without new input is I; its own removal, or no entry word at all, is N.
+I	`order.schema.json` 3 -> 4 - consumers: billing
+I	`PLAN.md` frontmatter gains a key - consumers: validate-plan.mjs
+I	`events.proto` v1 -> v2 - consumers: billing
+I	The consumer of this API is the CLI
+I	The handler returns 404 for unknown ids
+I	Form fields documented in docs/forms.md
+I	The routes table in README updated
+I	`schema.graphql` Query.users gains limit
+I	`GET /api/books` response shape unchanged
+I	Book response (`GET /api/books`) omits legacyNotes
+I	Contract unchanged: `GET /api/books` keeps its query parameters
+I	`POST /orders` unchanged
+I	The `POST /orders` endpoint is documented in docs/api.md
+I	`GET /api/books` response gains a new field `isbn`
+I	handler returns 201 with the created order
+I	The webhook payload shape is the same as before
+I	consumers: mobile app, billing
+I	config key `retries` 3 -> 5 - consumers: worker
+N	cron job runs nightly and rebuilds the index
+N	`render()` signature unchanged
+N	JSON file format v2 - readers: importer
+M	`POST /orders` creates an order
+M	`POST /orders` accepts a JSON body with items
+M	new `GET /api/books` endpoint (additive)
+M	`GET /api/books` accepts a new query parameter `author`
+M	`PUT /users/{id}` takes a payload with email
+M	`PATCH /items/1` accepts an optional header `If-Match`
+M	POST /orders no longer accepts qty above 100
+M	`DELETE /x` is added: removes an item
+M	new endpoint for bulk import: accepts a CSV upload
+M	webhook endpoint `/hooks/stripe` introduced: accepts signed events
+M	new webhook for payment events
+M	queue consumer `orders.created` accepts a message with order id
+M	new queue consumer for the refunds topic
+M	event listener subscribes to `user.deleted`, reads the event payload
+M	gRPC method `Orders.Create` takes a CreateOrderRequest
+M	new rpc method `Orders.Cancel` added
+M	GraphQL mutation `createBook` accepts an input object
+M	new GraphQL mutation `archiveBook` added
+M	CLI flag `--dry-run` option added to deploy
+M	new `--dry-run` option
+M	new command `proofline doctor` added
+M	positional argument `<name>` accepted by the init command
+M	CLI argument `--limit` takes an integer
+M	form handler `/signup` accepts name and email
+M	form field `email` added to the signup form
+M	request handler for `/upload` now takes a file body
+M	webhook `/hooks/gh` accepts a new header `X-Signature`
+I	`GET /api/books` response includes `isbn`
+I	`POST /orders` returns 201 instead of 200
+I	endpoint `/health` returns the build version
+I	new endpoint response shape documented in docs/api.md
+I	webhook payload shape unchanged
+I	rpc `Orders.Create` returns the new Order message
+N	Remove `POST /orders/legacy`
+N	`POST /orders` is removed (the endpoint is gone)
+N	`GET /v1/books` is deprecated and dropped
+N	Deprecate the `--force` flag
+N	`DELETE /x` removed
+N	`POST /orders`: removed
+M	`POST /orders` also takes `qty`
+M	POST /orders/{id}/cancel is new
+M	new CLI command `proofline batch status`
+M	`--json` flag takes no argument but is new
+I	the new consumer: billing team reads the events
+I	form validation library upgraded
+N	README mentions the doc

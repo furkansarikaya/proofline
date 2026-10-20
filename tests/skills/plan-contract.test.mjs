@@ -309,7 +309,7 @@ test("entry point in ## Contracts: no validation line is refused, a complete lin
 });
 test("entry-point name is the first backticked token, else the text before the first colon; --entry-words overrides (A162)", async () => {
   const m = await import(script);
-  assert.deepEqual(m.entryPoints(["- `POST /orders` creates", "- webhook: stripe events"]), ["POST /orders", "webhook"]);
+  assert.deepEqual(m.entryPoints(["- `POST /orders` creates", "- webhook: accepts stripe events"]), ["POST /orders", "webhook"]);
   assert.deepEqual(m.entryPoints(["- `POST /orders` creates"], "nomatch"), []);
   assert.deepEqual(m.validationMissing(["- `POST /orders` creates"], [VAL]), []);
   assert.deepEqual(m.validationMissing(["- `POST /orders` creates"], []), ["POST /orders"]);

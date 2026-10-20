@@ -143,7 +143,7 @@ config_check() {
         if (p[3] == "check" && v != "") chk[p[2]] = 1
       }
       if (k == "risk.unsupported") en(k, v, "block|report")
-      if (top == "validation" && k != "validation" && k != "validation.entry_words" && k != "validation.code_patterns") bad("unknown validation key: " k " (want validation.entry_words or validation.code_patterns)")
+      if (top == "validation" && k != "validation" && k !~ /^validation\.(entry_words|entry_candidates|entry_input|entry_new|entry_output|entry_skip|code_patterns)$/) bad("unknown validation key: " k " (want validation.entry_words, entry_candidates, entry_input, entry_new, entry_output, entry_skip or code_patterns)")
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
@@ -178,7 +178,7 @@ config_check() {
       for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
       for (s in wrd) if (!cnt[s]) bad("risk signal " s " has words but no content (the pattern the line must match as well)")
       exit n > 0
-    }') && cc_out=$(for cc_k in validation.entry_words validation.code_patterns; do
+    }') && cc_out=$(for cc_k in validation.entry_words validation.entry_candidates validation.entry_input validation.entry_new validation.entry_output validation.entry_skip validation.code_patterns; do
       cc_v=$(config_get "$cc_k" "$cc_file" || true); [ -n "$cc_v" ] || continue
       cc_rc=0; printf '' | grep -Eq -- "$cc_v" 2>/dev/null || cc_rc=$?
       [ "$cc_rc" -lt 2 ] || echo "invalid regular expression for $cc_k"
@@ -904,6 +904,16 @@ plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: ye
 # globs), so a mid-run edit of any of them is refused. Empty security and contract keys are left out, so a config
 # that does not set them hashes as before.
 risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true; }
+# A162: `risk.log_sensitive` is a new default signal. A run frozen before it existed bound a risk block without it, and
+# `proofline upgrade` adds the key to the config; the bounded legacy rule: a freeze whose recorded hash equals the hash
+# of the block WITHOUT `risk.log_sensitive.*` stays valid, and that run keeps the signal set it was frozen with (the
+# logging focus never opens for it). A run frozen under this rule hashes the key, so it cannot match the legacy value
+# and an edit of the key is refused. A refreeze binds the current block (the key included).
+risk_config_legacy() { risk_config | grep -v '^risk\.log_sensitive[.=]'; }
+risk_legacy_frozen() { # ID -> 0 when the run was frozen on the block without risk.log_sensitive
+  rl_d=$(run_dir "$1"); rl_h=$(section_value "$rl_d" freeze risk_sha256 2>/dev/null || true); [ -n "$rl_h" ] || return 1
+  [ "$rl_h" != "$(risk_config | sha256)" ] && [ "$rl_h" = "$(risk_config_legacy | sha256)" ]
+}
 # Verbatim copy of contract-proof's NOT_A_CONTRACT (skills stay standalone; risk-test asserts equality, A92).
 risk_not_contract='(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|openapi-generator-config\.ya?ml|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^\.github\/(workflows|actions|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)\/|^\.github\/(dependabot|labeler|release|stale|FUNDING|config)\.ya?ml$|^(\.vscode|\.idea|\.agents|\.devcontainer)\/'
 risk_names() { risk_config | awk -F= '$1 ~ /^risk\.[a-z_]+\.(paths|content)$/ && $2 != "" { split($1, p, "."); print p[2] }' | sort -u; }
@@ -942,7 +952,9 @@ risk_compute() {
   rc_d=$(run_dir "$1"); rc_base=$(repository_base_sha "$rc_d"); case "$rc_base" in ''|PENDING) rc_base=HEAD ;; esac
   rc_changed=$(task_changed_paths "$1" | grep -v -E '\.(md|mdx|rst|adoc)$|^\.agents/' || true)
   rc_scope=$(scope_mappings "$rc_d/PLAN.md" 2>/dev/null | cut -d'|' -f1 | grep -v -E '\.(md|mdx|rst|adoc)$' || true)
+  rc_legacy=no; ! risk_legacy_frozen "$1" || rc_legacy=yes
   for rc_n in $(risk_names); do
+    [ "$rc_n:$rc_legacy" != log_sensitive:yes ] || continue   # a run frozen before the signal keeps its focus set
     rc_g=$(cfg "risk.$rc_n.paths")
     if [ -n "$rc_g" ]; then
       { [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; } |
@@ -1237,7 +1249,8 @@ verify_freeze() {
   # A78: the risk signal mapping (config `risk:`) is frozen with the plan; it never changes under a frozen run.
   # A92: fail closed when the key is missing (a RUN.yaml from before A78): a refreeze inserts it.
   section_key_present "$dir" freeze risk_sha256 || fail "freeze mismatch: risk (RUN.yaml has no freeze.risk_sha256, so the risk mapping is unbound; record an amendment and refreeze to bind it)"
-  [ "$(section_value "$dir" freeze risk_sha256)" = "$(risk_config | sha256)" ] || fail "freeze mismatch: risk (the risk:, performance:, security: or contract: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
+  vf_rh=$(section_value "$dir" freeze risk_sha256)
+  [ "$vf_rh" = "$(risk_config | sha256)" ] || [ "$vf_rh" = "$(risk_config_legacy | sha256)" ] || fail "freeze mismatch: risk (the risk:, performance:, security: or contract: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
   stored=$(section_value "$dir" freeze policy_sha256); actual=$(hash_file "$agents/modes/$mode.yaml")
   [ -n "$stored" ] && [ "$stored" = "$actual" ] || fail "freeze mismatch: policy"
   echo "freeze verified: $id"
@@ -1438,6 +1451,9 @@ freeze() {
   verify_assumptions "$id" ask >/dev/null
   if gates_enforced "$id"; then require_mutation_budget "$id"; fi
   if gates_enforced "$id"; then verify_plan_validation "$id"; verify_qa_plan_bound "$id"; fi
+  if fz_i=$(plan_entries "$dir/PLAN.md" information | cut -c1-60 | tr '\n' ';') && [ -n "$fz_i" ]; then
+    echo "note (information only): PLAN.md ## Contracts mentions an entry point without new input (${fz_i%;}); if one takes new or changed external input, state it in the bullet and add a ## Validation line (A162)" >&2
+  fi
   if [ -z "$(plan_entry_points "$dir/PLAN.md")" ] && fz_c=$(validation_candidates "$id" | cut -d'|' -f2 | sort -u | tr '\n' ' ') && [ -n "$fz_c" ]; then
     echo "note (information only): ${fz_c% } look like entry-point code, but PLAN.md ## Contracts declares none; if one takes external input, declare it there with a ## Validation line (A162)" >&2
   fi
@@ -1844,24 +1860,51 @@ qa_removed_terms() { # PLAN.md -> one backticked term per line from `## Contract
 }
 # --- Input validation at entry points (A162) -------------------------------------------------------
 # An entry point takes external input (HTTP endpoint, form handler, CLI argument, queue consumer, webhook). The one
-# deterministic source before the freeze is PLAN.md `## Contracts`: a bullet that matches `validation.entry_words`
-# (a case-insensitive extended regex in config) and does not remove or drop the contract declares an entry point,
-# named by its first backticked token, else by the text before the first colon. Such a plan needs one
-# `## Validation` bullet per entry point (`- <name>: accepts <what>; limits <limits>; rejected at <server-side
-# place>`) and its QA plan one `[invalid-input]` scenario naming it. What the code does is only listed as
-# information (`validation.code_patterns`, `agent.sh pipeline`): that match is uncertain and never required.
-validation_removed='(^|[^A-Za-z0-9_])(removes?|removed|dropped|drops|deprecated|deprecates?|no longer)([^A-Za-z0-9_]|$)'
-plan_entry_points() { # PLAN.md -> one entry point name per line
-  pe_w=$(cfg validation.entry_words); [ -n "$pe_w" ] && [ -f "$1" ] || return 0
+# deterministic source before the freeze is PLAN.md `## Contracts`; each bullet falls in one of two tiers:
+#   mandatory   the bullet DECLARES an entry point (validation.entry_words: a method and path, endpoint, webhook,
+#               queue consumer, graphql mutation, rpc method, cli flag or command, ...) AND marks new or changed
+#               input, and is not unchanged or removed:
+#                 declares && !removed && !skip && (input || (new && !output))
+#               input = validation.entry_input (accepts, takes, parameter, query, body, payload, argument, flag,
+#               option, header, input, required ...); new = validation.entry_new (new, adds, introduces, creates,
+#               field, gains ...), which counts only when no output word (validation.entry_output: response,
+#               returns, omits, shape ...) is present; skip = validation.entry_skip (unchanged, documented, no change).
+#               The removal exemption is the entry point's own removal (validation_removed), not any removal word.
+#   information a bullet that only mentions a candidate word (validation.entry_candidates) or declares an entry point
+#               without new input: listed by `pipeline` and a note at freeze, never refusing.
+# A word counts only as a whole word: a `.` or `-` inside an identifier (`schema.graphql`, `order.schema.json`) is
+# no boundary. The two node validators (plan-contract, qa-plan) carry the same expressions; a test compares them.
+# A mandatory entry point is named by its first backticked token, else by the text before the first colon, and needs
+# one `## Validation` bullet (`- <name>: accepts <what>; limits <limits>; rejected at <server-side place>`) and its
+# QA plan one `[invalid-input]` scenario naming it. What the code does is information only (validation.code_patterns).
+validation_removed='^[ `*_]*(remove[sd]?|drop(s|ped)?|deprecate[sd]?|retire[sd]?)([^A-Za-z0-9_]|$)|(is|are|was|will be|has been|gets?) +(now +)?(removed|dropped|deprecated|retired)([^A-Za-z0-9_]|$)|[(:`] *(removed|dropped|deprecated|retired)([^A-Za-z0-9_]|$)|no +longer +(exists?|available|supported|served|routed)|/[^ ]*`? +(removed|dropped|deprecated|retired)([^A-Za-z0-9_]|$)'
+validation_bl='(^|[^A-Za-z0-9_.-])'
+validation_br='($|[^A-Za-z0-9_.-]|[.]([^A-Za-z0-9_]|$))'
+entry_has() { # CONFIG-KEY TEXT -> 0 when the key's words occur in TEXT as whole words
+  eh_w=$(cfg "validation.$1"); [ -n "$eh_w" ] || return 1
+  printf '%s\n' "$2" | grep -Eiq -- "${validation_bl}(${eh_w})${validation_br}"
+}
+entry_tier() { # BULLET BODY -> mandatory | information | (nothing)
+  if entry_has entry_words "$1"; then
+    ! printf '%s\n' "$1" | grep -Eiq -- "$validation_removed" || return 0
+    ! entry_has entry_skip "$1" || { echo information; return 0; }
+    if entry_has entry_input "$1" || { entry_has entry_new "$1" && ! entry_has entry_output "$1"; }; then echo mandatory; else echo information; fi
+  elif entry_has entry_candidates "$1" && ! printf '%s\n' "$1" | grep -Eiq -- "$validation_removed"; then echo information
+  fi
+}
+entry_name() { # BULLET BODY -> the entry point's name
+  case "$1" in *\`*\`*) en_n=${1#*\`}; en_n=${en_n%%\`*} ;; *) en_n=${1%%:*} ;; esac
+  printf '%s\n' "$en_n" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+plan_entries() { # PLAN.md TIER -> one entry point name per line (TIER mandatory|information)
+  [ -f "$1" ] || return 0
   awk '/^## / { i = ($0 ~ /^## Contracts[[:space:]]*$/); next } i && /^[[:space:]]*[-*][[:space:]]+[^[:space:]]/ { print }' "$1" | while IFS= read -r pe_l; do
-    printf '%s\n' "$pe_l" | grep -Eiq -- "$pe_w" || continue
-    ! printf '%s\n' "$pe_l" | grep -Eiq -- "$validation_removed" || continue
     pe_b=$(printf '%s\n' "$pe_l" | sed 's/^[[:space:]]*[-*][[:space:]]*//')
-    case "$pe_b" in *\`*\`*) pe_n=${pe_b#*\`}; pe_n=${pe_n%%\`*} ;; *) pe_n=${pe_b%%:*} ;; esac
-    pe_n=$(printf '%s\n' "$pe_n" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    [ -z "$pe_n" ] || printf '%s\n' "$pe_n"
+    [ "$(entry_tier "$pe_b")" = "$2" ] || continue
+    pe_n=$(entry_name "$pe_b"); [ -z "$pe_n" ] || printf '%s\n' "$pe_n"
   done | awk '!seen[$0]++'
 }
+plan_entry_points() { plan_entries "$1" mandatory; } # PLAN.md -> one mandatory entry point name per line
 plan_validation_missing() { # PLAN.md -> the entry points without a complete `## Validation` line
   pv_l=$(awk '/^## / { i = ($0 ~ /^## Validation[[:space:]]*$/); next } i && /^[[:space:]]*[-*][[:space:]]/ { print }' "$1")
   plan_entry_points "$1" | while IFS= read -r pv_n; do
@@ -1875,7 +1918,8 @@ verify_plan_validation() { # ID: freeze refuses a plan with an entry point and n
 }
 qa_invalid_missing() { # PLAN.md QA_PLAN.md -> the entry points with no [invalid-input] scenario naming them
   plan_entry_points "$1" | while IFS= read -r qi_n; do
-    awk -v n="$qi_n" '
+    QI_N=$qi_n awk '
+      BEGIN { n = ENVIRON["QI_N"] }
       function flush() { if (inv && index(blk, n)) ok = 1 }
       /^- QA-[0-9]+ \(/ { flush(); blk = $0; inv = ($0 ~ /\[invalid-input\]/); next }
       /^## / { flush(); blk = ""; inv = 0; next }
@@ -1903,6 +1947,8 @@ validation_show() { # ID: printed by `pipeline` only when there is something to 
   vs_c=$(validation_candidates "$1" | sed 's/|/:/' | tr '\n' ',' | sed 's/,$//;s/,/, /g')
   [ -z "$vs_n" ] || printf 'validation.entry_points=%s (PLAN.md ## Contracts; each needs a ## Validation line and an [invalid-input] QA scenario)\n' "$vs_n"
   [ -z "$vs_m" ] || printf 'validation.missing=%s (no complete ## Validation line: the freeze refuses)\n' "$vs_m"
+  vs_i=$(plan_entries "$vs_p" information | cut -c1-60 | tr '\n' ',' | sed 's/,$//;s/,/, /g')
+  [ -z "$vs_i" ] || printf 'validation.possible=%s (information only: ## Contracts bullets that mention an entry point without new input; if one takes new or changed external input, say so in the bullet and give it a ## Validation line)\n' "$vs_i"
   [ -z "$vs_c" ] || printf 'validation.candidates=%s (information only: code that looks like an entry point; declare it in ## Contracts when it takes external input)\n' "$vs_c"
 }
 
@@ -5414,7 +5460,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -5464,6 +5510,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup> [PR]   (one summary, one "approve delivery", one approval per step)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
+  entry-tier <BULLET TEXT>   (read-only: mandatory, information or none for one PLAN.md ## Contracts bullet, A162)
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
   lessons derive|write|validate|count|bound|text|promote   (lesson candidates from run evidence, repeat count, promotion to AGENTS.md only with a rule:<ID> approval; `write` and `promote` are lead-only)
   friction <report ID|show|issue-cmd|send>   (A149: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)
@@ -5515,6 +5562,7 @@ case "$command" in
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
   delivery-check) require_lead; delivery_check "${2:?usage: agent.sh delivery-check <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
+  entry-tier) et_o=$(entry_tier "${2:?usage: agent.sh entry-tier <bullet text>}"); echo "${et_o:-none}" ;;
   verify-assumptions) verify_assumptions "${2:?usage: agent.sh verify-assumptions <ID>}" ;;
   verify-qa-plan) require_run "${2:?usage: agent.sh verify-qa-plan <ID>}"; verify_qa_plan_bound "$2"; echo "QA plan bound to PLAN.md: $2" ;;
   verify-worker-evidence) verify_worker_evidence "${2:?usage: agent.sh verify-worker-evidence <ID>}" ;;
