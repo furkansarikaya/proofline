@@ -1888,6 +1888,48 @@ run_sc sc_questions_grill
 run_sc sc_next
 run_sc sc_decide
 run_sc sc_config_scope_misc
+# A161 (#133): gates recorded by 0.0.12/0.0.13 (a block-only AGENTS.md/CLAUDE.md still part of the tree) stay valid once, without writing
+# anything; they bind every product byte; gates recorded on the current rule never need the legacy path.
+legacy_agent() { # on: the fixture script with the pre-A156 fingerprint rule; off: the real one
+  if [ "$1" = on ]; then
+    git update-index --assume-unchanged .agents/scripts/agent.sh 2>/dev/null || :
+    cp .agents/scripts/agent.sh "$base/agent.real"; grep -vF 'block_only_file "$root/$cf_b"; then git' "$base/agent.real" > .agents/scripts/agent.sh
+    if cmp -s "$base/agent.real" .agents/scripts/agent.sh; then die "could not build the legacy fingerprint script"; fi
+  else cp "$base/agent.real" .agents/scripts/agent.sh; fi
+}
+sc_legacy_fingerprint() {
+  scaffold orchestrated; blk='<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n'
+  printf '%b' "$blk" > AGENTS.md; git add AGENTS.md; git commit -qm 'chore: block-only AGENTS.md'
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  fp_new=$(A fingerprint LC); legacy_agent on; fp_old=$(A fingerprint LC)
+  [ "$fp_old" != "$fp_new" ] || die "the legacy script computes the current fingerprint: the fixture proves nothing"
+  pass_all >/dev/null 2>&1 || die "gates on the legacy rule not recorded"
+  legacy_agent off
+  [ "$(A fingerprint LC)" = "$fp_new" ] || die "the current script no longer computes the current fingerprint"
+  n0=$(n_gates)
+  A pipeline LC | grep '^gate\.' | grep -v '=pass' && die "gates recorded on the legacy rule read stale or missing"
+  A pipeline LC | grep -q '^gate\.' || die "no gate lines"
+  A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused for gates recorded on the legacy rule: $(A handoff LC CODE_DONE 2>&1 | tail -2)"
+  [ "$(n_gates)" = "$n0" ] || die "the compatibility wrote a gate record"
+  # the binding is kept: a product edit makes every such gate stale
+  printf 'one more line\n' >> impl.txt
+  A pipeline LC | grep '^gate\.' | grep -q '=pass' && die "a product edit left a legacy gate passing: $(A pipeline LC | grep '^gate\.')"
+  A pipeline LC | grep -q '^gate\..*=stale' || die "a product edit did not stale the legacy gates: $(A pipeline LC | grep '^gate\.')"
+  ok "legacy gate fingerprint (0.0.12/0.0.13) with a block-only file stays valid once, writes nothing, and a product edit stales it"
+
+}
+sc_legacy_fingerprint_new_rule() {
+  scaffold orchestrated; printf '<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n' > AGENTS.md; git add AGENTS.md; git commit -qm 'chore: block-only AGENTS.md'
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null; pass_all >/dev/null 2>&1
+  A pipeline LC | grep '^gate\.' | grep -v '=pass' && die "gates on the current rule are not fresh"
+  printf 'one more line\n' >> impl.txt
+  A pipeline LC | grep -q '^gate\..*=stale' || die "a product edit did not stale the current-rule gates"
+  A pipeline LC | grep '^gate\.' | grep -q '=pass' && die "a current-rule gate survived a product edit via the legacy path"
+  ok "gates recorded on the current rule are stale after a product edit; the legacy path never revives them"
+}
+
 run_sc sc_secret_scan
 run_sc sc_provenance
 run_sc sc_waiver_rebind
@@ -1918,4 +1960,6 @@ run_sc sc_evidence_gap_output
 run_sc sc_evidence_gap_ac
 run_sc sc_evidence_gap_r2
 run_sc sc_evidence_gap_files_gate
+run_sc sc_legacy_fingerprint
+run_sc sc_legacy_fingerprint_new_rule
 echo 'gates tests passed'

@@ -342,6 +342,37 @@ sc_unsupported_evidence() {
   ok "unsupported evidence: the validator's own output, snapshotted and sha-bound; no evidence, a made-up file, another base, an edited snapshot, an unlisted recognized contract or .sql migration are refused"
 }
 
+# A161 (#128): evidence a validator wrote against the base BEFORE an accepted control-plane-only move still counts; a chain of two
+# moves too; an unrelated base never does. (The migration validator prints no BASE line, so only contract evidence is bound to one.)
+ue_move() { # N: an upgrade-style control-plane commit, then an accepted freshness check (records base-moved)
+  mkdir -p .claude/agents; printf 'agent %s\n' "$1" > .claude/agents/proofline-x.md; printf '# version: 0.0.%s\n' "$1" > .agents/.proofline-manifest
+  git add .claude; git add -f .agents/.proofline-manifest; git commit -qm "chore: upgrade $1"
+  A freshness LC >/dev/null || die "a control-plane-only commit staled the plan: $(A freshness LC 2>&1 | tail -1)"
+}
+sc_unsupported_evidence_base_move() {
+  [ -n "$SKD" ] && [ -f "$SKD/contract-proof/scripts/validate-contract.mjs" ] && command -v node >/dev/null 2>&1 || { ok "unsupported evidence across a base move skipped (node or skill sources absent)"; return 0; }
+  ue_run docs/API.md '# API: GET /items returns a list.' "$(printf '%s\n' '' '## Risk' '' 'contract_change: yes')"
+  d=.agents/runs/LC; b=$(rv repository base_sha); mkdir -p "$d/reviews/contract-proof" "$d/scratch"
+  printf '# contract\n\nNo machine-readable contract; docs/API.md is prose.\n' > "$d/reviews/contract-proof/REPORT.md"
+  node "$SKD/contract-proof/scripts/diff-contract.mjs" --repo . --base "$b" --out "$d/scratch/contract.json"
+  node "$SKD/contract-proof/scripts/validate-contract.mjs" "$d/scratch/contract.json" --repo . --base "$b" > "$d/reviews/contract-proof/validator.txt"
+  grep -qx "BASE: $b" "$d/reviews/contract-proof/validator.txt" || die "validator output: $(cat "$d/reviews/contract-proof/validator.txt")"
+  sed 's/^BASE: .*/BASE: 0000000000000000000000000000000000000000/' "$d/reviews/contract-proof/validator.txt" > "$d/reviews/contract-proof/other-base.txt"
+  ue_move 1
+  [ "$(rv repository base_sha)" != "$b" ] || die "the accepted move did not update base_sha"
+  out=$(ue_submit contract reviews/contract-proof/validator.txt 2>&1) || die "evidence naming the base before one accepted move refused: $out"
+  printf '%s' "$out" | grep -Fq 'submitted:' || die "no submission: $out"
+  ue_move 2
+  out=$(ue_submit contract reviews/contract-proof/validator.txt 2>&1) || die "evidence naming the base before a chain of two moves refused: $out"
+  printf '%s' "$out" | grep -Fq 'submitted:' || die "no submission after two moves: $out"
+  expect_msg "an unrelated base after moves" "not the run's base" ue_submit contract reviews/contract-proof/other-base.txt
+  # a base that was never the run's base, though a real commit of this repository, is refused as well
+  sd=$(git commit-tree "$(git write-tree)" -p "$b" -m side)
+  sed "s/^BASE: .*/BASE: $sd/" "$d/reviews/contract-proof/validator.txt" > "$d/reviews/contract-proof/other-real.txt"
+  expect_msg "a real commit that is not in the chain" "not the run's base" ue_submit contract reviews/contract-proof/other-real.txt
+  ok "unsupported evidence: a base before one or two accepted control-plane-only moves counts; an unrelated base is refused"
+}
+
 # A102: concurrency (and config) always have a tool-free check, so UNSUPPORTED is refused.
 sc_unsupported_toolfree() {
   rrun COMPLEX 'src/worker.go' "$(printf '%s\n' '' '## Risk' '' 'concurrency: yes')"; frozen; implement src/worker.go 'package x'
@@ -589,6 +620,7 @@ run_sc sc_unsupported_inconclusive
 run_sc sc_unsupported_rows
 run_sc sc_unsupported_block
 run_sc sc_unsupported_evidence
+run_sc sc_unsupported_evidence_base_move
 run_sc sc_unsupported_toolfree
 run_sc sc_unsupported_probes
 run_sc sc_probe_drift

@@ -1202,8 +1202,14 @@ scenario_base_moved_new_block_file() { # A156: a file created after the freeze w
   for c in "# Rules\n\n$blk" "$blk\nmore text\n" "$blk$blk" '<!-- proofline:begin -->\nblock v1\n' 'just text\n'; do
     printf '%b' "$c" > "$f"; git add "$f"; git commit -qm new
     expect_msg "new $f: $c" "$st" A freshness LC
+    # A161 (#131): the message names the file and says what to do
+    expect_msg "new $f names the file: $c" "Changed outside the control plane: $f" A freshness LC
+    expect_msg "new $f says what to do: $c" 'Amend and refreeze the plan to include them, or revert them' A freshness LC
     git reset -q --hard "$b0"
   done
+  : > README.md; ln -s README.md "$f"; git add README.md "$f"; git commit -qm new   # a symlink is a product change (A161, #131)
+  expect_msg "new symlink $f names the file" "Changed outside the control plane: $f" A freshness LC
+  git reset -q --hard "$b0"; git clean -qfd
   printf '\n\n%b\n\n' "$blk" > "$f"; git add "$f"; git commit -qm new   # whitespace around the block is accepted
   out=$(A freshness LC 2>&1) || die "a new block-only $f with surrounding whitespace staled the plan: $out"
   printf '%s' "$out" | grep -Fq 'base_sha moved' || die "no base-moved line for $f: $out"
@@ -1236,6 +1242,25 @@ scenario_fingerprint_new_block_file() {
   printf 'a project rule\n' >> "$f"
   [ "$(A fingerprint LC)" != "$fp0" ] || die "text outside the block of a new $f did not change the fingerprint"
   ok "fingerprint: a new block-only $f is control plane, extra text in it is content"
+}
+
+# A161 (#132): a new AGENTS.md/CLAUDE.md that is only the block and not committed yet is control plane (reopen, verify-scope), the
+# same as the committed one (A156); an uncommitted file with anything else in it is a product change and the message says what to do.
+scenario_uncommitted_block_file() {
+  reopen_failed_run; blk='<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n'; hint='holds text besides the proofline block'
+  for c in "# Rules\n\n$blk" "$blk\nmore text\n" "$blk$blk" '<!-- proofline:begin -->\nblock v1\n' 'just text\n'; do
+    printf '%b' "$c" > AGENTS.md; printf '%b' "$c" > CLAUDE.md
+    out=$(A verify-scope LC 2>&1) && die "an uncommitted AGENTS.md/CLAUDE.md with $c passed verify-scope: $out"
+    printf '%s' "$out" | grep -Fq "$hint" || die "no hint for $c: $out"
+    printf '%s' "$out" | grep -Fxq 'AGENTS.md' || die "AGENTS.md not listed for $c: $out"
+  done
+  rm -f AGENTS.md CLAUDE.md
+  printf '\n\n%b\n\n' "$blk" > AGENTS.md; printf '%b' "$blk" > CLAUDE.md   # whitespace around the block is accepted
+  out=$(A verify-scope LC 2>&1) || die "uncommitted block-only AGENTS.md and CLAUDE.md failed verify-scope: $out"
+  printf '%s' "$out" | grep -Fq 'installed proofline files changed' || die "not listed as installed files: $out"
+  printf '%s' "$out" | grep -Fxq '  AGENTS.md' && printf '%s' "$out" | grep -Fxq '  CLAUDE.md' || die "AGENTS.md/CLAUDE.md not listed: $out"
+  ro_approve; ro A reopen LC >/dev/null || die "reopen with uncommitted block-only files refused: $(ro A reopen LC 2>&1 | tail -2)"
+  ok "an uncommitted block-only AGENTS.md/CLAUDE.md is control plane (verify-scope, reopen); extra text, a second pair, a lone marker, no markers and a symlink are product changes with the hint"
 }
 
 run_sc scenario_standalone
@@ -1298,4 +1323,5 @@ run_sc scenario_base_moved_new_block_file CLAUDE.md
 run_sc scenario_base_moved_updates_base
 run_sc scenario_fingerprint_new_block_file AGENTS.md
 run_sc scenario_fingerprint_new_block_file CLAUDE.md
+run_sc scenario_uncommitted_block_file
 echo 'agent lifecycle tests passed'
