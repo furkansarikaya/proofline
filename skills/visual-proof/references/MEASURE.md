@@ -116,12 +116,23 @@ site, written to `report.seo`. It runs only when the project produces public HTM
   (case-insensitive) apply, several groups of that token combined; only when none matches does the `*` group apply. Consecutive
   `User-agent` lines share a group. Inside the applicable rules the longest matching path wins, `Allow` wins a tie, `*` and `$` are
   wildcards and an empty `Disallow` allows everything. `Sitemap:` lines are global. Every published page and every sitemap page is tested;
-  a page blocked for a bot is one `seo_robots` problem naming the bot. A bot token that is only a prefix of a group token
+  a page blocked for a bot is one `seo_robots` problem naming the bot. Paths are compared in the percent-encoding normal form of RFC 9309
+  (2.2.2): both the rule path and the page path are written as the UTF-8 octets of every non-ASCII or non-URI character in upper-case hex,
+  a percent-encoded unreserved character (`%7E`, `%41`) is decoded, and a reserved character stays as written; so `Disallow: /caf%C3%A9/`
+  blocks `café/index.html` and `/a%20b` blocks `a b`. A page file `dir/index.html` is tested under the URL form it is published under:
+  the form its sitemap `<loc>` uses, else its canonical, else both (`/dir/` and `/dir/index.html`), and then it counts as blocked only
+  when both forms are blocked, because a crawler can still reach it by the other. `Disallow: /dir/index.html` therefore does not fail a
+  page published as `/dir/`. A bot token that is only a prefix of a group token
   (for example `googlebot-news`) is a different token and does not match.
 - Canonical, hreflang, Open Graph and sitemap addresses are mapped to files under `base_url` by their path (the deployed origin is ignored);
-  an address on another site is `not_measured`. A missing `sitemap.xml` or `robots.txt`, and a sitemap index, are `not_measured`.
+  an address on another site is `not_measured`. A missing `sitemap.xml` or `robots.txt`, and a sitemap index, are `not_measured` (an info row, never blocking). This is a
+  design decision (A161), not a gap: RFC 9309 defines a missing `robots.txt` as "everything may be crawled", so its absence is a valid
+  state and not a defect; a sitemap is optional; and with a `file:` or localhost base the files of the deployed site cannot be proven
+  absent (the folder measured is not the host), so a blocking finding would have no evidence. The report text for both says exactly that.
 - Out of scope, never measured, judged or reported: content SEO (keywords, text quality, readability, length).
-- Limits: an initiator is known only when the browser reports it; a third-party request that matches no candidate is information
+- Limits: an initiator is known only when the browser reports it (measured in Chrome: `fetch`, `sendBeacon` and a dynamically added
+  `<script>` report the script that made them; an `<img>` load, such as `new Image().src = ...`, is reported with the document or nothing,
+  so a pixel is attributed by its own URL only); a third-party request that matches no candidate is information
   even when it is a tracker the project never named (add its host to `seo.analytics.hosts`); only Googlebot and Bingbot are tested;
   reciprocity of a target outside the measured pages is read
   from its served HTML.

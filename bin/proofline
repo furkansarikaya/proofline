@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.18
+PROOFLINE_VERSION=0.0.19
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -91,7 +91,7 @@ agent session (prints the exact instruction for your runtime)
                             the listed tasks (no CRITICAL task; nothing else is covered); then, in a terminal without
                             an agent session: batch run (one clean headless session per task, one at a time, parked on
                             any other question) and batch status (the morning table, from records only); a Codex session
-                            runs in the workspace-write sandbox, add --codex-danger-full-access when planning to lift it
+                            runs in a sandbox that can commit (.git and .agents writable, network on), add --codex-danger-full-access when planning to lift it
 EOF
 }
 

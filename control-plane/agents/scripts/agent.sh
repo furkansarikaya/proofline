@@ -341,7 +341,12 @@ enforce_task_branch() {
 # --- Baseline and path fingerprints ------------------------------------------------
 fingerprint_path() {
   path=$1 target=$root/$1
-  [ ! -L "$target" ] || fail "cannot baseline symlink: $path"
+  if [ -L "$target" ]; then
+    case "$path" in
+      AGENTS.md|CLAUDE.md) fail "cannot baseline symlink: $path. A symlinked $path is a product change (project rules every agent reads): replace the symlink with a regular file holding only the proofline block, or name $path in the plan scope (amendment and refreeze)." ;;
+    esac
+    fail "cannot baseline symlink: $path"
+  fi
   if [ -f "$target" ]; then hash_file "$target"; return 0; fi
   [ ! -e "$target" ] && { printf '%s\n' missing; return 0; }
   fail "cannot baseline non-regular file: $path"
@@ -374,12 +379,19 @@ block_only_file() {
   ! strip_proofline_block "$1" | grep -q '[^[:space:]]'
 }
 # control_plane_only PATH: a changed path whose change is control plane only: an installed file, or AGENTS.md/CLAUDE.md
-# whose content outside the proofline block equals the committed one (HEAD).
+# whose content outside the proofline block equals the committed one (HEAD), or (A161) a file HEAD does not have yet whose
+# whole working-tree content is the block.
 control_plane_only() {
   installed_control_path "$1" && return 0
   { is_block_file "$1" && [ -f "$root/$1" ] && [ ! -L "$root/$1" ]; } || return 1
   cpo_t=$(mktemp "${TMPDIR:-/tmp}/agent-cpo.XXXXXX")
-  git -C "$root" show "HEAD:$1" > "$cpo_t" 2>/dev/null || { rm -f "$cpo_t"; return 1; }
+  if ! git -C "$root" show "HEAD:$1" > "$cpo_t" 2>/dev/null; then
+    # A161: a file not committed yet (untracked or newly added) is control plane when the whole working-tree file is the
+    # block, the same rule control_plane_range_only applies to a committed new file (A156); extra text keeps it a product change
+    rm -f "$cpo_t"
+    git -C "$root" cat-file -e "HEAD:$1" 2>/dev/null && return 1
+    block_only_file "$root/$1"; return
+  fi
   cpo_a=$(strip_proofline_block "$cpo_t" | sha256); cpo_b=$(strip_proofline_block "$root/$1" | sha256); rm -f "$cpo_t"
   [ "$cpo_a" = "$cpo_b" ]
 }
@@ -410,6 +422,18 @@ base_moved_control_only() {
     [ -n "$bmc_p" ] || continue
     control_plane_range_only "$1" "$bmc_p" "$bmc_maps" || exit 1
   done
+}
+# base_moved_offenders BASE (A161): what in BASE..HEAD is not control plane, for the stale-plan message: up to five paths; an
+# AGENTS.md/CLAUDE.md is marked, because the user cannot tell from the path why a file that upgrade also writes counts.
+base_moved_offenders() {
+  bmo_maps=$(scope_mappings "$dir/PLAN.md" 2>/dev/null) || bmo_maps=''
+  git -C "$root" merge-base --is-ancestor "$1" HEAD 2>/dev/null || { printf '%s\n' "the old base is not an ancestor of HEAD (another history)"; return 0; }
+  git -C "$root" diff --no-renames --name-only "$1" HEAD 2>/dev/null | while IFS= read -r bmo_p; do
+    [ -n "$bmo_p" ] || continue
+    control_plane_range_only "$1" "$bmo_p" "$bmo_maps" && continue
+    if is_block_file "$bmo_p" && ! authorized_path "$bmo_maps" "$bmo_p"; then printf '%s (project text outside the proofline block, a second marker pair, a symlink or no markers)\n' "$bmo_p"
+    else printf '%s\n' "$bmo_p"; fi
+  done | head -5 | tr '\n' ';' | sed 's/;$//; s/;/; /g'
 }
 current_tracked_paths() {
   if [ -n "$ctp_base" ]; then git -C "$root" diff --no-renames --name-only "$ctp_base"
@@ -470,6 +494,7 @@ validate_captured_baseline() {
 # installs (manifest-listed files, the agent files, the proofline block of AGENTS.md/CLAUDE.md). Built in a temporary index; never touches
 # the real one.
 content_fingerprint() {
+  cf_mode=${1:-}   # A161: `legacy` computes the value 0.0.12 and 0.0.13 recorded (a block-only AGENTS.md/CLAUDE.md stays in the tree as its stripped blob)
   cf_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-fp.XXXXXX")
   cf_idx=$(git -C "$root" rev-parse --git-path index)
   case "$cf_idx" in /*) ;; *) cf_idx=$root/$cf_idx ;; esac
@@ -513,7 +538,7 @@ content_fingerprint() {
         [ -f "$root/$cf_b" ] && [ ! -L "$root/$cf_b" ] || continue
         grep -qx '<!-- proofline:begin -->' "$root/$cf_b" && grep -qx '<!-- proofline:end -->' "$root/$cf_b" || continue
         # A156: a file that is only the block leaves the tree like a missing file, so an upgrade that creates it keeps the gates fresh
-        if block_only_file "$root/$cf_b"; then git -C "$root" rm -q --cached --ignore-unmatch -- "$cf_b" >/dev/null 2>&1; continue; fi
+        if [ "$cf_mode" != legacy ] && block_only_file "$root/$cf_b"; then git -C "$root" rm -q --cached --ignore-unmatch -- "$cf_b" >/dev/null 2>&1; continue; fi
         cf_blob=$(strip_proofline_block "$root/$cf_b" | git -C "$root" hash-object -w --stdin) || exit 1
         git -C "$root" update-index --add --cacheinfo "100644,$cf_blob,$cf_b" >/dev/null 2>&1 || exit 1
       done
@@ -524,6 +549,19 @@ content_fingerprint() {
   mkdir -p "$cf_tmp/objects"
   if cf_out=$(cf_try "$cf_tmp/objects") && [ -n "$cf_out" ]; then rm -rf "$cf_tmp"; printf '%s\n' "$cf_out"; return 0; fi
   rm -rf "$cf_tmp"; fail "could not compute the content fingerprint"
+}
+
+# legacy_fingerprint_match RECORDED (A161): a gate record written by 0.0.12 or 0.0.13 (before A156) holds a content fingerprint
+# in which a block-only AGENTS.md/CLAUDE.md is still part of the tree. That value is accepted as the current one iff the tree
+# computed the old way equals it: the two rules differ only in such a file, so every product byte is still bound, and the
+# check can only match when a block-only file exists. Nothing is written; a record written since 0.0.14 never reaches it.
+legacy_fingerprint_match() {
+  lm_any=''
+  for lm_f in AGENTS.md CLAUDE.md; do
+    [ -f "$root/$lm_f" ] && [ ! -L "$root/$lm_f" ] && block_only_file "$root/$lm_f" && lm_any=1
+  done
+  [ -n "$lm_any" ] || return 1
+  [ "$(content_fingerprint legacy)" = "$1" ]
 }
 
 # --- Path globs (gitignore-like: ** spans directories, * and ? stay in one segment,
@@ -1447,11 +1485,11 @@ verify_freshness() {
   base=$(repository_base_sha "$dir"); head=$(git -C "$root" rev-parse HEAD)
   if [ "$base" != "$head" ] && ! { [ "$ctp_base" = "$base" ] && git -C "$root" merge-base --is-ancestor "$base" HEAD; }; then
     # A155: a commit of control-plane files only (an upgrade, a refreshed agent file or proofline block) is not a plan change
-    base_moved_control_only "$base" || fail "stale plan: repository.base_sha changed ($base -> $head); amendment and refreeze required"
+    base_moved_control_only "$base" || fail "stale plan: repository.base_sha changed ($base -> $head); amendment and refreeze required. Changed outside the control plane: $(base_moved_offenders "$base"). Amend and refreeze the plan to include them, or revert them; text in AGENTS.md or CLAUDE.md besides the proofline block is project rules every agent reads, so it counts as a product change (A161)"
     bm_line="base_sha moved ($base -> $head): the commits between touch control-plane files only; the plan stays fresh"
     echo "$bm_line"
     # once per accepted move: the ledger line is the record
-    grep -qF "detail=$bm_line" "$(ledger_file "$id")" 2>/dev/null || ledger_if "$id" base-moved - - "$bm_line"
+    base_moved_lines "$id" | grep -qF "detail=$bm_line" || ledger_if "$id" base-moved - - "$bm_line"
     # A156: later diffs start at the new base; the old value stays in the ledger line above. Nothing frozen or sealed hashes base_sha.
     set_run_value "$id" repository base_sha "$head"
   fi
@@ -1559,7 +1597,12 @@ verify_scope() {
   unexpected=$(cat "$tmp"); rm "$tmp"
   if [ -s "$tmpcp" ]; then echo "control-plane files changed under .agents/ (not task changes, outside the plan scope):"; sed 's/^/  /' "$tmpcp"; fi; rm -f "$tmpcp"
   if [ -s "$tmpcp.in" ]; then echo "installed proofline files changed (not task changes, outside the plan scope):"; sed 's/^/  /' "$tmpcp.in"; fi; rm -f "$tmpcp.in"
-  [ -z "$unexpected" ] || { echo "unexpected or unmapped task-introduced paths:" >&2; printf '%s\n' "$unexpected" >&2; return 1; }; echo "scope check passed: $id"
+  [ -z "$unexpected" ] || {
+    echo "unexpected or unmapped task-introduced paths:" >&2; printf '%s\n' "$unexpected" >&2
+    # A161: AGENTS.md/CLAUDE.md is control plane only as the proofline block; any other text in it is the project's rules
+    if printf '%s\n' "$unexpected" | grep -Eqx 'AGENTS\.md|CLAUDE\.md'; then echo "AGENTS.md/CLAUDE.md here holds text besides the proofline block (or is a symlink, or has no markers): that is project rules every agent reads, so it is a product change. Name the file in the plan scope (amendment and refreeze), or move that text out and keep only the proofline block." >&2; fi
+    return 1; }
+  echo "scope check passed: $id"
 }
 # Knowledge-scope paths the task changed outside the frozen plan scope (written by the knowledge step).
 knowledge_owned_paths() {
@@ -2378,7 +2421,7 @@ gate_focus_status() {
   gfs_last=$(gate_latest_file "$gfs_id" "$gfs_gate" "$3")
   [ -n "$gfs_last" ] || { echo missing; return 0; }
   if ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
-  if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ]; then
+  if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] && ! { [ "$gfs_key" = fingerprint ] && legacy_fingerprint_match "$(gate_field "$gfs_last" fingerprint)"; }; then
     { [ "$4" != strict ] && [ "$(gate_field "$gfs_last" result)" = pass ] && focus_untouched "$gfs_id" "$gfs_last" "$3" "$4" "$5"; } || { echo stale; return 0; }
   fi
   case "$(gate_field "$gfs_last" result)" in
@@ -3089,9 +3132,27 @@ reproduce_recheck() {
 # unsupported_evidence_check ID ROLE FOCUS RAW -> "<path> <sha256>", or the refusal text and exit 1.
 # The file: inside the run (the focus's report folder or reports/, normally the snapshot `submit` made, A43),
 # its sha256 as cited, holding the validator's `RESULT: UNSUPPORTED` line (visual: or INCONCLUSIVE); a printed
-# `BASE:` must be the run's base. Cross-checks that do not depend on the agent: every contract file this script's
+# `BASE:` must be the run's base or a base before an accepted control-plane-only move (A161). Cross-checks that do not depend on the agent: every contract file this script's
 # own signals found in the diff is listed by the differ (`FILE: compared|unsupported <path>`, at least one
 # unsupported), and every changed .sql migration is listed `FILE: unsupported <path>` by validate-migration --repo.
+# base_moved_lines ID: the run's real `base-moved` ledger lines, anchored to the line structure ledger_append writes
+# (`seq=N prev=H event=base-moved role=R from=F to=T digest=D ts=T epoch=E detail=base_sha moved ...`). The free text of
+# another event (a lead's ledger-note) can contain the same words; it is never at that position (A161).
+base_moved_lines() {
+  grep -E '^seq=[0-9]+ prev=[^ ]+ event=base-moved role=[^ ]* from=[^ ]* to=[^ ]* digest=[^ ]* ts=[^ ]* epoch=[^ ]* detail=base_sha moved \(' "$(ledger_file "$1")" 2>/dev/null || :
+}
+# base_moved_predecessors ID BASE (A161): the bases the run had before accepted moves that lead to BASE, newest first. The chain
+# comes from the run's `base-moved` ledger lines ("base_sha moved (<old> -> <new>)", written only by verify_freshness after
+# base_moved_control_only, hash-chained and sealed), so every link is a control-plane-only commit range.
+base_moved_predecessors() {
+  bp_cur=$2; bp_l=$(ledger_file "$1"); [ -s "$bp_l" ] || return 0
+  bp_n=0; bp_bm=$(base_moved_lines "$1")
+  while [ "$bp_n" -lt 100 ] && [ -n "$bp_cur" ]; do
+    bp_old=$(printf '%s\n' "$bp_bm" | sed -n "s/^seq=[0-9]* prev=[^ ]* event=base-moved role=[^ ]* from=[^ ]* to=[^ ]* digest=[^ ]* ts=[^ ]* epoch=[^ ]* detail=base_sha moved (\([0-9a-f]\{7,40\}\) -> ${bp_cur}[0-9a-f]*).*/\1/p" | tail -1)
+    [ -n "$bp_old" ] || break
+    printf '%s\n' "$bp_old"; bp_cur=$bp_old; bp_n=$((bp_n + 1))
+  done
+}
 # shortcut: the file's text is checked, not re-derived (the control plane never runs a skill); a fabricated file
 # that also names every signalled path passes, and the reviewer, verifier and completion report remain the check.
 unsupported_evidence_check() {
@@ -3129,7 +3190,11 @@ unsupported_evidence_check() {
   ue_b=$(sed -n 's/^BASE:[[:space:]]*\([0-9a-f]\{7,40\}\)[[:space:]]*$/\1/p' "$ue_f" | head -1)
   if [ -n "$ue_b" ]; then
     ue_rb=$(repository_base_sha "$ue_d")
-    case "$ue_rb" in "$ue_b"*) ;; *) echo "UNSUPPORTED_EVIDENCE $ue_p was produced against base $ue_b, not the run's base ${ue_rb:-unknown}"; return 1 ;; esac
+    # A161: a base before an ACCEPTED move (control-plane-only commits, recorded as base-moved ledger lines) is the same product
+    # diff, so evidence naming it counts; an unrelated base does not.
+    ue_ok=no
+    for ue_x in $ue_rb $(base_moved_predecessors "$1" "$ue_rb"); do case "$ue_x" in "$ue_b"*) ue_ok=yes; break ;; esac; done
+    [ "$ue_ok" = yes ] || { echo "UNSUPPORTED_EVIDENCE $ue_p was produced against base $ue_b, not the run's base ${ue_rb:-unknown} (nor a base before an accepted control-plane-only move)"; return 1; }
   fi
   case "$3" in
     contract)
