@@ -1606,6 +1606,31 @@ $ev_val"
   A freeze LC >/dev/null || die "freeze with plan line and scenario was refused: $(A freeze LC 2>&1)"
   ok "A162: a QA plan needs an [invalid-input] scenario naming each entry point; another entry point or category does not satisfy it"
 }
+sc_validation_refreeze() {
+  ev_msg='PLAN.md ## Contracts declares an entry point that takes external input, but ## Validation has no complete line for: POST /orders'
+  ev_scaffold '' "$ev_inv"
+  A freeze LC >/dev/null || die "freeze of a plan without entry points failed: $(A freeze LC 2>&1)"
+  amend_plan 001 '
+## Contracts
+
+- `POST /orders` creates an order'
+  expect_msg "a refreeze that adds an entry point without a validation line" "$ev_msg" A refreeze LC 001.md
+  printf '\n## Validation\n\n%s\n' "$ev_val" >> .agents/runs/LC/PLAN.md
+  A refreeze LC 001.md >/dev/null || die "a refreeze with a validation line and an invalid-input scenario was refused: $(A refreeze LC 001.md 2>&1)"
+  # the QA plan of the refreeze needs the invalid-input scenario too
+  ev_scaffold '' ''
+  A freeze LC >/dev/null || die "freeze of a plan without entry points failed: $(A freeze LC 2>&1)"
+  amend_plan 001 "
+## Contracts
+
+- \`POST /orders\` creates an order
+
+## Validation
+
+$ev_val"
+  expect_msg "a refreeze without an invalid-input scenario" 'QA_PLAN.md has no invalid-input scenario for the entry point(s) of PLAN.md ## Contracts: POST /orders' A refreeze LC 001.md
+  ok "A162: a refreeze enforces the validation line and the invalid-input scenario for a new entry point"
+}
 sc_validation_node() {
   command -v node >/dev/null 2>&1 || { echo "skip validation_node (node missing)"; exit 0; }
   sk=$tl_agents/../../skills
@@ -2069,6 +2094,7 @@ run_sc sc_class_floor
 run_sc sc_design_sync
 run_sc sc_validation_plan
 run_sc sc_validation_qa
+run_sc sc_validation_refreeze
 run_sc sc_validation_node
 run_sc sc_validation_config
 run_sc sc_evidence_gap_fabricated
