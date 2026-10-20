@@ -80,11 +80,13 @@ queued() {
   done
 }
 newest_task() {
-  td=$(tasks_dir); nf=''
+  td=$(tasks_dir); set --
   for f in "$td"/todo/*.md "$td"/backlog/*.md "$td"/*.md; do
     [ -f "$f" ] || continue
-    if [ -z "$nf" ] || [ "$f" -nt "$nf" ]; then nf=$f; fi
+    set -- "$@" "$f"
   done
+  [ $# -gt 0 ] || return 0
+  nf=$(ls -t -- "$@" | head -n 1)
   [ -z "$nf" ] || task_id "$nf"
 }
 work() {

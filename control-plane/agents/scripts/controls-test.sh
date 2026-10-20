@@ -14,7 +14,7 @@ layer_run() {
   printf '# Task: %s\n\n## Acceptance criteria\n\n- AC-1: behaviour\n' "$lr_id" > "$d/TASK.md"; printf '%s\n' '# Evidence' '' '## Assumptions' 'none' '' '## Claims' > "$d/EVIDENCE.md"
   { printf '%s\n' '---' 'scope:'; for lr_p in "$@"; do printf '  - path: %s\n    criteria: [AC-1]\n' "$lr_p"; done; printf '%s\n' "${PLAN_EXTRA:-}" '---' '# Plan' '## Assumptions' 'none' '## Behavior' 'unchanged'; } | sed '/^$/d' > "$d/PLAN.md"
   printf '%s\n' 'task:' "  id: $lr_id" 'repository:' '  base_sha: PENDING' "${REPO_EXTRA:-}" 'task_source:' "${SOURCE:-  type: none}" "${SOURCE_REV:-  revision: not_applicable}" \
-    'execution:' '  mode: deterministic' '  state: PLANNING' '  knowledge_state: not_started' "  topology: ${TOPO:-orchestrated}" \
+    'execution:' '  mode: deterministic' '  state: PLANNING' '  knowledge_state: not_started' '  knowledge_reason: ""' "  topology: ${TOPO:-orchestrated}" \
     'freeze:' '  task_sha256: PENDING' '  evidence_sha256: PENDING' '  plan_sha256: PENDING' '  policy_sha256: PENDING' \
     'baseline:' '  status: pending' 'handoff:' '  state: PLANNED' '  implemented_patch_sha256: PENDING' '  code_done_patch_sha256: PENDING' \
     "${EXTRA:-}" | sed '/^$/d' > "$d/RUN.yaml"
