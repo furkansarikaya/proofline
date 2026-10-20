@@ -51,8 +51,17 @@ match only opens a review: the security reviewer then checks the `[log]` sink of
 body, an `Authorization` or `Cookie` header, a token, a password, a secret key or personal data reaches the changed
 log call unmasked, and whether user input with CR or LF can forge a line in a plain-text log. Only a concrete path
 is a finding. An ordinary `logger.info("started")` opens nothing, and a call split over several lines is not seen.
-proofline sets no logging standard: write yours in `AGENTS.md` (the template has an optional example) and the
-`rules` focus of the code review checks every rule it can verify on a changed line in each task that has a rules
+proofline sets no logging standard: write yours in `AGENTS.md`, in your own part of the file outside the
+`<!-- proofline:begin -->` block (`proofline upgrade` replaces the block and reports a conflict when you edit
+inside it; the template carries no logging text for that reason), for example:
+
+```markdown
+## Logging
+- Log through `internal/logx` only; never `fmt.Println` or `print`.
+- Never log request bodies, tokens, passwords or personal data; pass user input through `logx.Redact`.
+```
+
+The `rules` focus of the code review checks every rule it can verify on a changed line in each task that has a rules
 review; the implementer is told to use the project's own logger and standard and never to log secrets or personal data.
 
 - `agent.sh pipeline <ID>` shows every signal, its source, the check it triggers and why. Before FREEZE the

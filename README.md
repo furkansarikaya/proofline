@@ -107,7 +107,7 @@ debt                                  list the shortcut comments in the code (re
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
 
-**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal command. One table in the control plane (`next-user.sh`) holds it; see [the next step](docs/concepts/workflow.md#the-next-step).
+**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, for example `init` -> `/proofline doctor`, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
 
 **Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and `proofline batch run` then works through the tasks one at a time in clean headless sessions. Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table. Detail and limits: [night mode](docs/concepts/night-mode.md).
 
