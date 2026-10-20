@@ -200,6 +200,23 @@ reject "a user edit of a file upstream did not change is not a conflict" "$out" 
 grep -q "my edit of an unchanged-upstream file" "$up/.agents/ENGINEERING.md" && ok "...and it is kept" || die "ENGINEERING.md edit lost"
 nocheck "upgrade without an install fails" pl "$(mkrepo noinst)" upgrade
 
+# A162: a project installed before risk.log_sensitive existed gets the new keys on upgrade, user edits untouched
+up4=$T/up4; cp -R "$base" "$up4"
+awk '/^  log_sensitive:$/ { skip = 1; next } skip && /^    (content|words|check):/ { next } { skip = 0; print }' "$up4/.agents/config.yaml" > "$up4/cfg.tmp"
+awk '/^  max_fix_rounds:/ { print "  max_fix_rounds: 6"; next } { print }' "$up4/cfg.tmp" > "$up4/.agents/config.yaml"; rm "$up4/cfg.tmp"
+printf 'my note\n' >> "$up4/.agents/WORKFLOW.md"
+[ -z "$(cfgv "$up4" risk.log_sensitive.words)" ] && [ -z "$(cfgv "$up4" risk.log_sensitive.content)" ] && ok "A162: the old config has no risk.log_sensitive keys" || die "old config still has log_sensitive: $(cfgv "$up4" risk.log_sensitive.words)"
+out=$(cd "$up4" && sh "$PL" upgrade 2>&1) || { LAST=$out; die "upgrade of a config without log_sensitive exits 0"; }
+[ "$(cfgv "$up4" risk.log_sensitive.check)" = logging ] && cfgv "$up4" risk.log_sensitive.words | grep -qw tckn && cfgv "$up4" risk.log_sensitive.content | grep -q 'logger' && ok "upgrade merges risk.log_sensitive (content, words, check)" || { LAST=$out; die "log_sensitive keys not merged"; }
+[ "$(cfgv "$up4" review.max_fix_rounds)" = 6 ] && grep -q "my note" "$up4/.agents/WORKFLOW.md" && ok "...and the user's config value and file edit are untouched" || die "user edit lost in the log_sensitive upgrade"
+check "the upgraded config with log_sensitive validates" sh -c "cd '$up4' && sh .agents/scripts/agent.sh config-check"
+# a user who tuned the words keeps them across an upgrade
+up5=$T/up5; cp -R "$base" "$up5"
+awk '/^    words: password passwd/ { print "    words: password voucher"; next } { print }' "$up5/.agents/config.yaml" > "$up5/cfg.tmp" && cat "$up5/cfg.tmp" > "$up5/.agents/config.yaml" && rm "$up5/cfg.tmp"
+out=$(cd "$up5" && sh "$PL" upgrade 2>&1) || { LAST=$out; die "upgrade of a tuned log_sensitive exits 0"; }
+[ "$(cfgv "$up5" risk.log_sensitive.words)" = "password voucher" ] && [ "$(cfgv "$up5" risk.log_sensitive.check)" = logging ] && ok "upgrade keeps tuned log_sensitive words" || { LAST=$out; die "tuned words lost: $(cfgv "$up5" risk.log_sensitive.words) / $(cfgv "$up5" risk.log_sensitive.check)"; }
+check "the tuned, upgraded config validates" sh -c "cd '$up5' && sh .agents/scripts/agent.sh config-check"
+
 # CLI-7: the proofline block of AGENTS.md is hash-tracked; a user edit inside it is a conflict, never overwritten
 up2=$T/up2; cp -R "$base" "$up2"
 echo "upstream block change" >> "$home2/control-plane/AGENTS.md"
