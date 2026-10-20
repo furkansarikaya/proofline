@@ -38,6 +38,10 @@ none
 
 none
 
+## Validation
+
+<Only when a new or changed entry point that takes external input (HTTP endpoint, form handler, CLI argument, queue consumer, webhook) is listed in `## Contracts`, its name in backticks. One line per entry point, server side: `- <entry point>: accepts <what>; limits <limits>; rejected at <where>`. Delete the section otherwise.>
+
 ## Risk
 
 <Only the flags the design implies, one line each (the architect's text, A78): `contract_change: yes|no`, `concurrency: yes|no`, `performance_critical: yes|no`. Delete the section when no flag applies.>

@@ -18,6 +18,8 @@ Plan sha256: <plan hash>
   execution: <auto | manual>
   run: <how>
 
+<For every entry point that PLAN.md `## Contracts` lists (it takes external input), at least one `[invalid-input]` scenario that names the entry point and uses an input the server must reject (A162). Delete this note.>
+
 ## Regression surface
 
 <existing behaviour that must not change, with the test or command that shows it>
