@@ -1124,7 +1124,9 @@ kg_check_time() {
 # kg_has_words TEXT: could TEXT hold a kill rule at all? Every rule needs kill, slay or fuser in the text (quotes and
 # backslashes removed, as the shell removes them), or a variable in command position that the text may fill with one.
 kg_has_words() {
-  printf '%s' "$1" | tr -d "'\"\\\\" | grep -Eq 'kill|slay|fuser|(^|[;&|({]|then|do|else)[[:space:]]*\$[A-Za-z_{(]'
+  # grep reads all of its input (no -q): with -q it exits at the first match and closes the pipe while printf is still
+  # writing a large script, which printf reports as "write error: Broken pipe" on stderr. The verdict is the same.
+  printf '%s' "$1" | tr -d "'\"\\\\" | grep -E 'kill|slay|fuser|(^|[;&|({]|then|do|else)[[:space:]]*\$[A-Za-z_{(]' >/dev/null
 }
 # kg_file_ok PATH: prints the resolved path of a text file the guard may read: a regular file (no link) under the
 # project (third-party node_modules and .git excluded) or a temp dir, at most 256 KB.
