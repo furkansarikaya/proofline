@@ -265,3 +265,66 @@ test("a request initiated by the document itself is not attributed to analytics;
   assert.equal((pa.analytics_before_consent || []).includes(u), false, "own-origin request listed in analytics_before_consent");
   assert.equal((pa.third_party_requests || []).includes(u), false, "own-origin request listed in third_party_requests");
 });
+
+// --- A161 (#137 #140): robots.txt percent-encoding (RFC 9309 2.2.2) and the published URL form -----------------------
+test("robots.txt rule and URL paths are compared in one percent-encoded form (A161)", () => {
+  const blocks = (rule, rel) => measure.robotsBlocks(`User-agent: *\nDisallow: ${rule}\n`, rel, "googlebot");
+  assert.equal(blocks("/caf%C3%A9/", "café/index.html"), true);
+  assert.equal(blocks("/caf%c3%a9/", "café/index.html"), true, "hex case is irrelevant");
+  assert.equal(blocks("/café/", "café/index.html"), true, "a raw non-ASCII rule matches the same octets");
+  assert.equal(blocks("/a%20b", "a b"), true);
+  assert.equal(blocks("/%7euser", "~user"), true, "an unreserved octet is decoded");
+  assert.equal(blocks("/%7Euser", "~user"), true);
+  assert.equal(blocks("/%41", "A"), true);
+  assert.equal(blocks("/caf%C3%A9/", "cafe/index.html"), false);
+  assert.equal(measure.robotsNormalize("/café/"), "/caf%C3%A9/");
+  assert.equal(measure.robotsNormalize("/caf%c3%a9"), "/caf%C3%A9");
+  assert.equal(measure.robotsNormalize("/%7euser"), "/~user");
+  // a reserved octet stays as written: %2F is not a slash
+  assert.equal(blocks("/a%2Fb", "a/b"), false, "%2F must stay distinct from /");
+  assert.equal(blocks("/a/b", "a%2Fb"), false);
+  assert.equal(blocks("/a%2Fb", "a%2Fb"), true);
+  assert.notEqual(measure.robotsNormalize("/a%2Fb"), measure.robotsNormalize("/a/b"));
+  // a lone % does not throw
+  assert.doesNotThrow(() => measure.robotsBlocks("User-agent: *\nDisallow: /50%\n", "50%", "googlebot"));
+  assert.equal(measure.robotsNormalize("/50%"), "/50%25");
+  assert.equal(measure.robotsPathBlocks("User-agent: *\nDisallow: /50%\n", "/50%", "googlebot"), true);
+});
+
+test("a page served as dir/index.html is checked under its published URL form (A161)", () => {
+  const T = (rule) => `User-agent: *\nDisallow: ${rule}\n`;
+  assert.deepEqual(measure.robotsForms("a.html"), ["/a.html"]);
+  assert.deepEqual(measure.robotsForms("dir/index.html", "https://example.org/dir/index.html"), ["/dir/index.html"]);
+  assert.deepEqual(measure.robotsForms("dir/index.html", "https://example.org/dir/"), ["/dir/"]);
+  assert.deepEqual([...measure.robotsForms("dir/index.html")].sort(), ["/dir/", "/dir/index.html"]);
+  assert.equal(measure.robotsBlocks(T("/dir/index.html"), "dir/index.html", "googlebot", "https://example.org/dir/"), false);
+  assert.equal(measure.robotsBlocks(T("/dir/index.html"), "dir/index.html", "googlebot", "https://example.org/dir/index.html"), true);
+  assert.equal(measure.robotsBlocks(T("/dir/index.html"), "dir/index.html", "googlebot"), false, "only one form blocked");
+  assert.equal(measure.robotsBlocks(T("/dir/"), "dir/index.html", "googlebot"), true);
+  assert.equal(measure.robotsBlocks(T("/dir/"), "dir/index.html", "googlebot", "https://example.org/dir/index.html"), true);
+  assert.deepEqual(measure.robotsBlockedFor(T("/dir/"), "dir/index.html"), ["googlebot", "bingbot"]);
+
+  const opt = { base_url: BASE, site_url: SITE };
+  const sf = (loc) => ({ ...SITEFACTS([loc], { "dir/index.html": true }), robots_txt: T("/dir/index.html") });
+  const robotsItem = (r) => r.items.find((m) => m.check === "seo_robots" && /disallows/.test(m.note || ""));
+  const viaDir = seoEvaluate([page("dir/index.html")], sf("dir/"), opt);
+  assert.equal(robotsItem(viaDir), undefined, JSON.stringify(robotsItem(viaDir)));
+  assert.notEqual(viaDir.pages.find((p) => p.path === "dir/index.html").status, "not_applicable", "the page stays measured");
+  // loc dir/index.html: blocked for every bot -> page skipped (robots), and the sitemap page itself fails
+  const viaFile = seoEvaluate([page("index.html"), page("dir/index.html")], { ...sf("dir/index.html"), sitemap_xml: `<urlset><url><loc>${SITE}/index.html</loc></url><url><loc>${SITE}/dir/index.html</loc></url></urlset>` }, opt);
+  assert.equal(viaFile.pages.find((p) => p.path === "dir/index.html").status, "not_applicable");
+  assert.match(robotsItem(viaFile).note, /disallows a sitemap page for googlebot, bingbot: https:\/\/example\.org\/dir\/index\.html/);
+  // blocked for one bot only: the page stays measured and fails with the page note
+  const one = seoEvaluate([page("dir/index.html")], { ...sf("dir/index.html"), robots_txt: "User-agent: Googlebot\nDisallow: /dir/index.html\n\nUser-agent: *\nDisallow:\nSitemap: " + SITE + "/sitemap.xml\n" }, opt);
+  assert.equal(robotsItem(one)?.status, "fail");
+  assert.match(robotsItem(one).note, /robots\.txt disallows dir\/index\.html for googlebot/);
+  const oneDir = seoEvaluate([page("dir/index.html")], { ...sf("dir/"), robots_txt: "User-agent: Googlebot\nDisallow: /dir/index.html\n\nUser-agent: *\nDisallow:\nSitemap: " + SITE + "/sitemap.xml\n" }, opt);
+  assert.equal(robotsItem(oneDir), undefined, "published as /dir/: the /dir/index.html rule does not apply");
+  // no sitemap loc and no canonical: both forms, one blocked, not blocked
+  const none = seoEvaluate([page("dir/index.html", { canonicals: [] })], { ...SITEFACTS(["index.html"], { "dir/index.html": true }), robots_txt: T("/dir/index.html") }, opt);
+  assert.equal(none.items.some((m) => m.check === "seo_robots" && /dir\//.test(m.note || "")), false);
+  assert.notEqual(none.pages.find((p) => p.path === "dir/index.html").status, "not_applicable");
+  // canonical is the fallback when the sitemap does not list the page
+  const canon = seoEvaluate([page("dir/index.html", { canonicals: [{ raw: SITE + "/dir/", href: SITE + "/dir/" }] })], { ...SITEFACTS(["index.html"], { "dir/index.html": true }), robots_txt: T("/dir/index.html") }, opt);
+  assert.notEqual(canon.pages.find((p) => p.path === "dir/index.html").status, "not_applicable");
+});
