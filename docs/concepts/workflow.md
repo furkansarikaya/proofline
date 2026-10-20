@@ -43,6 +43,27 @@ merely contains the word accepts nothing. The stored answer becomes exactly `acc
 listed as `accepted-by-user` with it as reference. `agent.sh verify-assumptions <TASK>` shows the register read-only. The
 completion report lists every unverified and accepted-by-user assumption.
 
+### Input validation at entry points
+
+A new or changed entry point that takes external input (an HTTP endpoint, form handler, CLI argument, queue consumer
+or webhook) is validated by design, not by luck (A162). The plan lists the entry point in `## Contracts`, its name in
+backticks, and `## Validation` carries one line for it: `- <entry point>: accepts <what>; limits <limits>; rejected at
+<where, server side>`. `agent.sh freeze` refuses a plan with an entry point and no such line, and refuses a QA plan
+without an adversarial `[invalid-input]` scenario that names the entry point. What counts as an entry point:
+
+- a `## Contracts` bullet that matches `validation.entry_words` in `.agents/config.yaml` (an extended regular
+  expression, case-insensitive: a method and path such as `POST /x`, endpoint, route, handler, webhook, consumer,
+  subscriber, form, a CLI argument, flag, option or command, argv, rpc, grpc, graphql) and does not remove, drop or
+  deprecate the contract; extend the expression for the project's own words;
+- the name is the first backticked token of the bullet, else the text before its first colon.
+
+What the check cannot see: an entry point the plan does not list in `## Contracts` (code is read only for
+information: `validation.code_patterns` over scope files that exist and over the lines the diff adds, printed by
+`agent.sh pipeline` as `validation.candidates` and as a note at freeze, never required); whether the stated limits are
+the right ones or are enforced in the code (the plan, tests and review judge that; the check proves only that a line
+and a scenario exist); and a bullet that merely mentions an entry word (it asks for the line anyway, which costs one
+line). Uncertain detection is information only, never a refusal.
+
 ## Implementation
 
 One implementer per run, inside an attested window, writes each scope path test-first with recorded RED
