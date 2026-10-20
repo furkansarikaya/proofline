@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -252,4 +252,21 @@ test("CLI: validate-qa plan --plan refuses a missing invalid-input scenario (A16
   const run = (...a) => spawnSync(process.execPath, [SCRIPT, "plan", join(d, "Q.md"), "--plan", join(d, "P.md"), ...a], { encoding: "utf8" });
   assert.equal(run().status, 1); assert.match(run().stderr, /invalid-input scenario for the entry point POST \/orders/);
   assert.equal(run("--entry-words", "nomatch").status, 0);
+});
+// A162: the validator reads validation.* from the project's config (three directories up from --plan, then cwd).
+test("CLI: a project-tuned validation.entry_words is honoured without a flag; --entry-words overrides it (A162)", () => {
+  const d = mkdtempSync(join(tmpdir(), "qatune-")); const rd = join(d, ".agents/runs/T-1"); mkdirSync(rd, { recursive: true });
+  writeFileSync(join(d, ".agents/config.yaml"), 'validation:\n  entry_words: "nightly +runner"\n');
+  const plan = EP_MD.replace("`POST /orders` creates an order", "`nightly runner` accepts a payload");
+  writeFileSync(join(rd, "P.md"), plan); writeFileSync(join(rd, "Q.md"), bound(plan, BODY));
+  const run = (...a) => spawnSync(process.execPath, [SCRIPT, "plan", join(rd, "Q.md"), "--plan", join(rd, "P.md"), ...a], { encoding: "utf8", cwd: tmpdir() });
+  assert.equal(run().status, 1); assert.match(run().stderr, /invalid-input scenario for the entry point nightly runner/);
+  assert.equal(run("--entry-words", "nomatch").status, 0);
+  writeFileSync(join(rd, "P.md"), EP_MD); writeFileSync(join(rd, "Q.md"), bound(EP_MD, BODY));
+  assert.equal(run().status, 0, run().stderr); // POST is not an entry word of the tuned project
+});
+test("a backslash entry name matches its scenario (A162)", () => {
+  const plan = EP_MD.replace("`POST /orders` creates an order", "`GET /u/\\d+` takes a query parameter");
+  assert.match(epErr(BODY, plan), /entry point GET \/u\/\\d\+/);
+  assert.equal(epErr(withScenario("invalid-input", "GET /u/\\d+ with letters"), plan), "");
 });
