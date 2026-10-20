@@ -75,6 +75,8 @@ Cleanup deletes the run directory so the git hooks no longer see the run; then t
 
 ## Night mode
 
+The summary, the limits and the Codex profile are also described on their own page: [night mode](night-mode.md).
+
 `/proofline batch <ID...|all>` (`agent.sh batch-plan`) is for several tasks that would each wait for your plan and delivery
 approval. It orders the tasks by `depends_on` (a cycle refuses the whole batch), leaves out every CRITICAL task, every task
 without a parseable `## Suggested class` and every task that depends on one of those or on a task that is neither in the batch
