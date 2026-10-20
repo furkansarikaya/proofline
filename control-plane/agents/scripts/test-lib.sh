@@ -178,7 +178,7 @@ write_report() {
     '## Execution' 'Not applicable in fixtures.' '' '## Known Limitations / Follow-up' 'None.' "$@" > ".agents/runs/$RID/COMPLETION_REPORT.md"
 }
 finish_done() {
-  A knowledge-done "$RID" not_applicable >/dev/null
+  A knowledge-done "$RID" not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   write_report "$@"
   A publish-completion-report "$RID" markdown >/dev/null
   A handoff "$RID" DONE >/dev/null

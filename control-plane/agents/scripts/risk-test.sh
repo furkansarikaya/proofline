@@ -204,7 +204,7 @@ sc_unsupported() {
   printf '%s\n' "$nx" | grep -Fq 'next=agent.sh handoff LC CODE_DONE' || die "next does not offer CODE_DONE: $nx"
   ! printf '%s\n' "$nx" | grep -Fq 'waive:' || die "next asks for a waiver of a reported UNSUPPORTED: $nx"
   printf '%s\n' "$nx" | grep -Fq 'next=surface these unsupported checks to the user in your reply' || die "next does not ask to surface them: $nx"
-  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
+  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   A next LC | grep -Fq 'next=UNSUPPORTED (unproven, reported) QA:visual' || die "next before the report does not name the unsupported focus"
   write_report
   expect_msg "a report without the UNSUPPORTED section" '## Unsupported Checks' A publish-completion-report LC markdown
@@ -237,7 +237,7 @@ sc_unsupported_inconclusive() {
   approve_as_user "waive:$fid" "approved, $fid"
   A waive LC "$fid" --reason 'unstable rendering in this environment; the user accepts the visual gap' >/dev/null
   [ "$(gate_st QA)" = waived ] || die "waived INCONCLUSIVE gate: $(gate_st QA)"
-  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
+  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   write_report '' '## Waivers' 'The user waived the INCONCLUSIVE finding.' '' '## Unsupported Checks' 'Visual check skipped.'
   expect_msg "a waived INCONCLUSIVE not named" 'must name the UNSUPPORTED check QA:visual' A publish-completion-report LC markdown
   write_report '' '## Waivers' 'The user waived the INCONCLUSIVE finding.' '' '## Unsupported Checks' '- QA:visual: visual INCONCLUSIVE, waived by the user; not proven: the badge layout.'

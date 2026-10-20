@@ -667,7 +667,7 @@ $low"
   # the completion report lists every unverified and accepted-by-user assumption (ids; accepted ones with the answer)
   A handoff LC IMPLEMENTING >/dev/null
   to_code_done standalone
-  A knowledge-done LC not_applicable >/dev/null; write_report
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report
   expect_msg "a report that omits the assumptions was published" 'does not list: AS-1 AS-2 AS-3' A publish-completion-report LC markdown
   write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): unverified'
   expect_msg "an accepted assumption without its answer reference was published" 'does not list: AS-1(answer questions/011.answer.md)' A publish-completion-report LC markdown
@@ -968,7 +968,7 @@ sc_next() {
   A next LC | grep -q '^next=agent.sh handoff LC CODE_DONE'
   A handoff LC CODE_DONE >/dev/null
   A next LC | grep -q '^next=agent.sh knowledge-done LC'
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   A next LC | grep -q '^next=write COMPLETION_REPORT.md'
   ok "next: deterministic steps from approval to completion"
 }
@@ -1106,7 +1106,7 @@ sc_report_finding_ids() {
     esac
   done
   A pipeline LC | sed -n 's/^focus\.\([A-Z_]*\)\.\([a-z]*\)=.*/\1 \2/p' | while read -r g f; do RF_FOCUS=$f gpass "$g"; done
-  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
+  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   nr="$rg:$(gate_focus "$rg")"
   # every miss at once: the not-reproduced line AND the ids, with the line to add
   write_report '' "$rg: none."
@@ -1132,7 +1132,7 @@ sc_report_finding_ids() {
 # refuses numbers beside tests, gates, fix rounds and refreezes that are not the recorded ones.
 sc_report_facts() {
   scaffold orchestrated; to_code_done orchestrated
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   ng=$(required | wc -w | tr -d ' ')
   facts=$(A report-facts LC)
   for want in "- Required gates: $ng" '- Fix rounds: 0 of 2' '- Refreezes: 0' '- Files changed (task-owned paths): 2' '- Worker-evidence run records: total 2, ended pass 1, ended fail 1' '- Gate VERIFY: pass; findings: none'; do

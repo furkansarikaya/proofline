@@ -1506,8 +1506,13 @@ task_source_status() {
 # --- Scope ---------------------------------------------------------------------------
 # Knowledge scope (Transaction B): space-separated entries of knowledge_scope_root; an entry ending in /
 # is a directory prefix, any other entry an exact path. A plan-scoped path stays application scope.
+# The configured design documents (design_docs.*) belong to it too (A159); an installed project without the key gets the default roots.
 in_knowledge_scope() {
-  for ks_e in $(cfg knowledge_scope_root ''); do
+  ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/')
+  for ks_k in design architecture data_model api adr_dir; do
+    ks_p=$(cfg "design_docs.$ks_k" ""); [ -z "$ks_p" ] || { [ "$ks_k" != adr_dir ] || ks_p=${ks_p%/}/; ks_r="$ks_r $ks_p"; }
+  done
+  for ks_e in $ks_r; do
     case "$ks_e" in */) case "$1" in "$ks_e"*) return 0 ;; esac ;; *) [ "$1" != "$ks_e" ] || return 0 ;; esac
   done
   return 1
@@ -4481,7 +4486,7 @@ next_step() {
         KNOWLEDGE_DONE|not_applicable)
           if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
-        *) o "agent.sh knowledge-done $ns_id [not_applicable]"; r "knowledge transaction not recorded" ;;
+        *) o "agent.sh knowledge-done $ns_id [not_applicable \"<reason>\"]"; r "knowledge transaction not recorded" ;;
       esac ;;
     DONE) o "agent.sh request-approval $ns_id commit (delivery needs the user's approval)"; o "agent.sh cleanup $ns_id (after delivery)"; o "optional: agent.sh friction show; send it as a GitHub issue only if the user wants it: agent.sh request-approval - report, then agent.sh friction send"; r "run DONE" ;;
   esac
@@ -4528,6 +4533,7 @@ amend_run() {
   } > "$g_gd/$g_name.yaml" || fail "could not write reopen record"
   set_run_value "$g_id" execution state AMENDING
   if section_key_present "$g_d" execution knowledge_state; then set_run_value "$g_id" execution knowledge_state not_started; fi
+  if section_key_present "$g_d" execution knowledge_reason; then set_run_value "$g_id" execution knowledge_reason ""; fi
   set_run_value "$g_id" handoff state IMPLEMENTING
   set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
   set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
@@ -4614,6 +4620,7 @@ reopen_run() {
   consume_approval "$ro_id" "$ro_app"
   set_run_value "$ro_id" execution state "$ro_prev"
   if section_key_present "$ro_d" execution knowledge_state; then set_run_value "$ro_id" execution knowledge_state not_started; fi
+  if section_key_present "$ro_d" execution knowledge_reason; then set_run_value "$ro_id" execution knowledge_reason ""; fi
   ledger_append "$ro_id" REOPEN "$ro_hs" "$ro_hs" "$(ledger_token "gates/$ro_name.yaml" "$ro_id") reopened from $ro_st, authorized_by=user approval $(basename "$ro_app"): $ro_reason"
   if [ -n "$ro_budget" ]; then raise_budget "$ro_id" "$ro_n" >/dev/null; fi
   echo "run reopened: $ro_id ($ro_name); execution $ro_st -> $ro_prev, handoff $ro_hs, fix rounds restart at 0; gates that did not pass or whose inputs changed run again (agent.sh next $ro_id)"
@@ -4745,6 +4752,8 @@ report_facts() {
       printf -- '  - Focus %s:%s: %s; findings: %s\n' "$rf_g" "$rf_fc" "$(gate_focus_status "$rf_id" "$rf_g" "$rf_fc" reuse "$rf_fp")" "${rf_i:-none}"
     done
   done
+  rf_ks=$(section_value "$(run_dir "$rf_id")" execution knowledge_state); rf_kr=$(section_value "$(run_dir "$rf_id")" execution knowledge_reason)
+  printf -- '- Knowledge step: %s%s\n' "${rf_ks:-not_started}" "${rf_kr:+; not_applicable reason: $rf_kr}"
   printf -- '- Fix rounds: %s of %s\n- Refreezes: %s\n- Files changed (task-owned paths): %s\n' "$(fix_rounds_done "$rf_id")" "$(max_fix_rounds)" \
     "$(grep -c 'event=refreeze ' "$(ledger_file "$rf_id")" 2>/dev/null || true)" "$(task_owned_paths "$rf_id" 2>/dev/null | grep -c . || true)"
   printf -- '- Worker-evidence run records: total %s, ended pass %s, ended fail %s (a RED record ends fail on purpose; this is not a count of failing tests)\n' "$rf_wt" "$rf_wp" "$((rf_wt - rf_wp))"
@@ -4855,22 +4864,52 @@ verify_completion_report() {
   sh "$script" verify "$id" "$receipt" || fail "completion report publication could not be verified: $id"
   echo "completion report publication verified: $id"
 }
+# A159: `not_applicable` is a claim the script checks. It needs one specific sentence and is refused, with the signal named,
+# when the task changed something the wiki or the design documents describe: a documentation path in the diff, a contract,
+# data or design-document mention in the frozen plan, or user-visible words in the acceptance criteria. Any signal refuses.
+knowledge_na_signal() {
+  kn_id=$1; kn_d=$(run_dir "$kn_id"); kn_pl=$kn_d/PLAN.md; kn_dd=''
+  for kn_k in design architecture data_model api; do kn_q=$(cfg "design_docs.$kn_k" ""); [ -z "$kn_q" ] || kn_dd="$kn_dd $kn_q"; done
+  for kn_p in $(task_owned_paths "$kn_id" 2>/dev/null || true); do
+    case "$kn_p" in docs/*) echo "the task changed $kn_p, a documentation path"; return 0 ;; esac
+    for kn_q in $kn_dd; do [ "$kn_p" != "$kn_q" ] || { echo "the task changed the design document $kn_p"; return 0; }; done
+  done
+  if [ -f "$kn_pl" ]; then
+    if awk '/^## Contracts[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF && tolower($0) !~ /^none/ { f = 1 } END { exit !f }' "$kn_pl"; then echo "PLAN.md lists a contract change"; return 0; fi
+    if grep -Eq '^contract_change:[[:space:]]*yes' "$kn_pl"; then echo "PLAN.md flags contract_change: yes"; return 0; fi
+    if [ "$(awk '/^## Data[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF { n++ } END { print n + 0 }' "$kn_pl")" -gt 1 ]; then echo "PLAN.md has a Data section (a durable contract)"; return 0; fi
+    for kn_q in $kn_dd; do if grep -Fq -- "$kn_q" "$kn_pl"; then echo "PLAN.md names the design document $kn_q"; return 0; fi; done
+  fi
+  kn_w=$(awk '/^## Acceptance criteria[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i' "$kn_d/TASK.md" 2>/dev/null | grep -Eiow '(commands?|flags?|options?|config(uration)?|outputs?|error messages?|APIs?|endpoints?)' | head -n 1 || true)
+  if [ -n "$kn_w" ]; then echo "the acceptance criteria mention '$kn_w' (user-visible behaviour)"; return 0; fi
+  return 1
+}
 knowledge_done() {
-  id=$1 state=${2:-KNOWLEDGE_DONE}; require_run "$id"; dir=$(run_dir "$id"); require_lead
+  id=$1 state=${2:-KNOWLEDGE_DONE} reason=${3:-}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   case "$state" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "invalid knowledge state: $state" ;; esac
   # A FAILED or BLOCKED run records what it learned too (A147); cleanup accepts 'knowledge-done' after 'terminate'.
   case "$(run_state "$dir")" in CODE_DONE) term=0 ;; FAILED|BLOCKED) term=1 ;; *) fail "knowledge-done requires CODE_DONE (or a FAILED/BLOCKED run) first" ;; esac
   section_key_present "$dir" execution knowledge_state || fail "run schema has no execution.knowledge_state field to set"
+  if [ "$state" = not_applicable ]; then
+    reject_generic_justification "$reason" || fail "not_applicable needs a reason: agent.sh knowledge-done $id not_applicable \"<one specific sentence: why the wiki and the design documents need nothing>\" (>=20 chars, not a stock phrase)"
+    case "$reason" in *'"'*|*'\'*) fail "the not_applicable reason must not contain a double quote or a backslash" ;; esac
+    [ "$(printf '%s\n' "$reason" | grep -c .)" -le 1 ] && ! printf '%s' "$reason" | grep -Eq '[.!?][[:space:]]+[^[:space:]]' || fail "the not_applicable reason must be one sentence on one line"
+    kn_sig=$(knowledge_na_signal "$id" || true)
+    [ -z "$kn_sig" ] || fail "not_applicable refused: $kn_sig. Run the knowledge step instead (wiki, design documents), then 'agent.sh knowledge-done $id'"
+  else
+    [ -z "$reason" ] || fail "a reason is only for not_applicable"
+  fi
   verify_seal "$id"
   [ "$term" = 1 ] || ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
   [ ! -f "$scripts/lessons.sh" ] || sh "$scripts/lessons.sh" validate >/dev/null || fail "knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)"
   set_run_value "$id" execution knowledge_state "$state"
-  if gates_enforced "$id"; then ledger_append "$id" knowledge-done "$(section_value "$dir" handoff state)" "$state" ""; fi
+  if section_key_present "$dir" execution knowledge_reason; then set_run_value "$id" execution knowledge_reason "$reason"; fi
+  if gates_enforced "$id"; then ledger_append "$id" knowledge-done "$(section_value "$dir" handoff state)" "$state" "$reason"; fi
   echo "knowledge state recorded: $id $state"
 }
 # Delivery waits for the knowledge step (A147); deliver-plan runs it as part of the delivery (A152) instead of stopping.
 require_knowledge_done() {
-  case "$(section_value "$(run_dir "$1")" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "delivery blocked: knowledge step not complete; run '/proofline knowledge $1' (agent.sh knowledge-done $1 [not_applicable])" ;; esac
+  case "$(section_value "$(run_dir "$1")" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "delivery blocked: knowledge step not complete; run '/proofline knowledge $1' (agent.sh knowledge-done $1 [not_applicable \"<reason>\"])" ;; esac
 }
 
 # --- Terminal outcomes and cleanup -----------------------------------------------------------
@@ -5193,7 +5232,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
+read_only_commands='next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -5237,7 +5276,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND> | approval-consume <ID> <KIND> [FINGERPRINT]
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
-  terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable]
+  terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable "<reason>"]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-plan <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check   (A157: night mode; lead only)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup> [PR]   (one summary, one "approve delivery", one approval per step)
@@ -5249,6 +5288,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)
   debt [list|page]   (A153: the project's `shortcut: <limit>, <when to improve>` code comments with file:line; read-only, needs no run; `page` is lead-only and rewrites the one wiki page)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
+  next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in next-user.sh, A159)
+  in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
 USAGE
@@ -5277,6 +5318,8 @@ case "$command" in
   debt) case "${2:-}" in page) require_lead ;; esac; sh "$scripts/debt.sh" "${2:-list}" ;;
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
+  next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
+  in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
@@ -5326,7 +5369,7 @@ case "$command" in
   verify-seal) verify_seal "${2:?usage: agent.sh verify-seal <ID>}"; echo "lifecycle seal verified: $2" ;;
   task-source-status) task_source_status "${2:?usage: agent.sh task-source-status <ID>}" ;;
   task-source-relocate) task_source_relocate "${2:?usage: agent.sh task-source-relocate <ID> <NEW-PATH>}" "${3:?usage: agent.sh task-source-relocate <ID> <NEW-PATH>}" ;;
-  knowledge-done) knowledge_done "${2:?usage: agent.sh knowledge-done <ID> [not_applicable]}" "${3:-KNOWLEDGE_DONE}" ;;
+  knowledge-done) knowledge_done "${2:?usage: agent.sh knowledge-done <ID> [not_applicable \"<reason>\"]}" "${3:-KNOWLEDGE_DONE}" "${4:-}" ;;
   publish-completion-report) publish_completion_report "${2:?usage: agent.sh publish-completion-report <ID> [ADAPTER]}" "${3:-}" ;;
   verify-completion-report) verify_completion_report "${2:?usage: agent.sh verify-completion-report <ID>}" ;;
   validate) validate_run "${2:?usage: agent.sh validate <ID>}" ;;

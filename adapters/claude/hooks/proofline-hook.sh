@@ -196,6 +196,12 @@ own_match() {
   # shellcheck disable=SC2254 # om_p is a pattern on purpose (NNN); tokens contain no other glob characters
   case "$1" in $om_p) return 0 ;; esac; return 1
 }
+# knowledge_stage (A159): is the active run in the knowledge step, CODE_DONE not yet DONE, or FAILED/BLOCKED? Any doubt: no.
+knowledge_stage() {
+  ks_s=$(sh "$agent" summary "$act" 2>/dev/null | sed -n 's/^STATUS: \([A-Z_]*\) (handoff \([A-Za-z_]*\),.*/\1 \2/p')
+  case "$ks_s" in "CODE_DONE DONE") return 1 ;; CODE_DONE\ *|FAILED\ *|BLOCKED\ *) return 0 ;; esac
+  return 1
+}
 # path_ok REL: may the caller write REL now? Prints the reason on refusal.
 path_ok() {
   po=$1; run=.agents/runs/$act
@@ -220,7 +226,10 @@ path_ok() {
       case "$po" in
         "$run"/TASK.md|"$run"/PLAN.md|"$run"/EVIDENCE.md|"$run"/COMPLETION_REPORT.md|"$run"/amendments/*|"$tasks_dir"/*) return 0 ;;
       esac
-      echo "the lead writes only run artifacts (TASK.md PLAN.md EVIDENCE.md COMPLETION_REPORT.md amendments/), task files and .agents/local/assignments/ while run $act is active; product changes go through the implementer (D2)"; return 1 ;;
+      # A159: the knowledge step (after CODE_DONE, or a FAILED/BLOCKED run) needs the wiki and the design documents:
+      # knowledge scope and design_docs paths only, nowhere else; any other stage keeps the prohibition. Fail closed.
+      if knowledge_stage && sh "$agent" in-knowledge-scope "$po" >/dev/null 2>&1; then return 0; fi
+      echo "the lead writes only run artifacts (TASK.md PLAN.md EVIDENCE.md COMPLETION_REPORT.md amendments/), task files and .agents/local/assignments/ while run $act is active, plus knowledge scope and design_docs paths (docs/design/ docs/adr/ docs/wiki/) in the knowledge step after CODE_DONE (A159); product changes go through the implementer (D2)"; return 1 ;;
   esac
   # Specialists: the role's owned paths from .agents/owns.conf (generated; `<role> <token>...`).
   # Token: run-relative path; `/<path>` project-relative (own_match); PRODUCT_SCOPE = the frozen PLAN.md
@@ -1295,10 +1304,10 @@ stop)
   # lacks identifiers is no longer sent back for a rewrite. A Stop hook cannot edit the assistant's message, so the
   # hook supplies the missing lines itself, taken verbatim from `agent.sh summary`, as a systemMessage shown to the
   # user next to the report; the turn ends (no block, no loop).
+  # A159: every /proofline command ends with one "Next step:" line (a user command, never an internal one). When the
+  # lead left it out, the hook adds it, from the user's last prompt (the command) and the run state (`agent.sh next-user`).
   [ "$parsed" = yes ] && [ "$sub" = no ] && [ "$role" = lead ] || exit 0
-  [ -n "$act" ] && [ "$act" != INVALID ] || exit 0
-  need=$(unset AGENT_ROLE; sh "$agent" report-tokens "$act" 2>/dev/null) || exit 0
-  [ -n "$need" ] || exit 0
+  [ "$installed" = yes ] || exit 0
   msg=$(jget last_assistant_message)
   if [ -z "$msg" ]; then
     tp=$(jget transcript_path)
@@ -1307,22 +1316,44 @@ stop)
     fi
   fi
   [ -n "$msg" ] || exit 0
-  missing=''
-  for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
-  [ -n "$missing" ] || exit 0
-  summ=$(unset AGENT_ROLE; sh "$agent" summary "$act" 2>/dev/null) || summ=''
-  lines=''
-  for tk in $missing; do
-    l=$(printf '%s\n' "$summ" | grep -Fw -- "$tk" | head -n 1)
-    [ -n "$l" ] || l=$tk
-    case "
+  out=''
+  if [ -n "$act" ] && [ "$act" != INVALID ]; then
+    need=$(unset AGENT_ROLE; sh "$agent" report-tokens "$act" 2>/dev/null) || need=''
+    missing=''
+    for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
+    if [ -n "$missing" ]; then
+      summ=$(unset AGENT_ROLE; sh "$agent" summary "$act" 2>/dev/null) || summ=''
+      lines=''
+      for tk in $missing; do
+        l=$(printf '%s\n' "$summ" | grep -Fw -- "$tk" | head -n 1)
+        [ -n "$l" ] || l=$tk
+        case "
 $lines
 " in *"
 $l
 "*) ;; *) lines="$lines
 $l" ;; esac
-  done
-  printf '{"systemMessage":"%s"}\n' "$(jesc "proofline: the final report lacks these identifiers:$missing. They are appended here verbatim from 'agent.sh summary $act' (never translated):$lines")"
+      done
+      out="proofline: the final report lacks these identifiers:$missing. They are appended here verbatim from 'agent.sh summary $act' (never translated):$lines"
+    fi
+  fi
+  # the command of the user's last prompt: "/proofline <command> [<TASK-ID>]" ("$proofline" for Codex)
+  sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
+  pc=''; [ ! -f "$local_dir/prompts/$sess.json" ] || pc=$(sed -n 's/^.*"text":"\(.*\)"}$/\1/p' "$local_dir/prompts/$sess.json" | sed 's/\\n.*//' | head -n 1)
+  case "$pc" in
+    '/proofline '*|'$proofline '*)
+      # shellcheck disable=SC2086 # the prompt's words are split on purpose
+      set -- $pc; pcmd=${2:-}; pid=${3:-}
+      case "$pid" in -*|*[!A-Za-z0-9_-]*) pid='' ;; esac
+      case "$pid" in *-*) ;; *) pid='' ;; esac
+      if ! printf '%s' "$msg" | grep -Fq 'Next step:'; then
+        nu=$(unset AGENT_ROLE; sh "$agent" next-user "$pcmd" ${pid:+"$pid"} 2>/dev/null) || nu=''
+        if [ -n "$nu" ]; then out="${out:+$out
+}$nu"; fi
+      fi ;;
+  esac
+  [ -n "$out" ] || exit 0
+  printf '{"systemMessage":"%s"}\n' "$(jesc "$out")"
   exit 0 ;;
 
 session)

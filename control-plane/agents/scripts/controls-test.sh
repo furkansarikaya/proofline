@@ -71,7 +71,7 @@ sc_base() {
   expect_fail "verify-handoff on stale content" A verify-handoff FIX
   A handoff FIX IMPLEMENTED >/dev/null; A handoff FIX CODE_DONE >/dev/null
   expect_fail "delivery-check before the knowledge step" A delivery-check FIX
-  A knowledge-done FIX not_applicable >/dev/null; A delivery-check FIX >/dev/null
+  A knowledge-done FIX not_applicable "nothing durable changed in this synthetic test run" >/dev/null; A delivery-check FIX >/dev/null
   printf 'post-review\n' >> authorized.txt; expect_fail "delivery-check after a post-review edit" A delivery-check FIX
   printf 'MISSING\n' > .agents/local/ACTIVE_RUN; expect_fail "status with a dangling selector" A status
   : > .agents/local/ACTIVE_RUN; A status | grep -Fxq 'active_task=none'
@@ -126,7 +126,7 @@ sc_policy() {
   expect_fail "publish without a report" A publish-completion-report POLICY markdown
   report POLICY; A publish-completion-report POLICY markdown >/dev/null
   expect_fail "DONE before knowledge-done" A handoff POLICY DONE
-  A knowledge-done POLICY not_applicable >/dev/null; A handoff POLICY DONE >/dev/null
+  A knowledge-done POLICY not_applicable "nothing durable changed in this synthetic test run" >/dev/null; A handoff POLICY DONE >/dev/null
   sed 's/impl.txt gained.*/tampered/' tasks/POLICY.md > "$base/t"; cp "$base/t" tasks/POLICY.md
   expect_fail "a tampered published report verified" A verify-completion-report POLICY
   ok "orchestrated worker evidence, TDD exemption, completion report"
@@ -177,7 +177,7 @@ sc_knowledge() {
   printf 'new component\n' >> docs/design/ARCHITECTURE.md
   expect_fail "DONE with a knowledge write and no transaction" A handoff K DONE
   expect_fail "delivery-check with a knowledge write and no transaction" A delivery-check K
-  A knowledge-done K not_applicable >/dev/null
+  A knowledge-done K not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   expect_fail "DONE with not_applicable and a real knowledge write" A handoff K DONE
   expect_fail "validate with not_applicable and a real knowledge write" A validate K
   A knowledge-done K KNOWLEDGE_DONE >/dev/null; A verify-knowledge-scope K >/dev/null
@@ -206,7 +206,7 @@ sc_branch() {
   git checkout -q --detach "$tip"; expect_fail "handoff on a detached HEAD" A handoff BR IMPLEMENTED
   git checkout -q -b random-feature; expect_fail "handoff on another branch" A handoff BR IMPLEMENTED
   git checkout -q proofline/BR-sample-feature; git branch -D random-feature >/dev/null
-  A handoff BR IMPLEMENTED >/dev/null; A handoff BR CODE_DONE >/dev/null; A knowledge-done BR not_applicable >/dev/null; A delivery-check BR >/dev/null
+  A handoff BR IMPLEMENTED >/dev/null; A handoff BR CODE_DONE >/dev/null; A knowledge-done BR not_applicable "nothing durable changed in this synthetic test run" >/dev/null; A delivery-check BR >/dev/null
   # an existing same-named branch at another tip is never reused or overwritten
   new_repo; REPO_EXTRA='  canonical_branch: PENDING
   task_branch: PENDING' layer_run CF tracked.txt
