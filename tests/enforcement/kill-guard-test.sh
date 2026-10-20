@@ -19,7 +19,7 @@ pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","too
 denies() { out=$(pre "$1"); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "not denied: $1 -> $out"; printf '%s' "$out" | grep -Fq 'A156' || die "denial is not the kill guard: $1 -> $out"; }
 allows() { out=$(pre "$1"); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "denied: $1 -> $out"; }
 
-scenarios='denied allowed signal_zero quoted_text quoted_substitution installed heredoc_indirect zero_spellings pid_derivation find_xargs interpreters script_files script_files_allowed eval_variable indirect_allowed'
+scenarios='denied allowed signal_zero quoted_text quoted_substitution installed heredoc_indirect zero_spellings pid_derivation find_xargs interpreters script_files script_files_allowed eval_variable indirect_allowed taint_deny script_runners script_runners_allowed allowed_misc deny_message budget'
 for sc in $scenarios; do
   [ -z "${LC_EXACT:-}" ] || [ "$LC_EXACT" = "$sc" ] || continue
   case "$sc" in
@@ -118,6 +118,59 @@ PY"
     allows "$(printf "git commit -F - <<'EOF'\ndocs: pkill and killall are denied\nEOF")"
     allows "$(printf 'git commit -F - <<EOF\ndocs: pkill node and kill 0 are denied\nEOF')"
     ok "kill \$!, kill -0, a pidfile, kill -- -1234, quoted text, lsof and a commit heredoc mentioning pkill are allowed" ;;
+  taint_deny)   # A161: pid lists built by process search reach kill through substitutions, arrays, loops, interpreters
+    while IFS= read -r c; do denies "$c"; done <<'EOF'
+kill $(ps -o pid= -C node)
+for p in $(ps -o pid= -C node); do kill $p; done
+x=$(ps -o pid= -C node); kill $x
+kill $(ps -eo pid=,args= | grep node | cut -d" " -f1)
+kill $(ps -o pid -C node)
+awk 'BEGIN{system("pkill node")}'
+python3 -c 'print("pkill")'
+xargs pkill
+pids=($(pgrep x)); kill ${pids[@]}
+while read p; do kill $p; done < <(pgrep x)
+mapfile -t a < <(pgrep x); kill "${a[@]}"
+pgrep x | python3 -c 'import os,sys; [os.kill(int(l),9) for l in sys.stdin]'
+EOF
+    ok "kill fed by ps -o pid=, arrays, process substitution, mapfile, awk system, a python print of pkill, xargs pkill and a python pipe kill are denied" ;;
+  script_runners)   # A161: scripts reached through a pipe, cd, shell options or a node script
+    mkdir -p "$proj/d" "$proj/bench"
+    printf 'pkill node\n' > "$proj/k.sh"; printf 'pkill node\n' > "$proj/d/k.sh"
+    printf 'const cp=require("child_process");\nfor (const l of cp.execSync("pgrep x").toString().split("\\n")) process.kill(Number(l));\n' > "$proj/bench/kill.js"
+    for c in 'cat k.sh | sh' 'cd d && sh k.sh' 'bash --norc k.sh' 'node bench/kill.js'; do denies "$c"; done
+    ok "a script holding pkill run by cat | sh, cd d && sh, bash --norc, and a node script killing pgrep output are denied" ;;
+  script_runners_allowed)
+    mkdir -p "$proj/bench"
+    printf 'echo hello\nnpm test\n' > "$proj/ok.sh"
+    printf 'const cp=require("child_process");\nconst child=cp.spawn("sleep",["5"]);\ncp.execSync("ps -o rss= -p "+child.pid);\nprocess.kill(child.pid);\n' > "$proj/bench/run.js"
+    printf 'import os,subprocess,signal\nopen("/proc/self/status").read()\nc=subprocess.Popen(["sleep","5"])\nos.kill(c.pid, signal.SIGTERM)\n' > "$proj/bench/own.py"
+    for c in 'bash --norc ok.sh' 'node bench/run.js' 'python3 bench/own.py'; do allows "$c"; done
+    ok "a clean script with --norc, a node benchmark killing its own child and a python script killing its own child are allowed" ;;
+  allowed_misc)
+    while IFS= read -r c; do allows "$c"; done <<'EOF'
+awk '/killall/ {print}' README.md
+echo 123 | xargs kill
+python3 -c 'import psutil; psutil.Process(1234).kill()'
+ssh host pkill x
+docker exec c pkill x
+n=$(FOO=1 pgrep x | wc -l); echo $n
+EOF
+    ok "awk matching killall, echo pid | xargs kill, psutil.Process(pid).kill(), ssh/docker exec pkill and a pgrep substitution that never reaches kill are allowed" ;;
+  deny_message)   # the denial for text that only prints a kill word tells the user how to run it themselves
+    out=$(pre "python3 -c 'print(\"pkill\")'")
+    printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "not denied: $out"
+    printf '%s' "$out" | grep -Fq 'the ! prefix' || die "denial text lacks the ! prefix hint: $out"
+    ok "the denial for python print(\"pkill\") names the ! prefix" ;;
+  budget)   # the guard's own time budget: with 0 seconds a script naming a kill word is denied, others pass
+    # the budget is read every 20 records, so the scripts are 30 commands long
+    { i=0; while [ $i -lt 30 ]; do echo "echo $i"; i=$((i + 1)); done; echo 'kill 12'; } > "$proj/bk.sh"
+    { i=0; while [ $i -lt 30 ]; do echo "echo $i"; i=$((i + 1)); done; echo 'echo hi'; } > "$proj/bn.sh"
+    pre_b() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | PROOFLINE_KG_BUDGET=0 sh "$hook" pretool claude; }
+    out=$(pre_b 'sh bk.sh'); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0 did not deny a script holding kill: $out"
+    printf '%s' "$out" | grep -Fq 'ran out of time' || die "budget denial text missing: $out"
+    out=$(pre_b 'sh bn.sh'); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0 denied a script without a kill word: $out"
+    ok "with PROOFLINE_KG_BUDGET=0 a script holding kill 12 is denied and one without a kill word is allowed" ;;
   esac
 done
 echo "kill guard tests passed"

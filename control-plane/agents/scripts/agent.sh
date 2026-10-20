@@ -1489,7 +1489,7 @@ verify_freshness() {
     bm_line="base_sha moved ($base -> $head): the commits between touch control-plane files only; the plan stays fresh"
     echo "$bm_line"
     # once per accepted move: the ledger line is the record
-    grep -qF "detail=$bm_line" "$(ledger_file "$id")" 2>/dev/null || ledger_if "$id" base-moved - - "$bm_line"
+    base_moved_lines "$id" | grep -qF "detail=$bm_line" || ledger_if "$id" base-moved - - "$bm_line"
     # A156: later diffs start at the new base; the old value stays in the ledger line above. Nothing frozen or sealed hashes base_sha.
     set_run_value "$id" repository base_sha "$head"
   fi
@@ -3135,14 +3135,20 @@ reproduce_recheck() {
 # `BASE:` must be the run's base or a base before an accepted control-plane-only move (A161). Cross-checks that do not depend on the agent: every contract file this script's
 # own signals found in the diff is listed by the differ (`FILE: compared|unsupported <path>`, at least one
 # unsupported), and every changed .sql migration is listed `FILE: unsupported <path>` by validate-migration --repo.
+# base_moved_lines ID: the run's real `base-moved` ledger lines, anchored to the line structure ledger_append writes
+# (`seq=N prev=H event=base-moved role=R from=F to=T digest=D ts=T epoch=E detail=base_sha moved ...`). The free text of
+# another event (a lead's ledger-note) can contain the same words; it is never at that position (A161).
+base_moved_lines() {
+  grep -E '^seq=[0-9]+ prev=[^ ]+ event=base-moved role=[^ ]* from=[^ ]* to=[^ ]* digest=[^ ]* ts=[^ ]* epoch=[^ ]* detail=base_sha moved \(' "$(ledger_file "$1")" 2>/dev/null || :
+}
 # base_moved_predecessors ID BASE (A161): the bases the run had before accepted moves that lead to BASE, newest first. The chain
 # comes from the run's `base-moved` ledger lines ("base_sha moved (<old> -> <new>)", written only by verify_freshness after
 # base_moved_control_only, hash-chained and sealed), so every link is a control-plane-only commit range.
 base_moved_predecessors() {
   bp_cur=$2; bp_l=$(ledger_file "$1"); [ -s "$bp_l" ] || return 0
-  bp_n=0
+  bp_n=0; bp_bm=$(base_moved_lines "$1")
   while [ "$bp_n" -lt 100 ] && [ -n "$bp_cur" ]; do
-    bp_old=$(sed -n "s/.*event=base-moved .*detail=base_sha moved (\([0-9a-f]\{7,40\}\) -> ${bp_cur}[0-9a-f]*).*/\1/p" "$bp_l" | tail -1)
+    bp_old=$(printf '%s\n' "$bp_bm" | sed -n "s/^seq=[0-9]* prev=[^ ]* event=base-moved role=[^ ]* from=[^ ]* to=[^ ]* digest=[^ ]* ts=[^ ]* epoch=[^ ]* detail=base_sha moved (\([0-9a-f]\{7,40\}\) -> ${bp_cur}[0-9a-f]*).*/\1/p" | tail -1)
     [ -n "$bp_old" ] || break
     printf '%s\n' "$bp_old"; bp_cur=$bp_old; bp_n=$((bp_n + 1))
   done

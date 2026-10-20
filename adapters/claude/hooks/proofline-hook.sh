@@ -285,6 +285,8 @@ path_ok() {
 #   B why    a git hook bypass; refused always
 #   C word args   every simple command: its command word and its arguments joined with \003 (database guard)
 #   F path   the command word is a literal path (./x, scripts/run): the file the command runs (kill guard, A161)
+#   V what   a fact about the next C record for the kill guard: `xargs` (it runs as an xargs command, its arguments
+#            come from stdin too), `psub` (a process substitution <(...) follows), `cwd\tDIR` (a `cd DIR` came before it)
 #   H cmd\003path\003body   a here-document: the command it feeds, the file that command writes (cat > f <<EOF; empty
 #            otherwise) and the body (newlines as \002, at most 200000 characters); the body of an unquoted
 #            delimiter is also scanned for $(...) and backtick commands, which the shell runs (A161)
@@ -362,23 +364,9 @@ scan_cmd() {
     for (h = hdfirst; h <= hdn; h++) { hdc[h] = cc; hdp[h] = lastw }
     hdfirst = hdn + 1; lastw = ""
   }
-  function endcmd0(   k, c, j, x, wr, tdone, nopt, tgt, hasc, hass, first, refm) {
+  function endcmd0(   k, c, j, x, wr, tdone, viax, nopt, tgt, hasc, hass, first, refm) {
     if (nw == 0) return
-    for (j = 1; j <= nw; j++) {
-      x = w[j]
-      if (isassign(x)) {
-        c = x; sub(/=.*/, "", c)
-        out("C", "env\t" x)
-        if (c == "AGENT_ROLE") out("R", substr(x, 12))
-        if (c ~ /^GIT_CONFIG/ || c == "GIT_DIR" || c == "GIT_COMMON_DIR" || c == "GIT_EXEC_PATH") out("B", "setting " c " can disable or redirect the git hooks")
-        continue
-      }
-      if (x !~ /AGENT_ROL/) continue
-      c = x; gsub(/\$\{?AGENT_ROLE/, "", c); if (c !~ /AGENT_ROL/) continue
-      if (x == "AGENT_ROLE" && (base(w[1]) == "export" || base(w[1]) == "unset")) continue
-      out("X", "AGENT_ROLE is set or named indirectly (" x ")")
-    }
-    k = 1; wr = ""; tdone = 0
+    k = 1; wr = ""; tdone = 0; viax = 0
     while (k <= nw) {
       x = w[k]
       if (isassign(x)) { k++; continue }
@@ -388,14 +376,33 @@ scan_cmd() {
         k++; continue
       }
       if (wr == "timeout" && !tdone) { tdone = 1; k++; continue }
-      if (base(x) ~ /^(sudo|doas|env|command|builtin|exec|nohup|time|nice|ionice|stdbuf|timeout|xargs|then|do|else|elif|if|while|until|!|\{|\})$/) { wr = base(x); tdone = 0; k++; continue }
+      if (base(x) ~ /^(sudo|doas|env|command|builtin|exec|nohup|time|nice|ionice|stdbuf|timeout|xargs|then|do|else|elif|if|while|until|!|\{|\})$/) { wr = base(x); tdone = 0; if (wr == "xargs") viax = 1; k++; continue }
       break
+    }
+    # k is the command word (nw + 1 when there is none). A NAME=value word before it is an environment prefix and
+    # gets a C env record; one after it is an argument (ps -o pid=, dd of=x) and is not one (A161). AGENT_ROLE and
+    # the git variables are checked on every word, a prefix or not.
+    for (j = 1; j <= nw; j++) {
+      x = w[j]
+      if (isassign(x)) {
+        c = x; sub(/=.*/, "", c)
+        if (j < k) out("C", "env\t" x)
+        if (c == "AGENT_ROLE") out("R", substr(x, 12))
+        if (c ~ /^GIT_CONFIG/ || c == "GIT_DIR" || c == "GIT_COMMON_DIR" || c == "GIT_EXEC_PATH") out("B", "setting " c " can disable or redirect the git hooks")
+        continue
+      }
+      if (x !~ /AGENT_ROL/) continue
+      c = x; gsub(/\$\{?AGENT_ROLE/, "", c); if (c !~ /AGENT_ROL/) continue
+      if (x == "AGENT_ROLE" && (base(w[1]) == "export" || base(w[1]) == "unset")) continue
+      out("X", "AGENT_ROLE is set or named indirectly (" x ")")
     }
     if (k > nw) { nw = 0; return }
     if (!L[k]) out("X", "the command word " w[k] " is not literal")
     c = base(w[k]); cc = c
     ca = ""; for (j = k + 1; j <= nw; j++) ca = ca (j > k + 1 ? "\003" : "") w[j]
     if (L[k] && w[k] ~ /\//) out("F", w[k])
+    if (viax) out("V", "xargs")
+    if (cwdp != "") out("V", "cwd\t" cwdp)
     out("C", c "\t" ca)
     # cd: later relative write targets in this command line resolve against it (heuristic, like the rest)
     if (c == "cd") {
@@ -410,7 +417,7 @@ scan_cmd() {
       hasc = 0; hass = 0
       for (j = k + 1; j <= nw; j++) {
         x = w[j]
-        if (x ~ /^[-+]o$/) { j++; continue }
+        if (x ~ /^[-+][oO]$/ || x == "--rcfile" || x == "--init-file") { j++; continue }
         if (x == "--") { j++; break }
         if (x ~ /^--/) continue
         if (x ~ /^[-+][A-Za-z]+$/) { if (x ~ /^-[A-Za-z]*c/) hasc = 1; if (x ~ /^-[A-Za-z]*s/) hass = 1; continue }
@@ -525,7 +532,7 @@ scan_cmd() {
         k2 = 0; while (substr(s, i, 1) == "<") { i++; k2++ }
         hdd = (substr(s, i, 1) == "-"); if (hdd) i++
         if (substr(s, i, 1) == "&") { i++; dup = 1; continue }
-        if (substr(s, i, 1) == "(") { inredir = 0; continue }   # < <(cmd): a process substitution, not a file
+        if (substr(s, i, 1) == "(") { inredir = 0; out("V", "psub"); continue }   # < <(cmd): a process substitution, not a file
         inredir = (k2 == 2) ? 2 : 1; continue
       }
       if (ch == "$" && substr(s, i + 1, 2) == "((") { e = mparen(s, i + 1); cur = cur substr(s, i, e - i + 1); have = 1; lit = 0; i = e + 1; continue }
@@ -1059,6 +1066,8 @@ MGARGS
 # tool call and run from outside the project and temp dirs, anything inside a binary are not seen: A161). Token and
 # text matching on the scan's records like the merge guard; this hook sees only the model's own tool calls.
 KG_MSG='kill only a process you started yourself, by its PID (kill <pid>, kill $!); pkill, killall and kill by pattern, by name, by port or by a process search are forbidden (A156, A161)'
+# appended to a denial that came from the text of interpreter code, a script file or a here-document (A161)
+KG_TXT='Text in code or a script that contains a kill-by-name word (pkill, killall, slay, fuser -k) cannot be told from a command the code runs, so it is denied even when the code only prints or matches it; if the user really wants this command, the user can run it themselves with the ! prefix in the terminal'
 KG_DEPTH=0
 KG_SEP=$(printf '\003')
 kg_verb_re='(^|[^A-Za-z0-9_.$-])(pkill|killall5?|slay)([^A-Za-z0-9_-]|$)'
@@ -1093,6 +1102,28 @@ kg_expand() {
   done
   printf '%s\n' "$kx"
 }
+# kg_rp PATH: a relative script path resolved against the directory a `cd DIR &&` earlier in the command changed to.
+kg_rp() {
+  case "$1" in /*|~*|'') printf '%s\n' "$1" ;; *) if [ -n "${kg_cd:-}" ]; then printf '%s/%s\n' "$kg_cd" "$1"; else printf '%s\n' "$1"; fi ;; esac
+}
+# kg_check_time FILE: the guard's own time budget (A161, fix B). Reading scripts costs time; a hook that is cut off by
+# the runtime's timeout lets the command through untouched. After KG_BUDGET seconds the guard decides itself: a command
+# or text that holds a kill word (kill, slay, fuser) is denied, anything else is let through (without such a word no
+# rule can fire).
+KG_BUDGET=${PROOFLINE_KG_BUDGET:-20}
+kg_t0=0   # set by kill_guard
+kg_check_time() {
+  [ $(( $(date +%s) - kg_t0 )) -ge "$KG_BUDGET" ] || return 0
+  if grep -aEq 'kill|slay|fuser' "$1" 2>/dev/null; then
+    kg_no "the guard ran out of time (${KG_BUDGET}s) reading a command or script that names a kill verb, and cannot clear it; split the command or run it from a short script"
+  fi
+  exit 0
+}
+# kg_has_words TEXT: could TEXT hold a kill rule at all? Every rule needs kill, slay or fuser in the text (quotes and
+# backslashes removed, as the shell removes them), or a variable in command position that the text may fill with one.
+kg_has_words() {
+  printf '%s' "$1" | tr -d "'\"\\\\" | grep -Eq 'kill|slay|fuser|(^|[;&|({]|then|do|else)[[:space:]]*\$[A-Za-z_{(]'
+}
 # kg_file_ok PATH: prints the resolved path of a text file the guard may read: a regular file (no link) under the
 # project (third-party node_modules and .git excluded) or a temp dir, at most 256 KB.
 kg_file_ok() {
@@ -1117,13 +1148,18 @@ kg_text() {
   kg_run "$tmp/kgs.$KG_DEPTH"
 }
 kg_sub() { kg_r=$(kg_text "$1") || { printf '%s\n' "$kg_r"; exit 1; }; }
-kg_chk_code() { kg_r=$(kg_code "$1" "$2") || { printf '%s\n' "$kg_r"; exit 1; }; }
+kg_chk_code() {
+  kg_r=$(kg_code "$1" "$2") || { case "$kg_r" in *"$KG_TXT"*) ;; *) kg_r="$kg_r. $KG_TXT" ;; esac; printf '%s\n' "$kg_r"; exit 1; }
+}
 kg_code() {
   kc_l=$1; kc_t=$2
   [ "$KG_DEPTH" -lt 5 ] || return 0
   KG_DEPTH=$((KG_DEPTH + 1))
   printf '%s\n' "$kc_t" > "$tmp/kgc.$KG_DEPTH"
   kc_g() { grep -Eq "$1" "$tmp/kgc.$KG_DEPTH"; }
+  # awk is denied only where it can run a command: system(), a pipe into a command or out of one, a coprocess. A
+  # pattern or a printed text (awk '/killall/ {print}' README.md) is not an exec target.
+  if [ "$kc_l" = awk ] && ! kc_g 'system[[:space:]]*\(|\|&|\|[[:space:]]*getline|(print|printf)[^/]*\|[[:space:]]*["A-Za-z_$]'; then return 0; fi
   ! kc_g "$kg_verb_re" || kg_no "$kc_l code runs pkill, killall or slay"
   ! kc_g '(^|[^A-Za-z0-9_$-])fuser[^A-Za-z0-9]+-[A-Za-z]*k' || kg_no "$kc_l code runs fuser -k"
   kc_z='([+-]?0+|-[[:space:]]*0*1)'
@@ -1137,10 +1173,21 @@ kg_code() {
   [ -z "$kc_re" ] || ! kc_g "$kc_re" || kg_no "$kc_l code signals every process (pid 0 or -1)"
   # a kill of a PID that a process search produced: psutil's loop, or a kill call (os.kill, process.kill, a bare kill
   # in a command string) in code that also runs a search; a kill method of the code's own child handle (child.kill()) is not one
-  if kc_g 'process_iter|psutil' && kc_g '\.(kill|terminate)\('; then kg_no "$kc_l code kills processes it finds by listing them"; fi
-  if kc_g '(os|process|Process|signal)\.(kill|killpg)|(^|[^A-Za-z0-9_$.])kill([^A-Za-z0-9_]|$)'; then
-    ! kc_g "(^|[^A-Za-z0-9_.\$-])(pgrep|pidof|lsof)([^A-Za-z0-9_-]|\$)|/proc/|(^|[\"'[:space:],[])ps([\"'[:space:],]|\$)" || kg_no "$kc_l code kills PIDs it takes from a process search"
-    [ "$kg_searched" != yes ] || kg_no "$kc_l code kills PIDs a process search earlier in the command produced"
+  # A161 (fix B): the kill-by-name verbs above, pid 0 / -1 / the caller's own group, and a psutil loop that kills what
+  # process_iter lists are denied. A kill of a PID the code spawned itself (child.pid, proc.pid, a Popen handle) is
+  # allowed even when the same code reads /proc or runs `ps -o rss= -p <pid>`: a code-level "kill fed by a process
+  # search" cannot be told from that and denying it broke ordinary benchmark and test scripts.
+  if kc_g 'process_iter' && kc_g '\.(kill|terminate)\('; then kg_no "$kc_l code kills processes it finds by listing them"; fi
+  # a kill call in code that runs pgrep, pidof or lsof (name and port searches) kills what the search names; ps and /proc
+  # reads are not such a search (a script measures its own child with ps -o rss= -p <pid>)
+  if kc_g '(os|process|Process|signal)\.(kill|killpg)|(^|[^A-Za-z0-9_$.])kill([^A-Za-z0-9_]|$)' \
+     && kc_g "(^|[^A-Za-z0-9_.\$-])(pgrep|pidof|lsof)([^A-Za-z0-9_-]|\$)"; then
+    kg_no "$kc_l code kills PIDs it takes from pgrep, pidof or lsof"
+  fi
+  # a search EARLIER IN THE SAME COMMAND feeds the code its PIDs (pgrep x | python3 -c 'os.kill(int(p), 9) ...'), unless the code spawned the PID
+  if [ "$kg_searched" = yes ] && kc_g '(os|process|Process|signal)\.(kill|killpg)|(^|[^A-Za-z0-9_$.])kill([^A-Za-z0-9_]|$)' \
+     && ! kc_g '(^|[^A-Za-z0-9_])(Popen|spawn|spawnSync|fork|execFile|subprocess\.run|child_process)|\.pid([^A-Za-z0-9_]|$)'; then
+    kg_no "$kc_l code kills PIDs a process search earlier in the command produced"
   fi
   # string literals are command lines (os.system("kill 0"), subprocess.run(["kill", "-9", "0"]))
   printf '%s\n' "$kc_t" | grep -Eo "$kg_lit_re" 2>/dev/null | head -n 60 > "$tmp/kgl.$KG_DEPTH" || :
@@ -1157,6 +1204,7 @@ kg_code() {
 # kg_script LANG TEXT: the content of a script, a here-document or piped text; LANG sh, auto (shebang or extension), or an interpreter.
 kg_script() {
   ks_l=$1; ks_t=$2
+  kg_has_words "$ks_t" || return 0   # the cheap pre-filter: no kill word, no rule
   if [ "$ks_l" = auto ]; then
     ks_h=$(printf '%s\n' "$ks_t" | head -n 1)
     case "$ks_h" in
@@ -1199,7 +1247,7 @@ kg_interp() {
 $kg_args
 KIARGS
   if [ -n "$ki_sc" ]; then
-    printf '%s\003%s\n' "$ki_l" "$ki_sc" >> "$tmp/kgr.$KG_DEPTH"
+    printf '%s\003%s\n' "$ki_l" "$(kg_rp "$ki_sc")" >> "$tmp/kgr.$KG_DEPTH"
   elif [ "$ki_code" = no ]; then
     kg_stdin="$kg_stdin $ki_l"
   fi
@@ -1209,31 +1257,62 @@ kg_run() {
   : > "$tmp/kgr.$KG_DEPTH"; : > "$tmp/kgh.$KG_DEPTH"; : > "$tmp/kge.$KG_DEPTH"
   kg_tbl=$(awk -F'\t' '$1 == "C" && ($2 == "env" || $2 == "export" || $2 == "local" || $2 == "declare" || $2 == "readonly" || $2 == "typeset") {
     n = split($3, a, "\003"); for (i = 1; i <= n; i++) if (a[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && a[i] !~ /\002/) print a[i] }' "$kr_f")
-  kg_prev='' kg_pend=no kg_searched=no kg_find=no kg_cand='' kg_taint='' kg_fpath='' kg_stdin='' kg_w1=''
+  kg_prev='' kg_pend=no kg_searched=no kg_find=no kg_cand='' kg_taint='' kg_fpath='' kg_stdin='' kg_w1='' kg_viax='' kg_cwd='' kg_nrec=0
+  # a process substitution <(...) that runs a search feeds a `read` or `mapfile` loop that is written BEFORE it
+  # (while read p; do kill $p; done < <(pgrep x)): the loop is read once the search is known
+  kg_psub=no
+  if grep -q "^V$TAB"psub "$kr_f" && awk -F'\t' '$1 == "C" { split($2, a, "/"); if ($2 ~ /^(pgrep|pidof|ps|lsof|fuser|netstat|ss|pstree|jps)$/) f = 1 } END { exit !f }' "$kr_f"; then kg_psub=yes; fi
+  # a shell or interpreter in the command that may read a program from stdin: `cat x.sh | sh` makes the file's text matter
+  kg_rdr=no
+  if awk -F'\t' '$1 == "C" && $2 ~ /^(sh|bash|dash|zsh|ksh|ash|mksh|posh|yash|python[0-9.]*|pypy3?|node|nodejs|deno|bun|perl|ruby|php|lua|osascript|awk|gawk|mawk|nawk)$/ { f = 1 } END { exit !f }' "$kr_f"; then kg_rdr=yes; fi
   while IFS= read -r kg_rec; do
+    kg_nrec=$((kg_nrec + 1))
+    if [ $((kg_nrec % 20)) = 0 ]; then kg_check_time "$kr_f"; fi
     case "$kg_rec" in
       F"$TAB"*) kg_fpath=${kg_rec#*"$TAB"}; continue ;;
+      V"${TAB}xargs") kg_viax=yes; continue ;;
+      V"${TAB}cwd$TAB"*) kg_cwd=${kg_rec#*"$TAB"cwd"$TAB"}; continue ;;
       W"$TAB"*) kg_w1=${kg_rec#*"$TAB"}; continue ;;
       H"$TAB"*) printf '%s\n' "${kg_rec#*"$TAB"}" >> "$tmp/kgh.$KG_DEPTH"; continue ;;
       C"$TAB"*) ;;
       *) continue ;;
     esac
-    kg_fp=$kg_fpath; kg_fpath=''; kg_wp=$kg_w1; kg_w1=''
+    kg_fp=$kg_fpath; kg_fpath=''; kg_wp=$kg_w1; kg_w1=''; kg_vx=$kg_viax; kg_viax=''; kg_cd=$kg_cwd
     kg_rest=${kg_rec#*"$TAB"}; kg_cw=${kg_rest%%"$TAB"*}
-    case "$kg_rest" in *"$TAB"*) kg_args=$(printf '%s' "${kg_rest#*"$TAB"}" | tr '\003\002' '\n\n') ;; *) kg_args='' ;; esac
-    if [ "$kg_cw" = busybox ]; then   # busybox pkill / busybox kill: the applet is the first word
-      kg_cw=$(printf '%s\n' "$kg_args" | head -n 1); kg_args=$(printf '%s\n' "$kg_args" | sed 1d)
+    # Cost (A161, fix B): most records of a script are ordinary commands (cd, grep, echo, [ ...). Only the words below can
+    # take part in a kill rule, so only they get the argument decoding, which forks. echo, printf, a redirected file,
+    # an assignment and cat matter only when the record names a kill verb, a search or a variable.
+    kg_full=no
+    case "$kg_cw" in
+      busybox|'$'*|kill|pkill|killall|killall5|skill|slay|fuser|eval|find|fd|fdfind|setsid|caffeinate|unbuffer|watch|flock|taskset|chrt|nsenter|strace|ltrace|runuser|su|systemd-run|script|sh|bash|dash|zsh|ksh|ash|mksh|posh|yash|source|.|python|python[0-9]*|pypy|pypy3|node|nodejs|deno|bun|perl|ruby|php|lua|osascript|awk|gawk|mawk|nawk|read|mapfile|readarray|for) kg_full=yes ;;
+      echo|printf|'<'|cat)
+        case "$kg_rest" in *kill*|*slay*|*fuser*) kg_full=yes ;; esac
+        [ "$kg_cw$kg_find" != catyes ] || kg_full=yes
+        [ "$kg_cw$kg_rdr" != catyes ] || kg_full=yes ;;
+      env|export|local|declare|readonly|typeset)   # a binding matters when it names a search, is open (NAME= or ...$) or can use a tainted name
+        case "$kg_rest" in *kill*|*slay*|*fuser*|*pgrep*|*pidof*|*lsof*|*ps*|*=|*'$'|*'='"$KG_SEP"*|*'$'"$KG_SEP"*) kg_full=yes ;; esac
+        [ -z "$kg_taint" ] || case "$kg_rest" in *'$'*) kg_full=yes ;; esac ;;
+    esac
+    [ -z "$kg_fp" ] || kg_full=yes
+    kg_args=''; kg_joined=''; kg_srch=no
+    if [ "$kg_full" = yes ]; then
+      case "$kg_rest" in *"$TAB"*) kg_args=$(printf '%s' "${kg_rest#*"$TAB"}" | tr '\003\002' '\n\n') ;; esac
+      if [ "$kg_cw" = busybox ]; then   # busybox pkill / busybox kill: the applet is the first word
+        kg_cw=$(printf '%s\n' "$kg_args" | head -n 1); kg_args=$(printf '%s\n' "$kg_args" | sed 1d)
+      fi
+      kg_joined=$(printf '%s' "$kg_args" | tr '\n' ' ')
+      printf '%s\n' "$kg_joined" | grep -Eq '(^|[^A-Za-z0-9_.$-])(pgrep|pidof|ps|lsof|fuser|pkill)([^A-Za-z0-9_-]|$)' && kg_srch=yes
     fi
-    kg_joined=$(printf '%s' "$kg_args" | tr '\n' ' ')
-    kg_was=$kg_pend; kg_pend=no
+    # an environment prefix record (FOO=1 pgrep x) sits between a substitution's opening and its command: it is not that command
+    kg_was=$kg_pend; [ "$kg_cw" = env ] || kg_pend=no
     if [ "$kg_was" = yes ] && kg_is_search "$kg_cw"; then kg_no "kill with PIDs taken from a process search (pgrep, pidof, ps, lsof, fuser)"; fi
     # a binding (NAME=value, for, read) that the search right before it fills: the name is tainted
-    if [ -n "$kg_cand" ]; then
+    if [ -n "$kg_cand" ] && [ "$kg_cw" != env ] && [ "$kg_cw" != '$' ]; then   # a lone $ is the opening of a $(...) the binding is filled from
       if kg_is_search "$kg_cw"; then kg_taint="$kg_taint $kg_cand"; fi
       kg_cand=''
     fi
     if kg_is_search "$kg_cw"; then kg_searched=yes; fi
-    kg_srch=no; printf '%s\n' "$kg_joined" | grep -Eq '(^|[^A-Za-z0-9_.$-])(pgrep|pidof|ps|lsof|fuser|pkill)([^A-Za-z0-9_-]|$)' && kg_srch=yes
+    if [ "$kg_full" = no ]; then kg_prev="$kg_prev $kg_cw"; continue; fi
     case "$kg_cw" in
       env|export|local|declare|readonly|typeset)
         while IFS= read -r kg_a; do
@@ -1249,10 +1328,12 @@ KGENV
         ;;
       for)
         kg_n=$(printf '%s\n' "$kg_args" | head -n 1)
-        if [ "$kg_srch" = yes ]; then kg_taint="$kg_taint $kg_n"; kg_searched=yes
+        kg_ref=no
+        for kg_t in $kg_taint; do case "$kg_joined" in *'$'"$kg_t"|*'$'"$kg_t"[!A-Za-z0-9_]*|*'${'"$kg_t"[!A-Za-z0-9_]*) kg_ref=yes ;; esac; done
+        if [ "$kg_srch" = yes ] || [ "$kg_ref" = yes ]; then kg_taint="$kg_taint $kg_n"; kg_searched=yes
         else case "$(printf '%s\n' "$kg_args" | tail -n 1)" in in|*'$') kg_cand="$kg_cand $kg_n" ;; esac; fi ;;
       read|mapfile|readarray)   # fed by a search earlier in the command (a pipe, a file, a process substitution)
-        if [ "$kg_searched" = yes ]; then
+        if [ "$kg_searched" = yes ] || [ "$kg_psub" = yes ]; then
           while IFS= read -r kg_a; do case "$kg_a" in -*|'') ;; *) kg_taint="$kg_taint $kg_a" ;; esac; done <<KGREAD
 $kg_args
 KGREAD
@@ -1269,7 +1350,12 @@ KGREAD
     case "$kg_cw" in
       pkill|killall|killall5|skill|slay)
         # no arguments (a usage error, also what `command -v killall` leaves) and --help / --version read only
-        case "$(printf '%s\n' "$kg_args" | head -n 1)" in ""|--help|-h|--version|-V) ;; *) kg_no "$kg_cw kills by name or pattern" ;; esac ;;
+        # (under xargs the patterns arrive on stdin: `xargs pkill` is a kill by pattern with the pattern hidden)
+        case "$(printf '%s\n' "$kg_args" | head -n 1)" in
+          "") [ "$kg_vx" != yes ] || kg_no "$kg_cw under xargs kills by the patterns that arrive on stdin" ;;
+          --help|-h|--version|-V) ;;
+          *) kg_no "$kg_cw kills by name or pattern" ;;
+        esac ;;
       fuser) ! printf '%s\n' "$kg_args" | grep -Eq '^-[A-Za-z]*k' || kg_no "fuser -k kills whatever uses a file or port" ;;
       eval) kg_sub "$kg_joined" ;;
       '$'*) ;;
@@ -1326,7 +1412,17 @@ KGARGS
 $kg_args
 KGFIND
         case "$kg_fl" in cat|head|tail|grep) ;; *) kg_find=yes ;; esac ;;
-      cat) kg_find=no ;;
+      cat)   # cat x.sh | sh: the file is the text the shell reads (like `sh < x.sh`); only files the guard may read
+        kg_find=no
+        kg_n=0
+        while IFS= read -r kg_a; do
+          case "$kg_a" in -*|'') continue ;; esac
+          kg_n=$((kg_n + 1)); [ "$kg_n" -le 3 ] || break
+          if kg_fo=$(kg_file_ok "$(kg_rp "$kg_a")"); then head -c 262144 "$kg_fo" | tr '\n' '\002' >> "$tmp/kge.$KG_DEPTH"; printf '\n' >> "$tmp/kge.$KG_DEPTH"; fi
+        done <<KGCAT
+$kg_args
+KGCAT
+        ;;
       setsid|caffeinate|unbuffer|watch|flock|taskset|chrt|nsenter|strace|ltrace|runuser|su|systemd-run|script)
         # a wrapper this scan does not know: the first kill verb among its arguments starts the wrapped command
         kg_wr=''
@@ -1345,8 +1441,9 @@ KGWRAP
         while IFS= read -r kg_a; do
           if [ "$ks_skip" = yes ]; then ks_skip=no; continue; fi
           case "$kg_a" in
-            -o|+o) ks_skip=yes ;;
+            -o|+o|-O|+O|--rcfile|--init-file) ks_skip=yes ;;
             --) ;;
+            --*) ;;   # a long option (--norc, --posix) is not -c or -s, whatever letters it holds
             -*|+*) case "$kg_a" in -*c*) ks_c=yes ;; esac; case "$kg_a" in -*s*) ks_s=yes ;; esac ;;
             *) ks_o=$kg_a; break ;;
           esac
@@ -1354,9 +1451,9 @@ KGWRAP
 $kg_args
 KGSH
         if [ "$ks_c" = yes ]; then :   # the -c string is scanned as a nested command
-        elif [ -n "$ks_o" ] && [ "$ks_s" = no ]; then printf 'sh\003%s\n' "$ks_o" >> "$tmp/kgr.$KG_DEPTH"
+        elif [ -n "$ks_o" ] && [ "$ks_s" = no ]; then printf 'sh\003%s\n' "$(kg_rp "$ks_o")" >> "$tmp/kgr.$KG_DEPTH"
         else kg_stdin="$kg_stdin sh"; fi ;;
-      source|.) kg_a=$(printf '%s\n' "$kg_args" | head -n 1); [ -z "$kg_a" ] || printf 'sh\003%s\n' "$kg_a" >> "$tmp/kgr.$KG_DEPTH" ;;
+      source|.) kg_a=$(printf '%s\n' "$kg_args" | head -n 1); [ -z "$kg_a" ] || printf 'sh\003%s\n' "$(kg_rp "$kg_a")" >> "$tmp/kgr.$KG_DEPTH" ;;
       python|python[0-9]*|pypy|pypy3) kg_interp python ;;
       node|nodejs|deno|bun) kg_interp node ;;
       perl) kg_interp perl ;;
@@ -1405,6 +1502,7 @@ KGSH
   return 0
 }
 kill_guard() {
+  kg_t0=$(date +%s)
   kg_r=$(kg_run "$tmp/scan") || deny "$kg_r"
   return 0
 }
