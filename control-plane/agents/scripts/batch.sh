@@ -143,6 +143,12 @@ plan() {
       printf 'codex sandbox: danger-full-access\n'
       printf 'WARNING: you chose --codex-danger-full-access. A Codex night session then runs with NO sandbox: it can read and write anywhere your user can and use the network. Approving this summary approves that.\n'
     else printf 'codex sandbox: workspace-write (project folder including .git and .agents, but not .git/hooks or .git/config; network access on for package installs)\n'; fi
+    # A161: Seatbelt cannot nest, so a sandboxed Codex lead cannot start a sandboxed `codex exec` worker; a warning, never a block (the hash binds it).
+    if [ "$danger" != yes ] && [ "$(cfgv runtime.lead claude)" = codex ]; then
+      nest=''; for nr in task_author explorer architect data_architect designer implementer reviewer security_reviewer qa verifier; do
+        [ "$(sh "$here/exec-policy.sh" runtime "$nr" 2>/dev/null || :)" != codex ] || nest="$nest $nr"; done
+      [ -z "$nest" ] || printf 'WARNING: the lead runs on Codex and these roles also run on Codex:%s. On macOS a sandboxed Codex lead cannot start sandboxed Codex workers (sandboxes do not nest). Either set the worker and reviewer runtimes to claude (proofline init --worker claude --reviewers claude, and remove any --role ROLE=codex override) or plan again with --codex-danger-full-access.\n' "$nest"
+    fi
   } > "$tmp/SUMMARY.md"
   mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"; mv "$tmp/order" "$bd/order.tsv"
   cat "$bd/SUMMARY.md"
