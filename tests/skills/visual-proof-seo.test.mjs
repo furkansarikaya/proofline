@@ -173,3 +173,55 @@ test("a robots not_applicable page without a non-empty detail is rejected by the
     assert.match(r.errors.join("\n"), /not_applicable needs a non-empty detail/);
   }
 });
+
+// --- A160: analytics by behaviour, robots.txt per bot ---------------------------------------------------------------
+const consent = (pg, opt = {}) => seoEvaluate([pg], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE, ...opt });
+const req = (url, over = {}) => ({ url, third_party: true, phase: "before_consent", ...over });
+
+test("a name alone (own-origin pixel-art.js, a lone dataLayer) is information, never blocking; a third-party request before consent fails", () => {
+  const art = page("index.html", { scripts: [BASE + "assets/pixel-art.js"], requests: [req(BASE + "assets/pixel-art.js", { third_party: false })] });
+  const ra = consent(art);
+  assert.deepEqual(ra.pages[0].analytics_detected, ["pixel"]);
+  assert.equal(ra.items.some((m) => m.check === "seo_analytics_consent"), false, "an own-origin pixel-art.js blocked the page");
+  const full = run({ ...SEO, pages: ["index.html"] }, { pages: [art], site: SITEFACTS(["index.html"]) });
+  assert.equal(full.report.result, "PASS");
+
+  const defined = page("index.html", { globals: ["dataLayer"] }); // defined, nothing requested
+  const rd = consent(defined);
+  assert.deepEqual(rd.pages[0].analytics_detected, ["dataLayer"]);
+  assert.equal(rd.items.some((m) => m.check === "seo_analytics_consent"), false, "a defined-only dataLayer counted as loaded");
+
+  const fonts = consent(page("index.html", { requests: [req("https://fonts.example.com/f.css")] }));
+  assert.equal(fonts.items.some((m) => m.check === "seo_analytics_consent"), false, "a non-analytics third party failed the consent check");
+
+  const bad = consent(page("index.html", { requests: [req("https://stats.example.org/c.js")] }));
+  const item = bad.items.find((m) => m.check === "seo_analytics_consent");
+  assert.equal(item.status, "fail");
+  assert.match(item.note, /before consent: third-party request https:\/\/stats\.example\.org\/c\.js/);
+  const viaInit = consent(page("index.html", { requests: [req("https://cdn.example.com/x.gif", { initiator: "https://analytics.example.org/tag.js" })] }));
+  assert.equal(viaInit.items.find((m) => m.check === "seo_analytics_consent").status, "fail", "a request initiated by an analytics script was not attributed");
+  const after = consent(page("index.html", { requests: [req("https://stats.example.org/c.js", { phase: "after_consent" })] }));
+  assert.equal(after.items.some((m) => m.check === "seo_analytics_consent"), false, "a request after consent failed");
+});
+
+test("robots.txt is read per bot: Googlebot uses its own group, Bingbot falls to *, longest match and Allow-on-tie", () => {
+  const txt = "User-agent: Googlebot\nDisallow: /private/\nAllow: /private/open.html\nDisallow: /tie\nAllow: /tie\n\nUser-agent: *\nDisallow: /\n";
+  const b = (rel, bot) => measure.robotsBlocks(txt, rel, bot);
+  assert.equal(b("index.html", "googlebot"), false, "Googlebot must not inherit the * group");
+  assert.equal(b("private/x.html", "googlebot"), true);
+  assert.equal(b("private/open.html", "googlebot"), false, "the longer Allow wins");
+  assert.equal(b("tie", "googlebot"), false, "Allow wins an equal-length tie");
+  assert.equal(b("index.html", "bingbot"), true, "Bingbot has no group and falls to *");
+  assert.deepEqual(measure.ROBOTS_BOTS, ["googlebot", "bingbot"]);
+  assert.deepEqual(measure.robotsBlockedFor(txt, "index.html"), ["bingbot"]);
+  assert.deepEqual(measure.robotsBlockedFor(txt, "private/x.html"), ["googlebot", "bingbot"]);
+  // consecutive user-agent lines share one group
+  assert.equal(measure.robotsBlocks("User-agent: Bingbot\nUser-agent: Googlebot\nDisallow: /a\n", "a", "googlebot"), true);
+
+  const only = "User-agent: Bingbot\nDisallow: /de/\n\nUser-agent: *\nDisallow:\nSitemap: " + SITE + "/sitemap.xml\n";
+  const r = seoEvaluate([page("index.html"), page("de/index.html")], { ...SITEFACTS(["index.html", "de/index.html"]), robots_txt: only }, { base_url: BASE, site_url: SITE });
+  const item = r.items.find((m) => m.check === "seo_robots");
+  assert.equal(item.status, "fail");
+  assert.match(item.note, /robots\.txt disallows de\/index\.html for bingbot/);
+  assert.doesNotMatch(item.note, /disallows index\.html/);
+});
