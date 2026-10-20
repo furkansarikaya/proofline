@@ -323,3 +323,26 @@ test("the default entry word list equals the config value (A162)", async () => {
   const cfg = readFileSync(join(here, "../../control-plane/agents/config.yaml"), "utf8").match(/^  entry_words: "(.*)"$/m)[1];
   assert.equal((await import(script)).ENTRY_WORDS, cfg);
 });
+// A162: validation.entry_words of the project's .agents/config.yaml is honoured without a flag; --entry-words overrides it.
+test("a project-tuned validation.entry_words is read from <repo>/.agents/config.yaml; --entry-words overrides it (A162)", () => {
+  const r2 = join(base, "tuned"); mkdirSync(join(r2, ".agents"), { recursive: true });
+  writeFileSync(join(r2, ".agents/config.yaml"), 'validation:\n  entry_words: "nightly +runner"\n  entry_input: "accepts?"\n');
+  const f = join(base, "TUNED.md"); writeFileSync(f, withContracts(["- `nightly runner` accepts a payload", "- `POST /orders` creates an order"]));
+  const run = (dir, ...a) => spawnSync(process.execPath, [script, f, join(repo, "TASK.md"), "--class", "STANDARD", "--repo", dir, ...a], { encoding: "utf8" });
+  const t = run(r2);
+  assert.equal(t.status, 1);
+  assert.match(t.stdout, /no complete line for the entry point\(s\) nightly runner(?!, POST)/); // the tuned word counts, the default POST does not
+  assert.doesNotMatch(t.stdout, /POST \/orders/);
+  assert.match(run(repo).stdout, /entry point\(s\) POST \/orders/); // without the tuned config the default applies
+  assert.doesNotMatch(run(r2, "--entry-words", "nomatch").stdout, /entry point/); // scope errors of the bare tmp repo are unrelated
+});
+test("entryConfig reads validation.* from the first config and the override wins (A162)", async () => {
+  const m = await import(script);
+  const d = join(base, "cfgdir"); mkdirSync(join(d, ".agents"), { recursive: true });
+  writeFileSync(join(d, ".agents/config.yaml"), 'validation:\n  entry_words: "jobs?"\n  entry_skip: "frozen"\n');
+  const c = m.entryConfig([d]);
+  assert.equal(c.words, "jobs?"); assert.equal(c.skip, "frozen"); assert.equal(c.input, m.ENTRY.input);
+  assert.equal(m.entryConfig([d], "x+").words, "x+");
+  assert.equal(m.entryTier("job accepts a payload", c), "mandatory");
+  assert.notEqual(m.entryTier("POST /orders accepts a body", c), "mandatory"); // only a candidate now
+});

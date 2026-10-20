@@ -666,9 +666,37 @@ sc_log_unsupported() {
   ok "log unsupported: the logging focus can not be UNSUPPORTED"
 }
 
+# A162: a run frozen before risk.log_sensitive existed survives the upgrade that adds it (bounded legacy rule).
+sc_log_upgrade_legacy() {
+  rrun COMPLEX ''
+  cp .agents/config.yaml "$base/cfg.new"
+  awk '/^  log_sensitive:/ { skip = 1; next } skip && /^    / { next } { skip = 0; print }' "$base/cfg.new" > .agents/config.yaml
+  ! grep -q 'log_sensitive' .agents/config.yaml || die "the old config still has log_sensitive"
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null
+  cp "$base/cfg.new" .agents/config.yaml
+  A verify-freeze LC >/dev/null || die "a run frozen before the upgrade fails verify-freeze: $(A verify-freeze LC 2>&1)"
+  A handoff LC IMPLEMENTING >/dev/null || die "handoff IMPLEMENTING failed after the upgrade: $(A handoff LC IMPLEMENTING 2>&1)"
+  printf 'logger.info("password " + password)\n' > impl.txt
+  snap; hasnt 'signal.log_sensitive'; hasnt 'focus.SECURITY.logging'
+  # another risk key edited on the legacy-frozen run is still refused
+  sed 's/^  regression_pct: 10$/  regression_pct: 500/' "$base/cfg.new" > .agents/config.yaml
+  ! cmp -s "$base/cfg.new" .agents/config.yaml || die "the regression_pct edit did not apply"
+  expect_msg "another risk key edited on a legacy-frozen run" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.new" .agents/config.yaml
+  # a run frozen under the new config binds log_sensitive: editing it is refused
+  rrun COMPLEX ''
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  sed 's/^    words: password /    words: secret password /' "$base/cfg.new" > .agents/config.yaml
+  ! cmp -s "$base/cfg.new" .agents/config.yaml || die "the log_sensitive edit did not apply"
+  expect_msg "log_sensitive edited on a run frozen under the new rule" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.new" .agents/config.yaml; A verify-freeze LC >/dev/null
+  ok "legacy freeze: a run frozen before log_sensitive survives the upgrade without the logging focus; another risk key or a new-rule log_sensitive edit is refused"
+}
+
 run_sc sc_log_sensitive
 run_sc sc_log_words_match
 run_sc sc_log_unsupported
+run_sc sc_log_upgrade_legacy
 run_sc sc_mapping
 run_sc sc_dependency_manifests
 run_sc sc_not_contract_drift

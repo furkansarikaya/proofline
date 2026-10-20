@@ -1659,6 +1659,68 @@ sc_validation_node() {
   done
   ok "A162: the node validators agree with agent.sh and share the default entry word list with the config"
 }
+# A162: two-tier detection. The reviewed false positives are never mandatory; a declared entry point with new input is;
+# the labelled corpus agrees between agent.sh and both validators.
+sc_validation_tiers() {
+  command -v node >/dev/null 2>&1 || { echo "skip validation_tiers (node missing)"; exit 0; }
+  new_repo
+  while IFS= read -r vt_b; do
+    vt_t=$(A entry-tier "$vt_b")
+    [ "$vt_t" != mandatory ] || die "a false positive is mandatory: $vt_b"
+  done <<'FP'
+`order.schema.json` 3 -> 4 - consumers: billing
+`PLAN.md` frontmatter gains `validation` - consumers: validate-plan.mjs
+`events.proto` field added - consumers: billing
+The consumer of this API is the CLI
+The handler returns 404 for unknown ids
+Form fields documented in docs/forms.md
+The routes table in README updated
+`schema.graphql` Query.users gains limit
+`GET /api/books` response shape unchanged
+Book response (`GET /api/books`) omits legacyNotes
+FP
+  [ "$(A entry-tier 'POST /orders no longer accepts qty above 100')" = mandatory ] || die "a changed input limit is not mandatory"
+  [ "$(A entry-tier 'DELETE /x is added: removes an item')" = mandatory ] || die "a new endpoint is not mandatory"
+  vt_o=$(sh "$tl_agents/../../tests/fixtures/entry-points/run-corpus.sh" 2>&1) || die "entry-point corpus: $vt_o"
+  ok "A162: reviewed false positives are never mandatory, the two positives are, and the corpus agrees (agent.sh, validate-plan, validate-qa)"
+}
+# A162: a plan whose bullets are information only is not refused at freeze; a backslash entry name matches a QA scenario.
+sc_validation_info_only() {
+  ev_scaffold '
+## Contracts
+
+- `order.schema.json` 3 -> 4 - consumers: billing
+- The handler returns 404 for unknown ids
+- `GET /api/books` response shape unchanged' ''
+  A freeze LC >/dev/null || die "a plan with information-only bullets was refused: $(A freeze LC 2>&1)"
+  A pipeline LC | grep -q '^validation.missing=' && die "information-only bullets are reported missing"
+  A pipeline LC | grep -q '^validation.possible=' || die "no validation.possible row for information-only bullets: $(A pipeline LC)"
+  ev_scaffold '
+## Contracts
+
+- `GET /u/\d+` takes a query parameter
+
+## Validation
+
+- `GET /u/\d+`: accepts a numeric id; limits 1-10 digits; rejected at the user handler (400)' '- QA-9 (AC-1) [invalid-input]: GET /u/\d+ with letters
+  input: an id of letters
+  expected: 400'
+  A pipeline LC | grep -qF 'validation.entry_points=GET /u/\d+' || die "a backslash entry name was mangled: $(A pipeline LC | grep '^validation')"
+  qa_bind LC
+  A verify-qa-plan LC >/dev/null || die "a QA scenario naming a backslash entry point was refused: $(A verify-qa-plan LC 2>&1)"
+  A freeze LC >/dev/null || die "freeze with a backslash entry point was refused: $(A freeze LC 2>&1)"
+  ev_scaffold '
+## Contracts
+
+- `GET /u/\d+` takes a query parameter
+
+## Validation
+
+- `GET /u/\d+`: accepts a numeric id; limits 1-10 digits; rejected at the user handler (400)' ''
+  qa_bind LC
+  expect_msg "a QA plan without a scenario for a backslash entry point" 'no invalid-input scenario for the entry point(s) of PLAN.md ## Contracts: GET /u/\d+' A verify-qa-plan LC
+  ok "A162: information-only bullets never refuse the freeze; a backslash entry name matches its QA scenario and is missed without one"
+}
 sc_validation_config() {
   new_repo
   A config-check >/dev/null
@@ -2097,6 +2159,8 @@ run_sc sc_validation_qa
 run_sc sc_validation_refreeze
 run_sc sc_validation_node
 run_sc sc_validation_config
+run_sc sc_validation_tiers
+run_sc sc_validation_info_only
 run_sc sc_evidence_gap_fabricated
 run_sc sc_evidence_gap_files
 run_sc sc_evidence_gap_rerun
