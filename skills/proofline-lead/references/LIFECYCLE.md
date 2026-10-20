@@ -131,11 +131,8 @@ editing the hash.
 
 ## 7. Knowledge
 
-After CODE_DONE, and also for a run that ended FAILED or BLOCKED (`/proofline knowledge <ID>`; A147): `deliver` of a CODE_DONE run does this step itself when it is missing (a FAILED or BLOCKED run is delivered only after `/proofline reopen`, A152). When the task changed a durable contract (an architecture component, a data model table,
-an API endpoint, a design-system rule), update the configured `design_docs` from the run's `design/`
-drafts (D26), within `knowledge_scope_root`, then `A knowledge-done <ID>`. Otherwise
-`A knowledge-done <ID> not_applicable`. The wiki under `docs/wiki/` is knowledge scope too (A139): ingest and update it as the llm-wiki skill says, run its lint, resolve the errors, then `knowledge-done`. Design documents are not product code; the lead writes them only
-in this step.
+After CODE_DONE, and also for a run that ended FAILED or BLOCKED (`/proofline knowledge <ID>`; A147): `deliver` of a CODE_DONE run does this step itself when it is missing (a FAILED or BLOCKED run is delivered only after `/proofline reopen`, A152). The step always runs and evaluates the wiki and the design documents every time (one rule, A159, stated in `.agents/KNOWLEDGE.md`). Either update the configured `design_docs` from the run's `design/`
+drafts (D26) and the wiki (A139: ingest and update it as the llm-wiki skill says, run its lint, resolve the errors), within `knowledge_scope_root`, then `A knowledge-done <ID>`; or `A knowledge-done <ID> not_applicable "<one sentence: why they need nothing>"`, which `agent.sh` refuses, naming the signal, when the task changed user-visible behaviour, a durable contract or something a design document describes (then do the real step). Never pass `not_applicable` on your own say-so. The runtime hook lets the lead write only these paths in this step; design documents are not product code and the lead writes them only here.
 
 **Lessons.** A lesson comes only from evidence; it becomes a rule only with the user's approval. In this step
 run `A lessons derive <ID>`: it lists one candidate per non-info finding of the run's gate records, each with its

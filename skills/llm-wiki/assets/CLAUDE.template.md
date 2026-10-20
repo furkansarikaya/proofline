@@ -16,4 +16,4 @@ This Git-backed Markdown wiki is a knowledge graph. Current repository state and
 
 Transaction A (code): retrieval is read-only. Follow [[index]], then entity, decision, lesson, concept, source; freeze the references in EVIDENCE; file nothing back and change neither log nor index.
 
-Transaction B (knowledge, optional): only for a changed durable contract. Ingest keeps its approval step, the lint reports and never fixes by itself. See [[KNOWLEDGE-PIPELINE]].
+Transaction B (knowledge): runs after every CODE_DONE; the one rule is in [[KNOWLEDGE-PIPELINE]]. Ingest keeps its approval step, the lint reports and never fixes by itself. See [[KNOWLEDGE-PIPELINE]].

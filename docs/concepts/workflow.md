@@ -116,6 +116,34 @@ pending question) from the records, never from a session log, with the friction 
 | `debt` | list the shortcut comments in the code; read-only, needs no run |
 | `clean`, `merge`, `insights` | clean up, the only allowed merge, cost and recurring failures |
 
+## The next step
+
+Every command ends with one line, `Next step: ...` (A159): a `/proofline` command or an action you do yourself, never an internal command. The lead writes it, the Stop hook adds it when the lead left it out, and the CLI prints it for its own commands. All three read one table, `next-user.sh` in the control plane (`agent.sh next-user`), which maps a command and the run state to the line:
+
+| Command | Next step |
+|---|---|
+| `init` | `/proofline doctor` |
+| `doctor` (clean) | `/proofline task --grill` |
+| `upgrade` | commit the changed files yourself, then `/proofline doctor` |
+| `task` | `/proofline run <ID>` (the new task) |
+| `design` | the next queued task, else `/proofline task --grill` |
+| `run`, `status`, `resume`, `queue` | a question waits: reply in the session (the line names the question); CODE_DONE: `/proofline deliver <ID>`; FAILED or BLOCKED: `/proofline reopen <ID>`; running: `/proofline resume`; no run: the next queued task, else `/proofline task --grill` |
+| `knowledge` | `/proofline deliver <ID>` (FAILED or BLOCKED: `/proofline reopen <ID>`) |
+| `deliver` | waiting for you: reply `approve delivery`; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
+| `reopen` | `/proofline resume` |
+| `merge`, `clean` | the next queued task, else `/proofline task --grill` |
+| `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
+| `insights`, `explain` | `/proofline status` |
+| `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
+| `batch` | `proofline batch run` in a terminal |
+| `version` | `/proofline doctor` |
+
+A failed command suggests the command that fixes the error instead: not installed `proofline init`; a dirty tree: commit or stash it yourself; a missing knowledge step `/proofline knowledge <ID>`; a FAILED run on `deliver` `/proofline reopen <ID>`.
+
+## Knowledge step
+
+The knowledge step always runs after CODE_DONE (and for a FAILED or BLOCKED run). It evaluates the wiki and the design documents every time and ends in `knowledge-done` with pages written under `docs/design/`, `docs/adr/`, `docs/wiki/` and the `design_docs` paths (the only paths the lead may write, and only in this step), or in `knowledge-done <ID> not_applicable "<reason>"` with one specific sentence. The script refuses the reason, naming the signal, when the task changed user-visible behaviour, a durable contract or something a design document describes. The reason is recorded and shown in the completion report.
+
 ## Shortcut debt
 
 When the implementer cuts a corner on purpose, it writes a comment next to it: `shortcut: <limit>, <when to improve>`

@@ -12,15 +12,22 @@ missing information is an amendment, not a new search.
 Two transactions:
 
 - **A (code)**: through CODE_DONE; design documents are read-only.
-- **B (knowledge)**: optional, after CODE_DONE, only when the task changed a durable contract or the
-  documented architecture: update the documents under `knowledge_scope_root` (proposed ADRs move from the
-  run's `design/adr/` to `design_docs.adr_dir`), then `agent.sh knowledge-done <ID>`. Otherwise
-  `agent.sh knowledge-done <ID> not_applicable`.
+- **B (knowledge)**: one rule (A159). The knowledge step always runs after CODE_DONE (and for a FAILED or
+  BLOCKED run). The wiki and the design documents are evaluated every time, and the outcome is exactly one of:
+  - `agent.sh knowledge-done <ID>` (KNOWLEDGE_DONE) with the pages written: the lead writes only under
+    `knowledge_scope_root` and the `design_docs` paths (the runtime hook allows exactly these in this step and
+    nowhere else); proposed ADRs move from the run's `design/adr/` to `design_docs.adr_dir`.
+  - `agent.sh knowledge-done <ID> not_applicable "<reason>"`: one specific sentence on why the wiki and the design
+    documents need nothing. The reason is recorded in RUN.yaml and the ledger and shown in the completion report.
+    `agent.sh` REFUSES it, naming the signal, when the task changed user-visible behaviour (a command, flag,
+    config key, output or error text), a durable contract, or something a design document describes: a
+    documentation path in the diff, a contract or data change or a design document named in the frozen PLAN.md,
+    or user-visible words in the acceptance criteria. The lead then does the real knowledge step.
 
 The project wiki (A139, skill `llm-wiki`) lives under `docs/wiki/`, which is in `knowledge_scope_root` by default:
 a path under that prefix is knowledge work, any other path is implementation scope. Transaction A reads it
 only on demand and read-only: `index`, then the entity, decision, lesson, concept and finally the source page,
-frozen as references in EVIDENCE, with no filing back, no index or log change. Transaction B ingests warranted,
+frozen as references in EVIDENCE, with no filing back, no index or log change. The knowledge step ingests warranted,
 sourced knowledge, updates only the relevant pages and `log.md`, runs the wiki lint, resolves its errors, then
 runs `knowledge-done`. Wiki decisions rank below design documents and above lessons; current tests beat a stale
 lesson. A project that keeps no wiki simply never writes under `docs/wiki/`.

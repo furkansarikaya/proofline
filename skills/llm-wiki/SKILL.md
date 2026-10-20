@@ -4,7 +4,7 @@ description: Keeps a persistent, Git-backed Markdown wiki under docs/wiki that g
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.16"
+  version: "0.0.17"
 ---
 
 # llm-wiki
@@ -69,7 +69,7 @@ then an H1, the body, and `Related: [[page]], [[page]].` Links between pages are
 
 ## Knowledge transaction of a run
 
-Transaction A reads the wiki on demand and read-only: no filing back, no log or index change. Transaction B is optional and only for a task that changed a durable contract or the documented architecture (otherwise `knowledge-done <ID> not_applicable`): ingest warranted, sourced knowledge, update only the relevant pages and `log.md`, run the lint, resolve its errors, then `A knowledge-done <ID>`. Run artifacts are disposable and never promoted wholesale; a task cannot rewrite its own past.
+Transaction A reads the wiki on demand and read-only: no filing back, no log or index change. The knowledge step (Transaction B) always runs after CODE_DONE and has one rule, stated in the control plane's KNOWLEDGE.md (`.agents/KNOWLEDGE.md`): evaluate the wiki every time, then `knowledge-done <ID>` with pages written or `not_applicable` with a reason that `agent.sh` accepts. Ingest warranted, sourced knowledge, update only the relevant pages and `log.md`, run the lint, resolve its errors, then `A knowledge-done <ID>`. Run artifacts are disposable and never promoted wholesale; a task cannot rewrite its own past.
 
 ## Standalone vs team
 

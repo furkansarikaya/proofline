@@ -5,7 +5,7 @@ argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.16"
+  version: "0.0.17"
 ---
 
 # proofline
@@ -35,7 +35,7 @@ with "proofline is not installed here".
 
 | `$ARGUMENTS` | Do |
 |---|---|
-| (empty), `status` | Run the CLI `status`; show the active run and the `next=` line in one short block. |
+| (empty), `status` | Run the CLI `status`; show the active run and its state in one short block. |
 | `init` | Ask the user (one message, defaults in brackets): runtimes [the installed ones], lead / worker / reviewer runtime [claude], model profile [balanced], task adapter [markdown], protected branches [none], push needs approval [true], forbidden commit identities [none]. Then run the CLI `init --yes` with the matching flags (`--runtimes`, `--lead`, `--worker`, `--reviewers`, `--profile`, `--task-adapter`, `--protected-branches`, `--push-approval`, `--forbidden-identity`, repeatable). Run `init --dry-run` first when the project already has `AGENTS.md`, `CLAUDE.md` or `.claude/settings.json`, show the plan, and continue on the user's yes. Finish with `doctor`. |
 | `upgrade` | CLI `upgrade --dry-run`, show it, then `upgrade` on the user's yes. Report every conflict (a file you modified, with its `.proofline-new` copy) and stop; merging is the user's call. |
 | `doctor` | CLI `doctor`; relay PASS / WARN / FAIL lines unchanged and name the fix for each FAIL. |
@@ -44,6 +44,30 @@ with "proofline is not installed here".
 | `version` | CLI `version`. |
 | `run <TASK>`, `resume`, `task [--grill] <text>`, `design system\|data\|api\|ui [--check]`, `docs create\|update\|audit`, `explain <topic\|TASK-ID>`, `review`, `audit`, `debug`, `wiki ingest\|query\|lint`, `knowledge <TASK>`, `deliver <TASK>`, `reopen <TASK>`, `batch <ID...\|all>`, `debt` | Check `.agents/config.yaml` and `A` exist (else say proofline is not installed here, propose `/proofline init`, stop). Then load the proofline-lead skill and carry out its "Commands" table row for this command with the remaining arguments. For `resume` and `deliver` the CLI prints the deterministic part first (`proofline resume`, `proofline deliver <TASK>`); run it and use its output. `debt` needs no run: the CLI `debt` lists the shortcut comments; relay its output. `batch status` needs no run either: relay `A batch-status`. `batch run` is the user's to start in a terminal (`proofline batch run`): print that command, do not start it unless the user asks. |
 | anything else | Print the routing table's command names and stop. |
+
+## The next step, after every command
+
+Every command ends with ONE line `Next step: <what the user does next>`: a `/proofline ...` command or an action the user does themselves, never `agent.sh` or any other internal command. The lines come from one table (`A next-user <command> [<ID>] [--error]`, read-only); the CLI prints the same line for its own commands, and the Stop hook adds the line when you leave it out. `proofline help` lists the commands; the table has one entry for each:
+
+| Command | Next step |
+|---|---|
+| `init` | `/proofline doctor` |
+| `doctor` (clean) | `/proofline task --grill` |
+| `upgrade` | commit the changed files yourself, then `/proofline doctor` |
+| `task` | `/proofline run <ID>` (the new task) |
+| `design` | the next queued task, else `/proofline task --grill` |
+| `run`, `status`, `resume`, `queue` | a question waits: reply in the session (the line names the question); CODE_DONE: `/proofline deliver <ID>`; FAILED or BLOCKED: `/proofline reopen <ID>`; running: `/proofline resume`; no run: the next queued task, else `/proofline task --grill` |
+| `knowledge` | `/proofline deliver <ID>` (FAILED or BLOCKED: `/proofline reopen <ID>`) |
+| `deliver` | waiting for you: reply `approve delivery`; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
+| `reopen` | `/proofline resume` |
+| `merge`, `clean` | the next queued task, else `/proofline task --grill` |
+| `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
+| `insights`, `explain` | `/proofline status` |
+| `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
+| `batch` | `proofline batch run` in a terminal |
+| `version` | `/proofline doctor` |
+
+A failed command suggests the command that fixes the error instead: not installed `proofline init`; a dirty tree: commit or stash it yourself; a missing knowledge step `/proofline knowledge <ID>`; a FAILED run on `deliver` `/proofline reopen <ID>`.
 
 ## Hard rules
 
