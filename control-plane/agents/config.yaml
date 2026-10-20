@@ -110,9 +110,9 @@ security:
 
 # Risk-adaptive pipeline (A78; `agent.sh pipeline <ID>` shows what fired and why). A signal comes from a changed
 # or planned path (`paths`, globs as in risky_paths), from text the diff adds (`content`, an extended regular
-# expression; empty = off), or from a PLAN.md flag. `check` is the focus it adds inside an existing gate:
+# expression; empty = off; with `words` the line must match it and name one of the words, A162), or from a PLAN.md flag. `check` is the focus it adds inside an existing gate:
 # contract, concurrency, performance, config (REVIEW_RULES, or REVIEW_SMALL on tier small), migration
-# (REVIEW_DATA), visual (QA), dependencies (SECURITY); a check runs only when its gate is required. `flag` is
+# (REVIEW_DATA), visual (QA), dependencies, logging (SECURITY); a check runs only when its gate is required. `flag` is
 # the PLAN.md flag that must declare a path signal (contract_change, concurrency, performance_critical in
 # `## Risk`; data_change = a `## Data` section; ui = a `## UI` section); a diff signal without it is a blocking
 # finding of its focus. `design_role` declares it before FREEZE. Plain documentation never carries a signal.
@@ -165,6 +165,15 @@ risk:
     flag: performance_critical
     check: performance
     design_role: architect
+  # Sensitive data in logs (A162): a line the diff ADDS must match `content` (a log call: logger./log./console./
+  # print/printf/Log.* and the like) and name one of `words` (space-separated, case-insensitive, whole identifier
+  # parts: `password`, `user_password`, `userPassword`, `passwords`; not `discard` for `card`). The match only opens
+  # a `logging` review in SECURITY (exploit-proof, sink `[log]`); it is no finding. Add your own words or log calls
+  # here; `logger.info("started")` names no word and opens nothing. A call split over several lines is not seen.
+  log_sensitive:
+    content: (^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|slog|logrus|zap|Timber|NSLog|error_log|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|fprintf|eprintln)(\.|\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!
+    words: password passwd token secret authorization cookie email phone card iban ssn tckn
+    check: logging
   # Plan flags: a flag set in PLAN.md adds its check even without a matching path.
   contract_change:
     check: contract

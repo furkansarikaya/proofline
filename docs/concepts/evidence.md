@@ -51,9 +51,9 @@ Unverified and accepted assumptions appear in the completion report. Details: [w
 ## Risk-adaptive checks
 
 Deterministic risk signals add focused checks inside the existing gates (contract, concurrency, performance,
-migration, visual, dependencies, config). See [gates](gates.md#risk-signals). Each check is a skill that applies the
+migration, visual, dependencies, logging, config). See [gates](gates.md#risk-signals). Each check is a skill that applies the
 classes above: contract-proof, concurrency-proof, performance-proof, visual-proof, data-design (migration
-validation), exploit-proof (dependencies) and proof-review (config).
+validation), exploit-proof (dependencies, logging) and proof-review (config).
 
 ## Metrics, insights and benchmark
 

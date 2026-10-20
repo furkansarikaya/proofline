@@ -129,7 +129,7 @@ report_path() {
 # result_for GATE RESULT [CONFIDENCE] [ROW...] -> path of a result file (rows "id|severity|path:line|finding|evidence")
 # RF_FOCUS=<risk focus> (A78): the result is that focus's, reported under its own directory.
 risk_report() { case "$1" in contract) echo reviews/contract-proof/REPORT.md ;; concurrency) echo reviews/concurrency-proof/REPORT.md ;; performance) echo reviews/performance-proof/REPORT.md ;;
-  config) echo reviews/proof-review/config/REPORT.md ;; migration) echo reviews/data-migration/REPORT.md ;; visual) echo reviews/visual-proof/REPORT.md ;; dependencies) echo security/dependencies/REPORT.md ;; esac; }
+  config) echo reviews/proof-review/config/REPORT.md ;; migration) echo reviews/data-migration/REPORT.md ;; visual) echo reviews/visual-proof/REPORT.md ;; dependencies) echo security/dependencies/REPORT.md ;; logging) echo security/logging/REPORT.md ;; esac; }
 result_for() {
   rf_g=$1 rf_r=$2 rf_c=${3:-high}; shift 2; [ $# -eq 0 ] || shift
   rf_art=$(report_path "$rf_g"); rf_fc=$(gate_focus "$rf_g")

@@ -611,6 +611,64 @@ sc_selective_focus() {
   ok "selective repetition: a change outside the dependency manifests keeps SECURITY:dependencies fresh (own focus stale); package.json stales it"
 }
 
+# A162: a sensitive-named log call the diff ADDS opens the SECURITY logging focus; an ordinary log call, a
+# false-friend word, a non-log line and a log call that is only a context line do not; the focus is never UNSUPPORTED.
+sc_log_sensitive() {
+  scaffold standalone no CRITICAL manual
+  mkdir -p src
+  printf 'package x\nfunc f() { log.Printf("login %%s", user.Password) }\n' > src/p_go.go
+  printf 'console.log("auth", req.headers.authorization);\n' > src/p_js.js
+  printf 'logger.info("t %%s", user_token)\n' > src/p_py.py
+  printf 'fn f() { info!("mail {}", userEmail); }\n' > src/p_rs.rs
+  printf 'logger.info("started")\n' > src/n_ok.py
+  printf 'func f() { log.Printf("discard %%d", discardCount) }\n' > src/n_discard.go
+  printf 'console.log("c", className);\n' > src/n_class.js
+  printf 'console.log("c", classname)\n' > src/n_classname.js
+  printf 'func f() { password := 1; _ = password }\n' > src/n_plain.go          # sensitive word, no log call
+  snap
+  for ls_f in p_go.go p_js.js p_py.py p_rs.rs; do has "diff:src/$ls_f"; done
+  hasnt 'src/n_'
+  has 'focus.SECURITY.logging=missing'
+  # no sensitive log call at all: no signal, no focus
+  scaffold standalone no CRITICAL manual
+  mkdir -p src; printf 'logger.info("started")\n' > src/b.go
+  snap; hasnt 'signal.log_sensitive'; hasnt 'focus.SECURITY.logging'
+  # the call is a context line (exists at base, untouched by the edit): not added, no signal
+  scaffold standalone no CRITICAL manual
+  mkdir -p src; printf 'logger.info("login", user.Password)\nx := 1\n' > src/b.go
+  git add -A; git commit -qm 'add b.go'
+  sed "s/^  base_sha:.*/  base_sha: \"$(git rev-parse HEAD)\"/" .agents/runs/LC/RUN.yaml > "$base/run.base"; cp "$base/run.base" .agents/runs/LC/RUN.yaml
+  printf 'logger.info("login", user.Password)\nx := 2\n' > src/b.go
+  snap; hasnt 'signal.log_sensitive'; hasnt 'focus.SECURITY.logging'
+  # control: the same call added by the edit fires
+  printf 'logger.info("login", user.Password)\nx := 2\nlogger.info("again", user.Password)\n' > src/b.go
+  snap; has 'signal.log_sensitive=source=diff:src/b.go'; has 'focus.SECURITY.logging=missing'
+  ok "log_sensitive: sensitive log calls added by the diff open the logging focus; ordinary calls, discard/classname, plain code and context lines do not"
+}
+# risk_words_match boundaries (the function exactly as agent.sh defines it).
+sc_log_words_match() {
+  eval "$(sed -n '/^risk_words_match() {/,/^}/p' "$(dirname "$0")/agent.sh")"
+  for lw in 'log(userPassword)' 'log(user_password)' 'log(passwords)' 'log(PASSWORD)' 'log(card)' 'log(ssn)' 'log(user.Email)'; do
+    printf '%s\n' "$lw" | risk_words_match 'log' 'password card ssn email' || die "risk_words_match did not match: $lw"
+  done
+  for lw in 'log(discard)' 'log(classname)' 'log(scardy)' 'log(started)' 'print(password)'; do
+    ! printf '%s\n' "$lw" | risk_words_match '^log' 'password card ssn email' || die "risk_words_match matched: $lw"
+  done
+  printf 'x\nlog(token)\n' | risk_words_match '^log' 'token' || die "risk_words_match: the second line did not match"
+  ok "log words: whole identifier parts, case-insensitive, plural; discard and classname are false friends; the content pattern must match too"
+}
+# The logging focus has a tool-free check: UNSUPPORTED is refused (A162).
+sc_log_unsupported() {
+  rrun COMPLEX 'src/b.go'; frozen; implement src/b.go 'logger.info("login", user.Password)'
+  mkdir -p .agents/runs/LC/security/logging; printf '# log\n' > .agents/runs/LC/security/logging/REPORT.md
+  snap; has 'focus.SECURITY.logging=missing'
+  expect_msg "UNSUPPORTED logging focus" 'logging focus always has a tool-free check' AS security_reviewer submit LC --focus logging --result UNSUPPORTED --reason 'no log tool in the project' --confidence high --artifact security/logging/REPORT.md
+  ok "log unsupported: the logging focus can not be UNSUPPORTED"
+}
+
+run_sc sc_log_sensitive
+run_sc sc_log_words_match
+run_sc sc_log_unsupported
 run_sc sc_mapping
 run_sc sc_dependency_manifests
 run_sc sc_not_contract_drift

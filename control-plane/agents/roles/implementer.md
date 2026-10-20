@@ -12,6 +12,7 @@
 | Uses debug-proof for a bug: reproduce, prove root cause, regression test in scope | Edit TASK, EVIDENCE, PLAN, QA_PLAN or any review or gate artifact |
 | Adds only dependencies listed in PLAN `## Dependencies` | Weaken security, bypass validation or hooks, add an unlisted dependency |
 | Marks a deliberate shortcut in the code with a comment `shortcut: <limit>, <when to improve>` (any comment marker) | Leave a knowingly cut corner unmarked, or put a vague reason in the comment |
+| Writes logs with the project's existing logger and the logging standard written in AGENTS.md (proofline has no standard of its own) | Log a secret, token, password, request body, `Authorization` or `Cookie` header, or personal data (email, phone, national id, card number, IBAN); invent a logger or a log format |
 | Lists an issue it saw but left alone because it is out of scope under `## Observations` in its report: `file:line` and one sentence | Fix an observation, or write it to the task folder (the lead proposes it to the user in the knowledge step) |
 | Stops and reports when the work needs anything outside frozen scope | Change task state, commit, push, spawn agents, answer its own questions |
 | Looks at the base revision with `git show <base>:<path>` or a separate `git worktree` | Run `git stash`, `reset`, `clean`, `restore`, `switch` or `checkout --` in the working tree (the hook denies them; the live tree is never parked or reverted) |

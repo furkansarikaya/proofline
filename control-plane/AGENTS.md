@@ -49,3 +49,14 @@ A Codex lead needs `.git` write access to create the task branch. In interactive
 commands; in headless use, run the lead with `danger-full-access`. Dispatched workers retain
 `workspace-write` plus access to the run directory. Product-code ownership is still enforced by the
 proofline hooks and gates.
+
+<!-- Optional, delete freely. proofline has no logging standard of its own. If your project has one, write it in
+     your own part of this file (outside the proofline block, which `proofline upgrade` replaces), for example:
+
+     ## Logging
+     - Log through `internal/logx` only; never `fmt.Println` or `print`.
+     - Never log request bodies, tokens, passwords or personal data; pass user input through `logx.Redact`.
+
+     The code review's `rules` focus reads AGENTS.md, extracts the rules a reviewer can check on a changed line (a
+     vague rule such as "log carefully" is ignored) and reports a violation the diff introduces, in every task
+     that has a rules review. This example is not a rule of this project. -->
