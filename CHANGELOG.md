@@ -8,6 +8,7 @@
 - `agent.sh knowledge-done <ID> not_applicable "<reason>"` needs one specific sentence, records it in `RUN.yaml` (`execution.knowledge_reason`) and the ledger, and the completion report shows it. The script refuses it, naming the signal, when the task changed a documentation path, a contract, a design-document item or user-visible behaviour.
 - One knowledge rule in `KNOWLEDGE.md` (always runs after CODE_DONE; KNOWLEDGE_DONE with pages written, or `not_applicable` with a reason); the lifecycle, workflow, lead role and llm-wiki texts point to it.
 - Every `/proofline` command ends with one `Next step:` line, always a user command or an action of yours, never an internal one. New `agent.sh next-user` holds the one table (`next-user.sh`); the lead writes the line, the Stop hook adds it when it is missing, and `proofline` prints it for its own commands and failures. `proofline status` and `resume` no longer print the lead's `next=` lines.
+- A run started before 0.0.17 has no `knowledge_reason` field, so `knowledge-done ... not_applicable` is refused there, and the reason may not contain `#`.
 
 ## 0.0.16 — 2026-10-20
 
