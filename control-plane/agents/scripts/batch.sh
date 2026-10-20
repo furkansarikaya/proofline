@@ -33,8 +33,37 @@ tick=60; [ "${PROOFLINE_TEST:-}" != 1 ] || tick=${PROOFLINE_BATCH_MINUTE:-60}; c
 # [permissions.<name>] tables, verified with `codex sandbox -P`) gives: read everywhere, write the project folder INCLUDING .git and .agents,
 # but .git/hooks and .git/config stay read-only (a hook or core.hooksPath would run code outside the sandbox), the temp dir, and network on.
 # The profile is passed as -c overrides, no file is written. `.codex` stays read-only. danger-full-access only through the approved summary.
+# Package managers write caches under $HOME (npm: ~/.npm, which the profile keeps read-only: `npm view` died with EPERM). $HOME stays read-only;
+# instead shell_environment_policy.set points the caches into the writable temp dir (CODEX_PKG, one folder per user). Verified on codex-cli 0.163.0 with
+# `codex sandbox -P` and the real tools in a temp project: npm (npm_config_cache), pnpm 10 (npm_config_store_dir), yarn 4 (YARN_CACHE_FOLDER and
+# YARN_GLOBAL_FOLDER), pip (PIP_CACHE_DIR), go (GOCACHE, GOPATH, which holds the module cache and sumdb). NOT verified, so not claimed: cargo (not
+# installed where this was checked), any other package manager, a corepack download of a tool version that is not cached. This list is CODEX_VERIFIED.
 CODEX_PROFILE='proofline_night'
 CODEX_FS='{":root"="read",":workspace_roots"={"."="write",".git"="write",".git/hooks"="read",".git/config"="read",".agents"="write"},":tmpdir"="write"}'
+CODEX_VERIFIED='npm, pnpm, yarn, pip, go'
+CODEX_MIN='0.163.0'   # the profile was verified on this codex-cli; an older or unparsable one is refused (no unknown sandbox)
+codex_env() { # -> the TOML inline table for shell_environment_policy.set
+  ce=${TMPDIR:-/tmp}; case "$ce" in *[!A-Za-z0-9_./+-]*) ce=/tmp ;; esac
+  ce=${ce%/}/proofline-pkg-$(id -u); mkdir -p "$ce" 2>/dev/null && chmod 700 "$ce" 2>/dev/null || :
+  printf '{npm_config_cache="%s/npm",npm_config_update_notifier="false",npm_config_store_dir="%s/pnpm-store",YARN_CACHE_FOLDER="%s/yarn",YARN_GLOBAL_FOLDER="%s/yarn-global",PIP_CACHE_DIR="%s/pip",GOCACHE="%s/go-build",GOPATH="%s/go"}' "$ce" "$ce" "$ce" "$ce" "$ce" "$ce" "$ce"
+}
+# codex --version -> "major.minor.patch" or nothing. Under PROOFLINE_TEST=1 only, PROOFLINE_CODEX_VERSION replaces the output of `codex --version`.
+codex_ver() {
+  if [ "${PROOFLINE_TEST:-}" = 1 ] && [ -n "${PROOFLINE_CODEX_VERSION+x}" ]; then cv=$PROOFLINE_CODEX_VERSION; else cv=$(codex --version 2>/dev/null | head -1 || :); fi
+  printf '%s\n' "$cv" | awk 'match($0, /[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?/) { print substr($0, RSTART, RLENGTH); exit }'
+}
+codex_ver_ok() { # VERSION: at least CODEX_MIN (a pre-release of the minimum itself counts as lower)
+  case "$1" in '') return 1 ;; esac
+  awk -v v="$1" -v m="$CODEX_MIN" 'BEGIN { pre = index(v, "-") > 0; sub(/-.*/, "", v); split(v, a, "."); split(m, b, ".")
+    for (i = 1; i <= 3; i++) { if (a[i] + 0 > b[i] + 0) exit 0; if (a[i] + 0 < b[i] + 0) exit 1 } exit pre }'
+}
+# The runtimes the driver tries, in order: batch.runtimes, else the lead runtime then the other installed one (the fallback when one hits its limit).
+rt_list() {
+  rl=$(cfgv batch.runtimes ''); if [ -z "$rl" ]; then
+    rl_lead=$(cfgv runtime.lead claude); rl=$rl_lead; for o in claude codex; do [ "$o" = "$rl_lead" ] || ! command -v "$o" >/dev/null 2>&1 || rl="$rl $o"; done
+  fi
+  printf '%s\n' "$rl"
+}
 
 # --- plan ------------------------------------------------------------------------------------------------------------
 cls_of() { awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$1"; }
@@ -142,12 +171,23 @@ plan() {
     if [ "$danger" = yes ]; then
       printf 'codex sandbox: danger-full-access\n'
       printf 'WARNING: you chose --codex-danger-full-access. A Codex night session then runs with NO sandbox: it can read and write anywhere your user can and use the network. Approving this summary approves that.\n'
-    else printf 'codex sandbox: workspace-write (project folder including .git and .agents, but not .git/hooks or .git/config; network access on for package installs)\n'; fi
-    # A161: Seatbelt cannot nest, so a sandboxed Codex lead cannot start a sandboxed `codex exec` worker; a warning, never a block (the hash binds it).
-    if [ "$danger" != yes ] && [ "$(cfgv runtime.lead claude)" = codex ]; then
+    else printf 'codex sandbox: proofline_night profile (project folder including .git and .agents, but not .git/hooks or .git/config; network on; $HOME read-only, package-manager caches redirected into the temp dir, verified for: %s; other package managers are not verified)\n' "$CODEX_VERIFIED"; fi
+    # A161: a Codex session may run as the lead (batch.runtimes, the lead runtime, or the fallback when the first runtime hits its limit).
+    pl_rts=$(rt_list); pl_codex=no; for r in $pl_rts; do [ "$r" != codex ] || pl_codex=yes; done
+    if [ "$pl_codex" = yes ]; then   # the Codex version the driver will use is part of what is approved
+      pl_cv=$(codex_ver); if [ -z "$pl_cv" ]; then printf 'codex version: unknown (codex --version gave no version; the driver refuses it, minimum %s)\n' "$CODEX_MIN"
+      elif codex_ver_ok "$pl_cv"; then printf 'codex version: %s (minimum %s)\n' "$pl_cv" "$CODEX_MIN"
+      else printf 'codex version: %s (below the minimum %s; the driver refuses it)\n' "$pl_cv" "$CODEX_MIN"; fi
+    fi
+    # Seatbelt cannot nest, so a sandboxed Codex lead cannot start a sandboxed `codex exec` worker; a warning, never a block (the hash binds it).
+    if [ "$danger" != yes ] && [ "$pl_codex" = yes ]; then
       nest=''; for nr in task_author explorer architect data_architect designer implementer reviewer security_reviewer qa verifier; do
         [ "$(sh "$here/exec-policy.sh" runtime "$nr" 2>/dev/null || :)" != codex ] || nest="$nest $nr"; done
-      [ -z "$nest" ] || printf 'WARNING: the lead runs on Codex and these roles also run on Codex:%s. On macOS a sandboxed Codex lead cannot start sandboxed Codex workers (sandboxes do not nest). Either set the worker and reviewer runtimes to claude (proofline init --worker claude --reviewers claude, and remove any --role ROLE=codex override) or plan again with --codex-danger-full-access.\n' "$nest"
+      if [ -n "$nest" ]; then
+        if [ "$(cfgv runtime.lead claude)" = codex ] && [ -z "$(cfgv batch.runtimes '')" ]; then pl_who='the lead runs on Codex'
+        else pl_who="a lead session can run on Codex (runtimes tried, in order: $pl_rts)"; fi
+        printf 'WARNING: %s and these roles also run on Codex:%s. On macOS a sandboxed Codex lead cannot start sandboxed Codex workers (sandboxes do not nest). Either set the worker and reviewer runtimes to claude (proofline init --worker claude --reviewers claude, and remove any --role ROLE=codex override), keep Codex out of batch.runtimes, or plan again with --codex-danger-full-access.\n' "$pl_who" "$nest"
+      fi
     fi
   } > "$tmp/SUMMARY.md"
   mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"; mv "$tmp/order" "$bd/order.tsv"
@@ -281,7 +321,7 @@ run_session() { # ID RUNTIME PROMPT SANDBOX: the runtime's own command, in the p
   S_PM=$(cfgv dispatch.claude_permission_mode bypassPermissions); cd "$root" || return 1
   if [ "$2" = codex ]; then
     rs_sb=$4; rs_p=$3   # the choice the driver read once, right after batch-check
-    set -- -c "default_permissions=\"$CODEX_PROFILE\"" -c "permissions.$CODEX_PROFILE.network.enabled=true" -c "permissions.$CODEX_PROFILE.filesystem=$CODEX_FS"
+    set -- -c "default_permissions=\"$CODEX_PROFILE\"" -c "permissions.$CODEX_PROFILE.network.enabled=true" -c "permissions.$CODEX_PROFILE.filesystem=$CODEX_FS" -c "shell_environment_policy.set=$(codex_env)"
     [ "$rs_sb" != danger-full-access ] || set -- -s danger-full-access   # only what the approved summary states, never config or env
     codex exec -C "$root" "$@" -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$rs_p" < /dev/null
   else claude -p "$3" --permission-mode "$S_PM" < /dev/null; fi
@@ -334,7 +374,7 @@ run() {
   sh "$agent" batch-check >/dev/null 2>&1 || die "no valid batch approval for the current summary: plan the batch (agent.sh batch-plan), then reply \"approve batch\" to the summary"
   [ -f "$bd/order.tsv" ] || die "no batch order: plan the batch first"
   # The Codex sandbox the approved summary states is read ONCE, here, right after batch-check; a session cannot edit SUMMARY.md to widen it for later sessions.
-  B_SB=$(sed -n 's/^codex sandbox: \([a-z-]*\).*/\1/p' "$bd/SUMMARY.md" | head -1)
+  B_SB=$(sed -n 's/^codex sandbox: \([a-z_-]*\).*/\1/p' "$bd/SUMMARY.md" | head -1)
   if [ -f "$bd/LOCK" ]; then
     lp=$(cat "$bd/LOCK" 2>/dev/null || :)
     case "$lp" in ''|*[!0-9]*) ;; *) ! kill -0 "$lp" 2>/dev/null || die "a batch run is active (pid $lp): only one task at a time" ;; esac
@@ -360,9 +400,20 @@ run() {
     esac
   done
   [ -d "$bd/logs" ] || mkdir -p "$bd/logs"
-  rts=$(cfgv batch.runtimes ''); if [ -z "$rts" ]; then
-    rts=$(cfgv runtime.lead claude); for o in claude codex; do [ "$o" = "$rts" ] || ! command -v "$o" >/dev/null 2>&1 || rts="$rts $o"; done
-  fi
+  rts=$(rt_list)
+  # A161: a Codex runtime runs only on a codex-cli the profile was verified on; the version is read once, here (a runtime named in the
+  # configuration or the lead is refused, an installed fallback is left out with one line)
+  case " $rts " in *" codex "*)
+    if [ "$B_SB" != danger-full-access ]; then
+      B_CV=$(codex_ver)
+      if ! codex_ver_ok "$B_CV"; then
+        if [ -n "$B_CV" ]; then bad="codex-cli $B_CV is below the minimum $CODEX_MIN the proofline_night profile was verified on"; else bad="codex --version gave no parsable version (minimum $CODEX_MIN, the version the proofline_night profile was verified on)"; fi
+        if [ -n "$(cfgv batch.runtimes '')" ] || [ "$(cfgv runtime.lead claude)" = codex ]; then die "$bad; update Codex or use runtime claude"; fi
+        printf 'batch: %s: Codex is left out of this batch\n' "$bad" >&2
+        nr=''; for r in $rts; do [ "$r" = codex ] || nr="$nr $r"; done; rts=${nr# }
+      fi
+    fi ;;
+  esac
   exhausted=''
   for id in $(cut -f1 "$bd/order.tsv"); do
     [ "$(st_get "$id" 2)" = pending ] || continue

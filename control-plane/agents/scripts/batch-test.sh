@@ -93,6 +93,7 @@ EOF
 # fake codex: records its argv, then behaves like the fake claude for the task named in the last argument (the prompt)
 cat > "$FAKE/bin/codex" <<'EOF'
 #!/bin/sh
+[ "$1" != --version ] || { echo "codex-cli 0.163.0"; exit 0; }
 for a in "$@"; do last=$a; done
 printf '%s\n' "$*" >> "$FAKE/codex.argv"
 # A160: a session that rewrites the approved summary to widen the sandbox for the sessions after it
@@ -401,7 +402,7 @@ sc_codex_sandbox() {
   printf 'merge\n' > "$FAKE/behave/T-1"
   # default: workspace-write with network for package installs; the summary says so and carries no warning
   BP all >/dev/null || die "batch-plan failed"
-  grep -q '^codex sandbox: workspace-write' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
+  grep -q '^codex sandbox: proofline_night profile' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
   batch_approve; : > "$FAKE/codex.argv"
   BB run >/dev/null 2>&1 || :
   grep -q 'default_permissions="proofline_night"' "$FAKE/codex.argv" && grep -q 'permissions.proofline_night.network.enabled=true' "$FAKE/codex.argv" && ! grep -q -- ' -s ' "$FAKE/codex.argv" || die "codex argv: $(cat "$FAKE/codex.argv")"
@@ -532,11 +533,118 @@ sc_adapter_refused() {
   ok "batch-plan: tasks.adapter github exits 1 with the exact next step and writes nothing"
 }
 
+# --- 9c. (A161) codex-cli floor: an explicit codex runtime refuses an old or unparsable version, a fallback is left out with one line ---
+cv_plan() { # re-plan and approve the current fixture (T-1 merges)
+  rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/codex.argv"; : > "$FAKE/calls.log"; printf 'merge\n' > "$FAKE/behave/T-1"
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+}
+cv_run() { # VERSION: the driver run with PROOFLINE_CODEX_VERSION=VERSION (set, possibly empty); output in run.out
+  cv_rc=0; ( PROOFLINE_CODEX_VERSION=$1; export PROOFLINE_CODEX_VERSION; BB run > "$base/run.out" 2>&1 ) || cv_rc=$?
+}
+sc_codex_version() {
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
+  cv_plan
+  # refused for a runtime the configuration names: no session starts
+  for v in 0.162.9 0.163.0-alpha.1 0.100.0; do
+    cv_run "$v"
+    [ "$cv_rc" != 0 ] && grep -q "^batch: codex-cli $v is below the minimum 0.163.0 the proofline_night profile was verified on; update Codex or use runtime claude" "$base/run.out" || die "batch.runtimes codex, version $v not refused as below: rc=$cv_rc $(cat "$base/run.out")"
+    [ -z "$(calls)" ] && [ ! -s "$FAKE/codex.argv" ] || die "a session started on codex-cli $v"
+  done
+  for v in '' garbage 'codex-cli'; do
+    cv_run "$v"
+    [ "$cv_rc" != 0 ] && grep -q '^batch: codex --version gave no parsable version (minimum 0.163.0, ' "$base/run.out" || die "batch.runtimes codex, version '$v' not refused as unparsable: rc=$cv_rc $(cat "$base/run.out")"
+    [ -z "$(calls)" ] || die "a session started with an unparsable codex version '$v'"
+  done
+  # accepted (a fresh approved plan each: a finished run leaves state behind)
+  for v in 0.163.0 0.163.1 0.164.0-alpha.1 1.0.0; do
+    cv_plan; cv_run "$v"
+    [ "$cv_rc" = 0 ] && [ "$(calls)" = "T-1" ] && [ -s "$FAKE/codex.argv" ] || die "codex-cli $v refused or not run: rc=$cv_rc calls='$(calls)' $(cat "$base/run.out")"
+    grep -q 'is below the minimum\|no parsable version' "$base/run.out" && die "codex-cli $v produced a refusal text: $(cat "$base/run.out")"
+  done
+  # the lead runtime codex (no batch.runtimes) is refused the same way
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; sed 's/^  lead: .*/  lead: codex/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml
+  git add -A; git commit -qm 'lead codex'; cv_plan; cv_run 0.162.9
+  [ "$cv_rc" != 0 ] && grep -q '^batch: codex-cli 0.162.9 is below the minimum 0.163.0 ' "$base/run.out" && [ -z "$(calls)" ] || die "lead codex, 0.162.9 not refused: rc=$cv_rc $(cat "$base/run.out")"
+  cv_plan; cv_run ''
+  [ "$cv_rc" != 0 ] && grep -q '^batch: codex --version gave no parsable version' "$base/run.out" || die "lead codex, empty version not refused: rc=$cv_rc $(cat "$base/run.out")"
+  # a fallback (claude lead, codex installed, claude hits its limit): codex is left out with one line on stderr, the batch goes on with claude only
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall
+  cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; cv_run 0.162.9
+  [ "$(grep -c 'Codex is left out of this batch' "$base/run.out")" = 1 ] && grep -q '^batch: codex-cli 0.162.9 is below the minimum 0.163.0 the proofline_night profile was verified on: Codex is left out of this batch$' "$base/run.out" || die "fallback codex below the floor: no single left-out line: $(cat "$base/run.out")"
+  [ ! -s "$FAKE/codex.argv" ] || die "a left-out codex was used as the fallback: $(cat "$FAKE/codex.argv")"
+  cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; cv_run ''
+  grep -q '^batch: codex --version gave no parsable version (minimum 0.163.0, .*): Codex is left out of this batch$' "$base/run.out" && [ ! -s "$FAKE/codex.argv" ] || die "fallback codex unparsable: $(cat "$base/run.out")"
+  # an accepted version keeps the fallback: claude hits its limit, codex takes the task
+  cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; cv_run 0.163.0
+  grep -q 'left out' "$base/run.out" && die "an accepted codex was left out: $(cat "$base/run.out")"
+  [ -s "$FAKE/codex.argv" ] || die "an accepted codex was not tried as the fallback after claude's limit: $(cat "$base/run.out")"
+  ok "codex version floor: 0.162.9, 0.163.0-alpha.1, empty and garbage refused for batch.runtimes/lead codex; 0.163.0, 0.163.1, 0.164.0-alpha.1 accepted; a fallback below the floor is left out with one stderr line"
+}
+
+# summary: the verified package managers and the codex version line (A161)
+sc_codex_summary_version() {
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
+  bp_v() { ( PROOFLINE_CODEX_VERSION=$1; export PROOFLINE_CODEX_VERSION; BP all >/dev/null 2>&1 ) || die "batch-plan failed with codex version '$1'"; }
+  bp_v 0.163.0
+  grep -q '^codex sandbox: proofline_night profile (.*verified for: npm, pnpm, yarn, pip, go; ' "$summary" || die "sandbox line: $(grep '^codex sandbox' "$summary")"
+  grep -qx 'codex version: 0.163.0 (minimum 0.163.0)' "$summary" || die "version line (ok): $(grep '^codex version' "$summary")"
+  bp_v 0.162.9
+  grep -qx 'codex version: 0.162.9 (below the minimum 0.163.0; the driver refuses it)' "$summary" || die "version line (below): $(grep '^codex version' "$summary")"
+  bp_v ''
+  grep -q '^codex version: unknown (' "$summary" && grep -q 'minimum 0.163.0)' "$summary" || die "version line (unknown): $(grep '^codex version' "$summary")"
+  # the version is part of what is approved: the summary hash differs between versions
+  bp_v 0.164.0; [ "$(grep -c '^codex version: 0.164.0' "$summary")" = 1 ] || die "version not shown: $(grep '^codex version' "$summary")"
+  # a claude-only batch (no codex runtime in the list) carries no codex lines
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall no
+  ( PATH=$(path_without codex); export PATH; BP all >/dev/null 2>&1 ) || die "batch-plan failed without codex"
+  grep -q '^codex version:\|^WARNING' "$summary" && die "codex version or nesting lines in a claude-only batch: $(grep '^codex version\|^WARNING' "$summary")"
+  ok "summary: the sandbox line names the verified package managers; the codex version line shows ok, below-minimum or unknown; no version line without a codex runtime"
+}
+
+# the package-manager caches go into the writable temp dir through shell_environment_policy.set, never into $HOME (A161)
+sc_codex_pkg_env() {
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
+  mkdir -p "$base/tmp" "$base/home"
+  cv_plan
+  ( TMPDIR=$base/tmp; HOME=$base/home; export TMPDIR HOME; BB run > "$base/run.out" 2>&1 ) || :
+  [ "$(calls)" = "T-1" ] || die "the codex session did not run: $(cat "$base/run.out")"
+  argv=$(cat "$FAKE/codex.argv")
+  pe=$(printf '%s\n' "$argv" | sed -n 's/.*-c shell_environment_policy\.set=\({[^}]*}\).*/\1/p')
+  [ -n "$pe" ] || die "no shell_environment_policy.set in the codex argv: $argv"
+  pkg=$base/tmp/proofline-pkg-$(id -u)
+  case "$pe" in *"npm_config_cache=\"$pkg/npm\""*) ;; *) die "npm_config_cache is not under $pkg/npm: $pe" ;; esac
+  [ -d "$pkg" ] || die "the cache folder $pkg was not created"
+  for kv in $(printf '%s' "$pe" | tr -d '{}"' | tr ',' ' '); do
+    case "$kv" in *=*) ;; *) continue ;; esac
+    val=${kv#*=}
+    case "$val" in "$base/home"*|'~'*|'$HOME'*) die "a cache variable points into \$HOME: $kv" ;; esac
+    case "$kv" in npm_config_update_notifier=false) ;; *) case "$val" in "$pkg"/*) ;; *) die "a cache variable is not under $pkg: $kv" ;; esac ;; esac
+  done
+  for var in npm_config_store_dir YARN_CACHE_FOLDER YARN_GLOBAL_FOLDER PIP_CACHE_DIR GOCACHE GOPATH; do
+    case "$pe" in *"$var="*) ;; *) die "$var missing from the environment policy: $pe" ;; esac
+  done
+  # the danger case runs without the sandbox profile and without the environment redirection
+  cv_plan; BP all --codex-danger-full-access >/dev/null || die "batch-plan with the flag failed"; batch_approve
+  ( TMPDIR=$base/tmp; HOME=$base/home; export TMPDIR HOME; BB run > "$base/run.out" 2>&1 ) || :
+  grep -q -- '-s danger-full-access' "$FAKE/codex.argv" && ! grep -q 'shell_environment_policy' "$FAKE/codex.argv" || die "danger argv: $(cat "$FAKE/codex.argv")"
+  ok "codex argv: shell_environment_policy.set puts npm/pnpm/yarn/pip/go caches under the proofline-pkg temp dir, none under \$HOME; absent with --codex-danger-full-access"
+}
+
 # --- 9e. (A161) plan-time WARNING: a Codex lead whose workers also run on Codex ------------------------------------------------------
 wn_setup() { # LEAD WORKER [QA-RUNTIME]: the real exec-policy.sh (the fixture stubs it) and the runtime keys
   bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall no; cp "$tl_agents/scripts/exec-policy.sh" .agents/scripts/exec-policy.sh
   sed "s/^  lead: .*/  lead: $1/; s/^  worker: .*/  worker: $2/" .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml
   if [ -n "${3:-}" ]; then awk -v r="    qa: $3" '{ print } /^  roles:/ { print r }' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; fi
+}
+path_without() { # CMD: a PATH where CMD is not found. A directory that holds CMD is replaced by a folder of symlinks to its other tools,
+  # so a machine with a real codex installed (next to git, sh, ...) does not leak it into the test.
+  pw_o=''; pw_ifs=$IFS; IFS=:; for pw_d in $PATH; do
+    if [ -x "$pw_d/$1" ]; then
+      pw_n=$base/nocmd-$(printf '%s' "$pw_d" | tr -c 'A-Za-z0-9' _); mkdir -p "$pw_n"
+      for pw_f in "$pw_d"/*; do [ -x "$pw_f" ] && [ "${pw_f##*/}" != "$1" ] && ln -sf "$pw_f" "$pw_n/${pw_f##*/}" || :; done
+      pw_o="$pw_o:$pw_n"
+    else pw_o="$pw_o:$pw_d"; fi
+  done; IFS=$pw_ifs; printf '%s\n' "${pw_o#:}"
 }
 sc_codex_lead_warning() {
   wn_setup codex codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
@@ -549,9 +657,22 @@ sc_codex_lead_warning() {
   grep -q '^WARNING: you chose --codex-danger-full-access' "$summary" || die "danger warning gone: $(grep WARNING "$summary")"
   wn_setup codex claude; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
   grep -q '^WARNING' "$summary" && die "a codex lead with only claude roles got a warning: $(grep WARNING "$summary")"
+  # A161 (maintainer-approved change): a claude lead with Codex on PATH as the fallback runtime and Codex workers now DOES get the warning
   wn_setup claude codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q '^WARNING' "$summary" && die "a claude lead got the nesting warning: $(grep WARNING "$summary")"
-  ok "plan WARNING: codex lead + codex workers (roles listed), only roles.qa codex lists qa; absent with --codex-danger-full-access, with all-claude roles and with a claude lead"
+  grep -q '^WARNING: a lead session can run on Codex (runtimes tried, in order: claude codex) and these roles also run on Codex: task_author explorer ' "$summary" || die "claude lead + codex fallback + codex workers: $(grep -i 'WARNING' "$summary")"
+  grep -q 'the lead runs on Codex' "$summary" && die "a claude lead's warning says the lead runs on Codex: $(grep WARNING "$summary")"
+  # codex not installed and no codex runtime in rt_list: no warning
+  wn_setup claude codex; wn_rc=0; ( PATH=$(path_without codex); export PATH; BP all > "$base/p.out" 2>&1 ) || wn_rc=$?
+  [ "$wn_rc" = 0 ] || die "plan refused without codex installed: $(cat "$base/p.out")"
+  grep -q '^WARNING' "$summary" && die "no codex installed and no codex runtime, yet a warning: $(grep WARNING "$summary")"
+  grep -q '^codex version:' "$summary" && die "a codex version line without a codex runtime"
+  # the danger flag removes it
+  wn_setup claude codex; BP all --codex-danger-full-access > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
+  grep -q 'a lead session can run on Codex' "$summary" && die "the nesting warning shows with --codex-danger-full-access on a claude lead"
+  # a claude lead whose batch.runtimes names codex: the same wording, runtimes in the configured order
+  wn_setup claude codex; cfg_extra '  runtimes: claude codex'; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
+  grep -q '^WARNING: a lead session can run on Codex (runtimes tried, in order: claude codex) and ' "$summary" || die "batch.runtimes claude codex: $(grep WARNING "$summary")"
+  ok "plan WARNING: codex lead + codex workers (roles listed), only roles.qa codex lists qa; a claude lead with codex as fallback warns (new wording); none without codex installed or with --codex-danger-full-access; all-claude roles none"
 }
 
 # --- 10. (A160) the CI that gates the next task is the one of the merge commit ---------------------------------------------------
@@ -593,6 +714,9 @@ run_sc sc_stale_log
 run_sc sc_task_timeout
 run_sc sc_codex_sandbox
 run_sc sc_codex_sandbox_tamper
+run_sc sc_codex_version
+run_sc sc_codex_summary_version
+run_sc sc_codex_pkg_env
 run_sc sc_pgroup_method setm
 run_sc sc_pgroup_method setsid
 run_sc sc_pgroup_method perl

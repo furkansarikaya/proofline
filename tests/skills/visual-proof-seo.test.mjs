@@ -328,3 +328,34 @@ test("a page served as dir/index.html is checked under its published URL form (A
   const canon = seoEvaluate([page("dir/index.html", { canonicals: [{ raw: SITE + "/dir/", href: SITE + "/dir/" }] })], { ...SITEFACTS(["index.html"], { "dir/index.html": true }), robots_txt: T("/dir/index.html") }, opt);
   assert.notEqual(canon.pages.find((p) => p.path === "dir/index.html").status, "not_applicable");
 });
+
+// --- A161: a malformed percent-escape never throws; an encoded reserved octet stays one segment -----------------------
+test("pageUrl never throws on a malformed escape in the page or the base folder (A161)", () => {
+  assert.doesNotThrow(() => measure.pageUrl("file:///tmp/x/", "100%.html"));
+  assert.equal(measure.pageUrl("file:///tmp/x/", "100%.html"), "file:///tmp/x/100%.html");
+  assert.doesNotThrow(() => measure.pageUrl("file:///tmp/%te/", "index.html"));
+  assert.equal(measure.pageUrl("file:///tmp/%te/", "index.html"), "file:///tmp/%te/index.html");
+  assert.doesNotThrow(() => measure.pageUrl("file:///tmp/%te/", "100%.html"));
+  assert.equal(measure.pageUrl("file:///tmp/x/", "../y/a.html"), null, "a page outside the folder is still refused");
+  assert.equal(measure.pageUrl("file:///tmp/x/", "caf%C3%A9.html"), "file:///tmp/x/caf%C3%A9.html");
+});
+
+test("a page path is judged as published: %2F stays one segment, %25 and %20 forms match (A161)", () => {
+  const opt = { base_url: BASE, site_url: SITE };
+  const blockedBy = (rule, file) => {
+    const pg = page(file, { url: BASE + file, canonicals: [] });
+    const r = seoEvaluate([pg], { ...SITEFACTS([file], { [file]: true }), robots_txt: `User-agent: *\nDisallow: ${rule}\n` }, opt);
+    return r.pages.find((p) => p.path === file).status === "not_applicable";
+  };
+  assert.equal(blockedBy("/a/b", "a%2Fb.html"), false, "/a/b must not block the single segment a%2Fb.html");
+  assert.equal(blockedBy("/a%2Fb", "a%2Fb.html"), true);
+  assert.equal(blockedBy("/a%2fb", "a%2Fb.html"), true, "hex case is irrelevant");
+  assert.equal(blockedBy("/a%2Fb", "a/b.html"), false, "%2F is not a slash");
+  assert.equal(blockedBy("/a/b.html", "a/b.html"), true);
+  assert.equal(blockedBy("/a/b", "a/b.html"), true);
+  assert.equal(blockedBy("/100%25", "100%25.html"), true);
+  assert.equal(blockedBy("/100%", "100%25.html"), true, "a lone % in a rule is read as %25");
+  assert.equal(blockedBy("/a%20b", "a%20b.html"), true);
+  assert.equal(blockedBy("/a b", "a%20b.html"), true);
+  assert.equal(blockedBy("/a%20b", "a%2520b.html"), false, "%2520 is a literal %20, not a space");
+});

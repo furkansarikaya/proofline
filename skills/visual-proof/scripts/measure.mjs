@@ -294,16 +294,20 @@ const clip = (v, n = 300) => { const t = typeof v === "string" ? v : JSON.string
 // A URL as a path under the site root (the base_url folder), or null when it names another site. A file: page and
 // the base_url origin map by their position under the folder; the site's public origin (config seo.site_url, or the
 // origin the page declares) maps by its path, because a canonical points at the deployed address.
-const safeDecode = (t) => { try { return decodeURIComponent(t); } catch { return t; } };
+// Never throws: every run of valid escapes is decoded, a malformed one (`%te`, a lone `%`, an invalid UTF-8 run) stays as written.
+const safeDecode = (t) => String(t).replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => { try { return decodeURIComponent(m); } catch { return m; } });
+// A URL path as a site path: percent-escapes are decoded (a malformed one stays as written, it never throws) except `%2F`, `%25`, `%3F`
+// and `%23`, which stay encoded (upper-case hex): `/a%2Fb` is one segment, not `/a/b`, and a robots.txt rule `/a/b` must not block it.
+const decodePath = (t) => String(t).split(/(%(?:2F|25|3F|23))/i).map((x, i) => (i % 2 ? x.toUpperCase() : safeDecode(x))).join("");
 function siteRel(href, ctx) {
   let u, b;
   try { b = new URL(ctx.base); u = new URL(href, b); } catch { return null; }
   let rel;
-  const dir = safeDecode(b.pathname.replace(/[^/]*$/, ""));
+  const dir = decodePath(b.pathname.replace(/[^/]*$/, ""));
   if (b.protocol === "file:" ? u.protocol === "file:" : u.origin === b.origin) {
-    const p = safeDecode(u.pathname);
+    const p = decodePath(u.pathname);
     rel = p.startsWith(dir) ? p.slice(dir.length) : p.replace(/^\//, "");
-  } else if (ctx.origins.has(u.origin)) rel = safeDecode(u.pathname).replace(/^\//, "");
+  } else if (ctx.origins.has(u.origin)) rel = decodePath(u.pathname).replace(/^\//, "");
   else return null;
   return rel;
 }
@@ -805,7 +809,7 @@ export function pageUrl(base, path) {
   if (b.protocol === "file:") {
     const dir = safeDecode(b.pathname.replace(/[^/]*$/, ""));
     if (b.host || dir === "/") return null; // the filesystem root (or a remote host) is not an app folder
-    return u.protocol === "file:" && !u.host && decodeURIComponent(u.pathname).startsWith(dir) ? u.href : null;
+    return u.protocol === "file:" && !u.host && safeDecode(u.pathname).startsWith(dir) ? u.href : null;
   }
   return /^https?:$/.test(b.protocol) && LOCAL.includes(b.hostname) && u.origin === b.origin ? u.href : null;
 }
