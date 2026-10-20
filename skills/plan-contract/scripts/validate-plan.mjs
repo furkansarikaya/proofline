@@ -4,7 +4,7 @@
 // scope paths exist (or are `new: true`), no globs, no duplicates, tdd_exemption quality,
 // sections required by class, `## Data` first line, `## Assumptions` register shape, no placeholder sections.
 // No dependencies.
-// Usage: node <skill-dir>/scripts/validate-plan.mjs <PLAN.md> <TASK.md> [--class C] [--repo <dir>]
+// Usage: node <skill-dir>/scripts/validate-plan.mjs <PLAN.md> <TASK.md> [--class C] [--repo <dir>] [--entry-words <regex>]
 // Exit codes: 0 valid, 1 invalid (one message per line), 2 usage or read error.
 
 import { readFileSync, realpathSync, statSync, existsSync } from "node:fs";
@@ -21,6 +21,29 @@ export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
 export const BASE_SECTIONS = ["Behavior", "Tests", "Verification commands", "Dependencies", "Contracts", "Assumptions"];
 export const ARCHITECTURE_CLASSES = ["COMPLEX", "CRITICAL"];
 export const MAX_SCOPE_PATHS = { TRIVIAL: 2 };
+// A162 input validation at entry points. Mirrors agent.sh plan_entry_points / plan_validation_missing (skills share no
+// files, so the code and the default expression are copied; config validation.entry_words is the project's own list and
+// is passed with --entry-words). A `## Contracts` bullet that matches the expression and does not remove the contract
+// declares an entry point that takes external input, named by its first backticked token, else by the text before the
+// first colon. Each one needs a `## Validation` bullet naming it with `accepts`, `limits` and `rejected at`.
+export const ENTRY_WORDS = "(^|[^A-Za-z0-9_])((GET|POST|PUT|PATCH|DELETE) +/[^ ]*|endpoints?|routes?|handlers?|webhooks?|consumers?|subscribers?|forms?|cli +(arguments?|args?|flags?|options?|commands?)|command-line|argv|rpc|grpc|graphql)([^A-Za-z0-9_]|$)";
+const CONTRACT_REMOVED = /(^|[^A-Za-z0-9_])(removes?|removed|dropped|drops|deprecated|deprecates?|no longer)([^A-Za-z0-9_]|$)/i;
+export function entryPoints(contractLines, words = ENTRY_WORDS) {
+  const re = new RegExp(words, "i");
+  const out = [];
+  for (const l of contractLines || []) {
+    const m = /^\s*[-*]\s+(\S.*)$/.exec(l);
+    if (!m || !re.test(m[1]) || CONTRACT_REMOVED.test(m[1])) continue;
+    const bt = /`([^`]*)`/.exec(m[1]);
+    const name = (bt ? bt[1] : m[1].split(":")[0]).trim();
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+export function validationMissing(contractLines, validationLines, words = ENTRY_WORDS) {
+  const lines = (validationLines || []).filter((l) => /^\s*[-*]\s/.test(l));
+  return entryPoints(contractLines, words).filter((n) => !lines.some((l) => l.includes(n) && /accepts/i.test(l) && /limits/i.test(l) && /rejected at/i.test(l)));
+}
 export const SCOPE_KEYS = ["path", "criteria", "new", "tdd_exemption"];
 // Paths that mean persistence or UI changed; the plan then needs `## Data` / `## UI`.
 export const DATA_PATH = /(^|\/)(migrations?|schema|db|database|prisma|sql)(\/|\.|$)|\.sql$/i;
@@ -175,7 +198,7 @@ export function parseTask(md) {
 
 const isPlaceholder = (body) => body.every((l) => /^\s*(<[^>]*>|tbd|todo|\.\.\.|-)?\s*$/i.test(l));
 
-export function validate(planMd, taskMd, { root, cls } = {}) {
+export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
   const errors = [];
   const task = parseTask(taskMd);
   const fm = parseFrontMatter(planMd);
@@ -261,6 +284,9 @@ export function validate(planMd, taskMd, { root, cls } = {}) {
     const none = c.length === 1 && /^none\b/i.test(c[0].trim());
     if (!none && !c.every((l) => /^\s*-\s+\S/.test(l))) errors.push(`section "## ${s}": write "none" or one "- " item per line`);
   }
+  // A162: an entry point declared in `## Contracts` needs a one-line validation summary in `## Validation`.
+  const missingValidation = validationMissing(body.get("Contracts"), body.get("Validation"), entryWords || ENTRY_WORDS);
+  if (missingValidation.length) errors.push(`section "## Validation": no complete line for the entry point(s) ${missingValidation.join(", ")} declared in ## Contracts; write one line each: "- <entry point>: accepts <what>; limits <limits>; rejected at <where, server side>"`);
   // A64: the project's design documents (config design_docs: data_model, api) that exist in the repository are
   // in scope when the plan changes what they describe: a Data section with content beyond its first line, a
   // Contracts section that is not "none". Left out of scope they drift (COMPLEX X-10).
@@ -310,11 +336,12 @@ function main(argv) {
     return v ?? "";
   };
   const cls = opt("--class");
+  const entryWords = opt("--entry-words");
   const root = opt("--repo") ?? process.cwd();
-  if (args.length !== 2 || cls === "" || root === "") { console.error("usage: validate-plan.mjs <PLAN.md> <TASK.md> [--class C] [--repo <dir>]"); return 2; }
+  if (args.length !== 2 || cls === "" || root === "" || entryWords === "") { console.error("usage: validate-plan.mjs <PLAN.md> <TASK.md> [--class C] [--repo <dir>] [--entry-words <regex>]"); return 2; }
   let plan, task;
   try { plan = readFileSync(args[0], "utf8"); task = readFileSync(args[1], "utf8"); realpathSync(root); } catch (e) { console.error(`error: ${e.message}`); return 2; }
-  const errors = validate(plan, task, { root, cls });
+  const errors = validate(plan, task, { root, cls, entryWords });
   for (const e of errors) console.log(e);
   if (errors.length === 0) console.log("valid");
   return errors.length ? 1 : 0;

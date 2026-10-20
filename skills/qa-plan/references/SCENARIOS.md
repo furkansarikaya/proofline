@@ -40,6 +40,8 @@ Include a category only when it applies to a criterion; each scenario names the 
 | `ui-states` | a screen or component | empty, loading, error, long text, narrow viewport, repeated click |
 | `error-paths` | dependencies can fail | dependency timeout or error; disk full; partial failure midway |
 
+Mandatory (A162): an entry point that takes external input (HTTP endpoint, form handler, CLI argument, queue consumer, webhook) listed in the plan's `## Contracts` always gets at least one `invalid-input` scenario naming it, with an input the server must reject (the plan's `## Validation` line says what is accepted, the limits and where it is rejected: probe just outside each). `validate-qa.mjs plan --plan PLAN.md [--entry-words REGEX]` checks it.
+
 Rules: no scenario without a criterion; no category listed "for completeness"; if nothing applies write `None applicable: <reason>` (for example a documentation-only change).
 
 ## Regression surface

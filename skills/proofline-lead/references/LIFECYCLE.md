@@ -92,8 +92,11 @@ QA plan (STANDARD and up): only once PLAN.md is final (validated, every design s
 plan or contract change (an amendment included) means dispatching `qa` again. Before freeze,
 `A verify-qa-plan <ID>` checks the binding (it is repeated by `freeze` and `refreeze`): plan hash, every plan
 criterion has an acceptance scenario, no scenario for a criterion the plan lacks, no scenario that expects a
-term the plan's `## Contracts` removes or renames. A failure is fixed by re-deriving the QA plan, never by
-editing the hash.
+term the plan's `## Contracts` removes or renames, and an `[invalid-input]` scenario naming every entry point the
+plan's `## Contracts` lists (A162). A failure is fixed by re-deriving the QA plan, never by editing the hash.
+Before that, `freeze` refuses a plan whose `## Contracts` lists an entry point that takes external input (HTTP
+endpoint, form handler, CLI argument, queue consumer, webhook) without a `## Validation` line for it:
+`- <entry point>: accepts <what>; limits <limits>; rejected at <where, server side>`.
 
 ## 5. Approvals and freeze
 

@@ -225,3 +225,31 @@ test("report: PRE-EXISTING (fails identically on the base revision) never affect
   const bad = validateReport(REPORT_WITH_PRE.replace("fails identically on base d6fef45 (npm test -- login, exit 1)", "fails (npm test -- login, exit 1)"), undefined);
   assert.match(bad.errors.join("\n"), /PRE-EXISTING needs the pre-change run/);
 });
+
+// A162: every entry point of PLAN.md ## Contracts needs an [invalid-input] scenario naming it.
+const EP_MD = PLAN_MD.replace("## Contracts\n\nnone\n", "## Contracts\n\n- `POST /orders` creates an order\n");
+const withScenario = (cat, title, exp = "HTTP 400") => BODY.replace("None applicable: trivial", `- QA-3 (AC-1) [${cat}]: ${title}\n  input: a body with 51 items\n  expected: ${exp}\n  execution: auto\n  run: node t`);
+const epErr = (body, plan = EP_MD, words) => validatePlan(bound(plan, body), undefined, plan, words).errors.join("\n");
+test("plan: an entry point needs an invalid-input scenario naming it (A162)", () => {
+  assert.match(epErr(BODY), /no invalid-input scenario for the entry point POST \/orders/);
+  assert.equal(epErr(withScenario("invalid-input", "POST /orders with 51 items")), "");
+  assert.equal(epErr(withScenario("invalid-input", "too many items", "POST /orders answers 400")), "");
+  assert.match(epErr(withScenario("invalid-input", "POST /refunds with 51 items")), /entry point POST \/orders/); // another entry point
+  assert.match(epErr(withScenario("concurrency", "POST /orders with 51 items")), /entry point POST \/orders/); // wrong category
+  const gone = EP_MD.replace("creates an order", "is removed");
+  assert.equal(epErr(BODY, gone), "");
+  assert.equal(epErr(BODY, EP_MD, "nomatch"), "");
+});
+test("the default entry word list equals the config value and validate-plan's (A162)", async () => {
+  const cfg = readFileSync(fileURLToPath(new URL("../../control-plane/agents/config.yaml", import.meta.url)), "utf8").match(/^  entry_words: "(.*)"$/m)[1];
+  const m = await import(SCRIPT);
+  assert.equal(m.ENTRY_WORDS, cfg);
+  assert.equal((await import(fileURLToPath(new URL("../../skills/plan-contract/scripts/validate-plan.mjs", import.meta.url)))).ENTRY_WORDS, cfg);
+  assert.deepEqual(m.entryPoints(EP_MD), ["POST /orders"]);
+});
+test("CLI: validate-qa plan --plan refuses a missing invalid-input scenario (A162)", () => {
+  const d = mkdtempSync(join(tmpdir(), "qaep-")); writeFileSync(join(d, "P.md"), EP_MD); writeFileSync(join(d, "Q.md"), bound(EP_MD, BODY));
+  const run = (...a) => spawnSync(process.execPath, [SCRIPT, "plan", join(d, "Q.md"), "--plan", join(d, "P.md"), ...a], { encoding: "utf8" });
+  assert.equal(run().status, 1); assert.match(run().stderr, /invalid-input scenario for the entry point POST \/orders/);
+  assert.equal(run("--entry-words", "nomatch").status, 0);
+});

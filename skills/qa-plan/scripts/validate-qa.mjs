@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Validates QA_PLAN.md and QA_REPORT.md. No dependencies.
-//   node validate-qa.mjs plan   QA_PLAN.md   [--task TASK.md] [--plan PLAN.md]
+//   node validate-qa.mjs plan   QA_PLAN.md   [--task TASK.md] [--plan PLAN.md] [--entry-words REGEX]
 //   node validate-qa.mjs report QA_REPORT.md [--plan QA_PLAN.md]
 //   node validate-qa.mjs hash   QA_PLAN.md   (prints the sha256 the report must cite)
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error. --json prints the parsed result.
@@ -60,7 +60,26 @@ export function removedTerms(planText) {
   return [...out];
 }
 
-export function validatePlan(text, taskText, planText) {
+// A162: every entry point that PLAN.md `## Contracts` declares (it takes external input) needs an adversarial
+// `[invalid-input]` scenario naming it in its title, input, expected or run line. Mirrors agent.sh plan_entry_points and
+// qa_invalid_missing (skills share no files, so the code and the default expression are copied; --entry-words passes
+// the project's config validation.entry_words).
+export const ENTRY_WORDS = "(^|[^A-Za-z0-9_])((GET|POST|PUT|PATCH|DELETE) +/[^ ]*|endpoints?|routes?|handlers?|webhooks?|consumers?|subscribers?|forms?|cli +(arguments?|args?|flags?|options?|commands?)|command-line|argv|rpc|grpc|graphql)([^A-Za-z0-9_]|$)";
+const CONTRACT_REMOVED = /(^|[^A-Za-z0-9_])(removes?|removed|dropped|drops|deprecated|deprecates?|no longer)([^A-Za-z0-9_]|$)/i;
+export function entryPoints(planText, words = ENTRY_WORDS) {
+  const re = new RegExp(words, "i");
+  const out = [];
+  for (const l of sections(planText).get("Contracts") || []) {
+    const m = /^\s*[-*]\s+(\S.*)$/.exec(l);
+    if (!m || !re.test(m[1]) || CONTRACT_REMOVED.test(m[1])) continue;
+    const bt = /`([^`]*)`/.exec(m[1]);
+    const name = (bt ? bt[1] : m[1].split(":")[0]).trim();
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+export function validatePlan(text, taskText, planText, entryWords) {
   const errors = [];
   const secs = sections(text);
   const id = /^# QA plan: (\S+)/m.exec(strip(text))?.[1];
@@ -101,6 +120,10 @@ export function validatePlan(text, taskText, planText) {
     const qacs = new Set([...acc, ...adv].flatMap((s) => s.acs));
     for (const a of pacs) if (!acc.some((s) => s.acs.includes(a))) errors.push(`${a} is in PLAN.md but has no acceptance scenario`);
     for (const a of qacs) if (pacs.length && !pacs.includes(a)) errors.push(`${a} is not a criterion of PLAN.md`);
+    const text_of = (s) => [s.title, ...Object.values(s.kv)].join("\n");
+    for (const n of entryPoints(planText, entryWords || ENTRY_WORDS)) {
+      if (!adv.some((s) => s.category === "invalid-input" && text_of(s).includes(n))) errors.push(`no invalid-input scenario for the entry point ${n} of PLAN.md ## Contracts: add an adversarial scenario "- QA-<n> (AC-<k>) [invalid-input]: ..." that names it, with an input the server must reject`);
+    }
     const gone = removedTerms(planText);
     for (const s of [...acc, ...adv]) {
       const exp = s.kv.expected || "";
@@ -165,9 +188,9 @@ function main(argv) {
   const [mode, file] = argv;
   const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
-  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F] [--plan F] [--json]"); return 2; }
+  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F] [--plan F] [--entry-words REGEX] [--json]"); return 2; }
   if (mode === "hash") { console.log(sha256(read(file))); return 0; }
-  const r = mode === "plan" ? validatePlan(read(file), opt("--task") ? read(opt("--task")) : undefined, opt("--plan") ? read(opt("--plan")) : undefined) : validateReport(read(file), opt("--plan") ? read(opt("--plan")) : undefined);
+  const r = mode === "plan" ? validatePlan(read(file), opt("--task") ? read(opt("--task")) : undefined, opt("--plan") ? read(opt("--plan")) : undefined, opt("--entry-words")) : validateReport(read(file), opt("--plan") ? read(opt("--plan")) : undefined);
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2)); else r.errors.forEach((e) => console.error(`error: ${e}`));
   return r.valid ? 0 : 1;
 }

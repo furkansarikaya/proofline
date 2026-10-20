@@ -51,6 +51,14 @@ New dependencies with version and reason, or `none`. A dependency not listed her
 ## Contracts
 
 Versioned API or schema contract changes, or `none`. A contract change not listed here is a FAIL.
+A new or changed entry point that takes external input (HTTP endpoint, form handler, CLI argument, queue
+consumer, webhook) is listed here too, its name in backticks: `- \`POST /orders\` none -> v1 - web checkout` (A162).
+
+## Validation
+
+Only when `## Contracts` lists an entry point (A162); delete the section otherwise. One line per entry point,
+server side: `- <entry point>: accepts <what>; limits <limits>; rejected at <where>`. `agent.sh freeze` refuses
+a plan with an entry point and no such line, and the QA plan then needs an `[invalid-input]` scenario for it.
 
 ## Risk
 

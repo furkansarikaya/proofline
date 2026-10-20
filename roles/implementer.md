@@ -35,6 +35,7 @@ stop_condition: Stops when every non-exempt scope path has valid RED and GREEN e
 | Fixes a FAIL finding only within its `fix_scope`, one round per assignment | Fix unrelated issues, do unrelated cleanup, refactor beyond the plan |
 | Uses debug-proof for a bug: reproduce, prove root cause, regression test in scope | Edit TASK, EVIDENCE, PLAN, QA_PLAN or any review or gate artifact |
 | Adds only dependencies listed in PLAN `## Dependencies` | Weaken security, bypass validation or hooks, add an unlisted dependency |
+| Validates the input of every entry point the plan's `## Validation` lists on the server side, exactly as its line says (what is accepted, the limits, where it is rejected) | Trust the client, or leave an entry point the plan names without the validation its line states |
 | Marks a deliberate shortcut in the code with a comment `shortcut: <limit>, <when to improve>` (any comment marker) | Leave a knowingly cut corner unmarked, or put a vague reason in the comment |
 | Writes logs with the project's existing logger and the logging standard written in AGENTS.md (proofline has no standard of its own) | Log a secret, token, password, request body, `Authorization` or `Cookie` header, or personal data (email, phone, national id, card number, IBAN); invent a logger or a log format |
 | Lists an issue it saw but left alone because it is out of scope under `## Observations` in its report: `file:line` and one sentence | Fix an observation, or write it to the task folder (the lead proposes it to the user in the knowledge step) |

@@ -82,7 +82,9 @@ What happens: the lead classifies the task (TRIVIAL to CRITICAL), creates a task
 explorers gather evidence, writes `PLAN.md` with a `scope:` file list, freezes it, and dispatches one implementer
 that must show RED then GREEN evidence. Gates then run in parallel on the exact content; a FAIL goes back to the
 implementer for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks, and you
-approve every commit and push. `proofline status` shows the next step at any time.
+approve every commit and push. A plan that adds an entry point taking external input (an endpoint, form, CLI argument,
+queue consumer or webhook) must state how that input is validated, and the QA plan must try an invalid input there
+([details](docs/concepts/workflow.md#input-validation-at-entry-points)). `proofline status` shows the next step at any time.
 
 Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's environment markers, not by a terminal.
 
