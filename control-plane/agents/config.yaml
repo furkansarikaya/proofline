@@ -176,12 +176,13 @@ risk:
     check: performance
     design_role: architect
   # Sensitive data in logs (A162): a line the diff ADDS must match `content` (a log call: logger./log./console./
-  # print/printf/Log.* and the like) and name one of `words` (space-separated, case-insensitive, whole identifier
+  # print/printf/Log.*, Console.WriteLine, fmt.Fprintf, var_dump and the like; `print "..."` and `puts "..."` without
+  # parentheses too) and name one of `words` (space-separated, case-insensitive, whole identifier
   # parts: `password`, `user_password`, `userPassword`, `passwords`; not `discard` for `card`). The match only opens
   # a `logging` review in SECURITY (exploit-proof, sink `[log]`); it is no finding. Add your own words or log calls
   # here; `logger.info("started")` names no word and opens nothing. A call split over several lines is not seen.
   log_sensitive:
-    content: (^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|slog|logrus|zap|Timber|NSLog|error_log|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|fprintf|eprintln)(\.|\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!
+    content: (^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\.|\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]
     words: password passwd token secret authorization cookie email phone card iban ssn tckn
     check: logging
   # Plan flags: a flag set in PLAN.md adds its check even without a matching path.
