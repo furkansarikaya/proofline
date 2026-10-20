@@ -75,6 +75,7 @@ cat > "$FAKE/bin/gh" <<'EOF'
 #!/bin/sh
 case "$*" in
   *"run list"*) echo '[{"status":"completed","conclusion":"success"}]' ;;
+  *"pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;   # the merge commit of a PR (A160: the driver waits for the CI of that SHA)
   *) : ;;
 esac
 exit 0

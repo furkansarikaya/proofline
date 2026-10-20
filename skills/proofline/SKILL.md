@@ -1,11 +1,11 @@
 ---
 name: proofline
 description: "The user-facing /proofline entry point. `$ARGUMENTS` is the subcommand: init, upgrade, doctor, status (default), queue, clean and version run through the proofline CLI (`bin/proofline`); run, resume, task, design, review, audit, debug, knowledge and deliver hand the session to the proofline-lead skill, which carries each out through `agent.sh` and the specialist roles. Use to install proofline in a project, check that its rules are enforced, or start, resume and deliver a task."
-argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [--grill] <text>|design system|data|api|ui [--check]|docs create|update|audit|explain <topic|TASK-ID>|review|audit|debug|wiki ingest|query|lint|knowledge <TASK>|deliver <TASK>|reopen <TASK>|batch <ID...|all>|debt]"
+argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [--grill] <text>|design system|data|api|ui [--check]|docs create|update|audit|explain <topic|TASK-ID>|review|audit|debug|wiki ingest|query|lint|knowledge <TASK>|deliver <TASK>|reopen <TASK>|batch <ID...|all> [--codex-danger-full-access]|debt]"
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.17"
+  version: "0.0.18"
 ---
 
 # proofline

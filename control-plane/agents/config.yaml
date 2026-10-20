@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
 # phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
 # validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.17
+proofline_version: 0.0.18
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -257,10 +257,14 @@ capabilities:
 # Night mode (A157): `proofline batch`. mutation_budget_cap is the highest mutation budget the batch approval may raise
 # to (a task that needs more is parked with a question); ci_wait_minutes is how long the driver waits for a running CI
 # on the canonical branch before it stops; runtimes (space separated, claude|codex) is the order of headless lead
-# sessions, empty = runtime.lead, then the other runtime when its CLI exists.
+# sessions, empty = runtime.lead, then the other runtime when its CLI exists. task_timeout (A160) is the minutes one headless
+# session may run before it is closed and the task is parked with the reason timeout; ci_appear_minutes is how long the driver
+# waits for a CI run of a merge commit to appear before it stops. The Codex sandbox is not a key: it is chosen when planning.
 batch:
   mutation_budget_cap: 40
   ci_wait_minutes: 30
+  ci_appear_minutes: 10
+  task_timeout: 120
   runtimes:
 dispatch:
   # Timeout of one specialist run in seconds (minimum 30).

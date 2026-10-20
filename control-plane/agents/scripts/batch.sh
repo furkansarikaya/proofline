@@ -11,6 +11,8 @@
 # status pending|running|merged|parked|skipped, a trailing `# stopped: <reason>` line), merged.tsv (ID PR epoch, written by
 # deliver-step cleanup), logs/<ID>.log, LOCK (the driver's PID), history/<batch id>/.
 # Test seam: `claude` and `codex` are taken from PATH (the tests put fakes there); nothing selects a binary by environment.
+# Under PROOFLINE_TEST=1 only, PROOFLINE_BATCH_MINUTE is the length of one "minute" in seconds (default 60): it scales batch.task_timeout
+# and the CI polling, so a test needs seconds, not hours.
 set -eu
 LC_ALL=C; export LC_ALL
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
@@ -23,13 +25,16 @@ if command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 < "$1" | awk '{
 cfgv() { v=$(sh "$agent" config-get "$1" 2>/dev/null) || v=''; [ -n "$v" ] || v=${2:-}; printf '%s\n' "$v"; }
 tsv() { printf '%s' "$*" | tr '\t\n' '  '; }
 bid() { sha "$bd/SUMMARY.md" | cut -c1-12; }
+tick=60; [ "${PROOFLINE_TEST:-}" != 1 ] || tick=${PROOFLINE_BATCH_MINUTE:-60}; case "$tick" in ''|*[!0-9]*|0) tick=60 ;; esac
+CODEX_NET='sandbox_workspace_write.network_access=true'   # the one place of the Codex override that lets workspace-write reach the network (package installs)
 
 # --- plan ------------------------------------------------------------------------------------------------------------
 cls_of() { awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$1"; }
 deps_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^depends_on:/ { sub(/^depends_on:[[:space:]]*/, ""); gsub(/["\[\]]/, ""); gsub(/[,[:space:]]+/, ","); sub(/^,/, ""); sub(/,$/, ""); print; exit }' "$1"; }
 plan() {
   [ "$(cfgv tasks.adapter markdown)" = markdown ] || die "night mode reads task files through the markdown adapter only (tasks.adapter is $(cfgv tasks.adapter markdown)); known limit"
-  [ $# -gt 0 ] || die "usage: agent.sh batch-plan <ID...|all>"
+  danger=no; for a in "$@"; do shift; if [ "$a" = --codex-danger-full-access ]; then danger=yes; else set -- "$@" "$a"; fi; done
+  [ $# -gt 0 ] || die "usage: agent.sh batch-plan <ID...|all> [--codex-danger-full-access]"
   td=$root/$(cfgv tasks.dir .agents/tasks)
   [ ! -f "$bd/LOCK" ] || ! kill -0 "$(cat "$bd/LOCK" 2>/dev/null)" 2>/dev/null || die "a batch is running (pid $(cat "$bd/LOCK")); a new plan waits until it ends"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-batch.XXXXXX"); trap 'rm -rf "$tmp"' 0
@@ -115,7 +120,9 @@ plan() {
     printf -- '- mutation budget: a raise of test_trust.mutation_budget (now %s) up to the cap batch.mutation_budget_cap = %s\n' "$(cfgv test_trust.mutation_budget 20)" "$cap"
     printf '\n## Stop rules\n\n'
     printf -- '- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped\n'
-    printf -- '- the batch stops (pending tasks stay pending) when main CI is red or still running after batch.ci_wait_minutes (%s), when every runtime hit its usage limit, or when a runtime is not logged in\n' "$(cfgv batch.ci_wait_minutes 30)"
+    printf -- '- a headless session that runs longer than batch.task_timeout (%s minutes) is closed with its whole process group, the task is parked with the reason timeout and the tasks that depend on it are skipped\n' "$(cfgv batch.task_timeout 120)"
+    printf -- '- after every merge the driver waits for the CI run of the merge commit itself (not the latest run): the batch stops when that run is red, still running after batch.ci_wait_minutes (%s), or when no run for it appears within batch.ci_appear_minutes (%s)\n' "$(cfgv batch.ci_wait_minutes 30)" "$(cfgv batch.ci_appear_minutes 10)"
+    printf -- '- the batch also stops when every runtime hit its usage limit, or when a runtime is not logged in\n'
     printf '\n## NOT covered (each stays a question the batch parks on)\n\n'
     printf -- '- a waiver of a finding, a scope expansion, a new dependency, a reopen of a FAILED or BLOCKED run\n'
     printf -- '- a destructive or single_step data change, a rule promotion, sending the friction report, a new fix-round budget\n'
@@ -123,6 +130,11 @@ plan() {
     printf '\n## Not in this batch\n\n'
     if awk -F'\t' '$1 == "X" { f = 1 } END { exit !f }' "$tmp/split"; then awk -F'\t' '$1 == "X" { print "- " $2 ": " $3 }' "$tmp/split"; else printf -- '- none\n'; fi
     printf '\n## Runtime\n\nheadless lead runtime: %s, claude permission mode: %s (the PreToolUse hook confines it)\n' "$(cfgv batch.runtimes "$(cfgv runtime.lead claude)")" "$(cfgv dispatch.claude_permission_mode bypassPermissions)"
+    printf 'per-task timeout: %s minutes\n' "$(cfgv batch.task_timeout 120)"
+    if [ "$danger" = yes ]; then
+      printf 'codex sandbox: danger-full-access\n'
+      printf 'WARNING: you chose --codex-danger-full-access. A Codex night session then runs with NO sandbox: it can read and write anywhere your user can and use the network. Approving this summary approves that.\n'
+    else printf 'codex sandbox: workspace-write (project folder, network access on for package installs)\n'; fi
   } > "$tmp/SUMMARY.md"
   mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"; mv "$tmp/order" "$bd/order.tsv"
   cat "$bd/SUMMARY.md"
@@ -159,33 +171,90 @@ pending_approval() { # ID: the kind of an approval request nobody answered (the 
 # --- run -------------------------------------------------------------------------------------------------------------
 wt_list() { git -C "$root" worktree list --porcelain | sed -n 's/^worktree //p' | sort; }
 dirty() { git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || :; }
-# main_ci: 0 green or no signal, 1 red, 2 still running after the wait, 3 unreadable
+# main_ci SHA REQUIRED: the CI runs of exactly that commit. 0 green (or no run and not required), 1 red, 2 still running after the
+# wait, 3 unreadable, 4 no run appeared (required only). A red run wins over a running one; an older green run never counts.
 main_ci() {
-  mc_br=$(cfgv canonical_branch main); mc_max=$(cfgv batch.ci_wait_minutes 30); case "$mc_max" in ''|*[!0-9]*) mc_max=30 ;; esac; mc_i=0
+  mc_br=$(cfgv canonical_branch main); mc_max=$(cfgv batch.ci_wait_minutes 30); mc_app=$(cfgv batch.ci_appear_minutes 10)
+  case "$mc_max" in ''|*[!0-9]*) mc_max=30 ;; esac; case "$mc_app" in ''|*[!0-9]*) mc_app=10 ;; esac; mc_a=0; mc_r=0
   while :; do
-    mc_j=$(cd "$root" && gh run list --branch "$mc_br" --limit 1 --json status,conclusion 2>/dev/null) || return 3
-    mc_s=$(printf '%s' "$mc_j" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p'); mc_c=$(printf '%s' "$mc_j" | sed -n 's/.*"conclusion":"\([^"]*\)".*/\1/p')
-    [ -n "$mc_s" ] || return 0
-    if [ "$mc_s" = completed ]; then case "$mc_c" in success|skipped|neutral) return 0 ;; *) return 1 ;; esac; fi
-    [ "$mc_i" -lt "$mc_max" ] || return 2
-    mc_i=$((mc_i + 1)); sleep 60
+    mc_j=$(cd "$root" && gh run list --branch "$mc_br" --commit "$1" --limit 30 --json status,conclusion 2>/dev/null) || return 3
+    mc_v=$(printf '%s' "$mc_j" | tr '}' '\n' | awk '/"status"/ { n++; if ($0 !~ /"status":"completed"/) r = 1; else if ($0 !~ /"conclusion":"(success|skipped|neutral)"/) x = 1 }
+      END { if (x) print "red"; else if (!n) print "none"; else if (r) print "running"; else print "green" }')
+    case "$mc_v" in
+      green) return 0 ;;
+      red) return 1 ;;
+      none) [ "$2" = yes ] || return 0; [ "$mc_a" -lt "$mc_app" ] || return 4; mc_a=$((mc_a + 1)) ;;
+      *) [ "$mc_r" -lt "$mc_max" ] || return 2; mc_r=$((mc_r + 1)) ;;
+    esac
+    sleep "$tick"
   done
+}
+ok_sha=''
+ci_gate() { # SHA REQUIRED: stop the batch unless the CI of that commit allows going on
+  cg_c=0; main_ci "$1" "$2" || cg_c=$?; cg_s=$(printf '%s' "$1" | cut -c1-7)
+  case "$cg_c" in
+    0) ;;
+    1) stop "main CI is red (run of $cg_s)" ;;
+    2) stop "main CI is still running after $(cfgv batch.ci_wait_minutes 30) minutes (run of $cg_s)" ;;
+    4) stop "no CI run appeared for $cg_s" ;;
+    *) stop "main CI cannot be read (gh run list failed)" ;;
+  esac
+  ok_sha=$1
 }
 prompt_for() { # ID
   printf 'Batch mode (batch %s). Task %s only. Follow the proofline-lead skill and its Batch mode section: `/proofline run %s` (or resume it if a run exists). At every approval request of kind plan, delivery or mutation_budget call `agent.sh batch-cover %s <KIND>` instead of waiting. At any other approval request, or any question that needs the user: record it with `agent.sh ask %s` and END the session; never wait, never guess. Stop when the task is merged and cleaned up, or parked.' "$(bid)" "$1" "$1" "$1" "$1"
+}
+# The headless session is the leader of its own process group: `set -m` gives the background job its own pgid (needs a shell that
+# can do job control; macOS has no setsid); where that is not available (dash without a terminal) `setsid` is used if it exists.
+# The driver signals only that group, only after the leader itself reported pid == pgid, never 0, 1, its own group. When neither
+# way gives a group of its own, only the session's own pid is signalled (known limit: its grandchildren may stay).
+G_PID=''; S_TO=0
+nap() { sleep 0.2 2>/dev/null || sleep 1; }
+grp_alive() { ps -A -o pgid=,stat= 2>/dev/null | awk -v g="$1" '$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }'; }
+reap() { # close the session's own process group: TERM, a short grace, then KILL
+  [ -n "$G_PID" ] || return 0
+  rp_g=$G_PID; G_PID=''
+  case "$rp_g" in ''|*[!0-9]*|0|1|"$$") return 0 ;; esac
+  rp_own=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' '); [ "$rp_g" != "$rp_own" ] || return 0
+  [ "$(cat "$bd/logs/pgid.$rp_g" 2>/dev/null)" = "$rp_g $rp_g" ] || { kill "$rp_g" 2>/dev/null || :; return 0; }
+  kill -TERM "-$rp_g" 2>/dev/null || :
+  rp_i=0; while [ "$rp_i" -lt 15 ] && grp_alive "$rp_g"; do nap; rp_i=$((rp_i + 1)); done
+  ! grp_alive "$rp_g" || kill -KILL "-$rp_g" 2>/dev/null || :
+  wait "$rp_g" 2>/dev/null || :
+}
+run_session() { # ID RUNTIME PROMPT: the runtime's own command, in the project root; returns its exit status
+  S_PM=$(cfgv dispatch.claude_permission_mode bypassPermissions); cd "$root" || return 1
+  if [ "$2" = codex ]; then
+    rs_sb=$(sed -n 's/^codex sandbox: \([a-z-]*\).*/\1/p' "$bd/SUMMARY.md" | head -1); rs_p=$3
+    set -- -s workspace-write -c "$CODEX_NET"
+    [ "$rs_sb" != danger-full-access ] || set -- -s danger-full-access   # only what the approved summary states, never config or env
+    codex exec -C "$root" "$@" -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$rs_p" < /dev/null
+  else claude -p "$3" --permission-mode "$S_PM" < /dev/null; fi
 }
 # session ID RUNTIME: one clean headless lead session; its output goes to the task's log; returns the exit status
 session() {
   s_log=$bd/logs/$1.log; s_p=$(prompt_for "$1"); mkdir -p "$bd/logs"; printf '\n--- session %s runtime=%s ---\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" >> "$s_log"
   s_pm=$(cfgv dispatch.claude_permission_mode bypassPermissions)
   case "$s_pm" in bypassPermissions|acceptEdits|default) ;; *) die "invalid dispatch.claude_permission_mode: $s_pm" ;; esac
-  s_rc=0; s_cur=$bd/logs/$1.cur; : > "$s_cur"   # this session's own output: limit and auth detection read only it, never the cumulative log
-  case "$2" in
-    codex) (cd "$root" && codex exec -C "$root" -s danger-full-access -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$s_p") >> "$s_cur" 2>&1 < /dev/null || s_rc=$? ;;
-    *) (cd "$root" && claude -p "$s_p" --permission-mode "$s_pm") >> "$s_cur" 2>&1 < /dev/null || s_rc=$? ;;
-  esac
+  s_to=$(cfgv batch.task_timeout 120); case "$s_to" in ''|*[!0-9]*|0) s_to=120 ;; esac
+  s_cur=$bd/logs/$1.cur; : > "$s_cur"   # this session's own output: limit and auth detection read only it, never the cumulative log
+  s_rcf=$bd/logs/$1.rc; rm -f "$s_rcf" "$bd"/logs/pgid.*; S_TO=0
+  s_pre=''; set -m 2>/dev/null || :
+  case $- in *m*) ;; *) ! command -v setsid >/dev/null 2>&1 || s_pre=setsid ;; esac
+  # shellcheck disable=SC2086 # s_pre is empty or the one word setsid
+  $s_pre sh "$here/batch.sh" _session "$1" "$2" "$s_p" >> "$s_cur" 2>&1 < /dev/null &
+  G_PID=$!
+  set +m 2>/dev/null || :
+  s_dead=$(($(date +%s) + s_to * tick))
+  while [ ! -f "$s_rcf" ]; do
+    [ "$(date +%s)" -lt "$s_dead" ] || { S_TO=1; break; }
+    nap
+  done
+  reap
+  rm -f "$bd"/logs/pgid.*
+  [ "$S_TO" = 0 ] || { printf '[batch] session of %s closed: it ran longer than batch.task_timeout (%s minutes)\n' "$1" "$s_to" >> "$s_cur"; echo 124 > "$s_rcf"; }
   cat "$s_cur" >> "$s_log"
-  return "$s_rc"
+  return "$(cat "$s_rcf" 2>/dev/null || echo 1)"
 }
 outcome() { # ID -> merged | FAILED | BLOCKED | question | none  (records only)
   if merged_pr "$1" >/dev/null; then echo merged; return 0; fi
@@ -203,7 +272,7 @@ run() {
     rm -f "$bd/LOCK"
   fi
   ( set -C; printf '%s\n' "$$" > "$bd/LOCK" ) 2>/dev/null || die "a batch run is active: only one task at a time"
-  trap 'rm -f "$bd/LOCK"' 0; trap 'exit 130' INT; trap 'exit 143' TERM
+  trap 'reap; rm -f "$bd/LOCK"' 0; trap 'exit 130' INT; trap 'exit 143' TERM
   [ -z "$(dirty)" ] || die "the working tree is not clean; commit or stash first"
   canon=$(cfgv canonical_branch main)
   [ "$(git -C "$root" branch --show-current)" = "$canon" ] || die "the current branch is not $canon"
@@ -232,8 +301,7 @@ run() {
     done
     [ "$(st_get "$id" 2)" = pending ] || continue
     git -C "$root" checkout -q "$canon" 2>/dev/null && git -C "$root" pull -q --ff-only >/dev/null 2>&1 || stop "cannot update $canon before $id (git checkout and pull --ff-only failed)"
-    ci=0; main_ci || ci=$?
-    case "$ci" in 0) ;; 1) stop "main CI is red" ;; 2) stop "main CI is still running after $(cfgv batch.ci_wait_minutes 30) minutes" ;; *) stop "main CI cannot be read (gh run list failed)" ;; esac
+    head_sha=$(git -C "$root" rev-parse HEAD); [ "$head_sha" = "$ok_sha" ] || ci_gate "$head_sha" no   # no run for HEAD before the first merge is no signal
     st_set "$id" running
     wt_before=$(wt_list)
     while :; do
@@ -241,6 +309,7 @@ run() {
       if [ -z "$rt" ]; then st_set "$id" pending; stop "every runtime hit its usage limit"; fi
       sess_rc=0; session "$id" "$rt" || sess_rc=$?
       out=$(outcome "$id")
+      if [ "$S_TO" = 1 ] && [ "$out" != merged ]; then out=timeout; break; fi
       if [ "$out" != merged ] && { [ "$sess_rc" -ne 0 ] || [ "$out" = none ]; }; then
         if [ "$sess_rc" -ne 0 ] && grep -Eiq 'not logged in|authentication|invalid api key|please run /login|401' "$bd/logs/$id.cur"; then st_set "$id" pending; stop "runtime $rt is not authenticated"; fi
         if grep -Eiq 'usage limit|rate limit|limit reached|quota' "$bd/logs/$id.cur"; then exhausted="$exhausted $rt"; continue; fi
@@ -252,11 +321,18 @@ run() {
     git -C "$root" worktree prune
     case "$out" in
       merged) st_set "$id" merged ;;
+      timeout) st_set "$id" parked timeout "no result within $(cfgv batch.task_timeout 120) minutes (see .agents/local/batch/logs/$id.log)" ;;
       FAILED|BLOCKED) st_set "$id" parked "$out" ;;
       question) q=$(open_question "$id"); [ -n "$q" ] || q="approval request: $(pending_approval "$id")"; st_set "$id" parked question "$q" ;;
       *) st_set "$id" parked "session ended without a result (see .agents/local/batch/logs/$id.log)" ;;
     esac
     git -C "$root" checkout -q "$canon" 2>/dev/null && [ -z "$(dirty)" ] || stop "the working tree is not on $canon or not clean after $id; deal with it, then run the batch again"
+    if [ "$out" = merged ]; then   # the CI of the merge commit itself, never the latest run
+      git -C "$root" pull -q --ff-only >/dev/null 2>&1 || stop "cannot update $canon after the merge of $id (git pull --ff-only failed)"
+      mpr=$(merged_pr "$id" || :); msha=$(cd "$root" && gh pr view "$mpr" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null) || msha=''
+      [ -n "$msha" ] || stop "cannot read the merge commit of PR $mpr ($id)"
+      ci_gate "$msha" yes
+    fi
   done
   echo "batch finished"
   sh "$here/batch.sh" status
@@ -291,6 +367,9 @@ status() {
 case "${1:-}" in
   plan) shift; plan "$@" ;;
   run) run ;;
+  _session) shift   # internal: the session itself, started by `session` as the leader of its own process group
+    me=$$; printf '%s %s\n' "$me" "$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')" > "$bd/logs/pgid.$me"
+    r=0; run_session "$1" "$2" "$3" || r=$?; echo "$r" > "$bd/logs/$1.rc" ;;
   status) status ;;
   *) echo "usage: batch.sh plan <ID...|all> | run | status" >&2; exit 2 ;;
 esac
