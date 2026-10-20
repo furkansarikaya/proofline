@@ -11,6 +11,7 @@ TRIVIAL. Only the categories that apply; every scenario traces to an acceptance 
 ## Adversarial scenarios
 
 - QA-2 (AC-1): <what could break it and the expected outcome>
+- QA-3 (AC-1) [invalid-input]: <for every entry point PLAN `## Contracts` lists (A162): an input the server must reject, naming the entry point>
 
 ## Regression surface
 

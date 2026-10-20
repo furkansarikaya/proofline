@@ -18,6 +18,7 @@ node --test tests/benchmark/benchmark.test.mjs            # benchmark report kno
 sh adapters/generate.sh --check              # generated agent files match roles/
 sh docs/reference/generate-skills.sh --check # docs/reference/skills.md matches the skills
 sh tests/shared/check-shared.sh              # shared skill sections have not drifted
+sh tests/shared/check-static.sh              # shortcut labels in code comments, README size bound
 node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Markdown links (also run alone by CI)
 ```
 
@@ -40,7 +41,7 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
 - **Markdown under `skills/**`, `roles/**`, `control-plane/**` and `adapters/**` is reviewed like code.** It is
   what the agents execute. Regenerate derived files (`sh adapters/generate.sh`,
   `sh docs/reference/generate-skills.sh`) and commit them.
-- **Every new user-visible command, option or rule updates the documentation before merge** (A153): `proofline help` (`bin/proofline`), the entry skill (`skills/proofline/SKILL.md`: argument-hint and routing), the lead Commands table (`skills/proofline-lead/SKILL.md`), the README (command list, and a short explanation of a new rule) and the relevant `docs/concepts` page. The CLI test compares `proofline help` with the entry skill, the lead table and the README command list.
+- **Every new user-visible command, option or rule updates the documentation before merge** (A153): `proofline help` (`bin/proofline`), the entry skill (`skills/proofline/SKILL.md`: argument-hint and routing), the lead Commands table (`skills/proofline-lead/SKILL.md`), the README (command list, and a short explanation of a new rule) and the relevant `docs/concepts` page. The README says what proofline is and how to use it; detail goes to `docs/concepts` (`tests/shared/check-static.sh` bounds the README size). The CLI test compares `proofline help` with the entry skill, the lead table and the README command list.
 - **EXPECTED files are never loosened to fit a result.** If an expectation contradicts the design, say so in the
   pull request and let the maintainer decide; fix the product, not the answer key.
 - **No file sharing between skills.** A skill is installable alone; shared rules are copied into each skill

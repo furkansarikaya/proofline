@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // Validates QA_PLAN.md and QA_REPORT.md. No dependencies.
-//   node validate-qa.mjs plan   QA_PLAN.md   [--task TASK.md] [--plan PLAN.md]
+//   node validate-qa.mjs plan   QA_PLAN.md   [--task TASK.md] [--plan PLAN.md] [--entry-words REGEX]
 //   node validate-qa.mjs report QA_REPORT.md [--plan QA_PLAN.md]
 //   node validate-qa.mjs hash   QA_PLAN.md   (prints the sha256 the report must cite)
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error. --json prints the parsed result.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CATEGORIES = ["boundaries", "invalid-input", "concurrency", "idempotency", "permissions", "persistence", "ui-states", "error-paths"];
@@ -60,7 +60,77 @@ export function removedTerms(planText) {
   return [...out];
 }
 
-export function validatePlan(text, taskText, planText) {
+// A162: every mandatory entry point of PLAN.md `## Contracts` (it takes external input) needs an adversarial
+// `[invalid-input]` scenario naming it in its title, input, expected or run line (an `[invalid-input]` scenario is
+// adversarial by definition: acceptance scenarios carry no category, so this validator reads it in the adversarial
+// section; agent.sh accepts the tag in any section and leaves the structure to this validator).
+// A162 input validation at entry points. Mirrors agent.sh entry_tier / plan_entries / plan_validation_missing (skills
+// share no files, so the code and the default expressions are copied; a test compares them with the config). Each
+// `## Contracts` bullet is MANDATORY when it declares an entry point (words), is not that entry point's own removal,
+// is not unchanged or documented (skip) and marks new or changed input (an input word, or a new word with no output
+// word): declares && !removed && !skip && (input || (new && !output)). Other bullets that mention an entry word are
+// information only (entryMentions), never an error. A mandatory entry point is named by its first backticked token,
+// else by the text before the first colon, and needs a `## Validation` bullet naming it with `accepts`, `limits`
+// and `rejected at`. The expressions are the project's `validation.*` keys of .agents/config.yaml (read here when the
+// file exists, flat key lookup; --entry-words overrides `entry_words`), else these defaults.
+export const ENTRY_WORDS = "(GET|POST|PUT|PATCH|DELETE|HEAD) +/[^ ]*|endpoints?|webhooks?|(route|request|form|event|message|command) +handlers?|(queue|message|event|topic|job) +(consumers?|listeners?)|subscribes? +to|(grpc|rpc) +(methods?|services?|calls?)|graphql +(mutations?|quer(y|ies)|subscriptions?|resolvers?)|mutations?|cli +commands?|sub-?commands?|(new|adds?|added) +(cli +)?commands?|(cli|command-line|positional) +(arguments?|args?|flags?|options?)|argv|--[a-z][a-z0-9-]*|form +(fields?|submissions?)";
+export const ENTRY = {
+  words: ENTRY_WORDS,
+  candidates: "endpoints?|routes?|handlers?|webhooks?|consumers?|subscribers?|forms?|cli +(arguments?|args?|flags?|options?|commands?)|command-line|argv|rpc|grpc|graphql|mutations?|(GET|POST|PUT|PATCH|DELETE|HEAD) +/[^ ]*|--[a-z][a-z0-9-]*|[A-Za-z0-9_-]*[.](graphqls?|gql|proto)",
+  input: "accepts?|accepting|takes?|taking|parameters?|params?|quer(y|ies)|bod(y|ies)|payloads?|arguments?|args?|flags?|options?|headers?|inputs?|required|optional|expects?",
+  new: "new|adds?|added|adding|introduc(es?|ed|ing)|creates?|created|registers?|registered|exposes?|exposed|fields?|gains?",
+  output: "responses?|returns?|returning|returned|omits?|omitted|output|status +codes?|shape|results?",
+  skip: "unchanged|documented|documents|no +change|not +changed|unmodified|as +before",
+};
+const ENTRY_KEYS = { entry_words: "words", entry_candidates: "candidates", entry_input: "input", entry_new: "new", entry_output: "output", entry_skip: "skip" };
+const ENTRY_REMOVED = "^[ `*_]*(remove[sd]?|drop(s|ped)?|deprecate[sd]?|retire[sd]?)([^A-Za-z0-9_]|$)|(is|are|was|will be|has been|gets?) +(now +)?(removed|dropped|deprecated|retired)([^A-Za-z0-9_]|$)|[(:`] *(removed|dropped|deprecated|retired)([^A-Za-z0-9_]|$)|no +longer +(exists?|available|supported|served|routed)|/[^ ]*`? +(removed|dropped|deprecated|retired)([^A-Za-z0-9_]|$)";
+const ENTRY_BL = "(^|[^A-Za-z0-9_.-])";
+const ENTRY_BR = "($|[^A-Za-z0-9_.-]|[.]([^A-Za-z0-9_]|$))";
+const entryHas = (words, t) => { if (!words) return false; try { return new RegExp(`${ENTRY_BL}(${words})${ENTRY_BR}`, "i").test(t); } catch { return false; } };
+const entryRemoved = (t) => new RegExp(ENTRY_REMOVED, "i").test(t);
+export function entryConfig(configDirs, wordsOverride) {
+  const cfg = { ...ENTRY };
+  for (const d of configDirs || []) {
+    const f = join(d, ".agents", "config.yaml");
+    if (!existsSync(f)) continue;
+    let inV = false;
+    for (const l of readFileSync(f, "utf8").split("\n")) {
+      if (/^validation:\s*$/.test(l)) { inV = true; continue; }
+      if (inV && /^\S/.test(l)) break;
+      const m = inV ? /^  (\w+):\s*(.*)$/.exec(l) : null;
+      if (!m || !ENTRY_KEYS[m[1]]) continue;
+      let v = m[2].replace(/\s+#.*$/, "").trim();
+      if (/^".*"$/.test(v)) v = v.slice(1, -1);
+      cfg[ENTRY_KEYS[m[1]]] = v;
+    }
+    break;
+  }
+  if (wordsOverride) cfg.words = wordsOverride;
+  return cfg;
+}
+// "mandatory", "information" or "" for one bullet body (the text after the list marker).
+export function entryTier(body, c = ENTRY) {
+  if (entryHas(c.words, body)) {
+    if (entryRemoved(body)) return "";
+    if (entryHas(c.skip, body)) return "information";
+    return entryHas(c.input, body) || (entryHas(c.new, body) && !entryHas(c.output, body)) ? "mandatory" : "information";
+  }
+  return entryHas(c.candidates, body) && !entryRemoved(body) ? "information" : "";
+}
+function entryNames(contractLines, c, tier) {
+  const out = [];
+  for (const l of contractLines || []) {
+    const m = /^\s*[-*]\s+(\S.*)$/.exec(l);
+    if (!m || entryTier(m[1], c) !== tier) continue;
+    const bt = /`([^`]*)`/.exec(m[1]);
+    const name = (bt ? bt[1] : m[1].split(":")[0]).trim();
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+export function entryPoints(planText, c = ENTRY) { return entryNames(sections(planText).get("Contracts"), typeof c === "string" ? { ...ENTRY, words: c } : c, "mandatory"); }
+
+export function validatePlan(text, taskText, planText, entryWords) {
   const errors = [];
   const secs = sections(text);
   const id = /^# QA plan: (\S+)/m.exec(strip(text))?.[1];
@@ -101,6 +171,10 @@ export function validatePlan(text, taskText, planText) {
     const qacs = new Set([...acc, ...adv].flatMap((s) => s.acs));
     for (const a of pacs) if (!acc.some((s) => s.acs.includes(a))) errors.push(`${a} is in PLAN.md but has no acceptance scenario`);
     for (const a of qacs) if (pacs.length && !pacs.includes(a)) errors.push(`${a} is not a criterion of PLAN.md`);
+    const text_of = (s) => [s.title, ...Object.values(s.kv)].join("\n");
+    for (const n of entryPoints(planText, entryWords || ENTRY)) {
+      if (!adv.some((s) => s.category === "invalid-input" && text_of(s).includes(n))) errors.push(`no invalid-input scenario for the entry point ${n} of PLAN.md ## Contracts: add an adversarial scenario "- QA-<n> (AC-<k>) [invalid-input]: ..." that names it, with an input the server must reject`);
+    }
     const gone = removedTerms(planText);
     for (const s of [...acc, ...adv]) {
       const exp = s.kv.expected || "";
@@ -165,9 +239,9 @@ function main(argv) {
   const [mode, file] = argv;
   const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
-  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F] [--plan F] [--json]"); return 2; }
+  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F] [--plan F] [--entry-words REGEX] [--json]"); return 2; }
   if (mode === "hash") { console.log(sha256(read(file))); return 0; }
-  const r = mode === "plan" ? validatePlan(read(file), opt("--task") ? read(opt("--task")) : undefined, opt("--plan") ? read(opt("--plan")) : undefined) : validateReport(read(file), opt("--plan") ? read(opt("--plan")) : undefined);
+  const r = mode === "plan" ? validatePlan(read(file), opt("--task") ? read(opt("--task")) : undefined, opt("--plan") ? read(opt("--plan")) : undefined, entryConfig(opt("--plan") ? [resolve(dirname(opt("--plan")), "../../.."), process.cwd()] : [process.cwd()], opt("--entry-words"))) : validateReport(read(file), opt("--plan") ? read(opt("--plan")) : undefined);
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2)); else r.errors.forEach((e) => console.error(`error: ${e}`));
   return r.valid ? 0 : 1;
 }

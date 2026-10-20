@@ -41,7 +41,28 @@ Besides class and tier, deterministic risk signals choose extra checks, each a f
 migrations, UI files, dependency manifests, config and env files), from text the diff adds (optional, off by
 default), or from a flag the architect or data architect writes into PLAN.md (`## Risk`: `contract_change`,
 `concurrency`, `performance_critical`; `## Data`; `## UI`). The checks: REVIEW focuses `contract`,
-`concurrency`, `performance`, `config`; REVIEW_DATA `migration`; QA `visual` (the visual-proof skill, A82); SECURITY `dependencies`.
+`concurrency`, `performance`, `config`; REVIEW_DATA `migration`; QA `visual` (the visual-proof skill, A82); SECURITY `dependencies` and `logging`.
+
+The `logging` focus (A162) opens when a line the diff adds is a log call (`logger.`, `log.`, `console.`, `print`,
+`printf`, `Log.` and the like) and names a sensitive-looking word: `password`, `token`, `secret`, `authorization`,
+`cookie`, `email`, `phone`, `card`, `iban`, `ssn`, `tckn` (config `risk.log_sensitive.content` and `.words`, both
+extensible; case-insensitive, whole identifier parts, so `userPassword` matches and `discard` does not). The word
+match only opens a review: the security reviewer then checks the `[log]` sink of exploit-proof, whether a request
+body, an `Authorization` or `Cookie` header, a token, a password, a secret key or personal data reaches the changed
+log call unmasked, and whether user input with CR or LF can forge a line in a plain-text log. Only a concrete path
+is a finding. An ordinary `logger.info("started")` opens nothing, and a call split over several lines is not seen.
+proofline sets no logging standard: write yours in `AGENTS.md`, in your own part of the file outside the
+`<!-- proofline:begin -->` block (`proofline upgrade` replaces the block and reports a conflict when you edit
+inside it; the template carries no logging text for that reason), for example:
+
+```markdown
+## Logging
+- Log through `internal/logx` only; never `fmt.Println` or `print`.
+- Never log request bodies, tokens, passwords or personal data; pass user input through `logx.Redact`.
+```
+
+The `rules` focus of the code review checks every rule it can verify on a changed line in each task that has a rules
+review; the implementer is told to use the project's own logger and standard and never to log secrets or personal data.
 
 - `agent.sh pipeline <ID>` shows every signal, its source, the check it triggers and why. Before FREEZE the
   signals of the planned scope are visible, so the right design role declares the flag.

@@ -61,8 +61,8 @@ sig() { ( cd "$1" && find . -path ./.git -prune -o -type f -print | sort | while
 jqe() { jq -e "$1" "$2" >/dev/null 2>&1; }
 
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.19" "$out" "proofline 0.0.19"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.19 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.20" "$out" "proofline 0.0.20"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.20 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -79,7 +79,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.19 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.20 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -114,7 +114,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.19' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.20' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -200,6 +200,23 @@ reject "a user edit of a file upstream did not change is not a conflict" "$out" 
 grep -q "my edit of an unchanged-upstream file" "$up/.agents/ENGINEERING.md" && ok "...and it is kept" || die "ENGINEERING.md edit lost"
 nocheck "upgrade without an install fails" pl "$(mkrepo noinst)" upgrade
 
+# A162: a project installed before risk.log_sensitive existed gets the new keys on upgrade, user edits untouched
+up4=$T/up4; cp -R "$base" "$up4"
+awk '/^  log_sensitive:$/ { skip = 1; next } skip && /^    (content|words|check):/ { next } { skip = 0; print }' "$up4/.agents/config.yaml" > "$up4/cfg.tmp"
+awk '/^  max_fix_rounds:/ { print "  max_fix_rounds: 6"; next } { print }' "$up4/cfg.tmp" > "$up4/.agents/config.yaml"; rm "$up4/cfg.tmp"
+printf 'my note\n' >> "$up4/.agents/WORKFLOW.md"
+[ -z "$(cfgv "$up4" risk.log_sensitive.words)" ] && [ -z "$(cfgv "$up4" risk.log_sensitive.content)" ] && ok "A162: the old config has no risk.log_sensitive keys" || die "old config still has log_sensitive: $(cfgv "$up4" risk.log_sensitive.words)"
+out=$(cd "$up4" && sh "$PL" upgrade 2>&1) || { LAST=$out; die "upgrade of a config without log_sensitive exits 0"; }
+[ "$(cfgv "$up4" risk.log_sensitive.check)" = logging ] && cfgv "$up4" risk.log_sensitive.words | grep -qw tckn && cfgv "$up4" risk.log_sensitive.content | grep -q 'logger' && ok "upgrade merges risk.log_sensitive (content, words, check)" || { LAST=$out; die "log_sensitive keys not merged"; }
+[ "$(cfgv "$up4" review.max_fix_rounds)" = 6 ] && grep -q "my note" "$up4/.agents/WORKFLOW.md" && ok "...and the user's config value and file edit are untouched" || die "user edit lost in the log_sensitive upgrade"
+check "the upgraded config with log_sensitive validates" sh -c "cd '$up4' && sh .agents/scripts/agent.sh config-check"
+# a user who tuned the words keeps them across an upgrade
+up5=$T/up5; cp -R "$base" "$up5"
+awk '/^    words: password passwd/ { print "    words: password voucher"; next } { print }' "$up5/.agents/config.yaml" > "$up5/cfg.tmp" && cat "$up5/cfg.tmp" > "$up5/.agents/config.yaml" && rm "$up5/cfg.tmp"
+out=$(cd "$up5" && sh "$PL" upgrade 2>&1) || { LAST=$out; die "upgrade of a tuned log_sensitive exits 0"; }
+[ "$(cfgv "$up5" risk.log_sensitive.words)" = "password voucher" ] && [ "$(cfgv "$up5" risk.log_sensitive.check)" = logging ] && ok "upgrade keeps tuned log_sensitive words" || { LAST=$out; die "tuned words lost: $(cfgv "$up5" risk.log_sensitive.words) / $(cfgv "$up5" risk.log_sensitive.check)"; }
+check "the tuned, upgraded config validates" sh -c "cd '$up5' && sh .agents/scripts/agent.sh config-check"
+
 # CLI-7: the proofline block of AGENTS.md is hash-tracked; a user edit inside it is a conflict, never overwritten
 up2=$T/up2; cp -R "$base" "$up2"
 echo "upstream block change" >> "$home2/control-plane/AGENTS.md"
@@ -212,6 +229,20 @@ a_before=$(cat "$up3/AGENTS.md")
 out=$(cd "$up3" && sh "$home2/bin/proofline" upgrade 2>&1) || { LAST=$out; die "upgrade with an edited block exits 0"; }
 expect "an edit inside the proofline block is reported as a conflict" "$out" "CONFLICT  AGENTS.md"
 [ "$(cat "$up3/AGENTS.md")" = "$a_before" ] && grep -q "upstream block change" "$up3/AGENTS.md.proofline-new" && ok "...the user's AGENTS.md is untouched and AGENTS.md.proofline-new carries the new block" || die "edited block overwritten or no .proofline-new"
+
+# A162: the AGENTS.md template carries no logging text; a user's own `## Logging` section outside the block and an
+# edit above it survive two upgrades (the template in home2 changed upstream, so the block is replaced) without conflict
+! grep -qi 'logging' "$repo/control-plane/AGENTS.md" && ! grep -qi 'logging' "$base/AGENTS.md" && ok "A162: the AGENTS.md template and a fresh install carry no logging text" || die "logging text in the AGENTS.md template"
+up6=$T/up6; cp -R "$base" "$up6"
+{ printf 'my edit above the block\n'; cat "$up6/AGENTS.md"; printf '\n## Logging\n- Log through internal/logx only.\n'; } > "$up6/a.tmp" && mv "$up6/a.tmp" "$up6/AGENTS.md"
+for u in 1 2; do
+  out=$(cd "$up6" && sh "$home2/bin/proofline" upgrade 2>&1) || { LAST=$out; die "upgrade $u with a user Logging section exits 0"; }
+  reject "upgrade $u: a user Logging section is no conflict" "$out" "CONFLICT"
+done
+grep -qx 'my edit above the block' "$up6/AGENTS.md" && grep -qx '## Logging' "$up6/AGENTS.md" && grep -qx -- '- Log through internal/logx only.' "$up6/AGENTS.md" && grep -q 'upstream block change' "$up6/AGENTS.md" && [ -z "$(find "$up6" -name '*.proofline-new' -not -path '*/.git/*')" ] && ok "...the user's Logging section and the edit above survive, the block is updated, no .proofline-new" || { LAST=$(cat "$up6/AGENTS.md"); die "user AGENTS.md content lost or a .proofline-new appeared"; }
+
+# A162: README keeps the sentence that the entry skill lists the next-step table
+grep -qF 'One table in the control plane (`next-user.sh`) holds it; the entry skill lists it;' "$repo/README.md" && ok "README says the entry skill lists the next-step table" || die "README lost the entry-skill sentence"
 
 # ---- doctor -------------------------------------------------------------------------------------------------
 d1=$T/d1; cp -R "$base" "$d1"
@@ -351,7 +382,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.19" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.20" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1

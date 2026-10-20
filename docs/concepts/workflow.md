@@ -43,6 +43,59 @@ merely contains the word accepts nothing. The stored answer becomes exactly `acc
 listed as `accepted-by-user` with it as reference. `agent.sh verify-assumptions <TASK>` shows the register read-only. The
 completion report lists every unverified and accepted-by-user assumption.
 
+### Input validation at entry points
+
+A new or changed entry point that takes external input (an HTTP endpoint, form handler, CLI argument, queue consumer
+or webhook) is validated by design, not by luck (A162). The plan lists the entry point in `## Contracts`, its name in
+backticks, and `## Validation` carries one line for it: `- <entry point>: accepts <what>; limits <limits>; rejected at
+<where, server side>`. `agent.sh freeze` refuses a plan with an entry point and no such line, and refuses a QA plan
+without an adversarial `[invalid-input]` scenario that names the entry point. What counts as an entry point (two tiers, deterministic, in `.agents/config.yaml` `validation.*`, matched as whole words,
+case-insensitive; a `.` or `-` inside `schema.graphql` or `order.schema.json` is no boundary):
+
+- **mandatory:** a `## Contracts` bullet that declares an entry point (`entry_words`: a method and path such as
+  `POST /x`, endpoint, webhook, queue consumer, graphql mutation, rpc method, a CLI flag such as `--dry-run`, a new
+  command, a positional argument, form handler) and marks new or changed input (`entry_input`: accepts, takes,
+  parameter, query, body, payload, argument, flag, option, header, input, required; or an `entry_new` word such as
+  new, adds, introduces, creates, field, which counts only when the bullet has no `entry_output` word: response,
+  returns, omits, shape). It is not mandatory when it says it is unchanged or documented (`entry_skip`) or when it is
+  that entry point's own removal (it starts with remove, drop or deprecate, or says the entry point `is removed`;
+  `POST /orders no longer accepts qty above 100` and `DELETE /x is added: removes an item` are still entry points);
+- **information:** a bullet that only mentions a candidate word (`entry_candidates`: consumers, handler, route, form,
+  graphql, a `.proto` or `.graphql` file name ...) or declares an entry point without new input (`GET /x response shape
+  unchanged`, `The handler returns 404`). `agent.sh pipeline` lists these as `validation.possible` and the freeze
+  prints a note; nothing refuses. Say in the bullet what input is new or changed and it becomes mandatory;
+- the name is the first backticked token of the bullet, else the text before its first colon.
+
+The corpus `tests/fixtures/entry-points/corpus.tsv` (67 labelled bullets; `sh tests/fixtures/entry-points/run-corpus.sh`)
+pins the classes. `agent.sh entry-tier "<bullet>"` prints `mandatory`, `information` or `none` for one bullet. The
+plan-contract and qa-plan validators carry the same expressions and read `validation.*` from `.agents/config.yaml`
+themselves (flat key lookup; `--entry-words` overrides `entry_words`; defaults when the file or key is missing), so a
+tuned project gets the same words at the freeze, in `validate-plan.mjs` and in `validate-qa.mjs`. The `[invalid-input]`
+scenario is adversarial by definition: `validate-qa.mjs` refuses a category on an acceptance scenario, so a QA plan that
+passes it has the scenario in `## Adversarial scenarios`; `agent.sh` accepts the tag in any section (the freeze checks
+that a named scenario exists, the validator checks the structure), so the two agree on every plan the validator accepts.
+
+What the check cannot see: an entry point the plan does not list in `## Contracts` (code is read only for
+information: `validation.code_patterns` over scope files that exist and over the lines the diff adds, printed by
+`agent.sh pipeline` as `validation.candidates` and as a note at freeze, never required); whether the stated limits are
+the right ones or are enforced in the code (the plan, tests and review judge that; the check proves only that a line
+and a scenario exist); and an entry point whose bullet does not say what input it takes (information only). Uncertain
+detection is information only, never a refusal.
+
+`validation.*` is read at freeze and refreeze; it is not hash-bound, so editing it mid-run changes nothing until the next
+(re)freeze, and the plan stays valid. A refreeze of a run frozen before this rule re-validates the whole plan: the
+amendment needs the `## Validation` line for each mandatory entry point and the `[invalid-input]` scenario, like a
+new freeze.
+
+### Upgrade and the risk signal for logging
+
+`risk.log_sensitive` is a default signal added in 0.0.20 and `proofline upgrade` adds it to `.agents/config.yaml`. The
+freeze binds the `risk:` block, so a run frozen before the upgrade would otherwise fail `verify-freeze` and `handoff
+IMPLEMENTING`. A bounded legacy rule keeps it valid: when the recorded `risk_sha256` equals the hash of the block
+without `risk.log_sensitive.*`, the freeze verifies and that run keeps the signal set it was frozen with (the
+`logging` focus never opens for it). Any other change of a `risk:` key is still refused. A run frozen under the new rule
+hashes the key, so editing `risk.log_sensitive` mid-run is refused; a refreeze binds the current block, the key included.
+
 ## Implementation
 
 One implementer per run, inside an attested window, writes each scope path test-first with recorded RED
@@ -74,6 +127,8 @@ again. A lesson promotion is not covered by that reply: it needs its own.
 Cleanup deletes the run directory so the git hooks no longer see the run; then the lead stops.
 
 ## Night mode
+
+The summary, the limits and the Codex profile are also described on their own page: [night mode](night-mode.md).
 
 `/proofline batch <ID...|all>` (`agent.sh batch-plan`) is for several tasks that would each wait for your plan and delivery
 approval. It orders the tasks by `depends_on` (a cycle refuses the whole batch), leaves out every CRITICAL task, every task

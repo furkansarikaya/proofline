@@ -65,3 +65,20 @@ done
 [ -z "$(find .agents/runs -mindepth 1 2>/dev/null)" ] || die "debt created a run"
 D page > /dev/null && [ -f "$p" ] || die "lead page failed"
 ok "page: lead only; list works for every role with no run"
+
+# A162: the five comments that used to carry a foreign label are listed as shortcut entries of this repository, and none is left
+real=$(CDPATH='' cd "$tl_agents/../.." && pwd)
+if [ -f "$real/bin/lib/discover.sh" ] && git -C "$real" rev-parse --show-toplevel >/dev/null 2>&1; then
+  out=$(sh "$tl_agents/scripts/debt.sh" list) || die "debt list failed in the repository"
+  # asserted by file and shortcut text, not by line number: editing those files must not break this test
+  for want in 'bin/lib/config.sh|a new deep key under an existing 2-level key' 'bin/lib/discover.sh|with no process-group method a timeout' \
+    'skills/data-design/scripts/classify-migration.mjs|MySQL client "DELIMITER" blocks' \
+    'skills/data-design/scripts/classify-migration.mjs|strips // and /* */ and leading-# line comments' \
+    'skills/test-trust/scripts/validate-findings.mjs|implements only the JSON Schema keywords'; do
+    printf '%s\n' "$out" | grep -F -- "${want%%|*}:" | grep -F -- "${want#*|}" | grep -Eq '^[^ ]+:[0-9]+ \| ' || die "debt does not list the converted shortcut: $want"
+    printf '%s\n' "$out" | grep -F -- "${want%%|*}:" | grep -F -- "${want#*|}" | grep -vq '(not stated)$' || die "converted shortcut has no stated condition: $want"
+  done
+  tag=pony; tag=${tag}tail   # spelled in two parts so this file is not a hit itself
+  git -C "$real" grep -n -I -i -E -e "(#|//|--|/\\*|;|\\*)[[:space:]]*$tag:" -- . ':(exclude)*.md' ':(exclude)tests' ':(exclude).claude' > /dev/null && die "a ponytail comment remains"
+  ok "list: the five converted shortcuts of this repository are listed with file:line and a condition; no foreign label remains"
+fi

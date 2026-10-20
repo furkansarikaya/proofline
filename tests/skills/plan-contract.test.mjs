@@ -295,3 +295,54 @@ test("CRITICAL e2e data plan shape is accepted; single_step and a missing destru
   has(crit(data.map((l) => l.replace(/^(\| S3 \| )contract/, "$1expand"))), MSG); // drop in the expand phase
   has(crit(data.slice(1)), "destructive"); // destructive step, header missing
 });
+
+// A162: an entry point declared in ## Contracts needs a complete ## Validation line (accepts, limits, rejected at).
+const VAL = "- `POST /orders`: accepts a JSON body with items; limits 1-50 items; rejected at the order handler (400)";
+const withContracts = (Contracts, Validation) => plan({ body: { Architecture: ["- one module"], ...BODY, Contracts, ...(Validation ? { Validation } : {}) } });
+test("entry point in ## Contracts: no validation line is refused, a complete line passes, a removal is no entry point (A162)", () => {
+  const C = ["- `POST /orders` creates an order"];
+  has(errs(withContracts(C), { cls: "STANDARD" }), "no complete line for the entry point(s) POST /orders");
+  has(errs(withContracts(C, ["- `POST /orders`: accepts a JSON body; limits 50 items"]), { cls: "STANDARD" }), "no complete line for the entry point(s) POST /orders");
+  assert.deepEqual(errs(withContracts(C, [VAL]), { cls: "STANDARD" }), []);
+  assert.deepEqual(errs(withContracts(["- `POST /orders` is removed"]), { cls: "STANDARD" }), []);
+  assert.deepEqual(errs(withContracts(["- `lookup` returns nil for an empty key"]), { cls: "STANDARD" }), []);
+});
+test("entry-point name is the first backticked token, else the text before the first colon; --entry-words overrides (A162)", async () => {
+  const m = await import(script);
+  assert.deepEqual(m.entryPoints(["- `POST /orders` creates", "- webhook: accepts stripe events"]), ["POST /orders", "webhook"]);
+  assert.deepEqual(m.entryPoints(["- `POST /orders` creates"], "nomatch"), []);
+  assert.deepEqual(m.validationMissing(["- `POST /orders` creates"], [VAL]), []);
+  assert.deepEqual(m.validationMissing(["- `POST /orders` creates"], []), ["POST /orders"]);
+  const f = join(base, "EP.md"); writeFileSync(f, withContracts(["- `POST /orders` creates an order"]));
+  const run = (...a) => spawnSync(process.execPath, [script, f, join(repo, "TASK.md"), "--class", "STANDARD", "--repo", repo, ...a], { encoding: "utf8" });
+  assert.equal(run().status, 1);
+  assert.match(run().stdout, /no complete line for the entry point\(s\) POST \/orders/);
+  assert.equal(run("--entry-words", "nomatch").status, 0);
+});
+test("the default entry word list equals the config value (A162)", async () => {
+  const cfg = readFileSync(join(here, "../../control-plane/agents/config.yaml"), "utf8").match(/^  entry_words: "(.*)"$/m)[1];
+  assert.equal((await import(script)).ENTRY_WORDS, cfg);
+});
+// A162: validation.entry_words of the project's .agents/config.yaml is honoured without a flag; --entry-words overrides it.
+test("a project-tuned validation.entry_words is read from <repo>/.agents/config.yaml; --entry-words overrides it (A162)", () => {
+  const r2 = join(base, "tuned"); mkdirSync(join(r2, ".agents"), { recursive: true });
+  writeFileSync(join(r2, ".agents/config.yaml"), 'validation:\n  entry_words: "nightly +runner"\n  entry_input: "accepts?"\n');
+  const f = join(base, "TUNED.md"); writeFileSync(f, withContracts(["- `nightly runner` accepts a payload", "- `POST /orders` creates an order"]));
+  const run = (dir, ...a) => spawnSync(process.execPath, [script, f, join(repo, "TASK.md"), "--class", "STANDARD", "--repo", dir, ...a], { encoding: "utf8" });
+  const t = run(r2);
+  assert.equal(t.status, 1);
+  assert.match(t.stdout, /no complete line for the entry point\(s\) nightly runner(?!, POST)/); // the tuned word counts, the default POST does not
+  assert.doesNotMatch(t.stdout, /POST \/orders/);
+  assert.match(run(repo).stdout, /entry point\(s\) POST \/orders/); // without the tuned config the default applies
+  assert.doesNotMatch(run(r2, "--entry-words", "nomatch").stdout, /entry point/); // scope errors of the bare tmp repo are unrelated
+});
+test("entryConfig reads validation.* from the first config and the override wins (A162)", async () => {
+  const m = await import(script);
+  const d = join(base, "cfgdir"); mkdirSync(join(d, ".agents"), { recursive: true });
+  writeFileSync(join(d, ".agents/config.yaml"), 'validation:\n  entry_words: "jobs?"\n  entry_skip: "frozen"\n');
+  const c = m.entryConfig([d]);
+  assert.equal(c.words, "jobs?"); assert.equal(c.skip, "frozen"); assert.equal(c.input, m.ENTRY.input);
+  assert.equal(m.entryConfig([d], "x+").words, "x+");
+  assert.equal(m.entryTier("job accepts a payload", c), "mandatory");
+  assert.notEqual(m.entryTier("POST /orders accepts a body", c), "mandatory"); // only a candidate now
+});

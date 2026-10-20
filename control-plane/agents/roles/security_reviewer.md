@@ -42,6 +42,15 @@ check only". An undeclared new or changed dependency, an undeclared install hook
 reported vulnerability are blocking findings, never waivable. This focus always has the tool-free check, so it
 is never UNSUPPORTED.
 
+Logging focus (A162; when `agent.sh pipeline <ID>` lists `focus.SECURITY.logging`, because the diff adds a log
+call whose line names a sensitive-looking word from `risk.log_sensitive.words`): a separate assignment with FOCUS
+`logging` in the same SECURITY gate. The word match only opened it and is no finding. Follow the Logging focus of
+.agents/skills/exploit-proof/SKILL.md: look only at the changed log calls and trace whether a request body, an `Authorization` or
+`Cookie` header, a token, password, secret key or personal data reaches the logged value unmasked (the safe form is
+explicit field selection or the project's central masking helper), and whether user input with CR or LF can start a
+forged line in a plain-text log. A concrete path is a finding (`sink: log`), anything else a suspicion. Write
+`security/logging/REPORT.md`. The check needs no tool, so this focus is never UNSUPPORTED.
+
 ## Output
 
 Report with `agent.sh submit`. You never type a result header, the fingerprint or a hash: the script builds
@@ -50,7 +59,7 @@ again; a stop without a recorded submission is sent back once). Your final messa
 
 ```
 AGENT_ROLE=security_reviewer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> \
-  --confidence <high|medium|low> [--focus dependencies] [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
+  --confidence <high|medium|low> [--focus dependencies|logging] [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
 RESULT is derived from your findings (FAIL exactly when one `blocking` row exists, else PASS); pass `--result BLOCKED --reason "<one line>"` only when evaluation was impossible. `--artifact` is the run-relative path of your report (e.g. `security/REPORT.md`); any path spelling is accepted and the script hashes it. It may be omitted: the default is the path above.

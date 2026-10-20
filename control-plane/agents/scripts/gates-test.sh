@@ -1521,7 +1521,13 @@ sc_design_sync() {
   SC_PLAN_EXTRA='
 ## Contracts
 
-- `GET /api/books` gains `tags`' scaffold orchestrated no STANDARD; implemented orchestrated
+- `GET /api/books` gains `tags`
+
+## Validation
+
+- `GET /api/books`: accepts no body and an optional limit query; limits limit 1-100; rejected at the list handler (400)' \
+    SC_QA_EXTRA='- QA-9 (AC-1) [invalid-input]: GET /api/books with limit 0
+  expected: 400' scaffold orchestrated no STANDARD; implemented orchestrated
   mkdir -p docs/design; printf '# api\n' > docs/design/API.md; printf 'docs/\n' >> .git/info/exclude
   d=.agents/runs/LC; printf '# VERIFY\n\nall criteria proven\n' > "$d/VERIFY.md"
   expect_msg "a verification of a contract change without design/SYNC.md" 'design/SYNC.md' AS verifier submit LC --confidence high --agent vs1
@@ -1529,6 +1535,203 @@ sc_design_sync() {
   out=$(AS verifier submit LC --confidence high --agent vs2 2>&1) || :
   printf '%s' "$out" | grep -q 'design/SYNC.md' && die "a recorded SKIPPED line was not accepted: $out"
   ok "design-sync is written or skipped on the record when the plan changes what a design document describes"
+}
+# --- A162: an entry point that takes external input needs a validation line and an invalid-input scenario ----
+ev_val='- `POST /orders`: accepts a JSON body with items; limits 1-50 items; rejected at the order handler (400)'
+ev_inv='- QA-9 (AC-1) [invalid-input]: POST /orders with 51 items
+  input: a body with 51 items
+  expected: 400'
+# ev_scaffold PLAN_EXTRA QA_EXTRA: an orchestrated STANDARD run, not yet frozen
+ev_scaffold() { SC_PLAN_EXTRA=$1 SC_QA_EXTRA=${2:-} scaffold orchestrated no STANDARD manual; }
+sc_validation_plan() {
+  ev_c='
+## Contracts
+
+- `POST /orders` creates an order'
+  ev_scaffold "$ev_c" "$ev_inv"
+  ev_msg='PLAN.md ## Contracts declares an entry point that takes external input, but ## Validation has no complete line for: POST /orders'
+  expect_msg "a new endpoint without a validation summary" "$ev_msg" A freeze LC
+  A pipeline LC | grep -q '^validation.entry_points=POST /orders' || die "pipeline lists no entry point: $(A pipeline LC)"
+  ev_scaffold "$ev_c
+
+## Validation
+
+- \`POST /orders\`: accepts a JSON body; limits 1-50 items" "$ev_inv"
+  expect_msg "a validation line without rejected at" "$ev_msg" A freeze LC
+  ev_scaffold "$ev_c
+
+## Validation
+
+$ev_val" "$ev_inv"
+  A freeze LC >/dev/null || die "a plan with a complete validation line was refused: $(A freeze LC 2>&1)"
+  A pipeline LC | grep -q '^validation.missing=' && die "pipeline reports missing validation for a complete plan"
+  ev_scaffold '
+## Contracts
+
+- `POST /orders` is removed (the endpoint is gone)'
+  A freeze LC >/dev/null || die "a bullet that removes the contract was treated as an entry point: $(A freeze LC 2>&1)"
+  ev_scaffold ''
+  A freeze LC >/dev/null || die "an ordinary plan without entry points was refused: $(A freeze LC 2>&1)"
+  A pipeline LC | grep -q '^validation\.' && die "an ordinary plan prints validation rows"
+  # code patterns are information only: a scope file that looks like a route never refuses the freeze
+  ev_scaffold ''
+  printf 'app.post("/orders", handler)\n' > impl.txt
+  out=$(A freeze LC 2>&1) || die "a code-pattern candidate refused the freeze: $out"
+  printf '%s' "$out" | grep -q 'information only' || die "no information note for the candidate: $out"
+  A pipeline LC | grep -q '^validation.candidates=scope:impl.txt' || die "pipeline lists no candidate: $(A pipeline LC)"
+  ok "A162: an entry point in ## Contracts needs a complete ## Validation line at freeze; a removal, no entry point and code candidates never refuse"
+}
+sc_validation_qa() {
+  ev_scaffold "
+## Contracts
+
+- \`POST /orders\` creates an order
+
+## Validation
+
+$ev_val"
+  qa_bind LC
+  ev_msg='QA_PLAN.md has no invalid-input scenario for the entry point(s) of PLAN.md ## Contracts: POST /orders'
+  expect_msg "verify-qa-plan without an invalid-input scenario" "$ev_msg" A verify-qa-plan LC
+  expect_msg "freeze without an invalid-input scenario" "$ev_msg" A freeze LC
+  d=.agents/runs/LC; cp "$d/QA_PLAN.md" "$base/qa.keep"
+  { cat "$base/qa.keep"; printf '%s\n' '- QA-9 (AC-1) [invalid-input]: POST /refunds with 51 items' '  expected: 400'; } > "$d/QA_PLAN.md"; qa_bind LC
+  expect_msg "a scenario naming another entry point" "$ev_msg" A verify-qa-plan LC
+  { cat "$base/qa.keep"; printf '%s\n' '- QA-9 (AC-1) [concurrency]: POST /orders twice' '  expected: one order'; } > "$d/QA_PLAN.md"; qa_bind LC
+  expect_msg "a scenario of another category" "$ev_msg" A verify-qa-plan LC
+  { cat "$base/qa.keep"; printf '%s\n' '- QA-9 (AC-1) [invalid-input]: too many items' '  input: POST /orders with 51 items' '  expected: 400'; } > "$d/QA_PLAN.md"; qa_bind LC
+  A verify-qa-plan LC >/dev/null || die "an input line naming the entry point was refused: $(A verify-qa-plan LC 2>&1)"
+  { cat "$base/qa.keep"; printf '%s\n' "$ev_inv"; } > "$d/QA_PLAN.md"; qa_bind LC
+  A verify-qa-plan LC >/dev/null || die "a title naming the entry point was refused: $(A verify-qa-plan LC 2>&1)"
+  A freeze LC >/dev/null || die "freeze with plan line and scenario was refused: $(A freeze LC 2>&1)"
+  ok "A162: a QA plan needs an [invalid-input] scenario naming each entry point; another entry point or category does not satisfy it"
+}
+sc_validation_refreeze() {
+  ev_msg='PLAN.md ## Contracts declares an entry point that takes external input, but ## Validation has no complete line for: POST /orders'
+  ev_scaffold '' "$ev_inv"
+  A freeze LC >/dev/null || die "freeze of a plan without entry points failed: $(A freeze LC 2>&1)"
+  amend_plan 001 '
+## Contracts
+
+- `POST /orders` creates an order'
+  expect_msg "a refreeze that adds an entry point without a validation line" "$ev_msg" A refreeze LC 001.md
+  printf '\n## Validation\n\n%s\n' "$ev_val" >> .agents/runs/LC/PLAN.md
+  A refreeze LC 001.md >/dev/null || die "a refreeze with a validation line and an invalid-input scenario was refused: $(A refreeze LC 001.md 2>&1)"
+  # the QA plan of the refreeze needs the invalid-input scenario too
+  ev_scaffold '' ''
+  A freeze LC >/dev/null || die "freeze of a plan without entry points failed: $(A freeze LC 2>&1)"
+  amend_plan 001 "
+## Contracts
+
+- \`POST /orders\` creates an order
+
+## Validation
+
+$ev_val"
+  expect_msg "a refreeze without an invalid-input scenario" 'QA_PLAN.md has no invalid-input scenario for the entry point(s) of PLAN.md ## Contracts: POST /orders' A refreeze LC 001.md
+  ok "A162: a refreeze enforces the validation line and the invalid-input scenario for a new entry point"
+}
+sc_validation_node() {
+  command -v node >/dev/null 2>&1 || { echo "skip validation_node (node missing)"; exit 0; }
+  sk=$tl_agents/../../skills
+  [ -f "$sk/plan-contract/scripts/validate-plan.mjs" ] || { echo "skip validation_node (skills missing)"; exit 0; }
+  ev_scaffold '
+## Contracts
+
+- `POST /orders` creates an order' "$ev_inv"
+  d=.agents/runs/LC; qa_bind LC
+  vp=$(node "$sk/plan-contract/scripts/validate-plan.mjs" "$d/PLAN.md" "$d/TASK.md" --class STANDARD --repo . 2>&1 || :)
+  printf '%s' "$vp" | grep -q 'no complete line for the entry point(s) POST /orders' || die "validate-plan.mjs disagrees with agent.sh: $vp"
+  printf '%s\n' '' '## Validation' '' "$ev_val" >> "$d/PLAN.md"
+  vp=$(node "$sk/plan-contract/scripts/validate-plan.mjs" "$d/PLAN.md" "$d/TASK.md" --class STANDARD --repo . 2>&1 || :)
+  printf '%s' "$vp" | grep -q 'no complete line' && die "validate-plan.mjs refuses a complete line: $vp"
+  A pipeline LC | grep -q '^validation.missing=' && die "agent.sh refuses a complete line"
+  cp "$d/QA_PLAN.md" "$base/qa.full"; grep -v 'invalid-input\|^  input: a body\|^  expected: 400' "$base/qa.full" > "$d/QA_PLAN.md"
+  qa_bind LC
+  node "$sk/qa-plan/scripts/validate-qa.mjs" plan "$d/QA_PLAN.md" --plan "$d/PLAN.md" 2>&1 | grep -q 'invalid-input scenario for the entry point POST /orders' || die "validate-qa.mjs accepts a QA plan without the scenario"
+  expect_msg "agent.sh on the same QA plan" 'no invalid-input scenario for the entry point(s)' A verify-qa-plan LC
+  # the default word list is one value in the config, validate-plan.mjs and validate-qa.mjs
+  cw=$(A config-get validation.entry_words)
+  [ -n "$cw" ] || die "config has no validation.entry_words"
+  for m in plan-contract/scripts/validate-plan.mjs qa-plan/scripts/validate-qa.mjs; do
+    nw=$(NODE_MOD="$(cd "$sk/$(dirname "$m")" && pwd)/$(basename "$m")" node -e 'import(process.env.NODE_MOD).then((m) => process.stdout.write(m.ENTRY_WORDS))')
+    [ "$nw" = "$cw" ] || die "ENTRY_WORDS of $m differs from config validation.entry_words"
+  done
+  ok "A162: the node validators agree with agent.sh and share the default entry word list with the config"
+}
+# A162: two-tier detection. The reviewed false positives are never mandatory; a declared entry point with new input is;
+# the labelled corpus agrees between agent.sh and both validators.
+sc_validation_tiers() {
+  command -v node >/dev/null 2>&1 || { echo "skip validation_tiers (node missing)"; exit 0; }
+  new_repo
+  while IFS= read -r vt_b; do
+    vt_t=$(A entry-tier "$vt_b")
+    [ "$vt_t" != mandatory ] || die "a false positive is mandatory: $vt_b"
+  done <<'FP'
+`order.schema.json` 3 -> 4 - consumers: billing
+`PLAN.md` frontmatter gains `validation` - consumers: validate-plan.mjs
+`events.proto` field added - consumers: billing
+The consumer of this API is the CLI
+The handler returns 404 for unknown ids
+Form fields documented in docs/forms.md
+The routes table in README updated
+`schema.graphql` Query.users gains limit
+`GET /api/books` response shape unchanged
+Book response (`GET /api/books`) omits legacyNotes
+FP
+  [ "$(A entry-tier 'POST /orders no longer accepts qty above 100')" = mandatory ] || die "a changed input limit is not mandatory"
+  [ "$(A entry-tier 'DELETE /x is added: removes an item')" = mandatory ] || die "a new endpoint is not mandatory"
+  vt_o=$(sh "$tl_agents/../../tests/fixtures/entry-points/run-corpus.sh" 2>&1) || die "entry-point corpus: $vt_o"
+  ok "A162: reviewed false positives are never mandatory, the two positives are, and the corpus agrees (agent.sh, validate-plan, validate-qa)"
+}
+# A162: a plan whose bullets are information only is not refused at freeze; a backslash entry name matches a QA scenario.
+sc_validation_info_only() {
+  ev_scaffold '
+## Contracts
+
+- `order.schema.json` 3 -> 4 - consumers: billing
+- The handler returns 404 for unknown ids
+- `GET /api/books` response shape unchanged' ''
+  A freeze LC >/dev/null || die "a plan with information-only bullets was refused: $(A freeze LC 2>&1)"
+  A pipeline LC | grep -q '^validation.missing=' && die "information-only bullets are reported missing"
+  A pipeline LC | grep -q '^validation.possible=' || die "no validation.possible row for information-only bullets: $(A pipeline LC)"
+  ev_scaffold '
+## Contracts
+
+- `GET /u/\d+` takes a query parameter
+
+## Validation
+
+- `GET /u/\d+`: accepts a numeric id; limits 1-10 digits; rejected at the user handler (400)' '- QA-9 (AC-1) [invalid-input]: GET /u/\d+ with letters
+  input: an id of letters
+  expected: 400'
+  A pipeline LC | grep -qF 'validation.entry_points=GET /u/\d+' || die "a backslash entry name was mangled: $(A pipeline LC | grep '^validation')"
+  qa_bind LC
+  A verify-qa-plan LC >/dev/null || die "a QA scenario naming a backslash entry point was refused: $(A verify-qa-plan LC 2>&1)"
+  A freeze LC >/dev/null || die "freeze with a backslash entry point was refused: $(A freeze LC 2>&1)"
+  ev_scaffold '
+## Contracts
+
+- `GET /u/\d+` takes a query parameter
+
+## Validation
+
+- `GET /u/\d+`: accepts a numeric id; limits 1-10 digits; rejected at the user handler (400)' ''
+  qa_bind LC
+  expect_msg "a QA plan without a scenario for a backslash entry point" 'no invalid-input scenario for the entry point(s) of PLAN.md ## Contracts: GET /u/\d+' A verify-qa-plan LC
+  ok "A162: information-only bullets never refuse the freeze; a backslash entry name matches its QA scenario and is missed without one"
+}
+sc_validation_config() {
+  new_repo
+  A config-check >/dev/null
+  sed 's/^  entry_words: .*/  entry_words: "(["/' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted an invalid entry_words regex" 'invalid regular expression for validation.entry_words' A config-check "$base/bad.yaml"
+  sed 's/^  code_patterns: .*/  code_patterns: "*("/' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted an invalid code_patterns regex" 'invalid regular expression for validation.code_patterns' A config-check "$base/bad.yaml"
+  grep -q '^validation:' .agents/config.yaml || die "the config has no validation block"
+  awk '{ print } /^validation:/ { print "  surprise: 1" }' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted an unknown validation key" 'unknown validation key: validation.surprise' A config-check "$base/bad.yaml"
+  ok "A162: config-check rejects an invalid validation regex and an unknown validation key"
 }
 # --- A107: a report is not evidence; the control plane re-derives what it can -------------------------
 # evidence_gap_fixture: an orchestrated run whose PLAN names `sh check.sh` as its verification command, the
@@ -1951,6 +2154,13 @@ run_sc sc_intent_provenance
 run_sc sc_folded_defect
 run_sc sc_class_floor
 run_sc sc_design_sync
+run_sc sc_validation_plan
+run_sc sc_validation_qa
+run_sc sc_validation_refreeze
+run_sc sc_validation_node
+run_sc sc_validation_config
+run_sc sc_validation_tiers
+run_sc sc_validation_info_only
 run_sc sc_evidence_gap_fabricated
 run_sc sc_evidence_gap_files
 run_sc sc_evidence_gap_rerun

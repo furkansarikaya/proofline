@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
 # phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
 # validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.19
+proofline_version: 0.0.20
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -108,11 +108,30 @@ security:
     deny:
   audit_command:
 
+# Input validation at entry points (A162). Every key but `code_patterns` is an alternation of words (an extended
+# regular expression, case-insensitive) that agent.sh and the plan-contract and qa-plan validators read as WHOLE words
+# (a `.` or `-` inside an identifier such as `schema.graphql` is no boundary). A `## Contracts` bullet of PLAN.md is
+# MANDATORY (the freeze then needs one `## Validation` line for the entry point and the QA plan one `[invalid-input]`
+# scenario) when it declares an entry point (`entry_words`), is not the entry point's own removal, does not say it is
+# unchanged or documented (`entry_skip`), and marks new or changed input: an `entry_input` word, or an `entry_new`
+# word with no `entry_output` word. A bullet that only mentions `entry_candidates` words, or declares an entry point
+# without new input, is INFORMATION: `agent.sh pipeline` and a note at freeze list it, nothing refuses.
+# `code_patterns` is the same kind of expression over code (existing files of the plan scope, lines the diff adds):
+# a hit is only listed as information, never required. Extend the lists for the project's own idioms.
+validation:
+  entry_words: "(GET|POST|PUT|PATCH|DELETE|HEAD) +/[^ ]*|endpoints?|webhooks?|(route|request|form|event|message|command) +handlers?|(queue|message|event|topic|job) +(consumers?|listeners?)|subscribes? +to|(grpc|rpc) +(methods?|services?|calls?)|graphql +(mutations?|quer(y|ies)|subscriptions?|resolvers?)|mutations?|cli +commands?|sub-?commands?|(new|adds?|added) +(cli +)?commands?|(cli|command-line|positional) +(arguments?|args?|flags?|options?)|argv|--[a-z][a-z0-9-]*|form +(fields?|submissions?)"
+  entry_candidates: "endpoints?|routes?|handlers?|webhooks?|consumers?|subscribers?|forms?|cli +(arguments?|args?|flags?|options?|commands?)|command-line|argv|rpc|grpc|graphql|mutations?|(GET|POST|PUT|PATCH|DELETE|HEAD) +/[^ ]*|--[a-z][a-z0-9-]*|[A-Za-z0-9_-]*[.](graphqls?|gql|proto)"
+  entry_input: "accepts?|accepting|takes?|taking|parameters?|params?|quer(y|ies)|bod(y|ies)|payloads?|arguments?|args?|flags?|options?|headers?|inputs?|required|optional|expects?"
+  entry_new: "new|adds?|added|adding|introduc(es?|ed|ing)|creates?|created|registers?|registered|exposes?|exposed|fields?|gains?"
+  entry_output: "responses?|returns?|returning|returned|omits?|omitted|output|status +codes?|shape|results?"
+  entry_skip: "unchanged|documented|documents|no +change|not +changed|unmodified|as +before"
+  code_patterns: "@(Get|Post|Put|Patch|Delete|Request)Mapping|@(app|router|bp|blueprint)\.(route|get|post|put|patch|delete)|(app|router|api|server)\.(get|post|put|patch|delete|all|use)\(|http\.HandleFunc|\.Handle\(|\.(GET|POST|PUT|PATCH|DELETE)\(|add_argument\(|argparse|\.command\(|yargs|cobra\.Command|flag\.(String|Int|Bool)|process\.argv|sys\.argv|webhook|subscribe\(|consumer|createServer"
+
 # Risk-adaptive pipeline (A78; `agent.sh pipeline <ID>` shows what fired and why). A signal comes from a changed
 # or planned path (`paths`, globs as in risky_paths), from text the diff adds (`content`, an extended regular
-# expression; empty = off), or from a PLAN.md flag. `check` is the focus it adds inside an existing gate:
+# expression; empty = off; with `words` the line must match it and name one of the words, A162), or from a PLAN.md flag. `check` is the focus it adds inside an existing gate:
 # contract, concurrency, performance, config (REVIEW_RULES, or REVIEW_SMALL on tier small), migration
-# (REVIEW_DATA), visual (QA), dependencies (SECURITY); a check runs only when its gate is required. `flag` is
+# (REVIEW_DATA), visual (QA), dependencies, logging (SECURITY); a check runs only when its gate is required. `flag` is
 # the PLAN.md flag that must declare a path signal (contract_change, concurrency, performance_critical in
 # `## Risk`; data_change = a `## Data` section; ui = a `## UI` section); a diff signal without it is a blocking
 # finding of its focus. `design_role` declares it before FREEZE. Plain documentation never carries a signal.
@@ -165,6 +184,16 @@ risk:
     flag: performance_critical
     check: performance
     design_role: architect
+  # Sensitive data in logs (A162): a line the diff ADDS must match `content` (a log call: logger./log./console./
+  # print/printf/Log.*, Console.WriteLine, fmt.Fprintf, var_dump and the like; `print "..."` and `puts "..."` without
+  # parentheses too) and name one of `words` (space-separated, case-insensitive, whole identifier
+  # parts: `password`, `user_password`, `userPassword`, `passwords`; not `discard` for `card`). The match only opens
+  # a `logging` review in SECURITY (exploit-proof, sink `[log]`); it is no finding. Add your own words or log calls
+  # here; `logger.info("started")` names no word and opens nothing. A call split over several lines is not seen.
+  log_sensitive:
+    content: (^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\.|\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]
+    words: password passwd token secret authorization cookie email phone card iban ssn tckn
+    check: logging
   # Plan flags: a flag set in PLAN.md adds its check even without a matching path.
   contract_change:
     check: contract

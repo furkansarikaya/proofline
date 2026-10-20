@@ -15,7 +15,7 @@
 
 ## Status
 
-Version 0.0.19 is an early release.
+Version 0.0.20 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -28,7 +28,7 @@ Their integration checks passed, and the full team runs are still in progress.
 - **Guaranteed:** approvals, database safety, scope, evidence and cleanup. Scripts and hooks refuse a step that breaks these rules. A run can still stop or fail before it finishes, and hook checks have documented limits.
 - **Model-dependent:** report wording, plan details and code quality. These vary from run to run. The end-to-end runs measure them as a rate.
 - **Valid differences:** two runs of the same task can differ, and both can be valid.
-- **Lead model:** a cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `exec-policy.sh check-lead` and the end-to-end harness refuse a Codex lead below the base model or without a model. `proofline doctor` fails on a resolved model below base, and only warns when it cannot resolve the model. No other runtime has a base model, so choose the lead model yourself.
+- **Lead model:** a cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model; `proofline doctor` fails on a resolved model below base. Details: [roles](docs/concepts/roles.md#the-lead-model).
 
 ## Install
 
@@ -82,7 +82,9 @@ What happens: the lead classifies the task (TRIVIAL to CRITICAL), creates a task
 explorers gather evidence, writes `PLAN.md` with a `scope:` file list, freezes it, and dispatches one implementer
 that must show RED then GREEN evidence. Gates then run in parallel on the exact content; a FAIL goes back to the
 implementer for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks, and you
-approve every commit and push. `proofline status` shows the next step at any time.
+approve every commit and push. A plan that adds an entry point taking external input (an endpoint, form, CLI argument,
+queue consumer or webhook) must state how that input is validated, and the QA plan must try an invalid input there
+([details](docs/concepts/workflow.md#input-validation-at-entry-points)). A diff that adds a log call naming a sensitive word (password, token, cookie, ...) opens a `logging` security review; the project's own log standard lives in `AGENTS.md` ([details](docs/concepts/gates.md#risk-signals)). `proofline status` shows the next step at any time.
 
 Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's environment markers, not by a terminal.
 
@@ -105,17 +107,15 @@ debt                                  list the shortcut comments in the code (re
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
 
-**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, for example `init` -> `/proofline doctor`, a finished run -> `/proofline deliver <TASK>`, a FAILED run -> `/proofline reopen <TASK>`. It is never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it.
+**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, for example `init` -> `/proofline doctor`, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
 
-**Night mode.** `/proofline batch <ID...|all>` orders the listed tasks by `depends_on` and shows one summary: the order, what the approval covers, what it does not, and the tasks left out (CRITICAL or unclassified tasks, and tasks that depend on them). Your one reply "approve batch" is bound to that summary. `proofline batch run` then works through the tasks one at a time, each in a clean headless lead session, and the summary's approval stands in for the plan approval, the delivery approval (commit, push, pull request, merge only when CI is green and every gate passed, cleanup) and a mutation budget raise up to `batch.mutation_budget_cap`. A waiver, a scope expansion, a new dependency, a reopen, a destructive data change, a rule promotion, sending the friction report and a new fix-round budget are never covered: the task is parked with its question, tasks that depend on it are skipped, and the next independent task still runs. A session that runs longer than `batch.task_timeout` (120 minutes) is closed together with every process it started (its own process group, nothing else), the task is parked with the reason `timeout` and the batch goes on. After every merge the driver waits for the CI run of the merge commit itself, not the latest run, and stops when it is red, still running after `batch.ci_wait_minutes`, or when no run appears within `batch.ci_appear_minutes`. A Codex night session runs in a sandbox profile that can commit and write the run records (`.git` and `.agents` writable except hooks and `.git/config`, project folder writable, `$HOME` read-only, network on; the package-manager caches are redirected into the temp dir, which is verified for npm, pnpm, yarn, pip and go only, so a package install with any other tool is not promised to work); `danger-full-access` only when you plan with `/proofline batch <ID...|all> --codex-danger-full-access` (the summary then carries a warning and your approval covers it; config cannot enable it). The driver also stops when every runtime hit its usage limit, or when a runtime is not logged in. `proofline batch status` is the morning table, generated from records only, followed by one line per headless session (runtime, start, end, exit code, park reason, log path) so a first real run can be diagnosed in the morning. A session is always started as the leader of its own process group (job control, `setsid`, perl or python3, whichever is verified on the machine); where none works the batch is refused. A Codex runtime must be codex-cli 0.163.0 or newer (the version the profile was verified on); the summary records the version and the driver refuses an older or unreadable one. The headless Claude session runs with the permission mode of `dispatch.claude_permission_mode` (the PreToolUse hook confines it). Two limits are decisions, not gaps: night mode runs markdown task files only (the unattended driver must not depend on network calls to resolve task ids; import other tasks with `/proofline task`, and `batch-plan` says so), and a sandboxed Codex lead cannot start sandboxed Codex workers on macOS (sandboxes do not nest; `batch-plan` warns whenever a Codex session can run as the lead, including as the fallback runtime when one runtime hits its usage limit).
+**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and `proofline batch run` then works through the tasks one at a time in clean headless sessions. Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table. Detail and limits: [night mode](docs/concepts/night-mode.md).
 
-**Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition. The knowledge step writes the same list to one wiki page. A removed shortcut drops off it.
+**Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition ([workflow](docs/concepts/workflow.md#shortcut-debt)).
 
-**Observations.** The implementer lists issues it saw but did not touch because they are out of scope. The knowledge step proposes them to you as new tasks and writes a task only after you approve it.
+**Observations and unrelated changes.** The implementer lists out-of-scope issues it saw but did not touch, and a task is written only after you approve it. The plan review fails a change inside the scope that serves no acceptance criterion ([workflow](docs/concepts/workflow.md#observations-and-unrelated-changes)).
 
-**Unrelated changes.** The plan review fails a change inside the scope that alters behaviour but serves no acceptance criterion. Formatting, comments and import order only produce a note.
-
-**Processes.** An agent stops only a process it started itself, by its own PID. `pkill`, `killall`, `kill` by pattern (`kill $(pgrep ...)`, `pgrep ... | xargs kill`, a variable or loop variable filled from `pgrep`/`ps`, `find -exec kill`) and mass kills (`kill -1`, `kill 0` in any spelling) are denied by the runtime hook for the agents' tool calls, also when they sit in an interpreter one-liner (`python -c`, `perl -e`, `node -e`), a here-document, `eval` or a script file the command runs from the project or a temp folder. The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent: a command assembled at run time, a script outside those folders, and what another tool runs for you (`npm run`, `make`, `ssh host pkill x`, `docker exec c pkill x`) are not seen (A161). Code that only prints or matches a kill word is denied too, because it cannot be told from a command; the denial says so and you can run the command yourself with the `!` prefix. The runtime's permission mode and sandbox are the boundary. Commands you type yourself are not affected.
+**Processes.** An agent stops only a process it started itself, by its own PID: the runtime hook denies `pkill`, `killall`, `kill` by pattern and mass kills. The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent. What it sees and what it cannot: [process rules](docs/concepts/enforcement-layers.md#process-rules).
 
 ## Real output
 
@@ -144,7 +144,7 @@ The end-to-end results are in [tests/e2e/README.md](tests/e2e/README.md).
 
 ## Documentation
 
-- Concepts: [workflow](docs/concepts/workflow.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md)
+- Concepts: [workflow](docs/concepts/workflow.md), [night mode](docs/concepts/night-mode.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md)
 - Guides: [daily use](docs/guides/daily-use.md), [existing project](docs/guides/existing-project.md), [task templates](docs/guides/task-templates.md), [writing an adapter](docs/guides/writing-an-adapter.md), [prompt catalogue](docs/guides/prompt-catalogue.md)
 - Turkish: [gunluk kullanim](docs/guides/tr/gunluk-kullanim.md), [prompt katalogu](docs/guides/tr/prompt-katalogu.md)
 - Reference: [skills](docs/reference/skills.md), [roles](docs/reference/roles.md), [design decisions](docs/decisions.md)
@@ -156,7 +156,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.19**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.20**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

@@ -611,6 +611,124 @@ sc_selective_focus() {
   ok "selective repetition: a change outside the dependency manifests keeps SECURITY:dependencies fresh (own focus stale); package.json stales it"
 }
 
+# A162: a sensitive-named log call the diff ADDS opens the SECURITY logging focus; an ordinary log call, a
+# false-friend word, a non-log line and a log call that is only a context line do not; the focus is never UNSUPPORTED.
+sc_log_sensitive() {
+  scaffold standalone no CRITICAL manual
+  mkdir -p src
+  printf 'package x\nfunc f() { log.Printf("login %%s", user.Password) }\n' > src/p_go.go
+  printf 'console.log("auth", req.headers.authorization);\n' > src/p_js.js
+  printf 'logger.info("t %%s", user_token)\n' > src/p_py.py
+  printf 'fn f() { info!("mail {}", userEmail); }\n' > src/p_rs.rs
+  printf 'logger.info("started")\n' > src/n_ok.py
+  printf 'func f() { log.Printf("discard %%d", discardCount) }\n' > src/n_discard.go
+  printf 'console.log("c", className);\n' > src/n_class.js
+  printf 'console.log("c", classname)\n' > src/n_classname.js
+  printf 'func f() { password := 1; _ = password }\n' > src/n_plain.go          # sensitive word, no log call
+  snap
+  for ls_f in p_go.go p_js.js p_py.py p_rs.rs; do has "diff:src/$ls_f"; done
+  hasnt 'src/n_'
+  has 'focus.SECURITY.logging=missing'
+  # no sensitive log call at all: no signal, no focus
+  scaffold standalone no CRITICAL manual
+  mkdir -p src; printf 'logger.info("started")\n' > src/b.go
+  snap; hasnt 'signal.log_sensitive'; hasnt 'focus.SECURITY.logging'
+  # the call is a context line (exists at base, untouched by the edit): not added, no signal
+  scaffold standalone no CRITICAL manual
+  mkdir -p src; printf 'logger.info("login", user.Password)\nx := 1\n' > src/b.go
+  git add -A; git commit -qm 'add b.go'
+  sed "s/^  base_sha:.*/  base_sha: \"$(git rev-parse HEAD)\"/" .agents/runs/LC/RUN.yaml > "$base/run.base"; cp "$base/run.base" .agents/runs/LC/RUN.yaml
+  printf 'logger.info("login", user.Password)\nx := 2\n' > src/b.go
+  snap; hasnt 'signal.log_sensitive'; hasnt 'focus.SECURITY.logging'
+  # control: the same call added by the edit fires
+  printf 'logger.info("login", user.Password)\nx := 2\nlogger.info("again", user.Password)\n' > src/b.go
+  snap; has 'signal.log_sensitive=source=diff:src/b.go'; has 'focus.SECURITY.logging=missing'
+  ok "log_sensitive: sensitive log calls added by the diff open the logging focus; ordinary calls, discard/classname, plain code and context lines do not"
+}
+# risk_words_match boundaries (the function exactly as agent.sh defines it).
+sc_log_words_match() {
+  eval "$(sed -n '/^risk_words_match() {/,/^}/p' "$(dirname "$0")/agent.sh")"
+  for lw in 'log(userPassword)' 'log(user_password)' 'log(passwords)' 'log(PASSWORD)' 'log(card)' 'log(ssn)' 'log(user.Email)'; do
+    printf '%s\n' "$lw" | risk_words_match 'log' 'password card ssn email' || die "risk_words_match did not match: $lw"
+  done
+  for lw in 'log(discard)' 'log(classname)' 'log(scardy)' 'log(started)' 'print(password)'; do
+    ! printf '%s\n' "$lw" | risk_words_match '^log' 'password card ssn email' || die "risk_words_match matched: $lw"
+  done
+  printf 'x\nlog(token)\n' | risk_words_match '^log' 'token' || die "risk_words_match: the second line did not match"
+  ok "log words: whole identifier parts, case-insensitive, plural; discard and classname are false friends; the content pattern must match too"
+}
+# The logging focus has a tool-free check: UNSUPPORTED is refused (A162).
+sc_log_unsupported() {
+  rrun COMPLEX 'src/b.go'; frozen; implement src/b.go 'logger.info("login", user.Password)'
+  mkdir -p .agents/runs/LC/security/logging; printf '# log\n' > .agents/runs/LC/security/logging/REPORT.md
+  snap; has 'focus.SECURITY.logging=missing'
+  expect_msg "UNSUPPORTED logging focus" 'logging focus always has a tool-free check' AS security_reviewer submit LC --focus logging --result UNSUPPORTED --reason 'no log tool in the project' --confidence high --artifact security/logging/REPORT.md
+  ok "log unsupported: the logging focus can not be UNSUPPORTED"
+}
+
+# A162: config-check rejects a log_sensitive regex awk cannot compile, and empty or missing words.
+sc_log_config_check() {
+  scaffold standalone no CRITICAL manual
+  A config-check >/dev/null
+  awk '/^  log_sensitive:$/ { ls = 1 } ls && /^    content: / { print "    content: \"(\""; ls = 0; next } { print }' .agents/config.yaml > "$base/bad.yaml"
+  cmp -s .agents/config.yaml "$base/bad.yaml" && die "fixture did not change the log_sensitive content line"
+  expect_msg "config-check accepted an invalid log_sensitive content" 'invalid regular expression for risk.log_sensitive.content' A config-check "$base/bad.yaml"
+  sed 's/^    words: password.*/    words:/' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted empty log_sensitive words" 'risk.log_sensitive.words is empty' A config-check "$base/bad.yaml"
+  grep -v '^    words: password' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted log_sensitive without words" 'risk.log_sensitive.words is missing' A config-check "$base/bad.yaml"
+  # generic: empty words on another signal that has content
+  awk '/^  log_sensitive:$/ { print "  other_sig:"; print "    content: foo"; print "    words:"; print "    check: logging" } { print }' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted empty words on another risk signal" 'risk.other_sig.words is empty' A config-check "$base/bad.yaml"
+  ok "A162: config-check rejects a bad log_sensitive regex, empty and missing words, and empty words on any signal"
+}
+# The widened log-call pattern from config.yaml, evaluated by risk_words_match.
+sc_log_pattern_wide() {
+  eval "$(sed -n '/^risk_words_match() {/,/^}/p' "$(dirname "$0")/agent.sh")"
+  lp_re=$(awk '/^  log_sensitive:$/ { ls = 1 } ls && /^    content: / { sub(/^    content: /, ""); print; exit }' "$(dirname "$0")/../config.yaml")
+  [ -n "$lp_re" ] || die "log_sensitive content not found in config.yaml"
+  for lw in 'Console.WriteLine(password)' 'Debug.WriteLine(token)' 'Trace.WriteLine(secret)' 'fmt.Fprintf(w, "%s", password)' 'fmt.Fprint(os.Stderr, token)' \
+    'fmt.Fprintln(w, secret)' 'FMT.FPRINTF(w, password)' 'print "password"' 'puts "token"' 'var_dump($password)' 'dump($password)'; do
+    printf '%s\n' "$lw" | risk_words_match "$lp_re" 'password token secret' || die "log pattern did not open for: $lw"
+  done
+  for lw in 'logger.info("started")' 'x = discard' 'classname = 1' 'cardinality = 2' 'phoneme = 3' 'scorecard = 4' 'cardholder = 5' 'wildcard = 6' 'tokenizer = 7' 'secretary = 8'; do
+    ! printf '%s\n' "$lw" | risk_words_match "$lp_re" 'password token secret card phone' || die "log pattern opened for: $lw"
+  done
+  ok "A162: the widened log pattern opens for Console/Debug/Trace/Fprint*/print/puts/dump with a sensitive word; false friends stay closed"
+}
+# A162: a run frozen before risk.log_sensitive existed survives the upgrade that adds it (bounded legacy rule).
+sc_log_upgrade_legacy() {
+  rrun COMPLEX ''
+  cp .agents/config.yaml "$base/cfg.new"
+  awk '/^  log_sensitive:/ { skip = 1; next } skip && /^    / { next } { skip = 0; print }' "$base/cfg.new" > .agents/config.yaml
+  ! grep -q 'log_sensitive' .agents/config.yaml || die "the old config still has log_sensitive"
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null
+  cp "$base/cfg.new" .agents/config.yaml
+  A verify-freeze LC >/dev/null || die "a run frozen before the upgrade fails verify-freeze: $(A verify-freeze LC 2>&1)"
+  A handoff LC IMPLEMENTING >/dev/null || die "handoff IMPLEMENTING failed after the upgrade: $(A handoff LC IMPLEMENTING 2>&1)"
+  printf 'logger.info("password " + password)\n' > impl.txt
+  snap; hasnt 'signal.log_sensitive'; hasnt 'focus.SECURITY.logging'
+  # another risk key edited on the legacy-frozen run is still refused
+  sed 's/^  regression_pct: 10$/  regression_pct: 500/' "$base/cfg.new" > .agents/config.yaml
+  ! cmp -s "$base/cfg.new" .agents/config.yaml || die "the regression_pct edit did not apply"
+  expect_msg "another risk key edited on a legacy-frozen run" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.new" .agents/config.yaml
+  # a run frozen under the new config binds log_sensitive: editing it is refused
+  rrun COMPLEX ''
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  sed 's/^    words: password /    words: secret password /' "$base/cfg.new" > .agents/config.yaml
+  ! cmp -s "$base/cfg.new" .agents/config.yaml || die "the log_sensitive edit did not apply"
+  expect_msg "log_sensitive edited on a run frozen under the new rule" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.new" .agents/config.yaml; A verify-freeze LC >/dev/null
+  ok "legacy freeze: a run frozen before log_sensitive survives the upgrade without the logging focus; another risk key or a new-rule log_sensitive edit is refused"
+}
+
+run_sc sc_log_sensitive
+run_sc sc_log_config_check
+run_sc sc_log_pattern_wide
+run_sc sc_log_words_match
+run_sc sc_log_unsupported
+run_sc sc_log_upgrade_legacy
 run_sc sc_mapping
 run_sc sc_dependency_manifests
 run_sc sc_not_contract_drift

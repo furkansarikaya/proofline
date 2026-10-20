@@ -60,6 +60,7 @@ Deterministic risk signals add focuses inside the gates above; they never add a 
 | `migration` | path under `migrations/`, `migration/`, `db/migrate/`, `alembic/versions/`, or `*.sql` | a `## Data` section | `migration` | REVIEW_DATA |
 | `ui_path` | `*.html *.css *.scss *.jsx *.tsx *.vue *.svelte` and similar | a `## UI` section | `visual` | QA |
 | `dependency_manifest` | a dependency manifest or lock file | none (`## Dependencies` is checked by the focus) | `dependencies` | SECURITY |
+| `log_sensitive` | text the diff adds: a log call line naming a word of `risk.log_sensitive.words` (password, token, secret, authorization, cookie, email, phone, card, iban, ssn, tckn; extensible); opens a review, no finding | none | `logging` | SECURITY |
 | `config_env` | `.env*`, `config/*.yaml`, `*.ini`, `*.properties`, `appsettings*.json` | none | `config` | REVIEW_RULES / REVIEW_SMALL |
 | `concurrency_hint`, `performance_hint` | text the diff adds (`content`, off by default) | `concurrency: yes`, `performance_critical: yes` | `concurrency`, `performance` | REVIEW_RULES / REVIEW_SMALL |
 | flags `contract_change`, `concurrency`, `performance_critical`, `destructive`, `ui` | PLAN.md | itself | as above (`destructive` adds `migration`) | as above |
@@ -91,7 +92,7 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   that names it and says `not proven: <what>` (three words at least). The reason must be concrete (at least 12
   characters with a path, an `INCONCLUSIVE:` measurement or a tool/capability word; `n/a` is refused). A gate that
   closes with an unsupported focus shows `gate.<GATE>.unsupported=<focus,...>` in `pipeline` and
-  `<GATE>: pass (unsupported: <focus,...>)` in `summary`; `next` tells the lead to surface them to the user. The `dependencies` focus always has a tool-free check and refuses UNSUPPORTED; so do `concurrency` and `config` (A102).
+  `<GATE>: pass (unsupported: <focus,...>)` in `summary`; `next` tells the lead to surface them to the user. The `dependencies` and `logging` focuses always have a tool-free check and refuse UNSUPPORTED; so do `concurrency` and `config` (A102).
   **Evidence (A102).** A reason alone is refused: UNSUPPORTED also needs `--evidence <file>`, the skill
   validator's own output saved in the focus's report folder or `reports/` (`submit` snapshots it like the
   report, A43). `record` refuses it unless the file holds the validator's `RESULT: UNSUPPORTED` line (visual:

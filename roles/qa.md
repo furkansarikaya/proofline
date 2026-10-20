@@ -48,7 +48,10 @@ Plan step (before FREEZE):
    (`Plan sha256:` line), every plan criterion has an acceptance scenario, and no scenario expects a term the
    plan's `## Contracts` removes or renames. Each scenario names its criterion (`AC-n`) or its adversarial
    category, the input, the expected observable outcome and how it is proven. Validate with
-   `validate-qa.mjs plan QA_PLAN.md --task TASK.md --plan PLAN.md`.
+   `validate-qa.mjs plan QA_PLAN.md --task TASK.md --plan PLAN.md`. For every entry point that takes external input
+   (the plan's `## Contracts` lists it, `agent.sh pipeline <ID>` prints `validation.entry_points`) write at least one
+   `[invalid-input]` adversarial scenario that names the entry point and feeds it an input the server must reject;
+   it is mandatory, and `freeze` refuses a QA plan without it (A162).
 3. An acceptance criterion too ambiguous to test: write state to `QA_PLAN.md` and return NEEDS_INPUT. Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
 4. Return the plan-step result (below). Stop.
 

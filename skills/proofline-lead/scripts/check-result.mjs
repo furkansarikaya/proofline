@@ -17,7 +17,7 @@ const GATE_ROLES = ["reviewer", "security_reviewer", "qa", "verifier"];
 const FOCUS_GATE = { plan: "REVIEW_PLAN", rules: "REVIEW_RULES", tests: "REVIEW_TESTS", data: "REVIEW_DATA", "rules+tests": "REVIEW_SMALL" };
 // A78 risk focuses and the role that owns each (agent.sh risk_focus_role). The rules-gate focuses land on
 // REVIEW_SMALL on tier small, so either row prefix is accepted for them (the tier is not known here).
-export const RISK_FOCUS_ROLE = { contract: "reviewer", concurrency: "reviewer", performance: "reviewer", config: "reviewer", migration: "reviewer", visual: "qa", dependencies: "security_reviewer" };
+export const RISK_FOCUS_ROLE = { contract: "reviewer", concurrency: "reviewer", performance: "reviewer", config: "reviewer", migration: "reviewer", visual: "qa", dependencies: "security_reviewer", logging: "security_reviewer" };
 const RULES_RISK = ["contract", "concurrency", "performance", "config"];
 
 export const canonRole = (r) => ALIASES[r] ?? r;
@@ -85,6 +85,7 @@ export function check(text, { role: wantRole, task: wantTask } = {}) {
   if (res === "UNSUPPORTED") {
     if (!gateRole || !riskFocus) return { errors: [...errors, "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"] };
     if (h.FOCUS === "dependencies") return { errors: [...errors, "the dependencies focus always has a tool-free check; UNSUPPORTED is not available"] };
+    if (h.FOCUS === "logging") return { errors: [...errors, "the logging focus always has a tool-free check (read the code); UNSUPPORTED is not available (A162)"] };
     if (h.FOCUS === "concurrency" || h.FOCUS === "config") return { errors: [...errors, `the ${h.FOCUS} focus always has a tool-free check; UNSUPPORTED is not available (A102)`] };
     kind = "gate";
   } else if (res === "PASS" || res === "FAIL") kind = gateRole ? "gate" : null;
