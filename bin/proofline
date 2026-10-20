@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.16
+PROOFLINE_VERSION=0.0.17
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -20,7 +20,10 @@ LIB=$PL_HOME/bin/lib
 
 say() { printf '%s\n' "$*"; }
 warn() { printf 'proofline: %s\n' "$*" >&2; }
-die() { printf 'proofline: %s\n' "$*" >&2; exit 1; }
+# nu_line [--error[=KIND]]: the user's next step (A159), from the one table in next-user.sh, for the command being run.
+PL_CMD=''; PL_ID=''; PL_KIND=''
+nu_line() { PROOFLINE_ROOT=$ROOT sh "$PL_HOME/control-plane/agents/scripts/next-user.sh" "${PL_CMD:-help}" ${PL_ID:+"$PL_ID"} "$@"; }
+die() { printf 'proofline: %s\n' "$*" >&2; nu_line "--error${PL_KIND:+=$PL_KIND}" >&2 || :; exit 1; }
 if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
 else sha256() { sha256sum "$1" | awk '{print $1}'; }; fi
 
@@ -118,11 +121,10 @@ hint() {
 cmd_status() {
   require_installed
   agent status | sed -n '1,4p'
-  say "(full policy: .agents/scripts/agent.sh status)"
   id=$(active_id)
   case "$id" in
     ''|none) say "no active run. Queue: proofline queue; start: proofline run <TASK>" ;;
-    *) say ""; agent next "$id" ;;
+    *) say ""; agent next "$id" | grep -v '^next=' ;;
   esac
 }
 
@@ -133,7 +135,7 @@ cmd_resume() {
     ''|none) say "no active run to resume. Queue: proofline queue"; hint run "<TASK>"; return 0 ;;
   esac
   say "run $id"
-  agent next "$id" || die "agent.sh next failed for $id (is .agents/runs/$id intact?)"
+  agent next "$id" | grep -v '^next=' || die "cannot read the state of run $id (is .agents/runs/$id intact?)"
   led=$ROOT/.agents/runs/$id/LEDGER.log
   if [ -f "$led" ]; then say ""; say "ledger (last 5 rows):"; tail -n 5 "$led" | sed 's/^/  /'; fi
   say ""
@@ -199,7 +201,7 @@ cmd_deliver() {
   say "  pr     : a pull request with the completion report as its body"
   say "  merge  : only when every check is green, through 'proofline merge'; a red check stops before cleanup"
   say "  cleanup: after the merge"
-  say "  one approval: agent.sh deliver-plan $id shows one summary; your reply \"approve delivery\" approves each step of it, bound to this content"
+  say "  one approval: the lead shows one summary; your reply \"approve delivery\" approves each step of it, bound to this content"
   say "  never  : tag, force-push, touch a protected branch (configured: $(cfg_val "$CFG" git.protected_branches none))"
   hint deliver "$id"
 }
@@ -280,6 +282,17 @@ cmd_session() { # review | audit | debug | docs | explain | wiki
 main() {
   cmd=${1:-status}
   [ $# -eq 0 ] || shift
+  PL_CMD=$cmd
+  case "$cmd" in --version|-v) PL_CMD=version ;; --help|-h) PL_CMD=help ;; deliver|run|knowledge|reopen) PL_ID=${1:-} ;; esac
+  nu_json=no; case " $* " in *" --json "*) nu_json=yes ;; esac   # machine-readable output carries no extra line
+  rc=0; dispatch "$cmd" "$@" || rc=$?
+  if [ "$rc" != 0 ]; then nu_line --error >&2 || :
+  elif [ "$nu_json" = no ]; then case "$PL_CMD" in init|upgrade|doctor|status|resume|queue|debt|clean|merge|insights) nu_line || : ;; esac; fi
+  exit "$rc"
+}
+
+dispatch() {
+  cmd=$1; shift
   case "$cmd" in
     init) cmd_init "$@" ;;
     upgrade) cmd_upgrade "$@" ;;
@@ -299,7 +312,7 @@ main() {
     review|audit|debug|docs|explain|wiki) cmd_session "$cmd" "$@" ;;
     version|--version|-v) say "proofline $PROOFLINE_VERSION" ;;
     help|--help|-h) usage ;;
-    *) usage >&2; die "unknown command: $cmd" ;;
+    *) usage >&2; PL_CMD=''; PL_KIND=usage; die "unknown command: $cmd" ;;
   esac
 }
 main "$@"
