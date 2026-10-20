@@ -31,7 +31,7 @@ prompt() { H prompt "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"
 denied() { printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (not denied)"; [ -z "${3:-}" ] || printf '%s' "$2" | grep -Fq -- "$3" || die "$1 (denied for another reason: $2)"; ok "$1"; }
 allowed() { ! printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (denied: $2)"; ok "$1"; }
 fixture() { # scaffold an orchestrated run at IMPLEMENTING with git hooks and the runtime hook installed
-  scaffold orchestrated no "${1:-COMPLEX}"
+  scaffold orchestrated no "${1:-COMPLEX}" "${2:-}"
   cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks src; cp "$hook" .agents/hooks/
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude   # committed in a real install
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
@@ -435,6 +435,65 @@ final_report_tokens() {
   out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Commit ve push onayınızı bekliyorum.")
   [ -z "$out" ] || die "A44-5 a later final message with the identifiers produced output: $out"
   ok "A44-5 every final message of the state is checked; one that carries the identifiers yields no message"
+}
+
+# A159: the knowledge step needs the wiki and the design documents; the lead may write exactly those, only after
+# CODE_DONE (or on a FAILED/BLOCKED run), and never product code or RUN.yaml.
+knowledge_stage() {
+  fixture
+  wiki=docs/wiki/concepts/retry.md; dd=docs/design/DESIGN.md
+  denied "A159 IMPLEMENTING: lead Write of a wiki page" "$(pre_edit Write "$PWD/$wiki")" "the lead writes only run artifacts"
+  denied "A159 IMPLEMENTING: lead Write of a design document" "$(pre_edit Write "$PWD/$dd")" "the lead writes only run artifacts"
+  denied "A159 IMPLEMENTING: lead shell write into the wiki" "$(pre_bash "echo x > $wiki")"
+  fixture COMPLEX manual
+  denied "A159 PLANNING: lead Write of a wiki page" "$(pre_edit Write "$PWD/$wiki")" "the lead writes only run artifacts"
+  denied "A159 PLANNING: lead Write of a design document" "$(pre_edit Write "$PWD/$dd")" "the lead writes only run artifacts"
+  fixture; to_code_done orchestrated
+  allowed "A159 CODE_DONE: lead Write of a wiki page" "$(pre_edit Write "$PWD/$wiki")"
+  allowed "A159 CODE_DONE: lead Edit of a design document" "$(pre_edit Edit "$PWD/$dd")"
+  allowed "A159 CODE_DONE: lead Write of an ADR" "$(pre_edit Write docs/adr/0001-retry.md)"
+  denied "A159 CODE_DONE: lead Write of product code" "$(pre_edit Write "$PWD/src/x.js")" "product changes go through the implementer"
+  denied "A159 CODE_DONE: lead Write of impl.txt" "$(pre_edit Write impl.txt)"
+  denied "A159 CODE_DONE: lead Write of RUN.yaml" "$(pre_edit Edit .agents/runs/LC/RUN.yaml)"
+  denied "A159 CODE_DONE: lead Write of a gate record" "$(pre_edit Write "$PWD/.agents/runs/LC/gates/001-VERIFY.yaml")" "written only by agent.sh"
+  denied "A159 CODE_DONE: lead Write of a path outside knowledge scope (docs/other/)" "$(pre_edit Write docs/other/x.md)"
+  denied "A159 CODE_DONE: lead Write through docs/wiki/../../src" "$(pre_edit Write docs/wiki/../../src/x.js)"
+  denied "A159 CODE_DONE: a subagent (explorer) Write of a wiki page" "$(pre_edit Write "$PWD/$wiki" proofline-explorer a3)"
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null || die "A159 knowledge-done"
+  write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null || die "A159 handoff DONE"
+  denied "A159 DONE: lead Write of a wiki page" "$(pre_edit Write "$PWD/$wiki")"
+  denied "A159 DONE: lead Write of product code" "$(pre_edit Write "$PWD/src/x.js")"
+  # a BLOCKED run records what it learned too (A147)
+  fixture; printf 'reason: the environment lacks the database the lookup needs to be proven\nevidence: the staging database is unreachable from this environment\n' | A terminate LC BLOCKED >/dev/null || die "A159 terminate"
+  allowed "A159 BLOCKED: lead Write of a wiki page" "$(pre_edit Write "$PWD/$wiki")"
+  denied "A159 BLOCKED: lead Write of product code" "$(pre_edit Write "$PWD/src/x.js")"
+}
+
+# A159: every /proofline command ends with a "Next step:" line; the Stop hook adds it once when the lead left it out.
+stop_next_step() {
+  fixture
+  to_code_done orchestrated
+  stop_ev() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":false,\"last_assistant_message\":\"$(jstr "$1")\"}"; }
+  need=$(A report-tokens LC | tr '\n' ' ')
+  full="Durum CODE_DONE, sinif COMPLEX. Kapilar: $need hepsi PASS."
+  prompt "/proofline status" >/dev/null
+  out=$(stop_ev "$full")
+  printf '%s' "$out" | grep -Fq 'Next step: /proofline deliver LC' || die "A159 no next-step line for a reply without one: $out"
+  ! printf '%s' "$out" | grep -Fq 'agent.sh next-user' || die "A159 the hook shows the internal command: $out"
+  [ "$(printf '%s' "$out" | grep -o 'Next step:' | wc -l | tr -d ' ')" = 1 ] || die "A159 the next-step line is there more than once: $out"
+  ok "A159 the Stop hook appends the user's next step when the reply has none"
+  out=$(stop_ev "$full Next step: /proofline deliver LC")
+  [ -z "$out" ] || die "A159 a reply that already has the line got another: $out"
+  out=$(stop_ev "$full Next step: reply \\\"approve delivery\\\" in this session")
+  [ -z "$out" ] || die "A159 a reply with its own next step got another: $out"
+  ok "A159 a reply that carries a Next step line gets none appended (never twice)"
+  out=$(stop_ev "Tum kapilar gecti.")
+  [ "$(printf '%s' "$out" | grep -o 'Next step:' | wc -l | tr -d ' ')" = 1 ] && printf '%s' "$out" | grep -q 'SECRETS' || die "A159 identifiers and next step were not both supplied once: $out"
+  ok "A159 the missing-identifiers message and the next step arrive together, the step once"
+  prompt "just chatting, no command" >/dev/null
+  out=$(stop_ev "$full")
+  [ -z "$out" ] || die "A159 a next step was added to a reply of no /proofline command: $out"
+  ok "A159 no next step is added when the last prompt was not a /proofline command"
 }
 
 # A41: the lead never approves; the runtime's prompt hook records an approval from the user's own reply.
@@ -848,7 +907,7 @@ read_roles_tree() {
 }
 
 fails=0
-scenarios='lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens not_installed live_claude read_roles_tree'
+scenarios='lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done

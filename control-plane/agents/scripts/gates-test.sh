@@ -1204,6 +1204,34 @@ sc_wiki_knowledge_scope() {
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
 }
 
+# A159: `knowledge-done not_applicable` is a claim the script checks: a reason is required, it is shown in the report,
+# and a task that changes what the user sees, a contract or a design document is refused.
+sc_knowledge_na() {
+  scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable without a reason was accepted" 'needs a reason' A knowledge-done LC not_applicable
+  expect_msg "not_applicable with an empty reason was accepted" 'needs a reason' A knowledge-done LC not_applicable ""
+  expect_state execution knowledge_state not_started
+  A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it" >/dev/null
+  expect_state execution knowledge_state not_applicable
+  A report-facts LC | grep -Fq 'Knowledge step: not_applicable; not_applicable reason: only an internal lookup fixture changed' || die "the Facts block does not show the reason: $(A report-facts LC)"
+  write_report; A publish-completion-report LC markdown >/dev/null
+  grep -Fq 'not_applicable reason: only an internal lookup fixture changed' .agents/runs/LC/COMPLETION_REPORT.md || die "the published report does not show the reason"
+  ok "not_applicable needs a reason; the reason is recorded and shown in the published report"
+  # user-visible behaviour in the acceptance criteria
+  SC_TASK_EXTRA='- AC-2: the lookup command prints the stored value' scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable accepted for a task that changes a command" 'user-visible behaviour' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  expect_state execution knowledge_state not_started
+  # a contract in the frozen plan
+  SC_PLAN_EXTRA='## Contracts
+- lookup returns nil for an empty key' scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable accepted for a task with a contract change" 'contract' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  # a design document changed by the task
+  SC_SCOPE_NAMED=docs/design/DESIGN.md scaffold standalone; printf 'new section\n' >> docs/design/DESIGN.md; to_code_done standalone
+  expect_msg "not_applicable accepted for a task that changed a design document" 'documentation path' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  A knowledge-done LC >/dev/null; expect_state execution knowledge_state KNOWLEDGE_DONE
+  ok "not_applicable is refused for AC words, a contract and a design-document change; the real knowledge step still records"
+}
+
 # CLASSIFY precedes BRANCH: `next` prints the order the commands accept.
 sc_next_order() {
   new_repo; nd=.agents/runs/NB; mkdir -p "$nd" tasks
@@ -1856,6 +1884,7 @@ run_sc sc_report_finding_ids
 run_sc sc_report_facts
 run_sc sc_knowledge_secrets
 run_sc sc_wiki_knowledge_scope
+run_sc sc_knowledge_na
 run_sc sc_next_order
 run_sc sc_start
 run_sc sc_qa_plan_bound
