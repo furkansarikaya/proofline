@@ -438,6 +438,122 @@ sc_codex_sandbox_tamper() {
   ok "codex sandbox is read once at run start: a session editing SUMMARY.md cannot widen it for the next session"
 }
 
+# --- 9b. (A161, #135) the headless session leads its own process group, by every method; no method = no batch --------------------------
+pg_setup() { # a batch of T-1 (hangs, timeout 1 minute), T-2 (depends on T-1), T-3 (merges), approved
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; cfg_batch 40; cfg_extra '  task_timeout: 1'; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'hang\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-3"; rm -f "$FAKE/grandchild.pid" "$FAKE/descendants.pids"
+}
+pg_alive_any() { for pa in $(cat "$FAKE/descendants.pids" 2>/dev/null); do if kill -0 "$pa" 2>/dev/null; then return 0; fi; done; return 1; }
+sc_pgroup_method() { # METHOD: every available method leaves all five descendants of a hung session dead
+  pm=$1
+  case "$pm" in setsid) command -v setsid >/dev/null 2>&1 || { ok "process group method setsid: not available on this machine, skipped"; return 0; } ;;
+    perl) command -v perl >/dev/null 2>&1 || { ok "process group method perl: not available, skipped"; return 0; } ;;
+    python) command -v python3 >/dev/null 2>&1 || { ok "process group method python: not available, skipped"; return 0; } ;; esac
+  pg_setup
+  ( PROOFLINE_BATCH_PGMETHOD=$pm; PROOFLINE_BATCH_MINUTE=3; export PROOFLINE_BATCH_PGMETHOD PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :
+  if [ "$pm" = setm ] && grep -q 'no way to start a headless session' "$base/run.out"; then ok "process group method setm: job control not available here, skipped"; return 0; fi
+  [ "$(wc -l < "$FAKE/descendants.pids" 2>/dev/null | tr -d ' ')" -ge 5 ] || die "method $pm: the fake session recorded too few descendants: $(tail -3 "$base/run.out")"
+  if pg_alive_any; then for dq in $(cat "$FAKE/descendants.pids"); do kill -KILL "$dq" 2>/dev/null || :; done; die "method $pm: a descendant of the timed-out session is still alive"; fi
+  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = timeout ] && [ "$(state_of T-3 2)" = merged ] || die "method $pm: state: $(cat .agents/local/batch/state.tsv)"
+  rf=.agents/local/batch/sessions/T-1.1.rec
+  [ -f "$rf" ] || die "method $pm: no session record $rf"
+  for kv in id=T-1 n=1 runtime=claude "method=$pm" log=.agents/local/batch/logs/T-1.log timeout=1 exit=124; do grep -qx "$kv" "$rf" || die "method $pm: record lacks $kv: $(cat "$rf")"; done
+  grep -q '^start=[0-9]' "$rf" && grep -q '^end=[0-9]' "$rf" || die "method $pm: record lacks start or end: $(cat "$rf")"
+  BB status > "$base/st.out" || die "batch status failed"
+  grep -q '^sessions (from records; ' "$base/st.out" || die "method $pm: no sessions section: $(cat "$base/st.out")"
+  grep -q '^task | # | runtime | start | end | exit | park reason | log$' "$base/st.out" || die "sessions header: $(cat "$base/st.out")"
+  grep '^T-1 | 1 | claude | ' "$base/st.out" | grep -q '| 124 (timeout) | timeout | .agents/local/batch/logs/T-1.log$' || die "T-1 session row: $(grep '^T-1 |' "$base/st.out")"
+  grep '^T-3 | 1 | claude | ' "$base/st.out" | grep -q '| 0 | - | ' || die "T-3 session row: $(grep '^T-3 |' "$base/st.out")"
+  ok "process group method $pm: every descendant of a hung session is dead, record says method=$pm, status shows 124 (timeout) and the log path"
+}
+sc_pgroup_refuse() { # none, an unavailable method and an unknown one: one clear line, no session, nothing parked
+  for pm in none bogus; do
+    pg_setup
+    ( PROOFLINE_BATCH_PGMETHOD=$pm; export PROOFLINE_BATCH_PGMETHOD
+      expect_msg "method $pm" 'batch: no way to start a headless session in its own process group on this machine (' BB run )
+    [ -z "$(calls)" ] || die "method $pm: a session started: $(calls)"
+    ls .agents/local/batch/sessions/*.rec >/dev/null 2>&1 && die "method $pm: a session record was written"
+    pg_alive_any && die "method $pm: a descendant exists"
+    [ ! -f .agents/local/batch/state.tsv ] || [ "$(state_of T-1 2)" = pending ] || die "method $pm: T-1 is not pending: $(cat .agents/local/batch/state.tsv)"
+  done
+  # the probe itself prints "<pid> <pgid>"
+  sh ./.agents/scripts/batch.sh _pgprobe "$base/probe.out" || die "_pgprobe failed"
+  grep -Eq '^[0-9]+ [0-9]+$' "$base/probe.out" || die "_pgprobe output: $(cat "$base/probe.out")"
+  ok "process group: method none or an unavailable one refuses the batch with one line, no session, no record, tasks stay pending; _pgprobe prints pid and pgid"
+}
+sc_pgroup_not_leader() { # the probe passes but the session is not its own group leader: it exits 125, the batch stops, the task stays pending
+  command -v perl >/dev/null 2>&1 || { ok "not-leader stop: no perl here, skipped"; return 0; }
+  pg_setup; mkdir -p "$FAKE/fakebin"
+  cat > "$FAKE/fakebin/setsid" <<'EOF'
+#!/bin/sh
+# a setsid that only really leads a group for the probe; the session stays in the driver's group
+case "$*" in *_pgprobe*) exec perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' "$@" ;; *) exec "$@" ;; esac
+EOF
+  chmod +x "$FAKE/fakebin/setsid"
+  ( PATH=$FAKE/fakebin:$PATH; PROOFLINE_BATCH_PGMETHOD=setsid; PROOFLINE_BATCH_MINUTE=3; export PATH PROOFLINE_BATCH_PGMETHOD PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :
+  grep -q 'a session could not be started as the leader of its own process group (method setsid)' "$base/run.out" || die "no stop message: $(tail -4 "$base/run.out")"
+  [ -z "$(calls)" ] || die "the session ran: $(calls)"
+  [ "$(state_of T-1 2)" = pending ] || die "T-1 after the 125 stop: $(cat .agents/local/batch/state.tsv)"
+  [ "$(state_of T-3 2)" = pending ] || die "the batch went on after the stop: $(cat .agents/local/batch/state.tsv)"
+  grep -qx 'exit=125' .agents/local/batch/sessions/T-1.1.rec || die "record: $(cat .agents/local/batch/sessions/T-1.1.rec)"
+  ok "a session that is not its own group leader exits 125: the batch stops with the method named, nothing ran, the task stays pending"
+}
+
+# --- 9c. (A161, #135) the morning report: sessions from records; an old state has none; a session without an end is said so -------
+sc_session_records() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'merge\n' > "$FAKE/behave/T-1"; printf 'question\n' > "$FAKE/behave/T-2"
+  BB run >/dev/null 2>&1 || :
+  ls .agents/local/batch/sessions/T-1.1.rec .agents/local/batch/sessions/T-2.1.rec >/dev/null || die "no session records"
+  BB status > "$base/st.out" || die "status failed"
+  grep '^T-2 | 1 | claude | ' "$base/st.out" | grep -q '| 0 | question | ' || die "T-2 session row (exit 0, park reason question): $(grep '^T-2 |' "$base/st.out")"
+  # a record without an end (a driver that was stopped)
+  printf 'id=T-1\nn=2\nruntime=codex\nmethod=perl\nlog=.agents/local/batch/logs/T-1.log\nstart=1700000000\n' > .agents/local/batch/sessions/T-1.2.rec
+  BB status > "$base/st.out"; grep '^T-1 | 2 | codex | ' "$base/st.out" | grep -q 'no end recorded' || die "no 'no end recorded' row: $(grep '^T-1 |' "$base/st.out")"
+  # a state from before the records: no sessions section, the table still works
+  rm -rf .agents/local/batch/sessions
+  BB status > "$base/st.out" || die "status of an old state failed"
+  grep -q '^sessions' "$base/st.out" && die "an old state shows a sessions section: $(cat "$base/st.out")"
+  grep 'T-1' "$base/st.out" | grep -q 'merged' || die "the old state's table is gone: $(cat "$base/st.out")"
+  ok "batch status: session rows from records (exit, park reason), 'no end recorded' for an open record, no sessions section for an old state"
+}
+
+# --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
+sc_adapter_refused() {
+  bnew; mktask T-1 COMPLEX; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; binstall no
+  rm -rf .agents/local/batch
+  expect_msg "batch-plan with tasks.adapter github" "tasks.adapter is github" BP all
+  BP all > "$base/ad.out" 2>&1 && die "batch-plan accepted tasks.adapter github"
+  grep -q "Next step: set tasks.adapter to markdown in .agents/config.yaml, import each task with '/proofline task <issue reference>' .*, then run '/proofline batch <ID...>' again\$" "$base/ad.out" || die "message: $(cat "$base/ad.out")"
+  [ "$(find .agents/local/batch -type f 2>/dev/null | wc -l | tr -d ' ')" = 0 ] || die "a refused plan wrote files: $(find .agents/local/batch -type f)"
+  [ "$(nfiles .agents/local/approvals request-batch)" = 0 ] || die "a refused plan requested an approval"
+  ok "batch-plan: tasks.adapter github exits 1 with the exact next step and writes nothing"
+}
+
+# --- 9e. (A161) plan-time WARNING: a Codex lead whose workers also run on Codex ------------------------------------------------------
+wn_setup() { # LEAD WORKER [QA-RUNTIME]: the real exec-policy.sh (the fixture stubs it) and the runtime keys
+  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall no; cp "$tl_agents/scripts/exec-policy.sh" .agents/scripts/exec-policy.sh
+  sed "s/^  lead: .*/  lead: $1/; s/^  worker: .*/  worker: $2/" .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml
+  if [ -n "${3:-}" ]; then awk -v r="    qa: $3" '{ print } /^  roles:/ { print r }' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; fi
+}
+sc_codex_lead_warning() {
+  wn_setup codex codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
+  grep -q '^WARNING: the lead runs on Codex and these roles also run on Codex: task_author explorer architect data_architect designer implementer\. ' "$summary" || die "codex lead + codex worker: $(grep -i 'WARNING' "$summary")"
+  sed -n 's/^WARNING: the lead runs on Codex and these roles also run on Codex:\([^.]*\)\..*/\1/p' "$summary" | grep -Eq '(^| )(qa|reviewer|security_reviewer|verifier)( |$)' && die "claude roles listed: $(grep '^WARNING' "$summary")"
+  wn_setup codex claude codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
+  grep -q '^WARNING: the lead runs on Codex and these roles also run on Codex: qa\. ' "$summary" || die "only roles.qa codex: $(sed -n 12,18p .agents/config.yaml) / $(tail -3 "$base/p.out")"
+  BP all --codex-danger-full-access > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
+  grep -q 'the lead runs on Codex' "$summary" && die "the nesting warning shows with --codex-danger-full-access"
+  grep -q '^WARNING: you chose --codex-danger-full-access' "$summary" || die "danger warning gone: $(grep WARNING "$summary")"
+  wn_setup codex claude; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
+  grep -q '^WARNING' "$summary" && die "a codex lead with only claude roles got a warning: $(grep WARNING "$summary")"
+  wn_setup claude codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
+  grep -q '^WARNING' "$summary" && die "a claude lead got the nesting warning: $(grep WARNING "$summary")"
+  ok "plan WARNING: codex lead + codex workers (roles listed), only roles.qa codex lists qa; absent with --codex-danger-full-access, with all-claude roles and with a claude lead"
+}
+
 # --- 10. (A160) the CI that gates the next task is the one of the merge commit ---------------------------------------------------
 ci_setup() {
   bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; cfg_batch 40; cfg_extra '  ci_appear_minutes: 1'; binstall
@@ -477,5 +593,14 @@ run_sc sc_stale_log
 run_sc sc_task_timeout
 run_sc sc_codex_sandbox
 run_sc sc_codex_sandbox_tamper
+run_sc sc_pgroup_method setm
+run_sc sc_pgroup_method setsid
+run_sc sc_pgroup_method perl
+run_sc sc_pgroup_method python
+run_sc sc_pgroup_refuse
+run_sc sc_pgroup_not_leader
+run_sc sc_session_records
+run_sc sc_adapter_refused
+run_sc sc_codex_lead_warning
 run_sc sc_merge_commit_ci
 echo 'batch tests passed'
