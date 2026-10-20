@@ -81,15 +81,17 @@ without a parseable `## Suggested class` and every task that depends on one of t
 nor in `done/`, and writes one summary (`.agents/local/batch/SUMMARY.md`): the order, what the approval covers, what it
 does not, the mutation budget cap and the stop rules. `all` means the top-level and `todo/` task files, in ID order. Your
 reply "approve batch" is the one approval; it is bound to the sha256 of that summary, never consumed, and stops being valid
-when the summary changes. It reads task files through the markdown adapter only.
+when the summary changes. It reads task files through the markdown adapter only, and `batch-plan` refuses another adapter with the exact next step (a design decision, A161: `depends_on` and `Suggested class` live in the task file's own front matter and sections, and the other adapters resolve ids through network calls an unattended driver must not depend on; import the task with `/proofline task <issue reference>` into markdown tasks first).
 
 `proofline batch run` (a terminal, no agent session) starts the driver. It refuses without a valid batch approval, a clean
 tree on the canonical branch and an authenticated `gh`, and runs one task at a time (`.agents/local/batch/LOCK`). Before each
 task it updates the canonical branch and checks the CI run of its HEAD (no run yet is no signal); for each task it starts a
-clean headless lead session (`claude -p`, or `codex exec -s workspace-write` with network access; the next runtime takes
-over when one hits its usage limit). Each session is the leader of its own process group; when it ends, or runs longer than
-`batch.task_timeout` minutes (120), the driver closes that group (TERM, a short grace, KILL) and nothing else (without a terminal and without `setsid` only the session pid is signalled), and a timed-out
-task is parked with the reason `timeout`. `agent.sh batch-plan <ID...|all> --codex-danger-full-access` is the only way to
+clean headless lead session (`claude -p`, or `codex exec` in a named permissions profile with network access, see below; the next runtime takes
+over when one hits its usage limit). Each session is the leader of its own process group, started by the first method that a probe
+verifies on the machine (`set -m` job control, `setsid`, a perl `setpgid` one-liner, python3 `os.setpgid`; the session itself checks that
+its pgid equals its pid and does nothing otherwise); when none works the batch is refused with one line, there is no weaker mode. When a session
+ends, or runs longer than `batch.task_timeout` minutes (120), the driver closes that group (TERM, a short grace, KILL) and nothing else, and a timed-out
+task is parked with the reason `timeout`. A Codex night session does not use the legacy `workspace-write` mode, which keeps `.git`, `.agents` and `.codex` read-only (it could not branch, commit, add a worktree or write its run records): it runs in the profile `proofline_night`, passed as `-c` overrides (nothing is written to disk): everything readable, the project folder writable including `.git` and `.agents`, but `.git/hooks`, `.git/config` and `.codex` read-only (a changed hook or `core.hooksPath` would run code outside the sandbox), the temp dir writable and the network on. `git push -u` pushes but cannot record the upstream in `.git/config`. Seatbelt on macOS cannot be nested: a sandboxed Codex lead cannot start a sandboxed `codex exec` worker (use Claude workers, or `--codex-danger-full-access`). `agent.sh batch-plan <ID...|all> --codex-danger-full-access` is the only way to
 run Codex sessions with `danger-full-access`: the summary says so with a warning line and the approval hash covers it, the
 driver reads the choice from the approved summary only, never from config or environment. Start the driver yourself in a
 terminal (or `proofline batch run`): the runtime hook's kill guard (A156) concerns an agent's own tool calls, not this program. In that session the lead calls

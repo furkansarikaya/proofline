@@ -66,7 +66,12 @@ case "$beh" in
     printf 'from: lead\nasked_at: %s\n---\n1. Which cache do we use for %s?\n   options: a | b\n' "$(date +%s)" "$id" > ".agents/runs/$id/questions/001.md" ;;
   failed) mkrun FAILED false ;;
   limit) echo "usage limit reached, try later"; exit 1 ;;
-  hang) sleep 300 & echo $! > "$FAKE/grandchild.pid"; sleep 20 ;;   # A160: a session that outlives batch.task_timeout, with a grandchild of its own
+  hang) # A160/A161: a session that outlives batch.task_timeout, with descendants of every kind: a plain grandchild, a nested sh with its own
+    # child, a backgrounded subshell that ignores TERM and has a child of its own. Every pid goes to descendants.pids.
+    sleep 300 & echo $! > "$FAKE/grandchild.pid"; echo $! >> "$FAKE/descendants.pids"
+    sh -c 'sleep 301 & echo $! >> "$FAKE/descendants.pids"; sleep 302' & echo $! >> "$FAKE/descendants.pids"
+    ( trap '' TERM; sleep 303 & echo $! >> "$FAKE/descendants.pids"; sleep 304; sleep 305 ) & echo $! >> "$FAKE/descendants.pids"
+    sleep 20 ;;
   nothing) : ;;
 esac
 exit 0
@@ -376,10 +381,13 @@ sc_stale_log() {
 sc_task_timeout() {
   bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; cfg_batch 40; cfg_extra '  task_timeout: 1'; binstall
   BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'hang\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-3"; rm -f "$FAKE/grandchild.pid"
+  printf 'hang\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-3"; rm -f "$FAKE/grandchild.pid" "$FAKE/descendants.pids"
   ( PROOFLINE_BATCH_MINUTE=3; export PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :
   gc=$(cat "$FAKE/grandchild.pid" 2>/dev/null || :); [ -n "$gc" ] || die "test setup: the fake session spawned no grandchild"
-  if kill -0 "$gc" 2>/dev/null; then kill "$gc" 2>/dev/null || :; die "the grandchild of the timed-out session (pid $gc) is still alive: its process group was not closed"; fi
+  [ "$(wc -l < "$FAKE/descendants.pids" | tr -d ' ')" -ge 5 ] || die "test setup: the fake session recorded $(wc -l < "$FAKE/descendants.pids") descendants, want 5"
+  for dp in $(cat "$FAKE/descendants.pids"); do
+    if kill -0 "$dp" 2>/dev/null; then for dq in $(cat "$FAKE/descendants.pids"); do kill -KILL "$dq" 2>/dev/null || :; done; die "a descendant (pid $dp) of the timed-out session is still alive (method ${PROOFLINE_BATCH_PGMETHOD:-auto}): its process group was not closed"; fi
+  done
   [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = timeout ] || die "T-1 after the timeout: $(cat .agents/local/batch/state.tsv); $(tail -5 "$base/run.out")"
   state_of T-1 4 | grep -q 'no result within 1 minutes' || die "T-1 reason text: $(state_of T-1 4)"
   [ "$(state_of T-2 2)" = skipped ] && state_of T-2 3 | grep -q 'depends on T-1 (parked)' || die "T-2: $(state_of T-2 2) $(state_of T-2 3)"
@@ -396,7 +404,7 @@ sc_codex_sandbox() {
   grep -q '^codex sandbox: workspace-write' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
   batch_approve; : > "$FAKE/codex.argv"
   BB run >/dev/null 2>&1 || :
-  grep -q -- '-s workspace-write' "$FAKE/codex.argv" && grep -q 'sandbox_workspace_write.network_access=true' "$FAKE/codex.argv" || die "codex argv: $(cat "$FAKE/codex.argv")"
+  grep -q 'default_permissions="proofline_night"' "$FAKE/codex.argv" && grep -q 'permissions.proofline_night.network.enabled=true' "$FAKE/codex.argv" && ! grep -q -- ' -s ' "$FAKE/codex.argv" || die "codex argv: $(cat "$FAKE/codex.argv")"
   if grep -q 'danger-full-access' "$FAKE/codex.argv"; then die "danger-full-access without the flag: $(cat "$FAKE/codex.argv")"; fi
   # config and environment cannot enable it: only the flag at plan time, visible with the warning
   cg_reset() { rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/codex.argv"; }
@@ -404,14 +412,14 @@ sc_codex_sandbox() {
   git add -A; git commit -qm 'extra config keys'
   BP all >/dev/null || die "batch-plan with extra config keys failed"; batch_approve
   ( PROOFLINE_CODEX_SANDBOX=danger-full-access; CODEX_SANDBOX=danger-full-access; export PROOFLINE_CODEX_SANDBOX CODEX_SANDBOX; BB run >/dev/null 2>&1 ) || :
-  grep -q -- '-s workspace-write' "$FAKE/codex.argv" && ! grep -q 'danger-full-access' "$FAKE/codex.argv" || die "config/env enabled danger-full-access: $(cat "$FAKE/codex.argv")"
+  grep -q 'default_permissions="proofline_night"' "$FAKE/codex.argv" && ! grep -q 'danger-full-access' "$FAKE/codex.argv" || die "config/env enabled danger-full-access: $(cat "$FAKE/codex.argv")"
   for pos in first last; do   # the flag in any position
     if [ $pos = first ]; then BP --codex-danger-full-access all > "$base/plan.out" || die "flag first refused: $(cat "$base/plan.out")"
     else BP all --codex-danger-full-access > "$base/plan.out" || die "flag last refused: $(cat "$base/plan.out")"; fi
     grep -q '^codex sandbox: danger-full-access' "$summary" && grep -q '^WARNING:' "$summary" || die "flag $pos: summary lacks the sandbox line or the warning: $(grep -i 'sandbox\|WARNING' "$summary")"
   done
   cg_reset; BP all --codex-danger-full-access >/dev/null || die "batch-plan with the flag failed"; batch_approve; BB run >/dev/null 2>&1 || :
-  grep -q -- '-s danger-full-access' "$FAKE/codex.argv" && ! grep -q 'workspace-write' "$FAKE/codex.argv" || die "codex argv with the flag: $(cat "$FAKE/codex.argv")"
+  grep -q -- '-s danger-full-access' "$FAKE/codex.argv" && ! grep -q 'proofline_night' "$FAKE/codex.argv" || die "codex argv with the flag: $(cat "$FAKE/codex.argv")"
   ok "codex: -s workspace-write (+network) by default; danger-full-access only via --codex-danger-full-access in the approved summary (with WARNING), never config or env"
 }
 
@@ -425,7 +433,7 @@ sc_codex_sandbox_tamper() {
   [ "$(calls)" = "T-1 T-2" ] || die "both tasks should have run: '$(calls)'"
   grep -q '^codex sandbox: danger-full-access' .agents/local/batch/SUMMARY.md || die "the fake codex did not rewrite SUMMARY.md"
   [ "$(wc -l < "$FAKE/codex.argv" | tr -d ' ')" = 2 ] || die "expected two codex sessions: $(cat "$FAKE/codex.argv")"
-  sed -n 2p "$FAKE/codex.argv" | grep -q -- '-s workspace-write' || die "session 2 argv lacks -s workspace-write: $(sed -n 2p "$FAKE/codex.argv")"
+  sed -n 2p "$FAKE/codex.argv" | grep -q 'default_permissions="proofline_night"' || die "session 2 argv lacks the proofline_night profile: $(sed -n 2p "$FAKE/codex.argv")"
   if grep -q 'danger-full-access' "$FAKE/codex.argv"; then die "danger-full-access reached a session: $(cat "$FAKE/codex.argv")"; fi
   ok "codex sandbox is read once at run start: a session editing SUMMARY.md cannot widen it for the next session"
 }
