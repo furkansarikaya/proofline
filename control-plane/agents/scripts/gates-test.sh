@@ -1521,7 +1521,13 @@ sc_design_sync() {
   SC_PLAN_EXTRA='
 ## Contracts
 
-- `GET /api/books` gains `tags`' scaffold orchestrated no STANDARD; implemented orchestrated
+- `GET /api/books` gains `tags`
+
+## Validation
+
+- `GET /api/books`: accepts no body and an optional limit query; limits limit 1-100; rejected at the list handler (400)' \
+    SC_QA_EXTRA='- QA-9 (AC-1) [invalid-input]: GET /api/books with limit 0
+  expected: 400' scaffold orchestrated no STANDARD; implemented orchestrated
   mkdir -p docs/design; printf '# api\n' > docs/design/API.md; printf 'docs/\n' >> .git/info/exclude
   d=.agents/runs/LC; printf '# VERIFY\n\nall criteria proven\n' > "$d/VERIFY.md"
   expect_msg "a verification of a contract change without design/SYNC.md" 'design/SYNC.md' AS verifier submit LC --confidence high --agent vs1

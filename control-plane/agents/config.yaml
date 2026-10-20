@@ -108,6 +108,16 @@ security:
     deny:
   audit_command:
 
+# Input validation at entry points (A162). `entry_words` is an extended regular expression (case-insensitive)
+# matched on each `## Contracts` bullet of PLAN.md: a bullet that matches and does not remove the contract is an
+# entry point that takes external input (an HTTP endpoint, form handler, CLI argument, queue consumer, webhook).
+# The freeze then needs one `## Validation` line per entry point and the QA plan one `[invalid-input]` scenario.
+# `code_patterns` is the same kind of expression over code (existing files of the plan scope, lines the diff adds):
+# a hit is only listed as information (`agent.sh pipeline`), never required. Extend both for the project's own idioms.
+validation:
+  entry_words: "(^|[^A-Za-z0-9_])((GET|POST|PUT|PATCH|DELETE) +/[^ ]*|endpoints?|routes?|handlers?|webhooks?|consumers?|subscribers?|forms?|cli +(arguments?|args?|flags?|options?|commands?)|command-line|argv|rpc|grpc|graphql)([^A-Za-z0-9_]|$)"
+  code_patterns: "@(Get|Post|Put|Patch|Delete|Request)Mapping|@(app|router|bp|blueprint)\.(route|get|post|put|patch|delete)|(app|router|api|server)\.(get|post|put|patch|delete|all|use)\(|http\.HandleFunc|\.Handle\(|\.(GET|POST|PUT|PATCH|DELETE)\(|add_argument\(|argparse|\.command\(|yargs|cobra\.Command|flag\.(String|Int|Bool)|process\.argv|sys\.argv|webhook|subscribe\(|consumer|createServer"
+
 # Risk-adaptive pipeline (A78; `agent.sh pipeline <ID>` shows what fired and why). A signal comes from a changed
 # or planned path (`paths`, globs as in risky_paths), from text the diff adds (`content`, an extended regular
 # expression; empty = off), or from a PLAN.md flag. `check` is the focus it adds inside an existing gate:

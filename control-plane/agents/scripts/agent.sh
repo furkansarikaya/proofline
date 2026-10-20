@@ -130,7 +130,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies")
@@ -141,6 +141,7 @@ config_check() {
         if (p[3] == "check" && v != "") chk[p[2]] = 1
       }
       if (k == "risk.unsupported") en(k, v, "block|report")
+      if (top == "validation" && k != "validation" && k != "validation.entry_words" && k != "validation.code_patterns") bad("unknown validation key: " k " (want validation.entry_words or validation.code_patterns)")
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
@@ -174,7 +175,11 @@ config_check() {
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
       for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
       exit n > 0
-    }') && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
+    }') && cc_out=$(for cc_k in validation.entry_words validation.code_patterns; do
+      cc_v=$(config_get "$cc_k" "$cc_file" || true); [ -n "$cc_v" ] || continue
+      cc_rc=0; printf '' | grep -Eq -- "$cc_v" 2>/dev/null || cc_rc=$?
+      [ "$cc_rc" -lt 2 ] || echo "invalid regular expression for $cc_k"
+    done) && [ -z "$cc_out" ] && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
   printf '%s\n' "$cc_out" >&2; fail "config invalid: ${cc_file#"$root"/}"
 }
 
@@ -1106,6 +1111,7 @@ pipeline_show() {
     for ps_f in $(risk_gate_focuses "$id" "$ps_g"); do printf 'focus.%s.%s=%s\n' "$ps_g" "$ps_f" "$(gate_focus_status "$id" "$ps_g" "$ps_f" reuse "$ps_fp")"; done
   done
   risk_show "$id"
+  validation_show "$id"
   risk_not_rerun "$id" | while IFS= read -r ps_n; do printf 'not_rerun.%s=NOT_RERUN (not reproduced proof): %s\n' "${ps_n%% *}" "${ps_n#* }"; done
   risk_unsupported "$id" | while IFS='|' read -r ps_k ps_v ps_t ps_e; do printf 'unsupported.%s=%s: %s%s\n' "$ps_k" "$(unsupported_label "$ps_v")" "${ps_t#UNSUPPORTED }" "${ps_e:+ (evidence: $ps_e)}"; done
 }
@@ -1392,7 +1398,10 @@ freeze() {
   # without the user's `accept` answer (the missing ones are recorded as NEEDS_INPUT questions).
   verify_assumptions "$id" ask >/dev/null
   if gates_enforced "$id"; then require_mutation_budget "$id"; fi
-  if gates_enforced "$id"; then verify_qa_plan_bound "$id"; fi
+  if gates_enforced "$id"; then verify_plan_validation "$id"; verify_qa_plan_bound "$id"; fi
+  if [ -z "$(plan_entry_points "$dir/PLAN.md")" ] && fz_c=$(validation_candidates "$id" | cut -d'|' -f2 | sort -u | tr '\n' ' ') && [ -n "$fz_c" ]; then
+    echo "note (information only): ${fz_c% } look like entry-point code, but PLAN.md ## Contracts declares none; if one takes external input, declare it there with a ## Validation line (A162)" >&2
+  fi
   fz_lang=$(for fz_f in TASK.md PLAN.md EVIDENCE.md QA_PLAN.md; do [ ! -f "$dir/$fz_f" ] || printf '%s\n' "$dir/$fz_f"; done)
   # shellcheck disable=SC2086
   fz_hits=$(language_scan $fz_lang) || fail "$(language_fail_text "$(printf '%s' "$fz_hits" | tr '\n' ' ')")"
@@ -1794,6 +1803,70 @@ qa_removed_terms() { # PLAN.md -> one backticked term per line from `## Contract
     i && tolower($0) ~ /(remov|renam|drop|delet|no longer|deprecat)/ { l = $0
       while (match(l, /`[A-Za-z_][A-Za-z0-9_.-]*`/)) { print substr(l, RSTART + 1, RLENGTH - 2); l = substr(l, RSTART + RLENGTH) } }' "$1" | sort -u
 }
+# --- Input validation at entry points (A162) -------------------------------------------------------
+# An entry point takes external input (HTTP endpoint, form handler, CLI argument, queue consumer, webhook). The one
+# deterministic source before the freeze is PLAN.md `## Contracts`: a bullet that matches `validation.entry_words`
+# (a case-insensitive extended regex in config) and does not remove or drop the contract declares an entry point,
+# named by its first backticked token, else by the text before the first colon. Such a plan needs one
+# `## Validation` bullet per entry point (`- <name>: accepts <what>; limits <limits>; rejected at <server-side
+# place>`) and its QA plan one `[invalid-input]` scenario naming it. What the code does is only listed as
+# information (`validation.code_patterns`, `agent.sh pipeline`): that match is uncertain and never required.
+validation_removed='(^|[^A-Za-z0-9_])(removes?|removed|dropped|drops|deprecated|deprecates?|no longer)([^A-Za-z0-9_]|$)'
+plan_entry_points() { # PLAN.md -> one entry point name per line
+  pe_w=$(cfg validation.entry_words); [ -n "$pe_w" ] && [ -f "$1" ] || return 0
+  awk '/^## / { i = ($0 ~ /^## Contracts[[:space:]]*$/); next } i && /^[[:space:]]*[-*][[:space:]]+[^[:space:]]/ { print }' "$1" | while IFS= read -r pe_l; do
+    printf '%s\n' "$pe_l" | grep -Eiq -- "$pe_w" || continue
+    ! printf '%s\n' "$pe_l" | grep -Eiq -- "$validation_removed" || continue
+    pe_b=$(printf '%s\n' "$pe_l" | sed 's/^[[:space:]]*[-*][[:space:]]*//')
+    case "$pe_b" in *\`*\`*) pe_n=${pe_b#*\`}; pe_n=${pe_n%%\`*} ;; *) pe_n=${pe_b%%:*} ;; esac
+    pe_n=$(printf '%s\n' "$pe_n" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [ -z "$pe_n" ] || printf '%s\n' "$pe_n"
+  done | awk '!seen[$0]++'
+}
+plan_validation_missing() { # PLAN.md -> the entry points without a complete `## Validation` line
+  pv_l=$(awk '/^## / { i = ($0 ~ /^## Validation[[:space:]]*$/); next } i && /^[[:space:]]*[-*][[:space:]]/ { print }' "$1")
+  plan_entry_points "$1" | while IFS= read -r pv_n; do
+    printf '%s\n' "$pv_l" | grep -F -- "$pv_n" | grep -i 'accepts' | grep -i 'limits' | grep -Eiq 'rejected at' || printf '%s\n' "$pv_n"
+  done
+}
+verify_plan_validation() { # ID: freeze refuses a plan with an entry point and no validation summary line for it
+  vv_f=$(run_dir "$1")/PLAN.md; [ -f "$vv_f" ] || return 0
+  vv_m=$(plan_validation_missing "$vv_f" | tr '\n' ',' | sed 's/,$//;s/,/, /g')
+  [ -z "$vv_m" ] || fail "PLAN.md ## Contracts declares an entry point that takes external input, but ## Validation has no complete line for: $vv_m. Write one line per entry point: '- <entry point>: accepts <what>; limits <limits>; rejected at <where, server side>' (A162)"
+}
+qa_invalid_missing() { # PLAN.md QA_PLAN.md -> the entry points with no [invalid-input] scenario naming them
+  plan_entry_points "$1" | while IFS= read -r qi_n; do
+    awk -v n="$qi_n" '
+      function flush() { if (inv && index(blk, n)) ok = 1 }
+      /^- QA-[0-9]+ \(/ { flush(); blk = $0; inv = ($0 ~ /\[invalid-input\]/); next }
+      /^## / { flush(); blk = ""; inv = 0; next }
+      /^- / { flush(); blk = ""; inv = 0; next }
+      { blk = blk "\n" $0 }
+      END { flush(); exit !ok }' "$2" || printf '%s\n' "$qi_n"
+  done
+}
+validation_candidates() { # ID -> "scope|path" or "diff|path" for code that looks like an entry point (information only)
+  vc_p=$(cfg validation.code_patterns); [ -n "$vc_p" ] || return 0
+  vc_d=$(run_dir "$1"); vc_base=$(repository_base_sha "$vc_d"); case "$vc_base" in ''|PENDING) vc_base=HEAD ;; esac
+  scope_mappings "$vc_d/PLAN.md" 2>/dev/null | cut -d'|' -f1 | grep -v -E '\.(md|mdx|rst|adoc)$' | while IFS= read -r vc_x; do
+    [ -f "$root/$vc_x" ] && grep -Eq -- "$vc_p" "$root/$vc_x" 2>/dev/null && printf 'scope|%s\n' "$vc_x" || true
+  done
+  task_changed_paths "$1" | grep -v -E '\.(md|mdx|rst|adoc)$|^\.agents/' | while IFS= read -r vc_x; do
+    if git -C "$root" ls-files --error-unmatch -- "$vc_x" >/dev/null 2>&1 || git -C "$root" cat-file -e "$vc_base:$vc_x" 2>/dev/null; then
+      git -C "$root" diff --no-color --no-renames "$vc_base" -- "$vc_x" 2>/dev/null | grep '^+' | grep -v '^+++' | grep -Eq -- "$vc_p" && printf 'diff|%s\n' "$vc_x" || true
+    elif [ -f "$root/$vc_x" ]; then grep -Eq -- "$vc_p" "$root/$vc_x" 2>/dev/null && printf 'diff|%s\n' "$vc_x" || true; fi
+  done | awk '!seen[$0]++'
+}
+validation_show() { # ID: printed by `pipeline` only when there is something to say
+  vs_p=$(run_dir "$1")/PLAN.md
+  vs_n=$(plan_entry_points "$vs_p" | tr '\n' ',' | sed 's/,$//;s/,/, /g')
+  vs_m=$(plan_validation_missing "$vs_p" | tr '\n' ',' | sed 's/,$//;s/,/, /g')
+  vs_c=$(validation_candidates "$1" | sed 's/|/:/' | tr '\n' ',' | sed 's/,$//;s/,/, /g')
+  [ -z "$vs_n" ] || printf 'validation.entry_points=%s (PLAN.md ## Contracts; each needs a ## Validation line and an [invalid-input] QA scenario)\n' "$vs_n"
+  [ -z "$vs_m" ] || printf 'validation.missing=%s (no complete ## Validation line: the freeze refuses)\n' "$vs_m"
+  [ -z "$vs_c" ] || printf 'validation.candidates=%s (information only: code that looks like an entry point; declare it in ## Contracts when it takes external input)\n' "$vs_c"
+}
+
 verify_qa_plan_bound() { # ID
   vq_id=$1; vq_d=$(run_dir "$vq_id")
   [ "$(pipeline_needs "$vq_id" qa)" = yes ] || return 0
@@ -1819,6 +1892,8 @@ verify_qa_plan_bound() { # ID
     vq_bad=$(awk -v t="$vq_t" 'tolower($0) ~ /^[[:space:]]+expected:/ && index($0, t) && tolower($0) !~ /(absent|removed|no longer|not |never|without|omitted|missing|undefined|gone|must not|rejected|404|ignored)/ { print NR ": " $0; exit }' "$vq_d/QA_PLAN.md")
     [ -z "$vq_bad" ] || fail "QA_PLAN.md expects \`$vq_t\` ($vq_bad), which PLAN.md ## Contracts removes or renames: state that it is absent, or follow the new contract; the QA plan must not contradict the plan"
   done
+  vq_inv=$(qa_invalid_missing "$vq_d/PLAN.md" "$vq_d/QA_PLAN.md" | tr '\n' ',' | sed 's/,$//;s/,/, /g')
+  [ -z "$vq_inv" ] || fail "QA_PLAN.md has no invalid-input scenario for the entry point(s) of PLAN.md ## Contracts: $vq_inv. Add an adversarial scenario '- QA-<n> (AC-<k>) [invalid-input]: ...' that names each entry point in its title, input or expected line, with an input the server must reject (A162)"
 }
 
 # --- The tests review proves the plan's tests observe their criteria (A59) -------------------------
