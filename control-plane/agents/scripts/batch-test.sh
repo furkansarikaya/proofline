@@ -772,7 +772,7 @@ sc_merge_commit_ci() {
 
 # --- A163: a GitHub project without a pull_request workflow cannot start a batch -------------------------------------------
 sc_ci_required() {
-  bnew; mktask T-1 COMPLEX; binstall no
+  bnew; mktask T-1 COMPLEX; binstall no; rm -rf .github   # binstall adds a workflow; this scenario starts without one
   git remote add origin https://github.com/acme/app.git
   rc=0; BP T-1 > "$base/plan.out" 2>&1 || rc=$?
   [ "$rc" != 0 ] || die "batch-plan produced a batch although no workflow runs on pull requests"
