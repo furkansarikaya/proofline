@@ -284,9 +284,13 @@ path_ok() {
 #            reading stdin, indirect AGENT_ROLE, nesting beyond one level, copies of agent.sh)
 #   B why    a git hook bypass; refused always
 #   C word args   every simple command: its command word and its arguments joined with \003 (database guard)
+#   F path   the command word is a literal path (./x, scripts/run): the file the command runs (kill guard, A161)
+#   H cmd\003path\003body   a here-document: the command it feeds, the file that command writes (cat > f <<EOF; empty
+#            otherwise) and the body (newlines as \002, at most 200000 characters); the body of an unquoted
+#            delimiter is also scanned for $(...) and backtick commands, which the shell runs (A161)
 scan_cmd() {
   awk 'BEGIN { RS = "\001" }
-  function out(k, v) { if ((k == "W" || k == "E" || k == "P" || k == "Q") && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
+  function out(k, v) { if ((k == "W" || k == "E" || k == "P" || k == "Q" || k == "F") && cwdp != "" && substr(v, 1, 1) != "/" && substr(v, 1, 1) != "~") v = cwdp "/" v; gsub(/\n/, "\002", v); print k "\t" v }
   function base(x) { sub(/.*\//, "", x); return x }
   function isassign(x) { return x ~ /^[A-Za-z_][A-Za-z0-9_]*=/ }
   function push(t, d) {
@@ -294,11 +298,25 @@ scan_cmd() {
     if (d > 1) out("X", "a nested shell command inside a nested shell command")
     qs[++qn] = t; qd[qn] = d
   }
+  function pushraw(t, d) {   # a command inside a here-document body: no nesting complaint, only the depth limit
+    if (d > 4) { out("B", "commands nested more than four levels deep"); return }
+    qs[++qn] = t; qd[qn] = d
+  }
+  function hdsubs(b,   p, m, ch, e) {   # $(...) and backtick commands in an unquoted here-document body
+    m = length(b); p = 1
+    while (p <= m) {
+      ch = substr(b, p, 1)
+      if (ch == "\\") { p += 2; continue }
+      if (ch == "$" && substr(b, p + 1, 1) == "(") { e = mparen(b, p + 1); pushraw(substr(b, p + 2, e - p - 2), dep + 1); p = e + 1; continue }
+      if (ch == "`") { e = index(substr(b, p + 1), "`"); if (!e) e = m - p + 1; pushraw(substr(b, p + 1, e - 1), dep + 1); p += e + 1; continue }
+      p++
+    }
+  }
   function mparen(s, p,   d, c2, m) { d = 0; m = length(s); for (; p <= m; p++) { c2 = substr(s, p, 1); if (c2 == "(") d++; else if (c2 == ")") { d--; if (!d) return p } } return m }
   function endword() {
     if (!have) return
-    if (redir) { out("W", cur); redir = 0 } else if (inredir) { if (inredir == 2) hd = cur; else out("C", "<\t" cur); inredir = 0 } else if (dup) { dup = 0 } else { w[++nw] = cur; L[nw] = lit }
-    cur = ""; have = 0; lit = 1
+    if (redir) { out("W", cur); lastw = (substr(cur, 1, 1) != "/" && cwdp != "") ? cwdp "/" cur : cur; redir = 0 } else if (inredir) { if (inredir == 2) { hdn++; hdw[hdn] = cur; hdq[hdn] = quo; hdt[hdn] = hdd } else out("C", "<\t" cur); inredir = 0 } else if (dup) { dup = 0 } else { w[++nw] = cur; L[nw] = lit }
+    cur = ""; have = 0; lit = 1; quo = 0
   }
   function takesval(wr, x) {
     if (wr == "env") return x ~ /^(-u|--unset|-C|--chdir)$/
@@ -339,7 +357,12 @@ scan_cmd() {
     if (!L[j]) out("X", "the script path " w[j] " is not literal")
     else if (base(w[j]) == "agent.sh" && j + 1 <= nw) out("A", L[j + 1] "\t" w[j + 1])
   }
-  function endcmd(   k, c, j, x, wr, tdone, nopt, tgt, hasc, hass, first, refm) {
+  function endcmd(   h) {   # a here-document belongs to the command it was written on: its word and the file it writes
+    cc = ""; endcmd0()
+    for (h = hdfirst; h <= hdn; h++) { hdc[h] = cc; hdp[h] = lastw }
+    hdfirst = hdn + 1; lastw = ""
+  }
+  function endcmd0(   k, c, j, x, wr, tdone, nopt, tgt, hasc, hass, first, refm) {
     if (nw == 0) return
     for (j = 1; j <= nw; j++) {
       x = w[j]
@@ -370,8 +393,9 @@ scan_cmd() {
     }
     if (k > nw) { nw = 0; return }
     if (!L[k]) out("X", "the command word " w[k] " is not literal")
-    c = base(w[k])
+    c = base(w[k]); cc = c
     ca = ""; for (j = k + 1; j <= nw; j++) ca = ca (j > k + 1 ? "\003" : "") w[j]
+    if (L[k] && w[k] ~ /\//) out("F", w[k])
     out("C", c "\t" ca)
     # cd: later relative write targets in this command line resolve against it (heuristic, like the rest)
     if (c == "cd") {
@@ -401,7 +425,7 @@ scan_cmd() {
     else if (c == "claude") { for (j = k + 1; j <= nw; j++) if (w[j] == "-p" || w[j] == "--print") { out("N", "claude " w[j]); break } }
     else if (c == "codex") { for (j = k + 1; j <= nw; j++) if (w[j] !~ /^-/) { if (w[j] == "exec" || w[j] == "e") out("N", "codex " w[j]); break } }
     else if (c == "git") gitchk(k)
-    else if (c == "tee") { for (j = k + 1; j <= nw; j++) if (w[j] !~ /^-/) out("W", w[j]) }
+    else if (c == "tee") { for (j = k + 1; j <= nw; j++) if (w[j] !~ /^-/) { out("W", w[j]); if (lastw == "") lastw = (substr(w[j], 1, 1) != "/" && cwdp != "") ? cwdp "/" w[j] : w[j] } }
     else if (c ~ /^(touch|rm|truncate|unlink|rmdir|shred)$/) {
       for (j = k + 1; j <= nw; j++) {
         if (w[j] ~ /^-/) { if ((c == "truncate" && w[j] ~ /^-[sr]$/) || (c == "touch" && w[j] ~ /^-[tdr]$/)) j++; continue }
@@ -453,7 +477,7 @@ scan_cmd() {
     nw = 0
   }
   function parse(s,   n, i, ch, q, e, line, k2) {
-    n = length(s); i = 1; q = ""; cur = ""; have = 0; lit = 1; hd = ""; nw = 0; redir = 0; inredir = 0; dup = 0
+    n = length(s); i = 1; q = ""; cur = ""; have = 0; lit = 1; hdn = 0; hdfirst = 1; hdbody = 0; pd = 0; quo = 0; hdd = 0; lastw = ""; nw = 0; redir = 0; inredir = 0; dup = 0
     while (i <= n) {
       ch = substr(s, i, 1)
       if (q == "\047") { if (ch == "\047") q = ""; else cur = cur ch; i++; continue }
@@ -465,18 +489,29 @@ scan_cmd() {
         if (ch == "$") lit = 0
         cur = cur ch; i++; continue
       }
-      if (ch == "\047" || ch == "\"") { q = ch; have = 1; i++; continue }
-      if (ch == "\\" && i < n) { if (substr(s, i + 1, 1) != "\n") { cur = cur substr(s, i + 1, 1); have = 1 } i += 2; continue }
+      if (ch == "\047" || ch == "\"") { q = ch; have = 1; quo = 1; i++; continue }
+      if (ch == "\\" && i < n) { if (substr(s, i + 1, 1) != "\n") { cur = cur substr(s, i + 1, 1); have = 1; quo = 1 } i += 2; continue }
+      if (ch == "#" && !have && cur == "") { e = index(substr(s, i), "\n"); i = e ? i + e - 1 : n + 1; continue }   # a comment runs to the end of the line
       if (ch == " " || ch == "\t") { endword(); i++; continue }
       if (ch == "\n") {
         endword(); endcmd(); i++
-        if (hd != "") {   # skip the heredoc body up to its delimiter line
-          while (i <= n) { e = index(substr(s, i), "\n"); line = (e ? substr(s, i, e - 1) : substr(s, i)); i = (e ? i + e : n + 1); sub(/^\t+/, "", line); if (line == hd) break }
-          hd = ""
+        for (hi = hdbody + 1; hi <= hdn; hi++) {   # the bodies follow the line, in order, up to their delimiter line
+          body = ""
+          while (i <= n) {
+            e = index(substr(s, i), "\n"); line = (e ? substr(s, i, e - 1) : substr(s, i)); i = (e ? i + e : n + 1)
+            if (hdt[hi]) sub(/^\t+/, "", line)   # only <<- ignores leading tabs of the delimiter line
+            if (line == hdw[hi]) break
+            if (length(body) < 200000) body = body line "\n"
+          }
+          out("H", hdc[hi] "\003" hdp[hi] "\003" body)
+          if (!hdq[hi]) hdsubs(body)
         }
+        hdbody = hdn
         continue
       }
-      if (ch == ";" || ch == "|" || ch == "(" || ch == ")" || ch == "`") { endword(); endcmd(); i++; continue }
+      if (ch == "|" && nw == 0 && pd <= 0 && match(substr(s, i + 1), /^[^ \t\n;&|()<>]*(\|[^ \t\n;&|()<>]*)*\)/)) { i += RLENGTH + 1; cur = ""; have = 0; continue }   # a case label with alternatives (kill|pkill)
+      if (ch == ")" && pd <= 0) { cur = ""; have = 0; nw = 0; i++; continue }   # a case label (stop|kill) is not a command
+      if (ch == ";" || ch == "|" || ch == "(" || ch == ")" || ch == "`") { if (ch == "(") pd++; else if (ch == ")") pd--; endword(); endcmd(); i++; continue }
       if (ch == "&") { if (substr(s, i + 1, 1) == ">") { endword(); i += 2; if (substr(s, i, 1) == ">") i++; redir = 1; continue } endword(); endcmd(); i++; continue }
       if (ch == ">") {
         if (have && cur ~ /^[0-9]+$/) { cur = ""; have = 0 } else endword()
@@ -488,11 +523,12 @@ scan_cmd() {
       if (ch == "<") {
         if (have && cur ~ /^[0-9]+$/) { cur = ""; have = 0 } else endword()
         k2 = 0; while (substr(s, i, 1) == "<") { i++; k2++ }
-        if (substr(s, i, 1) == "-") i++
+        hdd = (substr(s, i, 1) == "-"); if (hdd) i++
         if (substr(s, i, 1) == "&") { i++; dup = 1; continue }
-        if (substr(s, i, 1) == "(") continue
+        if (substr(s, i, 1) == "(") { inredir = 0; continue }   # < <(cmd): a process substitution, not a file
         inredir = (k2 == 2) ? 2 : 1; continue
       }
+      if (ch == "$" && substr(s, i + 1, 2) == "((") { e = mparen(s, i + 1); cur = cur substr(s, i, e - i + 1); have = 1; lit = 0; i = e + 1; continue }
       if (ch == "$") lit = 0
       cur = cur ch; have = 1; i++
     }
@@ -1009,49 +1045,259 @@ MGARGS
   done < "$tmp/scan"
 }
 
-# --- kill guard (A156) ---------------------------------------------------------------------------
+# --- kill guard (A156, A161) ---------------------------------------------------------------------
 # A process is stopped only by the PID of one the agent started itself. Denied for every caller, a run open or not,
 # proofline installed or not: pkill, killall, skill, slay, fuser -k (kill by name or port), `kill` aimed at everything
-# (-1, 0) and `kill` whose PIDs come from pgrep / pidof / ps / lsof / fuser, as a substitution or through xargs.
-# `kill <pid>`, `kill $!`, `kill $PID` and `kill $(cat pidfile)` pass. Token matching on the scan's command records,
-# like the merge guard; this hook sees only the model's own tool calls (A156, known limits).
-KG_MSG='kill only a process you started yourself, by its PID (kill <pid>, kill $!); pkill, killall and kill by pattern, by name or by port are forbidden (A156)'
-kill_guard() {
-  kg_prev='' kg_pend=no   # command words seen so far, for `pgrep ... | xargs kill`
+# (-1, 0 in any spelling: 00, +0, $((0))) and `kill` whose PIDs come from pgrep / pidof / ps / lsof / fuser: as a
+# substitution, through xargs, through a variable or loop variable the same command fills from such a search, or
+# through `find -exec kill`. `kill <pid>`, `kill $!`, `kill $PID` and `kill $(cat pidfile)` pass.
+# A161 reads further, still only the command text and files the command names: the commands in an unquoted
+# here-document body, interpreter one-liners and here-documents (python, perl, node, ruby, php, lua, awk, osascript),
+# script files the command runs (sh x.sh, ./x, source x, python x.py) when they are under the project or a temp dir,
+# `eval`, and a variable command word whose value the same command assigns. It is a tripwire against an honest
+# mistake, not a security boundary against a hostile agent (a payload built at run time, a file written by another
+# tool call and run from outside the project and temp dirs, anything inside a binary are not seen: A161). Token and
+# text matching on the scan's records like the merge guard; this hook sees only the model's own tool calls.
+KG_MSG='kill only a process you started yourself, by its PID (kill <pid>, kill $!); pkill, killall and kill by pattern, by name, by port or by a process search are forbidden (A156, A161)'
+KG_DEPTH=0
+KG_SEP=$(printf '\003')
+kg_verb_re='(^|[^A-Za-z0-9_.$-])(pkill|killall5?|slay)([^A-Za-z0-9_-]|$)'
+kg_lit_re="\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*'"
+kg_no() { printf '%s: %s\n' "$1" "$KG_MSG"; exit 1; }   # only inside the $(...) subshells that kg_run, kg_text and kg_code run in
+kg_is_search() { case "$1" in pgrep|pidof|ps|lsof|fuser|pkill|netstat|ss|pstree|jps) return 0 ;; esac; return 1; }
+# kg_num WORD: the integer a literal (00, +0, -01) or constant arithmetic ($((1-1))) stands for; nothing otherwise.
+kg_num() {
+  kn=$1
+  case "$kn" in
+    '$(('*'))')
+      kn_e=${kn#'$(('}; kn_e=${kn_e%'))'}
+      case "$kn_e" in ''|*[!0-9+*/%\ \(\)\<\>\&\|^~!-]*) return 0 ;; esac   # a letter, $ or quote: not a constant
+      kn_v=$( (eval "printf %s \$(( $kn_e ))") 2>/dev/null ) || return 0
+      kn=$kn_v ;;
+  esac
+  kn_s=''; kn_d=$kn
+  case "$kn_d" in [+-]*) kn_s=${kn_d%"${kn_d#?}"}; kn_d=${kn_d#?} ;; esac
+  case "$kn_d" in ''|*[!0-9]*) return 0 ;; esac
+  kn_d=$(printf '%s' "$kn_d" | sed 's/^0*//'); [ -n "$kn_d" ] || kn_d=0
+  if [ "$kn_s" = - ] && [ "$kn_d" != 0 ]; then kn_d=-$kn_d; fi
+  printf '%s\n' "$kn_d"
+}
+# kg_expand TEXT: $NAME and ${NAME} replaced by the value this command assigned ($kg_tbl, NAME=value lines).
+kg_expand() {
+  kx=$1
+  kx_i=0
+  while [ "$kx_i" -lt 3 ]; do
+    kx_i=$((kx_i + 1))
+    kx=$(printf '%s\n' "$kx" | KGT=$kg_tbl awk 'BEGIN { n = split(ENVIRON["KGT"], L, "\n"); for (i = 1; i <= n; i++) { p = index(L[i], "="); if (p) V[substr(L[i], 1, p - 1)] = substr(L[i], p + 1) } }
+      { s = $0; o = ""; while (match(s, /\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/)) { nm = substr(s, RSTART + 1, RLENGTH - 1); gsub(/[{}]/, "", nm); o = o substr(s, 1, RSTART - 1) ((nm in V) ? V[nm] : substr(s, RSTART, RLENGTH)); s = substr(s, RSTART + RLENGTH) } print o s }')
+  done
+  printf '%s\n' "$kx"
+}
+# kg_file_ok PATH: prints the resolved path of a text file the guard may read: a regular file (no link) under the
+# project (third-party node_modules and .git excluded) or a temp dir, at most 256 KB.
+kg_file_ok() {
+  kf=$1; case "$kf" in /*) ;; *) kf=$cwd/$kf ;; esac
+  [ -f "$kf" ] && [ ! -L "$kf" ] || return 1
+  kf_d=$(CDPATH='' cd "$(dirname "$kf")" 2>/dev/null && pwd -P) || return 1
+  kf=$kf_d/$(basename "$kf")
+  case "$kf" in */node_modules/*|"$root"/.git/*) return 1 ;; esac
+  kf_t=$(CDPATH='' cd "${TMPDIR:-/nonexistent}" 2>/dev/null && pwd -P) || kf_t=/nonexistent
+  case "$kf" in "$root"/*|"$kf_t"/*|/tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) ;; *) return 1 ;; esac
+  [ "$(wc -c < "$kf")" -le 262144 ] || return 1
+  grep -Iq . "$kf" 2>/dev/null || return 1   # binary (or empty): nothing to read
+  printf '%s\n' "$kf"
+}
+# kg_text TEXT: the shell text as a command line; kg_code LANG TEXT: interpreter code. Each runs in a $(...) subshell
+# and prints the reason (status 1) when it kills by pattern.
+kg_text() {
+  [ "$KG_DEPTH" -lt 5 ] || return 0
+  KG_DEPTH=$((KG_DEPTH + 1))
+  printf '%s\n' "$1" > "$tmp/kgt.$KG_DEPTH"
+  scan_cmd < "$tmp/kgt.$KG_DEPTH" > "$tmp/kgs.$KG_DEPTH"
+  kg_run "$tmp/kgs.$KG_DEPTH"
+}
+kg_sub() { kg_r=$(kg_text "$1") || { printf '%s\n' "$kg_r"; exit 1; }; }
+kg_chk_code() { kg_r=$(kg_code "$1" "$2") || { printf '%s\n' "$kg_r"; exit 1; }; }
+kg_code() {
+  kc_l=$1; kc_t=$2
+  [ "$KG_DEPTH" -lt 5 ] || return 0
+  KG_DEPTH=$((KG_DEPTH + 1))
+  printf '%s\n' "$kc_t" > "$tmp/kgc.$KG_DEPTH"
+  kc_g() { grep -Eq "$1" "$tmp/kgc.$KG_DEPTH"; }
+  ! kc_g "$kg_verb_re" || kg_no "$kc_l code runs pkill, killall or slay"
+  ! kc_g '(^|[^A-Za-z0-9_$-])fuser[^A-Za-z0-9]+-[A-Za-z]*k' || kg_no "$kc_l code runs fuser -k"
+  kc_z='([+-]?0+|-[[:space:]]*0*1)'
+  case "$kc_l" in
+    python) kc_re='os\.kill(pg)?\([[:space:]]*'$kc_z'[[:space:]]*[,)]|os\.killpg\([[:space:]]*os\.getpgrp\(' ;;
+    node) kc_re='process\.kill\([[:space:]]*'$kc_z'[[:space:]]*[,)]' ;;
+    ruby) kc_re='Process\.kill[[:space:](][^,)]*,[[:space:]]*'$kc_z'[[:space:]]*([,)]|$)' ;;
+    perl) kc_re='(^|[^A-Za-z0-9_$.>-])kill[[:space:](]*[^,;)]*,[[:space:]]*'$kc_z'[[:space:]]*([,;)]|$)' ;;
+    *) kc_re='' ;;
+  esac
+  [ -z "$kc_re" ] || ! kc_g "$kc_re" || kg_no "$kc_l code signals every process (pid 0 or -1)"
+  # a kill of a PID that a process search produced: psutil's loop, or a kill call (os.kill, process.kill, a bare kill
+  # in a command string) in code that also runs a search; a kill method of the code's own child handle (child.kill()) is not one
+  if kc_g 'process_iter|psutil' && kc_g '\.(kill|terminate)\('; then kg_no "$kc_l code kills processes it finds by listing them"; fi
+  if kc_g '(os|process|Process|signal)\.(kill|killpg)|(^|[^A-Za-z0-9_$.])kill([^A-Za-z0-9_]|$)'; then
+    ! kc_g "(^|[^A-Za-z0-9_.\$-])(pgrep|pidof|lsof)([^A-Za-z0-9_-]|\$)|/proc/|(^|[\"'[:space:],[])ps([\"'[:space:],]|\$)" || kg_no "$kc_l code kills PIDs it takes from a process search"
+    [ "$kg_searched" != yes ] || kg_no "$kc_l code kills PIDs a process search earlier in the command produced"
+  fi
+  # string literals are command lines (os.system("kill 0"), subprocess.run(["kill", "-9", "0"]))
+  printf '%s\n' "$kc_t" | grep -Eo "$kg_lit_re" 2>/dev/null | head -n 60 > "$tmp/kgl.$KG_DEPTH" || :
+  kc_k=''
+  while IFS= read -r kc_s; do
+    kc_s=${kc_s#?}; kc_s=${kc_s%?}
+    [ -n "$kc_s" ] || continue
+    case "$kc_s" in *kill*|*slay*|*fuser*) kg_sub "$kc_s" ;; esac   # only a literal that names a kill verb can be one
+    if [ "$kc_s" = kill ]; then kc_k='kill'; elif [ -n "$kc_k" ] && [ "${#kc_k}" -lt 80 ]; then kc_k="$kc_k $kc_s"; fi
+  done < "$tmp/kgl.$KG_DEPTH"
+  [ -z "$kc_k" ] || kg_sub "$kc_k"
+  return 0
+}
+# kg_script LANG TEXT: the content of a script, a here-document or piped text; LANG sh, auto (shebang or extension), or an interpreter.
+kg_script() {
+  ks_l=$1; ks_t=$2
+  if [ "$ks_l" = auto ]; then
+    ks_h=$(printf '%s\n' "$ks_t" | head -n 1)
+    case "$ks_h" in
+      '#!'*python*) ks_l=python ;; '#!'*node*|'#!'*deno*|'#!'*bun*) ks_l=node ;; '#!'*perl*) ks_l=perl ;; '#!'*ruby*) ks_l=ruby ;; '#!'*php*) ks_l=php ;;
+      '#!'*) ks_l='sh' ;;
+      *) case "${kg_spath:-}" in *.py) ks_l=python ;; *.js|*.mjs|*.cjs) ks_l=node ;; *.pl) ks_l=perl ;; *.rb) ks_l=ruby ;; *) ks_l='sh' ;; esac ;;
+    esac
+  fi
+  case "$ks_l" in sh) kg_sub "$ks_t" ;; *) kg_chk_code "$ks_l" "$ks_t" ;; esac
+}
+# kg_interp LANG: an interpreter command ($kg_args): its code operands are checked now, its script operand is queued
+# (kg_run), no code and no script means it reads its program from stdin.
+kg_interp() {
+  ki_l=$1; ki_nx=''; ki_dd=no; ki_sc=''; ki_code=no
+  while IFS= read -r ki_a; do
+    if [ -n "$ki_nx" ]; then
+      case "$ki_nx" in code) ki_code=yes; kg_chk_code "$ki_l" "$ki_a" ;; file) ki_sc=$ki_a ;; esac
+      ki_nx=''; continue
+    fi
+    if [ "$ki_dd" = no ]; then
+      case "$ki_a" in
+        --) ki_dd=yes; continue ;;
+        -) ki_code=yes; kg_stdin="$kg_stdin $ki_l"; continue ;;
+      esac
+      case "$ki_l" in
+        python) case "$ki_a" in -m) ki_code=yes; ki_nx=skip; continue ;; -W|-X) ki_nx=skip; continue ;; -c|-[A-Za-z]c) ki_nx=code; continue ;; esac ;;
+        node) case "$ki_a" in -e|--eval|-p|--print|-pe|-ep) ki_nx=code; continue ;; -r|--require|--import|--loader) ki_nx=skip; continue ;; esac
+          [ "$ki_a" != eval ] || { ki_nx=code; continue; } ;;
+        perl|ruby) case "$ki_a" in -*[!A-Za-z0-9]*|--*) case "$ki_a" in -I|-r) ki_nx=skip; continue ;; esac ;; -*[eE]) ki_nx=code; continue ;; esac ;;
+        php) case "$ki_a" in -r) ki_nx=code; continue ;; -d) ki_nx=skip; continue ;; -f) ki_nx='file'; continue ;; esac ;;
+        lua|osascript) case "$ki_a" in -e) ki_nx=code; continue ;; esac ;;
+        awk) case "$ki_a" in -f) ki_nx='file'; continue ;; -F|-v|-e) ki_nx=skip; continue ;; esac ;;
+      esac
+      case "$ki_a" in -*) continue ;; esac
+    fi
+    # the first operand: awk's program text, else the script file
+    if [ "$ki_l" = awk ] && [ "$ki_code" = no ]; then ki_code=yes; kg_chk_code awk "$ki_a"; break; fi
+    ki_sc=$ki_a; break
+  done <<KIARGS
+$kg_args
+KIARGS
+  if [ -n "$ki_sc" ]; then
+    printf '%s\003%s\n' "$ki_l" "$ki_sc" >> "$tmp/kgr.$KG_DEPTH"
+  elif [ "$ki_code" = no ]; then
+    kg_stdin="$kg_stdin $ki_l"
+  fi
+}
+kg_run() {
+  kr_f=$1
+  : > "$tmp/kgr.$KG_DEPTH"; : > "$tmp/kgh.$KG_DEPTH"; : > "$tmp/kge.$KG_DEPTH"
+  kg_tbl=$(awk -F'\t' '$1 == "C" && ($2 == "env" || $2 == "export" || $2 == "local" || $2 == "declare" || $2 == "readonly" || $2 == "typeset") {
+    n = split($3, a, "\003"); for (i = 1; i <= n; i++) if (a[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && a[i] !~ /\002/) print a[i] }' "$kr_f")
+  kg_prev='' kg_pend=no kg_searched=no kg_find=no kg_cand='' kg_taint='' kg_fpath='' kg_stdin='' kg_w1=''
   while IFS= read -r kg_rec; do
-    case "$kg_rec" in C"$TAB"*) ;; *) continue ;; esac
+    case "$kg_rec" in
+      F"$TAB"*) kg_fpath=${kg_rec#*"$TAB"}; continue ;;
+      W"$TAB"*) kg_w1=${kg_rec#*"$TAB"}; continue ;;
+      H"$TAB"*) printf '%s\n' "${kg_rec#*"$TAB"}" >> "$tmp/kgh.$KG_DEPTH"; continue ;;
+      C"$TAB"*) ;;
+      *) continue ;;
+    esac
+    kg_fp=$kg_fpath; kg_fpath=''; kg_wp=$kg_w1; kg_w1=''
     kg_rest=${kg_rec#*"$TAB"}; kg_cw=${kg_rest%%"$TAB"*}
     case "$kg_rest" in *"$TAB"*) kg_args=$(printf '%s' "${kg_rest#*"$TAB"}" | tr '\003\002' '\n\n') ;; *) kg_args='' ;; esac
     if [ "$kg_cw" = busybox ]; then   # busybox pkill / busybox kill: the applet is the first word
       kg_cw=$(printf '%s\n' "$kg_args" | head -n 1); kg_args=$(printf '%s\n' "$kg_args" | sed 1d)
     fi
+    kg_joined=$(printf '%s' "$kg_args" | tr '\n' ' ')
     kg_was=$kg_pend; kg_pend=no
-    if [ "$kg_was" = yes ]; then
-      case "$kg_cw" in pgrep|pidof|ps|lsof|fuser|pkill) deny "kill with PIDs taken from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG" ;; esac
+    if [ "$kg_was" = yes ] && kg_is_search "$kg_cw"; then kg_no "kill with PIDs taken from a process search (pgrep, pidof, ps, lsof, fuser)"; fi
+    # a binding (NAME=value, for, read) that the search right before it fills: the name is tainted
+    if [ -n "$kg_cand" ]; then
+      if kg_is_search "$kg_cw"; then kg_taint="$kg_taint $kg_cand"; fi
+      kg_cand=''
     fi
+    if kg_is_search "$kg_cw"; then kg_searched=yes; fi
+    kg_srch=no; printf '%s\n' "$kg_joined" | grep -Eq '(^|[^A-Za-z0-9_.$-])(pgrep|pidof|ps|lsof|fuser|pkill)([^A-Za-z0-9_-]|$)' && kg_srch=yes
+    case "$kg_cw" in
+      env|export|local|declare|readonly|typeset)
+        while IFS= read -r kg_a; do
+          case "$kg_a" in [A-Za-z_]*=*) ;; *) continue ;; esac
+          kg_n=${kg_a%%=*}; kg_v=${kg_a#*=}
+          kg_ref=no
+          for kg_t in $kg_taint; do case "$kg_v" in *'$'"$kg_t"|*'$'"$kg_t"[!A-Za-z0-9_]*|*'${'"$kg_t"[!A-Za-z0-9_]*) kg_ref=yes ;; esac; done
+          if [ "$kg_ref" = yes ] || printf '%s\n' "$kg_v" | grep -Eq '(^|[^A-Za-z0-9_.-])(pgrep|pidof|ps|lsof|fuser|pkill)([^A-Za-z0-9_-]|$)'; then kg_taint="$kg_taint $kg_n"; kg_searched=yes
+          else case "$kg_v" in ''|*'$') kg_cand="$kg_cand $kg_n" ;; esac; fi
+        done <<KGENV
+$kg_args
+KGENV
+        ;;
+      for)
+        kg_n=$(printf '%s\n' "$kg_args" | head -n 1)
+        if [ "$kg_srch" = yes ]; then kg_taint="$kg_taint $kg_n"; kg_searched=yes
+        else case "$(printf '%s\n' "$kg_args" | tail -n 1)" in in|*'$') kg_cand="$kg_cand $kg_n" ;; esac; fi ;;
+      read|mapfile|readarray)   # fed by a search earlier in the command (a pipe, a file, a process substitution)
+        if [ "$kg_searched" = yes ]; then
+          while IFS= read -r kg_a; do case "$kg_a" in -*|'') ;; *) kg_taint="$kg_taint $kg_a" ;; esac; done <<KGREAD
+$kg_args
+KGREAD
+        else kg_cand="$kg_cand $(printf '%s\n' "$kg_args" | grep -Ev '^-' | tr '\n' ' ')"; fi ;;
+    esac
+    # a variable command word, eval, kill with a variable: the same command's assignments are substituted
+    case "$kg_cw" in
+      '$'*|eval|kill)
+        if [ -n "$kg_tbl" ]; then
+          kg_x=$(kg_expand "$kg_cw $kg_joined")
+          if [ "$kg_x" != "$kg_cw $kg_joined" ] && [ "$kg_x" != "$kg_cw $kg_joined " ]; then kg_sub "$kg_x"; fi
+        fi ;;
+    esac
     case "$kg_cw" in
       pkill|killall|killall5|skill|slay)
         # no arguments (a usage error, also what `command -v killall` leaves) and --help / --version read only
-        case "$(printf '%s\n' "$kg_args" | head -n 1)" in ""|--help|-h|--version|-V) ;; *) deny "$kg_cw kills by name or pattern: $KG_MSG" ;; esac ;;
-      fuser) ! printf '%s\n' "$kg_args" | grep -Eq '^-[A-Za-z]*k' || deny "fuser -k kills whatever uses a file or port: $KG_MSG" ;;
+        case "$(printf '%s\n' "$kg_args" | head -n 1)" in ""|--help|-h|--version|-V) ;; *) kg_no "$kg_cw kills by name or pattern" ;; esac ;;
+      fuser) ! printf '%s\n' "$kg_args" | grep -Eq '^-[A-Za-z]*k' || kg_no "fuser -k kills whatever uses a file or port" ;;
+      eval) kg_sub "$kg_joined" ;;
+      '$'*) ;;
       kill)
         # signal options (-0 liveness probe, -s 0, -TERM) are not PIDs; an operand 0 or -1 signals everything
-        kg_ops=0; kg_dd=no; kg_skip=no
+        kg_ops=0; kg_dd=no; kg_skip=no; kg_dl=no
         while IFS= read -r kg_a; do
+          case "$kg_a" in *'$'*) kg_dl=yes ;; esac
           if [ "$kg_skip" = yes ]; then kg_skip=no; continue; fi
           if [ "$kg_dd" = no ]; then
             case "$kg_a" in
               --) kg_dd=yes; continue ;;
-              -1) deny "kill -1 signals every process: $KG_MSG" ;;
               -s|-n|--signal) kg_skip=yes; continue ;;
+              -[0-9]*) [ "$(kg_num "$kg_a")" != -1 ] || kg_no "kill -1 signals every process"; continue ;;
               -*) continue ;;
             esac
-          else
-            [ "$kg_a" != -1 ] || deny "kill -- -1 signals every process: $KG_MSG"
           fi
           [ -n "$kg_a" ] || continue
           [ "$kg_a" = '{}' ] || kg_ops=$((kg_ops + 1))
-          [ "$kg_a" != 0 ] || deny "kill 0 signals the whole process group: $KG_MSG"
+          case "$kg_a" in [0-9+-]*|'$(('*) kg_v=$(kg_num "$kg_a") ;; *) kg_v='' ;; esac
+          [ "$kg_v" != 0 ] || kg_no "kill $kg_a signals the whole process group"
+          [ "$kg_v" != -1 ] || kg_no "kill $kg_a signals every process"
+          for kg_t in $kg_taint; do
+            case "$kg_a" in *'$'"$kg_t"|*'$'"$kg_t"[!A-Za-z0-9_]*|*'${'"$kg_t"[!A-Za-z0-9_]*) kg_no "kill \$$kg_t: the variable holds PIDs from a process search (pgrep, pidof, ps, lsof, fuser)" ;; esac
+          done
+          if [ "$kg_searched" = yes ]; then
+            case "$kg_a" in '$@'|'$*'|'${@}'|'${*}'|'$@'*|'$1'|'$0'|'${1}'|'${0}') kg_no "kill of the arguments of a command fed by a process search" ;; esac
+          fi
           # the scan leaves a bare `$` for "$(...)" and nothing for a backtick; the substituted command is the next record
           case "$kg_a" in *'$('*|*'$') kg_pend=yes ;; esac
         done <<KGARGS
@@ -1059,12 +1305,107 @@ $kg_args
 KGARGS
         # no PID operand (or only xargs' {}) after a process search: the PIDs arrive on stdin
         [ "$kg_ops" != 0 ] || kg_pend=yes   # a backtick substitution, or PIDs on stdin (xargs)
-        if [ "$kg_ops" = 0 ]; then
-          case " $kg_prev " in *" pgrep "*|*" pidof "*|*" ps "*|*" lsof "*|*" fuser "*|*" pkill "*) deny "kill fed from a process search (pgrep, pidof, ps, lsof, fuser): $KG_MSG" ;; esac
+        if [ "$kg_ops" = 0 ] && [ "$kg_dl" = no ]; then   # a variable among the arguments (-$pgid) is not "PIDs on stdin"
+          case " $kg_prev " in *" pgrep "*|*" pidof "*|*" ps "*|*" lsof "*|*" fuser "*|*" pkill "*|*" netstat "*|*" ss "*|*" pstree "*|*" jps "*) kg_no "kill fed from a process search (pgrep, pidof, ps, lsof, fuser)" ;; esac
+          [ "$kg_find" = no ] || kg_no "kill fed from find: PIDs chosen by file name are a kill by pattern"
         fi ;;
+      find|fd|fdfind)
+        kg_fx=no; kg_fn=''; kg_fb=''; kg_fl=''
+        while IFS= read -r kg_a; do
+          if [ "$kg_fx" = yes ]; then
+            if [ -z "$kg_fn" ]; then kg_fn=${kg_a##*/}; kg_fl=$kg_fn; fi
+            case "$kg_a" in ';'|'+') kg_fx=no; kg_fn='' ;; *) kg_fb="$kg_fb $kg_a" ;; esac
+            case "$kg_fn" in
+              kill|pkill|killall|killall5|skill|slay|fuser) kg_no "$kg_cw -exec $kg_fn acts on what find matched, a kill by pattern" ;;
+              sh|bash|dash|zsh|ksh|ash) case "$kg_fb" in *[!A-Za-z0-9_.$-]kill[!A-Za-z0-9_-]*|*[!A-Za-z0-9_.$-]pkill*|*[!A-Za-z0-9_.$-]killall*|*' kill') kg_no "$kg_cw -exec $kg_fn -c runs kill on what find matched" ;; esac ;;
+            esac
+            continue
+          fi
+          case "$kg_a" in -exec|-execdir|-ok|-okdir|-x|--exec|-X|--exec-batch) kg_fx=yes; kg_fn=''; kg_fb='' ;; esac
+        done <<KGFIND
+$kg_args
+KGFIND
+        case "$kg_fl" in cat|head|tail|grep) ;; *) kg_find=yes ;; esac ;;
+      cat) kg_find=no ;;
+      setsid|caffeinate|unbuffer|watch|flock|taskset|chrt|nsenter|strace|ltrace|runuser|su|systemd-run|script)
+        # a wrapper this scan does not know: the first kill verb among its arguments starts the wrapped command
+        kg_wr=''
+        while IFS= read -r kg_a; do
+          if [ -n "$kg_wr" ]; then kg_wr="$kg_wr $kg_a"; continue; fi
+          case "$kg_a" in
+            pkill|killall|killall5|skill|slay|kill|fuser|/*/pkill|/*/killall|/*/kill) kg_wr=$kg_a ;;
+            *' '*) kg_sub "$kg_a" ;;
+          esac
+        done <<KGWRAP
+$kg_args
+KGWRAP
+        [ -z "$kg_wr" ] || kg_sub "$kg_wr" ;;
+      sh|bash|dash|zsh|ksh|ash|mksh|posh|yash)
+        ks_c=no; ks_o=''; ks_skip=no; ks_s=no
+        while IFS= read -r kg_a; do
+          if [ "$ks_skip" = yes ]; then ks_skip=no; continue; fi
+          case "$kg_a" in
+            -o|+o) ks_skip=yes ;;
+            --) ;;
+            -*|+*) case "$kg_a" in -*c*) ks_c=yes ;; esac; case "$kg_a" in -*s*) ks_s=yes ;; esac ;;
+            *) ks_o=$kg_a; break ;;
+          esac
+        done <<KGSH
+$kg_args
+KGSH
+        if [ "$ks_c" = yes ]; then :   # the -c string is scanned as a nested command
+        elif [ -n "$ks_o" ] && [ "$ks_s" = no ]; then printf 'sh\003%s\n' "$ks_o" >> "$tmp/kgr.$KG_DEPTH"
+        else kg_stdin="$kg_stdin sh"; fi ;;
+      source|.) kg_a=$(printf '%s\n' "$kg_args" | head -n 1); [ -z "$kg_a" ] || printf 'sh\003%s\n' "$kg_a" >> "$tmp/kgr.$KG_DEPTH" ;;
+      python|python[0-9]*|pypy|pypy3) kg_interp python ;;
+      node|nodejs|deno|bun) kg_interp node ;;
+      perl) kg_interp perl ;;
+      ruby) kg_interp ruby ;;
+      php|lua|osascript) kg_interp "$kg_cw" ;;
+      awk|gawk|mawk|nawk) kg_interp awk ;;
+      echo|printf)   # text a later stdin-reading shell may run, or the content of a file this command writes
+        kg_et=$(printf '%s\n' "$kg_args" | grep -Ev '^-[neE]+$' | awk '{ gsub(/\\n/, "\n"); print }')
+        kg_ej=$(printf '%s\n' "$kg_et" | tr '\n' ' ')
+        printf '%s\n' "$kg_et" | tr '\n' '\002' >> "$tmp/kge.$KG_DEPTH"; printf '\n' >> "$tmp/kge.$KG_DEPTH"
+        if [ "$kg_cw" = echo ]; then printf '%s\n' "$kg_ej" >> "$tmp/kge.$KG_DEPTH"; fi
+        if [ -n "$kg_wp" ]; then
+          if [ "$kg_cw" = echo ]; then kg_ec=$kg_ej; else kg_ec=$(printf '%s\n' "$kg_et" | tr '\n' '\002'); fi
+          printf '%s\003%s\003%s\n' "$kg_cw" "$kg_wp" "$(printf '%s' "$kg_ec" | tr '\n' '\002')" >> "$tmp/kgh.$KG_DEPTH"
+        fi ;;
+      '<') kg_a=$(printf '%s\n' "$kg_args" | head -n 1)
+        if kg_fo=$(kg_file_ok "$kg_a"); then head -c 262144 "$kg_fo" | tr '\n' '\002' >> "$tmp/kge.$KG_DEPTH"; printf '\n' >> "$tmp/kge.$KG_DEPTH"; else printf '%s\n' "$kg_a" >> "$tmp/kge.$KG_DEPTH"; fi ;;
+      *) [ -z "$kg_fp" ] || printf 'auto\003%s\n' "$kg_fp" >> "$tmp/kgr.$KG_DEPTH" ;;
     esac
     kg_prev="$kg_prev $kg_cw"
-  done < "$tmp/scan"
+  done < "$kr_f"
+  # script files the command runs (a file the same command writes with a here-document is read from the command)
+  while IFS="$KG_SEP" read -r kg_l kg_p; do
+    [ -n "$kg_p" ] || continue
+    kg_np=${kg_p#./}; kg_body=''; kg_got=no
+    while IFS="$KG_SEP" read -r kg_hc kg_hp kg_hb; do
+      [ -n "$kg_hp" ] || continue
+      if [ "${kg_hp#./}" = "$kg_np" ]; then kg_body=$(printf '%s' "$kg_hb" | tr '\002' '\n'); kg_got=yes; fi
+    done < "$tmp/kgh.$KG_DEPTH"
+    if [ "$kg_got" = no ] && kg_fo=$(kg_file_ok "$kg_p"); then kg_body=$(cat "$kg_fo"); kg_got=yes; fi
+    [ "$kg_got" = yes ] || continue
+    kg_spath=$kg_p
+    kg_r=$(kg_script "$kg_l" "$kg_body") || { printf 'the script %s: %s\n' "$kg_p" "$kg_r"; exit 1; }
+  done < "$tmp/kgr.$KG_DEPTH"
+  # a shell or interpreter that reads its program from stdin: here-documents, echo/printf text and files fed to it
+  for kg_l in $kg_stdin; do
+    while IFS="$KG_SEP" read -r kg_hc kg_hp kg_hb; do
+      case "$kg_hc" in sh|bash|dash|zsh|ksh|ash|python*|node*|perl|ruby|php|lua|awk|cat|tee|echo|printf|osascript|deno|bun) ;; *) continue ;; esac
+      kg_r=$(kg_script "$kg_l" "$(printf '%s' "$kg_hb" | tr '\002' '\n')") || { printf 'the here-document: %s\n' "$kg_r"; exit 1; }
+    done < "$tmp/kgh.$KG_DEPTH"
+    while IFS= read -r kg_hb; do
+      [ -n "$kg_hb" ] || continue
+      kg_r=$(kg_script "$kg_l" "$(printf '%s' "$kg_hb" | tr '\002' '\n')") || { printf 'the text piped or redirected into %s: %s\n' "$kg_l" "$kg_r"; exit 1; }
+    done < "$tmp/kge.$KG_DEPTH"
+  done
+  return 0
+}
+kill_guard() {
+  kg_r=$(kg_run "$tmp/scan") || deny "$kg_r"
   return 0
 }
 
