@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.0.21 — 2026-10-21
+
+- The task file moves to `done/` in the delivery commit (markdown adapter only), not after the merge: `agent.sh task-source-done <ID>` runs in the commit step. When the merge fails, the move exists only in the unmerged pull request branch and the delivery says so (A163).
+- A project with no CI check on pull requests is told early: `proofline doctor` warns, the delivery summary warns, and `batch-plan` writes a BLOCKER into the summary and refuses the batch. The next step is one ready `/proofline task Add a GitHub Actions workflow ...` line (`agent.sh ci-check`, `ci-task-command`). There is no setting that merges without CI; `proofline merge` still does not merge a pull request without checks (A163).
+- `approve batch` starts the night driver in the background, detached from the session (`agent.sh batch-start`; no separate terminal command). It writes `driver.pid` and `driver.log` under `.agents/local/batch/`, keeps the computer awake with `caffeinate -i -w` or `systemd-inhibit`, refuses a second start and prints `plug in the computer; do not close the laptop lid.` The batch summary says that line once (A163).
+- New `proofline batch stop` (`agent.sh batch-stop`): stops only the driver it recorded, by its verified process group, never by name, and parks the running task with the reason `stopped`. `batch status` starts with a `driver:` line (A163).
+- The next step knows the new flows: no CI gives the ready CI task line (also for `deliver` and `--error=ci`), `batch` after approval gives `driver started, log: ... In the morning: /proofline batch status`, `batch status` names the parked task and its open question, `batch stop` gives `/proofline batch status` (A163).
+
 ## 0.0.20 — 2026-10-20
 
 - Input validation detection has two tiers. A `## Contracts` bullet that declares an entry point with new or changed input needs a `## Validation` line per entry point, and the QA plan needs an `[invalid-input]` scenario for it; `agent.sh freeze` and `refreeze` refuse either gap. A bullet that only mentions an entry word is information (`validation.possible`) and never refuses (A162).

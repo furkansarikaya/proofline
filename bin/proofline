@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.20
+PROOFLINE_VERSION=0.0.21
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -88,9 +88,12 @@ agent session (prints the exact instruction for your runtime)
   knowledge <TASK>        knowledge step of a finished run: wiki, ADRs, lesson candidates; deliver runs it when missing
   reopen <TASK>           take a FAILED or BLOCKED run back into the workflow, only with your approval
   batch <ID...|all>       night mode: one summary and one "approve batch" stand in for the plan and delivery approvals of
-                            the listed tasks (no CRITICAL task; nothing else is covered); then, in a terminal without
-                            an agent session: batch run (one clean headless session per task, one at a time, parked on
-                            any other question), batch status (the morning table and the driver, from records only) and
+                            the listed tasks (no CRITICAL task; nothing else is covered; refused while no CI check runs
+                            on pull requests). After "approve batch" the session starts the driver in the background
+                            (it keeps running when the session closes, and keeps the computer awake): plug in the
+                            computer; do not close the laptop lid. One clean headless session per task, one at a time,
+                            parked on any other question. Also, in a terminal without an agent session: batch run
+                            (the same driver), batch status (the morning table and the driver, from records only) and
                             batch stop (stops the running driver; its task is parked as stopped); a Codex session
                             runs in a sandbox that can commit (.git and .agents writable, network on), add --codex-danger-full-access when planning to lift it
 EOF

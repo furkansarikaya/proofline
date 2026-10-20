@@ -196,6 +196,7 @@ plan() {
     if awk -F'\t' '$1 == "X" { f = 1 } END { exit !f }' "$tmp/split"; then awk -F'\t' '$1 == "X" { print "- " $2 ": " $3 }' "$tmp/split"; else printf -- '- none\n'; fi
     printf '\n## Runtime\n\nheadless lead runtime: %s, claude permission mode: %s (the PreToolUse hook confines it)\n' "$(cfgv batch.runtimes "$(cfgv runtime.lead claude)")" "$(cfgv dispatch.claude_permission_mode bypassPermissions)"
     printf 'per-task timeout: %s minutes\n' "$(cfgv batch.task_timeout 120)"
+    printf 'after "approve batch" the driver starts in the background and keeps the computer awake; %s\n' "$PLUG_LINE"
     if [ "$danger" = yes ]; then
       printf 'codex sandbox: danger-full-access\n'
       printf 'WARNING: you chose --codex-danger-full-access. A Codex night session then runs with NO sandbox: it can read and write anywhere your user can and use the network. Approving this summary approves that.\n'

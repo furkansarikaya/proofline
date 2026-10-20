@@ -10,9 +10,32 @@ the hook rules around it in [enforcement layers](enforcement-layers.md), and eve
 covers, what it does not, and the tasks left out (CRITICAL or unclassified tasks, and tasks that depend on them). Your one
 reply "approve batch" is bound to that summary.
 
+A project with no CI check on pull requests cannot run a batch (A163): `proofline merge` does not merge a pull request that
+has no checks, so every task would stop at the merge step. The summary then carries a BLOCKER instead of a question, with
+the ready `/proofline task Add a GitHub Actions workflow ...` line that adds the workflow. There is no setting that merges
+without CI. `proofline doctor` and the delivery summary warn about the same thing early.
+
+## Starting, stopping, status
+
+After "approve batch" the session itself starts the driver (`agent.sh batch-start`; no separate terminal command). The driver
+runs in the background, detached from the session: its own process group, SIGHUP ignored, stdin from `/dev/null`, output to
+`.agents/local/batch/driver.log`, pid and group in `driver.pid`. Closing the session does not stop it. The reply is
+`driver started, pid N, log <path>`, the sleep inhibitor in use and the reminder `plug in the computer; do not close the
+laptop lid.` A second start is refused and names the running pid.
+
+While the driver runs the computer does not idle-sleep: `caffeinate -i -w <driver pid>` on macOS, `systemd-inhibit` on
+Linux. Where neither exists the start says so plainly; the machine may sleep and stop the batch. The lid is a different
+matter: closing the laptop lid sleeps most machines whatever the inhibitor says, which is why the reminder stays.
+
+`proofline batch stop` (or the session's `batch-stop`) stops only the driver it recorded: the verified process group from
+`driver.pid`, never a process found by name or pattern. The task that was running is parked with the reason `stopped`.
+`proofline batch status` starts with a `driver:` line (running with pid, start time and last log line; finished; not
+running or stopped). A stopped or interrupted batch resumes with `proofline batch run` in a terminal or with the session's
+batch start; merged tasks are not run again. `proofline batch run` in a terminal remains the same driver, in the foreground.
+
 ## Running the batch
 
-`proofline batch run` works through the tasks one at a time, each in a clean headless lead session. The summary's approval
+The driver works through the tasks one at a time, each in a clean headless lead session. The summary's approval
 stands in for the plan approval, the delivery approval (commit, push, pull request, merge only when CI is green and every
 gate passed, cleanup) and a mutation budget raise up to `batch.mutation_budget_cap`.
 
