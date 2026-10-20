@@ -271,8 +271,10 @@ export const PROBE = `(${probeSource.toString()})()`;
 // --- technical SEO (A158) ----------------------------------------------------------------------------------
 // Analytics detection by shape, not by vendor: a host or path word that names the job (analytics, tracker, ...) and
 // the neutral global `dataLayer`. A project names its own vendor in visual.json `seo.analytics` ({ hosts, globals }).
-// A detected script URL, request URL or global that is present while the page loads, before any consent
-// interaction, is a script that ran without consent.
+// A name is only a candidate (info). "Loaded" is measured by behaviour (A160): a request to a THIRD-PARTY host made while the
+// page loads, before any consent interaction, that belongs to a candidate (its URL matches the generic words or the project's
+// `seo.analytics` hosts, or its initiator is a candidate script). A page that only defines `dataLayer`, or serves a file named
+// pixel-art.js from its own origin, loaded nothing.
 export const ANALYTICS_WORDS = ["analytics", "tracker", "tracking", "telemetry", "metrics", "stats", "beacon", "pixel", "tag-manager"];
 const WORD_RE = /(?:^|[^a-z0-9])(analytics|tracker|tracking|telemetry|metrics|stats|beacon|pixel|tag-?manager)(?![a-z0-9])/i;
 export const ANALYTICS_GLOBALS = ["dataLayer"];
@@ -309,25 +311,36 @@ function siteRef(href, ctx) {
 const pageKey = (rel) => rel.replace(/(^|\/)index\.html$/, "$1").replace(/\.html$/, "").replace(/\/$/, "");
 export const siteCandidates = (rel) => [...new Set([rel, ...(/\.[a-z0-9]+$/i.test(rel) ? [] : [rel + ".html", rel + "/index.html"])])];
 
-// robots.txt: is `path` (site-root relative) disallowed for every crawler (the `*` group; longest match wins, Allow wins a tie)?
-export function robotsBlocks(text, rel) {
-  if (typeof text !== "string") return false;
-  const path = "/" + rel.replace(/(^|\/)index\.html$/, "$1");
-  let star = false, rules = [], inGroup = false;
-  for (const raw of text.split(/\r?\n/)) {
+// robots.txt per RFC 9309 (A160): is `rel` (site-root relative) disallowed for the crawler `bot` (a product token such as
+// "googlebot")? The groups whose user-agent token equals the bot's token (case-insensitive) apply, several groups of one token
+// combined; only when none matches the `*` group applies. Longest matching path wins, Allow wins a tie, `*` and `$` are
+// wildcards, an empty Disallow allows everything. Consecutive user-agent lines share one group; a blank line does not end it.
+export const ROBOTS_BOTS = ["googlebot", "bingbot"];
+export function robotsGroups(text) {
+  const groups = []; let cur = null, open = false;
+  for (const raw of String(text).split(/\r?\n/)) {
     const m = /^\s*([A-Za-z-]+)\s*:\s*(.*?)\s*(?:#.*)?$/.exec(raw);
-    if (!m) { if (!raw.trim()) inGroup = false; continue; }
+    if (!m) continue;
     const k = m[1].toLowerCase();
-    if (k === "user-agent") { if (!inGroup) star = false; inGroup = true; if (m[2] === "*") star = true; }
-    else if (star && (k === "disallow" || k === "allow")) { inGroup = false; if (m[2] || k === "allow") rules.push([k, m[2]]); }
+    if (k === "user-agent") { if (!open) { cur = { agents: [], rules: [] }; groups.push(cur); } open = true; cur.agents.push(m[2].toLowerCase()); }
+    else if (k === "disallow" || k === "allow") { open = false; if (cur) cur.rules.push([k, m[2]]); }
   }
+  return groups;
+}
+export function robotsBlocks(text, rel, bot = "*") {
+  if (typeof text !== "string") return false;
+  const path = "/" + rel.replace(/(^|\/)index\.html$/, "$1"), groups = robotsGroups(text), tok = String(bot).toLowerCase();
+  let own = groups.filter((g) => g.agents.includes(tok));
+  if (!own.length) own = groups.filter((g) => g.agents.includes("*"));
   let best = null;
-  for (const [k, v] of rules) {
+  for (const [k, v] of own.flatMap((g) => g.rules)) {
     const re = new RegExp("^" + v.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\\\$$/, "$"));
     if (v && re.test(path) && (!best || v.length > best[1].length || (v.length === best[1].length && k === "allow"))) best = [k, v];
   }
   return !!best && best[0] === "disallow";
 }
+// The tested bots that robots.txt keeps away from `rel`.
+export const robotsBlockedFor = (text, rel) => ROBOTS_BOTS.filter((b) => robotsBlocks(text, rel, b));
 export const sitemapLocs = (xml) => [...String(xml).matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)].map((m) => m[1].replace(/&amp;/g, "&"));
 
 function seoContext(pages, site, opt) {
@@ -355,7 +368,7 @@ export function seoLookups(pages, site, opt) {
   return { exists: [...out.exists], alternates: [...out.alternates] };
 }
 
-// Pure: page facts (probe `seo()` plus `path`, `source`, `x_robots`, `requests`) and site facts
+// Pure: page facts (probe `seo()` plus `path`, `source`, `x_robots`, `requests`: [{ url, third_party, phase, initiator }]) and site facts
 // ({ robots_txt, sitemap_xml, exists: {path: true|false|null}, alternates: {path: [{hreflang, href}]|null} })
 // -> { pages, items } of report.seo. A fact that cannot be known is a not_measured item, never a pass or a fail.
 export function seoEvaluate(pages, site, opt) {
@@ -375,15 +388,20 @@ export function seoEvaluate(pages, site, opt) {
   for (const p of pages) {
     const rel = siteRef(p.url, ctx);
     const reasons = [];
-    if (rel && robotsBlocks(robotsTxt, rel)) reasons.push("robots.txt disallows it");
     if ((p.robots_meta || []).some((c) => /\bnoindex\b|\bnone\b/i.test(c))) reasons.push("meta robots noindex");
     if (/\bnoindex\b|\bnone\b/i.test(p.x_robots || "")) reasons.push("X-Robots-Tag noindex");
     if (p.not_measured) { out.pages.push({ path: p.path, status: "not_measured", reason: p.not_measured }); continue; }
     if (reasons.length) { out.pages.push({ path: p.path, status: "not_applicable", reason: "robots", detail: reasons.join("; ") }); continue; }
-    const hay = [...srcUrls(p.source), ...(p.scripts || []), ...(p.requests || [])];
+    // requests: { url, third_party?, phase?, initiator? } (a plain URL string is the old shape: third party = outside the site)
+    const reqs = (p.requests || []).map((r) => (typeof r === "string" ? { url: r } : r)).filter((r) => r && r.url);
+    const thirdParty = reqs.filter((r) => (r.phase ?? "before_consent") === "before_consent" && (r.third_party ?? (!/^(data|blob|about):/i.test(r.url) && siteRef(r.url, ctx) === null)));
+    const mine = thirdParty.filter((r) => analyticsUrlLabel(r.url, opt) || (r.initiator && analyticsUrlLabel(r.initiator, opt)));
+    const hay = [...srcUrls(p.source), ...(p.scripts || []), ...reqs.map((r) => r.url)];
     const gl = analyticsGlobals(opt).filter((g) => (p.globals || []).includes(g));
     const detected = [...new Set([...hay.map((t) => analyticsUrlLabel(t, opt)).filter(Boolean), ...gl])];
-    out.pages.push({ path: p.path, status: "measured", ...(detected.length ? { analytics_detected: detected } : {}) });
+    const other = [...new Set(thirdParty.filter((r) => !mine.includes(r)).map((r) => r.url))];
+    out.pages.push({ path: p.path, status: "measured", ...(detected.length ? { analytics_detected: detected, analytics_before_consent: [...new Set(mine.map((r) => r.url))] } : {}),
+      ...(other.length ? { third_party_requests: other } : {}) });
     published.push(p);
     const P = p.path;
 
@@ -440,12 +458,9 @@ export function seoEvaluate(pages, site, opt) {
     (p.jsonld || []).forEach((t, i) => { try { JSON.parse(t); } catch (e) { jp.push(`ld+json block ${i + 1} is not valid JSON (${e.message.slice(0, 60)})`); } });
     item("seo_structured_data", P, 'script[type="application/ld+json"]', jp, { blocks: (p.jsonld || []).length }, []);
 
-    if (detected.length) {
-      const loaded = [];
-      for (const s of p.scripts || []) if (analyticsUrlLabel(s, opt)) loaded.push(`script element ${s}`);
-      for (const r of p.requests || []) if (analyticsUrlLabel(r, opt)) loaded.push(`request ${r}`);
-      for (const g of p.globals || []) loaded.push(`window.${g}`);
-      item("seo_analytics_consent", P, "script[src], window, network", [...new Set(loaded)].map((l) => `before consent: ${l}`), { detected, before_consent: [...new Set(loaded)] }, []);
+    if (mine.length) {
+      const loaded = [...new Set(mine.map((r) => `third-party request ${r.url}${r.initiator ? ` (initiated by ${r.initiator})` : ""}`))];
+      item("seo_analytics_consent", P, "network (third-party requests before consent)", loaded.map((l) => `before consent: ${l}`), { detected, before_consent: loaded }, []);
     }
   }
   if (published.length) {
@@ -465,9 +480,10 @@ export function seoEvaluate(pages, site, opt) {
     if (robotsTxt === null) ru.push("robots.txt was not found at the site root");
     else {
       if (!/^\s*sitemap\s*:\s*\S+/im.test(robotsTxt)) rp.push("robots.txt has no Sitemap: line");
-      for (const l of locs || []) { const r = siteRef(l, ctx); if (r && robotsBlocks(robotsTxt, r)) rp.push(`robots.txt disallows a sitemap page: ${l}`); }
+      for (const p of published) { const r = siteRef(p.url, ctx), b = r ? robotsBlockedFor(robotsTxt, r) : []; if (b.length) rp.push(`robots.txt disallows ${p.path} for ${b.join(", ")}`); }
+      for (const l of locs || []) { const r = siteRef(l, ctx), b = r ? robotsBlockedFor(robotsTxt, r) : []; if (b.length) rp.push(`robots.txt disallows a sitemap page for ${b.join(", ")}: ${l}`); }
     }
-    item("seo_robots", SEO_SITE, "robots.txt", rp, { sitemap_line: robotsTxt === null ? null : /^\s*sitemap\s*:/im.test(robotsTxt) }, ru);
+    item("seo_robots", SEO_SITE, "robots.txt", rp, { sitemap_line: robotsTxt === null ? null : /^\s*sitemap\s*:/im.test(robotsTxt), bots: ROBOTS_BOTS }, ru);
   }
   return out;
 }
@@ -588,10 +604,11 @@ async function page(b, timeoutMs, base, net, log) {
   const { targetId } = await b.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await b.send("Target.attachToTarget", { targetId, flatten: true });
   const s = (m, p) => b.send(m, p, sessionId);
+  const inits = new Map(); // request URL -> the URL of the script or page that started it (Network.requestWillBeSent)
   const record = (list, item) => { if (!list.some((x) => x.url === item.url && x.type === item.type && x.method === item.method)) list.push(item); };
   const guard = async (sid, type = "page") => {
     b.on("Fetch.requestPaused", sid, (q) => {
-      log?.push(q.request.url);
+      log?.push({ url: q.request.url, third_party: !allowRequest(base, q.request.url), phase: "before_consent" });
       if (allowRequest(base, q.request.url)) {
         if (!/^(GET|HEAD|OPTIONS)$/i.test(q.request.method)) record(net.same_origin_writes, { method: q.request.method, url: q.request.url });
         return b.send("Fetch.continueRequest", { requestId: q.requestId }, sid).catch(() => {});
@@ -599,6 +616,7 @@ async function page(b, timeoutMs, base, net, log) {
       record(net.blocked, { url: q.request.url, type: q.resourceType || "Other" });
       return b.send("Fetch.failRequest", { requestId: q.requestId, errorReason: "BlockedByClient" }, sid).catch(() => {});
     });
+    b.on("Network.requestWillBeSent", sid, (q) => { const i = q.initiator?.url || q.initiator?.stack?.callFrames?.[0]?.url; if (i) inits.set(q.request.url, i); });
     b.on("Network.webSocketCreated", sid, (q) => record(net.unguarded, { url: q.url, type: "WebSocket", reason: "a WebSocket opened despite the guard" }));
     b.on("Runtime.consoleAPICalled", sid, (q) => { const a = q.args || []; if (a[0]?.value === "__vp_blocked") record(net.blocked, { url: String(a[1]?.value), type: String(a[2]?.value) }); });
     await b.send("Runtime.enable", {}, sid);
@@ -623,7 +641,7 @@ async function page(b, timeoutMs, base, net, log) {
     return r.result.value;
   };
   return {
-    s, ev,
+    s, ev, inits,
     async open(url, vp, ready, setup) {
       await s("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: vp.width <= 480 });
       const loaded = b.once("Page.loadEventFired", sessionId);
@@ -869,7 +887,7 @@ async function measureSeo(p, config, reqLog, url) {
       if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) { pages.push({ path, url: url(path), not_measured: `not an HTML response (${type})` }); continue; }
       const f = await p.ev(`window.__vp.seo(${JSON.stringify(analyticsGlobals(opt))})`);
       const src = await siteRead(config.base_url, path, true);
-      pages.push({ ...f, path, requests: [...reqLog], source: src.text || "", x_robots: src.x_robots || "" });
+      pages.push({ ...f, path, requests: reqLog.map((r) => ({ ...r, ...(p.inits.get(r.url) ? { initiator: p.inits.get(r.url) } : {}) })), source: src.text || "", x_robots: src.x_robots || "" });
     } catch (e) { pages.push({ path, url: url(path), not_measured: e.message }); }
   }
   if (pages.length && pages.every((x) => /^not an HTML response/.test(x.not_measured || ""))) return { not_applicable: true };

@@ -305,6 +305,9 @@ export function validateReport(report, opt = {}) {
     }
   }
 
+  // A160: analytics is "loaded" only when a third-party request before consent was measured (analytics_before_consent); a report
+  // from before A160 has no such field and keeps its old rule (analytics_detected).
+  const analyticsLoaded = (p) => (p.analytics_before_consent !== undefined ? p.analytics_before_consent : p.analytics_detected) || [];
   // --- seo (A158): optional; consistency of the technical SEO group ----------------------------------------
   const seo = report.seo;
   const seoItems = [];
@@ -325,6 +328,7 @@ export function validateReport(report, opt = {}) {
         if (p.status === "not_applicable" && !str(p.detail)) err(`${w}: not_applicable needs a non-empty detail (why robots blocks the page)`);
         if (p.status === "not_measured" && !str(p.reason)) err(`${w}: not_measured needs a reason`);
         if (p.analytics_detected !== undefined && !(Array.isArray(p.analytics_detected) && p.analytics_detected.every(str))) err(`${w}: analytics_detected must be a list of names`);
+        for (const k of ["analytics_before_consent", "third_party_requests"]) if (p[k] !== undefined && !(Array.isArray(p[k]) && p[k].every(str))) err(`${w}: ${k} must be a list of URLs`);
       }
       const sids = new Set(), seen = new Set();
       for (const [i, m] of seo.items.entries()) {
@@ -347,13 +351,13 @@ export function validateReport(report, opt = {}) {
           if (!str(m.evidence)) err(`${w}: evidence (the observed values) is required`);
           if (m.status === "fail" && !str(m.note)) err(`${w}: a failing item says what is wrong (note)`);
         } else err(`${w}: status must be pass|fail|not_measured`);
-        if (m.check === "seo_analytics_consent" && p && !(p.analytics_detected || []).length) err(`${w}: no analytics script was detected on ${m.page}: nothing is measured or recommended`);
+        if (m.check === "seo_analytics_consent" && p && !analyticsLoaded(p).length) err(`${w}: no third-party analytics request before consent was measured on ${m.page}: nothing is measured or recommended`);
         seoItems.push(m);
       }
       const measuredPages = [...pg.values()].filter((p) => p.status === "measured");
       for (const p of measuredPages) {
         for (const c of SEO_PAGE_CHECKS) if (!seen.has(`${p.path}|${c}`)) err(`seo page ${p.path}: ${c} is neither measured nor listed as not_measured`);
-        if ((p.analytics_detected || []).length && !seen.has(`${p.path}|seo_analytics_consent`)) err(`seo page ${p.path}: an analytics script was detected, seo_analytics_consent is required`);
+        if (analyticsLoaded(p).length && !seen.has(`${p.path}|seo_analytics_consent`)) err(`seo page ${p.path}: a third-party analytics request before consent was measured, seo_analytics_consent is required`);
       }
       if (measuredPages.length) for (const c of SEO_SITE_CHECKS) if (!seen.has(`${SEO_SITE}|${c}`)) err(`seo site: ${c} is neither measured nor listed as not_measured`);
       for (const p of pg.values()) if (p.status !== "measured" && seo.items.some((m) => m?.page === p.path)) err(`seo page ${p.path}: a page that is not measured has no items`);
@@ -407,6 +411,11 @@ function rowsOf(report, fails, judged, seoItems = []) {
   for (const m of seoItems) {
     if (m.status === "fail") rows.push(["blocking", `${m.page}:${m.selector}`, `${m.id} ${m.check}: ${m.value} problem(s): ${m.note}`, `measured; seo ${String(m.evidence).slice(0, 120)}`]);
     else if (m.status === "not_measured") rows.push(["info", `${m.page}:${m.selector}`, `${m.id} ${m.check} not measured: ${m.reason}`, "not_measured"]);
+  }
+  for (const p of Array.isArray(report.seo?.pages) ? report.seo.pages : []) {
+    if (p?.status !== "measured") continue;
+    if ((p.analytics_detected || []).length && p.analytics_before_consent !== undefined && !p.analytics_before_consent.length) rows.push(["info", `${p.path}:analytics`, `analytics candidate found by name only (${p.analytics_detected.join(", ")}); no third-party request before consent was measured`, "measured; seo network"]);
+    if ((p.third_party_requests || []).length) rows.push(["info", `${p.path}:network`, `third-party request(s) before consent that match no analytics candidate: ${p.third_party_requests.slice(0, 3).join(", ")}`, "measured; seo network"]);
   }
   for (const p of Array.isArray(report.seo?.pages) ? report.seo.pages : []) if (p?.status === "not_measured") rows.push(["info", `${p.path}:seo`, `seo not measured for ${p.path}: ${p.reason}`, "not_measured"]);
   return rows.map((r) => r.map(clean).join("|"));

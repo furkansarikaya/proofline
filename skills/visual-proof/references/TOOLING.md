@@ -63,7 +63,7 @@ script in the page, press Tab and take a screenshot can drive them:
 
 4. Technical SEO (only when the config has a `seo` block whose `public_html` is not false): per seo page load the URL once in the first
    viewport with no interaction, wait about a second, and evaluate `__vp.seo(<analytics global names>)` (the names are `analyticsGlobals(opt)`,
-   exported by `measure.mjs`: `dataLayer` plus `seo.analytics.globals`; `scripts` lists only script elements that can execute). Add `path`, `requests` (every URL the page requested), `source` (the HTML as served) and `x_robots` (the
+   exported by `measure.mjs`: `dataLayer` plus `seo.analytics.globals`; `scripts` lists only script elements that can execute). Add `path`, `requests` (every request the page made before consent, as `{ "url", "third_party": true|false, "phase": "before_consent", "initiator": "<script URL, when the browser reports it>" }`; `measure.mjs` fills it from the request guard and `Network.requestWillBeSent`; a plain URL string is the old shape, read as third party when it is outside the site), `source` (the HTML as served) and `x_robots` (the
    `X-Robots-Tag` header value, if any) to that object. Put the page objects in `raw.seo.pages` and the site facts in `raw.seo.site`
    (`{ robots_txt, sitemap_xml, exists: { "<site path>": true|false }, alternates: { "<site path>": [{hreflang, href}] } }`;
    `seoLookups` lists the paths); `{ "not_applicable": true }` for a project without HTML. `--assemble` runs the checks (`seoEvaluate`).

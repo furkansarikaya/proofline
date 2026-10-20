@@ -91,7 +91,7 @@ test("an analytics script loaded without consent is caught; a project without an
   const r = seoEvaluate([dirty], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
   const a = r.items.find((m) => m.check === "seo_analytics_consent");
   assert.equal(a.status, "fail");
-  assert.match(a.note, /before consent: script element https:\/\/analytics\.example\.org/);
+  assert.match(a.note, /before consent: third-party request https:\/\/analytics\.example\.org/);
   assert.deepEqual(r.pages[0].analytics_detected, ["analytics", "dataLayer"]);
   const full = run({ ...SEO, pages: ["index.html"] }, { pages: [dirty], site: SITEFACTS(["index.html"]) });
   assert.equal(full.report.result, "FAIL");
@@ -123,18 +123,17 @@ test("an inert consent-gated placeholder (type=text/plain) is not a load; the sa
   const placeholder = '<script type="text/plain" data-src="https://analytics.example.org/tag.js"></script>';
   const inert = page("index.html", { scripts: [], source: `<html>${placeholder}</html>` });
   const ri = seoEvaluate([inert], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
-  assert.deepEqual(ri.pages[0].analytics_detected, ["analytics"]); // mentioned in the source, so the item exists ...
-  const ai = ri.items.find((m) => m.check === "seo_analytics_consent");
-  assert.equal(ai.status, "pass", JSON.stringify(ai)); // ... and passes: nothing ran before consent
+  assert.deepEqual(ri.pages[0].analytics_detected, ["analytics"]); // mentioned in the source: a candidate by name, information only (A160) ...
+  assert.equal(ri.items.some((m) => m.check === "seo_analytics_consent"), false); // ... no item: nothing requested before consent
   const full = run({ ...SEO, pages: ["index.html"] }, { pages: [inert], site: SITEFACTS(["index.html"]) });
   assert.equal(full.report.result, "PASS");
   assert.equal(full.v.valid, true, full.v.errors.join("\n"));
 
-  const live = page("index.html", { scripts: ["https://analytics.example.org/tag.js"], source: `<html>${placeholder}</html>` });
+  const live = page("index.html", { scripts: ["https://analytics.example.org/tag.js"], requests: ["https://analytics.example.org/tag.js"], source: `<html>${placeholder}</html>` });
   const rl = seoEvaluate([live], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
   const al = rl.items.find((m) => m.check === "seo_analytics_consent");
   assert.equal(al.status, "fail");
-  assert.match(al.note, /before consent: script element https:\/\/analytics\.example\.org/);
+  assert.match(al.note, /before consent: third-party request https:\/\/analytics\.example\.org/);
 });
 
 const analyticsCfg = (analytics) => ({ class: "STANDARD", base_url: BASE, viewports: [{ name: "a", width: 360, height: 740 }, { name: "b", width: 768, height: 1024 }],
@@ -153,13 +152,12 @@ test("a project-named analytics host and global (seo.analytics) are detected and
   assert.equal(measure.checkConfig(analyticsCfg({ hosts: ["collect.example.net"], globals: ["siteStats"] })).join("\n"), "");
   // collect.example.net holds no generic analytics word, so only the project list can name it.
   const opt = { base_url: BASE, site_url: SITE, analytics: { hosts: ["collect.example.net"], globals: ["siteStats"] } };
-  const dirty = page("index.html", { scripts: ["https://collect.example.net/a.js"], globals: ["siteStats"], source: "<html></html>" });
+  const dirty = page("index.html", { scripts: ["https://collect.example.net/a.js"], requests: ["https://collect.example.net/a.js"], globals: ["siteStats"], source: "<html></html>" });
   const withList = seoEvaluate([dirty], SITEFACTS(["index.html"]), opt);
   assert.deepEqual(withList.pages[0].analytics_detected, ["collect.example.net", "siteStats"]);
   const a = withList.items.find((m) => m.check === "seo_analytics_consent");
   assert.equal(a.status, "fail");
-  assert.match(a.note, /before consent: script element https:\/\/collect\.example\.net/);
-  assert.match(a.note, /before consent: window\.siteStats/);
+  assert.match(a.note, /before consent: third-party request https:\/\/collect\.example\.net/);
   const without = seoEvaluate([dirty], SITEFACTS(["index.html"]), { base_url: BASE, site_url: SITE });
   assert.equal(without.items.some((m) => m.check === "seo_analytics_consent"), false);
 });

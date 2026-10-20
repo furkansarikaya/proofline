@@ -79,8 +79,9 @@ site, written to `report.seo`. It runs only when the project produces public HTM
 
 - No public HTML pages (library, CLI, API, backend only; config `seo.public_html: false`, or every page is a non-HTML response):
   `seo` is `{ "status": "not_applicable", "note": "seo not applicable: no public HTML pages" }`, the one fixed note the validator accepts. No item, no finding.
-- A page that a robots.txt `Disallow`, a `<meta name="robots">` noindex or an `X-Robots-Tag` noindex blocks is listed in `seo.pages`
-  as `not_applicable` with reason `robots` and gets no item; it is not a published page for the site checks.
+- A page that a `<meta name="robots">` noindex or an `X-Robots-Tag` noindex blocks is listed in `seo.pages`
+  as `not_applicable` with reason `robots` and gets no item; it is not a published page for the site checks. `robots.txt` does not
+  skip a page: it is read per bot (below) and a page it blocks is a `seo_robots` failure (A160).
 - Each item has `id` `S-n`, `check`, `page` (the page path, or `site`), `selector`, `value` (the number of problems found), `threshold` `== 0`,
   `status` `pass`, `fail` or `not_measured`, `evidence` (the observed values; no screenshot) and, for a failure, a `note` naming each problem.
   A failure is a blocking row; `not_measured` (a fact that cannot be resolved or read) carries a `reason` and is an info row, never blocking.
@@ -96,21 +97,32 @@ site, written to `report.seo`. It runs only when the project produces public HTM
 | `seo_open_graph` | each | `og:title` or `og:image` missing or empty, or an image that does not exist in the site |
 | `seo_structured_data` | each | an `application/ld+json` block that is not valid JSON (no block is fine) |
 | `seo_sitemap` | `site` | a published page not listed in `sitemap.xml`, or a listed page that does not exist |
-| `seo_robots` | `site` | no `Sitemap:` line in `robots.txt`, or a sitemap page that `robots.txt` disallows |
-| `seo_analytics_consent` | only a page that contains an analytics script | an executable script element, a request or a `window` global (`dataLayer` and the project's own) of an analytics service present before consent |
+| `seo_robots` | `site` | no `Sitemap:` line in `robots.txt`, or a published page or sitemap page that `robots.txt` disallows for Googlebot or Bingbot (the failure names the bot) |
+| `seo_analytics_consent` | only a page with a measured analytics request before consent | a third-party request made before consent that belongs to an analytics candidate (its URL matches the generic words or `seo.analytics.hosts`, or its initiator does) |
 
-- Analytics: detection is by shape, one generic list in `scripts/measure.mjs`: a host or path word (`analytics`, `tracker`, `tracking`,
-  `telemetry`, `metrics`, `stats`, `beacon`, `pixel`, `tag-manager`) in a script URL, a request URL or a `src` of the page source as served,
-  and the global `dataLayer`; the report names the matched generic label, never a vendor. A vendor whose host has no generic word is detected
-  only through the user list `seo.analytics` in `visual.json`. Only a script element that can execute counts (no `type`, `module` or a
-  JavaScript MIME type); a placeholder such as `<script type="text/plain" data-consent src=...>` never runs and is not a load (its
-  requests and globals still count if they happen). A page without an analytics script gets no `seo_analytics_consent` item, and
-  nothing about analytics is suggested. A blocked third-party analytics request (it is in `network.blocked`) counts as an attempted request.
+- Analytics (A160): "loaded" is behaviour, not a name. The page is loaded once, with no interaction (before any consent), and every
+  request it makes is recorded (`{ url, third_party, phase: "before_consent", initiator }`; the guard that pauses requests marks the ones
+  outside the page's own origin as third party, and a blocked third-party request is an attempted request). A candidate is a host or path
+  word (`analytics`, `tracker`, `tracking`, `telemetry`, `metrics`, `stats`, `beacon`, `pixel`, `tag-manager`) in a script URL, a request
+  URL or a `src` of the page source as served, the global `dataLayer`, or a host of the user list `seo.analytics` in `visual.json`; the
+  report names the matched generic label, never a vendor. A candidate found only by name is listed in `analytics_detected` and shown as an
+  info row, never blocking. `seo_analytics_consent` exists, and fails, only for a third-party request before consent that belongs to a
+  candidate (its URL matches, or the URL of its initiator does); such URLs are in the page's `analytics_before_consent`. Any other
+  third-party request is information (`third_party_requests`). A page that only defines `dataLayer`, a placeholder such as
+  `<script type="text/plain" data-consent src=...>`, and a file such as `pixel-art.js` served from the page's own origin load nothing.
+  The user may waive a failure that is a false positive; it is never an edit to hide.
+- robots.txt (A160, RFC 9309): for each tested bot (`googlebot`, `bingbot`) the groups whose user-agent token equals the bot's token
+  (case-insensitive) apply, several groups of that token combined; only when none matches does the `*` group apply. Consecutive
+  `User-agent` lines share a group. Inside the applicable rules the longest matching path wins, `Allow` wins a tie, `*` and `$` are
+  wildcards and an empty `Disallow` allows everything. `Sitemap:` lines are global. Every published page and every sitemap page is tested;
+  a page blocked for a bot is one `seo_robots` problem naming the bot. A bot token that is only a prefix of a group token
+  (for example `googlebot-news`) is a different token and does not match.
 - Canonical, hreflang, Open Graph and sitemap addresses are mapped to files under `base_url` by their path (the deployed origin is ignored);
   an address on another site is `not_measured`. A missing `sitemap.xml` or `robots.txt`, and a sitemap index, are `not_measured`.
 - Out of scope, never measured, judged or reported: content SEO (keywords, text quality, readability, length).
-- Limits: `dataLayer` is also defined by consent-mode snippets that load nothing (a measured failure the user may waive,
-  never one to edit away); the robots.txt reader handles the `*` group only; reciprocity of a target outside the measured pages is read
+- Limits: an initiator is known only when the browser reports it; a third-party request that matches no candidate is information
+  even when it is a tracker the project never named (add its host to `seo.analytics.hosts`); only Googlebot and Bingbot are tested;
+  reciprocity of a target outside the measured pages is read
   from its served HTML.
 
 ## Limits (record the ones that apply in REPORT.md)
