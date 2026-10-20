@@ -138,6 +138,7 @@ config_check() {
         else if (p[3] == "design_role") en(k, v, "architect|data_architect|designer")
         else if (p[3] != "paths" && p[3] != "content" && p[3] != "words") bad("unknown risk key: " k)
         if ((p[3] == "paths" || p[3] == "content" || p[3] == "words") && v != "") sig[p[2]] = 1
+        if (p[3] == "words") wk[p[2]] = 1
         if (p[3] == "words" && v != "") wrd[p[2]] = 1
         if (p[3] == "content" && v != "") cnt[p[2]] = 1
         if (p[3] == "check" && v != "") chk[p[2]] = 1
@@ -177,12 +178,17 @@ config_check() {
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
       for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
       for (s in wrd) if (!cnt[s]) bad("risk signal " s " has words but no content (the pattern the line must match as well)")
+      for (s in wk) if (!wrd[s]) bad("risk." s ".words is empty (a signal with words matches a line that names one of them; remove the content as well to switch the signal off)")
+      if (cnt["log_sensitive"] && !wk["log_sensitive"]) bad("risk.log_sensitive.words is missing (without words every file that has a log call would open the logging focus)")
       exit n > 0
     }') && cc_out=$(for cc_k in validation.entry_words validation.code_patterns; do
       cc_v=$(config_get "$cc_k" "$cc_file" || true); [ -n "$cc_v" ] || continue
       cc_rc=0; printf '' | grep -Eq -- "$cc_v" 2>/dev/null || cc_rc=$?
       [ "$cc_rc" -lt 2 ] || echo "invalid regular expression for $cc_k"
-    done) && [ -z "$cc_out" ] && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
+    done
+    # A162: risk.log_sensitive.content is matched by awk (risk_words_match), so awk is the one that must accept it
+    cc_v=$(config_get risk.log_sensitive.content "$cc_file" || true)
+    [ -z "$cc_v" ] || RISK_RE=$cc_v awk 'BEGIN { "" ~ ENVIRON["RISK_RE"] }' >/dev/null 2>&1 || echo "invalid regular expression for risk.log_sensitive.content") && [ -z "$cc_out" ] && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
   printf '%s\n' "$cc_out" >&2; fail "config invalid: ${cc_file#"$root"/}"
 }
 

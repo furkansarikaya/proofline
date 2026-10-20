@@ -5,7 +5,7 @@
 #
 # 1. Shortcut comments use proofline's own label. A code comment marks a deliberate shortcut as
 #    `shortcut: <limit>, <when to improve>` (read by `proofline debt`); a comment that carries another tool's label
-#    (FOREIGN_TAGS) is a failure. Markdown (docs, decisions, CHANGELOG), tests/ and .claude/ are not scanned: they
+#    (FOREIGN_TAGS) anywhere in its comment part is a failure. Markdown (docs, decisions, CHANGELOG), tests/ and .claude/ are not scanned: they
 #    may quote a tag. To forbid one more label, add it to FOREIGN_TAGS.
 # 2. README.md says what proofline is and how to use it; detail belongs in docs/concepts. It may not grow past
 #    README_MAX_LINES lines or README_MAX_BYTES bytes (the slimmed size plus about 10 percent). Raise a bound only
@@ -31,7 +31,9 @@ status=0
 
 # 1. foreign shortcut labels in code comments
 alt=$(printf '%s' "$FOREIGN_TAGS" | tr -s ' ,' '||')
-pat="(#|//|--|/\\*|<!--|;|\\*)[[:space:]]*($alt):"
+# A comment prefix (# // -- /* <!-- ; % (* or a line that starts with ' or *) followed by the tag anywhere after other
+# comment text (`# TODO ponytail: x`), or a bare line that starts with the tag (a block comment's continuation line).
+pat="(#|//|--|/\\*|<!--|;|%|\\(\\*|^[[:space:]]*['*]).*(^|[^A-Za-z0-9_])($alt):|^[[:space:]]*($alt):"
 if git -C "$root" rev-parse --show-toplevel >/dev/null 2>&1; then
   hits=$(git -C "$root" grep -n -I -i -E --untracked --exclude-standard -e "$pat" -- . \
     ':(exclude)*.md' ':(exclude)tests' ':(exclude).claude' ':(exclude).agents' 2>/dev/null)

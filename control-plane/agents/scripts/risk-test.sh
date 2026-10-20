@@ -666,7 +666,40 @@ sc_log_unsupported() {
   ok "log unsupported: the logging focus can not be UNSUPPORTED"
 }
 
+# A162: config-check rejects a log_sensitive regex awk cannot compile, and empty or missing words.
+sc_log_config_check() {
+  scaffold standalone no CRITICAL manual
+  A config-check >/dev/null
+  awk '/^  log_sensitive:$/ { ls = 1 } ls && /^    content: / { print "    content: \"(\""; ls = 0; next } { print }' .agents/config.yaml > "$base/bad.yaml"
+  cmp -s .agents/config.yaml "$base/bad.yaml" && die "fixture did not change the log_sensitive content line"
+  expect_msg "config-check accepted an invalid log_sensitive content" 'invalid regular expression for risk.log_sensitive.content' A config-check "$base/bad.yaml"
+  sed 's/^    words: password.*/    words:/' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted empty log_sensitive words" 'risk.log_sensitive.words is empty' A config-check "$base/bad.yaml"
+  grep -v '^    words: password' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted log_sensitive without words" 'risk.log_sensitive.words is missing' A config-check "$base/bad.yaml"
+  # generic: empty words on another signal that has content
+  awk '/^  log_sensitive:$/ { print "  other_sig:"; print "    content: foo"; print "    words:"; print "    check: logging" } { print }' .agents/config.yaml > "$base/bad.yaml"
+  expect_msg "config-check accepted empty words on another risk signal" 'risk.other_sig.words is empty' A config-check "$base/bad.yaml"
+  ok "A162: config-check rejects a bad log_sensitive regex, empty and missing words, and empty words on any signal"
+}
+# The widened log-call pattern from config.yaml, evaluated by risk_words_match.
+sc_log_pattern_wide() {
+  eval "$(sed -n '/^risk_words_match() {/,/^}/p' "$(dirname "$0")/agent.sh")"
+  lp_re=$(awk '/^  log_sensitive:$/ { ls = 1 } ls && /^    content: / { sub(/^    content: /, ""); print; exit }' "$(dirname "$0")/../config.yaml")
+  [ -n "$lp_re" ] || die "log_sensitive content not found in config.yaml"
+  for lw in 'Console.WriteLine(password)' 'Debug.WriteLine(token)' 'Trace.WriteLine(secret)' 'fmt.Fprintf(w, "%s", password)' 'fmt.Fprint(os.Stderr, token)' \
+    'fmt.Fprintln(w, secret)' 'FMT.FPRINTF(w, password)' 'print "password"' 'puts "token"' 'var_dump($password)' 'dump($password)'; do
+    printf '%s\n' "$lw" | risk_words_match "$lp_re" 'password token secret' || die "log pattern did not open for: $lw"
+  done
+  for lw in 'logger.info("started")' 'x = discard' 'classname = 1' 'cardinality = 2' 'phoneme = 3' 'scorecard = 4' 'cardholder = 5' 'wildcard = 6' 'tokenizer = 7' 'secretary = 8'; do
+    ! printf '%s\n' "$lw" | risk_words_match "$lp_re" 'password token secret card phone' || die "log pattern opened for: $lw"
+  done
+  ok "A162: the widened log pattern opens for Console/Debug/Trace/Fprint*/print/puts/dump with a sensitive word; false friends stay closed"
+}
+
 run_sc sc_log_sensitive
+run_sc sc_log_config_check
+run_sc sc_log_pattern_wide
 run_sc sc_log_words_match
 run_sc sc_log_unsupported
 run_sc sc_mapping

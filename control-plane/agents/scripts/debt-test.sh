@@ -70,9 +70,13 @@ ok "page: lead only; list works for every role with no run"
 real=$(CDPATH='' cd "$tl_agents/../.." && pwd)
 if [ -f "$real/bin/lib/discover.sh" ] && git -C "$real" rev-parse --show-toplevel >/dev/null 2>&1; then
   out=$(sh "$tl_agents/scripts/debt.sh" list) || die "debt list failed in the repository"
-  for want in 'bin/lib/config.sh:61 | ' 'bin/lib/discover.sh:156 | ' 'skills/data-design/scripts/classify-migration.mjs:70 | ' \
-    'skills/data-design/scripts/classify-migration.mjs:298 | ' 'skills/test-trust/scripts/validate-findings.mjs:16 | '; do
-    printf '%s\n' "$out" | grep -F -- "$want" | grep -vq '(not stated)$' || die "debt does not list a converted shortcut with a stated condition: $want"
+  # asserted by file and shortcut text, not by line number: editing those files must not break this test
+  for want in 'bin/lib/config.sh|a new deep key under an existing 2-level key' 'bin/lib/discover.sh|with no process-group method a timeout' \
+    'skills/data-design/scripts/classify-migration.mjs|MySQL client "DELIMITER" blocks' \
+    'skills/data-design/scripts/classify-migration.mjs|strips // and /* */ and leading-# line comments' \
+    'skills/test-trust/scripts/validate-findings.mjs|implements only the JSON Schema keywords'; do
+    printf '%s\n' "$out" | grep -F -- "${want%%|*}:" | grep -F -- "${want#*|}" | grep -Eq '^[^ ]+:[0-9]+ \| ' || die "debt does not list the converted shortcut: $want"
+    printf '%s\n' "$out" | grep -F -- "${want%%|*}:" | grep -F -- "${want#*|}" | grep -vq '(not stated)$' || die "converted shortcut has no stated condition: $want"
   done
   tag=pony; tag=${tag}tail   # spelled in two parts so this file is not a hit itself
   git -C "$real" grep -n -I -i -E -e "(#|//|--|/\\*|;|\\*)[[:space:]]*$tag:" -- . ':(exclude)*.md' ':(exclude)tests' ':(exclude).claude' > /dev/null && die "a ponytail comment remains"
