@@ -31,4 +31,8 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 per role group, so "Claude only", "Codex only" and mixes use one structure. Profiles `max`, `balanced`
 (default) and `economy` set model and effort per role. Every routing decision is written to the run ledger.
 
+## The lead model
+
+A cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `exec-policy.sh check-lead` and the end-to-end harness refuse a Codex lead below the base model or without a model. `proofline doctor` fails on a resolved model below base, and only warns when it cannot resolve the model. No other runtime has a base model, so choose the lead model yourself.
+
 Role source format: [roles/README.md](../../roles/README.md). Related: [workflow](workflow.md), [gates](gates.md).

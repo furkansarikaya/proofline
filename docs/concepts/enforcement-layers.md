@@ -53,6 +53,12 @@ subdirectory is enforced the same way. Claude-only input: `agent_id`/`agent_type
 processes started by `dispatch.sh`, which sets `AGENT_ROLE` in their environment; that, not `agent_id`, is
 what the hook uses there.
 
+## Process rules
+
+An agent stops only a process it started itself, by its own PID. `pkill`, `killall`, `kill` by pattern (`kill $(pgrep ...)`, `pgrep ... | xargs kill`, a variable or loop variable filled from `pgrep`/`ps`, `find -exec kill`) and mass kills (`kill -1`, `kill 0` in any spelling) are denied by the runtime hook for the agents' tool calls, also when they sit in an interpreter one-liner (`python -c`, `perl -e`, `node -e`), a here-document, `eval` or a script file the command runs from the project or a temp folder.
+
+The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent: a command assembled at run time, a script outside those folders, and what another tool runs for you (`npm run`, `make`, `ssh host pkill x`, `docker exec c pkill x`) are not seen (A161). Code that only prints or matches a kill word is denied too, because it cannot be told from a command; the denial says so and you can run the command yourself with the `!` prefix. The runtime's permission mode and sandbox are the boundary. Commands you type yourself are not affected.
+
 ## Verified platform behaviour (Claude Code 2.1.295)
 
 Probed in a throwaway project with a logging hook (`claude -p --setting-sources project,local

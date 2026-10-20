@@ -57,7 +57,8 @@ cfg_set() {
 # cfg_merge_new USER DEFAULT: prints USER with every key missing from it added from DEFAULT. Granularity:
 # a missing top-level block is appended whole; a missing 2-level key (with its deeper lines) is inserted at
 # the end of its block; user values are never touched. Keys deeper than 2 levels are added only with their
-# 2-level parent (ponytail: a new deep key under an existing 2-level key is not added).
+# 2-level parent.
+# shortcut: a new deep key under an existing 2-level key is not added; improve when a default config gets a 3-level key that upgrade must merge into a block the user already has.
 cfg_merge_new() {
   awk '
     function content(l) { return l !~ /^[[:space:]]*#/ && l !~ /^[[:space:]]*$/ && l ~ /:/ }

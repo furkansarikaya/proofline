@@ -65,3 +65,16 @@ done
 [ -z "$(find .agents/runs -mindepth 1 2>/dev/null)" ] || die "debt created a run"
 D page > /dev/null && [ -f "$p" ] || die "lead page failed"
 ok "page: lead only; list works for every role with no run"
+
+# A162: the five comments that used to carry a foreign label are listed as shortcut entries of this repository, and none is left
+real=$(CDPATH='' cd "$tl_agents/../.." && pwd)
+if [ -f "$real/bin/lib/discover.sh" ] && git -C "$real" rev-parse --show-toplevel >/dev/null 2>&1; then
+  out=$(sh "$tl_agents/scripts/debt.sh" list) || die "debt list failed in the repository"
+  for want in 'bin/lib/config.sh:61 | ' 'bin/lib/discover.sh:156 | ' 'skills/data-design/scripts/classify-migration.mjs:70 | ' \
+    'skills/data-design/scripts/classify-migration.mjs:298 | ' 'skills/test-trust/scripts/validate-findings.mjs:16 | '; do
+    printf '%s\n' "$out" | grep -F -- "$want" | grep -vq '(not stated)$' || die "debt does not list a converted shortcut with a stated condition: $want"
+  done
+  tag=pony; tag=${tag}tail   # spelled in two parts so this file is not a hit itself
+  git -C "$real" grep -n -I -i -E -e "(#|//|--|/\\*|;|\\*)[[:space:]]*$tag:" -- . ':(exclude)*.md' ':(exclude)tests' ':(exclude).claude' > /dev/null && die "a ponytail comment remains"
+  ok "list: the five converted shortcuts of this repository are listed with file:line and a condition; no foreign label remains"
+fi
