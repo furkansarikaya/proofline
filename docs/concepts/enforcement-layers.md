@@ -8,7 +8,7 @@ Codex leads dispatch nested Codex runtimes. `proofline init` merges
 selected, preserving other project keys. The lead sandbox needs network access so workers can contact
 their runtime API; product code changes still pass the control plane's scope, lifecycle and gate checks.
 A Codex lead must also be able to write `.git` to create the task branch. In an interactive session,
-approve the required git commands; headless runs use `danger-full-access`. Product-code ownership remains
+approve the required git commands; headless night sessions (`proofline batch run`) run in a named permissions profile that writes `.git` (not `.git/hooks`, not `.git/config`) and `.agents`, see [workflow](workflow.md). Product-code ownership remains
 enforced by proofline hooks and gates. Dispatched workers retain `workspace-write` and the run-directory grant.
 
 | Layer | Where | Works with |

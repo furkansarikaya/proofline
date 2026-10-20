@@ -12,7 +12,9 @@
 # deliver-step cleanup), logs/<ID>.log, LOCK (the driver's PID), history/<batch id>/.
 # Test seam: `claude` and `codex` are taken from PATH (the tests put fakes there); nothing selects a binary by environment.
 # Under PROOFLINE_TEST=1 only, PROOFLINE_BATCH_MINUTE is the length of one "minute" in seconds (default 60): it scales batch.task_timeout
-# and the CI polling, so a test needs seconds, not hours.
+# and the CI polling, so a test needs seconds, not hours. Under PROOFLINE_TEST=1 only, PROOFLINE_BATCH_PGMETHOD=setm|setsid|perl|python|none
+# forces ONE process-group method (none: no method works), so every fallback is tested on every machine.
+# sessions/<ID>.<n>.rec (key=value, written by the driver at session start and end) is what `status` reads for the session report.
 set -eu
 LC_ALL=C; export LC_ALL
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
@@ -26,13 +28,19 @@ cfgv() { v=$(sh "$agent" config-get "$1" 2>/dev/null) || v=''; [ -n "$v" ] || v=
 tsv() { printf '%s' "$*" | tr '\t\n' '  '; }
 bid() { sha "$bd/SUMMARY.md" | cut -c1-12; }
 tick=60; [ "${PROOFLINE_TEST:-}" != 1 ] || tick=${PROOFLINE_BATCH_MINUTE:-60}; case "$tick" in ''|*[!0-9]*|0) tick=60 ;; esac
-CODEX_NET='sandbox_workspace_write.network_access=true'   # the one place of the Codex override that lets workspace-write reach the network (package installs)
+# The Codex night sandbox (A161): the legacy workspace-write mode keeps .git, .agents and .codex read-only and `network_access` is a legacy key,
+# so a session could not commit, branch, add a worktree or write its run records. A named permissions profile (documented
+# [permissions.<name>] tables, verified with `codex sandbox -P`) gives: read everywhere, write the project folder INCLUDING .git and .agents,
+# but .git/hooks and .git/config stay read-only (a hook or core.hooksPath would run code outside the sandbox), the temp dir, and network on.
+# The profile is passed as -c overrides, no file is written. `.codex` stays read-only. danger-full-access only through the approved summary.
+CODEX_PROFILE='proofline_night'
+CODEX_FS='{":root"="read",":workspace_roots"={"."="write",".git"="write",".git/hooks"="read",".git/config"="read",".agents"="write"},":tmpdir"="write"}'
 
 # --- plan ------------------------------------------------------------------------------------------------------------
 cls_of() { awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$1"; }
 deps_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^depends_on:/ { sub(/^depends_on:[[:space:]]*/, ""); gsub(/["\[\]]/, ""); gsub(/[,[:space:]]+/, ","); sub(/^,/, ""); sub(/,$/, ""); print; exit }' "$1"; }
 plan() {
-  [ "$(cfgv tasks.adapter markdown)" = markdown ] || die "night mode reads task files through the markdown adapter only (tasks.adapter is $(cfgv tasks.adapter markdown)); known limit"
+  [ "$(cfgv tasks.adapter markdown)" = markdown ] || die "night mode runs markdown task files only, but tasks.adapter is $(cfgv tasks.adapter markdown) (a design decision, A161: the unattended driver must not depend on network calls to resolve ids and order). Next step: set tasks.adapter to markdown in .agents/config.yaml, import each task with '/proofline task <issue reference>' (it writes <tasks.dir>/<ID>.md with its Suggested class and depends_on), then run '/proofline batch <ID...>' again"
   danger=no; for a in "$@"; do shift; if [ "$a" = --codex-danger-full-access ]; then danger=yes; else set -- "$@" "$a"; fi; done
   [ $# -gt 0 ] || die "usage: agent.sh batch-plan <ID...|all> [--codex-danger-full-access]"
   td=$root/$(cfgv tasks.dir .agents/tasks)
@@ -101,7 +109,7 @@ plan() {
   mkdir -p "$bd"
   if [ -f "$bd/state.tsv" ]; then
     hd=$bd/history/$( [ -f "$bd/SUMMARY.md" ] && bid || echo previous ); mkdir -p "$hd"
-    for f in SUMMARY.md order.tsv state.tsv merged.tsv logs; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
+    for f in SUMMARY.md order.tsv state.tsv merged.tsv logs sessions; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
     rm -f "$bd/LOCK"
   fi
   cap=$(cfgv batch.mutation_budget_cap 40)
@@ -134,7 +142,13 @@ plan() {
     if [ "$danger" = yes ]; then
       printf 'codex sandbox: danger-full-access\n'
       printf 'WARNING: you chose --codex-danger-full-access. A Codex night session then runs with NO sandbox: it can read and write anywhere your user can and use the network. Approving this summary approves that.\n'
-    else printf 'codex sandbox: workspace-write (project folder, network access on for package installs)\n'; fi
+    else printf 'codex sandbox: workspace-write (project folder including .git and .agents, but not .git/hooks or .git/config; network access on for package installs)\n'; fi
+    # A161: Seatbelt cannot nest, so a sandboxed Codex lead cannot start a sandboxed `codex exec` worker; a warning, never a block (the hash binds it).
+    if [ "$danger" != yes ] && [ "$(cfgv runtime.lead claude)" = codex ]; then
+      nest=''; for nr in task_author explorer architect data_architect designer implementer reviewer security_reviewer qa verifier; do
+        [ "$(sh "$here/exec-policy.sh" runtime "$nr" 2>/dev/null || :)" != codex ] || nest="$nest $nr"; done
+      [ -z "$nest" ] || printf 'WARNING: the lead runs on Codex and these roles also run on Codex:%s. On macOS a sandboxed Codex lead cannot start sandboxed Codex workers (sandboxes do not nest). Either set the worker and reviewer runtimes to claude (proofline init --worker claude --reviewers claude, and remove any --role ROLE=codex override) or plan again with --codex-danger-full-access.\n' "$nest"
+    fi
   } > "$tmp/SUMMARY.md"
   mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"; mv "$tmp/order" "$bd/order.tsv"
   cat "$bd/SUMMARY.md"
@@ -204,13 +218,53 @@ ci_gate() { # SHA REQUIRED: stop the batch unless the CI of that commit allows g
 prompt_for() { # ID
   printf 'Batch mode (batch %s). Task %s only. Follow the proofline-lead skill and its Batch mode section: `/proofline run %s` (or resume it if a run exists). At every approval request of kind plan, delivery or mutation_budget call `agent.sh batch-cover %s <KIND>` instead of waiting. At any other approval request, or any question that needs the user: record it with `agent.sh ask %s` and END the session; never wait, never guess. Stop when the task is merged and cleaned up, or parked.' "$(bid)" "$1" "$1" "$1" "$1"
 }
-# The headless session is the leader of its own process group: `set -m` gives the background job its own pgid (needs a shell that
-# can do job control; macOS has no setsid); where that is not available (dash without a terminal) `setsid` is used if it exists.
-# The driver signals only that group, only after the leader itself reported pid == pgid, never 0, 1, its own group. When neither
-# way gives a group of its own, only the session's own pid is signalled (known limit: its grandchildren may stay).
-G_PID=''; S_TO=0; B_SB=''
+# The headless session is the leader of its own process group (A161). Methods, in order: `set -m` (job control gives the background job its own
+# pgid; needs a shell that can do it, a tty is not required where it works), `setsid` (not on macOS), a perl one-liner (`setpgid(0,0)` then
+# exec; perl ships with macOS), python3 (`os.setpgid`). A method counts only when a probe process it started reports pgid == pid; the session
+# itself checks the same before it does anything and exits 125 otherwise. No method that works: the batch is refused, there is no weaker mode.
+# The driver signals only a group it started and verified (never 0, 1, its own group): TERM, a grace, KILL. No pkill, killall or pgrep.
+G_PID=''; S_TO=0; B_SB=''; PG_METHOD=''
 nap() { sleep 0.2 2>/dev/null || sleep 1; }
 grp_alive() { ps -A -o pgid=,stat= 2>/dev/null | awk -v g="$1" '$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }'; }
+# pg_start METHOD OUT CMD...: start CMD in the background as a group leader by METHOD (G_PID is its pid); 1 when the method is unavailable
+pg_start() {
+  pgs_m=$1; pgs_o=$2; shift 2
+  case "$pgs_m" in
+    setm) case $- in *m*) ;; *) set -m 2>/dev/null || return 1 ;; esac
+      case $- in *m*) ;; *) return 1 ;; esac
+      "$@" >> "$pgs_o" 2>&1 < /dev/null &
+      G_PID=$!; set +m 2>/dev/null || : ;;
+    setsid) command -v setsid >/dev/null 2>&1 || return 1
+      setsid "$@" >> "$pgs_o" 2>&1 < /dev/null &
+      G_PID=$! ;;
+    perl) command -v perl >/dev/null 2>&1 || return 1
+      perl -e 'use POSIX; setpgid(0, 0) or die "setpgid: $!\n"; exec @ARGV or die "exec: $!\n"' "$@" >> "$pgs_o" 2>&1 < /dev/null &
+      G_PID=$! ;;
+    python) command -v python3 >/dev/null 2>&1 || return 1
+      python3 -c 'import os, sys; os.setpgid(0, 0); os.execvp(sys.argv[1], sys.argv[1:])' "$@" >> "$pgs_o" 2>&1 < /dev/null &
+      G_PID=$! ;;
+    *) return 1 ;;
+  esac
+}
+pg_probe_one() { # METHOD: 0 when a process started by that method is the leader of a group of its own
+  ppo_f=$bd/logs/pgprobe.$$; rm -f "$ppo_f"; G_PID=''
+  pg_start "$1" "$bd/logs/pgprobe.out" sh "$here/batch.sh" _pgprobe "$ppo_f" || { G_PID=''; return 1; }
+  ppo_i=0; while [ ! -s "$ppo_f" ] && [ "$ppo_i" -lt 50 ]; do nap; ppo_i=$((ppo_i + 1)); done
+  ppo_v=$(cat "$ppo_f" 2>/dev/null || :); wait "$G_PID" 2>/dev/null || :
+  ppo_p=$G_PID; G_PID=''; rm -f "$ppo_f"
+  case "$ppo_p" in ''|*[!0-9]*|0|1) return 1 ;; esac
+  [ "$ppo_v" = "$ppo_p $ppo_p" ]
+}
+pg_select() { # sets PG_METHOD, or refuses the batch
+  mkdir -p "$bd/logs"
+  pgm='setm setsid perl python'
+  if [ "${PROOFLINE_TEST:-}" = 1 ] && [ -n "${PROOFLINE_BATCH_PGMETHOD:-}" ]; then pgm=$PROOFLINE_BATCH_PGMETHOD; fi
+  for m in $pgm; do
+    if pg_probe_one "$m"; then PG_METHOD=$m; rm -f "$bd/logs/pgprobe.out"; return 0; fi
+  done
+  rm -f "$bd/logs/pgprobe.out"
+  die "no way to start a headless session in its own process group on this machine (tried: $pgm; need job control in sh, setsid, perl or python3); the batch is not run, because a hung session could not be closed with its children"
+}
 reap() { # close the session's own process group: TERM, a short grace, then KILL
   [ -n "$G_PID" ] || return 0
   rp_g=$G_PID; G_PID=''
@@ -220,31 +274,41 @@ reap() { # close the session's own process group: TERM, a short grace, then KILL
   kill -TERM "-$rp_g" 2>/dev/null || :
   rp_i=0; while [ "$rp_i" -lt 15 ] && grp_alive "$rp_g"; do nap; rp_i=$((rp_i + 1)); done
   ! grp_alive "$rp_g" || kill -KILL "-$rp_g" 2>/dev/null || :
+  rp_i=0; while [ "$rp_i" -lt 10 ] && grp_alive "$rp_g"; do nap; rp_i=$((rp_i + 1)); done
   wait "$rp_g" 2>/dev/null || :
 }
 run_session() { # ID RUNTIME PROMPT SANDBOX: the runtime's own command, in the project root; returns its exit status
   S_PM=$(cfgv dispatch.claude_permission_mode bypassPermissions); cd "$root" || return 1
   if [ "$2" = codex ]; then
     rs_sb=$4; rs_p=$3   # the choice the driver read once, right after batch-check
-    set -- -s workspace-write -c "$CODEX_NET"
+    set -- -c "default_permissions=\"$CODEX_PROFILE\"" -c "permissions.$CODEX_PROFILE.network.enabled=true" -c "permissions.$CODEX_PROFILE.filesystem=$CODEX_FS"
     [ "$rs_sb" != danger-full-access ] || set -- -s danger-full-access   # only what the approved summary states, never config or env
     codex exec -C "$root" "$@" -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$rs_p" < /dev/null
   else claude -p "$3" --permission-mode "$S_PM" < /dev/null; fi
 }
+# Session records (A161): sessions/<ID>.<n>.rec, key=value lines. The driver writes id, n, runtime, method, log, start (epoch) when the session
+# starts and end, exit and timeout when it ends; `status` shows them. A record without an end belongs to a driver that was stopped.
+rec_new() { # ID RUNTIME -> sets REC (the file)
+  mkdir -p "$bd/sessions"; rn_n=1; while [ -e "$bd/sessions/$1.$rn_n.rec" ]; do rn_n=$((rn_n + 1)); done
+  REC=$bd/sessions/$1.$rn_n.rec
+  printf 'id=%s\nn=%s\nruntime=%s\nmethod=%s\nlog=%s\nstart=%s\n' "$1" "$rn_n" "$2" "$PG_METHOD" ".agents/local/batch/logs/$1.log" "$(date +%s)" > "$REC"
+}
+rec_end() { # EXIT TIMEOUT(0|1)
+  printf 'end=%s\nexit=%s\ntimeout=%s\n' "$(date +%s)" "$1" "$2" >> "$REC"
+}
 # session ID RUNTIME: one clean headless lead session; its output goes to the task's log; returns the exit status
+S_ISO=0
 session() {
   s_log=$bd/logs/$1.log; s_p=$(prompt_for "$1"); mkdir -p "$bd/logs"; printf '\n--- session %s runtime=%s ---\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" >> "$s_log"
   s_pm=$(cfgv dispatch.claude_permission_mode bypassPermissions)
   case "$s_pm" in bypassPermissions|acceptEdits|default) ;; *) die "invalid dispatch.claude_permission_mode: $s_pm" ;; esac
   s_to=$(cfgv batch.task_timeout 120); case "$s_to" in ''|*[!0-9]*|0) s_to=120 ;; esac
   s_cur=$bd/logs/$1.cur; : > "$s_cur"   # this session's own output: limit and auth detection read only it, never the cumulative log
-  s_rcf=$bd/logs/$1.rc; rm -f "$s_rcf" "$bd"/logs/pgid.*; S_TO=0
-  s_pre=''; set -m 2>/dev/null || :
-  case $- in *m*) ;; *) ! command -v setsid >/dev/null 2>&1 || s_pre=setsid ;; esac
-  # shellcheck disable=SC2086 # s_pre is empty or the one word setsid
-  $s_pre sh "$here/batch.sh" _session "$1" "$2" "$s_p" "$B_SB" >> "$s_cur" 2>&1 < /dev/null &
-  G_PID=$!
-  set +m 2>/dev/null || :
+  s_rcf=$bd/logs/$1.rc; rm -f "$s_rcf" "$bd"/logs/pgid.*; S_TO=0; S_ISO=0
+  rec_new "$1" "$2"
+  if ! pg_start "$PG_METHOD" "$s_cur" sh "$here/batch.sh" _session "$1" "$2" "$s_p" "$B_SB"; then
+    G_PID=''; echo 125 > "$s_rcf"; printf '[batch] process-group method %s is no longer available\n' "$PG_METHOD" >> "$s_cur"; S_ISO=1
+  fi
   s_dead=$(($(date +%s) + s_to * tick))
   while [ ! -f "$s_rcf" ]; do
     [ "$(date +%s)" -lt "$s_dead" ] || { S_TO=1; break; }
@@ -253,8 +317,11 @@ session() {
   reap
   rm -f "$bd"/logs/pgid.*
   [ "$S_TO" = 0 ] || { printf '[batch] session of %s closed: it ran longer than batch.task_timeout (%s minutes)\n' "$1" "$s_to" >> "$s_cur"; echo 124 > "$s_rcf"; }
+  s_rc=$(cat "$s_rcf" 2>/dev/null || echo 1)
+  [ "$s_rc" != 125 ] || S_ISO=1   # the session found itself outside a group of its own and did nothing
+  rec_end "$s_rc" "$S_TO"
   cat "$s_cur" >> "$s_log"
-  return "$(cat "$s_rcf" 2>/dev/null || echo 1)"
+  return "$s_rc"
 }
 outcome() { # ID -> merged | FAILED | BLOCKED | question | none  (records only)
   if merged_pr "$1" >/dev/null; then echo merged; return 0; fi
@@ -279,6 +346,7 @@ run() {
   canon=$(cfgv canonical_branch main)
   [ "$(git -C "$root" branch --show-current)" = "$canon" ] || die "the current branch is not $canon"
   gh auth status >/dev/null 2>&1 || die "gh is not authenticated (gh auth login)"
+  pg_select   # a verified way to give every session its own process group, or the batch is refused (A161)
   if [ ! -f "$bd/state.tsv" ]; then awk -F'\t' '{ print $1 "\tpending\t\t" }' "$bd/order.tsv" > "$bd/state.tsv"; fi
   # resume: a running row is a killed driver; a skipped row is judged again; a parked row whose run is open and has no
   # question left (answered, reopened) goes back to pending and its session resumes the run
@@ -310,6 +378,7 @@ run() {
       rt=''; for r in $rts; do case " $exhausted " in *" $r "*) ;; *) rt=$r; break ;; esac; done
       if [ -z "$rt" ]; then st_set "$id" pending; stop "every runtime hit its usage limit"; fi
       sess_rc=0; session "$id" "$rt" || sess_rc=$?
+      if [ "$S_ISO" = 1 ]; then st_set "$id" pending; stop "a session could not be started as the leader of its own process group (method $PG_METHOD); nothing was run for $id"; fi
       out=$(outcome "$id")
       if [ "$S_TO" = 1 ] && [ "$out" != merged ]; then out=timeout; break; fi
       if [ "$out" != merged ] && { [ "$sess_rc" -ne 0 ] || [ "$out" = none ]; }; then
@@ -341,6 +410,25 @@ run() {
 }
 
 # --- status ----------------------------------------------------------------------------------------------------------
+fmt_ts() { [ -n "$1" ] || { echo "-"; return 0; }; date -r "$1" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -d "@$1" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$1"; }
+rec_get() { sed -n "s/^$2=//p" "$1" | head -1; }
+# sessions_report: from the session records only (A161); a batch from before them has none and prints nothing
+sessions_report() {
+  ls "$bd"/sessions/*.rec >/dev/null 2>&1 || return 0
+  printf 'sessions (from records; the log path is relative to the project):\n'
+  printf '%s | %s | %s | %s | %s | %s | %s | %s\n' task '#' runtime start end exit 'park reason' log
+  for id in $(cut -f1 "$bd/order.tsv"); do
+    last=$(ls "$bd/sessions/$id".*.rec 2>/dev/null | awk -F. '{ print $(NF-1) "\t" $0 }' | sort -n | tail -1 | cut -f2)
+    for rf in $(ls "$bd/sessions/$id".*.rec 2>/dev/null | awk -F. '{ print $(NF-1) "\t" $0 }' | sort -n | cut -f2); do
+      st=$(rec_get "$rf" start); en=$(rec_get "$rf" end); ex=$(rec_get "$rf" exit); why=''
+      if [ -z "$en" ]; then en='no end recorded'; ex='-'; fi
+      [ "$(rec_get "$rf" timeout)" != 1 ] || ex="$ex (timeout)"
+      if [ "$rf" = "$last" ] && [ -f "$bd/state.tsv" ] && [ "$(st_get "$id" 2)" = parked ]; then why=$(st_get "$id" 3); fi
+      printf '%s | %s | %s | %s | %s | %s | %s | %s\n' "$id" "$(rec_get "$rf" n)" "$(rec_get "$rf" runtime)" "$(fmt_ts "$st")" "$([ "$en" = 'no end recorded' ] && echo "$en" || fmt_ts "$en")" "${ex:--}" "${why:--}" "$(rec_get "$rf" log)"
+    done
+  done
+  printf '\n'
+}
 status() {
   [ -f "$bd/SUMMARY.md" ] || { echo "no batch planned (agent.sh batch-plan <ID...|all>)"; return 0; }
   ap=$(grep -l "^bound: \"$(sha "$bd/SUMMARY.md")\"" "$root"/.agents/local/approvals/[0-9][0-9][0-9]-batch.yaml 2>/dev/null | sort | tail -1 || :)
@@ -362,6 +450,7 @@ status() {
     printf '%s | %s | %s | %s | %s | %s\n' "$id" "$st" "${pr:--}" "${mt:--}" "${why:--}" "${q:--}"
   done
   printf '\n'
+  sessions_report
   sh "$here/friction.sh" show 2>/dev/null || echo "no friction report"
   printf '\nresume: answer the open questions (or reopen a run), then run `proofline batch run`; merged tasks are not run again.\n'
 }
@@ -369,8 +458,11 @@ status() {
 case "${1:-}" in
   plan) shift; plan "$@" ;;
   run) run ;;
+  _pgprobe) me=$$; printf '%s %s\n' "$me" "$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')" > "$2.tmp" && mv "$2.tmp" "$2" ;;   # internal: what pg_probe_one checks
   _session) shift   # internal: the session itself, started by `session` as the leader of its own process group
-    me=$$; printf '%s %s\n' "$me" "$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')" > "$bd/logs/pgid.$me"
+    me=$$; pg=$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' '); printf '%s %s\n' "$me" "$pg" > "$bd/logs/pgid.$me"
+    # a session that is not the leader of a group of its own does nothing: the driver could not close its children
+    [ "$pg" = "$me" ] || { echo "batch: the session is not the leader of its own process group (pid $me, pgid ${pg:-?}); nothing was started" >&2; echo 125 > "$bd/logs/$1.rc"; exit 125; }
     r=0; run_session "$1" "$2" "$3" "${4:-}" || r=$?; echo "$r" > "$bd/logs/$1.rc" ;;
   status) status ;;
   *) echo "usage: batch.sh plan <ID...|all> | run | status" >&2; exit 2 ;;
