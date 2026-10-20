@@ -391,11 +391,18 @@ export function seoEvaluate(pages, site, opt) {
     if ((p.robots_meta || []).some((c) => /\bnoindex\b|\bnone\b/i.test(c))) reasons.push("meta robots noindex");
     if (/\bnoindex\b|\bnone\b/i.test(p.x_robots || "")) reasons.push("X-Robots-Tag noindex");
     if (p.not_measured) { out.pages.push({ path: p.path, status: "not_measured", reason: p.not_measured }); continue; }
+    // blocked for EVERY tested bot (A160): skipped like noindex; blocked for only some bots stays measured and seo_robots names the bot
+    const rb = rel && robotsTxt !== null ? robotsBlockedFor(robotsTxt, rel) : [];
+    if (rb.length === ROBOTS_BOTS.length) reasons.push(`robots.txt disallows the page for ${rb.join(", ")}`);
     if (reasons.length) { out.pages.push({ path: p.path, status: "not_applicable", reason: "robots", detail: reasons.join("; ") }); continue; }
     // requests: { url, third_party?, phase?, initiator? } (a plain URL string is the old shape: third party = outside the site)
     const reqs = (p.requests || []).map((r) => (typeof r === "string" ? { url: r } : r)).filter((r) => r && r.url);
-    const thirdParty = reqs.filter((r) => (r.phase ?? "before_consent") === "before_consent" && (r.third_party ?? (!/^(data|blob|about):/i.test(r.url) && siteRef(r.url, ctx) === null)));
-    const mine = thirdParty.filter((r) => analyticsUrlLabel(r.url, opt) || (r.initiator && analyticsUrlLabel(r.initiator, opt)));
+    // first party = the site itself, including its deployed origin (seo.site_url / canonical origin), before trusting the probe's flag
+    const isThird = (r) => !/^(data|blob|about):/i.test(r.url) && siteRef(r.url, ctx) === null && (r.third_party ?? true);
+    const thirdParty = reqs.filter((r) => (r.phase ?? "before_consent") === "before_consent" && isThird(r));
+    // an initiator counts only when it is not the document itself (a parser-initiated request names the document; the probe keeps only script or non-document initiators)
+    const initOk = (r) => r.initiator && r.initiator.split("#")[0] !== String(p.url || "").split("#")[0];
+    const mine = thirdParty.filter((r) => analyticsUrlLabel(r.url, opt) || (initOk(r) && analyticsUrlLabel(r.initiator, opt)));
     const hay = [...srcUrls(p.source), ...(p.scripts || []), ...reqs.map((r) => r.url)];
     const gl = analyticsGlobals(opt).filter((g) => (p.globals || []).includes(g));
     const detected = [...new Set([...hay.map((t) => analyticsUrlLabel(t, opt)).filter(Boolean), ...gl])];
@@ -616,7 +623,7 @@ async function page(b, timeoutMs, base, net, log) {
       record(net.blocked, { url: q.request.url, type: q.resourceType || "Other" });
       return b.send("Fetch.failRequest", { requestId: q.requestId, errorReason: "BlockedByClient" }, sid).catch(() => {});
     });
-    b.on("Network.requestWillBeSent", sid, (q) => { const i = q.initiator?.url || q.initiator?.stack?.callFrames?.[0]?.url; if (i) inits.set(q.request.url, i); });
+    b.on("Network.requestWillBeSent", sid, (q) => { const i = q.initiator?.url || q.initiator?.stack?.callFrames?.[0]?.url; if (i && (q.initiator?.type === "script" || i !== q.documentURL)) inits.set(q.request.url, i); });
     b.on("Network.webSocketCreated", sid, (q) => record(net.unguarded, { url: q.url, type: "WebSocket", reason: "a WebSocket opened despite the guard" }));
     b.on("Runtime.consoleAPICalled", sid, (q) => { const a = q.args || []; if (a[0]?.value === "__vp_blocked") record(net.blocked, { url: String(a[1]?.value), type: String(a[2]?.value) }); });
     await b.send("Runtime.enable", {}, sid);

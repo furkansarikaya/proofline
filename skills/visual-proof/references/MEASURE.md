@@ -80,8 +80,9 @@ site, written to `report.seo`. It runs only when the project produces public HTM
 - No public HTML pages (library, CLI, API, backend only; config `seo.public_html: false`, or every page is a non-HTML response):
   `seo` is `{ "status": "not_applicable", "note": "seo not applicable: no public HTML pages" }`, the one fixed note the validator accepts. No item, no finding.
 - A page that a `<meta name="robots">` noindex or an `X-Robots-Tag` noindex blocks is listed in `seo.pages`
-  as `not_applicable` with reason `robots` and gets no item; it is not a published page for the site checks. `robots.txt` does not
-  skip a page: it is read per bot (below) and a page it blocks is a `seo_robots` failure (A160).
+  as `not_applicable` with reason `robots` and gets no item; it is not a published page for the site checks. A page that `robots.txt` blocks for EVERY tested bot is skipped the
+  same way (`not_applicable`, reason `robots`, the detail names the bots). A page blocked for only some bots stays measured and
+  `seo_robots` names the bot; a sitemap page blocked for a bot still fails `seo_robots` (A160).
 - Each item has `id` `S-n`, `check`, `page` (the page path, or `site`), `selector`, `value` (the number of problems found), `threshold` `== 0`,
   `status` `pass`, `fail` or `not_measured`, `evidence` (the observed values; no screenshot) and, for a failure, a `note` naming each problem.
   A failure is a blocking row; `not_measured` (a fact that cannot be resolved or read) carries a `reason` and is an info row, never blocking.
@@ -98,7 +99,7 @@ site, written to `report.seo`. It runs only when the project produces public HTM
 | `seo_structured_data` | each | an `application/ld+json` block that is not valid JSON (no block is fine) |
 | `seo_sitemap` | `site` | a published page not listed in `sitemap.xml`, or a listed page that does not exist |
 | `seo_robots` | `site` | no `Sitemap:` line in `robots.txt`, or a published page or sitemap page that `robots.txt` disallows for Googlebot or Bingbot (the failure names the bot) |
-| `seo_analytics_consent` | only a page with a measured analytics request before consent | a third-party request made before consent that belongs to an analytics candidate (its URL matches the generic words or `seo.analytics.hosts`, or its initiator does) |
+| `seo_analytics_consent` | only a page with a measured analytics request before consent | a third-party request made before consent that belongs to an analytics candidate (its URL matches the generic words or `seo.analytics.hosts`, or its initiator does; the site's own deployed origin `seo.site_url` is first party, and a document URL is never an initiator) |
 
 - Analytics (A160): "loaded" is behaviour, not a name. The page is loaded once, with no interaction (before any consent), and every
   request it makes is recorded (`{ url, third_party, phase: "before_consent", initiator }`; the guard that pauses requests marks the ones

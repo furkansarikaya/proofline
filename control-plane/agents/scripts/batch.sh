@@ -208,7 +208,7 @@ prompt_for() { # ID
 # can do job control; macOS has no setsid); where that is not available (dash without a terminal) `setsid` is used if it exists.
 # The driver signals only that group, only after the leader itself reported pid == pgid, never 0, 1, its own group. When neither
 # way gives a group of its own, only the session's own pid is signalled (known limit: its grandchildren may stay).
-G_PID=''; S_TO=0
+G_PID=''; S_TO=0; B_SB=''
 nap() { sleep 0.2 2>/dev/null || sleep 1; }
 grp_alive() { ps -A -o pgid=,stat= 2>/dev/null | awk -v g="$1" '$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }'; }
 reap() { # close the session's own process group: TERM, a short grace, then KILL
@@ -222,10 +222,10 @@ reap() { # close the session's own process group: TERM, a short grace, then KILL
   ! grp_alive "$rp_g" || kill -KILL "-$rp_g" 2>/dev/null || :
   wait "$rp_g" 2>/dev/null || :
 }
-run_session() { # ID RUNTIME PROMPT: the runtime's own command, in the project root; returns its exit status
+run_session() { # ID RUNTIME PROMPT SANDBOX: the runtime's own command, in the project root; returns its exit status
   S_PM=$(cfgv dispatch.claude_permission_mode bypassPermissions); cd "$root" || return 1
   if [ "$2" = codex ]; then
-    rs_sb=$(sed -n 's/^codex sandbox: \([a-z-]*\).*/\1/p' "$bd/SUMMARY.md" | head -1); rs_p=$3
+    rs_sb=$4; rs_p=$3   # the choice the driver read once, right after batch-check
     set -- -s workspace-write -c "$CODEX_NET"
     [ "$rs_sb" != danger-full-access ] || set -- -s danger-full-access   # only what the approved summary states, never config or env
     codex exec -C "$root" "$@" -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$rs_p" < /dev/null
@@ -242,7 +242,7 @@ session() {
   s_pre=''; set -m 2>/dev/null || :
   case $- in *m*) ;; *) ! command -v setsid >/dev/null 2>&1 || s_pre=setsid ;; esac
   # shellcheck disable=SC2086 # s_pre is empty or the one word setsid
-  $s_pre sh "$here/batch.sh" _session "$1" "$2" "$s_p" >> "$s_cur" 2>&1 < /dev/null &
+  $s_pre sh "$here/batch.sh" _session "$1" "$2" "$s_p" "$B_SB" >> "$s_cur" 2>&1 < /dev/null &
   G_PID=$!
   set +m 2>/dev/null || :
   s_dead=$(($(date +%s) + s_to * tick))
@@ -266,6 +266,8 @@ stop() { st_stop "$1"; echo "batch: stopped: $1" >&2; sh "$here/batch.sh" status
 run() {
   sh "$agent" batch-check >/dev/null 2>&1 || die "no valid batch approval for the current summary: plan the batch (agent.sh batch-plan), then reply \"approve batch\" to the summary"
   [ -f "$bd/order.tsv" ] || die "no batch order: plan the batch first"
+  # The Codex sandbox the approved summary states is read ONCE, here, right after batch-check; a session cannot edit SUMMARY.md to widen it for later sessions.
+  B_SB=$(sed -n 's/^codex sandbox: \([a-z-]*\).*/\1/p' "$bd/SUMMARY.md" | head -1)
   if [ -f "$bd/LOCK" ]; then
     lp=$(cat "$bd/LOCK" 2>/dev/null || :)
     case "$lp" in ''|*[!0-9]*) ;; *) ! kill -0 "$lp" 2>/dev/null || die "a batch run is active (pid $lp): only one task at a time" ;; esac
@@ -369,7 +371,7 @@ case "${1:-}" in
   run) run ;;
   _session) shift   # internal: the session itself, started by `session` as the leader of its own process group
     me=$$; printf '%s %s\n' "$me" "$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')" > "$bd/logs/pgid.$me"
-    r=0; run_session "$1" "$2" "$3" || r=$?; echo "$r" > "$bd/logs/$1.rc" ;;
+    r=0; run_session "$1" "$2" "$3" "${4:-}" || r=$?; echo "$r" > "$bd/logs/$1.rc" ;;
   status) status ;;
   *) echo "usage: batch.sh plan <ID...|all> | run | status" >&2; exit 2 ;;
 esac

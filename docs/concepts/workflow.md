@@ -88,7 +88,7 @@ tree on the canonical branch and an authenticated `gh`, and runs one task at a t
 task it updates the canonical branch and checks the CI run of its HEAD (no run yet is no signal); for each task it starts a
 clean headless lead session (`claude -p`, or `codex exec -s workspace-write` with network access; the next runtime takes
 over when one hits its usage limit). Each session is the leader of its own process group; when it ends, or runs longer than
-`batch.task_timeout` minutes (120), the driver closes that group (TERM, a short grace, KILL) and nothing else, and a timed-out
+`batch.task_timeout` minutes (120), the driver closes that group (TERM, a short grace, KILL) and nothing else (without a terminal and without `setsid` only the session pid is signalled), and a timed-out
 task is parked with the reason `timeout`. `agent.sh batch-plan <ID...|all> --codex-danger-full-access` is the only way to
 run Codex sessions with `danger-full-access`: the summary says so with a warning line and the approval hash covers it, the
 driver reads the choice from the approved summary only, never from config or environment. Start the driver yourself in a

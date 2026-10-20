@@ -60,7 +60,7 @@ Talk to the user in their language. Files written for machines (`report.json`, `
    its sha256, and are deleted with the run (team) or the output folder (standalone). Never commit them.
 9. **Technical SEO is a measured group (A158).** Only for a project that produces public
    HTML pages ([MEASURE.md](references/MEASURE.md#technical-seo)); a project without HTML pages (library, CLI,
-   API, backend only) runs no seo item at all. A page that a meta or header noindex blocks is skipped; `robots.txt` is checked per bot (Googlebot, Bingbot, RFC 9309) and a page it blocks for one of them is a blocking `seo_robots` failure. Content SEO (keywords, text
+   API, backend only) runs no seo item at all. A page that a meta or header noindex blocks, or that `robots.txt` blocks for every tested bot, is skipped; `robots.txt` is checked per bot (Googlebot, Bingbot, RFC 9309) and a page it blocks for only some of them is a blocking `seo_robots` failure. Content SEO (keywords, text
    quality, readability, length) is out of scope: never measured, never judged, never a finding. Analytics counts as
    loaded only when a third-party request before consent was measured and it belongs to an analytics candidate; a candidate found
    only by name (a script called `pixel-art.js` on the page's own origin, a lone `dataLayer`) is information, never blocking.
