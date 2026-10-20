@@ -30,6 +30,18 @@ scratch md; printf 'a ponytail: label is quoted here\n# ponytail: quoted\n' > "$
 git -C "$T/md" add -A
 sh "$chk" --root "$T/md" > "$T/o" 2>&1 || die "Markdown or tests/ quoting the label failed: $(cat "$T/o")"
 echo "ok markdown and tests/ may quote the label"
+# A162: the tag anywhere after a comment prefix, a bare continuation line, and the prefixes % (* ' *
+n=0
+for c in '# TODO ponytail: x' '// note: see ponytail: x' '/*
+ ponytail: x
+ */' '  ponytail: continued' '% ponytail: x' '(* ponytail: x *)' "' ponytail: x" ' * ponytail: x' 'int a; // fix later ponytail: x'; do
+  n=$((n + 1)); scratch "ev$n"; printf '%s\n' "$c" > "$T/ev$n/src/b.txt"; git -C "$T/ev$n" add -A
+  if sh "$chk" --root "$T/ev$n" > "$T/o" 2>&1; then die "evasion case $n passed: $c"; fi
+  grep -q '^FAIL shortcut labels' "$T/o" || die "evasion case $n: no FAIL line"
+done
+scratch prose; printf 'ponytail: this prose line starts with the tag\n' > "$T/prose/src/b.txt"; git -C "$T/prose" add -A
+if sh "$chk" --root "$T/prose" > /dev/null 2>&1; then die "a prose line starting with the tag passed"; fi
+echo "ok evasion forms of a foreign label fail"
 # an extra tag from the variable
 scratch tag; printf '# kludge: x\n' > "$T/tag/src/b.sh"; git -C "$T/tag" add -A
 sh "$chk" --root "$T/tag" > /dev/null 2>&1 || die "an unlisted tag failed"

@@ -230,6 +230,20 @@ out=$(cd "$up3" && sh "$home2/bin/proofline" upgrade 2>&1) || { LAST=$out; die "
 expect "an edit inside the proofline block is reported as a conflict" "$out" "CONFLICT  AGENTS.md"
 [ "$(cat "$up3/AGENTS.md")" = "$a_before" ] && grep -q "upstream block change" "$up3/AGENTS.md.proofline-new" && ok "...the user's AGENTS.md is untouched and AGENTS.md.proofline-new carries the new block" || die "edited block overwritten or no .proofline-new"
 
+# A162: the AGENTS.md template carries no logging text; a user's own `## Logging` section outside the block and an
+# edit above it survive two upgrades (the template in home2 changed upstream, so the block is replaced) without conflict
+! grep -qi 'logging' "$repo/control-plane/AGENTS.md" && ! grep -qi 'logging' "$base/AGENTS.md" && ok "A162: the AGENTS.md template and a fresh install carry no logging text" || die "logging text in the AGENTS.md template"
+up6=$T/up6; cp -R "$base" "$up6"
+{ printf 'my edit above the block\n'; cat "$up6/AGENTS.md"; printf '\n## Logging\n- Log through internal/logx only.\n'; } > "$up6/a.tmp" && mv "$up6/a.tmp" "$up6/AGENTS.md"
+for u in 1 2; do
+  out=$(cd "$up6" && sh "$home2/bin/proofline" upgrade 2>&1) || { LAST=$out; die "upgrade $u with a user Logging section exits 0"; }
+  reject "upgrade $u: a user Logging section is no conflict" "$out" "CONFLICT"
+done
+grep -qx 'my edit above the block' "$up6/AGENTS.md" && grep -qx '## Logging' "$up6/AGENTS.md" && grep -qx -- '- Log through internal/logx only.' "$up6/AGENTS.md" && grep -q 'upstream block change' "$up6/AGENTS.md" && [ -z "$(find "$up6" -name '*.proofline-new' -not -path '*/.git/*')" ] && ok "...the user's Logging section and the edit above survive, the block is updated, no .proofline-new" || { LAST=$(cat "$up6/AGENTS.md"); die "user AGENTS.md content lost or a .proofline-new appeared"; }
+
+# A162: README keeps the sentence that the entry skill lists the next-step table
+grep -qF 'One table in the control plane (`next-user.sh`) holds it; the entry skill lists it;' "$repo/README.md" && ok "README says the entry skill lists the next-step table" || die "README lost the entry-skill sentence"
+
 # ---- doctor -------------------------------------------------------------------------------------------------
 d1=$T/d1; cp -R "$base" "$d1"
 out=$(pl "$d1" doctor 2>&1); rc=$?
