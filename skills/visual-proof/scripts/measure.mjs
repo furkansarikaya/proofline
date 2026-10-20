@@ -294,16 +294,23 @@ const clip = (v, n = 300) => { const t = typeof v === "string" ? v : JSON.string
 // A URL as a path under the site root (the base_url folder), or null when it names another site. A file: page and
 // the base_url origin map by their position under the folder; the site's public origin (config seo.site_url, or the
 // origin the page declares) maps by its path, because a canonical points at the deployed address.
-function siteRef(href, ctx) {
+const safeDecode = (t) => { try { return decodeURIComponent(t); } catch { return t; } };
+function siteRel(href, ctx) {
   let u, b;
   try { b = new URL(ctx.base); u = new URL(href, b); } catch { return null; }
   let rel;
-  const dir = decodeURIComponent(b.pathname.replace(/[^/]*$/, ""));
+  const dir = safeDecode(b.pathname.replace(/[^/]*$/, ""));
   if (b.protocol === "file:" ? u.protocol === "file:" : u.origin === b.origin) {
-    const p = decodeURIComponent(u.pathname);
+    const p = safeDecode(u.pathname);
     rel = p.startsWith(dir) ? p.slice(dir.length) : p.replace(/^\//, "");
-  } else if (ctx.origins.has(u.origin)) rel = decodeURIComponent(u.pathname).replace(/^\//, "");
+  } else if (ctx.origins.has(u.origin)) rel = safeDecode(u.pathname).replace(/^\//, "");
   else return null;
+  return rel;
+}
+// The same path with a directory address completed to its file (`a/` -> `a/index.html`).
+function siteRef(href, ctx) {
+  let rel = siteRel(href, ctx);
+  if (rel === null) return null;
   if (rel === "" || rel.endsWith("/")) rel += "index.html";
   return rel;
 }
@@ -327,20 +334,52 @@ export function robotsGroups(text) {
   }
   return groups;
 }
-export function robotsBlocks(text, rel, bot = "*") {
+// Percent-encoding normal form of RFC 9309 (2.2.2), applied to a rule path and to a URL path alike: every non-ASCII character and
+// every ASCII character outside the URI character set becomes the percent-encoding of its UTF-8 octets (upper-case hex); a
+// percent-encoded octet that is an unreserved character (ALPHA, DIGIT, - . _ ~) is decoded; a reserved character
+// (gen-delims, sub-delims, so `/ ? # * $ &` and `%2F`) stays as it was written, encoded or not; a lone `%` becomes `%25`.
+const UNRESERVED = /[A-Za-z0-9\-._~]/, RESERVED = ":/?#[]@!$&'()*+,;=";
+export function robotsNormalize(path) {
+  let out = "";
+  const t = String(path);
+  for (let i = 0; i < t.length;) {
+    const m = /^%([0-9a-fA-F]{2})/.exec(t.slice(i, i + 3));
+    if (m) { const ch = String.fromCharCode(parseInt(m[1], 16)); out += UNRESERVED.test(ch) ? ch : "%" + m[1].toUpperCase(); i += 3; continue; }
+    const cp = t.codePointAt(i), ch = String.fromCodePoint(cp); i += ch.length;
+    if (UNRESERVED.test(ch) || RESERVED.includes(ch)) out += ch;
+    else out += [...new TextEncoder().encode(ch)].map((b) => "%" + b.toString(16).toUpperCase().padStart(2, "0")).join("");
+  }
+  return out;
+}
+// Is the URL path `path` (starts with "/", exactly as published) disallowed for `bot`? Rule paths and the URL path are both
+// compared in the normal form above.
+export function robotsPathBlocks(text, path, bot = "*") {
   if (typeof text !== "string") return false;
-  const path = "/" + rel.replace(/(^|\/)index\.html$/, "$1"), groups = robotsGroups(text), tok = String(bot).toLowerCase();
+  const url = robotsNormalize(path), groups = robotsGroups(text), tok = String(bot).toLowerCase();
   let own = groups.filter((g) => g.agents.includes(tok));
   if (!own.length) own = groups.filter((g) => g.agents.includes("*"));
   let best = null;
-  for (const [k, v] of own.flatMap((g) => g.rules)) {
+  for (const [k, raw] of own.flatMap((g) => g.rules)) {
+    const v = robotsNormalize(raw);
     const re = new RegExp("^" + v.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\\\$$/, "$"));
-    if (v && re.test(path) && (!best || v.length > best[1].length || (v.length === best[1].length && k === "allow"))) best = [k, v];
+    if (v && re.test(url) && (!best || v.length > best[1].length || (v.length === best[1].length && k === "allow"))) best = [k, v];
   }
   return !!best && best[0] === "disallow";
 }
-// The tested bots that robots.txt keeps away from `rel`.
-export const robotsBlockedFor = (text, rel) => ROBOTS_BOTS.filter((b) => robotsBlocks(text, rel, b));
+// The URL path forms a page file can be reached under. `dir/index.html` is published as `/dir/` or as `/dir/index.html`: the
+// form named by `published` (a site path as it appears in the sitemap <loc>, else the canonical) decides; when none is known both
+// forms are possible and the page counts as blocked only when every form is blocked (a crawler can still reach it by the other).
+export function robotsForms(rel, published) {
+  if (!/(^|\/)index\.html$/.test(rel)) return ["/" + rel];
+  const dir = "/" + rel.replace(/index\.html$/, "");
+  if (typeof published === "string") return [published.endsWith("index.html") ? dir + "index.html" : dir];
+  return [dir, dir + "index.html"];
+}
+export function robotsBlocks(text, rel, bot = "*", published) {
+  return robotsForms(rel, published).every((f) => robotsPathBlocks(text, f, bot));
+}
+// The tested bots that robots.txt keeps away from `rel` (`published`: see robotsForms).
+export const robotsBlockedFor = (text, rel, published) => ROBOTS_BOTS.filter((b) => robotsBlocks(text, rel, b, published));
 export const sitemapLocs = (xml) => [...String(xml).matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)].map((m) => m[1].replace(/&amp;/g, "&"));
 
 function seoContext(pages, site, opt) {
@@ -385,6 +424,15 @@ export function seoEvaluate(pages, site, opt) {
   for (const p of pages) lists.set(keyOf(p), (p.alternates || []).map((a) => { const r = siteRef(a.href, ctx); return r && pageKey(r); }));
   const published = [];
   const robotsTxt = site?.robots_txt ?? null;
+  // The form a page is published under (A161): the sitemap <loc> of that page, else its canonical, else unknown (undefined).
+  const sitemapHrefs = site?.sitemap_xml ? sitemapLocs(site.sitemap_xml) : [];
+  const publishedForm = (p) => {
+    const me = siteRef(p.url, ctx);
+    if (me === null) return undefined;
+    const same = (h) => { const r = h && siteRef(h, ctx); return r && pageKey(r) === pageKey(me); };
+    const href = sitemapHrefs.find(same) ?? (p.canonicals || []).map((c) => c.href).find(same);
+    return href ? siteRel(href, ctx) : undefined;
+  };
   for (const p of pages) {
     const rel = siteRef(p.url, ctx);
     const reasons = [];
@@ -392,7 +440,7 @@ export function seoEvaluate(pages, site, opt) {
     if (/\bnoindex\b|\bnone\b/i.test(p.x_robots || "")) reasons.push("X-Robots-Tag noindex");
     if (p.not_measured) { out.pages.push({ path: p.path, status: "not_measured", reason: p.not_measured }); continue; }
     // blocked for EVERY tested bot (A160): skipped like noindex; blocked for only some bots stays measured and seo_robots names the bot
-    const rb = rel && robotsTxt !== null ? robotsBlockedFor(robotsTxt, rel) : [];
+    const rb = rel && robotsTxt !== null ? robotsBlockedFor(robotsTxt, rel, publishedForm(p)) : [];
     if (rb.length === ROBOTS_BOTS.length) reasons.push(`robots.txt disallows the page for ${rb.join(", ")}`);
     if (reasons.length) { out.pages.push({ path: p.path, status: "not_applicable", reason: "robots", detail: reasons.join("; ") }); continue; }
     // requests: { url, third_party?, phase?, initiator? } (a plain URL string is the old shape: third party = outside the site)
@@ -474,7 +522,7 @@ export function seoEvaluate(pages, site, opt) {
     const keys = published.map((p) => keyOf(p));
     const locs = site?.sitemap_xml ? sitemapLocs(site.sitemap_xml) : null;
     const sp = [], su = [];
-    if (locs === null) su.push("sitemap.xml was not found at the site root");
+    if (locs === null) su.push("sitemap.xml was not found at the site root: information only, not a defect (a sitemap is optional, and the deployed site's files cannot be proven absent from the measured base)");
     else if (/<sitemapindex/i.test(site.sitemap_xml)) su.push("sitemap index: the child sitemaps are not followed");
     else {
       const listed = new Set(locs.map((l) => { const r = siteRef(l, ctx); return r && pageKey(r); }));
@@ -484,11 +532,11 @@ export function seoEvaluate(pages, site, opt) {
     item("seo_sitemap", SEO_SITE, "sitemap.xml", sp, { pages: keys, locs: locs ? locs.slice(0, 20) : null }, su);
 
     const rp = [], ru = [];
-    if (robotsTxt === null) ru.push("robots.txt was not found at the site root");
+    if (robotsTxt === null) ru.push("robots.txt was not found at the site root: information only, not a defect (RFC 9309: a missing robots.txt means every page may be crawled, and the deployed site's files cannot be proven absent from the measured base)");
     else {
       if (!/^\s*sitemap\s*:\s*\S+/im.test(robotsTxt)) rp.push("robots.txt has no Sitemap: line");
-      for (const p of published) { const r = siteRef(p.url, ctx), b = r ? robotsBlockedFor(robotsTxt, r) : []; if (b.length) rp.push(`robots.txt disallows ${p.path} for ${b.join(", ")}`); }
-      for (const l of locs || []) { const r = siteRef(l, ctx), b = r ? robotsBlockedFor(robotsTxt, r) : []; if (b.length) rp.push(`robots.txt disallows a sitemap page for ${b.join(", ")}: ${l}`); }
+      for (const p of published) { const r = siteRef(p.url, ctx), b = r ? robotsBlockedFor(robotsTxt, r, publishedForm(p)) : []; if (b.length) rp.push(`robots.txt disallows ${p.path} for ${b.join(", ")}`); }
+      for (const l of locs || []) { const r = siteRef(l, ctx), b = r ? robotsBlockedFor(robotsTxt, r, siteRel(l, ctx)) : []; if (b.length) rp.push(`robots.txt disallows a sitemap page for ${b.join(", ")}: ${l}`); }
     }
     item("seo_robots", SEO_SITE, "robots.txt", rp, { sitemap_line: robotsTxt === null ? null : /^\s*sitemap\s*:/im.test(robotsTxt), bots: ROBOTS_BOTS }, ru);
   }
@@ -755,7 +803,7 @@ export function pageUrl(base, path) {
   let b, u;
   try { b = new URL(base); u = new URL(path, b); } catch { return null; }
   if (b.protocol === "file:") {
-    const dir = decodeURIComponent(b.pathname.replace(/[^/]*$/, ""));
+    const dir = safeDecode(b.pathname.replace(/[^/]*$/, ""));
     if (b.host || dir === "/") return null; // the filesystem root (or a remote host) is not an app folder
     return u.protocol === "file:" && !u.host && decodeURIComponent(u.pathname).startsWith(dir) ? u.href : null;
   }
