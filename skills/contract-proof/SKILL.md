@@ -152,7 +152,7 @@ line>" --evidence reviews/contract-proof/validator.txt`, where that file is the 
 saved unchanged (`node <skill-dir>/scripts/validate-contract.mjs <out>/contract.json --plan <PLAN.md> --repo <repo>
 --base <base> > <run>/reviews/contract-proof/validator.txt`; it prints `RESULT`, `REASON`, one
 `FILE: compared|unsupported <path>` line per file and `BASE: <commit>`). The control plane refuses an
-UNSUPPORTED without that file, one lacking `RESULT: UNSUPPORTED`, one made against another base, and one that
+UNSUPPORTED without that file, one lacking `RESULT: UNSUPPORTED`, one made against an unrelated base (the run's base, or a base before a control-plane-only move the run accepted, counts), and one that
 does not list every contract file its own risk signals found in the diff (pass such a file with `--path`), or
 lists them all as compared (A102). The script builds the header, fingerprint and hash.
 
