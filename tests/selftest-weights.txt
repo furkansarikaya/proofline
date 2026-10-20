@@ -62,3 +62,6 @@
 33 lifecycle-test scenario_fix_scope_symbol
 33 gates-test sc_debug_result
 31 lifecycle-test scenario_task_contract_relocate
+510 next-user-test sc_every_state
+77 next-user-test sc_errors
+66 next-user-test sc_expected_steps

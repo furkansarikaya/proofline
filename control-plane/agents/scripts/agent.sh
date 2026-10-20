@@ -1590,7 +1590,7 @@ verify_knowledge_scope() {
       *) echo "knowledge-scope changes present but knowledge transaction not recorded complete (knowledge_state=$ks); run 'agent.sh knowledge-done' first, or these paths are unauthorized:" >&2; printf '%s\n' "$owned" >&2; return 1 ;;
     esac
   else
-    [ "$ks" != KNOWLEDGE_DONE ] || fail "knowledge_state is KNOWLEDGE_DONE but no knowledge-scope changes were found — record 'not_applicable' instead if no writes were needed"
+    [ "$ks" != KNOWLEDGE_DONE ] || fail "knowledge_state is KNOWLEDGE_DONE but no knowledge-scope changes were found — record 'not_applicable' with a one-sentence reason instead if no writes were needed (the script checks it)"
   fi
   echo "knowledge scope verified: $id"
 }
@@ -4892,7 +4892,8 @@ knowledge_done() {
   section_key_present "$dir" execution knowledge_state || fail "run schema has no execution.knowledge_state field to set"
   if [ "$state" = not_applicable ]; then
     reject_generic_justification "$reason" || fail "not_applicable needs a reason: agent.sh knowledge-done $id not_applicable \"<one specific sentence: why the wiki and the design documents need nothing>\" (>=20 chars, not a stock phrase)"
-    case "$reason" in *'"'*|*'\'*) fail "the not_applicable reason must not contain a double quote or a backslash" ;; esac
+    section_key_present "$dir" execution knowledge_reason || fail "run predates 0.0.17 (no knowledge_reason field): do the real knowledge step, then knowledge-done without not_applicable"
+    case "$reason" in *'"'*|*'\'*|*'#'*) fail "the not_applicable reason must not contain a double quote, a backslash or a #" ;; esac
     [ "$(printf '%s\n' "$reason" | grep -c .)" -le 1 ] && ! printf '%s' "$reason" | grep -Eq '[.!?][[:space:]]+[^[:space:]]' || fail "the not_applicable reason must be one sentence on one line"
     kn_sig=$(knowledge_na_signal "$id" || true)
     [ -z "$kn_sig" ] || fail "not_applicable refused: $kn_sig. Run the knowledge step instead (wiki, design documents), then 'agent.sh knowledge-done $id'"
