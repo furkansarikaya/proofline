@@ -5557,7 +5557,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-start ] || [ "$command" = batch-stop ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 # deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
 deliver_pv=''
@@ -5590,7 +5590,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
   terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable "<reason>"]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
-  batch-plan <ID...|all> [--codex-danger-full-access] | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check   (A157: night mode; lead only)
+  batch-plan <ID...|all> [--codex-danger-full-access] | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check | batch-start | batch-stop   (A157: night mode; lead only; A163: start/stop the background driver)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup> [PR]   (one summary, one "approve delivery", one approval per step)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH> | task-source-done <ID>
   ci-check | ci-task-command   (A163: is there a pull_request workflow; the task line that adds one)
@@ -5673,6 +5673,8 @@ case "$command" in
   batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" ;;
   batch-status) sh "$scripts/batch.sh" status ;;
   batch-check) batch_check ;;
+  batch-start) require_lead; sh "$scripts/batch.sh" start ;;
+  batch-stop) require_lead; sh "$scripts/batch.sh" stop ;;
   deliver-plan) require_lead; dpid=${2:?usage: agent.sh deliver-plan <ID> [--message MSG]}; shift 2; deliver_plan "$dpid" "$@" ;;
   deliver-step) require_lead; deliver_step "${2:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${3:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${4:-}" ;;
   amend) require_lead; amend_run "${2:?usage: agent.sh amend <ID>}" ;;
