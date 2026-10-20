@@ -133,11 +133,13 @@ config_check() {
       if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
-        else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies")
+        else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
         else if (p[3] == "flag") en(k, v, "contract_change|concurrency|performance_critical|data_change|destructive|ui")
         else if (p[3] == "design_role") en(k, v, "architect|data_architect|designer")
-        else if (p[3] != "paths" && p[3] != "content") bad("unknown risk key: " k)
-        if ((p[3] == "paths" || p[3] == "content") && v != "") sig[p[2]] = 1
+        else if (p[3] != "paths" && p[3] != "content" && p[3] != "words") bad("unknown risk key: " k)
+        if ((p[3] == "paths" || p[3] == "content" || p[3] == "words") && v != "") sig[p[2]] = 1
+        if (p[3] == "words" && v != "") wrd[p[2]] = 1
+        if (p[3] == "content" && v != "") cnt[p[2]] = 1
         if (p[3] == "check" && v != "") chk[p[2]] = 1
       }
       if (k == "risk.unsupported") en(k, v, "block|report")
@@ -173,6 +175,7 @@ config_check() {
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
       for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
+      for (s in wrd) if (!cnt[s]) bad("risk signal " s " has words but no content (the pattern the line must match as well)")
       exit n > 0
     }') && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
   printf '%s\n' "$cc_out" >&2; fail "config invalid: ${cc_file#"$root"/}"
@@ -871,14 +874,14 @@ tier_record() {
 risk_plan_flags='contract_change concurrency performance_critical'   # PLAN.md `## Risk`: `<flag>: yes|no`
 risk_flags="$risk_plan_flags data_change destructive ui"            # data_change/destructive: `## Data`; ui: `## UI`
 # The focus set is fixed here; config only chooses which focus a signal triggers. Its gate follows from it.
-risk_focus_role() { case "$1" in contract|concurrency|performance|config|migration) echo reviewer ;; visual) echo qa ;; dependencies) echo security_reviewer ;; *) return 1 ;; esac; }
+risk_focus_role() { case "$1" in contract|concurrency|performance|config|migration) echo reviewer ;; visual) echo qa ;; dependencies|logging) echo security_reviewer ;; *) return 1 ;; esac; }
 risk_focus_on_gate() { # FOCUS GATE
   case "$1:$2" in contract:REVIEW_RULES|concurrency:REVIEW_RULES|performance:REVIEW_RULES|config:REVIEW_RULES) return 0 ;;
     contract:REVIEW_SMALL|concurrency:REVIEW_SMALL|performance:REVIEW_SMALL|config:REVIEW_SMALL) return 0 ;;
-    migration:REVIEW_DATA|visual:QA|dependencies:SECURITY) return 0 ;; *) return 1 ;; esac
+    migration:REVIEW_DATA|visual:QA|dependencies:SECURITY|logging:SECURITY) return 0 ;; *) return 1 ;; esac
 }
 risk_focus_report() { case "$1" in contract) echo reviews/contract-proof/ ;; concurrency) echo reviews/concurrency-proof/ ;; performance) echo reviews/performance-proof/ ;;
-  config) echo reviews/proof-review/config/ ;; migration) echo reviews/data-migration/ ;; visual) echo reviews/visual-proof/ ;; dependencies) echo security/dependencies/ ;; esac; }
+  config) echo reviews/proof-review/config/ ;; migration) echo reviews/data-migration/ ;; visual) echo reviews/visual-proof/ ;; dependencies) echo security/dependencies/ ;; logging) echo security/logging/ ;; esac; }
 plan_flag() { # PLAN FLAG -> yes|no
   [ -f "$1" ] || { echo no; return 0; }
   case "$2" in
@@ -899,6 +902,35 @@ risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|secur
 # Verbatim copy of contract-proof's NOT_A_CONTRACT (skills stay standalone; risk-test asserts equality, A92).
 risk_not_contract='(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|openapi-generator-config\.ya?ml|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^\.github\/(workflows|actions|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)\/|^\.github\/(dependabot|labeler|release|stale|FUNDING|config)\.ya?ml$|^(\.vscode|\.idea|\.agents|\.devcontainer)\/'
 risk_names() { risk_config | awk -F= '$1 ~ /^risk\.[a-z_]+\.(paths|content)$/ && $2 != "" { split($1, p, "."); print p[2] }' | sort -u; }
+# A162: the lines a path's diff adds against BASE (the whole file when it is new), and the line match of a `words`
+# signal: a line matches `content` (extended regular expression, via ENVIRON so no backslash is rewritten) and names
+# one of the words as a whole identifier part: case-insensitive, not inside a longer lowercase run (`password`,
+# `user_password`, `userPassword`, `passwords` match; `classname` does not contain `ssn`; `discard` is not `card`).
+risk_added_lines() { # BASE PATH
+  if git -C "$root" cat-file -e "$1:$2" 2>/dev/null; then
+    git -C "$root" diff --no-renames -U0 "$1" -- "$2" 2>/dev/null | awk '/^@@/ { h = 1; next } h && /^\+/ { print substr($0, 2) }'
+  else cat "$root/$2" 2>/dev/null || true; fi
+}
+risk_words_match() { # CONTENT WORDS, lines on stdin -> exit 0 when one line matches
+  RISK_RE=$1 RISK_WORDS=$2 awk '
+    BEGIN { re = ENVIRON["RISK_RE"]; n = split(tolower(ENVIRON["RISK_WORDS"]), w, " ") }
+    $0 ~ re {
+      l = tolower($0)
+      for (i = 1; i <= n && !found; i++) {
+        s = 1
+        while ((j = index(substr(l, s), w[i])) > 0) {
+          pos = s + j - 1; e = pos + length(w[i])
+          pc = (pos > 1) ? substr($0, pos - 1, 1) : ""; c = substr($0, pos, 1)
+          okb = (pc == "" || pc !~ /[A-Za-z]/ || (c ~ /[A-Z]/ && pc ~ /[a-z]/))
+          n1 = substr($0, e, 1); n2 = (n1 ~ /[sS]/) ? substr($0, e + 1, 1) : "x"
+          oka = (n1 !~ /[a-z]/ || (n1 ~ /[sS]/ && n2 !~ /[a-z]/))
+          if (okb && oka) { found = 1; break }
+          s = pos + 1
+        }
+      }
+    }
+    END { exit found ? 0 : 1 }'
+}
 # risk_compute ID -> "name|source|path|why" lines (source diff|scope|plan). Plain documentation (.md .mdx .rst
 # .adoc) never carries a path or content signal: a guide named like a migration is not one.
 risk_compute() {
@@ -913,10 +945,17 @@ risk_compute() {
           { src = $1; p = substr($0, length(src) + 2); c = split(pats, a, " ")
             for (j = 1; j <= c; j++) if (a[j] != "" && p ~ g2re(a[j])) { print n "|" src "|" p "|" a[j]; break } }'
     fi
-    rc_c=$(cfg "risk.$rc_n.content")
+    rc_c=$(cfg "risk.$rc_n.content"); rc_w=$(cfg "risk.$rc_n.words")
     [ -n "$rc_c" ] && [ -n "$rc_changed" ] || continue
     printf '%s\n' "$rc_changed" | while IFS= read -r rc_p; do
       if [ -n "$rc_g" ] && path_matches "$rc_p" "$rc_g"; then continue; fi   # already a path signal
+      # A162: a signal with `words` is matched on the lines the diff adds (not the whole file): one added line must
+      # match `content` and name one of the words. It only opens a review, it is never a finding.
+      if [ -n "$rc_w" ]; then
+        risk_added_lines "$rc_base" "$rc_p" | risk_words_match "$rc_c" "$rc_w" &&
+          printf '%s|diff|%s|added line matching risk.%s.content with a word of risk.%s.words\n' "$rc_n" "$rc_p" "$rc_n" "$rc_n" || true
+        continue
+      fi
       # A92: ordinary config is not a contract: contract.ignore and a minimal not-a-contract list skip the content check.
       if [ "$rc_n" = contract_file ]; then
         if printf '%s\n' "$rc_p" | grep -Eiq -- "$risk_not_contract"; then continue; fi
@@ -2823,6 +2862,7 @@ record_validate() {
   case "$rv_res" in
     UNSUPPORTED) if is_gate_role "$rv_role" && risk_focus_role "$rv_focus" >/dev/null 2>&1; then rv_kind=gate; else record_reject "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"; return 1; fi
       [ "$rv_focus" != dependencies ] || { record_reject "the dependencies focus always has a tool-free check (the manifest diff against PLAN ## Dependencies); UNSUPPORTED is not available"; return 1; }
+      [ "$rv_focus" != logging ] || { record_reject "the logging focus always has a tool-free check (read the changed log calls and trace what reaches them); UNSUPPORTED is not available (A162)"; return 1; }
       # A102: concurrency (traced interleavings) and config (the static consistency scan) need no tool either.
       case "$rv_focus" in concurrency|config) record_reject "the $rv_focus focus always has a tool-free check (concurrency: a traced interleaving; config: the static consistency scan); UNSUPPORTED is not available: submit PASS or FAIL, or BLOCKED with the reason (A102)"; return 1 ;; esac
       grep -q '^UNSUPPORTED_EVIDENCE:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs --evidence (an UNSUPPORTED_EVIDENCE line): the saved output of the skill's validator that prints 'RESULT: UNSUPPORTED' (submit --evidence <run-relative path>, A102); a reason alone is not evidence"; return 1; }
