@@ -76,7 +76,7 @@ const doubleCharge = () => ({
 });
 const CHANGED = ["src/inventory.js", "src/orders.js", "src/payments.js", "src/rates.js", "src/refunds.js", "src/retry.js", "src/wallet.js", "test/features.test.js"];
 const doc = (findings = [lostUpdate(), doubleShip(), doubleCharge()], over = {}) => ({
-  schema_version: 1, skill_version: "0.0.19",
+  schema_version: 1, skill_version: "0.0.20",
   target: { type: "branch", name: "main", base: "base", head: "HEAD" },
   scope: { changed_files: CHANGED, candidates: 40, not_reviewed: [] },
   reproduction: { status: "unsupported", reason: "test only" },

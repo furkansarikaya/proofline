@@ -15,7 +15,7 @@
 
 ## Status
 
-Version 0.0.19 is an early release.
+Version 0.0.20 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -84,7 +84,7 @@ that must show RED then GREEN evidence. Gates then run in parallel on the exact 
 implementer for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks, and you
 approve every commit and push. A plan that adds an entry point taking external input (an endpoint, form, CLI argument,
 queue consumer or webhook) must state how that input is validated, and the QA plan must try an invalid input there
-([details](docs/concepts/workflow.md#input-validation-at-entry-points)). `proofline status` shows the next step at any time.
+([details](docs/concepts/workflow.md#input-validation-at-entry-points)). A diff that adds a log call naming a sensitive word (password, token, cookie, ...) opens a `logging` security review; the project's own log standard lives in `AGENTS.md` ([details](docs/concepts/gates.md#risk-signals)). `proofline status` shows the next step at any time.
 
 Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's environment markers, not by a terminal.
 
@@ -156,7 +156,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.19**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.20**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

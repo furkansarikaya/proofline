@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.0.20 — 2026-10-20
+
+- Plans that list an entry point taking external input in `## Contracts` need a `## Validation` line per entry point, and the QA plan needs an `[invalid-input]` scenario for it. `agent.sh freeze` and `refreeze` refuse either gap (A162).
+- New `validation.entry_words` and `validation.code_patterns` config keys (extensible, checked by `config-check`); code that looks like an entry point is shown by `agent.sh pipeline` as information only. The plan-contract and qa-plan validators, templates and docs describe the rule (A162).
+- Added a `logging` security focus. A diff that adds a log call naming a sensitive word (`risk.log_sensitive`, extensible `words`) opens a review of the new `[log]` exploit-proof sink (A162).
+- The implementer logs through the project's own logger and standard and never logs secrets. The AGENTS.md template has an optional "Logging" example, and the `rules` review checks the project's own standard (A162).
+- `proofline debt` now lists five more shortcut comments; the check-static rule rejects any foreign shortcut label (A162).
+- The command-discovery timeout (`init --verify-commands`, `doctor`) closes the whole process group, so no grandchildren of a hung command remain (A162).
+- The README is shorter; night-mode and process-rule detail moved to `docs/concepts`. A static check bounds the README size (A162).
+
 ## 0.0.19 — 2026-10-20
 
 - Night mode starts every session as leader of a verified process group (`set -m`, `setsid`, perl, python3) and refuses to run when none works; the whole group is closed at the end of a task (A161, #135, #140).
