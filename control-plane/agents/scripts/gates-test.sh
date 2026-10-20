@@ -1230,6 +1230,18 @@ sc_knowledge_na() {
   expect_msg "not_applicable accepted for a task that changed a design document" 'documentation path' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
   A knowledge-done LC >/dev/null; expect_state execution knowledge_state KNOWLEDGE_DONE
   ok "not_applicable is refused for AC words, a contract and a design-document change; the real knowledge step still records"
+  # a run from before 0.0.17 has no execution.knowledge_reason key: not_applicable is refused and nothing is recorded
+  scaffold orchestrated; to_code_done orchestrated
+  grep -q '^ *knowledge_reason:' .agents/runs/LC/RUN.yaml || die "the fixture has no knowledge_reason line to delete"
+  sed '/^ *knowledge_reason:/d' .agents/runs/LC/RUN.yaml > "$base/run.nokr"; cp "$base/run.nokr" .agents/runs/LC/RUN.yaml
+  ! grep -q 'knowledge_reason' .agents/runs/LC/RUN.yaml || die "the knowledge_reason line was not removed"
+  expect_msg "not_applicable accepted on a run without knowledge_reason" 'predates 0.0.17' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  expect_state execution knowledge_state not_started
+  # a # in the reason would end the YAML value as a comment
+  scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable accepted with a # in the reason" 'must not contain' A knowledge-done LC not_applicable "only an internal lookup fixture changed, see issue #12 for the details of it"
+  expect_state execution knowledge_state not_started
+  ok "not_applicable is refused on a run without knowledge_reason and for a # in the reason; nothing is recorded"
 }
 
 # CLASSIFY precedes BRANCH: `next` prints the order the commands accept.
