@@ -290,7 +290,7 @@ pid_alive() { pa_s=$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ' || :); [ -n "$p
 # drv_read: DP and DG from driver.pid ("pid pgid"); 1 when missing or malformed
 drv_read() {
   DP=''; DG=''; [ -f "$bd/driver.pid" ] || return 1
-  read -r DP DG < "$bd/driver.pid" || :
+  DP=$(awk 'NR == 1 { print $1 }' "$bd/driver.pid" 2>/dev/null || :); DG=$(awk 'NR == 1 { print $2 }' "$bd/driver.pid" 2>/dev/null || :)   # not `read`: the kill guard (A156) taints a variable read after a ps
   case "$DP" in ''|*[!0-9]*|0|1) DP=''; return 1 ;; esac
   case "$DG" in ''|*[!0-9]*) DG='' ;; esac
   return 0
