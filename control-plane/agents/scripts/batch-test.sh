@@ -753,6 +753,29 @@ sc_merge_commit_ci() {
   ok "merge-commit CI: red run of the SHA stops (an old green main run does not count), no run in ci_appear_minutes stops, green run continues"
 }
 
+# --- A163: a GitHub project without a pull_request workflow cannot start a batch -------------------------------------------
+sc_ci_required() {
+  bnew; mktask T-1 COMPLEX; binstall no
+  git remote add origin https://github.com/acme/app.git
+  rc=0; BP T-1 > "$base/plan.out" 2>&1 || rc=$?
+  [ "$rc" != 0 ] || die "batch-plan produced a batch although no workflow runs on pull requests"
+  grep -q 'BLOCKER' "$summary" || die "SUMMARY.md has no BLOCKER section"
+  for t in 'no CI check runs on pull requests here.' 'proofline merge does not merge a PR that has no checks.' '/proofline task Add a GitHub Actions workflow'; do
+    grep -Fq -- "$t" "$base/plan.out" || die "the refusal lacks '$t': $(cat "$base/plan.out")"
+  done
+  [ ! -e .agents/local/batch/order.tsv ] || die "a refused plan left an order"
+  [ "$(nfiles .agents/local/approvals -batch)" = 0 ] || die "a refused plan requested a batch approval"
+  capture 'approve batch'; A approve-pending >/dev/null 2>&1 || :
+  expect_msg "the driver without a batch" "no valid batch approval" BB run
+  # with a workflow the same plan passes, and the driver refuses again once the workflow is gone
+  mkdir -p .github/workflows; printf 'on: [push, pull_request]\njobs: {}\n' > .github/workflows/ci.yml
+  BP T-1 > "$base/plan.out" 2>&1 || die "batch-plan refused with a workflow: $(cat "$base/plan.out")"
+  ! grep -q 'BLOCKER' "$summary" || die "BLOCKER in a summary with CI"
+  batch_approve; rm -rf .github
+  expect_msg "the driver without CI" "proofline merge does not merge a PR that has no checks." BB run
+  ok "batch: no pull_request workflow refuses batch-plan (BLOCKER, no order, no approval) and batch.sh run; with one it plans"
+}
+
 run_sc sc_order_and_cycle
 run_sc sc_no_approval_no_start
 run_sc sc_cover_limits
@@ -782,4 +805,5 @@ run_sc sc_session_records
 run_sc sc_adapter_refused
 run_sc sc_codex_lead_warning
 run_sc sc_merge_commit_ci
+run_sc sc_ci_required
 echo 'batch tests passed'

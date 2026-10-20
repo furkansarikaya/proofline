@@ -261,6 +261,16 @@ dz=$T/dz; cp -R "$base" "$dz"; sed -e 's/^  build:.*/  build:/' -e 's/^  lint:.*
 out=$(pl "$dz" doctor 2>&1)
 expect "doctor warns about empty commands.build and commands.lint" "$out" "WARN commands: empty in .agents/config.yaml: build lint ("
 reject "doctor lists no foreign hook or skill on a clean HOME" "$out" "WARN foreign hook"
+# A163: a GitHub project without a pull_request workflow gets a WARN with the exact fix line; with one it passes
+dci=$T/dci; cp -R "$base" "$dci"; git -C "$dci" remote add origin https://github.com/acme/app.git 2>/dev/null || git -C "$dci" remote set-url origin https://github.com/acme/app.git
+out=$(pl "$dci" doctor 2>&1)
+expect "doctor warns when no workflow runs on pull requests" "$out" "WARN ci: no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks."
+task_line=$(cd "$dci" && sh .agents/scripts/agent.sh ci-task-command)
+expect "doctor prints the ci-task-command line as the fix" "$out" "Fix: $task_line"
+mkdir -p "$dci/.github/workflows"; printf 'on:\n  pull_request:\njobs: {}\n' > "$dci/.github/workflows/ci.yml"
+out=$(pl "$dci" doctor 2>&1)
+expect "doctor passes the CI check with a pull_request workflow" "$out" "PASS ci: present (.github/workflows/ci.yml)"
+reject "doctor has no CI warning with a workflow" "$out" "WARN ci:"
 # 0.0.5: foreign context hooks and overlapping skills are listed as WARN, never FAIL, and the exit stays 0
 mkdir -p "$HOME/.claude/skills/test-driven-dev" "$HOME/.claude/skills/rust-lint"
 printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo foreign-ctx"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo not-listed"}]}]}}\n' > "$HOME/.claude/settings.json"

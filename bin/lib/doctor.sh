@@ -231,6 +231,15 @@ EOF
   for dc_k in build test lint; do [ -n "$(cfg_val "$CFG" "commands.$dc_k" '')" ] || dc_empty="$dc_empty $dc_k"; done
   [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them; proofline proposes the ones proven in a run when it ends)"
 
+  # A163: proofline merge refuses a pull request without checks; say so before the first delivery, with the fix.
+  dc_ci=$(cd "$ROOT" && sh "$A" ci-check 2>/dev/null || true)
+  case "$(printf '%s\n' "$dc_ci" | head -1)" in
+    'ci: absent')
+      discover_commands "$ROOT" >/dev/null 2>&1 || true
+      d_warn "ci: $(printf '%s\n' "$dc_ci" | sed -n 2p) Fix: $(cd "$ROOT" && PROOFLINE_CI_BUILD=$D_BUILD PROOFLINE_CI_TEST=$D_TEST sh "$A" ci-task-command)" ;;
+    'ci: present'*) d_pass "$dc_ci" ;;
+  esac
+
   doctor_foreign
   doctor_identity
   doctor_probes

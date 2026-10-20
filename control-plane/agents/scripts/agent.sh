@@ -1731,6 +1731,9 @@ known_control_artifact() {
     if [ "$(section_value "$rundir" completion_report published)" = true ] || ls "$rundir"/gates/*-REOPEN.yaml >/dev/null 2>&1; then
       source_path=$(section_value "$rundir" task_source path)
       [ -n "$source_path" ] && [ "$path" = "$source_path" ] && return 0
+      # A163: the delivery commit moved the task file to done/ (the recorded path follows it): its old place is bookkeeping too
+      kc_td=$(cfg tasks.dir .agents/tasks)
+      case "$path" in "$kc_td"/*) [ -n "$source_path" ] && [ "$(basename "$path")" = "$(basename "$source_path")" ] && [ "$(lifecycle_folder_status "$source_path")" = "done" ] && [ ! -e "$root/$path" ] && return 0 ;; esac
     fi
     return 1 ;;
   esac
@@ -5212,6 +5215,74 @@ cleanup_run() {
   echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
 }
 
+# --- CI visibility (A163): does a pull request here get any check at all? Read-only, repository files only. ----------
+# proofline merge refuses a pull request without checks, so a project with no pull_request workflow can never be merged by it.
+CI_WARN='no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks.'
+# ci_workflow_has_pr FILE: the workflow's `on:` has a pull_request or pull_request_target trigger (comments ignored;
+# `on: pull_request`, `on: [push, pull_request]`, `on: {pull_request: ...}` and the mapping or list form).
+ci_workflow_has_pr() {
+  awk '
+    /^[ \t]*#/ { next }
+    { sub(/[ \t]+#.*$/, "") }
+    /^[^ \t-]/ {
+      on = ($0 ~ /^("on"|'"'"'on'"'"'|on)[ \t]*:/)
+      if (on) { v = $0; sub(/^[^:]*:/, "", v); if (v ~ /(^|[^A-Za-z_])pull_request(_target)?([^A-Za-z_]|$)/) { f = 1; exit } }
+      next
+    }
+    on && /^[ \t]+(-[ \t]+)?"?pull_request(_target)?"?[ \t]*(:|$)/ { f = 1; exit }
+    END { exit !f }' "$1"
+}
+ci_check() {
+  cc_url=$(git -C "$root" remote get-url origin 2>/dev/null || true)
+  case "$cc_url" in *github.com[:/]*) ;; *) echo 'ci: unknown (not a GitHub repository)'; return 0 ;; esac
+  for cc_f in "$root"/.github/workflows/*.yml "$root"/.github/workflows/*.yaml; do
+    [ -f "$cc_f" ] || continue
+    if ci_workflow_has_pr "$cc_f"; then echo "ci: present (${cc_f#"$root"/})"; return 0; fi
+  done
+  printf 'ci: absent\n%s\n' "$CI_WARN"; return 1
+}
+# ci_absent: true only when ci-check says absent (unknown and present are not a block).
+ci_absent() { ci_out=$(ci_check) && return 1; [ "$(printf '%s\n' "$ci_out" | head -1)" = 'ci: absent' ]; }
+# ci_task_command: one pasteable line that asks for the missing workflow, with the project's own build and test commands.
+ci_task_command() {
+  ct_b=$(cfg commands.build ''); ct_t=$(cfg commands.test '')
+  [ -n "$ct_b" ] || ct_b=${PROOFLINE_CI_BUILD:-}; [ -n "$ct_t" ] || ct_t=${PROOFLINE_CI_TEST:-}
+  [ -n "$ct_b" ] || ct_b='(none found; add yours)'; [ -n "$ct_t" ] || ct_t='(none found; add yours)'
+  printf '/proofline task Add a GitHub Actions workflow that runs on pull_request and runs: build: %s; test: %s (the workflow must trigger on pull_request)\n' "$ct_b" "$ct_t"
+}
+
+# task_source_done ID (A163): the markdown task file moves to done/ (Status line -> done) so the move is part of the delivery commit.
+# The run records the file's path, so the recorded path and the completion-report receipt follow it. Other adapters and a file
+# already in done/ are left alone. Prints the new path, or nothing.
+task_source_done() {
+  td_id=$1; require_run "$td_id"; require_lead; td_dir=$(run_dir "$td_id")
+  { [ "$(cfg tasks.adapter markdown)" = markdown ] && local_task_source_run "$td_id"; } || return 0
+  td_old=$(section_value "$td_dir" task_source path); td_root=$(cfg tasks.dir .agents/tasks)
+  case "$td_old" in "$td_root"/*) ;; *) return 0 ;; esac
+  [ "$(lifecycle_folder_status "$td_old")" != "done" ] || return 0
+  td_src=$(local_task_source "$td_dir"); td_new=$td_root/done/$(basename "$td_old")
+  [ ! -e "$root/$td_new" ] || fail "cannot move the task file: $td_new already exists"
+  td_tmp=$(mktemp "${TMPDIR:-/tmp}/agent-task-done.XXXXXX")
+  # a file without a Status line gets none (adding one would change the frozen contract); the folder is its status
+  awk '/^\*\*Status:\*\*/ { print "**Status:** done"; next } { print }' "$td_src" > "$td_tmp"
+  [ "$(task_source_contract_hash "$td_id" "$td_tmp")" = "$(section_value "$td_dir" task_source revision)" ] || { rm -f "$td_tmp"; fail "refusing to move the task file: the frozen task contract would change"; }
+  mkdir -p "$root/$td_root/done"; cat "$td_tmp" > "$td_src"; rm -f "$td_tmp"; mv "$td_src" "$root/$td_new"
+  set_run_value "$td_id" task_source path "$td_new"
+  td_rc=$(section_value "$td_dir" completion_report receipt)
+  case "$td_rc" in "$td_old"#*) set_run_value "$td_id" completion_report receipt "$td_new#${td_rc#*#}" ;; esac
+  ledger_if "$td_id" task-source-done - - "$td_old -> $td_new"
+  echo "$td_new"
+}
+# task_done_plan ID: "OLD NEW" when the commit step will move the task file to done/, else nothing.
+task_done_plan() {
+  tp_d=$(run_dir "$1")
+  { [ "$(cfg tasks.adapter markdown)" = markdown ] && local_task_source_run "$1"; } || return 0
+  tp_old=$(section_value "$tp_d" task_source path); tp_root=$(cfg tasks.dir .agents/tasks)
+  case "$tp_old" in "$tp_root"/*) ;; *) return 0 ;; esac
+  { [ "$(lifecycle_folder_status "$tp_old")" != "done" ] && [ -f "$root/$tp_old" ]; } || return 0
+  printf '%s %s\n' "$tp_old" "$tp_root/done/$(basename "$tp_old")"
+}
+
 # --- One-command delivery: one summary, one reply, one approval per step -------------------------
 # deliver-plan writes .agents/local/deliver/<ID>/SUMMARY.md (what every step will do) and one approval request per
 # step (commit push pr [merge] cleanup), each bound to the content fingerprint and to the summary's sha256. The
@@ -5281,18 +5352,22 @@ deliver_plan() {
   dl_kn=$(knowledge_owned_paths "$dl_id" 2>/dev/null || true)
   mkdir -p "$dl_dir"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
   cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg
-  dl_fp=$(content_fingerprint)
+  dl_fp=$(content_fingerprint); dl_td=$(task_done_plan "$dl_id")
   {
     printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nowner: %s\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$dl_own" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
     # a fresh nonce per plan: an approval or consumed step of an earlier, otherwise identical summary never counts
     printf 'nonce: %s-%s\n' "$(now_epoch)" "$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || echo $$)"
+    [ -z "$dl_td" ] || printf 'task_done: %s -> %s\n' "${dl_td% *}" "${dl_td#* }"
     printf 'kind: %s\nsteps: %s\nmessage: %s\nmessage_sha256: %s\ntitle: %s\nbody: .agents/local/deliver/%s/PR_BODY.md\nbody_sha256: %s\n' "$dl_kind" "$dl_steps" "$dl_msg" "$(hash_file "$dl_dir/COMMIT_MSG")" "$dl_prt" "$dl_id" "$(hash_file "$dl_dir/PR_BODY.md")"
     printf '\nchanged paths (the commit):\n'; printf '%s\n' "${dl_paths:-  none (nothing to commit; HEAD is pushed as it is)}" | sed 's/^/  /'
+    [ -z "$dl_td" ] || printf 'task file: the commit step moves it to done/ (%s -> %s) and sets its Status to done, inside the commit and so inside the pull request\n' "${dl_td% *}" "${dl_td#* }"
     printf 'changed by the knowledge step:\n'; printf '%s\n' "${dl_kn:-none}" | sed 's/^/  /'
     printf '\nsteps, in order:\n'
     case " $dl_steps " in *" commit "*) printf '  commit : git commit -F .agents/local/deliver/%s/COMMIT_MSG on %s (the pre-commit hook checks the gated content)\n' "$dl_id" "$dl_br" ;; esac
     printf '  push   : git push -u origin %s\n' "$dl_br"
     printf '  pr     : a pull request into %s, body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a red or failed check stops here (no cleanup)\n  cleanup: after the merge\n' "$dl_base"
+    if ci_absent; then printf '  WARNING: %s\n  fix: %s\n' "$CI_WARN" "$(ci_task_command)"; fi
+    [ -z "$dl_td" ] || printf '  task file: moved to done/ only inside the pull request; the task is not done on %s until the merge succeeds\n' "$dl_base"
     dl_r=''
     for dl_rq in "$(approvals_dir "$dl_id")"/[0-9][0-9][0-9]-request-rule-*.yaml; do
       [ -f "$dl_rq" ] || continue; dl_rk=$(gate_field "$dl_rq" kind)
@@ -5341,6 +5416,7 @@ deliver_step() {
   ds_want="$ds_head $ds_br $(ds_v base) $(ds_v owner)"; ds_pv=${deliver_pv:-unreadable}
   case "$ds_s" in
     commit)
+      [ -z "$(ds_v task_done)" ] || printf 'run: sh .agents/scripts/agent.sh task-source-done %s\n' "$ds_id"
       printf 'run: git add -A\nrun: git commit -F %s/COMMIT_MSG\nthen: agent.sh deliver-step %s push\n' "$ds_rel" "$ds_id" ;;
     push)
       [ "$(cfg git.push_requires_approval true)" != false ] || consume_approval "$ds_t" "$ds_app"
@@ -5353,7 +5429,9 @@ deliver_step() {
       deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
       [ "$ds_pv" = "OPEN false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open, non-draft pull request ($ds_want; gh: $ds_pv)"
       consume_approval "$ds_t" "$ds_app"; printf '%s\n' "$ds_pr" > "$ds_dir/PR"
-      printf 'run: gh pr checks %s --watch --fail-fast\nrun: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\nthen: agent.sh deliver-step %s cleanup %s\n' "$ds_pr" "$ds_pr" "$ds_id" "$ds_pr" ;;
+      printf 'run: gh pr checks %s --watch --fail-fast\nrun: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\n' "$ds_pr" "$ds_pr"
+      [ -z "$(ds_v task_done)" ] || printf 'on that STOP also report: the task file was moved to done/ only in the unmerged pull request branch, so the task is still not done on %s\n' "$(ds_v base)"
+      printf 'then: agent.sh deliver-step %s cleanup %s\n' "$ds_id" "$ds_pr" ;;
     cleanup)
       deliver_consumed "$ds_t" merge "$ds_h" && [ "$(cat "$ds_dir/PR" 2>/dev/null)" = "$ds_pr" ] || ds_stop "the merge step of this delivery did not run for pull request $ds_pr"
       [ "$ds_pv" = "MERGED false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's merged pull request ($ds_want; gh: $ds_pv); no cleanup before the merge"
@@ -5466,7 +5544,7 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
-read_only_commands='next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier'
+read_only_commands='next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -5514,7 +5592,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-plan <ID...|all> [--codex-danger-full-access] | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check   (A157: night mode; lead only)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup> [PR]   (one summary, one "approve delivery", one approval per step)
-  task-source-status <ID> | task-source-relocate <ID> <NEW-PATH>
+  task-source-status <ID> | task-source-relocate <ID> <NEW-PATH> | task-source-done <ID>
+  ci-check | ci-task-command   (A163: is there a pull_request workflow; the task line that adds one)
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   entry-tier <BULLET TEXT>   (read-only: mandatory, information or none for one PLAN.md ## Contracts bullet, A162)
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
@@ -5603,6 +5682,9 @@ case "$command" in
   window-close) require_lead; window_close "${2:?usage: agent.sh window-close <ID> <BEFORE> [EXIT-STATUS] [implementer|designer]}" "${3:-}" "${4:-0}" "${5:-}" ;;
   verify-gates) verify_lifecycle_gates "${2:?usage: agent.sh verify-gates <ID>}"; echo "lifecycle gates verified: $2" ;;
   verify-seal) verify_seal "${2:?usage: agent.sh verify-seal <ID>}"; echo "lifecycle seal verified: $2" ;;
+  ci-check) ci_check; exit $? ;;
+  ci-task-command) ci_task_command ;;
+  task-source-done) task_source_done "${2:?usage: agent.sh task-source-done <ID>}" ;;
   task-source-status) task_source_status "${2:?usage: agent.sh task-source-status <ID>}" ;;
   task-source-relocate) task_source_relocate "${2:?usage: agent.sh task-source-relocate <ID> <NEW-PATH>}" "${3:?usage: agent.sh task-source-relocate <ID> <NEW-PATH>}" ;;
   knowledge-done) knowledge_done "${2:?usage: agent.sh knowledge-done <ID> [not_applicable \"<reason>\"]}" "${3:-KNOWLEDGE_DONE}" "${4:-}" ;;

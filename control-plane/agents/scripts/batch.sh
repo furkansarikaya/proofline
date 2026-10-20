@@ -81,6 +81,10 @@ rt_list() {
 # --- plan ------------------------------------------------------------------------------------------------------------
 cls_of() { awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$1"; }
 deps_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^depends_on:/ { sub(/^depends_on:[[:space:]]*/, ""); gsub(/["\[\]]/, ""); gsub(/[,[:space:]]+/, ","); sub(/^,/, ""); sub(/,$/, ""); print; exit }' "$1"; }
+# ci_blocked (A163): true when the project has no pull_request workflow. proofline merge does not merge a PR without checks, so a batch
+# could never deliver. No setting lifts this.
+ci_blocked() { ci_out=$(sh "$agent" ci-check 2>/dev/null) || :; [ "$(printf '%s\n' "$ci_out" | head -1)" = 'ci: absent' ]; }
+ci_refusal() { printf '%s\n%s\nfix: %s\n' 'no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks.' 'The batch is refused: every pull request would stop at the merge step.' "$(sh "$agent" ci-task-command 2>/dev/null)"; }
 plan() {
   [ "$(cfgv tasks.adapter markdown)" = markdown ] || die "night mode runs markdown task files only, but tasks.adapter is $(cfgv tasks.adapter markdown) (a design decision, A161: the unattended driver must not depend on network calls to resolve ids and order). Next step: set tasks.adapter to markdown in .agents/config.yaml, import each task with '/proofline task <issue reference>' (it writes <tasks.dir>/<ID>.md with its Suggested class and depends_on), then run '/proofline batch <ID...>' again"
   danger=no; for a in "$@"; do shift; if [ "$a" = --codex-danger-full-access ]; then danger=yes; else set -- "$@" "$a"; fi; done
@@ -157,6 +161,9 @@ plan() {
   cap=$(cfgv batch.mutation_budget_cap 40)
   {
     printf '# Night batch\n\nnonce: %s-%s\n\n' "$(date +%s)" "$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || echo $$)"
+    if ci_blocked; then
+      printf '## BLOCKER\n\n%s\n\nThis batch cannot be approved or started until a workflow that runs on pull_request exists. Add one, then plan the batch again:\n\n    %s\n\n' "$(ci_refusal | head -2 | tr '\n' ' ')" "$(sh "$agent" ci-task-command 2>/dev/null)"
+    fi
     printf 'One approval of this summary stands in for the approvals listed below, for the tasks in the table and for nothing else.\nThe batch id is the first 12 hex digits of the sha256 of this file; the approval is bound to that hash.\n\n'
     printf '## Order (one task at a time, each in a clean headless lead session)\n\n| # | task | title | class | depends_on |\n|---|------|-------|-------|------------|\n'
     p=0
@@ -203,7 +210,11 @@ plan() {
       fi
     fi
   } > "$tmp/SUMMARY.md"
-  mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"; mv "$tmp/order" "$bd/order.tsv"
+  mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"
+  if ci_blocked; then   # A163: the summary is shown with its BLOCKER, but there is no order and no approval request: nothing can start
+    rm -f "$bd/order.tsv"; cat "$bd/SUMMARY.md" >&2; ci_refusal >&2; exit 1
+  fi
+  mv "$tmp/order" "$bd/order.tsv"
   cat "$bd/SUMMARY.md"
   printf '\nbatch id: %s\n\n' "$(bid)"
 }
@@ -387,6 +398,7 @@ stop() { st_stop "$1"; echo "batch: stopped: $1" >&2; sh "$here/batch.sh" status
 run() {
   sh "$agent" batch-check >/dev/null 2>&1 || die "no valid batch approval for the current summary: plan the batch (agent.sh batch-plan), then reply \"approve batch\" to the summary"
   [ -f "$bd/order.tsv" ] || die "no batch order: plan the batch first"
+  if ci_blocked; then ci_refusal >&2; die "refused: no workflow runs on pull_request"; fi
   # The Codex sandbox the approved summary states is read ONCE, here, right after batch-check; a session cannot edit SUMMARY.md to widen it for later sessions.
   B_SB=$(sed -n 's/^codex sandbox: \([a-z_-]*\).*/\1/p' "$bd/SUMMARY.md" | head -1)
   if [ -f "$bd/LOCK" ]; then
