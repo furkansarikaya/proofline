@@ -67,7 +67,7 @@ export function maskSql(src) {
 }
 
 // Splits on ";" (outside comments/strings) and on SQL Server "GO" batch lines.
-// ponytail: MySQL client "DELIMITER" blocks are not supported; such files classify as unknown.
+// shortcut: MySQL client "DELIMITER" blocks are not supported (such files classify as unknown); improve when a project's migrations use DELIMITER blocks.
 export function splitStatements(src) {
   const masked = maskSql(src).replace(/^[ \t]*GO[ \t]*$/gim, (m) => ";".padEnd(m.length, " "));
   const stmts = [];
@@ -295,7 +295,7 @@ const TOKENS = [
 const BREAKING_TOKENS = new Set(["rename_column", "rename_table"]);
 
 function stripCodeComments(src) {
-  // ponytail: strips // and /* */ and leading-# line comments only; strings keep their text (SQL in them is scanned).
+  // shortcut: strips // and /* */ and leading-# line comments only (strings keep their text and the SQL in them is scanned); improve when a comment marker inside a string misclassifies a real migration.
   return src
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
     .replace(/(^|[^:"'`\\])\/\/[^\n]*/g, (m, p) => p + " ".repeat(m.length - p.length))

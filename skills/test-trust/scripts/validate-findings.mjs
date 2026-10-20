@@ -13,8 +13,7 @@ import { computeGate, minMutants } from "./gate.mjs";
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "schema", "findings.schema.json");
 
-// ponytail: implements only the JSON Schema keywords findings.schema.json uses;
-// add a keyword here before using it in the schema.
+// shortcut: implements only the JSON Schema keywords findings.schema.json uses; improve when the schema needs another keyword (add it here first).
 export function validate(schema, data, root = schema, path = "$") {
   if (schema === true) return [];
   if (schema === false) return [`${path}: not allowed`];

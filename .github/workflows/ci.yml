@@ -74,6 +74,9 @@ jobs:
           if [ -f tests/shared/check-shared.sh ]; then sh tests/shared/check-shared.sh
           else echo "SKIPPED: tests/shared/check-shared.sh does not exist yet"; fi
 
+      - name: static rules (shortcut labels, README size)
+        run: sh tests/shared/check-static.sh
+
       # A125: front matter, YAML/TOML and Markdown links; runs for documentation-only pull requests too
       - uses: actions/setup-node@v4
         with:
