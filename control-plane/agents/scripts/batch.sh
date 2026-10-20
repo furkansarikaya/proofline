@@ -42,9 +42,22 @@ CODEX_PROFILE='proofline_night'
 CODEX_FS='{":root"="read",":workspace_roots"={"."="write",".git"="write",".git/hooks"="read",".git/config"="read",".agents"="write"},":tmpdir"="write"}'
 CODEX_VERIFIED='npm, pnpm, yarn, pip, go'
 CODEX_MIN='0.163.0'   # the profile was verified on this codex-cli; an older or unparsable one is refused (no unknown sandbox)
-codex_env() { # -> the TOML inline table for shell_environment_policy.set
-  ce=${TMPDIR:-/tmp}; case "$ce" in *[!A-Za-z0-9_./+-]*) ce=/tmp ;; esac
-  ce=${ce%/}/proofline-pkg-$(id -u); mkdir -p "$ce" 2>/dev/null && chmod 700 "$ce" 2>/dev/null || :
+# codex_pkg_check: creates the package-cache dir with mkdir -m 700 (an existing path is never followed or changed) and accepts it only when it
+# is a real directory (no symlink) owned by the current uid with mode 700; sets CE to its path. Not ok: returns 1 with one line in PKG_BAD.
+codex_pkg_check() {
+  CE=${TMPDIR:-/tmp}; case "$CE" in *[!A-Za-z0-9_./+-]*) CE=/tmp ;; esac
+  CE=${CE%/}/proofline-pkg-$(id -u); PKG_BAD=''
+  mkdir -m 700 "$CE" 2>/dev/null || :
+  if [ -L "$CE" ] || [ ! -d "$CE" ]; then PKG_BAD="the Codex package cache $CE is a symlink or not a directory; remove it, or set TMPDIR to a private folder"; return 1; fi
+  pk_ls=$(ls -ldn "$CE" 2>/dev/null) || pk_ls=''
+  # shellcheck disable=SC2086  # the fields of one ls line: mode, links, uid
+  set -- $pk_ls
+  pk_m=$(printf '%.10s' "${1:-}"); pk_u=${3:-}
+  if [ "$pk_u" != "$(id -u)" ] || [ "$pk_m" != drwx------ ]; then PKG_BAD="the Codex package cache $CE is not owned by uid $(id -u) with mode 700 (found uid ${pk_u:-?}, ${pk_m:-?}); remove it, or set TMPDIR to a private folder"; return 1; fi
+  return 0
+}
+codex_env() { # -> the TOML inline table for shell_environment_policy.set (nothing, status 1, when the cache dir is not safe)
+  codex_pkg_check || return 1; ce=$CE
   printf '{npm_config_cache="%s/npm",npm_config_update_notifier="false",npm_config_store_dir="%s/pnpm-store",YARN_CACHE_FOLDER="%s/yarn",YARN_GLOBAL_FOLDER="%s/yarn-global",PIP_CACHE_DIR="%s/pip",GOCACHE="%s/go-build",GOPATH="%s/go"}' "$ce" "$ce" "$ce" "$ce" "$ce" "$ce" "$ce"
 }
 # codex --version -> "major.minor.patch" or nothing. Under PROOFLINE_TEST=1 only, PROOFLINE_CODEX_VERSION replaces the output of `codex --version`.
@@ -321,6 +334,7 @@ run_session() { # ID RUNTIME PROMPT SANDBOX: the runtime's own command, in the p
   S_PM=$(cfgv dispatch.claude_permission_mode bypassPermissions); cd "$root" || return 1
   if [ "$2" = codex ]; then
     rs_sb=$4; rs_p=$3   # the choice the driver read once, right after batch-check
+    [ "$rs_sb" = danger-full-access ] || codex_pkg_check || { echo "batch: $PKG_BAD; no Codex session is started" >&2; return 1; }
     set -- -c "default_permissions=\"$CODEX_PROFILE\"" -c "permissions.$CODEX_PROFILE.network.enabled=true" -c "permissions.$CODEX_PROFILE.filesystem=$CODEX_FS" -c "shell_environment_policy.set=$(codex_env)"
     [ "$rs_sb" != danger-full-access ] || set -- -s danger-full-access   # only what the approved summary states, never config or env
     codex exec -C "$root" "$@" -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$rs_p" < /dev/null
@@ -412,6 +426,11 @@ run() {
         printf 'batch: %s: Codex is left out of this batch\n' "$bad" >&2
         nr=''; for r in $rts; do [ "$r" = codex ] || nr="$nr $r"; done; rts=${nr# }
       fi
+      case " $rts " in *" codex "*) if ! codex_pkg_check; then
+        if [ -n "$(cfgv batch.runtimes '')" ] || [ "$(cfgv runtime.lead claude)" = codex ]; then die "$PKG_BAD"; fi
+        printf 'batch: %s: Codex is left out of this batch\n' "$PKG_BAD" >&2
+        nr=''; for r in $rts; do [ "$r" = codex ] || nr="$nr $r"; done; rts=${nr# }
+      fi ;; esac
     fi ;;
   esac
   exhausted=''

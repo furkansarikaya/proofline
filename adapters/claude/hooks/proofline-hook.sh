@@ -15,6 +15,7 @@
 # is the lead (non-proofline subagents get the lead's restrictions).
 set -u
 ev=${1:-}; rt=${2:-claude}
+kg_t0=$(date +%s)   # the kill guard's time budget (KG_BUDGET, below) covers the whole hook, so it starts here
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-hook.XXXXXX") || exit 0
 trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/in"
@@ -1111,8 +1112,9 @@ kg_rp() {
 # or text that holds a kill word (kill, slay, fuser) is denied, anything else is let through (without such a word no
 # rule can fire).
 KG_BUDGET=${PROOFLINE_KG_BUDGET:-20}
-kg_t0=0   # set by kill_guard
+# kg_t0 is taken at hook entry (top of the script): the budget covers everything the hook does, not only the guard.
 kg_check_time() {
+  case "$kg_t0" in ''|*[!0-9]*) kg_t0=$(date +%s) ;; esac
   [ $(( $(date +%s) - kg_t0 )) -ge "$KG_BUDGET" ] || return 0
   if grep -aEq 'kill|slay|fuser' "$1" 2>/dev/null; then
     kg_no "the guard ran out of time (${KG_BUDGET}s) reading a command or script that names a kill verb, and cannot clear it; split the command or run it from a short script"
@@ -1138,13 +1140,31 @@ kg_file_ok() {
   grep -Iq . "$kf" 2>/dev/null || return 1   # binary (or empty): nothing to read
   printf '%s\n' "$kf"
 }
+# kg_scan IN OUT: scan_cmd IN > OUT under the time budget. scan_cmd is one awk run (about 7 s for 250 KB), so it runs in the
+# background and is polled; once the budget is spent it is stopped (it is this function's own child) and kg_check_time decides
+# on the text: a kill word is denied, anything else passes.
+kg_scan() {
+  kg_check_time "$1"
+  # small text (the usual case: a string literal, a short command) is scanned in the foreground, no polling cost
+  if [ "$(wc -c < "$1")" -le "${PROOFLINE_KG_BGMIN:-16384}" ]; then scan_cmd < "$1" > "$2"; return 0; fi
+  scan_cmd < "$1" > "$2" &
+  ksc_p=$!
+  while kill -0 "$ksc_p" 2>/dev/null; do
+    if [ $(( $(date +%s) - kg_t0 )) -ge "$KG_BUDGET" ]; then
+      kill "$ksc_p" 2>/dev/null; wait "$ksc_p" 2>/dev/null
+      kg_check_time "$1"
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+  wait "$ksc_p" 2>/dev/null || :
+}
 # kg_text TEXT: the shell text as a command line; kg_code LANG TEXT: interpreter code. Each runs in a $(...) subshell
 # and prints the reason (status 1) when it kills by pattern.
 kg_text() {
   [ "$KG_DEPTH" -lt 5 ] || return 0
   KG_DEPTH=$((KG_DEPTH + 1))
   printf '%s\n' "$1" > "$tmp/kgt.$KG_DEPTH"
-  scan_cmd < "$tmp/kgt.$KG_DEPTH" > "$tmp/kgs.$KG_DEPTH"
+  kg_scan "$tmp/kgt.$KG_DEPTH" "$tmp/kgs.$KG_DEPTH"
   kg_run "$tmp/kgs.$KG_DEPTH"
 }
 kg_sub() { kg_r=$(kg_text "$1") || { printf '%s\n' "$kg_r"; exit 1; }; }
@@ -1502,7 +1522,6 @@ KGSH
   return 0
 }
 kill_guard() {
-  kg_t0=$(date +%s)
   kg_r=$(kg_run "$tmp/scan") || deny "$kg_r"
   return 0
 }
