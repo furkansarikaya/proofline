@@ -400,7 +400,7 @@ sc_task_timeout() {
 sc_codex_sandbox() {
   bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
   printf 'merge\n' > "$FAKE/behave/T-1"
-  # default: workspace-write with network for package installs; the summary says so and carries no warning
+  # default: the proofline_night profile with network (package caches redirected); the summary says so and carries no warning
   BP all >/dev/null || die "batch-plan failed"
   grep -q '^codex sandbox: proofline_night profile' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
   batch_approve; : > "$FAKE/codex.argv"
@@ -421,11 +421,11 @@ sc_codex_sandbox() {
   done
   cg_reset; BP all --codex-danger-full-access >/dev/null || die "batch-plan with the flag failed"; batch_approve; BB run >/dev/null 2>&1 || :
   grep -q -- '-s danger-full-access' "$FAKE/codex.argv" && ! grep -q 'proofline_night' "$FAKE/codex.argv" || die "codex argv with the flag: $(cat "$FAKE/codex.argv")"
-  ok "codex: -s workspace-write (+network) by default; danger-full-access only via --codex-danger-full-access in the approved summary (with WARNING), never config or env"
+  ok "codex: the proofline_night profile (+network) by default; danger-full-access only via --codex-danger-full-access in the approved summary (with WARNING), never config or env"
 }
 
 sc_codex_sandbox_tamper() {
-  # session 1 rewrites SUMMARY.md to danger-full-access: the driver read the approved choice once, so session 2 stays workspace-write
+  # session 1 rewrites SUMMARY.md to danger-full-access: the driver read the approved choice once, so session 2 stays in the profile
   bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
   printf 'merge\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-2"
   BP all >/dev/null || die "batch-plan failed"; batch_approve; : > "$FAKE/codex.argv"; : > "$FAKE/codex.tamper"
