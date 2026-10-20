@@ -84,7 +84,7 @@ scenario_failed_refused() {
   worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null; gfail VERIFY impl.txt
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
   expect_msg "a FAILED run is refused with the next step" 'to reopen: /proofline reopen LC' A deliver-plan LC
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   expect_msg "a FAILED run is refused after the knowledge step too" 'to reopen: /proofline reopen LC' A deliver-plan LC
   [ ! -e .agents/local/deliver/LC ] || die "a refused delivery wrote a summary"
   ok "deliver: a FAILED run is refused (no draft pull request) and names the reopen command"

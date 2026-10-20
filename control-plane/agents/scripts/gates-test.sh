@@ -667,7 +667,7 @@ $low"
   # the completion report lists every unverified and accepted-by-user assumption (ids; accepted ones with the answer)
   A handoff LC IMPLEMENTING >/dev/null
   to_code_done standalone
-  A knowledge-done LC not_applicable >/dev/null; write_report
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report
   expect_msg "a report that omits the assumptions was published" 'does not list: AS-1 AS-2 AS-3' A publish-completion-report LC markdown
   write_report '' '## Assumptions' '- AS-1 (high): accepted-by-user' '- AS-2 (high): accepted-by-user, questions/006.answer.md' '- AS-3 (low): unverified'
   expect_msg "an accepted assumption without its answer reference was published" 'does not list: AS-1(answer questions/011.answer.md)' A publish-completion-report LC markdown
@@ -968,7 +968,7 @@ sc_next() {
   A next LC | grep -q '^next=agent.sh handoff LC CODE_DONE'
   A handoff LC CODE_DONE >/dev/null
   A next LC | grep -q '^next=agent.sh knowledge-done LC'
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   A next LC | grep -q '^next=write COMPLETION_REPORT.md'
   ok "next: deterministic steps from approval to completion"
 }
@@ -1106,7 +1106,7 @@ sc_report_finding_ids() {
     esac
   done
   A pipeline LC | sed -n 's/^focus\.\([A-Z_]*\)\.\([a-z]*\)=.*/\1 \2/p' | while read -r g f; do RF_FOCUS=$f gpass "$g"; done
-  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable >/dev/null
+  A handoff LC CODE_DONE >/dev/null; A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   nr="$rg:$(gate_focus "$rg")"
   # every miss at once: the not-reproduced line AND the ids, with the line to add
   write_report '' "$rg: none."
@@ -1132,7 +1132,7 @@ sc_report_finding_ids() {
 # refuses numbers beside tests, gates, fix rounds and refreezes that are not the recorded ones.
 sc_report_facts() {
   scaffold orchestrated; to_code_done orchestrated
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   ng=$(required | wc -w | tr -d ' ')
   facts=$(A report-facts LC)
   for want in "- Required gates: $ng" '- Fix rounds: 0 of 2' '- Refreezes: 0' '- Files changed (task-owned paths): 2' '- Worker-evidence run records: total 2, ended pass 1, ended fail 1' '- Gate VERIFY: pass; findings: none'; do
@@ -1202,6 +1202,46 @@ sc_wiki_knowledge_scope() {
   mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: docs/design/DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
   A verify-knowledge-scope LC >/dev/null
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
+}
+
+# A159: `knowledge-done not_applicable` is a claim the script checks: a reason is required, it is shown in the report,
+# and a task that changes what the user sees, a contract or a design document is refused.
+sc_knowledge_na() {
+  scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable without a reason was accepted" 'needs a reason' A knowledge-done LC not_applicable
+  expect_msg "not_applicable with an empty reason was accepted" 'needs a reason' A knowledge-done LC not_applicable ""
+  expect_state execution knowledge_state not_started
+  A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it" >/dev/null
+  expect_state execution knowledge_state not_applicable
+  A report-facts LC | grep -Fq 'Knowledge step: not_applicable; not_applicable reason: only an internal lookup fixture changed' || die "the Facts block does not show the reason: $(A report-facts LC)"
+  write_report; A publish-completion-report LC markdown >/dev/null
+  grep -Fq 'not_applicable reason: only an internal lookup fixture changed' .agents/runs/LC/COMPLETION_REPORT.md || die "the published report does not show the reason"
+  ok "not_applicable needs a reason; the reason is recorded and shown in the published report"
+  # user-visible behaviour in the acceptance criteria
+  SC_TASK_EXTRA='- AC-2: the lookup command prints the stored value' scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable accepted for a task that changes a command" 'user-visible behaviour' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  expect_state execution knowledge_state not_started
+  # a contract in the frozen plan
+  SC_PLAN_EXTRA='## Contracts
+- lookup returns nil for an empty key' scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable accepted for a task with a contract change" 'contract' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  # a design document changed by the task
+  SC_SCOPE_NAMED=docs/design/DESIGN.md scaffold standalone; printf 'new section\n' >> docs/design/DESIGN.md; to_code_done standalone
+  expect_msg "not_applicable accepted for a task that changed a design document" 'documentation path' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  A knowledge-done LC >/dev/null; expect_state execution knowledge_state KNOWLEDGE_DONE
+  ok "not_applicable is refused for AC words, a contract and a design-document change; the real knowledge step still records"
+  # a run from before 0.0.17 has no execution.knowledge_reason key: not_applicable is refused and nothing is recorded
+  scaffold orchestrated; to_code_done orchestrated
+  grep -q '^ *knowledge_reason:' .agents/runs/LC/RUN.yaml || die "the fixture has no knowledge_reason line to delete"
+  sed '/^ *knowledge_reason:/d' .agents/runs/LC/RUN.yaml > "$base/run.nokr"; cp "$base/run.nokr" .agents/runs/LC/RUN.yaml
+  ! grep -q 'knowledge_reason' .agents/runs/LC/RUN.yaml || die "the knowledge_reason line was not removed"
+  expect_msg "not_applicable accepted on a run without knowledge_reason" 'predates 0.0.17' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  expect_state execution knowledge_state not_started
+  # a # in the reason would end the YAML value as a comment
+  scaffold orchestrated; to_code_done orchestrated
+  expect_msg "not_applicable accepted with a # in the reason" 'must not contain' A knowledge-done LC not_applicable "only an internal lookup fixture changed, see issue #12 for the details of it"
+  expect_state execution knowledge_state not_started
+  ok "not_applicable is refused on a run without knowledge_reason and for a # in the reason; nothing is recorded"
 }
 
 # CLASSIFY precedes BRANCH: `next` prints the order the commands accept.
@@ -1856,6 +1896,7 @@ run_sc sc_report_finding_ids
 run_sc sc_report_facts
 run_sc sc_knowledge_secrets
 run_sc sc_wiki_knowledge_scope
+run_sc sc_knowledge_na
 run_sc sc_next_order
 run_sc sc_start
 run_sc sc_qa_plan_bound

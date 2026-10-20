@@ -61,8 +61,8 @@ sig() { ( cd "$1" && find . -path ./.git -prune -o -type f -print | sort | while
 jqe() { jq -e "$1" "$2" >/dev/null 2>&1; }
 
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.16" "$out" "proofline 0.0.16"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.16 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.17" "$out" "proofline 0.0.17"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.17 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -79,7 +79,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.16 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.17 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -114,7 +114,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.16' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.17' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -286,8 +286,8 @@ out=$(pl "$st" status 2>&1); expect "status without a run says so" "$out" "no ac
 mkdir -p "$st/.agents/runs/T-1" "$st/.agents/local" "$st/.agents/tasks/todo"
 sed 's/<TASK-ID>/T-1/' "$st/.agents/templates/RUN.yaml" > "$st/.agents/runs/T-1/RUN.yaml"
 echo T-1 > "$st/.agents/local/ACTIVE_RUN"; printf '# Task: T-9 - queued\n' > "$st/.agents/tasks/todo/T-9.md"
-out=$(pl "$st" 2>&1); expect "no command means status" "$out" "active_task=T-1"; expect "status prints agent.sh next" "$out" "next=agent.sh classify T-1"
-out=$(pl "$st" resume 2>&1); expect "resume prints agent.sh next" "$out" "next=agent.sh classify T-1"; expect "resume prints the state" "$out" "state=PLANNING"
+out=$(pl "$st" 2>&1); expect "no command means status" "$out" "active_task=T-1"; expect "status prints the run state, not the lead's internal next command (A159)" "$out" "state=PLANNING"
+out=$(pl "$st" resume 2>&1); expect "resume ends with the user's next step (A159)" "$out" "Next step: /proofline resume"; expect "resume prints the state" "$out" "state=PLANNING"
 expect "resume checks freshness" "$out" "freshness:"; expect "resume tells Claude users what to say" "$out" "/proofline resume"
 out=$(pl "$st" queue 2>&1); expect "queue lists task files" "$out" "todo/T-9.md"; expect "queue lists runs and marks the active one" "$out" "* T-1"
 out=$(pl "$st" run T-2 2>&1); expect "run prints the Claude instruction" "$out" "/proofline run T-2"; expect "run warns about the active run" "$out" "run T-1 is active"
@@ -351,7 +351,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.16" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.17" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -443,6 +443,10 @@ rd_cmds=$(rd_list "$repo/README.md")
 [ -n "$hp_cmds" ] && [ -n "$rd_cmds" ] || die "help or README command list is empty"
 if [ "$hp_cmds" = "$rd_cmds" ]; then ok "the README command list names exactly the commands of proofline help"
 else LAST=$(printf 'help:\n%s\nREADME:\n%s\n' "$hp_cmds" "$rd_cmds"); die "README.md Commands list and proofline help name different commands"; fi
+# A159: the next-step table has an entry for every command of `proofline help`, and no other
+nu_cmds=$(sh "$repo/control-plane/agents/scripts/next-user.sh" --commands | sort -u)
+if [ "$hp_cmds" = "$nu_cmds" ]; then ok "the next-step table names exactly the commands of proofline help"
+else LAST=$(printf 'help:\n%s\nnext-user:\n%s\n' "$hp_cmds" "$nu_cmds"); die "next-user.sh table and proofline help name different commands"; fi
 # negative: a command missing from the README block (or an invented one) makes the same comparison fail
 mkdir -p "$T/rdneg"
 grep -v '^debt  ' "$repo/README.md" > "$T/rdneg/missing.md"

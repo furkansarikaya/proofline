@@ -178,7 +178,7 @@ scenario_orchestrated_loop() {
   worker FIX pass impl.txt 'impl: trim the key before lookup'
   A handoff LC IMPLEMENTED >/dev/null
   pass_all; A handoff LC CODE_DONE >/dev/null
-  A knowledge-done LC not_applicable >/dev/null; write_report
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report
   expect_fail "report without Reopen History accepted for a reopened run" A publish-completion-report LC markdown
   write_report '' '## Reopen History' 'Reopened once after DONE: whitespace keys; fixed by the worker; re-reviewed and re-verified.'
   A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
@@ -254,7 +254,7 @@ scenario_bounded_fix() {
   worker GREEN pass impl.txt 'impl: empty key returns the documented default'
   A handoff LC IMPLEMENTED >/dev/null
   pass_all; A handoff LC CODE_DONE >/dev/null
-  A knowledge-done LC not_applicable >/dev/null; write_report '' '## Amendments' 'Amendment 001 after three failing rounds.'
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report '' '## Amendments' 'Amendment 001 after three failing rounds.'
   A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
   A validate LC >/dev/null
   ok "fix loop bound, fix_scope and amendment escalation"
@@ -482,7 +482,7 @@ scenario_pipeline_trivial() {
   printf '# stray\n' > .agents/runs/LC/QA_PLAN.md
   expect_msg "a QA_PLAN.md on a TRIVIAL run passed verify-scope" 'unexpected run artifact' A verify-scope LC
   rm .agents/runs/LC/QA_PLAN.md
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   printf '%s\n' '# Completion Report: LC' '' '## Implementation Summary' 'impl.txt and impl_test.txt changed under the TRIVIAL pipeline.' '' '## TDD Evidence' 'RED then GREEN recorded by the lead.' '' '## Verification' 'The VERIFY gate passed on the final tree.' '' '## Assumptions' 'none' '' '## Review Result' 'REVIEW_SMALL passed.' '' '## Known Limitations / Follow-up' 'None.' > .agents/runs/LC/COMPLETION_REPORT.md
   A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
   A validate LC >/dev/null; A delivery-check LC >/dev/null
@@ -540,7 +540,7 @@ scenario_pipeline_standard() {
   pass_all; A handoff LC CODE_DONE >/dev/null
   printf -- '- QA-2: weakened criterion added after freeze\n' >> .agents/runs/LC/QA_PLAN.md
   expect_msg "an edited QA plan passed verify-freeze" 'freeze mismatch: qa_plan' A verify-freeze LC
-  expect_msg "an edited QA plan allowed knowledge-done" 'freeze mismatch: qa_plan' A knowledge-done LC not_applicable
+  expect_msg "an edited QA plan allowed knowledge-done" 'freeze mismatch: qa_plan' A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run"
   sed '$d' .agents/runs/LC/QA_PLAN.md > "$base/qa.restored" && cp "$base/qa.restored" .agents/runs/LC/QA_PLAN.md
   A verify-freeze LC >/dev/null
   ok "STANDARD pipeline"
@@ -589,7 +589,7 @@ scenario_amend_plan_change() {
   A refreeze LC 001.md >/dev/null; expect_state handoff state IMPLEMENTING
   solo RED fail impl_test.txt 'test: helper returns the stored value' impl.txt,impl_test.txt,extra.txt; solo GREEN pass extra.txt 'helper: returns the stored value' impl.txt,impl_test.txt,extra.txt
   A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   write_report '' '## Amendments' 'Amendment 001 added extra.txt.' '' '## Reopen History' 'Reopened once after DONE to add a helper.'
   A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null; A validate LC >/dev/null
   ok "reopen with an authorized plan amendment"
@@ -687,7 +687,7 @@ scenario_task_contract_edit() {
   topo=$1; scaffold "$topo" yes; to_code_done "$topo"; frozen=$(rv task_source revision)
   printf '%s\n' '- a requirement added after freeze' >> tasks/in-progress/LC.md
   expect_msg "an edited task contract passed freshness" 'frozen task contract changed' A freshness LC
-  expect_msg "knowledge-done accepted an edited task contract" 'frozen task contract changed' A knowledge-done LC not_applicable
+  expect_msg "knowledge-done accepted an edited task contract" 'frozen task contract changed' A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run"
   write_report
   expect_msg "publish accepted an edited task contract" 'frozen task contract changed' A publish-completion-report LC markdown
   expect_state completion_report published false; expect_state task_source revision "$frozen"
@@ -726,7 +726,7 @@ scenario_task_contract_relocate() {
 # A74: a defect task (a debug-proof result exists) must carry a ## Root cause section in its completion report.
 scenario_report_root_cause() {
   scaffold standalone yes; to_code_done standalone
-  A knowledge-done LC not_applicable >/dev/null; write_report
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report
   mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
   expect_msg "a defect run's report without ## Root cause was published" 'missing required section: ## Root cause' A publish-completion-report LC markdown
   expect_state completion_report published false
@@ -734,14 +734,14 @@ scenario_report_root_cause() {
   A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
   ok "a defect run's completion report needs ## Root cause"
   scaffold standalone yes; to_code_done standalone
-  A knowledge-done LC not_applicable >/dev/null; write_report
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report
   A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
   ok "a run without a debug-proof result publishes without ## Root cause"
 }
 scenario_task_contract_adapter() {
   scaffold standalone yes; to_code_done standalone; frozen=$(rv task_source revision)
   cp tasks/in-progress/LC.md "$base/pre-publish.md"
-  A knowledge-done LC not_applicable >/dev/null; write_report
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report
   printf '%s\n' '#!/bin/sh' 'set -eu' 'root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)' \
     'path=$(sed -n "s/^  path: //p" "$root/.agents/runs/$2/RUN.yaml" | head -1)' \
     'case "$1" in publish) printf "%s\n" "- a requirement the adapter added" >> "$root/$path"; printf "%s#feedface\n" "$path" ;; verify) exit 0 ;; esac' \
@@ -910,7 +910,7 @@ scenario_failed_run_cleanup() {
   worker FIX pass impl.txt 'impl: second attempt at the empty key default'; A handoff LC IMPLEMENTED >/dev/null
   gfail VERIFY impl.txt
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
-  A knowledge-done LC not_applicable >/dev/null || die "knowledge-done refused on a FAILED run"
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null || die "knowledge-done refused on a FAILED run"
   A cleanup LC >/dev/null || die "cleanup of a FAILED run refused"
   [ ! -d .agents/runs/LC ] || die "the run directory survived the cleanup"
   ok "FAILED run: no draft pull request (deliver is refused, A152); cleanup needs no extra approval"
@@ -964,7 +964,7 @@ ro_approve() { A request-approval LC reopen:LC >/dev/null; capture 'I approve th
 scenario_reopen_failed() {
   reopen_failed_run
   expect_msg "deliver-plan of a FAILED run" 'to reopen: /proofline reopen LC' A deliver-plan LC
-  A knowledge-done LC not_applicable >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   expect_msg "reopen without the approval" 'needs the user' ro A reopen LC
   for r in implementer qa reviewer verifier; do expect_fail "$r reopened a run" ro env AGENT_ROLE=$r sh ./.agents/scripts/agent.sh reopen LC; done
   ro_approve
@@ -1043,7 +1043,7 @@ scenario_reopen_approval_kinds() {
 upgrade_files() {
   mkdir -p .claude/agents .codex/agents .claude/skills/proofline
   printf 'agent\n' > .claude/agents/proofline-x.md; printf 'agent\n' > .codex/agents/proofline-x.toml; printf 'skill\n' > .claude/skills/proofline/SKILL.md
-  printf '# version: 0.0.16\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.17\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
 }
 scenario_reopen_after_upgrade() {
   SC_AGENTS_MD=1 reopen_failed_run; fp0=$(A fingerprint LC)
@@ -1062,7 +1062,7 @@ scenario_upgrade_product_edits() {
 }
 scenario_upgrade_named_path() {
   SC_SCOPE_NAMED=.claude/skills/proofline/named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
-  printf '# version: 0.0.16\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.17\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
   fp0=$(A fingerprint LC); mkdir -p .claude/skills/proofline; printf 'edit\n' > .claude/skills/proofline/named.md
   [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named installed file left the fingerprint"
   A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named installed file changed"

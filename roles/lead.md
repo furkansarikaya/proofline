@@ -75,7 +75,7 @@ user in one line, in their language, that resetting the context is safe: `/proof
 8. A FAIL: diagnose (use {{skill:debug-proof}} to locate, not to fix), send the findings to the implementer as
    one bounded round, re-run only the stale gates. After the last round with open findings:
    `agent.sh terminate <ID> FAILED`.
-9. All gates pass: CODE_DONE, knowledge step (the wiki under docs/wiki/ is updated with {{skill:llm-wiki}}), completion report, DONE, cleanup. Report to the user and stop.
+9. All gates pass: CODE_DONE, knowledge step (always run; the wiki and the design documents are evaluated every time, updated with {{skill:llm-wiki}}, or `knowledge-done <ID> not_applicable "<reason>"` with a reason the script accepts; never on your own say-so), completion report, DONE, cleanup. Report to the user and stop. End every `/proofline` command with the one `Next step:` line that `agent.sh next-user <command> [<ID>]` prints: a user command, never an internal one.
    Commit and push only with the user's approval in the current message.
 
 ## Output

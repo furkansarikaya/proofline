@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.16"
+  version: "0.0.17"
 ---
 
 # proofline-lead
@@ -179,7 +179,7 @@ Specialist results that stop the flow:
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |
 | `wiki ingest\|query\|lint` | llm-wiki on `docs/wiki/`; `lint` runs the skill's validator and writes `lint-report.md`; nothing is committed. |
-| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID> [not_applicable]`. |
+| `knowledge <TASK-ID>` | Knowledge step for a CODE_DONE, FAILED or BLOCKED run ([LIFECYCLE.md](references/LIFECYCLE.md#7-knowledge)): wiki ingest, `design_docs` and ADR updates, lesson candidates (`A lessons derive|write|count`; a rule only after the user approved `rule:<CAND>` then `A lessons promote`), then `A knowledge-done <ID>` or `A knowledge-done <ID> not_applicable "<reason>"` (one rule, A159; the script refuses a reason when the task changed behaviour, a contract or a design-document item). |
 | `deliver <TASK>` | The whole delivery in one command ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)): a CODE_DONE run only (FAILED and BLOCKED are refused with `to reopen: /proofline reopen <ID>`). If the knowledge step, the report or DONE is missing, run them now without asking, then `A deliver-plan <ID>` (relay the one summary, STOP), then after the user's `approve delivery` `A deliver-step <ID> commit\|push\|pr\|merge\|cleanup [PR]` in order, running the commands each prints. A refusal stops the chain: prepare and ask again. |
 | `reopen <TASK-ID>` | Take a FAILED or BLOCKED run back into the workflow ([GATES-AND-FIXES.md](references/GATES-AND-FIXES.md#5-reopen-a-failed-or-blocked-run)): `printf 'reason: <what changed>\n' \| A reopen <ID>`. It asks ONE question (the reopen, plus the mutation-budget raise in the same summary when PLAN `## Tests` has more criteria than the budget): relay it and STOP; the user's one reply records both approvals, then run the same command again. Files `proofline upgrade` installed never count as out-of-scope changes, and a commit of only those files does not make the plan stale (a moved `base_sha` is accepted and noted in one line). Every reopen gets its own request and approval; a used one is never reused. The plan stays frozen, only gates that did not pass or whose inputs changed run again, the fix rounds restart. When the gates pass the run is CODE_DONE and `deliver` works. Never reopen on your own. |
 | `batch <ID...\|all>` | Night mode (A157), outside a run: `A batch-plan <ID...\|all>` orders the tasks by `depends_on`, leaves out CRITICAL and unclassified tasks (and what depends on them), writes one summary and asks ONE question ("approve batch"): relay it verbatim and STOP; the user's reply is recorded by the runtime like any approval. Then print `proofline batch run` for the user's terminal (start it in the background only when the user asks). `batch status` prints `A batch-status`, the morning table from records. See "Batch mode" below. |
@@ -187,6 +187,8 @@ Specialist results that stop the flow:
 | `clean` | `A cleanup <ID>` for terminal or delivered runs and removal of `.agents/local/<skill>/` state, after listing what goes and the user's yes. |
 
 `init`, `upgrade`, `doctor` are CLI commands (`proofline init|upgrade|doctor`), not part of this skill.
+
+**The next step (A159).** End every `/proofline` command with ONE line, `Next step: ...`, exactly as `A next-user <command> [<ID>]` prints it (add `--error` when the command failed; `--error=dirty-tree` when the tree was dirty). It is always a user command (`/proofline ...`) or an action the user does; never write `agent.sh`, `A ...` or any internal command in it. `A next` is for you, not for the user. The Stop hook appends the line when it is missing; do not write it twice. The entry skill (`skills/proofline/SKILL.md`) holds the table: init -> `/proofline doctor`, task -> `/proofline run <ID>`, run at CODE_DONE -> `/proofline deliver <ID>`, FAILED or BLOCKED -> `/proofline reopen <ID>`, deliver finished -> the next queued task or `/proofline task --grill`.
 
 ## Batch mode
 

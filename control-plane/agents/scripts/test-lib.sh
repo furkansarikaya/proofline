@@ -53,6 +53,7 @@ install_control_plane() {
   mkdir -p "$1/.agents/scripts" "$1/.agents/task-integrations" "$1/.agents/local"
   cp "$tl_agents/config.yaml" "$1/.agents/"; cp -R "$tl_agents/modes" "$tl_agents/templates" "$1/.agents/"
   cp "$tl_agents/scripts/agent.sh" "$1/.agents/scripts/"
+  [ ! -f "$tl_agents/scripts/next-user.sh" ] || cp "$tl_agents/scripts/next-user.sh" "$1/.agents/scripts/"   # A159: agent.sh next-user runs it
   cat > "$1/.agents/scripts/secret-scan.sh" <<'STUB'
 #!/bin/sh
 # test stub: a line containing PLANTED_SECRET is a finding (path:line:rule); exit 1 on findings.
@@ -178,7 +179,7 @@ write_report() {
     '## Execution' 'Not applicable in fixtures.' '' '## Known Limitations / Follow-up' 'None.' "$@" > ".agents/runs/$RID/COMPLETION_REPORT.md"
 }
 finish_done() {
-  A knowledge-done "$RID" not_applicable >/dev/null
+  A knowledge-done "$RID" not_applicable "nothing durable changed in this synthetic test run" >/dev/null
   write_report "$@"
   A publish-completion-report "$RID" markdown >/dev/null
   A handoff "$RID" DONE >/dev/null
@@ -209,7 +210,7 @@ scaffold() {
   printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} '  - path: impl_test.txt' "    criteria: [${SC_TEST_CRIT:-AC-1}]" ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_EXTRA:+'  - path: other.txt' "    criteria: [$SC_SCOPE_EXTRA]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_OTHER:+'  - path: far.txt' "    criteria: [$SC_SCOPE_OTHER]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_AGENTS:+'  - path: .agents/impl.txt' '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_NAMED:+"  - path: $SC_SCOPE_NAMED" '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'one storage map; no new module' > "$d/PLAN.md"
   [ -z "${SC_PLAN_EXTRA:-}" ] || printf '%s\n' "$SC_PLAN_EXTRA" >> "$d/PLAN.md"
   printf '%s\n' 'task:' '  id: LC' 'repository:' '  base_sha: PENDING' "${SC_BRANCH:+  canonical_branch: PENDING}" "${SC_BRANCH:+  task_branch: PENDING}" 'task_source:' '  type: local_markdown' "  path: $tpath" '  revision: PENDING' \
-    'execution:' '  mode: deterministic' '  profile: PENDING' "  autonomy: $auto" "  topology: $topo" '  state: PLANNING' '  knowledge_state: not_started' '  awaiting_input: false' \
+    'execution:' '  mode: deterministic' '  profile: PENDING' "  autonomy: $auto" "  topology: $topo" '  state: PLANNING' '  knowledge_state: not_started' '  knowledge_reason: ""' '  awaiting_input: false' \
     'pipeline:' '  classification: PENDING' '  review: PENDING' '  tier: PENDING' \
     'freeze:' '  task_sha256: PENDING' '  evidence_sha256: PENDING' '  plan_sha256: PENDING' '  qa_plan_sha256: PENDING' '  policy_sha256: PENDING' '  pipeline: PENDING' '  scope_paths: PENDING' '  risk_sha256: PENDING' \
     'baseline:' '  status: pending' \

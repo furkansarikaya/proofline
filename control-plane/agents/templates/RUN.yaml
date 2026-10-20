@@ -26,6 +26,8 @@ execution:
   topology: PENDING
   state: PLANNING
   knowledge_state: not_started
+  # the one-sentence reason recorded by `knowledge-done <ID> not_applicable "<reason>"` (A159); empty otherwise
+  knowledge_reason: ""
   awaiting_input: false
 
 # Written by `agent.sh classify` (forced to CRITICAL at freeze by a destructive plan). tier is the highest
