@@ -66,7 +66,7 @@ case-insensitive; a `.` or `-` inside `schema.graphql` or `order.schema.json` is
   prints a note; nothing refuses. Say in the bullet what input is new or changed and it becomes mandatory;
 - the name is the first backticked token of the bullet, else the text before its first colon.
 
-The corpus `tests/fixtures/entry-points/corpus.tsv` (about 70 labelled bullets; `sh tests/fixtures/entry-points/run-corpus.sh`)
+The corpus `tests/fixtures/entry-points/corpus.tsv` (67 labelled bullets; `sh tests/fixtures/entry-points/run-corpus.sh`)
 pins the classes. `agent.sh entry-tier "<bullet>"` prints `mandatory`, `information` or `none` for one bullet. The
 plan-contract and qa-plan validators carry the same expressions and read `validation.*` from `.agents/config.yaml`
 themselves (flat key lookup; `--entry-words` overrides `entry_words`; defaults when the file or key is missing), so a

@@ -4,11 +4,12 @@
 
 ## 0.0.20 — 2026-10-20
 
-- Plans that list an entry point taking external input in `## Contracts` need a `## Validation` line per entry point, and the QA plan needs an `[invalid-input]` scenario for it. `agent.sh freeze` and `refreeze` refuse either gap (A162).
-- New `validation.entry_words` and `validation.code_patterns` config keys (extensible, checked by `config-check`); code that looks like an entry point is shown by `agent.sh pipeline` as information only. The plan-contract and qa-plan validators, templates and docs describe the rule (A162).
-- Added a `logging` security focus. A diff that adds a log call naming a sensitive word (`risk.log_sensitive`, extensible `words`) opens a review of the new `[log]` exploit-proof sink (A162).
-- The implementer logs through the project's own logger and standard and never logs secrets. The AGENTS.md template has an optional "Logging" example, and the `rules` review checks the project's own standard (A162).
-- `proofline debt` now lists five more shortcut comments; the check-static rule rejects any foreign shortcut label (A162).
+- Input validation detection has two tiers. A `## Contracts` bullet that declares an entry point with new or changed input needs a `## Validation` line per entry point, and the QA plan needs an `[invalid-input]` scenario for it; `agent.sh freeze` and `refreeze` refuse either gap. A bullet that only mentions an entry word is information (`validation.possible`) and never refuses (A162).
+- New `validation.*` config keys (`entry_words`, `entry_candidates`, `entry_input`, `entry_new`, `entry_output`, `entry_skip`, `code_patterns`; extensible, checked by `config-check`); the plan-contract and qa-plan validators read them from the project config. `agent.sh entry-tier` and a labelled corpus pin the tiers; code that looks like an entry point is shown by `agent.sh pipeline` as information only (A162).
+- Added a `logging` security focus. A diff that adds a log call (Console, Debug and Trace calls, `Fprint*`, `print`, `puts`, `var_dump`, `dump`) naming a sensitive word (`risk.log_sensitive`, extensible `words`) opens a review of the new `[log]` exploit-proof sink; `config-check` refuses an invalid expression and empty or missing `words` (A162).
+- `proofline upgrade` no longer invalidates the freeze of runs in flight: a freeze made before the `risk.log_sensitive` key stays valid and keeps its focus set without `logging` (A162).
+- The implementer logs through the project's own logger and standard and never logs secrets. The AGENTS.md template carries no logging text; your own Logging section outside the proofline block survives `upgrade`, and the `rules` review checks it (A162).
+- `proofline debt` now lists five more shortcut comments; the check-static rule rejects any foreign shortcut label anywhere in a comment (A162).
 - The command-discovery timeout (`init --verify-commands`, `doctor`) closes the whole process group, so no grandchildren of a hung command remain (A162).
 - The README is shorter; night-mode and process-rule detail moved to `docs/concepts`. A static check bounds the README size (A162).
 
