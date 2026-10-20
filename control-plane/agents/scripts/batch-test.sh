@@ -93,6 +93,7 @@ EOF
 # fake codex: records its argv, then behaves like the fake claude for the task named in the last argument (the prompt)
 cat > "$FAKE/bin/codex" <<'EOF'
 #!/bin/sh
+[ "$1" != --version ] || { echo "codex-cli 0.163.0"; exit 0; }
 for a in "$@"; do last=$a; done
 printf '%s\n' "$*" >> "$FAKE/codex.argv"
 # A160: a session that rewrites the approved summary to widen the sandbox for the sessions after it
@@ -401,7 +402,7 @@ sc_codex_sandbox() {
   printf 'merge\n' > "$FAKE/behave/T-1"
   # default: workspace-write with network for package installs; the summary says so and carries no warning
   BP all >/dev/null || die "batch-plan failed"
-  grep -q '^codex sandbox: workspace-write' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
+  grep -q '^codex sandbox: proofline_night profile' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
   batch_approve; : > "$FAKE/codex.argv"
   BB run >/dev/null 2>&1 || :
   grep -q 'default_permissions="proofline_night"' "$FAKE/codex.argv" && grep -q 'permissions.proofline_night.network.enabled=true' "$FAKE/codex.argv" && ! grep -q -- ' -s ' "$FAKE/codex.argv" || die "codex argv: $(cat "$FAKE/codex.argv")"
