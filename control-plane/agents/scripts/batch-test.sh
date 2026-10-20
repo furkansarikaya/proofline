@@ -74,6 +74,8 @@ case "$beh" in
     sleep 20 ;;
   limitchmod) # A161: the usage limit, after the package cache dir was made group-readable (the dir is unsafe by the time codex is tried)
     chmod 755 "$(cat "$FAKE/pkgdir")"; echo "usage limit reached, try later"; exit 1 ;;
+  slow) # A163: a session that is still working: one visible log line, then a long wait (its pid goes to slow.pid)
+    echo "SLOWLINE-$id working on it"; sleep 120 & echo $! > "$FAKE/slow.pid"; wait ;;
   nothing) : ;;
 esac
 exit 0
@@ -102,7 +104,21 @@ printf '%s\n' "$*" >> "$FAKE/codex.argv"
 if [ -f "$FAKE/codex.tamper" ]; then sed 's/^codex sandbox: .*/codex sandbox: danger-full-access/' .agents/local/batch/SUMMARY.md > .agents/local/batch/SUMMARY.tmp && mv .agents/local/batch/SUMMARY.tmp .agents/local/batch/SUMMARY.md; fi
 exec claude -p "$last"
 EOF
-chmod +x "$FAKE/bin/claude" "$FAKE/bin/gh" "$FAKE/bin/codex"
+# A163: fake caffeinate and systemd-inhibit (the real ones are never needed): they record their arguments; caffeinate honours -w PID like the real one
+cat > "$FAKE/bin/caffeinate" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE/caffeinate.argv"; echo $$ > "$FAKE/caffeinate.pid"
+w=''; while [ $# -gt 0 ]; do [ "$1" != -w ] || w=$2; shift; done
+[ -n "$w" ] || exit 0
+while kill -0 "$w" 2>/dev/null; do sleep 0.2; done
+EOF
+cat > "$FAKE/bin/systemd-inhibit" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE/inhibit.argv"
+while :; do case "${1:-}" in --*) shift ;; *) break ;; esac; done
+exec "$@"
+EOF
+chmod +x "$FAKE/bin/claude" "$FAKE/bin/gh" "$FAKE/bin/codex" "$FAKE/bin/caffeinate" "$FAKE/bin/systemd-inhibit"
 mkdir -p "$FAKE/ci"; MSHA=0123456789abcdef0123456789abcdef01234567   # the merge commit the fake gh reports for every PR
 
 # --- fixture helpers ------------------------------------------------------------------------------------------
@@ -129,6 +145,7 @@ tpl_tasks() { new_repo; install_scripts "$base/template/.agents/scripts"; ( cd "
 binstall() {
   install_scripts .agents/scripts
   : > "$FAKE/calls.log"; rm -f "$FAKE"/behave/*
+  mkdir -p .github/workflows; printf 'name: ci\non: pull_request\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n' > .github/workflows/ci.yml   # job A: batch-plan/run want a CI workflow
   git add -A; git commit -qm 'fixture' --allow-empty
   if [ "${1:-yes}" = yes ]; then
     bi_o=$(mktemp -d "$base/origin.XXXXXX"); git init -q --bare "$bi_o"; git remote add origin "$bi_o"; git push -q -u origin main 2>/dev/null
@@ -753,6 +770,107 @@ sc_merge_commit_ci() {
   ok "merge-commit CI: red run of the SHA stops (an old green main run does not count), no run in ci_appear_minutes stops, green run continues"
 }
 
+# --- 10. (A163) the background driver: batch-start, batch-stop, the sleep inhibitor and the driver line of status --------------
+until_ok() { u_i=0; while ! eval "$1" >/dev/null 2>&1; do u_i=$((u_i + 1)); [ "$u_i" -lt "${2:-100}" ] || return 1; sleep 0.1; done; }
+grp_up() { ps -A -o pgid=,stat= 2>/dev/null | awk -v g="$1" '$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }'; }
+drv_replan() { # BEHAVIOUR: a fresh approved plan of T-1 that behaves as given
+  rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/calls.log"; rm -f "$FAKE/caffeinate.argv" "$FAKE/caffeinate.pid" "$FAKE/inhibit.argv"; printf '%s\n' "$1" > "$FAKE/behave/T-1"
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+}
+drv_fixture() { bnew; mktask T-1 COMPLEX; binstall; trap 'BB stop >/dev/null 2>&1 || :' EXIT; drv_replan "$1"; }
+sc_driver_start() { # (a) survives its starter, (b) one driver only, (e) status
+  drv_fixture slow
+  expect_msg "batch-start by a reviewer" "command denied" env AGENT_ROLE=reviewer sh ./.agents/scripts/agent.sh batch-start
+  BB status | grep -q '^driver: not running' || die "status before the start: $(BB status | grep driver)"
+  cp "$summary" "$base/summary.keep"; printf 'edit\n' >> "$summary"
+  expect_msg "batch-start with a stale approval" "batch approval" A batch-start
+  cp "$base/summary.keep" "$summary"
+  [ ! -e .agents/local/batch/driver.pid ] || die "a refused batch-start left a driver.pid"
+  rm -f "$FAKE/start.flag"
+  sh -c 'sh ./.agents/scripts/agent.sh batch-start > "$1" 2>&1; : > "$2"; exec sleep 120' _ "$base/start.out" "$FAKE/start.flag" & par=$!
+  until_ok "[ -f $FAKE/start.flag ]" 600 || die "batch-start did not return: $(cat "$base/start.out")"
+  grep -Eq '^driver started, pid [0-9]+, log [^ ]*driver\.log$' "$base/start.out" || die "start output: $(cat "$base/start.out")"
+  grep -qx 'plug in the computer; do not close the laptop lid.' "$base/start.out" || die "no plug-in reminder: $(cat "$base/start.out")"
+  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
+  pgd=$(ps -o pgid= -p "$dp" | tr -d ' '); pgp=$(ps -o pgid= -p "$par" | tr -d ' ')
+  [ "$pgd" = "$dp" ] && [ "$pgd" != "$pgp" ] || die "the driver is not the leader of a group of its own: pid $dp pgid $pgd, starter pgid $pgp"
+  [ "$(cat .agents/local/batch/driver.pid)" = "$dp $dp" ] || die "driver.pid: $(cat .agents/local/batch/driver.pid)"
+  [ "$(cat .agents/local/batch/LOCK)" = "$dp" ] || die "LOCK is not the driver pid"
+  kill "$par" 2>/dev/null; wait "$par" 2>/dev/null || :
+  sleep 1
+  kill -0 "$dp" 2>/dev/null || die "the driver died with the session that started it"
+  until_ok "BB status | grep -q 'last log line: SLOWLINE-T-1 working on it'" 100 || die "status: $(BB status | grep driver)"
+  BB status | grep -Eq "^driver: running, pid $dp, started [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+, last log line: SLOWLINE-T-1 working on it\$" || die "driver line: $(BB status | grep driver)"
+  BB status | grep -q '^sleep inhibitor: ' || die "status names no sleep inhibitor"
+  expect_msg "second batch-start" "pid $dp" A batch-start
+  expect_msg "batch run next to the driver" "only one task at a time" BB run
+  kill -0 "$dp" 2>/dev/null || die "the refused second start killed the driver"
+  ok "batch-start: the driver outlives the session that started it (own group, driver.pid, LOCK), a second start names the pid, status shows driver running with pid and last log line"
+}
+sc_driver_stop() { # (d) stop kills only its own group, parks the task `stopped`; the batch resumes afterwards (f)
+  command -v perl >/dev/null 2>&1 || { ok "batch-stop: no perl here, skipped"; return 0; }
+  drv_fixture slow
+  perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' sleep 300 & unrel=$!
+  trap 'kill "$unrel" 2>/dev/null; BB stop >/dev/null 2>&1 || :' EXIT
+  A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
+  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
+  until_ok "[ -f $FAKE/slow.pid ] && ls .agents/local/batch/logs/pgid.* >/dev/null 2>&1" 100 || die "the session did not start"
+  sg=$(cat .agents/local/batch/logs/pgid.*); sg=${sg%% *}; sp=$(cat "$FAKE/slow.pid")
+  [ "$sg" != "$dp" ] && grp_up "$sg" && grp_up "$dp" || die "setup: session group $sg, driver group $dp"
+  [ "$(ps -o pgid= -p "$unrel" | tr -d ' ')" = "$unrel" ] || die "setup: the unrelated process is not in a group of its own"
+  A batch-stop > "$base/stop.out" 2>&1 || die "batch-stop failed: $(cat "$base/stop.out")"
+  grep -q "^batch driver stopped (pid $dp)" "$base/stop.out" || die "stop output: $(cat "$base/stop.out")"
+  if kill -0 "$dp" 2>/dev/null; then die "the driver is still alive"; fi
+  if grp_up "$dp"; then die "the driver group is still alive"; fi
+  if grp_up "$sg"; then die "the session group is still alive"; fi
+  if kill -0 "$sp" 2>/dev/null; then die "the session's child is still alive"; fi
+  kill -0 "$unrel" 2>/dev/null || die "batch-stop killed an unrelated process in another group"
+  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = stopped ] || die "T-1 after the stop: $(cat .agents/local/batch/state.tsv)"
+  grep -qx '# stopped: stopped by the user' .agents/local/batch/state.tsv || die "no stopped trailer: $(cat .agents/local/batch/state.tsv)"
+  grep -q '^end=' .agents/local/batch/sessions/T-1.1.rec || die "session record has no end: $(cat .agents/local/batch/sessions/T-1.1.rec)"
+  for f in LOCK driver.pid driver.start driver.up inhibit inhibit.pid stop.req; do [ ! -e ".agents/local/batch/$f" ] || die "$f is left after the stop"; done
+  BB status > "$base/st.out"; grep -q '^driver: not running (stopped: stopped by the user)' "$base/st.out" || die "status after the stop: $(grep -i 'driver\|STOP' "$base/st.out")"
+  BB stop > "$base/stop2.out" 2>&1 || die "batch stop with nothing running failed"
+  [ "$(cat "$base/stop2.out")" = "no batch driver is running" ] || die "nothing-running output: $(cat "$base/stop2.out")"
+  # a terminal run (the same run()) resumes the stopped task
+  printf 'merge\n' > "$FAKE/behave/T-1"; BB run > "$base/run.out" 2>&1 || die "batch run after the stop: $(tail -3 "$base/run.out")"
+  [ "$(state_of T-1 2)" = merged ] || die "T-1 after the resume: $(cat .agents/local/batch/state.tsv)"
+  [ ! -e .agents/local/batch/driver.pid ] || die "the terminal run left driver.pid"
+  kill "$unrel" 2>/dev/null || :
+  ok "batch-stop: closes the driver and the session group, parks the task as stopped (trailer, record end, files removed), spares an unrelated group, says so when nothing runs; a terminal batch run resumes"
+}
+sc_driver_inhibit() { # (c) the sleep inhibitor is bound to the driver, on macOS, on Linux, and plainly absent
+  drv_fixture merge
+  PROOFLINE_UNAME=Darwin A batch-start > "$base/start.out" 2>&1 || die "batch-start (Darwin): $(cat "$base/start.out")"
+  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
+  grep -q 'sleep inhibitor: caffeinate -i' "$base/start.out" || die "Darwin start output: $(cat "$base/start.out")"
+  until_ok "[ -s $FAKE/caffeinate.argv ]" 50 || die "caffeinate was not started"
+  [ "$(cat "$FAKE/caffeinate.argv")" = "-i -w $dp" ] || die "caffeinate arguments: $(cat "$FAKE/caffeinate.argv"), driver pid $dp"
+  until_ok "! kill -0 $dp" 100 || die "the driver did not end"
+  cpid=$(cat "$FAKE/caffeinate.pid"); until_ok "! kill -0 $cpid" 50 || die "caffeinate outlived the driver"
+  [ "$(state_of T-1 2)" = merged ] || die "the background driver did not run the batch: $(cat .agents/local/batch/state.tsv)"
+  grep -q '^batch finished' .agents/local/batch/driver.log || die "driver.log: $(tail -3 .agents/local/batch/driver.log)"
+  # the terminal route gets the same inhibitor, once
+  drv_replan merge
+  ( PROOFLINE_UNAME=Darwin; export PROOFLINE_UNAME; BB run > "$base/run.out" 2>&1 ) || die "batch run (Darwin): $(tail -3 "$base/run.out")"
+  [ "$(wc -l < "$FAKE/caffeinate.argv" | tr -d ' ')" = 1 ] || die "caffeinate started more than once: $(cat "$FAKE/caffeinate.argv")"
+  grep -q '^batch: sleep inhibitor: caffeinate -i' "$base/run.out" || die "batch run does not say which inhibitor it uses: $(head -3 "$base/run.out")"
+  # Linux with systemd-inhibit
+  drv_replan merge
+  PROOFLINE_UNAME=Linux A batch-start > "$base/start.out" 2>&1 || die "batch-start (Linux): $(cat "$base/start.out")"
+  grep -q 'sleep inhibitor: systemd-inhibit --what=idle:sleep' "$base/start.out" || die "Linux start output: $(cat "$base/start.out")"
+  until_ok "[ -s $FAKE/inhibit.argv ] && grep -q 'batch finished' .agents/local/batch/driver.log" 100 || die "systemd-inhibit: $(cat "$FAKE/inhibit.argv" 2>/dev/null)"
+  grep -q -- '--what=idle:sleep' "$FAKE/inhibit.argv" || die "systemd-inhibit arguments: $(cat "$FAKE/inhibit.argv")"
+  # Linux without an inhibitor: said plainly at the start and in status
+  drv_replan slow
+  PROOFLINE_UNAME=Linux PROOFLINE_BATCH_INHIBIT=none A batch-start > "$base/start.out" 2>&1 || die "batch-start (no inhibitor): $(cat "$base/start.out")"
+  grep -q 'sleep inhibitor: none available.*the machine may sleep' "$base/start.out" || die "no-inhibitor start output: $(cat "$base/start.out")"
+  until_ok "BB status | grep -q '^sleep inhibitor: none available'" 50 || die "status does not say there is no inhibitor: $(BB status | grep -i 'driver\|inhib')"
+  [ ! -s "$FAKE/caffeinate.argv" ] && [ ! -s "$FAKE/inhibit.argv" ] || die "an inhibitor was started although none is available"
+  BB stop >/dev/null 2>&1
+  ok "sleep inhibitor: caffeinate -i -w <driver pid> (gone with the driver), once for batch run too; systemd-inhibit on Linux; no inhibitor is said plainly at the start and in status"
+}
+
 run_sc sc_order_and_cycle
 run_sc sc_no_approval_no_start
 run_sc sc_cover_limits
@@ -782,4 +900,7 @@ run_sc sc_session_records
 run_sc sc_adapter_refused
 run_sc sc_codex_lead_warning
 run_sc sc_merge_commit_ci
+run_sc sc_driver_start
+run_sc sc_driver_stop
+run_sc sc_driver_inhibit
 echo 'batch tests passed'

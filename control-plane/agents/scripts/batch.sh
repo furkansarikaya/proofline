@@ -7,9 +7,15 @@
 #   batch.sh run               the driver: one clean headless lead session per task, one task at a time, only with a valid
 #                              batch approval (bound to the SUMMARY.md hash); the outcome of a task is read from records
 #   batch.sh status            the morning table, from state.tsv, merged.tsv and the runs' own records, never from a log
+#   batch.sh start             (A163) after "approve batch": start `run` as a background driver that outlives the agent session
+#                              (own process group, SIGHUP ignored, stdin /dev/null, output to driver.log), under a sleep inhibitor
+#   batch.sh stop              (A163) stop only the driver start/run recorded (verified process group, TERM, grace, KILL); the running task is parked `stopped`
 # Files under .agents/local/batch/: SUMMARY.md, order.tsv (ID class depends_on), state.tsv (ID status reason question,
 # status pending|running|merged|parked|skipped, a trailing `# stopped: <reason>` line), merged.tsv (ID PR epoch, written by
-# deliver-step cleanup), logs/<ID>.log, LOCK (the driver's PID), history/<batch id>/.
+# deliver-step cleanup), logs/<ID>.log, LOCK (the driver's PID), history/<batch id>/. A163 driver files: driver.pid ("pid pgid"),
+# driver.start (epoch), driver.log (background driver only), driver.up (the start-up checks passed), inhibit (the sleep inhibitor in use),
+# stop.req (batch stop asked); all gone when the driver ends. Test seams (PROOFLINE_TEST=1 only): PROOFLINE_UNAME replaces `uname -s`,
+# PROOFLINE_BATCH_INHIBIT=none says no sleep inhibitor is installed.
 # Test seam: `claude` and `codex` are taken from PATH (the tests put fakes there); nothing selects a binary by environment.
 # Under PROOFLINE_TEST=1 only, PROOFLINE_BATCH_MINUTE is the length of one "minute" in seconds (default 60): it scales batch.task_timeout
 # and the CI polling, so a test needs seconds, not hours. Under PROOFLINE_TEST=1 only, PROOFLINE_BATCH_PGMETHOD=setm|setsid|perl|python|none
@@ -27,6 +33,8 @@ if command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 < "$1" | awk '{
 cfgv() { v=$(sh "$agent" config-get "$1" 2>/dev/null) || v=''; [ -n "$v" ] || v=${2:-}; printf '%s\n' "$v"; }
 tsv() { printf '%s' "$*" | tr '\t\n' '  '; }
 bid() { sha "$bd/SUMMARY.md" | cut -c1-12; }
+BG=0; DRV_STOP=0
+PLUG_LINE='plug in the computer; do not close the laptop lid.'   # shown once by batch-start (A163); one place so other texts can reuse it
 tick=60; [ "${PROOFLINE_TEST:-}" != 1 ] || tick=${PROOFLINE_BATCH_MINUTE:-60}; case "$tick" in ''|*[!0-9]*|0) tick=60 ;; esac
 # The Codex night sandbox (A161): the legacy workspace-write mode keeps .git, .agents and .codex read-only and `network_access` is a legacy key,
 # so a session could not commit, branch, add a worktree or write its run records. A named permissions profile (documented
@@ -235,6 +243,74 @@ pending_approval() { # ID: the kind of an approval request nobody answered (the 
   return 1
 }
 
+# --- driver (A163): sleep inhibitor, pid files, stop ------------------------------------------------------------------
+uname_s() { if [ "${PROOFLINE_TEST:-}" = 1 ] && [ -n "${PROOFLINE_UNAME:-}" ]; then printf '%s\n' "$PROOFLINE_UNAME"; else uname -s; fi; }
+inhibit_kind() { # caffeinate | systemd-inhibit | none
+  if [ "${PROOFLINE_TEST:-}" = 1 ] && [ "${PROOFLINE_BATCH_INHIBIT:-}" = none ]; then echo none; return 0; fi
+  case "$(uname_s)" in
+    Darwin) if command -v caffeinate >/dev/null 2>&1; then echo caffeinate; else echo none; fi ;;
+    Linux) if command -v systemd-inhibit >/dev/null 2>&1; then echo systemd-inhibit; else echo none; fi ;;
+    *) echo none ;;
+  esac
+}
+inhibit_text() { # KIND
+  case "$1" in
+    caffeinate) echo "sleep inhibitor: caffeinate -i (the Mac does not idle-sleep while the driver runs)" ;;
+    systemd-inhibit) echo "sleep inhibitor: systemd-inhibit --what=idle:sleep (held while the driver runs)" ;;
+    *) echo "sleep inhibitor: none available (no caffeinate or systemd-inhibit); the machine may sleep and stop the batch" ;;
+  esac
+}
+# inhibit_start: in the driver. One child bound to the driver's pid (caffeinate -w, or a wait loop under systemd-inhibit): it ends by itself with the driver.
+inhibit_start() {
+  ih_k=$(inhibit_kind); rm -f "$bd/inhibit.pid"; inhibit_text "$ih_k" > "$bd/inhibit"
+  case "$ih_k" in
+    caffeinate) caffeinate -i -w "$$" >/dev/null 2>&1 < /dev/null & echo $! > "$bd/inhibit.pid" ;;
+    systemd-inhibit) systemd-inhibit --what=idle:sleep --who=proofline --why="night batch is running" sh -c 'while kill -0 "$1" 2>/dev/null; do sleep 5; done' _ "$$" >/dev/null 2>&1 < /dev/null & echo $! > "$bd/inhibit.pid" ;;
+  esac
+  echo "batch: $(cat "$bd/inhibit")" >&2
+}
+inhibit_stop() { # the driver's own child only
+  [ -f "$bd/inhibit.pid" ] || return 0
+  is_p=$(cat "$bd/inhibit.pid" 2>/dev/null || :)
+  case "$is_p" in ''|*[!0-9]*|0|1) return 0 ;; esac
+  [ "$(ps -o ppid= -p "$is_p" 2>/dev/null | tr -d ' ')" != "$$" ] || kill "$is_p" 2>/dev/null || :
+}
+pid_alive() { pa_s=$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ' || :); [ -n "$pa_s" ] || return 1; case "$pa_s" in Z*) return 1 ;; esac; return 0; }
+# drv_read: DP and DG from driver.pid ("pid pgid"); 1 when missing or malformed
+drv_read() {
+  DP=''; DG=''; [ -f "$bd/driver.pid" ] || return 1
+  read -r DP DG < "$bd/driver.pid" || :
+  case "$DP" in ''|*[!0-9]*|0|1) DP=''; return 1 ;; esac
+  case "$DG" in ''|*[!0-9]*) DG='' ;; esac
+  return 0
+}
+# drv_live: the recorded driver is alive, holds the LOCK and is a batch.sh process (a reused pid is not taken for it)
+drv_live() {
+  drv_read || return 1; pid_alive "$DP" || return 1
+  [ "$(cat "$bd/LOCK" 2>/dev/null || :)" = "$DP" ] || return 1
+  ps -o command= -p "$DP" 2>/dev/null | grep -q 'batch\.sh'
+}
+drv_files_rm() { rm -f "$bd/driver.pid" "$bd/driver.start" "$bd/driver.up" "$bd/inhibit" "$bd/inhibit.pid" "$bd/stop.req"; }
+# drv_finalize TRAILER: idempotent. The running task is parked `stopped`, open session records get an end, the trailer is set, the files go.
+drv_finalize() {
+  if [ -f "$bd/state.tsv" ] && [ -f "$bd/order.tsv" ]; then
+    for df_id in $(cut -f1 "$bd/order.tsv"); do [ "$(st_get "$df_id" 2)" != running ] || st_set "$df_id" parked stopped; done
+    st_stop "$1"
+  fi
+  for df_r in "$bd"/sessions/*.rec; do
+    [ -f "$df_r" ] || continue
+    grep -q '^end=' "$df_r" || printf 'end=%s\nexit=143\ntimeout=0\n' "$(date +%s)" >> "$df_r"
+  done
+  rm -f "$bd/LOCK"; drv_files_rm
+}
+on_exit() {
+  reap
+  if [ "$DRV_STOP" = 1 ]; then
+    if [ -f "$bd/stop.req" ]; then drv_finalize "stopped by the user"; else drv_finalize "driver terminated (SIGTERM)"; fi
+  fi
+  inhibit_stop; rm -f "$bd/LOCK"; drv_files_rm
+}
+
 # --- run -------------------------------------------------------------------------------------------------------------
 wt_list() { git -C "$root" worktree list --porcelain | sed -n 's/^worktree //p' | sort; }
 dirty() { git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || :; }
@@ -395,7 +471,13 @@ run() {
     rm -f "$bd/LOCK"
   fi
   ( set -C; printf '%s\n' "$$" > "$bd/LOCK" ) 2>/dev/null || die "a batch run is active: only one task at a time"
-  trap 'reap; rm -f "$bd/LOCK"' 0; trap 'exit 130' INT; trap 'exit 143' TERM
+  trap on_exit 0; trap 'exit 130' INT; trap 'DRV_STOP=1; exit 143' TERM
+  drv_pg=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+  if [ "$BG" = 1 ]; then   # the background driver must lead a group of its own: `batch stop` signals that group and nothing else
+    [ "$drv_pg" = "$$" ] || die "the background driver is not the leader of its own process group (pid $$, pgid ${drv_pg:-?}); nothing was started"
+  else rm -f "$bd/driver.log"; fi
+  printf '%s %s\n' "$$" "${drv_pg:-0}" > "$bd/driver.pid"; date +%s > "$bd/driver.start"
+  inhibit_start
   [ -z "$(dirty)" ] || die "the working tree is not clean; commit or stash first"
   canon=$(cfgv canonical_branch main)
   [ "$(git -C "$root" branch --show-current)" = "$canon" ] || die "the current branch is not $canon"
@@ -433,6 +515,7 @@ run() {
       fi ;; esac
     fi ;;
   esac
+  : > "$bd/driver.up"   # the start-up checks passed: `batch start` waits for this file
   exhausted=''
   for id in $(cut -f1 "$bd/order.tsv"); do
     [ "$(st_get "$id" 2)" = pending ] || continue
@@ -479,6 +562,70 @@ run() {
   sh "$here/batch.sh" status
 }
 
+# start: the approved batch runs as a background driver that outlives this process (A163)
+start() {
+  sh "$agent" batch-check >/dev/null 2>&1 || die "no valid batch approval for the current summary: plan the batch (agent.sh batch-plan), then reply \"approve batch\" to the summary"
+  [ -f "$bd/order.tsv" ] || die "no batch order: plan the batch first"
+  if drv_live; then die "a batch driver is already running (pid $DP); stop it first with: proofline batch stop"; fi
+  if [ -f "$bd/LOCK" ]; then
+    st_l=$(cat "$bd/LOCK" 2>/dev/null || :)
+    case "$st_l" in ''|*[!0-9]*) ;; *) ! pid_alive "$st_l" || die "a batch run is active (pid $st_l): only one task at a time" ;; esac
+  fi
+  drv_files_rm   # stale files of a driver that is gone
+  cd "$root" || die "cannot enter the project root"
+  pg_select
+  mkdir -p "$bd/logs"; : > "$bd/driver.log"
+  pg_start "$PG_METHOD" "$bd/driver.log" sh -c 'trap "" HUP; exec sh "$0" _driver' "$here/batch.sh" || die "cannot start the driver (process-group method $PG_METHOD)"
+  st_pid=$G_PID; G_PID=''
+  st_i=0
+  while [ "$st_i" -lt 300 ]; do
+    if [ -f "$bd/driver.up" ] && [ "$(cat "$bd/LOCK" 2>/dev/null || :)" = "$st_pid" ]; then break; fi
+    pid_alive "$st_pid" || break
+    nap; st_i=$((st_i + 1))
+  done
+  if ! pid_alive "$st_pid" && ! grep -Eq '^(batch finished|batch: stopped:)' "$bd/driver.log" 2>/dev/null; then
+    st_m=$(awk 'NF { l = $0 } END { print l }' "$bd/driver.log" 2>/dev/null | cut -c1-200)
+    die "the driver did not start: ${st_m:-no output} (log: .agents/local/batch/driver.log)"
+  fi
+  printf 'driver started, pid %s, log .agents/local/batch/driver.log\n' "$st_pid"
+  if pid_alive "$st_pid"; then [ -f "$bd/driver.up" ] || echo "(start-up checks are still running; see the log)"; else echo "(the driver has already ended; see the log)"; fi
+  inhibit_text "$(inhibit_kind)"
+  echo "$PLUG_LINE"
+}
+# stop_driver: only the driver that start/run recorded; its verified group (never 0, 1 or our own), else just its pid
+stop_driver() {
+  if ! drv_live; then
+    # a LOCK holder without driver.pid (a driver of an older version) counts only when it is a live batch.sh process
+    sd_l=$(cat "$bd/LOCK" 2>/dev/null || :); DP=''; DG=''
+    case "$sd_l" in ''|*[!0-9]*|0|1) ;; *) if [ ! -f "$bd/driver.pid" ] && pid_alive "$sd_l" && ps -o command= -p "$sd_l" 2>/dev/null | grep -q 'batch\.sh'; then DP=$sd_l; fi ;; esac
+    if [ -z "$DP" ]; then drv_files_rm; echo "no batch driver is running"; return 0; fi
+  fi
+  sd_own=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+  sd_live=$(ps -o pgid= -p "$DP" 2>/dev/null | tr -d ' ')
+  sd_grp=''; if [ -n "$DG" ] && [ "$DG" = "$DP" ] && [ "$sd_live" = "$DG" ] && [ "$DG" != "$sd_own" ]; then sd_grp=$DG; fi
+  : > "$bd/stop.req"
+  if [ -n "$sd_grp" ]; then kill -TERM "-$sd_grp" 2>/dev/null || :; else kill -TERM "$DP" 2>/dev/null || :; fi
+  sd_i=0; while [ "$sd_i" -lt 75 ] && pid_alive "$DP"; do nap; sd_i=$((sd_i + 1)); done
+  if pid_alive "$DP" || { [ -n "$sd_grp" ] && grp_alive "$sd_grp"; }; then
+    if [ -n "$sd_grp" ]; then kill -KILL "-$sd_grp" 2>/dev/null || :; else kill -KILL "$DP" 2>/dev/null || :; fi
+    sd_i=0; while [ "$sd_i" -lt 25 ] && pid_alive "$DP"; do nap; sd_i=$((sd_i + 1)); done
+  fi
+  # a session group the driver could not close itself (it was killed): only a group its own _session recorded as "N N"
+  for sd_f in "$bd"/logs/pgid.*; do
+    [ -f "$sd_f" ] || continue
+    sd_g=$(cat "$sd_f" 2>/dev/null || :); sd_a=${sd_g%% *}
+    [ "$sd_g" = "$sd_a $sd_a" ] || continue
+    case "$sd_a" in ''|*[!0-9]*|0|1|"$sd_own") continue ;; esac
+    grp_alive "$sd_a" || continue
+    kill -TERM "-$sd_a" 2>/dev/null || :
+    sd_i=0; while [ "$sd_i" -lt 15 ] && grp_alive "$sd_a"; do nap; sd_i=$((sd_i + 1)); done
+    ! grp_alive "$sd_a" || kill -KILL "-$sd_a" 2>/dev/null || :
+  done
+  rm -f "$bd"/logs/pgid.*
+  drv_finalize "stopped by the user"   # idempotent: the driver's own exit already did this when it could
+  echo "batch driver stopped (pid $DP); the running task, if any, is parked as stopped"
+}
+
 # --- status ----------------------------------------------------------------------------------------------------------
 fmt_ts() { [ -n "$1" ] || { echo "-"; return 0; }; date -r "$1" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -d "@$1" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$1"; }
 rec_get() { sed -n "s/^$2=//p" "$1" | head -1; }
@@ -499,6 +646,23 @@ sessions_report() {
   done
   printf '\n'
 }
+driver_line() { # TRAILER: the driver, from the pid files, verified alive (A163)
+  if drv_live; then
+    dl_t=$(cat "$bd/driver.start" 2>/dev/null || :); dl_f=''
+    if [ -f "$bd/state.tsv" ] && [ -f "$bd/order.tsv" ]; then
+      for dl_id in $(cut -f1 "$bd/order.tsv"); do
+        [ "$(st_get "$dl_id" 2)" = running ] || continue
+        dl_l=$(awk 'NF { l = $0 } END { print l }' "$bd/logs/$dl_id.cur" 2>/dev/null || :); [ -z "$dl_l" ] || { dl_f=$dl_l; break; }
+      done
+    fi
+    [ -n "$dl_f" ] || dl_f=$(awk 'NF { l = $0 } END { print l }' "$bd/driver.log" 2>/dev/null || :)
+    dl_f=$(printf '%s' "$dl_f" | tr '\t\r' '  ' | cut -c1-120)
+    printf 'driver: running, pid %s, started %s, last log line: %s\n' "$DP" "$(fmt_ts "$dl_t")" "${dl_f:--}"
+    [ ! -f "$bd/inhibit" ] || cat "$bd/inhibit"
+  elif [ -n "$1" ]; then printf 'driver: not running (stopped: %s)\n' "$1"
+  elif [ -f "$bd/state.tsv" ] && ! awk -F'\t' '$2 == "pending" || $2 == "running" { f = 1 } END { exit !f }' "$bd/state.tsv"; then echo "driver: finished"
+  else echo "driver: not running"; fi
+}
 status() {
   [ -f "$bd/SUMMARY.md" ] || { echo "no batch planned (agent.sh batch-plan <ID...|all>)"; return 0; }
   ap=$(grep -l "^bound: \"$(sha "$bd/SUMMARY.md")\"" "$root"/.agents/local/approvals/[0-9][0-9][0-9]-batch.yaml 2>/dev/null | sort | tail -1 || :)
@@ -507,6 +671,7 @@ status() {
   stopped=''; [ ! -f "$bd/state.tsv" ] || stopped=$(sed -n 's/^# stopped: //p' "$bd/state.tsv" | tail -1)
   printf 'batch %s, approved at %s\n' "$(bid)" "${at:-never}"
   [ -z "$stopped" ] || printf 'STOPPED: %s\n' "$stopped"
+  driver_line "$stopped"
   printf '\n%s | %s | %s | %s | %s | %s\n' task result PR merge 'park reason' 'pending question'
   for id in $(cut -f1 "$bd/order.tsv"); do
     st=pending; why=''; pr=''; mt=''; q=''
@@ -528,6 +693,9 @@ status() {
 case "${1:-}" in
   plan) shift; plan "$@" ;;
   run) run ;;
+  start) start ;;
+  stop) stop_driver ;;
+  _driver) BG=1; run ;;   # internal: what `start` executes; the same run() as the terminal route
   _pgprobe) me=$$; printf '%s %s\n' "$me" "$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')" > "$2.tmp" && mv "$2.tmp" "$2" ;;   # internal: what pg_probe_one checks
   _session) shift   # internal: the session itself, started by `session` as the leader of its own process group
     me=$$; pg=$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' '); printf '%s %s\n' "$me" "$pg" > "$bd/logs/pgid.$me"
@@ -535,5 +703,5 @@ case "${1:-}" in
     [ "$pg" = "$me" ] || { echo "batch: the session is not the leader of its own process group (pid $me, pgid ${pg:-?}); nothing was started" >&2; echo 125 > "$bd/logs/$1.rc"; exit 125; }
     r=0; run_session "$1" "$2" "$3" "${4:-}" || r=$?; echo "$r" > "$bd/logs/$1.rc" ;;
   status) status ;;
-  *) echo "usage: batch.sh plan <ID...|all> | run | status" >&2; exit 2 ;;
+  *) echo "usage: batch.sh plan <ID...|all> | run | start | stop | status" >&2; exit 2 ;;
 esac
