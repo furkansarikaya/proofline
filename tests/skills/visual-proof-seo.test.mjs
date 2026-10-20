@@ -225,3 +225,43 @@ test("robots.txt is read per bot: Googlebot uses its own group, Bingbot falls to
   assert.match(item.note, /robots\.txt disallows de\/index\.html for bingbot/);
   assert.doesNotMatch(item.note, /disallows index\.html/);
 });
+
+test("robots.txt blocking the page for every tested bot is not_applicable (robots); for one bot it stays measured; a blocked sitemap page still fails seo_robots (A160)", () => {
+  const sf = (txt, paths) => ({ ...SITEFACTS(paths, { "admin/index.html": true }), robots_txt: txt });
+  const opt = { base_url: BASE, site_url: SITE };
+  const all = seoEvaluate([page("admin/index.html")], sf("User-agent: *\nDisallow: /admin/\n", []), opt);
+  const pg = all.pages.find((p) => p.path === "admin/index.html");
+  assert.equal(pg.status, "not_applicable");
+  assert.equal(pg.reason, "robots");
+  assert.match(pg.detail, /googlebot/);
+  assert.match(pg.detail, /bingbot/);
+  assert.equal(all.items.some((m) => m.check === "seo_robots" && /admin/.test(m.note || "")), false, "a skipped page produced a seo_robots item");
+
+  const some = seoEvaluate([page("admin/index.html")], sf("User-agent: Googlebot\nDisallow: /admin/\n", []), opt);
+  assert.notEqual(some.pages.find((p) => p.path === "admin/index.html").status, "not_applicable");
+  const item = some.items.find((m) => m.check === "seo_robots");
+  assert.equal(item.status, "fail");
+  assert.match(item.note, /admin\/index\.html for googlebot/);
+
+  const inMap = seoEvaluate([page("index.html"), page("admin/index.html")], sf("User-agent: *\nDisallow: /admin/\n", ["index.html", "admin/index.html"]), opt);
+  const mi = inMap.items.find((m) => m.check === "seo_robots");
+  assert.ok(mi && mi.status === "fail", "a blocked page listed in the sitemap must still fail seo_robots");
+  assert.match(mi.note, /disallows a sitemap page for googlebot, bingbot: https:\/\/example\.org\/admin\/index\.html/);
+});
+
+test("a request initiated by the document itself is not attributed to analytics; a script initiator is; the site's own origin is first party (A160)", () => {
+  const url = BASE + "stats/index.html";
+  const mk = (initiator) => seoEvaluate([page("stats/index.html", { url, requests: [req("https://cdn.x.example.com/a.css", { initiator })] })],
+    SITEFACTS(["index.html"], { "stats/index.html": true }), { base_url: BASE, site_url: SITE });
+  const doc = mk(url);
+  assert.equal(doc.items.some((m) => m.check === "seo_analytics_consent"), false, "the document URL (stats) counted as an analytics initiator");
+  const script = mk("https://cdn.x.example.com/tracking.js");
+  assert.equal(script.items.find((m) => m.check === "seo_analytics_consent")?.status, "fail", "a tracking script initiator was not attributed");
+
+  const own = page("index.html", { requests: [req("https://example.org/assets/pixel-art.js", { third_party: undefined })] });
+  const r = consent(own);
+  assert.equal(r.items.some((m) => m.check === "seo_analytics_consent"), false, "the site's own origin pixel-art.js blocked the page");
+  const pa = r.pages[0], u = "https://example.org/assets/pixel-art.js";
+  assert.equal((pa.analytics_before_consent || []).includes(u), false, "own-origin request listed in analytics_before_consent");
+  assert.equal((pa.third_party_requests || []).includes(u), false, "own-origin request listed in third_party_requests");
+});
