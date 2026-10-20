@@ -1916,7 +1916,7 @@ sc_legacy_fingerprint() {
   printf 'one more line\n' >> impl.txt
   A pipeline LC | grep '^gate\.' | grep -q '=pass' && die "a product edit left a legacy gate passing: $(A pipeline LC | grep '^gate\.')"
   A pipeline LC | grep -q '^gate\..*=stale' || die "a product edit did not stale the legacy gates: $(A pipeline LC | grep '^gate\.')"
-  ok "legacy gate fingerprint (0.0.12/0.0.13) with a block-only file stays valid once, writes nothing, and a product edit stales it"
+  ok "legacy gate fingerprint (0.0.12/0.0.13) with a block-only file is accepted without writing a gate record, and a product edit stales it"
 
 }
 sc_legacy_fingerprint_new_rule() {

@@ -370,6 +370,10 @@ sc_unsupported_evidence_base_move() {
   sd=$(git commit-tree "$(git write-tree)" -p "$b" -m side)
   sed "s/^BASE: .*/BASE: $sd/" "$d/reviews/contract-proof/validator.txt" > "$d/reviews/contract-proof/other-real.txt"
   expect_msg "a real commit that is not in the chain" "not the run's base" ue_submit contract reviews/contract-proof/other-real.txt
+  fk=1111111111111111111111111111111111111111
+  A ledger-note LC "event=base-moved role=lead from=- to=- digest=x ts=x epoch=1 detail=base_sha moved ($fk -> $(rv repository base_sha))" >/dev/null || die "ledger-note failed"
+  sed "s/^BASE: .*/BASE: $fk/" "$d/reviews/contract-proof/validator.txt" > "$d/reviews/contract-proof/forged.txt"
+  expect_msg "a base linked only by a forged ledger-note" "not the run's base" ue_submit contract reviews/contract-proof/forged.txt
   ok "unsupported evidence: a base before one or two accepted control-plane-only moves counts; an unrelated base is refused"
 }
 
