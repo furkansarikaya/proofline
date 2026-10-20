@@ -341,7 +341,12 @@ enforce_task_branch() {
 # --- Baseline and path fingerprints ------------------------------------------------
 fingerprint_path() {
   path=$1 target=$root/$1
-  [ ! -L "$target" ] || fail "cannot baseline symlink: $path"
+  if [ -L "$target" ]; then
+    case "$path" in
+      AGENTS.md|CLAUDE.md) fail "cannot baseline symlink: $path. A symlinked $path is a product change (project rules every agent reads): replace the symlink with a regular file holding only the proofline block, or name $path in the plan scope (amendment and refreeze)." ;;
+    esac
+    fail "cannot baseline symlink: $path"
+  fi
   if [ -f "$target" ]; then hash_file "$target"; return 0; fi
   [ ! -e "$target" ] && { printf '%s\n' missing; return 0; }
   fail "cannot baseline non-regular file: $path"

@@ -1255,6 +1255,10 @@ scenario_uncommitted_block_file() {
     printf '%s' "$out" | grep -Fxq 'AGENTS.md' || die "AGENTS.md not listed for $c: $out"
   done
   rm -f AGENTS.md CLAUDE.md
+  ln -s no-such-target CLAUDE.md   # an untracked symlink fails verify-scope and says what to do (A161, #131)
+  out=$(A verify-scope LC 2>&1) && die "an untracked symlinked CLAUDE.md passed verify-scope: $out"
+  printf '%s' "$out" | grep -Fq 'replace the symlink with a regular file holding only the proofline block' || die "no symlink hint: $out"
+  rm -f CLAUDE.md
   printf '\n\n%b\n\n' "$blk" > AGENTS.md; printf '%b' "$blk" > CLAUDE.md   # whitespace around the block is accepted
   out=$(A verify-scope LC 2>&1) || die "uncommitted block-only AGENTS.md and CLAUDE.md failed verify-scope: $out"
   printf '%s' "$out" | grep -Fq 'installed proofline files changed' || die "not listed as installed files: $out"
