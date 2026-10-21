@@ -122,3 +122,41 @@ test("trace shows a broken link and the full chain from records on disk, writing
   assert.equal(readdirSync(join(root, ".agents/local")).join(), "deliver");
   rmSync(root, { recursive: true, force: true });
 });
+
+test("unknowns: TBD in capitals or a whole-value unknown is flagged, the word inside a sentence is not", () => {
+  const rules = (t) => checkPrd(t).findings.filter((f) => f.rule === "unknown-as-fact").length;
+  assert.equal(rules(PRD.replace("- FR-2: The file", "- FR-3: Orders with an unknown currency are skipped.\n- FR-2: The file")), 0);
+  assert.equal(rules(PRD.replace("- FR-2: The file", "- FR-3: unknown\n- FR-2: The file")), 1);
+  assert.equal(rules(PRD.replace("- FR-2: The file", "- FR-3: Columns TBD\n- FR-2: The file")), 1);
+  assert.equal(rules(PRD.replace("- FR-2: The file", "- FR-3: a tbd-free note\n- FR-2: The file")), 0);
+});
+
+test("requirements are checked for unmeasurable words; a real HTML tag is no placeholder", () => {
+  const f = checkPrd(PRD.replace("completes within 5 seconds on the production server", "is fast and easy")).findings;
+  assert.ok(f.some((x) => x.rule === "vague-word" && /NFR-1/.test(x.message)), JSON.stringify(f));
+  assert.equal(checkPrd(PRD.replace("## Goals\n", "## Goals\n\n<table><tr><td>x</td></tr></table>\n")).findings.filter((x) => x.rule === "placeholder").length, 0);
+  assert.equal(checkPrd(PRD.replace("## Goals\n", "## Goals\n\n<the goal>\n")).findings.filter((x) => x.rule === "placeholder").length, 1);
+});
+
+test("trace of a delivered task reads the done/ file, the delivery commit and the merge commit, with no false missing link", () => {
+  const { root } = project();
+  const g = (...a) => { const r = spawnSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
+  g("init", "-q", "-b", "main"); g("add", "-A"); g("commit", "-q", "-m", "init");
+  g("checkout", "-q", "-b", "proofline/TASK-1-export");
+  mkdirSync(join(root, "test")); writeFileSync(join(root, "test/export.test.mjs"), "// test\n");
+  mkdirSync(join(root, ".agents/tasks/done"));
+  const task = readFileSync(join(root, ".agents/tasks/todo/TASK-1.md"), "utf8");
+  rmSync(join(root, ".agents/tasks/todo/TASK-1.md"));
+  writeFileSync(join(root, ".agents/tasks/done/TASK-1.md"), `${task}\n## Completion Report\n\n<!-- COMPLETION-REPORT:BEGIN:TASK-1 -->\n# Completion Report: TASK-1\n\n## TDD Evidence\n\n- test/export.test.mjs: RED fail, GREEN pass\n<!-- COMPLETION-REPORT:END:TASK-1 -->\n`);
+  g("add", "-A"); g("commit", "-q", "-m", "feat: export CSV (TASK-1)");
+  g("checkout", "-q", "main"); g("merge", "-q", "--no-ff", "-m", "Merge pull request #7 from o/proofline/TASK-1-export", "proofline/TASK-1-export");
+  const before = g("status", "--porcelain");
+  const r = trace("FR-1", { root });
+  assert.deepEqual(r.missing, []);
+  const c = r.chains[0].tasks[0];
+  assert.equal(c.criteria[0].tests[0].file, "test/export.test.mjs");
+  assert.equal(c.criteria[0].tests[0].evidence[0].phase, "RED");
+  assert.equal(c.pr.pr, "7");
+  assert.equal(g("status", "--porcelain"), before);
+  rmSync(root, { recursive: true, force: true });
+});

@@ -19,7 +19,34 @@ export const VAGUE_WORDS = [
   "kullanıcı dostu", "hızlı", "hızlıca", "çabuk", "sağlam", "kolay", "kolayca", "sezgisel", "basit", "esnek", "ölçeklenebilir",
   "verimli", "sorunsuz", "kusursuz", "güçlü", "uygun", "makul", "vb.", "vs.", "gibi şeyler",
 ];
-const UNKNOWN = /(?<![\p{L}\p{N}])(tbd|todo|unknown|bilinmiyor|belli değil)(?![\p{L}\p{N}])|\?\?\?/iu;
+// TBD and TODO in capitals, or ???, anywhere; "unknown" words only as the whole value of a list item or a `key: value` field.
+const TBD = /\b(TBD|TODO)\b|\?\?\?/;
+const UNKNOWN_VALUE = /^(unknown|bilinmiyor|belli değil)[.!]?$/i;
+export function unknownIn(line) {
+  const t = TBD.exec(line);
+  if (t) return t[0];
+  const item = line.replace(/^\s*[-*]\s+/, "").replace(/^[A-Z]+-\d+(?:\.\d+)?:\s*/, "");
+  const values = [item, ...item.split(";").map((part) => /^\s*[\p{L}][\p{L} _-]*:\s*(.*)$/u.exec(part)?.[1] ?? part)];
+  for (const v of values) {
+    const bare = v.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)\s*$/, "").trim();
+    if (UNKNOWN_VALUE.test(bare)) return bare;
+  }
+  return null;
+}
+// A template placeholder `<...>`; a real HTML tag (`<table>`, `</td>`, `<br/>`) and an autolink are none.
+const HTML_TAGS = new Set("a abbr b blockquote br caption code col colgroup dd del details div dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p picture pre q s samp section small source span strong sub summary sup table tbody td tfoot th thead tr u ul var video audio".split(" "));
+export function placeholders(text) {
+  const src = text.replace(/<!--[\s\S]*?-->/g, "").replace(/^\s*(```|~~~)[\s\S]*?^\s*\1\s*$/gm, "").replace(/`[^`\n]*`/g, "");
+  const out = [];
+  for (const m of src.matchAll(/<([A-Za-z/][^<>\n]{0,120})>/g)) {
+    const inner = m[1];
+    const tag = /^\/?([a-z][a-z0-9]*)(\s+[a-z-]+(=("[^"]*"|'[^']*'|[^\s"'>]+))?)*\s*\/?$/i.exec(inner);
+    if (tag && HTML_TAGS.has(tag[1].toLowerCase())) continue;
+    if (/^[a-z][a-z0-9+.-]*:\S+$/i.test(inner) || /^[^\s@]+@[^\s@]+$/.test(inner)) continue;
+    out.push(m[0]);
+  }
+  return out;
+}
 const REF = /\b(Q|A)-\d+\b/;
 const NONE = /^(none|yok)\.?$/i;
 
@@ -112,6 +139,8 @@ export function checkPrd(text, opts = {}) {
   for (const r of p.reqs) {
     if (!r.id) { add("requirement-id", r.line, `requirement without an id in ## ${r.section}: ${r.text.slice(0, 80)} (want \`- ${r.prefix}-<n>: ...\`)`); continue; }
     if (!r.id.startsWith(`${r.prefix}-`)) add("requirement-id", r.line, `${r.id} is in ## ${r.section} (want the ${r.prefix}- prefix)`);
+    const v = vague.exec(r.text);
+    if (v) add("vague-word", r.line, `${r.id} cannot be measured: "${v[0]}" (name the observable value or limit instead)`);
     if (seen.has(r.id)) add("requirement-id", r.line, `${r.id} is used twice (first at line ${seen.get(r.id)})`);
     else seen.set(r.id, r.line);
   }
@@ -121,7 +150,7 @@ export function checkPrd(text, opts = {}) {
     const missing = ["event", "source", "baseline"].filter((k) => !field(k));
     if (missing.length) add("metric-method", it.n, `metric does not say how it is measured: missing ${missing.join(", ")} (want \`event: <event>; source: <where>; baseline: <value>\`)`);
     const base = field("baseline");
-    if (base && UNKNOWN.test(base) && !REF.test(base)) add("unknown-as-fact", it.n, "baseline is unknown: link the assumption or open question that covers it (A-<n> or Q-<n>)");
+    if (base && unknownIn(`baseline: ${base}`) && !REF.test(base)) add("unknown-as-fact", it.n, "baseline is unknown: link the assumption or open question that covers it (A-<n> or Q-<n>)");
   }
   for (const it of p.items(p.secs.get("Assumptions")?.lines || [])) {
     if (NONE.test(it.text)) continue;
@@ -137,9 +166,10 @@ export function checkPrd(text, opts = {}) {
   // An unknown is never written into the body as fact: it lives in Assumptions or Open questions, or links one.
   for (const [name, s] of p.secs) {
     if (["Assumptions", "Open questions", "Success metrics", "Deferred"].includes(name)) continue;
-    for (const r of s.lines) if (UNKNOWN.test(r.text) && !REF.test(r.text)) add("unknown-as-fact", r.n, `unknown in ## ${name}: move it to ## Assumptions or ## Open questions, or link one (A-<n>, Q-<n>)`);
+    for (const r of s.lines) if (unknownIn(r.text) && !REF.test(r.text)) add("unknown-as-fact", r.n, `unknown in ## ${name}: move it to ## Assumptions or ## Open questions, or link one (A-<n>, Q-<n>)`);
   }
-  if (/<[A-Za-z][A-Za-z -]*>/.test(text.replace(/<!--[\s\S]*?-->/g, ""))) add("placeholder", 1, "unfilled template placeholder (<...>) remains");
+  const ph = placeholders(text);
+  if (ph.length) add("placeholder", 1, `unfilled template placeholder remains: ${ph.slice(0, 3).join(", ")}`);
   const claims = validateClaims(text, { sections: ["Problem", "Assumptions"] });
   for (const e of claims.errors) add("claim", e.line, e.message);
   for (const u of claims.unmarked) warnings.push({ rule: "unmarked-claim", line: u.line, message: `claim carries no fact, assumption or decision marker: ${u.text}` });

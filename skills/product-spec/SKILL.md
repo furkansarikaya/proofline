@@ -53,7 +53,7 @@ All scripts are read-only on the project, need only Node, and print `--json` on 
 | `check-writing.mjs` | `node scripts/check-writing.mjs [--strictness relaxed\|strict] <PRD.md>` | sentence and paragraph length ([WRITING.md](references/WRITING.md)) |
 
 - `check-prd.mjs` reads extra unmeasurable words from config `product.vague_words` (comma-separated). Its findings carry a rule id ([PRD-FORMAT.md](references/PRD-FORMAT.md#2-rules-the-check-applies)); schema: [prd-check.schema.json](schema/prd-check.schema.json).
-- `trace.mjs` builds the chain requirement, task, criterion, test, run evidence, pull request from records on disk only ([PRD-FORMAT.md](references/PRD-FORMAT.md#6-trace)). It never writes a file. It states every missing link, for example `no test linked`.
+- `trace.mjs` builds the chain requirement, task, criterion, test, run evidence, pull request from records only ([PRD-FORMAT.md](references/PRD-FORMAT.md#6-trace)): the live run folder while a run exists; after delivery the `done/` task file's completion report, the delivery commit and its merge commit (git is only read). It never writes a file. It states every missing link, for example `no test linked`.
 - `validate-product-claims.mjs` exports `validateClaims` and `parseMarker` for scripts of this skill. Another skill runs it as a command ([EVIDENCE.md](references/EVIDENCE.md#3-using-it-from-another-skill)).
 
 ## Output
