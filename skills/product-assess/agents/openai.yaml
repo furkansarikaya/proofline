@@ -1,0 +1,7 @@
+interface:
+  display_name: "Product Assess"
+  short_description: "Tests a plan's assumptions with locked probes, a premortem and a red team, records the decision and the measured outcome"
+  default_prompt: "Use $product-assess to test the assumptions of: "
+
+policy:
+  allow_implicit_invocation: false
