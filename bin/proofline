@@ -268,7 +268,7 @@ cmd_batch() { # A157: night mode. plan = agent session; run and status need none
     status) agent batch-status ;;
     stop) (cd "$ROOT" && sh "$ROOT/.agents/scripts/batch.sh" stop) ;;
     '') die "usage: proofline batch <ID...|all> [--codex-danger-full-access] | batch run | batch status | batch stop" ;;
-    *) say "night mode plans the batch in the lead's session (one summary, one \"approve batch\"); then start it here: proofline batch run"
+    *) say "night mode plans the batch in the lead's session (one summary, one \"approve batch\"); the same \"approve batch\" in that session starts the driver in the background (agent.sh batch-start); proofline batch run still starts it from a terminal, and proofline batch stop ends it"
        hint batch "$@" ;;
   esac
 }
