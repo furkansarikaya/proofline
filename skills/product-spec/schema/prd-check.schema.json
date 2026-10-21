@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "check-prd.mjs --json output",
+  "type": "object",
+  "required": ["clean", "findings", "warnings", "prd"],
+  "additionalProperties": false,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["rule", "line", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": { "enum": ["missing-section", "structure", "problem-owner", "empty-non-goals", "story", "criterion-id", "vague-word", "requirement-id", "metric-id", "metric-method", "unknown-as-fact", "assumption-marker", "open-questions", "deferred", "placeholder", "claim", "unmarked-claim"] },
+        "line": { "type": "integer", "minimum": 1 },
+        "message": { "type": "string" }
+      }
+    }
+  },
+  "properties": {
+    "clean": { "type": "boolean" },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "warnings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "prd": {
+      "type": "object",
+      "required": ["title", "requirements", "stories", "blocking_questions", "deferred"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": ["string", "null"] },
+        "requirements": { "type": "array", "items": { "type": "string", "pattern": "^N?FR-[0-9]+$" } },
+        "stories": { "type": "integer", "minimum": 0 },
+        "blocking_questions": { "type": "integer", "minimum": 0 },
+        "deferred": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -87,8 +87,12 @@ export function defectErrors(text) {
 }
 
 export const SIZES = ["S", "M", "L"];
+// Optional link from a criterion to the PRD requirements it satisfies (product-spec): the criterion ends with
+// `Covers: FR-1, NFR-2` (usually on its own indented line under it); the task names the PRD with front matter `prd: <slug>`.
+export const COVERS = /\bCovers:\s*(.*?)\s*\.?\s*$/;
+const REQ_ID = /^N?FR-\d+$/;
 
-// Optional YAML front matter (size, sprint, assignee, depends_on); flat `key: value` lines only.
+// Optional YAML front matter (size, sprint, assignee, depends_on, prd); flat `key: value` lines only.
 export function frontMatter(text) {
   // the block sits right after the `# Task:` line (line 1 stays the H1); a leading block is still accepted
   let m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text), pre = "";
@@ -135,6 +139,7 @@ export function validate(full, opts = {}) {
   if ("size" in meta && !SIZES.includes(meta.size)) errors.push(`front matter size must be one of ${SIZES.join("|")}`);
   if ("sprint" in meta && !meta.sprint) errors.push("front matter sprint is empty (positive integer or label)");
   if ("assignee" in meta && !meta.assignee) errors.push("front matter assignee is empty");
+  if ("prd" in meta && !/^[a-z0-9][a-z0-9-]*$/.test(meta.prd)) errors.push("front matter prd must be the PRD's slug (lowercase letters, digits, -)");
   if ("depends_on" in meta) {
     const deps = meta.depends_on.split(/[\s,]+/).filter(Boolean);
     if (opts.tasksDirs?.length) {
@@ -150,16 +155,26 @@ export function validate(full, opts = {}) {
     else if (!body.some((l) => l.trim())) errors.push(`section "## ${name}" is empty`);
   }
   if (t.acs.length === 0 && (t.secs.get("Acceptance criteria") || []).some((l) => l.trim())) errors.push("no acceptance criteria in the form `AC-<n>: <text>`");
+  const covers = {};
   t.acs.forEach((ac, i) => {
     if (ac.n !== i + 1) errors.push(`AC numbering must be sequential from AC-1 (found AC-${ac.n} at position ${i + 1})`);
-    if (!ac.text) errors.push(`AC-${ac.n} is empty`);
+    const c = COVERS.exec(ac.text);
+    const text = c ? ac.text.slice(0, c.index).trim() : ac.text;
+    if (c) {
+      const ids = c[1].split(/\s*,\s*/).filter(Boolean);
+      const bad = ids.filter((x) => !REQ_ID.test(x));
+      if (!ids.length || bad.length) errors.push(`AC-${ac.n} Covers must list requirement ids such as \`Covers: FR-1, NFR-2\`${bad.length ? ` (not an id: ${bad.join(", ")})` : ""}`);
+      else covers[`AC-${ac.n}`] = ids;
+    }
+    if (!text) errors.push(`AC-${ac.n} is empty`);
     else {
-      if (!OBSERVABLE.test(ac.text)) errors.push(`AC-${ac.n} names no observable behaviour (no verb such as returns, shows, rejects, persists)`);
-      const v = VAGUE.exec(ac.text);
+      if (!OBSERVABLE.test(text)) errors.push(`AC-${ac.n} names no observable behaviour (no verb such as returns, shows, rejects, persists)`);
+      const v = VAGUE.exec(text);
       if (v) errors.push(`AC-${ac.n} is not testable: vague term "${v[0]}"`);
-      if (IMPL.test(ac.text)) warnings.push(`AC-${ac.n} may dictate implementation; keep only if the user stated it as a constraint`);
+      if (IMPL.test(text)) warnings.push(`AC-${ac.n} may dictate implementation; keep only if the user stated it as a constraint`);
     }
   });
+  if (Object.keys(covers).length && !meta.prd) warnings.push("criteria name Covers ids but the task names no PRD: add front matter `prd: <slug>`");
   if (t.secs.has("Suggested class")) {
     if (!t.cls) errors.push("Suggested class must start with one of " + CLASSES.join("|"));
     else if (!t.indicator) errors.push("Suggested class must name the indicator that placed it: `<CLASS> — <indicator>`");
@@ -167,7 +182,7 @@ export function validate(full, opts = {}) {
   if (PLACEHOLDER.test(stripComments(text).replace(/^# Task:.*$/m, ""))) errors.push("unfilled placeholder (<...>, TBD, TODO or ???) remains");
   errors.push(...defectErrors(text));
   if (defectEntries(text).some((e) => /decision:\s*fix\b/i.test(e))) warnings.push("a pre-existing defect with `decision: fix` needs the user's own `scope` approval at freeze; an answer such as \"use your recommended option\" is not one");
-  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, ...(Object.keys(meta).length ? { meta } : {}) } };
+  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, ...(Object.keys(meta).length ? { meta } : {}), ...(Object.keys(covers).length ? { covers } : {}) } };
 }
 
 // ---- templates (D25) ----

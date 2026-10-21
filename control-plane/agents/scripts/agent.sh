@@ -130,7 +130,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -160,6 +160,8 @@ config_check() {
       else if (k == "writing.profile") en(k, v, "auto|ste|plain")
       else if (k == "writing.strictness") en(k, v, "relaxed|strict")
       else if (top == "writing" && k != "writing") bad("unknown writing key: " k " (want writing.profile or writing.strictness)")
+      else if (k == "product.dir") { if (v ~ /^\// || v ~ /(^|\/)\.\.(\/|$)/) bad("product.dir must be project-relative: " v) }
+      else if (top == "product" && k != "product" && k != "product.vague_words") bad("unknown product key: " k " (want product.dir or product.vague_words)")
       else if (k ~ /^pipelines\.[A-Z]+\.(evidence|qa|architect)$/) en(k, v, "yes|no")
       else if (k ~ /^pipelines\.[A-Z]+\.review$/) en(k, v, "yes|no|optional")
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)
