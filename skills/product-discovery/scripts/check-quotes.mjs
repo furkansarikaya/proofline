@@ -20,7 +20,9 @@ export const rawDir = (root, slug) => join(root, ".agents", "local", "product-di
 export function occurs(rawText, quote) {
   const hay = ws(rawText);
   let from = 0;
-  for (const part of quote.split(/\.\.\.|…/).map(ws).filter(Boolean)) {
+  const parts = quote.split(/\.\.\.|…/).map(ws).filter(Boolean);
+  if (!parts.length) return false;
+  for (const part of parts) {
     const at = hay.indexOf(part, from);
     if (at < 0) return false;
     from = at + part.length;
@@ -47,7 +49,7 @@ export function checkQuotes(text, root, slug) {
 export function checkPrivacy(root, slug) {
   const dir = rawDir(root, slug);
   let names = [];
-  try { names = readdirSync(dir).sort(); } catch { return []; }
+  try { names = readdirSync(dir).sort(); } catch { console.log("nothing to check: no interviews folder"); return []; }
   const git = (args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
   if (git(["rev-parse", "--is-inside-work-tree"]).status !== 0) return [{ file: relative(root, dir), line: 0, id: null, rule: "privacy", message: "not a git repository: cannot tell whether the raw interview texts are ignored" }];
   const findings = [];

@@ -65,11 +65,12 @@ export function checkOutcome(text, opts) {
     if (!sc) add("script", "script: needs `<path> sha256:<64 hex>`");
     if (!ou) add("output", "output: needs `outcome/<OC-n>.out sha256:<64 hex>`");
     if (ou && ou[1] !== `outcome/${it.id}.out`) add("output", `the output file must be outcome/${it.id}.out`);
+    let scriptBad = false;
     if (sc) {
       const p = resolve(root, sc[1]);
-      if (!p.startsWith(root + sep)) add("script", "the script path leaves the project");
+      if (!p.startsWith(root + sep)) { add("script", "the script path leaves the project"); scriptBad = true; }
       else if (!existsSync(p)) add("script", `script ${sc[1]} does not exist`);
-      else if (sha256(read(p) ?? "") !== sc[2].toLowerCase()) add("script-hash", `script ${sc[1]} changed since it was recorded (hash differs)`);
+      else if (sha256(read(p) ?? "") !== sc[2].toLowerCase()) { add("script-hash", `script ${sc[1]} changed since it was recorded (hash differs)`); scriptBad = true; }
     }
     let out = null;
     if (ou) {
@@ -90,7 +91,7 @@ export function checkOutcome(text, opts) {
       if (ok === null) add("target", `target "${f.target}" or value "${f.value}" cannot be compared (target: >=|<=|>|<|= and a number)`);
       else if (ok !== (f.result === "reached")) add("result-follows", `value ${f.value} against target ${f.target} is ${ok ? "reached" : "not-reached"}, not ${f.result}`);
     }
-    if (rerun && sc && ou && existsSync(resolve(root, sc[1]))) {
+    if (rerun && sc && ou && !scriptBad && existsSync(resolve(root, sc[1]))) {
       const r = runScript(root, sc[1], timeout);
       if (r.error) add("rerun", `rerun of ${sc[1]} failed: ${r.error}`);
       else if (sha256(r.stdout) !== ou[2].toLowerCase()) add("rerun", `rerun of ${sc[1]} gives another output (hash ${sha256(r.stdout).slice(0, 12)}, recorded ${ou[2].slice(0, 12)})`);

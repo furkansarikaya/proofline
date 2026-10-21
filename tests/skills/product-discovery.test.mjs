@@ -119,3 +119,19 @@ test("a discovery claim is citable from a PRD with ref, and the validator copy i
   assert.equal(readFileSync(join(SKILL, "scripts/validate-product-claims.mjs"), "utf8"), readFileSync(join(SKILL, "../product-spec/scripts/validate-product-claims.mjs"), "utf8"));
   rmSync(root, { recursive: true, force: true });
 });
+
+test("a COMPETITORS.md without a table is no-table; a quote of only ellipses is rejected; --privacy without interviews says nothing to check", async () => {
+  const root = project({ "COMPETITORS.md": "# Competitors\n\nNothing here yet.\n" });
+  const nt = json("check-competitors.mjs", ["x", "--root", root]);
+  assert.equal(nt.status, 1);
+  assert.deepEqual(rules(nt), ["no-table"]);
+  const { occurs } = await import(join(SKILL, "scripts/check-quotes.mjs"));
+  assert.equal(occurs(RAW, "..."), false);
+  assert.equal(occurs(RAW, "\u2026 ..."), false);
+  assert.equal(occurs(RAW, "I copy ... by hand"), true);
+  rmSync(join(root, ".agents/local/product-discovery"), { recursive: true });
+  const pr = run("check-quotes.mjs", ["x", "--privacy", "--root", root]);
+  assert.equal(pr.status, 0);
+  assert.match(pr.stdout, /nothing to check/);
+  rmSync(root, { recursive: true, force: true });
+});

@@ -22,13 +22,13 @@ const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.par
 
 export function checkCompetitors(text, { today, stale = 90, name = "COMPETITORS.md" } = {}) {
   const findings = [], staleCells = [], cells = [];
-  let header = false, fence = false;
+  let header = false, fence = false, sawTable = false;
   stripComments(text).split(/\r?\n/).forEach((raw, i) => {
     const line = i + 1;
     if (/^\s*(```|~~~)/.test(raw)) { fence = !fence; return; }
     if (fence || !/^\s*\|/.test(raw)) { if (!/^\s*\|/.test(raw)) header = false; return; }
     const c = raw.trim().replace(/^\||\|$/g, "").split("|").map((s) => s.trim());
-    if (c.map((s) => s.toLowerCase()).join("|") === HEADER.join("|")) { header = true; return; }
+    if (c.map((s) => s.toLowerCase()).join("|") === HEADER.join("|")) { header = true; sawTable = true; return; }
     if (!header || c.every((s) => /^:?-+:?$/.test(s))) return;
     const add = (rule, message) => findings.push({ file: name, line, id: null, rule, message });
     if (c.length !== 6) return add("bad-row", `a row has 6 columns (${HEADER.join(" | ")}), found ${c.length}`);
@@ -51,6 +51,7 @@ export function checkCompetitors(text, { today, stale = 90, name = "COMPETITORS.
     }
     cells.push(cell);
   });
+  if (!sawTable) findings.push({ file: name, line: 0, id: null, rule: "no-table", message: `no competitor table found; the header row must be | ${HEADER.join(" | ")} |` });
   return { findings, stale: staleCells, cells };
 }
 

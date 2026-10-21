@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -117,5 +117,16 @@ test("outcome: reached must follow from value and target; an edited output file 
   assert.ok(rules(checkOutcome(p.doc, { root: p.root, dir: p.dir })).includes("output-hash"));
   assert.equal(meets("47", ">= 40"), true);
   assert.equal(meets("3", ">= 40"), false);
+  rmSync(p.root, { recursive: true, force: true });
+});
+
+test("outcome: --rerun does not execute a script whose hash changed", () => {
+  const p = outcomeProject();
+  const marker = join(p.root, "ran.txt");
+  writeFileSync(join(p.root, "scripts/adoption.mjs"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "x"); console.log("value: 47");\n`);
+  const r = run("check-outcome.mjs", "shop", "--root", p.root, "--rerun", "--json");
+  assert.equal(r.status, 1);
+  assert.ok(JSON.parse(r.stdout).findings.some((f) => f.rule === "script-hash"));
+  assert.equal(existsSync(marker), false);
   rmSync(p.root, { recursive: true, force: true });
 });
