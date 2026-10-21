@@ -145,7 +145,7 @@ jobs:
       - name: visual-proof browser measurement
         run: sh fixtures/visual-proof/browser-check.sh --no-sandbox
 
-  # The self-test suites are split into scenario units and spread over twelve shards, balanced by unit weight (A109); inside a shard the units
+  # The self-test suites are split into scenario units and spread over sixteen shards, balanced by unit weight (A109); inside a shard the units
   # run on every core (tests/selftest.sh).
   selftest:
     needs: [changes]
@@ -155,18 +155,18 @@ jobs:
       matrix:
         # macOS runs on the nightly schedule and manual runs only (A164); pushes and pull requests run Linux only.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: script self-tests (shard ${{ matrix.shard }}/12)
+      - name: script self-tests (shard ${{ matrix.shard }}/16)
         env:
           SELFTEST_TIMES_FILE: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
         run: |
-          if [ -f tests/selftest.sh ]; then SELFTEST_SLOWEST=999 SELFTEST_SHARD=${{ matrix.shard }}/12 sh tests/selftest.sh
+          if [ -f tests/selftest.sh ]; then SELFTEST_SLOWEST=999 SELFTEST_SHARD=${{ matrix.shard }}/16 sh tests/selftest.sh
           else echo "SKIPPED: tests/selftest.sh does not exist yet"; fi
       - name: upload unit timings
         if: always()
