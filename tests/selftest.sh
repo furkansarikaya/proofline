@@ -9,7 +9,13 @@
 #                          selects every suite whose name contains it.
 #   SELFTEST_SHARD=I/N     runs only shard I of N (CI splits the work over N jobs); units are spread by the
 #                          weights in tests/selftest-weights.txt (A109).
-#   SELFTEST_LIST=1        prints the shard's units and exits (shows the split; no test runs).
+#   SELFTEST_LIST=1        prints the shard's units and exits (shows the split; no test runs); =weights prefixes the
+#                          weight each unit was given. A unit missing from the weights file weighs the median of the listed.
+#   SELFTEST_WEIGHTS=FILE  weights file to use instead of tests/selftest-weights.txt.
+#   SELFTEST_TIMES_FILE=F  appends one line "<seconds> <suite> [scenario]" per unit this run executed; tests/selftest-weights.sh
+#                          merges such files into tests/selftest-weights.txt.
+#   SELFTEST_TEMPLATE_DIR  cache of installed template repositories shared by the units of one run (default: inside the
+#                          run's own log directory, removed at the end); each scenario copies a template, never shares one.
 #   SELFTEST_SLOWEST=K    prints the K slowest units (default 5); K=999 lists every unit to refresh the weights.
 #   LC_ONLY=<substring>    runs only the scenarios whose line contains it.
 # Prints one PASS/FAIL line per suite, the failing unit's log tail, the slowest units and a pass/total summary.
@@ -31,6 +37,8 @@ fi
 logs=$(mktemp -d "${TMPDIR:-/tmp}/proofline-selftest.XXXXXX") || { echo "selftest: TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }
 [ -n "$logs" ] && [ -d "$logs" ] || { echo "selftest: no log directory" >&2; exit 2; }
 trap 'rm -rf "$logs"' EXIT
+# One installed-template cache for every unit of this run (tests/shared/fixture-lib.sh); gone with the logs.
+if [ -z "${SELFTEST_TEMPLATE_DIR:-}" ]; then SELFTEST_TEMPLATE_DIR=$logs/templates; export SELFTEST_TEMPLATE_DIR; fi
 jobs=${SELFTEST_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}
 case "$jobs" in ''|*[!0-9]*|0) jobs=4 ;; esac
 only=${SELFTEST_ONLY:-}
@@ -73,19 +81,31 @@ done
 # A109: units go to shards by weight (tests/selftest-weights.txt, default 15), longest first onto the lightest
 # shard, so no shard collects the heavy units; every unit lands in exactly one shard. `mine` lists this
 # shard's unit numbers, heaviest first (the best start order for the parallel workers).
-weights=$here/selftest-weights.txt
+weights=${SELFTEST_WEIGHTS:-$here/selftest-weights.txt}
 [ -f "$weights" ] || weights=/dev/null
+# A unit that is not listed weighs the MEDIAN of the listed units (a stale file then still balances the shards).
 awk -v wf="$weights" '
-  FILENAME == wf { if ($1 ~ /^[0-9]+$/) { w = $1; sub(/^[0-9]+ +/, ""); sub(/ +$/, ""); wt[$0] = w } ; next }
+  FILENAME == wf { if ($1 ~ /^[0-9]+$/) { w = $1; sub(/^[0-9]+ +/, ""); sub(/ +$/, ""); wt[$0] = w; vals[++nv] = w + 0 } ; next }
+  !med_set {   # median of the listed weights, once
+    med_set = 1; med = 15
+    if (nv > 0) {
+      for (a = 2; a <= nv; a++) { v = vals[a]; b = a - 1; while (b >= 1 && vals[b] > v) { vals[b + 1] = vals[b]; b-- } vals[b + 1] = v }
+      med = (nv % 2) ? vals[(nv + 1) / 2] : int((vals[nv / 2] + vals[nv / 2 + 1]) / 2)
+    }
+  }
   { s = $0; sub(/\|.*/, "", s); sc = $0; sub(/^[^|]*\|/, "", sc); sub(/.*\//, "", s); sub(/\.sh$/, "", s)
     k = (sc == "") ? s : s " " sc
-    print ((k in wt) ? wt[k] : 15), FNR }
-' "$weights" "$logs/units" | sort -k1,1nr -k2,2n | awk -v n="$shard_n" -v me="$shard_i" '
+    print ((k in wt) ? wt[k] : med), FNR }
+' "$weights" "$logs/units" | sort -k1,1nr -k2,2n > "$logs/weighed"
+awk -v n="$shard_n" -v me="$shard_i" '
   { b = 1; for (j = 2; j <= n; j++) if (load[j] < load[b]) b = j
     load[b] += $1; if (b == me) print $2 }
-' > "$logs/mine"
-if [ -n "${SELFTEST_LIST:-}" ]; then   # print this shard's units (suite|scenario) and stop
-  for i in $(cat "$logs/mine"); do sed -n "${i}p" "$logs/units"; done
+' "$logs/weighed" > "$logs/mine"
+if [ -n "${SELFTEST_LIST:-}" ]; then   # print this shard's units (suite|scenario) and stop; =weights prefixes the weight
+  for i in $(cat "$logs/mine"); do
+    if [ "$SELFTEST_LIST" = weights ]; then printf '%s ' "$(awk -v i="$i" '$2 == i { print $1 }' "$logs/weighed")"; fi
+    sed -n "${i}p" "$logs/units"
+  done
   exit 0
 fi
 
@@ -118,5 +138,11 @@ for i in $(cat "$logs/mine"); do
   line=$(sed -n "${i}p" "$logs/units")
   printf '%s %s %s\n' "$(cat "$logs/$i.t" 2>/dev/null || echo 0)" "$(basename "${line%%|*}" .sh)" "${line#*|}"
 done | sort -rn | head -n "${SELFTEST_SLOWEST:-5}" | sed 's/^/slowest: /'
+if [ -n "${SELFTEST_TIMES_FILE:-}" ]; then   # the measured seconds of this shard's units, in the weights file's format
+  for i in $(cat "$logs/mine"); do
+    line=$(sed -n "${i}p" "$logs/units"); scen=${line#*|}
+    printf '%s %s%s\n' "$(cat "$logs/$i.t" 2>/dev/null || echo 0)" "$(basename "${line%%|*}" .sh)" "${scen:+ $scen}"
+  done >> "$SELFTEST_TIMES_FILE"
+fi
 printf 'selftest: %s/%s suites passed (%s units, %s jobs, shard %s, %ss)\n' "$pass" "$total" "$(wc -l < "$logs/mine" | tr -d ' ')" "$jobs" "$shard" "$wall"
 [ "$pass" = "$total" ]

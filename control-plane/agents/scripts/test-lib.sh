@@ -108,14 +108,31 @@ esac
 STUB
   chmod +x "$1/.agents/scripts/"*.sh "$1/.agents/task-integrations/markdown.sh"
 }
-# The fixture repository is built once per process and copied for every new_repo (A76).
-new_repo() { # -> cwd inside a fresh fixture repository with the control plane installed (nothing committed)
-  if [ ! -d "$base/template" ]; then
-    mkdir "$base/template"; install_control_plane "$base/template"
-    git -C "$base/template" init -q -b main
-    printf '.agents/runs/\n.agents/local/\n' > "$base/template/.gitignore"
+# The fixture repository is built once per content hash of the control plane and the stubs above, shared by every
+# test process of one run (tests/shared/fixture-lib.sh), and copied for every new_repo (A76). Each scenario
+# gets its own copy, so no state is shared.
+tl_build_template() { # DIR: an empty directory
+  install_control_plane "$1"
+  git -C "$1" init -q -b main
+  printf '.agents/runs/\n.agents/local/\n' > "$1/.gitignore"
+}
+tl_fixture_lib=$tl_agents/../../tests/shared/fixture-lib.sh
+# shellcheck source=../../../tests/shared/fixture-lib.sh
+[ ! -f "$tl_fixture_lib" ] || . "$tl_fixture_lib"
+tl_template=''
+tl_ensure_template() {
+  [ -z "$tl_template" ] || return 0
+  if command -v fx_template >/dev/null 2>&1; then
+    tl_key=$(fx_key "$tl_agents" config.yaml modes templates scripts/agent.sh scripts/next-user.sh scripts/test-lib.sh)
+    tl_template=$(fx_template "ctl-$tl_key" tl_build_template) || { echo "test-lib: cannot build the fixture template" >&2; exit 2; }
+  else
+    mkdir "$base/template"; tl_build_template "$base/template"; tl_template=$base/template
   fi
-  fx=$(mktemp -d "$base/fx.XXXXXX"); cp -R "$base/template/." "$fx/"; cd "$fx" || exit 1
+}
+tl_ensure_template   # once per test process, so every scenario subshell inherits it
+new_repo() { # -> cwd inside a fresh fixture repository with the control plane installed (nothing committed)
+  tl_ensure_template
+  fx=$(mktemp -d "$base/fx.XXXXXX"); cp -R "$tl_template/." "$fx/"; cd "$fx" || exit 1
 }
 
 # --- gate results through the D12 protocol ----------------------------------------------------

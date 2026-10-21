@@ -845,7 +845,9 @@ sc_driver_stop() { # (d) stop kills only its own group, parks the task `stopped`
   trap 'kill "$unrel" 2>/dev/null; BB stop >/dev/null 2>&1 || :' EXIT
   A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
   dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
-  until_ok "[ -f $FAKE/slow.pid ] && ls .agents/local/batch/logs/pgid.* >/dev/null 2>&1" 100 || die "the session did not start"
+  # Wait for NON-EMPTY pid files (the session creates them and then writes: an existing file can still be empty) and for
+  # the helper to have made its own group (perl runs setpgid after it started: on a loaded macOS runner that is late).
+  until_ok "[ -s $FAKE/slow.pid ] && [ -s \"\$(ls .agents/local/batch/logs/pgid.* 2>/dev/null | head -n 1)\" ] && [ \"\$(ps -o pgid= -p $unrel | tr -d ' ')\" = $unrel ]" 100 || die "the session did not start"
   sg=$(cat .agents/local/batch/logs/pgid.*); sg=${sg%% *}; sp=$(cat "$FAKE/slow.pid")
   [ "$sg" != "$dp" ] && grp_up "$sg" && grp_up "$dp" || die "setup: session group $sg, driver group $dp"
   [ "$(ps -o pgid= -p "$unrel" | tr -d ' ')" = "$unrel" ] || die "setup: the unrelated process is not in a group of its own"
@@ -877,7 +879,9 @@ sc_driver_crash() { # the driver is killed with KILL: batch stop still parks its
   trap 'kill "$unrel" 2>/dev/null; BB stop >/dev/null 2>&1 || :' EXIT
   A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
   dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
-  until_ok "[ -f $FAKE/slow.pid ] && ls .agents/local/batch/logs/pgid.* >/dev/null 2>&1" 100 || die "the session did not start"
+  # Wait for NON-EMPTY pid files (the session creates them and then writes: an existing file can still be empty) and for
+  # the helper to have made its own group (perl runs setpgid after it started: on a loaded macOS runner that is late).
+  until_ok "[ -s $FAKE/slow.pid ] && [ -s \"\$(ls .agents/local/batch/logs/pgid.* 2>/dev/null | head -n 1)\" ] && [ \"\$(ps -o pgid= -p $unrel | tr -d ' ')\" = $unrel ]" 100 || die "the session did not start"
   sg=$(cat .agents/local/batch/logs/pgid.*); sg=${sg%% *}; sp=$(cat "$FAKE/slow.pid")
   printf '%s %s\n' "$unrel" "$unrel" > .agents/local/batch/logs/pgid.99999   # a stale file that names a live group of something else
   kill -KILL "$dp"; until_ok "! kill -0 $dp" 50 || die "the driver survived KILL"
