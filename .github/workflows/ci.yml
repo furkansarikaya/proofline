@@ -1,6 +1,7 @@
 name: ci
-# A76: pull requests run the Linux checks only, split into parallel jobs and shards; pushes to main and the
-# nightly schedule also run macOS. A pull request that changes only plain documentation skips the heavy test
+# A76: pull requests run the Linux checks only, split into parallel jobs and shards. A164 changes A76's matrix:
+# pushes to main are Linux only too; macOS (static, fixtures, selftest), visual-browser and the benchmark report
+# run only on the nightly schedule and manual runs. A pull request that changes only plain documentation skips the heavy test
 # jobs (tests/ci/classify.sh) but still runs shellcheck and the sync checks. The `checks` job always reports.
 on:
   push:
@@ -42,8 +43,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS runs on pushes to main, the nightly schedule and manual runs; pull requests run Linux only.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
+        # macOS runs on the nightly schedule and manual runs only (A164); pushes and pull requests run Linux only.
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -106,8 +107,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS runs on pushes to main, the nightly schedule and manual runs; pull requests run Linux only.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
+        # macOS runs on the nightly schedule and manual runs only (A164); pushes and pull requests run Linux only.
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -118,17 +119,17 @@ jobs:
         run: |
           if [ -f tests/fixtures/check-fixtures.sh ]; then sh tests/fixtures/check-fixtures.sh
           else echo "SKIPPED: tests/fixtures/check-fixtures.sh does not exist yet"; fi
-      # A90: the full benchmark report (fixture selfchecks and skill tests) is main/nightly only, not a gate.
+      # A90: the full benchmark report (fixture selfchecks and skill tests) is nightly and manual only (A164), not a gate.
       - name: benchmark report
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: node tests/benchmark/benchmark.mjs --run-validators --out "$RUNNER_TEMP/benchmark"
   # A82/A110: the visual-proof fixture measured in a real headless browser on the runner image's own browser.
-  # Not a pull-request job (pull requests run the browser-less validator tests in tests/skills); main, nightly
-  # and manual runs. A runner without a Chromium-family browser prints UNSUPPORTED and passes: that is the
+  # Not a pull-request or push job (those run the browser-less validator tests in tests/skills); nightly
+  # and manual runs only (A164). A runner without a Chromium-family browser prints UNSUPPORTED and passes: that is the
   # accepted result there, never a measured pass.
   visual-browser:
     needs: [changes]
-    if: github.event_name != 'pull_request' && needs.changes.outputs.code == 'true'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -152,8 +153,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS runs on pushes to main, the nightly schedule and manual runs; pull requests run Linux only.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
+        # macOS runs on the nightly schedule and manual runs only (A164); pushes and pull requests run Linux only.
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
         shard: [1, 2, 3, 4, 5, 6]
     runs-on: ${{ matrix.os }}
     steps:
@@ -162,9 +163,18 @@ jobs:
         with:
           node-version: 22
       - name: script self-tests (shard ${{ matrix.shard }}/6)
+        env:
+          SELFTEST_TIMES_FILE: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
         run: |
           if [ -f tests/selftest.sh ]; then SELFTEST_SLOWEST=999 SELFTEST_SHARD=${{ matrix.shard }}/6 sh tests/selftest.sh
           else echo "SKIPPED: tests/selftest.sh does not exist yet"; fi
+      - name: upload unit timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-times-${{ matrix.os }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
+          if-no-files-found: ignore
 
   # One stable check name for branch protection: skipped jobs (documentation-only pull request) count as
   # passed, a failed or cancelled job fails it.

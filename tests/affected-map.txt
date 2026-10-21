@@ -1,0 +1,19 @@
+# Maps changed paths to the self-test units that cover them (tests/affected.sh).
+# Format: <sh case glob> <unit> [<unit>...]. A unit is a suite name (the -test.sh file name without .sh).
+# A path matching no line, and every shared file, selects everything: this file only lists what may be
+# SAFELY skipped. Add a line only when the listed units are the sole users of that path. A changed test
+# file always selects itself without a line here.
+tests/ci/classify.sh classify-test
+tests/ci/affected.sh affected-test
+tests/affected.sh affected-test
+tests/affected-map.txt affected-test
+control-plane/agents/scripts/batch.sh batch-test
+control-plane/agents/scripts/build-record.sh build-record-test
+control-plane/agents/scripts/debt.sh debt-test
+control-plane/agents/scripts/dispatch.sh dispatch-test
+control-plane/agents/scripts/exec-policy.sh exec-policy-test
+control-plane/agents/scripts/friction.sh friction-test
+control-plane/agents/scripts/lessons.sh lessons-test
+control-plane/agents/scripts/next-user.sh next-user-test
+control-plane/agents/scripts/secret-scan.sh secret-scan-test
+tests/e2e/pending-kind.sh pending-kind-test
