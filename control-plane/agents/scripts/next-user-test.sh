@@ -103,6 +103,26 @@ sc_ci_rows() {
   ok "deliver and --error=ci give the ready CI task line when no pull_request workflow exists"
 }
 
+sc_deliver_records() {
+  state_run finished
+  rm -rf .agents/tasks; mkdir -p .agents/tasks/todo
+  NU deliver LC | grep -Fq 'approve delivery' || die "deliver before any step: $(NU deliver LC)"
+  # the merge step started (deliver/<ID>/PR) and the run is still there: the merge stopped, e.g. at a red check
+  mkdir -p .agents/local/deliver/LC; printf '7\n' > .agents/local/deliver/LC/PR
+  [ "$(NU deliver LC)" = 'Next step: proofline merge 7' ] || die "deliver stopped at the merge: $(NU deliver LC)"
+  [ "$(NU deliver)" = 'Next step: proofline merge 7' ] || die "deliver (active run) stopped at the merge: $(NU deliver)"
+  printf 'x; rm -rf /\n' > .agents/local/deliver/LC/PR
+  NU deliver LC | grep -Fq 'approve delivery' || die "a PR file that is not a number is ignored: $(NU deliver LC)"
+  printf '7\n' > .agents/local/deliver/LC/PR
+  # cleanup consumed: delivered, whatever else is left
+  mkdir -p .agents/runs/LC/approvals
+  printf 'kind: "cleanup"\nconsumed: "true"\nconsumed_at: 1\n' > .agents/runs/LC/approvals/009-cleanup.yaml
+  [ "$(NU deliver LC)" = 'Next step: /proofline task --grill' ] || die "delivered, nothing queued: $(NU deliver LC)"
+  printf '# Task: NEXT-8 — queued\n' > .agents/tasks/todo/NEXT-8.md
+  [ "$(NU deliver LC)" = 'Next step: /proofline run NEXT-8' ] || die "delivered, NEXT-8 queued: $(NU deliver LC)"
+  ok "deliver: a merge that stopped gives proofline merge <PR>, a delivered run gives the next task, never approve delivery"
+}
+
 sc_delivery_finished() {
   new_repo
   rm -rf .agents/tasks; mkdir -p .agents/tasks/todo
@@ -196,6 +216,7 @@ run_sc sc_expected_steps
 run_sc sc_errors
 run_sc sc_unknown_command
 run_sc sc_ci_rows
+run_sc sc_deliver_records
 run_sc sc_delivery_finished
 run_sc sc_batch_rows
 run_sc sc_batch_parked
