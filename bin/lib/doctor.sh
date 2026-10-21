@@ -232,7 +232,7 @@ EOF
   [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them; proofline proposes the ones proven in a run when it ends)"
 
   # A163: proofline merge refuses a pull request without checks; say so before the first delivery, with the fix.
-  dc_ci=$(cd "$ROOT" && sh "$A" ci-check 2>/dev/null || true)
+  dc_ci=$(cd "$ROOT" && sh "$A" ci-check 2>/dev/null) || :   # exit 1 means absent; the output still holds the verdict
   case "$(printf '%s\n' "$dc_ci" | head -1)" in
     'ci: absent')
       discover_commands "$ROOT" >/dev/null 2>&1 || true
