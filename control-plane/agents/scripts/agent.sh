@@ -161,7 +161,8 @@ config_check() {
       else if (k == "writing.strictness") en(k, v, "relaxed|strict")
       else if (top == "writing" && k != "writing") bad("unknown writing key: " k " (want writing.profile or writing.strictness)")
       else if (k == "product.dir") { if (v ~ /^\// || v ~ /(^|\/)\.\.(\/|$)/) bad("product.dir must be project-relative: " v) }
-      else if (top == "product" && k != "product" && k != "product.vague_words") bad("unknown product key: " k " (want product.dir or product.vague_words)")
+      else if (k == "product.stale_days") { if (v != "" && v !~ /^[1-9][0-9]*$/) bad("product.stale_days must be a positive integer: " v) }
+      else if (top == "product" && k != "product" && k != "product.vague_words") bad("unknown product key: " k " (want product.dir, product.vague_words or product.stale_days)")
       else if (k ~ /^pipelines\.[A-Z]+\.(evidence|qa|architect)$/) en(k, v, "yes|no")
       else if (k ~ /^pipelines\.[A-Z]+\.review$/) en(k, v, "yes|no|optional")
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)

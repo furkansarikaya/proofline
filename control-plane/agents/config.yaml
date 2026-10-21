@@ -71,10 +71,12 @@ writing:
   strictness: relaxed
 # Product documents (product-spec skill). dir: project-relative folder of <slug>/PRD.md and <slug>/REVIEW.md.
 # vague_words: extra unmeasurable words the PRD check flags in acceptance criteria, comma-separated (a phrase may
-# contain spaces), added to the built-in English and Turkish list.
+# contain spaces), added to the built-in English and Turkish list. stale_days: age in days after which an observed
+# competitor cell counts as stale (positive integer).
 product:
   dir: docs/product
   vague_words:
+  stale_days: 90
 test_trust:
   repeat: 5
   mutation_budget: 20

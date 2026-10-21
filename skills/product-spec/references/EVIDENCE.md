@@ -11,6 +11,7 @@ One marker per claim, on the same line as the claim, in square brackets. No `]` 
 | fact, web | `[fact: web <URL> accessed <YYYY-MM-DD> "<quote>"]` | an `http(s)` URL, the access date, a verbatim quote from the page |
 | fact, interview | `[fact: interview <interview-id> "<quote>"]` | the interview id (for example `INT-3`), a verbatim quote of the person |
 | fact, data | ``[fact: data `<query or script>` sha256:<hash>]`` | the query or the script path that produced the result, the sha256 (64 hex) of its output |
+| fact, ref | `[fact: ref <slug>#C-<n>]` | the slug of a product folder and the id of a claim in it; valid only when `<product.dir>/<slug>/*.md` has a line starting `- C-<n> ` whose own marker is a valid fact (a ref to a missing id or to an assumption is an error; checked when the validator knows the project root, `--root`) |
 | assumption | `[assumption: <risk>]` | one risk type: `value`, `usability`, `viability`, `feasibility` |
 | decision | `[decision: by <who> because <basis>]` | who decided (a role, never a private name), and on what basis |
 

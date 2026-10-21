@@ -50,6 +50,12 @@
    and write `<product.dir>/<slug>/REVIEW.md` with its `verdict:` line, at most 2 rounds. No submit, no fingerprint:
    the final message gives the `verdict:` line and the path. Do not edit the PRD.
 
+   Focus `strategy` (standalone, never in a run, attacks a plan's reasoning not code; you did not write the plan and you
+   are an independent agent): follow .agents/skills/product-spec/SKILL.md `references/STRATEGY-REVIEW.md` (restate each most-trusted
+   assumption at its strongest, then attack it) and write `<product.dir>/<slug>/REDTEAM.md`, at most 2 rounds. No submit,
+   no fingerprint: the final message gives the path and the assumptions that did not survive. Do not edit the plan,
+   the assumptions or the decision.
+
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"
    --evidence <file>`, where the file is the skill validator's own output saved in the focus's report folder
    (`validate-contract.mjs ... --repo --base` or `validate-migration.mjs <REPORT.md> --repo`, redirected to e.g.

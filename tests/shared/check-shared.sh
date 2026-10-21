@@ -67,4 +67,12 @@ for name in $names; do
     else echo "FAIL $name (${pair%%:*} differs from tests/shared/${pair##*:})"; status=1; fi
   done
 done
+# Evidence validator copies: every skill that carries validate-product-claims.mjs carries product-spec's bytes.
+for f in "$root"/skills/*/scripts/validate-product-claims.mjs; do
+  [ -f "$f" ] || continue
+  name=${f%/scripts/validate-product-claims.mjs}; name=${name##*/}
+  [ "$name" = product-spec ] && continue
+  if cmp -s "$f" "$root/skills/product-spec/scripts/validate-product-claims.mjs"; then echo "PASS $name scripts/validate-product-claims.mjs"
+  else echo "FAIL $name (scripts/validate-product-claims.mjs differs from skills/product-spec/scripts/validate-product-claims.mjs)"; status=1; fi
+done
 exit $status

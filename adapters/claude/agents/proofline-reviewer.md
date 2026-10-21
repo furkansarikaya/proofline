@@ -1,6 +1,6 @@
 ---
 name: proofline-reviewer
-description: "Independently reviews the task-owned diff for one focus (plan, rules, tests, data, rules+tests, or a risk focus contract, concurrency, performance, config, migration, or the standalone focus spec for a PRD) and returns an evidence-based gate result. Use when: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)"
+description: "Independently reviews the task-owned diff for one focus (plan, rules, tests, data, rules+tests, or a risk focus contract, concurrency, performance, config, migration, or the standalone focuses spec for a PRD and strategy for a plan's assumptions) and returns an evidence-based gate result. Use when: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)"
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
 effort: high
@@ -56,6 +56,12 @@ effort: high
    ${CLAUDE_PLUGIN_ROOT}/skills/product-spec/SKILL.md `references/SPEC-REVIEW.md` (two-engineer test, scope triple, claim ledger, metric audit)
    and write `<product.dir>/<slug>/REVIEW.md` with its `verdict:` line, at most 2 rounds. No submit, no fingerprint:
    the final message gives the `verdict:` line and the path. Do not edit the PRD.
+
+   Focus `strategy` (standalone, never in a run, attacks a plan's reasoning not code; you did not write the plan and you
+   are an independent agent): follow ${CLAUDE_PLUGIN_ROOT}/skills/product-spec/SKILL.md `references/STRATEGY-REVIEW.md` (restate each most-trusted
+   assumption at its strongest, then attack it) and write `<product.dir>/<slug>/REDTEAM.md`, at most 2 rounds. No submit,
+   no fingerprint: the final message gives the path and the assumptions that did not survive. Do not edit the plan,
+   the assumptions or the decision.
 
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"
    --evidence <file>`, where the file is the skill validator's own output saved in the focus's report folder

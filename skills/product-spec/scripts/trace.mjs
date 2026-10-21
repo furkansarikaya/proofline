@@ -7,12 +7,18 @@
 // Verification lines that name a test file), the delivery commit (`git log --grep "(<ID>)"`, the test files its diff
 // names) and the merge commit `Merge pull request #N` that brought it in (or a squash subject ending `(#N)`).
 // PR fallback: .agents/local/deliver/<ID>/PR, .agents/local/batch/merged.tsv. Git is only read (log, show).
+// Product evidence: a requirement line that carries `[fact: ref <slug>#C-n]` is followed on to the claim (the cited
+// line), the assumption (a `- AS-n` line of <slug>/ASSUMPTIONS.md that names the claim), the probe (a `- PB-n` line of
+// PROBES.md that names the assumption), the decision (DECISION.md names the assumption or probe and has an effective
+// `decision:` line) and the outcome (a `- OC-n` line of OUTCOME.md that names a DEC id, a probe or the requirement).
+// A requirement without a ref has no evidence chain (not a missing link); each broken step of a ref'd one is named.
 // Exit 0: every link found. 1: a link is missing (each is named). 2: usage, or the id matches no record.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parsePrd, productDir, resolvePrd, tasksDir } from "./check-prd.mjs";
+import { effectiveDecision, parsePrd, productDir, resolvePrd, tasksDir } from "./check-prd.mjs";
+import { MARKER, parseMarker, resolveRef } from "./validate-product-claims.mjs";
 import { parseTaskFile, taskFiles } from "./check-coverage.mjs";
 
 const read = (f) => { try { return readFileSync(f, "utf8"); } catch { return null; } };
@@ -146,6 +152,43 @@ function taskNode(root, t, acs, missing) {
   return node;
 }
 
+const mentions = (text, id) => new RegExp(`(?<![A-Za-z0-9-])${id}(?![0-9])`).test(text);
+// Lines `- <PREFIX>-n ...` of <product.dir>/<slug>/<file> that mention one of ids.
+function idLines(root, slug, file, prefix, ids) {
+  const text = read(join(root, productDir(root), slug, file)) || "";
+  const start = new RegExp(`^- (${prefix}-\\d+) `);
+  return text.split(/\r?\n/).filter((l) => start.test(l) && ids.some((i) => mentions(l, i))).map((l) => ({ id: start.exec(l)[1], text: l.slice(2) }));
+}
+
+// Evidence chain of one requirement line of PRD `slug`; pushes each missing link to `missing`.
+function evidenceChain(root, slug, req, missing) {
+  const chains = [];
+  for (const m of (req.rawText || "").matchAll(MARKER)) {
+    const p = parseMarker(m[1], m[2]);
+    if (p.source !== "ref" || p.errors.length) continue;
+    const at = `${req.id} (${slug}): ${p.slug}#${p.id}`;
+    const claim = resolveRef(root, p.slug, p.id);
+    const c = { ref: `${p.slug}#${p.id}`, claim: claim.ok ? { file: claim.file, line: claim.line, text: claim.text } : null, assumptions: [], probes: [], decision: null, outcomes: [] };
+    chains.push(c);
+    if (!claim.ok) { missing.push(`${at}: no claim: ${claim.error}`); continue; }
+    c.assumptions = idLines(root, p.slug, "ASSUMPTIONS.md", "AS", [p.id]);
+    if (!c.assumptions.length) { missing.push(`${at}: no assumption (no "- AS-n" line of ${p.slug}/ASSUMPTIONS.md names ${p.id})`); continue; }
+    c.probes = idLines(root, p.slug, "PROBES.md", "PB", c.assumptions.map((a) => a.id));
+    if (!c.probes.length) { missing.push(`${at}: no probe (no "- PB-n" line of ${p.slug}/PROBES.md names ${c.assumptions.map((a) => a.id).join(", ")})`); continue; }
+    const decFile = join(productDir(root), p.slug, "DECISION.md");
+    const dec = read(join(root, decFile));
+    if (dec === null) { missing.push(`${at}: no decision (${decFile} is missing)`); continue; }
+    const effective = effectiveDecision(dec);
+    if (!effective) { missing.push(`${at}: no decision (${decFile} has no \`decision:\` line)`); continue; }
+    if (![...c.assumptions, ...c.probes].some((x) => mentions(dec, x.id))) { missing.push(`${at}: no decision links the probe (${decFile} names none of ${c.probes.map((x) => x.id).join(", ")})`); continue; }
+    c.decision = { file: decFile, decision: effective };
+    const decIds = [...dec.matchAll(/\bDEC-\d+\b/g)].map((x) => x[0]);
+    c.outcomes = idLines(root, p.slug, "OUTCOME.md", "OC", [...decIds, ...c.probes.map((x) => x.id), req.id]);
+    if (!c.outcomes.length) missing.push(`${at}: no outcome (no "- OC-n" line of ${p.slug}/OUTCOME.md names the decision, a probe or ${req.id})`);
+  }
+  return chains;
+}
+
 export function trace(query, opts = {}) {
   const root = resolve(opts.root || ".");
   const all = tasks(root, resolve(root, opts.tasksDir || tasksDir(root)));
@@ -160,7 +203,7 @@ export function trace(query, opts = {}) {
       const deferred = p.deferred.find((d) => d.id === query)?.reason || null;
       const linked = [...all.values()].filter((t) => t.prd === slug && t.acs.some((a) => a.covers.includes(query)));
       if (!linked.length) missing.push(deferred ? `${query} (${slug}): deferred, no task: ${deferred}` : `${query} (${slug}): no task linked (no task with prd: ${slug} has an acceptance criterion that Covers ${query})`);
-      chains.push({ requirement: { id: query, prd: relative(root, f), line: r.line, text: r.text }, deferred,
+      chains.push({ requirement: { id: query, prd: relative(root, f), line: r.line, text: r.text }, deferred, evidence: evidenceChain(root, slug, { id: query, rawText: r.text }, missing),
         tasks: linked.map((t) => taskNode(root, t, t.acs.filter((a) => a.covers.includes(query)), missing)) });
     }
     if (!chains.length) return { query, found: false, error: `${query} is defined in no PRD under ${productDir(root)}${opts.prd ? ` (--prd ${opts.prd})` : ""}` };
@@ -181,6 +224,7 @@ export function trace(query, opts = {}) {
   }
   const node = taskNode(root, t, t.acs, missing);
   const requirements = [...new Set(t.acs.flatMap((a) => a.covers))].map((c) => reqs.get(c) || { id: c, prd: null });
+  for (const q of requirements) if (q.prd) q.evidence = evidenceChain(root, t.prd, { id: q.id, rawText: q.text }, missing);
   return { query, found: true, kind: "task", requirements, task: node, missing, complete: missing.length === 0 };
 }
 
@@ -200,13 +244,22 @@ function render(r) {
     t.criteria.forEach((c) => crit(c, pad + "  "));
     out.push(`${pad}  PR: ${t.pr ? `${t.pr.pr} (${t.pr.record})` : "none recorded"}`);
   };
+  const evidence = (list, pad) => list.forEach((e) => {
+    out.push(`${pad}evidence ${e.ref}: ${e.claim ? e.claim.text : "claim not found"}`);
+    for (const k of ["assumptions", "probes", "outcomes"]) e[k].forEach((x) => out.push(`${pad}  ${k.slice(0, -1)}: ${x.text}`));
+    if (e.decision) out.push(`${pad}  decision: ${e.decision.decision} (${e.decision.file})`);
+  });
   if (r.kind === "requirement") for (const c of r.chains) {
     out.push(`${c.requirement.id} (${c.requirement.prd}:${c.requirement.line}): ${c.requirement.text}`);
+    evidence(c.evidence, "  ");
     if (c.deferred) out.push(`  deferred: ${c.deferred}`);
     if (!c.tasks.length) out.push("  task: none linked");
     c.tasks.forEach((t) => task(t, "  "));
   } else {
-    for (const q of r.requirements) out.push(q.prd ? `${q.id} (${q.prd}:${q.line}): ${q.text}` : `${q.id}: not defined in the task's PRD`);
+    for (const q of r.requirements) {
+      out.push(q.prd ? `${q.id} (${q.prd}:${q.line}): ${q.text}` : `${q.id}: not defined in the task's PRD`);
+      evidence(q.evidence || [], "  ");
+    }
     task(r.task, "");
   }
   out.push(r.missing.length ? `missing links:\n${r.missing.map((m) => `- ${m}`).join("\n")}` : "chain complete");

@@ -4,6 +4,8 @@
 //   node check-prd.mjs --ready <PRD.md|slug> [--json] [--root DIR]  split readiness; exit 0 ready, 1 not, 2 usage
 // A slug resolves to <product.dir>/<slug>/PRD.md under DIR (default: the current directory).
 // Extra unmeasurable words: config product.vague_words (comma-separated) in DIR/.agents/config.yaml.
+// --ready also refuses a split when <slug>/DECISION.md has the effective line `decision: stop`.
+// `[fact: ref <slug>#C-n]` facts are resolved under DIR (references/EVIDENCE.md).
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,6 +68,12 @@ export function configValue(root, block, key) {
   return null;
 }
 export const productDir = (root) => configValue(root, "product", "dir") || "docs/product";
+// product.stale_days: age in days after which an observed competitor cell is stale; a positive integer, default 90.
+export const DEFAULT_STALE_DAYS = 90;
+export function staleDays(root) {
+  const v = configValue(root, "product", "stale_days");
+  return v !== null && /^[1-9][0-9]*$/.test(v) ? Number(v) : DEFAULT_STALE_DAYS;
+}
 export const tasksDir = (root) => configValue(root, "tasks", "dir") || ".agents/tasks";
 
 export function resolvePrd(arg, root) {
@@ -170,7 +178,7 @@ export function checkPrd(text, opts = {}) {
   }
   const ph = placeholders(text);
   if (ph.length) add("placeholder", 1, `unfilled template placeholder remains: ${ph.slice(0, 3).join(", ")}`);
-  const claims = validateClaims(text, { sections: ["Problem", "Assumptions"] });
+  const claims = validateClaims(text, { sections: ["Problem", "Assumptions"], root: opts.root });
   for (const e of claims.errors) add("claim", e.line, e.message);
   for (const u of claims.unmarked) warnings.push({ rule: "unmarked-claim", line: u.line, message: `claim carries no fact, assumption or decision marker: ${u.text}` });
   findings.sort((a, b) => a.line - b.line);
@@ -186,6 +194,12 @@ export function reviewVerdict(text) {
   return m ? m[1].toLowerCase() : null;
 }
 
+// The effective `decision: build|clarify|stop` line of a DECISION.md (the last such line wins), or null.
+export function effectiveDecision(text) {
+  const all = [...(text || "").replace(/<!--[\s\S]*?-->/g, "").matchAll(/^decision:[ \t]*(\S*)[ \t]*$/gim)];
+  return all.length ? all[all.length - 1][1].toLowerCase() : null;
+}
+
 // A PRD may be split into tasks only when the check is clean, the review is not do-not-ship and no question blocks.
 export function readiness(prdFile, opts = {}) {
   const text = readFileSync(prdFile, "utf8");
@@ -198,6 +212,14 @@ export function readiness(prdFile, opts = {}) {
   else if (!verdict) reasons.push(`${reviewFile} has no \`verdict: ${VERDICTS.join("|")}\` line`);
   else if (!VERDICTS.includes(verdict)) reasons.push(`unknown review verdict "${verdict}" (want ${VERDICTS.join("|")})`);
   else if (verdict === "do-not-ship") reasons.push("review verdict is do-not-ship");
+  const decisionFile = join(dirname(prdFile), "DECISION.md");
+  if (existsSync(decisionFile)) {
+    const d = readFileSync(decisionFile, "utf8");
+    if (effectiveDecision(d) === "stop") {
+      const why = /^## Decision\s*$([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(d)?.[1].split(/\r?\n/).map((l) => l.trim()).find((l) => l && !/^decision:/i.test(l));
+      reasons.push(`${decisionFile} says decision: stop${why ? ` (${why.slice(0, 160)})` : ""}`);
+    }
+  }
   for (const q of parsePrd(text).blocking) reasons.push(`blocking open question (line ${q.n}): ${q.text.slice(0, 120)}`);
   return { ready: reasons.length === 0, verdict, reasons, findings: check.findings };
 }
@@ -212,12 +234,12 @@ function main(argv) {
   const vagueWords = (configValue(root, "product", "vague_words") || "").split(",").map((w) => w.trim()).filter(Boolean);
   const json = argv.includes("--json");
   if (argv.includes("--ready")) {
-    const r = readiness(file, { vagueWords });
+    const r = readiness(file, { vagueWords, root });
     if (json) console.log(JSON.stringify(r, null, 2));
     else console.log(r.ready ? `READY: ${file} may be split into tasks${r.verdict === "ship-with-conditions" ? " (review: ship-with-conditions; carry the conditions into the tasks)" : ""}` : `NOT READY: ${file}\n${r.reasons.map((x) => `- ${x}`).join("\n")}`);
     return r.ready ? 0 : 1;
   }
-  const r = checkPrd(readFileSync(file, "utf8"), { vagueWords });
+  const r = checkPrd(readFileSync(file, "utf8"), { vagueWords, root });
   if (json) console.log(JSON.stringify(r, null, 2));
   else {
     for (const f of r.findings) console.error(`finding: ${file}:${f.line}: [${f.rule}] ${f.message}`);
