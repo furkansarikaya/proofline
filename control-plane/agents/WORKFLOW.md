@@ -145,7 +145,7 @@ the plan stays frozen and its scope is checked again, gate records that passed o
 runs again, the fix-round allowance restarts, and the knowledge step starts over. When the gates pass the run is
 CODE_DONE and delivery works (A152).
 
-Night mode (A157): `agent.sh batch-plan <ID...|all>` writes one summary and requests the `batch` approval; after the user's "approve batch" `proofline batch run` runs the tasks one at a time in clean headless lead sessions, and in each the lead calls `agent.sh batch-cover <ID> plan|delivery|mutation_budget` instead of waiting. Nothing else is covered (waiver, scope, reopen, destructive, rule, report, fix-round budget; CRITICAL tasks are not in a batch); those park the task with a question. `proofline batch status` is the morning table.
+Night mode (A157): `agent.sh batch-plan <ID...|all>` writes one summary and requests the `batch` approval; after the user's "approve batch" the lead runs `agent.sh batch-start` (the background driver, detached from the session, sleep inhibitor, `batch-stop` to stop it; `proofline batch run` in a terminal is the same driver) and it runs the tasks one at a time in clean headless lead sessions, and in each the lead calls `agent.sh batch-cover <ID> plan|delivery|mutation_budget` instead of waiting. Nothing else is covered (waiver, scope, reopen, destructive, rule, report, fix-round budget; CRITICAL tasks are not in a batch); those park the task with a question. `proofline batch status` is the morning table.
 
 ## Task-source contract
 

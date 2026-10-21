@@ -120,7 +120,7 @@ the knowledge step (durable design documents updated, or `not_applicable`) and a
 `/proofline deliver <TASK>` in the agent session does the whole delivery: the knowledge step if it is not done (without
 a stop), then one summary (`agent.sh deliver-plan`) and one question. Your reply `approve delivery` approves each step of
 that summary: commit, push, pull request, merge (only when every check is green, through `proofline merge`) and cleanup
-(after the merge). A FAILED or BLOCKED run is not delivered: `/proofline reopen <TASK>` takes it back into the workflow,
+(after the merge). With the markdown task adapter the commit step also moves the task file to `done/` (`agent.sh task-source-done`), so the move is part of the delivery commit; when the merge fails the move exists only in the unmerged pull request branch, and the delivery says so. A project with no CI check on pull requests is told early (`proofline doctor`, the delivery summary, a ready CI task line as the next step), because `proofline merge` does not merge a pull request that has no checks; no setting lifts that. A FAILED or BLOCKED run is not delivered: `/proofline reopen <TASK>` takes it back into the workflow,
 only with your approval (one question; a mutation-budget raise the plan needs is part of it), and delivery works once its gates pass. Files `proofline upgrade` installed (`.agents/`, the agent files, the proofline block of `AGENTS.md`/`CLAUDE.md`) never block the reopen or make a gate stale, and committing them does not make the plan stale: the run then records the move and continues from the new `base_sha` (A156). An `AGENTS.md` or `CLAUDE.md` that the upgrade created for the first time counts the same when the whole file is the proofline block; any other text in it, and any other committed file, makes the plan stale as before (the message names the files and says to amend and refreeze or to revert, because text outside the block is project rules every agent reads). A new block-only file that is not committed yet is control plane too, and gates recorded by 0.0.12 or 0.0.13 with such a file present stay valid after the upgrade; validator evidence made against a base before an accepted control-plane move is accepted (A161). Each reopen is asked and approved on its own, so a second reopen of the same run works. Only the first `proofline:begin/end` pair of those two files counts as the block. Each step
 is checked against the summary first (`agent.sh deliver-step`); a change in between stops the chain and you are asked
 again. A lesson promotion is not covered by that reply: it needs its own.
@@ -138,7 +138,7 @@ does not, the mutation budget cap and the stop rules. `all` means the top-level 
 reply "approve batch" is the one approval; it is bound to the sha256 of that summary, never consumed, and stops being valid
 when the summary changes. It reads task files through the markdown adapter only, and `batch-plan` refuses another adapter with the exact next step (a design decision, A161: `depends_on` and `Suggested class` live in the task file's own front matter and sections, and the other adapters resolve ids through network calls an unattended driver must not depend on; import the task with `/proofline task <issue reference>` into markdown tasks first).
 
-`proofline batch run` (a terminal, no agent session) starts the driver. It refuses without a valid batch approval, a clean
+After "approve batch" the lead runs `agent.sh batch-start`, which starts the driver in the background, detached from the session, under a sleep inhibitor (A163, [night mode](night-mode.md#starting-stopping-status)); `proofline batch run` (a terminal, no agent session) starts the same driver in the foreground, and `batch stop` stops the recorded one. A project with no pull_request workflow is refused at `batch-plan`. The driver refuses without a valid batch approval, a clean
 tree on the canonical branch and an authenticated `gh`, and runs one task at a time (`.agents/local/batch/LOCK`). Before each
 task it updates the canonical branch and checks the CI run of its HEAD (no run yet is no signal); for each task it starts a
 clean headless lead session (`claude -p`, or `codex exec` in a named permissions profile with network access, see below; the next runtime takes
@@ -148,8 +148,8 @@ its pgid equals its pid and does nothing otherwise); when none works the batch i
 ends, or runs longer than `batch.task_timeout` minutes (120), the driver closes that group (TERM, a short grace, KILL) and nothing else, and a timed-out
 task is parked with the reason `timeout`. A Codex night session does not use the legacy `workspace-write` mode, which keeps `.git`, `.agents` and `.codex` read-only (it could not branch, commit, add a worktree or write its run records): it runs in the profile `proofline_night`, passed as `-c` overrides (nothing is written to disk): everything readable, the project folder writable including `.git` and `.agents`, but `.git/hooks`, `.git/config` and `.codex` read-only (a changed hook or `core.hooksPath` would run code outside the sandbox), the temp dir writable and the network on. `$HOME` stays read-only, so the package-manager caches (`~/.npm` and the like) are redirected into the temp dir with `shell_environment_policy.set`; this is verified for npm, pnpm, yarn, pip and go, and for no other tool. The summary records `codex --version`, and the driver refuses a Codex runtime older than codex-cli 0.163.0 (the version the profile was verified on) or one whose version cannot be read. `git push -u` pushes but cannot record the upstream in `.git/config`. Seatbelt on macOS cannot be nested: a sandboxed Codex lead cannot start a sandboxed `codex exec` worker (sandboxes do not nest; set the worker and reviewer runtimes to claude with `proofline init --worker claude --reviewers claude`, or plan again with `--codex-danger-full-access`); `batch-plan` puts a WARNING line in the summary when a Codex session can run as the lead (the lead runtime, `batch.runtimes`, or the installed fallback runtime) and any role runs on Codex, without that option. `agent.sh batch-plan <ID...|all> --codex-danger-full-access` is the only way to
 run Codex sessions with `danger-full-access`: the summary says so with a warning line and the approval hash covers it, the
-driver reads the choice from the approved summary only, never from config or environment. Start the driver yourself in a
-terminal (or `proofline batch run`): the runtime hook's kill guard (A156) concerns an agent's own tool calls, not this program. In that session the lead calls
+driver reads the choice from the approved summary only, never from config or environment. The driver is started by `batch-start` or in a
+terminal (`proofline batch run`): the runtime hook's kill guard (A156) concerns an agent's own tool calls, not this program. In that session the lead calls
 `agent.sh batch-cover <ID> <plan|delivery|mutation_budget>`, which records the approval of that request as yours only while
 the batch approval is valid, the task is in the batch, its run is open and not CRITICAL and the request is pending; a mutation
 budget stays within `batch.mutation_budget_cap` (40). Every other approval kind (waiver, scope, reopen, destructive,
@@ -193,13 +193,15 @@ Every command ends with one line, `Next step: ...` (A159): a `/proofline` comman
 | `design` | the next queued task, else `/proofline task --grill` |
 | `run`, `status`, `resume`, `queue` | a question waits: reply in the session (the line names the question); CODE_DONE: `/proofline deliver <ID>`; FAILED or BLOCKED: `/proofline reopen <ID>`; running: `/proofline resume`; no run: the next queued task, else `/proofline task --grill` |
 | `knowledge` | `/proofline deliver <ID>` (FAILED or BLOCKED: `/proofline reopen <ID>`) |
-| `deliver` | waiting for you: reply `approve delivery`; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
+| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; no CI check on pull requests: the ready CI task line; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
 | `reopen` | `/proofline resume` |
 | `merge`, `clean` | the next queued task, else `/proofline task --grill` |
 | `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
 | `insights`, `explain` | `/proofline status` |
 | `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
-| `batch` | `proofline batch run` in a terminal |
+| `batch` | no CI: the ready CI task line; not approved: reply `approve batch`; driver started: `driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status` |
+| `batch status` | driver running: wait; a task parked: `/proofline resume <ID>, then reply in this session to the open question: ...`; none parked: the next queued task, else `/proofline task --grill` |
+| `batch stop` | `/proofline batch status` |
 | `version` | `/proofline doctor` |
 
 A failed command suggests the command that fixes the error instead: not installed `proofline init`; a dirty tree: commit or stash it yourself; a missing knowledge step `/proofline knowledge <ID>`; a FAILED run on `deliver` `/proofline reopen <ID>`.

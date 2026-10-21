@@ -7,7 +7,7 @@ set -eu
 . "$(dirname "$0")/test-lib.sh"
 
 # the allowed shapes of a suggestion: a /proofline or proofline command, or an explicit user action
-shape='^Next step: (/proofline |proofline |run proofline |reply |commit |commit or stash |fix what )'
+shape='^Next step: (/proofline |driver started, |wait for the driver |proofline |run proofline |reply |commit |commit or stash |fix what )'
 NU() { sh ./.agents/scripts/agent.sh next-user "$@"; }
 # every_command STATE: every command of the table gives exactly one user-facing line in this run state
 every_command() {
@@ -82,8 +82,143 @@ sc_unknown_command() {
   ok "an unknown command is refused"
 }
 
+# ci_absent_fixture: a GitHub origin and no workflow, so `ci-check` says absent
+ci_absent_fixture() { git remote add origin https://github.com/acme/widgets.git; mkdir -p .github/workflows; rm -f .github/workflows/*; }
+ci_line() { A ci-task-command; }
+
+sc_ci_rows() {
+  state_run codedone   # builds its own repository: the CI fixture comes after it
+  ci_absent_fixture
+  want="Next step: $(ci_line)"
+  case "$want" in 'Next step: /proofline task Add a GitHub Actions workflow that runs on pull_request'*) ;; *) die "ci task command: $want" ;; esac
+  [ "$(NU deliver LC)" = "$want" ] || die "deliver on CODE_DONE without CI: $(NU deliver LC)"
+  [ "$(NU deliver LC --error=ci)" = "$want" ] || die "--error=ci: $(NU deliver LC --error=ci)"
+  [ "$(NU status)" = 'Next step: /proofline deliver LC' ] || die "status is not about CI: $(NU status)"
+  state_run finished; ci_absent_fixture
+  [ "$(NU deliver LC)" = "$want" ] || die "deliver on a finished run without CI: $(NU deliver LC)"
+  [ "$(NU merge LC --error)" = "$want" ] || die "merge refused without CI: $(NU merge LC --error)"
+  # a pull_request workflow exists: the delivery approval step is back
+  mkdir -p .github/workflows; printf 'name: ci\non: pull_request\njobs: {}\n' > .github/workflows/ci.yml
+  NU deliver LC | grep -Fq 'approve delivery' || die "deliver with CI: $(NU deliver LC)"
+  ok "deliver and --error=ci give the ready CI task line when no pull_request workflow exists"
+}
+
+sc_deliver_records() {
+  state_run finished
+  rm -rf .agents/tasks; mkdir -p .agents/tasks/todo
+  NU deliver LC | grep -Fq 'approve delivery' || die "deliver before any step: $(NU deliver LC)"
+  # the merge step started (deliver/<ID>/PR) and the run is still there: the merge stopped, e.g. at a red check
+  mkdir -p .agents/local/deliver/LC; printf '7\n' > .agents/local/deliver/LC/PR
+  [ "$(NU deliver LC)" = 'Next step: proofline merge 7' ] || die "deliver stopped at the merge: $(NU deliver LC)"
+  [ "$(NU deliver)" = 'Next step: proofline merge 7' ] || die "deliver (active run) stopped at the merge: $(NU deliver)"
+  printf 'x; rm -rf /\n' > .agents/local/deliver/LC/PR
+  NU deliver LC | grep -Fq 'approve delivery' || die "a PR file that is not a number is ignored: $(NU deliver LC)"
+  printf '7\n' > .agents/local/deliver/LC/PR
+  # cleanup consumed: delivered, whatever else is left
+  mkdir -p .agents/runs/LC/approvals
+  printf 'kind: "cleanup"\nconsumed: "true"\nconsumed_at: 1\n' > .agents/runs/LC/approvals/009-cleanup.yaml
+  [ "$(NU deliver LC)" = 'Next step: /proofline task --grill' ] || die "delivered, nothing queued: $(NU deliver LC)"
+  printf '# Task: NEXT-8 — queued\n' > .agents/tasks/todo/NEXT-8.md
+  [ "$(NU deliver LC)" = 'Next step: /proofline run NEXT-8' ] || die "delivered, NEXT-8 queued: $(NU deliver LC)"
+  ok "deliver: a merge that stopped gives proofline merge <PR>, a delivered run gives the next task, never approve delivery"
+}
+
+sc_delivery_finished() {
+  new_repo
+  rm -rf .agents/tasks; mkdir -p .agents/tasks/todo
+  [ "$(NU deliver LC)" = 'Next step: /proofline task --grill' ] || die "deliver, nothing queued: $(NU deliver LC)"
+  [ "$(NU clean)" = 'Next step: /proofline task --grill' ] || die "clean, nothing queued: $(NU clean)"
+  printf '# Task: NEXT-7 — queued\n' > .agents/tasks/todo/NEXT-7.md
+  [ "$(NU deliver LC)" = 'Next step: /proofline run NEXT-7' ] || die "deliver, NEXT-7 queued: $(NU deliver LC)"
+  [ "$(NU clean)" = 'Next step: /proofline run NEXT-7' ] || die "clean, NEXT-7 queued: $(NU clean)"
+  [ "$(NU merge)" = 'Next step: /proofline run NEXT-7' ] || die "merge, NEXT-7 queued: $(NU merge)"
+  ok "after delivery, merge or clean the next step is the next queued task, else a new task"
+}
+
+# batch fixtures: the batch scripts, one task file, a planned batch
+batch_plan_fixture() {
+  for s in "$tl_agents"/scripts/*.sh; do case "$(basename "$s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac; cp "$s" .agents/scripts/; done
+  mkdir -p .agents/tasks; printf '# Task: T-1 — one\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nCOMPLEX\n' > .agents/tasks/T-1.md
+  A batch-plan T-1 >/dev/null || die "batch-plan failed"
+  bdir=.agents/local/batch
+}
+batch_approve_fixture() { capture 'approve batch'; A approve-pending >/dev/null; }
+
+sc_batch_rows() {
+  new_repo; rm -rf .agents/tasks
+  [ "$(NU batch)" = 'Next step: /proofline task --grill' ] || die "batch, nothing planned: $(NU batch)"
+  batch_plan_fixture
+  [ "$(NU batch T-1)" = 'Next step: reply "approve batch" in this session to start the batch' ] || die "batch, planned not approved: $(NU batch T-1)"
+  batch_approve_fixture
+  [ "$(NU batch)" = 'Next step: run proofline batch run in a terminal to start the batch; merged tasks are not run again' ] || die "batch, approved not started: $(NU batch)"
+  [ "$(NU batch status)" = 'Next step: run proofline batch run in a terminal to resume the batch; merged tasks are not run again' ] || die "batch status, approved: $(NU batch status)"
+  # stopped
+  printf 'T-1\tpending\t\t\n# stopped: stopped by the user\n' > "$bdir/state.tsv"
+  [ "$(NU batch)" = 'Next step: run proofline batch run in a terminal to start the batch; merged tasks are not run again' ] || die "batch, stopped: $(NU batch)"
+  [ "$(NU batch stop)" = 'Next step: /proofline batch status' ] || die "batch stop: $(NU batch stop)"
+  [ "$(NU batch-stop)" = 'Next step: /proofline batch status' ] || die "batch-stop: $(NU batch-stop)"
+  # the driver runs
+  printf 'while :; do sleep 1; done\n' > "$base/batch.sh"; sh "$base/batch.sh" & dpid=$!
+  printf '%s %s\n' "$dpid" "$dpid" > "$bdir/driver.pid"; printf '%s\n' "$dpid" > "$bdir/LOCK"
+  [ "$(NU batch)" = 'Next step: driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status' ] || { kill "$dpid"; die "batch, driver running: $(NU batch)"; }
+  [ "$(NU batch status)" = 'Next step: wait for the driver to finish, then run /proofline batch status again' ] || { kill "$dpid"; die "batch status, driver running: $(NU batch status)"; }
+  kill "$dpid" 2>/dev/null; wait "$dpid" 2>/dev/null || :
+  rm -f "$bdir/driver.pid" "$bdir/LOCK"
+  # finished, nothing parked
+  printf 'T-1\tmerged\t\t\n' > "$bdir/state.tsv"; rm -f .agents/tasks/T-1.md   # a delivered task file is in done/
+  [ "$(NU batch status)" = 'Next step: /proofline task --grill' ] || die "batch status, finished clean: $(NU batch status)"
+  [ "$(NU batch)" = 'Next step: /proofline batch status' ] || die "batch, finished: $(NU batch)"
+  printf '# Task: NEXT-7 — queued\n' > .agents/tasks/NEXT-7.md
+  [ "$(NU batch status)" = 'Next step: /proofline run NEXT-7' ] || die "batch status, finished clean, NEXT-7 queued: $(NU batch status)"
+  # a project without CI cannot start a batch
+  ci_absent_fixture
+  rm -f "$bdir/state.tsv"
+  [ "$(NU batch)" = "Next step: $(ci_line)" ] || die "batch without CI: $(NU batch)"
+  ok "batch: ci line, unapproved, approved, stopped, driver started, stop, finished clean"
+}
+
+sc_batch_parked() {
+  new_repo
+  state_run question
+  batch_plan_fixture; batch_approve_fixture
+  q=$(NU resume LC | sed 's/^Next step: reply in this session to the open question: //')
+  [ -n "$q" ] || die "no question text"
+  printf 'LC\tparked\tquestion\tpending\n' > "$bdir/state.tsv"
+  [ "$(NU batch status)" = "Next step: /proofline resume LC, then reply in this session to the open question: $q" ] || die "parked question: $(NU batch status)"
+  state_run failed; batch_plan_fixture; batch_approve_fixture
+  printf 'LC\tparked\tBLOCKED\t\n' > "$bdir/state.tsv"
+  [ "$(NU batch status)" = 'Next step: /proofline reopen LC' ] || die "parked, failed run: $(NU batch status)"
+  state_run codedone; batch_plan_fixture; batch_approve_fixture
+  printf 'LC\tparked\ttimeout\t\n' > "$bdir/state.tsv"
+  [ "$(NU batch status)" = 'Next step: /proofline deliver LC' ] || die "parked, code done: $(NU batch status)"
+  state_run active; batch_plan_fixture; batch_approve_fixture
+  printf 'LC\tparked\tstopped\t\n' > "$bdir/state.tsv"
+  [ "$(NU batch status)" = 'Next step: /proofline resume LC' ] || die "parked, active run: $(NU batch status)"
+  printf 'GONE-1\tparked\tstopped\t\n' > "$bdir/state.tsv"
+  [ "$(NU batch status)" = 'Next step: /proofline run GONE-1' ] || die "parked, no run: $(NU batch status)"
+  ok "batch status with a parked task names its full id and the question, or the fixing command"
+}
+
+sc_batch_every_state() {
+  new_repo; rm -rf .agents/tasks
+  batch_plan_fixture; batch_approve_fixture
+  printf 'T-1\tparked\tquestion\tWhich database?\n' > "$bdir/state.tsv"
+  for c in batch 'batch status' 'batch stop'; do
+    out=$(eval "NU $c" 2>&1) || die "next-user $c failed: $out"
+    printf '%s\n' "$out" | grep -Eq "$shape" || die "next-user $c is not a user command: $out"
+    ! printf '%s' "$out" | grep -Eq 'agent\.sh|<TASK-ID>|\{[A-Z]+\}|<ID>' || die "next-user $c names an internal command or leaves a placeholder: $out"
+  done
+  ok "the batch commands end in a user command with a planned batch and a parked task"
+}
+
 run_sc sc_every_state
 run_sc sc_expected_steps
 run_sc sc_errors
 run_sc sc_unknown_command
+run_sc sc_ci_rows
+run_sc sc_deliver_records
+run_sc sc_delivery_finished
+run_sc sc_batch_rows
+run_sc sc_batch_parked
+run_sc sc_batch_every_state
 echo 'next-user tests passed'
