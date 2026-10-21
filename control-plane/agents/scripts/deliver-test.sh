@@ -143,6 +143,21 @@ scenario_task_moves_to_done() {
   ok "deliver: the task file moves to done/ in the delivery commit (one copy), the chain accepts it, the merge step says where it is done"
 }
 
+# A163: a lead that skips the printed task-source-done line stops the chain at push.
+scenario_task_move_skipped() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=.github/workflows/ci.yml scaffold orchestrated yes; tasks_in_tasks
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  worker GREEN pass .github/workflows/ci.yml 'on: pull_request'
+  A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null; hooks; finish_done
+  A deliver-plan LC >/dev/null; capture 'approve delivery'; A approve-pending LC >/dev/null
+  has 'task-source-done LC' S commit
+  git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the commit was blocked"
+  expect_msg "push with the task file left in in-progress/" 'the task file is not in tasks/done/LC.md' S push
+  pushed LC
+  expect_msg "pr with the task file left in in-progress/" 'the task file is not in tasks/done/LC.md' S pr
+  ok "deliver: skipping the task-source-done line stops the chain at push and pr"
+}
+
 # A163: a project without a pull_request workflow gets the warning in the delivery summary.
 scenario_summary_warns_without_ci() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks; finish_done
@@ -171,6 +186,7 @@ scenario_ci_check() {
   printf 'name: ci\non: pull_request\njobs: {}\n' > $wf/a.yml; has '^ci: present (.github/workflows/a.yml)$' A ci-check
   printf 'on: [push, pull_request]\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
   printf 'on:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
+  printf 'on:\n  workflow_dispatch:\n    inputs:\n      pull_request:\n        description: x\njobs: {}\n' > $wf/a.yml; rc=0; A ci-check > "$base/ci.out" || rc=$?; [ "$rc" = 1 ] || die "a workflow_dispatch input named pull_request counts as CI"
   printf 'on:\n  - pull_request_target\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
   rm $wf/a.yml; printf 'on: pull_request\n' > $wf/b.yaml; has '^ci: present (.github/workflows/b.yaml)$' A ci-check
   AS reviewer ci-check >/dev/null || die "ci-check is not open to every role"
@@ -189,6 +205,7 @@ run_sc scenario_content_change_stops
 run_sc scenario_failed_refused
 run_sc scenario_reopened_run_delivers
 run_sc scenario_task_moves_to_done
+run_sc scenario_task_move_skipped
 run_sc scenario_summary_warns_without_ci
 run_sc scenario_task_done_noop
 run_sc scenario_ci_check

@@ -5225,11 +5225,14 @@ ci_workflow_has_pr() {
     /^[ \t]*#/ { next }
     { sub(/[ \t]+#.*$/, "") }
     /^[^ \t-]/ {
-      on = ($0 ~ /^("on"|'"'"'on'"'"'|on)[ \t]*:/)
+      on = ($0 ~ /^("on"|'"'"'on'"'"'|on)[ \t]*:/); ci = -1
       if (on) { v = $0; sub(/^[^:]*:/, "", v); if (v ~ /(^|[^A-Za-z_])pull_request(_target)?([^A-Za-z_]|$)/) { f = 1; exit } }
       next
     }
-    on && /^[ \t]+(-[ \t]+)?"?pull_request(_target)?"?[ \t]*(:|$)/ { f = 1; exit }
+    on && /^[ \t]+[^ \t]/ {   # only a direct child of `on:` (the first nested line sets the depth) counts
+      match($0, /^[ \t]+/); if (ci < 0) ci = RLENGTH
+      if (RLENGTH == ci && $0 ~ /^[ \t]+(-[ \t]+)?"?pull_request(_target)?"?[ \t]*(:|$)/) { f = 1; exit }
+    }
     END { exit !f }' "$1"
 }
 ci_check() {
@@ -5410,6 +5413,13 @@ deliver_step() {
     [ "$(git -C "$root" rev-parse -q --verify HEAD^ 2>/dev/null || true)" = "$(ds_v head)" ] && [ "$(git -C "$root" log -1 --format=%s)" = "$(ds_v message)" ] \
       || ds_stop "HEAD is not the one delivery commit on top of $(ds_v head) (commit first; any other commit stops the chain)"
   fi
+  # A163: the commit must hold the move of the task file to done/; a lead that skipped the printed task-source-done stops the chain
+  ds_td_check() {
+    [ -n "$(ds_v task_done)" ] || return 0
+    [ -f "$root/$(ds_v task_done | sed 's/.* -> //')" ] && [ ! -e "$root/$(ds_v task_done | sed 's/ -> .*//')" ] \
+      && git -C "$root" cat-file -e "HEAD:$(ds_v task_done | sed 's/.* -> //')" 2>/dev/null \
+      || ds_stop "the task file is not in $(ds_v task_done | sed 's/.* -> //') in the delivery commit (run the task-source-done line of the commit step before git add -A)"
+  }
   ds_app=$(find_approval "$ds_t" "$ds_s" "$(ds_v content)" "$ds_h") || ds_stop "no unconsumed $ds_s approval of the user for this summary"
   case "$ds_s:$ds_pr" in merge:|cleanup:) fail "usage: agent.sh deliver-step $ds_id $ds_s <PR-NUMBER>" ;; merge:*[!0-9]*|cleanup:*[!0-9]*) fail "the pull request is a plain number: $ds_pr" ;; esac
   # the pull request must be this delivery's: its head commit, head branch and base branch (read before the locks)
@@ -5419,9 +5429,11 @@ deliver_step() {
       [ -z "$(ds_v task_done)" ] || printf 'run: sh .agents/scripts/agent.sh task-source-done %s\n' "$ds_id"
       printf 'run: git add -A\nrun: git commit -F %s/COMMIT_MSG\nthen: agent.sh deliver-step %s push\n' "$ds_rel" "$ds_id" ;;
     push)
+      ds_td_check
       [ "$(cfg git.push_requires_approval true)" != false ] || consume_approval "$ds_t" "$ds_app"
       printf 'run: git push -u %s %s\nthen: agent.sh deliver-step %s pr\n' "$(ds_v remote)" "$ds_br" "$ds_id" ;;
     pr)
+      ds_td_check
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
       consume_approval "$ds_t" "$ds_app"
       printf 'run: gh pr create --base %s --head %s --title "%s" --body-file %s/PR_BODY.md\nthen: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel" "$ds_id" ;;
