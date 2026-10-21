@@ -141,7 +141,9 @@ install_scripts() { # DIR: the control-plane scripts a fixture lacks (batch.sh, 
 bnew() { new_repo; rm -rf .agents/tasks; }
 # tpl_tasks: scaffold() commits the baseline itself, and a later commit would make the frozen plan stale: the task files and
 # the batch scripts go into the shared template first, so they are part of the baseline (bnew removes them again).
-tpl_tasks() { new_repo; install_scripts "$base/template/.agents/scripts"; ( cd "$base/template" && mktask LC COMPLEX && mktask CR CRITICAL ); }
+tpl_tasks() { # a PRIVATE copy of the shared template (never write into the shared cache), used by new_repo from here on
+  tl_ensure_template; tpl_p=$(mktemp -d "$base/tpl.XXXXXX"); cp -R "$tl_template/." "$tpl_p/"; tl_template=$tpl_p
+  install_scripts "$tl_template/.agents/scripts"; ( cd "$tl_template" && mktask LC COMPLEX && mktask CR CRITICAL ); }
 binstall() {
   install_scripts .agents/scripts
   : > "$FAKE/calls.log"; rm -f "$FAKE"/behave/*

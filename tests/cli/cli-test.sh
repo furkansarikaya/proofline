@@ -85,9 +85,9 @@ base_build() { # DIR (empty): a repository with a package.json, initialised with
   set -f; pl "$1" init $INIT_FLAGS >/dev/null 2>&1 || { set +f; return 1; }; set +f
 }
 need_base() { # -> $base: this scenario's own copy of the initialised repository
-  nb_key=$(printf '%s\n%s\n' "$(fx_key "$repo" bin control-plane adapters skills roles)" "$INIT_FLAGS base-v1" | fx_sha)
+  nb_key=$(printf '%s\n%s\n' "$(fx_key "$snap" bin control-plane adapters skills roles)" "$INIT_FLAGS base-v1" | fx_sha)
   nb_tpl=$(fx_template "cli-$nb_key" base_build) || die "cannot build the base template"
-  base=$T/base; mkdir -p "$base"; fx_copy "$nb_tpl" "$base"
+  base=$T/base; rm -rf "$base"; mkdir -p "$base"; fx_copy "$nb_tpl" "$base"
 }
 mk_home2() { # an "upstream" checkout that differs from the installed one (upgrade source)
   home2=$T/home2; mkdir -p "$home2"

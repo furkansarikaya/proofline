@@ -31,7 +31,8 @@ fx_template() { # KEY BUILDER -> template directory on stdout
         ft_tmp=$ft_dir/$ft_key.tmp.$$; rm -rf "$ft_tmp"; mkdir "$ft_tmp"
         if ( "$ft_build" "$ft_tmp" ); then   # a subshell: a builder that dies must not leave the lock behind
           [ -z "${FX_BUILDS:-}" ] || echo "$ft_key" >> "$FX_BUILDS"
-          mv "$ft_tmp" "$ft_final" || { rm -rf "$ft_tmp"; rm -rf "$ft_lock"; return 1; }
+          if [ -d "$ft_final" ]; then rm -rf "$ft_tmp"   # a taken-over lock: someone else finished first; mv would nest
+          else mv "$ft_tmp" "$ft_final" || { rm -rf "$ft_tmp"; rm -rf "$ft_lock"; return 1; }; fi
         else rm -rf "$ft_tmp"; rm -rf "$ft_lock"; return 1; fi
       fi
       rm -rf "$ft_lock"; break
