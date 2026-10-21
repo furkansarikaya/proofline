@@ -825,7 +825,12 @@ sc_driver_start() { # (a) survives its starter, (b) one driver only, (e) status
   until_ok "BB status | grep -q 'last log line: SLOWLINE-T-1 working on it'" 100 || die "status: $(BB status | grep driver)"
   BB status | grep -Eq "^driver: running, pid $dp, started [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+, last log line: SLOWLINE-T-1 working on it\$" || die "driver line: $(BB status | grep driver)"
   BB status | grep -q '^sleep inhibitor: ' || die "status names no sleep inhibitor"
+  bdir=.agents/local/batch; sum0=$(cksum "$bdir/driver.log" "$bdir/driver.pid" "$bdir/driver.up" "$bdir/inhibit" "$bdir/driver.start")
   expect_msg "second batch-start" "pid $dp" A batch-start
+  mv "$bdir/LOCK" "$bdir/LOCK.aside"   # a driver in its start-up holds no LOCK yet: still the driver, nothing of it is touched
+  expect_msg "batch-start while the driver holds no LOCK yet" "pid $dp" A batch-start
+  mv "$bdir/LOCK.aside" "$bdir/LOCK"
+  [ "$(cksum "$bdir/driver.log" "$bdir/driver.pid" "$bdir/driver.up" "$bdir/inhibit" "$bdir/driver.start")" = "$sum0" ] || die "a refused second batch-start changed the live driver's files or log"
   expect_msg "batch run next to the driver" "only one task at a time" BB run
   kill -0 "$dp" 2>/dev/null || die "the refused second start killed the driver"
   ok "batch-start: the driver outlives the session that started it (own group, driver.pid, LOCK), a second start names the pid, status shows driver running with pid and last log line"
@@ -861,6 +866,31 @@ sc_driver_stop() { # (d) stop kills only its own group, parks the task `stopped`
   [ ! -e .agents/local/batch/driver.pid ] || die "the terminal run left driver.pid"
   kill "$unrel" 2>/dev/null || :
   ok "batch-stop: closes the driver and the session group, parks the task as stopped (trailer, record end, files removed), spares an unrelated group, says so when nothing runs; a terminal batch run resumes"
+}
+sc_driver_crash() { # the driver is killed with KILL: batch stop still parks its task, sets the trailer, closes the session group, spares an unrelated group
+  command -v perl >/dev/null 2>&1 || { ok "batch-stop after a crash: no perl here, skipped"; return 0; }
+  drv_fixture slow
+  perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' sleep 300 & unrel=$!
+  trap 'kill "$unrel" 2>/dev/null; BB stop >/dev/null 2>&1 || :' EXIT
+  A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
+  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
+  until_ok "[ -f $FAKE/slow.pid ] && ls .agents/local/batch/logs/pgid.* >/dev/null 2>&1" 100 || die "the session did not start"
+  sg=$(cat .agents/local/batch/logs/pgid.*); sg=${sg%% *}; sp=$(cat "$FAKE/slow.pid")
+  printf '%s %s\n' "$unrel" "$unrel" > .agents/local/batch/logs/pgid.99999   # a stale file that names a live group of something else
+  kill -KILL "$dp"; until_ok "! kill -0 $dp" 50 || die "the driver survived KILL"
+  [ "$(state_of T-1 2)" = running ] || die "setup: T-1 is not running after the crash: $(cat .agents/local/batch/state.tsv)"
+  A batch-stop > "$base/stop.out" 2>&1 || die "batch-stop after a crash failed: $(cat "$base/stop.out")"
+  grep -q "^the batch driver (pid $dp) was gone without cleaning up" "$base/stop.out" || die "stop output: $(cat "$base/stop.out")"
+  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = stopped ] || die "T-1 after the crash stop: $(cat .agents/local/batch/state.tsv)"
+  grep -qx '# stopped: stopped by the user' .agents/local/batch/state.tsv || die "no stopped trailer: $(cat .agents/local/batch/state.tsv)"
+  grep -q '^end=' .agents/local/batch/sessions/T-1.1.rec || die "session record has no end"
+  for f in LOCK driver.pid driver.up inhibit stop.req; do [ ! -e ".agents/local/batch/$f" ] || die "$f is left after the stop"; done
+  if grp_up "$sg"; then die "the session group of the dead driver is still alive"; fi
+  if kill -0 "$sp" 2>/dev/null; then die "the session's child is still alive"; fi
+  kill -0 "$unrel" 2>/dev/null || die "a stale pgid file made batch-stop kill an unrelated group"
+  [ ! -e .agents/local/batch/logs/pgid.99999 ] || die "the stale pgid file is left"
+  kill "$unrel" 2>/dev/null || :
+  ok "batch-stop after SIGKILL of the driver: task parked as stopped, trailer, record end, session group closed, a stale pgid file naming an unrelated group is only removed"
 }
 sc_driver_inhibit() { # (c) the sleep inhibitor is bound to the driver, on macOS, on Linux, and plainly absent
   drv_fixture merge
@@ -926,5 +956,6 @@ run_sc sc_merge_commit_ci
 run_sc sc_ci_required
 run_sc sc_driver_start
 run_sc sc_driver_stop
+run_sc sc_driver_crash
 run_sc sc_driver_inhibit
 echo 'batch tests passed'

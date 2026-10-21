@@ -296,12 +296,13 @@ drv_read() {
   case "$DG" in ''|*[!0-9]*) DG='' ;; esac
   return 0
 }
-# drv_live: the recorded driver is alive, holds the LOCK and is a batch.sh process (a reused pid is not taken for it)
+# drv_live: the recorded driver is alive and is a batch.sh process (it may not hold the LOCK yet: start-up) (a reused pid is not taken for it)
 drv_live() {
   drv_read || return 1; pid_alive "$DP" || return 1
-  [ "$(cat "$bd/LOCK" 2>/dev/null || :)" = "$DP" ] || return 1
   ps -o command= -p "$DP" 2>/dev/null | grep -q 'batch\.sh'
 }
+# grp_ours G: a member of group G is a session of this project's batch.sh (its command line names $here/batch.sh _session)
+grp_ours() { ps -A -o pgid=,command= 2>/dev/null | awk -v g="$1" -v m="$here/batch.sh _session" '$1 == g && index($0, m) { f = 1 } END { exit !f }'; }
 drv_files_rm() { rm -f "$bd/driver.pid" "$bd/driver.start" "$bd/driver.up" "$bd/inhibit" "$bd/inhibit.pid" "$bd/stop.req"; }
 # drv_finalize TRAILER: idempotent. The running task is parked `stopped`, open session records get an end, the trailer is set, the files go.
 drv_finalize() {
@@ -579,6 +580,14 @@ run() {
 start() {
   sh "$agent" batch-check >/dev/null 2>&1 || die "no valid batch approval for the current summary: plan the batch (agent.sh batch-plan), then reply \"approve batch\" to the summary"
   [ -f "$bd/order.tsv" ] || die "no batch order: plan the batch first"
+  # nothing is touched (driver files, driver.log) until no live driver is found; a claim file makes two concurrent starts take turns
+  mkdir -p "$bd"
+  if ! ( set -C; printf '%s\n' "$$" > "$bd/start.claim" ) 2>/dev/null; then
+    st_c=$(cat "$bd/start.claim" 2>/dev/null || :)
+    case "$st_c" in ''|*[!0-9]*) ;; *) ! pid_alive "$st_c" || die "another batch-start is in progress (pid $st_c)" ;; esac
+    rm -f "$bd/start.claim"; ( set -C; printf '%s\n' "$$" > "$bd/start.claim" ) 2>/dev/null || die "another batch-start is in progress"
+  fi
+  trap 'rm -f "$bd/start.claim"' 0
   if drv_live; then die "a batch driver is already running (pid $DP); stop it first with: proofline batch stop"; fi
   if [ -f "$bd/LOCK" ]; then
     st_l=$(cat "$bd/LOCK" 2>/dev/null || :)
@@ -605,13 +614,37 @@ start() {
   inhibit_text "$(inhibit_kind)"
   echo "$PLUG_LINE"
 }
+# reap_stale_groups: a session group the driver could not close itself (it was killed). Only a group its own _session recorded as "N N"
+# AND whose members include this project's `batch.sh _session`; any other recorded group is a stale file and is left alone.
+reap_stale_groups() {
+  rg_own=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+  for rg_f in "$bd"/logs/pgid.*; do
+    [ -f "$rg_f" ] || continue
+    rg_g=$(cat "$rg_f" 2>/dev/null || :); rg_a=${rg_g%% *}
+    [ "$rg_g" = "$rg_a $rg_a" ] || continue
+    case "$rg_a" in ''|*[!0-9]*|0|1|"$rg_own") continue ;; esac
+    grp_alive "$rg_a" || continue
+    grp_ours "$rg_a" || continue
+    kill -TERM "-$rg_a" 2>/dev/null || :
+    rg_i=0; while [ "$rg_i" -lt 15 ] && grp_alive "$rg_a"; do nap; rg_i=$((rg_i + 1)); done
+    ! grp_alive "$rg_a" || kill -KILL "-$rg_a" 2>/dev/null || :
+  done
+  rm -f "$bd"/logs/pgid.*
+}
 # stop_driver: only the driver that start/run recorded; its verified group (never 0, 1 or our own), else just its pid
 stop_driver() {
   if ! drv_live; then
     # a LOCK holder without driver.pid (a driver of an older version) counts only when it is a live batch.sh process
     sd_l=$(cat "$bd/LOCK" 2>/dev/null || :); DP=''; DG=''
     case "$sd_l" in ''|*[!0-9]*|0|1) ;; *) if [ ! -f "$bd/driver.pid" ] && pid_alive "$sd_l" && ps -o command= -p "$sd_l" 2>/dev/null | grep -q 'batch\.sh'; then DP=$sd_l; fi ;; esac
-    if [ -z "$DP" ]; then drv_files_rm; echo "no batch driver is running"; return 0; fi
+    if [ -z "$DP" ]; then
+      # driver.pid of a driver that is gone (SIGKILL, crash): park its task, set the trailer, close its records and session group, then clean up
+      if drv_read && { sd_l=$(cat "$bd/LOCK" 2>/dev/null || :); [ -z "$sd_l" ] || [ "$sd_l" = "$DP" ] || ! pid_alive "$sd_l"; }; then
+        sd_gone=$DP; : > "$bd/stop.req"; reap_stale_groups; drv_finalize "stopped by the user"
+        echo "the batch driver (pid $sd_gone) was gone without cleaning up; the running task, if any, is parked as stopped"; return 0
+      fi
+      drv_files_rm; echo "no batch driver is running"; return 0
+    fi
   fi
   sd_own=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
   sd_live=$(ps -o pgid= -p "$DP" 2>/dev/null | tr -d ' ')
@@ -623,17 +656,7 @@ stop_driver() {
     if [ -n "$sd_grp" ]; then kill -KILL "-$sd_grp" 2>/dev/null || :; else kill -KILL "$DP" 2>/dev/null || :; fi
     sd_i=0; while [ "$sd_i" -lt 25 ] && pid_alive "$DP"; do nap; sd_i=$((sd_i + 1)); done
   fi
-  # a session group the driver could not close itself (it was killed): only a group its own _session recorded as "N N"
-  for sd_f in "$bd"/logs/pgid.*; do
-    [ -f "$sd_f" ] || continue
-    sd_g=$(cat "$sd_f" 2>/dev/null || :); sd_a=${sd_g%% *}
-    [ "$sd_g" = "$sd_a $sd_a" ] || continue
-    case "$sd_a" in ''|*[!0-9]*|0|1|"$sd_own") continue ;; esac
-    grp_alive "$sd_a" || continue
-    kill -TERM "-$sd_a" 2>/dev/null || :
-    sd_i=0; while [ "$sd_i" -lt 15 ] && grp_alive "$sd_a"; do nap; sd_i=$((sd_i + 1)); done
-    ! grp_alive "$sd_a" || kill -KILL "-$sd_a" 2>/dev/null || :
-  done
+  reap_stale_groups
   rm -f "$bd"/logs/pgid.*
   drv_finalize "stopped by the user"   # idempotent: the driver's own exit already did this when it could
   echo "batch driver stopped (pid $DP); the running task, if any, is parked as stopped"
