@@ -69,6 +69,12 @@ metrics: on
 writing:
   profile: auto
   strictness: relaxed
+# Product documents (product-spec skill). dir: project-relative folder of <slug>/PRD.md and <slug>/REVIEW.md.
+# vague_words: extra unmeasurable words the PRD check flags in acceptance criteria, comma-separated (a phrase may
+# contain spaces), added to the built-in English and Turkish list.
+product:
+  dir: docs/product
+  vague_words:
 test_trust:
   repeat: 5
   mutation_budget: 20

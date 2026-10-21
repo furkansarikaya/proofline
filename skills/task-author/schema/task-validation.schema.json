@@ -23,8 +23,14 @@
             "size": { "enum": ["S", "M", "L"] },
             "sprint": { "type": "string" },
             "assignee": { "type": "string" },
-            "depends_on": { "type": "string" }
+            "depends_on": { "type": "string" },
+            "prd": { "type": "string", "description": "slug of the PRD the Covers ids refer to (product-spec)" }
           }
+        },
+        "covers": {
+          "type": "object",
+          "description": "optional, present only when a criterion ends with `Covers: FR-n, NFR-n`: criterion id -> requirement ids",
+          "additionalProperties": { "type": "array", "items": { "type": "string", "pattern": "^N?FR-[0-9]+$" } }
         }
       }
     }

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Product Spec"
+  short_description: "Writes a PRD with marked evidence, checks it, gates the split into tasks and traces requirements"
+  default_prompt: "Use $product-spec to write a PRD for: "
+
+policy:
+  allow_implicit_invocation: false
