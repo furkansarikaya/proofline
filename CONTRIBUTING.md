@@ -11,6 +11,7 @@ the project; there is no build step.
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 cd proofline
+sh tests/affected.sh                         # runs only the self-test units your changes can affect (--list prints them, --all selects everything)
 sh tests/selftest.sh                         # control-plane, enforcement, generator, CLI, task and e2e-harness suites (16 suites, over 145 units; a few minutes)
 node --test tests/skills/                    # skill validators and fixtures' known answers (about 740 tests)
 sh tests/fixtures/check-fixtures.sh          # builds every fixtures/*/setup.sh and runs its selfcheck (42 passed, 1 skipped without vitest)
@@ -24,11 +25,11 @@ node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Mark
 
 `SELFTEST_ONLY=<suite>` runs one self-test suite; `LC_ONLY=<substring>` runs matching scenarios inside a suite.
 The self-tests split every suite into scenario units and run them on all cores; `SELFTEST_JOBS=<n>` sets the
-core count and `SELFTEST_SHARD=<i>/<n>` runs one slice (CI uses four).
+core count and `SELFTEST_SHARD=<i>/<n>` runs one slice (CI uses six).
 CI additionally runs `shellcheck -s sh` over every shell script. A pull request that changes only plain
 documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png` and `.svg` files under `docs/` except `docs/reference/`) skips the
 test jobs but still runs shellcheck and the sync checks; Markdown under `skills/`, `roles/`, `control-plane/`
-and `adapters/` counts as code. Pull requests run Linux only (about 8 minutes of wall time, A109); macOS runs on pushes to `main` and nightly.
+and `adapters/` counts as code. Pushes to `main` and pull requests run Linux only (about 8 minutes of wall time, A109); macOS runs nightly and on manual runs (A164).
 End-to-end team runs are described in
 [tests/e2e/README.md](tests/e2e/README.md); they use real agents and are not required for a pull request.
 The benchmark report (`node tests/benchmark/benchmark.mjs`, see [tests/benchmark/README.md](tests/benchmark/README.md))
@@ -87,6 +88,30 @@ How work is split between agents in this repository.
   (`gpt-6-sol`, A135); the cheapest model applies to workers only. They use the lowest reasoning effort (A100),
   a hard call cap, and stop on the first quota error.
 
+## Working agreement
+
+How the lead works with sub-agents. Later releases cite this section.
+
+- The lead plans, hands work to sub-agents and merges their results. Code is written by implementers, and the
+  agent that wrote a change never reviews it.
+- Review: a FAIL goes back to the same implementer for at most 2 rounds. The 3rd round is done by a new
+  implementer. After that, only findings that break default usage stop a merge. A re-review looks only at the
+  lines changed since the last review.
+- Agent hygiene: close a finished sub-agent at once; run at most 3 sub-agents at the same time; start no new
+  agents while waiting for CI; close only processes you started yourself.
+- Commits use the identity `furkansarikaya@users.noreply.github.com`.
+- A cheap model does mechanical work; a strong model does design and review.
+- A sub-agent reply is at most 15 lines.
+
+## Test policy
+
+- Agents run only `sh tests/affected.sh` locally. The full self-test is CI's job, and a pull request is merged
+  when CI is green.
+- Tests run quiet: they print failures and one summary line.
+- A new validator gets one valid example and one or two invalid examples.
+- No test calls a model and there is no end-to-end test in CI.
+- The number of tests is not a goal.
+
 ## Commits and pull requests
 
 - [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`, with the decision
@@ -97,7 +122,7 @@ How work is split between agents in this repository.
 
 Pull request checklist:
 
-- [ ] `sh tests/selftest.sh`, `node --test tests/skills/` and `sh tests/fixtures/check-fixtures.sh` pass
+- [ ] CI is green (the full self-test, skill tests and fixtures are CI's job; locally run `sh tests/affected.sh`)
 - [ ] generated files are in sync (`--check` commands above)
 - [ ] a decision entry in `docs/decisions.md` for every behaviour change
 - [ ] a test that fails without the change

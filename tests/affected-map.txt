@@ -1,0 +1,9 @@
+# Maps changed paths to the self-test units that cover them (tests/affected.sh).
+# Format: <sh case glob> <unit> [<unit>...]. A unit is a suite name (the -test.sh file name without .sh).
+# A path matching no line, a unit name that does not resolve, and every shared file select everything: this
+# file only lists what may be SAFELY skipped. Add a line only when grep shows the listed units are the sole
+# users of that path (scripts under control-plane/agents/scripts are copied into many suites: not listed).
+# A changed test file always selects itself without a line here.
+tests/ci/classify.sh classify-test affected-test
+tests/affected.sh affected-test
+tests/affected-map.txt affected-test
