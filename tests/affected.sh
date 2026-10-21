@@ -38,7 +38,7 @@ if [ -z "$files" ] && [ "$all" = no ]; then
 fi
 
 # every unit, as repository-relative paths
-units=$(ls control-plane/agents/scripts/*-test.sh tests/*/*-test.sh tests/skills/*.test.mjs 2>/dev/null)
+units=$(ls control-plane/agents/scripts/*-test.sh tests/*/*-test.sh tests/*/*.test.mjs 2>/dev/null)
 # unit_of NAME: the path of the suite called NAME
 unit_of() { printf '%s\n' "$units" | while IFS= read -r u; do [ "$(basename "$u" .sh)" = "$1" ] && echo "$u"; done; }
 
@@ -55,22 +55,28 @@ else
   for f in $files; do
     IFS=$oldifs
     case "$f" in
-      *-test.sh|tests/skills/*.test.mjs)
+      *-test.sh|*.test.mjs)
         if printf '%s\n' "$units" | grep -qxF "$f"; then selected="$selected
 $f"; elif [ -e "$f" ]; then selected=$units; break; fi
         continue ;;
     esac
-    hit=''
+    hit='' bad=''
     while IFS= read -r line; do
       case "$line" in ''|'#'*) continue ;; esac
+      set -f
       # shellcheck disable=SC2086
       set -- $line
+      set +f
       g=$1; shift
       # shellcheck disable=SC2254
-      case "$f" in $g) hit=yes; for n in "$@"; do selected="$selected
-$(unit_of "$n")"; done ;; esac
+      case "$f" in $g) hit=yes; for n in "$@"; do
+        r=$(unit_of "$n")
+        if [ -n "$r" ]; then selected="$selected
+$r"; else bad=yes; fi
+      done ;; esac
     done < "$map"
-    if [ -z "$hit" ]; then selected=$units; break; fi
+    # unmapped, or a mapped unit that does not exist: uncertain, so everything
+    if [ -z "$hit" ] || [ -n "$bad" ]; then selected=$units; break; fi
     IFS='
 '
   done

@@ -174,7 +174,7 @@ jobs:
         with:
           name: unit-times-${{ matrix.os }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   # One stable check name for branch protection: skipped jobs (documentation-only pull request) count as
   # passed, a failed or cancelled job fails it.
