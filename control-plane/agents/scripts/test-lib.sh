@@ -129,7 +129,9 @@ tl_ensure_template() {
     mkdir "$base/template"; tl_build_template "$base/template"; tl_template=$base/template
   fi
 }
-tl_ensure_template   # once per test process, so every scenario subshell inherits it
+# Once per test process, so every scenario subshell inherits it. A suite outside control-plane/agents/scripts
+# (tests/*/) sets tl_agents itself after sourcing this file: no template then, new_repo makes it lazily.
+[ ! -f "$tl_agents/config.yaml" ] || tl_ensure_template
 new_repo() { # -> cwd inside a fresh fixture repository with the control plane installed (nothing committed)
   tl_ensure_template
   fx=$(mktemp -d "$base/fx.XXXXXX"); cp -R "$tl_template/." "$fx/"; cd "$fx" || exit 1

@@ -5524,6 +5524,7 @@ report_tokens() {
 summary_run() {
   sm_id=${1:-}; [ -n "$sm_id" ] || sm_id=$(active_run); [ -n "$sm_id" ] || fail "no active task: pass a TASK-ID"; require_run "$sm_id"; sm_d=$(run_dir "$sm_id")
   printf 'STATUS: %s (handoff %s, knowledge %s)\n' "$(ua "$(run_state "$sm_d")")" "$(ua "$(section_value "$sm_d" handoff state)")" "$(ua "$(section_value "$sm_d" execution knowledge_state)")"
+  [ "${2:-}" != --status ] || return 0   # next-user.sh needs the first line only; the gate labels below are the slow part
   printf 'TASK: %s %s\n' "$sm_id" "$(sed -n '1s/^#[[:space:]]*//p' "$sm_d/TASK.md" 2>/dev/null | tr -d '\000-\037\177')"
   printf 'CLASS/TOPOLOGY: %s / %s\n' "$(ua "$(pipeline_class "$sm_id" | grep -v PENDING || true)")" "$(ua "$(resolve_topology "$sm_d" 2>/dev/null || true)")"
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
@@ -5640,7 +5641,7 @@ case "$command" in
   pipeline) pipeline_show "${2:?usage: agent.sh pipeline <ID>}" ;;
   tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
-  summary) summary_run "${2:-}" ;;
+  summary) summary_run "${2:-}" "${3:-}" ;;
   plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
   digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
   friction) case "${2:-}" in report|send) require_lead ;; esac; sh "$scripts/friction.sh" "${2:-}" "${3:-}" ;;

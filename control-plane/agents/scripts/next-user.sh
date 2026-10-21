@@ -148,7 +148,7 @@ bd=$root/.agents/local/batch
 run_state() {
   state=none; ks=''
   if [ -n "$1" ] && [ -d "$root/.agents/runs/$1" ]; then
-    sm=$(sh "$agent" summary "$1" 2>/dev/null | sed -n 's/^STATUS: \([A-Z_a-z]*\) (handoff \([A-Za-z_]*\), knowledge \([A-Za-z_]*\)).*/\1 \2 \3/p')
+    sm=$(sh "$agent" summary "$1" --status 2>/dev/null | sed -n 's/^STATUS: \([A-Z_a-z]*\) (handoff \([A-Za-z_]*\), knowledge \([A-Za-z_]*\)).*/\1 \2 \3/p')
     st=${sm%% *}; sm=${sm#* }; hs=${sm%% *}; ks=${sm#* }
     state=active
     case "$st:$hs" in
