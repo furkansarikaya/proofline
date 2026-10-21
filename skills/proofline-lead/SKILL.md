@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.22"
+  version: "0.0.23"
 ---
 
 # proofline-lead
@@ -176,7 +176,10 @@ Specialist results that stop the flow:
 | `docs create\|update\|audit` | Outside a run: architect with docs-writer in standalone mode. `create <topic>` writes a document, `update [<range>]` updates the documents a diff makes stale, `audit` checks all documents against the code and fixes them. |
 | `explain <topic\|TASK-ID>` | Outside a run: architect with explain-html in standalone mode. Writes one self-contained offline HTML page to `.agents/local/explain/`; a TASK-ID is read from its run folder. |
 | `product prd\|review\|split <slug>` | Only while no run is active. `prd`: interactive, in the main session with the user like `task --grill`, applying product-spec (never through a sub-agent relay); writes `docs/product/<slug>/PRD.md` after `check-prd.mjs` exits 0 and the user approves. `review`: dispatch the `reviewer` with focus `spec` on an independent agent (not the one that wrote the PRD); it writes `REVIEW.md` with the `verdict:` line, at most 2 rounds. `split`: task-author in mode `split`, only after `check-prd.mjs --ready` exits 0 (the readiness gate), then `check-coverage.mjs`. |
-| `trace <FR-n\|TASK-ID>` | Read-only, no run: `node <product-spec-dir>/scripts/trace.mjs <FR-n\|TASK-ID>`; relay the chain and every missing link. |
+| `product discover frame\|research\|interviews\|competitors\|opportunities <slug>` | Only while no run is active. Interactive, in the main session with the user (applying product-discovery, never through a sub-agent relay). `frame` states the problem and who has it; `research`, `interviews`, `competitors` and `opportunities` write their file in `docs/product/<slug>/` only after the matching `check-*.mjs` of product-discovery exits 0 and the user approves. Every fact carries a URL, access date and verbatim quote; raw interviews stay in `.agents/local/product-discovery/` and never reach git. |
+| `product assess assumptions\|probes\|premortem\|redteam\|decision <slug>` | Only while no run is active. Interactive in the main session (product-assess). `assumptions` rate importance and evidence qualitatively; `probes` are locked with a threshold hash before they run; `premortem` sorts each risk as real, overstated or unspoken; `redteam` is the reviewer with focus `strategy` on an independent agent, at most 2 rounds; `decision` writes `DECISION.md` with `decision: build\|clarify\|stop`. Under `stop` the PRD is not split. |
+| `product outcome <slug>` | Only while no run is active. Interactive (product-assess): records each outcome with the metric id, baseline, the script and its output hash and the recorded value; `check-outcome.mjs` must exit 0; a lesson candidate follows the approval rule of the knowledge step. |
+| `trace <FR-n\|TASK-ID>` | Read-only, no run: `node <product-spec-dir>/scripts/trace.mjs <FR-n\|TASK-ID>`; relay the chain, now also the evidence, assumption, decision and outcome links, and every missing link. |
 | `review` | proof-review standalone (working tree, branch or PR). |
 | `audit` | test-trust full mode standalone. |
 | `debug` | debug-proof standalone; inside a run diagnosis only, the fix goes to the implementer. |

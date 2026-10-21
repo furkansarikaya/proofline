@@ -71,6 +71,15 @@ sc_expected_steps() {
   printf 'round: 2\n' >> docs/product/pay/REVIEW.md
   NU product review pay | grep -Fq 'both review rounds are used' || die "product review round 2: $(NU product review pay)"
   NU product split pay | grep -Fq '/proofline' || die "product split: $(NU product split pay)"
+  [ "$(NU product discover frame pay)" = 'Next step: /proofline product discover research pay' ] || die "discover frame: $(NU product discover frame pay)"
+  [ "$(NU product discover opportunities pay)" = 'Next step: /proofline product assess assumptions pay' ] || die "discover opportunities: $(NU product discover opportunities pay)"
+  [ "$(NU product assess redteam pay)" = 'Next step: /proofline product assess decision pay' ] || die "assess redteam: $(NU product assess redteam pay)"
+  [ "$(NU product assess decision pay)" = 'Next step: /proofline product prd pay' ] || die "assess decision none: $(NU product assess decision pay)"
+  printf 'decision: clarify\n' > docs/product/pay/DECISION.md
+  NU product assess decision pay | grep -Fq 'discover research pay' || die "assess decision clarify: $(NU product assess decision pay)"
+  printf 'decision: stop\n' >> docs/product/pay/DECISION.md
+  NU product assess decision pay | grep -Fq 'so no PRD is split' || die "assess decision stop: $(NU product assess decision pay)"
+  [ "$(NU product outcome pay)" = 'Next step: /proofline status' ] || die "product outcome: $(NU product outcome pay)"
   [ "$(NU trace FR-1)" = 'Next step: /proofline status' ] || die "trace: $(NU trace FR-1)"
   ok "the table gives the expected next command for none, active, question, CODE_DONE and FAILED"
 }

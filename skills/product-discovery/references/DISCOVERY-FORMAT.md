@@ -51,7 +51,7 @@ The value, source URL, observed date (`YYYY-MM-DD`) and a quoted passage belong 
 
 ## 6. Opportunities
 
-```markdown
+````markdown
 - OP-1 Finance cannot export one month in one step. C-1, INT-1
 - OP-2 A weekly summary may replace the manual export. [assumption: value]
 - S-1 One-click CSV export for OP-1.
@@ -61,6 +61,6 @@ graph TD
   G[Reduce manual export work] --> OP-1
   G --> OP-2
 ```
-```
+````
 
 Every `OP-n` links a `C-n` or `INT-n` that exists, or an `AS-n`, or carries an assumption marker. The Mermaid block lists every `OP-n`. No scores: ordering comes from the evidence and from `product-assess`.

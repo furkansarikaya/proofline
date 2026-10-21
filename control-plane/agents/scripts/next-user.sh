@@ -74,6 +74,19 @@ product-review|dnship|/proofline product prd <SLUG> to revise the PRD, then /pro
 product-review|dnship2|/proofline product prd <SLUG> if you revise the PRD (both review rounds are used, so what happens next is your call)
 product-review|*|/proofline product split <SLUG>
 product-split|*|{NEW}
+product-discover-frame|*|/proofline product discover research <SLUG>
+product-discover-research|*|/proofline product discover interviews <SLUG>
+product-discover-interviews|*|/proofline product discover competitors <SLUG>
+product-discover-competitors|*|/proofline product discover opportunities <SLUG>
+product-discover-opportunities|*|/proofline product assess assumptions <SLUG>
+product-assess-assumptions|*|/proofline product assess probes <SLUG>
+product-assess-probes|*|/proofline product assess premortem <SLUG>
+product-assess-premortem|*|/proofline product assess redteam <SLUG>
+product-assess-redteam|*|/proofline product assess decision <SLUG>
+product-assess-decision|stop|/proofline product discover frame <SLUG> to frame a different problem (the decision is stop, so no PRD is split)
+product-assess-decision|clarify|/proofline product discover research <SLUG> to close what is unclear, then /proofline product assess decision <SLUG> again
+product-assess-decision|*|/proofline product prd <SLUG>
+product-outcome|*|/proofline status
 trace|*|/proofline status
 EOF
 }
@@ -125,19 +138,20 @@ question() {
   printf '%s' "${q:-see the question above}"
 }
 
-cmd='' id='' id2='' err=no kind=''
+cmd='' id='' id2='' id3='' err=no kind=''
 for a in "$@"; do
   case "$a" in
     --commands) commands; exit 0 ;;
     --error) err=yes ;;
     --error=*) err=yes; kind=${a#--error=} ;;
-    *) if [ -z "$cmd" ]; then cmd=$a; elif [ -z "$id" ]; then id=$a; elif [ -z "$id2" ]; then id2=$a; fi ;;
+    *) if [ -z "$cmd" ]; then cmd=$a; elif [ -z "$id" ]; then id=$a; elif [ -z "$id2" ]; then id2=$a; elif [ -z "$id3" ]; then id3=$a; fi ;;
   esac
 done
 case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac
 [ -n "$cmd" ] || cmd=help
 if [ "$cmd" = batch ]; then case "$id" in status|stop) cmd=batch-$id; id='' ;; run) id='' ;; esac; fi
-if [ "$cmd" = product ]; then case "$id" in prd|review|split) cmd=product-$id; id=$id2; case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac ;; *) cmd=product-prd; id='' ;; esac; fi
+if [ "$cmd" = product ]; then case "$id" in prd|review|split|outcome) cmd=product-$id; id=$id2; case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac ;; discover|assess) case "$id2" in ''|-*|*[!a-z]*) cmd=product-prd; id='' ;; *) cmd=product-$id-$id2; id=$id3; case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac ;; esac ;;
+  *) cmd=product-prd; id='' ;; esac; fi
 if [ "$err" = no ]; then table_names | grep -Fqx -- "$cmd" || { echo "next-user: unknown command: $cmd" >&2; exit 2; }; fi
 
 # the state of the run the command is about
@@ -205,7 +219,10 @@ if [ "$installed" = yes ]; then
       pd=$(awk '/^product:/ { i = 1; next } /^[^[:space:]#]/ { i = 0 } i && $1 == "dir:" { gsub(/"/, "", $2); print $2; exit }' "$root/.agents/config.yaml" 2>/dev/null); pd=${pd%/}
       state=none
       rf=$root/${pd:-docs/product}/$id/REVIEW.md
-      if [ -n "$id" ] && grep -qs '^verdict:[[:space:]]*do-not-ship' "$rf"; then
+      if [ "$cmd" = product-assess-decision ] && [ -n "$id" ]; then
+        state=$(grep -E '^decision:[[:space:]]*(build|clarify|stop)[[:space:]]*$' "$root/${pd:-docs/product}/$id/DECISION.md" 2>/dev/null | tail -n 1 | sed 's/^decision:[[:space:]]*//; s/[[:space:]]*$//'); [ -n "$state" ] || state=none
+      fi
+      if [ "$cmd" = product-review ] && [ -n "$id" ] && grep -qs '^verdict:[[:space:]]*do-not-ship' "$rf"; then
         state=dnship; grep -qs '^round:[[:space:]]*[2-9]' "$rf" && state=dnship2
       fi ;;
     *)
