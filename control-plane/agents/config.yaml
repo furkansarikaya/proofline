@@ -218,7 +218,7 @@ default_mode: deterministic
 active_run_file: .agents/local/ACTIVE_RUN
 policy_source: .agents/modes
 # Knowledge transaction (Transaction B) scope: space-separated; an entry ending in / is a directory
-# prefix, any other entry an exact path. A path listed in the frozen plan scope stays application scope.
+# prefix, any other entry an exact path. docs/product/ is the default of product.dir. A path listed in the frozen plan scope stays application scope.
 knowledge_scope_root: docs/design/ docs/adr/ docs/wiki/ docs/product/
 safety:
   destructive_git_requires_explicit_authorization: true

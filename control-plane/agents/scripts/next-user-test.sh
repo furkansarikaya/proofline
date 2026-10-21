@@ -68,6 +68,8 @@ sc_expected_steps() {
   [ "$(NU product review pay)" = 'Next step: /proofline product split pay' ] || die "product review: $(NU product review pay)"
   mkdir -p docs/product/pay; printf 'verdict: do-not-ship\n' > docs/product/pay/REVIEW.md
   NU product review pay | grep -Fq 'revise the PRD' || die "product review do-not-ship: $(NU product review pay)"
+  printf 'round: 2\n' >> docs/product/pay/REVIEW.md
+  NU product review pay | grep -Fq 'both review rounds are used' || die "product review round 2: $(NU product review pay)"
   NU product split pay | grep -Fq '/proofline' || die "product split: $(NU product split pay)"
   [ "$(NU trace FR-1)" = 'Next step: /proofline status' ] || die "trace: $(NU trace FR-1)"
   ok "the table gives the expected next command for none, active, question, CODE_DONE and FAILED"

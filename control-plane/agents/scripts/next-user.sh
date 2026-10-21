@@ -70,7 +70,8 @@ batch-status|approved,stopped|run proofline batch run in a terminal to resume th
 batch-status|finished-parked|{PARKED}
 batch-stop|*|/proofline batch status
 product-prd|*|/proofline product review <SLUG>
-product-review|dnship|revise the PRD with /proofline product prd <SLUG>, then run /proofline product review <SLUG> again
+product-review|dnship|/proofline product prd <SLUG> to revise the PRD, then /proofline product review <SLUG> again
+product-review|dnship2|/proofline product prd <SLUG> if you revise the PRD (both review rounds are used, so what happens next is your call)
 product-review|*|/proofline product split <SLUG>
 product-split|*|{NEW}
 trace|*|/proofline status
@@ -203,7 +204,10 @@ if [ "$installed" = yes ]; then
       # product-review: the verdict line of <product.dir>/<slug>/REVIEW.md (do-not-ship asks for a revised PRD)
       pd=$(awk '/^product:/ { i = 1; next } /^[^[:space:]#]/ { i = 0 } i && $1 == "dir:" { gsub(/"/, "", $2); print $2; exit }' "$root/.agents/config.yaml" 2>/dev/null); pd=${pd%/}
       state=none
-      if [ -n "$id" ] && grep -qs '^verdict:[[:space:]]*do-not-ship' "$root/${pd:-docs/product}/$id/REVIEW.md"; then state=dnship; fi ;;
+      rf=$root/${pd:-docs/product}/$id/REVIEW.md
+      if [ -n "$id" ] && grep -qs '^verdict:[[:space:]]*do-not-ship' "$rf"; then
+        state=dnship; grep -qs '^round:[[:space:]]*[2-9]' "$rf" && state=dnship2
+      fi ;;
     *)
       if [ -z "$id" ]; then
         id=$(sh "$agent" status 2>/dev/null | sed -n 's/^active_task=//p' | head -n 1)

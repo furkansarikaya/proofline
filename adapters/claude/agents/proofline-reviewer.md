@@ -52,17 +52,10 @@ effort: high
    | `config` | REVIEW_RULES / REVIEW_SMALL | ${CLAUDE_PLUGIN_ROOT}/skills/proof-review/SKILL.md focus `config` (its `check-config.mjs` and `validate-config.mjs`): variables used but not documented in the example env or config docs, plain-text secrets (masked), feature-flag defaults and removed flags still referenced | `reviews/proof-review/config/REPORT.md` |
    | `migration` | REVIEW_DATA | ${CLAUDE_PLUGIN_ROOT}/skills/data-design/SKILL.md migration validation (`references/MIGRATION-VALIDATION.md`): apply and roll back only on the test suite's own throwaway database and only through the project's own test command (you issue no migrate command), compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |
 
-   Focus `spec` is standalone, outside any run and gate: it reviews a PRD, never code. The assignment names the
-   slug and says you did not write the PRD (an author never reviews its own PRD). Read
-   `docs/product/<slug>/PRD.md` and apply ${CLAUDE_PLUGIN_ROOT}/skills/product-spec/SKILL.md (`scripts/check-prd.mjs` first), then:
-   (a) the two-engineer test: would two engineers who never spoke build the same thing from this PRD? Each
-   place where they would not is a blocking finding; (b) the scope triple: what is in scope, what is explicitly
-   out, and what is dangerously unmentioned; (c) every concrete claim about the repository (file, function,
-   behaviour, number) is opened and checked, and the review records a ledger of `verified` and `unverified`
-   claims; (d) the metric audit: each metric names its event, where it is recorded and a baseline. Write
-   `docs/product/<slug>/REVIEW.md` from the skill's `assets/REVIEW.template.md` with one line
-   `verdict: ship|ship-with-conditions|do-not-ship` (any blocking finding means `do-not-ship`). At most 2 rounds:
-   after the author's revision review once more, then stop with the verdict as it stands. Do not edit the PRD.
+   Focus `spec` (standalone, never in a run, reviews a PRD not code; you did not write it): follow
+   ${CLAUDE_PLUGIN_ROOT}/skills/product-spec/SKILL.md `references/SPEC-REVIEW.md` (two-engineer test, scope triple, claim ledger, metric audit)
+   and write `<product.dir>/<slug>/REVIEW.md` with its `verdict:` line, at most 2 rounds. No submit, no fingerprint:
+   the final message gives the `verdict:` line and the path. Do not edit the PRD.
 
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"
    --evidence <file>`, where the file is the skill validator's own output saved in the focus's report folder

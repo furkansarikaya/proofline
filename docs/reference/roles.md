@@ -194,7 +194,7 @@ Independently reviews the task-owned diff for one focus (plan, rules, tests, dat
 - Agent: proofline-reviewer
 - Dispatched: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)
 - Reads: TASK.md PLAN.md EVIDENCE.md QA_PLAN.md diff repo
-- Owns: docs/product/ reviews/proof-review/plan/ reviews/proof-review/rules/ reviews/proof-review/small/ reviews/test-trust/tests/ reviews/data-design/REVIEW.md reviews/proof-review/config/ reviews/contract-proof/ reviews/concurrency-proof/ reviews/performance-proof/ reviews/data-migration/
+- Owns: reviews/proof-review/plan/ reviews/proof-review/rules/ reviews/proof-review/small/ reviews/test-trust/tests/ reviews/data-design/REVIEW.md reviews/proof-review/config/ reviews/contract-proof/ reviews/concurrency-proof/ reviews/performance-proof/ reviews/data-migration/
 - Skills: proof-review test-trust data-design concurrency-proof performance-proof contract-proof product-spec
 - Gates: REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA REVIEW_SMALL
 - Result protocol: gate
