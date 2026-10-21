@@ -1195,6 +1195,7 @@ sc_knowledge_secrets() {
 sc_wiki_knowledge_scope() {
   scaffold orchestrated; to_code_done orchestrated
   A config-get knowledge_scope_root | grep -Fq 'docs/wiki/' || die "docs/wiki/ is not in the default knowledge_scope_root"
+  A config-get knowledge_scope_root | grep -Fq 'docs/product/' || die "docs/product/ is not in the default knowledge_scope_root"
   mkdir -p notes; printf 'not a wiki page\n' > notes/outside.txt
   A knowledge-done LC >/dev/null
   expect_msg "a path outside the root counted as knowledge" 'no knowledge-scope changes' A verify-knowledge-scope LC

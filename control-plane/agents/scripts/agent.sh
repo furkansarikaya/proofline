@@ -130,7 +130,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -160,6 +160,8 @@ config_check() {
       else if (k == "writing.profile") en(k, v, "auto|ste|plain")
       else if (k == "writing.strictness") en(k, v, "relaxed|strict")
       else if (top == "writing" && k != "writing") bad("unknown writing key: " k " (want writing.profile or writing.strictness)")
+      else if (k == "product.dir") { if (v ~ /^\// || v ~ /(^|\/)\.\.(\/|$)/) bad("product.dir must be project-relative: " v) }
+      else if (top == "product" && k != "product" && k != "product.vague_words") bad("unknown product key: " k " (want product.dir or product.vague_words)")
       else if (k ~ /^pipelines\.[A-Z]+\.(evidence|qa|architect)$/) en(k, v, "yes|no")
       else if (k ~ /^pipelines\.[A-Z]+\.review$/) en(k, v, "yes|no|optional")
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)
@@ -1617,7 +1619,7 @@ task_source_status() {
 # is a directory prefix, any other entry an exact path. A plan-scoped path stays application scope.
 # The configured design documents (design_docs.*) belong to it too (A159); an installed project without the key gets the default roots.
 in_knowledge_scope() {
-  ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/')
+  ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/ docs/product/')
   for ks_k in design architecture data_model api adr_dir; do
     ks_p=$(cfg "design_docs.$ks_k" ""); [ -z "$ks_p" ] || { [ "$ks_k" != adr_dir ] || ks_p=${ks_p%/}/; ks_r="$ks_r $ks_p"; }
   done
@@ -5522,6 +5524,7 @@ report_tokens() {
 summary_run() {
   sm_id=${1:-}; [ -n "$sm_id" ] || sm_id=$(active_run); [ -n "$sm_id" ] || fail "no active task: pass a TASK-ID"; require_run "$sm_id"; sm_d=$(run_dir "$sm_id")
   printf 'STATUS: %s (handoff %s, knowledge %s)\n' "$(ua "$(run_state "$sm_d")")" "$(ua "$(section_value "$sm_d" handoff state)")" "$(ua "$(section_value "$sm_d" execution knowledge_state)")"
+  [ "${2:-}" != --status ] || return 0   # next-user.sh needs the first line only; the gate labels below are the slow part
   printf 'TASK: %s %s\n' "$sm_id" "$(sed -n '1s/^#[[:space:]]*//p' "$sm_d/TASK.md" 2>/dev/null | tr -d '\000-\037\177')"
   printf 'CLASS/TOPOLOGY: %s / %s\n' "$(ua "$(pipeline_class "$sm_id" | grep -v PENDING || true)")" "$(ua "$(resolve_topology "$sm_d" 2>/dev/null || true)")"
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
@@ -5638,7 +5641,7 @@ case "$command" in
   pipeline) pipeline_show "${2:?usage: agent.sh pipeline <ID>}" ;;
   tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
-  summary) summary_run "${2:-}" ;;
+  summary) summary_run "${2:-}" "${3:-}" ;;
   plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
   digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
   friction) case "${2:-}" in report|send) require_lead ;; esac; sh "$scripts/friction.sh" "${2:-}" "${3:-}" ;;

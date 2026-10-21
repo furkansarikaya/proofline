@@ -4,7 +4,7 @@ description: Designs the smallest valid architecture for a task, or reverse-engi
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.21"
+  version: "0.0.22"
 ---
 
 # system-design
@@ -83,6 +83,6 @@ When `.agents/local/ACTIVE_RUN` names a run and this skill was dispatched by the
 - Artifacts go only to the run folder the assignment names (`.agents/runs/<TASK-ID>/...`); outside a run evidence and working files go to `.agents/local/<skill>/<target>/` (a deliverable the user approved goes to its project location, see the skill), or nowhere when `local_state: off`. Before the first write under `.agents/local/`, create `.agents/local/.gitignore` containing `*` if it is missing, so nothing written there appears in `git status`.
 - In a run, report with `agent.sh submit` (`.agents/PROTOCOL.md`): you give the result, confidence, report path, findings rows and any reason or questions; the script builds the header, fingerprint and hashes and returns a rejection to you at once. The final message is not parsed. Nothing else reaches the lead.
 - With no findings, pass `--findings none` (zero rows is a clean result; the script writes the table header).
-- A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one question per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
+- A question for the user is never guessed: write state to the artifact and return `RESULT: NEEDS_INPUT` with numbered questions (text, options, recommended answer, why it is asked); gather every open question first and return them together in ONE NEEDS_INPUT result; after you are resumed with an `ANSWERS` block you never return NEEDS_INPUT again in the run (`submit` rejects it): decide with the recommended option you offered and say so, or return `RESULT: BLOCKED` with the reason. The one exception is intent-grill's interview: a NEEDS_INPUT that the task author (only that role) submits with `--artifact design/INTENT.md` whose `## Status` is `in-progress` is not counted or limited by `submit`; it is inherently multi-round, one to three independent questions per round, bounded only by the user's replies. Gate roles (reviewer, security_reviewer, qa at the gate, verifier) never return NEEDS_INPUT: they return `RESULT: BLOCKED` with a `BLOCKED_REASON` naming the decision needed.
 - Never spawn agents and never change task state; only the lead does.
 <!-- proofline:shared-rules:end -->

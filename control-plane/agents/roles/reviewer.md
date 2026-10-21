@@ -45,6 +45,11 @@
    | `config` | REVIEW_RULES / REVIEW_SMALL | .agents/skills/proof-review/SKILL.md focus `config` (its `check-config.mjs` and `validate-config.mjs`): variables used but not documented in the example env or config docs, plain-text secrets (masked), feature-flag defaults and removed flags still referenced | `reviews/proof-review/config/REPORT.md` |
    | `migration` | REVIEW_DATA | .agents/skills/data-design/SKILL.md migration validation (`references/MIGRATION-VALIDATION.md`): apply and roll back only on the test suite's own throwaway database and only through the project's own test command (you issue no migrate command), compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |
 
+   Focus `spec` (standalone, never in a run, reviews a PRD not code; you did not write it): follow
+   .agents/skills/product-spec/SKILL.md `references/SPEC-REVIEW.md` (two-engineer test, scope triple, claim ledger, metric audit)
+   and write `<product.dir>/<slug>/REVIEW.md` with its `verdict:` line, at most 2 rounds. No submit, no fingerprint:
+   the final message gives the `verdict:` line and the path. Do not edit the PRD.
+
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"
    --evidence <file>`, where the file is the skill validator's own output saved in the focus's report folder
    (`validate-contract.mjs ... --repo --base` or `validate-migration.mjs <REPORT.md> --repo`, redirected to e.g.

@@ -158,7 +158,7 @@ checks freshness before and after the adapter and restores the file byte for byt
 ## Knowledge transaction
 
 One rule, stated in [KNOWLEDGE.md](KNOWLEDGE.md) (A159): the step always runs after CODE_DONE and ends in
-`knowledge-done <ID>` with pages written under `knowledge_scope_root` (`docs/design/ docs/adr/ docs/wiki/`) and the
+`knowledge-done <ID>` with pages written under `knowledge_scope_root` (`docs/design/ docs/adr/ docs/wiki/ docs/product/`) and the
 `design_docs` paths, or in `knowledge-done <ID> not_applicable "<reason>"`. A knowledge write before CODE_DONE is out
 of scope; a write without `KNOWLEDGE_DONE`, or `KNOWLEDGE_DONE` without a write, FAILS DONE, delivery-check and validate.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Validates an intent-grill INTENT.md (see ../references/INTENT-FORMAT.md): decision tree rows,
-// who decided each branch, one question per round in dependency order, request quotes, and the
+// who decided each branch, one decision per round row in dependency order, request quotes, and the
 // derived acceptance-criteria and out-of-scope candidates. No dependencies.
 // Usage: node <skill-dir>/scripts/validate-intent.mjs <INTENT.md>
 // Exit codes: 0 valid, 1 invalid (one message per line), 2 usage or read error.
@@ -100,17 +100,17 @@ export function validate(md) {
   };
   for (const id of byId.keys()) visit(id, []);
 
-  // Rounds: exactly one question per round, numbered 1..n, each asked once, dependencies settled first.
+  // Rounds: one decision per round row, numbered 1..n, each asked once, dependencies settled first. A message may carry up to 3 independent rows: only trailing rows may be unanswered, at most 3.
   const askedIn = new Map();
   d.rounds.rows.forEach((r, i) => {
     const at = `Rounds ${r.round}`;
     if (r.round !== String(i + 1)) errors.push(`${at}: rounds must be numbered 1..n in order`);
-    if (!/^D-\d+$/.test(r.asked)) { errors.push(`${at}: asked must be exactly one decision id (one question per round)`); return; }
+    if (!/^D-\d+$/.test(r.asked)) { errors.push(`${at}: asked must be exactly one decision id (one decision per round row)`); return; }
     if (!byId.has(r.asked)) errors.push(`${at}: asks unknown ${r.asked}`);
     if (askedIn.has(r.asked)) errors.push(`${at}: ${r.asked} was already asked in round ${askedIn.get(r.asked)}`);
     if (r.answer && !ANSWERERS.includes(r.answered_by)) errors.push(`${at}: answered_by must be one of ${ANSWERERS.join("|")}`);
     if (!r.answer && r.answered_by) errors.push(`${at}: answered_by without an answer`);
-    if (!r.answer && i !== d.rounds.rows.length - 1) errors.push(`${at}: only the last round may be unanswered`);
+    if (!r.answer && d.rounds.rows.slice(i + 1).some((x) => x.answer)) errors.push(`${at}: only the last rounds may be unanswered`);
     for (const dep of byId.get(r.asked)?.deps || []) {
       const dr = byId.get(dep);
       const settledBefore = dr && ((dr.decided_by === "request" && dr.status === "resolved") || (askedIn.has(dep) && d.rounds.rows[askedIn.get(dep) - 1].answer));
@@ -119,6 +119,7 @@ export function validate(md) {
     askedIn.set(r.asked, i + 1);
   });
 
+  if (d.rounds.rows.filter((r) => !r.answer).length > 3) errors.push("Rounds: at most 3 questions may wait for an answer at once");
   const request = d.request.toLowerCase();
   for (const r of d.tree.rows) {
     const at = `Decision tree ${r.id}`;

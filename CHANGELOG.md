@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.0.22 — 2026-10-22
+
+- CI is faster: macOS, the headless-browser measurement and the benchmark report run only on the nightly schedule and on manual runs; pushes to main and pull requests run Linux only (A164, replaces the macOS part of A76).
+- Self-tests copy one cached template repository (keyed by a hash of the control-plane files) per scenario instead of installing proofline again; `next-user-test` `sc_every_state` and `cli-test` are split into scenario units; CI uploads per-unit timings (`SELFTEST_TIMES_FILE`), `tests/selftest-weights.sh` rebuilds `tests/selftest-weights.txt` from them, and an unlisted unit weighs the median of the listed ones.
+- `tests/affected.sh` (with `tests/affected-map.txt`; `--list`, `--all`) names the suites a change can affect; it only decides what is safe to skip, and anything unmapped, shared or uncertain runs the suite.
+- CONTRIBUTING has a "Working agreement" (lead, review and agent-hygiene rules) and a test policy; later releases cite them.
+- Fixed a race in `batch-test` `sc_driver_stop` and `sc_driver_crash` on loaded macOS runners (empty pid files, process group set late).
+- New product evidence model: product claims are `fact` (with a web, interview or data source), `assumption` (with a risk type) or `decision` (who, on what basis); `validate-product-claims.mjs` rejects a sourceless fact and reports unmarked claims.
+- New `product-spec` skill: PRD at `docs/product/<slug>/PRD.md` (`product.dir`), a deterministic PRD check (unmeasurable words in English and Turkish, extensible with `product.vague_words`; empty non-goals; metric without a method; requirement without an id), a readiness gate, a coverage check (every FR/NFR is linked to a task or deferred with a reason) and a read-only trace.
+- The reviewer role gets the focus `spec` (two-engineer test, scope triple, claim ledger, metric audit; ship / ship-with-conditions / do-not-ship; at most 2 rounds); no new role.
+- New commands `/proofline product prd|review|split <slug>` and `/proofline trace <FR-n|TASK-ID>`; `docs/concepts/product.md`; `docs/product/` is in the knowledge scope.
+- intent-grill asks up to three independent numbered questions at once, each with lettered options and a recommendation, so one line like `1A, 2C` answers them; it reads back each understood part, marks guesses as "tahmin" and asks what would count as failure even if it works technically.
+
 ## 0.0.21 — 2026-10-21
 
 - The task file moves to `done/` in the delivery commit (markdown adapter only), not after the merge: `agent.sh task-source-done <ID>` runs in the commit step. When the merge fails, the move exists only in the unmerged pull request branch and the delivery says so (A163).

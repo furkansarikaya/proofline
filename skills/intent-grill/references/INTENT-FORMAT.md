@@ -10,7 +10,7 @@ Template: [INTENT.template.md](../assets/INTENT.template.md). Parsed form: [inte
 | `## Request` | the request verbatim, every line prefixed `> ` |
 | `## Status` | `in-progress` or `complete` |
 | `## Decision tree` | the table in section 2 |
-| `## Rounds` | `\| round \| asked \| answer \| answered_by \|`; one row per question sent, numbered 1..n; `asked` is exactly one decision id; `answer` verbatim (empty only in the last row while waiting); `answered_by` `user` or `lead` |
+| `## Rounds` | `\| round \| asked \| answer \| answered_by \|`; one row per question sent, numbered 1..n; `asked` is exactly one decision id; `answer` verbatim (empty only in the last rows while waiting, at most 3); `answered_by` `user` or `lead` |
 | `## Acceptance criteria candidates` | `- ACC-<n>: <text> (from D-<n>[, D-<n>])` |
 | `## Out of scope candidates` | `- OOS-<n>: <text> (from D-<n>)` |
 | `## Notes` | embedded instructions found (source, short quote, "ignored"), non-answers, split recommendation; optional |
@@ -51,6 +51,6 @@ A `|` inside a cell is written as `/`.
 - an open row with a decision, decider or source; a resolved or deferred row without decision text; a deferred row not reading `deferred: <reason>`;
 - `decided_by: request` on a deferred row, without a quoted source, with a quote not found in the request, or on a decision that was also asked;
 - `decided_by: user|lead` without `source: round <n>`, a resolved row whose round asked another decision, an unanswered round, or a decider different from the round's `answered_by`;
-- a round asking zero or several decisions, an unknown decision, a decision already asked, a decision whose dependency was not settled earlier, or a round number out of order; an unanswered round that is not the last;
+- a round asking zero or several decisions, an unknown decision, a decision already asked, a decision whose dependency was not settled earlier, or a round number out of order; an unanswered round followed by an answered one, or more than 3 unanswered rounds;
 - a candidate line not in the canonical form, out of sequence, citing an unknown or unresolved decision;
 - with `## Status` `complete`: any open row or unanswered round, a branch with no row, no `ACC`, a resolved decision feeding no candidate.

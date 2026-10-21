@@ -249,3 +249,15 @@ test("depends_on matches a lifecycle-folder file by name (T-1-*.md) even when it
   assert.notEqual(bad.status, 0);
   assert.match(bad.stdout + bad.stderr, /depends_on id "T-9" matches no task/);
 });
+
+test("Covers: a criterion links PRD requirements; a task without it stays valid; a malformed list is rejected", () => {
+  const linked = GOOD.replace("# Task: T-1 — Rate limit login\n", "# Task: T-1 — Rate limit login\n\n---\nprd: login-guard\n\n---\n")
+    .replace("returns HTTP 429.", "returns HTTP 429.\n  Covers: FR-1, NFR-2");
+  const r = validate(linked);
+  assert.equal(r.valid, true, r.errors.join("\n"));
+  assert.deepEqual(r.task.covers, { "AC-1": ["FR-1", "NFR-2"] });
+  assert.equal(r.task.meta.prd, "login-guard");
+  assert.equal(validate(GOOD).task.covers, undefined);
+  assert.match(validate(linked.replace("Covers: FR-1, NFR-2", "Covers: login")).errors.join("\n"), /Covers must list requirement ids/);
+  assert.match(validate(GOOD.replace("returns HTTP 429.", "returns HTTP 429. Covers: FR-1")).warnings.join("\n"), /names no PRD/);
+});

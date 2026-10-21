@@ -31,13 +31,22 @@ state_run() {
   esac
 }
 
-sc_every_state() {
+# Every run state is its own unit (one unit held the whole suite's slowest work): the same checks, split by state.
+sc_every_state_none() {
   new_repo
   [ -n "$(NU --commands)" ] || die "next-user --commands is empty"
   every_command none
-  for s in active question codedone finished failed; do state_run "$s"; every_command "$s"; done
-  ok "every command in every run state ends in a user command and never names agent.sh"
+  ok "every command with no run ends in a user command and never names agent.sh"
 }
+sc_every_state_run() { # STATE
+  state_run "$1"; every_command "$1"
+  ok "every command in the $1 run state ends in a user command and never names agent.sh"
+}
+sc_every_state_active() { sc_every_state_run active; }
+sc_every_state_question() { sc_every_state_run question; }
+sc_every_state_codedone() { sc_every_state_run codedone; }
+sc_every_state_finished() { sc_every_state_run finished; }
+sc_every_state_failed() { sc_every_state_run failed; }
 
 sc_expected_steps() {
   new_repo
@@ -55,6 +64,14 @@ sc_expected_steps() {
   [ "$(NU status)" = 'Next step: /proofline reopen LC' ] || die "BLOCKED run: $(NU status)"
   [ "$(NU knowledge LC)" = 'Next step: /proofline reopen LC' ] || die "knowledge on a BLOCKED run: $(NU knowledge LC)"
   [ "$(NU init)" = 'Next step: /proofline doctor' ] || die "init: $(NU init)"
+  [ "$(NU product prd pay)" = 'Next step: /proofline product review pay' ] || die "product prd: $(NU product prd pay)"
+  [ "$(NU product review pay)" = 'Next step: /proofline product split pay' ] || die "product review: $(NU product review pay)"
+  mkdir -p docs/product/pay; printf 'verdict: do-not-ship\n' > docs/product/pay/REVIEW.md
+  NU product review pay | grep -Fq 'revise the PRD' || die "product review do-not-ship: $(NU product review pay)"
+  printf 'round: 2\n' >> docs/product/pay/REVIEW.md
+  NU product review pay | grep -Fq 'both review rounds are used' || die "product review round 2: $(NU product review pay)"
+  NU product split pay | grep -Fq '/proofline' || die "product split: $(NU product split pay)"
+  [ "$(NU trace FR-1)" = 'Next step: /proofline status' ] || die "trace: $(NU trace FR-1)"
   ok "the table gives the expected next command for none, active, question, CODE_DONE and FAILED"
 }
 
@@ -211,7 +228,12 @@ sc_batch_every_state() {
   ok "the batch commands end in a user command with a planned batch and a parked task"
 }
 
-run_sc sc_every_state
+run_sc sc_every_state_none
+run_sc sc_every_state_active
+run_sc sc_every_state_question
+run_sc sc_every_state_codedone
+run_sc sc_every_state_finished
+run_sc sc_every_state_failed
 run_sc sc_expected_steps
 run_sc sc_errors
 run_sc sc_unknown_command

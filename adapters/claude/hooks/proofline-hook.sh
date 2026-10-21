@@ -230,7 +230,7 @@ path_ok() {
       # A159: the knowledge step (after CODE_DONE, or a FAILED/BLOCKED run) needs the wiki and the design documents:
       # knowledge scope and design_docs paths only, nowhere else; any other stage keeps the prohibition. Fail closed.
       if knowledge_stage && sh "$agent" in-knowledge-scope "$po" >/dev/null 2>&1; then return 0; fi
-      echo "the lead writes only run artifacts (TASK.md PLAN.md EVIDENCE.md COMPLETION_REPORT.md amendments/), task files and .agents/local/assignments/ while run $act is active, plus knowledge scope and design_docs paths (docs/design/ docs/adr/ docs/wiki/) in the knowledge step after CODE_DONE (A159); product changes go through the implementer (D2)"; return 1 ;;
+      echo "the lead writes only run artifacts (TASK.md PLAN.md EVIDENCE.md COMPLETION_REPORT.md amendments/), task files and .agents/local/assignments/ while run $act is active, plus knowledge scope and design_docs paths (docs/design/ docs/adr/ docs/wiki/ docs/product/) in the knowledge step after CODE_DONE (A159); product changes go through the implementer (D2)"; return 1 ;;
   esac
   # Specialists: the role's owned paths from .agents/owns.conf (generated; `<role> <token>...`).
   # Token: run-relative path; `/<path>` project-relative (own_match); PRODUCT_SCOPE = the frozen PLAN.md

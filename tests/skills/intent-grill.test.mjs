@@ -61,6 +61,13 @@ test("accepts an in-progress intent waiting on its last round", () => {
   assert.deepEqual(validate(intent({ status: "in-progress", tree, rounds, acc: [], oos: [] })), []);
 });
 
+test("accepts two independent questions waiting together, rejects an answer after a pending row", () => {
+  const tree = [TREE[0], TREE[1], "| D-3 | scope | Include refunded orders | - | open |  |  |  |", "| D-4 | behavior | Timezone of the month boundary | - | open |  |  |  |"];
+  const rounds = [ROUNDS[0], "| 2 | D-3 |  |  |", "| 3 | D-4 |  |  |"];
+  assert.deepEqual(validate(intent({ status: "in-progress", tree, rounds, acc: [], oos: [] })), []);
+  has(intent({ status: "in-progress", tree, rounds: [ROUNDS[0], "| 2 | D-3 |  |  |", "| 3 | D-4 | UTC | user |"], acc: [], oos: [] }), "only the last rounds");
+});
+
 test("rejects two decisions asked in one round", () => {
   has(intent({ rounds: swap(ROUNDS, 0, "| 1 | D-2, D-3 | both | user |") }), "exactly one decision id");
 });
@@ -172,4 +179,11 @@ test("team result rows use the task_author-<n> id and blocking|info severity, ne
   assert.match(md, /Row id is `task_author-<n>`/);
   assert.match(md, /\| task_author-1 \| info \|/);
   assert.doesNotMatch(md, /\| D-<n> \| risk \|/);
+});
+
+test("questions are lettered with a one-line answer, read back, mark guesses and ask the anti-goal", () => {
+  const md = readFileSync(join(skill, "SKILL.md"), "utf8");
+  assert.match(md, /"1A, 2C"/);
+  assert.match(md, /`tahmin`/);
+  assert.match(md, /what would count as failure\?/);
 });

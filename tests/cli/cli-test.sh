@@ -47,30 +47,71 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE AGENT_ROLE CLAUDE_PROJECT_DIR PROOFLI
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 global_sha=$(shasum -a 256 "$GIT_CONFIG_GLOBAL" | awk '{print $1}')
 
-mkrepo() { # NAME -> path of a fresh repository with a repository-local identity and one commit
-  mr=$T/$1; mkdir -p "$mr"
+mkrepo_at() { # DIR: a fresh repository with a repository-local identity and one commit
+  mr=$1; mkdir -p "$mr"
   git -C "$mr" init -q -b main
   git -C "$mr" config user.name Dev; git -C "$mr" config user.email dev@example.test; git -C "$mr" config commit.gpgsign false
   printf '# app\n' > "$mr/README.md"
   git -C "$mr" add README.md; git -C "$mr" commit -q -m init
-  printf '%s\n' "$mr"
+}
+mkrepo() { # NAME -> path of a fresh repository (mkrepo_at)
+  mkrepo_at "$T/$1"; printf '%s\n' "$T/$1"
 }
 pl() { ( cd "$1" && shift && sh "$PL" "$@" ); }          # pl DIR ARGS...
 cfgv() { ( cd "$1" && sh .agents/scripts/agent.sh config-get "$2" ); }
 sig() { ( cd "$1" && find . -path ./.git -prune -o -type f -print | sort | while read -r f; do printf '%s %s\n' "$f" "$(shasum -a 256 "$f" | awk '{print $1}')"; done ); }
 jqe() { jq -e "$1" "$2" >/dev/null 2>&1; }
 
+
+INIT_FLAGS="--yes --runtimes claude,codex --lead claude --worker codex --reviewers claude --profile economy --task-adapter markdown --protected-branches release --push-approval true --forbidden-identity *@forbidden-zz.test --forbidden-identity *@other-zz.test"
+
+# ---- scenarios ----------------------------------------------------------------------------------------------
+# Every section below is one scenario (a unit of tests/selftest.sh, see the run_sc lines at the end); a scenario
+# builds what it needs itself. The installed repository most of them start from ("base") is installed once per
+# content hash and shared by every process of the run (tests/shared/fixture-lib.sh); each scenario gets its own copy.
+# shellcheck source=../shared/fixture-lib.sh
+. "$repo/tests/shared/fixture-lib.sh"
+# LC_ONLY=<substring> runs the matching scenarios, LC_EXACT=<name> exactly one (tests/selftest.sh runs one unit per
+# scenario this way); with neither, every scenario runs. A scenario runs in a subshell: its own counter, no leaked state.
+run_sc() {
+  if [ -n "${LC_EXACT:-}" ]; then [ "$LC_EXACT" = "$*" ] || return 0
+  elif [ -n "${LC_ONLY:-}" ]; then printf '%s' "$*" | grep -q -- "$LC_ONLY" || return 0; fi
+  ( "$@"; printf 'cli-test [%s]: %s checks passed\n' "$1" "$n" )
+}
+base_build() { # DIR (empty): a repository with a package.json, initialised with INIT_FLAGS
+  mkrepo_at "$1"
+  printf '{"scripts":{"build":"tsc","test":"jest","lint":"eslint ."}}\n' > "$1/package.json"
+  # shellcheck disable=SC2086 # the flag string is split on purpose; the patterns contain no spaces
+  set -f; pl "$1" init $INIT_FLAGS >/dev/null 2>&1 || { set +f; return 1; }; set +f
+}
+need_base() { # -> $base: this scenario's own copy of the initialised repository
+  nb_key=$(printf '%s\n%s\n' "$(fx_key "$snap" bin control-plane adapters skills roles)" "$INIT_FLAGS base-v1" | fx_sha)
+  nb_tpl=$(fx_template "cli-$nb_key" base_build) || die "cannot build the base template"
+  base=$T/base; rm -rf "$base"; mkdir -p "$base"; fx_copy "$nb_tpl" "$base"
+}
+mk_home2() { # an "upstream" checkout that differs from the installed one (upgrade source)
+  home2=$T/home2; mkdir -p "$home2"
+  for d in bin control-plane adapters skills roles; do cp -R "$snap/$d" "$home2/"; done
+  echo "upstream change in GATES" >> "$home2/control-plane/agents/GATES.md"
+  echo "upstream change in WORKFLOW" >> "$home2/control-plane/agents/WORKFLOW.md"
+  echo "new file" > "$home2/control-plane/agents/NEWFILE.md"
+  awk '{ print } /^budgets:/ { print "  new_budget: 7" }' "$home2/control-plane/agents/config.yaml" > "$home2/cfg.tmp" && cat "$home2/cfg.tmp" > "$home2/control-plane/agents/config.yaml"
+}
+
+sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.21" "$out" "proofline 0.0.21"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.21 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.22" "$out" "proofline 0.0.22"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.22 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
 
+}
+
+sc_init() {
 # ---- init: everything installed --------------------------------------------------------------------------
 base=$(mkrepo base)
 printf '{"scripts":{"build":"tsc","test":"jest","lint":"eslint ."}}\n' > "$base/package.json"
-INIT_FLAGS="--yes --runtimes claude,codex --lead claude --worker codex --reviewers claude --profile economy --task-adapter markdown --protected-branches release --push-approval true --forbidden-identity *@forbidden-zz.test --forbidden-identity *@other-zz.test"
 # shellcheck disable=SC2086 # the flag string is split on purpose; the patterns contain no spaces
 set -f; out=$(pl "$base" init $INIT_FLAGS 2>&1) || { LAST=$out; die "init exits 0"; }; set +f
 ok "init --yes with flags exits 0"
@@ -79,7 +120,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.21 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.22 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -114,7 +155,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.21' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.22' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -124,6 +165,10 @@ $(grep -v '^#' "$base/.agents/.proofline-manifest" | awk '$2 !~ /^\.agents\// { 
 EOF
 [ -z "$bad" ] && [ "$cnt" -ge 20 ] && ok "manifest paths outside .agents/ are the installed_control_paths set (agent files, entry skill)" || die "manifest lists unexpected installed paths:$bad ($cnt)"
 
+}
+
+sc_init_idempotent() {
+  need_base
 # ---- init: idempotent -------------------------------------------------------------------------------------
 before=$(sig "$base"); cp "$base/.agents/.proofline-manifest" "$T/manifest.before"
 set -f; out=$(pl "$base" init $INIT_FLAGS 2>&1); set +f
@@ -133,6 +178,9 @@ $(diff "$T/manifest.before" "$base/.agents/.proofline-manifest" | head -10)"; di
 expect "a second init reports no changes" "$out" "no changes"
 grep -qxF .agents/local/ "$base/.gitignore" && grep -qxF .agents/runs/ "$base/.gitignore" && ! grep -Eq '^/?\.claude(/|$)' "$base/.gitignore" && ok "after a second init .gitignore still has no .claude line (A117)" || die "second init changed .gitignore wrongly"
 
+}
+
+sc_init_merge() {
 # ---- init: merges, never overwrites ----------------------------------------------------------------------
 pre=$(mkrepo pre)
 printf '# My agents\nkeep me\n' > "$pre/AGENTS.md"
@@ -162,6 +210,9 @@ grep -Fqx 'network_access = true' "$cx/.codex/config.toml" && ok 'codex-only ini
 cl=$(mkrepo claudeonly); pl "$cl" init --yes --runtimes claude >/dev/null 2>&1 || die 'claude-only init failed'
 [ ! -e "$cl/.codex/config.toml" ] && ok 'init without codex omits the network setting' || die 'claude-only init wrote codex config'
 
+}
+
+sc_init_dry_errors() {
 # ---- init: dry run writes nothing ------------------------------------------------------------------------
 dry=$(mkrepo dry); s1=$(sig "$dry")
 out=$(pl "$dry" init --yes --dry-run --runtimes claude 2>&1) || { LAST=$out; die "init --dry-run exits 0"; }
@@ -173,14 +224,13 @@ nocheck "init outside a git repository fails" sh -c "mkdir -p '$T/nogit' && cd '
 nocheck "init rejects an unknown profile" pl "$(mkrepo badprof)" init --yes --runtimes claude --profile turbo
 nocheck "init rejects a lead runtime that is not in --runtimes" pl "$(mkrepo badlead)" init --yes --runtimes claude --lead codex
 
+}
+
+sc_upgrade() {
+  need_base
 # ---- upgrade -----------------------------------------------------------------------------------------------
 up=$T/up; cp -R "$base" "$up"
-home2=$T/home2; mkdir -p "$home2"
-for d in bin control-plane adapters skills roles; do cp -R "$snap/$d" "$home2/"; done
-echo "upstream change in GATES" >> "$home2/control-plane/agents/GATES.md"
-echo "upstream change in WORKFLOW" >> "$home2/control-plane/agents/WORKFLOW.md"
-echo "new file" > "$home2/control-plane/agents/NEWFILE.md"
-awk '{ print } /^budgets:/ { print "  new_budget: 7" }' "$home2/control-plane/agents/config.yaml" > "$home2/cfg.tmp" && cat "$home2/cfg.tmp" > "$home2/control-plane/agents/config.yaml"
+mk_home2
 echo "my own workflow note" >> "$up/.agents/WORKFLOW.md"
 ( cd "$up" && sh .agents/scripts/agent.sh config-get review.max_fix_rounds >/dev/null )
 awk '/^  max_fix_rounds:/ { print "  max_fix_rounds: 5"; next } { print }' "$up/.agents/config.yaml" > "$up/cfg.tmp" && cat "$up/cfg.tmp" > "$up/.agents/config.yaml" && rm "$up/cfg.tmp"
@@ -200,6 +250,10 @@ reject "a user edit of a file upstream did not change is not a conflict" "$out" 
 grep -q "my edit of an unchanged-upstream file" "$up/.agents/ENGINEERING.md" && ok "...and it is kept" || die "ENGINEERING.md edit lost"
 nocheck "upgrade without an install fails" pl "$(mkrepo noinst)" upgrade
 
+}
+
+sc_upgrade_logging() {
+  need_base
 # A162: a project installed before risk.log_sensitive existed gets the new keys on upgrade, user edits untouched
 up4=$T/up4; cp -R "$base" "$up4"
 awk '/^  log_sensitive:$/ { skip = 1; next } skip && /^    (content|words|check):/ { next } { skip = 0; print }' "$up4/.agents/config.yaml" > "$up4/cfg.tmp"
@@ -217,6 +271,11 @@ out=$(cd "$up5" && sh "$PL" upgrade 2>&1) || { LAST=$out; die "upgrade of a tune
 [ "$(cfgv "$up5" risk.log_sensitive.words)" = "password voucher" ] && [ "$(cfgv "$up5" risk.log_sensitive.check)" = logging ] && ok "upgrade keeps tuned log_sensitive words" || { LAST=$out; die "tuned words lost: $(cfgv "$up5" risk.log_sensitive.words) / $(cfgv "$up5" risk.log_sensitive.check)"; }
 check "the tuned, upgraded config validates" sh -c "cd '$up5' && sh .agents/scripts/agent.sh config-check"
 
+}
+
+sc_upgrade_block() {
+  need_base
+  mk_home2
 # CLI-7: the proofline block of AGENTS.md is hash-tracked; a user edit inside it is a conflict, never overwritten
 up2=$T/up2; cp -R "$base" "$up2"
 echo "upstream block change" >> "$home2/control-plane/AGENTS.md"
@@ -244,6 +303,10 @@ grep -qx 'my edit above the block' "$up6/AGENTS.md" && grep -qx '## Logging' "$u
 # A162: README keeps the sentence that the entry skill lists the next-step table
 grep -qF 'One table in the control plane (`next-user.sh`) holds it; the entry skill lists it;' "$repo/README.md" && ok "README says the entry skill lists the next-step table" || die "README lost the entry-skill sentence"
 
+}
+
+sc_doctor_fresh() {
+  need_base
 # ---- doctor -------------------------------------------------------------------------------------------------
 d1=$T/d1; cp -R "$base" "$d1"
 out=$(pl "$d1" doctor 2>&1); rc=$?
@@ -280,6 +343,10 @@ rm -rf "$HOME/.claude"
 expect "doctor lists an overlapping skill as WARN" "$out" "WARN overlapping skill: test-driven-dev"
 reject "doctor leaves ecosystem skills and other events alone" "$out" "rust-lint"
 reject "doctor ignores a foreign PreToolUse hook" "$out" "not-listed"
+}
+
+sc_doctor_faults() {
+  need_base
 d2=$T/d2; cp -R "$base" "$d2"; git -C "$d2" config --local --unset core.hooksPath
 out=$(pl "$d2" doctor 2>&1); rc=$?
 [ "$rc" != 0 ] && expect "doctor FAILs when core.hooksPath is unset" "$out" "FAIL git hooks: core.hooksPath is not set" || { LAST=$out; die "doctor passed without core.hooksPath"; }
@@ -302,6 +369,10 @@ out=$(pl "$d9" doctor 2>&1); expect "doctor passes a Codex lead on the base mode
 grep -v 'lead_base_model:\|^    codex: gpt-6-sol$' "$d9/.agents/config.yaml" > "$d9/c.tmp" && mv "$d9/c.tmp" "$d9/.agents/config.yaml"
 out=$(pl "$d9" doctor 2>&1); expect "doctor warns when lead_base_model is absent from the installed config" "$out" "WARN lead model: .agents/config.yaml has no execution_policy.lead_base_model"
 nocheck "doctor FAILs outside an installed project" pl "$(mkrepo nodoc)" doctor
+}
+
+sc_doctor_missing() {
+  need_base
 # CLI-5: a missing control-plane file the manifest lists is a FAIL when critical, a WARN otherwise
 d6=$T/d6; cp -R "$base" "$d6"; rm "$d6/.agents/PROTOCOL.md"
 out=$(pl "$d6" doctor 2>&1); rc=$?
@@ -311,6 +382,9 @@ for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .ag
   out=$(pl "$d7" doctor 2>&1); rc=$?
   [ "$rc" != 0 ] && expect "doctor FAILs when $crit is missing" "$out" "FAIL manifest: required control-plane file missing: $crit" || { LAST=$out; die "doctor passed without $crit"; }
 done
+}
+
+sc_doctor_global_hookspath() {
 # CLI-11: a global/system core.hooksPath is warned about (init and doctor), never modified
 gh_cfg=$T/home/.gitconfig-hp; cp "$GIT_CONFIG_GLOBAL" "$gh_cfg"; printf '[core]\n\thooksPath = /nonexistent/global-hooks\n' >> "$gh_cfg"
 gh_sha=$(shasum -a 256 "$gh_cfg" | awk '{print $1}')
@@ -321,6 +395,10 @@ expect "init warns about a global core.hooksPath" "$out" "global/system git core
 out=$(GIT_CONFIG_GLOBAL=$gh_cfg pl "$ghp" doctor 2>&1)
 expect "doctor warns about a global core.hooksPath" "$out" "WARN git hooks: a global/system git core.hooksPath"
 
+}
+
+sc_state() {
+  need_base
 # ---- status, resume, queue, session commands, deliver, clean -----------------------------------------------
 st=$T/st; cp -R "$base" "$st"
 out=$(pl "$st" status 2>&1); expect "status without a run says so" "$out" "no active run"
@@ -355,6 +433,9 @@ nocheck "clean refuses without --yes (non-interactive)" pl "$st" clean
 out=$(pl "$st" clean --yes 2>&1) || { LAST=$out; die "clean --yes exits 0"; }
 [ ! -e "$st/.agents/local/prompts/s.json" ] && [ -f "$st/.agents/local/ACTIVE_RUN" ] && [ -d "$st/.agents/runs/T-1" ] && ok "clean --yes removes local state, keeps the unfinished active run" || die "clean --yes result wrong"
 
+}
+
+sc_discovery() {
 # ---- discovery ---------------------------------------------------------------------------------------------
 say() { :; }
 # shellcheck source=../../bin/lib/discover.sh
@@ -386,13 +467,16 @@ out=$(PATH="$T/stub:$PATH" pl "$vr" init --yes --runtimes claude --verify-comman
 expect "init --verify-commands drops a discovered command whose trial failed" "$out" "trial failed"
 [ -z "$(cfgv "$vr" commands.test)" ] && ok "...and leaves commands.test empty" || die "failed command still configured"
 
+}
+
+sc_installer() {
 # ---- terminal installer -------------------------------------------------------------------------------------
 inst=$repo/adapters/codex/install.sh
 nocheck "install.sh without a terminal and without --yes installs nothing" sh -c "sh '$inst' --dir '$T/h2/bin' </dev/null"
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.21" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.22" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -401,6 +485,9 @@ mkdir -p "$T/h4/bin"; : > "$T/h4/.zshrc"
 HOME=$T/h4 SHELL=/bin/zsh PATH="$T/h4/bin:/usr/bin:/bin" sh "$inst" --dir "$T/h4/bin" --yes >/dev/null 2>&1
 [ ! -s "$T/h4/.zshrc" ] && ok "install.sh leaves the rc file alone when the dir is already on PATH" || die "rc edited although dir on PATH"
 
+}
+
+sc_plugin() {
 # ---- plugin and skill ---------------------------------------------------------------------------------------
 pj=$repo/.claude-plugin/plugin.json; mj=$repo/.claude-plugin/marketplace.json
 jqe '.name == "proofline" and .license == "MIT" and .author.name == "Furkan SARIKAYA" and .repository == "https://github.com/furkansarikaya/proofline" and .hooks == "./adapters/claude/hooks/hooks.json"' "$pj" && ok "plugin.json: name, license, author, repository, hooks" || die "plugin.json fields"
@@ -417,6 +504,9 @@ else ok "claude plugin validate skipped (claude is not installed): not tested"; 
 check "the proofline skill carries the shared-rules block verbatim" sh "$repo/tests/shared/check-shared.sh" proofline
 grep -q '^name: proofline$' "$repo/skills/proofline/SKILL.md" && grep -q 'ARGUMENTS' "$repo/skills/proofline/SKILL.md" && grep -q 'proofline init' "$repo/skills/proofline/SKILL.md" && ok "the proofline skill routes \$ARGUMENTS and documents the init requirement" || die "proofline skill content"
 
+}
+
+sc_insights() {
 # ---- insights (A89): read-only cost and recurring-failure report -------------------------------------------
 ins=$T/ins
 check "insights fixture builds" sh "$repo/fixtures/insights/setup.sh" "$ins"
@@ -462,6 +552,9 @@ printf '%s\n' "$out" | grep -Eq '^[[:space:]]*batch[[:space:]]' && printf '%s\n'
 expect "help names batch run and batch status" "$out" "batch run"
 printf '%s\n' "$out" | grep -q 'batch status' || { LAST=$out; die "help does not name batch status"; }
 
+}
+
+sc_help_lists() {
 # ---- help and the entry skill list the same session commands (A144) --------------------------------------------
 # skill: the first cell of the routing row that starts with `run <TASK>`; help: the "agent session" section plus
 # resume, deliver and debt, which help lists under "state".
@@ -498,6 +591,9 @@ ok "the README comparison fails when a command is missing from the README block 
 expect "help lists docs, explain and wiki" "$hp_all" "wiki ingest|query|lint"
 expect "help shows init --role" "$hp_all" "--role ROLE=RUNTIME (repeatable)"
 
+}
+
+sc_init_role() {
 # ---- init --role ROLE=RUNTIME (A144) -----------------------------------------------------------------------------
 rl=$(mkrepo role1)
 pl "$rl" init --yes --runtimes claude,codex --role implementer=codex >/dev/null 2>&1 && ok "init --role implementer=codex is accepted" || die "init --role accepted"
@@ -529,8 +625,32 @@ out=$(pl "$(mkrepo rolebad3)" init --yes --role implementer=gemini 2>&1); expect
 out=$(pl "$(mkrepo rolebad4)" init --yes --role implementer 2>&1); expect "a value without = is named in the message" "$out" "invalid --role value: implementer"
 out=$(pl "$(mkrepo rolebad5)" init --yes --runtimes claude --role implementer=codex 2>&1); expect "a runtime outside --runtimes is refused" "$out" "not in --runtimes"
 
+}
+
+sc_static() {
 # ---- static analysis ----------------------------------------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
   out=$(cd "$repo" && shellcheck -s sh -x bin/proofline bin/lib/*.sh adapters/codex/install.sh tests/cli/cli-test.sh 2>&1) && ok "shellcheck -s sh: bin/, installer and this suite are clean" || { LAST=$out; die "shellcheck"; }
 else ok "shellcheck skipped (not installed): not tested"; fi
-printf 'cli-test: %s checks passed\n' "$n"
+}
+
+run_sc sc_basics
+run_sc sc_init
+run_sc sc_init_idempotent
+run_sc sc_init_merge
+run_sc sc_init_dry_errors
+run_sc sc_upgrade
+run_sc sc_upgrade_logging
+run_sc sc_upgrade_block
+run_sc sc_doctor_fresh
+run_sc sc_doctor_faults
+run_sc sc_doctor_missing
+run_sc sc_doctor_global_hookspath
+run_sc sc_state
+run_sc sc_discovery
+run_sc sc_installer
+run_sc sc_plugin
+run_sc sc_insights
+run_sc sc_help_lists
+run_sc sc_init_role
+run_sc sc_static
