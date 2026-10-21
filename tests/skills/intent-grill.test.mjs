@@ -173,3 +173,10 @@ test("team result rows use the task_author-<n> id and blocking|info severity, ne
   assert.match(md, /\| task_author-1 \| info \|/);
   assert.doesNotMatch(md, /\| D-<n> \| risk \|/);
 });
+
+test("questions are lettered with a one-line answer, read back, mark guesses and ask the anti-goal", () => {
+  const md = readFileSync(join(skill, "SKILL.md"), "utf8");
+  assert.match(md, /"1A, 2C"/);
+  assert.match(md, /`tahmin`/);
+  assert.match(md, /what would count as failure\?/);
+});

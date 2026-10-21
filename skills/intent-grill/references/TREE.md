@@ -6,7 +6,7 @@ Every request is examined along six branches. Each branch gets at least one deci
 
 | Branch | Decisions it holds | Typical questions |
 |---|---|---|
-| `scope` | which cases, entities, users and entry points are included | Which records? Which roles may use it? All tenants or one? |
+| `scope` | which cases, entities, users and entry points are included | Which records? Which roles may use it? All tenants or one? Even if it works technically, what would count as failure? (anti-goals, recorded under `non-goals`) |
 | `behavior` | what observably happens, rules, boundaries, ordering | What defines "this month"? What is rounded, and how? What happens on repeat? |
 | `data` | what is read, written, shown or exported; sensitive fields; retention | Which fields? Is personal data included? Is anything stored? |
 | `ui` | where it appears and how the user triggers and sees it | Where is the control? What feedback does the user get? |
@@ -35,5 +35,5 @@ Typical dependencies: `data` decisions depend on the `scope` decision that selec
 ## 4. Growth and stop
 
 - An answer may open new decisions; add them with the next free id and their dependencies.
-- An answer never removes a row. A decision made moot by an answer is `resolved` only by asking it as a confirmation question (SKILL.md rule 8) or `deferred` if the user says so.
+- An answer never removes a row. A decision made moot by an answer is `resolved` only by asking it as a confirmation question (SKILL.md rule 9) or `deferred` if the user says so.
 - The tree is complete when no row is `open`. Stop there; do not invent extra questions to look thorough. Ten to fifteen decisions is typical for a feature; more than twenty-five means the request should be split; say so in the report.

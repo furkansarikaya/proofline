@@ -8,9 +8,9 @@ stored in the run; the lead adds a marked translation when relaying):
 ```
 <n>. <question, one sentence, naming the decision in the user's terms>
    Options:
-   a) <option> — <consequence for the user or the data>
-   b) <option> — <consequence>
-   c) <option> — <consequence>            (2 to 4 options)
+   A) <option> — <consequence for the user or the data>
+   B) <option> — <consequence>
+   C) <option> — <consequence>            (2 to 4 options)
    Recommended: <letter> — <why: one sentence; cite `path:symbol` when the repo supports it>
    Why asked: <what this decides or unblocks, e.g. "which columns can be offered depends on it">
 ```
@@ -18,7 +18,9 @@ stored in the run; the lead adds a marked translation when relaying):
 - Options are the realistic answers, not a straw man next to the recommendation. Include "keep current behavior" when there is current behavior.
 - The recommendation follows the request's wording first, then existing behavior in the repository, then the safer option for data and permissions. Say which of these it rests on.
 - Never stack a second question into "Why asked" or into an option.
-- Free-form answers are always accepted; options are a convenience.
+- Free-form answers are always accepted; options are a convenience. Letters are uppercase and the question number stays on the line, so one line answers it ("A") and, when several numbered questions are open at once, "1A, 2C".
+- Read back what you understood before the next question: one short line per understood part ("Understood: CSV, filtered rows only"). A part you inferred rather than were told is marked `tahmin` (guess) in that line and is not recorded as decided until the user confirms it.
+- The scope questions include the anti-goal: "Even if it works technically, what would count as failure?" with options and a recommended answer like any other; the answer goes to the `non-goals` branch.
 
 ## 2. Standalone mode
 

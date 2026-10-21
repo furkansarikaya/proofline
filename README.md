@@ -99,6 +99,8 @@ task, design, docs, explain           write a task, design documents, documentat
 run <TASK>                            take a task through the whole workflow
 review, audit, debug                  proof-review, test-trust and debug-proof standalone
 wiki ingest|query|lint                keep the project wiki in docs/wiki/
+product prd|review|split <slug>    PRD with you, an independent review, the split into tasks
+trace <FR-n|TASK-ID>                  follow a requirement or task to its tests and pull request
 knowledge <TASK>                      knowledge step of a finished run
 reopen <TASK>                         take a FAILED or BLOCKED run back into the workflow, with your approval
 deliver <TASK>                        commit, push, pull request, merge and cleanup after one approval
@@ -144,7 +146,7 @@ The end-to-end results are in [tests/e2e/README.md](tests/e2e/README.md).
 
 ## Documentation
 
-- Concepts: [workflow](docs/concepts/workflow.md), [night mode](docs/concepts/night-mode.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md)
+- Concepts: [workflow](docs/concepts/workflow.md), [night mode](docs/concepts/night-mode.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md), [product](docs/concepts/product.md)
 - Guides: [daily use](docs/guides/daily-use.md), [existing project](docs/guides/existing-project.md), [task templates](docs/guides/task-templates.md), [writing an adapter](docs/guides/writing-an-adapter.md), [prompt catalogue](docs/guides/prompt-catalogue.md)
 - Turkish: [gunluk kullanim](docs/guides/tr/gunluk-kullanim.md), [prompt katalogu](docs/guides/tr/prompt-katalogu.md)
 - Reference: [skills](docs/reference/skills.md), [roles](docs/reference/roles.md), [design decisions](docs/decisions.md)

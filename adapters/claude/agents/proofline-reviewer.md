@@ -1,6 +1,6 @@
 ---
 name: proofline-reviewer
-description: "Independently reviews the task-owned diff for one focus (plan, rules, tests, data, rules+tests, or a risk focus contract, concurrency, performance, config, migration) and returns an evidence-based gate result. Use when: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)"
+description: "Independently reviews the task-owned diff for one focus (plan, rules, tests, data, rules+tests, or a risk focus contract, concurrency, performance, config, migration, or the standalone focus spec for a PRD) and returns an evidence-based gate result. Use when: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)"
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
 effort: high
@@ -51,6 +51,18 @@ effort: high
    | `performance` | REVIEW_RULES / REVIEW_SMALL | ${CLAUDE_PLUGIN_ROOT}/skills/performance-proof/SKILL.md: the project's own benchmark, base and change worktrees interleaved, PASS, FAIL or INCONCLUSIVE by its decision rule; INCONCLUSIVE (noise, too few runs) is submitted as `--result UNSUPPORTED --reason "performance INCONCLUSIVE: ..."`, never PASS or FAIL | `reviews/performance-proof/REPORT.md` |
    | `config` | REVIEW_RULES / REVIEW_SMALL | ${CLAUDE_PLUGIN_ROOT}/skills/proof-review/SKILL.md focus `config` (its `check-config.mjs` and `validate-config.mjs`): variables used but not documented in the example env or config docs, plain-text secrets (masked), feature-flag defaults and removed flags still referenced | `reviews/proof-review/config/REPORT.md` |
    | `migration` | REVIEW_DATA | ${CLAUDE_PLUGIN_ROOT}/skills/data-design/SKILL.md migration validation (`references/MIGRATION-VALIDATION.md`): apply and roll back only on the test suite's own throwaway database and only through the project's own test command (you issue no migrate command), compare snapshots and seed rows, report lock, pattern and mixed-version risks; no such database is `--result UNSUPPORTED` | `reviews/data-migration/REPORT.md` |
+
+   Focus `spec` is standalone, outside any run and gate: it reviews a PRD, never code. The assignment names the
+   slug and says you did not write the PRD (an author never reviews its own PRD). Read
+   `docs/product/<slug>/PRD.md` and apply ${CLAUDE_PLUGIN_ROOT}/skills/product-spec/SKILL.md (`scripts/check-prd.mjs` first), then:
+   (a) the two-engineer test: would two engineers who never spoke build the same thing from this PRD? Each
+   place where they would not is a blocking finding; (b) the scope triple: what is in scope, what is explicitly
+   out, and what is dangerously unmentioned; (c) every concrete claim about the repository (file, function,
+   behaviour, number) is opened and checked, and the review records a ledger of `verified` and `unverified`
+   claims; (d) the metric audit: each metric names its event, where it is recorded and a baseline. Write
+   `docs/product/<slug>/REVIEW.md` from the skill's `assets/REVIEW.template.md` with one line
+   `verdict: ship|ship-with-conditions|do-not-ship` (any blocking finding means `do-not-ship`). At most 2 rounds:
+   after the author's revision review once more, then stop with the verdict as it stands. Do not edit the PRD.
 
    A risk focus whose skill or tool is not installed returns `--result UNSUPPORTED --reason "<what is missing>"
    --evidence <file>`, where the file is the skill validator's own output saved in the focus's report folder

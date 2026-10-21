@@ -69,11 +69,16 @@ batch-status|running|wait for the driver to finish, then run /proofline batch st
 batch-status|approved,stopped|run proofline batch run in a terminal to resume the batch; merged tasks are not run again
 batch-status|finished-parked|{PARKED}
 batch-stop|*|/proofline batch status
+product-prd|*|/proofline product review <SLUG>
+product-review|dnship|revise the PRD with /proofline product prd <SLUG>, then run /proofline product review <SLUG> again
+product-review|*|/proofline product split <SLUG>
+product-split|*|{NEW}
+trace|*|/proofline status
 EOF
 }
 table_names() { table | awk -F'|' '{ n = split($1, a, ","); for (i = 1; i <= n; i++) print a[i] }' | sort -u; }
 # the commands of `proofline help`; batch-status and batch-stop are the table's names for `batch status` and `batch stop`
-commands() { table_names | grep -v '^batch-'; }
+commands() { table_names | grep -v '^batch-' | sed 's/^product-.*/product/' | sort -u; }
 
 # sub TEXT FROM TO: TEXT with every FROM replaced by TO
 sub() {
@@ -119,18 +124,19 @@ question() {
   printf '%s' "${q:-see the question above}"
 }
 
-cmd='' id='' err=no kind=''
+cmd='' id='' id2='' err=no kind=''
 for a in "$@"; do
   case "$a" in
     --commands) commands; exit 0 ;;
     --error) err=yes ;;
     --error=*) err=yes; kind=${a#--error=} ;;
-    *) if [ -z "$cmd" ]; then cmd=$a; elif [ -z "$id" ]; then id=$a; fi ;;
+    *) if [ -z "$cmd" ]; then cmd=$a; elif [ -z "$id" ]; then id=$a; elif [ -z "$id2" ]; then id2=$a; fi ;;
   esac
 done
 case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac
 [ -n "$cmd" ] || cmd=help
 if [ "$cmd" = batch ]; then case "$id" in status|stop) cmd=batch-$id; id='' ;; run) id='' ;; esac; fi
+if [ "$cmd" = product ]; then case "$id" in prd|review|split) cmd=product-$id; id=$id2; case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac ;; *) cmd=product-prd; id='' ;; esac; fi
 if [ "$err" = no ]; then table_names | grep -Fqx -- "$cmd" || { echo "next-user: unknown command: $cmd" >&2; exit 2; }; fi
 
 # the state of the run the command is about
@@ -193,6 +199,11 @@ parked_line() {
 if [ "$installed" = yes ]; then
   case "$cmd" in
     batch|batch-status|batch-stop) state=$(batch_state) ;;
+    product-*)
+      # product-review: the verdict line of <product.dir>/<slug>/REVIEW.md (do-not-ship asks for a revised PRD)
+      pd=$(awk '/^product:/ { i = 1; next } /^[^[:space:]#]/ { i = 0 } i && $1 == "dir:" { gsub(/"/, "", $2); print $2; exit }' "$root/.agents/config.yaml" 2>/dev/null); pd=${pd%/}
+      state=none
+      if [ -n "$id" ] && grep -qs '^verdict:[[:space:]]*do-not-ship' "$root/${pd:-docs/product}/$id/REVIEW.md"; then state=dnship; fi ;;
     *)
       if [ -z "$id" ]; then
         id=$(sh "$agent" status 2>/dev/null | sed -n 's/^active_task=//p' | head -n 1)
@@ -245,6 +256,7 @@ else
   case "$text" in *'{LOG}'*) text=$(sub "$text" '{LOG}' '.agents/local/batch/driver.log') ;; esac
   case "$text" in *'{PARKED}'*) text=$(parked_line) ;; esac
   case "$text" in *'{Q}'*) text=$(sub "$text" '{Q}' "$(question)") ;; esac
+  case "$cmd" in product-*) text=$(sub "$text" '<SLUG>' "${id:-<slug>}") ;; esac
   text=$(sub "$text" '<ID>' "${id:-<TASK-ID>}")
 fi
 printf 'Next step: %s\n' "$text"

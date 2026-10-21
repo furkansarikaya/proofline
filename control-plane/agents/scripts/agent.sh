@@ -1619,7 +1619,7 @@ task_source_status() {
 # is a directory prefix, any other entry an exact path. A plan-scoped path stays application scope.
 # The configured design documents (design_docs.*) belong to it too (A159); an installed project without the key gets the default roots.
 in_knowledge_scope() {
-  ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/')
+  ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/ docs/product/')
   for ks_k in design architecture data_model api adr_dir; do
     ks_p=$(cfg "design_docs.$ks_k" ""); [ -z "$ks_p" ] || { [ "$ks_k" != adr_dir ] || ks_p=${ks_p%/}/; ks_r="$ks_r $ks_p"; }
   done
