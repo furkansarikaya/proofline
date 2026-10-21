@@ -160,7 +160,10 @@ cfg_batch() {
 cfg_extra() { for ce_l in "$@"; do awk -v l="$ce_l" '{ print } /^batch:/ { print l }' .agents/config.yaml > .agents/config.tmp; mv .agents/config.tmp .agents/config.yaml; done; }
 BP() { A batch-plan "$@"; }
 BB() { sh ./.agents/scripts/batch.sh "$@"; }
-batch_approve() { capture 'approve batch'; A approve-pending >/dev/null; }
+# A capture is single-use per (session, time, text) and `time` has a one-second grain: two approvals of the same words in one second (a fast
+# machine, a re-plan right after an approval) would be refused as a replay. Each call therefore gets a capture time one second later than the last.
+BAPP_N=0
+batch_approve() { BAPP_N=$((BAPP_N + 1)); capture 'approve batch' $(( $(date +%s) + 3600 + BAPP_N )); A approve-pending >/dev/null; }
 summary=.agents/local/batch/SUMMARY.md
 calls() { cat "$FAKE/calls.log" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'; }
 state_of() { awk -F'\t' -v t="$1" -v c="$2" '$1 == t { print $c }' .agents/local/batch/state.tsv; }
