@@ -164,6 +164,8 @@ scenario_summary_warns_without_ci() {
   A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused"
   grep -q 'WARNING: no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks.' "$base/plan.out" || die "no CI warning: $(cat "$base/plan.out")"
   grep -q '^  fix: /proofline task Add a GitHub Actions workflow' "$base/plan.out" || die "no fix line"
+  printf '7\n' > .agents/local/deliver/LC/PR; A deliver-plan LC >/dev/null
+  [ ! -e .agents/local/deliver/LC/PR ] || die "a re-plan kept the old pull request number"
   ok "deliver: the summary warns under the merge step when no workflow runs on pull requests"
 }
 
@@ -188,6 +190,10 @@ scenario_ci_check() {
   printf 'on:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
   printf 'on:\n  workflow_dispatch:\n    inputs:\n      pull_request:\n        description: x\njobs: {}\n' > $wf/a.yml; rc=0; A ci-check > "$base/ci.out" || rc=$?; [ "$rc" = 1 ] || die "a workflow_dispatch input named pull_request counts as CI"
   printf 'on:\n  - pull_request_target\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
+  printf 'on: pull_request\r\njobs: {}\r\n' > $wf/a.yml; has '^ci: present' A ci-check
+  printf 'on:\r\n  pull_request:\r\njobs: {}\r\n' > $wf/a.yml; has '^ci: present' A ci-check
+  printf 'on: [\n  push,\n  pull_request\n]\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
+  printf 'on:\n  - push\n  - pull_request\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
   rm $wf/a.yml; printf 'on: pull_request\n' > $wf/b.yaml; has '^ci: present (.github/workflows/b.yaml)$' A ci-check
   AS reviewer ci-check >/dev/null || die "ci-check is not open to every role"
   git remote set-url origin https://gitlab.com/acme/app.git; rm $wf/b.yaml

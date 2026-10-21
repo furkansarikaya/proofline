@@ -5222,6 +5222,7 @@ CI_WARN='no CI check runs on pull requests here. proofline merge does not merge 
 # `on: pull_request`, `on: [push, pull_request]`, `on: {pull_request: ...}` and the mapping or list form).
 ci_workflow_has_pr() {
   awk '
+    { gsub(/\r/, "") }
     /^[ \t]*#/ { next }
     { sub(/[ \t]+#.*$/, "") }
     /^[^ \t-]/ {
@@ -5231,7 +5232,7 @@ ci_workflow_has_pr() {
     }
     on && /^[ \t]+[^ \t]/ {   # only a direct child of `on:` (the first nested line sets the depth) counts
       match($0, /^[ \t]+/); if (ci < 0) ci = RLENGTH
-      if (RLENGTH == ci && $0 ~ /^[ \t]+(-[ \t]+)?"?pull_request(_target)?"?[ \t]*(:|$)/) { f = 1; exit }
+      if (RLENGTH == ci && $0 ~ /^[ \t]+(-[ \t]+)?"?pull_request(_target)?"?[ \t]*(:|,|\]|$)/) { f = 1; exit }
     }
     END { exit !f }' "$1"
 }
@@ -5353,9 +5354,10 @@ deliver_plan() {
   dl_paths=$(git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || true)
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
   dl_kn=$(knowledge_owned_paths "$dl_id" 2>/dev/null || true)
-  mkdir -p "$dl_dir"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
+  mkdir -p "$dl_dir"; rm -f "$dl_dir/PR"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
   cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg
-  dl_fp=$(content_fingerprint); dl_td=$(task_done_plan "$dl_id")
+  dl_fp=$(content_fingerprint); dl_td=''
+  case " $dl_steps " in *" commit "*) dl_td=$(task_done_plan "$dl_id") ;; esac   # no commit step, no move
   {
     printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nowner: %s\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$dl_own" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
     # a fresh nonce per plan: an approval or consumed step of an earlier, otherwise identical summary never counts
