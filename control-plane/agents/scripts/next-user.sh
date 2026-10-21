@@ -13,7 +13,8 @@
 # knowledge, failed-run, ci, doctor or usage; without it the kind is read from the state.
 # `batch`, `batch status` and `batch stop` (A163) read the batch folder (.agents/local/batch) instead of a run. States: ci
 # (no pull_request workflow, so a batch cannot start), nobatch, unapproved, running (the driver is alive), approved, stopped,
-# finished-parked and finished-clean. `deliver` for a run that is ready to deliver, with no CI, is state ci too.
+# finished-parked and finished-clean. `deliver` for a run that still exists is also delivered (cleanup approval consumed), merge-open (deliver/<ID>/PR
+# holds the pull request number: the merge step started) or ci (ready to deliver, no CI), read from the delivery records.
 # Placeholders in the table: <ID> the task id, {WORK} the next queued task or a new task, {NEW} the newest task
 # file, {Q} the first open question, {CI} the ready task line that adds a CI workflow (agent.sh ci-task-command),
 # {LOG} the driver log, {PARKED} what to do with the first parked task of the batch.
@@ -36,6 +37,8 @@ status,resume,queue,run|failed|/proofline reopen <ID>
 status,resume,queue,run|active|/proofline resume
 status,resume,queue,run|none|{WORK}
 deliver|ci|{CI}
+deliver|delivered|{WORK}
+deliver|merge-open|proofline merge {PR}
 deliver|question|reply in this session to the open question: {Q}
 deliver|codedone,finished|reply "approve delivery" in this session to deliver <ID>
 deliver|failed|/proofline reopen <ID>
@@ -196,7 +199,15 @@ if [ "$installed" = yes ]; then
         [ "$id" != none ] || id=''
       fi
       run_state "$id"
-      if [ "$err" = no ] && [ "$cmd" = deliver ] && { [ "$state" = codedone ] || [ "$state" = finished ]; } && ci_absent; then state=ci; fi ;;
+      if [ "$err" = no ] && [ "$cmd" = deliver ] && { [ "$state" = codedone ] || [ "$state" = finished ]; }; then
+        # the delivery's own records (no gh): a consumed cleanup approval means it is delivered; deliver/<ID>/PR is written
+        # when the merge step started, so a run that still exists then stopped at the merge (a check is red, or it was refused)
+        pr=$(cat "$root/.agents/local/deliver/$id/PR" 2>/dev/null)
+        case "$pr" in ''|*[!0-9]*) pr='' ;; esac
+        if grep -qs '^consumed: "\{0,1\}true' "$root/.agents/runs/$id"/approvals/[0-9][0-9][0-9]-cleanup.yaml; then state=delivered
+        elif [ -n "$pr" ]; then state=merge-open
+        elif ci_absent; then state=ci; fi
+      fi ;;
   esac
 fi
 
@@ -230,6 +241,7 @@ else
     *'{NEW}'*) n=$(newest_task); if [ -n "$n" ]; then n="/proofline run $n"; else n='/proofline task --grill'; fi; text=$(sub "$text" '{NEW}' "$n") ;;
   esac
   case "$text" in *'{CI}'*) text=$(sub "$text" '{CI}' "$(sh "$agent" ci-task-command 2>/dev/null)") ;; esac
+  case "$text" in *'{PR}'*) text=$(sub "$text" '{PR}' "$pr") ;; esac
   case "$text" in *'{LOG}'*) text=$(sub "$text" '{LOG}' '.agents/local/batch/driver.log') ;; esac
   case "$text" in *'{PARKED}'*) text=$(parked_line) ;; esac
   case "$text" in *'{Q}'*) text=$(sub "$text" '{Q}' "$(question)") ;; esac

@@ -58,7 +58,7 @@ Every command ends with ONE line `Next step: <what the user does next>`: a `/pro
 | `design` | the next queued task, else `/proofline task --grill` |
 | `run`, `status`, `resume`, `queue` | a question waits: reply in the session (the line names the question); CODE_DONE: `/proofline deliver <ID>`; FAILED or BLOCKED: `/proofline reopen <ID>`; running: `/proofline resume`; no run: the next queued task, else `/proofline task --grill` |
 | `knowledge` | `/proofline deliver <ID>` (FAILED or BLOCKED: `/proofline reopen <ID>`) |
-| `deliver` | waiting for you: reply `approve delivery`; no CI check on pull requests: the ready `/proofline task Add a GitHub Actions workflow ...` line; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
+| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; already delivered: the next queued task, else `/proofline task --grill`; no CI check on pull requests: the ready `/proofline task Add a GitHub Actions workflow ...` line; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
 | `reopen` | `/proofline resume` |
 | `merge`, `clean` | the next queued task, else `/proofline task --grill` |
 | `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
