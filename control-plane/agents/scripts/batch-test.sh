@@ -844,7 +844,9 @@ sc_driver_stop() { # (d) stop kills only its own group, parks the task `stopped`
   command -v perl >/dev/null 2>&1 || { ok "batch-stop: no perl here, skipped"; return 0; }
   drv_fixture slow
   perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' sleep 300 & unrel=$!
-  trap 'kill "$unrel" 2>/dev/null; BB stop >/dev/null 2>&1 || :' EXIT
+  # `|| :` on the kill: the scenario kills $unrel itself first, and under `set -e` a second kill of the already reaped pid
+  # would end the scenario with exit 1 after its `ok` line (a race with the shell reaping the job: silent flake on loaded runners)
+  trap 'kill "$unrel" 2>/dev/null || :; BB stop >/dev/null 2>&1 || :' EXIT
   A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
   dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
   # Wait for NON-EMPTY pid files (the session creates them and then writes: an existing file can still be empty) and for
@@ -878,7 +880,9 @@ sc_driver_crash() { # the driver is killed with KILL: batch stop still parks its
   command -v perl >/dev/null 2>&1 || { ok "batch-stop after a crash: no perl here, skipped"; return 0; }
   drv_fixture slow
   perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' sleep 300 & unrel=$!
-  trap 'kill "$unrel" 2>/dev/null; BB stop >/dev/null 2>&1 || :' EXIT
+  # `|| :` on the kill: the scenario kills $unrel itself first, and under `set -e` a second kill of the already reaped pid
+  # would end the scenario with exit 1 after its `ok` line (a race with the shell reaping the job: silent flake on loaded runners)
+  trap 'kill "$unrel" 2>/dev/null || :; BB stop >/dev/null 2>&1 || :' EXIT
   A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
   dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
   # Wait for NON-EMPTY pid files (the session creates them and then writes: an existing file can still be empty) and for
