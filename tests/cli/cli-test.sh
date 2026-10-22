@@ -100,8 +100,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.25" "$out" "proofline 0.0.25"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.25 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.26" "$out" "proofline 0.0.26"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.26 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -120,7 +120,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.25 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.26 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -155,7 +155,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.25' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.26' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -334,6 +334,19 @@ mkdir -p "$dci/.github/workflows"; printf 'on:\n  pull_request:\njobs: {}\n' > "
 out=$(pl "$dci" doctor 2>&1)
 expect "doctor passes the CI check with a pull_request workflow" "$out" "PASS ci: present (.github/workflows/ci.yml)"
 reject "doctor has no CI warning with a workflow" "$out" "WARN ci:"
+# 0.0.26: the major version of a runtime that CI specifies is compared with the local one; WARN only, exit stays 0
+dtc=$T/dtc; cp -R "$base" "$dtc"; mkdir -p "$dtc/.github/workflows" "$T/fakenode"
+printf 'on:\n  pull_request:\njobs:\n  t:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n' > "$dtc/.github/workflows/ci.yml"
+real_node=$(command -v node || true)
+printf '#!/bin/sh\ncase "${1:-}" in --version) echo v22.1.0 ;; *) exec "%s" "$@" ;; esac\n' "$real_node" > "$T/fakenode/node"; chmod +x "$T/fakenode/node"
+out=$(PATH="$T/fakenode:$PATH" pl "$dtc" doctor 2>&1); rc=$?
+[ "$rc" = 0 ] && expect "doctor warns on a Node major mismatch and still exits 0" "$out" "WARN toolchain node: local 22.1.0, CI specifies 20 (.github/workflows/ci.yml); the major version differs" || { LAST=$out; die "toolchain mismatch: rc=$rc"; }
+printf '#!/bin/sh\ncase "${1:-}" in --version) echo v20.5.0 ;; *) exec "%s" "$@" ;; esac\n' "$real_node" > "$T/fakenode/node"
+out=$(PATH="$T/fakenode:$PATH" pl "$dtc" doctor 2>&1)
+expect "doctor passes the toolchain check on the same major" "$out" "PASS toolchain node: local 20.5.0 matches CI 20 (.github/workflows/ci.yml)"
+reject "doctor has no toolchain warning on the same major" "$out" "WARN toolchain"
+out=$(pl "$d1" doctor 2>&1)
+reject "doctor says nothing about toolchains in a project without a runtime" "$out" "toolchain"
 # 0.0.5: foreign context hooks and overlapping skills are listed as WARN, never FAIL, and the exit stays 0
 mkdir -p "$HOME/.claude/skills/test-driven-dev" "$HOME/.claude/skills/rust-lint"
 printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo foreign-ctx"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo not-listed"}]}]}}\n' > "$HOME/.claude/settings.json"
@@ -427,11 +440,12 @@ out=$(pl "$st" deliver T-1 2>&1); rc=$?
 [ "$rc" = 1 ] && ok "deliver of a FAILED run exits 1" || die "deliver of a FAILED run exited $rc"
 expect "deliver of a FAILED run is refused and names the reopen command" "$out" "to reopen: /proofline reopen T-1"
 [ "$(git -C "$st" rev-parse HEAD)" = "$head_before" ] && ok "deliver of a FAILED run never commits" || die "deliver of a FAILED run changed HEAD"
-mkdir -p "$st/.agents/local/prompts"; echo x > "$st/.agents/local/prompts/s.json"
+mkdir -p "$st/.agents/local/prompts" "$st/.agents/local/worktrees/T-9"; echo x > "$st/.agents/local/prompts/s.json"; echo x > "$st/.agents/local/worktrees/T-9/keep"
 nocheck "clean refuses without --yes (non-interactive)" pl "$st" clean
 [ -f "$st/.agents/local/prompts/s.json" ] && ok "...and removes nothing" || die "clean removed files without --yes"
 out=$(pl "$st" clean --yes 2>&1) || { LAST=$out; die "clean --yes exits 0"; }
 [ ! -e "$st/.agents/local/prompts/s.json" ] && [ -f "$st/.agents/local/ACTIVE_RUN" ] && [ -d "$st/.agents/runs/T-1" ] && ok "clean --yes removes local state, keeps the unfinished active run" || die "clean --yes result wrong"
+[ -f "$st/.agents/local/worktrees/T-9/keep" ] && ok "clean --yes keeps the run worktrees (a parked run's evidence lives there, A169)" || die "clean --yes removed a run worktree"
 
 }
 
@@ -476,7 +490,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.25" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.26" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1

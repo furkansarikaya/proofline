@@ -4,7 +4,7 @@ description: Mechanical proof that a frozen plan was implemented - every accepta
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.25"
+  version: "0.0.26"
 ---
 
 # verify-proof
@@ -37,7 +37,7 @@ One rule: **only what a command or a trace shows counts.** The verifier answers 
 ## Flow
 
 1. **Inputs.** Read `TASK.md` (criteria) and, in a run, `PLAN.md` front matter (`scope:`, test mapping, `## Verification commands`, `## Dependencies`). Record the base revision (run base sha, else the merge-base with the default branch). Missing criteria: standalone, ask the user and stop; in a run -> `RESULT: BLOCKED` with `BLOCKED_REASON: criteria missing in TASK.md`.
-2. **Discover commands**: build, test, lint, plus the plan's `## Verification commands`. Record each with its source.
+2. **Discover commands**: build, test, lint, plus the plan's `## Verification commands`. Record each with its source. Also run `sh scripts/runtime-versions.sh` (read-only) once: it prints one `runtime:` line per language runtime (node, dotnet, go, python) with the local version and the version the project's CI specifies (workflow `node-version` and its siblings, `.nvmrc`, `package.json` engines, `global.json`, `go.mod`, `.tool-versions`, ...). Copy the lines unchanged into `## Runtime`; a project without a runtime gets `runtime: none (<reason>)`. A different major version (major.minor for go and python) shows as `status=mismatch`: it is information for the reader, never a failure, a finding or a reason for BLOCKED (0.0.26). If the script cannot run, write the `--version` of the runtime the commands use and the CI-specified version you read, in the same line format.
 3. **Run the commands** one at a time on the unmodified working tree, in order build, lint, test, plan commands; append `- \`cmd\` | exit=N` with one `output:` line each, before the next command starts.
 4. **Pre-existing check** for every failing command, per [BASELINE.md](references/BASELINE.md); add `| base_exit=M`.
 5. **AC coverage**: for each `AC-n` find passing tests or eligible command evidence ([COVERAGE.md](references/COVERAGE.md)); an evidence-map impact report, when provided, only adds candidates there; the row is `| AC-n | <test file::name or command: \`exact command\`> | PASS|FAIL|MISSING | <evidence> |`. Command proof needs every mapped scope path exempt and a Commands entry with `exit=0` and the demonstrating output line.
@@ -50,7 +50,7 @@ One rule: **only what a command or a trace shows counts.** The verifier answers 
 
 ## Output
 
-`VERIFY.md` (sections: Commands, AC coverage, Scope, Design sync, Pre-existing failures, Failures, then the Verdict line). Validation schema: [schema/verify-validation.schema.json](schema/verify-validation.schema.json). Ledger: [assets/ledger-template.md](assets/ledger-template.md).
+`VERIFY.md` (sections: Commands, AC coverage, Scope, Design sync, Runtime, Pre-existing failures, Failures, then the Verdict line). Validation schema: [schema/verify-validation.schema.json](schema/verify-validation.schema.json). Ledger: [assets/ledger-template.md](assets/ledger-template.md).
 
 Standalone final message in the user's language: the output path, verdict, the failing rows (command, exit, key output line), AC table, and the question "fix the failures, or accept and waive?".
 

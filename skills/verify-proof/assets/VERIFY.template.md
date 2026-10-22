@@ -22,6 +22,10 @@ verify-scope: exit=<n>
 
 design-sync: <PASS | FAIL | SKIPPED (reason)>
 
+## Runtime
+
+runtime: <name> local=<version|missing> ci=<spec|none> source=<file|-> status=<match|mismatch|unknown>
+
 ## Pre-existing failures
 
 None.

@@ -22,6 +22,7 @@ H() { printf '%s' "$2" | sh "$hook" "$1" "${3:-claude}"; }   # EVENT JSON [RUNTI
 who() { [ -z "${1:-}" ] || printf ',"agent_type":"%s","agent_id":"%s"' "$1" "${2:-a1}"; }
 pre_edit() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"$1\",\"tool_input\":{\"file_path\":\"$2\"}$(who "${3:-}" "${4:-}")}"; }
 pre_bash() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$(jstr "$1")\"}$(who "${2:-}" "${3:-}")}"; }
+pre_raw() { H pretool "$(printf '{"hook_event_name":"PreToolUse","cwd":"%s","tool_name":"%s","tool_input":{"%s":"%s"}}' "$PWD" "$1" "$2" "$3")" "${4:-claude}"; }   # TOOL KEY VALUE [RUNTIME]: no agent identity (the lead)
 sub_start() { H subagent-start "{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"s1\",\"cwd\":\"$PWD\"$(who "$1" "$2")}"; }
 sub_stop() { # AGENT_TYPE AGENT_ID [STOP_HOOK_ACTIVE]: the final message is never read; the hook reads the submission status
   H subagent-stop "{\"hook_event_name\":\"SubagentStop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${3:-false}$(who "$1" "$2"),\"last_assistant_message\":\"done\"}"
@@ -47,6 +48,59 @@ needs_input() { # N TOKEN [ROLE] -> the role (default explorer) submits NEEDS_IN
   if [ "$nr" = explorer ]; then ni_a="--report $art"; else ni_a="--artifact reports/00$1-$nr.md"; fi
   # shellcheck disable=SC2086
   AGENT_ROLE=$nr sh .agents/scripts/agent.sh submit LC --agent "$2" --result NEEDS_INPUT --confidence high $ni_a --questions "$base/q$1.txt" >/dev/null
+}
+
+# A169: the lead's ban on product files also holds while no run is active: a "fix this" goes to a light run.
+lead_no_run() {
+  fixture
+  rm -f .agents/local/ACTIVE_RUN
+  printf 'dist/\n' >> .git/info/exclude
+  msg="/proofline run <text>"
+  denied "A169 no run: lead Write of product code" "$(pre_edit Write "$PWD/src/x.js")" "$msg"
+  denied "A169 no run: lead Edit of a relative product file" "$(pre_edit Edit impl.txt)" "$msg"
+  denied "A169 no run: lead NotebookEdit of product code" "$(pre_raw NotebookEdit notebook_path "$PWD/src/n.ipynb")" "$msg"
+  denied "A169 no run: lead Codex apply_patch of product code" "$(pre_raw apply_patch command '*** Begin Patch\n*** Update File: src/x.js\n*** End Patch' codex)" "$msg"
+  denied "A169 no run: lead shell redirection into product code" "$(pre_bash 'echo hacked > src/x.js')" "$msg"
+  denied "A169 no run: lead sed -i on product code" "$(pre_bash "sed -i.bak 's/a/b/' impl.txt")" "$msg"
+  denied "A169 no run: lead heredoc into product code" "$(pre_bash "cat > src/y.js <<'EOF'
+x
+EOF")" "$msg"
+  denied "A169 no run: lead write through an unresolvable path" "$(pre_bash 'echo x > "$f"')" "$msg"
+  denied "A169 no run: lead Write through a ../ path" "$(pre_edit Write docs/wiki/../../src/x.js)" "cannot resolve the target path"
+  allowed "A169 no run: lead Write of a task file (tasks.dir)" "$(pre_edit Write .agents/tasks/NEW-1.md)"
+  allowed "A169 no run: lead Write of a product document" "$(pre_edit Write docs/product/prd.md)"
+  allowed "A169 no run: lead Write of a wiki page" "$(pre_edit Write docs/wiki/concepts/retry.md)"
+  allowed "A169 no run: lead Write under .agents/local/" "$(pre_edit Write .agents/local/explain/x.html)"
+  allowed "A169 no run: lead Write of a git-ignored file" "$(pre_edit Write dist/bundle.js)"
+  allowed "A169 no run: lead shell write into the task folder" "$(pre_bash 'echo x > .agents/tasks/NEW-2.md')"
+  allowed "A169 no run: lead shell write into a git-ignored file" "$(pre_bash 'echo x > dist/out.txt')"
+  allowed "A169 no run: lead read-only shell commands" "$(pre_bash 'git status --short; ls src; cat impl.txt | wc -l')"
+  allowed "A169 no run: a subagent (task author) is not the lead" "$(pre_edit Write "$PWD/src/x.js" proofline-task-author a5)"
+  allowed "A169 no run: a specialist role set through the environment is not the lead" "$(AGENT_ROLE=explorer pre_edit Write "$PWD/src/x.js")"
+  # state only agent.sh writes, even with no run: a hand-written approval must never exist
+  denied "A169 no run: lead shell write of an approval" "$(pre_bash 'echo x > .agents/local/approvals/001-push.yaml')" "runtime state"
+  denied "A169 no run: lead Write of an approval" "$(pre_edit Write .agents/local/approvals/001-push.yaml)" "runtime state"
+  denied "A169 no run: lead Write of a prompt capture" "$(pre_edit Write .agents/local/prompts/forged.json)" "runtime state"
+  denied "A169 no run: lead Write of a run approval" "$(pre_edit Write .agents/runs/LC/approvals/001-plan.yaml)" "written only by agent.sh"
+  denied "A169 no run: lead shell write of a ledger" "$(pre_bash 'echo x >> .agents/runs/LC/LEDGER.log')" "written only by agent.sh"
+  denied "A169 no run: lead Edit of RUN.yaml" "$(pre_edit Edit .agents/runs/LC/RUN.yaml)" "written only by agent.sh"
+  denied "A169 no run: lead Write of a ci-fix record" "$(pre_edit Write .agents/runs/LC/ci-fix/001.yaml)" "written only by agent.sh"
+  printf '.claude/settings.local.json\n' >> .git/info/exclude   # a git-ignored file must not make these writable
+  for f in .claude/settings.json .claude/settings.local.json .codex/hooks.json .codex/config.toml .agents/scripts/agent.sh .agents/config.yaml; do
+    denied "A169 no run: lead Write of $f" "$(pre_edit Write "$f")" "never edits it itself"
+  done
+  denied "A169 no run: lead shell write of the config" "$(pre_bash "sed -i.bak 's/a/b/' .agents/config.yaml")" "never edits it itself"
+  allowed "A169 no run: lead Write under .agents/local/explain/" "$(pre_bash 'echo x > .agents/local/explain/a.html')"
+  allowed "A169 no run: lead Write under .agents/local/scratch/" "$(pre_edit Write .agents/local/scratch/n.txt)"
+  allowed "A169 no run: lead Write of a product-spec draft" "$(pre_edit Write .agents/local/product-spec/s/PRD.md)"
+  # a product.dir other than docs/product is a knowledge-scope folder too
+  denied "A169 no run: specs/prd is product code before product.dir names it" "$(pre_edit Write specs/prd/s/PRD.md)" "$msg"
+  grep -q '^  dir: docs/product' .agents/config.yaml && sed 's|^  dir: docs/product.*|  dir: specs/prd|' .agents/config.yaml > "$base/cfg.tmp" && cat "$base/cfg.tmp" > .agents/config.yaml || printf 'product:\n  dir: specs/prd\n' >> .agents/config.yaml
+  allowed "A169 no run: lead Write under the configured product.dir" "$(pre_edit Write specs/prd/s/PRD.md)"
+  denied "A169 no run: a folder that merely shares the product.dir prefix" "$(pre_edit Write specs/prdx/y.md)" "$msg"
+  # a run again: the in-run rule applies as before
+  printf 'LC\n' > .agents/local/ACTIVE_RUN
+  denied "A169 with a run: the in-run rule still names the implementer" "$(pre_edit Write "$PWD/src/x.js")" "product changes go through the implementer"
 }
 
 lead_edits() {
@@ -131,7 +185,8 @@ EOF")"
   denied "no JSON parser during a run fails closed" "$(PROOFLINE_JSON=none pre_edit Write .agents/runs/LC/PLAN.md)"
   : > .agents/local/ACTIVE_RUN
   allowed "no active run: unparsable input passes" "$(H pretool 'not json')"
-  allowed "no active run: lead edits product code" "$(pre_edit Edit impl.txt)"
+  denied "no active run: lead edits product code (A169, was allowed before 0.0.26)" "$(pre_edit Edit impl.txt)" "no run is active"
+  allowed "no active run: lead edits a task file" "$(pre_edit Edit .agents/tasks/LC.md)"
   denied "no active run: --no-verify still denied" "$(pre_bash 'git commit --no-verify -m x')"
   printf 'LC\nOTHER\n' > .agents/local/ACTIVE_RUN
   denied "malformed ACTIVE_RUN fails closed" "$(pre_edit Write .agents/runs/LC/PLAN.md)"
@@ -179,6 +234,7 @@ subagent_guard() {
   denied "without owns.conf the implementer stays in PLAN scope" "$(pre_edit Write src/app.js proofline-implementer a7)"
   allowed "implementer records evidence as itself" "$(pre_bash 'AGENT_ROLE=implementer sh .agents/scripts/agent.sh worker-evidence LC RED fail' proofline-implementer a7)"
   denied "implementer writes worker evidence files directly" "$(pre_edit Write .agents/runs/LC/worker-evidence/RED-9.yaml proofline-implementer a7)"
+  denied "implementer writes a ci-fix record directly (A169)" "$(pre_edit Write .agents/runs/LC/ci-fix/001.yaml proofline-implementer a7)"
   printf 'test: lookup returns the stored value\n' >> impl_test.txt; wev RED fail
   # no submission: the first stop is sent back (window stays open), the second is accepted and reported
   out=$(sub_stop proofline:proofline-implementer a7)
@@ -408,7 +464,9 @@ evet'
 final_report_tokens() {
   fixture
   to_code_done orchestrated
-  stop_ev() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${2:-false},\"last_assistant_message\":\"$(jstr "$1")\"}"; }
+  # A169: only a turn that ran a report command (the completion report, deliver, batch status) ends in a final report
+  stop_plain() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${2:-false},\"last_assistant_message\":\"$(jstr "$1")\"}"; }
+  stop_ev() { pre_bash 'sh .agents/scripts/agent.sh publish-completion-report LC' >/dev/null; stop_plain "$@"; }
   need=$(A report-tokens LC | tr '\n' ' ')
   case "$need" in "CODE_DONE COMPLEX "*" commit push RED GREEN ") ;; *) die "A44-1 report-tokens: $need" ;; esac
   ok "A44-1 report-tokens names the state, the class and every required gate: $need"
@@ -434,7 +492,27 @@ final_report_tokens() {
   printf '%s' "$out" | grep -q '"systemMessage"' || die "A44-5 a later final message without the identifiers got no message: $out"
   out=$(stop_ev "Durum CODE_DONE, sınıf COMPLEX. Kapılar: $need hepsi PASS. Commit ve push onayınızı bekliyorum.")
   [ -z "$out" ] || die "A44-5 a later final message with the identifiers produced output: $out"
-  ok "A44-5 every final message of the state is checked; one that carries the identifiers yields no message"
+  ok "A44-5 every final report of the state is checked; one that carries the identifiers yields no message"
+  # A169: an ordinary answer (no report command in the turn) gets nothing appended, even in a reporting state
+  out=$(stop_plain "Another question: what should the commit message be?")
+  [ -z "$out" ] || die "A169-1 an ordinary answer got the identifiers block: $out"
+  out=$(stop_plain "All gates passed.")
+  [ -z "$out" ] || die "A169-1 an ordinary answer without identifiers got the block: $out"
+  ok "A169-1 an ordinary answer gets nothing appended by the Stop hook"
+  for c in 'sh .agents/scripts/agent.sh deliver-step LC commit' 'sh .agents/scripts/agent.sh batch-status' 'sh .agents/scripts/agent.sh cleanup LC'; do
+    pre_bash "$c" >/dev/null
+    out=$(stop_plain "All gates passed.")
+    printf '%s' "$out" | grep -q 'SECRETS' || die "A169-2 the report of '$c' was not checked: $out"
+  done
+  ok "A169-2 the final report of deliver, batch status and cleanup is checked"
+  pre_bash 'sh .agents/scripts/agent.sh publish-completion-report LC' >/dev/null
+  stop_plain "All gates passed." >/dev/null
+  out=$(stop_plain "All gates passed.")
+  [ -z "$out" ] || die "A169-3 the report mark outlived its turn: $out"
+  pre_bash 'sh .agents/scripts/agent.sh publish-completion-report LC' proofline-explorer a3 >/dev/null
+  out=$(stop_plain "All gates passed.")
+  [ -z "$out" ] || die "A169-3 a subagent's command marked the lead's turn: $out"
+  ok "A169-3 the mark belongs to one turn of the lead's own commands"
 }
 
 # A159: the knowledge step needs the wiki and the design documents; the lead may write exactly those, only after
@@ -473,7 +551,7 @@ knowledge_stage() {
 stop_next_step() {
   fixture
   to_code_done orchestrated
-  stop_ev() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":false,\"last_assistant_message\":\"$(jstr "$1")\"}"; }
+  stop_ev() { pre_bash 'sh .agents/scripts/agent.sh publish-completion-report LC' >/dev/null; H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"stop_hook_active\":false,\"last_assistant_message\":\"$(jstr "$1")\"}"; }
   need=$(A report-tokens LC | tr '\n' ' ')
   full="Durum CODE_DONE, sinif COMPLEX. Kapilar: $need hepsi PASS."
   prompt "/proofline status" >/dev/null
@@ -907,7 +985,7 @@ read_roles_tree() {
 }
 
 fails=0
-scenarios='lead_edits subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
+scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done

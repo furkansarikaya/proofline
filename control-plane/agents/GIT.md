@@ -21,6 +21,16 @@ touched; the repository's own identity is used (`doctor` shows it).
 `baseline`, `freeze`/`refreeze`, `handoff`, every gate, `verify-scope` and `delivery-check` FAIL unless the
 working tree is on that exact branch. The implementer never runs `branch`.
 
+## One worktree per run (A169)
+
+A run lives in the worktree it was started in; `open-runs`, the commit and push hooks and `ACTIVE_RUN` are per worktree,
+so a second run needs a worktree of its own. `agent.sh worktree-add <ID>` (lead, main working tree) makes
+`.agents/local/worktrees/<ID>` detached at the canonical branch's local tip, because the canonical branch stays checked
+out in the main working tree and cannot be checked out twice; there `agent.sh branch <ID>` accepts that detached HEAD
+as standing on the canonical branch (only when HEAD is exactly the canonical tip). Night mode makes one per task and
+removes it after the merge. The main working tree and these worktrees are not scratch worktrees (A53). The batch,
+approvals, metrics, friction and prompts folders under `.agents/local` of such a worktree are links to the main working tree's.
+
 ## Commit, push, PR
 
 The agent never tags, and merges only inside `deliver` through `proofline merge` (every check green; a FAILED or BLOCKED run is not delivered, it is reopened first, A152; `agent.sh deliver-plan` / `deliver-step`, GATES.md "Approvals"). Commit and push run through the git hooks installed with
@@ -33,7 +43,9 @@ The agent never tags, and merges only inside `deliver` through `proofline merge`
   (`agent.sh approval-consume <ID> commit <FINGERPRINT>`).
 - pre-push: protected branches; while a run is open only its task branch; with
   `git.push_requires_approval: true` (default) a `push` approval
-  (`approval-consume <ID|-> push`).
+  (`approval-consume <ID|-> push '' <remote refs>`). A delivery's push approval names its branch ref
+  (`refs/heads/<task branch>`) and covers a push to that ref only (A169); the same holds for the push of a CI-fix
+  round, which the user's delivery approval covers (`deliver-step <ID> ci-fix|ci-commit|ci-push|ci-merge`, at most 2).
 
 Commit messages follow `git.commit_format` (default Conventional Commits with the task id). The PR body is
 derived from the completion report and the review summary. `.agents/runs/` and `.agents/local/` are

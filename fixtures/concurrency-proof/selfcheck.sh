@@ -92,7 +92,7 @@ const st = (k, actor, line, code) => ({ n: k, actor, file: "src/wallet.js", line
 const c001 = (over) => ({ id: "C001", category: "lost_update", title: "lost update", status: "open", location: { file: "src/wallet.js", line: 5 },
   shared_state: "balance", evidence: "traced", why_not_reproduced: "selfcheck",
   trace: { actors: ["A", "B"], steps: [st(1, "A", 3, read), st(2, "B", 3, read), st(3, "A", 5, write), st(4, "B", 5, write)], outcome: "120 instead of 130" }, ...over });
-const doc = (f, candidates = n) => ({ schema_version: 1, skill_version: "0.0.25", target: { type: "branch", name: "fx", base: "base", head: "HEAD" },
+const doc = (f, candidates = n) => ({ schema_version: 1, skill_version: "0.0.26", target: { type: "branch", name: "fx", base: "base", head: "HEAD" },
   scope: { changed_files: ["src/inventory.js", "src/orders.js", "src/payments.js", "src/rates.js", "src/refunds.js", "src/retry.js", "src/wallet.js", "test/features.test.js"], candidates, not_reviewed: [] },
   reproduction: { status: "unsupported", reason: "selfcheck" }, findings: [f], unproven_risks: [], judged: [], verdict: { summary: "One proven problem." } });
 const docs = {

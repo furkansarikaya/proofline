@@ -219,7 +219,7 @@ path_ok() {
   case "$po" in
     .claude/settings.json|.claude/settings.local.json|.codex/hooks.json|.codex/config.toml|.agents/hooks|.agents/hooks/*)
       echo "$po holds the runtime hooks; it is never edited during a run"; return 1 ;;
-    "$run"/RUN.yaml|"$run"/LEDGER.log|"$run"/mutation_budget|"$run"/gates/*|"$run"/approvals/*|"$run"/waivers/*|"$run"/questions/*|"$run"/decisions/*|"$run"/dispatch/*|"$run"/worker-evidence/*|"$run"/results/*.result.md|"$run"/results/dispatch-*|.agents/local|.agents/local/*)
+    "$run"/RUN.yaml|"$run"/LEDGER.log|"$run"/mutation_budget|"$run"/gates/*|"$run"/approvals/*|"$run"/waivers/*|"$run"/questions/*|"$run"/decisions/*|"$run"/dispatch/*|"$run"/worker-evidence/*|"$run"/ci-fix/*|"$run"/results/*.result.md|"$run"/results/dispatch-*|.agents/local|.agents/local/*)
       echo "$po is written only by agent.sh and the runtime hooks"; return 1 ;;
   esac
   case "$role" in
@@ -266,6 +266,56 @@ path_ok() {
       [ -f "$local_dir/windows/$aidf" ] || [ "$envrole" = "$role" ] || { echo "no $role window is open for this subagent (SubagentStart window-open failed or was skipped); the change would be unattributed"; return 1; } ;;
   esac
   return 0
+}
+
+# nr_path_ok REL (A169): may the lead (main session) write REL while NO run is active? The ban on product code (D2) does
+# not end with a run: a "fix this" outside a run goes to a light run (/proofline run <text>), so push approval can bind
+# to a run. Allowed: task files (tasks.dir), the control plane (.agents/), the knowledge scope and design documents
+# (docs/design/ docs/adr/ docs/wiki/ docs/product/: task, product, wiki, docs commands write them from the main session),
+# files git ignores (build output, caches, local env) and paths outside the project (the shell guard judges those).
+nr_path_ok() {
+  np=$1
+  if [ -z "$tasks_dir" ]; then
+    tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || tasks_dir=''
+    tasks_dir=${tasks_dir%/}; [ -n "$tasks_dir" ] || tasks_dir=.agents/tasks
+  fi
+  case "$np" in @outside) return 0 ;; @unknown) echo "cannot resolve the target path"; return 1 ;; esac
+  # State only agent.sh and the runtime hooks write (the in-run set of path_ok, for every run), the runtime hooks, and
+  # .agents/local/ except the lead's own working folders: a hand-written approval or ledger line must never exist.
+  case "$np" in
+    .agents/runs/*/RUN.yaml|.agents/runs/*/LEDGER.log|.agents/runs/*/mutation_budget|.agents/runs/*/gates/*|.agents/runs/*/approvals/*|.agents/runs/*/waivers/*|.agents/runs/*/questions/*|.agents/runs/*/decisions/*|.agents/runs/*/dispatch/*|.agents/runs/*/worker-evidence/*|.agents/runs/*/ci-fix/*|.agents/runs/*/results/*.result.md|.agents/runs/*/results/dispatch-*|.agents/hooks|.agents/hooks/*)
+      echo "$np is written only by agent.sh and the runtime hooks"; return 1 ;;
+    .claude/settings*|.codex/*|.agents/scripts/*|.agents/config.yaml)
+      echo "$np holds the runtime hooks, the control-plane scripts or the configuration; the lead never edits it itself (A169)"; return 1 ;;
+    .agents/local/scratch/*|.agents/local/explain/*|.agents/local/assignments/*|.agents/local/product-spec/*|.agents/local/product-discovery/*|.agents/local/intent-grill/*|.agents/local/task-author/*) return 0 ;;
+    .agents/local|.agents/local/*) echo "$np is runtime state (approvals, prompts, windows, records); the lead writes under .agents/local/ only in scratch/, explain/, assignments/ and the standalone skill folders (product-spec, product-discovery, intent-grill, task-author)"; return 1 ;;
+  esac
+  case "$np" in "$tasks_dir"/*|.agents/*) return 0 ;; esac
+  ! git -C "$root" check-ignore -q -- "$np" 2>/dev/null || return 0
+  sh "$agent" in-knowledge-scope "$np" >/dev/null 2>&1 && return 0
+  # product.dir (product-spec output) may be set to another folder than docs/product
+  np_pd=$(sh "$agent" config-get product.dir 2>/dev/null) || np_pd=''
+  np_pd=${np_pd%/}
+  case "$np_pd" in ''|.|/*|*..*) ;; *) case "$np" in "$np_pd"/*) return 0 ;; esac ;; esac
+  echo "no run is active, and the lead never edits product files itself (D2, A169). Propose a light run (TRIVIAL or STANDARD) with '/proofline run <text>' and let the implementer make the change; the push approval then binds to that run. Without a run the lead writes only task files ($tasks_dir/), .agents/, the knowledge scope (docs/design/ docs/adr/ docs/wiki/ docs/product/) and git-ignored files"
+  return 1
+}
+# nr_bash_guard (A169): the shell writes the scanner found (W records in $tmp/scan), judged by nr_path_ok. Only for the
+# lead's main session while no run is active; same heuristic limits as the in-run write rule.
+nr_bash_guard() {
+  while IFS= read -r rec; do
+    k=${rec%%"$TAB"*}; [ "$k" = W ] || continue
+    v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
+    [ -n "$v" ] || continue
+    case "$v" in /dev/*) continue ;; esac
+    case "$v" in
+      *'$'*|*'*'*|*'?'*|*'['*)
+        # shellcheck disable=SC2016 # literal $TMPDIR in the command text
+        case "$v" in /tmp/*|/private/tmp/*|'$TMPDIR'/*|'${TMPDIR'*) continue ;; esac
+        deny "the command writes '$v', which cannot be resolved, and no run is active (A169): the lead edits no product file itself. Propose a light run with '/proofline run <text>', or write an allowed path literally" ;;
+    esac
+    why=$(nr_path_ok "$(relpath "$v")") || deny "the command writes '$v': $why"
+  done < "$tmp/scan"
 }
 
 # scan_cmd: reads shell command text, prints one record per finding, "<K><TAB><value>" (newlines in a value
@@ -1572,7 +1622,16 @@ pretool)
       case "$k" in
         S) deny "$v: on BSD/macOS sed the text glued to -i or the word after it is the backup suffix, so it leaves a stray file named like the target plus that token (QA_PLAN.md-E) that blocks handoff. Write the file with the Write/Edit tool, or sed -E ... file > scratch && mv scratch file, or perl -pi -e ... (sed -i '' is BSD-only, bare sed -i GNU-only)" ;;
         B) deny "git hook bypass is never allowed ($v); the git hooks enforce identity, gates and approvals" ;;
-        A) case "${v#*"$TAB"}" in approve|approve-pending) deny "no model runs agent.sh ${v#*"$TAB"}: an approval is the user's. The runtime records it from the user's reply (the prompt hook) and agent.sh refuses it without that reply; wait for the user's answer, then run agent.sh next" ;; esac ;;
+        A) case "${v#*"$TAB"}" in
+             approve|approve-pending) deny "no model runs agent.sh ${v#*"$TAB"}: an approval is the user's. The runtime records it from the user's reply (the prompt hook) and agent.sh refuses it without that reply; wait for the user's answer, then run agent.sh next" ;;
+             # A169: the turn runs a command that ends in a final report (completion report, deliver, batch status summary):
+             # the Stop hook checks the identifiers of this turn's last message, and of no other message
+             publish-completion-report|cleanup|terminate|deliver-plan|deliver-step|delivery-check|batch-status|batch-check)
+               if [ "$role" = lead ] && [ "$sub" = no ]; then
+                 rt_s=$(safe "$(jget session_id)"); [ -n "$rt_s" ] || rt_s=unknown
+                 mkdir -p "$local_dir/report-turn" 2>/dev/null && : > "$local_dir/report-turn/$rt_s" 2>/dev/null
+               fi ;;
+           esac ;;
         W) ! always_protected "$(relpath "$v")" || deny "the command writes '$v', which wires the git hooks; it is never changed by an agent (git hook bypass)" ;;
       esac
     done < "$tmp/scan"
@@ -1581,7 +1640,7 @@ pretool)
     kill_guard
     # The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
     db_guard_cmd "$cmd"
-    [ -n "$act" ] || { scratch_guard; lead_tmp_check; exit 0; }
+    [ -n "$act" ] || { [ "$role" != lead ] || [ "$sub" = yes ] || nr_bash_guard; scratch_guard; lead_tmp_check; exit 0; }
     has_role=no; grep -q "^R$TAB" "$tmp/scan" && has_role=yes
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
@@ -1654,7 +1713,14 @@ pretool)
       while IFS= read -r tg; do [ -z "$tg" ] || db_check_token "$tg" "$tool"; done < "$tmp/dbt"
       set +f ;;
   esac
-  [ -n "$act" ] || exit 0
+  if [ -z "$act" ]; then   # A169: no run, the lead's main session: the ban on product files holds here too
+    if [ "$role" = lead ] && [ "$sub" = no ]; then
+      while IFS= read -r tg; do
+        why=$(nr_path_ok "$(relpath "$tg")") || deny "$tool $tg: $why"
+      done < "$tmp/targets"
+    fi
+    exit 0
+  fi
   case "$tool" in *[Pp]atch*) jget tool_input | grep -Eo '\*\*\* Delete File: [^\\"]+' | sed 's/^\*\*\* Delete File: //' > "$tmp/erase" || : ;; esac
   while IFS= read -r tg; do
     # a patch that only deletes a file the run created (see erasable)
@@ -1768,6 +1834,11 @@ stop)
   # lead left it out, the hook adds it, from the user's last prompt (the command) and the run state (`agent.sh next-user`).
   [ "$parsed" = yes ] && [ "$sub" = no ] && [ "$role" = lead ] || exit 0
   [ "$installed" = yes ] || exit 0
+  # A169: the identifier check runs only for the final report of a run, the message that ends a turn in which the lead
+  # ran a report command (marked by pretool, see report-turn); an ordinary answer gets nothing appended.
+  sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
+  final_report=no
+  if [ -f "$local_dir/report-turn/$sess" ]; then final_report=yes; rm -f "$local_dir/report-turn/$sess"; fi
   msg=$(jget last_assistant_message)
   if [ -z "$msg" ]; then
     tp=$(jget transcript_path)
@@ -1777,7 +1848,7 @@ stop)
   fi
   [ -n "$msg" ] || exit 0
   out=''
-  if [ -n "$act" ] && [ "$act" != INVALID ]; then
+  if [ "$final_report" = yes ] && [ -n "$act" ] && [ "$act" != INVALID ]; then
     need=$(unset AGENT_ROLE; sh "$agent" report-tokens "$act" 2>/dev/null) || need=''
     missing=''
     for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
@@ -1798,7 +1869,6 @@ $l" ;; esac
     fi
   fi
   # the command of the user's last prompt: "/proofline <command> [<TASK-ID>]" ("$proofline" for Codex)
-  sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
   pc=''; [ ! -f "$local_dir/prompts/$sess.json" ] || pc=$(sed -n 's/^.*"text":"\(.*\)"}$/\1/p' "$local_dir/prompts/$sess.json" | sed 's/\\n.*//' | head -n 1)
   case "$pc" in
     '/proofline '*|'$proofline '*)

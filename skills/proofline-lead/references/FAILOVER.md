@@ -20,6 +20,10 @@ transition. Nothing the lead remembers is state.
    - an interrupted lead write (EVIDENCE.md, PLAN.md, COMPLETION_REPORT.md) -> rewrite it from its inputs.
 4. A pending question or approval request stays pending: re-print it (`A questions`, or the
    `request-approval` question) and STOP.
+5. A run whose delivery reached the pull request (`A next <ID>` prints the `gh pr checks` line) continues from the CI:
+   green -> `proofline merge <PR>` and `cleanup`; red -> `A deliver-step <ID> ci-fix <PR>`; an open CI-fix attempt
+   continues at the step `A next` names ([DELIVERY.md](DELIVERY.md#6-a-red-ci-is-a-finding-the-ci-fix-round-a169)).
+   Never run `deliver-plan` again for it.
 
 ## 2. Specialist failover
 
@@ -49,6 +53,10 @@ transition. Nothing the lead remembers is state.
 - `queue`: list `tasks.dir` (`todo/` before `backlog/`, then file order); show the list and run the first
   on the user's go; after each run's final report, ask before starting the next one when the previous run
   ended FAILED or BLOCKED.
+- A run's own worktree (A169) is made by `agent.sh worktree-add <ID>` in the main working tree: `.agents/local/worktrees/<ID>`
+  (git-ignored), detached at the canonical tip, with links to the shared batch, approvals, metrics, friction and prompts folders;
+  `worktree-path <ID>` prints it, `worktree-remove <ID> [--force]` removes it (refused while a run is inside). Night mode makes one per task.
+  The second run starts in a session whose project folder is that worktree.
 - Parallel runs only in separate git worktrees, each with its own `.agents/local/ACTIVE_RUN`, at most
   `max_parallel_runs` (default 1), and only when their frozen `scope:` paths do not overlap. The lead never
   starts a run whose scope overlaps a running one.

@@ -26,7 +26,10 @@ ${o.scope ?? "verify-scope: exit=0"}
 
 ## Design sync
 ${o.ds ?? "design-sync: SKIPPED (no design docs)"}
-
+${o.runtime === null ? "" : `
+## Runtime
+${o.runtime ?? "runtime: node local=22.13.0 ci=22 source=.github/workflows/ci.yml status=match"}
+`}
 ## Pre-existing failures
 ${o.pre ?? "None."}
 
@@ -182,4 +185,19 @@ test("visual_proof line: spacing and backtick variants parse; the plan validator
   }
   assert.deepEqual(visualProofIds(plan("-visual_proof: AC-1")), [], "no space after the bullet marker is not a line");
   assert.deepEqual(visualProofIds(plan("visual_proof: none")), []);
+});
+
+test("the report must name the runtime version it verified with (0.0.26)", () => {
+  assert.match(e({ runtime: null }), /missing section "## Runtime"/);
+  assert.match(e({ runtime: "node 22" }), /needs `runtime:/);
+  assert.match(e({ runtime: "runtime: node local=22 ci=20" }), /malformed runtime line/);
+  assert.match(e({ runtime: "runtime: node local=missing ci=20 source=.nvmrc status=mismatch" }), /status must be unknown/);
+  assert.equal(e({ runtime: "runtime: none (no language runtime in this project)" }), "");
+});
+
+test("a runtime version mismatch is information: it never changes the verdict (0.0.26)", () => {
+  const o = { runtime: "runtime: node local=24.1.0 ci=20 source=.nvmrc status=mismatch\nruntime: go local=1.24.2 ci=>=1.22 source=go.mod status=match" };
+  const r = validateVerify(mk(o), TASK);
+  assert.equal(r.valid, true, r.errors.join());
+  assert.equal(r.computed, "PASS");
 });

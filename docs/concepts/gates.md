@@ -34,6 +34,24 @@ come from `review.risky_paths`. Code-like Markdown (`.agents/**`, `skills/**`, `
 Status per gate: `pass`, `pass_low` (a PASS with `CONFIDENCE: low` does not count; re-run with a stronger model),
 `waived`, `fail`, `stale`, `missing`. `agent.sh pipeline <ID>` prints them.
 
+## Runtime versions (doctor and VERIFY)
+
+A green local run proves little when CI runs another language version. `proofline doctor` and the verifier compare
+the runtime version the project's CI specifies with the one installed here (`skills/verify-proof/scripts/runtime-versions.sh`,
+read-only). The CI version is the first found of: a workflow's `node-version`, `go-version`, `dotnet-version` or
+`python-version` (a value, an inline list or a block list; `${{ ... }}` expressions are skipped), a version file
+(`.nvmrc`, `.node-version`, `.python-version`, `global.json`, `.tool-versions`), a manifest (`package.json`
+`engines.node`, `go.mod` `go`, `pyproject.toml` `requires-python`) or a `.gitlab-ci.yml` image. The check covers node,
+dotnet, go and python. Node and dotnet compare the major version; go and python compare major.minor, because their
+major never changes. `go.mod` and `>=` specs are minimums, a list (a matrix) matches when the local version is in it,
+and a spec that cannot be compared (`lts/*`, `stable`, a `<` range) is `unknown`.
+
+- `proofline doctor` prints `WARN toolchain <name>: local <v>, CI specifies <spec> (<file>); the major version differs ...`
+  on a difference and `PASS toolchain <name>: ...` otherwise. It never prints FAIL for this.
+- The verifier records the script's `runtime:` lines unchanged in a `## Runtime` section of `VERIFY.md`, so the report
+  says which version it verified with (`runtime: node local=22.13.0 ci=20 source=.github/workflows/ci.yml status=mismatch`).
+  `validate-verify.mjs` requires the section and checks the line format; a `mismatch` never changes the verdict.
+
 ## Risk signals
 
 Besides class and tier, deterministic risk signals choose extra checks, each a focus inside an existing gate

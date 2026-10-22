@@ -16,7 +16,7 @@
 
 ## Status
 
-Version 0.0.25 is an early release.
+Version 0.0.26 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -63,7 +63,7 @@ Windows: use WSL or Git Bash (the control plane is POSIX `sh`).
 ```sh
 cd your-project
 proofline init            # asks runtimes, profile, task adapter, protected branches, push approval
-proofline doctor          # live probes: hooks, runtimes, config, commit identity, every enforced rule
+proofline doctor          # live probes: hooks, runtimes, config, commit identity, every enforced rule, CI vs local language versions
 proofline insights        # later: cost and recurring failures across runs (read-only report)
 ```
 
@@ -113,7 +113,7 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, for example `init` -> `/proofline doctor`, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
 
-**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and the session starts the driver in the background (plug in the computer; do not close the laptop lid), which works through the tasks one at a time in clean headless sessions; it needs a CI check on pull requests. Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table, `proofline batch stop` stops the driver. Detail and limits: [night mode](docs/concepts/night-mode.md).
+**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and the session starts the driver in the background (plug in the computer; do not close the laptop lid), which works through the tasks one at a time in clean headless sessions, each in a git worktree of its own (a parked task never blocks an independent one and your working tree stays clean); it needs a CI check on pull requests. Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table, `proofline batch stop` stops the driver. Detail and limits: [night mode](docs/concepts/night-mode.md).
 
 **Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition ([workflow](docs/concepts/workflow.md#shortcut-debt)).
 
@@ -139,7 +139,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.25**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.26**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

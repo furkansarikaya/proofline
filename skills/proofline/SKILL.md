@@ -5,7 +5,7 @@ argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.25"
+  version: "0.0.26"
 ---
 
 # proofline
@@ -75,7 +75,8 @@ A failed command suggests the command that fixes the error instead: not installe
 ## Hard rules
 
 1. Never write product code, a verdict, an approval or a waiver from this skill. The lead and the specialists
-   do that under the proofline-lead skill, through `A`.
+   do that under the proofline-lead skill, through `A`. This holds outside a run too (A169): "fix this" with no
+   run active becomes a proposed light run, `/proofline run <text>`; the runtime hook denies a product-file write.
 2. `init` and `upgrade` merge: they never overwrite a user-modified file, never touch global git
    configuration, never commit, push or tag. Report what the CLI printed; do not paraphrase a conflict away.
 3. A commit, push or PR is never part of `init`, `upgrade` or `clean`. Delivery follows the lead's DELIVERY

@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+## 0.0.26 — 2026-10-23
+
 - Release version bumps use `sh tests/ci/bump-version.sh <new-version>` (and `--check`), which rewrites only the version-holding sites by anchored patterns, so historical mentions such as "(0.0.24)" in visual-proof comments are no longer overwritten (A168). Those three comments are restored.
+- A red CI after the pull request is open is a finding, not a question: `agent.sh deliver-step <ID> ci-fix|ci-commit|ci-push|ci-merge <PR>` fixes it in at most 2 gated rounds, pushed to the same branch the delivery approval names (A169); `resume` continues an open round, a batch parks the task on the third red CI.
+- A run's own delivery and knowledge commits (task file move, wiki, ADRs) no longer make its plan stale (A169).
+- Night mode runs every task in a git worktree of its own, `.agents/local/worktrees/<ID>`; a parked task or one awaiting its merge blocks no independent task, a task starts only when its dependencies are merged, and `agent.sh worktree-add|worktree-path|worktree-remove` give a second run outside night mode the same worktree (A169).
+- `proofline doctor` and the verifier (`## Runtime` in VERIFY.md) warn when the local node, dotnet, go or python version differs from what the project's CI specifies; never a FAIL (A169).
+- The lead can no longer write product files when no run is active; the hook says to propose `/proofline run <text>` (A169).
+- The Stop hook checks identifiers only on a run's final report, not on ordinary answers (A169).
+- `approve` takes several kinds in one process and `approve-pending` calls it once per target, so the 30 s prompt-hook time limit cannot leave a delivery approved in part; a partial reply is refused with a text telling the user to send `approve delivery` again (A169).
 
 ## 0.0.25 — 2026-10-22
 

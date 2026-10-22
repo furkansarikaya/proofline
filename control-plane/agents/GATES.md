@@ -198,7 +198,7 @@ Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the
    The lead relays it verbatim.
 2. `agent.sh approve <ID> <KIND>` accepts the user's answer from (a model never runs it: the runtime hook denies
    it for the lead and every subagent; the runtime's prompt hook runs `agent.sh approve-pending` right after it
-   stores the capture, which attempts `approve` for every open request; a terminal user may run it themselves):
+   stores the capture, which attempts `approve` for every open request in one process (`approve <ID> <KIND>...`: the locks and the content fingerprint once, the delivery steps in the order commit, push, pr, merge, cleanup, a refused kind does not stop the next); a terminal user may run it themselves):
    - an interactive terminal (stdin and stdout are TTYs): the typed line; or
    - the newest prompt capture `.agents/local/prompts/<session>.json`, written by a runtime hook on every
      user prompt, exactly one JSON object:
@@ -210,7 +210,8 @@ Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the
      regular file (not a symlink) with one hard link, and no directory between the project root and it may
      be a symlink; otherwise `approve` and `answer` refuse every capture and the approval is not found.
 3. Approvals are single-use: `freeze`/`refreeze` (plan, scope, budget), `handoff IMPLEMENTING` from PLANNED (destructive, single_step), `waive`, and the git hooks
-   through `agent.sh approval-consume <ID|-> <commit|push> [FINGERPRINT]` (exit 0 = consumed) consume them.
+   through `agent.sh approval-consume <ID|-> <commit|push> [FINGERPRINT [REF...]]` (exit 0 = consumed) consume them. A push approval that
+   names a ref (the delivery's, and the one a CI-fix round records from it, A169) is consumed only by a push to exactly that ref.
    `-` is the no-run scope (commit, push, pr, merge, cleanup and report only, kept in `.agents/local/approvals/`).
 
 Where approvals are required: supervised freeze (`plan`), a `destructive: yes` plan after the freeze, before

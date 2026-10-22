@@ -7,7 +7,9 @@
 set -eu
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
-mkdir -p "$base/bin"; printf '#!/bin/sh\ncat "%s/ghstate"\n' "$base" > "$base/bin/gh"; chmod +x "$base/bin/gh"
+# the gh shim answers `run list`, `run view` and `pr checks` from files (A169), anything else (pr view) from ghstate
+mkdir -p "$base/bin"
+printf '#!/bin/sh\ncase "$1 $2" in\n  "run list") cat "%s/gh.runs" ;;\n  "run view") cat "%s/gh.log" ;;\n  "pr checks") cat "%s/gh.checks" ;;\n  *) cat "%s/ghstate" ;;\nesac\n' "$base" "$base" "$base" "$base" > "$base/bin/gh"; chmod +x "$base/bin/gh"
 PATH=$base/bin:$PATH PROOFLINE_SELFTEST=1 PROOFLINE_NO_TTY=1; export PATH PROOFLINE_SELFTEST PROOFLINE_NO_TTY
 gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lc main acme}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE OWNER]
 S() { A deliver-step LC "$@"; }
@@ -15,11 +17,11 @@ S() { A deliver-step LC "$@"; }
 has() { hs_p=$1; shift; "$@" > "$base/has.out" || die "$* failed: $(cat "$base/has.out")"; grep -q -- "$hs_p" "$base/has.out" || die "$* printed no '$hs_p': $(cat "$base/has.out")"; }
 origin() { git remote add origin https://github.com/acme/app.git; }   # never fetched or pushed
 hooks() {
-  origin; mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit"
+  origin; mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/pre-push" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit" "$base/hooks/pre-push"
   git config core.hooksPath "$base/hooks"
 }
 tasks_in_tasks() { sed 's#^  dir: .agents/tasks#  dir: tasks#' .agents/config.yaml > "$base/cfg" && cp "$base/cfg" .agents/config.yaml; }   # the fixtures keep task files in tasks/
-pushed() { git update-ref "refs/remotes/origin/$(git branch --show-current)" HEAD; A approval-consume "$1" push >/dev/null; }   # what git push and pre-push do
+pushed() { git update-ref "refs/remotes/origin/$(git branch --show-current)" HEAD; A approval-consume "$1" push '' "refs/heads/$(git branch --show-current)" >/dev/null; }   # what git push and pre-push do
 
 scenario_normal_chain() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks
@@ -206,6 +208,57 @@ scenario_ci_check() {
   ok "ci-check: present for pull_request in every form, absent for push-only and comments, unknown off GitHub; ci-task-command uses the config"
 }
 
+# A169: one "approve delivery" carries commit, push, pr, merge and cleanup without a new question. The reply is recorded by ONE
+# process (the runtime hook that calls approve-pending has a time limit: five processes, each walking the tree, were cut off
+# after the fourth step in a real project and the push had no approval), in the order of the steps. The commit and the push
+# then really run through the git hooks (a push to a bare repository stands in for GitHub); the commit the summary foresaw does
+# not invalidate the approvals of the later steps.
+scenario_one_approval_real_chain() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=.github/workflows/ci.yml scaffold orchestrated yes; tasks_in_tasks
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  worker GREEN pass .github/workflows/ci.yml 'on: pull_request'
+  A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null; hooks; finish_done
+  git init -q --bare "$base/remote.git"; git config remote.origin.pushurl "$base/remote.git"
+  A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused: $(A deliver-plan LC 2>&1 | tail -1)"
+  # a git that counts the content fingerprints computed (each one is one `git write-tree`)
+  mkdir -p "$base/gs"; printf '#!/bin/sh\ncase " $* " in *" write-tree "*) echo w >> "%s/wt.log" ;; esac\nexec "%s" "$@"\n' "$base" "$(command -v git)" > "$base/gs/git"; chmod +x "$base/gs/git"
+  capture 'approve delivery'; : > "$base/wt.log"; PATH=$base/gs:$PATH A approve-pending LC >/dev/null
+  [ "$(wc -l < "$base/wt.log" | tr -d ' ')" = 1 ] || die "the reply computed the content fingerprint $(wc -l < "$base/wt.log" | tr -d ' ') times (once for all five steps)"
+  prev=0
+  for k in commit push pr merge cleanup; do
+    f=$(ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-"$k".yaml 2>/dev/null | head -1); [ -n "$f" ] || die "no $k approval from the one reply"
+    n=$(basename "$f" | cut -c1-3 | sed 's/^0*//'); [ "$n" -gt "$prev" ] || die "the $k approval is not recorded after the step before it"; prev=$n
+  done
+  S commit >/dev/null || die "commit step: $(S commit 2>&1 | tail -1)"
+  A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the approved commit was blocked"
+  S push > "$base/step.out" 2>&1 || die "push step after the foreseen commit: $(tail -1 "$base/step.out")"
+  git push -u origin proofline/LC-lc > "$base/push.out" 2>&1 || die "git push after the foreseen commit: $(tail -3 "$base/push.out")"
+  S pr > "$base/step.out" 2>&1 || die "pr step: $(tail -1 "$base/step.out")"
+  gh_says "OPEN false"
+  S merge 7 > "$base/step.out" 2>&1 || die "merge step: $(tail -1 "$base/step.out")"
+  gh_says "MERGED false"
+  S cleanup 7 > "$base/step.out" 2>&1 || die "cleanup step: $(tail -1 "$base/step.out")"
+  ok "deliver: one reply is recorded in one process in step order; the real commit, push, pull request, merge and cleanup run on it"
+}
+
+# A169: a reply recorded only in part (the hook was cut off after the commit step) is no reason for a new summary: the push step names
+# the cause, and the user's reply once more records the steps that are missing, after the commit already exists.
+scenario_partial_reply_recovers() {
+  SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; finish_done; hooks
+  git init -q --bare "$base/remote.git"; git config remote.origin.pushurl "$base/remote.git"
+  A deliver-plan LC >/dev/null; capture 'approve delivery'
+  A approve LC commit >/dev/null   # what a cut-off hook leaves: the first step only
+  S commit >/dev/null; A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the approved commit was blocked"
+  expect_msg "a push whose approval the cut-off hook never recorded" 'recorded only in part' S push
+  expect_msg "that refusal does not send the lead to a new summary" 'do not prepare it again' S push
+  capture 'approve delivery'; A approve-pending LC >/dev/null   # the user sends the reply once more
+  S push >/dev/null || die "push step after the repeated reply: $(S push 2>&1 | tail -1)"
+  git push -u origin proofline/LC-lc >/dev/null 2>&1 || die "git push after the repeated reply"
+  expect_msg "a second push on the used approval" 'was already used' S push
+  S pr >/dev/null || die "pr step after the repeated reply: $(S pr 2>&1 | tail -1)"
+  ok "deliver: a reply recorded in part is completed by the same reply once more, not by a new summary"
+}
+
 run_sc scenario_normal_chain
 run_sc scenario_content_change_stops
 run_sc scenario_failed_refused
@@ -215,4 +268,6 @@ run_sc scenario_task_move_skipped
 run_sc scenario_summary_warns_without_ci
 run_sc scenario_task_done_noop
 run_sc scenario_ci_check
+run_sc scenario_one_approval_real_chain
+run_sc scenario_partial_reply_recovers
 echo 'deliver tests passed'

@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.25
+PROOFLINE_VERSION=0.0.26
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -173,11 +173,12 @@ cmd_queue() {
   [ "$found" = 1 ] || say "  (none)"
   act=$(active_id); say "runs (.agents/runs):"
   found=0
-  for r in "$ROOT"/.agents/runs/*/; do
+  for r in "$ROOT"/.agents/runs/*/ "$ROOT"/.agents/local/worktrees/*/.agents/runs/*/; do
     [ -d "$r" ] || continue; rid=$(basename "$r"); found=1
     st=$(agent next "$rid" 2>/dev/null | sed -n 's/^state=//p; s/^handoff=/ handoff=/p' | tr '\n' ' ')
     if [ "$rid" = "$act" ]; then mark='*'; else mark=' '; fi
-    say " $mark $rid  ${st:-state unknown}"
+    wtm=''; case "$r" in "$ROOT"/.agents/local/worktrees/*) wtm=" (worktree .agents/local/worktrees/$rid)" ;; esac   # A169
+    say " $mark $rid  ${st:-state unknown}$wtm"
   done
   [ "$found" = 1 ] || say "  (none)"
   say "(* = active run)"
@@ -236,13 +237,13 @@ cmd_clean() {
     case "$(printf '%s\n' "$nx" | sed -n 's/^state=//p')" in FAILED|BLOCKED) fin="$fin $rid"; continue ;; esac
     [ "$(printf '%s\n' "$nx" | sed -n 's/^handoff=//p')" = DONE ] && fin="$fin $rid"
   done
-  lf=0; [ ! -d "$ROOT/.agents/local" ] || lf=$(find "$ROOT/.agents/local" -type f ! -name ACTIVE_RUN | wc -l | tr -d ' ')
+  lf=0; [ ! -d "$ROOT/.agents/local" ] || lf=$(find "$ROOT/.agents/local" -type f ! -name ACTIVE_RUN ! -path "$ROOT/.agents/local/worktrees/*" | wc -l | tr -d ' ')
   say "clean would remove:"
   say "  .agents/local state: $lf file(s) (the ACTIVE_RUN selector is kept unless its run is cleaned)"
   say "  finished runs:${fin:- none}"
   if [ "$lf" = 0 ] && [ -z "$fin" ]; then say "nothing to clean"; return 0; fi
   if [ "$yes" != 1 ] && ! confirm "remove these?"; then die "refusing to remove anything without --yes (or a yes at the prompt)"; fi
-  [ ! -d "$ROOT/.agents/local" ] || find "$ROOT/.agents/local" -mindepth 1 ! -name ACTIVE_RUN -delete 2>/dev/null
+  [ ! -d "$ROOT/.agents/local" ] || find "$ROOT/.agents/local" -mindepth 1 ! -name ACTIVE_RUN ! -path "$ROOT/.agents/local/worktrees" ! -path "$ROOT/.agents/local/worktrees/*" -delete 2>/dev/null   # A169: run worktrees hold parked runs' evidence: agent.sh worktree-remove, never clean
   for rid in $fin; do agent cleanup "$rid" || warn "run $rid was not cleaned (agent.sh refused)"; done
   [ -z "$act" ] || [ "$act" = none ] || say "active run $act kept unless it was finished"
 }
