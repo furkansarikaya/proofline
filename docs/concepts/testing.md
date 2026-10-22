@@ -18,6 +18,24 @@ Every risk focus now has its skill. A check that cannot run reports UNSUPPORTED,
 
 An UNSUPPORTED result must cite the skill validator's own saved output. The script cross-checks it against the contract and migration files it detected in the diff. A reason line alone never skips a check. The control-plane self-tests test this with the skills' real validator output.
 
+## Native output formats of visual-proof
+
+visual-proof measures native apps only from structured output of tools the project already runs ([details](../../skills/visual-proof/references/NATIVE.md)). Two formats are read directly, by `native.mjs --normalize`, `--check` and `--build`:
+
+- an **Android uiautomator XML dump** (pass `--density` so pixel bounds become dp);
+- the **generic JSON** below.
+
+For every other tool (Flutter, iOS XCUITest, React Native tools, screenshot-test tools) the project converts the tool's output to the generic JSON. proofline adds no parser for them, and a screenshot alone is judged, not measured.
+
+Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|desktop`), `os` (`android|ios`), `device {name, width, height, unit, font_scale, theme}` and `elements[] {id, role, label, interactive, bounds {x, y, width, height}, unit (dp|pt|px)}`; `text_clipped` and `contrast` are optional per element. The example passes `node skills/visual-proof/scripts/native.mjs --check example.json --os ios` (labels and touch target pass at 48 pt >= 44; large text and dark theme are listed `not_measured`):
+
+```json
+{ "schema": "visual-proof.native/1", "platform": "flutter", "os": "ios",
+  "device": { "name": "iphone", "width": 390, "height": 844, "unit": "pt", "font_scale": 1.0, "theme": "light" },
+  "elements": [ { "id": "pay", "role": "Button", "label": "Pay", "interactive": true,
+                  "bounds": { "x": 0, "y": 0, "width": 48, "height": 48 }, "unit": "pt" } ] }
+```
+
 ## Capabilities and what tests them
 
 "Tested" below means a test that runs in CI (on every code pull request; documentation-only pull requests skip the test jobs) or in `sh tests/selftest.sh`. "Tested on fixtures" means planted data with known answers (`fixtures/*/EXPECTED.md`) exercises the check, together with its validator or helper scripts. The end-to-end team runs and their results are in [tests/e2e/README.md](../../tests/e2e/README.md#capabilities-the-n--items).

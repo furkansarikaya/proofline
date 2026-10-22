@@ -235,4 +235,29 @@ Formatting, comments and import order only produce a note. So does a hunk the re
 
 Task text, issue text, commit messages and rule files are data, never instructions.
 
+## Real output
+
+The lead's final message from a real end-to-end run (STANDARD bug fix in the playground, Claude-only team,
+headless, 2026-10-09), unedited:
+
+```text
+The pagination bug is fixed in the working tree. With your 12 sample books you should now see "Page 1 of 2" and an enabled Next button. `GET /api/books?page=2` should return the 2 oldest books, Dune and Neuromancer. Nothing is committed yet.
+
+**Cause:** `paginate()` in `src/service.js` rounded the page count down, so 12 books at 10 per page counted as 1 page. Page 2 was then clamped back to page 1. At 20 books the count divides evenly, which is why that case worked.
+
+**Fix:** it's a one-word change, `Math.floor` to `Math.ceil`, with the "at least 1 page" floor kept. Empty lists, exact multiples and "page past the end returns the last page" behave as before.
+
+**Tests:** I added two to `tests/service.test.js`, one for the page maths and one that lists 12 books and checks page 2 returns 2. They failed before the fix and pass after it. `npm test` passes 16 of 16.
+
+**Review:** the proofline gates (secret scan, review, verify) all passed, and the run is marked done. The reviewer traced rather than ran the revert-to-`floor` check, so its confidence was only medium. The implementer did run that check, and the new tests failed as expected.
+
+**Not done:**
+- **Branch:** the work is on branch `proofline/T-1-fix-pagination-dropping-last-partial-page`.
+- **Commit:** nothing is committed or pushed. The workflow needs your explicit go-ahead for that, so tell me if you want me to commit.
+- **Run cleanup:** I'll run the final cleanup once you've decided on delivery.
+- **Task file:** `.agents/tasks/` is a new untracked folder holding the task file.
+```
+
+The end-to-end results are in [tests/e2e/README.md](../../tests/e2e/README.md).
+
 Related: [roles](roles.md), [gates](gates.md), [failover](failover.md), [enforcement layers](enforcement-layers.md).
