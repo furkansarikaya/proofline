@@ -246,3 +246,15 @@ test("SKILL.md frontmatter and schema", () => {
   assert.ok(t.split("\n").length < 500);
   JSON.parse(readFileSync(join(skill, "schema/ui.schema.json"), "utf8"));
 });
+
+test("native mobile spec without keyboard passes; web spec still needs keyboard", () => {
+  const n = good(); n.target = "ios"; delete n.screens[0].keyboard;
+  assert.deepEqual(errs(n), []);
+  const w = good(); delete w.screens[0].keyboard; has(errs(w), "keyboard");
+  const w2 = good(); w2.target = "web"; delete w2.screens[0].keyboard; has(errs(w2), "keyboard");
+});
+test("native mobile still requires screen_reader and rejects an empty keyboard or unknown target", () => {
+  const n = good(); n.target = "android"; delete n.screens[0].screen_reader; has(errs(n), "screen_reader");
+  const e = good(); e.target = "flutter"; e.screens[0].keyboard = []; has(errs(e), "keyboard");
+  const t = good(); t.target = "desktop"; has(errs(t), "$.target");
+});

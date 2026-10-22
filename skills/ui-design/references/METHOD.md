@@ -33,7 +33,7 @@ Each state object: `copy` (every visible string), `behavior` (what the user can 
 
 ## 4. Accessibility and responsive
 
-Per screen: `keyboard` (tab order; every pointer action has a keyboard equivalent; focus moved on open/close/error/success; escape/enter behaviour), `screen_reader` (roles and labels for each control, live region for async results, announcement text for each state change), `responsive` (per breakpoint of the existing system: layout change, hidden/collapsed items, minimum target 44x44 CSS px or the platform minimum). Motion: respects reduced-motion. Contrast: text pairs meet the baseline in `DESIGN.md` (state ratio when a new colour pair appears).
+Per screen: `keyboard` (tab order; every pointer action has a keyboard equivalent; focus moved on open/close/error/success; escape/enter behaviour), `screen_reader` (roles and labels for each control, live region for async results, announcement text for each state change), `responsive` (per breakpoint of the existing system: layout change, hidden/collapsed items, minimum target 44x44 CSS px or the platform minimum). Native mobile target (`target` ios, android, flutter, react-native): the rules in [NATIVE.md](NATIVE.md) apply instead of the web keyboard/hover/focus rules, and `keyboard` is optional. Motion: respects reduced-motion. Contrast: text pairs meet the baseline in `DESIGN.md` (state ratio when a new colour pair appears).
 
 ## 5. Validation rules
 

@@ -19,6 +19,9 @@ const STATES = ["empty", "loading", "error", "success", "partial", "permission-d
 const KEYS = ["schema_version", "mode", "ui_languages", "design_system", "reused", "new", "screens", "flows"];
 // A81: optional, validated when present; mandatory in mode task for these classes.
 const OPTIONAL_KEYS = ["creative_direction", "ux_patterns", "self_critique", "criteria"];
+// Optional `target` (default web): native mobile targets make keyboard optional per screen (hover/focus are web rules).
+const TARGETS = ["web", "ios", "android", "flutter", "react-native"];
+const NATIVE_TARGETS = ["ios", "android", "flutter", "react-native"];
 export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
 export const STRONG_CLASSES = ["COMPLEX", "CRITICAL"];
 // The designer never gives final quality approval of its own design. Verdict and first-person phrasing only, so
@@ -72,8 +75,10 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   for (const k of KEYS) if (!(k in doc)) err("$", `missing required "${k}"`);
   for (const k of Object.keys(doc)) {
     if (/approv|sign.?off|verdict/i.test(k)) err(`$.${k}`, "the designer never gives final quality approval of its own design; quality is judged by QA's visual focus and the reviewers");
-    else if (!KEYS.includes(k) && !OPTIONAL_KEYS.includes(k)) err("$", `unexpected "${k}"`);
+    else if (!KEYS.includes(k) && !OPTIONAL_KEYS.includes(k) && k !== "target") err("$", `unexpected "${k}"`);
   }
+  if ("target" in doc && !TARGETS.includes(doc.target)) err("$.target", `must be one of ${TARGETS.join("|")} (default web)`);
+  const native = NATIVE_TARGETS.includes(doc.target);
   const klass = cls || task?.cls || null;
   if (klass !== null && !CLASSES.includes(klass)) err("class", `"${klass}" is not one of ${CLASSES.join("|")}`);
   // A class implies a task: without TASK.md the criteria and the redesign quote cannot be checked.
@@ -140,6 +145,7 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
       for (const k of Object.keys(s.states)) if (!STATES.includes(k)) err(`${p}.states`, `unknown state ${k}`);
     }
     for (const k of ["keyboard", "screen_reader", "responsive"]) {
+      if (native && k === "keyboard" && !(k in s)) continue; // web-only rule: optional on native mobile
       if (!Array.isArray(s[k]) || s[k].length === 0 || !s[k].every(isStr)) err(`${p}.${k}`, "expected non-empty array of non-empty strings");
     }
   });
