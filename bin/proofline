@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.22
+PROOFLINE_VERSION=0.0.23
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -88,7 +88,13 @@ agent session (prints the exact instruction for your runtime)
   knowledge <TASK>        knowledge step of a finished run: wiki, ADRs, lesson candidates; deliver runs it when missing
   product prd|review|split <slug>
                           write a product requirements document with you, review it on its own, split it into tasks
-  trace <FR-n|TASK-ID>    follow a requirement or task to its tests, run evidence and pull request (read-only)
+  product discover frame|research|interviews|competitors|opportunities <slug>
+                          frame, research, interview, compare competitors and rank opportunities with sources (before a PRD)
+  product assess assumptions|probes|premortem|redteam|decision <slug>
+                          test assumptions with locked probes, a premortem, a red team and a build, clarify or stop decision
+  product outcome <slug>
+                          record the measured outcome of a shipped change against its baseline
+  trace <FR-n|TASK-ID>    follow a requirement or task to its tests, run evidence and pull request, and the evidence, assumption, decision and outcome behind it (read-only)
   reopen <TASK>           take a FAILED or BLOCKED run back into the workflow, only with your approval
   batch <ID...|all>       night mode: one summary and one "approve batch" stand in for the plan and delivery approvals of
                             the listed tasks (no CRITICAL task; nothing else is covered; refused while no CI check runs
@@ -282,7 +288,7 @@ cmd_session() { # review | audit | debug | docs | explain | wiki | product | tra
     docs) case "${2:-}" in create|update|audit) ;; *) die "usage: proofline docs create|update|audit" ;; esac ;;
     explain) [ -n "${2:-}" ] || die "usage: proofline explain <topic|TASK-ID>" ;;
     wiki) case "${2:-}" in ingest|query|lint) ;; *) die "usage: proofline wiki ingest|query|lint" ;; esac ;;
-    product) case "${2:-}" in prd|review|split) [ -n "${3:-}" ] || die "usage: proofline product prd|review|split <slug>" ;; *) die "usage: proofline product prd|review|split <slug>" ;; esac ;;
+    product) case "${2:-}" in prd|review|split|outcome) [ -n "${3:-}" ] || die "usage: proofline product prd|review|split|outcome <slug>" ;; discover) case "${3:-}" in frame|research|interviews|competitors|opportunities) [ -n "${4:-}" ] || die "usage: proofline product discover frame|research|interviews|competitors|opportunities <slug>" ;; *) die "usage: proofline product discover frame|research|interviews|competitors|opportunities <slug>" ;; esac ;; assess) case "${3:-}" in assumptions|probes|premortem|redteam|decision) [ -n "${4:-}" ] || die "usage: proofline product assess assumptions|probes|premortem|redteam|decision <slug>" ;; *) die "usage: proofline product assess assumptions|probes|premortem|redteam|decision <slug>" ;; esac ;; *) die "usage: proofline product prd|review|split|outcome|discover|assess ... <slug>" ;; esac ;;
     trace) [ -n "${2:-}" ] || die "usage: proofline trace <FR-n|TASK-ID>" ;;
   esac
   require_installed

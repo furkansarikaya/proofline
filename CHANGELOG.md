@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.0.23 — 2026-10-22
+
+- New skills `product-discovery` and `product-assess` and commands `/proofline product discover frame|research|interviews|competitors|opportunities <slug>`, `/proofline product assess assumptions|probes|premortem|redteam|decision <slug>` and `/proofline product outcome <slug>` (A165, amends A164). Every fact carries a URL, access date and verbatim quote; a number that is not a sourced fact is rejected; competitor cells older than `product.stale_days` (default 90) are flagged stale; interview quotes are checked against raw text that stays outside version control.
+- New fact source `[fact: ref <slug>#C-n]` cites a discovery claim by id from a PRD.
+- Probe thresholds are locked by hash before the result; a changed threshold is rejected. The red team is the reviewer role with focus `strategy`. `DECISION.md` holds `decision: build|clarify|stop`, and `check-prd.mjs --ready` refuses a split under `stop`.
+- Outcomes record baseline, script and output hashes and the measured value; `check-outcome.mjs` rejects a value that differs from the output file.
+- `/proofline trace` also shows evidence, assumption, decision and outcome links; every new command ends with the user's next step.
+
 ## 0.0.22 — 2026-10-22
 
 - CI is faster: macOS, the headless-browser measurement and the benchmark report run only on the nightly schedule and on manual runs; pushes to main and pull requests run Linux only (A164, replaces the macOS part of A76).

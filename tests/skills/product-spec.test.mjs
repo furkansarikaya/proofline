@@ -160,3 +160,73 @@ test("trace of a delivered task reads the done/ file, the delivery commit and th
   assert.equal(g("status", "--porcelain"), before);
   rmSync(root, { recursive: true, force: true });
 });
+
+// a project with a discovery folder: claim C-1 (a valid fact) and C-2 (an assumption) under docs/product/orders-export
+function evidenceProject() {
+  const { root, prd } = project();
+  const dir = join(root, "docs/product/orders-export");
+  writeFileSync(join(dir, "RESEARCH.md"), [
+    "# Research", "",
+    '- C-1 Finance copies 400 rows a month. [fact: interview INT-1 "I copy around 400 rows every month"]',
+    "- C-2 Finance accepts CSV. [assumption: usability]", "",
+  ].join("\n"));
+  return { root, prd, dir };
+}
+
+test("a ref fact resolves to a valid fact claim; a missing id or an assumption is an error", () => {
+  const { root, dir } = evidenceProject();
+  const doc = (id) => `## Problem\n\nWho: finance. [fact: ref orders-export#${id}]\n`;
+  assert.equal(validateClaims(doc("C-1"), { root }).valid, true);
+  assert.match(validateClaims(doc("C-9"), { root }).errors[0].message, /not found/);
+  assert.match(validateClaims(doc("C-2"), { root }).errors[0].message, /an assumption, not a fact/);
+  assert.equal(validateClaims("## Problem\n\nx [fact: ref bad slug]\n", { root }).valid, false);
+  const f = join(dir, "doc.md");
+  writeFileSync(f, doc("C-9"));
+  const cli = spawnSync("node", [join(SKILL, "scripts/validate-product-claims.mjs"), f, "--root", root], { encoding: "utf8" });
+  assert.equal(cli.status, 1, cli.stderr);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a PRD is not split under decision: stop; no DECISION.md leaves readiness unchanged", () => {
+  const { root, prd } = project();
+  const dir = join(root, "docs/product/orders-export");
+  assert.equal(readiness(prd).ready, true);
+  writeFileSync(join(dir, "DECISION.md"), "decision: build\n\n## Decision\n\nStop, the probe was refuted.\n\ndecision: stop\n");
+  const r = readiness(prd);
+  assert.equal(r.ready, false);
+  assert.match(r.reasons.join("\n"), /decision: stop \(Stop, the probe was refuted\.\)/);
+  writeFileSync(join(dir, "DECISION.md"), "decision: stop\n\ndecision: build\n");
+  assert.equal(readiness(prd).ready, true);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("trace follows a ref from the requirement to claim, assumption, probe, decision and outcome, naming each missing link", () => {
+  const { root, dir } = evidenceProject();
+  const prdFile = join(dir, "PRD.md");
+  writeFileSync(prdFile, readFileSync(prdFile, "utf8").replace(/^(- FR-1: .*)$/m, "$1 [fact: ref orders-export#C-1]"));
+  const missing = () => trace("FR-1", { root }).missing.filter((m) => /orders-export#C-1/.test(m)).join("\n");
+  assert.match(missing(), /no assumption/);
+  writeFileSync(join(dir, "ASSUMPTIONS.md"), "- AS-1 Finance wants CSV because of C-1. [assumption: value] importance: high; evidence: low\n");
+  assert.match(missing(), /no probe/);
+  writeFileSync(join(dir, "PROBES.md"), "- PB-1 Offer CSV to finance, tests AS-1.\n");
+  assert.match(missing(), /no decision \(.*DECISION\.md is missing\)/);
+  writeFileSync(join(dir, "DECISION.md"), "decision: build\n\n## Context\n\nPB-1 confirmed.\n");
+  assert.match(missing(), /no outcome/);
+  writeFileSync(join(dir, "OUTCOME.md"), "- OC-1 FR-1 reached the baseline, follows PB-1.\n");
+  assert.equal(missing(), "");
+  const chain = trace("FR-1", { root }).chains[0].evidence[0];
+  assert.deepEqual([chain.assumptions[0].id, chain.probes[0].id, chain.decision.decision, chain.outcomes[0].id], ["AS-1", "PB-1", "build", "OC-1"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("product.stale_days defaults to 90 and ignores a non-positive value", async () => {
+  const { staleDays } = await import(join(SKILL, "scripts/check-prd.mjs"));
+  const { root } = project();
+  assert.equal(staleDays(root), 90);
+  mkdirSync(join(root, ".agents"), { recursive: true });
+  writeFileSync(join(root, ".agents/config.yaml"), "product:\n  stale_days: 30\n");
+  assert.equal(staleDays(root), 30);
+  writeFileSync(join(root, ".agents/config.yaml"), "product:\n  stale_days: 0\n");
+  assert.equal(staleDays(root), 90);
+  rmSync(root, { recursive: true, force: true });
+});

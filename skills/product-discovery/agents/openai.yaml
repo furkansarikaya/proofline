@@ -1,0 +1,7 @@
+interface:
+  display_name: "Product Discovery"
+  short_description: "Frames a product problem, researches sources, synthesises interviews, compares competitors and lists evidenced opportunities"
+  default_prompt: "Use $product-discovery to discover: "
+
+policy:
+  allow_implicit_invocation: false

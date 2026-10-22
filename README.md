@@ -15,7 +15,7 @@
 
 ## Status
 
-Version 0.0.22 is an early release.
+Version 0.0.23 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -100,7 +100,8 @@ run <TASK>                            take a task through the whole workflow
 review, audit, debug                  proof-review, test-trust and debug-proof standalone
 wiki ingest|query|lint                keep the project wiki in docs/wiki/
 product prd|review|split <slug>    PRD with you, an independent review, the split into tasks
-trace <FR-n|TASK-ID>                  follow a requirement or task to its tests and pull request
+product discover|assess|outcome <step> <slug>  sourced discovery, locked probes, a decision and the measured outcome
+trace <FR-n|TASK-ID>                  follow a requirement or task to its tests and pull request, plus the evidence and decision behind it
 knowledge <TASK>                      knowledge step of a finished run
 reopen <TASK>                         take a FAILED or BLOCKED run back into the workflow, with your approval
 deliver <TASK>                        commit, push, pull request, merge and cleanup after one approval
@@ -158,7 +159,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.22**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.23**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 
