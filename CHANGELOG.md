@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.0.24 — 2026-10-22
+
+- visual-proof measures native apps (Flutter, Android, iOS, React Native, desktop) with the UI or screenshot test tool the project already has: `scripts/native.mjs --detect` decides the target from files and finds the tool and its run command (`--run` proves it once); uiautomator and generic JSON output are measured (labels, touch target 44pt/48dp, large text, dark theme, a screenshot per spec state). Unmeasurable checks are `not_measured`; no tool or device is `UNSUPPORTED` with one suggestion line, never a pass. Nothing is installed. Web behaviour is unchanged (A166, amends A82, A147).
+- ui-design gets a native mobile rule set (`references/NATIVE.md`) and an optional `target` in UI.md (`web` default, `ios`, `android`, `flutter`, `react-native`); `keyboard` per screen is optional off web.
+
 ## 0.0.23 — 2026-10-22
 
 - New skills `product-discovery` and `product-assess` and commands `/proofline product discover frame|research|interviews|competitors|opportunities <slug>`, `/proofline product assess assumptions|probes|premortem|redteam|decision <slug>` and `/proofline product outcome <slug>` (A165, amends A164). Every fact carries a URL, access date and verbatim quote; a number that is not a sourced fact is rejected; competitor cells older than `product.stale_days` (default 90) are flagged stale; interview quotes are checked against raw text that stays outside version control.
