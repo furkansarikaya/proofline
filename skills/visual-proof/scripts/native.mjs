@@ -109,7 +109,30 @@ export function detectTarget(repo) {
 }
 
 // --- project tools and their command ----------------------------------------------------------------------
-const FORBID = /(^|[\s=])(record\w*|update\w*|--update-goldens|--record|-u|install|add|brew|apt(-get)?|pip3?|gem|pod)(\s|$)|record(Paparazzi|Roborazzi)|updateGolden/i;
+// Command safety: a discovered command never reaches a shell. It must hold no shell metacharacter, split into argv on
+// whitespace and match an allowlist of known UI/screenshot test invocations; anything else is `command rejected`.
+const META = /[&|;<>$`()\r\n\\'"*?~{}!#]/;
+const WORD = /^[\w@%+=:,./-]+$/;
+const NEVER = /record|update|golden|^-u$|^(?:install|add|clean\w*|pub|get|upgrade|uninstall|i|ci|brew|apt|apt-get|pip3?|gem|pod|rm|curl|wget|sh|bash)$/i;
+const GRADLE_TASK = /^(?::?[\w-]+:)*(?:connected\w*AndroidTest|test\w*UnitTest|validate\w*ScreenshotTest|verifyPaparazzi\w*|verifyRoborazzi\w*)$/;
+const ALLOW = [
+  (a) => a[0] === "flutter" && (a[1] === "test" || a[1] === "drive"),
+  (a) => a[0] === "maestro" && a[1] === "test",
+  (a) => a[0] === "detox" && a[1] === "test",
+  (a) => a[0] === "npx" && a[1] === "--no-install" && a[2] === "detox" && a[3] === "test",
+  (a) => a[0] === "xcodebuild" && a.includes("test") && !a.some((t) => /^(?:build-for-testing|archive|clean|-resolvePackageDependencies)$/.test(t)),
+  (a) => /^(?:\.\/)?gradlew$/.test(a[0]) && a.slice(1).some((t) => !t.startsWith("-")) && a.slice(1).filter((t) => !t.startsWith("-")).every((t) => GRADLE_TASK.test(t)),
+];
+export function vetCommand(text) {
+  const cmd = String(text ?? "").trim(), show = cmd.slice(0, 80);
+  if (!cmd) return { rejected: "empty command" };
+  if (META.test(cmd)) return { rejected: `shell metacharacter in "${show}"` };
+  const argv = cmd.split(/\s+/);
+  if (argv.some((t) => !WORD.test(t))) return { rejected: `unsupported characters in "${show}"` };
+  if (argv.some((t) => NEVER.test(t))) return { rejected: `record, update or install token in "${show}"` };
+  if (!ALLOW.some((f) => f(argv))) return { rejected: `not a known UI or screenshot test invocation: "${show}"` };
+  return { argv };
+}
 const TOOLS = [
   { name: "flutter-integration-test", platform: "flutter", device: true, has: (c) => /^\s*integration_test:/m.test(c.pubspec), why: "pubspec.yaml lists integration_test", cmd: /flutter\s+test\s+integration_test[^\n`"]*/, dflt: "flutter test integration_test" },
   { name: "flutter-golden", platform: "flutter", device: false, has: (c) => /golden_toolkit|alchemist/.test(c.pubspec) || c.dart.some((t) => /matchesGoldenFile/.test(t)), why: "golden dependency or matchesGoldenFile in test/", cmd: /flutter\s+test(?!\s+integration_test)[^\n`"]*/, dflt: "flutter test" },
@@ -144,18 +167,26 @@ function projectContext(repo) {
 }
 
 function discoverCommand(tool, c) {
+  let rejected = null;
   for (const [name, value] of Object.entries(c.scripts)) {
-    const m = tool.cmd.exec(String(value));
-    if (m && !FORBID.test(m[0])) return { command: `npm run ${name}`, source: `package.json scripts.${name}` };
+    if (!tool.cmd.test(String(value))) continue;
+    // npm runs the script through a shell: the whole script value must pass, not just its name
+    const v = /^[\w:.-]+$/.test(name) ? vetCommand(value) : { rejected: "unsafe script name" };
+    if (v.argv) return { command: `npm run ${name}`, argv: ["npm", "run", name], source: `package.json scripts.${name}` };
+    rejected ||= `command rejected (package.json scripts.${name}): ${v.rejected}`;
   }
   for (const d of c.docs) {
     for (const line of d.text.split(/\r?\n/)) {
       const m = tool.cmd.exec(line);
-      if (m && !FORBID.test(m[0])) return { command: m[0].replace(/[\\'"\s]+$/, "").trim(), source: d.file };
+      if (!m) continue;
+      const v = vetCommand(m[0].replace(/[\\'"\s]+$/, ""));
+      if (v.argv) return { command: v.argv.join(" "), argv: v.argv, source: d.file };
+      rejected ||= `command rejected (${d.file}): ${v.rejected}`;
     }
   }
-  if (tool.dflt && (!tool.gradle || c.gradlew)) return { command: tool.dflt, source: "tool default (no project command found)" };
-  return { command: null, source: null };
+  if (rejected) return { command: null, argv: null, source: null, rejected };
+  if (tool.dflt && (!tool.gradle || c.gradlew)) return { command: tool.dflt, argv: tool.dflt.split(/\s+/), source: "tool default (no project command found)" };
+  return { command: null, argv: null, source: null };
 }
 
 export function detectTools(repo) {
@@ -188,13 +219,17 @@ export function detectAll({ repo, run = false, timeout = 120_000, exec = spawnSy
   const sug = suggestion(target);
   if (!tools.length) return { ...base, tools, run: null, result: "UNSUPPORTED", reason: "no UI or screenshot test tool found in the project's config or dependency files", suggestion: sug };
   const usable = tools.find((t) => t.command) || null;
-  if (!usable) return { ...base, tools, run: null, result: "UNSUPPORTED", reason: "a test tool is present but no run command could be discovered in CI config, scripts or README", suggestion: sug };
+  if (!usable) {
+    const rej = tools.find((t) => t.rejected)?.rejected;
+    return { ...base, tools, run: null, result: "UNSUPPORTED", reason: rej || "a test tool is present but no run command could be discovered in CI config, scripts or README", suggestion: sug };
+  }
   if (!run) return { ...base, tools, run: null, result: "DISCOVERED", reason: "command discovered, not run (pass --run to prove it once)", chosen: usable.name };
   const dev = usable.needs_device ? devices() : null;
   if (dev && !dev.android && !dev.ios) return { ...base, tools, run: null, devices: dev, result: "UNSUPPORTED", reason: `${usable.name} needs a simulator, emulator or device and none is booted or connected`, suggestion: sug, chosen: usable.name };
   const ms = Math.max(30_000, Number(timeout) || 0);
   const t0 = Date.now();
-  const r = exec(usable.command, { cwd: repo, shell: true, encoding: "utf8", timeout: ms, maxBuffer: 20_000_000 });
+  process.stderr.write(`native.mjs --run will execute (no shell, cwd ${repo}): ${usable.argv.join(" ")}\n`);
+  const r = exec(usable.argv[0], usable.argv.slice(1), { cwd: repo, shell: false, encoding: "utf8", timeout: ms, maxBuffer: 20_000_000 });
   const tail = `${r.stdout || ""}${r.stderr || ""}`.split(/\r?\n/).filter(Boolean).slice(-8).join("\n");
   const runRec = { command: usable.command, exit: r.status ?? (r.error ? -1 : null), timed_out: r.error?.code === "ETIMEDOUT", duration_ms: Date.now() - t0, tail };
   if (runRec.exit !== 0) return { ...base, tools, run: runRec, ...(dev ? { devices: dev } : {}), result: "UNSUPPORTED", reason: `the project's command did not run clean (exit ${runRec.exit}${runRec.timed_out ? ", timeout" : ""}): not proven`, suggestion: sug, chosen: usable.name };

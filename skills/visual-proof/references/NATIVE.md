@@ -1,7 +1,7 @@
 # Native apps
 
 visual-proof also covers native apps, with the tools the project **already has**. proofline installs nothing,
-adds no test, no dependency and no config, and imposes no tool. `scripts/native.mjs` is read-only, Node only.
+adds no test, no dependency and no config, and imposes no tool. `scripts/native.mjs` is Node only; `--detect` reads the repo and writes nothing, `--build` writes `report.json` to `--out`.
 
 ## 1. Target type
 
@@ -25,11 +25,15 @@ Electron or Tauri without a web entry is `desktop`.
 Detected from config and dependency files (never from the machine): Flutter integration and golden tests,
 Maestro flows, Detox, XCUITest targets, Espresso, Compose screenshot tests, Paparazzi, Roborazzi. For each, the run
 command is taken from the project (package.json scripts, CI config, README, Makefile, Fastfile), else the
-tool's standard command when the wrapper it needs exists, else `null`. A command that records, updates or installs
-(`record*`, `update*`, `--update-goldens`, `install`) is never chosen: no baseline is created.
+tool's standard command when the wrapper it needs exists, else `null`. A command is accepted only if it has no shell metacharacter
+(`& | ; < > $ \` ( )`, quotes, newline, redirection), and matches an allowlist: `flutter test|drive`, `maestro test`, `detox test`,
+`xcodebuild ... test`, `gradlew` with only `connected*AndroidTest`, `test*UnitTest`, `validate*ScreenshotTest`, `verifyPaparazzi*` or
+`verifyRoborazzi*` tasks. Anything else is `command rejected` and the result is `UNSUPPORTED` with that reason; record, update,
+install, clean, `pub get` and `npm i` are never allowed. For a package.json script the whole script value must pass, not just its name.
 
-Without `--run` the command is only reported (`result: DISCOVERED`). With `--run` it runs once in the repo with a timeout
-(at least 30 s, `--timeout MS`) after the sandbox warning; a tool that needs a simulator, emulator or device checks for a booted one
+Without `--run` the command is only reported (`result: DISCOVERED`). With `--run` it prints the exact command to stderr, then runs it
+once in the repo with no shell (argv), with a timeout (at least 30 s, `--timeout MS`). The lead shows that command to the user
+(sandbox warning) before passing `--run`; a tool that needs a simulator, emulator or device checks for a booted one
 first (`adb devices`, `xcrun simctl list devices booted`).
 
 | `result` | Meaning |
@@ -72,7 +76,7 @@ INCONCLUSIVE) or in `target.not_measured` (`native_large_text`, `native_dark_the
 ## 4. Report
 
 `node native.mjs --build native.json --out <output>` writes `report.json` (`schema: visual-proof/1`) that `validate-visual.mjs` checks.
-`native.json`: `class`, `tool {name, version?}` (or `{kind: "none", reason}`), `target {type, platform, evidence[]}`,
+`native.json`: `class`, `tool {name, version?}` (or `{kind: "none", reason}` plus a top-level one-line `suggestion`, defaulted from the target), `target {type, platform, evidence[]}`,
 `devices [{name, width, height, os}]` (they take the place of viewports, at least one), `screens [{id, path, states[]}]`,
 `captures [{screen, state, device, screenshot, output, density?, font_scale?, theme?}]` (paths relative to the file),
 `criteria [{id, required, checks[]}]`.
