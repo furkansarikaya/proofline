@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// visual-proof for native apps (0.0.24). Read-only, Node only, installs nothing, imposes nothing: it detects the
+// visual-proof for native apps (0.0.25). Read-only, Node only, installs nothing, imposes nothing: it detects the
 // target type from files, finds the UI/screenshot test tools the project already has, discovers (and with --run,
 // proves once) the project's own command, parses structured tool output into a normalized measurement format and
 // builds a report.json that validate-visual.mjs checks.

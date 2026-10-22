@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.25 — 2026-10-22
+
+- Batch driver tests no longer fail at random: the EXIT trap of `sc_driver_stop` and `sc_driver_crash` guards its `kill` so a helper that is already gone does not turn a passed scenario into exit 1. The driver itself was not affected.
+- The README is shorter (12482 to 10895 bytes) with the same bound; "Real output" moved to `docs/concepts/workflow.md`.
+- The native output formats that `visual-proof` measures are documented in `docs/concepts/testing.md`.
+
 ## 0.0.24 — 2026-10-22
 
 - visual-proof measures native apps (Flutter, Android, iOS, React Native, desktop) with the UI or screenshot test tool the project already has: `scripts/native.mjs --detect` decides the target from files and finds the tool and its run command (`--run` proves it once); uiautomator and generic JSON output are measured (labels, touch target 44pt/48dp, large text, dark theme, a screenshot per spec state). Unmeasurable checks are `not_measured`; no tool or device is `UNSUPPORTED` with one suggestion line, never a pass. Nothing is installed. Web behaviour is unchanged (A166, amends A82, A147).

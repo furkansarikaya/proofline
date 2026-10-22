@@ -9,7 +9,7 @@ Must conform to [the schema](../schema/findings.schema.json). Written in English
 ```json
 {
   "schema_version": 1,
-  "skill_version": "0.0.24",
+  "skill_version": "0.0.25",
   "generated_at": "2026-10-08T12:00:00Z",
   "target": { "type": "branch", "name": "feature/discount", "slug": "feature-discount", "base": "3f2a9c1...", "head": "9be41d0..." },
   "scope": { "changed_files": 4, "changed_lines": 120, "excluded": ["package-lock.json"], "not_reviewed": [], "rule_files_read": ["CLAUDE.md"], "rule_files_not_read": [] },
