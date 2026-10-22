@@ -13,8 +13,8 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA, requiredCells, validateReport } from "./validate-visual.mjs";
 
@@ -113,24 +113,67 @@ export function detectTarget(repo) {
 // whitespace and match an allowlist of known UI/screenshot test invocations; anything else is `command rejected`.
 const META = /[&|;<>$`()\r\n\\'"*?~{}!#]/;
 const WORD = /^[\w@%+=:,./-]+$/;
-const NEVER = /record|update|golden|^-u$|^(?:install|add|clean\w*|pub|get|upgrade|uninstall|i|ci|brew|apt|apt-get|pip3?|gem|pod|rm|curl|wget|sh|bash)$/i;
+const NEVER_WORD = /^(?:install|add|clean\w*|pub|get|upgrade|uninstall|i|ci|brew|apt|apt-get|pip3?|gem|pod|rm|curl|wget|sh|bash)$/i;
+const NEVER_FLAG = /record|update|golden|^-u$/i; // applies to flag and task tokens, never to path names
 const GRADLE_TASK = /^(?::?[\w-]+:)*(?:connected\w*AndroidTest|test\w*UnitTest|validate\w*ScreenshotTest|verifyPaparazzi\w*|verifyRoborazzi\w*)$/;
-const ALLOW = [
-  (a) => a[0] === "flutter" && (a[1] === "test" || a[1] === "drive"),
-  (a) => a[0] === "maestro" && a[1] === "test",
-  (a) => a[0] === "detox" && a[1] === "test",
-  (a) => a[0] === "npx" && a[1] === "--no-install" && a[2] === "detox" && a[3] === "test",
-  (a) => a[0] === "xcodebuild" && a.includes("test") && !a.some((t) => /^(?:build-for-testing|archive|clean|-resolvePackageDependencies)$/.test(t)),
-  (a) => /^(?:\.\/)?gradlew$/.test(a[0]) && a.slice(1).some((t) => !t.startsWith("-")) && a.slice(1).filter((t) => !t.startsWith("-")).every((t) => GRADLE_TASK.test(t)),
+const GRADLE_DENY = /^(?:-[DPIpcbg]\S*|--init-script|--project-dir|--settings-file|--build-file|--gradle-user-home|--project-cache-dir)(?:=|$)/;
+// per tool: argv prefix, flags that take a value, and plain flags; gradle allows any flag not denied
+const SPECS = [
+  { pre: ["flutter", "test"], val: ["--device-id", "-d", "--flavor", "--name", "--plain-name", "--tags", "-x", "--concurrency"] },
+  { pre: ["flutter", "drive"], val: ["--device-id", "-d", "--flavor", "--name", "--plain-name", "--tags", "-x", "--concurrency"] },
+  { pre: ["maestro", "test"], val: ["--device", "--format"] },
+  { pre: ["detox", "test"], val: ["--configuration", "-c", "--device-name"] },
+  { pre: ["npx", "--no-install", "detox", "test"], val: ["--configuration", "-c", "--device-name"] },
+  { pre: ["xcodebuild"], val: ["-scheme", "-destination", "-project", "-workspace", "-configuration", "-sdk", "-only-testing", "-skip-testing", "-testPlan"], need: "test", words: ["test"] },
+  { pre: [/^(?:\.\/)?gradlew$/], gradle: true },
 ];
-export function vetCommand(text) {
+const insideRepo = (repo, v) => {
+  if (/\.\./.test(v) || /^(?:[\\/~]|[A-Za-z]:)/.test(v)) return false;
+  if (!repo) return true;
+  const root = resolve(repo), p = resolve(root, v);
+  if (p !== root && !p.startsWith(root + sep)) return false;
+  try { const r = realpathSync(p); return r === realpathSync(root) || r.startsWith(realpathSync(root) + sep); } catch { return true; }
+};
+// repo: the root path arguments must stay inside; prose: cut at the first plain-English token instead of rejecting it
+export function vetCommand(text, { repo, prose = false } = {}) {
   const cmd = String(text ?? "").trim(), show = cmd.slice(0, 80);
   if (!cmd) return { rejected: "empty command" };
   if (META.test(cmd)) return { rejected: `shell metacharacter in "${show}"` };
-  const argv = cmd.split(/\s+/);
-  if (argv.some((t) => !WORD.test(t))) return { rejected: `unsupported characters in "${show}"` };
-  if (argv.some((t) => NEVER.test(t))) return { rejected: `record, update or install token in "${show}"` };
-  if (!ALLOW.some((f) => f(argv))) return { rejected: `not a known UI or screenshot test invocation: "${show}"` };
+  const all = cmd.split(/\s+/);
+  if (all.some((t) => !WORD.test(t))) return { rejected: `unsupported characters in "${show}"` };
+  const spec = SPECS.find((s) => s.pre.every((x, i) => (x instanceof RegExp ? x.test(all[i] || "") : x === all[i])));
+  if (!spec) return { rejected: `not a known UI or screenshot test invocation: "${show}"` };
+  const argv = all.slice(0, spec.pre.length);
+  const bad = (why) => ({ rejected: `${why} in "${show}"` });
+  let tasks = 0, words = 0;
+  for (let i = spec.pre.length; i < all.length; i++) {
+    const t = all[i], name = t.split("=")[0];
+    if (t.startsWith("-")) {
+      if (NEVER_FLAG.test(name)) return bad("record, update or golden flag");
+      if (spec.gradle ? GRADLE_DENY.test(t) : !spec.val.includes(name)) return bad(`flag ${name} not allowed`);
+      argv.push(t);
+      if (t.includes("=")) { if (!insideRepo(repo, t.slice(name.length + 1)) && /[/.]/.test(t.slice(name.length + 1))) return bad("path outside the repo"); continue; }
+      if (!spec.gradle && spec.val.includes(name)) {
+        const v = all[++i];
+        if (v === undefined || v.startsWith("-")) return bad(`flag ${name} has no value`);
+        if (/[/.]/.test(v) && !insideRepo(repo, v)) return bad("path outside the repo");
+        argv.push(v);
+      }
+      continue;
+    }
+    if (NEVER_WORD.test(t)) return bad("install or package-manager token");
+    if (spec.gradle) {
+      if (!GRADLE_TASK.test(t) || NEVER_FLAG.test(t)) { if (prose) break; return bad(`task ${t} not allowed`); }
+      tasks++; argv.push(t); continue;
+    }
+    if (spec.words?.includes(t)) { words++; argv.push(t); continue; }
+    const bare = t.replace(/[.,:]$/, "");
+    if (/^[A-Za-z]+$/.test(bare) && !(repo && existsSync(join(repo, bare)))) { if (prose) break; }
+    if (!insideRepo(repo, t)) return bad("path outside the repo");
+    argv.push(t);
+  }
+  if (spec.gradle && !tasks) return { rejected: `no allowed gradle task in "${show}"` };
+  if (spec.need && !words) return { rejected: `no ${spec.need} action in "${show}"` };
   return { argv };
 }
 const TOOLS = [
@@ -155,7 +198,7 @@ function projectContext(repo) {
   try { scripts = JSON.parse(readCap(join(repo, "package.json"))).scripts || {}; } catch { /* none */ }
   const docs = files.filter((f) => /^(\.github\/workflows\/[^/]+\.ya?ml|\.gitlab-ci\.yml|\.circleci\/config\.yml|bitrise\.yml|codemagic\.yaml|fastlane\/Fastfile|Makefile)$/.test(f) || /^README[^/]*$/i.test(f));
   return {
-    files, dirs, scripts,
+    repo, files, dirs, scripts,
     pubspec: cat(/^pubspec\.yaml$/),
     packageJson: pkgRel ? readCap(join(repo, pkgRel)) : "",
     gradle: cat(/^(build\.gradle(\.kts)?|settings\.gradle(\.kts)?|libs\.versions\.toml)$/),
@@ -170,23 +213,23 @@ function discoverCommand(tool, c) {
   let rejected = null;
   for (const [name, value] of Object.entries(c.scripts)) {
     if (!tool.cmd.test(String(value))) continue;
-    // npm runs the script through a shell: the whole script value must pass, not just its name
-    const v = /^[\w:.-]+$/.test(name) ? vetCommand(value) : { rejected: "unsafe script name" };
-    if (v.argv) return { command: `npm run ${name}`, argv: ["npm", "run", name], source: `package.json scripts.${name}` };
+    // run the vetted script value's own argv, never `npm run`: npm would also run pre/post<name> scripts through a shell
+    const v = /^[\w:.-]+$/.test(name) ? vetCommand(value, { repo: c.repo }) : { rejected: "unsafe script name" };
+    if (v.argv) { const argv = v.argv[0] === "detox" ? ["npx", "--no-install", ...v.argv] : v.argv; return { command: argv.join(" "), argv, source: `package.json scripts.${name}` }; }
     rejected ||= `command rejected (package.json scripts.${name}): ${v.rejected}`;
   }
   for (const d of c.docs) {
     for (const line of d.text.split(/\r?\n/)) {
       const m = tool.cmd.exec(line);
       if (!m) continue;
-      const v = vetCommand(m[0].replace(/[\\'"\s]+$/, ""));
+      const v = vetCommand(m[0].replace(/[\\'"\s]+$/, ""), { repo: c.repo, prose: true });
       if (v.argv) return { command: v.argv.join(" "), argv: v.argv, source: d.file };
       rejected ||= `command rejected (${d.file}): ${v.rejected}`;
     }
   }
-  if (rejected) return { command: null, argv: null, source: null, rejected };
-  if (tool.dflt && (!tool.gradle || c.gradlew)) return { command: tool.dflt, argv: tool.dflt.split(/\s+/), source: "tool default (no project command found)" };
-  return { command: null, argv: null, source: null };
+  // a rejected candidate rejects only itself: the tool default is still safe to offer
+  if (tool.dflt && (!tool.gradle || c.gradlew)) return { command: tool.dflt, argv: tool.dflt.split(/\s+/), source: "tool default (no safe project command found)", ...(rejected ? { rejected } : {}) };
+  return rejected ? { command: null, argv: null, source: null, rejected } : { command: null, argv: null, source: null };
 }
 
 export function detectTools(repo) {
