@@ -4,7 +4,7 @@ description: Designs UI work. Reverse-engineers a DESIGN.md design system (token
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.23"
+  version: "0.0.24"
 ---
 
 # ui-design
@@ -22,7 +22,7 @@ Talk to the user in their language. Machine files (`ui.json`, `ledger.md`) are E
 1. **Design system first, from evidence.** If `design_docs.design` (default `docs/design/DESIGN.md`) is absent, derive it from the existing UI ([METHOD.md](references/METHOD.md#1-reverse-engineer-designmd)); every token and component in it cites a verified path. If it exists, it is the source: read it and verify it against the code; drift is reported, not silently fixed.
 2. **Reuse before invent.** Each element of the spec is an existing token/component (`reused`, with a path that exists) or a `new` item with `reason` and `reuse_rejected` (which existing item was considered and why it fails). A duplicate of an existing token (same value, different name) is never created.
 3. **Every state of every screen.** Each screen specifies `empty`, `loading`, `error`, `success`, `partial`, `permission-denied`. A state that cannot occur is `not_applicable` with the reason. A state without copy and behaviour is missing, not specified.
-4. **Accessibility is part of the spec.** Per screen: keyboard behaviour (tab order, shortcuts, focus management on open/close/error), screen-reader behaviour (roles, labels, live regions, announced state changes), and the contrast/target-size/motion baseline from `DESIGN.md`. A visual-only state change with no announcement is a defect in the spec.
+4. **Accessibility is part of the spec.** Per screen: keyboard behaviour (tab order, shortcuts, focus management on open/close/error), screen-reader behaviour (roles, labels, live regions, announced state changes), and the contrast/target-size/motion baseline from `DESIGN.md`. A visual-only state change with no announcement is a defect in the spec. Target decides the rule set: `target` in `ui.json` is `web` (default) or a native mobile target (`ios`, `android`, `flutter`, `react-native`). Web: keyboard and focus rules as in rule 4. Native mobile: follow [NATIVE.md](references/NATIVE.md) (screen-reader labels, touch targets, text scaling, dark theme, platform conventions); hover and keyboard focus are not required there and `keyboard` per screen is optional.
 5. **Responsive rules are explicit** (breakpoints from the existing system, what reflows, what hides, minimum touch target), not "should be responsive".
 6. **Copy is specified, not placeholder.** Every user-visible string in each state is written out (or its i18n key plus the default text), consistent with the product's tone found in the repo. "Lorem ipsum" and "TBD" are rejected.
 7. **Never decide for the user.** Product choices the task does not settle (what to show a user without permission, destructive-action wording) are NEEDS_INPUT with numbered questions.

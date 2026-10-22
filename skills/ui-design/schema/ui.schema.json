@@ -16,6 +16,7 @@
   "properties": {
     "schema_version": { "const": 1 },
     "mode": { "enum": ["task", "reverse"] },
+    "target": { "enum": ["web", "ios", "android", "flutter", "react-native"], "default": "web", "description": "keyboard per screen is required for web and optional for native mobile targets" },
     "ui_languages": { "$ref": "#/$defs/strings" },
     "design_system": {
       "type": "object",
@@ -47,7 +48,7 @@
       "type": "array",
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["id", "name", "states", "keyboard", "screen_reader", "responsive"],
+        "required": ["id", "name", "states", "screen_reader", "responsive"],
         "properties": {
           "id": { "type": "string", "pattern": "^S[0-9]+$" },
           "name": { "type": "string", "minLength": 1 },

@@ -4,7 +4,7 @@ description: Visual proof of a UI change with the browser tooling the project or
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.23"
+  version: "0.0.24"
 ---
 
 # visual-proof
@@ -72,6 +72,15 @@ wholesale, with passing numbers and hashes of real files. The control plane neve
 and `report.json` before it cites `visual-proof: <AC-n> proven`. A project tool or runtime adapter that does
 not apply the same request guard (`network.interception` other than `on`) never gives PASS: the result is at
 most INCONCLUSIVE, submitted as UNSUPPORTED with the reason `network interception not applied`.
+
+## Native apps
+
+A native app (Flutter, Android, iOS, React Native, desktop) is measured with the UI or screenshot test tool the
+project already has, never one proofline adds: `node <skill-dir>/scripts/native.mjs --detect --repo <repo>` decides the
+target type from files, finds the tool and its allowlisted run command (`--run` proves it once, without a shell; the lead shows the printed command to the user, sandbox warning, before `--run`) and says `UNSUPPORTED` with one
+suggestion line when no tool or device exists. Only structured output is measured (labels, touch target 44pt/48dp,
+large text and dark theme when the output carries them, a screenshot per spec state); the rest is `not_measured`;
+judged aspects apply to the screenshots and never close the gate alone. Details: [NATIVE.md](references/NATIVE.md).
 
 ## Interfaces
 

@@ -1,6 +1,6 @@
 # UI spec: <TASK-ID or target>
 
-UI languages: <list> | Design system: <DESIGN.md path>
+UI languages: <list> | Design system: <DESIGN.md path> | Target: <web (default) | ios | android | flutter | react-native>
 
 ## Creative direction
 Basis: <conform|redesign (task quote; user approval: question id, or inventory when no DESIGN.md)|new>
@@ -35,9 +35,9 @@ Avoided (required for new, and for redesign without DESIGN.md): <generic default
 | partial | | |
 | permission-denied | | |
 
-Keyboard: <tab order, focus management, shortcuts>
-Screen reader: <roles, labels, live regions, announcements>
-Responsive: <per breakpoint: reflow, hidden items, target size>
+Keyboard: <web: tab order, focus management, shortcuts. Native mobile target: optional (external keyboard / switch control only); hover and focus are not required>
+Screen reader: <roles, labels, live regions, announcements; native: accessibilityLabel / contentDescription / semantics>
+Responsive: <per breakpoint: reflow, hidden items, target size; native: touch target 44pt / 48dp, text scaling, dark theme, see references/NATIVE.md>
 
 ## Criteria and visual proof
 visual_proof: <AC ids that need visual evidence, comma-separated, or none>

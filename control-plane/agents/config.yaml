@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
 # phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
 # validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.23
+proofline_version: 0.0.24
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
