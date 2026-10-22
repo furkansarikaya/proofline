@@ -22,11 +22,17 @@ export const SCHEMA = "visual-proof/1";
 export const CORE = ["viewport_overflow", "horizontal_scroll", "hidden_interactive", "overlapping_interactive",
   "contrast", "touch_target", "state_rendered", "focus_order", "focus_visible"];
 export const INTERACTION_CHECKS = ["long_content", "form_validation", "modal_interaction", "dropdown_interaction"];
-export const CHECKS = [...CORE, ...INTERACTION_CHECKS, "a11y_scanner"];
+// Native apps (0.0.24, references/NATIVE.md): checks of a report whose tool.kind is native-tool. A cell accounts for
+// NATIVE_CORE; the large-text and dark-theme checks are measured only when the tool output carries them, else listed in target.not_measured.
+export const NATIVE_CORE = ["native_state_present", "native_labels", "native_touch_target"];
+export const NATIVE_OPTIONAL = ["native_large_text", "native_dark_theme"];
+export const NATIVE_CHECKS = [...NATIVE_CORE, ...NATIVE_OPTIONAL];
+export const CHECKS = [...CORE, ...INTERACTION_CHECKS, "a11y_scanner", ...NATIVE_CHECKS];
 export const BASE_ASPECTS = ["hierarchy", "density", "consistency", "typography"];
 export const CHARACTER = "character"; // required only for COMPLEX/CRITICAL with creative_direction.basis new|redesign (--ui)
 export const ASPECTS = [...BASE_ASPECTS, CHARACTER];
-export const TOOL_KINDS = ["project-tool", "headless-browser", "runtime-adapter", "none"];
+export const TOOL_KINDS = ["project-tool", "headless-browser", "runtime-adapter", "native-tool", "none"];
+export const TARGET_TYPES = ["web", "native-mobile", "desktop"];
 export const CLASSES = ["STANDARD", "COMPLEX", "CRITICAL"];
 export const MIN_VIEWPORTS = { STANDARD: 2, COMPLEX: 3, CRITICAL: 3 };
 const RESULTS = ["PASS", "FAIL", "INCONCLUSIVE", "UNSUPPORTED"];
@@ -37,7 +43,9 @@ const JUDGED = ["ok", "concern", "violation"];
 // horizontal_scroll's bound is the viewport's clientWidth (at most its width); contrast 3 is for large text only.
 export const THRESHOLDS = { viewport_overflow: ["<=", 0], hidden_interactive: [">", 1], overlapping_interactive: ["==", 0],
   contrast: [">=", 4.5], touch_target: [">=", 24], state_rendered: ["==", 1], focus_order: ["==", 0], focus_visible: ["==", 1],
-  long_content: ["==", 0], form_validation: ["==", 0], modal_interaction: ["==", 0], dropdown_interaction: ["==", 0], a11y_scanner: ["==", 0] };
+  long_content: ["==", 0], form_validation: ["==", 0], modal_interaction: ["==", 0], dropdown_interaction: ["==", 0], a11y_scanner: ["==", 0],
+  native_state_present: ["==", 1], native_labels: ["==", 0], native_touch_target: [">=", 44], native_large_text: ["==", 0], native_dark_theme: ["==", 0] };
+export const NATIVE_TOUCH_MIN = { ios: 44, android: 48 }; // pt / dp
 // The only not_applicable items: the page has no element of that kind (measure.mjs, value = this reason).
 export const NOT_APPLICABLE = { hidden_interactive: "no focusable element", focus_order: "no focusable element", focus_visible: "no focusable element",
   overlapping_interactive: "no visible interactive element", contrast: "no visible text", touch_target: "no non-exempt target" };
@@ -67,6 +75,11 @@ export function thresholdError(m, viewport) {
     const cw = m.client_width ?? viewport.width;
     if (!Number.isInteger(cw) || cw < 1 || cw > cap) return `horizontal_scroll client_width ${m.client_width} exceeds ${cap} (the viewport width, or 980 on a phone viewport without a viewport meta tag)`;
     want = ["<=", cw];
+  }
+  if (m.check === "native_touch_target") {
+    const min = NATIVE_TOUCH_MIN[m.platform];
+    if (!min) return "native_touch_target needs platform ios (>= 44pt) or android (>= 48dp)";
+    want = [">=", min];
   }
   if (m.check === "contrast" && op === ">=" && v === 3) {
     // Large text (WCAG): >= 24px, or >= 18.66px bold, recomputed from the item's measured font facts.
@@ -119,6 +132,8 @@ export function requiredCells(report) {
   return out;
 }
 
+const measured0 = (r) => (Array.isArray(r?.measured) ? r.measured : []);
+
 export function validateReport(report, opt = {}) {
   const errors = [];
   const err = (m) => errors.push(m);
@@ -155,6 +170,17 @@ export function validateReport(report, opt = {}) {
 
   // --- UNSUPPORTED: no browser tooling at all; nothing may look measured --------------------------------
   const unsupported = tool.kind === "none";
+  const target = report.target;
+  const native = tool.kind === "native-tool";
+  const nativeTarget = isObj(target) && ["native-mobile", "desktop"].includes(target.type);
+  if (target !== undefined && !(isObj(target) && target.type === undefined)) { // a web report's target {base_url} has no type (legacy shape)
+    if (!isObj(target) || !TARGET_TYPES.includes(target.type)) err(`target.type must be one of ${TARGET_TYPES.join("|")}`);
+    else if (target.evidence !== undefined && !(Array.isArray(target.evidence) && target.evidence.every((e) => str(e) || (isObj(e) && str(e.path))))) err("target.evidence must be a list of paths");
+  }
+  if (native && !nativeTarget) err("tool.kind native-tool needs a target block with type native-mobile or desktop");
+  if (nativeTarget && !native && !unsupported) err(`a ${target.type} target is measured with tool.kind native-tool (or reported UNSUPPORTED with tool.kind none)`);
+  if (nativeTarget && unsupported && !(str(report.suggestion) && !/[\r\n]/.test(report.suggestion))) err("a native UNSUPPORTED report needs suggestion: one line saying which tool addition would help (suggestion only)");
+  if (!native && measured0(report).some((m) => NATIVE_CHECKS.includes(m?.check))) err("native checks are only allowed with tool.kind native-tool");
   if (unsupported) {
     if (!str(report.unsupported_reason)) err("tool.kind none needs unsupported_reason (what is missing)");
     if (measured.length || judged.length || cells.length) err("tool.kind none: measured, judged and cells must be empty (nothing was rendered)");
@@ -175,7 +201,7 @@ export function validateReport(report, opt = {}) {
   const writesAllowed = [...(opt.specTexts || []), opt.planText ?? ""].some((t) => /^\s*(?:[-*]\s*)?`?visual_writes:[ \t]*\S/m.test(String(t)));
 
   // --- depth ---------------------------------------------------------------------------------------------
-  const min = MIN_VIEWPORTS[report.class];
+  const min = native ? 1 : MIN_VIEWPORTS[report.class];
   const vpNames = new Set();
   for (const [i, v] of viewports.entries()) {
     if (!isObj(v) || !str(v.name) || !Number.isInteger(v.width) || !Number.isInteger(v.height) || v.width <= 0 || v.height <= 0) err(`viewports[${i}]: needs name, width, height (positive integers)`);
@@ -190,7 +216,7 @@ export function validateReport(report, opt = {}) {
   const cellKeys = new Map();
   for (const [i, c] of cells.entries()) {
     if (!isObj(c) || !str(c.screen) || !str(c.state) || !vpNames.has(c.viewport)) { err(`cells[${i}]: needs screen, state and a listed viewport`); continue; }
-    checkFile(`cells[${i}].screenshot`, c.screenshot);
+    if (!(native && c.screenshot === undefined)) checkFile(`cells[${i}].screenshot`, c.screenshot);
     cellKeys.set(key(c), c);
   }
   const required = unsupported ? [] : requiredCells(report);
@@ -227,7 +253,8 @@ export function validateReport(report, opt = {}) {
     const holds = thresholdHolds(m.value, m.threshold);
     if (holds !== null && m.status !== "not_applicable" && holds !== (m.status === "pass")) err(`${w}: status ${m.status} contradicts value ${m.value} ${m.threshold}`);
     if (m.criteria !== undefined && (!Array.isArray(m.criteria) || !m.criteria.every((c) => /^AC-\d+$/.test(c)))) err(`${w}: criteria must be a list of AC-<n>`);
-    checkFile(`${w}.evidence`, m.evidence);
+    if (!(native && m.check === "native_state_present" && m.status === "fail" && m.evidence === undefined)) checkFile(`${w}.evidence`, m.evidence);
+    if (native && m.check === "native_state_present" && m.status === "pass" && !cellKeys.get(key(m))?.screenshot) err(`${w}: native_state_present pass needs a screenshot on its cell`);
   }
   for (const [i, n] of notMeasured.entries()) {
     if (!isObj(n) || !["cell", "element"].includes(n.scope) || !str(n.reason) || !CHECKS.includes(n.check)) err(`not_measured[${i}]: needs scope cell|element, a known check and a reason`);
@@ -237,7 +264,12 @@ export function validateReport(report, opt = {}) {
   // --- coverage: every required cell accounts for every core check -----------------------------------------
   const accounted = (check, c, interaction) => measured.some((m) => m.check === check && key(m) === key(c) && (!interaction || m.interaction === interaction))
     || notMeasured.some((n) => n.scope === "cell" && n.check === check && key(n) === key(c) && (!interaction || n.interaction === interaction));
-  const core = a11y?.status === "run" ? [...CORE, "a11y_scanner"] : CORE;
+  if (native && a11y?.status === "run") err("a11y_scanner must be not_available for a native report (the web scanner does not run)");
+  const core = native ? NATIVE_CORE : a11y?.status === "run" ? [...CORE, "a11y_scanner"] : CORE;
+  if (native) {
+    const tnm = Array.isArray(target?.not_measured) ? target.not_measured : [];
+    for (const check of NATIVE_OPTIONAL) if (!measured.some((m) => m.check === check) && !tnm.some((n) => n?.check === check && str(n.reason))) err(`${check} is neither measured nor listed in target.not_measured with a reason`);
+  }
   for (const c of required) for (const check of core) if (!accounted(check, c)) err(`cell ${key(c)}: check ${check} is neither measured nor listed as not_measured`);
   for (const [i, it] of (Array.isArray(report.interactions) ? report.interactions : []).entries()) {
     if (!isObj(it) || !str(it.name) || !INTERACTION_CHECKS.includes(it.check) || !str(it.screen) || !str(it.state)) { err(`interactions[${i}]: needs name, check (${INTERACTION_CHECKS.join("|")}), screen, state`); continue; }
@@ -377,10 +409,11 @@ export function validateReport(report, opt = {}) {
     else {
       for (const n of notMeasured) if (n.scope === "cell") reasons.push(`not measured: ${n.check} at ${key(n)}`);
       // A93 caps: no PASS without the network guard, with a write lacking an allowance, or with an unguarded worker.
-      if (net?.interception !== "on") reasons.push("network interception not applied (the adapter must block requests outside the page's origin)");
+      if (!native && net?.interception !== "on") reasons.push("network interception not applied (the adapter must block requests outside the page's origin)");
       if (writes.length && !writesAllowed) reasons.push(`${writes.length} same-origin write(s) without a visual_writes allowance in the plan or spec: ${writes.slice(0, 3).map((w) => `${w.method} ${w.url}`).join(", ")}`);
       if (Array.isArray(net?.unguarded) && net.unguarded.length) reasons.push(`${net.unguarded.length} child target(s) ran without the network guard`);
       for (const c of criteria) if (c?.required && computedCriteria[c.id] === "unproven") reasons.push(`${c.id} unproven`);
+      if (native && !measured.some((m) => m.status === "pass" && m.check !== "native_state_present")) reasons.push("native report has no measured cell (no label, touch-target, large-text or dark-theme measurement passed)");
       computed = reasons.length ? "INCONCLUSIVE" : "PASS";
     }
   }
@@ -392,7 +425,7 @@ export function validateReport(report, opt = {}) {
   const blocked = Array.isArray(net?.blocked) ? net.blocked.length : 0;
   const writesNote = writes.length ? ` same_origin_writes=${writes.length}${writesAllowed ? " (allowed)" : ""};` : "";
   const seoNote = isObj(seo) ? (seo.status === "run" ? `; seo=${seoItems.filter((m) => m.status === "pass").length}/${seoItems.length} pass, ${seoItems.filter((m) => m.status === "fail").length} fail, ${seoItems.filter((m) => m.status === "not_measured").length} not_measured` : "; seo=not_applicable") : "";
-  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}${seoNote}`;
+  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}${seoNote}${isObj(target) ? `; target=${target.type}${target.platform ? ":" + target.platform : ""}${target.via ? " via " + target.via : ""}` : ""}`;
   return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged, seoItems) };
 }
 

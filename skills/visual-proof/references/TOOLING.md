@@ -1,5 +1,7 @@
 # Tooling: detect, never install
 
+Native apps (Flutter, Android, iOS, React Native, desktop): see [NATIVE.md](NATIVE.md) (`scripts/native.mjs --detect`); this page is the web tooling.
+
 `node <skill-dir>/scripts/measure.mjs --detect --repo <repo>` prints one JSON object:
 
 | `kind` | Meaning | Next |
