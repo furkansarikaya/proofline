@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Release version bumps use `sh tests/ci/bump-version.sh <new-version>` (and `--check`), which rewrites only the version-holding sites by anchored patterns, so historical mentions such as "(0.0.24)" in visual-proof comments are no longer overwritten (A168). Those three comments are restored.
+
 ## 0.0.25 — 2026-10-22
 
 - Batch driver tests no longer fail at random: the EXIT trap of `sc_driver_stop` and `sc_driver_crash` guards its `kill` so a helper that is already gone does not turn a passed scenario into exit 1. The driver itself was not affected.

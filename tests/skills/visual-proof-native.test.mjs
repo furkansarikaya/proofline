@@ -1,4 +1,4 @@
-// visual-proof for native apps (0.0.25): target detection, project tool discovery, UNSUPPORTED, the uiautomator parser and
+// visual-proof for native apps (0.0.24): target detection, project tool discovery, UNSUPPORTED, the uiautomator parser and
 // the touch-target/label checks, and the report validator. Inline temporary fixtures; no model, no emulator, no device.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";

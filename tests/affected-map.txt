@@ -7,3 +7,4 @@
 tests/ci/classify.sh classify-test affected-test
 tests/affected.sh affected-test
 tests/affected-map.txt affected-test
+tests/ci/bump-version.sh bump-version-test

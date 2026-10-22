@@ -22,7 +22,7 @@ export const SCHEMA = "visual-proof/1";
 export const CORE = ["viewport_overflow", "horizontal_scroll", "hidden_interactive", "overlapping_interactive",
   "contrast", "touch_target", "state_rendered", "focus_order", "focus_visible"];
 export const INTERACTION_CHECKS = ["long_content", "form_validation", "modal_interaction", "dropdown_interaction"];
-// Native apps (0.0.25, references/NATIVE.md): checks of a report whose tool.kind is native-tool. A cell accounts for
+// Native apps (0.0.24, references/NATIVE.md): checks of a report whose tool.kind is native-tool. A cell accounts for
 // NATIVE_CORE; the large-text and dark-theme checks are measured only when the tool output carries them, else listed in target.not_measured.
 export const NATIVE_CORE = ["native_state_present", "native_labels", "native_touch_target"];
 export const NATIVE_OPTIONAL = ["native_large_text", "native_dark_theme"];
