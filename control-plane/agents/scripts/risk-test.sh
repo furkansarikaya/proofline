@@ -737,10 +737,10 @@ sc_gate_deps() {
   printf '%s\n' "$nx" | grep -Fq 'dispatch.sh LC qa --focus visual' || die "next does not offer QA visual: $nx"
   ! printf '%s\n' "$nx" | grep -Fq 'dispatch.sh LC verifier' || die "next offers VERIFY before QA visual: $nx"
   printf '%s\n' "$nx" | grep -Fq 'VERIFY waits for QA:visual' || die "next does not say why VERIFY waits: $nx"
-  expect_msg "VERIFY decided before QA visual" 'VERIFY needs QA:visual first' A decide LC verifier
+  expect_msg "VERIFY decided before QA visual" 'VERIFY needs QA:visual first' A decide LC verifier --agent-path
   expect_msg "VERIFY recorded before QA visual" 'VERIFY needs QA:visual first' gpass VERIFY
   RF_FOCUS=visual gpass QA
-  A decide LC verifier >/dev/null || die "VERIFY is refused after QA visual passed"
+  A decide LC verifier --agent-path >/dev/null || die "VERIFY is refused after QA visual passed"
   gpass VERIFY
   [ "$(gate_st VERIFY)" = pass ] || die "VERIFY did not record after QA visual: $(gate_st VERIFY)"
   ok "gate dependencies: VERIFY is not offered, decided or recorded before QA visual, and runs after it"
