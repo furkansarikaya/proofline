@@ -18,6 +18,10 @@ Every risk focus now has its skill. A check that cannot run reports UNSUPPORTED,
 
 An UNSUPPORTED result must cite the skill validator's own saved output. The script cross-checks it against the contract and migration files it detected in the diff. A reason line alone never skips a check. The control-plane self-tests test this with the skills' real validator output.
 
+## UX rules in visual-proof
+
+`skills/visual-proof/ux-rules.json` lists the UX rules QA checks (rule id, severity, `measure`). A rule with a measurable id (`design_ux_*`, or an existing design check such as reduced motion) is measured by the auditor and can fail the gate; the rest are judged items (`ux_review`), each `ok` or `concern` with a reason. A test checks that every id exists in the design library when both skills are installed. The library's chart guide chooses the chart type for surfaces with charts. Focused UI changes (`design ui <mode> <target>`) are verified with `skills/ui-design/scripts/scope-check.mjs`, which fails when a changed path or hunk lies outside the target.
+
 ## Native output formats of visual-proof
 
 visual-proof measures native apps only from structured output of tools the project already runs ([details](../../skills/visual-proof/references/NATIVE.md)). Two formats are read directly, by `native.mjs --normalize`, `--check` and `--build`:
