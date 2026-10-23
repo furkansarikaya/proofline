@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, SEO_NOT_APPLICABLE_NOTE, SEO_SITE, requiredCells, validateReport } from "./validate-visual.mjs";
 import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, designPages } from "./design-audit.mjs";
 import { motionAudit } from "./motion-audit.mjs";
-import { IMAGES_PROBE, ledgerItems } from "./ledger.mjs";
+import { FONTS_PROBE, IMAGES_PROBE, ledgerItems } from "./ledger.mjs";
 
 const BROWSER_NAMES = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "microsoft-edge", "microsoft-edge-stable", "msedge", "brave-browser"];
 const APP_PATHS = [
@@ -1025,12 +1025,13 @@ async function measureDesign(p, config, url, outDir, repo, shotName) {
         writeFileSync(join(outDir, rv.screenshot), await p.shot());
         if (vp.name === "wide" && pg.static && d.image_ledger) {
           const images = await p.ev(IMAGES_PROBE, true);
-          rp.ledger = ledgerItems({ images, ledgerText, ledgerPath: d.image_ledger, screen: pg.screen, viewport: vp.name, fonts: rv.facts.fontFaces });
+          const fonts = (await p.ev(FONTS_PROBE, true)).filter((f) => f.self_hosted).map((f) => ({ file: f.file, family: f.family }));
+          rp.ledger = ledgerItems({ images, ledgerText, ledgerPath: d.image_ledger, screen: pg.screen, viewport: vp.name, fonts });
         }
       } catch (e) { rv.error = e.message; delete rv.screenshot; delete rv.facts; }
     }
   }
-  try { out.motion = await motionAudit({ p, url, config, outDir, shotName: (...parts) => shotName("motion", ...parts) }); } catch (e) { out.motion = { error: e.message }; }
+  try { out.motion = await motionAudit({ p, url, config, outDir, shotName: (...parts) => shotName(...parts).replace(/^screenshots\/design-/, "screenshots/") }); } catch (e) { out.motion = { error: e.message }; }
   return out;
 }
 
