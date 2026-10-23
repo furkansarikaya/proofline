@@ -18,6 +18,7 @@ fixture_roles() {
     done
   done <<'X'
 architect opus:high opus:xhigh sonnet:high 2
+designer sonnet:medium opus:high sonnet:low 1
 explorer sonnet:medium opus:medium haiku:low 1
 implementer sonnet:high opus:high sonnet:medium 2
 reviewer sonnet:high opus:max sonnet:medium 2
@@ -92,6 +93,16 @@ res --role security_reviewer $base --signal fix_round_2
 check "escalation at the ladder top raises effort" 0 model=opus effort=xhigh escalation_reason=ESCALATED_EFFORT
 res --role reviewer $base --signal recent_fail_same_focus --escalations-used 2
 check "escalation bounded by budgets.max_escalations" 0 model=sonnet escalated=no escalation_reason=ESCALATION_BUDGET_EXHAUSTED
+res --role implementer $base --runtime claude --signal ui_persuade
+check "ui_persuade puts the implementer on the strongest model without an escalation" 0 model=opus model_reason~UI_PERSUADE_STRONGEST escalated=no signals=ui_persuade
+res --role designer $base --runtime claude --signal ui_persuade
+check "ui_persuade puts the designer on the strongest model" 0 model=opus model_reason~UI_PERSUADE_STRONGEST escalated=no
+res --role designer $base --runtime claude
+check "without the signal the designer keeps its profile model" 0 model=sonnet escalated=no
+res --role reviewer $base --runtime claude --signal ui_persuade
+check "ui_persuade changes no other role" 0 model=sonnet escalated=no
+res --role implementer $base --runtime claude --signal ui_persuade --model sonnet
+check "an explicit model override beats ui_persuade" 0 model=sonnet model_reason=OPERATOR_OVERRIDE
 res --role reviewer $base --signal nonsense
 check "unknown signal is a usage error" 2 err~unknown signal
 

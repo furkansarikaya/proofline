@@ -31,6 +31,12 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 per role group, so "Claude only", "Codex only" and mixes use one structure. Profiles `max`, `balanced`
 (default) and `economy` set model and effort per role. Every routing decision is written to the run ledger.
 
+A UI task whose surface is `persuade` or `experience` runs its designer and implementer on the strongest model of the
+runtime's ladder (signal `ui_persuade`, a placement that spends no escalation budget). `agent.sh decide` detects it from
+the run: `visitor_mode.mode` in `design/ui.json` (the spec or any screen) or a `visitor_mode: <mode>` line under the PLAN
+`## UI` section; before the designer has written either, the lead names the surface with `decide ... --ui-mode <mode>`.
+Operate and read surfaces keep the profile's model. An explicit `--model` still wins.
+
 ## The lead model
 
 A cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `exec-policy.sh check-lead` and the end-to-end harness refuse a Codex lead below the base model or without a model. `proofline doctor` fails on a resolved model below base, and only warns when it cannot resolve the model. No other runtime has a base model, so choose the lead model yourself.

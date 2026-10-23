@@ -98,8 +98,8 @@ resolve() {
   case "$tier" in docs|small|full) ;; *) die "--tier must be docs|small|full" ;; esac
   int "$used" || die "--escalations-used must be an integer"
   for s in $signals; do
-    case "$s" in low_confidence_pass|recent_fail_same_focus|large_diff|critical_class|fix_round_2) ;;
-      *) die "unknown signal: $s (want low_confidence_pass|recent_fail_same_focus|large_diff|critical_class|fix_round_2)" ;; esac
+    case "$s" in low_confidence_pass|recent_fail_same_focus|large_diff|critical_class|fix_round_2|ui_persuade) ;;
+      *) die "unknown signal: $s (want low_confidence_pass|recent_fail_same_focus|large_diff|critical_class|fix_round_2|ui_persuade)" ;; esac
   done
   [ "$class" = CRITICAL ] && case " $signals " in *" critical_class "*) ;; *) signals="$signals critical_class" ;; esac
 
@@ -158,6 +158,20 @@ resolve() {
     ereason=OPERATOR_OVERRIDE
   fi
 
+  # ui_persuade (0.0.27, A170): a UI task whose surface is persuade or experience runs its designer and implementer on the
+  # strongest model of the ladder. It is a placement, not an escalation: it spends no escalation budget and is not a step.
+  uip=no; rest=''
+  for s in $signals; do if [ "$s" = ui_persuade ]; then uip=yes; else rest="$rest $s"; fi; done
+  if [ "$uip" = yes ]; then
+    case "$role" in designer|implementer)
+      if [ -z "$o_model" ]; then
+        top_m=$(nth "$(count "$ladder")" $ladder)
+        [ "$top_m" = "$model" ] || { model=$top_m; mreason="$mreason,UI_PERSUADE_STRONGEST"; }
+      fi ;;
+    esac
+  fi
+  signals_all=$signals; signals=$rest
+
   # escalation: any signal raises one step (model first, effort when the model is pinned or at the top)
   escalated=no xreason=NO_SIGNAL
   if [ -n "${signals# }" ]; then
@@ -182,7 +196,7 @@ resolve() {
   fi
   [ "$ctx" -le "$max_ctx" ] || { ctx=$max_ctx; creason="$creason,CAPPED_AT_HARD_LIMIT"; }
 
-  sig=''; for s in $signals; do sig="${sig:+$sig,}$s"; done
+  sig=''; for s in $signals_all; do sig="${sig:+$sig,}$s"; done
   cat <<EOF
 policy_version=$(cfg execution_policy revision)
 role=$role
@@ -221,6 +235,7 @@ explain() {
         ESCALATION_BUDGET_EXHAUSTED) t="escalation signal ignored: budgets.max_escalations used up" ;; AT_CEILING) t="escalation signal ignored: model and effort at their ceiling or pinned" ;;
         NO_SIGNAL) t="no escalation signal" ;; CLASS_BUDGET) t="context budget of the task class" ;;
         TIER_DOCS|TIER_SMALL) t="docs/small tier: half the class context budget" ;; CAPPED_AT_HARD_LIMIT) t="bounded by execution_policy.max_context_bytes" ;;
+        UI_PERSUADE_STRONGEST) t="UI task on a persuade or experience surface: strongest model of the ladder" ;;
         *) t="(no text for $c)" ;;
       esac
       printf '%s: %s - %s\n' "$k" "$c" "$t"
