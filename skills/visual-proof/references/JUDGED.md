@@ -62,3 +62,12 @@ says what the numbers cannot. Look at the screenshot first, then write what is v
 
 Rules: every id appears once; `reason` is never empty; a `concern` names what is wrong and where, in a sentence a fixer can act on. Where a critique concern
 repeats a failed measured item, the measured item is the finding. Taste that the spec does not state stays a `concern`, as above.
+
+## UX review (`ux_review[]`)
+
+`ux-rules.json` lists every UX rule with its severity and `measure`: a check id, or `judged`. For COMPLEX or CRITICAL with the `design` group, `report.json` carries
+`ux_review[]`: one item `{rule, status ok|concern|not_applicable, reason, screenshot {path, sha256}}` for **every rule that is `judged` and `high`**
+(the validator names the missing ones). Medium and low judged rules are optional: add an item when the screenshots show a problem. A rule measured by a check has no item
+here; its failure is the measured item. `not_applicable` (a rule about a surface the product does not have, such as a gesture on a desktop-only page) needs a reason.
+A surface with a chart may add the extra id `chart_type` (see [CHARTS.md](CHARTS.md)). Same rules as the critique: a non-empty `reason`, a `concern` says what is wrong and where,
+no numeric score, never closes the gate (`concern` is an `info` row). The rule id reads as `<group>-<topic>`; judge the rule by what its name asks on the rendered page.

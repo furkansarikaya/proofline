@@ -16,7 +16,8 @@ export const DESIGN_VIEWPORTS = [
 ];
 export const DESIGN_MODES = ["persuade", "operate", "read", "experience"];
 export const DESIGN_STATIC_CHECKS = ["design_heading_lines", "design_type_scale", "design_body_measure", "design_fonts_loaded", "design_edge_margins",
-  "design_edge_text", "design_vacuum", "design_untitled_section", "design_empty_hero", "design_surfaces", "design_untranslated"];
+  "design_edge_text", "design_vacuum", "design_untitled_section", "design_empty_hero", "design_surfaces", "design_untranslated",
+  "design_ux_alt_text", "design_ux_form_labels", "design_ux_control_names", "design_ux_viewport_meta", "design_ux_body_font_size"];
 export const DESIGN_MOTION_CHECKS = ["design_motion_count", "design_reduced_motion", "design_no_script_visible", "design_scene"];
 export const DESIGN_CHECKS = [...DESIGN_STATIC_CHECKS, ...DESIGN_MOTION_CHECKS, "design_image_ledger"];
 export const DESIGN_STATUSES = ["pass", "fail", "not_applicable", "not_measured"];
@@ -25,6 +26,10 @@ export const CRITIQUE_IDS = ["glance_1s_5s", "squint", "logo_off", "edge_alignme
   "visual_count_and_motion", "section_monotony", "phone_composition", "screen_fullness", "content_completeness", "overlaps", "one_live_thing"];
 export const CRITIQUE_STATUSES = ["ok", "concern", "not_applicable"];
 export const LIVE_THING_MODES = ["persuade", "experience"];
+// Judged UX review (ux-rules.json): items of report.ux_review[]. `chart_type` is the one extra judged id (references/CHARTS.md).
+export const UX_REVIEW_STATUSES = ["ok", "concern", "not_applicable"];
+export const UX_SEVERITIES = ["high", "medium", "low"];
+export const CHART_TYPE_ID = "chart_type";
 
 // Checks that exist only in some modes; in the others the item is `not_applicable` with the fixed note.
 export const MODE_APPLIES = {
@@ -41,14 +46,15 @@ export const ENGLISH_PAGE_NOTE = "not applicable: the page language is English";
 export const designApplies = (check, mode) => !MODE_APPLIES[check] || MODE_APPLIES[check].includes(mode);
 
 // Static checks of the facts that do not depend on the viewport are measured once, at `wide`.
-const WIDE_ONLY = ["design_fonts_loaded", "design_surfaces", "design_untranslated"];
-export const PER_VIEWPORT = DESIGN_STATIC_CHECKS.filter((c) => !WIDE_ONLY.includes(c));
+const WIDE_ONLY = ["design_fonts_loaded", "design_surfaces", "design_untranslated", "design_ux_viewport_meta"];
+const PHONE_ONLY = ["design_ux_body_font_size"]; // a rule about small screens: measured at phone390 only
+export const PER_VIEWPORT = DESIGN_STATIC_CHECKS.filter((c) => !WIDE_ONLY.includes(c) && !PHONE_ONLY.includes(c));
 
 // What a measured page must account for at one viewport (an item of any status, or a not_measured entry).
 // page = { static: bool, language?: string }; a page that is only a language entry gets design_untranslated at `wide`.
 export function expectedChecks(page, mode, viewport) {
   const out = [];
-  if (page.static) out.push(...(viewport === "wide" ? DESIGN_STATIC_CHECKS.filter((c) => c !== "design_untranslated") : PER_VIEWPORT));
+  if (page.static) out.push(...(viewport === "wide" ? DESIGN_STATIC_CHECKS.filter((c) => c !== "design_untranslated" && !PHONE_ONLY.includes(c)) : [...PER_VIEWPORT, ...(viewport === "phone390" ? PHONE_ONLY : [])]));
   if (viewport === "wide" && page.language) out.push("design_untranslated");
   return out;
 }
@@ -63,6 +69,7 @@ export function designThreshold(check, mode, viewport) {
     case "design_edge_margins": return "<= 8";
     case "design_edge_text": return ">= 12";
     case "design_vacuum": return "<= 0.5";
+    case "design_ux_body_font_size": return ">= 16";
     default: return "== 0";
   }
 }
@@ -220,7 +227,41 @@ export function evaluateStatic(f, ctx) {
       add("design_untranslated", bs[0]?.selector || "body", bs.length, bs.length === 0, bs.length ? list(bs.map((b) => `${b.selector}: "${b.text}"`)) : `no English text block on a ${lang} page`);
     }
   }
+
+  if (runStatic) evaluateUx(f, ctx, { add, nm, list });
   return out;
+}
+
+// The measurable high-severity UX rules (ux-rules.json maps rule ids to these). Counts of offenders, `== 0`, unless noted.
+function evaluateUx(f, ctx, { add, nm, list }) {
+  const u = f.ux;
+  if (!u) {
+    for (const c of DESIGN_STATIC_CHECKS.filter((x) => x.startsWith("design_ux_") && (!PHONE_ONLY.includes(x) || ctx.viewport === "phone390") && (!WIDE_ONLY.includes(x) || ctx.viewport === "wide"))) nm(c, "the probe supplied no UX facts");
+    return;
+  }
+  const count = (check, set, noun, what) => {
+    if (!set) return nm(check, `no ${noun} facts`);
+    const bad = set.bad || [];
+    add(check, bad[0]?.selector, bad.length, bad.length === 0, bad.length ? list(bad.map((b) => `${b.selector} ${what}`)) : `${set.total} ${noun} checked, none ${what.replace(/^has /, "lacks ")}`);
+  };
+  count("design_ux_alt_text", u.images, "image(s)", "has no alt attribute");
+  count("design_ux_form_labels", u.fields, "form field(s)", "has no label or accessible name");
+  count("design_ux_control_names", u.controls, "control(s)", "has no accessible name");
+  if (ctx.viewport === "wide") {
+    const m = u.viewportMeta, problems = [];
+    if (m === null || m === undefined) problems.push("no meta viewport tag");
+    else {
+      if (!/width\s*=\s*device-width/i.test(m)) problems.push("width is not device-width");
+      if (/user-scalable\s*=\s*(no|0)/i.test(m)) problems.push("user-scalable disables zoom");
+      const mx = /maximum-scale\s*=\s*([\d.]+)/i.exec(m);
+      if (mx && Number(mx[1]) < 2) problems.push(`maximum-scale ${mx[1]} limits zoom`);
+    }
+    add("design_ux_viewport_meta", "meta[name=viewport]", problems.length, problems.length === 0, problems.length ? problems.join("; ") : `viewport meta "${String(m).slice(0, 60)}"`);
+  }
+  if (ctx.viewport === "phone390") {
+    if (typeof f.bodySize !== "number" || !(f.paragraphs || []).length) nm("design_ux_body_font_size", "no body paragraph to measure");
+    else add("design_ux_body_font_size", f.paragraphs[0]?.selector, round(f.bodySize, 1), f.bodySize >= 16, `median body text ${round(f.bodySize, 1)}px at ${f.vw}px wide`);
+  }
 }
 
 // --- pages of a config ---------------------------------------------------------------------------------------
@@ -493,7 +534,29 @@ export function designProbeSource() {
   // text blocks for the untranslated check
   const textBlocks = texts.filter((e) => !e.closest("code,pre,kbd,samp,textarea,[translate=no]")).slice(0, 600).map((e) => ({ selector: sel(e), text: own(e).slice(0, 300) })).filter((b) => b.text.split(" ").length >= 4);
 
+  // ux (the high-severity rules a page can prove): alt text, form labels, control names, viewport meta
+  const textOf = (id) => (document.getElementById(id)?.textContent || "").trim();
+  const named = (e) => {
+    if ((e.getAttribute("aria-label") || "").trim() || (e.getAttribute("title") || "").trim()) return true;
+    if ((e.getAttribute("aria-labelledby") || "").split(/\s+/).some((id) => id && textOf(id))) return true;
+    if (e.labels && [...e.labels].some((l) => l.textContent.trim())) return true;
+    if (e.tagName === "INPUT" && /^(submit|button|reset)$/i.test(e.type) && (e.value || "").trim()) return true;
+    if (e.tagName === "INPUT" && e.type === "image" && (e.getAttribute("alt") || "").trim()) return true;
+    if ((e.textContent || "").trim()) return true;
+    return [...e.querySelectorAll("img[alt],svg title,[aria-label]")].some((x) => (x.getAttribute("alt") || x.getAttribute("aria-label") || x.textContent || "").trim());
+  };
+  const uxImgs = [...document.querySelectorAll("img")].filter((e) => shown(e, true));
+  const uxFields = [...document.querySelectorAll("input,select,textarea")].filter((e) => !/^(hidden|submit|button|reset|image)$/i.test(e.type || "") && shown(e, true));
+  const uxCtl = [...document.querySelectorAll("button,[role=button],a[href],summary,input[type=submit],input[type=button],input[type=image]")].filter((e) => shown(e, true));
+  const vm = document.querySelector("meta[name=viewport]");
+  const ux = {
+    viewportMeta: vm ? vm.getAttribute("content") || "" : null,
+    images: { total: uxImgs.length, bad: uxImgs.filter((e) => !e.hasAttribute("alt") && !/^(presentation|none)$/.test(e.getAttribute("role") || "") && !(e.getAttribute("aria-label") || e.getAttribute("aria-labelledby"))).slice(0, 20).map((e) => ({ selector: sel(e) })) },
+    fields: { total: uxFields.length, bad: uxFields.filter((e) => !named(e)).slice(0, 20).map((e) => ({ selector: sel(e) })) },
+    controls: { total: uxCtl.length, bad: uxCtl.filter((e) => !named(e)).slice(0, 20).map((e) => ({ selector: sel(e) })) },
+  };
+
   return { url: location.href, lang: de.lang || "", vw, vh, docHeight: de.scrollHeight, headings, headingSizes: hsized.map((h) => h.size), largestHeading: largest ? sel(largest.e) : null,
-    bodySize, paragraphs, fonts, fontFaces, edge, edgeText, blocks, sections, hero, surfaces, textBlocks };
+    bodySize, paragraphs, fonts, fontFaces, edge, edgeText, blocks, sections, hero, surfaces, textBlocks, ux };
 }
 export const DESIGN_PROBE = `(${designProbeSource.toString()})`;
