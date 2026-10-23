@@ -159,6 +159,7 @@ function inFlightPid(marker) {
     // A live pid is not enough (pids are reused): a marker older than dispatch.timeout_seconds + 60 s is stale.
     let timeout = 1800;
     try { const t = /^\s*timeout_seconds:\s*(\d+)/m.exec(readFileSync(join(dirname(marker), "../../../config.yaml"), "utf8")); if (t) timeout = Number(t[1]); } catch { /* default */ }
+    try { const mt = /^timeout=(\d+)$/m.exec(readFileSync(marker, "utf8")); if (mt) timeout = Math.max(timeout, Number(mt[1])); } catch { /* default */ }
     if (Date.now() - statSync(marker).mtimeMs > (timeout + 60) * 1000) return "";
     process.kill(Number(m[1]), 0);
     return m[1];

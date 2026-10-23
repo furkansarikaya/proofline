@@ -579,6 +579,30 @@ sc_ask() {
   ok "ask: the lead's question is pending, verbatim, ledgered, answered like a specialist's"
 }
 
+# A171: a plan over the class's max_scope_paths stops at freeze and proposes a split; only the user's own
+# `proceed without splitting` lets it continue, and that answer is recorded in the ledger.
+sc_split_override() {
+  SC_SCOPE_EXTRA=AC-1 SC_SCOPE_OTHER=AC-1 unfrozen STANDARD
+  d=.agents/runs/LC
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "3"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  grep -q 'max_scope_paths: 3' .agents/config.yaml || die "the test config was not narrowed"
+  expect_msg "a plan over max_scope_paths froze" 'at least 2 tasks of at most 3 paths each' A freeze LC
+  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 1 ] || die "freeze did not keep exactly one split question"
+  grep -q '^ *SPLIT: 4@[0-9a-f]\{12\}$' $d/questions/001.md || die "the question is not bound to the scope list"
+  expect_fail "freeze passed with the split question unanswered" A freeze LC
+  # the lead's own answer, a negated or conditional user answer never lets it through
+  printf 'proceed without splitting\n' | A answer LC 1 >/dev/null
+  grep -q '^answered_by: lead' $d/questions/001.answer.md || die "an answer without a user capture was recorded as the user's"
+  expect_msg "the lead's own override froze" 'pipeline allows at most 3' A freeze LC
+  q=$(ls $d/questions/[0-9][0-9][0-9].md | tail -1); n=$(basename "$q" .md | sed 's/^0*//')
+  capture 'proceed without splitting only if the reviewer agrees'; printf 'proceed without splitting only if the reviewer agrees\n' | A answer LC "$n" >/dev/null
+  expect_msg "a conditional override froze" 'pipeline allows at most 3' A freeze LC
+  q=$(ls $d/questions/[0-9][0-9][0-9].md | tail -1); n=$(basename "$q" .md | sed 's/^0*//')
+  capture 'Proceed without splitting'; printf 'Proceed without splitting\n' | A answer LC "$n" >/dev/null
+  A freeze LC >/dev/null 2>&1 || die "the user's override did not let the freeze through: $(A freeze LC 2>&1)"
+  grep -q 'event=split_override .*scope_paths=4 max=3 class=STANDARD answer=questions/' $d/LEDGER.log || die "the override is not in the ledger"
+  ok "freeze over max_scope_paths stops with a split proposal and proceeds only on the user's recorded 'proceed without splitting'"
+}
 # A79: the assumption register. Freeze checks the shape of both registers, refuses an unverified high-risk
 # assumption until the user answered its bound question with `accept`, never accepts one silently, and the
 # completion report lists every unverified or accepted-by-user assumption.
@@ -1248,6 +1272,52 @@ sc_wiki_knowledge_scope() {
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
 }
 
+# A171: the files the knowledge step writes (knowledge_scope_root, design_docs) are not part of the content fingerprint
+# the gates bind, so recorded gates stay fresh after the step.
+sc_knowledge_gates_fresh() {
+  scaffold orchestrated; to_code_done orchestrated
+  before=$(A pipeline LC | grep '^gate\.')
+  printf '%s\n' "$before" | grep -q 'gate\.[A-Z_]*=\(stale\|missing\|fail\)' && die "gates are not fresh before the knowledge step: $before"
+  mkdir -p docs/wiki/concepts docs/design docs/adr docs/product; printf '# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  printf '# Design\n' > docs/design/DESIGN.md; printf '# ADR 1\n' > docs/adr/0001-x.md; printf '# PRD\n' > docs/product/PRD.md
+  A knowledge-done LC >/dev/null
+  after=$(A pipeline LC | grep '^gate\.')
+  [ "$before" = "$after" ] || die "the knowledge step's files changed the gate statuses: before [$before] after [$after]"
+  A delivery-check LC >/dev/null 2>&1 || :
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' && die "a gate went stale after the knowledge step"
+  ok "gates do not go stale after the knowledge step writes its files"
+}
+# A171: design-sync drift in a knowledge-scope document is information for the verifier (no FAIL, no waiver, no scope
+# change) and an obligation of the knowledge step; knowledge-done and delivery block while the drift remains.
+sc_knowledge_drift() {
+  evidence_gap_fixture
+  cp -R "$tl_agents/../../skills/design-sync" .agents/skills/design-sync
+  mkdir -p docs/design "$d/design"; printf '# Design\n\nThe widget lives in `src/missing.js`.\n' > docs/design/DESIGN.md; printf 'docs/\n' >> .git/info/exclude
+  printf '%s\n' '# Design sync: LC' '' 'Verdict: FAIL' '' '## Documents' '' '| Role | Path | Present |' '|---|---|---|' '| design | docs/design/DESIGN.md | yes |' '' '## Counts' '' 'matched: 0, unmatched (after review): 1, unverifiable: 0' '' '## Drift' '' '- docs/design/DESIGN.md:3 -> path src/missing.js: no such file or directory' '' '## Unverifiable' '' 'None.' > "$d/design/SYNC.md"
+  vw PASS 0 'ok 3 tests' PASS
+  sed -i.bak 's|^design-sync: SKIPPED.*|design-sync: PASS (knowledge-scope drift: 1 line handed to the knowledge step)|' "$d/VERIFY.md"; rm -f "$d/VERIFY.md.bak"
+  # a drift row on a code path stays blocking; the same row on a knowledge-scope document is information
+  printf 'blocking|src/app.js:4|D-2: design-sync drift: route GET /x not found|design-sync exit=1\n' > "$base/rows"
+  expect_msg "a drift row on a code path was not blocking" 'contradicts' AS verifier submit LC --confidence high --result PASS --findings "$base/rows" --agent kd0
+  printf 'blocking|docs/design/DESIGN.md:3|D-1: design-sync drift: path src/missing.js not found|design-sync exit=1\n' > "$base/rows"
+  out=$(AS verifier submit LC --confidence high --findings "$base/rows" --agent kd1 2>&1) || die "knowledge-scope drift failed the verifier: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier PASS' || die "knowledge-scope drift was not information: $out"
+  grep -rq 'info.*KNOWLEDGE_DRIFT: D-1: design-sync drift' "$d/results" "$d/reports" 2>/dev/null || grep -rq 'KNOWLEDGE_DRIFT' "$d" || die "the drift row was not recorded as KNOWLEDGE_DRIFT information"
+  pass_all; A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused: $(A handoff LC CODE_DONE 2>&1)"
+  sed -i.bak '/^docs\/$/d' .git/info/exclude; rm -f .git/info/exclude.bak   # the knowledge step's files are visible from here on
+  # before the knowledge step the drift is information in next
+  A next LC | grep -q 'note=design-sync drift in knowledge-scope documents' || die "next does not show the drift as information: $(A next LC)"
+  # after the knowledge step it still drifts: blocked, nothing to waive
+  expect_msg "knowledge-done with drift left" 'design-sync drift in knowledge-scope documents is still there' A knowledge-done LC
+  expect_state execution knowledge_state not_started
+  # the knowledge step fixes the document: both pass
+  printf '# Design\n\nThe widget lives in `impl.txt`.\n' > docs/design/DESIGN.md
+  A knowledge-done LC >/dev/null || die "knowledge-done refused after the document was fixed: $(A knowledge-done LC 2>&1)"
+  expect_state execution knowledge_state KNOWLEDGE_DONE
+  printf '# Design\n\nThe widget lives in `src/missing.js`.\n' > docs/design/DESIGN.md
+  expect_msg "delivery with the drift back" 'design-sync drift in knowledge-scope documents is still there' A delivery-check LC
+  ok "design-sync drift in knowledge-scope documents is information before the knowledge step and blocks knowledge-done and delivery after it"
+}
 # A159: `knowledge-done not_applicable` is a claim the script checks: a reason is required, it is shown in the report,
 # and a task that changes what the user sees, a contract or a design document is refused.
 sc_knowledge_na() {
@@ -2132,6 +2202,9 @@ run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
 run_sc sc_approval_retry
 run_sc sc_ask
+run_sc sc_knowledge_gates_fresh
+run_sc sc_knowledge_drift
+run_sc sc_split_override
 run_sc sc_assumptions
 run_sc sc_questions
 run_sc sc_questions_keys

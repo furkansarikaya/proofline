@@ -166,6 +166,7 @@ config_check() {
       else if (k ~ /^pipelines\.[A-Z]+\.(evidence|qa|architect)$/) en(k, v, "yes|no")
       else if (k ~ /^pipelines\.[A-Z]+\.review$/) en(k, v, "yes|no|optional")
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)
+      else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad(k " must be at least 30") }
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
@@ -545,7 +546,8 @@ content_fingerprint() {
   # A152: a path under .agents/ that a run's plan scope names is task-owned product content, so it stays in the tree.
   # A154: the files `upgrade` installs (installed_control_paths, the agent-file patterns) and the proofline block of
   # AGENTS.md/CLAUDE.md are control plane too; a path a plan scope names (cf_named) stays in whole.
-  cf_td=$(cfg tasks.dir .agents/tasks); cf_keep='' cf_named=''
+  cf_td=$(cfg tasks.dir .agents/tasks); cf_keep='' cf_named='' cf_kn=''
+  [ "$cf_mode" != gate ] || cf_kn=$(knowledge_scope_entries)
   for cf_pl in "$root"/.agents/runs/*/PLAN.md; do
     [ -f "$cf_pl" ] || continue
     for cf_p in $(scope_mappings "$cf_pl" 2>/dev/null | cut -d '|' -f1); do
@@ -563,6 +565,14 @@ content_fingerprint() {
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
       git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
       git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$cf_td" >/dev/null 2>&1
+      # A171: the knowledge step writes these after the gates ran; they are documentation, so a gate does not bind them
+      # (mode gate). A path a plan scope names stays in whole (put back below); approvals bind the full tree (no mode).
+      if [ "$cf_mode" = gate ]; then
+        for cf_x in $cf_kn; do git -C "$root" rm -r -q --cached --ignore-unmatch -- "${cf_x%/}" >/dev/null 2>&1; done
+        for cf_n in $cf_named; do
+          if in_knowledge_scope "$cf_n" && [ -f "$root/$cf_n" ]; then git -C "$root" add -f -- "$cf_n" >/dev/null 2>&1 || exit 1; fi
+        done
+      fi
       for cf_k in $cf_keep; do git -C "$root" add -f -- "$cf_k" >/dev/null 2>&1 || exit 1; done
       for cf_i in '.claude/agents/proofline-*.md' '.codex/agents/proofline-*.toml' $(installed_control_paths); do
         git -C "$root" rm -r -q --cached --ignore-unmatch -- "$cf_i" >/dev/null 2>&1
@@ -588,6 +598,9 @@ content_fingerprint() {
   if cf_out=$(cf_try "$cf_tmp/objects") && [ -n "$cf_out" ]; then rm -rf "$cf_tmp"; printf '%s\n' "$cf_out"; return 0; fi
   rm -rf "$cf_tmp"; fail "could not compute the content fingerprint"
 }
+
+# The fingerprint gates, results and waivers bind: the content fingerprint without the knowledge step's files (A171).
+gate_fingerprint() { content_fingerprint gate; }
 
 # legacy_fingerprint_match RECORDED (A161): a gate record written by 0.0.12 or 0.0.13 (before A156) holds a content fingerprint
 # in which a block-only AGENTS.md/CLAUDE.md is still part of the tree. That value is accepted as the current one iff the tree
@@ -1134,6 +1147,50 @@ gate_default_artifact() {
 }
 valid_gate_name() { case "$1" in SECRETS|REVIEW_SMALL|REVIEW_PLAN|REVIEW_RULES|REVIEW_TESTS|REVIEW_DATA|SECURITY|QA|VERIFY) return 0 ;; *) return 1 ;; esac; }
 
+# A171: a plan over the class's max_scope_paths stops at freeze and proposes a split. The user's answer
+# `proceed without splitting` (answered_by user, at the start of the prompt, no negation or condition) to the question
+# bound to this exact scope list is the recorded override; any other answer keeps the freeze stopped.
+split_token() { # ID COUNT : COUNT@hash of the sorted scope paths
+  printf '%s@%s\n' "$2" "$(scope_mappings "$(run_dir "$1")/PLAN.md" | cut -d '|' -f1 | LC_ALL=C sort | sha256 | cut -c1-12)"
+}
+split_state() { # ID TOKEN -> accepted <answer> | pending <question> | declined <answer> | none
+  ss_d=$(run_dir "$1"); ss_pend='' ss_decl=''
+  for ss_q in "$ss_d"/questions/[0-9][0-9][0-9].md; do
+    [ -e "$ss_q" ] || continue
+    grep -Eq "^[[:space:]]*SPLIT: $2[[:space:]]*\$" "$ss_q" || continue
+    ss_a=${ss_q%.md}.answer.md
+    if [ ! -e "$ss_a" ]; then ss_pend=questions/$(basename "$ss_q"); continue; fi
+    ss_t=$(sed '1,/^---$/d' "$ss_a" | tr -s '[:space:]' ' ' | sed 's/^ //' | tr '[:upper:]' '[:lower:]')
+    if [ "$(gate_field "$ss_a" answered_by)" = user ] && printf '%s' "$ss_t" | grep -Eq '^proceed without splitting' \
+      && ! printf ' %s ' "${ss_t#proceed without splitting}" | grep -Eq "(^|[^[:alpha:]])(not|never|no|n't|if|unless|but|except|until|yet|wait|maybe|or|actually|instead)([^[:alpha:]]|\$)"; then
+      echo "accepted questions/$(basename "$ss_a")"; return 0
+    fi
+    ss_decl=questions/$(basename "$ss_a")
+  done
+  if [ -n "$ss_pend" ]; then echo "pending $ss_pend"; elif [ -n "$ss_decl" ]; then echo "declined $ss_decl"; else echo none; fi
+}
+split_check() { # ID CLASS COUNT MAX
+  sp_id=$1 sp_n=$3 sp_max=$4; sp_tok=$(split_token "$sp_id" "$sp_n"); sp_st=$(split_state "$sp_id" "$sp_tok")
+  case "$sp_st" in
+    accepted*)
+      echo "note: $sp_n scope paths exceed the $2 limit of $sp_max; freezing without splitting on the user's answer (${sp_st#accepted })" >&2
+      ledger_append "$sp_id" split_override - - "scope_paths=$sp_n max=$sp_max class=$2 answer=${sp_st#accepted }" ; return 0 ;;
+    pending*) fail "this plan has $sp_n scope paths; the $2 pipeline allows at most $sp_max. The split question ${sp_st#pending } is unanswered (relay it: 'agent.sh questions $sp_id'): the user splits the task or answers 'proceed without splitting'" ;;
+  esac
+  sp_parts=$(( (sp_n + sp_max - 1) / sp_max ))
+  sp_q=$(mktemp "${TMPDIR:-/tmp}/proofline-split.XXXXXX")
+  if [ "$(run_language "$sp_id")" = tr ]; then
+    printf '1. Plan %s kapsam yolu içeriyor; %s hattı en fazla %s yola izin verir. Görev bölünsün mü? Önerim: her biri en fazla %s yol içeren en az %s göreve bölmek (task-author bölme akışı).\n   SPLIT: %s\n   seçenekler: "böl" (task-author görevi böler, bu koşu daralır) | "proceed without splitting" (bölmeden devam; cevabınızla kayda geçer)\n   önerilen: böl\n   neden: büyük kapsam gözden geçirmeyi ve geri almayı zorlaştırır; bölmeden devam yalnızca sizin açık cevabınızla olur\n' \
+      "$sp_n" "$2" "$sp_max" "$sp_max" "$sp_parts" "$sp_tok" > "$sp_q"
+  else
+    printf '1. The plan has %s scope paths; the %s pipeline allows at most %s. Split the task? Proposal: split it into at least %s tasks of at most %s scope paths each (the task-author split flow).\n   SPLIT: %s\n   options: "split" (task-author splits the task, this run is narrowed) | "proceed without splitting" (the phrase is part of the answer; recorded as the user'"'"'s override)\n   recommended: split\n   why: a wide scope is hard to review and to roll back; continuing unsplit happens only on your explicit answer\n' \
+      "$sp_n" "$2" "$sp_max" "$sp_parts" "$sp_max" "$sp_tok" > "$sp_q"
+  fi
+  if [ "$sp_st" = none ] || [ "${sp_st%% *}" = declined ]; then ask_question "$sp_id" "$sp_q" >/dev/null; fi
+  rm -f "$sp_q"
+  fail "this plan has $sp_n scope paths; the $2 pipeline allows at most $sp_max. Propose the split to the user: at least $sp_parts tasks of at most $sp_max paths each (task-author split flow). Question recorded (relay it: 'agent.sh questions $sp_id'); the user answers 'proceed without splitting' to continue unsplit, which is recorded"
+}
+
 # Freeze-time artifact contract: required artifacts exist, unrequired ones do not, class plan rules hold.
 pipeline_check() {
   id=$1; dir=$(run_dir "$id")
@@ -1154,9 +1211,13 @@ pipeline_check() {
   pc_bad=$(plan_risk_invalid "$dir/PLAN.md")
   [ -z "$pc_bad" ] || fail "PLAN.md '## Risk' holds only flag lines '<flag>: yes|no' (flags: $risk_plan_flags); not one: $pc_bad"
   pc_max=$(pipeline_value "$class" max_scope_paths)
+  [ -n "$pc_max" ] || [ -z "$class" ] || pc_max=15   # A171: a class without its own limit still has the default one
   if [ -n "$pc_max" ]; then
     pc_n=$(scope_mappings "$dir/PLAN.md" | wc -l | tr -d ' ')
-    [ "$pc_n" -le "$pc_max" ] || fail "the $class pipeline allows at most $pc_max scope paths; this plan has $pc_n — reclassify"
+    if [ "$pc_n" -gt "$pc_max" ]; then
+      if [ "$class" = TRIVIAL ]; then fail "the $class pipeline allows at most $pc_max scope paths; this plan has $pc_n — reclassify"; fi
+      split_check "$id" "$class" "$pc_n" "$pc_max"
+    fi
   fi
   # A115: TRIVIAL covers text and configuration; code (tests included) in the scope is refused at freeze, not at IMPLEMENTED (A31).
   if [ "$class" = TRIVIAL ]; then
@@ -1182,7 +1243,7 @@ pipeline_show() {
     "$class" "$(pipeline_review "$id")" "$(pipeline_needs "$id" evidence)" "$(pipeline_needs "$id" qa)" "$(pipeline_needs "$id" architect)" \
     "$(pipeline_value "$class" max_explorers)" "$(run_autonomy "$id")" "$ps_tier" "$ps_art" "$ps_round" "$(max_fix_rounds)" \
     "$( [ "$ps_round" -ge 2 ] && echo yes || echo no )" "$ps_gates"
-  ps_fp=$(content_fingerprint)
+  ps_fp=$(gate_fingerprint)
   for ps_g in $ps_gates; do
     printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" reuse "$ps_fp")"
     ps_u=$(gate_unsupported_focuses "$id" "$ps_g" reuse "$ps_fp"); [ -z "$ps_u" ] || printf 'gate.%s.unsupported=%s (unproven, reported; the gate is not a full pass)\n' "$ps_g" "$ps_u"
@@ -1648,11 +1709,15 @@ task_source_status() {
 # Knowledge scope (Transaction B): space-separated entries of knowledge_scope_root; an entry ending in /
 # is a directory prefix, any other entry an exact path. A plan-scoped path stays application scope.
 # The configured design documents (design_docs.*) belong to it too (A159); an installed project without the key gets the default roots.
-in_knowledge_scope() {
+knowledge_scope_entries() { # the knowledge_scope_root entries plus the configured design documents (dir entries end in /)
   ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/ docs/product/')
   for ks_k in design architecture data_model api adr_dir; do
     ks_p=$(cfg "design_docs.$ks_k" ""); [ -z "$ks_p" ] || { [ "$ks_k" != adr_dir ] || ks_p=${ks_p%/}/; ks_r="$ks_r $ks_p"; }
   done
+  printf '%s\n' "$ks_r"
+}
+in_knowledge_scope() {
+  ks_r=$(knowledge_scope_entries)
   for ks_e in $ks_r; do
     case "$ks_e" in */) case "$1" in "$ks_e"*) return 0 ;; esac ;; *) [ "$1" != "$ks_e" ] || return 0 ;; esac
   done
@@ -2586,7 +2651,7 @@ blocking_finding_ids() { sed -n 's/^finding: \([^|]*\)|\([a-z]*\)|.*/\1 \2/p' "$
 # `unsupported` (unproven, reported) does not hold the gate open; it is never `pass` and the report lists it.
 gate_status() {
   gs_id=$1 gs_gate=$2 gs_mode=${3:-strict} gs_now=${4:-}
-  if [ "$gs_mode" != patch ]; then [ -n "$gs_now" ] || gs_now=$(content_fingerprint)
+  if [ "$gs_mode" != patch ]; then [ -n "$gs_now" ] || gs_now=$(gate_fingerprint)
   else [ -n "$gs_now" ] || gs_now=$(task_patch_fingerprint "$gs_id"); fi
   gs_worst=pass
   for gs_fc in - $(risk_gate_focuses "$gs_id" "$gs_gate"); do
@@ -2652,7 +2717,7 @@ gate_label() { # ID GATE MODE NOW
 }
 gate_satisfied() { case "$1" in pass|waived|unsupported) return 0 ;; *) return 1 ;; esac; }
 verify_required_gates() { # ID strict|patch MESSAGE
-  vrg_now=''; [ "$2" = patch ] || vrg_now=$(content_fingerprint); risk_prime "$1"
+  vrg_now=''; [ "$2" = patch ] || vrg_now=$(gate_fingerprint); risk_prime "$1"
   for vrg_g in $(required_gates "$1"); do
     vrg_s=$(gate_status "$1" "$vrg_g" "$2" "$vrg_now")
     gate_satisfied "$vrg_s" || fail "$3: required gate $vrg_g of $1 is $vrg_s for the current content (see 'agent.sh pipeline $1')"
@@ -3050,7 +3115,7 @@ record_validate() {
       risk_gate_focuses "$rv_id" "$rv_gate" | grep -Fxq -- "$rv_focus" || { record_reject "focus $rv_focus is not required on $rv_gate of $rv_id: no risk signal triggers it (see 'agent.sh pipeline $rv_id')"; return 1; }
     fi
   fi
-  rv_fp=$(hdr FINGERPRINT "$rv_t/hdr"); rv_now=$(content_fingerprint)
+  rv_fp=$(hdr FINGERPRINT "$rv_t/hdr"); rv_now=$(gate_fingerprint)
   [ "$rv_fp" = "$rv_now" ] || { record_reject "stale: FINGERPRINT $rv_fp is not the current content fingerprint $rv_now"; return 1; }
   rv_art=$(hdr ARTIFACT "$rv_t/hdr"); rv_ap=${rv_art% *}; rv_as=${rv_art##* }
   [ "$rv_ap" != "$rv_art" ] || { record_reject "ARTIFACT needs '<run-relative path> <sha256>'"; return 1; }
@@ -3585,6 +3650,20 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
         c++; printf "%s|%s|%s|%s\n", sev, loc, fnd, ev }
       END { exit bad }' "$sb_tmp/findings.in" > "$sb_tmp/rows" || submit_fail "$(grep '^BAD' "$sb_tmp/rows" | head -1)"
   fi
+  # A171: design-sync drift in a knowledge-scope document (DESIGN.md, design_docs.*, the wiki and ADR roots) is information
+  # before the knowledge step, which must fix it; it is not a verifier failure and needs no waiver or scope widening.
+  # `knowledge-done` and delivery block while the drift remains.
+  if [ "$execution_role" = verifier ] && [ -s "$sb_tmp/rows" ]; then
+    : > "$sb_tmp/rows.kd"
+    while IFS= read -r sb_kr; do
+      sb_kp=$(printf '%s' "$sb_kr" | cut -d '|' -f2); sb_kp=${sb_kp%%:*}
+      case "$sb_kr" in
+        blocking\|*design-sync\ drift*) if in_knowledge_scope "$sb_kp"; then sb_kr="info|$(printf '%s' "$sb_kr" | cut -d '|' -f2)|KNOWLEDGE_DRIFT: $(printf '%s' "$sb_kr" | cut -d '|' -f3)|$(printf '%s' "$sb_kr" | cut -d '|' -f4-)"; fi ;;
+      esac
+      printf '%s\n' "$sb_kr" >> "$sb_tmp/rows.kd"
+    done < "$sb_tmp/rows"
+    cp "$sb_tmp/rows.kd" "$sb_tmp/rows"
+  fi
   sb_blocking=$(awk -F'|' '$1 == "blocking"' "$sb_tmp/rows" | wc -l | tr -d ' ')
   # A gate result follows from the findings (the skill's rule), never from a free choice.
   sb_derive=$sb_gaterole
@@ -3740,7 +3819,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
   {
     printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
     [ -z "$sb_focus" ] || printf 'FOCUS: %s\n' "$sb_focus"
-    printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(content_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
+    printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(gate_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
     printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
     sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
     awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
@@ -3792,7 +3871,7 @@ record_gate() {
     [ -n "$(scope_entry_paths "$g_fscope")" ] || { rm -f "$g_rows"; fail "a failing gate requires fix_scope with at least one path (comma-separated paths the fix may touch)"; }
     g_i=0; for g_p in $(printf '%s' "$g_fscope" | tr ',' ' '); do g_i=$((g_i + 1)); printf '%s-%s|blocking|%s|%s|%s\n' "$g_gate" "$g_i" "$g_p" "$(one_line "$g_findings")" "$g_art" >> "$g_rows"; done
   fi
-  write_gate "$g_id" "$g_gate" "$g_result" "$execution_role" high "$(gate_focus "$g_gate")" "$g_art" "$g_rows" '' "$(content_fingerprint)"
+  write_gate "$g_id" "$g_gate" "$g_result" "$execution_role" high "$(gate_focus "$g_gate")" "$g_art" "$g_rows" '' "$(gate_fingerprint)"
   rm -f "$g_rows"
 }
 # SECRETS (D14): a script gate, never a role and never waivable.
@@ -3812,7 +3891,7 @@ secret_scan() {
        [ -s "$ss_tmp/rows" ] || printf 'SECRETS-1|blocking|-|secret scanner reported findings without locations|secret-scan.sh\n' > "$ss_tmp/rows" ;;
     *) ss_err=$(head -3 "$ss_tmp/err" | tr '\n' ' '); rm -rf "$ss_tmp"; fail "secret scan error (exit $ss_rc): $ss_err — nothing recorded (BLOCKED)" ;;
   esac
-  write_gate "$ss_id" SECRETS "$ss_res" secret-scan high '' '' "$ss_tmp/rows" '' "$(content_fingerprint)"
+  write_gate "$ss_id" SECRETS "$ss_res" secret-scan high '' '' "$ss_tmp/rows" '' "$(gate_fingerprint)"
   [ "$ss_res" = pass ] || sed 's/^/  /' "$ss_tmp/rows"
   rm -rf "$ss_tmp"
 }
@@ -4405,7 +4484,7 @@ gate_latest_file() { # ID GATE [FOCUS] -> latest record after the last reopen (o
 # waive_target ID FINDING-ID [FINGERPRINT]: the gate record holding that open blocking finding on the current
 # content; SECRETS and SECURITY findings are refused.
 waive_target() {
-  wt_now=${3:-$(content_fingerprint)} wt_rec=''
+  wt_now=${3:-$(gate_fingerprint)} wt_rec=''
   for wt_g in $(required_gates "$1"); do
     for wt_fc in - $(risk_gate_focuses "$1" "$wt_g"); do
       [ "$(gate_focus_status "$1" "$wt_g" "$wt_fc" strict "$wt_now")" = fail ] || continue
@@ -4423,7 +4502,7 @@ waive() {
   while [ $# -gt 0 ]; do case "$1" in --reason) wv_reason=${2:-}; shift 2 || shift ;; *) fail "unknown waive argument: $1" ;; esac; done
   require_run "$wv_id"; require_lead; require_open_run "$wv_id"; wv_d=$(run_dir "$wv_id")
   reject_generic_justification "$wv_reason" || fail "waive requires a specific --reason (>=20 chars)"
-  wv_now=$(content_fingerprint); wv_rec=$(waive_target "$wv_id" "$wv_fid" "$wv_now") || return 1
+  wv_now=$(gate_fingerprint); wv_rec=$(waive_target "$wv_id" "$wv_fid" "$wv_now") || return 1
   wv_gate=$(gate_field "$wv_rec" gate); wv_rsha=$(hash_file "$wv_rec")
   wv_app=$(find_approval "$wv_id" "waive:$wv_fid" "$(basename "$wv_rec")@$wv_rsha#$wv_fid") || fail "waiving $wv_fid needs the user's approval naming it: 'agent.sh request-approval $wv_id waive:$wv_fid', relay, then 'agent.sh approve $wv_id waive:$wv_fid'"
   mkdir -p "$wv_d/waivers"; wv_n=$(next_num "$wv_d/waivers"); wv_out=$wv_d/waivers/$wv_n-$wv_fid.yaml
@@ -4760,6 +4839,8 @@ inflight_pid_alive() {
   case "$1" in ''|*[!0-9]*|0) return 1 ;; esac
   kill -0 "$1" 2>/dev/null || return 1
   ipa_t=$(cfg dispatch.timeout_seconds 1800); case "$ipa_t" in ''|*[!0-9]*) ipa_t=1800 ;; esac
+  # A171: the marker names the timeout of its own attempt (a class may run longer than the global one)
+  ipa_m=$(sed -n 's/^timeout=//p' "$2" 2>/dev/null | head -n 1); case "$ipa_m" in ''|*[!0-9]*) ;; *) [ "$ipa_m" -le "$ipa_t" ] || ipa_t=$ipa_m ;; esac
   [ -z "$(find "$2" -mmin "+$(( (ipa_t + 119) / 60 ))" 2>/dev/null)" ]
 }
 inflight_sweep() { # ID
@@ -4845,7 +4926,7 @@ next_step() {
       [ -n "$ns_ask" ] || { o "agent.sh handoff $ns_id IMPLEMENTING"; r "plan frozen"; } ;;
     IMPLEMENTING) o "dispatch.sh $ns_id implementer"; o "agent.sh handoff $ns_id IMPLEMENTED"; fix_paths_lines "$ns_id"; r "implementation in progress" ;;
     IMPLEMENTED)
-      ns_fp=$(content_fingerprint); ns_fail='' ns_todo=''
+      ns_fp=$(gate_fingerprint); ns_fail='' ns_todo=''
       for ns_g in $(required_gates "$ns_id"); do
         ns_s=$(gate_status "$ns_id" "$ns_g" reuse "$ns_fp")
         case "$ns_s" in pass|waived) ;; fail) ns_fail="$ns_fail $ns_g" ;; *) ns_todo="$ns_todo $ns_g:$ns_s" ;; esac
@@ -4906,7 +4987,9 @@ next_step() {
         KNOWLEDGE_DONE|not_applicable)
           if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
-        *) o "agent.sh knowledge-done $ns_id [not_applicable \"<reason>\"]"; r "knowledge transaction not recorded" ;;
+        *) ns_kd=$(knowledge_drift "$ns_id" | head -n 5 | tr '\n' ';')
+           [ -z "$ns_kd" ] || printf 'note=design-sync drift in knowledge-scope documents (information for the knowledge step, which must fix it before knowledge-done): %s\n' "${ns_kd%;}"
+           o "agent.sh knowledge-done $ns_id [not_applicable \"<reason>\"]"; r "knowledge transaction not recorded" ;;
       esac ;;
     DONE)
       # A169: once the merge step ran (a pull request is open) CI decides: merge and clean up, or a CI-fix round; resume continues from here
@@ -4949,7 +5032,7 @@ amend_run() {
   g_prev_hs=$(section_value "$g_d" handoff state)
   {
     printf 'task_id: "%s"\nseq: %s\ngate: "REOPEN"\nresult: "reopen"\nrole: "%s"\n' "$g_id" "$g_seq" "$execution_role"
-    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(content_fingerprint)" "$g_patch" "$(hash_file "$g_gd/$g_name.manifest")"
+    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(gate_fingerprint)" "$g_patch" "$(hash_file "$g_gd/$g_name.manifest")"
     printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$g_d" freeze task_sha256)" "$(section_value "$g_d" freeze evidence_sha256)" "$(section_value "$g_d" freeze plan_sha256)" "$(section_value "$g_d" freeze qa_plan_sha256)"
     printf 'reason: %s\nauthorized_by: %s\nfix_scope: %s\nfix_instruction: %s\nplan_change: %s\n' "$(one_line "$g_reason")" "$(one_line "$g_auth")" "$g_fscope" "$(one_line "$g_finstr")" "${g_pchange:-no}"
     printf 'previous_execution_state: "%s"\nprevious_handoff_state: "%s"\nprevious_knowledge_state: "%s"\n' "$(run_state "$g_d")" "$g_prev_hs" "$(section_value "$g_d" execution knowledge_state)"
@@ -5038,7 +5121,7 @@ reopen_run() {
   ro_hs=$(section_value "$ro_d" handoff state)
   {
     printf 'task_id: "%s"\nseq: %s\ngate: "REOPEN"\nresult: "reopen"\nrole: "%s"\n' "$ro_id" "$ro_seq" "$execution_role"
-    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(content_fingerprint)" "$(task_patch_fingerprint "$ro_id")" "$(hash_file "$ro_gd/$ro_name.manifest")"
+    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(gate_fingerprint)" "$(task_patch_fingerprint "$ro_id")" "$(hash_file "$ro_gd/$ro_name.manifest")"
     printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$ro_d" freeze task_sha256)" "$(section_value "$ro_d" freeze evidence_sha256)" "$(section_value "$ro_d" freeze plan_sha256)" "$(section_value "$ro_d" freeze qa_plan_sha256)"
     printf 'reason: %s\nauthorized_by: user approval %s\nreopened_from: "%s"\nrestored_execution_state: "%s"\nhandoff_state: "%s"\n' "$(one_line "$ro_reason")" "$(basename "$ro_app")" "$ro_st" "$ro_prev" "$ro_hs"
     printf 'previous_knowledge_state: "%s"\ntimestamp: "%s"\n' "$(section_value "$ro_d" execution knowledge_state)" "$(now_iso)"
@@ -5165,7 +5248,7 @@ evidence_run_counts() { # ID -> "<records> <passed>": the worker-evidence record
 }
 report_facts() {
   rf_id=$1; require_run "$rf_id"; risk_prime "$rf_id"
-  rf_fp=$(content_fingerprint); rf_gl=$(required_gates "$rf_id")
+  rf_fp=$(gate_fingerprint); rf_gl=$(required_gates "$rf_id")
   rf_wt=$(evidence_run_counts "$rf_id"); rf_wp=${rf_wt#* }; rf_wt=${rf_wt%% *}; rf_wp=${rf_wp%% *}
   printf '%s\n## Facts\n\nGenerated from the run records by %s when the report is published; never edited by hand. Numbers in the text above must match it.\n\n' "$REPORT_FACTS_BEGIN" "\`agent.sh report-facts $rf_id\`"
   printf -- '- Class: %s\n- Required gates: %s\n' "$(pipeline_class "$rf_id")" "$(printf '%s\n' "$rf_gl" | grep -c .)"
@@ -5310,6 +5393,34 @@ knowledge_na_signal() {
   if [ -n "$kn_w" ]; then echo "the acceptance criteria mention '$kn_w' (user-visible behaviour)"; return 0; fi
   return 1
 }
+# A171: design-sync drift in knowledge-scope documents that the verifier reported (design/SYNC.md) and that the current
+# tree still shows. Printed as `<doc>:<line> -> <claim>`; empty when nothing is left, when the run has no SYNC.md (design-sync
+# did not run for it) or when node / the design-sync script is not installed (nothing can be proven then: no block).
+knowledge_drift() { # ID
+  kdr_s=$(run_dir "$1")/design/SYNC.md; kdr_x=$root/.agents/skills/design-sync/scripts/design-sync.mjs
+  [ -f "$kdr_s" ] && [ -f "$kdr_x" ] && command -v node >/dev/null 2>&1 || return 0
+  kdr_j=$(mktemp "${TMPDIR:-/tmp}/agent-kdrift.XXXXXX")
+  # run from the root with a relative script path: node compares the real path of the script with its own URL, so a
+  # symlinked root (macOS /var) would make the script print nothing
+  ( cd "$root" && node .agents/skills/design-sync/scripts/design-sync.mjs --root . ) > "$kdr_j" 2>/dev/null || :
+  kdr_l=$(node -e '
+    const fs = require("fs");
+    let j; try { j = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { process.exit(0); }
+    const sync = fs.readFileSync(process.argv[2], "utf8");
+    const m = /^## Drift\s*$([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(sync); const drift = m ? m[1] : "";
+    for (const c of j.claims || []) if (c.status === "unmatched" && drift.includes(c.doc) && drift.includes(c.claim)) console.log(c.doc + ":" + c.line + " -> " + c.kind + " " + c.claim);
+  ' "$kdr_j" "$kdr_s" 2>/dev/null || true)
+  rm -f "$kdr_j"
+  printf '%s\n' "$kdr_l" | while IFS= read -r kdr_r; do
+    [ -n "$kdr_r" ] || continue
+    in_knowledge_scope "${kdr_r%%:*}" && printf '%s\n' "$kdr_r"
+  done
+  return 0
+}
+require_no_knowledge_drift() { # ID WHAT
+  rnk=$(knowledge_drift "$1" | head -n 5 | tr '\n' ';')
+  [ -z "$rnk" ] || fail "$2: design-sync drift in knowledge-scope documents is still there (${rnk%;}); the knowledge step must fix it (update the document or the code claim), then 'agent.sh knowledge-done $1'. No waiver or scope change applies to these documents"
+}
 knowledge_done() {
   id=$1 state=${2:-KNOWLEDGE_DONE} reason=${3:-}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   case "$state" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "invalid knowledge state: $state" ;; esac
@@ -5327,6 +5438,7 @@ knowledge_done() {
     [ -z "$reason" ] || fail "a reason is only for not_applicable"
   fi
   verify_seal "$id"
+  require_no_knowledge_drift "$id" "knowledge-done blocked"
   [ "$term" = 1 ] || ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
   [ ! -f "$scripts/lessons.sh" ] || sh "$scripts/lessons.sh" validate >/dev/null || fail "knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)"
   set_run_value "$id" execution knowledge_state "$state"
@@ -5344,6 +5456,7 @@ knowledge_done() {
 # Delivery waits for the knowledge step (A147); deliver-plan runs it as part of the delivery (A152) instead of stopping.
 require_knowledge_done() {
   case "$(section_value "$(run_dir "$1")" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "delivery blocked: knowledge step not complete; run '/proofline knowledge $1' (agent.sh knowledge-done $1 [not_applicable \"<reason>\"])" ;; esac
+  require_no_knowledge_drift "$1" "delivery blocked"
 }
 
 # --- Terminal outcomes and cleanup -----------------------------------------------------------
@@ -6102,7 +6215,7 @@ summary_run() {
   printf 'TASK: %s %s\n' "$sm_id" "$(sed -n '1s/^#[[:space:]]*//p' "$sm_d/TASK.md" 2>/dev/null | tr -d '\000-\037\177')"
   printf 'CLASS/TOPOLOGY: %s / %s\n' "$(ua "$(pipeline_class "$sm_id" | grep -v PENDING || true)")" "$(ua "$(resolve_topology "$sm_d" 2>/dev/null || true)")"
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
-    sm_fp=$(content_fingerprint)
+    sm_fp=$(gate_fingerprint)
     printf 'TIER: %s\n' "$(tier_effective "$sm_id")"
     for sm_g in $(required_gates "$sm_id"); do printf '%s: %s\n' "$sm_g" "$(gate_label "$sm_id" "$sm_g" reuse "$sm_fp")"; done
     printf 'FIX ROUNDS: %s of %s\n' "$(fix_rounds_done "$sm_id")" "$(max_fix_rounds)"
@@ -6216,7 +6329,7 @@ case "$command" in
   status) id=$(active_run); echo "active_task=${id:-none}"; effective "$id" ;;
   open-runs) open_runs ;;
   effective) effective "${2:-}" ;;
-  fingerprint) [ -z "${2:-}" ] || require_run "$2"; content_fingerprint ;;
+  fingerprint) [ -z "${2:-}" ] || require_run "$2"; if [ "${3:-}" = full ]; then content_fingerprint; else gate_fingerprint; fi ;;
   config-get) config_get "${2:?usage: agent.sh config-get <dotted.key>}" || fail "config key not found: $2" ;;
   config-check) config_check "${2:-}" ;;
   baseline) require_lead; baseline "${2:?usage: agent.sh baseline <ID>}" ;;

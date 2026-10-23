@@ -14,7 +14,7 @@
 #   generated agent (`--agent proofline-<role>` from .claude/agents/, else `--agents` JSON built from
 #   .agents/roles/<role>.md and .agents/tools.conf; never the Agent/Task tools), or config
 #   dispatch.command_template.<runtime> (D8), with a timeout (config dispatch.timeout_seconds, default 1800,
-#   minimum 30). The implementer, and the designer while handoff is IMPLEMENTING, are bracketed by
+#   minimum 30; pipelines.<CLASS>.dispatch_timeout_seconds of the run's class wins, A171). The implementer, and the designer while handoff is IMPLEMENTING, are bracketed by
 #   `agent.sh window-open` / `window-close`; every other role must leave the product tree unchanged. A change
 #   to .git/config (e.g. core.hooksPath) or to HEAD during the step is BLOCKED for every role.
 # 4 the last message is saved as dispatch/<NNN>-<role>-<runtime>.md in the run (a log, never parsed; results/ holds recorded results only);
@@ -35,6 +35,8 @@
 # Codex runs with --dangerously-bypass-hook-trust: a headless `codex exec` never asks to trust the project's
 #   hooks, so without it the proofline hooks (.codex/) would not load for the worker. The fingerprint and
 #   .git/config/HEAD checks below stay the enforcement; the hooks are an extra layer (ENFORCEMENT.md).
+# A timeout (124) writes dispatch/RESUME-<role>[-focus].md (log tail, changed paths, artifacts); the next dispatch of the
+#   same role and focus puts it in its prompt and removes it once the step submits (A171).
 # Exit: 0 recorded | 1 task failure or record rejected | 2 usage/config | 5 NEEDS_INPUT | 6 BLOCKED |
 #   124 timeout.
 # Runtime binaries: PROOFLINE_CODEX_BIN, PROOFLINE_CLAUDE_BIN (tests use fake runtimes).
@@ -127,6 +129,9 @@ git_state() {
 handoff_state() { awk '$0 == "handoff:" { i = 1; next } i && /^[^ ]/ { exit } i && /^  state:/ { sub(/^  state:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$run/RUN.yaml" 2>/dev/null; }
 
 timeout_s=$(cfg dispatch timeout_seconds); case "$timeout_s" in ''|*[!0-9]*) timeout_s=1800 ;; esac
+# A171: the run's class may set its own timeout (pipelines.<CLASS>.dispatch_timeout_seconds, COMPLEX longer); it wins over the global one.
+run_class=$(awk '$0 == "pipeline:" { i = 1; next } i && /^[^ ]/ { exit } i && /^  classification:/ { sub(/^  classification:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$run/RUN.yaml" 2>/dev/null) || run_class=''
+case "$run_class" in TRIVIAL|STANDARD|COMPLEX|CRITICAL) class_t=$(cfg pipelines "$run_class" dispatch_timeout_seconds); case "$class_t" in ''|*[!0-9]*) ;; *) timeout_s=$class_t ;; esac ;; esac
 # PROOFLINE_DISPATCH_MIN_TIMEOUT exists for the test suite only.
 min_t=${PROOFLINE_DISPATCH_MIN_TIMEOUT:-30}; [ "$timeout_s" -ge "$min_t" ] || timeout_s=$min_t
 
@@ -187,6 +192,7 @@ claude_result() {
 }
 
 retry_note=''
+resume_file=$run/dispatch/RESUME-$role${focus:+-$(printf '%s' "$focus" | tr '+' '-')}.md
 subdir=$root/.agents/local/submissions
 seq_n=$(find "$run/dispatch" -name '*.log' 2>/dev/null | wc -l | tr -d ' '); seq_n=$((seq_n + 1))
 mkdir -p "$run/results" "$run/dispatch"
@@ -289,6 +295,8 @@ attempt() {
     [ "$writes_code" = no ] || printf 'WINDOW: dispatch.sh opened your write window before starting you (window-open). It leaves no file until the step ends (window-close writes worker-evidence/WINDOW-<n>.yaml). Do not look for it; never report BLOCKED for a missing window.\n'
     [ -n "$prompt_file" ] || printf 'ASSIGNMENT: none was given. Do your role'"'"'s default step on this task from .agents/runs/%s/ (TASK.md, PLAN.md and their scope); never report BLOCKED for a missing assignment file.\n' "$id"
     [ -z "$retry_note" ] || printf '\n%s\n' "$retry_note"
+    # A171: an earlier dispatch of this step timed out; its recorded partial state is handed to this one.
+    [ ! -s "$resume_file" ] || { printf '\nRESUME: an earlier dispatch of this step timed out before it submitted. Continue from where it stopped; do not redo finished work. Recorded state:\n'; cat "$resume_file"; }
     [ -z "$prompt_file" ] || { printf '\n'; cat "$prompt_file"; }
   } > "$work/suffix"
   sb=$(wc -c < "$work/suffix" | tr -d ' ')
@@ -351,7 +359,7 @@ attempt() {
 
   before='' fp_before='' gs_before=$(git_state)
   if [ "$writes_code" = no ]; then
-    fp_before=$("$agent" fingerprint "$id") && [ -n "$fp_before" ] || { echo "dispatch: no product-tree fingerprint; $role not started" >&2; exit 1; }
+    fp_before=$("$agent" fingerprint "$id" full) && [ -n "$fp_before" ] || { echo "dispatch: no product-tree fingerprint; $role not started" >&2; exit 1; }
     # One build and test run per tree: the first reviewer or verifier dispatch makes the record, later ones reuse it. Its result never stops a dispatch.
     case "$role" in reviewer|verifier) "$agent" build-record "$id" run > "$work/build-record.txt" 2>&1 || : ;; esac
   else
@@ -360,7 +368,7 @@ attempt() {
   echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code${pm:+ permission_mode=$pm}" >&2
   status=0
   # A124: .md and .log stay empty until the worker exits, so a reader cannot tell a running dispatch from a dead one.
-  printf 'pid=%s\nrole=%s\ndispatch in flight: %s %s on %s, started %s.\nThis dispatch.sh command has not returned: the .md and .log of this step stay empty until it does.\nWait for the command to return; do not re-dispatch this step or read these files as a result.\n' "$$" "$role" "$id" "$role" "$rt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$running"
+  printf 'pid=%s\nrole=%s\ntimeout=%s\ndispatch in flight: %s %s on %s, started %s.\nThis dispatch.sh command has not returned: the .md and .log of this step stay empty until it does.\nWait for the command to return; do not re-dispatch this step or read these files as a result.\n' "$$" "$role" "$timeout_s" "$id" "$role" "$rt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$running"
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
   else (cd "$root" && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" &&
     if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
@@ -382,7 +390,7 @@ attempt() {
     blocked "policy_violation: $role changed .git/config (hooks, config) or HEAD during the step; result not recorded"
   fi
   if [ "$writes_code" = no ]; then
-    fp_after=$("$agent" fingerprint "$id") || fp_after=unknown
+    fp_after=$("$agent" fingerprint "$id" full) || fp_after=unknown
     if [ "$fp_after" != "$fp_before" ]; then
       # Never auto-reverted: the user's files are theirs. Changed paths are reported; the result is not recorded.
       changed=$(git -C "$root" diff-tree -r --name-only "$fp_before" "$fp_after" 2>/dev/null | tr '\n' ' ') || changed=''
@@ -443,9 +451,25 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
     fi
   fi
 fi
+# A171: a timeout leaves the step half done. Record what the worker left (the tail of its log, the product-tree paths
+# that differ from HEAD, the run artifacts it wrote) so the next dispatch of the same role and focus continues from it.
+write_resume() {
+  {
+    printf 'timed_out_at: %s (after %ss, attempt %s, runtime %s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$timeout_s" "$attempts" "$rt"
+    printf 'log: %s\n' "${log#"$root"/}"
+    printf 'product_tree_changes (git status --short):\n'
+    git -C "$root" status --short --untracked-files=all 2>/dev/null | grep -v ' \.agents/\(runs\|local\)/' | head -n 60 | sed 's/^/  /'
+    printf 'run_artifacts_present:\n'
+    ( cd "$run" 2>/dev/null && ls -1 reports results worker-evidence scratch 2>/dev/null | head -n 40 | sed 's/^/  /' )
+    printf 'last_output_of_the_worker:\n'
+    tail -n 25 "$log" 2>/dev/null | cut -c1-300 | sed 's/^/  | /'
+  } > "$resume_file" 2>/dev/null || true
+  note "dispatch resume note written role=$role file=${resume_file#"$root"/}" || true
+}
 submissions=0
 while :; do
   if [ "$status" -eq 124 ]; then
+    write_resume
     note "dispatch timeout role=$role runtime=$rt after=${timeout_s}s" || true
     echo "dispatch: $role on $rt timed out after ${timeout_s}s; log: ${log#"$root"/}" >&2; exit 124
   fi
@@ -455,6 +479,7 @@ while :; do
   state=$(sed -n 's/^status=//p' "$st" 2>/dev/null | head -n 1)
   if [ "$state" = ok ]; then
     sr=$(sed -n 's/^result=//p' "$st" | head -n 1); sg=$(sed -n 's/^gate=//p' "$st" | head -n 1); sw=$(sed -n 's/^raw=//p' "$st" | head -n 1)
+    rm -f "$resume_file"   # the resumed step delivered: the note is spent
     printf 'submitted: %s %s %s%s (%s)\n' "$id" "$role" "$sr" "${sg:+ gate=$sg}" "${sw:-no raw}"
     exit 0
   fi

@@ -35,7 +35,10 @@ developer_instructions = '''
    the verification commands. Write `VERIFY.md`.
 4. When a configured design document exists (`design_docs.*`), the class is not TRIVIAL and the task-owned diff
    touches something a design document names, follow .agents/skills/design-sync/SKILL.md in team mode and write
-   `design/SYNC.md`; its drift findings join this result. Otherwise record `design-sync: SKIPPED (<reason>)`
+   `design/SYNC.md`; its drift findings join this result, except drift in a knowledge-scope document (DESIGN.md and the
+   other `design_docs.*` documents, the wiki, ADRs): that is `info` information for the knowledge step (A171), written as the
+   row `info|<doc>:<line>|KNOWLEDGE_DRIFT: D-<n>: design-sync drift: <claim>|<search>` and recorded `design-sync: PASS
+   (knowledge-scope drift: <n> handed to the knowledge step)`; `agent.sh submit` makes a blocking row of that kind `info` itself. Otherwise record `design-sync: SKIPPED (<reason>)`
    and write no `design/SYNC.md` (a TRIVIAL run has no `design/` folder).
 5. Apply the gate rule, compute the sha256 of `VERIFY.md`, return the result. Stop.
 
@@ -78,5 +81,5 @@ failures and notes. Evidence is the command, its exit status and the relevant ou
 
 Gate rule: FAIL when any acceptance criterion lacks a passing test or eligible recorded command proof, a changed path is outside `scope:`, a
 required file is missing, a verification command fails (and does not also fail at the base), or design-sync
-finds drift; otherwise PASS. PASS with `CONFIDENCE: low` does not satisfy the gate. BLOCKED records no gate.
+finds drift outside the knowledge-scope documents (that drift is information, A171); otherwise PASS. PASS with `CONFIDENCE: low` does not satisfy the gate. BLOCKED records no gate.
 '''
