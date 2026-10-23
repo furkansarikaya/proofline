@@ -2,7 +2,7 @@
 
 Read in task mode before drafting screens. Output: `creative_direction` in `ui.json` and the "Creative direction" section of `UI.md`. Required for COMPLEX and CRITICAL tasks; optional (validated when present) otherwise.
 
-There is no style catalogue here on purpose. A direction is derived from the product, its users and the system that already exists, never picked from a list of looks.
+A direction is grounded in the product, its users and the system that already exists. Under `conform` and for operate and read work it is derived from that evidence. For persuade and experience surfaces the compositions are drawn from the bundled library by `scripts/deal.mjs` ([DIRECTION.md](DIRECTION.md) section 5): the library holds composition, type and motion decisions, not a theme to dress onto a product, and the idea sentence, rival test and argument force the adaptation (A170 changes the earlier no-catalogue rule on purpose: candidates a model derives from its own habits fall into the same moulds).
 
 ## 1. Choose the basis first
 

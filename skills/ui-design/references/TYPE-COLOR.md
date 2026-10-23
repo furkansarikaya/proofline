@@ -7,7 +7,7 @@ Load when writing typography, colour roles or the browser-surface part of a spec
 - Role scale: display, heading, body, label, numeric. The jump from body to the largest heading is at least 3x on persuade and experience, at least 2x on read and operate.
 - Body measure 45-75 characters per line. Headings run at most 2 lines at every width, including the longest translation: reserve room for text that grows in localisation (German and Turkish often grow 20-35 %).
 - Set a letter-spacing floor (no tight tracking on body; negative tracking only on large display sizes) and line heights per role.
-- Persuade: a characterful self-hosted font. Read its licence from the font package (not from memory) and write family, file and licence in the image ledger `## Fonts` table and in `craft.fonts`. A system font cannot be the voice of a persuade surface; it is fine for body only when the display face carries the voice. Self-hosted means no third-party CDN, with `font-display` set and a subset where it saves weight.
+- Persuade: a characterful self-hosted font. Read its licence from the font package (not from memory) and write family, file and licence in the image ledger `## Fonts` table and in `craft.fonts`. A system font cannot be the voice of a persuade surface; it is fine for body only when the display face carries the voice. Self-hosted means no third-party CDN and no hot-linking, with `font-display` set and a subset where it saves weight. The dealt type system names faces; its licence status comes from `scripts/deal.mjs` (directory-verified, or flagged needs-package-licence); give each font a `license_ref` (`library:<family>` or the package licence file) or it is rejected. A brand font is a constant and replaces the dealt faces.
 
 ## Colour
 
