@@ -50,7 +50,7 @@ for (const item of lines(rangesArg.replaceAll(",", "\n"))) {
 }
 
 const changed = [...new Set([
-  ...lines(git("diff", "--name-only", base)),
+  ...lines(git("diff", "--no-renames", "--name-only", base)),
   ...lines(git("ls-files", "--others", "--exclude-standard")),
 ])].sort();
 const untracked = new Set(lines(git("ls-files", "--others", "--exclude-standard")));
@@ -59,7 +59,7 @@ const outside = [];
 for (const file of changed) {
   if (ranges.has(file) && !untracked.has(file)) {
     // Hunk headers: @@ -a[,b] +c[,d] @@. Old side a..a+b-1 (b = 0 is an insertion after line a).
-    const diff = git("diff", "--unified=0", base, "--", file);
+    const diff = git("diff", "--no-renames", "--unified=0", base, "--", file);
     for (const h of diff.split("\n")) {
       const m = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/.exec(h);
       if (!m) continue;
