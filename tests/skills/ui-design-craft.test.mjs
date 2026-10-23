@@ -122,3 +122,26 @@ test("deal --redraw with a valid reason changes exactly one slot; a comfort reas
   // a recorded redraw is replayed by the validator
   const d = persuade(); d.creative_direction.deal.redraws = [{ slot: "1.palette", reason: "comfort: I prefer another look" }]; has(errs(d), "redraws[0].reason");
 });
+
+// scope-check: a focused fix mode (bolder) may change its target only.
+test("scope-check: an edit inside the target is ok; a change outside, an untracked file and a move out of the target are flagged", () => {
+  const r = mkdtempSync(join(tmpdir(), "ui-scope-"));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
+  const git = (...a) => { const o = spawnSync("git", ["-C", r, ...a], { encoding: "utf8", env }); assert.equal(o.status, 0, o.stderr); };
+  mkdirSync(join(r, "src/hero"), { recursive: true });
+  writeFileSync(join(r, "src/hero/Hero.css"), "h1{font-size:2rem}\n");
+  writeFileSync(join(r, "src/hero/Hero.html"), "<h1>a</h1>\n");
+  writeFileSync(join(r, "src/footer.css"), "footer{color:#111}\n");
+  git("init", "-q"); git("add", "-A"); git("commit", "-q", "-m", "base");
+  const check = () => { const o = spawnSync("node", [join(skill, "scripts/scope-check.mjs"), "--root", r, "--base", "HEAD", "--allow", "src/hero/"], { encoding: "utf8" }); return { status: o.status, out: JSON.parse(o.stdout) }; };
+  writeFileSync(join(r, "src/hero/Hero.css"), "h1{font-size:4rem}\n");
+  assert.equal(check().status, 0);
+  writeFileSync(join(r, "src/footer.css"), "footer{color:red}\n");
+  let c = check(); assert.equal(c.status, 1); assert.deepEqual(c.out.outside, ["src/footer.css"]);
+  git("checkout", "--", "src/footer.css");
+  git("mv", "src/hero/Hero.html", "src/Moved.html");
+  c = check(); assert.equal(c.status, 1); assert.ok(c.out.outside.includes("src/Moved.html"), JSON.stringify(c.out));
+  git("mv", "src/Moved.html", "src/hero/Hero.html");
+  writeFileSync(join(r, "src/extra.css"), "x{}\n");
+  c = check(); assert.equal(c.status, 1); assert.deepEqual(c.out.outside, ["src/extra.css"]);
+});

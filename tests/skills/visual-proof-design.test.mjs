@@ -103,7 +103,7 @@ test("lint: monospace labels and hairline boxes are blocking; a justification dr
 const OK = { viewport_overflow: [0, "<= 0"], horizontal_scroll: [360, "<= 360"], hidden_interactive: [5, "> 1"], overlapping_interactive: [0, "== 0"],
   contrast: [7.1, ">= 4.5"], touch_target: [40, ">= 24"], focus_order: [0, "== 0"], focus_visible: [1, "== 1"] };
 const VPS = [{ name: "phone", width: 360, height: 740 }, { name: "tablet", width: 768, height: 1024 }, { name: "desktop", width: 1280, height: 800 }];
-function build(cls, facts) {
+function build(cls, facts, { motion = true } = {}) {
   const dir = mktmp();
   mkdirSync(join(dir, "screenshots"));
   const png = (n) => { writeFileSync(join(dir, `screenshots/${n}.png`), `png ${n}`); return `screenshots/${n}.png`; };
@@ -111,7 +111,8 @@ function build(cls, facts) {
     design: { visitor_mode: "operate", screens: ["index.html"] } };
   const cells = VPS.map((v) => ({ screen: "home", state: "default", viewport: v.name, screenshot: png(v.name), rendered: true, not_measured: [],
     items: CORE.filter((c) => c !== "state_rendered").map((check) => ({ check, selector: check === "horizontal_scroll" ? "html" : "body", value: OK[check][0], threshold: OK[check][1], status: "pass" })) }));
-  const design = { pages: [{ path: "index.html", viewports: ["wide", "tablet", "phone390"].map((viewport) => ({ viewport, screenshot: png(`d-${viewport}`), facts: { ...facts, vw: viewport === "phone390" ? 390 : 1440 } })) }] };
+  const design = { pages: [{ path: "index.html", viewports: ["wide", "tablet", "phone390"].map((viewport) => ({ viewport, screenshot: png(`d-${viewport}`), facts: { ...facts, vw: viewport === "phone390" ? 390 : 1440 } })) }],
+    ...(motion ? { motion: { items: ["design_reduced_motion", "design_no_script_visible"].map((check) => ({ check, screen: "home", viewport: "wide", selector: "body", value: 0, threshold: "== 0", status: "pass" })), scenes: [], not_measured: [] } } : {}) };
   const report = assemble({ tool: { kind: "headless-browser", name: "chromium" }, config, cells, network: { interception: "on", blocked: [] }, design }, dir);
   return { dir, report, png, check: (r = report, opt = {}) => validateReport(r, { root: dir, ...opt }) };
 }
@@ -122,6 +123,12 @@ test("validator: a design block of a healthy page is valid; a weaker threshold, 
   const v = check();
   assert.equal(v.valid, true, v.errors.join("\n"));
   assert.equal(v.computed, "PASS");
+  const bare = build("STANDARD", good(), { motion: false });
+  assert.equal(bare.check().valid, true);
+  assert.equal(bare.check().computed, "INCONCLUSIVE", "motion checks that were not measured leave the verdict inconclusive");
+  const forged = structuredClone(report);
+  Object.assign(forged.design.items.find((i) => i.check === "design_reduced_motion"), { value: 5, status: "pass" });
+  assert.match(check(forged).errors.join("\n"), /contradicts value 5/);
   const weak = structuredClone(report);
   weak.design.items.find((i) => i.check === "design_heading_lines" && i.status === "pass").threshold = "<= 5";
   assert.match(check(weak).errors.join("\n"), /weaker/);
@@ -169,8 +176,8 @@ async function measureSite(kind) {
 }
 const item = (report, check, screen) => report.design.items.filter((i) => i.check === check && (!screen || i.screen === screen));
 
-test("browser: the bad site yields design findings, the good site keeps content under reduced motion; lint drops with a justification", { skip, timeout: 240000 }, async () => {
-  const b = await measureSite("bad");
+test("browser: the bad site fails with its planted design findings, the good site passes overall; lint drops with a justification", { skip, timeout: 240000 }, async () => {
+  const [b, g] = await Promise.all([measureSite("bad"), measureSite("good")]);
   const d = b.report.design;
   assert.equal(d.status, "run");
   assert.ok(item(b.report, "design_empty_hero").some((i) => i.status === "fail"), "empty hero");
@@ -179,7 +186,8 @@ test("browser: the bad site yields design findings, the good site keeps content 
   assert.ok(item(b.report, "design_image_ledger").some((i) => i.status === "fail"), "image missing from the ledger is blocking");
   assert.ok(item(b.report, "design_reduced_motion").some((i) => i.status === "fail"), "hidden under reduced motion");
   assert.equal(b.report.result, "FAIL");
-  const g = await measureSite("good");
+  assert.equal(g.report.result, "PASS", JSON.stringify(g.report.design.items.filter((i) => i.status === "fail")));
+  assert.deepEqual(g.report.design.items.filter((i) => i.status === "fail"), []);
   assert.ok(item(g.report, "design_reduced_motion").length > 0 && item(g.report, "design_reduced_motion").every((i) => i.status === "pass"));
   assert.ok(item(g.report, "design_image_ledger").length > 0 && item(g.report, "design_image_ledger").every((i) => i.status === "pass"));
   // lint of the bad site: blocking, then info with a DESIGN.md justification
