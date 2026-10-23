@@ -157,7 +157,10 @@ function context(brief, seed, lib) {
   };
 }
 const needsOk = (ctx, needs) => (needs || []).every((n) => ctx.provided.has(n));
-const photoLed = (d) => d.sectionTags.includes("photo-led");
+// A direction stands on photographs when it is photo-led or its own idea, composition or imagery prose says so.
+// (three or more sentences about photographs count as standing on them; one passing mention does not)
+const dirPhotoSentences = (d) => `${d.idea} ${d.composition} ${d.imagery}`.split(/(?<=[.;])\s+/).filter((x) => POS_MEDIA.test(x) && !NEG_MEDIA.test(x)).length;
+const photoLed = (d) => d.sectionTags.includes("photo-led") || dirPhotoSentences(d) >= 3;
 
 // ---------- persuade / experience / read ----------
 function eligibleDirections(ctx) {
@@ -170,8 +173,9 @@ function eligibleDirections(ctx) {
 function directionTier(d, ctx) {
   const toneWanted = ctx.tone ? [ctx.tone] : ctx.mode === "read" ? [...READ_TONES] : null;
   const toneMiss = toneWanted && !d.tones.some((t) => toneWanted.includes(t)) ? 1 : 0;
-  const photoMiss = !ctx.ownPhotos && photoLed(d) ? 1 : 0;
-  return toneMiss * 2 + photoMiss;
+  // a direction that stands on photographs the brief lacks is dealt only when nothing else satisfies it, and is flagged
+  const photoMiss = !ctx.ownPhotos && !ctx.realUi && photoLed(d) ? 1 : 0;
+  return toneMiss * 2 + photoMiss * 4;
 }
 
 function standardDirection(pool, ctx) {
@@ -337,6 +341,7 @@ function directionView(b, ctx) {
     palette: paletteOut(b.pal, ctx),
     motion: motionOut(b.mot, ctx),
   };
+  if (!ctx.ownPhotos && !ctx.realUi && photoLed(d)) entry.direction.photo_dependent = "this direction stands on photographs the brief does not provide: dealt only because nothing else satisfies the brief; fill its photo slots from library_photos (credit, self-host) or change the brief";
   const photoNeeded = !ctx.ownPhotos && (photoLed(d) || deps(hero).photo || b.sections.some((x) => x.photo_dependent));
   if (photoNeeded) {
     const sets = Object.entries(ctx.lib.photos.sets).filter(([id, x]) => x.sectors.includes(ctx.sector) && ctx.lib.photoMap.sets[id]?.usable).sort((x, y) => (y[1].primary?.includes(ctx.sector) ? 1 : 0) - (x[1].primary?.includes(ctx.sector) ? 1 : 0)).slice(0, 4).map(([id, x]) => ({ set: id, title: x.title, note: x.note }));

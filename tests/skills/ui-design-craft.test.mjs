@@ -45,7 +45,7 @@ const persuade = () => {
       basis: "new", visual_character: "warm printed menu", typography: "serif text", layout: "one artefact panel", hierarchy: "name, menu, book", rationale: "a menu is the object guests already know",
       avoided: ["cream serif with terracotta: a default, not this kitchen"],
       topic_inventory: ["menu card", "daily dish", "market receipt", "chalkboard", "table number", "wine list", "kitchen pass", "reservation book"],
-      idea: { sentence: "On this page, the market receipt becomes the menu.", rival: "Nearby Bistro", rival_swap: "no_longer_true", note: "their menu is not built from a receipt" },
+      idea: { sentence: "On this page, the market receipt becomes the menu, which Nearby Bistro cannot say.", rival: "Nearby Bistro", rival_swap: "no_longer_true", note: "their menu is not built from a receipt" },
       deal: d, alternatives: names.map((n, i) => ({ name: n, summary: `direction ${n}`, trade_off: "needs real copy", ...(i === names.length - 1 ? { standard: true } : {}) })), chosen: names[0],
     },
     craft: {

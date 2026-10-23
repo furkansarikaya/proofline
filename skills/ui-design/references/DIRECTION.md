@@ -30,7 +30,7 @@ On a persuade surface every claim must be linkable. A claim you cannot link does
 
 ## 4. Idea sentence and rival test
 
-Write one sentence: "On this page, [inventory item] becomes [tool the direction wants]." Example: "On this page, the tide table becomes the navigation." Then put the nearest rival's name where the inventory item stands and read it again. If the sentence is still true, the idea is generic: reject it and write another. "Clean and modern" is not an idea. Record `idea: {sentence, rival, rival_swap: "no_longer_true", note}`; the note says in one line why the rival cannot say it.
+Write one sentence: "On this page, [inventory item] becomes [tool the direction wants]." Example: "On this page, the tide table becomes the navigation." Then put the nearest rival's name where the inventory item stands and read it again. If the sentence is still true, the idea is generic: reject it and write another. "Clean and modern" is not an idea. Record `idea: {sentence, rival, rival_swap: "no_longer_true", note}`; the recorded `sentence` contains the rival's name (validated, case-insensitive), for example "On this page, the tide table becomes the navigation, which Rivalname's page cannot say"; the note says in one line why the rival cannot say it.
 
 ## 5. Brief, deal, standard option
 
