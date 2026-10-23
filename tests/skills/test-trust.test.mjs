@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
-import { validate, missingEvidence, checkConsistency, checkClaims } from "../../skills/test-trust/scripts/validate-findings.mjs";
+import { validate, missingEvidence, checkConsistency, checkClaims, checkWarnings } from "../../skills/test-trust/scripts/validate-findings.mjs";
 import { thresholds, computeGate, minMutants } from "../../skills/test-trust/scripts/gate.mjs";
 
 const SCRIPT = new URL("../../skills/test-trust/scripts/validate-findings.mjs", import.meta.url).pathname;
@@ -144,7 +144,10 @@ test("diff mode requires gate, fingerprint and scope.diff; full mode forbids gat
 test("diff mode: hollow only on changed units, mutants within budget, slow above slow_ratio", () => {
   assert.match(diffErrors(diffDoc({ result: "FAIL", failing: ["F001"] }, hollow())), /not a changed unit/);
   const over = diffDoc({ result: "PASS", failing: [] }); over.scope.diff.mutants_run = 21;
-  assert.match(diffErrors(over), /exceeds mutation_budget 20/);
+  // A171: an overrun (21/20) is a warning, not an error
+  assert.equal(diffErrors(over), "");
+  assert.match(checkWarnings(over).join("\n"), /exceeds mutation_budget 20/);
+  assert.deepEqual(checkWarnings(diffDoc({ result: "PASS", failing: [] })), []);
   assert.match(diffErrors(diffDoc({ result: "PASS", failing: [] }, slow(2))), /does not exceed slow_ratio 3/);
 });
 

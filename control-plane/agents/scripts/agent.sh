@@ -1131,6 +1131,38 @@ required_gates() { # ID [TIER]
 }
 gate_owner() { case "$1" in REVIEW_*) echo reviewer ;; SECURITY) echo security_reviewer ;; QA) echo qa ;; VERIFY) echo verifier ;; SECRETS) echo secret-scan ;; esac; }
 gate_focus() { case "$1" in REVIEW_SMALL) echo rules+tests ;; REVIEW_PLAN) echo plan ;; REVIEW_RULES) echo rules ;; REVIEW_TESTS) echo tests ;; REVIEW_DATA) echo data ;; esac; }
+# A171: the build record (A148) is made before the review gate wave, not left to the first reviewer dispatch.
+# build_record_missing ID: 0 when build/test are configured and the current tree has no finished record.
+build_record_missing() {
+  [ -n "$(cfg commands.build '')$(cfg commands.test '')" ] || return 1
+  [ -f "$scripts/build-record.sh" ] || return 1
+  sh "$scripts/build-record.sh" show >/dev/null 2>&1; [ $? -eq 3 ]
+}
+# handoff IMPLEMENTED (lead): produce the record once for the implemented tree; a failing build is recorded, never a refusal.
+build_record_auto() {
+  [ "$execution_role" = lead ] || return 0
+  build_record_missing "$1" || return 0
+  if sh "$scripts/build-record.sh" run >/dev/null 2>&1; then echo "build record made for the implemented tree (agent.sh build-record $1 show)" >&2
+  else echo "build record made, or not possible (agent.sh build-record $1 show); reviewers read it, it does not block the handoff" >&2; fi
+}
+# A171: gate dependencies, written in GATES.md "Gate dependencies". A gate that needs the output of another gate
+# (VERIFY reads the visual evidence report that the QA visual focus produces) is offered by `next` and accepted by
+# `decide` and `record` only when that dependency is satisfied for the current content.
+gate_deps() { # ID GATE -> "GATE:focus" lines that must be satisfied before GATE runs
+  case "$2" in
+    VERIFY)
+      required_gates "$1" | grep -Fxq QA || return 0
+      risk_gate_focuses "$1" QA | grep -Fxq visual && echo QA:visual ;;
+  esac
+  return 0
+}
+gate_deps_unmet() { # ID GATE [NOW] -> the dependencies not satisfied for the current content, one per line
+  gdu_now=${3:-$(content_fingerprint)}
+  for gdu_d in $(gate_deps "$1" "$2"); do
+    gate_satisfied "$(gate_focus_status "$1" "${gdu_d%%:*}" "${gdu_d#*:}" reuse "$gdu_now")" || echo "$gdu_d"
+  done
+  return 0
+}
 gate_of() { # ROLE [FOCUS] [ID]: a rules-gate risk focus (A78) lands on REVIEW_SMALL when the run's tier is small
   case "$1:${2:-}" in
     reviewer:plan) echo REVIEW_PLAN ;; reviewer:rules) echo REVIEW_RULES ;; reviewer:tests) echo REVIEW_TESTS ;;
@@ -1246,6 +1278,7 @@ pipeline_show() {
   ps_fp=$(gate_fingerprint)
   for ps_g in $ps_gates; do
     printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" reuse "$ps_fp")"
+    ps_dn=$(gate_deps "$id" "$ps_g" | tr '\n' ',' | sed 's/,$//'); [ -z "$ps_dn" ] || printf 'gate.%s.needs=%s\n' "$ps_g" "$ps_dn"
     ps_u=$(gate_unsupported_focuses "$id" "$ps_g" reuse "$ps_fp"); [ -z "$ps_u" ] || printf 'gate.%s.unsupported=%s (unproven, reported; the gate is not a full pass)\n' "$ps_g" "$ps_u"
   done
   # A78: risk signals, the focus each one adds to a gate, the per-focus status and the design roles to dispatch.
@@ -2100,6 +2133,8 @@ verify_tests_findings() { # ID
   vt_p=''; [ ! -f "$vt_d/PLAN.md" ] || vt_p="--plan $vt_d/PLAN.md"
   # shellcheck disable=SC2086
   vt_out=$(node "$vt_s" "$vt_f" $vt_p 2>&1) || { printf '%s\n' "$vt_out" | tr '\n' ' '; return 1; }
+  # A171: a mutation-budget overrun is a warning the submission passes with, never a block
+  printf '%s\n' "$vt_out" | grep '^WARNING:' >&2 || :
 }
 
 # --- design-sync is not skipped silently (A65) --------------------------------------------------------
@@ -2228,6 +2263,7 @@ record_handoff() {
       verify_worker_evidence "$id"
       verify_mutation_ownership "$id" 1
       verify_fix_bound "$id"
+      build_record_auto "$id"
       set_run_value "$id" handoff implemented_patch_sha256 "$patch"
       set_run_value "$id" handoff code_done_patch_sha256 PENDING ;;
     CODE_DONE)
@@ -2723,8 +2759,87 @@ verify_required_gates() { # ID strict|patch MESSAGE
     gate_satisfied "$vrg_s" || fail "$3: required gate $vrg_g of $1 is $vrg_s for the current content (see 'agent.sh pipeline $1')"
   done
 }
+# A171: a late example of a finding class the reviewer missed does not use up a fix round. A FAIL record is free
+# (carry-over) when every blocking row cites a line that is byte-identical in the revision the same gate and focus
+# reviewed before (the line was already there, the reviewer missed it) and that no blocking row of that earlier
+# record cited (so a line the implementer was asked to fix and did not still counts). Deterministic: it compares
+# the tree of each record's fingerprint, nothing else. A row without a numeric path:line, a tree that is not in the
+# object database, or no earlier record: not free.
+# A171: the blocking-vs-info rule is written in GATES.md ("Blocking or info"); this is its version. A change of the rule
+# text raises the number, and a classification is compared only with records of the same version.
+blocking_rule_version=1
+# finding_key FINGERPRINT LOCATION TEXT: the identity of an observation across revisions. The cited line's text in that
+# revision when the location resolves (so a moved line is the same finding), else the normalised finding text.
+finding_key() {
+  fk_loc=$(printf '%s' "$2" | tr -d ' ')
+  fk_t=$(tree_line "$1" "$fk_loc")
+  if [ -n "$(printf '%s' "$fk_t" | tr -d '[:space:]')" ]; then printf '%s@%s\n' "${fk_loc%:*}" "$(printf '%s' "$fk_t" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | git hash-object --stdin | cut -c1-12)"
+  else printf '%s~%s\n' "${fk_loc%:*}" "$(printf '%s' "$3" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' ' ' | sed 's/^ //;s/ $//' | git hash-object --stdin | cut -c1-12)"; fi
+}
+# classification_flip ID GATE FOCUS FINGERPRINT ROWS-FILE: the first row (rows: id|severity|loc|text|evidence) whose key an
+# earlier record of the same gate and focus under the same rule version classified the other way. Prints "id key was X in NAME".
+classification_flip() {
+  cl_ro=$(last_reopen_seq "$1" any)
+  for cl_n in $(gate_names "$1"); do
+    cl_f=$(gates_dir "$1")/$cl_n
+    [ "$(gate_field "$cl_f" gate)" = "$2" ] && [ "$(gate_field "$cl_f" focus)" = "$3" ] || continue
+    [ "$(gate_field "$cl_f" seq)" -gt "$cl_ro" ] || continue
+    [ "$(gate_field "$cl_f" blocking_rule)" = "$blocking_rule_version" ] || continue
+    cl_pfp=$(gate_field "$cl_f" fingerprint)
+    # earlier keys, one per line: key<TAB>class
+    cl_old=$(sed -n 's/^finding: //p' "$cl_f" | while IFS='|' read -r cl_i cl_s cl_l cl_x _; do
+      [ "$cl_s" = info ] || [ "$cl_s" = blocking ] || continue
+      case "$cl_x$cl_l" in (UNSUPPORTED*|*"risk signal "*) continue ;; esac
+      printf '%s\t%s\n' "$(finding_key "$cl_pfp" "$cl_l" "$cl_x")" "$cl_s"; done)
+    [ -n "$cl_old" ] || continue
+    cl_hit=$(awk -F'|' '{ print $1 "|" $2 "|" $3 "|" $4 }' "$5" | while IFS='|' read -r cl_i cl_s cl_l cl_x; do
+      [ "$cl_s" = info ] || [ "$cl_s" = blocking ] || continue
+      cl_k=$(finding_key "$4" "$cl_l" "$cl_x")
+      cl_was=$(printf '%s\n' "$cl_old" | awk -F'\t' -v k="$cl_k" '$1 == k { print $2; exit }')
+      if [ -n "$cl_was" ] && [ "$cl_was" != "$cl_s" ]; then printf '%s (%s) is %s, and was %s in %s\n' "$cl_i" "$cl_l" "$cl_s" "$cl_was" "$cl_n"; break; fi; done)
+    [ -z "$cl_hit" ] || { printf '%s\n' "$cl_hit"; return 0; }
+  done
+  return 1
+}
+tree_line() { # FINGERPRINT PATH:LINE -> the text of that line in that tree (empty when unknown)
+  tl_loc=$2; tl_p=${tl_loc%:*}; tl_n=${tl_loc##*:}; tl_n=${tl_n%%-*}
+  case "$tl_n" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$tl_n" -gt 0 ] || return 0
+  [ "$tl_p" != "$tl_loc" ] || return 0
+  git -C "$root" cat-file -p "$1:$tl_p" 2>/dev/null | sed -n "${tl_n}p"
+}
+gate_prev_record() { # ID RECORD -> the latest earlier record of the same gate and focus on another revision (after the last reopen)
+  gp_seq=$(gate_field "$2" seq); gp_g=$(gate_field "$2" gate); gp_fc=$(gate_field "$2" focus); gp_fp=$(gate_field "$2" fingerprint)
+  gp_ro=$(last_reopen_seq "$1" any); gp_best=''; gp_bs=0
+  for gp_n in $(gate_names "$1"); do
+    gp_f=$(gates_dir "$1")/$gp_n
+    [ "$(gate_field "$gp_f" gate)" = "$gp_g" ] && [ "$(gate_field "$gp_f" focus)" = "$gp_fc" ] || continue
+    gp_s=$(gate_field "$gp_f" seq)
+    [ "$gp_s" -lt "$gp_seq" ] && [ "$gp_s" -gt "$gp_ro" ] && [ "$gp_s" -gt "$gp_bs" ] || continue
+    [ "$(gate_field "$gp_f" fingerprint)" != "$gp_fp" ] || continue
+    gp_best=$gp_f; gp_bs=$gp_s
+  done
+  [ -n "$gp_best" ] && printf '%s\n' "$gp_best"
+}
+gate_carryover_free() { # ID RECORD -> 0 when the record only carries over examples of an earlier revision
+  gc_prev=$(gate_prev_record "$1" "$2") || return 1
+  gc_fp=$(gate_field "$2" fingerprint); gc_pfp=$(gate_field "$gc_prev" fingerprint)
+  gc_cited=''
+  for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$gc_prev"); do
+    gc_cited="$gc_cited
+${gc_loc%:*}	$(tree_line "$gc_pfp" "$gc_loc")"
+  done
+  gc_rows=0
+  for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$2"); do
+    gc_rows=$((gc_rows + 1))
+    gc_txt=$(tree_line "$gc_fp" "$gc_loc"); [ -n "$(printf '%s' "$gc_txt" | tr -d '[:space:]')" ] || return 1
+    git -C "$root" cat-file -p "$gc_pfp:${gc_loc%:*}" 2>/dev/null | grep -Fxq -- "$gc_txt" || return 1
+    ! printf '%s\n' "$gc_cited" | grep -Fxq -- "${gc_loc%:*}	$gc_txt" || return 1
+  done
+  [ "$gc_rows" -gt 0 ]
+}
 # Fix rounds (D15): one round per distinct content that collected an unwaived blocking FAIL
-# under the current frozen contract since the last reopen.
+# under the current frozen contract since the last reopen (A171: a carry-over record is not a round).
 fix_rounds_used() {
   fr_reopen=$(last_reopen_seq "$1" any)
   for fr_n in $(gate_names "$1"); do
@@ -2733,6 +2848,7 @@ fix_rounds_used() {
     [ "$(gate_field "$fr_f" seq)" -gt "$fr_reopen" ] || continue
     gate_bound_to_contract "$1" "$fr_f" || continue
     fail_fully_waived "$1" "$fr_f" && continue
+    gate_carryover_free "$1" "$fr_f" && continue
     gate_field "$fr_f" fingerprint
   done | sort -u | wc -l | tr -d ' '
 }
@@ -2955,6 +3071,7 @@ write_gate() {
     if [ -n "$wg_art" ]; then printf 'artifact: "%s"\nartifact_sha256: "%s"\n' "$wg_art" "$(hash_file "$wg_d/$wg_art")"; fi
     printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$wg_d" freeze task_sha256)" "$(section_value "$wg_d" freeze evidence_sha256)" "$(section_value "$wg_d" freeze plan_sha256)" "$(section_value "$wg_d" freeze qa_plan_sha256)"
     printf 'policy_sha256: "%s"\npipeline: "%s"\n' "$(section_value "$wg_d" freeze policy_sha256)" "$(section_value "$wg_d" freeze pipeline)"
+    printf 'blocking_rule: "%s"\n' "$blocking_rule_version"
     [ -z "$wg_rfile" ] || printf 'result_file: "%s"\nresult_sha256: "%s"\n' "$wg_rfile" "$(hash_file "$wg_d/$wg_rfile")"
     [ "$wg_res" != fail ] || printf 'fix_scope: %s\n' "$wg_scope"
     [ "$wg_res" != unsupported ] || printf 'unsupported: "%s"\n' "$wg_focus"
@@ -3115,6 +3232,10 @@ record_validate() {
       risk_gate_focuses "$rv_id" "$rv_gate" | grep -Fxq -- "$rv_focus" || { record_reject "focus $rv_focus is not required on $rv_gate of $rv_id: no risk signal triggers it (see 'agent.sh pipeline $rv_id')"; return 1; }
     fi
   fi
+  if [ "$rv_kind" = gate ] && [ -n "$rv_gate" ] && [ -n "$(gate_deps "$rv_id" "$rv_gate")" ]; then
+    rv_unmet=$(gate_deps_unmet "$rv_id" "$rv_gate" | tr '\n' ' ')
+    [ -z "$rv_unmet" ] || { record_reject "$rv_gate needs ${rv_unmet% } first (GATES.md, Gate dependencies): it reads that gate's output; run it before $rv_gate"; return 1; }
+  fi
   rv_fp=$(hdr FINGERPRINT "$rv_t/hdr"); rv_now=$(gate_fingerprint)
   [ "$rv_fp" = "$rv_now" ] || { record_reject "stale: FINGERPRINT $rv_fp is not the current content fingerprint $rv_now"; return 1; }
   rv_art=$(hdr ARTIFACT "$rv_t/hdr"); rv_ap=${rv_art% *}; rv_as=${rv_art##* }
@@ -3169,6 +3290,28 @@ record_validate() {
   rv_badrow=$(awk -F'|' -v p="$rv_prefix" '{ if ($1 !~ ("^" p "-[0-9]+$")) { print "id " $1 " (want " p "-<n>)"; exit } if ($2 !~ /^(blocking|info)$/) { print "severity " $2; exit } }' "$rv_t/findings")
   [ -z "$rv_badrow" ] || { record_reject "invalid finding $rv_badrow"; return 1; }
   [ "$(cut -d'|' -f1 "$rv_t/findings" | sort | uniq -d)" = '' ] || { record_reject "duplicate finding ids"; return 1; }
+  # A171: a rules review states how it scanned and lists every instance in one pass, so the fix round is not spent on
+  # the examples one by one (the evidence column carries `scan: <command or method>` and `instances: single` or the
+  # `path:line` of every instance, the row's own location included).
+  if [ "$rv_kind" = gate ] && [ "$rv_role" = reviewer ] && [ "$rv_res" = FAIL ]; then
+    case "$rv_focus" in rules|rules+tests)
+      rv_scanbad=$(awk -F'|' '$2 != "info" && $5 !~ /^agent\.sh / {
+        ev = $5; n = split(ev, seg, ";"); scan = ""; inst = ""
+        for (i = 1; i <= n; i++) { x = seg[i]; sub(/^[[:space:]]+/, "", x); sub(/[[:space:]]+$/, "", x)
+          if (x ~ /^scan:/) { scan = x; sub(/^scan:[[:space:]]*/, "", scan) } else if (x ~ /^instances:/) { inst = x; sub(/^instances:[[:space:]]*/, "", inst) } }
+        loc = $3; gsub(/[[:space:]]/, "", loc)
+        if (length(scan) < 6) { print $1 ": evidence lacks scan: <the grep or script that found every instance>"; exit }
+        if (inst == "") { print $1 ": evidence lacks instances: single, or instances: <path:line>, <path:line>, ..."; exit }
+        if (inst != "single" && index(inst, loc) == 0 && loc != "" && loc != "-") { print $1 ": instances do not include the row location " loc; exit } }' "$rv_t/findings")
+      [ -z "$rv_scanbad" ] || { record_reject "finding $rv_scanbad (A171: a rules review scans for the whole class and lists every instance, so one fix round clears them all)"; return 1; } ;;
+    esac
+  fi
+  # A171: the same observation keeps its classification across revisions while the written rule (GATES.md, "Blocking or info")
+  # is unchanged: an info row cannot become blocking, nor a blocking row info, without a rule change or a waiver.
+  if [ "$rv_kind" = gate ] && [ -n "$rv_gate" ] && [ "$rv_res" != BLOCKED ] && [ -s "$rv_t/findings" ]; then
+    rv_flip=$(classification_flip "$rv_id" "$rv_gate" "$rv_focus" "$rv_fp" "$rv_t/findings") || rv_flip=''
+    [ -z "$rv_flip" ] || { record_reject "classification changed for the same observation: $rv_flip. Blocking or info follows the written rule (GATES.md), not the round: keep the earlier classification (a blocking finding the user accepts is waived, not downgraded)"; return 1; }
+  fi
   rv_blocking=$(awk -F'|' '$2 != "info"' "$rv_t/findings" | wc -l | tr -d ' ')
   if [ "$rv_res" = FAIL ] && [ "$rv_blocking" = 0 ]; then record_reject "FAIL needs at least one blocking finding"; return 1; fi
   if [ "$rv_res" = PASS ] && [ "$rv_blocking" != 0 ]; then record_reject "PASS cannot carry blocking findings"; return 1; fi
@@ -4725,6 +4868,11 @@ decide() {
   [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "${PROOFLINE_DISPATCH:-}" = 1 ] ||
     fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
   [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
+  # A171: a gate whose dependency has not completed is not dispatched
+  if dc_dgate=$(gate_of "$dc_role" "$dc_focus" "$dc_id" 2>/dev/null) && [ -n "$(gate_deps "$dc_id" "$dc_dgate")" ]; then
+    dc_unmet=$(gate_deps_unmet "$dc_id" "$dc_dgate" | tr '\n' ' ')
+    [ -z "$dc_unmet" ] || fail "$dc_dgate needs ${dc_unmet% } first (GATES.md, Gate dependencies): dispatch that gate and let it pass for the current content, then run this again ('agent.sh next $dc_id' lists the order)"
+  fi
   dc_tier=$(tier_effective "$dc_id"); dc_sig=''
   [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
   dc_stats=$(diff_stats "$dc_id"); if [ "${dc_stats% *}" -gt 15 ] || [ "${dc_stats#* }" -gt 400 ]; then dc_sig="$dc_sig large_diff"; fi
@@ -5014,8 +5162,12 @@ next_step() {
         [ "$ns_ac" -eq 0 ] || o "re-dispatch the verifier citing only a configured or planned command with a recorded exit status and one stable output line (A107 rows); a command missing from Verification commands needs the amendment route"
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
+        # A171: the build record the reviewers and the verifier read comes first; it is a missing step, not a reviewer's lowered confidence
+        case "$ns_todo" in *REVIEW_*|*VERIFY*) ! build_record_missing "$ns_id" || o "agent.sh build-record $ns_id run   (the build record is missing for this tree: make it before the review gates; reviewers and the verifier read it)" ;; esac
         for ns_x in $ns_todo; do
           ns_g=${ns_x%%:*}
+          ns_um=$(gate_deps_unmet "$ns_id" "$ns_g" "$ns_fp" | tr '\n' ' ')
+          if [ -n "$ns_um" ]; then printf 'note=%s waits for %s (gate dependency, A171): not offered before it passes\n' "$ns_g" "${ns_um% }"; continue; fi
           case "$ns_g" in SECRETS) o "agent.sh secret-scan $ns_id" ;; *)
             for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
               gate_satisfied "$(gate_focus_status "$ns_id" "$ns_g" "$ns_fc" reuse "$ns_fp")" && continue

@@ -168,7 +168,7 @@ sc_submit() {
   expect_msg "an artifact outside the run was accepted" 'inside the run' AS reviewer submit LC --focus rules+tests --artifact ../../../impl.txt --confidence high
   expect_msg "an artifact of another focus was accepted" 'outside the paths' AS reviewer submit LC --focus plan --artifact reviews/proof-review/small/REPORT.md --confidence high
   # the result follows from the findings
-  printf 'blocking|impl.txt:1|lookup returns the wrong value for an empty key|traced: empty key -> nil\n' > "$base/f.rows"
+  printf 'blocking|impl.txt:1|lookup returns the wrong value for an empty key|traced: empty key -> nil; scan: grep -n lookup impl.txt; instances: single\n' > "$base/f.rows"
   expect_msg "PASS with a blocking finding was accepted" 'contradicts' AS reviewer submit LC --focus rules+tests --result PASS --findings "$base/f.rows" --confidence high
   AS reviewer submit LC --focus rules+tests --findings "$base/f.rows" --confidence high >/dev/null
   [ "$(gate_st REVIEW_SMALL)" = fail ] || die "blocking findings did not fail the gate"
@@ -192,7 +192,7 @@ sc_language() {
   expect_msg "a Turkish report was accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
   printf 'The review is complete.\n\n> Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n\n```\n\305\237\303\266yle\n```\nJos\303\251 reviewed it.\n' > "$small/REPORT.md"
   AS reviewer submit LC --focus rules+tests --confidence high >/dev/null || die "a quoted request / one accented name was refused"
-  printf 'blocking|impl.txt:1|de\304\237er \303\274retilmiyor \305\237\303\266yle|traced\n' > "$base/tr.rows"
+  printf 'blocking|impl.txt:1|de\304\237er \303\274retilmiyor \305\237\303\266yle|traced; scan: grep -n lookup impl.txt; instances: single\n' > "$base/tr.rows"
   expect_msg "Turkish findings were accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --findings "$base/tr.rows" --confidence high
   ok "language: non-English report and findings are rejected at submit; blockquotes, fences and one accented name pass"
 }
@@ -225,7 +225,7 @@ sc_stdin_contract() { # A104
   out=$(printf 'report text\n' | AS reviewer submit LC --focus rules+tests --confidence high --report - --findings - 2>&1) && die "both-stdin was accepted"
   case "$out" in *'only one of --report/--findings may read stdin'*'=== FINDINGS ==='*) ;; *) die "both-stdin message wrong: $out" ;; esac
   # the documented separator splits one document
-  printf 'review of the tree\n\n=== FINDINGS ===\nblocking|impl.txt:1|wrong value|traced\ninfo|impl.txt:2|a note|seen\n' \
+  printf 'review of the tree\n\n=== FINDINGS ===\nblocking|impl.txt:1|wrong value|traced; scan: grep -n lookup impl.txt; instances: single\ninfo|impl.txt:2|a note|seen\n' \
     | AS reviewer submit LC --focus rules+tests --confidence high --report - --findings - >/dev/null || die "separator submit failed"
   [ "$(gate_st REVIEW_SMALL)" = fail ] || die "separator findings did not fail the gate"
   grep -q 'review of the tree' "$rp" && ! grep -q 'FINDINGS\|wrong value' "$rp" || die "report not split from the findings"
@@ -414,6 +414,65 @@ sc_fix_loop() {
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: REVIEW_SMALL and VERIFY failed on all three contents\n' | A terminate LC FAILED >/dev/null
   expect_state execution state FAILED
   ok "fix loop: per-gate status, only stale gates listed, round-2 escalation, terminate FAILED"
+}
+
+# A171: an example of a finding class that an earlier revision already contained (the reviewer missed it) does not
+# use up the implementer's fix round; a line already cited, or one that is new, still counts.
+sc_fix_round_missed_example() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: example two' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  gfail REVIEW_SMALL impl.txt                                   # round 1 cites impl.txt:1
+  [ "$(pipe_val fix_round)" = 1 ] || die "the first failing content is not round 1: $(pipe_val fix_round)"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: fix of example one'; A handoff LC IMPLEMENTED >/dev/null
+  # the next revision: the reviewer now cites impl.txt:2, a line of the previous revision that no finding cited
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-2|blocking|impl.txt:2|a second example of the same class|traced: example two; scan: grep -n example impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 1 ] || die "a missed example used up a fix round: $(pipe_val fix_round)"
+  A handoff LC IMPLEMENTING >/dev/null || die "the fix round after a missed example was refused"
+  worker FIX pass impl.txt 'impl: fix of example two'; A handoff LC IMPLEMENTED >/dev/null
+  # re-citing the line that was already cited (the fix did not address it) is a real round
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-3|blocking|impl.txt:2|example two still not fixed|traced: example two; scan: grep -n example impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 2 ] || die "a re-cited line did not count as a round: $(pipe_val fix_round)"
+  # a line that only exists in the latest revision (new code) is a real round too
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: third change'; A handoff LC IMPLEMENTED >/dev/null
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-4|blocking|impl.txt:5|new code from the last fix|traced: last fix; scan: grep -n fix impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 3 ] || die "a finding on new code did not count as a round: $(pipe_val fix_round)"
+  expect_msg "a round beyond the maximum" 'fix rounds exhausted' A handoff LC IMPLEMENTING
+  ok "fix rounds: a missed example of an earlier revision is not a round; a re-cited or new line is"
+}
+
+# A171: a rules review records how it scanned and lists every instance of the class in one pass.
+sc_scan_method() {
+  scaffold orchestrated; implemented orchestrated; A secret-scan LC >/dev/null
+  expect_msg "a rules finding without a scan method" "lacks scan:" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced'
+  expect_msg "a rules finding without the instances" "lacks instances: single" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .'
+  expect_msg "instances that omit the row location" 'instances do not include the row location impl.txt:1' rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .; instances: other.txt:9'
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .; instances: impl.txt:1, other.txt:9'
+  [ "$(gate_st REVIEW_SMALL)" = fail ] || die "a finding with a scan method and the instance list was not recorded"
+  ok "scan method: a rules finding names its scan and lists the instances, else it is rejected"
+}
+
+# A171: blocking or info is decided by the written rule, not by the round: the same observation keeps its
+# classification on later revisions (the rule version is recorded with each gate record).
+sc_classification_stable() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: example two' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  sev="scan: grep -n example impl.txt; instances: single"
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; $sev" "REVIEW_SMALL-2|info|impl.txt:2|observation only|traced"
+  grep -q '^blocking_rule: "1"$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "the gate record does not carry the rule version"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: a fix'; A handoff LC IMPLEMENTED >/dev/null
+  expect_msg "an info observation became blocking" 'classification changed for the same observation: REVIEW_SMALL-2 (impl.txt:2) is blocking, and was info' \
+    rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; $sev" "REVIEW_SMALL-2|blocking|impl.txt:2|observation only|traced; $sev"
+  expect_msg "a blocking finding was downgraded to info" 'is info, and was blocking' \
+    rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|info|impl.txt:1|wrong default|traced" "REVIEW_SMALL-2|blocking|impl.txt:3|new finding|traced; $sev"
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; $sev" "REVIEW_SMALL-2|info|impl.txt:2|observation only|traced"
+  [ "$(gate_st REVIEW_SMALL)" = fail ] || die "the same classification was not recorded"
+  [ "$(sed -n 's/^blocking_rule_version=//p' "$tl_agents/scripts/agent.sh")" = "$(sed -n 's/^Blocking rule version: //p' "$tl_agents/GATES.md")" ] \
+    || die "GATES.md and agent.sh state different blocking rule versions"
+  ok "classification: the same observation keeps blocking or info across revisions under one rule version"
 }
 
 sc_waiver() {
@@ -1079,7 +1138,7 @@ sc_decide() {
   [ "$(printf '%s\n' "$wl" | wc -l | tr -d ' ')" = 1 ] && printf '%s\n' "$wl" | grep -Eq '^waiting: CI of the pull request, [0-9]+m[0-9]{2}s so far$' || die "wait-line is not one line of the documented shape: $wl"
   A wait-line LC "CI of the pull request" --done >/dev/null
   expect_fail "wait-line without a wait" A wait-line LC
-  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced'
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'
   printf 'escalated=yes\n' >> .agents/runs/LC/decisions/001-reviewer-rules-tests.decision
   A decide LC reviewer --agent-path --focus rules+tests >/dev/null
   tail -1 "$STUB_ARGS" | grep -q -- '--signal recent_fail_same_focus --escalations-used 1' || die "signals/escalations: $(tail -1 "$STUB_ARGS")"
@@ -1095,7 +1154,7 @@ sc_decide() {
     printf '{"message":{"id":"msg_A","role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":5000,"output_tokens":40}}}\n'
     printf '{"message":{"id":"msg_B","role":"assistant","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":6000,"output_tokens":10}}}\n'; } > "$tr"
   mkdir -p .agents/local/submissions; printf '%s\n' "$tr" > .agents/local/submissions/t9.started
-  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced'; unset PROOFLINE_STEP_AGENT
+  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'; unset PROOFLINE_STEP_AGENT
   tail -1 "$mj" | grep -q '"kind":"step".*"tokens_in":103,"tokens_out":50,"tokens_total":153,' || die "step record without the subagent's session-log tokens: $(tail -1 "$mj")"
   # dispatch record: numbers kept, strings sanitized (no free text, so no secret), non-lead refused
   A metrics-dispatch LC reviewer rules claude 'sonnet"; sk-LIVE secret' 12 100 50 150 3 1 submitted >/dev/null
@@ -2278,6 +2337,27 @@ sc_legacy_fingerprint_new_rule() {
   ok "gates recorded on the current rule are stale after a product edit; the legacy path never revives them"
 }
 
+# A171: the build record is made before the review gate wave (at handoff IMPLEMENTED) and, when it is missing,
+# `next` names it as a missing step before any review gate.
+sc_build_record_auto() {
+  scaffold standalone no STANDARD manual
+  cp "$tl_agents/scripts/build-record.sh" .agents/scripts/
+  sed -i.bak 's|^  build:.*|  build: echo built-line|; s|^  test:.*|  test: echo tested-line|' .agents/config.yaml && rm -f .agents/config.yaml.bak
+  A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  implemented SOLO
+  rc=0; A build-record LC show >/dev/null 2>&1 || rc=$?; [ "$rc" -eq 0 ] || die "handoff IMPLEMENTED did not make the build record (show exit $rc)"
+  A build-record LC show | grep -q tested-line || die "the automatic record lacks the test output"
+  ok "build record: made at handoff IMPLEMENTED, before the review gate wave"
+  # a tree without a record (here: config added after the handoff) shows the step first in next
+  rm -rf .agents/local/builds
+  nx=$(A next LC)
+  printf '%s\n' "$nx" | grep -Fq 'next=agent.sh build-record LC run' || die "next does not show the missing build record: $nx"
+  [ "$(printf '%s\n' "$nx" | grep -n 'next=' | head -1 | grep -c 'build-record')" = 1 ] || die "the build record is not the first step: $nx"
+  A build-record LC run >/dev/null
+  ! A next LC | grep -Fq 'build-record' || die "next still names the build record after it was made"
+  ok "next shows a missing build record as the first missing step and drops it once made"
+}
+
 run_sc sc_secret_scan
 run_sc sc_provenance
 run_sc sc_waiver_rebind
@@ -2317,4 +2397,8 @@ run_sc sc_evidence_gap_r2
 run_sc sc_evidence_gap_files_gate
 run_sc sc_legacy_fingerprint
 run_sc sc_legacy_fingerprint_new_rule
+run_sc sc_build_record_auto
+run_sc sc_fix_round_missed_example
+run_sc sc_scan_method
+run_sc sc_classification_stable
 echo 'gates tests passed'

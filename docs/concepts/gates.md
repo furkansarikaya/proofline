@@ -31,6 +31,10 @@ come from `review.risky_paths`. Code-like Markdown (`.agents/**`, `skills/**`, `
 | `QA` | class STANDARD and up | QA |
 | `VERIFY` | always | verifier |
 
+Gates run in parallel except where one reads another's output: `VERIFY` waits for the `QA` visual focus when the
+run has one (`next` does not offer it earlier, `decide` and `record` refuse it). The build record is made before the
+review wave, at `handoff IMPLEMENTED`; if it is missing, `next` lists it first.
+
 Status per gate: `pass`, `pass_low` (a PASS with `CONFIDENCE: low` does not count; re-run with a stronger model),
 `waived`, `fail`, `stale`, `missing`. `agent.sh pipeline <ID>` prints them.
 
@@ -138,6 +142,12 @@ A FAIL goes back to the implementer (same worktree). Each round carries the prev
 stale by the change re-run. `review.max_fix_rounds` defaults to 2 and round 2 escalates to a stronger model.
 If findings remain after the last round the run ends `terminate FAILED`, commit and push stay locked, and the
 lead reports what remains. There is never an endless loop.
+
+Three rules keep the loop fair (A171). A rules review scans for the whole class of a finding in one pass and records
+the scan and every instance, so the examples are fixed together. A failing record whose every blocking row cites a
+line that was already in the previously reviewed revision (and was not cited before) is a missed example and does not
+use up a round. Blocking or info follows a written rule (`GATES.md`), and the same observation keeps its
+classification from round to round. A mutation budget overrun in the tests review (21 of 20) is a warning, not a block.
 
 ## Waivers
 

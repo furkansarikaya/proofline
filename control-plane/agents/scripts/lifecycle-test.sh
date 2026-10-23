@@ -265,7 +265,7 @@ scenario_fix_scope_format() {
   export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
-  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:3|wrong default|traced' 'REVIEW_SMALL-2|blocking|impl_test.txt:9|hollow assertion|traced' 'REVIEW_SMALL-3|info|other.txt:1|suspicion only|none'
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:3|wrong default|traced; scan: grep -n lookup impl.txt; instances: single' 'REVIEW_SMALL-2|blocking|impl_test.txt:9|hollow assertion|traced; scan: grep -n lookup impl.txt; instances: single' 'REVIEW_SMALL-3|info|other.txt:1|suspicion only|none'
   grep -q '^fix_scope: impl.txt,impl_test.txt$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "fix_scope is not the union of blocking finding paths"
   A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl_test.txt 'test: empty key returns the documented default'
@@ -281,7 +281,7 @@ scenario_fix_scope_symbol() {
   export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
-  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:TestLookup|hollow assertion|traced'
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:TestLookup|hollow assertion|traced; scan: grep -n lookup impl.txt; instances: single'
   grep -q '^fix_scope: impl_test.txt$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "fix_scope kept the symbol of a path:symbol finding"
   A handoff LC IMPLEMENTING >/dev/null
   cp impl.txt "$base/impl.keep"

@@ -40,6 +40,53 @@ whose content is unchanged).
 | `stale` | the latest record is for other content, an edited artifact, another frozen contract or a forged role |
 | `missing` | no record since the last reopen |
 
+### Gate dependencies (A171)
+
+Gates run in parallel unless a gate reads the output of another. That dependency is written here, and the script
+enforces it:
+
+| Gate | Needs first | Why |
+|---|---|---|
+| `VERIFY` | `QA` focus `visual` (only when the run carries the `visual` risk focus) | the verifier reads `reviews/visual-proof/report.json`, which the QA visual focus produces |
+
+`agent.sh next` offers the dependent gate only after its dependency is satisfied for the current content (it prints
+`note=VERIFY waits for QA:visual`), `agent.sh decide` (so `dispatch.sh`) refuses to start it, and `record` rejects
+its result, all with `VERIFY needs QA:visual first`. `agent.sh pipeline` prints `gate.VERIFY.needs=QA:visual`.
+
+### Build record (A171)
+
+When `commands.build` or `commands.test` is configured, the build record (`agent.sh build-record <ID>`, A148) is made
+by the lead at `handoff IMPLEMENTING -> IMPLEMENTED`, before the review gate wave, so no reviewer has to lower its
+confidence for a missing record. A tree without a record (a changed tree, a failed automatic run) shows
+`agent.sh build-record <ID> run` as the first step of `agent.sh next`; `dispatch.sh` still makes it before a reviewer
+or verifier starts. A failing build is recorded and shown, it never blocks the handoff.
+
+### Blocking or info (A171)
+
+Blocking rule version: 1
+
+A finding is `blocking` exactly when one of these holds, and `info` otherwise. The version above is recorded in every
+gate record (`blocking_rule`); change the rule text only together with the version in `agent.sh`
+(`blocking_rule_version`).
+
+1. it contradicts an acceptance criterion of the frozen plan, or a written, checkable project rule (quoted verbatim);
+2. it is a defect reproduced or traced with a concrete input to a wrong result;
+3. a required command (plan `## Verification commands`, `commands.build|test|lint`) fails on the task-owned tree;
+4. the gate's own rule below names it (for example an unplanned dependency or a confirmed flaky test).
+
+Everything else is `info`: a suspicion without proof, a style preference, an observation about code the diff did not
+change, a failure that also happens at the base (pre-existing), a slow test. The same observation keeps its
+classification from round to round: `record` rejects a row whose observation (the cited line's text, or the
+normalised finding text when the line does not resolve) an earlier record of the same gate and focus under the same
+rule version classified the other way. A blocking finding the user accepts is waived, never downgraded.
+
+### Rules reviews scan once (A171)
+
+A blocking row of a `rules` or `rules+tests` review carries `scan: <the grep or script that found every instance>`
+and `instances: single` or `instances: <path:line>, <path:line>, ...` (its own location included) in its evidence.
+`record` rejects it without them. The review audits the whole class in one pass, so the examples are fixed in one fix
+round instead of one per round.
+
 Gate records (`gates/NNN-<GATE>.yaml` + `.manifest`) bind the content fingerprint, the task-owned patch,
 the frozen hashes, the pipeline, the author role, the artifact sha256 and the raw result sha256. Gates have
 no order and run in parallel; several gates may record on the same content.
@@ -130,6 +177,11 @@ After CODE_DONE the knowledge step and the report publication change the tree, s
 - A fix round is one content that collected an unwaived blocking FAIL (under the current frozen contract,
   since the last reopen). `handoff <ID> IMPLEMENTING` from IMPLEMENTED (lead only) opens it while
   rounds used ≤ `review.max_fix_rounds` (default 2).
+- Carry-over (A171): a failing record does not count as a round when every blocking row cites a line that is
+  byte-identical in the revision the same gate and focus reviewed before, and no blocking row of that earlier record
+  cited that line's text (the reviewer missed this example of the class; the implementer did not leave a cited one
+  unfixed). Deterministic: the script compares the trees of the two records' fingerprints. A new or changed line,
+  or one already cited, counts as before.
 - The fix MUST change the tree and stay inside the union `fix_scope` of the failing content's records
   (finding paths; a finding without a path allows any frozen scope path). An entry `path:line`, `path:line-line`
   or `path:symbol` scopes to its path part; comparison uses the path. The fix may also touch any path of the frozen
