@@ -1192,7 +1192,7 @@ split_state() { # ID TOKEN -> accepted <answer> | pending <question> | declined 
     grep -Eq "^[[:space:]]*SPLIT: $2[[:space:]]*\$" "$ss_q" || continue
     ss_a=${ss_q%.md}.answer.md
     if [ ! -e "$ss_a" ]; then ss_pend=questions/$(basename "$ss_q"); continue; fi
-    ss_t=$(sed '1,/^---$/d' "$ss_a" | tr -s '[:space:]' ' ' | sed 's/^ //' | tr '[:upper:]' '[:lower:]')
+    ss_t=$(sed '1,/^---$/d' "$ss_a" | unquote_block | tr -s '[:space:]' ' ' | sed 's/^ //' | tr '[:upper:]' '[:lower:]')
     if [ "$(gate_field "$ss_a" answered_by)" = user ] && printf '%s' "$ss_t" | grep -Eq '^proceed without splitting' \
       && ! printf ' %s ' "${ss_t#proceed without splitting}" | grep -Eq "(^|[^[:alpha:]])(not|never|no|n't|if|unless|but|except|until|yet|wait|maybe|or|actually|instead)([^[:alpha:]]|\$)"; then
       echo "accepted questions/$(basename "$ss_a")"; return 0
@@ -2822,12 +2822,22 @@ gate_prev_record() { # ID RECORD -> the latest earlier record of the same gate a
   [ -n "$gp_best" ] && printf '%s\n' "$gp_best"
 }
 gate_carryover_free() { # ID RECORD -> 0 when the record only carries over examples of an earlier revision
+  # only a reviewer gate can miss an example; a mechanical gate (VERIFY, SECRETS, QA) failing is a round
+  case "$(gate_field "$2" gate)" in REVIEW_*) ;; *) return 1 ;; esac
   gc_prev=$(gate_prev_record "$1" "$2") || return 1
   gc_fp=$(gate_field "$2" fingerprint); gc_pfp=$(gate_field "$gc_prev" fingerprint)
-  gc_cited=''
-  for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$gc_prev"); do
-    gc_cited="$gc_cited
-${gc_loc%:*}	$(tree_line "$gc_pfp" "$gc_loc")"
+  # a line that ANY earlier record of this gate and focus already cited (a pass in between does not forget it) is an unfixed
+  # finding, not a missed example: it counts as a round
+  gc_cited=''; gc_seq=$(gate_field "$2" seq); gc_g=$(gate_field "$2" gate); gc_fc=$(gate_field "$2" focus); gc_ro=$(last_reopen_seq "$1" any)
+  for gc_n in $(gate_names "$1"); do
+    gc_f=$(gates_dir "$1")/$gc_n
+    [ "$(gate_field "$gc_f" gate)" = "$gc_g" ] && [ "$(gate_field "$gc_f" focus)" = "$gc_fc" ] || continue
+    gc_s=$(gate_field "$gc_f" seq); [ "$gc_s" -lt "$gc_seq" ] && [ "$gc_s" -gt "$gc_ro" ] || continue
+    gc_efp=$(gate_field "$gc_f" fingerprint)
+    for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$gc_f"); do
+      gc_cited="$gc_cited
+${gc_loc%:*}	$(tree_line "$gc_efp" "$gc_loc")"
+    done
   done
   gc_rows=0
   for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$2"); do
