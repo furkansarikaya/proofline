@@ -118,7 +118,7 @@ export function ledgerItems({ images = [], ledgerText, ledgerPath = "docs/design
   const base = { check: LEDGER_CHECK, screen, viewport };
   const items = [], rows = [];
   if (typeof ledgerText !== "string") {
-    items.push({ ...base, selector: ledgerPath, value: "ledger file not found", threshold: "== 0 missing", status: "fail", note: `image ledger ${ledgerPath} does not exist` });
+    items.push({ ...base, selector: ledgerPath, value: 1, threshold: "== 0", status: "fail", note: `image ledger ${ledgerPath} does not exist` });
     for (const i of images) rows.push({ src: i.src, file: null, in_ledger: false });
     return { items, images: rows };
   }
@@ -128,16 +128,16 @@ export function ledgerItems({ images = [], ledgerText, ledgerPath = "docs/design
     const good = matched.find((r) => r.valid), bad = matched.find((r) => !r.valid);
     if (good) { rows.push({ src: img.src, file: good.file, in_ledger: true }); continue; }
     rows.push({ src: img.src, file: bad ? bad.file : null, in_ledger: false });
-    items.push({ ...base, selector: img.selector, value: 1, threshold: "== 0 missing", status: "fail",
+    items.push({ ...base, selector: img.selector, value: 1, threshold: "== 0", status: "fail",
       note: bad ? `${img.kind} ${img.src}: ledger row at ${ledgerPath}:${bad.line} lacks ${bad.problems.join(", ")}` : `${img.kind} ${img.src} has no row in ${ledgerPath}` });
   }
   for (const f of fonts) {
     const matched = ledger.fonts.filter((r) => ledgerMatches(r.file, f.file) || (f.family && r.family && r.family.toLowerCase() === String(f.family).toLowerCase()));
     const good = matched.find((r) => r.valid), bad = matched.find((r) => !r.valid);
     if (good) continue;
-    items.push({ ...base, selector: "@font-face", value: 1, threshold: "== 0 missing", status: "fail",
+    items.push({ ...base, selector: "@font-face", value: 1, threshold: "== 0", status: "fail",
       note: bad ? `font ${f.family} (${f.file}): ledger row at ${ledgerPath}:${bad.line} lacks ${bad.problems.join(", ")}` : `self-hosted font ${f.family} (${f.file}) has no row in the ${ledgerPath} Fonts table` });
   }
-  if (!items.length) items.push({ ...base, selector: "body", value: 0, threshold: "== 0 missing", status: "pass", note: `${images.length} raster image(s) and ${fonts.length} self-hosted font(s), all in the ledger` });
+  if (!items.length) items.push({ ...base, selector: "body", value: 0, threshold: "== 0", status: "pass", note: `${images.length} raster image(s) and ${fonts.length} self-hosted font(s), all in the ledger` });
   return { items, images: rows };
 }

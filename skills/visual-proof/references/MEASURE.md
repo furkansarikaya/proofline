@@ -150,7 +150,7 @@ static item. `measure.mjs --print-design-probe` prints the in-page probe for a t
 - Items: `id` `D-n`, `check`, `screen`, `viewport`, `selector`, `value`, `threshold`, `status` `pass|fail|not_applicable|not_measured`, `note` (a failure
   says what is wrong), `reason` (not_measured), `screenshot {path, sha256}`. A failing item is a blocking row; `not_measured` is an info row, never silent:
   every page accounts for each check below, as an item or a `design.not_measured[]` entry with a reason. `not_applicable` carries a fixed note
-  (a mode that does not require the check, or an English page for `design_untranslated`). A report may use a stricter threshold, never a weaker one.
+  (a mode that does not require the check, or an English page for `design_untranslated`). A report may use a stricter threshold, never a weaker one: every pass or fail item has a numeric `value` and a numeric `threshold` (`== 0`, `>= 3`, `45-75`) that the validator evaluates (motion count: `phase` load|scroll, `>=` at least `motion_min`; scene items: `scene`, `motion`, `>= 1` started or `== 0` hidden). A requested design check that is `not_measured` (item, `design.not_measured[]` or a page) makes the result INCONCLUSIVE, never PASS; the exceptions are a page with nothing of that kind to measure (no heading, no two-line paragraph, no surface) and a non-HTML page.
 - `design.status` is `not_applicable` (fixed note `design not applicable: no HTML pages`) when every page is a non-HTML response. Pages: `design.pages[]`
   `{screen, path, static, language?, status measured|not_measured, reason?}`. A language-only page gets `design_untranslated` at `wide` only.
 

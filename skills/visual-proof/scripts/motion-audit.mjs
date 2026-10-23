@@ -267,7 +267,7 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
             if (!motionApplicable(mode)) items.push({ check: "design_motion_count", ...base, selector: "html", value: "not applicable", threshold: `>= ${min.load}`, status: "not_applicable", note: MOTION_NOT_APPLICABLE_NOTE, screenshot: shot });
             else for (const d of decideMotionCount({ load: loadRun.length, scroll: scrollRun.length }, min)) {
               const run = d.phase === "load" ? loadRun : scrollRun;
-              items.push({ check: "design_motion_count", ...base, selector: "html", value: d.value, threshold: d.threshold, status: d.status,
+              items.push({ check: "design_motion_count", phase: d.phase, ...base, selector: "html", value: d.value, threshold: d.threshold, status: d.status,
                 note: `${d.phase === "load" ? "elements animating in the first 2 s after load" : "elements animating while scrolling top to bottom"}: ${run.length}${run.length ? ` (${first(run)})` : ""}`, screenshot: shot });
             }
           }
@@ -289,9 +289,9 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
           await sleep(200);
           const shot = await viewportShot("design-reduced", screen, vp.name);
           const d = decideReducedMotion({ shown, shownReduced: after, running });
-          items.push({ check: "design_reduced_motion", ...base, selector: d.hidden[0]?.s || "body", value: d.value, threshold: "== 0 hidden", status: d.status,
+          items.push({ check: "design_reduced_motion", ...base, selector: d.hidden[0]?.s || "body", value: d.value, threshold: "== 0", status: d.status,
             note: d.value ? `${d.value} element(s) visible without emulation are not visible with reduced motion: ${first(d.hidden)}` : "every element visible without emulation stays visible", screenshot: shot });
-          items.push({ check: "design_reduced_motion", ...base, selector: d.running[0]?.sel || "body", value: d.running.length, threshold: "== 0 animations", status: d.running.length ? "fail" : "pass",
+          items.push({ check: "design_reduced_motion", ...base, selector: d.running[0]?.sel || "body", value: d.running.length, threshold: "== 0", status: d.running.length ? "fail" : "pass",
             note: d.running.length ? `${d.running.length} non-essential animation(s) ran with reduced motion: ${first(d.running)}` : "no non-essential animation ran with reduced motion", screenshot: shot });
         } catch (e) { miss("design_reduced_motion", screen, vp.name, e.message); }
         finally { await reducedOff(); }
@@ -307,7 +307,7 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
           await sleep(200);
           const shot = await viewportShot("design-noscript", screen, vp.name);
           const d = decideNoScript({ shown, shownNoScript: after });
-          items.push({ check: "design_no_script_visible", ...base, selector: d.hidden[0]?.s || "body", value: d.value, threshold: "== 0 hidden", status: d.status,
+          items.push({ check: "design_no_script_visible", ...base, selector: d.hidden[0]?.s || "body", value: d.value, threshold: "== 0", status: d.status,
             note: d.value ? `${d.value} text/media block(s) that show with script are hidden without it: ${first(d.hidden)}` : "all content that shows with script is visible without it", screenshot: shot });
         } catch (e) { miss("design_no_script_visible", screen, vp.name, e.message); }
         finally { await scriptsOn(); }
@@ -357,11 +357,11 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
             if (motion === "normal") {
               normalKeys = [...keys];
               scenes.push(row);
-              items.push({ check: "design_scene", ...base, value: dec.started ? "started" : "not started", threshold: "started", status: dec.started ? "pass" : "fail", note: `${sc.id}, normal motion: ${dec.reason}`, screenshot: shot });
+              items.push({ check: "design_scene", ...base, scene: sc.id, motion, value: dec.started ? 1 : 0, threshold: ">= 1", status: dec.started ? "pass" : "fail", note: `${sc.id}, normal motion: ${dec.reason}`, screenshot: shot });
             } else {
               const c = decideSceneContent(normalKeys, [...keys]);
               scenes.push({ ...row, content_visible: c.ok });
-              items.push({ check: "design_scene", ...base, value: c.missing.length, threshold: "== 0 hidden", status: c.ok ? "pass" : "fail",
+              items.push({ check: "design_scene", ...base, scene: sc.id, motion, value: c.missing.length, threshold: "== 0", status: c.ok ? "pass" : "fail",
                 note: c.ok ? `${sc.id}, reduced motion: all scene content is visible` : normalKeys && normalKeys.length ? `${sc.id}, reduced motion: ${c.missing.length} content element(s) shown in normal motion are not visible` : `${sc.id}, reduced motion: no scene content visible`, screenshot: shot });
             }
           } catch (e) {

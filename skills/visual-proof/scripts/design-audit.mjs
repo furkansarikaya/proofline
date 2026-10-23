@@ -89,7 +89,11 @@ export function designHolds(value, threshold) {
 }
 // null when `threshold` is the documented one or stricter, else the reason it is not (only the checks this module owns).
 export function designThresholdError(check, mode, viewport, threshold) {
-  if (!DESIGN_STATIC_CHECKS.includes(check)) return null;
+  if (check === "design_motion_count") return null; // compared with motion_min by the validator
+  if (check === "design_scene") { // a normal-motion scene must have started (>= 1), a reduced-motion scene hides nothing (== 0)
+    const g = parseThreshold(threshold);
+    return g && ((g.op === ">=" && g.v >= 1) || (g.op === "==" && g.v === 0)) ? null : `threshold ${JSON.stringify(threshold)} is not the documented ">= 1" (started) or "== 0" (hidden) for design_scene`;
+  }
   const want = parseThreshold(designThreshold(check, mode, viewport)), got = parseThreshold(threshold);
   if (!got) return `threshold ${JSON.stringify(threshold)} is not numeric`;
   let ok;
@@ -100,6 +104,10 @@ export function designThresholdError(check, mode, viewport, threshold) {
   else ok = got.op === "==" && got.v === want.v;
   return ok ? null : `threshold ${threshold} is weaker than or unlike the documented ${designThreshold(check, mode, viewport)} for ${check} (references/MEASURE.md)`;
 }
+
+// Reasons of a `not_measured` item that only say the page has nothing of that kind to measure; they never lower the verdict.
+export const NOTHING_TO_MEASURE = ["no visible h1 or h2", "no visible heading", "no body text size", "no body paragraph of 2 or more lines", "no visible text",
+  "no content found to measure", "fewer than two content blocks", "no surface found", "no body paragraph to measure"];
 
 // --- pure helpers --------------------------------------------------------------------------------------------
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
