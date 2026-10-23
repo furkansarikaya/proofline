@@ -40,6 +40,7 @@ Talk to the user in their language. Machine files (`ui.json`, `ledger.md`) are E
 - [MOTION.md](references/MOTION.md): motion thesis, tokens, recipes, reduced motion. Load when the spec animates anything.
 - [COPY-CONTROLS.md](references/COPY-CONTROLS.md): copy rules, language and theme controls. Load when writing copy or controls.
 - [OPERATE.md](references/OPERATE.md): single question, shell, density. Load for operate surfaces.
+- [MODES.md](references/MODES.md): focused fix modes (`bolder`, `quieter`, `polish`, ...) with `scripts/scope-check.mjs`. Load when the assignment says `fix_mode: <mode>, target: <target>` (`/proofline design ui <mode> <target>`).
 
 ## Modes
 

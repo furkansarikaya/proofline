@@ -37,6 +37,8 @@ the run: `visitor_mode.mode` in `design/ui.json` (the spec or any screen) or a `
 `## UI` section; before the designer has written either, the lead names the surface with `decide ... --ui-mode <mode>`.
 Operate and read surfaces keep the profile's model. An explicit `--model` still wins.
 
+The designer does not derive candidate directions from its own habits: `skills/ui-design/scripts/deal.mjs` deals three from the bundled design library (composition, type, palette and motion decisions extracted from real sites; two MIT-licensed sources recorded in `skills/ui-design/library/THIRD_PARTY_NOTICES.md`) for a written brief, with a recorded seed, no model call and no network, plus a calm standard option that is never recommended. The idea sentence, the rival test and the argument still force adaptation to the product. Library fonts are self-hosted with a verified licence and library photos are self-hosted and credited; they never count as the project's own imagery. For a persuade surface with an image-generation tool the designer first makes a comp of the chosen direction, which the user approves and the implementer and QA use as the target; without a tool the skip is written.
+
 ## The lead model
 
 A cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `exec-policy.sh check-lead` and the end-to-end harness refuse a Codex lead below the base model or without a model. `proofline doctor` fails on a resolved model below base, and only warns when it cannot resolve the model. No other runtime has a base model, so choose the lead model yourself.
