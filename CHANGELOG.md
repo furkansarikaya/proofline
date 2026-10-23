@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.0.27 — 2026-10-23
+
+- `ui-design` rebalances the 0.0.4 `avoided` rule (A170): each surface has a visitor mode (`persuade`, `operate`, `read`, `experience`); persuade and experience surfaces need a topic inventory, an argument tied to facts, an idea that fails the rival test, three directions dealt by `scripts/deal.mjs` plus a calm standard option, one live thing, real imagery, a motion layer and a characterful self-hosted font.
+- Looks that generated UIs converge on are a dated registry of 15 pattern ids, defaults that need a `## Pattern justifications` line in `DESIGN.md`, not bans; new references cover direction, patterns, fullness and visuals, type and colour, motion, copy and controls, and operate surfaces.
+- `visual-proof` gets an optional `design` group (1440, 768 and 390 wide): heading lines, type scale, body measure, fonts, edge margins, vacuum, untitled sections, empty hero, theme surfaces, untranslated text, motion, reduced motion, text without script, pinned scenes and the image ledger; a failed item blocks the gate.
+- `scripts/lint-source.mjs` reads project source for the registry patterns and writes `lint.json`; blocking findings fail the report unless `DESIGN.md` justifies them. `docs/design/IMAGES.md` is the image and font ledger.
+- A 14-point critique (`ok` or `concern` with a reason, no score) is judged for COMPLEX and CRITICAL reports with a design group and never closes the gate.
+- The implementer of a UI task looks and fixes before delivery (the auditor, the critique, the three biggest problems, at most three rounds); the designer writes `DESIGN.md` first for persuade and experience, and the knowledge step updates it from the built world.
+
 ## 0.0.26 — 2026-10-23
 
 - Release version bumps use `sh tests/ci/bump-version.sh <new-version>` (and `--check`), which rewrites only the version-holding sites by anchored patterns, so historical mentions such as "(0.0.24)" in visual-proof comments are no longer overwritten (A168). Those three comments are restored.
