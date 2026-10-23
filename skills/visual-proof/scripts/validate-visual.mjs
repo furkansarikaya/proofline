@@ -16,10 +16,14 @@ import { createHash } from "node:crypto";
 import { dirname, join, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DESIGN_CHECKS, DESIGN_STATIC_CHECKS, DESIGN_MODES, DESIGN_VIEWPORTS, DESIGN_STATUSES, DESIGN_NOT_APPLICABLE_NOTE, DESIGN_NA_NOTES, ENGLISH_PAGE_NOTE,
-  CRITIQUE_IDS, CRITIQUE_STATUSES, LIVE_THING_MODES, designApplies, designHolds, designThresholdError, expectedChecks } from "./design-audit.mjs";
+  CRITIQUE_IDS, CRITIQUE_STATUSES, LIVE_THING_MODES, UX_REVIEW_STATUSES, CHART_TYPE_ID, designApplies, designHolds, designThresholdError, expectedChecks } from "./design-audit.mjs";
 import { validateLint } from "./lint-source.mjs";
 
 export const SCHEMA = "visual-proof/1";
+// ux-rules.json (A170): one entry per UX rule { id, severity, measure: <check id> | "judged" }; carried by this skill, no library needed.
+export function loadUxRules(path = join(dirname(fileURLToPath(import.meta.url)), "..", "ux-rules.json")) {
+  try { const j = JSON.parse(readFileSync(path, "utf8")); return Array.isArray(j.rules) ? j.rules : []; } catch { return []; }
+}
 // Checks every measured cell (screen x state x viewport) must account for: a measured item or a cell-level
 // `not_measured` entry.
 export const CORE = ["viewport_overflow", "horizontal_scroll", "hidden_interactive", "overlapping_interactive",
@@ -521,6 +525,37 @@ export function validateReport(report, opt = {}) {
   }
   if (isObj(design) && design.status === "run" && report.class !== "STANDARD" && critique === undefined) err(`class ${report.class} with a design group needs critique[] (the 14 judged items)`);
 
+  // --- ux_review (A170): judged UX rules; required for COMPLEX/CRITICAL with a design group, only for rules judged AND high ------
+  const uxRules = opt.uxRules || loadUxRules();
+  const uxById = new Map(uxRules.map((r) => [r.id, r]));
+  const uxr = report.ux_review;
+  const uxSeen = new Set();
+  if (uxr !== undefined) {
+    if (!Array.isArray(uxr)) err("ux_review must be an array");
+    else if (unsupported) err("ux_review must be absent when tool.kind is none");
+    else if (report.class === "STANDARD" && uxr.length) err("class STANDARD is measured only: ux_review must be empty");
+    else {
+      for (const [i, c] of uxr.entries()) {
+        const w = `ux_review[${i}]`;
+        if (!isObj(c)) { err(`${w}: must be an object`); continue; }
+        if (Object.keys(c).some((k) => /score|rating|points/i.test(k))) err(`${w}: a ux_review item has no numeric score (ok or concern, with a reason)`);
+        const rule = uxById.get(c.rule);
+        if (!rule && c.rule !== CHART_TYPE_ID) err(`${w}: rule ${JSON.stringify(c.rule)} is not in ux-rules.json (or ${CHART_TYPE_ID})`);
+        else if (rule && rule.measure !== "judged") err(`${w}: rule ${c.rule} is measured by ${rule.measure}, not judged; it has no ux_review item`);
+        if (uxSeen.has(c.rule)) err(`${w}: rule ${c.rule} is listed twice`);
+        uxSeen.add(c.rule);
+        if (!UX_REVIEW_STATUSES.includes(c.status)) err(`${w}: status must be ${UX_REVIEW_STATUSES.join("|")}`);
+        if (!str(c.reason)) err(`${w}: reason is required`);
+        if (c.status === "not_applicable") { if (c.screenshot !== undefined) checkFile(`${w}.screenshot`, c.screenshot); }
+        else checkFile(`${w}.screenshot`, c.screenshot);
+      }
+    }
+  }
+  if (isObj(design) && design.status === "run" && report.class !== "STANDARD" && !unsupported) {
+    const missing = uxRules.filter((r) => r.measure === "judged" && r.severity === "high" && !uxSeen.has(r.id)).map((r) => r.id);
+    if (missing.length) err(`class ${report.class} with a design group needs a ux_review item (ok, concern or not_applicable with a reason) for every judged high-severity rule; missing ${missing.slice(0, 6).join(", ")}${missing.length > 6 ? ` and ${missing.length - 6} more` : ""}`);
+  }
+
   // --- lint.json beside report.json (0.0.27): shape by validateLint; blocking findings close the gate -------
   let lint = opt.lint;
   if (lint === undefined) {
@@ -567,7 +602,8 @@ export function validateReport(report, opt = {}) {
   const seoNote = isObj(seo) ? (seo.status === "run" ? `; seo=${seoItems.filter((m) => m.status === "pass").length}/${seoItems.length} pass, ${seoItems.filter((m) => m.status === "fail").length} fail, ${seoItems.filter((m) => m.status === "not_measured").length} not_measured` : "; seo=not_applicable") : "";
   const dCount = (st) => designItems.filter((m) => m.status === st).length;
   const designNote = isObj(design) ? (design.status === "run" ? `; design=${dCount("pass")}/${designItems.length} pass, ${dCount("fail")} fail, ${dCount("not_measured")} not_measured, ${dCount("not_applicable")} not_applicable (${design.mode})` : "; design=not_applicable") : "";
-  const critNote = Array.isArray(critique) && critique.length ? `; critique=${critique.filter((c) => c?.status === "concern").length} concern of ${critique.length}` : "";
+  const critNote = (Array.isArray(critique) && critique.length ? `; critique=${critique.filter((c) => c?.status === "concern").length} concern of ${critique.length}` : "")
+    + (Array.isArray(uxr) && uxr.length ? `; ux_review=${uxr.filter((c) => c?.status === "concern").length} concern of ${uxr.length}` : "");
   const lintNote = lint ? `; lint=${lintBlocking.length} blocking of ${Array.isArray(lint?.findings) ? lint.findings.length : 0}` : "";
   const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}${seoNote}${designNote}${critNote}${lintNote}${isObj(target) ? `; target=${target.type}${target.platform ? ":" + target.platform : ""}${target.via ? " via " + target.via : ""}` : ""}`;
   return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged, seoItems, designItems, lintBlocking) };
@@ -602,6 +638,7 @@ function rowsOf(report, fails, judged, seoItems = [], designItems = [], lintBloc
     else if (m.status === "not_measured") rows.push(["info", `${spath(m.screen)}:${m.selector}`, `${m.id} ${m.check} not measured at ${m.screen}/${m.viewport}: ${m.reason ?? m.note}`, "not_measured"]);
   }
   for (const c of Array.isArray(report.critique) ? report.critique : []) if (c?.status === "concern") rows.push(["info", `critique:${c.id}`, `critique ${c.id}: ${c.reason}`, `judged; ${c.screenshot?.path}`]);
+  for (const c of Array.isArray(report.ux_review) ? report.ux_review : []) if (c?.status === "concern") rows.push(["info", `ux_review:${c.rule}`, `ux rule ${c.rule}: ${c.reason}`, `judged; ${c.screenshot?.path}`]);
   for (const f of lintBlocking) rows.push(["blocking", `${f.file}:${f.line}`, `lint ${f.id}: ${f.excerpt ?? f.reason ?? "registry pattern without a written justification"}`, "measured; lint.json"]);
   return rows.map((r) => r.map(clean).join("|"));
 }

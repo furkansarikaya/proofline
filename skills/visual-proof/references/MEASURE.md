@@ -168,9 +168,14 @@ static item. `measure.mjs --print-design-probe` prints the in-page probe for a t
 | `design_surfaces` | one item per surface present: `::selection` themed, scrollbar themed (`scrollbar-color` or `::-webkit-scrollbar`), `caret-color` of text fields, `text-underline-offset` of underlined links, tabular numerals in numeric table cells | unthemed count, `== 0` | all; `wide` |
 | `design_untranslated` | visible text blocks of 4 or more words, mostly English function words, on a page whose language is not English, minus `allow_text`, `code`, `pre` | blocks, `== 0` | per `languages[]` entry; `wide` |
 | `design_motion_count`, `design_reduced_motion`, `design_no_script_visible`, `design_scene` | motion-audit.mjs: animated elements while loading and scrolling (`motion_min`), content visible and no animation under `prefers-reduced-motion: reduce`, text visible with script disabled, pinned or scroll-linked scenes photographed at 0, 50, 100 % (`scenes[]`, `design.scenes[]`) | per item | motion count: persuade, experience |
+| `design_ux_alt_text` | visible `img` without an `alt` attribute (empty `alt` and `role=presentation` are decorative and pass) | count, `== 0` | all; 3 |
+| `design_ux_form_labels` | visible form fields with no `label` (for or wrapping), `aria-label`, `aria-labelledby` or `title`; a placeholder is not a label | count, `== 0` | all; 3 |
+| `design_ux_control_names` | visible buttons, links, summaries and image inputs with no text, `aria-label`, `aria-labelledby`, `title` or named image inside | count, `== 0` | all; 3 |
+| `design_ux_viewport_meta` | `meta[name=viewport]` present with `width=device-width`, and no `user-scalable=no` or `maximum-scale` below 2 | problems, `== 0` | all; `wide` |
+| `design_ux_body_font_size` | median font size of body paragraphs on a 390 px page | px, `>= 16` | all; `phone390` |
 | `design_image_ledger` | every raster image and self-hosted font has a ledger row with licence and credit (ledger.mjs) | missing, `== 0` | when `image_ledger` is set |
 
-`design_contrast` is not a separate check: the core contrast check stays. Judged: `critique[]` (COMPLEX/CRITICAL when the design group runs; see JUDGED.md) never closes
+The `design_ux_*` rows are the measurable high-severity UX rules; `ux-rules.json` maps every UX rule to a check here (touch target, contrast, focus visibility, focus order, reduced motion and horizontal scroll reuse the core or motion checks) or to `judged`. `design_contrast` is not a separate check: the core contrast check stays. Judged: `critique[]` (COMPLEX/CRITICAL when the design group runs; see JUDGED.md) never closes
 the gate. `lint.json` beside `report.json` (lint-source.mjs): its blocking findings are FAIL reasons.
 
 Limits: the first family of an element decides the font check (a later fallback is not inspected); `::selection` and scrollbar theming are read from same-origin style
