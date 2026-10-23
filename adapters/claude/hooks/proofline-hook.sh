@@ -459,6 +459,7 @@ scan_cmd() {
   function vsafe(v) { return v != "" && v ~ /^[A-Za-z0-9_.\/:@%+,=-]+$/ }
   function vexpand(t,   o, p, e, nm) {   # t with every $NAME / ${NAME} replaced by a known literal value; fails (xfail) on anything else
     xfail = 0; o = ""
+    if (ifsset) { xfail = 1; return t }
     while ((p = index(t, "$")) > 0) {
       o = o substr(t, 1, p - 1); t = substr(t, p + 1)
       if (substr(t, 1, 1) == "{") { e = index(t, "}"); if (!e) { xfail = 1; return t }; nm = substr(t, 2, e - 2); t = substr(t, e + 1) }
@@ -495,6 +496,7 @@ scan_cmd() {
     # way a variable can change (a prefix or export assignment, read, unset, a loop, set, local, a non-literal value) forgets it.
     allas = (nw > 0)
     for (j = 1; j <= nw; j++) if (!isassign(w[j])) allas = 0
+    for (j = 1; j <= nw; j++) if (w[j] ~ /^IFS\+?=/) { ifsset = 1; vclear() }   # once IFS changes, word splitting is unknowable
     if (allas) {
       for (j = 1; j <= nw; j++) {
         nm = w[j]; sub(/=.*/, "", nm); vv = w[j]; sub(/^[^=]*=/, "", vv)
@@ -512,7 +514,8 @@ scan_cmd() {
     # the git variables are checked on every word, a prefix or not.
     if (k <= nw) {
       c = base(w[k])
-      if (c ~ /^(read|unset|getopts|mapfile|readarray|declare|typeset|local|set|shift|select|for|case|wait|trap|eval|source|\.)$/) vclear()
+      if (c ~ /^(read|unset|getopts|mapfile|readarray|declare|typeset|local|set|shift|select|for|case|wait|trap|eval|source|\.|let)$/) vclear()
+      if (c == "printf") for (j = k + 1; j <= nw; j++) if (w[j] ~ /^-v/) vclear()
       for (j = k + 1; j <= nw; j++) if (!L[j] && !dynw[j]) { vv = vexpand(w[j]); if (!xfail) { w[j] = vv; L[j] = 1 } }
     }
     for (j = 1; j <= nw; j++) {
@@ -692,11 +695,17 @@ stray_tmp_path() {
     case "$sp_q" in "$sp_r"|"$sp_r"/*) continue ;; esac
     # A171: the runtime's own background task output (/tmp/claude-<uid>/<project>/<session>/tasks/<id>.output) is read-only
     # evidence the lead is told to read; it is allowed unless the same command writes to it (any W/E/P/Q/L record names it).
-    case "$sp_p" in
-      /tmp/claude-[0-9]*/*/tasks/*.output|/private/tmp/claude-[0-9]*/*/tasks/*.output)
-        case "/$sp_p/" in */../*) ;; *)
-          awk -F"$TAB" -v p="$sp_p" '$1 ~ /^[WEPQL]$/ && $2 == p { f = 1 } END { exit !f }' "$tmp/scan" 2>/dev/null || continue ;; esac ;;
-    esac
+    # Exactly /tmp/claude-<uid>/<project>/<session>/tasks/<file>.output, and only as the operand of a read-only reader
+    # (cat, head, tail, grep, wc, sed -n): never run, sourced or fed to a shell.
+    if printf '%s\n' "$sp_p" | grep -Eq '^(/private)?/tmp/claude-[0-9]+/[^/]+/[^/]+/tasks/[^/]+\.output$' && ! printf '%s\n' "$sp_p" | grep -Fq '..'; then
+      awk -F"$TAB" -v p="$sp_p" '
+        $1 ~ /^[WEPQL]$/ && $2 == p { bad = 1 }
+        $1 == "C" && index($3, p) > 0 {
+          if ($2 !~ /^(cat|head|tail|grep|wc|sed)$/) bad = 1
+          else if ($2 == "sed" && ("\003" $3) !~ /\003-[A-Za-z]*n/) bad = 1
+        }
+        END { exit bad }' "$tmp/scan" 2>/dev/null && continue
+    fi
     printf '%s\n' "$sp_p"; return 0
   done < "$tmp/tmp-paths"
   return 0
@@ -1688,7 +1697,10 @@ pretool)
   fi
   if [ -n "$cmd" ]; then
     # A171: the dispatch marker is set by dispatch.sh alone; a model never sets it to record a decision ahead of a dispatch.
-    case "$cmd" in *PROOFLINE_DISPATCH*) deny "PROOFLINE_DISPATCH is set by dispatch.sh alone (A171). To only read a decision run: sh .agents/scripts/agent.sh decide <ID> <role> --dry" ;; esac
+    # Checked on the text as written and with quotes, backslashes and variable references removed (so a name split by quotes or
+    # joined from a variable is caught too); agent.sh itself accepts only a per-dispatch nonce file, which this text never names.
+    cmd_norm=$(printf '%s' "$cmd" | sed -e "s/[\"'\\\\]//g" -e 's/\${[^}]*}//g' -e 's/\$[A-Za-z_][A-Za-z0-9_]*//g')
+    case "$cmd$cmd_norm" in *PROOFLINE_DISPATCH*|*DISPATCH=*|*.agents/local/dispatch*) deny "PROOFLINE_DISPATCH is set by dispatch.sh alone (A171). To only read a decision run: sh .agents/scripts/agent.sh decide <ID> <role> --dry" ;; esac
     # A102: the capability probes' self-test switches are never set by a model (they would hide a browser or benchmark).
     case "$cmd" in *PROOFLINE_PROBE_ROOT*|*PROOFLINE_SELFTEST*) deny "PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them" ;; esac
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
@@ -1946,7 +1958,15 @@ prompt)
     ap_pid=$!; ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=0
     while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do sleep 0.1; ap_i=$((ap_i + 1)); done
     if kill -0 "$ap_pid" 2>/dev/null; then
-      kill "$ap_pid" 2>/dev/null || :
+      # the step started children (agent.sh approve takes the lock in its own process): stop the whole tree, by pid
+      ap_all=$ap_pid; ap_new=$ap_pid
+      while [ -n "$ap_new" ]; do
+        ap_next=''
+        for ap_c in $ap_new; do ap_next="$ap_next $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$ap_c" '$2 == p { print $1 }')"; done
+        ap_new=$(printf '%s\n' $ap_next); ap_all="$ap_all $ap_new"
+      done
+      # shellcheck disable=SC2086 # pids
+      kill $ap_all 2>/dev/null || :
       { wait "$ap_pid"; } 2>/dev/null || :
       hk_line "$ev.approve" $(( $(hk_now) - hk_a0 )) timeout "stopped-by-hook-budget"
       printf '%s approval step stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${PROOFLINE_HOOK_APPROVE_BUDGET:-20}" >> "$local_dir/approve.log" 2>/dev/null || :
@@ -2028,7 +2048,14 @@ $l" ;; esac
   esac
   # A171: the lead never asks the user to run an internal command (agent.sh approve, answer, ...). When the message does, that
   # is a proofline bug: the hook records a friction note (counted in the friction report) and says so in one line.
-  if printf '%s' "$msg" | grep -Eq 'agent\.sh[[:space:]]+(approve|approve-pending|answer|request-approval|waive|next|status|handoff|freeze|refreeze|record|submit|terminate|reopen|start|branch|cleanup|deliver-[a-z]+|publish-completion-report|decide|ask|raise-budget)([[:space:]]|$|[`"'"'"'.,;:)])'; then
+  # Only a request counts: the command sits on a line that asks the user to run it ("please run", "run:", an imperative line), or in a
+  # code fence announced by such a line. A report of what the lead itself ran ("I ran agent.sh next") is not one.
+  fr_hit=$(printf '%s\n' "$msg" | awk -v re='agent\\.sh[[:space:]]+(approve|approve-pending|answer|request-approval|waive|next|status|handoff|freeze|refreeze|record|submit|terminate|reopen|start|branch|cleanup|deliver-[a-z]+|publish-completion-report|decide|ask|raise-budget)([[:space:]]|$|[`"\047.,;:)])' '
+    function asks(t) { t = tolower(t); return t ~ /(please|kindly)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /you[[:space:]]+(should|can|could|must|need to|have to|may)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /(run|execute|paste|type|enter)[[:space:]]*:/ || t ~ /^[[:space:]>*-]*(run|execute|paste|type|enter)[[:space:]]/ || t ~ /(in|into) (your|a) terminal/ }
+    /^[[:space:]]*```/ { fence = !fence; if (fence) fa = prev; next }
+    { if (fence) { if ($0 ~ re && fa) hit = 1 } else { if ($0 ~ re && asks($0)) hit = 1; prev = asks($0) } }
+    END { print hit ? "yes" : "no" }')
+  if [ "$fr_hit" = yes ]; then
     if [ -n "$act" ] && [ "$act" != INVALID ]; then (unset AGENT_ROLE; sh "$agent" friction-note "$act" user-command >/dev/null 2>&1) || :; fi
     out="${out:+$out
 }proofline: this message asks the user to run an internal command (agent.sh ...). That is a proofline bug (A171), noted in the friction report. The lead runs internal commands itself and tells the user only the one-line state and a /proofline next step."
