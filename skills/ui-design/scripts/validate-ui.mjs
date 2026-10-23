@@ -264,6 +264,7 @@ function dealtDirection(cd, p, err, modes) {
     onlyKeys(idea, ["sentence", "rival", "rival_swap", "note"], `${p}.idea`, err);
     reqStr(idea, ["sentence", "rival", "note"], `${p}.idea`, err);
     if (isStr(idea.sentence) && !/\bbecomes?\b/i.test(idea.sentence)) err(`${p}.idea.sentence`, "must read 'On this page, <inventory item> becomes <tool>.'");
+    if (isStr(idea.sentence) && isStr(idea.rival) && !idea.sentence.toLowerCase().includes(idea.rival.trim().toLowerCase())) err(`${p}.idea.sentence`, "the rival test puts the nearest rival's name into the sentence: idea.rival must appear in it");
     if (isStr(idea.sentence) && /\bclean (and|&) modern\b/i.test(idea.sentence)) err(`${p}.idea.sentence`, "'clean and modern' is not an idea");
     if (idea.rival_swap !== "no_longer_true") err(`${p}.idea.rival_swap`, "run the rival test: with the nearest rival's name in the sentence the idea must be no_longer_true; otherwise the idea is rejected");
   }
