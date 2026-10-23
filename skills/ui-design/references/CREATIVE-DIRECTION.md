@@ -18,22 +18,22 @@ A redesign is never inferred from "make it nicer" or "make it prettier", from dr
 
 ## 2. Direction alternatives (`new` and `redesign` only)
 
-Never for `conform`. Before the four decisions, present 2-3 directions derived from the product's evidence, each at most 5 lines: visual character, typography, colour roles, layout idea, main trade-off. Then recommend one. The user chooses: NEEDS_INPUT in a team run, a direct question standalone. Record them in `creative_direction.alternatives` (`name`, `summary`, `trade_off`; names unique) and the user's pick in `chosen`; the rejected ones stay in the list. The four decisions below then describe the chosen direction.
+Never for `conform`. For persuade and experience surfaces the alternatives are the three directions dealt by `scripts/deal.mjs` plus the calm standard option ([DIRECTION.md](DIRECTION.md) section 5). Otherwise, before the four decisions, present 2-3 directions derived from the product's evidence, each at most 5 lines: visual character, typography, colour roles, layout idea, main trade-off. Then recommend one. The user chooses: NEEDS_INPUT in a team run, a direct question standalone. Record them in `creative_direction.alternatives` (`name`, `summary`, `trade_off`; names unique) and the user's pick in `chosen`; the rejected ones stay in the list. The four decisions below then describe the chosen direction.
 
 ## 3. The four decisions
 
 Write each as a short statement plus the reason, grounded in evidence (TASK.md, INTENT.md, EVIDENCE.md, the existing UI, the product's users):
 
 1. **Visual character**: what the interface should feel like to its users and why (for example: a tool used for hours a day by operators wants calm, dense, low-chroma surfaces; a once-a-year form for the public wants generous spacing and one action per screen). Name the users and the context of use the statement rests on.
-2. **Typography**: the existing scale (conform) or the scale you set (new): roles (display, heading, body, label, numeric), sizes, weights, line heights, and why they fit the content (long-form reading, scanning tables, numeric comparison). A system font and a web font are both valid; the choice needs a reason from the product. A web font is self-hosted in the project (no third-party CDN), with its licence and its performance cost (subset, `font-display`) stated.
+2. **Typography**: the existing scale (conform) or the scale you set (new): roles (display, heading, body, label, numeric), sizes, weights, line heights, and why they fit the content (long-form reading, scanning tables, numeric comparison). A system font and a web font are both valid; the choice needs a reason from the product (a persuade surface needs a characterful self-hosted face, see [TYPE-COLOR.md](TYPE-COLOR.md)). A web font is self-hosted in the project (no third-party CDN), with its licence and its performance cost (subset, `font-display`) stated.
 3. **Layout approach**: grid, alignment, density, how space is distributed, what is fixed and what scrolls, and why that suits the task's main flow.
 4. **Content hierarchy**: what the user must see first, second and third on each screen; which single action is primary; what is secondary or deferred. Tie it to the acceptance criteria.
 
 `rationale` connects the four to the evidence in one paragraph. A rationale that would fit any product ("clean and modern", "user-friendly") is not a rationale.
 
-## 4. New projects: avoid the generic default
+## 4. New projects: defaults need a reason, not a ban
 
-A new direction (and a redesign without `DESIGN.md`) must be specific to this product. Before settling, list the defaults a generated interface tends to fall into, check each against your draft, and record the ones you rejected (with why) in `avoided`. Typical defaults to check:
+A new direction (and a redesign without `DESIGN.md`) must be specific to this product. Version 0.0.4 asked only for removing generic ornaments, and nothing took their place: pages came out bare. Since 0.0.27 (A170) the rule is balanced: the patterns below and the dated registry ([PATTERNS.md](PATTERNS.md)) are defaults, not bans. A default you keep needs a written reason (`patterns_used`, and a line in `DESIGN.md` under `## Pattern justifications`); a default you drop must be replaced by something real (fullness, imagery, motion: [FULLNESS-VISUALS.md](FULLNESS-VISUALS.md)). Record rejected defaults, with why, in `avoided` (it may name registry ids). Persuade and experience surfaces also go through [DIRECTION.md](DIRECTION.md) (inventory, idea, deal). Typical defaults to check:
 
 - the same centred hero, three feature cards and gradient call-to-action on every product;
 - purple-to-blue or neon gradients, glassmorphism and glow used as decoration rather than meaning;
@@ -44,7 +44,7 @@ A new direction (and a redesign without `DESIGN.md`) must be specific to this pr
 - decorative motion with no state meaning;
 - dashboards of large KPI numbers with no comparison, unit or time frame.
 
-Rejecting a default needs a reason from this product (its users, content or brand material in the repo), not taste. Keep the direction small enough to express with tokens: colour roles, type scale, spacing scale, radii, elevation.
+Keeping or rejecting a default needs a reason from this product (its users, content or brand material in the repo), not taste. Keep the direction small enough to express with tokens: colour roles, type scale, spacing scale, radii, elevation.
 
 ## 5. Conformance check
 
