@@ -110,9 +110,10 @@ export function vacuumOf(blocks, vh) {
 }
 // Words that mark English prose; ambiguous short words that other languages share are left out on purpose.
 const ENGLISH = new Set(("the and for are with that this you your our from how what why about who have has their they but into when which just more each " +
-  "any been would could should there these those than then them here also only not does did out can all get one new now was its").split(" "));
+  "any been would could should there these those than then them here also only not does did out can all get one new now was its " +
+  "we will every let use make learn read very after before while because where through between without many such started it's don't you're we're").split(" "));
 const words = (t) => String(t).toLowerCase().match(/[\p{L}']+/gu) || [];
-// Text blocks ({selector, text}) of >= 4 words whose words are mostly English function words, after removing allow_text.
+// Text blocks ({selector, text}) of >= 4 words whose words are at least a quarter English function words, after removing allow_text.
 export function untranslatedBlocks(blocks, allow = []) {
   const out = [];
   for (const b of blocks || []) {
@@ -121,7 +122,7 @@ export function untranslatedBlocks(blocks, allow = []) {
     const w = words(t);
     if (w.length < 4) continue;
     const hits = w.filter((x) => ENGLISH.has(x)).length;
-    if (hits >= 2 && hits / w.length >= 0.3) out.push({ selector: b.selector, text: String(b.text).slice(0, 80), words: w.length, hits });
+    if (hits >= 2 && hits / w.length >= 0.25) out.push({ selector: b.selector, text: String(b.text).slice(0, 80), words: w.length, hits });
   }
   return out;
 }
@@ -343,13 +344,14 @@ export function designProbeSource() {
   const css = new Map(), fade = new Map(), rects = new Map();
   const cs = (e) => { if (!css.has(e)) css.set(e, getComputedStyle(e)); return css.get(e); };
   const rect = (e) => { if (!rects.has(e)) rects.set(e, e.getBoundingClientRect()); return rects.get(e); };
-  const faded = (e) => { if (!e || e === de) return false; if (!fade.has(e)) fade.set(e, cs(e).opacity === "0" || faded(e.parentElement)); return fade.get(e); };
-  const shown = (e) => {
+  // opacity 0 counts as hidden only inside the first screen; below it a not-yet-revealed block is judged by the motion audit (reduced motion, no script)
+  const faded = (e) => { if (!e || e === de) return false; if (!fade.has(e)) fade.set(e, (cs(e).opacity === "0" && e.getBoundingClientRect().top + scrollY < vh) || faded(e.parentElement)); return fade.get(e); };
+  const shown = (e, ignoreFade) => {
     const s = cs(e), r = rect(e);
     if (s.display === "none" || s.visibility !== "visible" || r.width * r.height <= 1) return false;
     if (/rect\(0px,? 0px,? 0px,? 0px\)/.test(s.clip) || /inset\(50%/.test(s.clipPath)) return false;
     if (r.right <= 0 || r.bottom + scrollY <= 0) return false;
-    return !faded(e);
+    return ignoreFade || !faded(e);
   };
   const clipped = (e) => { for (let a = e.parentElement; a && a !== document.body && a !== de; a = a.parentElement) if (cs(a).overflowX !== "visible") return true; return false; };
   const fixed = (e) => { for (let a = e; a && a !== de; a = a.parentElement) if (cs(a).position === "fixed") return true; return false; };
@@ -413,9 +415,18 @@ export function designProbeSource() {
   // edges
   const main = document.querySelector("main") || document.body;
   const content = [...main.querySelectorAll("*")].filter((e) => !SKIP.has(e.tagName) && !e.parentElement?.closest("svg") && (MEDIA.has(e.tagName) || (e.tagName !== "svg" && own(e))) && shown(e) && !clipped(e) && !fixed(e));
-  const inner = content.filter((e) => { const r = rect(e); return !(r.left <= 1 && r.right >= vw - 1); });
-  const span = inner.length ? inner : content;
-  const edge = span.length ? { left: Math.min(...span.map((e) => rect(e).left)), right: vw - Math.max(...span.map((e) => rect(e).right)) } : null;
+  // The outer frame of the content: each leaf is replaced by its outermost block under <main> (the section-level box). A full-bleed block
+  // contributes its padding box edge (content area), so a left-aligned hero over a full-width ground is not mistaken for lopsided content.
+  const outer = (e) => { let t = e; while (t.parentElement && t.parentElement !== main) t = t.parentElement; return t; };
+  const frame = (e) => {
+    const t = outer(e), r = rect(t);
+    if (r.left <= 1 && r.right >= vw - 1) { const cs = getComputedStyle(t); return { left: r.left + (parseFloat(cs.paddingLeft) || 0), right: r.right - (parseFloat(cs.paddingRight) || 0) }; }
+    return { left: r.left, right: r.right };
+  };
+  const frames = [...new Set(content.map(outer))].map((t) => frame(t));
+  const inner = frames.filter((f) => !(f.left <= 1 && f.right >= vw - 1));
+  const span = inner.length ? inner : frames;
+  const edge = span.length ? { left: Math.min(...span.map((f) => f.left)), right: vw - Math.max(...span.map((f) => f.right)) } : null;
   let edgeText = null;
   for (const e of texts) {
     if (clipped(e)) continue;
@@ -431,7 +442,7 @@ export function designProbeSource() {
 
   // vacuum
   const blocks = all.filter((e) => (e.tagName !== "svg" && (own(e) || /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(e.tagName))) || MEDIA.has(e.tagName))
-    .filter((e) => shown(e) && !fixed(e) && rect(e).height <= vh * 1.5).slice(0, 4000)
+    .filter((e) => shown(e, true) && !fixed(e) && rect(e).height <= vh * 1.5).slice(0, 4000) // a scroll-revealed block still holds its place, so it is not a gap
     .map((e) => ({ top: rect(e).top + scrollY, bottom: rect(e).bottom + scrollY, selector: sel(e) }));
 
   // sections

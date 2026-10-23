@@ -34,7 +34,8 @@ const AUDIT_VIEWPORTS = ["wide", "phone390"];
 export function designScreens(config) {
   const all = config?.screens || [];
   const wanted = config?.design?.screens?.length ? config.design.screens : all.map((s) => s.path);
-  return [...new Set(wanted)].map((path) => ({ screen: all.find((s) => s.path === path)?.id || path, path }));
+  const paths = wanted.map((x) => all.find((s) => s.id === x)?.path ?? x); // an entry may be a screen id or a path
+  return [...new Set(paths)].map((path) => ({ screen: all.find((s) => s.path === path)?.id || path, path }));
 }
 export const motionApplicable = (mode) => MOTION_MODES.includes(mode);
 
