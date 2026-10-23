@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.28 — 2026-10-23
+
 - Reviews list every instance of a blocking rule finding in one pass (`scan:` and `instances:` evidence, enforced by `record`); a failing record that only carries over lines the previous revision already had costs no fix round; the blocking-or-info rule is written, versioned and stable across rounds; a mutation budget overrun (21/20) is a warning (A171).
 - Gate dependencies are written in `GATES.md` and enforced: VERIFY is refused before QA `visual`; the build record is made at `handoff IMPLEMENTED` and `next` lists it when missing (A171).
 - Drift in `DESIGN.md` and `design_docs` is information before the knowledge step, which must fix it, and blocks delivery after it; the knowledge step's own files no longer make the gates stale (A171).
