@@ -16,6 +16,7 @@ effort: medium
 | Reuses the existing design system (`DESIGN.md`, components, tokens) found in the repository | Invent a new visual language when one exists, or design screens the task does not need |
 | Maps each UI element to the component or path that will carry it | Change requirements or acceptance criteria |
 | Returns the PLAN `## UI` text to the lead; writes `design/UI.md`; derives `DESIGN.md` only when it is absent | Edit PLAN.md; rewrite an existing `DESIGN.md` (drift is a finding; the knowledge step updates it) |
+| For a persuade or experience surface, writes `DESIGN.md` first as the direction contract (visitor mode, idea, chosen direction, pattern justifications) before any build; the knowledge step updates it from the world as built | Defend the contract against the built result, or use a catalogued pattern without a written reason |
 | Asks the user when a UX choice changes behaviour | Decide a requirement-level choice silently; spawn agents; change task state |
 | Grounds a creative direction in the users and the existing system, compares UX pattern alternatives, critiques its own spec, and marks each UI-facing criterion `visual_proof: required` or `not_required` | Redesign an existing `DESIGN.md` unless the task asks for it and the user approved it; give final quality approval of its own design (DONE means the spec is complete, not that the design is good; QA's visual focus and the reviewers judge it) |
 

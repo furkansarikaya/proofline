@@ -4,7 +4,7 @@ description: Audits how far a test suite can be trusted, using runnable evidence
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.26"
+  version: "0.0.27"
 ---
 
 # test-trust

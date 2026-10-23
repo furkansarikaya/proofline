@@ -1,10 +1,10 @@
 ---
 name: visual-proof
-description: Visual proof of a UI change with the browser tooling the project or machine already has (a project browser-test dependency or an installed headless Chromium-family browser; a runtime browser tool only as an adapter). Measures, per changed screen, state and viewport, page overflow and horizontal scroll, invisible or covered interactive elements, computed text contrast, touch-target size, focus order and focus visibility, that every spec state actually renders, form validation, modal and dropdown behaviour and long content, plus the project's accessibility scanner findings when one is installed and, for public HTML pages, technical SEO and analytics before consent; every measurement carries a selector, value, threshold and a screenshot with its sha256. Hierarchy, density, consistency, typography and (new or redesign UI) character are judged separately against the spec and never close the gate alone. No tooling means UNSUPPORTED, never PASS. Used by QA for the QA gate's visual focus or standalone on request.
+description: Visual proof of a UI change with the browser tooling the project or machine already has (a project browser-test dependency or an installed headless Chromium-family browser; a runtime browser tool only as an adapter). Measures, per changed screen, state and viewport, page overflow and horizontal scroll, invisible or covered interactive elements, computed text contrast, touch-target size, focus order and focus visibility, that every spec state actually renders, form validation, modal and dropdown behaviour and long content, plus the project's accessibility scanner findings when one is installed and, for public HTML pages, technical SEO and analytics before consent, plus an optional design group (type scale, empty hero, vacuum, motion, reduced motion, image ledger) and a source lint; every measurement carries a selector, value, threshold and a screenshot with its sha256. Hierarchy, density, consistency, typography, (new or redesign UI) character and a 14-point critique are judged separately against the spec and never close the gate alone. No tooling means UNSUPPORTED, never PASS. Used by QA for the QA gate's visual focus or standalone on request.
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.26"
+  version: "0.0.27"
 ---
 
 # visual-proof
@@ -65,6 +65,8 @@ Talk to the user in their language. Files written for machines (`report.json`, `
    loaded only when a third-party request before consent was measured and it belongs to an analytics candidate; a candidate found
    only by name (a script called `pixel-art.js` on the page's own origin, a lone `dataLayer`) is information, never blocking.
 
+10. **Design is a measured group too (A170).** Optional `design` block of `visual.json`, absent means not requested: fixed viewports 1440, 768 and 390, items such as `design_empty_hero`, `design_vacuum`, `design_reduced_motion` and `design_image_ledger` ([MEASURE.md](references/MEASURE.md#design-audit)); a failed item is a blocking row, an item that could not be measured is `not_measured` with a reason. `scripts/lint-source.mjs` reads project source for the dated pattern registry and writes `lint.json` beside `report.json`: a finding is blocking unless `DESIGN.md` has a `## Pattern justifications` line for its id; the validator counts blocking findings as FAIL reasons. The image ledger (`docs/design/IMAGES.md`) must list every raster image and self-hosted font with licence and credit. The 14-point `critique[]` ([JUDGED.md](references/JUDGED.md#critique-14-points)) is `ok` or `concern` with a reason, never a score, and never closes the gate. Native apps are unchanged: no design group.
+
 **Limits.** The validator checks a report's consistency: statuses against values and the documented
 thresholds, screenshot hashes, coverage and the network record. It cannot detect a report fabricated
 wholesale, with passing numbers and hashes of real files. The control plane never runs the validators
@@ -118,7 +120,7 @@ rows before the next step.
 5. **Measure.** `node <skill-dir>/scripts/measure.mjs --config visual.json --out <output>` (browser) or, with a
    project tool or runtime adapter, the probe and `--assemble` path ([TOOLING.md](references/TOOLING.md#adapters)).
    It writes `report.json` and `screenshots/`. Never edit a measured item.
-6. **Judge** (COMPLEX/CRITICAL only): add `judged[]` items per [JUDGED.md](references/JUDGED.md). Add the
+6. **Judge** (COMPLEX/CRITICAL only): add `judged[]` items per [JUDGED.md](references/JUDGED.md); with a design group also the 14-item `critique[]`, and run `lint-source.mjs --root <repo> --out <output>` for a UI that produces source. Add the
    `regression` record when the project has snapshot infrastructure and you ran its command.
 7. **Validate.** `node <skill-dir>/scripts/validate-visual.mjs <output>/report.json --class <CLASS> --plan
    PLAN.md --spec <UI spec> [--ui <ui.json>] --rows`. `--ui` supplies `creative_direction.basis`; without it `character` is not required. Fix the document (never a measurement) until it exits 0; it prints

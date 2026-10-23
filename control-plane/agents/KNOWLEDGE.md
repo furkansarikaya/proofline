@@ -17,6 +17,9 @@ Two transactions:
   - `agent.sh knowledge-done <ID>` (KNOWLEDGE_DONE) with the pages written: the lead writes only under
     `knowledge_scope_root` and the `design_docs` paths (the runtime hook allows exactly these in this step and
     nowhere else); proposed ADRs move from the run's `design/adr/` to `design_docs.adr_dir`.
+    For a persuade or experience UI the designer wrote `DESIGN.md` first as the direction contract; here its final
+    form is updated from the world as built (patterns used with their reasons, fonts and images in the ledger), so a
+    rule is never defended against what was really built.
   - `agent.sh knowledge-done <ID> not_applicable "<reason>"`: one specific sentence on why the wiki and the design
     documents need nothing. The reason is recorded in RUN.yaml and the ledger and shown in the completion report.
     `agent.sh` REFUSES it, naming the signal, when the task changed user-visible behaviour (a command, flag,

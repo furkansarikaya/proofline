@@ -44,7 +44,7 @@ Visual focus (A78; when `agent.sh pipeline <ID>` lists `focus.QA.visual`, from a
 section): a separate assignment with FOCUS `visual` in the same QA gate. Follow .agents/skills/visual-proof/SKILL.md (A82) with
 the project's own browser tooling or an installed headless browser only: measured checks per changed screen,
 state and viewport (STANDARD: default state x 2 viewports, measured only; COMPLEX/CRITICAL: every spec state x 3
-viewports, measured and judged), screenshots with sha256 in `reviews/visual-proof/`, `report.json` validated by
+viewports, measured and judged; a `design` group and the 14-point critique when the task has a visitor mode: the group is measured as written and can fail, the critique is judged as written and never closes the gate), screenshots with sha256 in `reviews/visual-proof/`, `report.json` validated by
 `validate-visual.mjs` (pass `--ui <ui.json>` when the task has one, so `character` is judged for new or redesign), and `reviews/visual-proof/REPORT.md`. Its RESULT maps to the submission: PASS or FAIL with
 the printed rows; INCONCLUSIVE -> `--result UNSUPPORTED --reason "visual INCONCLUSIVE: ..."` (the `SUBMIT:` line it
 prints; blocking, never a PASS); no browser tooling (UNSUPPORTED) -> `--result UNSUPPORTED
