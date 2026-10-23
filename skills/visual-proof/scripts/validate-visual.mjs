@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DESIGN_CHECKS, DESIGN_STATIC_CHECKS, DESIGN_MODES, DESIGN_VIEWPORTS, DESIGN_STATUSES, DESIGN_NOT_APPLICABLE_NOTE, DESIGN_NA_NOTES, ENGLISH_PAGE_NOTE,
-  CRITIQUE_IDS, CRITIQUE_STATUSES, LIVE_THING_MODES, UX_REVIEW_STATUSES, CHART_TYPE_ID, designApplies, designHolds, designThresholdError, expectedChecks } from "./design-audit.mjs";
+  CRITIQUE_IDS, CRITIQUE_STATUSES, LIVE_THING_MODES, UX_REVIEW_STATUSES, CHART_TYPE_ID, NOTHING_TO_MEASURE, designApplies, designHolds, designThresholdError, expectedChecks } from "./design-audit.mjs";
 import { validateLint } from "./lint-source.mjs";
 
 export const SCHEMA = "visual-proof/1";
@@ -366,6 +366,7 @@ export function validateReport(report, opt = {}) {
         if (p.status === "not_applicable" && p.reason !== "robots") err(`${w}: not_applicable is only for a page blocked by robots (reason: robots)`);
         if (p.status === "not_applicable" && !str(p.detail)) err(`${w}: not_applicable needs a non-empty detail (why robots blocks the page)`);
         if (p.status === "not_measured" && !str(p.reason)) err(`${w}: not_measured needs a reason`);
+        else if (p.status === "not_measured" && !/^not an HTML response/.test(p.reason)) designNm.push(`page ${p.screen}`);
         if (p.analytics_detected !== undefined && !(Array.isArray(p.analytics_detected) && p.analytics_detected.every(str))) err(`${w}: analytics_detected must be a list of names`);
         for (const k of ["analytics_before_consent", "third_party_requests"]) if (p[k] !== undefined && !(Array.isArray(p[k]) && p[k].every(str))) err(`${w}: ${k} must be a list of URLs`);
       }
@@ -406,6 +407,7 @@ export function validateReport(report, opt = {}) {
   // --- design (0.0.27, A170): optional; consistency of the design group and the judged critique -------------
   const design = report.design;
   const designItems = [];
+  const designNm = []; // requested design checks that could not be measured: they keep the result from PASS
   const dvp = new Set(DESIGN_VIEWPORTS.map((v) => v.name));
   if (design !== undefined) {
     if (unsupported) err("design must be absent when tool.kind is none (nothing was rendered)");
@@ -425,6 +427,7 @@ export function validateReport(report, opt = {}) {
         const w = `design.pages[${i}]`;
         if (!isObj(p) || !str(p.screen) || !str(p.path) || !["measured", "not_measured"].includes(p.status) || typeof p.static !== "boolean" || pg.has(p.screen)) { err(`${w}: needs a unique screen, a path, a static flag and status measured|not_measured`); continue; }
         if (p.status === "not_measured" && !str(p.reason)) err(`${w}: not_measured needs a reason`);
+        else if (p.status === "not_measured" && !/^not an HTML response/.test(p.reason)) designNm.push(`page ${p.screen}`);
         if (p.language !== undefined && !str(p.language)) err(`${w}: language must be a non-empty string`);
         if (!p.static && p.language === undefined) err(`${w}: a page that is neither static nor a language entry measures nothing`);
         pg.set(p.screen, p);
@@ -449,15 +452,33 @@ export function validateReport(report, opt = {}) {
         if (!str(m.selector)) err(`${w}: selector is required`);
         if (!str(m.threshold)) err(`${w}: threshold is required`);
         if (!DESIGN_STATUSES.includes(m.status)) { err(`${w}: status must be ${DESIGN_STATUSES.join("|")}`); continue; }
-        if (own && str(m.threshold)) { const te = designThresholdError(m.check, design.mode, m.viewport, m.threshold); if (te) err(`${w}: ${te}`); }
+        if (str(m.threshold)) { const te = designThresholdError(m.check, design.mode, m.viewport, m.threshold); if (te) err(`${w}: ${te}`); }
         if (m.status === "pass" || m.status === "fail") {
-          if (own && (typeof m.value !== "number" || !Number.isFinite(m.value))) err(`${w}: a ${m.status} item needs a numeric value (got ${JSON.stringify(m.value)})`);
-          if (m.value === undefined || m.value === null || m.value === "") err(`${w}: value is required`);
+          if (typeof m.value !== "number" || !Number.isFinite(m.value)) err(`${w}: a ${m.status} item needs a numeric value (got ${JSON.stringify(m.value)})`);
           const holds = designHolds(m.value, m.threshold);
-          if (holds !== null && holds !== (m.status === "pass")) err(`${w}: status ${m.status} contradicts value ${m.value} ${m.threshold}`);
+          if (holds === null) err(`${w}: threshold ${JSON.stringify(m.threshold)} with value ${JSON.stringify(m.value)} cannot be evaluated (a numeric comparison like "== 0" or ">= 3" is required)`);
+          else if (holds !== (m.status === "pass")) err(`${w}: status ${m.status} contradicts value ${m.value} ${m.threshold}`);
+          if (m.check === "design_motion_count") {
+            const mm = isObj(design.motion_min) ? design.motion_min : {};
+            const t = /^>=\s*(\d+)$/.exec(String(m.threshold).trim());
+            if (!["load", "scroll"].includes(m.phase)) err(`${w}: a measured design_motion_count item names its phase (load or scroll)`);
+            else if (!Number.isInteger(mm[m.phase])) err(`${w}: design.motion_min.${m.phase} must be an integer`);
+            else if (!t || Number(t[1]) < mm[m.phase]) err(`${w}: design_motion_count ${m.phase} threshold ${JSON.stringify(m.threshold)} is weaker than motion_min.${m.phase} (>= ${mm[m.phase]})`);
+          }
+          if (m.check === "design_scene") {
+            const sg = Number(String(m.threshold).replace(/\D+/g, ""));
+            if (m.motion === "normal" && !(/^>=/.test(String(m.threshold).trim()) && sg >= 1)) err(`${w}: a normal-motion scene item is ">= 1" (started)`);
+            if (m.motion === "reduced" && String(m.threshold).trim() !== "== 0") err(`${w}: a reduced-motion scene item is "== 0" (hidden elements)`);
+            const row = scenes.find((s) => isObj(s) && s.id === m.scene && s.viewport === m.viewport && s.motion === m.motion);
+            if (row && m.motion === "normal" && row.started !== (m.status === "pass")) err(`${w}: status ${m.status} contradicts design.scenes started=${row.started}`);
+            if (row && m.motion === "reduced" && row.content_visible !== undefined && row.content_visible !== (m.status === "pass")) err(`${w}: status ${m.status} contradicts design.scenes content_visible=${row.content_visible}`);
+          }
           if (m.status === "fail" && !str(m.note)) err(`${w}: a failing item says what is wrong (note)`);
           if (own && m.screenshot === undefined) err(`${w}: a measured ${m.check} item needs the page screenshot`);
-        } else if (m.status === "not_measured") { if (!str(m.reason ?? m.note)) err(`${w}: not_measured needs a reason`); }
+        } else if (m.status === "not_measured") {
+          if (!str(m.reason ?? m.note)) err(`${w}: not_measured needs a reason`);
+          else if (!NOTHING_TO_MEASURE.includes(m.reason ?? m.note)) designNm.push(`${m.id} ${m.check} at ${m.screen}/${m.viewport}`);
+        }
         else {
           const byMode = !designApplies(m.check, design.mode) && DESIGN_NA_NOTES[m.check] !== undefined && m.note === DESIGN_NA_NOTES[m.check];
           const english = m.check === "design_untranslated" && m.note === ENGLISH_PAGE_NOTE;
@@ -484,7 +505,7 @@ export function validateReport(report, opt = {}) {
           if (str(design.image_ledger) && !accounted("design_image_ledger", p)) err(`design page ${p.screen}: design_image_ledger is neither measured nor listed as not_measured (an image ledger is configured)`);
         }
       }
-      for (const [i, n] of dnm.entries()) if (!isObj(n) || !DESIGN_CHECKS.includes(n.check) || !str(n.reason)) err(`design.not_measured[${i}]: needs a known design check and a reason`);
+      for (const [i, n] of dnm.entries()) { if (!isObj(n) || !DESIGN_CHECKS.includes(n.check) || !str(n.reason)) err(`design.not_measured[${i}]: needs a known design check and a reason`); else designNm.push(`${n.check} at ${n.screen ?? n.scene ?? "?"}/${n.viewport ?? "-"}`); }
       const sids = new Set();
       for (const [i, s] of scenes.entries()) {
         const w = `design.scenes[${i}]`;
@@ -583,6 +604,7 @@ export function validateReport(report, opt = {}) {
     if (reasons.length) computed = "FAIL";
     else {
       for (const n of notMeasured) if (n.scope === "cell") reasons.push(`not measured: ${n.check} at ${key(n)}`);
+      for (const n of designNm) reasons.push(`design not measured: ${n}`);
       // A93 caps: no PASS without the network guard, with a write lacking an allowance, or with an unguarded worker.
       if (!native && net?.interception !== "on") reasons.push("network interception not applied (the adapter must block requests outside the page's origin)");
       if (writes.length && !writesAllowed) reasons.push(`${writes.length} same-origin write(s) without a visual_writes allowance in the plan or spec: ${writes.slice(0, 3).map((w) => `${w.method} ${w.url}`).join(", ")}`);
