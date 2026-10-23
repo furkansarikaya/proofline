@@ -4,6 +4,10 @@
   "ui_languages": [
     "en"
   ],
+  "visitor_mode": {
+    "mode": "operate",
+    "reason": "a project list inside an authenticated tool: users scan and filter, nobody is persuaded"
+  },
   "design_system": {
     "file": "docs/design/DESIGN.md",
     "exists": true

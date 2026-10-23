@@ -1,0 +1,5 @@
+{ "class": "STANDARD", "base_url": "@SITE@",
+  "viewports": [{"name":"desktop","width":1280,"height":800},{"name":"phone","width":390,"height":844}],
+  "screens": [{"id":"home","path":"index.html","states":[{"name":"default","ready":"main"}]}],
+  "design": { "visitor_mode": "persuade", "screens": ["index.html"],
+    "image_ledger": "docs/design/IMAGES.md" } }

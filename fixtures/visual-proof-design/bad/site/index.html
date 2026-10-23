@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Bad</title><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<style>
+body{margin:0;font-family:system-ui;font-size:16px;line-height:1.5}
+.eyebrow{font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:.1em;font-size:12px}
+.box{border:1px solid #ccc;padding:12px;margin:16px 0}
+.panel{border:1px solid #ddd;padding:12px}
+.tile{border:1px solid #ddd;padding:12px}
+.reveal{opacity:0;transition:opacity .6s}
+.reveal.on{opacity:1}
+.gap{height:1400px}
+main{padding:0 40px}
+@media(max-width:500px){p{font-size:13px}}
+</style></head><body><main>
+<header class="hero" style="min-height:70vh"><h1 class="eyebrow">proofline</h1></header>
+<section style="height:420px"><p class="box">Plain text in a section with no heading at all, which is far taller than two hundred pixels.</p></section>
+<div class="gap"></div>
+<section><h2>Notes</h2><p class="reveal" id="r">This paragraph is hidden until a script marks it as visible, and reduced motion does not restore it.</p></section>
+<p class="reveal" id="r2">Second block: shown only when motion is allowed, never restored under reduced motion.</p>
+<p>docs/product/ROLES.md designer-1</p>
+<img src="photo.png" width="200" height="120" alt="">
+<img src="photo.png" width="100" height="60"><input type="text" placeholder="Email"><button><svg width="16" height="16"><circle cx="8" cy="8" r="6"/></svg></button>
+</main>
+<script>setTimeout(()=>document.getElementById('r').classList.add('on'),50);if(!matchMedia("(prefers-reduced-motion: reduce)").matches)document.getElementById("r2").classList.add("on")</script></body></html>

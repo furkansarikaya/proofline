@@ -105,6 +105,7 @@ const { parseTask, visualProofList } = await import(script);
 const TASK = "# Task: T-1\n## Acceptance criteria\n- AC-1: list shows orders\n- AC-2: errors offer retry\n## Suggested class\nCOMPLEX\n## Goal\nPlease redesign the orders page to the new layout.\n";
 const strong = () => ({
   ...good(),
+  visitor_mode: { mode: "operate", reason: "an internal orders tool: operators scan and act, nobody is persuaded" },
   creative_direction: { basis: "conform", visual_character: "calm, dense operator tool", typography: "existing 14/20 body scale", layout: "12-column grid, fixed filter bar", hierarchy: "count, then table, then create", rationale: "operators scan orders all day (TASK goal); DESIGN.md is dense" },
   ux_patterns: [{ decision: "order list display", options: ["table", "cards"], chosen: "table", density: "20 rows per viewport", flow: "filter, scan, open", rationale: "columns compared across rows; existing lists use tables" }],
   self_critique: { hierarchy: "one primary action (Create)", density: "kept 20 rows", consistency: "same Button and tokens", legibility: "contrast 7.1:1",
