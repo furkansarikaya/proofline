@@ -164,7 +164,8 @@ of scope; a write without `KNOWLEDGE_DONE`, or `KNOWLEDGE_DONE` without a write,
 
 ## Execution policy
 
-`agent.sh decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N]`
+`agent.sh decide <ID> <ROLE> --dry|--agent-path [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N]`
+(A171: a bare `decide` is refused: dispatch.sh decides for its own dispatch, the Agent path runs `--agent-path` once, `--dry` only reads and writes nothing; the output starts with one summary line `decision: role=.. runtime=.. model=.. effort=.. reason=..`)
 collects signals from the run (`low_confidence_pass`, `recent_fail_same_focus`, `large_diff` (> 400 changed
 lines or > 15 files), `critical_class`, `fix_round_2`; and `ui_persuade` for the designer and implementer of a persuade or experience UI surface: strongest model, no escalation spent, see `docs/concepts/roles.md`) and the escalations already used, calls
 `exec-policy.sh resolve`, and writes `decisions/NNN-<role>[-<focus>].decision` and a ledger row.

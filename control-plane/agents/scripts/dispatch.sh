@@ -271,7 +271,7 @@ attempt() {
   [ -n "$o_model" ] && set -- "$@" --model "$o_model"
   [ -n "$o_effort" ] && set -- "$@" --effort "$o_effort"
   [ -n "$a_runtime" ] && set -- "$@" --runtime "$a_runtime"
-  d_rc=0; decision=$("$agent" decide "$id" "$role" "$@" 2>"$work/decide.err") || d_rc=$?
+  d_rc=0; decision=$(PROOFLINE_DISPATCH=1 "$agent" decide "$id" "$role" "$@" 2>"$work/decide.err") || d_rc=$?
   if [ "$d_rc" -ne 0 ]; then
     cat "$work/decide.err" >&2
     [ "$d_rc" -eq 4 ] && blocked "no decision for $role on ${a_runtime:-the configured runtime}: capability floor unmet or unresolvable"

@@ -513,6 +513,13 @@ final_report_tokens() {
   out=$(stop_plain "All gates passed.")
   [ -z "$out" ] || die "A169-3 a subagent's command marked the lead's turn: $out"
   ok "A169-3 the mark belongs to one turn of the lead's own commands"
+  # A171: a final message that asks the user to run an internal command is a proofline bug: noted in the ledger, one line to the user
+  out=$(stop_plain "Almost done. Please run: sh .agents/scripts/agent.sh approve LC delivery")
+  printf '%s' "$out" | grep -q 'proofline bug' && ! printf '%s' "$out" | grep -q '"decision"' || die "A171 a request to run agent.sh got no friction message or was blocked: $out"
+  grep -q 'event=friction-note .*detail=user-command' .agents/runs/LC/LEDGER.log || die "A171 the request to run agent.sh was not ledgered as a friction note"
+  out=$(stop_plain "Almost done. Next step: reply approve delivery, or run /proofline status LC")
+  [ -z "$out" ] || die "A171 a user command (/proofline ...) got a friction message: $out"
+  ok "A171 asking the user to run an internal command is noted as friction; a user command is not"
 }
 
 # A159: the knowledge step needs the wiki and the design documents; the lead may write exactly those, only after
@@ -712,8 +719,35 @@ agent_sh_forms() { # H3/H4: agent.sh and AGENT_ROLE matched on dequoted words, n
   denied "H3 escaped script name" "$(pre_bash 'sh .agents/scripts/agent\.sh record LC --file r.md')" "SubagentStop hook"
   denied "H3 split quotes in the script name" "$(pre_bash 'sh .agents/scripts/agen""t.sh gate LC VERIFY pass')" "SubagentStop hook"
   denied "H3 script path in a variable" "$(pre_bash 'a=.agents/scripts/agent.sh; sh $a record LC')" "not literal"
-  denied "H3 subcommand in a variable" "$(pre_bash 'c=record; sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "H3 subcommand in a variable from a substitution" "$(pre_bash 'c=$(echo record); sh .agents/scripts/agent.sh $c LC')" "not literal"
   denied "H3 command word in a variable" "$(pre_bash 'a=.agents/scripts/agent.sh; $a record LC')" "not literal"
+  # A171: a variable the same command assigns from a plain literal is read as that literal in arguments, and the literal is checked
+  allowed "A171 literal variable as an argument" "$(pre_bash 'ID=LC; sh .agents/scripts/agent.sh next $ID')"
+  allowed "A171 literal variable in braces and quotes after &&" "$(pre_bash 'ID=LC && sh .agents/scripts/agent.sh status "${ID}"')"
+  allowed "A171 literal variable on a following line" "$(pre_bash 'ID=LC
+sh .agents/scripts/agent.sh next $ID')"
+  allowed "A171 literal subcommand variable (a read-only one)" "$(pre_bash 'S=status; sh .agents/scripts/agent.sh $S LC')"
+  denied "A171 literal variable naming a forbidden subcommand is still checked" "$(pre_bash 'c=record; sh .agents/scripts/agent.sh $c LC')" "SubagentStop hook"
+  denied "A171 subcommand split over two variables is joined and checked" "$(pre_bash 'c=rec; d=ord; sh .agents/scripts/agent.sh $c$d LC')" "SubagentStop hook"
+  denied "A171 variable from a command substitution stays non-literal" "$(pre_bash 'ID=$(date); sh .agents/scripts/agent.sh $ID LC')" "not literal"
+  denied "A171 variable from a backtick substitution stays non-literal" "$(pre_bash 'ID=`date`; sh .agents/scripts/agent.sh $ID LC')" "not literal"
+  denied "A171 variable overwritten by read stays non-literal" "$(pre_bash 'c=status; read c; sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 variable reassigned from a substitution stays non-literal" "$(pre_bash 'c=status; c=$(x); sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 loop variable stays non-literal" "$(pre_bash 'for c in record; do sh .agents/scripts/agent.sh $c LC; done')" "not literal"
+  denied "A171 variable set in a subshell stays non-literal" "$(pre_bash '(c=status); sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 conditional assignment stays non-literal" "$(pre_bash 'true && c=status; sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 undefined variable stays non-literal" "$(pre_bash 'sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 literal variable as the command word stays denied" "$(pre_bash 'a=.agents/scripts/agent.sh; $a status LC')" "not literal"
+  denied "A171 literal variable as the script path stays denied" "$(pre_bash 'a=.agents/scripts/agent.sh; sh $a status LC')" "not literal"
+  denied "A171 denial shows the allowed form" "$(pre_bash 'sh .agents/scripts/agent.sh $c LC')" "Allowed form: ID=T-1; sh .agents/scripts/agent.sh next"
+  # A171: the runtime's own background task output is readable (read only)
+  allowed "A171 background task output read by a specialist" "$(pre_bash 'tail -n 20 /private/tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)"
+  allowed "A171 background task output read with cat by a specialist" "$(pre_bash 'cat /tmp/claude-501/-proj/sess/tasks/b1.output | head -5' proofline-reviewer)"
+  allowed "A171 background task output read by the lead" "$(pre_bash 'cat /private/tmp/claude-501/-proj/sess/tasks/b1.output')"
+  denied "A171 writing a background task output stays denied" "$(pre_bash 'echo x > /private/tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 task output path with .. stays denied" "$(pre_bash 'cat /private/tmp/claude-501/-proj/sess/tasks/../../b1.output' proofline-explorer)" "outside the project"
+  denied "A171 other file in the tasks folder stays denied" "$(pre_bash 'cat /private/tmp/claude-501/-proj/sess/tasks/b1.sh' proofline-explorer)" "outside the project"
+  denied "A171 other /tmp file stays denied for the lead" "$(pre_bash 'cat /tmp/other/x.output')" "outside the project"
   denied "H3 sh -c recursion" "$(pre_bash "sh -c 'sh .agents/scripts/agent.sh record LC'")" "SubagentStop hook"
   denied "H3 bash -c write" "$(pre_bash "bash -c 'echo x > impl.txt'")" "product changes go through the implementer"
   denied "H3 command substitution in double quotes" "$(pre_bash 'echo "$(sh .agents/scripts/agent.sh record LC)"')" "SubagentStop hook"
@@ -727,6 +761,7 @@ agent_sh_forms() { # H3/H4: agent.sh and AGENT_ROLE matched on dequoted words, n
   denied "H4 escaped AGENT_ROLE assignment" "$(pre_bash 'env AGENT_ROLE\=reviewer true')" "does not match"
   denied "H4 env -S split string" "$(pre_bash 'env -S "sh x.sh"')" "env -S"
   denied "H4 read into AGENT_ROLE" "$(pre_bash 'read AGENT_ROLE < f')" "indirectly"
+  denied "A171 a model never sets PROOFLINE_DISPATCH" "$(pre_bash 'PROOFLINE_DISPATCH=1 sh .agents/scripts/agent.sh decide LC implementer')" "dispatch.sh alone"
   allowed "H3 sh -c with a read-only agent.sh command" "$(pre_bash "sh -c 'sh .agents/scripts/agent.sh next LC'")"
   allowed "H4 reading \$AGENT_ROLE" "$(pre_bash 'echo $AGENT_ROLE')"
   # subagents: literal form and the role's command allowlist

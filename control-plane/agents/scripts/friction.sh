@@ -54,6 +54,7 @@ report() {
       / event=hook / { hn = $0; sub(/.* detail=name=[^ ]* runs=/, "", hn); hr = hn; sub(/ .*/, "", hr); ht = hn; sub(/.*total_ms=/, "", ht); sub(/ .*/, "", ht); hm = hn; sub(/.*max_ms=/, "", hm); sub(/ .*/, "", hm)
         if (hr ~ /^[0-9]+$/) { hruns += hr; htot += ht; if (hm + 0 > hmax) hmax = hm + 0 } }
       / event=hook-timeout / { hto++ }
+      / event=friction-note / { fnd = $0; sub(/.* detail=/, "", fnd); sub(/ .*/, "", fnd); fnd = w(fnd); fnk[fnd]++; fnt++ }
       / event=terminate / { term = $0; sub(/.* to=/, "", term); sub(/ .*/, "", term); term = w(term) }
       / event=handoff:DONE / { done = 1 }
       / event=note .*failover/ { fo++; if ($0 ~ /reason=timeout/) fot++ }
@@ -61,7 +62,10 @@ report() {
       match($0, / event=record:[a-z_]+:BLOCKED /) { b = substr($0, RSTART + 14, RLENGTH - 23); bl[w(b)]++; blt++ }
       END {
         printf "outcome: %s\nclassification: %s\n\n", (done ? "done" : (term ? tolower(term) : "open")), (cls ? cls : "unknown")
-        printf "## User interruptions\n\n- questions asked: %d (answered by the user: %d, by an assumption: %d)\n- approval requests: %d\n- total times the user was asked: %d\n\n", ask, au, al, ar, ask + ar
+        printf "## User interruptions\n\n- questions asked: %d (answered by the user: %d, by an assumption: %d)\n- approval requests: %d\n- total times the user was asked: %d\n", ask, au, al, ar, ask + ar
+        printf "- times the user was asked to run a command (a proofline bug): %d\n", fnt
+        for (k in fnk) printf "  - %s: %d times\n", k, fnk[k]
+        printf "\n"
         printf "## Blocked and failed gates\n\n- gate failures: %d\n", gft
         for (k in gf) printf "  - gate %s failed %d times\n", k, gf[k]
         printf "- steps that returned blocked: %d\n", blt

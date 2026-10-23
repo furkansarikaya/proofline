@@ -381,6 +381,9 @@ nr_bash_guard() {
 #   F path   the command word is a literal path (./x, scripts/run): the file the command runs (kill guard, A161)
 #   V what   a fact about the next C record for the kill guard: `xargs` (it runs as an xargs command, its arguments
 #            come from stdin too), `psub` (a process substitution <(...) follows), `cwd\tDIR` (a `cd DIR` came before it)
+#   (A171) A NAME=value word the same command line assigns on its own, in sequence (`ID=T-6; sh agent.sh next $ID`), with a
+#            literal value of plain characters, is substituted into the later arguments of a command, so $ID is read as T-6. Never
+#            the command word or the script path, never a value from a substitution, `read`, a loop or a subshell.
 #   H cmd\003path\003body   a here-document: the command it feeds, the file that command writes (cat > f <<EOF; empty
 #            otherwise) and the body (newlines as \002, at most 200000 characters); the body of an unquoted
 #            delimiter is also scanned for $(...) and backtick commands, which the shell runs (A161)
@@ -411,8 +414,8 @@ scan_cmd() {
   function mparen(s, p,   d, c2, m) { d = 0; m = length(s); for (; p <= m; p++) { c2 = substr(s, p, 1); if (c2 == "(") d++; else if (c2 == ")") { d--; if (!d) return p } } return m }
   function endword() {
     if (!have) return
-    if (redir) { out("W", cur); lastw = (substr(cur, 1, 1) != "/" && cwdp != "") ? cwdp "/" cur : cur; redir = 0 } else if (inredir) { if (inredir == 2) { hdn++; hdw[hdn] = cur; hdq[hdn] = quo; hdt[hdn] = hdd } else out("C", "<\t" cur); inredir = 0 } else if (dup) { dup = 0 } else { w[++nw] = cur; L[nw] = lit }
-    cur = ""; have = 0; lit = 1; quo = 0
+    if (redir) { out("W", cur); lastw = (substr(cur, 1, 1) != "/" && cwdp != "") ? cwdp "/" cur : cur; redir = 0 } else if (inredir) { if (inredir == 2) { hdn++; hdw[hdn] = cur; hdq[hdn] = quo; hdt[hdn] = hdd } else out("C", "<\t" cur); inredir = 0 } else if (dup) { dup = 0 } else { w[++nw] = cur; L[nw] = lit; L0[nw] = lit; dynw[nw] = dyn }
+    cur = ""; have = 0; lit = 1; quo = 0; dyn = 0
   }
   function takesval(wr, x) {
     if (wr == "env") return x ~ /^(-u|--unset|-C|--chdir)$/
@@ -450,15 +453,29 @@ scan_cmd() {
     }
   }
   function script(j) {   # operand j of sh/bash/./source is the script path
-    if (!L[j]) out("X", "the script path " w[j] " is not literal")
+    if (!L0[j]) out("X", "the script path " w[j] " is not literal")
     else if (base(w[j]) == "agent.sh" && j + 1 <= nw) out("A", L[j + 1] "\t" w[j + 1])
   }
+  function vsafe(v) { return v != "" && v ~ /^[A-Za-z0-9_.\/:@%+,=-]+$/ }
+  function vexpand(t,   o, p, e, nm) {   # t with every $NAME / ${NAME} replaced by a known literal value; fails (xfail) on anything else
+    xfail = 0; o = ""
+    while ((p = index(t, "$")) > 0) {
+      o = o substr(t, 1, p - 1); t = substr(t, p + 1)
+      if (substr(t, 1, 1) == "{") { e = index(t, "}"); if (!e) { xfail = 1; return t }; nm = substr(t, 2, e - 2); t = substr(t, e + 1) }
+      else if (match(t, /^[A-Za-z_][A-Za-z0-9_]*/)) { nm = substr(t, 1, RLENGTH); t = substr(t, RLENGTH + 1) }
+      else { xfail = 1; return t }
+      if (!(nm in kvs)) { xfail = 1; return t }
+      o = o kvs[nm]
+    }
+    return o t
+  }
+  function vclear(   a) { for (a in kvs) delete kvs[a] }
   function endcmd(   h) {   # a here-document belongs to the command it was written on: its word and the file it writes
     cc = ""; endcmd0()
     for (h = hdfirst; h <= hdn; h++) { hdc[h] = cc; hdp[h] = lastw }
-    hdfirst = hdn + 1; lastw = ""
+    hdfirst = hdn + 1; lastw = ""; prevsep = sep
   }
-  function endcmd0(   k, c, j, x, wr, tdone, viax, nopt, tgt, hasc, hass, first, refm) {
+  function endcmd0(   k, c, j, x, wr, tdone, viax, nopt, tgt, hasc, hass, first, refm, allas, nm, vv) {
     if (nw == 0) return
     k = 1; wr = ""; tdone = 0; viax = 0
     while (k <= nw) {
@@ -473,9 +490,31 @@ scan_cmd() {
       if (base(x) ~ /^(sudo|doas|env|command|builtin|exec|nohup|time|nice|ionice|stdbuf|timeout|xargs|then|do|else|elif|if|while|until|!|\{|\})$/) { wr = base(x); tdone = 0; if (wr == "xargs") viax = 1; k++; continue }
       break
     }
+    # A171: literal variables. An assignment-only command (every word NAME=value), first in its list and ended by `;`, a newline or
+    # `&&`, outside parentheses, records NAME = value when the value is plain and literal (or built from known variables); any other
+    # way a variable can change (a prefix or export assignment, read, unset, a loop, set, local, a non-literal value) forgets it.
+    allas = (nw > 0)
+    for (j = 1; j <= nw; j++) if (!isassign(w[j])) allas = 0
+    if (allas) {
+      for (j = 1; j <= nw; j++) {
+        nm = w[j]; sub(/=.*/, "", nm); vv = w[j]; sub(/^[^=]*=/, "", vv)
+        if (!L[j]) { vv = vexpand(vv); if (xfail || dynw[j]) vv = "" }
+        if (prevsep == "p" && (sep == "p" || sep == "a") && pd <= 0 && vsafe(vv)) kvs[nm] = vv; else delete kvs[nm]
+      }
+    } else {
+      for (j = 1; j <= nw; j++) {
+        if (isassign(w[j])) { nm = w[j]; sub(/=.*/, "", nm); delete kvs[nm] }
+        else if (w[j] ~ /^[A-Za-z_][A-Za-z0-9_]*\+=/) vclear()
+      }
+    }
     # k is the command word (nw + 1 when there is none). A NAME=value word before it is an environment prefix and
     # gets a C env record; one after it is an argument (ps -o pid=, dd of=x) and is not one (A161). AGENT_ROLE and
     # the git variables are checked on every word, a prefix or not.
+    if (k <= nw) {
+      c = base(w[k])
+      if (c ~ /^(read|unset|getopts|mapfile|readarray|declare|typeset|local|set|shift|select|for|case|wait|trap|eval|source|\.)$/) vclear()
+      for (j = k + 1; j <= nw; j++) if (!L[j] && !dynw[j]) { vv = vexpand(w[j]); if (!xfail) { w[j] = vv; L[j] = 1 } }
+    }
     for (j = 1; j <= nw; j++) {
       x = w[j]
       if (isassign(x)) {
@@ -579,6 +618,7 @@ scan_cmd() {
   }
   function parse(s,   n, i, ch, q, e, line, k2) {
     n = length(s); i = 1; q = ""; cur = ""; have = 0; lit = 1; hdn = 0; hdfirst = 1; hdbody = 0; pd = 0; quo = 0; hdd = 0; lastw = ""; nw = 0; redir = 0; inredir = 0; dup = 0
+    vclear(); prevsep = "p"; sep = "p"; dyn = 0
     while (i <= n) {
       ch = substr(s, i, 1)
       if (q == "\047") { if (ch == "\047") q = ""; else cur = cur ch; i++; continue }
@@ -586,7 +626,7 @@ scan_cmd() {
         if (ch == "\\" && i < n) { cur = cur substr(s, i + 1, 1); i += 2; continue }
         if (ch == "\"") { q = ""; i++; continue }
         if (ch == "$" && substr(s, i + 1, 1) == "(") { e = mparen(s, i + 1); push(substr(s, i + 2, e - i - 2), dep + 1); cur = cur substr(s, i, e - i + 1); lit = 0; i = e + 1; continue }
-        if (ch == "`") { e = index(substr(s, i + 1), "`"); if (!e) e = n - i + 1; push(substr(s, i + 1, e - 1), dep + 1); lit = 0; i += e + 1; continue }
+        if (ch == "`") { e = index(substr(s, i + 1), "`"); if (!e) e = n - i + 1; push(substr(s, i + 1, e - 1), dep + 1); lit = 0; dyn = 1; i += e + 1; continue }
         if (ch == "$") lit = 0
         cur = cur ch; i++; continue
       }
@@ -595,7 +635,7 @@ scan_cmd() {
       if (ch == "#" && !have && cur == "") { e = index(substr(s, i), "\n"); i = e ? i + e - 1 : n + 1; continue }   # a comment runs to the end of the line
       if (ch == " " || ch == "\t") { endword(); i++; continue }
       if (ch == "\n") {
-        endword(); endcmd(); i++
+        sep = "p"; endword(); endcmd(); i++
         for (hi = hdbody + 1; hi <= hdn; hi++) {   # the bodies follow the line, in order, up to their delimiter line
           body = ""
           while (i <= n) {
@@ -612,8 +652,8 @@ scan_cmd() {
       }
       if (ch == "|" && nw == 0 && pd <= 0 && match(substr(s, i + 1), /^[^ \t\n;&|()<>]*(\|[^ \t\n;&|()<>]*)*\)/)) { i += RLENGTH + 1; cur = ""; have = 0; continue }   # a case label with alternatives (kill|pkill)
       if (ch == ")" && pd <= 0) { cur = ""; have = 0; nw = 0; i++; continue }   # a case label (stop|kill) is not a command
-      if (ch == ";" || ch == "|" || ch == "(" || ch == ")" || ch == "`") { if (ch == "(") pd++; else if (ch == ")") pd--; endword(); endcmd(); i++; continue }
-      if (ch == "&") { if (substr(s, i + 1, 1) == ">") { endword(); i += 2; if (substr(s, i, 1) == ">") i++; redir = 1; continue } endword(); endcmd(); i++; continue }
+      if (ch == ";" || ch == "|" || ch == "(" || ch == ")" || ch == "`") { if (ch == "(") pd++; else if (ch == ")") pd--; sep = (ch == ";") ? "p" : "o"; endword(); endcmd(); i++; continue }
+      if (ch == "&") { if (substr(s, i + 1, 1) == ">") { endword(); i += 2; if (substr(s, i, 1) == ">") i++; redir = 1; continue } if (substr(s, i + 1, 1) == "&") { sep = "a"; endword(); endcmd(); i += 2; continue } sep = "o"; endword(); endcmd(); i++; continue }
       if (ch == ">") {
         if (have && cur ~ /^[0-9]+$/) { cur = ""; have = 0 } else endword()
         i++; if (substr(s, i, 1) == ">" || substr(s, i, 1) == "|") i++
@@ -633,7 +673,7 @@ scan_cmd() {
       if (ch == "$") lit = 0
       cur = cur ch; have = 1; i++
     }
-    endword(); endcmd()
+    sep = "p"; endword(); endcmd()
   }
   { qn = 1; qs[1] = $0; qd[1] = 0; for (qi = 1; qi <= qn; qi++) { dep = qd[qi]; parse(qs[qi]) } }'
 }
@@ -650,6 +690,13 @@ stray_tmp_path() {
     sp_q=${sp_p#/private}
     sp_r=${root#/private}
     case "$sp_q" in "$sp_r"|"$sp_r"/*) continue ;; esac
+    # A171: the runtime's own background task output (/tmp/claude-<uid>/<project>/<session>/tasks/<id>.output) is read-only
+    # evidence the lead is told to read; it is allowed unless the same command writes to it (any W/E/P/Q/L record names it).
+    case "$sp_p" in
+      /tmp/claude-[0-9]*/*/tasks/*.output|/private/tmp/claude-[0-9]*/*/tasks/*.output)
+        case "/$sp_p/" in */../*) ;; *)
+          awk -F"$TAB" -v p="$sp_p" '$1 ~ /^[WEPQL]$/ && $2 == p { f = 1 } END { exit !f }' "$tmp/scan" 2>/dev/null || continue ;; esac ;;
+    esac
     printf '%s\n' "$sp_p"; return 0
   done < "$tmp/tmp-paths"
   return 0
@@ -1640,6 +1687,8 @@ pretool)
     exit 0
   fi
   if [ -n "$cmd" ]; then
+    # A171: the dispatch marker is set by dispatch.sh alone; a model never sets it to record a decision ahead of a dispatch.
+    case "$cmd" in *PROOFLINE_DISPATCH*) deny "PROOFLINE_DISPATCH is set by dispatch.sh alone (A171). To only read a decision run: sh .agents/scripts/agent.sh decide <ID> <role> --dry" ;; esac
     # A102: the capability probes' self-test switches are never set by a model (they would hide a browser or benchmark).
     case "$cmd" in *PROOFLINE_PROBE_ROOT*|*PROOFLINE_SELFTEST*) deny "PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them" ;; esac
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
@@ -1652,11 +1701,12 @@ pretool)
     fi
     # Scratch space is $TMPDIR (the runtime's private temp dir), never /tmp directly: files outside the project
     # and $TMPDIR are what a run must not leave behind. A project that itself lives under /tmp is not scratch.
+    printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
     if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } && ! tmp_is_scratch_root; then
       stray=$(stray_tmp_path "$cmd")
-      [ -z "$stray" ] || deny "$stray is outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under \$TMPDIR (${TMPDIR:-unset})"
+      # shellcheck disable=SC2016 # literal $TMPDIR in the message
+      [ -z "$stray" ] || deny "$stray is outside the project. Allowed: reading the runtime's own background task output (/tmp/claude-*/**/tasks/<id>.output). Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under \$TMPDIR (${TMPDIR:-unset})"
     fi
-    printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
     # A111: every `git stash` subcommand is refused in the project tree for a specialist (evidence worktrees are free).
     if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; }; then stash_guard; fi
     # Hook and gate bypasses: never, for anyone, while proofline is installed.
@@ -1688,13 +1738,13 @@ pretool)
     while IFS= read -r rec; do
       k=${rec%%"$TAB"*}; v=$(printf '%s' "${rec#*"$TAB"}" | tr '\002' '\n')
       case "$k" in
-        X) deny "$v is not allowed while run $act is active; write agent.sh, AGENT_ROLE and shell commands literally" ;;
+        X) deny "$v is not allowed while run $act is active; write agent.sh, AGENT_ROLE and shell commands literally (only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh next \$ID)" ;;
         R) [ "$(canon "$v")" = "$role" ] || deny "AGENT_ROLE=$v does not match the caller's role ($role); a role never acts as another" ;;
         N) deny "specialists run through dispatch.sh (window, decision and recording), never as a nested runtime started by hand ($v)" ;;
         L) case "$v" in *.agents*) deny "ln '$v': links into or out of .agents/ are never made during a run" ;; esac
            case "$(relpath "$v")" in .agents|.agents/*) deny "ln '$v': links into or out of .agents/ are never made during a run" ;; esac ;;
         A) lit=${v%%"$TAB"*} sc=${v#*"$TAB"}
-          [ "$lit" = 1 ] || deny "agent.sh subcommand '$sc' is not literal"
+          [ "$lit" = 1 ] || deny "agent.sh subcommand '$sc' is not literal. Allowed form: ID=T-1; sh .agents/scripts/agent.sh next \$ID (a variable the same command assigns a plain literal) or write the subcommand out"
           case "$sc" in
             record|gate) deny "verdicts enter a run only through agent.sh submit, recorded for the SubagentStop hook or dispatch.sh (agent.sh $sc is never run by the lead or a subagent, D12)" ;;
             window-open|window-close) deny "implementer and designer windows are opened and closed only by the runtime hooks and dispatch.sh" ;;
@@ -1976,6 +2026,13 @@ $l" ;; esac
 }$nu"; fi
       fi ;;
   esac
+  # A171: the lead never asks the user to run an internal command (agent.sh approve, answer, ...). When the message does, that
+  # is a proofline bug: the hook records a friction note (counted in the friction report) and says so in one line.
+  if printf '%s' "$msg" | grep -Eq 'agent\.sh[[:space:]]+(approve|approve-pending|answer|request-approval|waive|next|status|handoff|freeze|refreeze|record|submit|terminate|reopen|start|branch|cleanup|deliver-[a-z]+|publish-completion-report|decide|ask|raise-budget)([[:space:]]|$|[`"'"'"'.,;:)])'; then
+    if [ -n "$act" ] && [ "$act" != INVALID ]; then (unset AGENT_ROLE; sh "$agent" friction-note "$act" user-command >/dev/null 2>&1) || :; fi
+    out="${out:+$out
+}proofline: this message asks the user to run an internal command (agent.sh ...). That is a proofline bug (A171), noted in the friction report. The lead runs internal commands itself and tells the user only the one-line state and a /proofline next step."
+  fi
   [ -n "$out" ] || exit 0
   printf '{"systemMessage":"%s"}\n' "$(jesc "$out")"
   exit 0 ;;

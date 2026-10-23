@@ -4707,15 +4707,23 @@ decide() {
   dc_id=$1 dc_role=$(canon_role "$2"); shift 2; require_run "$dc_id"; require_lead; require_open_run "$dc_id"
   valid_role "$dc_role" || fail "invalid role: $dc_role"
   dc_class=$(pipeline_class "$dc_id"); pipeline_class_valid "$dc_class" || fail "run $dc_id is not classified: the execution policy is derived from its class"
-  dc_focus='' dc_over='' dc_uimode=''
+  dc_focus='' dc_over='' dc_uimode='' dc_dry=no dc_ap=no
   while [ $# -gt 0 ]; do
     case "$1" in
+      --dry) dc_dry=yes; shift ;;
+      --agent-path) dc_ap=yes; shift ;;
       --ui-mode) dc_uimode=${2:?--ui-mode needs a value}; shift 2 ;;
       --focus) dc_focus=${2:?--focus needs a value}; shift 2 ;;
       --model|--effort|--context-bytes|--runtime) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;
       *) fail "unknown decide argument: $1" ;;
     esac
   done
+  # A171: decide records the decision of one dispatch (a decisions/ file, a ledger event, an escalation count). It is run by dispatch.sh
+  # (which sets PROOFLINE_DISPATCH) or, on the Agent path, once right before the Agent call (--agent-path). Called ahead of a `D`
+  # dispatch it only duplicates the decision that dispatch.sh makes itself; to just read the decision use --dry (writes nothing).
+  [ "$dc_dry$dc_ap" != yesyes ] || fail "decide --dry and --agent-path exclude each other: --dry only reads, --agent-path records"
+  [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "${PROOFLINE_DISPATCH:-}" = 1 ] ||
+    fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
   [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
   dc_tier=$(tier_effective "$dc_id"); dc_sig=''
   [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
@@ -4742,15 +4750,21 @@ decide() {
   set -- "$@" --escalations-used "$dc_esc"
   # shellcheck disable=SC2086 # overrides are flag/value pairs without whitespace
   set -- "$@" $dc_over
+  dc_rc=0
+  dc_res=$(sh "$scripts/exec-policy.sh" "$@") || dc_rc=$?
+  if [ "$dc_rc" != 0 ]; then [ "$dc_rc" != 1 ] || dc_rc=4; echo "decision refused by exec-policy.sh (exit $dc_rc)" >&2; return "$dc_rc"; fi
+  dc_body=$(printf '%s\nrole=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_res" "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)")
+  # The first line is a one-line summary (role, runtime, model, effort, reason): a truncated output still reads right (A171).
+  dc_v() { printf '%s\n' "$dc_body" | sed -n "s/^$1=//p" | head -n 1; }
+  dc_sum="decision: role=$(dc_v role) runtime=$(dc_v runtime) model=$(dc_v model) effort=$(dc_v effort) reason=$(dc_v model_reason)"
+  if [ "$dc_dry" = yes ]; then printf '%s (dry run: nothing recorded)\n%s\n' "$dc_sum" "$dc_body"; return 0; fi
   dc_dir=$(run_dir "$dc_id")/decisions; mkdir -p "$dc_dir"
   dc_tag=$dc_role; [ -z "$dc_focus" ] || dc_tag="$dc_role-$(printf '%s' "$dc_focus" | tr '+' '-')"
-  dc_out=$dc_dir/$(next_num "$dc_dir")-$dc_tag.decision; dc_rc=0
-  sh "$scripts/exec-policy.sh" "$@" > "$dc_out.tmp" || dc_rc=$?
-  if [ "$dc_rc" != 0 ]; then rm -f "$dc_out.tmp"; [ "$dc_rc" != 1 ] || dc_rc=4; echo "decision refused by exec-policy.sh (exit $dc_rc)" >&2; return "$dc_rc"; fi
-  printf 'role=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)" >> "$dc_out.tmp"
+  dc_out=$dc_dir/$(next_num "$dc_dir")-$dc_tag.decision
+  printf '%s\n' "$dc_body" > "$dc_out.tmp"
   mv "$dc_out.tmp" "$dc_out"
   if gates_enforced "$dc_id"; then ledger_append "$dc_id" decide - - "$(basename "$dc_out") runtime=$(sed -n 's/^runtime=//p' "$dc_out" | head -1) model=$(sed -n 's/^model=//p' "$dc_out" | head -1) effort=$(sed -n 's/^effort=//p' "$dc_out" | head -1) signals=${dc_sig# }"; fi
-  cat "$dc_out"; echo "decision_file=${dc_out#"$root"/}"
+  printf '%s\n' "$dc_sum"; cat "$dc_out"; echo "decision_file=${dc_out#"$root"/}"
 }
 
 # ledger-note: a ledgered free-text note (lead or dispatch.sh: failover, policy violation, ...).
@@ -4762,6 +4776,38 @@ ledger_note() {
   ln_s=$(section_value "$(run_dir "$ln_id")" handoff state)
   ledger_append "$ln_id" note "$ln_s" "$ln_s" "$ln_text"
   echo "ledger note recorded: $ln_id"
+}
+
+# friction-note (A171): the lead (or the Stop hook) records that the user was asked to run an internal command or a shell command.
+# That is a proofline bug, never normal flow; the ledger event counts in the friction report. KIND is a controlled word (no free
+# text, so nothing identifying reaches the report): user-command (an agent.sh/approve/answer command) | user-shell (a shell command).
+friction_note() {
+  fn_id=$1 fn_kind=${2:-}; require_run "$fn_id"; require_lead
+  case "$fn_kind" in user-command|user-shell) ;; *) fail "usage: agent.sh friction-note <ID> <user-command|user-shell>" ;; esac
+  gates_enforced "$fn_id" || { echo "friction noted (not ledgered: the run has no lifecycle_gates policy): $fn_kind"; return 0; }
+  verify_seal "$fn_id"
+  fn_s=$(section_value "$(run_dir "$fn_id")" handoff state)
+  ledger_append "$fn_id" friction-note "$fn_s" "$fn_s" "$fn_kind"
+  echo "friction noted: $fn_kind"
+}
+# wait-line (A171): the one-line status for a wait. `agent.sh wait-line <ID> ["WHAT"] [--done]` prints
+# `waiting: <what>, <M>m<SS>s so far`; WHAT defaults to the dispatch in flight. The first call for a WHAT starts its clock
+# (.agents/local/wait/); --done stops it. The lead prints this line and nothing more while it waits.
+wait_line() {
+  wl_id=$1 wl_what=${2:-} wl_done=no; require_run "$wl_id"; require_lead
+  if [ "$wl_what" = --done ]; then wl_what=''; wl_done=yes; fi
+  [ "${3:-}" != --done ] || wl_done=yes
+  if [ -z "$wl_what" ]; then
+    if wl_if=$(inflight_dispatch "$wl_id"); then wl_what="dispatch ${wl_if% *}"; else fail "nothing is in flight: name what you wait for, for example agent.sh wait-line $wl_id \"CI of the pull request\""; fi
+  fi
+  wl_what=$(printf '%s' "$wl_what" | tr -c 'A-Za-z0-9 ._-' ' ' | cut -c1-80)
+  wl_f=$root/.agents/local/wait/$wl_id-$(printf '%s' "$wl_what" | tr -c 'A-Za-z0-9' '-' | cut -c1-60)
+  if [ "$wl_done" = yes ]; then rm -f "$wl_f"; echo "wait over: $wl_what"; return 0; fi
+  mkdir -p "$root/.agents/local/wait" 2>/dev/null || true
+  [ -s "$wl_f" ] || now_epoch > "$wl_f" 2>/dev/null || true
+  wl_s=$(cat "$wl_f" 2>/dev/null); case "$wl_s" in ''|*[!0-9]*) wl_s=$(now_epoch) ;; esac
+  wl_e=$(( $(now_epoch) - wl_s ))
+  printf 'waiting: %s, %dm%02ds so far\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60))
 }
 
 # --- Metrics (D5, A80): .agents/local/metrics/, best effort, `metrics: off` disables ALL of it ---
@@ -6299,8 +6345,9 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   open-runs | discard-stray <ID> <FILE-NAME>   (lead: remove one stray, non-artifact top-level regular file of the run directory)
   submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
-  decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
+  decide <ID> <ROLE> --dry|--agent-path [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
   hook-time <ID> (runtime hooks: move the hook timings spooled in .agents/local/hook-times into the ledger) | language-check [FILE|-] (the write-time language check; exit 1 on non-English text outside a '> ' quote block)
+  friction-note <ID> <user-command|user-shell> | wait-line <ID> [WHAT] [--done]   (A171: record that the user was asked to run a command, a proofline bug; the one-line wait status)
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND>... | approval-consume <ID> <KIND> [FINGERPRINT]
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)
@@ -6352,7 +6399,7 @@ case "$command" in
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
-  decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
+  decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> --dry|--agent-path [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;
   refreeze) require_lead; freeze "${2:?usage: agent.sh refreeze <ID> <AMENDMENT>}" refreeze "${3:?usage: agent.sh refreeze <ID> <AMENDMENT>}" ;;
   verify-freeze) verify_freeze "${2:?usage: agent.sh verify-freeze <ID>}" ;;
@@ -6382,6 +6429,8 @@ case "$command" in
   waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
+  friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell>}" "${3:-}" ;;
+  wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;

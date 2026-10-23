@@ -307,8 +307,8 @@ sc_report_names() {
 # A132: max_explorers bounds recorded explorer results; a dispatch whose result never arrived holds no slot
 sc_explorer_limit() {
   scaffold orchestrated
-  A decide LC explorer >/dev/null || die "first explorer decide refused"
-  A decide LC explorer >/dev/null || die "second (parallel) explorer decide refused"
+  A decide LC explorer --agent-path >/dev/null || die "first explorer decide refused"
+  A decide LC explorer --agent-path >/dev/null || die "second (parallel) explorer decide refused"
   printf 'one\n' > "$base/ag1-rep"; printf 'two\n' > "$base/ag2-rep"
   # a BLOCKED result holds no slot: its retry (and a NEEDS_INPUT ANSWERS re-dispatch) is allowed
   AS explorer submit LC --result BLOCKED --reason 'no entry point' --confidence high --agent agB >/dev/null || die "explorer BLOCKED submit failed"
@@ -317,28 +317,28 @@ sc_explorer_limit() {
   printf 'one revised\n' > "$base/ag1-rep"
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "explorer 1 resubmit failed"
   [ "$(ls .agents/runs/LC/results/???-explorer.result.md | wc -l | tr -d ' ')" -ge 3 ] || die "the resubmit did not leave a second DONE result file"
-  A decide LC explorer >/dev/null || die "a decide after a BLOCKED result and one explorer resubmitting was refused"
+  A decide LC explorer --agent-path >/dev/null || die "a decide after a BLOCKED result and one explorer resubmitting was refused"
   # a live marker whose submission is already recorded is the delivered result, not a second slot
   mkdir -p .agents/runs/LC/dispatch .agents/local/submissions; printf 'pid=%s\nrole=explorer\n' "$$" > .agents/runs/LC/dispatch/091-explorer-claude.running
   printf 'status=ok\n' > .agents/local/submissions/d091-explorer-claude.status
-  A decide LC explorer >/dev/null || die "a DONE result plus its own live marker was counted twice"
+  A decide LC explorer --agent-path >/dev/null || die "a DONE result plus its own live marker was counted twice"
   rm -f .agents/runs/LC/dispatch/091-explorer-claude.running
   # a running explorer dispatch occupies a slot: one DONE + one running = 2 of 2
   mkdir -p .agents/runs/LC/dispatch; printf 'pid=%s\nrole=explorer\n' "$$" > .agents/runs/LC/dispatch/090-explorer-claude.running
-  expect_msg "a parallel start beyond the limit was granted" '1 delivered result(s)' A decide LC explorer
+  expect_msg "a parallel start beyond the limit was granted" '1 delivered result(s)' A decide LC explorer --agent-path
   rm -f .agents/runs/LC/dispatch/090-explorer-claude.running
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag2-rep" --agent ag2 >/dev/null || die "explorer 2 submit failed"
-  expect_msg "a third delivered explorer was granted" 'allows 2 explorer slot(s) (pipelines.COMPLEX.max_explorers) and run LC holds 2 delivered result(s)' A decide LC explorer
+  expect_msg "a third delivered explorer was granted" 'allows 2 explorer slot(s) (pipelines.COMPLEX.max_explorers) and run LC holds 2 delivered result(s)' A decide LC explorer --agent-path
   ok "A132: the explorer after max_explorers delivered reports is refused; BLOCKED and a lost dispatch hold no slot; a running one does"
   # a limit of 0 is not checked, and the count restarts at each freeze
   unfrozen TRIVIAL
-  A decide LC explorer >/dev/null || die "an explorer decide on a limit of 0 was refused"
+  A decide LC explorer --agent-path >/dev/null || die "an explorer decide on a limit of 0 was refused"
   unfrozen STANDARD
   printf 'one\n' > "$base/ag1-rep"
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "pre-freeze explorer failed"
-  expect_msg "a second pre-freeze explorer was granted (STANDARD allows 1)" 'holds 1 delivered result(s)' A decide LC explorer
+  expect_msg "a second pre-freeze explorer was granted (STANDARD allows 1)" 'holds 1 delivered result(s)' A decide LC explorer --agent-path
   A freeze LC >/dev/null || die "freeze failed"
-  A decide LC explorer >/dev/null || die "an explorer after the freeze was refused (the count restarts at each freeze)"
+  A decide LC explorer --agent-path >/dev/null || die "an explorer after the freeze was refused (the count restarts at each freeze)"
   ok "A132: a limit of 0 is not checked; the slot count restarts at each freeze"
 }
 
@@ -348,7 +348,7 @@ sc_parallel_lock() {
   f=$(result_for REVIEW_SMALL PASS)
   i=1 pids=''
   while [ "$i" -le 8 ]; do
-    if [ $((i % 2)) -eq 0 ]; then A decide LC reviewer --focus rules+tests > "$base/parallel-$i.out" 2>&1 &
+    if [ $((i % 2)) -eq 0 ]; then A decide LC reviewer --agent-path --focus rules+tests > "$base/parallel-$i.out" 2>&1 &
     else A ledger-note LC "parallel-$i" > "$base/parallel-$i.out" 2>&1 & fi
     pids="$pids $!"; i=$((i + 1))
   done
@@ -406,7 +406,7 @@ sc_fix_loop() {
   gfail VERIFY impl.txt
   A handoff LC IMPLEMENTING >/dev/null
   [ "$(pipe_val fix_round)" = 2 ] && [ "$(pipe_val escalation)" = yes ] || die "round 2 does not set the escalation flag"
-  A decide LC implementer >/dev/null; grep -q 'signals=fix_round_2' .agents/runs/LC/decisions/*-implementer.decision || die "decide misses fix_round_2"
+  A decide LC implementer --agent-path >/dev/null; grep -q 'signals=fix_round_2' .agents/runs/LC/decisions/*-implementer.decision || die "decide misses fix_round_2"
   worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null
   gfail REVIEW_SMALL impl.txt
   expect_msg "a third round was allowed" 'fix rounds exhausted' A handoff LC IMPLEMENTING
@@ -1043,21 +1043,45 @@ sc_next() {
 sc_decide() {
   scaffold orchestrated; implemented orchestrated
   STUB_ARGS=$base/args; export STUB_ARGS; : > "$STUB_ARGS"
-  A decide LC reviewer --focus rules+tests >/dev/null
+  A decide LC reviewer --agent-path --focus rules+tests >/dev/null
   ls .agents/runs/LC/decisions/001-reviewer-rules-tests.decision >/dev/null
   grep -q -- '--role reviewer --class COMPLEX --tier small --escalations-used 0' "$STUB_ARGS" || die "decide args: $(cat "$STUB_ARGS")"
   ! grep -q -- '--runtime\|--profile' "$STUB_ARGS" || die "decide passed runtime/profile without an override"
   grep -q 'event=decide .*model=sonnet' .agents/runs/LC/LEDGER.log
-  A decide LC implementer --runtime codex >/dev/null
+  A decide LC implementer --agent-path --runtime codex >/dev/null
   tail -1 "$STUB_ARGS" | grep -q -- '--runtime codex' || die "--runtime override not passed"
   grep -q '^runtime=codex' .agents/runs/LC/decisions/002-implementer.decision
-  expect_fail "an invalid override was accepted" A decide LC reviewer --model bogus
+  expect_fail "an invalid override was accepted" A decide LC reviewer --agent-path --model bogus
   [ ! -e .agents/runs/LC/decisions/003-reviewer.decision ] || die "a refused decision was persisted"
-  expect_fail "an unknown decide flag was accepted" A decide LC reviewer --turbo yes
+  expect_fail "an unknown decide flag was accepted" A decide LC reviewer --agent-path --turbo yes
   expect_fail "a reviewer called decide" AS reviewer decide LC reviewer
+  # A171: decide is not called ahead of a dispatch; --dry reads without writing; the output starts with a one-line summary
+  nd=$(($(ls .agents/runs/LC/decisions | wc -l))); nl=$(($(wc -l < .agents/runs/LC/LEDGER.log)))
+  expect_msg "a bare decide (ahead of a dispatch) was accepted" 'not called ahead of one' A decide LC reviewer --focus rules+tests
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$nd" ] || die "a refused decide persisted a decision"
+  dry=$(A decide LC reviewer --focus rules+tests --dry) || die "decide --dry refused: $dry"
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$nd" ] || die "decide --dry wrote a decision file"
+  [ "$(($(wc -l < .agents/runs/LC/LEDGER.log)))" = "$nl" ] || die "decide --dry wrote the ledger"
+  printf '%s\n' "$dry" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+ \(dry run: nothing recorded\)$' || die "decide --dry: first line is not the summary: $(printf '%s\n' "$dry" | head -n 1)"
+  printf '%s\n' "$dry" | grep -q '^model=' || die "decide --dry lost the key=value lines"
+  real=$(A decide LC reviewer --focus rules+tests --agent-path) || die "decide --agent-path refused: $real"
+  printf '%s\n' "$real" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+$' || die "decide: first line is not the summary: $(printf '%s\n' "$real" | head -n 1)"
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((nd + 1))" ] || die "decide --agent-path did not record one decision: before $nd now $(ls .agents/runs/LC/decisions | tr "\n" " ")"
+  rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)"
+  PROOFLINE_DISPATCH=1 A decide LC reviewer --focus rules+tests >/dev/null || die "decide from dispatch.sh was refused"
+  rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)"
+  # A171: friction-note ledgers that the user was asked to run a command; wait-line is one line
+  A friction-note LC user-command >/dev/null || die "friction-note refused"
+  grep -q 'event=friction-note .*detail=user-command' .agents/runs/LC/LEDGER.log || die "friction-note not in the ledger"
+  expect_fail "friction-note took a free-text kind" A friction-note LC "run approve for me"
+  expect_fail "a reviewer wrote a friction note" AS reviewer friction-note LC user-command
+  wl=$(A wait-line LC "CI of the pull request") || die "wait-line refused"
+  [ "$(printf '%s\n' "$wl" | wc -l | tr -d ' ')" = 1 ] && printf '%s\n' "$wl" | grep -Eq '^waiting: CI of the pull request, [0-9]+m[0-9]{2}s so far$' || die "wait-line is not one line of the documented shape: $wl"
+  A wait-line LC "CI of the pull request" --done >/dev/null
+  expect_fail "wait-line without a wait" A wait-line LC
   rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced'
   printf 'escalated=yes\n' >> .agents/runs/LC/decisions/001-reviewer-rules-tests.decision
-  A decide LC reviewer --focus rules+tests >/dev/null
+  A decide LC reviewer --agent-path --focus rules+tests >/dev/null
   tail -1 "$STUB_ARGS" | grep -q -- '--signal recent_fail_same_focus --escalations-used 1' || die "signals/escalations: $(tail -1 "$STUB_ARGS")"
   # metrics: one line per recorded specialist step with runtime and model from the decision
   grep -q "$(printf '\tLC\treviewer\tclaude\tsonnet\t')" .agents/local/metrics/history.tsv || die "metrics line missing: $(cat .agents/local/metrics/history.tsv)"
