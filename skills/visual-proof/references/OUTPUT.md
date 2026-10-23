@@ -17,6 +17,9 @@
 | `a11y_scanner` | `{status: run, tool}` or `{status: not_available}`; when run, it is a core check of every cell |
 | `regression` | `{status: not_available, reason}` or `{status: run, command, exit, baselines: existing}`; `baselines_created` is never true |
 | `seo` | optional (A158): `{status: run, pages[], items[]}` or `{status: not_applicable, note}` ([MEASURE.md](MEASURE.md#technical-seo)); `pages[]` `{path, status measured|not_applicable|not_measured, reason, analytics_detected[], analytics_before_consent[], third_party_requests[]}`; `items[]` `{id S-n, check, page, selector, value, threshold, status pass|fail|not_measured, evidence, note, reason}`; absent when `tool.kind` is `none` |
+| `design` | optional (0.0.27): `{status: run, mode, viewports[], pages[], items[], screenshots[], scenes[], images[], not_measured[], image_ledger, scene_ids[], motion_min}` or `{status: not_applicable, mode, note}` ([MEASURE.md](MEASURE.md#design-audit)); `items[]` `{id D-n, check design_*, screen, viewport, selector, value, threshold, status pass|fail|not_applicable|not_measured, note, reason, screenshot {path, sha256}}`; absent when `tool.kind` is `none` |
+| `critique[]` | optional, COMPLEX/CRITICAL with a design group: the 14 judged items `{id, status ok|concern|not_applicable, reason, screenshot {path, sha256}}`; no numeric score, never closes the gate ([JUDGED.md](JUDGED.md)) |
+| `lint.json` | not a key: a file beside `report.json` written by `lint-source.mjs`; validated by `validateLint`, its blocking findings are FAIL reasons |
 | `criteria[]` | `id`, `required`, `status` `proven|failed|unproven` (recomputed) |
 
 Validator checks (`validate-visual.mjs`): every screenshot path is relative to the report folder, exists and
@@ -26,13 +29,13 @@ status consistent with value and threshold; `not_applicable` only as the fixed i
 the page has nothing of that kind (selector `body`, the reason as value, alone for its check in the cell),
 counted apart from passes in `SUMMARY`; a `headless-browser` report carries `network.interception: on`; every cell the class requires exists and accounts for every core check; STANDARD has no
 judged items and at least 2 viewports; COMPLEX/CRITICAL have 3 viewports, every state and a judged item per
-aspect; with `seo`: a fixed note and no items when not applicable, every measured page accounts for the six per-page seo checks (a measured item or a `not_measured` item), `seo_hreflang` only where the page has alternates, `seo_analytics_consent` exactly when `analytics_before_consent` is non-empty (reports without that field: when `analytics_detected` is), `seo_sitemap` and `seo_robots` once per site, a pass or fail item has an integer problem count whose status agrees with `== 0`; a judged violation quotes a criterion found in `--spec`/`--plan`; with `--plan`, every id on the
+aspect; with `seo`: a fixed note and no items when not applicable, every measured page accounts for the six per-page seo checks (a measured item or a `not_measured` item), `seo_hreflang` only where the page has alternates, `seo_analytics_consent` exactly when `analytics_before_consent` is non-empty (reports without that field: when `analytics_detected` is), `seo_sitemap` and `seo_robots` once per site, a pass or fail item has an integer problem count whose status agrees with `== 0`; with `design`: viewports 1440/768/390, every measured page accounts for each check of its mode (an item of any status or a `not_measured` entry with a reason), `not_applicable` only with the fixed note, a pass or fail item has a numeric value agreeing with its threshold (not weaker than documented) and the page screenshot, every requested scene and image-ledger result is present, `critique[]` has the 14 ids and no score; `lint.json` beside the report must be valid; a judged violation quotes a criterion found in `--spec`/`--plan`; with `--plan`, every id on the
 `visual_proof:` line is a required criterion.
 
 ## Result
 
 1. `tool.kind: none` -> **UNSUPPORTED**.
-2. Any measured `fail`, failed seo item, judged `violation` or failing regression run -> **FAIL**.
+2. Any measured `fail`, failed seo item, failed design item, blocking lint finding, judged `violation` or failing regression run -> **FAIL** (a `critique` concern never does).
 3. Otherwise any cell-level `not_measured` entry or required criterion `unproven` -> **INCONCLUSIVE**.
 4. Otherwise **PASS**.
 

@@ -6,6 +6,7 @@
 //   node measure.mjs --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox]
 //                                                          measure; writes DIR/report.json and DIR/screenshots/
 //   node measure.mjs --print-probe                         print the page probe (for a project tool or runtime adapter)
+//   node measure.mjs --print-design-probe                  print the design-audit probe (facts of design-audit.mjs evaluateStatic)
 //   node measure.mjs --assemble raw.json --out DIR         build DIR/report.json from cells measured by another tool
 //
 // Exit codes: 0 report written (any result, UNSUPPORTED included), 2 usage, config or I/O error.
@@ -15,9 +16,12 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, accessSync, constants } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, SEO_NOT_APPLICABLE_NOTE, SEO_SITE, requiredCells, validateReport } from "./validate-visual.mjs";
+import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, designPages } from "./design-audit.mjs";
+import { motionAudit } from "./motion-audit.mjs";
+import { IMAGES_PROBE, ledgerItems } from "./ledger.mjs";
 
 const BROWSER_NAMES = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "microsoft-edge", "microsoft-edge-stable", "msedge", "brave-browser"];
 const APP_PATHS = [
@@ -850,8 +854,49 @@ export function checkConfig(c) {
       }
     }
   }
+  if (c.design !== undefined) e.push(...checkDesignConfig(c, u));
   for (const it of c.interactions || []) if (!it?.name || !INTERACTION_CHECKS.includes(it.check) || !it.screen || !it.state) e.push(`interaction ${it?.name}: needs name, check (${INTERACTION_CHECKS.join("|")}), screen, state`);
   for (const k of c.criteria || []) if (!/^AC-\d+$/.test(k?.id || "") || !Array.isArray(k.checks)) e.push("each criterion needs id AC-<n> and checks[]");
+  return e;
+}
+
+// The design group (0.0.27, A170): visitor mode, pages, language entries, image ledger path, scenes, motion minimums.
+export function checkDesignConfig(c, u) {
+  const e = [], d = c.design;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return ["design must be an object"];
+  const nonEmpty = (x) => typeof x === "string" && x.trim() !== "";
+  const okPath = (p) => !u || !!pageUrl(c.base_url, p);
+  if (!DESIGN_MODES.includes(d.visitor_mode)) e.push(`design.visitor_mode must be one of ${DESIGN_MODES.join("|")}`);
+  if (d.screens !== undefined) {
+    if (!(Array.isArray(d.screens) && d.screens.length && d.screens.every(nonEmpty))) e.push("design.screens must be a non-empty list of screen paths or ids");
+    else for (const x of d.screens) { const path = (c.screens || []).find((s) => s?.id === x)?.path ?? x; if (!okPath(path)) e.push(`design screen ${x} leaves base_url`); }
+  }
+  if (d.languages !== undefined) {
+    if (!Array.isArray(d.languages)) e.push("design.languages must be a list of { path, lang, allow_text? }");
+    else for (const l of d.languages) {
+      if (!l || !nonEmpty(l.path) || !nonEmpty(l.lang)) { e.push("each design.languages entry needs path and lang"); continue; }
+      if (!okPath(l.path)) e.push(`design language page ${l.path} leaves base_url`);
+      if (l.allow_text !== undefined && !(Array.isArray(l.allow_text) && l.allow_text.every(nonEmpty))) e.push(`design.languages ${l.path}: allow_text must be a list of non-empty strings`);
+    }
+  }
+  if (d.image_ledger !== undefined && !(nonEmpty(d.image_ledger) && !isAbsolute(d.image_ledger) && !d.image_ledger.split(/[\\/]/).includes(".."))) e.push("design.image_ledger must be a path relative to the repo root, without ..");
+  if (d.scenes !== undefined) {
+    if (!Array.isArray(d.scenes)) e.push("design.scenes must be a list");
+    else {
+      const ids = new Set();
+      for (const s of d.scenes) {
+        if (!s || !nonEmpty(s.id) || !nonEmpty(s.path) || !nonEmpty(s.selector)) { e.push("each design scene needs id, path and selector"); continue; }
+        if (ids.has(s.id)) e.push(`design scene ${s.id} is listed twice`);
+        ids.add(s.id);
+        if (!okPath(s.path)) e.push(`design scene ${s.id}: path ${s.path} leaves base_url`);
+        if (s.viewports !== undefined && !(Array.isArray(s.viewports) && s.viewports.length && s.viewports.every((v) => ["desktop", "phone"].includes(v)))) e.push(`design scene ${s.id}: viewports must be a subset of desktop, phone`);
+      }
+    }
+  }
+  if (d.motion_min !== undefined) {
+    const m = d.motion_min;
+    if (!m || typeof m !== "object" || Array.isArray(m) || !["load", "scroll"].every((k) => m[k] === undefined || (Number.isInteger(m[k]) && m[k] >= 0)) || Object.keys(m).some((k) => !["load", "scroll"].includes(k))) e.push("design.motion_min must be { load, scroll } with non-negative integers");
+  }
   return e;
 }
 
@@ -861,7 +906,8 @@ export const seoPagePaths = (c) => [...new Set(c.seo?.pages || (c.screens || [])
 // --- assemble: raw cells (from this script or any other tool) -> report.json -------------------------------
 // raw = { tool, config, a11y_scanner?, cells: [{ screen, state, viewport, screenshot, rendered, error?, items, not_measured }],
 //         interactions: [{ name, viewport, screenshot, item } | { name, viewport, error }],
-//         seo?: { pages: [facts], site: {...} } | { not_applicable: true } }   (A158: see seoEvaluate)
+//         seo?: { pages: [facts], site: {...} } | { not_applicable: true },   (A158: see seoEvaluate)
+//         design?: { pages: [{ path, viewports: [{ viewport, screenshot, facts }], ledger? }], motion? } }   (A170: see design-audit.mjs assembleDesign)
 export function assemble(raw, outDir) {
   const c = raw.config;
   const sha = (p) => createHash("sha256").update(readFileSync(join(outDir, p))).digest("hex");
@@ -928,6 +974,10 @@ export function assemble(raw, outDir) {
     else if (Array.isArray(raw.seo?.pages)) report.seo = { status: "run", ...seoEvaluate(raw.seo.pages, raw.seo.site || {}, opt) };
     else report.seo = { status: "run", pages: seoPagePaths(c).map((path) => ({ path, status: "not_measured", reason: "the tool supplied no seo facts" })), items: [] };
   }
+  if (c.design) {
+    const unreadable = (p) => { throw new Error(`cannot read ${p}`); };
+    report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)));
+  }
   const v = validateReport({ ...report, result: "PASS" }, { root: outDir });
   report.result = v.computed;
   return report;
@@ -953,7 +1003,38 @@ async function measureSeo(p, config, reqLog, url) {
   return { pages, site: await seoSite(config.base_url, pages.filter((x) => !x.not_measured), opt) };
 }
 
-async function measure(config, outDir, tool, timeoutMs, noSandbox) {
+// Design audit facts (A170): every design page is opened at 1440, 768 and 390 wide (a language-only page at 1440), scrolled once top to
+// bottom so lazy and scroll-revealed content exists, photographed, and probed; the ledger and the motion audit run on the same page object.
+async function measureDesign(p, config, url, outDir, repo, shotName) {
+  const d = config.design, out = { pages: [] };
+  const ledgerText = d.image_ledger ? (() => { try { return readFileSync(resolve(repo, d.image_ledger), "utf8"); } catch { return null; } })() : null;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (const pg of designPages(config)) {
+    const rp = { path: pg.path, viewports: [] };
+    out.pages.push(rp);
+    for (const vp of pg.static ? DESIGN_VIEWPORTS : DESIGN_VIEWPORTS.slice(0, 1)) {
+      const rv = { viewport: vp.name };
+      rp.viewports.push(rv);
+      try {
+        await p.open(url(pg.path), vp, null, undefined);
+        const type = await p.ev("document.contentType");
+        if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) { rp.not_measured = `not an HTML response (${type})`; break; }
+        await p.ev(`(async () => { const h = document.documentElement.scrollHeight; for (let y = 0; y < h; y += Math.max(200, innerHeight * 0.8)) { scrollTo(0, y); await new Promise((r) => setTimeout(r, 120)); } scrollTo(0, 0); await document.fonts.ready; await new Promise((r) => setTimeout(r, 250)); return 1; })()`, true);
+        rv.facts = await p.ev(`(${DESIGN_PROBE})()`); // before the full-page capture: it resizes the viewport the facts are measured in
+        rv.screenshot = shotName(pg.screen, vp.name);
+        writeFileSync(join(outDir, rv.screenshot), await p.shot());
+        if (vp.name === "wide" && pg.static && d.image_ledger) {
+          const images = await p.ev(IMAGES_PROBE, true);
+          rp.ledger = ledgerItems({ images, ledgerText, ledgerPath: d.image_ledger, screen: pg.screen, viewport: vp.name, fonts: rv.facts.fontFaces });
+        }
+      } catch (e) { rv.error = e.message; delete rv.screenshot; delete rv.facts; }
+    }
+  }
+  try { out.motion = await motionAudit({ p, url, config, outDir, shotName: (...parts) => shotName("motion", ...parts) }); } catch (e) { out.motion = { error: e.message }; }
+  return out;
+}
+
+async function measure(config, outDir, tool, timeoutMs, noSandbox, repo = process.cwd()) {
   const raw = { tool: { kind: tool.kind, name: tool.name, ...(tool.path ? { path: tool.path } : {}), ...(tool.reason ? { reason: tool.reason } : {}), detected_by: tool.detected_by }, config, cells: [], interactions: [] };
   if (tool.kind !== "headless-browser") return raw;
   mkdirSync(join(outDir, "screenshots"), { recursive: true });
@@ -1002,6 +1083,7 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
       }
     }
     if (config.seo && config.seo.public_html !== false) raw.seo = await measureSeo(p, config, reqLog, url);
+    if (config.design) raw.design = await measureDesign(p, config, url, outDir, repo, (...parts) => file("design", ...parts));
     for (const it of config.interactions || []) {
       const s = config.screens.find((x) => x.id === it.screen), st = s?.states.find((x) => x.name === it.state);
       for (const vp of config.viewports.filter((v) => !it.viewports || it.viewports.includes(v.name))) {
@@ -1022,9 +1104,10 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox) {
 function arg(argv, name) { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; }
 
 async function main(argv) {
-  const usage = "usage: measure.mjs --detect [--repo DIR] | --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox] | --print-probe | --assemble raw.json --out DIR";
+  const usage = "usage: measure.mjs --detect [--repo DIR] | --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox] | --print-probe | --print-design-probe | --assemble raw.json --out DIR";
   const repo = resolve(arg(argv, "--repo") || process.cwd());
   if (argv.includes("--print-probe")) { console.log(PROBE); return 0; }
+  if (argv.includes("--print-design-probe")) { console.log(`${DESIGN_PROBE}()`); return 0; }
   if (argv.includes("--detect")) { console.log(JSON.stringify(detect({ repo, browser: arg(argv, "--browser") }), null, 2)); return 0; }
   const out = arg(argv, "--out");
   if (!out) { console.error(usage); return 2; }
@@ -1041,7 +1124,7 @@ async function main(argv) {
       const timeout = Math.max(30000, Number(arg(argv, "--timeout")) || 30000);
       const tool = detect({ repo, browser: arg(argv, "--browser") });
       if (tool.kind === "project-tool") { console.error(`measure: no browser binary; drive the probe with ${tool.name} (--print-probe, then --assemble raw.json)`); return 2; }
-      raw = await measure(config, out, tool, timeout, argv.includes("--no-sandbox"));
+      raw = await measure(config, out, tool, timeout, argv.includes("--no-sandbox"), repo);
     }
     const errs = checkConfig(raw.config);
     if (errs.length) { errs.forEach((e) => console.error(`config: ${e}`)); return 2; }

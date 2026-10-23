@@ -44,6 +44,9 @@
   Absent: the group is not requested. `public_html: false`: the project produces no public HTML pages; the group does not run
   ([Technical SEO](#technical-seo)). `pages`: paths under `base_url` (default: the `path` of every screen). `site_url`: the deployed
   address the canonical links use (default: the origin the pages' canonical links or the sitemap name). `analytics` (optional): `hosts` (a substring of a script or request URL) and `globals` (`window` names) of the project's own analytics service, added to the built-in generic list.
+- `design` (optional, 0.0.27, A170): `{ "visitor_mode": "persuade|operate|read|experience", "screens": ["index.html"], "languages": [{ "path": "tr/index.html", "lang": "tr", "allow_text": ["brand name"] }], "image_ledger": "docs/design/IMAGES.md", "scenes": [{ "id": "story", "path": "index.html", "selector": "#story", "viewports": ["desktop", "phone"] }], "motion_min": { "load": 3, "scroll": 3 } }`.
+  Absent: the group is not requested ([Design audit](#design-audit)). `visitor_mode` is required. `screens`: paths or screen ids (default: every screen path). `languages`: pages of another language
+  (`allow_text`: strings that stay English). `image_ledger`: a path relative to the repo root (`--repo`, default the working directory); absent: the ledger check is not requested.
 - `criteria`: per criterion the checks that prove it (optionally `screens`, `states`); `required: true` for
   each id on the PLAN `visual_proof:` line. A measured item is tagged with every criterion whose checks,
   screens and states match.
@@ -136,6 +139,42 @@ site, written to `report.seo`. It runs only when the project produces public HTM
   even when it is a tracker the project never named (add its host to `seo.analytics.hosts`); only Googlebot and Bingbot are tested;
   reciprocity of a target outside the measured pages is read
   from its served HTML.
+
+## Design audit
+
+Group `design` (A170), outside the cells: measured per page at its own three viewports, **1440 (`wide`), 768 (`tablet`) and 390 (`phone390`)**
+wide (independent of the class viewports), written to `report.design`. Before measuring, the page is scrolled once top to bottom (lazy and
+scroll-revealed content exists) and photographed at each viewport; the hashed screenshots are listed in `design.screenshots` and attached to every
+static item. `measure.mjs --print-design-probe` prints the in-page probe for a tool that drives the browser itself (`--assemble`, `raw.design`).
+
+- Items: `id` `D-n`, `check`, `screen`, `viewport`, `selector`, `value`, `threshold`, `status` `pass|fail|not_applicable|not_measured`, `note` (a failure
+  says what is wrong), `reason` (not_measured), `screenshot {path, sha256}`. A failing item is a blocking row; `not_measured` is an info row, never silent:
+  every page accounts for each check below, as an item or a `design.not_measured[]` entry with a reason. `not_applicable` carries a fixed note
+  (a mode that does not require the check, or an English page for `design_untranslated`). A report may use a stricter threshold, never a weaker one.
+- `design.status` is `not_applicable` (fixed note `design not applicable: no HTML pages`) when every page is a non-HTML response. Pages: `design.pages[]`
+  `{screen, path, static, language?, status measured|not_measured, reason?}`. A language-only page gets `design_untranslated` at `wide` only.
+
+| Check | Measures | Value / threshold | Modes, viewports |
+|---|---|---|---|
+| `design_heading_lines` | rendered line count of every visible h1/h2 | worst count, `<= 2` | all; 3 viewports |
+| `design_type_scale` | largest heading font size / body font size (sizes listed in `note`) | ratio, `>= 3` (persuade, experience), `>= 2` (read, operate) | all; 3 |
+| `design_body_measure` | median characters per line of body paragraphs of 2 or more lines | `45-75`; on `phone390` `30-75` (a 390 px column cannot hold 45 characters at a readable size) | persuade, experience, read; 3 |
+| `design_fonts_loaded` | the first family of every visible text element is loaded (`document.fonts`), installed, or generic; persuade and experience also need a loaded web font for the heading or body | problems, `== 0` | all (web-font rule: persuade, experience); `wide` |
+| `design_edge_margins` | left and right outer margin of the main content (full-bleed elements ignored) | difference px, `<= 8` | all; 3 |
+| `design_edge_text` | smallest distance of any visible text to the left or right viewport edge | px, `>= 12` | all; 3 |
+| `design_vacuum` | largest empty vertical gap between consecutive visible content blocks | gap / viewport height, `<= 0.5` | all; 3 |
+| `design_untitled_section` | `section`, `[role=region]` and `aside` taller than 200 px with no heading and no accessible name | count, `== 0` | all; 3 |
+| `design_empty_hero` | the first viewport holds an h1, a primary action (outside `nav`) and a visual (img, svg, canvas, video, picture of at least 80 px, or a colour or image field covering 25% of the viewport) | missing parts, `== 0` | persuade, experience; 3 |
+| `design_surfaces` | one item per surface present: `::selection` themed, scrollbar themed (`scrollbar-color` or `::-webkit-scrollbar`), `caret-color` of text fields, `text-underline-offset` of underlined links, tabular numerals in numeric table cells | unthemed count, `== 0` | all; `wide` |
+| `design_untranslated` | visible text blocks of 4 or more words, mostly English function words, on a page whose language is not English, minus `allow_text`, `code`, `pre` | blocks, `== 0` | per `languages[]` entry; `wide` |
+| `design_motion_count`, `design_reduced_motion`, `design_no_script_visible`, `design_scene` | motion-audit.mjs: animated elements while loading and scrolling (`motion_min`), content visible and no animation under `prefers-reduced-motion: reduce`, text visible with script disabled, pinned or scroll-linked scenes photographed at 0, 50, 100 % (`scenes[]`, `design.scenes[]`) | per item | motion count: persuade, experience |
+| `design_image_ledger` | every raster image and self-hosted font has a ledger row with licence and credit (ledger.mjs) | missing, `== 0` | when `image_ledger` is set |
+
+`design_contrast` is not a separate check: the core contrast check stays. Judged: `critique[]` (COMPLEX/CRITICAL when the design group runs; see JUDGED.md) never closes
+the gate. `lint.json` beside `report.json` (lint-source.mjs): its blocking findings are FAIL reasons.
+
+Limits: the first family of an element decides the font check (a later fallback is not inspected); `::selection` and scrollbar theming are read from same-origin style
+sheets; a hero visual that is a CSS background on a small element is not counted; the vacuum check ignores `position: fixed` elements and elements taller than 1.5 viewports.
 
 ## Limits (record the ones that apply in REPORT.md)
 

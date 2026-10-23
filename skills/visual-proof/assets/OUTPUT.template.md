@@ -19,6 +19,17 @@ seo: <run: pages measured, skipped (robots), failed items | not applicable: no p
 | id | check | page | selector | problems | note |
 |---|---|---|---|---|---|
 
+## Design audit (only when the report has `design`)
+
+design: <run (mode): pages measured, failed items | not applicable: no HTML pages>; lint: <blocking findings | none | not run>
+
+| id | check | screen/viewport | selector | value | threshold | screenshot |
+|---|---|---|---|---|---|---|
+
+Critique (COMPLEX/CRITICAL; ok or concern with a reason, never a score; does not close the gate):
+
+- <critique id> (<ok|concern>), `<screenshot>`: <reason>
+
 ## Criteria
 
 | criterion | required | status | measured items |

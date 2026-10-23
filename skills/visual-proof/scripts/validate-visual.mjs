@@ -13,8 +13,11 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, resolve, isAbsolute, sep } from "node:path";
+import { dirname, join, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DESIGN_CHECKS, DESIGN_STATIC_CHECKS, DESIGN_MODES, DESIGN_VIEWPORTS, DESIGN_STATUSES, DESIGN_NOT_APPLICABLE_NOTE, DESIGN_NA_NOTES, ENGLISH_PAGE_NOTE,
+  CRITIQUE_IDS, CRITIQUE_STATUSES, LIVE_THING_MODES, designApplies, designHolds, designThresholdError, expectedChecks } from "./design-audit.mjs";
+import { validateLint } from "./lint-source.mjs";
 
 export const SCHEMA = "visual-proof/1";
 // Checks every measured cell (screen x state x viewport) must account for: a measured item or a cell-level
@@ -396,6 +399,141 @@ export function validateReport(report, opt = {}) {
     }
   }
 
+  // --- design (0.0.27, A170): optional; consistency of the design group and the judged critique -------------
+  const design = report.design;
+  const designItems = [];
+  const dvp = new Set(DESIGN_VIEWPORTS.map((v) => v.name));
+  if (design !== undefined) {
+    if (unsupported) err("design must be absent when tool.kind is none (nothing was rendered)");
+    else if (!isObj(design) || !["run", "not_applicable"].includes(design.status)) err("design.status must be run or not_applicable");
+    else if (!DESIGN_MODES.includes(design.mode)) err(`design.mode must be one of ${DESIGN_MODES.join("|")}`);
+    else if (design.status === "not_applicable") {
+      if (design.note !== DESIGN_NOT_APPLICABLE_NOTE) err(`design not_applicable needs the fixed note "${DESIGN_NOT_APPLICABLE_NOTE}"`);
+      for (const k of ["pages", "items", "scenes", "images", "screenshots", "not_measured"]) if (design[k] !== undefined && !(Array.isArray(design[k]) && !design[k].length)) err(`design not_applicable: ${k} must be empty or absent`);
+    } else {
+      const arr = (k) => (Array.isArray(design[k]) ? design[k] : design[k] === undefined ? [] : (err(`design.${k} must be an array`), []));
+      const pages = arr("pages"), items = arr("items"), shots = arr("screenshots"), scenes = arr("scenes"), images = arr("images"), dnm = arr("not_measured");
+      if (!Array.isArray(design.pages) || !Array.isArray(design.items)) err("design run needs pages[] and items[]");
+      const same = Array.isArray(design.viewports) && design.viewports.length === DESIGN_VIEWPORTS.length && DESIGN_VIEWPORTS.every((v, i) => design.viewports[i]?.name === v.name && design.viewports[i]?.width === v.width);
+      if (!same) err(`design.viewports must be ${DESIGN_VIEWPORTS.map((v) => `${v.name} ${v.width}`).join(", ")} (the design group's own viewports)`);
+      const pg = new Map();
+      for (const [i, p] of pages.entries()) {
+        const w = `design.pages[${i}]`;
+        if (!isObj(p) || !str(p.screen) || !str(p.path) || !["measured", "not_measured"].includes(p.status) || typeof p.static !== "boolean" || pg.has(p.screen)) { err(`${w}: needs a unique screen, a path, a static flag and status measured|not_measured`); continue; }
+        if (p.status === "not_measured" && !str(p.reason)) err(`${w}: not_measured needs a reason`);
+        if (p.language !== undefined && !str(p.language)) err(`${w}: language must be a non-empty string`);
+        if (!p.static && p.language === undefined) err(`${w}: a page that is neither static nor a language entry measures nothing`);
+        pg.set(p.screen, p);
+      }
+      const pageOf = (name) => pg.get(name) || [...pg.values()].find((p) => p.path === name);
+      for (const [i, s] of shots.entries()) {
+        const w = `design.screenshots[${i}]`;
+        if (!isObj(s) || !str(s.screen) || !dvp.has(s.viewport) || !pageOf(s.screen)) { err(`${w}: needs a listed page and a design viewport`); continue; }
+        checkFile(`${w}.screenshot`, s.screenshot);
+      }
+      const dids = new Set();
+      for (const [i, m] of items.entries()) {
+        const w = `design.items[${i}]`;
+        if (!isObj(m)) { err(`${w}: must be an object`); continue; }
+        if (!/^D-\d+$/.test(m.id || "") || dids.has(m.id)) err(`${w}: id must be a unique D-<n>`);
+        dids.add(m.id);
+        if (!DESIGN_CHECKS.includes(m.check)) { err(`${w}: unknown check ${m.check}`); continue; }
+        const own = DESIGN_STATIC_CHECKS.includes(m.check);
+        if (!str(m.screen) || (own && !pageOf(m.screen))) err(`${w}: screen must name a page listed in design.pages (got ${JSON.stringify(m.screen)})`);
+        else if (own && pageOf(m.screen).status !== "measured") err(`${w}: a page that is not measured has no items`);
+        if (!str(m.viewport) || (own && !dvp.has(m.viewport))) err(`${w}: viewport must be one of ${[...dvp].join(", ")}`);
+        if (!str(m.selector)) err(`${w}: selector is required`);
+        if (!str(m.threshold)) err(`${w}: threshold is required`);
+        if (!DESIGN_STATUSES.includes(m.status)) { err(`${w}: status must be ${DESIGN_STATUSES.join("|")}`); continue; }
+        if (own && str(m.threshold)) { const te = designThresholdError(m.check, design.mode, m.viewport, m.threshold); if (te) err(`${w}: ${te}`); }
+        if (m.status === "pass" || m.status === "fail") {
+          if (own && (typeof m.value !== "number" || !Number.isFinite(m.value))) err(`${w}: a ${m.status} item needs a numeric value (got ${JSON.stringify(m.value)})`);
+          if (m.value === undefined || m.value === null || m.value === "") err(`${w}: value is required`);
+          const holds = designHolds(m.value, m.threshold);
+          if (holds !== null && holds !== (m.status === "pass")) err(`${w}: status ${m.status} contradicts value ${m.value} ${m.threshold}`);
+          if (m.status === "fail" && !str(m.note)) err(`${w}: a failing item says what is wrong (note)`);
+          if (own && m.screenshot === undefined) err(`${w}: a measured ${m.check} item needs the page screenshot`);
+        } else if (m.status === "not_measured") { if (!str(m.reason ?? m.note)) err(`${w}: not_measured needs a reason`); }
+        else {
+          const byMode = !designApplies(m.check, design.mode) && DESIGN_NA_NOTES[m.check] !== undefined && m.note === DESIGN_NA_NOTES[m.check];
+          const english = m.check === "design_untranslated" && m.note === ENGLISH_PAGE_NOTE;
+          if (own || m.check === "design_motion_count") { if (!(byMode || english)) err(`${w}: not_applicable ${m.check} is only for ${m.check === "design_untranslated" ? "an English page" : "a mode that does not require it"}, with the fixed note`); }
+          else if (!str(m.note)) err(`${w}: not_applicable needs a note`);
+        }
+        if (m.screenshot !== undefined) checkFile(`${w}.screenshot`, m.screenshot);
+        if (!designApplies(m.check, design.mode) && m.status !== "not_applicable") err(`${w}: ${m.check} does not apply in ${design.mode} mode; the item must be not_applicable`);
+        designItems.push(m);
+      }
+      const accounted = (check, page, viewport) => designItems.some((m) => m.check === check && (m.screen === page.screen || m.screen === page.path) && (!viewport || m.viewport === viewport))
+        || dnm.some((n) => isObj(n) && n.check === check && (n.screen === page.screen || n.screen === page.path) && (!viewport || n.viewport === viewport) && str(n.reason));
+      for (const p of pg.values()) {
+        if (p.status !== "measured") { if (designItems.some((m) => m.screen === p.screen)) err(`design page ${p.screen}: a page that is not measured has no items`); continue; }
+        for (const v of dvp) {
+          const want = expectedChecks(p, design.mode, v);
+          for (const check of want) if (!accounted(check, p, v)) err(`design page ${p.screen} at ${v}: ${check} is neither measured nor listed as not_measured`);
+          const shotted = shots.some((s) => s.screen === p.screen && s.viewport === v);
+          const allNm = designItems.filter((m) => m.screen === p.screen && m.viewport === v).every((m) => m.status === "not_measured");
+          if (want.length && !shotted && !allNm) err(`design page ${p.screen} at ${v}: no screenshot (every measured page is photographed at the design viewports)`);
+        }
+        if (p.static) {
+          for (const c of ["design_motion_count", "design_reduced_motion", "design_no_script_visible"]) if (!accounted(c, p)) err(`design page ${p.screen}: ${c} is neither measured nor listed as not_measured`);
+          if (str(design.image_ledger) && !accounted("design_image_ledger", p)) err(`design page ${p.screen}: design_image_ledger is neither measured nor listed as not_measured (an image ledger is configured)`);
+        }
+      }
+      for (const [i, n] of dnm.entries()) if (!isObj(n) || !DESIGN_CHECKS.includes(n.check) || !str(n.reason)) err(`design.not_measured[${i}]: needs a known design check and a reason`);
+      const sids = new Set();
+      for (const [i, s] of scenes.entries()) {
+        const w = `design.scenes[${i}]`;
+        if (!isObj(s) || !str(s.id) || !str(s.screen) || !str(s.viewport) || !["normal", "reduced"].includes(s.motion) || !Array.isArray(s.stops) || typeof s.started !== "boolean") { err(`${w}: needs id, screen, viewport, motion normal|reduced, stops[] and started true|false`); continue; }
+        sids.add(s.id);
+        if (s.started === false && !str(s.reason)) err(`${w}: started false needs a reason`);
+        for (const [j, st] of s.stops.entries()) { if (!isObj(st) || typeof st.at !== "number") err(`${w}.stops[${j}]: needs at (percent of the scene's scroll range)`); else checkFile(`${w}.stops[${j}].screenshot`, st.screenshot); }
+      }
+      for (const id of Array.isArray(design.scene_ids) ? design.scene_ids : []) if (!sids.has(id) && !dnm.some((n) => n?.check === "design_scene" && (n.scene === id || n.scene === undefined) && str(n.reason))) err(`design scene ${id} is neither photographed nor listed as not_measured`);
+      for (const [i, im] of images.entries()) if (!isObj(im) || !str(im.src) || typeof im.in_ledger !== "boolean") err(`design.images[${i}]: needs src and in_ledger true|false`);
+    }
+  }
+  const critique = report.critique;
+  if (critique !== undefined) {
+    if (!Array.isArray(critique)) err("critique must be an array");
+    else if (unsupported) err("critique must be absent when tool.kind is none");
+    else if (report.class === "STANDARD" && critique.length) err("class STANDARD is measured only: critique must be empty");
+    else {
+      const seen = new Set(), mode = isObj(design) ? design.mode : undefined;
+      for (const [i, c] of critique.entries()) {
+        const w = `critique[${i}]`;
+        if (!isObj(c)) { err(`${w}: must be an object`); continue; }
+        if (Object.keys(c).some((k) => /score|rating|points/i.test(k))) err(`${w}: a critique item has no numeric score (ok or concern, with a reason)`);
+        if (!CRITIQUE_IDS.includes(c.id) || seen.has(c.id)) err(`${w}: id must be a unique one of ${CRITIQUE_IDS.join(", ")}`);
+        seen.add(c.id);
+        if (!CRITIQUE_STATUSES.includes(c.status)) err(`${w}: status must be ${CRITIQUE_STATUSES.join("|")}`);
+        if (!str(c.reason)) err(`${w}: reason is required`);
+        if (c.status === "not_applicable") {
+          if (c.id !== "one_live_thing" || LIVE_THING_MODES.includes(mode)) err(`${w}: only one_live_thing is not_applicable, and only outside persuade and experience`);
+          if (c.screenshot !== undefined) checkFile(`${w}.screenshot`, c.screenshot);
+        } else {
+          if (c.id === "one_live_thing" && mode !== undefined && !LIVE_THING_MODES.includes(mode)) err(`${w}: one_live_thing is not_applicable outside persuade and experience`);
+          checkFile(`${w}.screenshot`, c.screenshot);
+        }
+      }
+      if (isObj(design) && design.status === "run" && report.class !== "STANDARD") for (const id of CRITIQUE_IDS) if (!seen.has(id)) err(`class ${report.class} with a design group needs a critique item for ${id}`);
+    }
+  }
+  if (isObj(design) && design.status === "run" && report.class !== "STANDARD" && critique === undefined) err(`class ${report.class} with a design group needs critique[] (the 14 judged items)`);
+
+  // --- lint.json beside report.json (0.0.27): shape by validateLint; blocking findings close the gate -------
+  let lint = opt.lint;
+  if (lint === undefined) {
+    const lp = join(root, "lint.json");
+    if (existsSync(lp)) { try { lint = JSON.parse(readFileSync(lp, "utf8")); } catch (e) { err(`lint.json: invalid JSON (${e.message.slice(0, 80)})`); } }
+  }
+  let lintBlocking = [];
+  if (lint !== undefined && lint !== null) {
+    const lr = validateLint(lint);
+    for (const m of Array.isArray(lr) ? lr : lr?.errors || []) err(`lint.json: ${m}`);
+    lintBlocking = (isObj(lint) && Array.isArray(lint.findings) ? lint.findings : []).filter((f) => isObj(f) && f.severity === "blocking");
+  }
+
   // --- result --------------------------------------------------------------------------------------------
   const reasons = [];
   let computed;
@@ -404,6 +542,8 @@ export function validateReport(report, opt = {}) {
     for (const m of measured) if (m.status === "fail") reasons.push(`${m.id} ${m.check} failed`);
     for (const j of judged) if (j.status === "violation") reasons.push(`${j.id} violates ${j.violates?.ref}`);
     for (const m of seoItems) if (m.status === "fail") reasons.push(`${m.id} ${m.check} failed`);
+    for (const m of designItems) if (m.status === "fail") reasons.push(`${m.id} ${m.check} failed`);
+    for (const f of lintBlocking) reasons.push(`lint ${f.id} at ${f.file}:${f.line} (blocking)`);
     if (reg?.status === "run" && reg.exit !== 0) reasons.push("visual regression failed");
     if (reasons.length) computed = "FAIL";
     else {
@@ -419,20 +559,24 @@ export function validateReport(report, opt = {}) {
   }
   if (RESULTS.includes(report.result) && report.result !== computed) err(`result ${report.result} contradicts the evidence (computed ${computed}${reasons.length ? ": " + reasons.slice(0, 4).join("; ") : ""})`);
 
-  const shots = new Set([...cells.map((c) => c?.screenshot?.path), ...measured.map((m) => m?.evidence?.path), ...judged.map((j) => j?.screenshot?.path)].filter(Boolean));
+  const shots = new Set([...cells.map((c) => c?.screenshot?.path), ...measured.map((m) => m?.evidence?.path), ...judged.map((j) => j?.screenshot?.path), ...(Array.isArray(design?.screenshots) ? design.screenshots.map((x) => x?.screenshot?.path) : [])].filter(Boolean));
   const fails = measured.filter((m) => m.status === "fail");
   const na = measured.filter((m) => m.status === "not_applicable").length;
   const blocked = Array.isArray(net?.blocked) ? net.blocked.length : 0;
   const writesNote = writes.length ? ` same_origin_writes=${writes.length}${writesAllowed ? " (allowed)" : ""};` : "";
   const seoNote = isObj(seo) ? (seo.status === "run" ? `; seo=${seoItems.filter((m) => m.status === "pass").length}/${seoItems.length} pass, ${seoItems.filter((m) => m.status === "fail").length} fail, ${seoItems.filter((m) => m.status === "not_measured").length} not_measured` : "; seo=not_applicable") : "";
-  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}${seoNote}${isObj(target) ? `; target=${target.type}${target.platform ? ":" + target.platform : ""}${target.via ? " via " + target.via : ""}` : ""}`;
-  return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged, seoItems) };
+  const dCount = (st) => designItems.filter((m) => m.status === st).length;
+  const designNote = isObj(design) ? (design.status === "run" ? `; design=${dCount("pass")}/${designItems.length} pass, ${dCount("fail")} fail, ${dCount("not_measured")} not_measured, ${dCount("not_applicable")} not_applicable (${design.mode})` : "; design=not_applicable") : "";
+  const critNote = Array.isArray(critique) && critique.length ? `; critique=${critique.filter((c) => c?.status === "concern").length} concern of ${critique.length}` : "";
+  const lintNote = lint ? `; lint=${lintBlocking.length} blocking of ${Array.isArray(lint?.findings) ? lint.findings.length : 0}` : "";
+  const summary = `visual-proof: ${computed} class=${report.class} tool=${tool.kind}${tool.name ? ":" + tool.name : ""} cells=${cells.length} viewports=${[...vpNames].join(",") || "-"} measured=${measured.length - fails.length - na}/${measured.length} pass, ${fails.length} fail, ${na} not_applicable; blocked_requests=${blocked};${writesNote} judged=${judged.length} (violations ${judged.filter((j) => j.status === "violation").length}); screenshots=${shots.size}; criteria ${Object.entries(computedCriteria).map(([k, v]) => `${k}=${v}`).join(" ") || "none"}${unsupported ? `; unsupported: ${report.unsupported_reason}` : ""}${seoNote}${designNote}${critNote}${lintNote}${isObj(target) ? `; target=${target.type}${target.platform ? ":" + target.platform : ""}${target.via ? " via " + target.via : ""}` : ""}`;
+  return { valid: errors.length === 0, errors, result: report.result, computed, reasons, criteria: computedCriteria, summary, rows: rowsOf(report, fails, judged, seoItems, designItems, lintBlocking) };
 }
 
 // Finding rows for `agent.sh submit --findings`: one blocking row per failed measurement or judged violation,
 // one info row per judged concern. The location is `<screen path>:<selector>`; replace it with the source
 // `path:line` once the rule is located.
-function rowsOf(report, fails, judged, seoItems = []) {
+function rowsOf(report, fails, judged, seoItems = [], designItems = [], lintBlocking = []) {
   const clean = (s) => String(s).replace(/\|/g, "/").replace(/\s+/g, " ").trim();
   const path = (id) => (report.screens || []).find((s) => s?.id === id)?.path || id;
   const rows = fails.map((m) => ["blocking", `${path(m.screen)}:${m.selector}`, `${m.id} ${m.check}: ${m.value} fails ${m.threshold} at ${m.screen}/${m.state}/${m.viewport}${m.criteria?.length ? " (" + m.criteria.join(",") + ")" : ""}`, `measured; ${m.evidence?.path} sha256:${String(m.evidence?.sha256).slice(0, 12)}`]);
@@ -451,6 +595,14 @@ function rowsOf(report, fails, judged, seoItems = []) {
     if ((p.third_party_requests || []).length) rows.push(["info", `${p.path}:network`, `third-party request(s) before consent that match no analytics candidate: ${p.third_party_requests.slice(0, 3).join(", ")}`, "measured; seo network"]);
   }
   for (const p of Array.isArray(report.seo?.pages) ? report.seo.pages : []) if (p?.status === "not_measured") rows.push(["info", `${p.path}:seo`, `seo not measured for ${p.path}: ${p.reason}`, "not_measured"]);
+  // design (A170): a failed item blocks; an item that could not be measured and a critique concern are informational.
+  const spath = (id) => (report.design?.pages || []).find((p) => p?.screen === id)?.path || path(id);
+  for (const m of designItems) {
+    if (m.status === "fail") rows.push(["blocking", `${spath(m.screen)}:${m.selector}`, `${m.id} ${m.check}: ${m.value} fails ${m.threshold} at ${m.screen}/${m.viewport}: ${m.note}`, `measured; ${m.screenshot?.path || "design"} sha256:${String(m.screenshot?.sha256 || "").slice(0, 12)}`]);
+    else if (m.status === "not_measured") rows.push(["info", `${spath(m.screen)}:${m.selector}`, `${m.id} ${m.check} not measured at ${m.screen}/${m.viewport}: ${m.reason ?? m.note}`, "not_measured"]);
+  }
+  for (const c of Array.isArray(report.critique) ? report.critique : []) if (c?.status === "concern") rows.push(["info", `critique:${c.id}`, `critique ${c.id}: ${c.reason}`, `judged; ${c.screenshot?.path}`]);
+  for (const f of lintBlocking) rows.push(["blocking", `${f.file}:${f.line}`, `lint ${f.id}: ${f.excerpt ?? f.reason ?? "registry pattern without a written justification"}`, "measured; lint.json"]);
   return rows.map((r) => r.map(clean).join("|"));
 }
 
