@@ -8,3 +8,17 @@ tests/ci/classify.sh classify-test affected-test
 tests/affected.sh affected-test
 tests/affected-map.txt affected-test
 tests/ci/bump-version.sh bump-version-test
+tests/ci/sync-design-library.sh sync-design-library-test
+skills/ui-design/scripts/* ui-design.test.mjs ui-design-craft.test.mjs design-library.test.mjs plan-contract.test.mjs
+skills/ui-design/library/* ui-design.test.mjs ui-design-craft.test.mjs design-library.test.mjs sync-design-library-test static-test
+skills/ui-design/references/PATTERNS.md design-library.test.mjs
+skills/visual-proof/scripts/measure.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs
+skills/visual-proof/scripts/validate-visual.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
+skills/visual-proof/scripts/design-audit.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
+skills/visual-proof/scripts/motion-audit.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs
+skills/visual-proof/scripts/ledger.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs
+skills/visual-proof/scripts/lint-source.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs
+skills/visual-proof/scripts/patterns.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
+skills/visual-proof/scripts/build-ux-rules.mjs design-library.test.mjs
+skills/visual-proof/ux-rules.json visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
+fixtures/visual-proof-design/* visual-proof-design.test.mjs

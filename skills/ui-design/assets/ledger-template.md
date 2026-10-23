@@ -9,6 +9,16 @@ Always English. Update after every step; this is the resume point. Never record 
 - DESIGN.md: <existing|created|refreshed> path: <path>
 - UI languages found: <list and where (locale files)>
 
+## Direction (new/redesign)
+| Step | Result |
+|---|---|
+| Visitor mode per surface | |
+| Topic inventory count | |
+| Idea sentence and rival test | |
+| Brief / deal seed / dealt / standard / redraws | |
+| Argument rows with proof checked | |
+| Image ledger path | |
+
 ## Evidence read
 | Path | What it gave |
 |---|---|

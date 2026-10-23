@@ -20,7 +20,7 @@ grep -q '^PASS shortcut labels' "$T/o" || die "no PASS line for the labels rule"
 echo "ok clean repository passes"
 scratch bad; printf '// ponytail: x, y\nint a;\n' > "$T/bad/src/b.c"; git -C "$T/bad" add -A
 if sh "$chk" --root "$T/bad" > "$T/o" 2>&1; then die "a ponytail comment passed"; fi
-grep -q '^FAIL shortcut labels' "$T/o" && grep -q 'src/b.c' "$T/o" || die "the failure does not name the rule and file: $(cat "$T/o")"
+{ grep -q '^FAIL shortcut labels' "$T/o" && grep -q 'src/b.c' "$T/o"; } || die "the failure does not name the rule and file: $(cat "$T/o")"
 for c in '# ponytail: x' '-- PONYTAIL: x' '/* ponytail: x */'; do
   printf '%s\n' "$c" > "$T/bad/src/b.c"; git -C "$T/bad" add -A
   if sh "$chk" --root "$T/bad" > "$T/o" 2>&1; then die "comment style not caught: $c"; fi
@@ -65,4 +65,13 @@ if sh "$chk" --root "$T/clean" > "$T/o" 2>&1; then die "a README past the byte b
 grep -q '^FAIL README size' "$T/o" || die "no README FAIL line for bytes"
 rm "$T/clean/README.md"; if sh "$chk" --root "$T/clean" > /dev/null 2>&1; then die "a missing README passed"; fi
 echo "ok README beyond the line bound, the byte bound, or missing fails (exit 1)"
+# A170: a source name listed in the notices file may appear in the notices file only
+scratch names; mkdir -p "$T/names/skills/ui-design/library"
+printf '## Sources\n\n- source-1 | acme-widgets | https://example.invalid/acme-widgets\n' > "$T/names/skills/ui-design/library/THIRD_PARTY_NOTICES.md"
+git -C "$T/names" add -A
+sh "$chk" --root "$T/names" > "$T/o" 2>&1 || die "a name only in the notices file failed: $(cat "$T/o")"
+printf 'Inspired by acme-widgets.\n' >> "$T/names/README.md"; git -C "$T/names" add -A
+if sh "$chk" --root "$T/names" > "$T/o" 2>&1; then die "a source name in the README passed"; fi
+grep -q '^FAIL third-party names' "$T/o" || die "no FAIL line for the name rule: $(cat "$T/o")"
+echo "ok a source name outside the notices file fails (exit 1)"
 echo "static-test: all passed"

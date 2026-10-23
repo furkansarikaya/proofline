@@ -26,5 +26,8 @@ Scale, radii, elevation, breakpoints, with their definition path.
 ## Accessibility
 Baseline measured from the code: focus style (path), minimum target size, reduced-motion handling, contrast ratios of the main text/surface pairs, aria usage conventions. State what is absent.
 
+## Pattern justifications
+A registry pattern used on purpose ([PATTERNS.md](../references/PATTERNS.md)) gets one line: `- <pattern-id>: <reason from this product>`. Without a line the lint finding stays blocking. Write "none used" when none.
+
 ## Gaps
 Roles without tokens, values used outside tokens (path:line), components with missing states.

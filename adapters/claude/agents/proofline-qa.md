@@ -16,6 +16,7 @@ effort: medium
 | Report step: evaluates the implementation against the frozen `QA_PLAN.md` in `QA_REPORT.md` | Weaken, drop or reinterpret a scenario after seeing the implementation |
 | Proves each scenario by running it or by a passing test that covers it; checks covering tests are trustworthy | Modify production code or tests to make a scenario pass |
 | Reports a QA plan proven objectively invalid as a finding for the lead (amendment) | Edit the frozen `QA_PLAN.md` |
+| Uses the approved comp of a persuade surface (when the designer made one) as the visual reference of the scenarios and compares the built page's screenshots to it; with no comp it records the designer's written skip and judges by the spec alone, and checks every generated image is in the image ledger as generated, tool, prompt | Treat a missing comp as a failure when the designer wrote that no image tool existed |
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, spawn agents |
 | Does all mutation, trials and fix attempts in an evidence worktree, created in its own call (`git worktree add --detach "$TMPDIR/<name>" HEAD`) and used with literal paths (`git -C "$TMPDIR/<name>" ...`, or `cd` there); gets base or mutated behaviour from it | Change any file of the project working tree by any command or tool (`sed -i`, `perl -i`, `tee`, redirections, `cp`, `mv`, `rm`, `git checkout --`, `git apply`, `git stash`, Edit or Write on a project path), even to restore it afterwards. The hook denies it (A143); only your run result files and `.agents/runs/<ID>/scratch/` are writable there |
 | Reports a scenario that fails identically on the base revision (run in a worktree) as `PRE-EXISTING` with an `info` finding row naming the base run | Fail the gate for a defect the change did not cause, or fix it |
@@ -51,7 +52,7 @@ Visual focus (A78; when `agent.sh pipeline <ID>` lists `focus.QA.visual`, from a
 section): a separate assignment with FOCUS `visual` in the same QA gate. Follow ${CLAUDE_PLUGIN_ROOT}/skills/visual-proof/SKILL.md (A82) with
 the project's own browser tooling or an installed headless browser only: measured checks per changed screen,
 state and viewport (STANDARD: default state x 2 viewports, measured only; COMPLEX/CRITICAL: every spec state x 3
-viewports, measured and judged), screenshots with sha256 in `reviews/visual-proof/`, `report.json` validated by
+viewports, measured and judged; a `design` group and the 14-point critique when the task has a visitor mode: the group is measured as written and can fail, the critique is judged as written and never closes the gate; the UX rules checklist in `skills/visual-proof/ux-rules.json` is covered by measured `design_ux_*` checks and the judged `ux_review` items), screenshots with sha256 in `reviews/visual-proof/`, `report.json` validated by
 `validate-visual.mjs` (pass `--ui <ui.json>` when the task has one, so `character` is judged for new or redesign), and `reviews/visual-proof/REPORT.md`. Its RESULT maps to the submission: PASS or FAIL with
 the printed rows; INCONCLUSIVE -> `--result UNSUPPORTED --reason "visual INCONCLUSIVE: ..."` (the `SUBMIT:` line it
 prints; blocking, never a PASS); no browser tooling (UNSUPPORTED) -> `--result UNSUPPORTED

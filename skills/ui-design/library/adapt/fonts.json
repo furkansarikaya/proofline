@@ -1,0 +1,892 @@
+{
+  "schemaVersion": 1,
+  "basis": "derived from type.json and google-font-licenses.json by build-font-map.mjs; open licences: OFL, APACHE2, UFL",
+  "directoryRevision": "038b637da7b3fd956a4ed93ffc607c3d5e4ce172",
+  "counts": {
+    "directory-verified": 30,
+    "needs-package-licence": 14,
+    "unverifiable": 0
+  },
+  "systems": {
+    "switzer-semibold": {
+      "class": "grotesk-tight",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Switzer",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Switzer",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "general-sans-bold": {
+      "class": "grotesk-tight",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "General Sans",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "General Sans",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "schibsted-heavy": {
+      "class": "grotesk-tight",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Schibsted Grotesk",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Schibsted Grotesk",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "hanken-medium": {
+      "class": "grotesk-tight",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Hanken Grotesk",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Hanken Grotesk",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "bricolage-contrast": {
+      "class": "grotesk-tight",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Bricolage Grotesque",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Bricolage Grotesque",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "franklin-source": {
+      "class": "grotesk-tight",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Libre Franklin",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Source Serif 4",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "switzer-roman": {
+      "class": "grotesk-light",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Switzer",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Switzer",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "archivo-regular": {
+      "class": "grotesk-light",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Archivo",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Archivo",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "clash-grotesk-regular": {
+      "class": "grotesk-light",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Clash Grotesk",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Clash Grotesk",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "work-sans-light": {
+      "class": "grotesk-light",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Work Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Work Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "anton-work": {
+      "class": "condensed-heavy",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Anton",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Work Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "big-shoulders-public": {
+      "class": "condensed-heavy",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Big Shoulders",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Public Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "archivo-compressed": {
+      "class": "condensed-heavy",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Archivo",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Archivo",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "bebas-garamond": {
+      "class": "condensed-heavy",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Bebas Neue",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "EB Garamond",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "barlow-condensed": {
+      "class": "condensed-heavy",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Barlow Condensed",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Barlow",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "panchang-switzer": {
+      "class": "extended-heavy",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Panchang",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Switzer",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "tiktok-sans-wide": {
+      "class": "extended-heavy",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "TikTok Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "TikTok Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "unbounded-onest": {
+      "class": "extended-heavy",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Unbounded",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Onest",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "chivo-black": {
+      "class": "heavy-black",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Chivo",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Chivo",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "cabinet-grotesk-black": {
+      "class": "heavy-black",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Cabinet Grotesk",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Cabinet Grotesk",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "epilogue-black": {
+      "class": "heavy-black",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Epilogue",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Epilogue",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "red-hat-black": {
+      "class": "heavy-black",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Red Hat Display",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Red Hat Text",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "jost-caps": {
+      "class": "geometric",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Jost",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Jost",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "stack-sans-light": {
+      "class": "geometric",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Stack Sans Headline",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Stack Sans Text",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "albert-sans-semibold": {
+      "class": "geometric",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Albert Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Albert Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "spartan-figtree": {
+      "class": "geometric",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "League Spartan",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Figtree",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "pilcrow-rounded": {
+      "class": "rounded-friendly",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Pilcrow Rounded",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Pilcrow Rounded",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "roundo-soft": {
+      "class": "rounded-friendly",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Roundo",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Roundo",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "chillax-semibold": {
+      "class": "rounded-friendly",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Chillax",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Chillax",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "gambarino-general": {
+      "class": "serif-display",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Gambarino",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "General Sans",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "bodoni-jost": {
+      "class": "serif-display",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Bodoni Moda",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Jost",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "imbue-albert": {
+      "class": "serif-display",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Imbue",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Albert Sans",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "erode-sharp": {
+      "class": "serif-display",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Erode",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Erode",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "boska-roman-italic": {
+      "class": "serif-display",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Boska",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Boska",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "newsreader-light": {
+      "class": "serif-light-large",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Newsreader",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Newsreader",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "zodiak-hairline": {
+      "class": "serif-light-large",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Zodiak",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Hanken Grotesk",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "sentient-light": {
+      "class": "serif-light-large",
+      "verdict": "needs-package-licence",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Sentient",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        },
+        {
+          "role": "text",
+          "family": "Sentient",
+          "source": "fontshare",
+          "verdict": "needs-package-licence",
+          "reason": "source \"fontshare\" is not in the licence directory"
+        }
+      ]
+    },
+    "eb-garamond-quiet": {
+      "class": "serif-text",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "EB Garamond",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "EB Garamond",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "literata-book": {
+      "class": "serif-text",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Literata",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Literata",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "stix-plain-roman": {
+      "class": "serif-text",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "STIX Two Text",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "STIX Two Text",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "young-source": {
+      "class": "serif-text",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Young Serif",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Source Serif 4",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "zilla-slab-even": {
+      "class": "slab",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Zilla Slab",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Zilla Slab",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "besley-franklin": {
+      "class": "slab",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Besley",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Libre Franklin",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    },
+    "rokkitt-literata": {
+      "class": "slab",
+      "verdict": "directory-verified",
+      "faces": [
+        {
+          "role": "display",
+          "family": "Rokkitt",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        },
+        {
+          "role": "text",
+          "family": "Literata",
+          "source": "google",
+          "verdict": "directory-verified",
+          "license": "OFL"
+        }
+      ]
+    }
+  }
+}

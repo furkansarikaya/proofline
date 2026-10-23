@@ -10,13 +10,14 @@
 - Independent **gates** (secrets, reviews, security, QA, verify) judged by scripts on the exact content, never by the lead.
 - **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script. A check that cannot run is reported UNSUPPORTED and never counts as a pass. [Testing](docs/concepts/testing.md) lists what tests each check.
 - Visual verification works on native apps with the project's own test tools.
+- UI craft: each surface gets a visitor mode (persuade, operate, read, experience). Looks that generated UIs converge on are defaults that need a written reason, not bans; persuade and experience surfaces must also bring real imagery, motion and a characterful type voice, with directions dealt reproducibly (no model) from a bundled design library and a draft visual (comp) before coding when an image tool exists. `design ui <mode> <target>` makes one focused change to one target. visual-proof measures this in a browser, checks a UX rules list and lints the source ([details](docs/concepts/testing.md)).
 - **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
 - Claude Code is the primary runtime, Codex is experimental, and any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
 - proofline works alongside skills specific to your ecosystem; the gates verify the result regardless of which skill produced it.
 
 ## Status
 
-Version 0.0.26 is an early release.
+Version 0.0.27 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -97,6 +98,7 @@ Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an
 init, upgrade, doctor, version        install, update, verify, version
 status, resume, queue                 state of the active run, the task queue
 task, design, docs, explain           write a task, design documents, documentation, an explanation page
+design ui <mode> <target>             focused UI change of one target (bolder, quieter, polish, ...), run like any task
 run <TASK>                            take a task through the whole workflow
 review, audit, debug                  proof-review, test-trust and debug-proof standalone
 wiki ingest|query|lint                keep the project wiki in docs/wiki/
@@ -139,7 +141,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.26**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.27**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

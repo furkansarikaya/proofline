@@ -10,6 +10,9 @@
 # 2. README.md says what proofline is and how to use it; detail belongs in docs/concepts. It may not grow past
 #    README_MAX_LINES lines or README_MAX_BYTES bytes (the slimmed size plus about 10 percent). Raise a bound only
 #    together with a decision that says why the README needs the room.
+# 3. No third-party project name outside the notices file (A170). The names are read from the header list of
+#    skills/ui-design/library/THIRD_PARTY_NOTICES.md (lines `- <id> | <name> | <url>`), never hardcoded here. Every tracked
+#    or untracked file except that notices file and .claude/ is scanned, case-insensitively. Without a notices file the rule passes.
 #
 # Prints PASS or FAIL per rule. Exit 0 when every rule passes, 1 on a failure, 2 on a usage error.
 FOREIGN_TAGS='ponytail'
@@ -58,5 +61,37 @@ if [ -f "$root/README.md" ]; then
   fi
 else
   echo "FAIL README size: README.md is missing"; status=1
+fi
+
+# 3. third-party names
+nf=skills/ui-design/library/THIRD_PARTY_NOTICES.md
+names=''
+[ -f "$root/$nf" ] && names=$(sed -n 's/^- source-[0-9][0-9]* | \([^|]*[^ |]\) *|.*/\1/p' "$root/$nf")
+if [ -z "$names" ]; then echo "PASS third-party names (no notices file or no names listed)"
+else
+  # variants: case, hyphens, underscores and spaces are ignored (a hyphenated name also matches its joined spelling)
+  re=''
+  for n in $names; do
+    v=$(printf '%s' "$n" | tr -d ' _-' | sed 's/./&[-_ ]*/g; s/\[-_ \]\*$//')
+    re="${re:+$re|}$v"
+  done
+  # the byte-identical data copies listed in the notices file carry the sources' own strings and are skipped
+  # shellcheck disable=SC2016
+  copies=$(sed -n 's/^  - `\([^`]*\)` sha256 .*/\1/p' "$root/$nf")
+  set --
+  for c in $copies; do set -- "$@" ":(exclude)skills/ui-design/library/$c"; done
+  if git -C "$root" rev-parse --show-toplevel >/dev/null 2>&1; then
+    hits=$(git -C "$root" grep -n -I -i -E --untracked --exclude-standard -e "$re" -- . ":(exclude)$nf" ':(exclude).claude' "$@" 2>/dev/null)
+  else
+    hits=$(cd "$root" && grep -rn -I -i -E -e "$re" --exclude-dir=.claude --exclude-dir=.git . 2>/dev/null | grep -v "^\./$nf:")
+    for c in $copies; do hits=$(printf '%s\n' "$hits" | grep -v "^\./skills/ui-design/library/$c:"); done
+    hits=$(printf '%s\n' "$hits" | sed '/^$/d')
+  fi
+  if [ -z "$hits" ]; then echo "PASS third-party names (none outside the notices file and its listed copies)"
+  else
+    echo "FAIL third-party names: a source name (any spelling) from the notices file appears outside it; refer to 'source N' instead"
+    printf '%s\n' "$hits" | cut -c1-200 | sed 's/^/  /'
+    status=1
+  fi
 fi
 exit $status

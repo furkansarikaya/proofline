@@ -10,7 +10,7 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 | `explorer` | Bounded investigation, compact verified evidence; impact mode: what a change reaches | evidence-map | not TRIVIAL |
 | `architect` | System and API design, ADRs | system-design, api-design | COMPLEX, CRITICAL or on request |
 | `data_architect` | Data model and migration plan | data-design | persistence changes or on request |
-| `designer` | UI design and `docs/design/DESIGN.md`; marks which criteria need visual proof; never approves its own design (A81) | ui-design | UI changes or on request |
+| `designer` | UI design and `docs/design/DESIGN.md`; sets a visitor mode per surface (persuade, operate, read, experience) and, for persuade and experience, writes DESIGN.md first as the direction contract; marks which criteria need visual proof; never approves its own design (A81, A170) | ui-design | UI changes or on request |
 | `qa` | QA plan before, QA report after; the visual focus on UI runs | qa-plan, test-trust, visual-proof | STANDARD and up |
 | `implementer` | The frozen plan with RED/GREEN evidence | tdd-proof, debug-proof | always |
 | `reviewer` | One focus: plan, rules, tests, data (or rules+tests on the small tier), or a risk focus (contract, concurrency, performance, config, migration) | proof-review, test-trust, data-design, concurrency-proof, performance-proof, contract-proof | per tier |
@@ -30,6 +30,14 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 `runtime.lead`, `runtime.worker` and `runtime.reviewers` in `.agents/config.yaml` pick `claude` or `codex`
 per role group, so "Claude only", "Codex only" and mixes use one structure. Profiles `max`, `balanced`
 (default) and `economy` set model and effort per role. Every routing decision is written to the run ledger.
+
+A UI task whose surface is `persuade` or `experience` runs its designer and implementer on the strongest model of the
+runtime's ladder (signal `ui_persuade`, a placement that spends no escalation budget). `agent.sh decide` detects it from
+the run: `visitor_mode.mode` in `design/ui.json` (the spec or any screen) or a `visitor_mode: <mode>` line under the PLAN
+`## UI` section; before the designer has written either, the lead names the surface with `decide ... --ui-mode <mode>`.
+Operate and read surfaces keep the profile's model. An explicit `--model` still wins.
+
+The designer does not derive candidate directions from its own habits: `skills/ui-design/scripts/deal.mjs` deals three from the bundled design library (composition, type, palette and motion decisions extracted from real sites; two MIT-licensed sources recorded in `skills/ui-design/library/THIRD_PARTY_NOTICES.md`) for a written brief, with a recorded seed, no model call and no network, plus a calm standard option that is never recommended. The idea sentence, the rival test and the argument still force adaptation to the product. Library fonts are self-hosted with a verified licence and library photos are self-hosted and credited; they never count as the project's own imagery. For a persuade surface with an image-generation tool the designer first makes a comp of the chosen direction, which the user approves and the implementer and QA use as the target; without a tool the skip is written.
 
 ## The lead model
 

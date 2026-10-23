@@ -6,7 +6,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.26
+PROOFLINE_VERSION=0.0.27
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -80,6 +80,8 @@ state (works without an agent session)
 agent session (prints the exact instruction for your runtime)
   task [--grill] <text>   write a task file (grill the intent first with --grill)
   design system|data|api|ui [--check]
+  design ui <mode> <target>  focused UI change of one target, as a normal run; mode: bolder quieter polish animate typeset
+                            colorize layout delight harden adapt (touches only the target, keeps the existing design system)
   docs create|update|audit  write, update from a diff, or audit documentation
   explain <topic|TASK-ID>  one self-contained offline HTML page that explains a topic or a task
   run <TASK>              take a task through the full workflow
@@ -258,7 +260,15 @@ cmd_task() {
 
 cmd_design() {
   require_installed
-  case "${1:-}" in system|data|api|ui) ;; *) die "usage: proofline design system|data|api|ui [--check]" ;; esac
+  case "${1:-}" in system|data|api|ui) ;; *) die "usage: proofline design system|data|api|ui [--check] | design ui <mode> <target>" ;; esac
+  if [ "$1" = ui ] && [ $# -gt 1 ] && [ "$2" != --check ]; then
+    case "$2" in bolder|quieter|polish|animate|typeset|colorize|layout|delight|harden|adapt) ;;
+      *) die "unknown design ui mode: $2 (want bolder|quieter|polish|animate|typeset|colorize|layout|delight|harden|adapt)" ;; esac
+    [ $# -ge 3 ] || die "usage: proofline design ui $2 <target>  (the page, section or component to change)"
+    say "focused UI change: mode $2, only the target; it is a normal run (TRIVIAL or STANDARD) and the target is checked afterwards."
+    hint design "$@"
+    return 0
+  fi
   say "durable design documents: $(cfg_val "$CFG" design_docs.design docs/design/DESIGN.md), $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
   hint design "$@"
 }

@@ -171,6 +171,7 @@ pending question) from the records, never from a session log, with the friction 
 | `init`, `upgrade`, `doctor`, `version` | install, update, verify, version |
 | `status`, `resume`, `queue` | state of the active run and the task queue |
 | `task`, `design`, `docs`, `explain` | write a task, design documents, documentation, an explanation page |
+| `design ui <mode> <target>` | a focused UI change of one target (`bolder`, `quieter`, `polish`, `animate`, `typeset`, `colorize`, `layout`, `delight`, `harden`, `adapt`), run like any task (TRIVIAL or STANDARD): only the target changes, the existing design system stays, no new colour, font or system element unless asked; `skills/ui-design/scripts/scope-check.mjs` verifies afterwards that nothing outside the target changed |
 | `run <TASK>` | take a task through the whole workflow |
 | `review`, `audit`, `debug` | proof-review, test-trust and debug-proof standalone |
 | `wiki ingest\|query\|lint` | keep the project wiki in `docs/wiki/` |

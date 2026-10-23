@@ -10,6 +10,14 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
+import { deal, dealIds, loadLibrary, checkRedrawReason } from "./deal.mjs";
+
+// 0.0.27 (A170): the pattern registry. visual-proof carries the detectors; a test checks both id sets agree.
+export const REGISTRY_DATE = "2026-10-23";
+export const PATTERN_IDS = ["cream-serif-terracotta", "dark-single-neon-glow", "hairline-newspaper", "uniform-saas-cards", "eyebrow-label", "mono-labels", "numbered-steps", "middot-meta", "gradient-text", "decorative-glass", "side-stripe-card", "hard-offset-shadow", "emoji-icons", "sketch-svg", "grid-background"];
+export const VISITOR_MODES = ["persuade", "operate", "read", "experience"];
+// Copy hygiene (V5): a UI string must not show a file path, a role id or an internal folder.
+const INTERNAL_COPY = /(?:^|[\s("'])\.?agents\/|\broles\/[\w-]+\.md\b|\b(?:designer|implementer|reviewer|explorer|architect|qa|verifier)-\d+\b|\b[\w.-]+(?:\/[\w.-]+)+\.(?:md|json|mjs|cjs|js|jsx|ts|tsx|sh|ya?ml|toml|css|html)\b|\bdocs\/(?:product|design)\b/i;
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isStr = (v) => typeof v === "string" && v.trim() !== "";
@@ -19,6 +27,8 @@ const STATES = ["empty", "loading", "error", "success", "partial", "permission-d
 const KEYS = ["schema_version", "mode", "ui_languages", "design_system", "reused", "new", "screens", "flows"];
 // A81: optional, validated when present; mandatory in mode task for these classes.
 const OPTIONAL_KEYS = ["creative_direction", "ux_patterns", "self_critique", "criteria"];
+// 0.0.27: craft keys, validated whenever present; required by visitor mode and basis (V1-V5).
+const CRAFT_KEYS = ["visitor_mode", "argument", "craft"];
 // Optional `target` (default web): native mobile targets make keyboard optional per screen (hover/focus are web rules).
 const TARGETS = ["web", "ios", "android", "flutter", "react-native"];
 const NATIVE_TARGETS = ["ios", "android", "flutter", "react-native"];
@@ -75,7 +85,7 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   for (const k of KEYS) if (!(k in doc)) err("$", `missing required "${k}"`);
   for (const k of Object.keys(doc)) {
     if (/approv|sign.?off|verdict/i.test(k)) err(`$.${k}`, "the designer never gives final quality approval of its own design; quality is judged by QA's visual focus and the reviewers");
-    else if (!KEYS.includes(k) && !OPTIONAL_KEYS.includes(k) && k !== "target") err("$", `unexpected "${k}"`);
+    else if (!KEYS.includes(k) && !OPTIONAL_KEYS.includes(k) && !CRAFT_KEYS.includes(k) && k !== "target") err("$", `unexpected "${k}"`);
   }
   if ("target" in doc && !TARGETS.includes(doc.target)) err("$.target", `must be one of ${TARGETS.join("|")} (default web)`);
   const native = NATIVE_TARGETS.includes(doc.target);
@@ -88,7 +98,7 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   }
   // Reverse mode only describes the existing system (DESIGN.md); task design content there skips the task checks.
   if (doc.mode === "reverse") {
-    for (const k of OPTIONAL_KEYS) if (k in doc) err(`$.${k}`, "mode reverse describes the existing system; task design belongs in mode task");
+    for (const k of [...OPTIONAL_KEYS, ...CRAFT_KEYS]) if (k in doc) err(`$.${k}`, "mode reverse describes the existing system; task design belongs in mode task");
     if (Array.isArray(doc.screens) && doc.screens.length > 0) err("$.screens", "mode reverse has no screens; task design belongs in mode task");
   }
   if (doc.schema_version !== 1) err("$.schema_version", "must be 1");
@@ -157,7 +167,13 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
     else for (const s of f.screens) if (!sid.has(s)) err(`${p}.screens`, `unknown screen ${s}`);
   });
   const designExists = isObj(ds) && ds.exists === true;
-  if ("creative_direction" in doc) creativeDirection(doc.creative_direction, designExists, task, err);
+  const modes = visitorModes(doc, screens, err);
+  const dealMode = modes.has("persuade") || modes.has("experience");
+  if ("creative_direction" in doc) {
+    creativeDirection(doc.creative_direction, designExists, task, err, { dealMode, modes });
+    visitorModeRequired(doc, err);
+  }
+  craftChecks(doc, screens, modes, root, err);
   if ("ux_patterns" in doc) uxPatterns(doc.ux_patterns, err);
   if ("self_critique" in doc) selfCritique(doc.self_critique, err);
   if ("criteria" in doc) criteriaList(doc.criteria, sid, task, err);
@@ -168,18 +184,20 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
 const reqStr = (o, keys, p, err) => { for (const k of keys) if (!isStr(o[k])) err(`${p}.${k}`, "expected non-empty string"); };
 const onlyKeys = (o, keys, p, err) => { for (const k of Object.keys(o)) if (!keys.includes(k)) err(p, `unexpected "${k}"`); };
 
-const CD_KEYS = ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale", "avoided", "alternatives", "chosen", "redesign"];
-function creativeDirection(cd, designExists, task, err) {
+const CD_KEYS = ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale", "avoided", "alternatives", "chosen", "redesign", "topic_inventory", "idea", "deal", "patterns_used"];
+function creativeDirection(cd, designExists, task, err, { dealMode = false, modes = null } = {}) {
   const p = "$.creative_direction";
   if (!isObj(cd)) return err(p, "expected object");
   onlyKeys(cd, CD_KEYS, p, err);
+  if ("patterns_used" in cd) patternsUsed(cd.patterns_used, `${p}.patterns_used`, err);
   reqStr(cd, ["visual_character", "typography", "layout", "hierarchy", "rationale"], p, err);
   if ("avoided" in cd && !(Array.isArray(cd.avoided) && cd.avoided.every(isStr))) err(`${p}.avoided`, "expected array of non-empty strings");
   if (!["conform", "redesign", "new"].includes(cd.basis)) return err(`${p}.basis`, "must be conform, redesign or new");
   if (cd.basis === "new" && designExists) err(`${p}.basis`, "DESIGN.md exists: conform to it, or redesign only when the task asks for it and the user approved");
   if (cd.basis === "new" && !(Array.isArray(cd.avoided) && cd.avoided.length > 0)) err(`${p}.avoided`, "a new direction lists the generic defaults it rejected and why");
   if (cd.basis === "conform") { if ("alternatives" in cd || "chosen" in cd) err(`${p}.alternatives`, "conform applies the existing system: no direction alternatives"); }
-  else directionAlternatives(cd, p, err);
+  else if (dealMode) dealtDirection(cd, p, err, modes);
+  else { directionAlternatives(cd, p, err); if ("deal" in cd) dealRecord(cd.deal, `${p}.deal`, err, modes); }
   if (cd.basis !== "redesign") { if ("redesign" in cd) err(`${p}.redesign`, "only with basis redesign"); return; }
   const r = cd.redesign, q = `${p}.redesign`;
   if (!isObj(r)) return err(q, "a redesign needs {task_quote} (the task's request), plus user_approval (the user's approval) when DESIGN.md exists or inventory when it does not");
@@ -213,6 +231,293 @@ function directionAlternatives(cd, p, err) {
   const names = a.map((x) => (isObj(x) ? x.name : undefined));
   if (new Set(names).size !== names.length) err(`${p}.alternatives`, "duplicate alternative name");
   if (!isStr(cd.chosen) || !names.includes(cd.chosen)) err(`${p}.chosen`, "must be the name of one alternative (the user's choice)");
+}
+
+// V6: a pattern from the registry used on purpose carries a written reason. `avoided` stays free text and may name ids.
+function patternsUsed(list, p, err) {
+  if (!Array.isArray(list)) return err(p, "expected array of {id, reason}");
+  const seen = new Set();
+  list.forEach((x, i) => {
+    const q = `${p}[${i}]`;
+    if (!isObj(x)) return err(q, "expected {id, reason}");
+    onlyKeys(x, ["id", "reason"], q, err);
+    if (!PATTERN_IDS.includes(x.id)) err(`${q}.id`, `unknown pattern id "${x.id}" (registry ${REGISTRY_DATE}: ${PATTERN_IDS.join(", ")})`);
+    else if (seen.has(x.id)) err(`${q}.id`, `duplicate ${x.id}`);
+    else seen.add(x.id);
+    if (!isStr(x.reason)) err(`${q}.reason`, "a pattern used needs a written reason");
+  });
+}
+
+// The bundled library is loaded once, on first use (a deal replay needs it).
+let LIB = null;
+const library = () => (LIB ||= loadLibrary());
+
+// V3: persuade/experience with basis new|redesign: topic inventory, idea with rival swap, and a deal drawn from the
+// library by scripts/deal.mjs. The validator replays the deal from the recorded inputs, seed and redraws.
+function dealtDirection(cd, p, err, modes) {
+  const inv = cd.topic_inventory;
+  if (!Array.isArray(inv) || inv.length < 8 || inv.length > 12 || !inv.every(isStr)) err(`${p}.topic_inventory`, "8-12 concrete things that belong to this product and not to its rival");
+  else if (new Set(inv.map(norm)).size !== inv.length) err(`${p}.topic_inventory`, "duplicate item");
+  const idea = cd.idea;
+  if (!isObj(idea)) err(`${p}.idea`, "expected {sentence, rival, note, rival_swap}: 'On this page, <item> becomes <tool>.' plus the rival test");
+  else {
+    onlyKeys(idea, ["sentence", "rival", "rival_swap", "note"], `${p}.idea`, err);
+    reqStr(idea, ["sentence", "rival", "note"], `${p}.idea`, err);
+    if (isStr(idea.sentence) && !/\bbecomes?\b/i.test(idea.sentence)) err(`${p}.idea.sentence`, "must read 'On this page, <inventory item> becomes <tool>.'");
+    if (isStr(idea.sentence) && isStr(idea.rival) && !idea.sentence.toLowerCase().includes(idea.rival.trim().toLowerCase())) err(`${p}.idea.sentence`, "the rival test puts the nearest rival's name into the sentence: idea.rival must appear in it");
+    if (isStr(idea.sentence) && /\bclean (and|&) modern\b/i.test(idea.sentence)) err(`${p}.idea.sentence`, "'clean and modern' is not an idea");
+    if (idea.rival_swap !== "no_longer_true") err(`${p}.idea.rival_swap`, "run the rival test: with the nearest rival's name in the sentence the idea must be no_longer_true; otherwise the idea is rejected");
+  }
+  const replayed = dealRecord(cd.deal, `${p}.deal`, err, modes);
+  const a = cd.alternatives;
+  const want = replayed ? replayed.dealt.length + 1 : null;
+  if (!Array.isArray(a) || (want !== null && a.length !== want) || a.length < 2 || a.length > 4) return err(`${p}.alternatives`, want ? `the ${want - 1} dealt directions plus the standard option (${want} entries)` : "the dealt directions plus the standard option");
+  a.forEach((x, i) => {
+    const q = `${p}.alternatives[${i}]`;
+    if (!isObj(x)) return err(q, "expected object");
+    if ("recommended" in x) err(`${q}.recommended`, "the designer never recommends the standard option (it is the user's door)");
+    onlyKeys(x, ["name", "summary", "trade_off", "standard"], q, err);
+    reqStr(x, ["name", "summary", "trade_off"], q, err);
+    if ("standard" in x && typeof x.standard !== "boolean") err(`${q}.standard`, "expected boolean");
+  });
+  const aNames = a.map((x) => (isObj(x) ? x.name : undefined));
+  if (new Set(aNames).size !== aNames.length) err(`${p}.alternatives`, "duplicate alternative name");
+  const std = a.filter((x) => isObj(x) && x.standard === true);
+  if (std.length !== 1) err(`${p}.alternatives`, "exactly one alternative is flagged standard: true");
+  if (replayed) {
+    const idOf = (ids) => ids.direction || ids.style;
+    const dealtNames = replayed.dealt.map(idOf), stdName = `standard-${idOf(replayed.standard)}`;
+    for (const n of dealtNames) if (!aNames.includes(n)) err(`${p}.alternatives`, `dealt direction "${n}" is missing: name each dealt alternative by its direction id`);
+    if (std.length === 1 && std[0].name !== stdName) err(`${p}.alternatives`, `the standard alternative must be named "${stdName}"`);
+    for (const x of a) if (isObj(x) && x.standard !== true && !dealtNames.includes(x.name)) err(`${p}.alternatives`, `"${x.name}" was not dealt`);
+  }
+  if (!isStr(cd.chosen) || !aNames.includes(cd.chosen)) err(`${p}.chosen`, "must be the name of one alternative (the user's choice)");
+}
+
+// Replays deal(inputs, seed, redraws) and compares the recorded ids; returns the ids when they match.
+function dealRecord(d, p, err, modes) {
+  if (!isObj(d)) { err(p, "expected {inputs, seed, dealt, standard, redraws?}: run scripts/deal.mjs --brief <brief.json> and record its inputs, seed, ids and redraws"); return null; }
+  onlyKeys(d, ["inputs", "seed", "dealt", "standard", "redraws"], p, err);
+  if (!isObj(d.inputs)) { err(`${p}.inputs`, "the brief deal.mjs was given (mode, sector, imagery, sections, ...)"); return null; }
+  if (!Number.isInteger(d.seed) || d.seed < 0 || d.seed > 4294967295) { err(`${p}.seed`, "integer 0..4294967295 as printed by deal.mjs"); return null; }
+  if (!Array.isArray(d.dealt) || d.dealt.length < 1 || d.dealt.length > 3 || !d.dealt.every(isObj)) { err(`${p}.dealt`, "the dealt ids (up to three objects, the `ids` field of each deal.mjs entry)"); return null; }
+  if (!isObj(d.standard)) { err(`${p}.standard`, "the ids of the calm standard option"); return null; }
+  const redraws = d.redraws === undefined ? [] : d.redraws;
+  if (!Array.isArray(redraws) || !redraws.every((r) => isObj(r) && isStr(r.slot) && isStr(r.reason))) { err(`${p}.redraws`, "expected array of {slot, reason}"); return null; }
+  let badReason = false;
+  for (const [i, r] of redraws.entries()) { const why = checkRedrawReason(r.reason); if (why) { badReason = true; err(`${p}.redraws[${i}].reason`, why); } }
+  if (badReason) return null;
+  if (modes && isStr(d.inputs.mode) && !modes.has(d.inputs.mode)) err(`${p}.inputs.mode`, `the deal was run for mode ${d.inputs.mode}, which is not a visitor mode of this spec`);
+  let lib;
+  try { lib = library(); } catch (e) { err(p, `cannot replay the deal: bundled library not readable (${e.message})`); return null; }
+  let again;
+  try { again = deal(d.inputs, d.seed, redraws.map((r) => ({ slot: r.slot, reason: r.reason })), lib); } catch (e) { err(p, `deal replay failed: ${e.message}`); return null; }
+  if (again.status !== "ok") { err(p, `no direction can satisfy this brief (${again.reason}); change the brief honestly, do not relax the deal`); return null; }
+  const exp = dealIds(again);
+  if (JSON.stringify(exp) !== JSON.stringify({ dealt: d.dealt, standard: d.standard })) { err(p, `does not match the deal of seed ${d.seed} for these inputs and redraws (expected dealt ${exp.dealt.map((x) => x.direction || x.style).join(", ")}): run scripts/deal.mjs, never choose by hand`); return null; }
+  return exp;
+}
+
+const MODE_OF = new WeakMap();
+// Effective visitor mode per screen: the screen's own, else the spec's. Validates the shapes.
+function visitorModes(doc, screens, err) {
+  const modes = new Set();
+  const shape = (v, p) => {
+    if (!isObj(v)) { err(p, "expected {mode, reason}"); return null; }
+    onlyKeys(v, ["mode", "reason"], p, err);
+    if (!VISITOR_MODES.includes(v.mode)) err(`${p}.mode`, `must be one of ${VISITOR_MODES.join("|")}`);
+    if (!isStr(v.reason)) err(`${p}.reason`, "say why this surface has this mode (chosen by the surface, not the product)");
+    return VISITOR_MODES.includes(v.mode) ? v.mode : null;
+  };
+  const top = "visitor_mode" in doc ? shape(doc.visitor_mode, "$.visitor_mode") : null;
+  screens.forEach((s, i) => {
+    if (!isObj(s)) return;
+    const own = "visitor_mode" in s ? shape(s.visitor_mode, `$.screens[${i}].visitor_mode`) : null;
+    MODE_OF.set(s, own || top);
+    if (MODE_OF.get(s)) modes.add(MODE_OF.get(s));
+  });
+  if (top && screens.length === 0) modes.add(top);
+  return modes;
+}
+
+// V1.
+function visitorModeRequired(doc, err) {
+  const b = doc.creative_direction?.basis;
+  if ((b === "new" || b === "redesign") && !("visitor_mode" in doc)) err("$.visitor_mode", `basis ${b} needs a visitor_mode {mode: persuade|operate|read|experience, reason} chosen by the surface`);
+}
+
+function craftChecks(doc, screens, modes, root, err) {
+  // V2: argument for every persuade screen.
+  const persuade = screens.filter((s) => isObj(s) && MODE_OF.get(s) === "persuade");
+  if ("argument" in doc || persuade.length) argument(doc.argument, persuade, screens, root, err);
+  // V5: copy hygiene everywhere; first screen of persuade/experience screens.
+  screens.forEach((s, i) => {
+    if (!isObj(s)) return;
+    const p = `$.screens[${i}]`;
+    if (isObj(s.states)) for (const [k, v] of Object.entries(s.states)) {
+      if (isObj(v) && typeof v.copy === "string" && INTERNAL_COPY.test(v.copy)) err(`${p}.states.${k}.copy`, "copy shows a file path or an internal id; a visitor wants a small link or disclosure, not system names");
+    }
+    const lead = MODE_OF.get(s) === "persuade" || MODE_OF.get(s) === "experience";
+    if ("first_screen" in s || lead) firstScreen(s.first_screen, `${p}.first_screen`, lead, err);
+  });
+  // V4: persuade needs the craft block.
+  if ("craft" in doc || modes.has("persuade")) craft(doc.craft, modes.has("persuade"), root, err);
+  // Library images never stand in for the project's own: a brief that claims project photos needs project images listed.
+  const claimed = doc.creative_direction?.deal?.inputs?.imagery;
+  const listed = doc.craft?.visual_plan?.images;
+  if (Array.isArray(claimed) && Array.isArray(listed) && claimed.some((x) => x === "project-photos" || x === "product-photo")) {
+    const own = listed.filter((im) => typeof im === "string" || (isObj(im) && im.source === "project"));
+    if (own.length === 0) err("$.craft.visual_plan.images", "the deal brief claims project photos but no image is listed with source project (library images are never counted as the project's imagery)");
+  }
+}
+
+function argument(arg, persuade, screens, root, err) {
+  const p = "$.argument";
+  if (arg === undefined) { err(p, "a persuade spec needs an argument: every persuade screen has at least one {screen, section, claim, proof} row"); return; }
+  if (!Array.isArray(arg) || arg.length === 0) return err(p, "expected non-empty array of {screen, section, claim, proof}");
+  const ids = new Set(screens.map((s) => s?.id));
+  const covered = new Set();
+  arg.forEach((r, i) => {
+    const q = `${p}[${i}]`;
+    if (!isObj(r)) return err(q, "expected object");
+    onlyKeys(r, ["screen", "section", "claim", "proof"], q, err);
+    reqStr(r, ["screen", "section", "claim"], q, err);
+    if (isStr(r.screen)) { if (!ids.has(r.screen)) err(`${q}.screen`, `unknown screen ${r.screen}`); else covered.add(r.screen); }
+    proof(r.proof, `${q}.proof`, root, err);
+  });
+  for (const s of persuade) if (!covered.has(s.id)) err(p, `persuade screen ${s.id} has no argument row: no section without a claim`);
+}
+
+// A claim is tied to a product fact (file under docs/product with the cited id or anchor in it) or to code (path exists).
+function proof(x, p, root, err) {
+  if (!isObj(x)) return err(p, "expected {kind: product-fact|code, ...}: an unlinkable claim cannot enter the page");
+  if (x.kind === "product-fact") {
+    onlyKeys(x, ["kind", "file", "ref"], p, err);
+    if (!safeRel(x.file) || !/^docs\/product\//.test(x.file)) return err(`${p}.file`, "a product fact lives in a file under docs/product/");
+    if (!isStr(x.ref)) return err(`${p}.ref`, "cite the id or anchor inside the file");
+    if (!root) return;
+    const f = resolve(root, x.file);
+    if (!existsSync(f)) return err(`${p}.file`, `${x.file} does not exist: the claim cannot be linked`);
+    const text = readFileSync(f, "utf8");
+    const ref = x.ref.replace(/^#/, "");
+    const slug = (h) => h.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
+    const headings = [...text.matchAll(/^#{1,6}\s+(.+?)\s*$/gm)].map((m) => slug(m[1]));
+    if (!text.includes(ref) && !headings.includes(slug(ref))) err(`${p}.ref`, `"${x.ref}" is not present in ${x.file}`);
+  } else if (x.kind === "code") {
+    onlyKeys(x, ["kind", "path"], p, err);
+    if (!safeRel(x.path)) return err(`${p}.path`, "expected repo-relative path without ..");
+    if (root && !existsSync(resolve(root, x.path))) err(`${p}.path`, `${x.path} does not exist: the claim is not verifiable in code`);
+  } else err(`${p}.kind`, "must be product-fact or code");
+}
+
+function firstScreen(f, p, required, err) {
+  if (f === undefined) { if (required) err(p, "a persuade/experience screen specifies its first screen {headline, subline, primary_actions}"); return; }
+  if (!isObj(f)) return err(p, "expected object");
+  onlyKeys(f, ["headline", "subline", "primary_actions"], p, err);
+  reqStr(f, ["headline", "subline"], p, err);
+  if (isStr(f.headline) && [...f.headline].length > 48) err(`${p}.headline`, `${[...f.headline].length} characters: keep the headline near 32, never above 48`);
+  for (const k of ["headline", "subline"]) if (isStr(f[k]) && INTERNAL_COPY.test(f[k])) err(`${p}.${k}`, "copy shows a file path or an internal id");
+  if (!Array.isArray(f.primary_actions) || !f.primary_actions.every(isStr)) return err(`${p}.primary_actions`, "expected array of button labels");
+  if (f.primary_actions.length !== 1) err(`${p}.primary_actions`, `exactly one primary action on the first screen (found ${f.primary_actions.length})`);
+  for (const a of f.primary_actions) if (INTERNAL_COPY.test(a)) err(`${p}.primary_actions`, "copy shows a file path or an internal id");
+}
+
+// V4: live thing, visual plan, motion thesis, self-hosted font with a licence.
+function craft(c, required, root, err) {
+  const p = "$.craft";
+  if (c === undefined) { if (required) err(p, "a persuade spec needs craft: live_thing, visual_plan, motion and fonts"); return; }
+  if (!isObj(c)) return err(p, "expected object");
+  onlyKeys(c, ["live_thing", "visual_plan", "motion", "fonts"], p, err);
+  const need = (k) => { if (!(k in c)) { if (required) err(`${p}.${k}`, "required for a persuade surface"); return false; } return true; };
+  if (need("live_thing")) {
+    const l = c.live_thing, q = `${p}.live_thing`;
+    if (!isObj(l)) err(q, "expected object");
+    else {
+      onlyKeys(l, ["description", "phone_ok", "no_script_fallback", "does_not_block_reading"], q, err);
+      reqStr(l, ["description", "no_script_fallback"], q, err);
+      if (l.phone_ok !== true) err(`${q}.phone_ok`, "the live thing must work on a phone (true)");
+      if (l.does_not_block_reading !== true) err(`${q}.does_not_block_reading`, "the live thing must not block reading (true)");
+    }
+  }
+  if (need("visual_plan")) {
+    const v = c.visual_plan, q = `${p}.visual_plan`;
+    if (!isObj(v)) err(q, "expected object");
+    else {
+      onlyKeys(v, ["real", "images", "ledger"], q, err);
+      if (!Array.isArray(v.real) || v.real.length === 0 || !v.real.every(isStr)) err(`${q}.real`, "write first what is actually real (own photos, real UI, a generation tool, or the word none)");
+      const files = visualImages(v.images, q, err);
+      if (!safeRel(v.ledger)) err(`${q}.ledger`, "path of the image ledger (docs/design/IMAGES.md)");
+      else if (root && files.length > 0) {
+        const f = resolve(root, v.ledger);
+        if (!existsSync(f)) err(`${q}.ledger`, `${v.ledger} does not exist but images are listed`);
+        else { const t = readFileSync(f, "utf8"); for (const im of files) if (!t.includes(im)) err(`${q}.images`, `${im} has no row in ${v.ledger}`); }
+      }
+    }
+  }
+  if (need("motion")) {
+    const m = c.motion, q = `${p}.motion`;
+    if (!isObj(m)) err(q, "expected object");
+    else {
+      onlyKeys(m, ["thesis", "signature", "stagger_ms", "feedback_all_controls", "moving_visual", "reduced_motion"], q, err);
+      reqStr(m, ["thesis", "signature", "moving_visual", "reduced_motion"], q, err);
+      if (!Number.isFinite(m.stagger_ms) || m.stagger_ms < 60 || m.stagger_ms > 90) err(`${q}.stagger_ms`, "in-section stagger of 60-90 ms");
+      if (m.feedback_all_controls !== true) err(`${q}.feedback_all_controls`, "every control gives hover/press feedback (true)");
+    }
+  }
+  if (need("fonts")) {
+    const f = c.fonts, q = `${p}.fonts`;
+    if (!Array.isArray(f) || f.length === 0) err(q, "expected non-empty array of self-hosted fonts {family, file, license, license_ref}");
+    else f.forEach((x, i) => {
+      const r = `${q}[${i}]`;
+      if (!isObj(x)) return err(r, "expected object");
+      onlyKeys(x, ["family", "file", "license", "license_ref"], r, err);
+      reqStr(x, ["family", "license"], r, err);
+      if (!safeRel(x.file)) err(`${r}.file`, "self-hosted font file path in the project (a system font cannot be the voice of a persuade surface; no hot-linked font)");
+      else if (root && !existsSync(resolve(root, x.file)) && required) err(`${r}.file`, `${x.file} does not exist`);
+      fontLicence(x, r, root, err);
+    });
+  }
+}
+
+// A font in craft.fonts needs a verifiable licence reference: an open family of the bundled licence directory
+// (`library:<family>`), or the path of the package's or font's own licence file inside the project.
+function fontLicence(x, r, root, err) {
+  const ref = x.license_ref;
+  if (!isStr(ref)) return err(`${r}.license_ref`, "an unverifiable font is rejected: give library:<family> (open licence in the bundled directory) or the path of the package's licence file");
+  if (ref.startsWith("library:")) {
+    const fam = ref.slice(8).trim().toLowerCase();
+    let lib;
+    try { lib = library(); } catch (e) { return err(`${r}.license_ref`, `bundled licence directory not readable (${e.message})`); }
+    const hit = lib.licences.families.find((h) => h.name.toLowerCase() === fam);
+    if (!hit) return err(`${r}.license_ref`, `"${ref.slice(8)}" is not in the bundled licence directory: use the path of the package's licence file instead`);
+    if (!["OFL", "APACHE2", "UFL"].includes(hit.license)) return err(`${r}.license_ref`, `licence ${hit.license} of "${hit.name}" is not an open licence`);
+    if (isStr(x.family) && x.family.trim().toLowerCase() !== fam) err(`${r}.license_ref`, `the reference names "${ref.slice(8)}" but the font is "${x.family}"`);
+    return;
+  }
+  if (!safeRel(ref)) return err(`${r}.license_ref`, "expected library:<family> or a repo-relative path of a licence file");
+  if (root && !existsSync(resolve(root, ref))) err(`${r}.license_ref`, `${ref} does not exist: the licence cannot be verified`);
+}
+
+// visual_plan.images: a string is a project image; an object {file, source: project|library|generated, ...} says where it
+// came from. Library images are self-hosted (a project path, never an address), carry a credit, and are never counted as
+// the project's own imagery. Generated images name the tool and the prompt. Returns the file paths.
+function visualImages(images, q, err) {
+  if (!Array.isArray(images)) { err(`${q}.images`, "expected array (empty when none): project image paths or {file, source, ...} objects"); return []; }
+  const files = [];
+  images.forEach((im, i) => {
+    const r = `${q}.images[${i}]`;
+    const o = typeof im === "string" ? { file: im, source: "project" } : im;
+    if (!isObj(o)) return err(r, "expected a path or {file, source}");
+    onlyKeys(o, ["file", "source", "credit", "tool", "prompt"], r, err);
+    if (!["project", "library", "generated"].includes(o.source)) err(`${r}.source`, "must be project, library or generated");
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(String(o.file))) return err(`${r}.file`, "hot-linked image: download it and self-host it in the project");
+    if (!safeRel(o.file)) return err(`${r}.file`, "expected a repo-relative path of a self-hosted file");
+    files.push(o.file);
+    if (o.source === "library" && !isStr(o.credit)) err(`${r}.credit`, "a library image keeps its credit (on the page and in the ledger)");
+    if (o.source === "generated") { if (!isStr(o.tool)) err(`${r}.tool`, "a generated image names the tool"); if (!isStr(o.prompt)) err(`${r}.prompt`, "a generated image records its prompt"); }
+    if (o.source !== "generated" && ("tool" in o || "prompt" in o)) err(r, "tool and prompt belong to generated images only");
+  });
+  return files;
 }
 
 function uxPatterns(list, err) {
@@ -295,6 +600,15 @@ export function validateDesignMd(text, { root = null } = {}) {
     if (!key) { errors.push(`DESIGN.md: missing section "${h}"`); continue; }
     const body = sections.get(key).filter((l) => l.trim() && !/^\|[-| ]+\|$/.test(l.trim()));
     if (body.length === 0) errors.push(`DESIGN.md: section "${h}" is empty`);
+  }
+  // `## Pattern justifications`: lines "- <pattern-id>: <reason>" (registry id, non-empty reason). Optional section.
+  const pj = [...sections.keys()].find((k) => k.toLowerCase() === "pattern justifications");
+  if (pj) for (const l of sections.get(pj)) {
+    const b = /^\s*[-*]\s+(.*)$/.exec(l);
+    if (!b) continue;
+    const m = /^([a-z][a-z-]*):\s*(.*)$/.exec(b[1]);
+    if (!m || !PATTERN_IDS.includes(m[1])) errors.push(`DESIGN.md: pattern justification "${b[1].slice(0, 40)}" must read "- <registry pattern id>: <reason>"`);
+    else if (!m[2].trim()) errors.push(`DESIGN.md: pattern justification ${m[1]} has no reason`);
   }
   if (PLACEHOLDER.test(text)) errors.push("DESIGN.md: placeholder text found");
   if (root) {

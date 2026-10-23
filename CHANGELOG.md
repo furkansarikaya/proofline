@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.0.27 — 2026-10-23
+
+- `ui-design` rebalances the 0.0.4 `avoided` rule (A170): each surface has a visitor mode (`persuade`, `operate`, `read`, `experience`); persuade and experience surfaces need a topic inventory, an argument tied to facts, an idea that fails the rival test, three directions dealt by `scripts/deal.mjs` plus a calm standard option, one live thing, real imagery, a motion layer and a characterful self-hosted font.
+- Looks that generated UIs converge on are a dated registry of 15 pattern ids, defaults that need a `## Pattern justifications` line in `DESIGN.md`, not bans; new references cover direction, patterns, fullness and visuals, type and colour, motion, copy and controls, and operate surfaces.
+- `visual-proof` gets an optional `design` group (1440, 768 and 390 wide): heading lines, type scale, body measure, fonts, edge margins, vacuum, untitled sections, empty hero, theme surfaces, untranslated text, motion, reduced motion, text without script, pinned scenes and the image ledger; a failed item blocks the gate.
+- `scripts/lint-source.mjs` reads project source for the registry patterns and writes `lint.json`; blocking findings fail the report unless `DESIGN.md` justifies them. `docs/design/IMAGES.md` is the image and font ledger.
+- A 14-point critique (`ok` or `concern` with a reason, no score) is judged for COMPLEX and CRITICAL reports with a design group and never closes the gate.
+- The implementer of a UI task looks and fixes before delivery (the auditor, the critique, the three biggest problems, at most three rounds); the designer writes `DESIGN.md` first for persuade and experience, and the knowledge step updates it from the built world.
+- Design library (A170): `skills/ui-design/library/` holds byte-identical data files from two MIT-licensed sources recorded in `THIRD_PARTY_NOTICES.md`, with our own adaptation layer in `library/adapt/`; `tests/ci/sync-design-library.sh` re-fetches at the pinned commits and `--check` verifies the copies. This reverses the 0.0.4 decision of no ready-made style catalogue: the library is composition, typography and motion decisions, not a theme.
+- `scripts/deal.mjs` replaces designer-derived candidates: it deals three directions (hero, section templates, type, palette, motion; operate: app style, shell, patterns) from the surface mode, sector, tone, real imagery and section roles, never one that needs absent imagery, no model and no network, same seed same result; `--redraw <slot> --reason` changes one slot; the calm standard option stays and is never recommended.
+- Library fonts are self-hosted with a verified licence (written to the ledger `## Fonts`; unverifiable means not used); library photos are self-hosted and credited and never count as the project's own imagery.
+- UX rules: `visual-proof` carries `ux-rules.json`; measurable ones run as `design_ux_*` checks, the rest are judged (`ux_review`); the chart guide picks chart types.
+- New command form `/proofline design ui <mode> <target>` with the modes `bolder quieter polish animate typeset colorize layout delight harden adapt`; each touches only its target and `scripts/scope-check.mjs` verifies that nothing outside changed.
+- Persuade surfaces get a comp (draft visual) before coding when the runtime has an image tool, which the implementer targets and QA compares against; UI tasks on a persuade or experience surface run designer and implementer on the strongest model (signal `ui_persuade`).
+- Reality check of deal on three briefs: restaurant site and admin, developer tool site and docs fit; a city-tour map app is partial because the library has no map-canvas screen pattern.
+
 ## 0.0.26 — 2026-10-23
 
 - Release version bumps use `sh tests/ci/bump-version.sh <new-version>` (and `--check`), which rewrites only the version-holding sites by anchored patterns, so historical mentions such as "(0.0.24)" in visual-proof comments are no longer overwritten (A168). Those three comments are restored.
