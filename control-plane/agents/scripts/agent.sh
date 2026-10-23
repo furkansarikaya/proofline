@@ -3460,7 +3460,17 @@ language_scan() {
   done
   return "$ls_rc"
 }
-language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text (put the user's own words in a > blockquote, write everything else in English)" "$1"; }
+language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. The user's own words go verbatim into a quote block: every line starts with '> ' (A171); write everything else in English" "$1"; }
+# language_check FILE|-: the write-time check (A171, the runtime write hook calls it with the text about to be written; stdin for -).
+# Exit 1 and the "file:line" hit when the text holds non-English text outside a quote block.
+language_check() {
+  lk_f=${1:--}; lk_t=''
+  if [ "$lk_f" = - ]; then lk_t=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); cat > "$lk_t"; lk_f=$lk_t; fi
+  lk_hit=$(language_scan "$lk_f") && lk_rc=0 || lk_rc=1
+  [ -z "$lk_t" ] || rm -f "$lk_t"
+  if [ "$lk_rc" = 1 ]; then printf '%s\n' "$(language_fail_text "line ${lk_hit##*:}")"; return 1; fi
+  return 0
+}
 # verify_run_language ID: every run artifact a person or role wrote; raw runtime logs are exempt.
 verify_run_language() {
   vrl_d=$(run_dir "$1"); vrl_files=$(find "$vrl_d" -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.json' \) ! -path "$vrl_d/dispatch/*" ! -path "$vrl_d/scratch/*" ! -path "$vrl_d/gates/*" ! -name 'dispatch-*' ! -name 'LEDGER.log' | sort)
@@ -4032,9 +4042,25 @@ approval_unanswered() {
 approval_wait_o() {
   if approval_unanswered "$1" "$2" "$3"; then
     o "the user's last reply is not an explicit approval (an answer that is ambiguous or a refusal never approves): relay the question again verbatim with its accepted answers: agent.sh request-approval $3 $2 (relay verbatim), then wait for the reply and: agent.sh next $3"
+  elif approval_retry "$1" "$2" "$3"; then
+    o "the user's approval of $2 was recorded just now (the prompt hook had not finished it, A171; log .agents/local/approve.log): agent.sh next $3"
   else
     o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $3"
   fi
+}
+# approval_retry REQFILE KIND ID (A171): the newest user message approves this request but no approval exists (the prompt hook
+# was cut off or could not take the lock): record it now, so the user never has to run `approve` in a terminal. 0 when recorded.
+approval_retry() {
+  [ "$execution_role" = lead ] || return 1
+  ar_c=$(latest_capture 2>/dev/null) || return 1
+  ar_t=$(capture_field "$ar_c" time 2>/dev/null) || return 1
+  [ "$ar_t" -gt "$(gate_field "$1" requested_at)" ] 2>/dev/null || return 1
+  ar_f=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); capture_field "$ar_c" text > "$ar_f" 2>/dev/null || :
+  if ! text_has_approval "$ar_f" "$2" "${3:-}"; then rm -f "$ar_f"; return 1; fi
+  rm -f "$ar_f"
+  ar_o=$(sh "$scripts/agent.sh" approve "$3" "$2" 2>&1 </dev/null) && ar_rc=0 || ar_rc=$?
+  printf '%s target=%s kinds=%s rc=%s retry output: %s\n' "$(now_iso)" "$3" "$2" "$ar_rc" "$(printf '%s' "$ar_o" | tr '\n' ' ' | cut -c1-300)" >> "$root/.agents/local/approve.log" 2>/dev/null || :
+  [ "$ar_rc" = 0 ]
 }
 latest_request() { # ID KIND -> request file
   ls -1 "$(approvals_dir "$1")" 2>/dev/null | grep -E "^[0-9]{3}-request-$(kind_slug "$2")\.yaml\$" | sort | tail -1 | sed "s#^#$(approvals_dir "$1")/#" | grep . || return 1
@@ -4055,7 +4081,8 @@ pending_request() {
 # satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
 # kind is attempted in its own process, so a refusal ("no approval phrase") changes nothing.
 approve_pending() {
-  ap_run=${1:-}
+  ap_run=${1:-}; ap_log=$root/.agents/local/approve.log
+  mkdir -p "$root/.agents/local" 2>/dev/null || :
   for ap_t in $ap_run -; do
     [ -n "$ap_t" ] || continue
     [ "$ap_t" = - ] || [ -d "$(run_dir "$ap_t")" ] || continue
@@ -4064,15 +4091,45 @@ approve_pending() {
       [ -f "$ap_rf" ] || continue
       ap_k=$(gate_field "$ap_rf" kind)
       valid_approval_kind "$ap_k" || continue
+      pending_request "$ap_t" "$ap_k" >/dev/null || continue   # A171: an answered request is used up; no process is started for it
       printf '%s %s\n' "$ap_t" "$ap_k"
     done
   done | sort -u | awk '{ r = 0; if ($2 == "commit") r = 1; else if ($2 == "push") r = 2; else if ($2 == "pr") r = 3; else if ($2 == "merge") r = 4; else if ($2 == "cleanup") r = 5; print $1, r, $2 }' |
     sort -k1,1 -k2,2n -k3,3 | awk '{ if ($1 != t) { if (t != "") print t k; t = $1; k = "" } k = k " " $3 } END { if (t != "") print t k }' |
   while read -r ap_t ap_ks; do
     # one process per target, the delivery steps in their order (A169): a cut-off by the hook's time limit leaves a usable prefix
+    # A171: its output goes to .agents/local/approve.log and one line per target to stdout (the hook shows what matters to the
+    # lead and the user): "approved: ..." or "not recorded: <reason>" for a refusal that is not simply "this reply is no approval".
     # shellcheck disable=SC2086 # the kinds, one word each
-    sh "$scripts/agent.sh" approve "$ap_t" $ap_ks 2>/dev/null </dev/null || :
+    ap_o=$(sh "$scripts/agent.sh" approve "$ap_t" $ap_ks 2>&1 </dev/null) && ap_rc=0 || ap_rc=$?
+    ap_l=$(printf '%s' "$ap_o" | tr '\n' ' ' | tr -s ' ' | cut -c1-300)
+    printf '%s target=%s kinds=%s rc=%s output: %s\n' "$(now_iso)" "$ap_t" "${ap_ks# }" "$ap_rc" "$ap_l" >> "$ap_log" 2>/dev/null || :
+    if [ "$ap_rc" = 0 ]; then echo "approved: ${ap_t#-} ${ap_ks# }: $ap_l"
+    else case "$ap_o" in *"contain no approval phrase"*|*"none of the open requests"*) ;; *) echo "not recorded: ${ap_t#-} ${ap_ks# }: $ap_l" ;; esac; fi
   done
+  if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ]; then tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; fi
+  return 0
+}
+# hook_time ID: the runtime hooks' own timings (A171). A hook appends `epoch|name|ms|result|note` to
+# .agents/local/hook-times (a plain append, no lock, so a slow or killed hook still leaves its line; a killed one is found by the
+# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's ledger
+# under the locks: one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
+# event per timeout (`name=<event> ms=<n> note=...`). The friction report counts both. A run without lifecycle gates takes none.
+hook_time() {
+  ht_id=${1:-}; require_lead; ht_f=$root/.agents/local/hook-times
+  [ -s "$ht_f" ] || return 0
+  [ -n "$ht_id" ] && [ "$ht_id" != - ] && [ -d "$(run_dir "$ht_id")" ] || return 0
+  ht_w=$ht_f.$$; mv "$ht_f" "$ht_w" 2>/dev/null || return 0
+  if gates_enforced "$ht_id"; then
+    awk -F'|' '$2 ~ /^[A-Za-z0-9_.-]+$/ && $3 ~ /^[0-9]+$/ {
+        if ($4 == "timeout") { print "hook-timeout\tname=" $2 " ms=" $3 ($5 != "" ? " note=" $5 : ""); next }
+        n[$2]++; t[$2] += $3; if ($3 + 0 > m[$2]) m[$2] = $3 + 0 }
+      END { for (k in n) print "hook\tname=" k " runs=" n[k] " total_ms=" t[k] " max_ms=" m[k] }' "$ht_w" | sort |
+    while IFS="$(printf '\t')" read -r ht_ev ht_detail; do
+      ledger_append "$ht_id" "$ht_ev" - - "$(printf '%s' "$ht_detail" | tr -c 'A-Za-z0-9_.=,: -' '_')"
+    done
+  fi
+  rm -f "$ht_w"
 }
 # run_language [ID]: `tr` or `en`, the language the script's own questions are printed in (A99, A103). Sources
 # are the user's own words, in order: a `Language: tr|en` line of the run's TASK.md; the `>` blockquote lines of
@@ -4206,13 +4263,14 @@ approve() {
   # A106: single-use is per capture event (session + time + hash), never per text: the same words answer a later request.
   ap_cid="$ap_session:$ap_time:$ap_csha"
   text_has_approval "$ap_txt" "$ap_words" "$ap_id" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_words (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_words")', and no other word; the question stays pending)"; }
-  rm -f "$ap_txt"
   if [ "$ap_src" = prompt_capture ] && grep -l "^capture_id: \"$ap_cid\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
   ap_n=$(next_num "$ap_ad")
   printf 'kind: "%s"\nbound: "%s"\nsource: "%s"\nsession: "%s"\ncapture_sha256: "%s"\ncapture_id: "%s"\ncapture_time: %s\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\n' \
     "$ap_kind" "$ap_bound" "$ap_src" "$ap_session" "$ap_csha" "$ap_cid" "$ap_time" "$(basename "$ap_req")" "$(now_epoch)" > "$ap_ad/$ap_n-$ap_slug.yaml"
   [ -z "$ap_dlv" ] || printf 'delivery: "%s"\n' "$ap_dlv" >> "$ap_ad/$ap_n-$ap_slug.yaml"
   ap_ref=$(gate_field "$ap_req" ref); [ -z "$ap_ref" ] || printf 'ref: "%s"\n' "$ap_ref" >> "$ap_ad/$ap_n-$ap_slug.yaml"   # A169
+  # A171: the user's reply, verbatim, as a quote block (the language check exempts it; the first 20 lines)
+  { printf 'reply: |\n'; head -n 20 "$ap_txt" | quote_block | sed 's/^/  /'; } >> "$ap_ad/$ap_n-$ap_slug.yaml"; rm -f "$ap_txt"
   ap_tok=''; [ "$ap_id" = - ] || ap_tok="$(ledger_token "approvals/$ap_n-$ap_slug.yaml" "$ap_id") "
   ledger_if "$ap_id" approval - - "${ap_tok}$ap_kind source=$ap_src answered_by=user bound=$ap_bound"
   echo "approval recorded: $ap_id $ap_kind ($ap_src)"
@@ -4423,27 +4481,53 @@ assumption_prompt_accepts() {
   if printf ' %s ' "$apa_rest" | grep -Eq "(^|[^[:alpha:]])(not|never|no|nope|n't|don't|dont|do not|only if|if|unless|but|except|until|yet|wait|without|maybe|reject|rejected|decline|declined|or|actually|instead|rather|değil|degil|hayır|hayir|reddet|reddediyorum|yerine|olmasın|olmasin|sadece eğer|sadece eger|ama|eğer|eger)([^[:alpha:]]|$)"; then return 1; fi
   return 0
 }
+# quote_block: stdin -> the same text as a quote block, every line prefixed with '> ' (A171): the one syntax in which the
+# user's own words (an answer, an approval) are kept verbatim in a run file; the language check exempts these lines.
+epoch_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1"; }
+quote_block() { sed 's/^\(.\)/> \1/; s/^$/>/'; }
+# unquote_block: the inverse of quote_block (tests and readers get the user's text back byte for byte).
+unquote_block() { sed 's/^> //; s/^>$//'; }
+# answer ID N [--captured|--amend]: record the answer to question N. --captured takes the NEWEST user message captured
+# after the question was asked (A171; A171 replaces "oldest unused": a later correction by the user is what counts) and says
+# which message it took. --amend replaces a recorded answer with a newer captured user message: the old answer file is kept,
+# renamed NNN.answer.amended-K.md and marked `amended: true`; only a captured user message amends, never the lead's text.
 answer() {
   an_id=$1 an_n=$2; require_run "$an_id"; require_lead; an_d=$(run_dir "$an_id")
   case "$an_n" in ''|*[!0-9]*) fail "question number must be numeric" ;; esac
   an_q=$an_d/questions/$(printf '%03d' "$(printf '%s' "$an_n" | sed 's/^0*//; s/^$/0/')").md
   [ -f "$an_q" ] || fail "no question $an_n for $an_id"
-  [ ! -e "${an_q%.md}.answer.md" ] || fail "question $an_n is already answered"
-  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used=
-  if [ "${3:-}" = --captured ]; then
-    # The answer is the user's own message as the prompt hook captured it (the oldest real prompt since the question), not
-    # text the lead relays: a lead's rewrite never matched, a short "1" was under the 3-character rule, and a later
-    # prompt (a follow-up, a task notification) replaced the newest capture.
+  an_amend=no; [ "${3:-}" != --amend ] || an_amend=yes
+  an_prev=${an_q%.md}.answer.md
+  if [ "$an_amend" = yes ]; then
+    [ -e "$an_prev" ] || fail "question $an_n has no answer to amend"
+  else
+    [ ! -e "$an_prev" ] || fail "question $an_n is already answered (a wrong answer is corrected with: agent.sh answer $an_id $an_n --amend, after the user's new message)"
+  fi
+  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used= an_src=
+  if [ "${3:-}" = --captured ] || [ "$an_amend" = yes ]; then
+    # The answer is the user's own message as the prompt hook captured it, not text the lead relays: a lead's rewrite never
+    # matched, a short "1" was under the 3-character rule. A171: the NEWEST real prompt since the question (by its capture time),
+    # not the oldest unused one: an earlier message may be a remark, the latest is what the user settled on.
     an_cm=yes; an_a0=$(gate_field "$an_q" asked_at); case "$an_a0" in ''|*[!0-9]*) an_a0=0 ;; esac
+    an_prevsrc=''
+    if [ "$an_amend" = yes ]; then
+      an_pe=$(gate_field "$an_prev" answered_epoch); case "$an_pe" in ''|*[!0-9]*) an_pe=$an_a0 ;; esac
+      an_a0=$an_pe; an_prevsrc=$(gate_field "$an_prev" source_message)
+    fi
+    an_pick=''
     for an_h in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
       an_e=${an_h##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
       [ "$an_e" -ge "$an_a0" ] || continue
       grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
-      # one prompt answers one question: a prompt an earlier --captured answer used is skipped
-      ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
-      cat "$an_h" > "$an_t"; an_used=${an_h##*/}; break
+      [ "${an_h##*/}" != "$an_prevsrc" ] || continue
+      # an amend takes the newest message no answer has used (a used one belongs to another question)
+      [ "$an_amend" = no ] || ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
+      an_pick=$an_h
     done
-    [ -s "$an_t" ] || { rm -f "$an_t"; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
+    [ -n "$an_pick" ] || { rm -f "$an_t"; if [ "$an_amend" = yes ]; then fail "no captured user message newer than the recorded answer to question $an_n: only a new message of the user corrects an answer (ask the user, wait for the reply, then run this again)"; fi; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
+    # one message answers one question: the newest message was already used by an earlier --captured answer
+    if grep -qxF "${an_pick##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null; then rm -f "$an_t"; fail "the user's newest message since question $an_n (${an_pick##*/}) already answered another question: the user has not answered this one yet"; fi
+    cat "$an_pick" > "$an_t"; an_used=${an_pick##*/}; an_src=$an_used
   else cat > "$an_t"; fi
   grep -q '[^[:space:]]' "$an_t" || { rm -f "$an_t"; fail "empty answer"; }
   # answered_by user only when the newest prompt capture is not older than the question (epoch seconds), its sha256 matches its
@@ -4469,15 +4553,28 @@ answer() {
   # the user's accept is stored normalized as exactly `accept <id>`.
   if [ -n "$an_tok" ] && printf '%s' "$an_norm" | grep -Eiq '^accept'; then
     if [ "$an_acc" = yes ]; then printf 'accept %s\n' "${an_tok%@*}" > "$an_t"; else an_by=lead; fi
+  elif [ "$an_by" = user ]; then
+    quote_block < "$an_t" > "$an_t.q" && mv "$an_t.q" "$an_t"   # A171: the user's words are kept as a verbatim quote block
   fi
-  { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
+  an_amends=''
+  if [ "$an_amend" = yes ]; then
+    an_k=1; while [ -e "${an_q%.md}.answer.amended-$an_k.md" ]; do an_k=$((an_k + 1)); done
+    an_amends=$(basename "${an_q%.md}.answer.amended-$an_k.md")
+    awk -v t="$(now_epoch)" 'NR == 1 { print "amended: true"; print "amended_at: " t } { print }' "$an_prev" > "$an_d/questions/$an_amends" && rm -f "$an_prev" || { rm -f "$an_t"; fail "could not keep the old answer of question $an_n"; }
+  fi
+  { printf 'answered_by: %s\ntime: %s\nanswered_epoch: %s\n' "$an_by" "$(now_iso)" "$(now_epoch)"
+    [ -z "$an_src" ] || printf 'source_message: %s\n' "$an_src"
+    [ -z "$an_amends" ] || printf 'amends: %s\n' "$an_amends"
+    printf -- '---\n'; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
   # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is
   # derived from the answer file (answered_by user, starting "accept <id>") by verify-assumptions.
   an_as=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/ assumption=\1/p' "$an_q" | head -1)
-  if gates_enforced "$an_id"; then ledger_append "$an_id" answer - - "$(basename "$an_q") answered_by=$an_by$an_as"; fi
-  echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by"
+  an_ev=answer; [ "$an_amend" = no ] || an_ev=answer-amend
+  if gates_enforced "$an_id"; then ledger_append "$an_id" "$an_ev" - - "$(basename "$an_q") answered_by=$an_by${an_src:+ source=$an_src}${an_amends:+ amends=$an_amends}$an_as"; fi
+  echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by${an_amends:+ (amends $an_amends, the old record is kept)}"
+  if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$root/.agents/local/prompts/history/$an_src" | cut -c1-80)"; fi
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
 }
 
@@ -4629,6 +4726,7 @@ metrics_run() { # ID OUTCOME
   metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
   mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
   metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2"
+  hook_time "$1" 2>/dev/null || :   # A171: the hooks' timings spooled so far reach the ledger (this process holds the locks) before the report counts them
   sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A149: the friction report is built at run end, never sent unasked
 }
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
@@ -6042,7 +6140,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
+read_only_commands='language-check next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -6089,9 +6187,10 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
   decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
+  hook-time <ID> (runtime hooks: move the hook timings spooled in .agents/local/hook-times into the ledger) | language-check [FILE|-] (the write-time language check; exit 1 on non-English text outside a '> ' quote block)
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND>... | approval-consume <ID> <KIND> [FINGERPRINT]
-  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
+  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)
   terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable "<reason>"]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-plan <ID...|all> [--codex-danger-full-access] | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check | batch-start | batch-stop   (A157: night mode; lead only; A163: start/stop the background driver)
@@ -6161,6 +6260,8 @@ case "$command" in
   secret-scan) secret_scan "${2:?usage: agent.sh secret-scan <ID>}" ;;
   request-approval) request_approval "${2:?usage: agent.sh request-approval <ID> <KIND>}" "${3:?usage: agent.sh request-approval <ID> <KIND>}" ;;
   approve) [ $# -ge 3 ] || fail "usage: agent.sh approve <ID> <KIND>..."; ap_a=$2; shift 2; approve_kinds "$ap_a" "$@" ;;
+  hook-time) hook_time "${2:-}" ;;
+  language-check) language_check "${2:--}" ;;
   run-language) run_language "${2:--}" ;;
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) [ $# -ge 3 ] || fail "usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT [REF...]]"; shift; approval_consume "$@" ;;
@@ -6170,7 +6271,7 @@ case "$command" in
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
-  answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured]}" "${3:?usage: agent.sh answer <ID> <N> [--captured]}" "${4:-}" ;;
+  answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
   cleanup) require_lead; cleanup_run "${2:?usage: agent.sh cleanup <ID>}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;

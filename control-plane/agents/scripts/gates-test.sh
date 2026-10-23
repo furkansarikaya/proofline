@@ -520,6 +520,21 @@ sc_approvals() {
   ok "approvals: request, capture freshness/phrase/sha, single-use, commit binding, no-run push"
 }
 
+# A171: the lead's `next` records an approval the prompt hook could not (cut off, or the lock was busy), so the user never runs
+# `approve` in a terminal; a reply that is no approval is not recorded.
+sc_approval_retry() {
+  unfrozen COMPLEX
+  A request-approval LC plan >/dev/null
+  capture 'looks fine to me'
+  A next LC | grep -q "the user's last reply is not an explicit approval" || die "a non-approval reply was not reported by next"
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 && die "a reply without an approval phrase was recorded by next"
+  capture 'approve the plan'
+  out=$(A next LC); printf '%s' "$out" | grep -q 'was recorded just now' || die "next did not record the approval the hook could not: $out"
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 || die "no approval file after the retry"
+  grep -q 'retry output: approval recorded' .agents/local/approve.log || die "the retry is not logged: $(cat .agents/local/approve.log 2>/dev/null)"
+  ok "next retries the approval of the user's newest message and logs it (A171)"
+}
+
 # Prompt captures and approval files must be regular single-link files on a symlink-free path under the project.
 sc_capture_integrity() {
   unfrozen COMPLEX
@@ -882,23 +897,51 @@ sc_questions() {
   capture 'ok'
   printf 'ok\n' | A answer LC 4 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/004.answer.md || die "a two-character answer is answered_by user"
-  # --captured: the answer is the user's own captured message (multi-line, skipping a task notification, ignoring a later
-  # prompt), not text the lead relays (site run: lead-rewritten and one-character answers were recorded as the lead's)
+  # --captured: the answer is the user's own captured message (multi-line, skipping a task notification), not text the lead
+  # relays (site run: lead-rewritten and one-character answers were recorded as the lead's). A171: it is the NEWEST message
+  # since the question, by capture time, not the oldest unused one; the command says which message it took.
   QR=data_architect q 'QUESTIONS:
 1. Which fix?
 ' >/dev/null
-  h=.agents/local/prompts/history; mkdir -p "$h"; now=$(date +%s)
-  printf '<task-notification>\nAgent done\n</task-notification>\n' > "$h/$((now + 1))-aaaaaaaa.txt"
-  printf '1: fix qa-1 now\n   (CSS in Base.astro)\n2: waive drift\n' > "$h/$((now + 2))-bbbbbbbb.txt"
-  printf 'Confirm that these answers are recorded as mine\n' > "$h/$((now + 3))-cccccccc.txt"
-  A answer LC 5 --captured >/dev/null
+  h=.agents/local/prompts/history; mkdir -p "$h"; now=$(( $(date +%s) + 1000 ))   # far enough ahead that a slow run still asks every later question before these stamps
+  printf '1: fix qa-1 now\n   (CSS in Base.astro)\n2: waive drift\n' > "$h/$((now + 1))-bbbbbbbb.txt"
+  printf '1: fix qa-1 later, 2: waive drift\n' > "$h/$((now + 2))-cccccccc.txt"
+  printf '<task-notification>\nAgent done\n</task-notification>\n' > "$h/$((now + 3))-aaaaaaaa.txt"
+  out=$(A answer LC 5 --captured) || die "--captured failed: $out"
   grep -q '^answered_by: user' .agents/runs/LC/questions/005.answer.md || die "--captured did not record the user's message as the user's"
-  sed '1,/^---$/d' .agents/runs/LC/questions/005.answer.md | cmp -s - "$h/$((now + 2))-bbbbbbbb.txt" || die "--captured did not record the captured multi-line message verbatim"
-  # one prompt answers one question: the next open question gets the next prompt, and none once they are used up
-  printf '1. Another?\n' | A ask LC >/dev/null; printf '1. And another?\n' | A ask LC >/dev/null
+  sed '1,/^---$/d' .agents/runs/LC/questions/005.answer.md | sed 's/^> //; s/^>$//' | cmp -s - "$h/$((now + 2))-cccccccc.txt" || die "--captured did not take the LATEST user message (a task notification is skipped) verbatim: $(cat .agents/runs/LC/questions/005.answer.md)"
+  printf '%s' "$out" | grep -Fq "answer source: the user's message $((now + 2))-cccccccc.txt" || die "--captured did not say which message it took: $out"
+  grep -q "^source_message: $((now + 2))-cccccccc.txt" .agents/runs/LC/questions/005.answer.md || die "the answer file does not name its source message"
+  ok "answer --captured takes the newest user message after the question and prints which one (A171)"
+  # one message answers one question: while the newest message is the used one, the next question has no answer yet
+  printf '1. Another?\n' | A ask LC >/dev/null
+  expect_msg "a used-up newest message answered a second question" 'already answered another question' A answer LC 6 --captured
+  printf 'and for the other one: use the fallback\n' > "$h/$((now + 4))-dddddddd.txt"
   A answer LC 6 --captured >/dev/null
-  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | cmp -s - "$h/$((now + 3))-cccccccc.txt" || die "the second question did not get the next captured prompt"
-  expect_fail "a used-up captured prompt answered a second question" A answer LC 7 --captured
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | sed 's/^> //' | cmp -s - "$h/$((now + 4))-dddddddd.txt" || die "the second question did not get the newer message"
+  sed "s/^answered_epoch: .*/answered_epoch: $((now + 10))/" .agents/runs/LC/questions/006.answer.md > "$base/a6.tmp" && mv "$base/a6.tmp" .agents/runs/LC/questions/006.answer.md   # the answer was given at a fixed time, so older messages are not 'newer'
+  # A171: --amend: a newer user message corrects a recorded answer; the old record is kept, marked amended. The lead alone cannot.
+  expect_msg "the lead amended an answer without a newer user message" 'no captured user message newer than the recorded answer' A answer LC 6 --amend
+  expect_msg "an amend with the lead's own text on stdin was accepted" 'no captured user message newer' sh -c 'echo "forced" | sh ./.agents/scripts/agent.sh answer LC 6 --amend'
+  printf 'sorry, I meant: use the strict mode\n' > "$h/$((now + 60))-eeeeeeee.txt"
+  out=$(A answer LC 6 --amend) || die "--amend with a newer user message failed: $out"
+  [ -f .agents/runs/LC/questions/006.answer.amended-1.md ] && grep -q '^amended: true' .agents/runs/LC/questions/006.answer.amended-1.md || die "the old answer was not kept as amended"
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.amended-1.md | sed 's/^> //' | cmp -s - "$h/$((now + 4))-dddddddd.txt" || die "the amended record lost the old answer"
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | sed 's/^> //' | cmp -s - "$h/$((now + 60))-eeeeeeee.txt" || die "the new answer is not the newer message"
+  grep -q '^amends: 006.answer.amended-1.md' .agents/runs/LC/questions/006.answer.md && printf '%s' "$out" | grep -q 'old record is kept' || die "the new answer does not reference the amended record: $out"
+  grep -q 'event=answer-amend' .agents/runs/LC/LEDGER.log || die "the amend is not in the ledger"
+  sed "s/^answered_epoch: .*/answered_epoch: $((now + 61))/" .agents/runs/LC/questions/006.answer.md > "$base/a6.tmp" && mv "$base/a6.tmp" .agents/runs/LC/questions/006.answer.md
+  expect_msg "a second amend with the same message" 'no captured user message newer' A answer LC 6 --amend
+  ok "answer --amend keeps the old record (amended), needs a newer captured user message; the lead alone cannot amend (A171)"
+  # A171: the user's text is stored in a quote block, so a Turkish answer passes the language check
+  printf '1. Which name?\n' | A ask LC >/dev/null
+  printf 'Bence şu şekilde olsun: ığüşöç çok güzel\n' > "$h/$((now + 70))-ffffffff.txt"
+  A answer LC 7 --captured >/dev/null
+  grep -qx '> Bence şu şekilde olsun: ığüşöç çok güzel' .agents/runs/LC/questions/007.answer.md || die "the Turkish answer is not stored as a quote block: $(cat .agents/runs/LC/questions/007.answer.md)"
+  A language-check .agents/runs/LC/questions/007.answer.md >/dev/null || die "a quoted Turkish answer failed the language check"
+  printf 'Bence şu şekilde olsun: ığüşöç çok güzel\n' | expect_msg "unquoted Turkish passed the language check" 'language: run artifacts are English' A language-check -
+  printf '> Bence şu şekilde olsun: ığüşöç çok güzel\n' | A language-check - >/dev/null || die "a quote block is not exempt"
+  ok "a quoted Turkish answer passes the language check, the same text unquoted fails"
   # A92: a risk FOCUS on a task result does not open a second round for qa (C-14)
   QF=visual QR=qa expect_msg "a second NEEDS_INPUT from qa with FOCUS: visual" 'already asked its questions in this run' q 'QUESTIONS:
 1. And the dark theme?
@@ -2087,6 +2130,7 @@ run_sc sc_question_language
 run_sc sc_supervised_destructive
 run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
+run_sc sc_approval_retry
 run_sc sc_ask
 run_sc sc_assumptions
 run_sc sc_questions

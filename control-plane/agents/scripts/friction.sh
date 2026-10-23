@@ -23,7 +23,7 @@ tokens_of() {
   awk -v id="$1" '
     function jv(s, k,   p, i, r) { p = "\"" k "\":"; i = index(s, p); if (!i) return ""; r = substr(s, i + length(p)); sub(/[,}].*/, "", r); return r }
     index($0, "\"task\":\"" id "\"") && jv($0, "kind") != "\"run\"" { n++; for (j = 1; j <= 3; j++) { k = (j == 1 ? "tokens_in" : j == 2 ? "tokens_out" : "tokens_total"); v = jv($0, k); if (v ~ /^[0-9]+$/) { s[j] += v; c[j]++ } } }
-    END { for (j = 1; j <= 3; j++) printf "%s%s", (c[j] ? s[j] " (" c[j] " of " n " records)" : "n/a"), (j < 3 ? "|" : "\n") }' "$2" 2>/dev/null
+    END { for (j = 1; j <= 3; j++) printf "%s%s", (c[j] ? s[j] " (" c[j] " of " n " records)" : "unknown"), (j < 3 ? "|" : "\n") }' "$2" 2>/dev/null
 }
 scrub() { # FILE: 0 when it is safe to share
   sc_bad=$(grep -n -v '^[A-Za-z0-9 _.:,;=()%+<>#*|-]*$' "$1" | head -1)
@@ -51,26 +51,30 @@ report() {
       / event=answer / { if ($0 ~ /answered_by=user/) au++; else al++ }
       / event=approval-request / { ar++ }
       / event=decide / { dec++ }
+      / event=hook / { hn = $0; sub(/.* detail=name=[^ ]* runs=/, "", hn); hr = hn; sub(/ .*/, "", hr); ht = hn; sub(/.*total_ms=/, "", ht); sub(/ .*/, "", ht); hm = hn; sub(/.*max_ms=/, "", hm); sub(/ .*/, "", hm)
+        if (hr ~ /^[0-9]+$/) { hruns += hr; htot += ht; if (hm + 0 > hmax) hmax = hm + 0 } }
+      / event=hook-timeout / { hto++ }
       / event=terminate / { term = $0; sub(/.* to=/, "", term); sub(/ .*/, "", term); term = w(term) }
       / event=handoff:DONE / { done = 1 }
       / event=note .*failover/ { fo++; if ($0 ~ /reason=timeout/) fot++ }
       match($0, / event=gate:[A-Z_]+:fail /) { g = substr($0, RSTART + 12, RLENGTH - 18); gf[w(g)]++; gft++ }
       match($0, / event=record:[a-z_]+:BLOCKED /) { b = substr($0, RSTART + 14, RLENGTH - 23); bl[w(b)]++; blt++ }
       END {
-        printf "outcome: %s\nclassification: %s\n\n", (done ? "done" : (term ? tolower(term) : "open")), (cls ? cls : "n/a")
+        printf "outcome: %s\nclassification: %s\n\n", (done ? "done" : (term ? tolower(term) : "open")), (cls ? cls : "unknown")
         printf "## User interruptions\n\n- questions asked: %d (answered by the user: %d, by an assumption: %d)\n- approval requests: %d\n- total times the user was asked: %d\n\n", ask, au, al, ar, ask + ar
         printf "## Blocked and failed gates\n\n- gate failures: %d\n", gft
         for (k in gf) printf "  - gate %s failed %d times\n", k, gf[k]
         printf "- steps that returned blocked: %d\n", blt
         for (k in bl) printf "  - role %s blocked %d times\n", k, bl[k]
         printf "\n## Timeouts\n\n- runtime failovers: %d (of them by timeout: %d)\n", fo, fot
+        printf "- hook timeouts: %d (of %d recorded hook runs; total hook time %d ms, slowest %d ms)\n", hto, hruns, htot, hmax
       }' "$led"
     awk -v id="$id" '
       function jv(s, k,   p, i, r) { p = "\"" k "\":"; i = index(s, p); if (!i) return ""; r = substr(s, i + length(p)); sub(/[,}].*/, "", r); gsub(/"/, "", r); return r }
       index($0, "\"task\":\"" id "\"") { k = jv($0, "kind"); r = jv($0, "result")
         if (k == "dispatch") { nd++; if (r == "timeout") dt++ }
         if (k == "run" && !seen) { seen = 1; fr = jv($0, "fix_rounds"); de = jv($0, "delegations"); du = jv($0, "duration_s") } }
-      END { printf "- dispatch timeouts: %d (of %d dispatches)\n\n## Repeated rounds\n\n- fix rounds used: %s\n- delegated steps: %s\n\n## Cost\n\n- run duration seconds: %s\n", dt, nd, (fr ~ /^[0-9]+$/ ? fr : "n/a"), (de ~ /^[0-9]+$/ ? de : "n/a"), (du ~ /^[0-9]+$/ ? du : "n/a") }' "$rec"
+      END { printf "- dispatch timeouts: %d (of %d dispatches)\n\n## Repeated rounds\n\n- fix rounds used: %s\n- delegated steps: %s\n\n## Cost\n\n- run duration seconds: %s\n", dt, nd, (fr ~ /^[0-9]+$/ ? fr : "unknown"), (de ~ /^[0-9]+$/ ? de : "unknown"), (du ~ /^[0-9]+$/ ? du : "unknown") }' "$rec"
     printf '%s\n' "$tk" | awk -F'|' '{ printf "- tokens in: %s\n- tokens out: %s\n- tokens total: %s\n", $1, $2, $3 }'
   } > "$tmp" || { rm -f "$tmp"; exit 1; }
   scrub "$tmp" || { rm -f "$tmp"; exit 1; }

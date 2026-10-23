@@ -132,8 +132,11 @@ QUESTIONS:
 
 1. `agent.sh questions <ID>` prints every pending question verbatim. The lead relays it unchanged; it never
    answers, summarizes or applies the recommended option by default.
-2. `agent.sh answer <ID> <N> --captured` records the user's captured prompt itself (the oldest real prompt since the
-   question) as `answered_by: user`. `agent.sh answer <ID> <N>` reads the answer on stdin and writes `questions/NNN.answer.md` with
+2. `agent.sh answer <ID> <N> --captured` records the user's captured prompt itself (the newest real prompt since the
+   question, by capture time; the command prints which message it took) as `answered_by: user`, stored as a quote block
+   (every line starts with `> `). `agent.sh answer <ID> <N> --amend` replaces a recorded answer with a newer captured user
+   message: the old file is kept as `NNN.answer.amended-K.md` marked `amended: true`, the new one names it in `amends:`;
+   without a newer captured user message it fails, so the lead cannot amend on its own (A171). `agent.sh answer <ID> <N>` reads the answer on stdin and writes `questions/NNN.answer.md` with
    `answered_by: user` only when the latest captured user prompt is not older than the question
    (`asked_at`, epoch seconds), its sha256 matches its text, and the answer text (whitespace-normalized,
    at least 3 characters) is contained in it; else `answered_by: lead`. When no question is pending, `awaiting_input` becomes false.

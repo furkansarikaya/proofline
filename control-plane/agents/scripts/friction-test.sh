@@ -23,6 +23,14 @@ grep -q 'RUN-001' "$r" && die "the run id leaked into the report"
 grep -q '[/@~\\]' "$r" && die "a path or address character is in the report"
 ok "friction report: counts from the TASK-001-shaped records, no run id, no path"
 
+# A171: hook durations and hook timeouts in the ledger are counted
+cp .agents/runs/RUN-001/LEDGER.log "$base/ledger.keep"
+printf 'seq=900 prev=x event=hook role=lead from=- to=- digest=d ts=t epoch=1 detail=name=prompt runs=4 total_ms=2400 max_ms=900\nseq=901 prev=x event=hook role=lead from=- to=- digest=d ts=t epoch=1 detail=name=pretool runs=10 total_ms=300 max_ms=60\nseq=902 prev=x event=hook-timeout role=lead from=- to=- digest=d ts=t epoch=1 detail=name=prompt ms=31000 note=killed-before-finish\n' >> .agents/runs/RUN-001/LEDGER.log
+F report RUN-001 > /dev/null
+grep -q '^- hook timeouts: 1 (of 14 recorded hook runs; total hook time 2700 ms, slowest 900 ms)' "$r" || die "hook timings not counted: $(grep hook "$r")"
+cp "$base/ledger.keep" .agents/runs/RUN-001/LEDGER.log
+ok "friction report counts hook runs, their time and hook timeouts (A171)"
+
 rm -f "$r"
 git config user.name blocked   # a word the report text contains
 expect_msg "scrub refuses a report that mentions the repository user" "not written" F report RUN-001

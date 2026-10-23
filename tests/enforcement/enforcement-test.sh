@@ -816,6 +816,73 @@ hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing
   ok "a task notification is not captured; an approval hook that timed out is reported to the user"
 }
 
+# A171: the approval hook is transparent (a log, one line for a refusal, stale markers cleaned, the lead retries), hook timings and
+# timeouts reach the ledger, and run files are checked for language when they are written.
+hook_transparency() {
+  fixture
+  A request-approval LC plan >/dev/null; sleep 1
+  prompt 'plan approved, go ahead' > "$base/p1.out"
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 || die "A171-1 the approval was not recorded"
+  grep -q 'rc=0 output: approval recorded' .agents/local/approve.log || die "A171-1 the output of approve was not logged to .agents/local/approve.log: $(cat .agents/local/approve.log 2>/dev/null)"
+  grep -q 'approval recorded' "$base/p1.out" || die "A171-1 the lead was not told the approval was recorded: $(cat "$base/p1.out")"
+  grep -q 'reply: |' .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml && grep -q '^  > plan approved, go ahead' .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml || die "A171-1 the user's reply is not kept as a quote block in the approval"
+  ok "A171-1 approve output is logged to .agents/local/approve.log and the recorded approval is reported; the reply is a quote block"
+  # stale markers of killed hooks (another session, older than two minutes) are removed at the next call, never reported
+  mkdir -p .agents/local/prompts; : > .agents/local/prompts/.approving-sOld; touch -t 202001010000 .agents/local/prompts/.approving-sOld
+  : > .agents/local/prompts/.approving-sFresh
+  out=$(prompt 'hello again' sNew)
+  [ ! -e .agents/local/prompts/.approving-sOld ] || die "A171-2 a stale .approving- marker survived the next call"
+  [ -e .agents/local/prompts/.approving-sFresh ] || die "A171-2 a fresh marker of another session (a hook still running) was removed"
+  ! printf '%s' "$out" | grep -q 'NOT recorded' || die "A171-2 another session's stale marker was reported: $out"
+  rm -f .agents/local/prompts/.approving-sFresh
+  ok "A171-2 stale .approving- markers are cleaned on the next call"
+  # a refusal is one line to the lead and the user, with the reason; nobody runs a command in a terminal
+  sleep 1; A request-approval LC scope >/dev/null; sleep 1
+  sleep 60 & holder=$!
+  mkdir .agents/local/.lock && printf '%s\n' "$holder" > .agents/local/.lock/pid
+  out=$(PROOFLINE_HOOK_LOCK_WAIT=1 prompt 'scope approved, go ahead')
+  printf '%s' "$out" | grep -q '"systemMessage":"proofline: approval NOT recorded: ' && printf '%s' "$out" | grep -q 'approve.log' || die "A171-3 a lock-bound refusal was not shown as one line to the user: $out"
+  printf '%s' "$out" | grep -q 'hookSpecificOutput' || die "A171-3 the lead did not get the reason"
+  [ "$(printf '%s' "$out" | wc -l | tr -d ' ')" -le 1 ] || die "A171-3 the message is more than one line: $out"
+  ! ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "A171-3 an approval was recorded while the lock was held"
+  grep -q 'rc=1' .agents/local/approve.log || die "A171-3 the refusal is not in the log"
+  # the step is also stopped by its own budget, and the timeout is written down
+  t0=$(date +%s); out=$(PROOFLINE_HOOK_LOCK_WAIT=30 PROOFLINE_HOOK_APPROVE_BUDGET=1 prompt 'scope approved, go ahead'); t1=$(date +%s)
+  [ $((t1 - t0)) -lt 15 ] || die "A171-4 the hook did not stop its approval step in time ($((t1 - t0))s)"
+  printf '%s' "$out" | grep -q 'ran out of time' || die "A171-4 no message about the stopped step: $out"
+  grep -q '|prompt.approve|[0-9]*|timeout|' .agents/local/hook-times || die "A171-4 the step timeout is not in the spool: $(cat .agents/local/hook-times)"
+  kill "$holder" 2>/dev/null; rm -rf .agents/local/.lock
+  ok "A171-3 a refused approval is one line to the lead and the user, with the reason; A171-4 the step is stopped by its budget and the timeout is written"
+  # a hook the runtime killed leaves an in-flight marker: the next prompt hook writes it down as a timeout
+  mkdir -p .agents/local/hooks-inflight; printf '99999999 %s\n' "$(( $(date +%s) * 1000 - 31000 ))" > .agents/local/hooks-inflight/prompt.99999999
+  prompt 'one more' sTimeout >/dev/null
+  [ ! -e .agents/local/hooks-inflight/prompt.99999999 ] || die "A171-6 the in-flight marker was not removed"
+  # durations and timeouts reach the ledger of the run; the friction report counts them
+  A hook-time LC
+  grep -q 'event=hook .*detail=name=prompt runs=[0-9]* total_ms=[0-9]* max_ms=[0-9]*' .agents/runs/LC/LEDGER.log || die "A171-6 hook duration is not in the ledger: $(tail -5 .agents/runs/LC/LEDGER.log)"
+  grep -q 'event=hook .*detail=name=prompt.capture ' .agents/runs/LC/LEDGER.log || die "A171-6 the capture step is not timed in the ledger"
+  [ "$(grep -c 'event=hook-timeout ' .agents/runs/LC/LEDGER.log)" -ge 2 ] || die "A171-6 hook timeouts are not in the ledger"
+  grep -q 'event=hook-timeout .*detail=name=prompt ms=[0-9]* note=killed-before-finish' .agents/runs/LC/LEDGER.log || die "A171-6 a killed hook (in-flight marker) is not a timeout in the ledger"
+  [ ! -s .agents/local/hook-times ] || die "A171-6 the spool was not emptied"
+  sh .agents/scripts/agent.sh verify-seal LC >/dev/null 2>&1 || A verify-seal LC >/dev/null || die "A171-6 the ledger chain broke after hook events"
+  cp "$tl_agents/scripts/friction.sh" .agents/scripts/
+  mkdir -p .agents/local/metrics; : > .agents/local/metrics/records.jsonl; A friction report LC >/dev/null
+  grep -Eq '^- hook timeouts: [2-9] \(of [0-9]+ recorded hook runs; total hook time [0-9]+ ms, slowest [0-9]+ ms\)' .agents/local/friction/latest.md || die "A171-6 the friction report does not count hook timeouts: $(grep -i hook .agents/local/friction/latest.md)"
+  ok "A171-6 hook durations and timeouts are written to the ledger and counted in the friction report"
+  # language at write time (the write hook), quote blocks exempt
+  tr_text='Bence şu şekilde olsun: ığüşöç çok güzel'
+  w() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\".agents/runs/LC/PLAN.md\",\"content\":\"$(jstr "$1")\"}}"; }
+  denied "A171-7 unquoted Turkish in a run file is refused when written" "$(w "# Report
+$tr_text")" "language: run artifacts are English"
+  allowed "A171-7 the same Turkish inside a quote block is written" "$(w "# Report
+The user said:
+> $tr_text")"
+  allowed "A171-7 English is written" "$(w '# Report
+all fine')"
+  other=$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\".agents/local/assignments/x.md\",\"content\":\"$(jstr "$tr_text")\"}}")
+  allowed "A171-7 Turkish outside the run folder is not this check's business" "$other"
+}
+
 not_installed() {
   d=$(mktemp -d "$base/plain.XXXXXX"); cd "$d" || exit 1
   allowed "project without proofline: hook is a no-op" "$(pre_edit Edit "$d/x.js")"
@@ -985,7 +1052,7 @@ read_roles_tree() {
 }
 
 fails=0
-scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
+scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done

@@ -83,6 +83,49 @@ if [ -f "$local_dir/ACTIVE_RUN" ]; then
   case "$act" in '') ;; *[!A-Za-z0-9_-]*) act=INVALID ;; esac
 fi
 
+# --- hook timings (A171) ----------------------------------------------------------------------
+# Every run leaves a line `epoch|name|ms|result|note` in .agents/local/hook-times (a plain append); a hook the runtime killed at its
+# time limit leaves an in-flight marker instead, which the next prompt or session hook turns into a `timeout` line.
+# `agent.sh hook-time <ID>` moves the lines into the ledger of the active run (the friction report counts them).
+# Millisecond clocks exist for the events a person waits on (prompt, session, stop, subagent events); tool events use seconds.
+hk_fine=no; case "$ev" in prompt|session|stop|subagent-start|subagent-stop) hk_fine=yes ;; esac
+hk_now() {
+  hk_v=''
+  if [ "$hk_fine" = yes ]; then
+    hk_v=$(date +%s%N 2>/dev/null); case "$hk_v" in ''|*[!0-9]*) hk_v=$(perl -MTime::HiRes=time -e 'printf "%d", time()*1000' 2>/dev/null || :) ;; *) hk_v=$((hk_v / 1000000)) ;; esac
+  fi
+  case "$hk_v" in ''|*[!0-9]*) hk_v=$(( $(date +%s) * 1000 )) ;; esac
+  printf '%s' "$hk_v"
+}
+hk_t0=$(hk_now); hk_mark=''
+hk_line() { # NAME MS RESULT [NOTE]
+  [ "$installed" = yes ] || return 0
+  printf '%s|%s|%s|%s|%s\n' "$(date +%s)" "$1" "$2" "$3" "${4:-}" >> "$local_dir/hook-times" 2>/dev/null || :
+}
+hk_step() { hk_line "$ev.$1" $(( $(hk_now) - $2 )) ok; }   # STEP T0: the time of one step of this hook
+hk_finish() {
+  [ -z "$hk_mark" ] || { rm -f "$hk_mark"; hk_line "$ev" $(( $(hk_now) - hk_t0 )) ok; }
+}
+if [ "$installed" = yes ] && mkdir -p "$local_dir/hooks-inflight" 2>/dev/null; then
+  hk_mark=$local_dir/hooks-inflight/$ev.$$; printf '%s %s\n' "$$" "$hk_t0" > "$hk_mark" 2>/dev/null || hk_mark=''
+fi
+trap 'hk_finish; rm -rf "$tmp"' EXIT
+hk_sweep() { # in-flight markers of hooks that are gone without finishing: the runtime killed them at its time limit
+  for hk_f in "$local_dir"/hooks-inflight/*; do
+    [ -f "$hk_f" ] && [ "$hk_f" != "$hk_mark" ] || continue
+    read -r hk_p hk_s < "$hk_f" || :
+    case "$hk_p:$hk_s" in *[!0-9:]*|:*|*:) rm -f "$hk_f"; continue ;; esac
+    ! kill -0 "$hk_p" 2>/dev/null || continue
+    hk_n=${hk_f##*/}; hk_n=${hk_n%.*}
+    hk_line "$hk_n" $(( $(hk_now) - hk_s )) timeout "killed-before-finish"
+    rm -f "$hk_f"
+  done
+}
+hk_flush() { # move the spool into the ledger of the active run; never waits long for the locks
+  [ -s "$local_dir/hook-times" ] && [ -n "$act" ] && [ "$act" != INVALID ] || return 0
+  (unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=3 sh "$agent" hook-time "$act" >/dev/null 2>&1) || :
+}
+
 aid=''; atype=''; [ "$parsed" = no ] || { aid=$(jget agent_id); atype=$(jget agent_type); }
 envrole=$(canon "${AGENT_ROLE:-}")
 role=lead; prole=''
@@ -1728,6 +1771,25 @@ pretool)
     # A120: the file tools write nothing outside the copy (the shell guard handles shell writes, A97)
     [ "$(relpath "$tg")" != @outside ] || why=$(outside_ok "$tg") || deny "$tool $tg: $why"
   done < "$tmp/targets"
+  # A171: run files are English; the check runs when the file is written, not at the end of the run. The text about to be written
+  # (Write content, Edit new_string, MultiEdit edits) goes through `agent.sh language-check`; the user's own words are kept
+  # in a quote block (every line starts with '> '), which the check exempts. Raw logs, dispatch output, scratch and gates are exempt.
+  case "$tool" in
+    Write|Edit|MultiEdit)
+      lp=$(relpath "$(jget tool_input.file_path tool_input.path)")
+      case "$lp" in
+        .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log) ;;
+        .agents/runs/*/*.md|.agents/runs/*/*.yaml|.agents/runs/*/*.json|.agents/runs/*/*/*.md|.agents/runs/*/*/*.yaml|.agents/runs/*/*/*.json)
+          if [ "$tool" = MultiEdit ]; then   # the new_string of every edit, as text (a JSON array would hide the line starts)
+            case "$jp" in
+              jq) jq -r '.tool_input.edits[]? | .new_string // empty' < "$tmp/in" > "$tmp/lang" 2>/dev/null || : ;;
+              node) node -e 'try { for (const e of (JSON.parse(require("fs").readFileSync(0, "utf8")).tool_input.edits || [])) if (typeof e.new_string === "string") console.log(e.new_string) } catch (e) {}' < "$tmp/in" > "$tmp/lang" 2>/dev/null || : ;;
+              *) : > "$tmp/lang" ;;
+            esac
+          else jget tool_input.content tool_input.new_string > "$tmp/lang"; fi
+          if lres=$(unset AGENT_ROLE; sh "$agent" language-check - < "$tmp/lang" 2>&1); then :; else deny "$tool $lp: $lres"; fi ;;
+      esac ;;
+  esac
   exit 0 ;;
 
 subagent-start)
@@ -1804,24 +1866,55 @@ prompt)
   once
   sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
   mkdir -p "$local_dir/prompts" || exit 0
-  # The previous run of this hook did not finish (killed at the runtime's timeout): say so plainly.
-  warn=''; if [ -f "$local_dir/prompts/.approving-$sess" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; fi
+  # A171: the order is fixed. 1. the critical records (this prompt's capture and history file: they are what an approval or an
+  # answer is checked against), nothing else before them; 2. housekeeping; 3. the approval, bounded in time; 4. the ledger flush.
+  hk_c0=$(hk_now)
   h=$(sha "$tmp/text")
   printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$local_dir/prompts/.$sess.tmp" &&
     mv "$local_dir/prompts/.$sess.tmp" "$local_dir/prompts/$sess.json"
   # Every prompt is kept (raw text) so an answer recorded as the user's can be checked against what was said (A60).
   mkdir -p "$local_dir/prompts/history" && cp "$tmp/text" "$local_dir/prompts/history/$(date +%s)-$(printf '%.8s' "$h").txt" 2>/dev/null || :
+  hk_step capture "$hk_c0"
+  # The previous run of this hook did not finish (killed at the runtime's timeout): say so plainly. An .approving- marker of
+  # another session that is older than two minutes is left over from a killed hook too: removed (A171), never reported here.
+  warn=''; if [ -f "$local_dir/prompts/.approving-$sess" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; rm -f "$local_dir/prompts/.approving-$sess"; fi
+  find "$local_dir/prompts" -maxdepth 1 -name '.approving-*' -mmin +2 -exec rm -f {} + 2>/dev/null || :
+  hk_sweep
+  [ "$(wc -l < "$local_dir/hook-times" 2>/dev/null || echo 0)" -le 5000 ] || { tail -n 2000 "$local_dir/hook-times" > "$local_dir/hook-times.t" && mv "$local_dir/hook-times.t" "$local_dir/hook-times"; } 2>/dev/null || :
   # Approvals are recorded here, by the runtime, from the user's own reply (A41): every open request this
   # prompt satisfies (approval phrase and kind word, single-use) becomes an approval. The lead never runs
   # `agent.sh approve`; a prompt that approves nothing changes nothing.
   # Fast path: agent.sh starts only when an approval request is open; a marker left behind means a timeout.
+  # A171: the output goes to .agents/local/approve.log; a refusal is shown as one line to the lead and the user; the step is
+  # stopped after PROOFLINE_HOOK_APPROVE_BUDGET seconds (default 20 of the runtime's 30) and a lock is waited for at most
+  # PROOFLINE_HOOK_LOCK_WAIT seconds (default 8), so the hook ends in time, writes the reason and the next `agent.sh next` retries.
+  msgs=''
   req=no; for f in "$root/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$local_dir/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
   if [ "$act" != INVALID ] && [ "$req" = yes ]; then
-    printf '%s\n' "$h" > "$local_dir/prompts/.approving-$sess"
-    (unset AGENT_ROLE; sh "$agent" approve-pending "$act" >/dev/null 2>&1) || :
+    hk_a0=$(hk_now); printf '%s\n' "$h" > "$local_dir/prompts/.approving-$sess"
+    ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$agent" approve-pending "$act" ) >"$tmp/ap.out" 2>&1 </dev/null &
+    ap_pid=$!; ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=0
+    while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do sleep 0.1; ap_i=$((ap_i + 1)); done
+    if kill -0 "$ap_pid" 2>/dev/null; then
+      kill "$ap_pid" 2>/dev/null || :
+      { wait "$ap_pid"; } 2>/dev/null || :
+      hk_line "$ev.approve" $(( $(hk_now) - hk_a0 )) timeout "stopped-by-hook-budget"
+      printf '%s approval step stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${PROOFLINE_HOOK_APPROVE_BUDGET:-20}" >> "$local_dir/approve.log" 2>/dev/null || :
+      msgs="proofline: the approval step ran out of time and was stopped, so an approval in your last message may NOT be recorded; the lead retries it at the next 'agent.sh next' (details: .agents/local/approve.log)."
+    else
+      wait "$ap_pid" 2>/dev/null || :
+      hk_step approve "$hk_a0"
+      ap_ok=$(sed -n 's/^approved: //p' "$tmp/ap.out" | head -n 3 | tr '\n' ';')
+      ap_bad=$(sed -n 's/^not recorded: //p' "$tmp/ap.out" | head -n 1)
+      [ -z "$ap_ok" ] || msgs="proofline: approval recorded: ${ap_ok%;}"
+      [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
+    fi
   fi
   rm -f "$local_dir/prompts/.approving-$sess"
-  [ -z "$warn" ] || ctx UserPromptSubmit "$warn"
+  hk_flush
+  [ -z "$warn" ] || msgs="$warn${msgs:+ $msgs}"
+  [ -n "$msgs" ] || exit 0
+  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$(jesc "$msgs")" "$(jesc "$msgs")"
   exit 0 ;;
 
 stop)
@@ -1834,6 +1927,7 @@ stop)
   # lead left it out, the hook adds it, from the user's last prompt (the command) and the run state (`agent.sh next-user`).
   [ "$parsed" = yes ] && [ "$sub" = no ] && [ "$role" = lead ] || exit 0
   [ "$installed" = yes ] || exit 0
+  hk_flush
   # A169: the identifier check runs only for the final report of a run, the message that ends a turn in which the lead
   # ran a report command (marked by pretool, see report-turn); an ordinary answer gets nothing appended.
   sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
@@ -1889,6 +1983,7 @@ $l" ;; esac
 session)
   [ "$role" = lead ] && [ "$sub" = no ] || exit 0
   once
+  hk_sweep; hk_flush
   case "$rt" in
     codex) skill=.agents/skills/proofline-lead/SKILL.md ;;
     *) if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then skill=$CLAUDE_PLUGIN_ROOT/skills/proofline-lead/SKILL.md; else skill=.agents/skills/proofline-lead/SKILL.md; fi ;;
