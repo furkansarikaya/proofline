@@ -5,6 +5,9 @@ MIT-licensed repositories, pinned to the commits below. `sh tests/ci/sync-design
 rewrites the commit, hash and licence lines of this file; `--check` verifies the copies. Edit this file only through
 that script, except for the header list and the Repository, Commit, Path, Licence file and Files names.
 
+The copies keep the sources' own strings (names, URLs) because the licence requires them unchanged. For that reason the
+static name check skips exactly this file and the copies listed under Files below, and no other file.
+
 ## Sources
 
 - source-1 | taste-skill | https://github.com/Leonxlnx/taste-skill

@@ -20,7 +20,7 @@ grep -q '^PASS shortcut labels' "$T/o" || die "no PASS line for the labels rule"
 echo "ok clean repository passes"
 scratch bad; printf '// ponytail: x, y\nint a;\n' > "$T/bad/src/b.c"; git -C "$T/bad" add -A
 if sh "$chk" --root "$T/bad" > "$T/o" 2>&1; then die "a ponytail comment passed"; fi
-grep -q '^FAIL shortcut labels' "$T/o" && grep -q 'src/b.c' "$T/o" || die "the failure does not name the rule and file: $(cat "$T/o")"
+{ grep -q '^FAIL shortcut labels' "$T/o" && grep -q 'src/b.c' "$T/o"; } || die "the failure does not name the rule and file: $(cat "$T/o")"
 for c in '# ponytail: x' '-- PONYTAIL: x' '/* ponytail: x */'; do
   printf '%s\n' "$c" > "$T/bad/src/b.c"; git -C "$T/bad" add -A
   if sh "$chk" --root "$T/bad" > "$T/o" 2>&1; then die "comment style not caught: $c"; fi
