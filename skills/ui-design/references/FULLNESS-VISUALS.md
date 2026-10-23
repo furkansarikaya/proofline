@@ -21,6 +21,6 @@ Write first what is actually real: the project's own photos, the real UI, an ima
 
 - Software shows its real UI rendered in HTML (real components with real sample content). No fake dashboards, no grey-bar charts standing in for a chart.
 - Illustration: real, or none. Code-made geometry, diagrams, animated lines and typographic compositions are free and often best.
-- External images only from licensed sources (open archives) with the credit recorded. Never an image of unknown origin.
-- Image generation is allowed only when a tool exists in the user's setup; it is never mandatory, and "none" is a valid plan.
+- External images only from licensed sources (open archives) with the credit recorded. Never an image of unknown origin. Library photos named by the deal are self-hosted (download, no hot-linking, verify the address once), keep their credit on the page and in the ledger, and are listed as `{file, source: "library", credit}`; they are never the project's own imagery.
+- Image generation is allowed only when a tool exists in the user's setup; it is never mandatory, and "none" is a valid plan. When the tool exists, persuade surfaces get a comp before coding ([DIRECTION.md](DIRECTION.md) section 7); generated images enter the ledger as source `generated` with tool and prompt.
 - Every image and every self-hosted font goes in the ledger: copy [IMAGES.template.md](../assets/IMAGES.template.md) to `docs/design/IMAGES.md`. A row is valid only with `file`, `license` and `credit` (images) or `source` (fonts) filled. visual-proof blocks a raster image on the page that has no ledger row.

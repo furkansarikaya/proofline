@@ -10,14 +10,12 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deal } from "./deal.mjs";
+import { deal, dealIds, loadLibrary, checkRedrawReason } from "./deal.mjs";
 
 // 0.0.27 (A170): the pattern registry. visual-proof carries the detectors; a test checks both id sets agree.
 export const REGISTRY_DATE = "2026-10-23";
 export const PATTERN_IDS = ["cream-serif-terracotta", "dark-single-neon-glow", "hairline-newspaper", "uniform-saas-cards", "eyebrow-label", "mono-labels", "numbered-steps", "middot-meta", "gradient-text", "decorative-glass", "side-stripe-card", "hard-offset-shadow", "emoji-icons", "sketch-svg", "grid-background"];
 export const VISITOR_MODES = ["persuade", "operate", "read", "experience"];
-const COLOUR_STRATEGIES = ["restrained", "committed", "full-palette", "drenched"];
-const CANDIDATE_FIELDS = ["composition", "colour_strategy", "type_voice", "visual_mode", "signature_motion", "first_screen"];
 // Copy hygiene (V5): a UI string must not show a file path, a role id or an internal folder.
 const INTERNAL_COPY = /(?:^|[\s("'])\.?agents\/|\broles\/[\w-]+\.md\b|\b(?:designer|implementer|reviewer|explorer|architect|qa|verifier)-\d+\b|\b[\w.-]+(?:\/[\w.-]+)+\.(?:md|json|mjs|cjs|js|jsx|ts|tsx|sh|ya?ml|toml|css|html)\b|\bdocs\/(?:product|design)\b/i;
 
@@ -186,8 +184,8 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
 const reqStr = (o, keys, p, err) => { for (const k of keys) if (!isStr(o[k])) err(`${p}.${k}`, "expected non-empty string"); };
 const onlyKeys = (o, keys, p, err) => { for (const k of Object.keys(o)) if (!keys.includes(k)) err(p, `unexpected "${k}"`); };
 
-const CD_KEYS = ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale", "avoided", "alternatives", "chosen", "redesign", "topic_inventory", "idea", "candidates", "deal", "patterns_used"];
-function creativeDirection(cd, designExists, task, err, { dealMode = false } = {}) {
+const CD_KEYS = ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale", "avoided", "alternatives", "chosen", "redesign", "topic_inventory", "idea", "deal", "patterns_used"];
+function creativeDirection(cd, designExists, task, err, { dealMode = false, modes = null } = {}) {
   const p = "$.creative_direction";
   if (!isObj(cd)) return err(p, "expected object");
   onlyKeys(cd, CD_KEYS, p, err);
@@ -198,8 +196,8 @@ function creativeDirection(cd, designExists, task, err, { dealMode = false } = {
   if (cd.basis === "new" && designExists) err(`${p}.basis`, "DESIGN.md exists: conform to it, or redesign only when the task asks for it and the user approved");
   if (cd.basis === "new" && !(Array.isArray(cd.avoided) && cd.avoided.length > 0)) err(`${p}.avoided`, "a new direction lists the generic defaults it rejected and why");
   if (cd.basis === "conform") { if ("alternatives" in cd || "chosen" in cd) err(`${p}.alternatives`, "conform applies the existing system: no direction alternatives"); }
-  else if (dealMode) dealtDirection(cd, p, err);
-  else directionAlternatives(cd, p, err);
+  else if (dealMode) dealtDirection(cd, p, err, modes);
+  else { directionAlternatives(cd, p, err); if ("deal" in cd) dealRecord(cd.deal, `${p}.deal`, err, modes); }
   if (cd.basis !== "redesign") { if ("redesign" in cd) err(`${p}.redesign`, "only with basis redesign"); return; }
   const r = cd.redesign, q = `${p}.redesign`;
   if (!isObj(r)) return err(q, "a redesign needs {task_quote} (the task's request), plus user_approval (the user's approval) when DESIGN.md exists or inventory when it does not");
@@ -250,8 +248,13 @@ function patternsUsed(list, p, err) {
   });
 }
 
-// V3: persuade/experience with basis new|redesign: the full direction process (inventory, idea, candidates, deal).
-function dealtDirection(cd, p, err) {
+// The bundled library is loaded once, on first use (a deal replay needs it).
+let LIB = null;
+const library = () => (LIB ||= loadLibrary());
+
+// V3: persuade/experience with basis new|redesign: topic inventory, idea with rival swap, and a deal drawn from the
+// library by scripts/deal.mjs. The validator replays the deal from the recorded inputs, seed and redraws.
+function dealtDirection(cd, p, err, modes) {
   const inv = cd.topic_inventory;
   if (!Array.isArray(inv) || inv.length < 8 || inv.length > 12 || !inv.every(isStr)) err(`${p}.topic_inventory`, "8-12 concrete things that belong to this product and not to its rival");
   else if (new Set(inv.map(norm)).size !== inv.length) err(`${p}.topic_inventory`, "duplicate item");
@@ -264,36 +267,10 @@ function dealtDirection(cd, p, err) {
     if (isStr(idea.sentence) && /\bclean (and|&) modern\b/i.test(idea.sentence)) err(`${p}.idea.sentence`, "'clean and modern' is not an idea");
     if (idea.rival_swap !== "no_longer_true") err(`${p}.idea.rival_swap`, "run the rival test: with the nearest rival's name in the sentence the idea must be no_longer_true; otherwise the idea is rejected");
   }
-  const cands = cd.candidates;
-  const names = [];
-  if (!Array.isArray(cands) || cands.length < 5 || cands.length > 7) err(`${p}.candidates`, "derive 5-7 candidate directions from the product's world");
-  else cands.forEach((c, i) => {
-    const q = `${p}.candidates[${i}]`;
-    if (!isObj(c)) return err(q, "expected object");
-    onlyKeys(c, ["name", ...CANDIDATE_FIELDS], q, err);
-    reqStr(c, ["name", ...CANDIDATE_FIELDS], q, err);
-    if (isStr(c.name)) names.push(c.name);
-    if (isStr(c.colour_strategy) && !COLOUR_STRATEGIES.includes(c.colour_strategy)) err(`${q}.colour_strategy`, `must be one of ${COLOUR_STRATEGIES.join("|")}`);
-  });
-  if (new Set(names).size !== names.length) err(`${p}.candidates`, "duplicate candidate name");
-  const d = cd.deal;
-  let dealt = null;
-  if (!isObj(d)) err(`${p}.deal`, "expected {seed, dealt, standard}: run scripts/deal.mjs and record its output");
-  else {
-    onlyKeys(d, ["seed", "dealt", "standard"], `${p}.deal`, err);
-    if (!Number.isInteger(d.seed) || d.seed < 0 || d.seed > 4294967295) err(`${p}.deal.seed`, "integer 0..4294967295 as printed by deal.mjs");
-    if (!Array.isArray(d.dealt) || d.dealt.length !== 3 || !d.dealt.every(isStr)) err(`${p}.deal.dealt`, "exactly three dealt candidate names");
-    else if (!d.dealt.every((n) => names.includes(n))) err(`${p}.deal.dealt`, "every dealt name must be a candidate");
-    else if (Number.isInteger(d.seed) && names.length >= 5 && new Set(names).size === names.length) {
-      const again = deal(names, d.seed, 3);
-      if ([...again].sort().join("\n") !== [...d.dealt].sort().join("\n")) err(`${p}.deal.dealt`, `does not match the deal of seed ${d.seed} (expected ${again.join(", ")}): run scripts/deal.mjs, do not choose by hand`);
-      else dealt = d.dealt;
-    }
-    if (!isStr(d.standard)) err(`${p}.deal.standard`, "name of the calm, category-standard option offered next to the dealt three");
-    else if (names.includes(d.standard)) err(`${p}.deal.standard`, "the standard option is not one of the candidates");
-  }
+  const replayed = dealRecord(cd.deal, `${p}.deal`, err, modes);
   const a = cd.alternatives;
-  if (!Array.isArray(a) || a.length !== 4) return err(`${p}.alternatives`, "the three dealt directions plus the standard option (4 entries)");
+  const want = replayed ? replayed.dealt.length + 1 : null;
+  if (!Array.isArray(a) || (want !== null && a.length !== want) || a.length < 2 || a.length > 4) return err(`${p}.alternatives`, want ? `the ${want - 1} dealt directions plus the standard option (${want} entries)` : "the dealt directions plus the standard option");
   a.forEach((x, i) => {
     const q = `${p}.alternatives[${i}]`;
     if (!isObj(x)) return err(q, "expected object");
@@ -306,10 +283,38 @@ function dealtDirection(cd, p, err) {
   if (new Set(aNames).size !== aNames.length) err(`${p}.alternatives`, "duplicate alternative name");
   const std = a.filter((x) => isObj(x) && x.standard === true);
   if (std.length !== 1) err(`${p}.alternatives`, "exactly one alternative is flagged standard: true");
-  else if (isObj(d) && isStr(d.standard) && std[0].name !== d.standard) err(`${p}.alternatives`, "the standard alternative must be named as deal.standard");
-  if (dealt) for (const n of dealt) if (!aNames.includes(n)) err(`${p}.alternatives`, `dealt direction "${n}" is missing from the alternatives`);
-  if (dealt) for (const x of a) if (isObj(x) && x.standard !== true && !dealt.includes(x.name)) err(`${p}.alternatives`, `"${x.name}" was not dealt`);
+  if (replayed) {
+    const idOf = (ids) => ids.direction || ids.style;
+    const dealtNames = replayed.dealt.map(idOf), stdName = `standard-${idOf(replayed.standard)}`;
+    for (const n of dealtNames) if (!aNames.includes(n)) err(`${p}.alternatives`, `dealt direction "${n}" is missing: name each dealt alternative by its direction id`);
+    if (std.length === 1 && std[0].name !== stdName) err(`${p}.alternatives`, `the standard alternative must be named "${stdName}"`);
+    for (const x of a) if (isObj(x) && x.standard !== true && !dealtNames.includes(x.name)) err(`${p}.alternatives`, `"${x.name}" was not dealt`);
+  }
   if (!isStr(cd.chosen) || !aNames.includes(cd.chosen)) err(`${p}.chosen`, "must be the name of one alternative (the user's choice)");
+}
+
+// Replays deal(inputs, seed, redraws) and compares the recorded ids; returns the ids when they match.
+function dealRecord(d, p, err, modes) {
+  if (!isObj(d)) { err(p, "expected {inputs, seed, dealt, standard, redraws?}: run scripts/deal.mjs --brief <brief.json> and record its inputs, seed, ids and redraws"); return null; }
+  onlyKeys(d, ["inputs", "seed", "dealt", "standard", "redraws"], p, err);
+  if (!isObj(d.inputs)) { err(`${p}.inputs`, "the brief deal.mjs was given (mode, sector, imagery, sections, ...)"); return null; }
+  if (!Number.isInteger(d.seed) || d.seed < 0 || d.seed > 4294967295) { err(`${p}.seed`, "integer 0..4294967295 as printed by deal.mjs"); return null; }
+  if (!Array.isArray(d.dealt) || d.dealt.length < 1 || d.dealt.length > 3 || !d.dealt.every(isObj)) { err(`${p}.dealt`, "the dealt ids (up to three objects, the `ids` field of each deal.mjs entry)"); return null; }
+  if (!isObj(d.standard)) { err(`${p}.standard`, "the ids of the calm standard option"); return null; }
+  const redraws = d.redraws === undefined ? [] : d.redraws;
+  if (!Array.isArray(redraws) || !redraws.every((r) => isObj(r) && isStr(r.slot) && isStr(r.reason))) { err(`${p}.redraws`, "expected array of {slot, reason}"); return null; }
+  let badReason = false;
+  for (const [i, r] of redraws.entries()) { const why = checkRedrawReason(r.reason); if (why) { badReason = true; err(`${p}.redraws[${i}].reason`, why); } }
+  if (badReason) return null;
+  if (modes && isStr(d.inputs.mode) && !modes.has(d.inputs.mode)) err(`${p}.inputs.mode`, `the deal was run for mode ${d.inputs.mode}, which is not a visitor mode of this spec`);
+  let lib;
+  try { lib = library(); } catch (e) { err(p, `cannot replay the deal: bundled library not readable (${e.message})`); return null; }
+  let again;
+  try { again = deal(d.inputs, d.seed, redraws.map((r) => ({ slot: r.slot, reason: r.reason })), lib); } catch (e) { err(p, `deal replay failed: ${e.message}`); return null; }
+  if (again.status !== "ok") { err(p, `no direction can satisfy this brief (${again.reason}); change the brief honestly, do not relax the deal`); return null; }
+  const exp = dealIds(again);
+  if (JSON.stringify(exp) !== JSON.stringify({ dealt: d.dealt, standard: d.standard })) { err(p, `does not match the deal of seed ${d.seed} for these inputs and redraws (expected dealt ${exp.dealt.map((x) => x.direction || x.style).join(", ")}): run scripts/deal.mjs, never choose by hand`); return null; }
+  return exp;
 }
 
 const MODE_OF = new WeakMap();
@@ -356,6 +361,13 @@ function craftChecks(doc, screens, modes, root, err) {
   });
   // V4: persuade needs the craft block.
   if ("craft" in doc || modes.has("persuade")) craft(doc.craft, modes.has("persuade"), root, err);
+  // Library images never stand in for the project's own: a brief that claims project photos needs project images listed.
+  const claimed = doc.creative_direction?.deal?.inputs?.imagery;
+  const listed = doc.craft?.visual_plan?.images;
+  if (Array.isArray(claimed) && Array.isArray(listed) && claimed.some((x) => x === "project-photos" || x === "product-photo")) {
+    const own = listed.filter((im) => typeof im === "string" || (isObj(im) && im.source === "project"));
+    if (own.length === 0) err("$.craft.visual_plan.images", "the deal brief claims project photos but no image is listed with source project (library images are never counted as the project's imagery)");
+  }
 }
 
 function argument(arg, persuade, screens, root, err) {
@@ -432,12 +444,12 @@ function craft(c, required, root, err) {
     else {
       onlyKeys(v, ["real", "images", "ledger"], q, err);
       if (!Array.isArray(v.real) || v.real.length === 0 || !v.real.every(isStr)) err(`${q}.real`, "write first what is actually real (own photos, real UI, a generation tool, or the word none)");
-      if (!Array.isArray(v.images) || !v.images.every(isStr)) err(`${q}.images`, "expected array of image file paths (empty when none)");
+      const files = visualImages(v.images, q, err);
       if (!safeRel(v.ledger)) err(`${q}.ledger`, "path of the image ledger (docs/design/IMAGES.md)");
-      else if (root && Array.isArray(v.images) && v.images.length > 0) {
+      else if (root && files.length > 0) {
         const f = resolve(root, v.ledger);
         if (!existsSync(f)) err(`${q}.ledger`, `${v.ledger} does not exist but images are listed`);
-        else { const t = readFileSync(f, "utf8"); for (const im of v.images) if (!t.includes(im)) err(`${q}.images`, `${im} has no row in ${v.ledger}`); }
+        else { const t = readFileSync(f, "utf8"); for (const im of files) if (!t.includes(im)) err(`${q}.images`, `${im} has no row in ${v.ledger}`); }
       }
     }
   }
@@ -453,16 +465,58 @@ function craft(c, required, root, err) {
   }
   if (need("fonts")) {
     const f = c.fonts, q = `${p}.fonts`;
-    if (!Array.isArray(f) || f.length === 0) err(q, "expected non-empty array of self-hosted fonts {family, file, license}");
+    if (!Array.isArray(f) || f.length === 0) err(q, "expected non-empty array of self-hosted fonts {family, file, license, license_ref}");
     else f.forEach((x, i) => {
       const r = `${q}[${i}]`;
       if (!isObj(x)) return err(r, "expected object");
-      onlyKeys(x, ["family", "file", "license"], r, err);
+      onlyKeys(x, ["family", "file", "license", "license_ref"], r, err);
       reqStr(x, ["family", "license"], r, err);
-      if (!safeRel(x.file)) err(`${r}.file`, "self-hosted font file path in the project (a system font cannot be the voice of a persuade surface)");
+      if (!safeRel(x.file)) err(`${r}.file`, "self-hosted font file path in the project (a system font cannot be the voice of a persuade surface; no hot-linked font)");
       else if (root && !existsSync(resolve(root, x.file)) && required) err(`${r}.file`, `${x.file} does not exist`);
+      fontLicence(x, r, root, err);
     });
   }
+}
+
+// A font in craft.fonts needs a verifiable licence reference: an open family of the bundled licence directory
+// (`library:<family>`), or the path of the package's or font's own licence file inside the project.
+function fontLicence(x, r, root, err) {
+  const ref = x.license_ref;
+  if (!isStr(ref)) return err(`${r}.license_ref`, "an unverifiable font is rejected: give library:<family> (open licence in the bundled directory) or the path of the package's licence file");
+  if (ref.startsWith("library:")) {
+    const fam = ref.slice(8).trim().toLowerCase();
+    let lib;
+    try { lib = library(); } catch (e) { return err(`${r}.license_ref`, `bundled licence directory not readable (${e.message})`); }
+    const hit = lib.licences.families.find((h) => h.name.toLowerCase() === fam);
+    if (!hit) return err(`${r}.license_ref`, `"${ref.slice(8)}" is not in the bundled licence directory: use the path of the package's licence file instead`);
+    if (!["OFL", "APACHE2", "UFL"].includes(hit.license)) return err(`${r}.license_ref`, `licence ${hit.license} of "${hit.name}" is not an open licence`);
+    if (isStr(x.family) && x.family.trim().toLowerCase() !== fam) err(`${r}.license_ref`, `the reference names "${ref.slice(8)}" but the font is "${x.family}"`);
+    return;
+  }
+  if (!safeRel(ref)) return err(`${r}.license_ref`, "expected library:<family> or a repo-relative path of a licence file");
+  if (root && !existsSync(resolve(root, ref))) err(`${r}.license_ref`, `${ref} does not exist: the licence cannot be verified`);
+}
+
+// visual_plan.images: a string is a project image; an object {file, source: project|library|generated, ...} says where it
+// came from. Library images are self-hosted (a project path, never an address), carry a credit, and are never counted as
+// the project's own imagery. Generated images name the tool and the prompt. Returns the file paths.
+function visualImages(images, q, err) {
+  if (!Array.isArray(images)) { err(`${q}.images`, "expected array (empty when none): project image paths or {file, source, ...} objects"); return []; }
+  const files = [];
+  images.forEach((im, i) => {
+    const r = `${q}.images[${i}]`;
+    const o = typeof im === "string" ? { file: im, source: "project" } : im;
+    if (!isObj(o)) return err(r, "expected a path or {file, source}");
+    onlyKeys(o, ["file", "source", "credit", "tool", "prompt"], r, err);
+    if (!["project", "library", "generated"].includes(o.source)) err(`${r}.source`, "must be project, library or generated");
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(String(o.file))) return err(`${r}.file`, "hot-linked image: download it and self-host it in the project");
+    if (!safeRel(o.file)) return err(`${r}.file`, "expected a repo-relative path of a self-hosted file");
+    files.push(o.file);
+    if (o.source === "library" && !isStr(o.credit)) err(`${r}.credit`, "a library image keeps its credit (on the page and in the ledger)");
+    if (o.source === "generated") { if (!isStr(o.tool)) err(`${r}.tool`, "a generated image names the tool"); if (!isStr(o.prompt)) err(`${r}.prompt`, "a generated image records its prompt"); }
+    if (o.source !== "generated" && ("tool" in o || "prompt" in o)) err(r, "tool and prompt belong to generated images only");
+  });
+  return files;
 }
 
 function uxPatterns(list, err) {

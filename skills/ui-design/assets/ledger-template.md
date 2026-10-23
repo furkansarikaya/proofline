@@ -15,7 +15,7 @@ Always English. Update after every step; this is the resume point. Never record 
 | Visitor mode per surface | |
 | Topic inventory count | |
 | Idea sentence and rival test | |
-| Candidates / deal seed / dealt / standard | |
+| Brief / deal seed / dealt / standard / redraws | |
 | Argument rows with proof checked | |
 | Image ledger path | |
 

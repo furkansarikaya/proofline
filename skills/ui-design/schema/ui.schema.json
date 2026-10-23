@@ -47,9 +47,9 @@
       "type": "object", "additionalProperties": false,
       "properties": {
         "live_thing": { "type": "object", "additionalProperties": false, "required": ["description", "phone_ok", "no_script_fallback", "does_not_block_reading"], "properties": { "description": { "type": "string", "minLength": 1 }, "phone_ok": { "const": true }, "no_script_fallback": { "type": "string", "minLength": 1 }, "does_not_block_reading": { "const": true } } },
-        "visual_plan": { "type": "object", "additionalProperties": false, "required": ["real", "images", "ledger"], "properties": { "real": { "$ref": "#/$defs/strings" }, "images": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "ledger": { "type": "string", "minLength": 1 } } },
+        "visual_plan": { "type": "object", "additionalProperties": false, "required": ["real", "images", "ledger"], "properties": { "real": { "$ref": "#/$defs/strings" }, "images": { "type": "array", "items": { "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "object", "additionalProperties": false, "required": ["file", "source"], "properties": { "file": { "type": "string", "minLength": 1 }, "source": { "enum": ["project", "library", "generated"] }, "credit": { "type": "string", "minLength": 1 }, "tool": { "type": "string", "minLength": 1 }, "prompt": { "type": "string", "minLength": 1 } } } ] } }, "ledger": { "type": "string", "minLength": 1 } } },
         "motion": { "type": "object", "additionalProperties": false, "required": ["thesis", "signature", "stagger_ms", "feedback_all_controls", "moving_visual", "reduced_motion"], "properties": { "thesis": { "type": "string", "minLength": 1 }, "signature": { "type": "string", "minLength": 1 }, "stagger_ms": { "type": "number", "minimum": 60, "maximum": 90 }, "feedback_all_controls": { "const": true }, "moving_visual": { "type": "string", "minLength": 1 }, "reduced_motion": { "type": "string", "minLength": 1 } } },
-        "fonts": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["family", "file", "license"], "properties": { "family": { "type": "string", "minLength": 1 }, "file": { "type": "string", "minLength": 1 }, "license": { "type": "string", "minLength": 1 } } } }
+        "fonts": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["family", "file", "license", "license_ref"], "properties": { "family": { "type": "string", "minLength": 1 }, "file": { "type": "string", "minLength": 1 }, "license": { "type": "string", "minLength": 1 }, "license_ref": { "type": "string", "minLength": 1, "$comment": "library:<family> (open licence in the bundled licence directory) or a path to the package or font licence file in the project; an unverifiable font is rejected" } } } }
       }
     },
     "design_system": {
@@ -133,7 +133,7 @@
         "rationale": { "type": "string", "minLength": 1 },
         "avoided": { "$ref": "#/$defs/strings" },
         "alternatives": {
-          "$comment": "2-3 items; with a persuade or experience surface and basis new|redesign exactly 4: the three dealt candidates plus the standard option (standard: true, named as deal.standard, never recommended).",
+          "$comment": "2-3 items; with a persuade or experience surface and basis new|redesign exactly 4: the dealt directions plus the standard option. A dealt alternative is named by its direction id (operate: style id); the standard one `standard-<id>`, flagged standard: true, never recommended.",
           "type": "array", "minItems": 2, "maxItems": 4,
           "items": {
             "type": "object", "additionalProperties": false, "required": ["name", "summary", "trade_off"],
@@ -146,22 +146,29 @@
           "type": "object", "additionalProperties": false, "required": ["sentence", "rival", "rival_swap", "note"],
           "properties": { "sentence": { "type": "string", "minLength": 1 }, "rival": { "type": "string", "minLength": 1 }, "rival_swap": { "const": "no_longer_true" }, "note": { "type": "string", "minLength": 1 } }
         },
-        "candidates": {
-          "type": "array", "minItems": 5, "maxItems": 7,
-          "items": {
-            "type": "object", "additionalProperties": false, "required": ["name", "composition", "colour_strategy", "type_voice", "visual_mode", "signature_motion", "first_screen"],
-            "properties": {
-              "name": { "type": "string", "minLength": 1 }, "composition": { "type": "string", "minLength": 1 },
-              "colour_strategy": { "enum": ["restrained", "committed", "full-palette", "drenched"] },
-              "type_voice": { "type": "string", "minLength": 1 }, "visual_mode": { "type": "string", "minLength": 1 },
-              "signature_motion": { "type": "string", "minLength": 1 }, "first_screen": { "type": "string", "minLength": 1 }
+        "deal": {
+          "$comment": "Record of scripts/deal.mjs: the brief it was given, the seed, the ids it dealt (three directions, fewer only when the library has fewer that satisfy the brief) plus the calm standard option, and every redraw with its reason. The validator replays deal(inputs, seed, redraws) and rejects any mismatch; nothing is chosen by hand.",
+          "type": "object", "additionalProperties": false, "required": ["inputs", "seed", "dealt", "standard"],
+          "properties": {
+            "inputs": {
+              "type": "object", "additionalProperties": false, "required": ["mode", "sector", "imagery", "sections"],
+              "properties": {
+                "mode": { "enum": ["persuade", "experience", "read", "operate"] },
+                "sector": { "type": "string", "minLength": 1 }, "tone": { "type": "string", "minLength": 1 }, "kind": { "type": "string", "minLength": 1 },
+                "imagery": { "type": "array", "minItems": 1, "items": { "enum": ["project-photos", "product-photo", "real-ui", "illustration", "video", "none"] } },
+                "sections": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "brand": { "type": "object", "additionalProperties": false, "properties": { "palette": {}, "font": { "type": "string", "minLength": 1 } } },
+                "subject_colours": {}
+              }
+            },
+            "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            "dealt": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "type": "object", "minProperties": 2 } },
+            "standard": { "type": "object", "minProperties": 2 },
+            "redraws": {
+              "type": "array",
+              "items": { "type": "object", "additionalProperties": false, "required": ["slot", "reason"], "properties": { "slot": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "pattern": "^(brand-constraint|missing-imagery|content-misfit): .{8,}" } } }
             }
           }
-        },
-        "deal": {
-          "$comment": "Output of scripts/deal.mjs; the validator re-deals with the seed and rejects a mismatch.",
-          "type": "object", "additionalProperties": false, "required": ["seed", "dealt", "standard"],
-          "properties": { "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 }, "dealt": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "string", "minLength": 1 } }, "standard": { "type": "string", "minLength": 1 } }
         },
         "patterns_used": {
           "$comment": "Registry patterns (references/PATTERNS.md) used on purpose, each with a reason. Unknown ids are rejected.",

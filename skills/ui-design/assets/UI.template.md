@@ -12,11 +12,12 @@ Mode: <persuade|operate|read|experience> (per screen override: <screen: mode>) |
 ## Creative direction
 Topic inventory (new/redesign, persuade/experience, 8-12): <concrete things of this product, not its rival's>
 Idea: On this page, <inventory item> becomes <tool>. | Rival: <name> | Rival swap: no_longer_true, <why the rival cannot say it>
-Candidates (5-7): <name: composition, colour strategy, type voice, visual mode, signature motion, first screen>
-Deal: seed <N>, dealt <3 names>, standard option <name> (never recommended)
+Brief: <mode, sector, tone, imagery that really exists, section roles, brand constants, subject colours>
+Deal: seed <N>, dealt <3 direction ids>, standard option <id> (never recommended), redraws <slot: reason>
+Comp: <approved draft visual | skipped, no image tool>
 Patterns used (id, reason): <registry ids with reasons, or none>
 Basis: <conform|redesign (task quote; user approval: question id, or inventory when no DESIGN.md)|new>
-Alternatives (new/redesign only): <2-3 directions, each name, summary, trade-off; persuade/experience: the 3 dealt + the standard option> | Chosen: <the user's pick>
+Alternatives (new/redesign only): <2-3 directions, each name, summary, trade-off; persuade/experience: the dealt directions + the standard option> | Chosen: <the user's pick>
 Visual character / Typography / Layout / Content hierarchy: <each with its reason>
 Rationale: <grounded in the users, the task and the existing system>
 Avoided (required for new, and for redesign without DESIGN.md): <generic defaults rejected, and why>
