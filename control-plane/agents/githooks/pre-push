@@ -3,7 +3,8 @@
 #  1 protected branches (git.protected_branches, globs): agents never push there; a human may.
 #  2 open runs (`agent.sh open-runs`, never ACTIVE_RUN): only a run's task branch is pushed.
 #  3 git.push_requires_approval (default true): an agent push needs a single-use `push` approval
-#    (`agent.sh approval-consume <ID|-> push`; `-` when no run is open); a human passes.
+#    (`agent.sh approval-consume <ID|-> push '' <remote refs>`; `-` when no run is open); a human passes.
+#    An approval that names a ref (a delivery's push, a CI-fix push; A169) covers a push to that ref only.
 set -u
 root=$(git rev-parse --show-toplevel) || exit 1
 config=$root/.agents/config.yaml
@@ -19,9 +20,9 @@ set -f
 protected=$(cfg git protected_branches)
 runs=''
 if [ -f "$agent" ]; then runs=$("$agent" open-runs 2>/dev/null) || block "agent.sh open-runs failed; cannot tell whether a run is open"; fi
-refs=0 id=-
+refs=0 id=- rrefs=''
 while read -r lref _lsha rref _rsha; do
-  refs=$((refs + 1)); b=${rref#refs/heads/}
+  refs=$((refs + 1)); b=${rref#refs/heads/}; rrefs="$rrefs $rref"
   if [ -n "$runs" ]; then
     lb=${lref#refs/heads/}; [ "$lref" != HEAD ] || lb=$(git symbolic-ref --short -q HEAD || true)
     rid=$(printf '%s\n' "$runs" | awk -v b="$lb" '$2 == b { print $1; exit }')
@@ -38,5 +39,6 @@ done
 [ "$(cfg git push_requires_approval)" = false ] && exit 0
 human && exit 0
 [ -f "$agent" ] || block "git.push_requires_approval is on and .agents/scripts/agent.sh is missing"
-"$agent" approval-consume "$id" push >&2 || block "git.push_requires_approval: no user push approval"
+# shellcheck disable=SC2086 # the remote refs, one word each (set -f is on)
+"$agent" approval-consume "$id" push '' $rrefs >&2 || block "git.push_requires_approval: no user push approval"
 exit 0

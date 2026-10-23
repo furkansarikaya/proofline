@@ -45,6 +45,37 @@ skipped, and the next independent task still runs.
 
 The driver also stops when every runtime hit its usage limit, or when a runtime is not logged in.
 
+## One worktree per task (A169)
+
+Every task runs in a git worktree of its own, `.agents/local/worktrees/<ID>` (git-ignored), made by the driver from the
+canonical branch just before the task starts (`agent.sh worktree-add <ID>`). The run, its `ACTIVE_RUN`, the task-file move
+to `in-progress/` and the open-run check of the commit and push hooks all belong to that worktree, so:
+
+- a task that is parked, waiting for its merge or in a CI-fix round blocks no task that does not depend on it (before,
+  the next task failed with `another open run exists in this worktree` and its dependents were skipped);
+- the main working tree stays clean: no run, no moved task file, nothing to commit or stash, and `git status` there shows
+  what it showed before the batch;
+- a task starts only when every task it depends on is merged (a record in `merged.tsv`). A dependency that is parked, skipped
+  or awaiting its merge keeps the dependent skipped; the next `proofline batch run` judges it again, so it follows the merge
+  and starts from the new canonical tip;
+- a merged task's worktree is removed; a parked one keeps its worktree (its run evidence lives there) and the next session
+  for that task resumes in it. A pull request that is open but not merged parks the task as `awaiting merge`.
+
+The `batch`, `approvals`, `metrics`, `friction` and `prompts` folders of the worktree's `.agents/local` are links to the main
+working tree's, so the session finds the batch approval and the merge record where the driver reads them, and a reply you
+give in the main session reaches `answer --captured`. Untracked runtime settings
+(`.claude/settings.json`, `.codex/hooks.json`) are copied in and a `node_modules` folder is linked. `proofline clean` leaves
+the worktrees alone; remove one with `agent.sh worktree-remove <ID>` (refused while a run is inside, `--force` overrides).
+A Codex session runs in the worktree with the same profile; the grants outside it are exact: the main `.git` and the task's
+own `.git/worktrees/<ID>` entry (verified with `codex sandbox -P` on codex-cli 0.163.0), never `.git/hooks` or `.git/config`.
+Outside night mode `agent.sh worktree-add <ID>` gives a second run the same kind of worktree; start the session in that folder.
+
+From the main working tree, an `agent.sh` command that names a run living in a task worktree (`questions`, `answer`,
+`next`, `reopen`, ...) is forwarded to that worktree's own `agent.sh` (the working directory becomes the worktree), and
+`proofline queue` lists such runs with their folder. So you answer a parked task's question in the main session, then
+`proofline batch run` resumes the task in its worktree. The next-step line for such a task says exactly that, never
+`/proofline resume`, which would work in the wrong tree.
+
 ## Sessions and timeouts
 
 A session is always started as the leader of its own process group (job control, `setsid`, perl or python3, whichever is

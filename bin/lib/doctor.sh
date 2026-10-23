@@ -106,8 +106,11 @@ doctor_probes() {
     else d_fail "probe: the Codex PreToolUse hook did not deny a lead shell write during an active run"; fi
   fi
   : > "$PD/repo/.agents/local/ACTIVE_RUN"
-  if hook_run claude "$edit_json" | grep -q '"permissionDecision":"deny"'; then d_fail "probe: the PreToolUse hook denies edits although no run is active"
-  else d_pass "probe: the PreToolUse hook stays out of the way without an active run"; fi
+  # A169: the lead's ban on product files holds without a run too; a task file stays writable
+  task_json="{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PD/repo\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$PD/repo/.agents/tasks/probe.md\"}}"
+  if ! hook_run claude "$edit_json" | grep -q '"permissionDecision":"deny"'; then d_fail "probe: the PreToolUse hook did not deny a lead edit of product code although no run is active (A169)"
+  elif hook_run claude "$task_json" | grep -q '"permissionDecision":"deny"'; then d_fail "probe: the PreToolUse hook denies a task file without an active run"
+  else d_pass "probe: without an active run the PreToolUse hook denies a lead product edit and lets a task file through"; fi
 }
 
 # Foreign context sources (WARN only, never FAIL): hooks that add context to the prompt (SessionStart and
@@ -133,6 +136,28 @@ doctor_foreign() {
     printf '%s\n' "$df_n" | grep -Eq '(^|-)(tdd|debug|debugging|review|plan|planning|plans|ui-audit)(-|$)|test-driven' || continue
     d_warn "overlapping skill: $df_n (${df_d%/*/*}) overlaps a proofline method skill; during a run proofline's own skill is used"
   done
+}
+
+# 0.0.26: the language runtimes the project's CI specifies against the ones installed here. WARN only, never FAIL:
+# a different major version (major.minor for go and python) means a green local run may not hold in CI.
+doctor_toolchain() {
+  dt_s=$PL_HOME/skills/verify-proof/scripts/runtime-versions.sh
+  [ -f "$dt_s" ] || return 0
+  dt_out=$(cd "$ROOT" && sh "$dt_s" 2>/dev/null) || return 0
+  while read -r dt_k dt_n dt_l dt_c dt_f dt_st; do
+    [ "$dt_k" = 'runtime:' ] || continue
+    dt_l=${dt_l#local=}; dt_c=${dt_c#ci=}; dt_f=${dt_f#source=}; dt_st=${dt_st#status=}
+    case "$dt_n" in go|python) dt_u='major.minor' ;; *) dt_u=major ;; esac
+    if [ "$dt_l" = missing ]; then
+      d_warn "toolchain $dt_n: not installed here$([ "$dt_c" = none ] || printf ', CI specifies %s (%s)' "$dt_c" "$dt_f")"
+    elif [ "$dt_st" = mismatch ]; then
+      d_warn "toolchain $dt_n: local $dt_l, CI specifies $dt_c ($dt_f); the $dt_u version differs, so a green local run may not hold in CI"
+    elif [ "$dt_c" = none ]; then d_pass "toolchain $dt_n: local $dt_l (no CI-specified version found)"
+    elif [ "$dt_st" = match ]; then d_pass "toolchain $dt_n: local $dt_l matches CI $dt_c ($dt_f)"
+    else d_pass "toolchain $dt_n: local $dt_l, CI specifies $dt_c ($dt_f), not comparable"; fi
+  done <<EOF2
+$dt_out
+EOF2
 }
 
 cmd_doctor() {
@@ -240,6 +265,7 @@ EOF
     'ci: present'*) d_pass "$dc_ci" ;;
   esac
 
+  doctor_toolchain
   doctor_foreign
   doctor_identity
   doctor_probes

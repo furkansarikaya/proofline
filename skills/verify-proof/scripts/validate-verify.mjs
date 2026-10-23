@@ -9,6 +9,8 @@
 //   ## AC coverage         | AC | test or command | status | evidence |     status PASS|FAIL|MISSING
 //   ## Scope               verify-scope: exit=N
 //   ## Design sync         design-sync: PASS|FAIL|SKIPPED (reason)
+//   ## Runtime             runtime: <name> local=<ver|missing> ci=<spec|none> source=<file|-> status=<match|mismatch|unknown>
+//                          (lines of runtime-versions.sh, or `runtime: none (reason)`); information only, never changes the verdict (0.0.26)
 //   ## Pre-existing failures   None | one line per command that failed at head AND base
 //   ## Failures            None | findings (each entry fails the gate: dependency, contract, design drift)
 //   Verdict: PASS|FAIL|BLOCKED          (last non-empty line)
@@ -51,7 +53,7 @@ export function validateVerify(text, taskText, planText) {
   const body = strip(text);
   const secs = sections(text);
   if (!/^# Verification: \S+/m.test(body)) errors.push("H1 must be `# Verification: <TASK-ID>`");
-  for (const n of ["Commands", "AC coverage", "Scope", "Design sync", "Pre-existing failures", "Failures"]) if (!secs.has(n)) errors.push(`missing section "## ${n}"`);
+  for (const n of ["Commands", "AC coverage", "Scope", "Design sync", "Runtime", "Pre-existing failures", "Failures"]) if (!secs.has(n)) errors.push(`missing section "## ${n}"`);
 
   // commands
   const cmds = [];
@@ -110,6 +112,21 @@ export function validateVerify(text, taskText, planText) {
     if (!ds) errors.push("## Design sync needs `design-sync: PASS|FAIL|SKIPPED (reason)`");
     else if (ds[1] === "SKIPPED" && !ds[2]) errors.push("design-sync SKIPPED needs a reason in parentheses");
     else if (ds[1] === "FAIL") reasons.push("design-sync drift");
+  }
+
+  // runtime (0.0.26): which versions the verification ran with; a mismatch is information, never a failure
+  if (secs.has("Runtime")) {
+    let valid = 0;
+    for (const line of secs.get("Runtime")) {
+      const t = line.trim();
+      if (!t) continue;
+      if (/^runtime: none \(\S.*\)$/.test(t)) { valid++; continue; }
+      const m = /^runtime: (node|dotnet|go|python) local=(\S+) ci=(\S+) source=(\S+) status=(match|mismatch|unknown)$/.exec(t);
+      if (!m) { if (/^runtime:/.test(t)) errors.push(`malformed runtime line "${t.slice(0, 70)}" (expected "runtime: <name> local=<version|missing> ci=<spec|none> source=<file|-> status=match|mismatch|unknown")`); continue; }
+      valid++;
+      if ((m[2] === "missing" || m[3] === "none") && m[5] !== "unknown") errors.push(`runtime ${m[1]}: status must be unknown when local is missing or ci is none`);
+    }
+    if (!valid) errors.push("## Runtime needs `runtime: <name> local=... ci=... source=... status=...` (run scripts/runtime-versions.sh) or `runtime: none (reason)`");
   }
 
   // failures: every entry under ## Failures (undeclared dependency, versioned-contract change,

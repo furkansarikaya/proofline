@@ -5,7 +5,12 @@
 #   batch.sh plan <ID...|all>  order the tasks (depends_on), leave out what a batch must not run, write
 #                              .agents/local/batch/SUMMARY.md and order.tsv (agent.sh then requests the `batch` approval)
 #   batch.sh run               the driver: one clean headless lead session per task, one task at a time, only with a valid
-#                              batch approval (bound to the SUMMARY.md hash); the outcome of a task is read from records
+#                              batch approval (bound to the SUMMARY.md hash); the outcome of a task is read from records.
+#                              (A169) Each task runs in a git worktree of its own, .agents/local/worktrees/<ID> (agent.sh worktree-add):
+#                              its run, ACTIVE_RUN and task-file move stay there, so a parked task, one waiting for merge or one in a
+#                              CI-fix round blocks no independent task and never dirties the main working tree. A task starts only
+#                              when every dependency is merged. A merged task's worktree is removed; a parked one keeps it (its run
+#                              evidence lives there) and the next `run` resumes in it.
 #   batch.sh status            the morning table, from state.tsv, merged.tsv and the runs' own records, never from a log
 #   batch.sh start             (A163) after "approve batch": start `run` as a background driver that outlives the agent session
 #                              (own process group, SIGHUP ignored, stdin /dev/null, output to driver.log), under a sleep inhibitor
@@ -27,6 +32,7 @@ here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
 agent=$here/agent.sh
 bd=$root/.agents/local/batch
+wtb=$(cd "$root" && pwd -P)/.agents/local/worktrees   # A169: one worktree per task, <wtb>/<ID>
 
 die() { echo "batch: $*" >&2; exit 1; }
 if command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 < "$1" | awk '{print $1}'; }; else sha() { sha256sum < "$1" | awk '{print $1}'; }; fi
@@ -47,7 +53,15 @@ tick=60; [ "${PROOFLINE_TEST:-}" != 1 ] || tick=${PROOFLINE_BATCH_MINUTE:-60}; c
 # YARN_GLOBAL_FOLDER), pip (PIP_CACHE_DIR), go (GOCACHE, GOPATH, which holds the module cache and sumdb). NOT verified, so not claimed: cargo (not
 # installed where this was checked), any other package manager, a corepack download of a tool version that is not cached. This list is CODEX_VERIFIED.
 CODEX_PROFILE='proofline_night'
-CODEX_FS='{":root"="read",":workspace_roots"={"."="write",".git"="write",".git/hooks"="read",".git/config"="read",".agents"="write"},":tmpdir"="write"}'
+# The profile's filesystem table is built per task by codex_fs. A169: the session runs in the task's own worktree, whose `.git` is a file that points into the main .git. Verified with `codex sandbox -P`
+# (codex-cli 0.163.0): the main .git (refs, objects) is writable by an absolute grant, but its `worktrees/<ID>` administration folder (index,
+# HEAD, logs) only by a grant of that exact path, and the batch state, approvals, metrics, friction and prompts folders the worktree links to by theirs.
+# .git/hooks and .git/config stay read-only, like before (a planted hook would run outside the sandbox). `.git` of the worktree stays read-only
+# (the pointer file), `.codex` too.
+codex_fs() { # ID -> the filesystem table for that task's session
+  cf_m=$(cd "$root" && pwd -P); cf_g=$cf_m/.git
+  printf '{":root"="read",":workspace_roots"={"."="write",".agents"="write"},":tmpdir"="write","%s"="write","%s/hooks"="read","%s/config"="read","%s/worktrees/%s"="write","%s/.agents/local/batch"="write","%s/.agents/local/approvals"="write","%s/.agents/local/metrics"="write","%s/.agents/local/friction"="write","%s/.agents/local/prompts"="write"}' "$cf_g" "$cf_g" "$cf_g" "$cf_g" "$1" "$cf_m" "$cf_m" "$cf_m" "$cf_m" "$cf_m"
+}
 CODEX_VERIFIED='npm, pnpm, yarn, pip, go'
 CODEX_MIN='0.163.0'   # the profile was verified on this codex-cli; an older or unparsable one is refused (no unknown sandbox)
 # codex_pkg_check: creates the package-cache dir with mkdir -m 700 (an existing path is never followed or changed) and accepts it only when it
@@ -173,7 +187,7 @@ plan() {
       printf '## BLOCKER\n\n%s\n\nThis batch cannot be approved or started until a workflow that runs on pull_request exists. Add one, then plan the batch again:\n\n    %s\n\n' "$(ci_refusal | head -2 | tr '\n' ' ')" "$(sh "$agent" ci-task-command 2>/dev/null)"
     fi
     printf 'One approval of this summary stands in for the approvals listed below, for the tasks in the table and for nothing else.\nThe batch id is the first 12 hex digits of the sha256 of this file; the approval is bound to that hash.\n\n'
-    printf '## Order (one task at a time, each in a clean headless lead session)\n\n| # | task | title | class | depends_on |\n|---|------|-------|-------|------------|\n'
+    printf '## Order (one task at a time, each in a clean headless lead session and in a git worktree of its own)\n\n| # | task | title | class | depends_on |\n|---|------|-------|-------|------------|\n'
     p=0
     while IFS="$(printf '\t')" read -r oid ocls odep; do
       p=$((p + 1)); ot=$(awk -F'\t' -v t="$oid" '$2 == t { print $5 }' "$tmp/kept")
@@ -182,9 +196,11 @@ plan() {
     printf '\n## What the approval covers, per task\n\n'
     printf -- '- plan: the freeze of the plan (kind plan), after classification and the usual checks\n'
     printf -- '- delivery: commit, push, pull request, merge only when CI is green and every gate passed (proofline merge), cleanup\n'
+    printf -- '- CI red after the pull request is open: up to 2 CI-fix rounds, each a normal fix round that passes the gates again, pushed to the same pull request branch and nothing else; the delivery approval covers exactly those pushes, then the task is parked with the error and what was tried\n'
     printf -- '- mutation budget: a raise of test_trust.mutation_budget (now %s) up to the cap batch.mutation_budget_cap = %s\n' "$(cfgv test_trust.mutation_budget 20)" "$cap"
     printf '\n## Stop rules\n\n'
     printf -- '- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped\n'
+    printf -- '- every task works in its own git worktree (.agents/local/worktrees/<ID>, made from the canonical branch just before the task starts): a parked task, one waiting for its merge and one in a CI-fix round keep theirs and block no task that does not depend on them; the main working tree is never touched. A task starts only when every task it depends on is merged; a merged task'"'"'s worktree is removed\n'
     printf -- '- a headless session that runs longer than batch.task_timeout (%s minutes) is closed with its whole process group, the task is parked with the reason timeout and the tasks that depend on it are skipped\n' "$(cfgv batch.task_timeout 120)"
     printf -- '- after every merge the driver waits for the CI run of the merge commit itself (not the latest run): the batch stops when that run is red, still running after batch.ci_wait_minutes (%s), or when no run for it appears within batch.ci_appear_minutes (%s)\n' "$(cfgv batch.ci_wait_minutes 30)" "$(cfgv batch.ci_appear_minutes 10)"
     printf -- '- the batch also stops when every runtime hit its usage limit, or when a runtime is not logged in\n'
@@ -200,7 +216,7 @@ plan() {
     if [ "$danger" = yes ]; then
       printf 'codex sandbox: danger-full-access\n'
       printf 'WARNING: you chose --codex-danger-full-access. A Codex night session then runs with NO sandbox: it can read and write anywhere your user can and use the network. Approving this summary approves that.\n'
-    else printf 'codex sandbox: proofline_night profile (project folder including .git and .agents, but not .git/hooks or .git/config; network on; $HOME read-only, package-manager caches redirected into the temp dir, verified for: %s; other package managers are not verified)\n' "$CODEX_VERIFIED"; fi
+    else printf 'codex sandbox: proofline_night profile (the task'"'"'s worktree including .agents, and the git folders its commits write (refs, objects, its own worktree entry), but not .git/hooks or .git/config; network on; $HOME read-only, package-manager caches redirected into the temp dir, verified for: %s; other package managers are not verified)\n' "$CODEX_VERIFIED"; fi
     # A161: a Codex session may run as the lead (batch.runtimes, the lead runtime, or the fallback when the first runtime hits its limit).
     pl_rts=$(rt_list); pl_codex=no; for r in $pl_rts; do [ "$r" != codex ] || pl_codex=yes; done
     if [ "$pl_codex" = yes ]; then   # the Codex version the driver will use is part of what is approved
@@ -237,12 +253,15 @@ st_stop() { # REASON: the trailer, one only
   { grep -v '^# stopped:' "$bd/state.tsv" || :; printf '# stopped: %s\n' "$(tsv "$1")"; } > "$bd/state.tsv.tmp" && mv "$bd/state.tsv.tmp" "$bd/state.tsv"
 }
 merged_pr() { awk -F'\t' -v t="$1" '$1 == t { p = $2; f = 1 } END { if (f) print p; exit !f }' "$bd/merged.tsv" 2>/dev/null; }
-run_state() { awk '/^execution:/ { i = 1; next } i && /^[^ ]/ { exit } i && /^  state:/ { sub(/^  state:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$root/.agents/runs/$1/RUN.yaml" 2>/dev/null || :; }
+# rroot ID: where the task's run lives (A169): its own worktree, else the main working tree (a run an older batch left there)
+rroot() { if [ -d "$wtb/$1/.agents" ]; then printf '%s\n' "$wtb/$1"; else printf '%s\n' "$root"; fi; }
+run_state() { awk '/^execution:/ { i = 1; next } i && /^[^ ]/ { exit } i && /^  state:/ { sub(/^  state:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$(rroot "$1")/.agents/runs/$1/RUN.yaml" 2>/dev/null || :; }
 open_question() { # ID: the first line of the first unanswered question, from the run's records
-  sh "$agent" questions "$1" 2>/dev/null | sed -n '/^=== QUESTION/{n;p;q;}' || :
+  oq_a=$(rroot "$1")/.agents/scripts/agent.sh; [ -f "$oq_a" ] || oq_a=$agent
+  sh "$oq_a" questions "$1" 2>/dev/null | sed -n '/^=== QUESTION/{n;p;q;}' || :
 }
 pending_approval() { # ID: the kind of an approval request nobody answered (the batch cover would have answered it)
-  pa_d=$root/.agents/runs/$1/approvals
+  pa_d=$(rroot "$1")/.agents/runs/$1/approvals
   for pa_r in "$pa_d"/[0-9][0-9][0-9]-request-*.yaml; do
     [ -f "$pa_r" ] || continue
     pa_b=$(basename "$pa_r"); pa_n=$(printf '%s' "$pa_b" | cut -c1-3 | sed 's/^0*//'); pa_k=${pa_b#???-request-}; pa_k=${pa_k%.yaml}; pa_a=0
@@ -358,7 +377,7 @@ ci_gate() { # SHA REQUIRED: stop the batch unless the CI of that commit allows g
   ok_sha=$1
 }
 prompt_for() { # ID
-  printf 'Batch mode (batch %s). Task %s only. Follow the proofline-lead skill and its Batch mode section: `/proofline run %s` (or resume it if a run exists). At every approval request of kind plan, delivery or mutation_budget call `agent.sh batch-cover %s <KIND>` instead of waiting. At any other approval request, or any question that needs the user: record it with `agent.sh ask %s` and END the session; never wait, never guess. Stop when the task is merged and cleaned up, or parked.' "$(bid)" "$1" "$1" "$1" "$1"
+  printf 'Batch mode (batch %s). Task %s only. Your working folder is this task'"'"'s own git worktree: stay in it, the main working tree is not yours. Follow the proofline-lead skill and its Batch mode section: `/proofline run %s` (or resume it if a run exists). At every approval request of kind plan, delivery or mutation_budget call `agent.sh batch-cover %s <KIND>` instead of waiting. At any other approval request, or any question that needs the user: record it with `agent.sh ask %s` and END the session; never wait, never guess. When the CI of the pull request is red, run the CI-fix round of the lead skill (`agent.sh deliver-step %s ci-fix <PR>`, at most 2 attempts, pushed to the same PR branch); when it stops with its question, END the session. Stop when the task is merged and cleaned up, or parked.' "$(bid)" "$1" "$1" "$1" "$1" "$1"
 }
 # The headless session is the leader of its own process group (A161). Methods, in order: `set -m` (job control gives the background job its own
 # pgid; needs a shell that can do it, a tty is not required where it works), `setsid` (not on macOS), a perl one-liner (`setpgid(0,0)` then
@@ -420,13 +439,13 @@ reap() { # close the session's own process group: TERM, a short grace, then KILL
   wait "$rp_g" 2>/dev/null || :
 }
 run_session() { # ID RUNTIME PROMPT SANDBOX: the runtime's own command, in the project root; returns its exit status
-  S_PM=$(cfgv dispatch.claude_permission_mode bypassPermissions); cd "$root" || return 1
+  S_PM=$(cfgv dispatch.claude_permission_mode bypassPermissions); rs_wt=$(rroot "$1"); cd "$rs_wt" || return 1   # A169: the task's own worktree
   if [ "$2" = codex ]; then
     rs_sb=$4; rs_p=$3   # the choice the driver read once, right after batch-check
     [ "$rs_sb" = danger-full-access ] || codex_pkg_check || { echo "batch: $PKG_BAD; no Codex session is started" >&2; return 1; }
-    set -- -c "default_permissions=\"$CODEX_PROFILE\"" -c "permissions.$CODEX_PROFILE.network.enabled=true" -c "permissions.$CODEX_PROFILE.filesystem=$CODEX_FS" -c "shell_environment_policy.set=$(codex_env)"
+    set -- -c "default_permissions=\"$CODEX_PROFILE\"" -c "permissions.$CODEX_PROFILE.network.enabled=true" -c "permissions.$CODEX_PROFILE.filesystem=$(codex_fs "$1")" -c "shell_environment_policy.set=$(codex_env)"
     [ "$rs_sb" != danger-full-access ] || set -- -s danger-full-access   # only what the approved summary states, never config or env
-    codex exec -C "$root" "$@" -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$rs_p" < /dev/null
+    codex exec -C "$rs_wt" "$@" -c 'approval_policy="never"' --dangerously-bypass-hook-trust "$rs_p" < /dev/null
   else claude -p "$3" --permission-mode "$S_PM" < /dev/null; fi
 }
 # Session records (A161): sessions/<ID>.<n>.rec, key=value lines. The driver writes id, n, runtime, method, log, start (epoch) when the session
@@ -466,10 +485,12 @@ session() {
   cat "$s_cur" >> "$s_log"
   return "$s_rc"
 }
-outcome() { # ID -> merged | FAILED | BLOCKED | question | none  (records only)
+outcome() { # ID -> merged | FAILED | BLOCKED | question | awaiting | none  (records only)
   if merged_pr "$1" >/dev/null; then echo merged; return 0; fi
   case "$(run_state "$1")" in FAILED) echo FAILED; return 0 ;; BLOCKED) echo BLOCKED; return 0 ;; esac
   if [ -n "$(open_question "$1")" ] || pending_approval "$1" >/dev/null; then echo question; return 0; fi
+  # A169: the merge step ran (the pull request number is recorded) but nothing is merged yet: the task waits for its merge
+  if [ -s "$(rroot "$1")/.agents/local/deliver/$1/PR" ]; then echo awaiting; return 0; fi
   echo none
 }
 stop() { st_stop "$1"; echo "batch: stopped: $1" >&2; sh "$here/batch.sh" status; exit 1; }
@@ -533,14 +554,27 @@ run() {
   exhausted=''
   for id in $(cut -f1 "$bd/order.tsv"); do
     [ "$(st_get "$id" 2)" = pending ] || continue
+    # A169: a task starts only when every dependency is merged (a record in merged.tsv). A dependency that is parked, skipped or
+    # waiting for its merge holds the task back as skipped; the next `run` judges it again, so it follows the merge. It blocks nothing else.
     for dep in $(awk -F'\t' -v t="$id" '$1 == t { gsub(/,/, " ", $3); print $3 }' "$bd/order.tsv"); do
-      case "$(st_get "$dep" 2)" in parked|skipped) st_set "$id" skipped "depends on $dep ($(st_get "$dep" 2))"; break ;; esac
+      case "$dep" in -|'') continue ;; esac
+      if merged_pr "$dep" >/dev/null; then continue; fi
+      case "$(st_get "$dep" 2)" in
+        parked|skipped) st_set "$id" skipped "depends on $dep ($(st_get "$dep" 2))"; break ;;
+        merged) ;;
+        '') ;;   # done before this batch: planned only when it is in done/
+        *) st_set "$id" skipped "depends on $dep (not merged yet)"; break ;;
+      esac
     done
     [ "$(st_get "$id" 2)" = pending ] || continue
     git -C "$root" checkout -q "$canon" 2>/dev/null && git -C "$root" pull -q --ff-only >/dev/null 2>&1 || stop "cannot update $canon before $id (git checkout and pull --ff-only failed)"
     head_sha=$(git -C "$root" rev-parse HEAD); [ "$head_sha" = "$ok_sha" ] || ci_gate "$head_sha" no   # no run for HEAD before the first merge is no signal
+    # A169: the task's own worktree, at the canonical tip just pulled. Failing to make one parks this task only.
+    if ! wt_out=$(sh "$agent" worktree-add "$id" 2>&1); then
+      st_set "$id" parked worktree "cannot make the worktree of $id: $(printf '%s' "$wt_out" | tail -1)"; continue
+    fi
     st_set "$id" running
-    wt_before=$(wt_list)
+    wt_before=$(wt_list)   # after the task's worktree exists: it is the run's own, never scratch (A53)
     while :; do
       rt=''; for r in $rts; do case " $exhausted " in *" $r "*) ;; *) rt=$r; break ;; esac; done
       if [ -z "$rt" ]; then st_set "$id" pending; stop "every runtime hit its usage limit"; fi
@@ -558,10 +592,14 @@ run() {
     for w in $(wt_list); do case " $(printf '%s' "$wt_before" | tr '\n' ' ') " in *" $w "*) ;; *) git -C "$root" worktree remove --force "$w" >/dev/null 2>&1 && printf 'hygiene: removed worktree %s\n' "$w" >> "$bd/logs/$id.log" ;; esac; done
     git -C "$root" worktree prune
     case "$out" in
-      merged) st_set "$id" merged ;;
+      merged) st_set "$id" merged
+        # A169: the run is cleaned up and its pull request merged: the worktree has nothing left to keep. A parked task keeps its own.
+        if sh "$agent" worktree-remove "$id" >/dev/null 2>&1; then printf 'hygiene: removed the worktree of %s\n' "$id" >> "$bd/logs/$id.log"
+        else printf 'hygiene: the worktree of %s could not be removed (agent.sh worktree-remove %s --force)\n' "$id" "$id" >> "$bd/logs/$id.log"; fi ;;
       timeout) st_set "$id" parked timeout "no result within $(cfgv batch.task_timeout 120) minutes (see .agents/local/batch/logs/$id.log)" ;;
       FAILED|BLOCKED) st_set "$id" parked "$out" ;;
       question) q=$(open_question "$id"); [ -n "$q" ] || q="approval request: $(pending_approval "$id")"; st_set "$id" parked question "$q" ;;
+      awaiting) st_set "$id" parked "awaiting merge" "pull request $(cat "$(rroot "$id")/.agents/local/deliver/$id/PR" 2>/dev/null) is open and not merged" ;;
       *) st_set "$id" parked "session ended without a result (see .agents/local/batch/logs/$id.log)" ;;
     esac
     git -C "$root" checkout -q "$canon" 2>/dev/null && [ -z "$(dirty)" ] || stop "the working tree is not on $canon or not clean after $id; deal with it, then run the batch again"

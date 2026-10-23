@@ -50,6 +50,7 @@ while [ $# -gt 0 ]; do case "$1" in -p) prompt=$2; shift ;; esac; shift; done
 id=$(printf '%s' "$prompt" | sed -n 's/.*Task \([A-Za-z0-9_.-]*\) only.*/\1/p')
 [ -n "$id" ] || { echo "fake claude: no task id in the prompt" >&2; exit 2; }
 printf '%s\n' "$id" >> "$FAKE/calls.log"
+printf '%s %s\n' "$id" "$(pwd -P)" >> "$FAKE/cwd.log"   # A169: where the session runs (its task's own worktree)
 echo "LOGONLY-$id narrative text that exists only in the session log"
 beh=$(head -1 "$FAKE/behave/$id" 2>/dev/null); [ -n "$beh" ] || beh=nothing
 mkrun() { # STATE AWAITING
@@ -65,6 +66,17 @@ case "$beh" in
     mkrun PLANNING true
     printf 'from: lead\nasked_at: %s\n---\n1. Which cache do we use for %s?\n   options: a | b\n' "$(date +%s)" "$id" > ".agents/runs/$id/questions/001.md" ;;
   failed) mkrun FAILED false ;;
+  realpark|realmerge|realawait) # A169: the real `agent.sh start` in the session's own folder, then what the lead would leave behind
+    if [ ! -d ".agents/runs/$id" ]; then
+      sh .agents/scripts/agent.sh start "$id" --task-file ".agents/tasks/$id.md" >/dev/null 2>>"$FAKE/start.err" < /dev/null || echo "START-FAILED-$id: $(tail -1 "$FAKE/start.err")" >&2
+    fi
+    case "$beh" in
+      realpark) mkdir -p ".agents/runs/$id/questions"; sed 's/^  awaiting_input: false/  awaiting_input: true/' ".agents/runs/$id/RUN.yaml" > ".agents/runs/$id/RUN.tmp" && mv ".agents/runs/$id/RUN.tmp" ".agents/runs/$id/RUN.yaml"
+        printf 'from: lead\nasked_at: %s\n---\n1. Which cache do we use for %s?\n   options: a | b\n' "$(date +%s)" "$id" > ".agents/runs/$id/questions/001.md" ;;
+      realawait) mkdir -p ".agents/local/deliver/$id"; echo 77 > ".agents/local/deliver/$id/PR" ;;
+      realmerge) rm -rf ".agents/runs/$id"; : > .agents/local/ACTIVE_RUN
+        printf '%s\t%s\t%s\n' "$id" "$((100 + $(printf '%s' "$id" | tr -dc 0-9)))" "$(date +%s)" >> .agents/local/batch/merged.tsv ;;
+    esac ;;
   limit) echo "usage limit reached, try later"; exit 1 ;;
   hang) # A160/A161: a session that outlives batch.task_timeout, with descendants of every kind: a plain grandchild, a nested sh with its own
     # child, a backgrounded subshell that ignores TERM and has a child of its own. Every pid goes to descendants.pids.
@@ -127,7 +139,7 @@ mktask() {
   mt_d=.agents/tasks; [ -z "${4:-}" ] || mt_d=.agents/tasks/$4; mkdir -p "$mt_d"
   { printf '# Task: %s — title of %s\n' "$1" "$1"
     if [ -n "${3:-}" ]; then printf '\n---\ndepends_on: %s\n\n---\n' "$3"; fi
-    printf '\n## Acceptance criteria\n\n- AC-1: it works\n'
+    printf '\n## Goal\n\nIt works.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n'   # a complete task: the real `agent.sh start --task-file` imports it (A169)
     if [ "$2" != none ]; then printf '\n## Suggested class\n\n%s\n' "$2"; fi; } > "$mt_d/$1.md"
 }
 # binstall [remote:yes|no]: the batch scripts in .agents/scripts, committed, a local bare origin (never a network)
@@ -136,6 +148,7 @@ install_scripts() { # DIR: the control-plane scripts a fixture lacks (batch.sh, 
     case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
     cp "$is_s" "$1/"
   done
+  mkdir -p "$1/../task-integrations"; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$1/../task-integrations/"   # A169: sessions run the real `agent.sh start`
 }
 # bnew: a fresh fixture without task files (the shared template may carry some, see tpl_tasks)
 bnew() { new_repo; rm -rf .agents/tasks; }
@@ -146,7 +159,7 @@ tpl_tasks() { # a PRIVATE copy of the shared template (never write into the shar
   install_scripts "$tl_template/.agents/scripts"; ( cd "$tl_template" && mktask LC COMPLEX && mktask CR CRITICAL ); }
 binstall() {
   install_scripts .agents/scripts
-  : > "$FAKE/calls.log"; rm -f "$FAKE"/behave/*
+  : > "$FAKE/calls.log"; : > "$FAKE/cwd.log"; rm -f "$FAKE"/behave/*
   mkdir -p .github/workflows; printf 'name: ci\non: pull_request\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n' > .github/workflows/ci.yml   # job A: batch-plan/run want a CI workflow
   git add -A; git commit -qm 'fixture' --allow-empty
   if [ "${1:-yes}" = yes ]; then
@@ -338,11 +351,84 @@ sc_park_skip_continue() {
   state_of T-2 4 | grep -q 'Which cache' || die "T-2 pending question not copied: $(state_of T-2 4)"
   state_of T-3 3 | grep -q 'depends on T-2' || die "T-3 skip reason: $(state_of T-3 3)"
   [ -f .agents/local/batch/logs/T-1.log ] && grep -q 'LOGONLY-T-1' .agents/local/batch/logs/T-1.log || die "no session log for T-1"
-  [ "$(git worktree list | wc -l | tr -d ' ')" = 1 ] || die "a worktree the session added was left: $(git worktree list)"
+  # A169: the worktree a session added is removed; the run's own worktree goes with a merge (T-1, T-4) and stays for the parked T-2
+  [ "$(git worktree list | wc -l | tr -d ' ')" = 2 ] && git worktree list | grep -q '/\.agents/local/worktrees/T-2 ' || die "worktrees after the batch (only the parked T-2 keeps one): $(git worktree list)"
+  [ ! -d .agents/local/worktrees/T-1 ] && [ ! -d .agents/local/worktrees/T-4 ] || die "the worktree of a merged task was left"
   [ "$(git branch --show-current)" = main ] && [ -z "$(git status --porcelain)" ] || die "the driver left the repository off main or dirty"
   BB run >/dev/null 2>&1 || :
   [ "$(calls)" = "T-1 T-2 T-4" ] || die "a second run restarted merged or still-parked tasks: '$(calls)'"
-  ok "batch run: T-2 parked, T-3 skipped (depends on T-2), T-4 still ran and merged; hygiene (worktree removed, back on main); a re-run changes nothing"
+  ok "batch run: T-2 parked, T-3 skipped (depends on T-2), T-4 still ran and merged; hygiene (session worktree and merged tasks' worktrees removed, back on main); a re-run changes nothing"
+}
+
+# --- 5a. A169: every task runs in a worktree of its own ------------------------------------------------------------------------
+# T-1 parks with a question, T-4 waits for its merge, T-3 is independent and merges, T-2 depends on T-1. The sessions run the REAL
+# `agent.sh start`: with all runs in one folder T-3 would fail with "another open run exists in this worktree" (the failure that
+# skipped the dependents of an independent task).
+sc_task_worktrees() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; mktask T-4 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'realpark\n' > "$FAKE/behave/T-1"; printf 'realmerge\n' > "$FAKE/behave/T-2"; printf 'realmerge\n' > "$FAKE/behave/T-3"; printf 'realawait\n' > "$FAKE/behave/T-4"
+  main=$(pwd -P)
+  BB run > "$base/run.out" 2>&1 || :
+  grep -q 'START-FAILED' .agents/local/batch/logs/*.log && die "a session could not start its run (the second open run in one folder?): $(cat .agents/local/batch/logs/*.log)"
+  [ "$(calls)" = "T-1 T-3 T-4" ] || die "sessions: a parked task and one waiting for merge must not block the independent T-3, and the dependent T-2 must not start: '$(calls)'; $(tail -5 "$base/run.out")"
+  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = question ] && [ "$(state_of T-2 2)" = skipped ] && [ "$(state_of T-3 2)" = merged ] && [ "$(state_of T-4 2)" = parked ] || die "state.tsv: $(cat .agents/local/batch/state.tsv)"
+  state_of T-2 3 | grep -q 'depends on T-1' || die "T-2 skip reason: $(state_of T-2 3)"
+  [ "$(state_of T-4 3)" = 'awaiting merge' ] || die "T-4 park reason: $(state_of T-4 3)"
+  for i in T-1 T-3 T-4; do grep -qx "$i $main/.agents/local/worktrees/$i" "$FAKE/cwd.log" || die "session of $i did not run in its own worktree: $(cat "$FAKE/cwd.log")"; done
+  # the main working tree: clean, the task files where they were, no run, no open run
+  [ -z "$(git status --porcelain)" ] || die "the main working tree is dirty: $(git status --porcelain)"
+  [ -f .agents/tasks/T-1.md ] && [ -f .agents/tasks/T-4.md ] && [ ! -e .agents/tasks/in-progress ] || die "a task file moved in the main working tree: $(ls -R .agents/tasks)"
+  [ -z "$(ls .agents/runs 2>/dev/null)" ] && [ -z "$(A open-runs)" ] && [ ! -s .agents/local/ACTIVE_RUN ] || die "the main working tree holds a run: $(ls .agents/runs) / $(A open-runs)"
+  [ "$(git branch --show-current)" = main ] || die "the driver left main"
+  # the parked and the waiting task keep their worktree and their run; the merged one is gone
+  [ -d .agents/local/worktrees/T-1/.agents/runs/T-1 ] && [ -d .agents/local/worktrees/T-4/.agents/runs/T-4 ] || die "a parked or waiting task lost its worktree: $(git worktree list)"
+  [ ! -d .agents/local/worktrees/T-3 ] && [ ! -e .agents/local/worktrees/T-2 ] || die "worktree of the merged T-3 left, or one made for the never-started T-2: $(git worktree list)"
+  [ ! -f .agents/local/worktrees/T-1/.agents/tasks/T-1.md ] || die "T-1's task file was not moved in its own worktree"
+  [ "$(cd .agents/local/worktrees/T-1 && sh .agents/scripts/agent.sh open-runs)" = 'T-1 -' ] || die "open runs of T-1's worktree"
+  [ "$(cd .agents/local/worktrees/T-4 && sh .agents/scripts/agent.sh open-runs)" = 'T-4 -' ] || die "open runs of T-4's worktree"
+  A next-user batch status | grep -q 'reply in this session to the open question.*then run proofline batch run' || die "next step for a parked task whose run is in a worktree: $(A next-user batch status)"
+  A next-user batch status | grep -q '/proofline resume' && die "next step sends the user to resume in the main tree: $(A next-user batch status)"
+  A questions T-1 | grep -q 'Which cache' || die "questions for a run in a worktree are not forwarded from the main tree: $(A questions T-1 2>&1)"
+  BB status | grep -q 'T-4 | parked | - | - | awaiting merge' || die "status does not say T-4 awaits its merge: $(BB status | grep T-4)"
+  # the dependent waits for the merge: T-1 gets its answer and merges in the SAME worktree, then T-2 runs, not before
+  printf 'a\n' > .agents/local/worktrees/T-1/.agents/runs/T-1/questions/001.answer.md
+  printf 'realmerge\n' > "$FAKE/behave/T-1"; : > "$FAKE/calls.log"
+  BB run > "$base/run2.out" 2>&1 || :
+  [ "$(calls)" = "T-1 T-2 T-4" ] || die "second run: T-1 resumes and merges, only then T-2 starts: '$(calls)'; $(tail -5 "$base/run2.out")"
+  [ "$(state_of T-1 2)" = merged ] && [ "$(state_of T-2 2)" = merged ] || die "state.tsv after the second run: $(cat .agents/local/batch/state.tsv)"
+  [ "$(grep -c '^T-1 ' "$FAKE/cwd.log")" = 2 ] && [ "$(grep '^T-1 ' "$FAKE/cwd.log" | sort -u | wc -l | tr -d ' ')" = 1 ] || die "the resumed T-1 session did not run in the same worktree: $(cat "$FAKE/cwd.log")"
+  [ ! -d .agents/local/worktrees/T-1 ] && [ ! -d .agents/local/worktrees/T-2 ] || die "worktrees of merged tasks left"
+  [ -z "$(git status --porcelain)" ] || die "the main working tree is dirty after the second run: $(git status --porcelain)"
+  ok "batch run: every task in its own worktree; a parked task and one awaiting merge block nobody, the main tree stays clean, the dependent starts only after T-1 merged, merged tasks' worktrees are removed"
+}
+
+wbody() { printf '## Goal\n\n%s.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n' "$2"; }   # ID TITLE -> a task body for `agent.sh start --title`
+# --- 5a'. A169: agent.sh worktree-add|worktree-path|worktree-remove, the open-run check per worktree --------------------------------
+sc_worktree_cmds() {
+  bnew; binstall no
+  main=$(pwd -P)
+  wbody W-1 first | A start W-1 --title first > "$base/st.out" 2>&1 || die "start W-1: $(cat "$base/st.out")"
+  expect_msg "a second run in the same worktree names the way out" 'agent.sh worktree-add' A start W-2 --title second
+  wt=$(A worktree-add W-2) || die "worktree-add: $wt"
+  [ "$wt" = "$main/.agents/local/worktrees/W-2" ] && [ -d "$wt/.agents/scripts" ] || die "worktree-add printed '$wt'"
+  [ "$(A worktree-add W-2)" = "$wt" ] || die "a second worktree-add did not reuse the worktree"
+  [ "$(A worktree-path W-2)" = "$wt" ] && ! A worktree-path W-9 >/dev/null 2>&1 || die "worktree-path"
+  for d in batch approvals metrics friction prompts; do [ -L "$wt/.agents/local/$d" ] || die "no link to the shared $d folder in the worktree"; done
+  git check-ignore -q .agents/local/worktrees/W-2 || die "the worktree folder is not git-ignored"
+  wbody W-2 second | ( cd "$wt" && sh .agents/scripts/agent.sh start W-2 --title second >/dev/null ) || die "start W-2 in its own worktree"
+  [ "$(A open-runs)" = 'W-1 -' ] && [ "$(cd "$wt" && sh .agents/scripts/agent.sh open-runs)" = 'W-2 -' ] || die "open runs are not per worktree: main '$(A open-runs)' worktree '$(cd "$wt" && sh .agents/scripts/agent.sh open-runs)'"
+  # the task branch starts from the detached HEAD at the canonical tip; the canonical branch stays in the main working tree
+  ( cd "$wt" && sh .agents/scripts/agent.sh classify W-2 TRIVIAL >/dev/null && sh .agents/scripts/agent.sh branch W-2 ) > "$base/br.out" 2>&1 || die "branch from a detached task worktree: $(cat "$base/br.out")"
+  case "$(git -C "$wt" branch --show-current)" in proofline/W-2-*) ;; *) die "task branch of W-2: '$(git -C "$wt" branch --show-current)'" ;; esac
+  [ "$(git branch --show-current)" = main ] || die "worktree-add moved the main working tree off main"
+  ( cd "$wt" && ! sh .agents/scripts/agent.sh worktree-add W-3 >/dev/null 2>&1 ) || die "worktree-add ran inside a task worktree"
+  expect_msg "removing a worktree that still holds a run" 'still holds the run' A worktree-remove W-2
+  [ -d "$wt" ] || die "the refused removal removed the worktree"
+  A worktree-remove W-2 --force >/dev/null || die "forced removal"
+  [ ! -e "$wt" ] && [ "$(git worktree list | wc -l | tr -d ' ')" = 1 ] || die "worktree left after removal: $(git worktree list)"
+  A worktree-remove W-2 | grep -q 'no worktree' || die "removing a missing worktree is not a no-op"
+  ok "worktree-add|path|remove: one worktree per run, open runs counted per worktree, branch from the detached canonical tip, removal refused while a run is inside"
 }
 
 # --- 5b. one at a time: a live lock refuses a second run, a stale lock is replaced -----------------------------------------
@@ -383,7 +469,7 @@ sc_status_from_records() {
   awk -F'\t' -v OFS='\t' '$1 == "T-3" { $2 = "parked"; $3 = "reason-xyz-from-state" } { print }' .agents/local/batch/state.tsv > "$base/s.tsv"
   cp "$base/s.tsv" .agents/local/batch/state.tsv
   BB status > "$base/st3.out"; row "$base/st3.out" T-3 | grep -q 'parked' && row "$base/st3.out" T-3 | grep -q 'reason-xyz-from-state' || die "state.tsv edit not reflected: $(row "$base/st3.out" T-3)"
-  printf '1\n' > .agents/runs/T-2/questions/001.answer.md   # the user answered: the pending question is gone
+  printf '1\n' > .agents/local/worktrees/T-2/.agents/runs/T-2/questions/001.answer.md   # the user answered (the parked run lives in its task's worktree, A169): the pending question is gone
   BB status > "$base/st4.out"; row "$base/st4.out" T-2 | grep -q 'Which cache' && die "an answered question is still shown as pending"
   ok "batch status: table from state.tsv, merged.tsv and the parked run's records; no log-only text; edits to the records change the table"
 }
@@ -431,6 +517,13 @@ sc_codex_sandbox() {
   BB run >/dev/null 2>&1 || :
   grep -q 'default_permissions="proofline_night"' "$FAKE/codex.argv" && grep -q 'permissions.proofline_night.network.enabled=true' "$FAKE/codex.argv" && ! grep -q -- ' -s ' "$FAKE/codex.argv" || die "codex argv: $(cat "$FAKE/codex.argv")"
   if grep -q 'danger-full-access' "$FAKE/codex.argv"; then die "danger-full-access without the flag: $(cat "$FAKE/codex.argv")"; fi
+  # A169: the session works in the task's own worktree; the grants outside it are exact (verified with `codex sandbox -P` on codex-cli 0.163.0):
+  # the main .git and the task's worktrees/<ID> entry writable, hooks and config read-only, only the shared state folders of .agents/local
+  gm=$(pwd -P)
+  for g in "\"$gm/.git\"=\"write\"" "\"$gm/.git/hooks\"=\"read\"" "\"$gm/.git/config\"=\"read\"" "\"$gm/.git/worktrees/T-1\"=\"write\"" "\"$gm/.agents/local/batch\"=\"write\"" " -C $gm/.agents/local/worktrees/T-1 "; do
+    grep -qF -- "$g" "$FAKE/codex.argv" || die "codex argv lacks $g: $(cat "$FAKE/codex.argv")"
+  done
+  ! grep -qF -- "\"$gm/.agents\"=" "$FAKE/codex.argv" && ! grep -qF -- "\"$gm\"=" "$FAKE/codex.argv" || die "codex argv grants the main working tree: $(cat "$FAKE/codex.argv")"
   # config and environment cannot enable it: only the flag at plan time, visible with the warning
   cg_reset() { rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/codex.argv"; }
   cg_reset; cfg_extra '  codex_sandbox: danger-full-access' '  sandbox: danger-full-access'
@@ -945,6 +1038,8 @@ run_sc sc_cover_delivery
 run_sc sc_critical_excluded
 run_sc sc_late_critical
 run_sc sc_park_skip_continue
+run_sc sc_task_worktrees
+run_sc sc_worktree_cmds
 run_sc sc_lock
 run_sc sc_status_from_records
 run_sc sc_stale_log

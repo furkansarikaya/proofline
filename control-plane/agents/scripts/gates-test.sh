@@ -1409,12 +1409,15 @@ sc_scratch_worktrees() {
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
   pass_all
+  # A169: the worktree of another run (here under $TMPDIR, like the whole fixture) is the project's own, never scratch
+  rw=$(A worktree-add RW-1) || die "worktree-add: $rw"
   wt=$(mktemp -d "${TMPDIR:-/tmp}/scratch-wt.XXXXXX"); rmdir "$wt"
   git worktree add -q --detach "$wt" HEAD
   expect_msg "a scratch worktree still registered blocks CODE_DONE" 'scratch git worktrees' A handoff LC CODE_DONE
+  A handoff LC CODE_DONE 2>&1 | grep -F "$rw" && die "the run worktree $rw was named as scratch"
   git worktree remove --force "$wt"
-  A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the worktree was removed: $(A handoff LC CODE_DONE 2>&1)"
-  ok "scratch worktrees must be removed before CODE_DONE"
+  A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the scratch worktree was removed (the run worktree RW-1 must not count): $(A handoff LC CODE_DONE 2>&1)"
+  ok "scratch worktrees must be removed before CODE_DONE; the worktree of another run is not scratch (A169)"
 }
 sc_tests_findings() {
   command -v node >/dev/null 2>&1 || { echo "skip tests_findings (node missing)"; return 0; }
@@ -1752,7 +1755,7 @@ evidence_gap_fixture() {
 # vw VERDICT EXIT OUTPUT STATUS: a self-consistent VERIFY.md claiming `sh .agents/local/check.sh` ran with that exit and output.
 vw() {
   printf '%s\n' '# Verification: LC' '' '## Commands' '' "- \`sh .agents/local/check.sh\` | exit=$2" "  output: $3" '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
-    "| AC-1 | impl_test.txt::lookup | $4 | \`sh .agents/local/check.sh\` exit=$2 |" '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (no design documents)' '' \
+    "| AC-1 | impl_test.txt::lookup | $4 | \`sh .agents/local/check.sh\` exit=$2 |" '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (no design documents)' '' '## Runtime' '' 'runtime: none (no runtime in this test)' '' \
     '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' "Verdict: $1" > "$d/VERIFY.md"
 }
 sc_evidence_gap_fabricated() {
@@ -1807,7 +1810,7 @@ sc_evidence_gap_rerun() {
   # a command that is neither configured nor planned is never executed: a report cannot make the control plane run it
   printf 'touch .agents/local/ran-unplanned\n' > .agents/local/other.sh
   printf '%s\n' '# Verification: LC' '' '## Commands' '' '- `sh .agents/local/other.sh` | exit=0' '  output: done' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
-    '| AC-1 | impl_test.txt::lookup | PASS | `sh .agents/local/other.sh` exit=0 |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
+    '| AC-1 | impl_test.txt::lookup | PASS | `sh .agents/local/other.sh` exit=0 |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Runtime' '' 'runtime: none (no runtime in this test)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
   out=$(AS verifier submit LC --confidence high --findings none --agent er2 2>&1) || die "unplanned command report refused: $out"
   [ ! -e .agents/local/ran-unplanned ] || die "the control plane executed a command that is neither configured nor in the plan"
   printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a PASS whose only command could not be re-run was accepted: $out"
@@ -1855,7 +1858,7 @@ sc_evidence_gap_output() {
   evidence_gap_fixture
   # R1-3: a command row without an output line compares nothing: FAIL, never a pass
   printf '%s\n' '# Verification: LC' '' '## Commands' '' '- `sh .agents/local/check.sh` | exit=0' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
-    '| AC-1 | impl_test.txt::lookup | PASS | `sh .agents/local/check.sh` exit=0 |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
+    '| AC-1 | impl_test.txt::lookup | PASS | `sh .agents/local/check.sh` exit=0 |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Runtime' '' 'runtime: none (no runtime in this test)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
   out=$(AS verifier submit LC --confidence high --findings none --agent o1 2>&1) || die "refused: $out"
   printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a command without an output line passed: $out"
   grep -rq 'printed output but the report records none' "$d/results" || die "no blocking finding names the missing output line"
@@ -1875,7 +1878,7 @@ sc_evidence_gap_ac() {
   # R1-4: every command an AC row cites is re-run; one honest allowed command beside a fabricated one is FAIL
   SC_EXEMPT=1 evidence_gap_fixture
   printf '%s\n' '# Verification: LC' '' '## Commands' '' '- `sh .agents/local/check.sh` | exit=0' '  output: ok 3 tests' '- `npm run e2e -- --suite all` | exit=0' '  output: e2e: 40 passed' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
-    '| AC-1 | command: `npm run e2e -- --suite all` | PASS | `npm run e2e -- --suite all` exit=0 e2e: 40 passed |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
+    '| AC-1 | command: `npm run e2e -- --suite all` | PASS | `npm run e2e -- --suite all` exit=0 e2e: 40 passed |' '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Runtime' '' 'runtime: none (no runtime in this test)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' 'Verdict: PASS' > "$d/VERIFY.md"
   out=$(AS verifier submit LC --confidence high --findings none --agent a1 2>&1) || die "refused: $out"
   printf '%s' "$out" | grep -q 'submitted: LC verifier FAIL' || die "a fabricated AC command passed beside an honest one: $out"
   grep -rq 'AC proof cites `npm run e2e -- --suite all`' "$d/results" || die "no blocking finding names the AC command"
@@ -1888,7 +1891,7 @@ sc_evidence_gap_r2() {
     vc_v=$1 vc_s=$2; shift 2
     { printf '%s\n' '# Verification: LC' '' '## Commands' ''; printf '%s\n' "$@"
       printf '%s\n' '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' "| AC-1 | impl_test.txt::lookup | $vc_s | \`sh .agents/local/check.sh\` exit=0 |" '' '## Scope' '' 'verify-scope: exit=0' '' \
-        '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' "Verdict: $vc_v"; } > "$d/VERIFY.md"
+        '## Design sync' '' 'design-sync: SKIPPED (none)' '' '## Runtime' '' 'runtime: none (no runtime in this test)' '' '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' "Verdict: $vc_v"; } > "$d/VERIFY.md"
   }
   CK='- `sh .agents/local/check.sh` | exit=0'
   # a silent command is listable: `output: (no output)` matches an empty re-run, the exit status decides

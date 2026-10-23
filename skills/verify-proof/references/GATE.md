@@ -10,7 +10,7 @@
 | 4 | design-sync verdict is `FAIL` | `design-sync drift` |
 | 5 | a dependency or contract check named in step 7 failed, or design-sync drift (also row 4) | each entry under `## Failures` |
 
-Not failures: a command that fails with a non-zero `base_exit` (pre-existing); design-sync `SKIPPED` with a reason; design-sync unverifiable claims; anything that is only an opinion.
+Not failures: a runtime version difference (`## Runtime`, `status=mismatch`, 0.0.26; the validator only checks the line format); a command that fails with a non-zero `base_exit` (pre-existing); design-sync `SKIPPED` with a reason; design-sync unverifiable claims; anything that is only an opinion.
 
 `BLOCKED` is not computed: it is written when a check cannot be performed at all (no test command exists, a required tool is missing, no base revision for a baseline that rule 5 needs). It carries a `BLOCKED: <reason>` line and records no gate.
 

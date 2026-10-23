@@ -116,6 +116,7 @@ queued() {
   for f in "$td"/todo/*.md "$td"/backlog/*.md "$td"/*.md; do
     [ -f "$f" ] || continue
     q=$(task_id "$f"); [ ! -d "$root/.agents/runs/$q" ] || continue
+    [ ! -d "$root/.agents/local/worktrees/$q/.agents/runs/$q" ] || continue   # A169: its run lives in a worktree of its own
     printf '%s\n' "$q"
   done
 }
@@ -159,9 +160,11 @@ installed=no; { [ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ]; } && inst
 state=none; ks=''
 bd=$root/.agents/local/batch
 # run_state ID: state and ks of the run ID (none when it has no run)
+# A169: a night-mode task's run lives in .agents/local/worktrees/<ID>; agent.sh forwards the commands for it there, and inwt marks it
 run_state() {
-  state=none; ks=''
-  if [ -n "$1" ] && [ -d "$root/.agents/runs/$1" ]; then
+  state=none; ks=''; inwt=''; rs_r=$root
+  if [ -n "$1" ] && [ ! -d "$root/.agents/runs/$1" ] && [ -d "$root/.agents/local/worktrees/$1/.agents/runs/$1" ]; then rs_r=$root/.agents/local/worktrees/$1; inwt=yes; fi
+  if [ -n "$1" ] && [ -d "$rs_r/.agents/runs/$1" ]; then
     sm=$(sh "$agent" summary "$1" --status 2>/dev/null | sed -n 's/^STATUS: \([A-Z_a-z]*\) (handoff \([A-Za-z_]*\), knowledge \([A-Za-z_]*\)).*/\1 \2 \3/p')
     st=${sm%% *}; sm=${sm#* }; hs=${sm%% *}; ks=${sm#* }
     state=active
@@ -170,7 +173,7 @@ run_state() {
       *:DONE) state=finished ;;
       CODE_DONE:*) state=codedone ;;
     esac
-    if [ "$state" != failed ] && grep -Eq '^  awaiting_input: "?true' "$root/.agents/runs/$1/RUN.yaml" 2>/dev/null; then state=question; fi
+    if [ "$state" != failed ] && grep -Eq '^  awaiting_input: "?true' "$rs_r/.agents/runs/$1/RUN.yaml" 2>/dev/null; then state=question; fi
   fi
 }
 ci_absent() { [ "$(sh "$agent" ci-check 2>/dev/null | head -n 1)" = 'ci: absent' ]; }
@@ -200,6 +203,16 @@ parked_line() {
   pk=$(awk -F'\t' '$2 == "parked" { print $1; exit }' "$bd/state.tsv" 2>/dev/null)
   [ -n "$pk" ] || { work; return; }
   id=$pk; run_state "$id"
+  if [ "$inwt" = yes ]; then   # A169: the run is in its task's worktree: answer or reopen from here (forwarded), the driver resumes it
+    case "$state" in
+      question)
+        q=$(question); [ "$q" != 'see the question above' ] || q=$(awk -F'\t' -v t="$id" '$1 == t && $4 != "" { print $4; exit }' "$bd/state.tsv" | tr -d '`' | cut -c1-120)
+        printf 'reply in this session to the open question: %s, then run proofline batch run' "${q:-see the question above}" ;;
+      failed) printf '/proofline reopen %s, then run proofline batch run' "$id" ;;
+      *) printf 'run proofline batch run: it resumes %s in its worktree' "$id" ;;
+    esac
+    return 0
+  fi
   case "$state" in
     none) printf '/proofline run %s' "$id" ;;
     question)

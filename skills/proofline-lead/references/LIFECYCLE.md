@@ -27,7 +27,7 @@ Run creation, in this order (an interrupted creation restarts from the first ste
 1. `A start <ID> --task-file <path>` for an existing canonical task under `tasks.dir`, or
    `A start <ID> --title "<title>"` with the canonical TASK.md body on stdin. The markdown adapter
    creates or moves the task file to `in-progress/`; `start` writes RUN.yaml, TASK.md, ACTIVE_RUN and the
-   start ledger entry. A second open run in the worktree is refused (D4). Missing required task fields
+   start ledger entry. A second open run in the worktree is refused (D4); it needs a worktree of its own (`A worktree-add <ID>`, A169). Missing required task fields
    are printed and creation stops with exit 3.
 2. `A classify <ID> <CLASS> [review]`, `A branch <ID>` (creates `<git.branch_prefix><ID>-<slug>` from the
    canonical tip; `baseline` refuses before it), `A baseline <ID>`: the order `A next` prints.

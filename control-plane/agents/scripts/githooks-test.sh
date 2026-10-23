@@ -64,6 +64,7 @@ g branch side; try push -q origin side
 grep -q '^approval-consume - push' "$st/calls.log" && ok "outside a run the push approval is asked with '-'" || no "outside a run the push approval is asked with '-'"
 touch "$st/approve_push"; try push -q origin work
 [ "$rc" -eq 0 ] && [ ! -f "$st/approve_push" ] && ok "push with approval passes and consumes it" || no "push with approval passes and consumes it ($(cat "$tmp/out"))"
+grep -q '^approval-consume - push  refs/heads/work$' "$st/calls.log" && ok "the push approval is asked with the remote ref (A169)" || no "the push approval is asked with the remote ref (A169)"
 touch "$st/approve_push"; try push -q origin work:main
 [ "$rc" -ne 0 ] && said protected_branches && ok "push to a protected branch blocked even with approval" || no "push to a protected branch blocked even with approval"
 sed 's/push_requires_approval: true/push_requires_approval: false/' "$r/.agents/config.yaml" > "$tmp/c" && cp "$tmp/c" "$r/.agents/config.yaml"
