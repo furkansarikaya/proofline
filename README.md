@@ -98,6 +98,7 @@ Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an
 init, upgrade, doctor, version        install, update, verify, version
 status, resume, queue                 state of the active run, the task queue
 task, design, docs, explain           write a task, design documents, documentation, an explanation page
+design ui <mode> <target>             focused UI change of one target (bolder, quieter, polish, ...), run like any task
 run <TASK>                            take a task through the whole workflow
 review, audit, debug                  proof-review, test-trust and debug-proof standalone
 wiki ingest|query|lint                keep the project wiki in docs/wiki/

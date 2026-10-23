@@ -166,7 +166,7 @@ of scope; a write without `KNOWLEDGE_DONE`, or `KNOWLEDGE_DONE` without a write,
 
 `agent.sh decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N]`
 collects signals from the run (`low_confidence_pass`, `recent_fail_same_focus`, `large_diff` (> 400 changed
-lines or > 15 files), `critical_class`, `fix_round_2`) and the escalations already used, calls
+lines or > 15 files), `critical_class`, `fix_round_2`; and `ui_persuade` for the designer and implementer of a persuade or experience UI surface: strongest model, no escalation spent, see `docs/concepts/roles.md`) and the escalations already used, calls
 `exec-policy.sh resolve`, and writes `decisions/NNN-<role>[-<focus>].decision` and a ledger row.
 Each recorded specialist result appends one line to `.agents/local/metrics/history.tsv` and
 versioned JSON records (dispatch, step, run: duration, runtime-reported tokens or null, turns, retries,

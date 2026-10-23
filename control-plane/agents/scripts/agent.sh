@@ -4520,13 +4520,21 @@ explorer_slot_check() {
   es_n=$(printf '%s\n' "$es_have" | wc -w | tr -d ' ')
   [ $((es_n + es_open)) -lt "$es_max" ] || fail "decide refused (A132): class $es_class allows $es_max explorer slot(s) (pipelines.$es_class.max_explorers) and run $es_id holds ${es_n} delivered result(s)${es_have:+ ($es_have )}and $es_open running explorer dispatch(es). Consolidate EVIDENCE.md from the delivered reports; a BLOCKED or NEEDS_INPUT result or a dispatch that returned nothing holds no slot and is re-dispatched. The count restarts at each freeze/refreeze, so an extra explorer after a plan amendment is allowed once the plan is refrozen"
 }
+ui_surface_signal() { # ID [MODE] -> 0 when the task's UI surface is persuade or experience
+  uss_d=$(run_dir "$1")
+  case "$2" in persuade|experience) return 0 ;; esac
+  { [ ! -f "$uss_d/design/ui.json" ] || tr -d '\n' < "$uss_d/design/ui.json" | grep -oE '"visitor_mode"[[:space:]]*:[[:space:]]*\{[^}]*"mode"[[:space:]]*:[[:space:]]*"[a-z]+"' | sed 's/.*"//;s/"$//'
+    [ ! -f "$uss_d/PLAN.md" ] || awk '/^## /{ui=($0 ~ /^## UI/)} ui && /^[-* ]*`?visitor_mode`?:/{ sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]].*$/, ""); print }' "$uss_d/PLAN.md"
+  } | grep -qxE 'persuade|experience'
+}
 decide() {
   dc_id=$1 dc_role=$(canon_role "$2"); shift 2; require_run "$dc_id"; require_lead; require_open_run "$dc_id"
   valid_role "$dc_role" || fail "invalid role: $dc_role"
   dc_class=$(pipeline_class "$dc_id"); pipeline_class_valid "$dc_class" || fail "run $dc_id is not classified: the execution policy is derived from its class"
-  dc_focus='' dc_over=''
+  dc_focus='' dc_over='' dc_uimode=''
   while [ $# -gt 0 ]; do
     case "$1" in
+      --ui-mode) dc_uimode=${2:?--ui-mode needs a value}; shift 2 ;;
       --focus) dc_focus=${2:?--focus needs a value}; shift 2 ;;
       --model|--effort|--context-bytes|--runtime) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;
       *) fail "unknown decide argument: $1" ;;
@@ -4537,6 +4545,10 @@ decide() {
   [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
   dc_stats=$(diff_stats "$dc_id"); if [ "${dc_stats% *}" -gt 15 ] || [ "${dc_stats#* }" -gt 400 ]; then dc_sig="$dc_sig large_diff"; fi
   [ "$(fix_rounds_used "$dc_id")" -lt 2 ] || dc_sig="$dc_sig fix_round_2"
+  # 0.0.27 (A170): a UI task on a persuade or experience surface puts designer and implementer on the strongest model.
+  # Detected from the run's own files: design/ui.json `visitor_mode.mode` (spec or any screen) or the PLAN.md `## UI`
+  # line `visitor_mode: <mode>`; before the designer has written either, the lead names the surface with `--ui-mode`.
+  case "$dc_role" in designer|implementer) ui_surface_signal "$dc_id" "$dc_uimode" && dc_sig="$dc_sig ui_persuade" ;; esac
   if dc_gate=$(gate_of "$dc_role" "$dc_focus" "$dc_id" 2>/dev/null); then
     dc_lf=$(gate_latest_file "$dc_id" "$dc_gate" "${dc_focus:--}")
     if [ -n "$dc_lf" ]; then
@@ -6128,7 +6140,7 @@ case "$command" in
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
-  decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
+  decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;
   refreeze) require_lead; freeze "${2:?usage: agent.sh refreeze <ID> <AMENDMENT>}" refreeze "${3:?usage: agent.sh refreeze <ID> <AMENDMENT>}" ;;
   verify-freeze) verify_freeze "${2:?usage: agent.sh verify-freeze <ID>}" ;;
