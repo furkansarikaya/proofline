@@ -50,8 +50,9 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
   and checked by `tests/shared/check-shared.sh`.
 - **No organisation-specific names, rules or paths** anywhere in the repository, and no third-party project
   names (see D33). The single exception is a notice file that a licence requires
-  (`skills/ui-design/library/THIRD_PARTY_NOTICES.md`); `tests/shared/check-static.sh` reads the names from that file
-  and fails when one appears anywhere else. Everywhere else refer to "source 1" and "source 2".
+  (`skills/ui-design/library/THIRD_PARTY_NOTICES.md`) and the byte-identical data copies it lists, which carry the
+  sources' own strings. `tests/shared/check-static.sh` reads the names from the notices file and fails when one
+  (in any case or hyphenation) appears in any other file; it skips exactly the files listed there. Everywhere else refer to "source 1" and "source 2".
 - **Everything in the repository is English**, including comments, fixtures and test names; the only
   exception is the Turkish translation of the user guides under `docs/guides/tr/`.
 - The repository's own `.gitignore` ignores `.claude/` entirely (local agent state, progress notes, evaluations,
