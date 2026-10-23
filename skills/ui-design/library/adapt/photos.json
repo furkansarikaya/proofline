@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "basis": "derived from photos.json by build-photo-map.mjs; the library's own source statement is the only licence evidence",
+  "licenceStatement": "Lorem Picsum (https://picsum.photos): photographs from Unsplash, used under the Unsplash licence",
+  "rules": [
+    "download and self-host the image; never hot-link the address template",
+    "check the address returns an image before relying on it",
+    "keep the author credit and photo page on the page and in the ledger",
+    "library photos are not the project's own images and never count as existing imagery for deal"
+  ],
+  "counts": {
+    "sets": 19,
+    "usableSets": 18
+  },
+  "sets": {
+    "fog-and-quiet": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 52,
+      "usablePhotos": 52,
+      "excludedPhotoIds": []
+    },
+    "coast": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 39,
+      "usablePhotos": 39,
+      "excludedPhotoIds": []
+    },
+    "mountain": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 30,
+      "usablePhotos": 30,
+      "excludedPhotoIds": []
+    },
+    "forest": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 21,
+      "usablePhotos": 21,
+      "excludedPhotoIds": []
+    },
+    "water": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 23,
+      "usablePhotos": 23,
+      "excludedPhotoIds": []
+    },
+    "desert-and-road": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 15,
+      "usablePhotos": 15,
+      "excludedPhotoIds": []
+    },
+    "field-and-farm": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 12,
+      "usablePhotos": 12,
+      "excludedPhotoIds": []
+    },
+    "sky-and-space": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 15,
+      "usablePhotos": 15,
+      "excludedPhotoIds": []
+    },
+    "architecture": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 59,
+      "usablePhotos": 59,
+      "excludedPhotoIds": []
+    },
+    "city-day": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 18,
+      "usablePhotos": 18,
+      "excludedPhotoIds": []
+    },
+    "city-night": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 11,
+      "usablePhotos": 11,
+      "excludedPhotoIds": []
+    },
+    "interior-and-table": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 21,
+      "usablePhotos": 21,
+      "excludedPhotoIds": []
+    },
+    "object-still": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 10,
+      "usablePhotos": 10,
+      "excludedPhotoIds": []
+    },
+    "hands-and-making": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 7,
+      "usablePhotos": 7,
+      "excludedPhotoIds": []
+    },
+    "people": {
+      "usable": false,
+      "reason": "identifiable people: the licence grants no model release, so commercial use is unknown",
+      "photos": 27,
+      "usablePhotos": 0,
+      "excludedPhotoIds": []
+    },
+    "animals": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page; 1 photo(s) without a verifiable author page are excluded",
+      "photos": 26,
+      "usablePhotos": 25,
+      "excludedPhotoIds": [
+        1024
+      ]
+    },
+    "plants-and-flowers": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 16,
+      "usablePhotos": 16,
+      "excludedPhotoIds": []
+    },
+    "texture": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 8,
+      "usablePhotos": 8,
+      "excludedPhotoIds": []
+    },
+    "transport": {
+      "usable": true,
+      "reason": "entries state a licence that allows commercial use; every kept photo names its author and photo page",
+      "photos": 10,
+      "usablePhotos": 10,
+      "excludedPhotoIds": []
+    }
+  }
+}

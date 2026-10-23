@@ -19,7 +19,8 @@ node --test tests/benchmark/benchmark.test.mjs            # benchmark report kno
 sh adapters/generate.sh --check              # generated agent files match roles/
 sh docs/reference/generate-skills.sh --check # docs/reference/skills.md matches the skills
 sh tests/shared/check-shared.sh              # shared skill sections have not drifted
-sh tests/shared/check-static.sh              # shortcut labels in code comments, README size bound
+sh tests/shared/check-static.sh              # shortcut labels in code comments, README size bound, third-party names
+sh tests/ci/sync-design-library.sh --check   # design library copies are byte-identical to their pins (network; DESIGN_LIBRARY_MIRROR=<dir> uses a local mirror)
 node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Markdown links (also run alone by CI)
 ```
 
@@ -48,7 +49,9 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
 - **No file sharing between skills.** A skill is installable alone; shared rules are copied into each skill
   and checked by `tests/shared/check-shared.sh`.
 - **No organisation-specific names, rules or paths** anywhere in the repository, and no third-party project
-  names (see D33).
+  names (see D33). The single exception is a notice file that a licence requires
+  (`skills/ui-design/library/THIRD_PARTY_NOTICES.md`); `tests/shared/check-static.sh` reads the names from that file
+  and fails when one appears anywhere else. Everywhere else refer to "source 1" and "source 2".
 - **Everything in the repository is English**, including comments, fixtures and test names; the only
   exception is the Turkish translation of the user guides under `docs/guides/tr/`.
 - The repository's own `.gitignore` ignores `.claude/` entirely (local agent state, progress notes, evaluations,
