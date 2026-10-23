@@ -1014,6 +1014,17 @@ scenario_fingerprint_excludes_agents() {
   ok "fingerprint: .agents/ changes are not content, product changes are"
 }
 
+# A171 (review): the gate fingerprint leaves out knowledge-scope DOCUMENTATION only; an executable under docs/design/ still counts.
+scenario_fingerprint_knowledge_extensions() {
+  scaffold orchestrated; to_code_done orchestrated
+  fp0=$(A fingerprint LC)
+  mkdir -p docs/design; printf '# notes\n' > docs/design/a.md; printf '{}\n' > docs/design/b.json
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "documentation under docs/design/ altered the gate fingerprint"
+  printf 'echo pwned\n' > docs/design/evil.sh
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "an executable under docs/design/ is invisible to the gate fingerprint"
+  ok "fingerprint: knowledge-scope documents are excluded by extension, executables there still count"
+}
+
 # A152: a path under .agents/ that the plan scope names is task-owned content: it changes the fingerprint and stales the gates.
 scenario_fingerprint_scoped_agents_path() {
   SC_SCOPE_AGENTS=1 scaffold orchestrated; unset SC_SCOPE_AGENTS; to_code_done orchestrated
@@ -1307,6 +1318,7 @@ run_sc scenario_digest_resume
 run_sc scenario_reopen_failed
 run_sc scenario_reopen_blocked_and_state
 run_sc scenario_fingerprint_excludes_agents
+run_sc scenario_fingerprint_knowledge_extensions
 run_sc scenario_fingerprint_scoped_agents_path
 run_sc scenario_reopen_approval_kinds
 run_sc scenario_reopen_after_upgrade

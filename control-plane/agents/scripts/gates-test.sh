@@ -190,10 +190,19 @@ sc_language() {
   small=.agents/runs/LC/reviews/proof-review/small; mkdir -p "$small"
   printf 'Bu rapor T\303\274rk\303\247e yaz\304\261ld\304\261: \303\247ok \305\237\303\266yle \304\237\303\274zel.\n' > "$small/REPORT.md"
   expect_msg "a Turkish report was accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
+  # A171 (review): a quote line or a fence is exempt only when it repeats a captured user prompt, whatever the file
+  printf 'The review is complete.\n\n> Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n' > "$small/REPORT.md"
+  expect_msg "an invented quote block hid non-English text" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
+  printf 'The review is complete.\n\n```\n\305\237\303\266yle \303\274\303\247 \304\237\n```\n' > "$small/REPORT.md"
+  expect_msg "an invented fence hid non-English text" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
+  mkdir -p .agents/local/prompts/history
+  printf 'Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n\305\237\303\266yle\n' > .agents/local/prompts/history/1-aaaaaaaa.txt
   printf 'The review is complete.\n\n> Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n\n```\n\305\237\303\266yle\n```\nJos\303\251 reviewed it.\n' > "$small/REPORT.md"
   AS reviewer submit LC --focus rules+tests --confidence high >/dev/null || die "a quoted request / one accented name was refused"
   printf 'blocking|impl.txt:1|de\304\237er \303\274retilmiyor \305\237\303\266yle|traced; scan: grep -n lookup impl.txt; instances: single\n' > "$base/tr.rows"
   expect_msg "Turkish findings were accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --findings "$base/tr.rows" --confidence high
+  printf 'blocking|impl.txt:1|wrong value|agent.sh pipeline LC\n' > "$base/ag.rows"
+  expect_msg "a reviewer opted out of the scan rule with an agent.sh evidence prefix" 'reserved for rows the script adds' AS reviewer submit LC --focus rules+tests --findings "$base/ag.rows" --confidence high
   ok "language: non-English report and findings are rejected at submit; blockquotes, fences and one accented name pass"
 }
 
@@ -348,7 +357,9 @@ sc_parallel_lock() {
   f=$(result_for REVIEW_SMALL PASS)
   i=1 pids=''
   while [ "$i" -le 8 ]; do
-    if [ $((i % 2)) -eq 0 ]; then A decide LC reviewer --agent-path --focus rules+tests > "$base/parallel-$i.out" 2>&1 &
+    if [ $((i % 2)) -eq 0 ]; then
+      case $i in 2) pf=rules+tests ;; 4) pf=plan ;; 6) pf=tests ;; *) pf=rules ;; esac   # one --agent-path per role and focus (A171)
+      A decide LC reviewer --agent-path --focus "$pf" > "$base/parallel-$i.out" 2>&1 &
     else A ledger-note LC "parallel-$i" > "$base/parallel-$i.out" 2>&1 & fi
     pids="$pids $!"; i=$((i + 1))
   done
@@ -442,10 +453,37 @@ sc_fix_round_missed_example() {
   ok "fix rounds: a missed example of an earlier revision is not a round; a re-cited or new line is"
 }
 
+# A171 (review): a NEW copy of a line that exists elsewhere in the earlier revision is new code, not a missed example.
+sc_fix_round_copied_line() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: dup' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  gfail REVIEW_SMALL impl.txt
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: dup'; A handoff LC IMPLEMENTED >/dev/null
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-2|blocking|impl.txt:3|the copy of the dup line is wrong|traced: copy; scan: grep -n dup impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 2 ] || die "a copied line was treated as a missed example: $(pipe_val fix_round)"
+  ok "fix rounds: a new copy of an existing line is a round"
+}
+
+# A171 (review): a NEW copy of a line that exists elsewhere in the earlier revision is new code, not a missed example.
+sc_fix_round_copied_line() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: dup' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  gfail REVIEW_SMALL impl.txt
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: dup'; A handoff LC IMPLEMENTED >/dev/null
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-2|blocking|impl.txt:3|the copy of the dup line is wrong|traced: copy; scan: grep -n dup impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 2 ] || die "a copied line was treated as a missed example: $(pipe_val fix_round)"
+  ok "fix rounds: a new copy of an existing line is a round"
+}
+
 # A171: a rules review records how it scanned and lists every instance of the class in one pass.
 sc_scan_method() {
   scaffold orchestrated; implemented orchestrated; A secret-scan LC >/dev/null
   expect_msg "a rules finding without a scan method" "lacks scan:" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced'
+  expect_msg "a six-character scan passed" "lacks scan:" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: abcdef; instances: single'
   expect_msg "a rules finding without the instances" "lacks instances: single" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .'
   expect_msg "instances that omit the row location" 'instances do not include the row location impl.txt:1' rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .; instances: other.txt:9'
   rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .; instances: impl.txt:1, other.txt:9'
@@ -1123,11 +1161,19 @@ sc_decide() {
   [ "$(($(wc -l < .agents/runs/LC/LEDGER.log)))" = "$nl" ] || die "decide --dry wrote the ledger"
   printf '%s\n' "$dry" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+ \(dry run: nothing recorded\)$' || die "decide --dry: first line is not the summary: $(printf '%s\n' "$dry" | head -n 1)"
   printf '%s\n' "$dry" | grep -q '^model=' || die "decide --dry lost the key=value lines"
+  expect_msg "a repeated --agent-path was accepted before any result" 'no result has been recorded since' A decide LC reviewer --focus rules+tests --agent-path
+  mkdir -p .agents/runs/LC/results; : > .agents/runs/LC/results/099-reviewer.result.md   # a result recorded since the first decision
   real=$(A decide LC reviewer --focus rules+tests --agent-path) || die "decide --agent-path refused: $real"
   printf '%s\n' "$real" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+$' || die "decide: first line is not the summary: $(printf '%s\n' "$real" | head -n 1)"
   [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((nd + 1))" ] || die "decide --agent-path did not record one decision: before $nd now $(ls .agents/runs/LC/decisions | tr "\n" " ")"
-  rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)"
-  PROOFLINE_DISPATCH=1 A decide LC reviewer --focus rules+tests >/dev/null || die "decide from dispatch.sh was refused"
+  expect_msg "a second decide --agent-path for the same step was accepted" 'no result has been recorded since' A decide LC reviewer --focus rules+tests --agent-path
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((nd + 1))" ] || die "a refused second --agent-path persisted a decision"
+  rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)" .agents/runs/LC/results/099-reviewer.result.md
+  expect_msg "a hand-set PROOFLINE_DISPATCH=1 was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=1 sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  mkdir -p .agents/local/dispatch; nn=0123456789abcdef0123456789abcdef; : > ".agents/local/dispatch/nonce-$nn"
+  PROOFLINE_DISPATCH=$nn A decide LC reviewer --focus rules+tests >/dev/null || die "decide with a dispatch nonce was refused"
+  rm -f ".agents/local/dispatch/nonce-$nn"
+  expect_msg "a spent nonce was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
   rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)"
   # A171: friction-note ledgers that the user was asked to run a command; wait-line is one line
   A friction-note LC user-command >/dev/null || die "friction-note refused"
@@ -2399,6 +2445,7 @@ run_sc sc_legacy_fingerprint
 run_sc sc_legacy_fingerprint_new_rule
 run_sc sc_build_record_auto
 run_sc sc_fix_round_missed_example
+run_sc sc_fix_round_copied_line
 run_sc sc_scan_method
 run_sc sc_classification_stable
 echo 'gates tests passed'

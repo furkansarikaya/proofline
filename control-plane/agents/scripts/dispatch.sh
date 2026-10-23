@@ -271,7 +271,11 @@ attempt() {
   [ -n "$o_model" ] && set -- "$@" --model "$o_model"
   [ -n "$o_effort" ] && set -- "$@" --effort "$o_effort"
   [ -n "$a_runtime" ] && set -- "$@" --runtime "$a_runtime"
-  d_rc=0; decision=$(PROOFLINE_DISPATCH=1 "$agent" decide "$id" "$role" "$@" 2>"$work/decide.err") || d_rc=$?
+  # A171: the decide exemption is a one-use nonce file, present only while this decide runs (a hand-set variable proves nothing).
+  mkdir -p "$root/.agents/local/dispatch"
+  d_nonce=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); : > "$root/.agents/local/dispatch/nonce-$d_nonce"
+  d_rc=0; decision=$(PROOFLINE_DISPATCH=$d_nonce "$agent" decide "$id" "$role" "$@" 2>"$work/decide.err") || d_rc=$?
+  rm -f "$root/.agents/local/dispatch/nonce-$d_nonce"
   if [ "$d_rc" -ne 0 ]; then
     cat "$work/decide.err" >&2
     [ "$d_rc" -eq 4 ] && blocked "no decision for $role on ${a_runtime:-the configured runtime}: capability floor unmet or unresolvable"

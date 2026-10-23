@@ -568,7 +568,12 @@ content_fingerprint() {
       # A171: the knowledge step writes these after the gates ran; they are documentation, so a gate does not bind them
       # (mode gate). A path a plan scope names stays in whole (put back below); approvals bind the full tree (no mode).
       if [ "$cf_mode" = gate ]; then
-        for cf_x in $cf_kn; do git -C "$root" rm -r -q --cached --ignore-unmatch -- "${cf_x%/}" >/dev/null 2>&1; done
+        # Only documentation extensions leave the gate fingerprint: an executable or any other file under a knowledge path stays counted.
+        for cf_x in $cf_kn; do
+          git -C "$root" ls-files -- "${cf_x%/}" 2>/dev/null | grep -Ei '\.(md|json|ya?ml|txt)$' | while IFS= read -r cf_f; do
+            git -C "$root" rm -q --cached --ignore-unmatch -- "$cf_f" >/dev/null 2>&1
+          done
+        done
         for cf_n in $cf_named; do
           if in_knowledge_scope "$cf_n" && [ -f "$root/$cf_n" ]; then git -C "$root" add -f -- "$cf_n" >/dev/null 2>&1 || exit 1; fi
         done
@@ -1157,7 +1162,7 @@ gate_deps() { # ID GATE -> "GATE:focus" lines that must be satisfied before GATE
   return 0
 }
 gate_deps_unmet() { # ID GATE [NOW] -> the dependencies not satisfied for the current content, one per line
-  gdu_now=${3:-$(content_fingerprint)}
+  gdu_now=${3:-$(gate_fingerprint)}
   for gdu_d in $(gate_deps "$1" "$2"); do
     gate_satisfied "$(gate_focus_status "$1" "${gdu_d%%:*}" "${gdu_d#*:}" reuse "$gdu_now")" || echo "$gdu_d"
   done
@@ -2808,6 +2813,18 @@ tree_line() { # FINGERPRINT PATH:LINE -> the text of that line in that tree (emp
   [ "$tl_p" != "$tl_loc" ] || return 0
   git -C "$root" cat-file -p "$1:$tl_p" 2>/dev/null | sed -n "${tl_n}p"
 }
+tree_line_before() { # OLD-TREE NEW-TREE PATH:LINE -> the line number in OLD-TREE of an unchanged line of NEW-TREE (fails when the diff touches it)
+  tb_loc=$3; tb_p=${tb_loc%:*}; tb_n=${tb_loc##*:}; tb_n=${tb_n%%-*}
+  case "$tb_n" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$tb_p" != "$tb_loc" ] && [ "$tb_n" -gt 0 ] || return 1
+  git -C "$root" cat-file -e "$1:$tb_p" 2>/dev/null || return 1
+  git -C "$root" diff --no-color --no-ext-diff -U0 "$1" "$2" -- "$tb_p" 2>/dev/null | awk -v n="$tb_n" '
+    /^@@ / { h = $0; sub(/^@@ -/, "", h); split(h, a, " "); o = a[1]; c = a[2]; sub(/^\+/, "", c)
+      ob = 1; if (index(o, ",")) { split(o, x, ","); ob = x[2] } ; cs = c; cd = 1; if (index(c, ",")) { split(c, y, ","); cs = y[1]; cd = y[2] }
+      if (cd > 0 && n >= cs && n <= cs + cd - 1) bad = 1
+      if ((cd > 0 && cs + cd - 1 < n) || (cd == 0 && cs < n)) off += ob - cd }
+    END { if (bad) exit 1; print n + off }'
+}
 gate_prev_record() { # ID RECORD -> the latest earlier record of the same gate and focus on another revision (after the last reopen)
   gp_seq=$(gate_field "$2" seq); gp_g=$(gate_field "$2" gate); gp_fc=$(gate_field "$2" focus); gp_fp=$(gate_field "$2" fingerprint)
   gp_ro=$(last_reopen_seq "$1" any); gp_best=''; gp_bs=0
@@ -2843,7 +2860,9 @@ ${gc_loc%:*}	$(tree_line "$gc_efp" "$gc_loc")"
   for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$2"); do
     gc_rows=$((gc_rows + 1))
     gc_txt=$(tree_line "$gc_fp" "$gc_loc"); [ -n "$(printf '%s' "$gc_txt" | tr -d '[:space:]')" ] || return 1
-    git -C "$root" cat-file -p "$gc_pfp:${gc_loc%:*}" 2>/dev/null | grep -Fxq -- "$gc_txt" || return 1
+    # the cited line must exist UNCHANGED at its mapped position in the earlier tree (a new copy of an old line is new code)
+    gc_old=$(tree_line_before "$gc_pfp" "$gc_fp" "$gc_loc") || return 1
+    [ -n "$gc_old" ] && [ "$(tree_line "$gc_pfp" "${gc_loc%:*}:$gc_old")" = "$gc_txt" ] || return 1
     ! printf '%s\n' "$gc_cited" | grep -Fxq -- "${gc_loc%:*}	$gc_txt" || return 1
   done
   [ "$gc_rows" -gt 0 ]
@@ -3310,7 +3329,7 @@ record_validate() {
         for (i = 1; i <= n; i++) { x = seg[i]; sub(/^[[:space:]]+/, "", x); sub(/[[:space:]]+$/, "", x)
           if (x ~ /^scan:/) { scan = x; sub(/^scan:[[:space:]]*/, "", scan) } else if (x ~ /^instances:/) { inst = x; sub(/^instances:[[:space:]]*/, "", inst) } }
         loc = $3; gsub(/[[:space:]]/, "", loc)
-        if (length(scan) < 6) { print $1 ": evidence lacks scan: <the grep or script that found every instance>"; exit }
+        if (length(scan) < 10 || split(scan, sw, /[[:space:]]+/) < 2) { print $1 ": evidence lacks scan: <the grep or script that found every instance>"; exit }
         if (inst == "") { print $1 ": evidence lacks instances: single, or instances: <path:line>, <path:line>, ..."; exit }
         if (inst != "single" && index(inst, loc) == 0 && loc != "" && loc != "-") { print $1 ": instances do not include the row location " loc; exit } }' "$rv_t/findings")
       [ -z "$rv_scanbad" ] || { record_reject "finding $rv_scanbad (A171: a rules review scans for the whole class and lists every instance, so one fix round clears them all)"; return 1; } ;;
@@ -3665,17 +3684,27 @@ record_apply() {
 # exempt: the user's own words, quoted.
 # language_scan FILE... -> prints "file:line" (where the third such letter appears) per offending file; exit 1.
 language_scan() {
-  ls_rc=0
+  ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX")
+  cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
-    ls_hit=$(LC_ALL=C awk '
+    # A171 (review): the user's answers are written by the script as a quote block and are exempt whole; in any other file a quote
+    # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history), so a model cannot
+    # hide its own non-English text behind '> ' or a fence.
+    ls_own=no; case "$ls_f" in */questions/*.answer.md|*/questions/*.answer.amended-*.md|*/approvals/*|*/runs/*/TASK.md) ls_own=yes ;; esac
+    ls_hit=$(LC_ALL=C awk -v own="$ls_own" -v hist="$ls_blob" '
+      BEGIN { while ((getline l < hist) > 0) blob = blob "\n" l "\n" }
+      function quoted(t) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); return t == "" || index(blob, "\n" t "\n") > 0 }
       /^[[:space:]]*```/ { fence = !fence; next }
-      fence || /^[[:space:]]*>/ { next }
-      { c = gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&")
+      { t = $0; skip = 0
+        if (fence || $0 ~ /^[[:space:]]*>/) { if (own == "yes") skip = 1; else { sub(/^[[:space:]]*>[[:space:]]?/, "", t); if (quoted(t)) skip = 1 } }
+        if (skip) next
+        c = gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&", t)
         if (c > 0) { total += c; if (total >= 3 && !at) at = NR } }
       END { if (at) print at }' "$ls_f")
     if [ -n "$ls_hit" ]; then printf '%s:%s\n' "${ls_f#"$root"/}" "$ls_hit"; ls_rc=1; fi
   done
+  rm -f "$ls_blob"
   return "$ls_rc"
 }
 language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. The user's own words go verbatim into a quote block: every line starts with '> ' (A171); write everything else in English" "$1"; }
@@ -3799,6 +3828,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
         if (t(f[1]) !~ /^(blocking|info)$/ && n >= 5) i = 2
         sev = t(f[i]); loc = t(f[i + 1]); fnd = t(f[i + 2]); ev = ""
         for (j = i + 3; j <= n; j++) ev = ev (ev == "" ? "" : " / ") t(f[j])
+        if (ev ~ /^agent\.sh([[:space:]]|$)/) { print "BAD " NR ": the evidence of a row may not start with agent.sh (reserved for rows the script adds; name the command you ran after scan:)"; bad = 1; next }
         if (sev !~ /^(blocking|info)$/ || loc == "" || fnd == "" || ev == "") { print "BAD " NR ": want severity|path:line|finding|evidence with severity blocking or info (an answer-only result: --findings none, or the row info|-|answer|<one line>; report text on stdin goes to --report -, never --findings -)"; bad = 1; next }
         c++; printf "%s|%s|%s|%s\n", sev, loc, fnd, ev }
       END { exit bad }' "$sb_tmp/findings.in" > "$sb_tmp/rows" || submit_fail "$(grep '^BAD' "$sb_tmp/rows" | head -1)"
@@ -4813,6 +4843,7 @@ answer() {
 # --- Execution policy (D5): decide persists and ledgers one resolved decision ---------------
 # The configured runtime of a role: exec-policy.sh owns the role -> runtime-group table (one source of truth).
 role_runtime() { sh "$scripts/exec-policy.sh" runtime "$1" 2>/dev/null || echo -; }
+role_results_count() { ls -1 "$(run_dir "$1")/results" 2>/dev/null | grep -c -- "-$2\.result\.md\$" || true; }
 decision_files() { ls -1 "$(run_dir "$1")/decisions" 2>/dev/null | grep -E '^[0-9]{3}-.*\.decision$' | sort || true; }
 latest_decision() { # ID ROLE [FOCUS]
   ld_tag=$2; [ -z "${3:-}" ] || ld_tag="$2-$(printf '%s' "$3" | tr '+' '-')"
@@ -4875,9 +4906,21 @@ decide() {
   # (which sets PROOFLINE_DISPATCH) or, on the Agent path, once right before the Agent call (--agent-path). Called ahead of a `D`
   # dispatch it only duplicates the decision that dispatch.sh makes itself; to just read the decision use --dry (writes nothing).
   [ "$dc_dry$dc_ap" != yesyes ] || fail "decide --dry and --agent-path exclude each other: --dry only reads, --agent-path records"
-  [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "${PROOFLINE_DISPATCH:-}" = 1 ] ||
+  # The exemption is a per-dispatch nonce: dispatch.sh writes .agents/local/dispatch/nonce-<value> for the one decide it runs and
+  # removes it right after, so setting the variable by hand (any spelling) proves nothing.
+  dc_nonce=${PROOFLINE_DISPATCH:-}; dc_nok=no
+  case "$dc_nonce" in ''|*[!0-9a-f]*) ;; *) [ "${#dc_nonce}" -ge 16 ] && [ -f "$root/.agents/local/dispatch/nonce-$dc_nonce" ] && dc_nok=yes ;; esac
+  [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "$dc_nok" = yes ] ||
     fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
   [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
+  # A171 (review): the Agent route decides once per step. A second --agent-path for the same role and focus is refused until a
+  # result of that role is recorded after the first (explorers run in parallel and are bounded by their slots instead).
+  if [ "$dc_ap" = yes ] && [ "$dc_role" != explorer ]; then
+    dc_pv=$(latest_decision "$dc_id" "$dc_role" "$dc_focus")
+    if [ -n "$dc_pv" ] && grep -qx 'via=agent-path' "$dc_pv" && [ "$(sed -n 's/^results_n=//p' "$dc_pv" | head -n 1)" = "$(role_results_count "$dc_id" "$dc_role")" ]; then
+      fail "decide --agent-path refused: the $dc_role${dc_focus:+ ($dc_focus)} decision ${dc_pv##*/} was recorded for the Agent call and no result has been recorded since. Make the Agent call with that decision (agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --dry shows it again), or record its result first"
+    fi
+  fi
   # A171: a gate whose dependency has not completed is not dispatched
   if dc_dgate=$(gate_of "$dc_role" "$dc_focus" "$dc_id" 2>/dev/null) && [ -n "$(gate_deps "$dc_id" "$dc_dgate")" ]; then
     dc_unmet=$(gate_deps_unmet "$dc_id" "$dc_dgate" | tr '\n' ' ')
@@ -4912,6 +4955,9 @@ decide() {
   dc_res=$(sh "$scripts/exec-policy.sh" "$@") || dc_rc=$?
   if [ "$dc_rc" != 0 ]; then [ "$dc_rc" != 1 ] || dc_rc=4; echo "decision refused by exec-policy.sh (exit $dc_rc)" >&2; return "$dc_rc"; fi
   dc_body=$(printf '%s\nrole=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_res" "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)")
+  [ "$dc_ap" != yes ] || dc_body="$dc_body
+via=agent-path
+results_n=$(role_results_count "$dc_id" "$dc_role")"
   # The first line is a one-line summary (role, runtime, model, effort, reason): a truncated output still reads right (A171).
   dc_v() { printf '%s\n' "$dc_body" | sed -n "s/^$1=//p" | head -n 1; }
   dc_sum="decision: role=$(dc_v role) runtime=$(dc_v runtime) model=$(dc_v model) effort=$(dc_v effort) reason=$(dc_v model_reason)"

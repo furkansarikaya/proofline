@@ -740,7 +740,9 @@ sc_gate_deps() {
   expect_msg "VERIFY decided before QA visual" 'VERIFY needs QA:visual first' A decide LC verifier --agent-path
   expect_msg "VERIFY recorded before QA visual" 'VERIFY needs QA:visual first' gpass VERIFY
   RF_FOCUS=visual gpass QA
-  A decide LC verifier --agent-path >/dev/null || die "VERIFY is refused after QA visual passed"
+  mkdir -p docs/design; printf '# design notes\n' > docs/design/a.md   # a knowledge-scope document must not make the dependency look unmet
+  A decide LC verifier --agent-path >/dev/null || die "VERIFY is refused after QA visual passed, with a knowledge-scope document present"
+  rm -rf docs
   gpass VERIFY
   [ "$(gate_st VERIFY)" = pass ] || die "VERIFY did not record after QA visual: $(gate_st VERIFY)"
   ok "gate dependencies: VERIFY is not offered, decided or recorded before QA visual, and runs after it"
