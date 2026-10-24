@@ -3709,7 +3709,7 @@ record_apply() {
 #  - a `>` quote line or a fenced line that repeats a line of a captured user prompt (prompts/history): the user's own words;
 #  - product text: inline code (`...`), a double-quoted span ("..." or “...”), a `>` quote line or a fenced line (a JSON
 #    string value is a double-quoted span) whose WHOLE inner text, whitespace normalized, occurs in the run's TASK.md or in a
-#    tracked or new, not ignored, product file outside .agents/ (git grep), and is at least 4 characters. The match is on the inner
+#    file tracked by git outside .agents/ (git grep, never an untracked file: a model could write its own text there and quote it), and is at least 4 characters. The match is on the inner
 #    text, never on the delimiter: a model cannot hide a sentence of its own behind a quote, a code span or a fence;
 #  - machine output of the skills (reviews/visual-proof/, reports/qa-evidence/): measured and saved by tools, never written.
 # language_scan FILE... -> prints "file:line" (where the third such letter appears) per offending file; exit 1.
@@ -3763,7 +3763,7 @@ language_corpus() {
   {
     [ -z "$lcp_run" ] || cat "$(run_dir "$lcp_run")/TASK.md" 2>/dev/null || :
     cat "$root"/.agents/local/prompts/history/*.txt 2>/dev/null || :
-    git -C "$root" grep -I -h --untracked -e '' -- . ':(exclude).agents' 2>/dev/null | head -c 50000000 || :
+    git -C "$root" grep -I -h -e '' -- . ':(exclude).agents' 2>/dev/null | head -c 50000000 || :
   } | tr -s '[:space:]' ' ' > "$lcp_t"
   printf '%s\n' "$lcp_t"
 }
@@ -3787,7 +3787,7 @@ language_scan() {
   rm -f "$ls_blob" "$ls_corp"
   return "$ls_rc"
 }
-language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span (\"...\"), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a tracked or new product file outside .agents/; the user's own messages are quoted verbatim in a '> ' block (A171, A172). Write everything else in English" "$1"; }
+language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span (\"...\"), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file tracked by git outside .agents/; the user's own messages are quoted verbatim in a '> ' block (A171, A172). Write everything else in English" "$1"; }
 # language_check FILE|- [PATH]: the write-time check (A171, the runtime write hook calls it with the text about to be written; stdin for -;
 # PATH is the run-relative file being written, which names the run whose TASK.md holds the quotable product text).
 # Exit 1 and the "file:line" hit when the text holds non-English text outside the exemptions above.

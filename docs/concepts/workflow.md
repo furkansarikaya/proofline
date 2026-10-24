@@ -242,7 +242,7 @@ repeat its product text, so these are exempt (A172), and only these:
 
 - a `> ` quote line or a fenced line that repeats a line of one of your own messages (A171);
 - inline code (`` `...` ``), a double-quoted span (`"..."`, `“...”`), a `> ` quote line, a fenced line or a JSON string value whose
-  whole inner text occurs in the run's `TASK.md` or in a tracked (or new, not ignored) product file outside `.agents/`. Whitespace is
+  whole inner text occurs in the run's `TASK.md` or in a product file tracked by git outside `.agents/` (an untracked file never counts: an agent could write its own text there and quote it). Whitespace is
   normalized (runs of spaces and line breaks count as one space) and the quoted text must be at least 4 characters; a shorter piece
   occurs in almost any file and proves nothing. A sentence an agent wrote itself is never in the project, so it cannot be hidden
   behind a quote, a code span or a fence: it stays refused;
