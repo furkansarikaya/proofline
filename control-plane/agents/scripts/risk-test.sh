@@ -723,6 +723,31 @@ sc_log_upgrade_legacy() {
   ok "legacy freeze: a run frozen before log_sensitive survives the upgrade without the logging focus; another risk key or a new-rule log_sensitive edit is refused"
 }
 
+# A171: VERIFY reads the visual evidence report of the QA visual focus; it is neither offered by `next`, dispatched
+# nor recorded before that focus is satisfied for the current content.
+sc_gate_deps() {
+  rrun COMPLEX 'web/index.html' "$(printf '%s\n' '' '## UI' '' 'one status badge' 'visual_writes: DB_PATH=:memory:')"
+  frozen; implement web/index.html '<main></main>'
+  for gd_g in SECRETS REVIEW_PLAN REVIEW_RULES REVIEW_TESTS SECURITY; do
+    if [ "$gd_g" = SECRETS ]; then A secret-scan "$RID" >/dev/null; else gpass "$gd_g"; fi
+  done
+  gpass QA
+  snap; has 'gate.VERIFY.needs=QA:visual'
+  nx=$(A next LC)
+  printf '%s\n' "$nx" | grep -Fq 'dispatch.sh LC qa --focus visual' || die "next does not offer QA visual: $nx"
+  ! printf '%s\n' "$nx" | grep -Fq 'dispatch.sh LC verifier' || die "next offers VERIFY before QA visual: $nx"
+  printf '%s\n' "$nx" | grep -Fq 'VERIFY waits for QA:visual' || die "next does not say why VERIFY waits: $nx"
+  expect_msg "VERIFY decided before QA visual" 'VERIFY needs QA:visual first' A decide LC verifier --agent-path
+  expect_msg "VERIFY recorded before QA visual" 'VERIFY needs QA:visual first' gpass VERIFY
+  RF_FOCUS=visual gpass QA
+  mkdir -p docs/design; printf '# design notes\n' > docs/design/a.md   # a knowledge-scope document must not make the dependency look unmet
+  A decide LC verifier --agent-path >/dev/null || die "VERIFY is refused after QA visual passed, with a knowledge-scope document present"
+  rm -rf docs
+  gpass VERIFY
+  [ "$(gate_st VERIFY)" = pass ] || die "VERIFY did not record after QA visual: $(gate_st VERIFY)"
+  ok "gate dependencies: VERIFY is not offered, decided or recorded before QA visual, and runs after it"
+}
+
 run_sc sc_log_sensitive
 run_sc sc_log_config_check
 run_sc sc_log_pattern_wide
@@ -749,3 +774,4 @@ run_sc sc_probe_drift
 run_sc sc_frozen
 run_sc sc_prefreeze
 run_sc sc_selective_focus
+run_sc sc_gate_deps

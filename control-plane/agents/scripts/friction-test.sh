@@ -23,6 +23,24 @@ grep -q 'RUN-001' "$r" && die "the run id leaked into the report"
 grep -q '[/@~\\]' "$r" && die "a path or address character is in the report"
 ok "friction report: counts from the TASK-001-shaped records, no run id, no path"
 
+# A171: hook durations and hook timeouts in the ledger are counted
+cp .agents/runs/RUN-001/LEDGER.log "$base/ledger.keep"
+printf 'seq=900 prev=x event=hook role=lead from=- to=- digest=d ts=t epoch=1 detail=name=prompt runs=4 total_ms=2400 max_ms=900\nseq=901 prev=x event=hook role=lead from=- to=- digest=d ts=t epoch=1 detail=name=pretool runs=10 total_ms=300 max_ms=60\nseq=902 prev=x event=hook-timeout role=lead from=- to=- digest=d ts=t epoch=1 detail=name=prompt ms=31000 note=killed-before-finish\n' >> .agents/runs/RUN-001/LEDGER.log
+F report RUN-001 > /dev/null
+grep -q '^- hook timeouts: 1 (of 14 recorded hook runs; total hook time 2700 ms, slowest 900 ms)' "$r" || die "hook timings not counted: $(grep hook "$r")"
+cp "$base/ledger.keep" .agents/runs/RUN-001/LEDGER.log
+ok "friction report counts hook runs, their time and hook timeouts (A171)"
+
+# A171: asking the user to run an internal command is counted (controlled kind words only)
+cp .agents/runs/RUN-001/LEDGER.log "$base/ledger.keep"
+printf 'seq=9999 prev=x event=friction-note role=lead from=IMPLEMENTING to=IMPLEMENTING digest=x ts=2026-01-01T00:00:00Z epoch=1 detail=user-command\n' >> .agents/runs/RUN-001/LEDGER.log
+F report RUN-001 > /dev/null || die "report with a friction note failed"
+grep -q 'asked to run a command (a proofline bug): 1' "$r" && grep -q 'user-command: 1 times' "$r" || die "friction note not counted: $(cat "$r")"
+cp "$base/ledger.keep" .agents/runs/RUN-001/LEDGER.log
+F report RUN-001 > /dev/null
+grep -q 'asked to run a command (a proofline bug): 0' "$r" || die "a run without notes must report 0"
+ok "friction report: the user asked to run a command is counted"
+
 rm -f "$r"
 git config user.name blocked   # a word the report text contains
 expect_msg "scrub refuses a report that mentions the repository user" "not written" F report RUN-001

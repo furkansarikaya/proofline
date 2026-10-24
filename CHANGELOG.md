@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.0.28 — 2026-10-23
+
+- Reviews list every instance of a blocking rule finding in one pass (`scan:` and `instances:` evidence, enforced by `record`); a failing record that only carries over lines the previous revision already had costs no fix round; the blocking-or-info rule is written, versioned and stable across rounds; a mutation budget overrun (21/20) is a warning (A171).
+- Gate dependencies are written in `GATES.md` and enforced: VERIFY is refused before QA `visual`; the build record is made at `handoff IMPLEMENTED` and `next` lists it when missing (A171).
+- Drift in `DESIGN.md` and `design_docs` is information before the knowledge step, which must fix it, and blocks delivery after it; the knowledge step's own files no longer make the gates stale (A171).
+- Approvals are transparent (`.agents/local/approve.log`, one-line reason, stale markers cleaned, recorded from the newest message when the hook could not); hook durations and timeouts reach the ledger and the friction report, and the prompt hook records first and has a time budget (A171).
+- `answer --captured` takes the newest user message after the question and says which; `answer --amend` corrects a recorded answer with a newer user message and keeps the old record; user text is stored in `> ` quote blocks that the language check exempts, and the check runs at write time (A171).
+- Freeze stops above `pipelines.<CLASS>.max_scope_paths` (15 for STANDARD and COMPLEX) and proposes a split; "proceed without splitting" is recorded; the dispatch timeout comes from `dispatch_timeout_seconds` per class and a timed-out dispatch resumes from a note (A171).
+- The hook accepts variables assigned a literal in the same command and reads of the runtime's background task output; `decide` is refused before a dispatch and has a read-only `--dry` and a one-line summary first; the lead never asks the user to run an internal command (`friction-note`) and waits in one line (`wait-line`) (A171).
+
 ## 0.0.27 — 2026-10-23
 
 - `ui-design` rebalances the 0.0.4 `avoided` rule (A170): each surface has a visitor mode (`persuade`, `operate`, `read`, `experience`); persuade and experience surfaces need a topic inventory, an argument tied to facts, an idea that fails the rival test, three directions dealt by `scripts/deal.mjs` plus a calm standard option, one live thing, real imagery, a motion layer and a characterful self-hosted font.

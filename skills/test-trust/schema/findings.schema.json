@@ -137,7 +137,7 @@
             "mutants_run": {
               "type": "integer",
               "minimum": 0,
-              "description": "Must not exceed thresholds.mutation_budget."
+              "description": "Should not exceed thresholds.mutation_budget; an overrun is a validator warning, not an error (A171)."
             },
             "not_examined": {
               "type": "array",

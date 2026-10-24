@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.27"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.28"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -237,7 +237,7 @@ test("SKILL.md maps every D23 command and the rules that keep the lead out of ve
   for (const c of ["`/proofline`", "`run <TASK>`", "`resume`", "`queue`", "`task [--grill]`", "`design system\\|data\\|api\\|ui [--check]`", "`review`", "`audit`", "`debug`", "`deliver <TASK>`", "`clean`"]) {
     assert.ok(SKILL.includes(`| ${c} |`), `command ${c} missing from the commands table`);
   }
-  for (const s of ["never runs `agent.sh record`", "verbatim", "`A decide` once", "Never both", "max_fix_rounds", "`SECRETS` or `SECURITY`", "hook-captured", "`proofline-security-reviewer`", "never waives on its own"]) {
+  for (const s of ["never runs `agent.sh record`", "verbatim", "`A decide <ID> <role> --agent-path` once", "--dry", "A friction-note <ID> user-command", "A wait-line <ID>", "Never both", "max_fix_rounds", "`SECRETS` or `SECURITY`", "hook-captured", "`proofline-security-reviewer`", "never waives on its own"]) {
     assert.ok(SKILL.includes(s), `SKILL.md lacks "${s}"`);
   }
 });
@@ -311,7 +311,7 @@ test("fixture: the pending question is stored verbatim and the frozen destructiv
 
 // These two change run state: keep them last.
 test("fixture: decide escalates the pass_low security re-run on the installed policy", { skip: !SLOW && "PROOFLINE_SLOW_TESTS=1" }, () => {
-  const d = agent("security-pass-low", "decide", "LK-7", "security_reviewer");
+  const d = agent("security-pass-low", "decide", "LK-7", "security_reviewer", "--agent-path");
   assert.equal(d.status, 0, d.stderr);
   assert.match(d.stdout, /^signals=.*low_confidence_pass/m);
   assert.match(d.stdout, /^escalated=yes$/m);

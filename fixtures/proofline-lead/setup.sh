@@ -183,7 +183,7 @@ pass_except() { # GATE...: secret-scan plus a high-confidence PASS for every oth
     if [ "$p_g" = SECRETS ]; then q A secret-scan "$ID"; else gate "$p_g" PASS; fi
   done
 }
-rules_fail() { gate REVIEW_RULES FAIL high "REVIEW_RULES-1|blocking|src/lookup.js:4|empty key returns undefined, AC-1 requires null|traced: lookup('') -> store.get('') -> undefined"; }
+rules_fail() { gate REVIEW_RULES FAIL high "REVIEW_RULES-1|blocking|src/lookup.js:4|empty key returns undefined, AC-1 requires null|traced: lookup('') -> store.get('') -> undefined; scan: grep -n store.get src/lookup.js; instances: single"; }
 worker() { # PHASE RESULT FILE TEXT: one implementer window, as dispatch.sh brackets it
   w_before=$(A window-open "$ID")
   printf '%s\n' "$4" >> "$3"

@@ -265,7 +265,7 @@ scenario_fix_scope_format() {
   export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
-  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:3|wrong default|traced' 'REVIEW_SMALL-2|blocking|impl_test.txt:9|hollow assertion|traced' 'REVIEW_SMALL-3|info|other.txt:1|suspicion only|none'
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:3|wrong default|traced; scan: grep -n lookup impl.txt; instances: single' 'REVIEW_SMALL-2|blocking|impl_test.txt:9|hollow assertion|traced; scan: grep -n lookup impl.txt; instances: single' 'REVIEW_SMALL-3|info|other.txt:1|suspicion only|none'
   grep -q '^fix_scope: impl.txt,impl_test.txt$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "fix_scope is not the union of blocking finding paths"
   A handoff LC IMPLEMENTING >/dev/null
   worker FIX pass impl_test.txt 'test: empty key returns the documented default'
@@ -281,7 +281,7 @@ scenario_fix_scope_symbol() {
   export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null
-  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:TestLookup|hollow assertion|traced'
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:TestLookup|hollow assertion|traced; scan: grep -n lookup impl.txt; instances: single'
   grep -q '^fix_scope: impl_test.txt$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "fix_scope kept the symbol of a path:symbol finding"
   A handoff LC IMPLEMENTING >/dev/null
   cp impl.txt "$base/impl.keep"
@@ -1014,6 +1014,25 @@ scenario_fingerprint_excludes_agents() {
   ok "fingerprint: .agents/ changes are not content, product changes are"
 }
 
+# A171 (review): the gate fingerprint leaves out knowledge-scope DOCUMENTATION only; an executable under docs/design/ still counts.
+scenario_fingerprint_knowledge_extensions() {
+  scaffold orchestrated; to_code_done orchestrated
+  fp0=$(A fingerprint LC)
+  mkdir -p docs/design; printf '# notes\n' > docs/design/a.md; printf '{}\n' > docs/design/b.json
+  [ "$(A fingerprint LC)" = "$fp0" ] || die "documentation under docs/design/ altered the gate fingerprint"
+  printf 'echo pwned\n' > docs/design/evil.sh
+  [ "$(A fingerprint LC)" != "$fp0" ] || die "an executable under docs/design/ is invisible to the gate fingerprint"
+  # many documents cost one batched git call, not one per file
+  fp1=$(A fingerprint LC); mkdir -p docs/design/bulk; i=0; while [ "$i" -lt 500 ]; do printf 'doc %s\n' "$i" > "docs/design/bulk/d$i.md"; i=$((i + 1)); done
+  # deterministic: count the `git rm` calls the fingerprint makes through a shim on PATH (a call per file would be 500)
+  rg=$(command -v git); mkdir -p "$base/shim"; : > "$base/rm.log"
+  printf '#!/bin/sh\ncase " $* " in *" rm "*) echo x >> "%s" ;; esac\nexec "%s" "$@"\n' "$base/rm.log" "$rg" > "$base/shim/git"; chmod +x "$base/shim/git"
+  fp2=$(PATH="$base/shim:$PATH" A fingerprint LC)
+  [ "$fp2" = "$fp1" ] || die "500 documents altered the gate fingerprint"
+  [ "$(wc -l < "$base/rm.log" | tr -d ' ')" -le 5 ] || die "the gate fingerprint made $(wc -l < "$base/rm.log" | tr -d ' ') git rm calls for 500 documents"
+  ok "fingerprint: knowledge-scope documents are excluded by extension, executables there still count"
+}
+
 # A152: a path under .agents/ that the plan scope names is task-owned content: it changes the fingerprint and stales the gates.
 scenario_fingerprint_scoped_agents_path() {
   SC_SCOPE_AGENTS=1 scaffold orchestrated; unset SC_SCOPE_AGENTS; to_code_done orchestrated
@@ -1307,6 +1326,7 @@ run_sc scenario_digest_resume
 run_sc scenario_reopen_failed
 run_sc scenario_reopen_blocked_and_state
 run_sc scenario_fingerprint_excludes_agents
+run_sc scenario_fingerprint_knowledge_extensions
 run_sc scenario_fingerprint_scoped_agents_path
 run_sc scenario_reopen_approval_kinds
 run_sc scenario_reopen_after_upgrade

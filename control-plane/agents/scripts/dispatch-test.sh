@@ -286,12 +286,33 @@ ck "a running dispatch leaves a marker (in flight, do not re-dispatch); it is re
 TIMEOUT=1 mkcfg auto
 reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
 ck "timeout: exit 124, window closed, no record" '[ "$rc" -eq 124 ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 124" && ! has "$loc/calls.log" submit'
+# A171: the timeout comes from the run's class (pipelines.<CLASS>.dispatch_timeout_seconds) before the global one, and a
+# timeout leaves a resume note that the next dispatch of the same role carries in its prompt
+printf 'pipeline:\n  classification: COMPLEX\n' > "$a/runs/T-1/RUN.yaml"
+TIMEOUT=60 mkcfg auto; printf 'pipelines:\n  COMPLEX:\n    dispatch_timeout_seconds: 1\n  STANDARD:\n    dispatch_timeout_seconds: 60\n' >> "$a/config.yaml"
+echo partial > "$p/partial-work.txt"
+reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
+ck "A171 per-class timeout: COMPLEX times out at its own limit although dispatch.timeout_seconds is 60" '[ "$rc" -eq 124 ] && has "$loc/ledger.log" "after=1s"'
+ck "A171 timeout records the partial work in a resume note" 'has "$a/runs/T-1/dispatch/RESUME-implementer.md" "partial-work.txt" && has "$a/runs/T-1/dispatch/RESUME-implementer.md" "timed_out_at:"'
+d FAKE_CODEX=ok T-1 implementer
+ck "A171 re-dispatch carries the resume note and continues; the note is spent after the submission" '[ "$rc" -eq 0 ] && has "$loc/codex.stdin" "RESUME: an earlier dispatch of this step timed out" && has "$loc/codex.stdin" "partial-work.txt" && [ ! -e "$a/runs/T-1/dispatch/RESUME-implementer.md" ]'
+rm -f "$p/partial-work.txt"
+printf 'pipeline:\n  classification: STANDARD\n' > "$a/runs/T-1/RUN.yaml"
+reset; d FAKE_CODEX=ok PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
+ck "A171 a class with a longer limit does not time out a normal step" '[ "$rc" -eq 0 ] && ! has "$loc/ledger.log" "dispatch timeout"'
+rm -f "$a/runs/T-1/RUN.yaml"
 mkcfg auto
 reset; d FAKE_CLAUDE=limit FAKE_CODEX=edit T-1 reviewer
 ck "non-code role editing the product tree: BLOCKED, not recorded, not reverted" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q policy_violation && ! grep -q "^record" "$loc/calls.log" && has "$p/product.txt" tampered && has "$loc/ledger.log" policy_violation'
 echo original > "$p/product.txt"
 reset; d T-1 reviewer --model 'x y'
 ck "unsafe override value is a usage error" '[ "$rc" -eq 2 ]'
+# A171 (review): a nonce a killed dispatch left behind is swept at the next attempt; a fresh one (a live dispatch) is not; none remains after a run
+reset; mkdir -p "$a/local/dispatch"; echo 1 > "$a/local/dispatch/nonce-0000000000000000old"; touch -t 202001010000 "$a/local/dispatch/nonce-0000000000000000old"
+echo 1 > "$a/local/dispatch/nonce-0000000000000000new"
+d FAKE_CODEX=ok PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
+ck "A171 stale dispatch nonce is swept, a fresh one kept, and the run's own is removed" '[ ! -e "$a/local/dispatch/nonce-0000000000000000old" ] && [ -e "$a/local/dispatch/nonce-0000000000000000new" ] && [ "$(ls "$a/local/dispatch" | wc -l | tr -d " ")" = 1 ]'
+rm -f "$a/local/dispatch"/nonce-*
 
 # Metrics (A80): the dispatch record. Fields: ID|ROLE|FOCUS|RUNTIME|MODEL|DURATION|TIN|TOUT|TTOTAL|TURNS|RETRIES|RESULT|
 reset; d FAKE_CLAUDE=usage T-1 reviewer --focus rules

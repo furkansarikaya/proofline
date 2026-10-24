@@ -8,6 +8,10 @@ The verifier proves, in `VERIFY.md`, that the frozen plan is implemented and the
 - `agent.sh verify-freeze`, `verify-scope`, `verify-worker-evidence` pass;
 - design-sync (`design/SYNC.md`) when design documents exist: drift is a FAIL.
 
+Blocking or info follows the written rule in GATES.md ("Blocking or info", A171), not the round: an observation
+classified `info` in one round is not `blocking` in the next (and the reverse) while the code it cites is unchanged.
+The verifier runs after the QA visual focus when the run has one (GATES.md, "Gate dependencies").
+
 A failing test that also fails at `repository.base_sha` in a clean worktree is pre-existing: an `info` row,
 not a FAIL. The verifier never edits the implementation; failure follows the fix loop (GATES.md).
 

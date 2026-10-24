@@ -166,6 +166,7 @@ config_check() {
       else if (k ~ /^pipelines\.[A-Z]+\.(evidence|qa|architect)$/) en(k, v, "yes|no")
       else if (k ~ /^pipelines\.[A-Z]+\.review$/) en(k, v, "yes|no|optional")
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)
+      else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad(k " must be at least 30") }
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
@@ -545,7 +546,8 @@ content_fingerprint() {
   # A152: a path under .agents/ that a run's plan scope names is task-owned product content, so it stays in the tree.
   # A154: the files `upgrade` installs (installed_control_paths, the agent-file patterns) and the proofline block of
   # AGENTS.md/CLAUDE.md are control plane too; a path a plan scope names (cf_named) stays in whole.
-  cf_td=$(cfg tasks.dir .agents/tasks); cf_keep='' cf_named=''
+  cf_td=$(cfg tasks.dir .agents/tasks); cf_keep='' cf_named='' cf_kn=''
+  [ "$cf_mode" != gate ] || cf_kn=$(knowledge_scope_entries)
   for cf_pl in "$root"/.agents/runs/*/PLAN.md; do
     [ -f "$cf_pl" ] || continue
     for cf_p in $(scope_mappings "$cf_pl" 2>/dev/null | cut -d '|' -f1); do
@@ -563,6 +565,22 @@ content_fingerprint() {
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
       git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
       git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$cf_td" >/dev/null 2>&1
+      # A171: the knowledge step writes these after the gates ran; they are documentation, so a gate does not bind them
+      # (mode gate). A path a plan scope names stays in whole (put back below); approvals bind the full tree (no mode).
+      if [ "$cf_mode" = gate ]; then
+        # Only documentation extensions leave the gate fingerprint: an executable or any other file under a knowledge path stays counted.
+        # One ls-files and batched removals (a large docs tree must not cost a git call per file).
+        : > "$cf_tmp/kn.list"
+        for cf_x in $cf_kn; do printf '%s\n' "${cf_x%/}"; done > "$cf_tmp/kn.paths"
+        if [ -s "$cf_tmp/kn.paths" ]; then
+          # shellcheck disable=SC2046 # the entries are plain paths without whitespace (config values)
+          git -C "$root" ls-files -z -- $(cat "$cf_tmp/kn.paths") 2>/dev/null | grep -zEi '\.(md|json|ya?ml|txt)$' > "$cf_tmp/kn.list" || :
+          [ ! -s "$cf_tmp/kn.list" ] || xargs -0 -n 500 git -C "$root" rm -q --cached --ignore-unmatch -- < "$cf_tmp/kn.list" >/dev/null 2>&1 || :
+        fi
+        for cf_n in $cf_named; do
+          if in_knowledge_scope "$cf_n" && [ -f "$root/$cf_n" ]; then git -C "$root" add -f -- "$cf_n" >/dev/null 2>&1 || exit 1; fi
+        done
+      fi
       for cf_k in $cf_keep; do git -C "$root" add -f -- "$cf_k" >/dev/null 2>&1 || exit 1; done
       for cf_i in '.claude/agents/proofline-*.md' '.codex/agents/proofline-*.toml' $(installed_control_paths); do
         git -C "$root" rm -r -q --cached --ignore-unmatch -- "$cf_i" >/dev/null 2>&1
@@ -588,6 +606,9 @@ content_fingerprint() {
   if cf_out=$(cf_try "$cf_tmp/objects") && [ -n "$cf_out" ]; then rm -rf "$cf_tmp"; printf '%s\n' "$cf_out"; return 0; fi
   rm -rf "$cf_tmp"; fail "could not compute the content fingerprint"
 }
+
+# The fingerprint gates, results and waivers bind: the content fingerprint without the knowledge step's files (A171).
+gate_fingerprint() { content_fingerprint gate; }
 
 # legacy_fingerprint_match RECORDED (A161): a gate record written by 0.0.12 or 0.0.13 (before A156) holds a content fingerprint
 # in which a block-only AGENTS.md/CLAUDE.md is still part of the tree. That value is accepted as the current one iff the tree
@@ -1118,6 +1139,38 @@ required_gates() { # ID [TIER]
 }
 gate_owner() { case "$1" in REVIEW_*) echo reviewer ;; SECURITY) echo security_reviewer ;; QA) echo qa ;; VERIFY) echo verifier ;; SECRETS) echo secret-scan ;; esac; }
 gate_focus() { case "$1" in REVIEW_SMALL) echo rules+tests ;; REVIEW_PLAN) echo plan ;; REVIEW_RULES) echo rules ;; REVIEW_TESTS) echo tests ;; REVIEW_DATA) echo data ;; esac; }
+# A171: the build record (A148) is made before the review gate wave, not left to the first reviewer dispatch.
+# build_record_missing ID: 0 when build/test are configured and the current tree has no finished record.
+build_record_missing() {
+  [ -n "$(cfg commands.build '')$(cfg commands.test '')" ] || return 1
+  [ -f "$scripts/build-record.sh" ] || return 1
+  sh "$scripts/build-record.sh" show >/dev/null 2>&1; [ $? -eq 3 ]
+}
+# handoff IMPLEMENTED (lead): produce the record once for the implemented tree; a failing build is recorded, never a refusal.
+build_record_auto() {
+  [ "$execution_role" = lead ] || return 0
+  build_record_missing "$1" || return 0
+  if sh "$scripts/build-record.sh" run >/dev/null 2>&1; then echo "build record made for the implemented tree (agent.sh build-record $1 show)" >&2
+  else echo "build record made, or not possible (agent.sh build-record $1 show); reviewers read it, it does not block the handoff" >&2; fi
+}
+# A171: gate dependencies, written in GATES.md "Gate dependencies". A gate that needs the output of another gate
+# (VERIFY reads the visual evidence report that the QA visual focus produces) is offered by `next` and accepted by
+# `decide` and `record` only when that dependency is satisfied for the current content.
+gate_deps() { # ID GATE -> "GATE:focus" lines that must be satisfied before GATE runs
+  case "$2" in
+    VERIFY)
+      required_gates "$1" | grep -Fxq QA || return 0
+      risk_gate_focuses "$1" QA | grep -Fxq visual && echo QA:visual ;;
+  esac
+  return 0
+}
+gate_deps_unmet() { # ID GATE [NOW] -> the dependencies not satisfied for the current content, one per line
+  gdu_now=${3:-$(gate_fingerprint)}
+  for gdu_d in $(gate_deps "$1" "$2"); do
+    gate_satisfied "$(gate_focus_status "$1" "${gdu_d%%:*}" "${gdu_d#*:}" reuse "$gdu_now")" || echo "$gdu_d"
+  done
+  return 0
+}
 gate_of() { # ROLE [FOCUS] [ID]: a rules-gate risk focus (A78) lands on REVIEW_SMALL when the run's tier is small
   case "$1:${2:-}" in
     reviewer:plan) echo REVIEW_PLAN ;; reviewer:rules) echo REVIEW_RULES ;; reviewer:tests) echo REVIEW_TESTS ;;
@@ -1133,6 +1186,50 @@ gate_default_artifact() {
     REVIEW_TESTS) echo reviews/test-trust/tests/REPORT.md ;; REVIEW_DATA) echo reviews/data-design/REVIEW.md ;; SECURITY) echo security/REPORT.md ;; QA) echo QA_REPORT.md ;; VERIFY) echo VERIFY.md ;; esac
 }
 valid_gate_name() { case "$1" in SECRETS|REVIEW_SMALL|REVIEW_PLAN|REVIEW_RULES|REVIEW_TESTS|REVIEW_DATA|SECURITY|QA|VERIFY) return 0 ;; *) return 1 ;; esac; }
+
+# A171: a plan over the class's max_scope_paths stops at freeze and proposes a split. The user's answer
+# `proceed without splitting` (answered_by user, at the start of the prompt, no negation or condition) to the question
+# bound to this exact scope list is the recorded override; any other answer keeps the freeze stopped.
+split_token() { # ID COUNT : COUNT@hash of the sorted scope paths
+  printf '%s@%s\n' "$2" "$(scope_mappings "$(run_dir "$1")/PLAN.md" | cut -d '|' -f1 | LC_ALL=C sort | sha256 | cut -c1-12)"
+}
+split_state() { # ID TOKEN -> accepted <answer> | pending <question> | declined <answer> | none
+  ss_d=$(run_dir "$1"); ss_pend='' ss_decl=''
+  for ss_q in "$ss_d"/questions/[0-9][0-9][0-9].md; do
+    [ -e "$ss_q" ] || continue
+    grep -Eq "^[[:space:]]*SPLIT: $2[[:space:]]*\$" "$ss_q" || continue
+    ss_a=${ss_q%.md}.answer.md
+    if [ ! -e "$ss_a" ]; then ss_pend=questions/$(basename "$ss_q"); continue; fi
+    ss_t=$(sed '1,/^---$/d' "$ss_a" | unquote_block | tr -s '[:space:]' ' ' | sed 's/^ //' | tr '[:upper:]' '[:lower:]')
+    if [ "$(gate_field "$ss_a" answered_by)" = user ] && printf '%s' "$ss_t" | grep -Eq '^proceed without splitting' \
+      && ! printf ' %s ' "${ss_t#proceed without splitting}" | grep -Eq "(^|[^[:alpha:]])(not|never|no|n't|if|unless|but|except|until|yet|wait|maybe|or|actually|instead)([^[:alpha:]]|\$)"; then
+      echo "accepted questions/$(basename "$ss_a")"; return 0
+    fi
+    ss_decl=questions/$(basename "$ss_a")
+  done
+  if [ -n "$ss_pend" ]; then echo "pending $ss_pend"; elif [ -n "$ss_decl" ]; then echo "declined $ss_decl"; else echo none; fi
+}
+split_check() { # ID CLASS COUNT MAX
+  sp_id=$1 sp_n=$3 sp_max=$4; sp_tok=$(split_token "$sp_id" "$sp_n"); sp_st=$(split_state "$sp_id" "$sp_tok")
+  case "$sp_st" in
+    accepted*)
+      echo "note: $sp_n scope paths exceed the $2 limit of $sp_max; freezing without splitting on the user's answer (${sp_st#accepted })" >&2
+      ledger_append "$sp_id" split_override - - "scope_paths=$sp_n max=$sp_max class=$2 answer=${sp_st#accepted }" ; return 0 ;;
+    pending*) fail "this plan has $sp_n scope paths; the $2 pipeline allows at most $sp_max. The split question ${sp_st#pending } is unanswered (relay it: 'agent.sh questions $sp_id'): the user splits the task or answers 'proceed without splitting'" ;;
+  esac
+  sp_parts=$(( (sp_n + sp_max - 1) / sp_max ))
+  sp_q=$(mktemp "${TMPDIR:-/tmp}/proofline-split.XXXXXX")
+  if [ "$(run_language "$sp_id")" = tr ]; then
+    printf '1. Plan %s kapsam yolu içeriyor; %s hattı en fazla %s yola izin verir. Görev bölünsün mü? Önerim: her biri en fazla %s yol içeren en az %s göreve bölmek (task-author bölme akışı).\n   SPLIT: %s\n   seçenekler: "böl" (task-author görevi böler, bu koşu daralır) | "proceed without splitting" (bölmeden devam; cevabınızla kayda geçer)\n   önerilen: böl\n   neden: büyük kapsam gözden geçirmeyi ve geri almayı zorlaştırır; bölmeden devam yalnızca sizin açık cevabınızla olur\n' \
+      "$sp_n" "$2" "$sp_max" "$sp_max" "$sp_parts" "$sp_tok" > "$sp_q"
+  else
+    printf '1. The plan has %s scope paths; the %s pipeline allows at most %s. Split the task? Proposal: split it into at least %s tasks of at most %s scope paths each (the task-author split flow).\n   SPLIT: %s\n   options: "split" (task-author splits the task, this run is narrowed) | "proceed without splitting" (the phrase is part of the answer; recorded as the user'"'"'s override)\n   recommended: split\n   why: a wide scope is hard to review and to roll back; continuing unsplit happens only on your explicit answer\n' \
+      "$sp_n" "$2" "$sp_max" "$sp_parts" "$sp_max" "$sp_tok" > "$sp_q"
+  fi
+  if [ "$sp_st" = none ] || [ "${sp_st%% *}" = declined ]; then ask_question "$sp_id" "$sp_q" >/dev/null; fi
+  rm -f "$sp_q"
+  fail "this plan has $sp_n scope paths; the $2 pipeline allows at most $sp_max. Propose the split to the user: at least $sp_parts tasks of at most $sp_max paths each (task-author split flow). Question recorded (relay it: 'agent.sh questions $sp_id'); the user answers 'proceed without splitting' to continue unsplit, which is recorded"
+}
 
 # Freeze-time artifact contract: required artifacts exist, unrequired ones do not, class plan rules hold.
 pipeline_check() {
@@ -1154,9 +1251,13 @@ pipeline_check() {
   pc_bad=$(plan_risk_invalid "$dir/PLAN.md")
   [ -z "$pc_bad" ] || fail "PLAN.md '## Risk' holds only flag lines '<flag>: yes|no' (flags: $risk_plan_flags); not one: $pc_bad"
   pc_max=$(pipeline_value "$class" max_scope_paths)
+  [ -n "$pc_max" ] || [ -z "$class" ] || pc_max=15   # A171: a class without its own limit still has the default one
   if [ -n "$pc_max" ]; then
     pc_n=$(scope_mappings "$dir/PLAN.md" | wc -l | tr -d ' ')
-    [ "$pc_n" -le "$pc_max" ] || fail "the $class pipeline allows at most $pc_max scope paths; this plan has $pc_n — reclassify"
+    if [ "$pc_n" -gt "$pc_max" ]; then
+      if [ "$class" = TRIVIAL ]; then fail "the $class pipeline allows at most $pc_max scope paths; this plan has $pc_n — reclassify"; fi
+      split_check "$id" "$class" "$pc_n" "$pc_max"
+    fi
   fi
   # A115: TRIVIAL covers text and configuration; code (tests included) in the scope is refused at freeze, not at IMPLEMENTED (A31).
   if [ "$class" = TRIVIAL ]; then
@@ -1182,9 +1283,10 @@ pipeline_show() {
     "$class" "$(pipeline_review "$id")" "$(pipeline_needs "$id" evidence)" "$(pipeline_needs "$id" qa)" "$(pipeline_needs "$id" architect)" \
     "$(pipeline_value "$class" max_explorers)" "$(run_autonomy "$id")" "$ps_tier" "$ps_art" "$ps_round" "$(max_fix_rounds)" \
     "$( [ "$ps_round" -ge 2 ] && echo yes || echo no )" "$ps_gates"
-  ps_fp=$(content_fingerprint)
+  ps_fp=$(gate_fingerprint)
   for ps_g in $ps_gates; do
     printf 'gate.%s=%s\n' "$ps_g" "$(gate_status "$id" "$ps_g" reuse "$ps_fp")"
+    ps_dn=$(gate_deps "$id" "$ps_g" | tr '\n' ',' | sed 's/,$//'); [ -z "$ps_dn" ] || printf 'gate.%s.needs=%s\n' "$ps_g" "$ps_dn"
     ps_u=$(gate_unsupported_focuses "$id" "$ps_g" reuse "$ps_fp"); [ -z "$ps_u" ] || printf 'gate.%s.unsupported=%s (unproven, reported; the gate is not a full pass)\n' "$ps_g" "$ps_u"
   done
   # A78: risk signals, the focus each one adds to a gate, the per-focus status and the design roles to dispatch.
@@ -1648,11 +1750,15 @@ task_source_status() {
 # Knowledge scope (Transaction B): space-separated entries of knowledge_scope_root; an entry ending in /
 # is a directory prefix, any other entry an exact path. A plan-scoped path stays application scope.
 # The configured design documents (design_docs.*) belong to it too (A159); an installed project without the key gets the default roots.
-in_knowledge_scope() {
+knowledge_scope_entries() { # the knowledge_scope_root entries plus the configured design documents (dir entries end in /)
   ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/ docs/product/')
   for ks_k in design architecture data_model api adr_dir; do
     ks_p=$(cfg "design_docs.$ks_k" ""); [ -z "$ks_p" ] || { [ "$ks_k" != adr_dir ] || ks_p=${ks_p%/}/; ks_r="$ks_r $ks_p"; }
   done
+  printf '%s\n' "$ks_r"
+}
+in_knowledge_scope() {
+  ks_r=$(knowledge_scope_entries)
   for ks_e in $ks_r; do
     case "$ks_e" in */) case "$1" in "$ks_e"*) return 0 ;; esac ;; *) [ "$1" != "$ks_e" ] || return 0 ;; esac
   done
@@ -2035,6 +2141,8 @@ verify_tests_findings() { # ID
   vt_p=''; [ ! -f "$vt_d/PLAN.md" ] || vt_p="--plan $vt_d/PLAN.md"
   # shellcheck disable=SC2086
   vt_out=$(node "$vt_s" "$vt_f" $vt_p 2>&1) || { printf '%s\n' "$vt_out" | tr '\n' ' '; return 1; }
+  # A171: a mutation-budget overrun is a warning the submission passes with, never a block
+  printf '%s\n' "$vt_out" | grep '^WARNING:' >&2 || :
 }
 
 # --- design-sync is not skipped silently (A65) --------------------------------------------------------
@@ -2163,6 +2271,7 @@ record_handoff() {
       verify_worker_evidence "$id"
       verify_mutation_ownership "$id" 1
       verify_fix_bound "$id"
+      build_record_auto "$id"
       set_run_value "$id" handoff implemented_patch_sha256 "$patch"
       set_run_value "$id" handoff code_done_patch_sha256 PENDING ;;
     CODE_DONE)
@@ -2586,7 +2695,7 @@ blocking_finding_ids() { sed -n 's/^finding: \([^|]*\)|\([a-z]*\)|.*/\1 \2/p' "$
 # `unsupported` (unproven, reported) does not hold the gate open; it is never `pass` and the report lists it.
 gate_status() {
   gs_id=$1 gs_gate=$2 gs_mode=${3:-strict} gs_now=${4:-}
-  if [ "$gs_mode" != patch ]; then [ -n "$gs_now" ] || gs_now=$(content_fingerprint)
+  if [ "$gs_mode" != patch ]; then [ -n "$gs_now" ] || gs_now=$(gate_fingerprint)
   else [ -n "$gs_now" ] || gs_now=$(task_patch_fingerprint "$gs_id"); fi
   gs_worst=pass
   for gs_fc in - $(risk_gate_focuses "$gs_id" "$gs_gate"); do
@@ -2652,14 +2761,117 @@ gate_label() { # ID GATE MODE NOW
 }
 gate_satisfied() { case "$1" in pass|waived|unsupported) return 0 ;; *) return 1 ;; esac; }
 verify_required_gates() { # ID strict|patch MESSAGE
-  vrg_now=''; [ "$2" = patch ] || vrg_now=$(content_fingerprint); risk_prime "$1"
+  vrg_now=''; [ "$2" = patch ] || vrg_now=$(gate_fingerprint); risk_prime "$1"
   for vrg_g in $(required_gates "$1"); do
     vrg_s=$(gate_status "$1" "$vrg_g" "$2" "$vrg_now")
     gate_satisfied "$vrg_s" || fail "$3: required gate $vrg_g of $1 is $vrg_s for the current content (see 'agent.sh pipeline $1')"
   done
 }
+# A171: a late example of a finding class the reviewer missed does not use up a fix round. A FAIL record is free
+# (carry-over) when every blocking row cites a line that is byte-identical in the revision the same gate and focus
+# reviewed before (the line was already there, the reviewer missed it) and that no blocking row of that earlier
+# record cited (so a line the implementer was asked to fix and did not still counts). Deterministic: it compares
+# the tree of each record's fingerprint, nothing else. A row without a numeric path:line, a tree that is not in the
+# object database, or no earlier record: not free.
+# A171: the blocking-vs-info rule is written in GATES.md ("Blocking or info"); this is its version. A change of the rule
+# text raises the number, and a classification is compared only with records of the same version.
+blocking_rule_version=1
+# finding_key FINGERPRINT LOCATION TEXT: the identity of an observation across revisions. The cited line's text in that
+# revision when the location resolves (so a moved line is the same finding), else the normalised finding text.
+finding_key() {
+  fk_loc=$(printf '%s' "$2" | tr -d ' ')
+  fk_t=$(tree_line "$1" "$fk_loc")
+  if [ -n "$(printf '%s' "$fk_t" | tr -d '[:space:]')" ]; then printf '%s@%s\n' "${fk_loc%:*}" "$(printf '%s' "$fk_t" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | git hash-object --stdin | cut -c1-12)"
+  else printf '%s~%s\n' "${fk_loc%:*}" "$(printf '%s' "$3" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' ' ' | sed 's/^ //;s/ $//' | git hash-object --stdin | cut -c1-12)"; fi
+}
+# classification_flip ID GATE FOCUS FINGERPRINT ROWS-FILE: the first row (rows: id|severity|loc|text|evidence) whose key an
+# earlier record of the same gate and focus under the same rule version classified the other way. Prints "id key was X in NAME".
+classification_flip() {
+  cl_ro=$(last_reopen_seq "$1" any)
+  for cl_n in $(gate_names "$1"); do
+    cl_f=$(gates_dir "$1")/$cl_n
+    [ "$(gate_field "$cl_f" gate)" = "$2" ] && [ "$(gate_field "$cl_f" focus)" = "$3" ] || continue
+    [ "$(gate_field "$cl_f" seq)" -gt "$cl_ro" ] || continue
+    [ "$(gate_field "$cl_f" blocking_rule)" = "$blocking_rule_version" ] || continue
+    cl_pfp=$(gate_field "$cl_f" fingerprint)
+    # earlier keys, one per line: key<TAB>class
+    cl_old=$(sed -n 's/^finding: //p' "$cl_f" | while IFS='|' read -r cl_i cl_s cl_l cl_x _; do
+      [ "$cl_s" = info ] || [ "$cl_s" = blocking ] || continue
+      case "$cl_x$cl_l" in (UNSUPPORTED*|*"risk signal "*) continue ;; esac
+      printf '%s\t%s\n' "$(finding_key "$cl_pfp" "$cl_l" "$cl_x")" "$cl_s"; done)
+    [ -n "$cl_old" ] || continue
+    cl_hit=$(awk -F'|' '{ print $1 "|" $2 "|" $3 "|" $4 }' "$5" | while IFS='|' read -r cl_i cl_s cl_l cl_x; do
+      [ "$cl_s" = info ] || [ "$cl_s" = blocking ] || continue
+      cl_k=$(finding_key "$4" "$cl_l" "$cl_x")
+      cl_was=$(printf '%s\n' "$cl_old" | awk -F'\t' -v k="$cl_k" '$1 == k { print $2; exit }')
+      if [ -n "$cl_was" ] && [ "$cl_was" != "$cl_s" ]; then printf '%s (%s) is %s, and was %s in %s\n' "$cl_i" "$cl_l" "$cl_s" "$cl_was" "$cl_n"; break; fi; done)
+    [ -z "$cl_hit" ] || { printf '%s\n' "$cl_hit"; return 0; }
+  done
+  return 1
+}
+tree_line() { # FINGERPRINT PATH:LINE -> the text of that line in that tree (empty when unknown)
+  tl_loc=$2; tl_p=${tl_loc%:*}; tl_n=${tl_loc##*:}; tl_n=${tl_n%%-*}
+  case "$tl_n" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$tl_n" -gt 0 ] || return 0
+  [ "$tl_p" != "$tl_loc" ] || return 0
+  git -C "$root" cat-file -p "$1:$tl_p" 2>/dev/null | sed -n "${tl_n}p"
+}
+tree_line_before() { # OLD-TREE NEW-TREE PATH:LINE -> the line number in OLD-TREE of an unchanged line of NEW-TREE (fails when the diff touches it)
+  tb_loc=$3; tb_p=${tb_loc%:*}; tb_n=${tb_loc##*:}; tb_n=${tb_n%%-*}
+  case "$tb_n" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$tb_p" != "$tb_loc" ] && [ "$tb_n" -gt 0 ] || return 1
+  git -C "$root" cat-file -e "$1:$tb_p" 2>/dev/null || return 1
+  git -C "$root" diff --no-color --no-ext-diff -U0 "$1" "$2" -- "$tb_p" 2>/dev/null | awk -v n="$tb_n" '
+    /^@@ / { h = $0; sub(/^@@ -/, "", h); split(h, a, " "); o = a[1]; c = a[2]; sub(/^\+/, "", c)
+      ob = 1; if (index(o, ",")) { split(o, x, ","); ob = x[2] } ; cs = c; cd = 1; if (index(c, ",")) { split(c, y, ","); cs = y[1]; cd = y[2] }
+      if (cd > 0 && n >= cs && n <= cs + cd - 1) bad = 1
+      if ((cd > 0 && cs + cd - 1 < n) || (cd == 0 && cs < n)) off += ob - cd }
+    END { if (bad) exit 1; print n + off }'
+}
+gate_prev_record() { # ID RECORD -> the latest earlier record of the same gate and focus on another revision (after the last reopen)
+  gp_seq=$(gate_field "$2" seq); gp_g=$(gate_field "$2" gate); gp_fc=$(gate_field "$2" focus); gp_fp=$(gate_field "$2" fingerprint)
+  gp_ro=$(last_reopen_seq "$1" any); gp_best=''; gp_bs=0
+  for gp_n in $(gate_names "$1"); do
+    gp_f=$(gates_dir "$1")/$gp_n
+    [ "$(gate_field "$gp_f" gate)" = "$gp_g" ] && [ "$(gate_field "$gp_f" focus)" = "$gp_fc" ] || continue
+    gp_s=$(gate_field "$gp_f" seq)
+    [ "$gp_s" -lt "$gp_seq" ] && [ "$gp_s" -gt "$gp_ro" ] && [ "$gp_s" -gt "$gp_bs" ] || continue
+    [ "$(gate_field "$gp_f" fingerprint)" != "$gp_fp" ] || continue
+    gp_best=$gp_f; gp_bs=$gp_s
+  done
+  [ -n "$gp_best" ] && printf '%s\n' "$gp_best"
+}
+gate_carryover_free() { # ID RECORD -> 0 when the record only carries over examples of an earlier revision
+  # only a reviewer gate can miss an example; a mechanical gate (VERIFY, SECRETS, QA) failing is a round
+  case "$(gate_field "$2" gate)" in REVIEW_*) ;; *) return 1 ;; esac
+  gc_prev=$(gate_prev_record "$1" "$2") || return 1
+  gc_fp=$(gate_field "$2" fingerprint); gc_pfp=$(gate_field "$gc_prev" fingerprint)
+  # a line that ANY earlier record of this gate and focus already cited (a pass in between does not forget it) is an unfixed
+  # finding, not a missed example: it counts as a round
+  gc_cited=''; gc_seq=$(gate_field "$2" seq); gc_g=$(gate_field "$2" gate); gc_fc=$(gate_field "$2" focus); gc_ro=$(last_reopen_seq "$1" any)
+  for gc_n in $(gate_names "$1"); do
+    gc_f=$(gates_dir "$1")/$gc_n
+    [ "$(gate_field "$gc_f" gate)" = "$gc_g" ] && [ "$(gate_field "$gc_f" focus)" = "$gc_fc" ] || continue
+    gc_s=$(gate_field "$gc_f" seq); [ "$gc_s" -lt "$gc_seq" ] && [ "$gc_s" -gt "$gc_ro" ] || continue
+    gc_efp=$(gate_field "$gc_f" fingerprint)
+    for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$gc_f"); do
+      gc_cited="$gc_cited
+${gc_loc%:*}	$(tree_line "$gc_efp" "$gc_loc")"
+    done
+  done
+  gc_rows=0
+  for gc_loc in $(awk -F'|' '/^finding: / && $2 != "info" { gsub(/ /, "", $3); print ($3 == "" ? "-" : $3) }' "$2"); do
+    gc_rows=$((gc_rows + 1))
+    gc_txt=$(tree_line "$gc_fp" "$gc_loc"); [ -n "$(printf '%s' "$gc_txt" | tr -d '[:space:]')" ] || return 1
+    # the cited line must exist UNCHANGED at its mapped position in the earlier tree (a new copy of an old line is new code)
+    gc_old=$(tree_line_before "$gc_pfp" "$gc_fp" "$gc_loc") || return 1
+    [ -n "$gc_old" ] && [ "$(tree_line "$gc_pfp" "${gc_loc%:*}:$gc_old")" = "$gc_txt" ] || return 1
+    ! printf '%s\n' "$gc_cited" | grep -Fxq -- "${gc_loc%:*}	$gc_txt" || return 1
+  done
+  [ "$gc_rows" -gt 0 ]
+}
 # Fix rounds (D15): one round per distinct content that collected an unwaived blocking FAIL
-# under the current frozen contract since the last reopen.
+# under the current frozen contract since the last reopen (A171: a carry-over record is not a round).
 fix_rounds_used() {
   fr_reopen=$(last_reopen_seq "$1" any)
   for fr_n in $(gate_names "$1"); do
@@ -2668,6 +2880,7 @@ fix_rounds_used() {
     [ "$(gate_field "$fr_f" seq)" -gt "$fr_reopen" ] || continue
     gate_bound_to_contract "$1" "$fr_f" || continue
     fail_fully_waived "$1" "$fr_f" && continue
+    gate_carryover_free "$1" "$fr_f" && continue
     gate_field "$fr_f" fingerprint
   done | sort -u | wc -l | tr -d ' '
 }
@@ -2890,6 +3103,7 @@ write_gate() {
     if [ -n "$wg_art" ]; then printf 'artifact: "%s"\nartifact_sha256: "%s"\n' "$wg_art" "$(hash_file "$wg_d/$wg_art")"; fi
     printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$wg_d" freeze task_sha256)" "$(section_value "$wg_d" freeze evidence_sha256)" "$(section_value "$wg_d" freeze plan_sha256)" "$(section_value "$wg_d" freeze qa_plan_sha256)"
     printf 'policy_sha256: "%s"\npipeline: "%s"\n' "$(section_value "$wg_d" freeze policy_sha256)" "$(section_value "$wg_d" freeze pipeline)"
+    printf 'blocking_rule: "%s"\n' "$blocking_rule_version"
     [ -z "$wg_rfile" ] || printf 'result_file: "%s"\nresult_sha256: "%s"\n' "$wg_rfile" "$(hash_file "$wg_d/$wg_rfile")"
     [ "$wg_res" != fail ] || printf 'fix_scope: %s\n' "$wg_scope"
     [ "$wg_res" != unsupported ] || printf 'unsupported: "%s"\n' "$wg_focus"
@@ -3050,7 +3264,11 @@ record_validate() {
       risk_gate_focuses "$rv_id" "$rv_gate" | grep -Fxq -- "$rv_focus" || { record_reject "focus $rv_focus is not required on $rv_gate of $rv_id: no risk signal triggers it (see 'agent.sh pipeline $rv_id')"; return 1; }
     fi
   fi
-  rv_fp=$(hdr FINGERPRINT "$rv_t/hdr"); rv_now=$(content_fingerprint)
+  if [ "$rv_kind" = gate ] && [ -n "$rv_gate" ] && [ -n "$(gate_deps "$rv_id" "$rv_gate")" ]; then
+    rv_unmet=$(gate_deps_unmet "$rv_id" "$rv_gate" | tr '\n' ' ')
+    [ -z "$rv_unmet" ] || { record_reject "$rv_gate needs ${rv_unmet% } first (GATES.md, Gate dependencies): it reads that gate's output; run it before $rv_gate"; return 1; }
+  fi
+  rv_fp=$(hdr FINGERPRINT "$rv_t/hdr"); rv_now=$(gate_fingerprint)
   [ "$rv_fp" = "$rv_now" ] || { record_reject "stale: FINGERPRINT $rv_fp is not the current content fingerprint $rv_now"; return 1; }
   rv_art=$(hdr ARTIFACT "$rv_t/hdr"); rv_ap=${rv_art% *}; rv_as=${rv_art##* }
   [ "$rv_ap" != "$rv_art" ] || { record_reject "ARTIFACT needs '<run-relative path> <sha256>'"; return 1; }
@@ -3104,6 +3322,28 @@ record_validate() {
   rv_badrow=$(awk -F'|' -v p="$rv_prefix" '{ if ($1 !~ ("^" p "-[0-9]+$")) { print "id " $1 " (want " p "-<n>)"; exit } if ($2 !~ /^(blocking|info)$/) { print "severity " $2; exit } }' "$rv_t/findings")
   [ -z "$rv_badrow" ] || { record_reject "invalid finding $rv_badrow"; return 1; }
   [ "$(cut -d'|' -f1 "$rv_t/findings" | sort | uniq -d)" = '' ] || { record_reject "duplicate finding ids"; return 1; }
+  # A171: a rules review states how it scanned and lists every instance in one pass, so the fix round is not spent on
+  # the examples one by one (the evidence column carries `scan: <command or method>` and `instances: single` or the
+  # `path:line` of every instance, the row's own location included).
+  if [ "$rv_kind" = gate ] && [ "$rv_role" = reviewer ] && [ "$rv_res" = FAIL ]; then
+    case "$rv_focus" in rules|rules+tests)
+      rv_scanbad=$(awk -F'|' '$2 != "info" && $5 !~ /^agent\.sh / {
+        ev = $5; n = split(ev, seg, ";"); scan = ""; inst = ""
+        for (i = 1; i <= n; i++) { x = seg[i]; sub(/^[[:space:]]+/, "", x); sub(/[[:space:]]+$/, "", x)
+          if (x ~ /^scan:/) { scan = x; sub(/^scan:[[:space:]]*/, "", scan) } else if (x ~ /^instances:/) { inst = x; sub(/^instances:[[:space:]]*/, "", inst) } }
+        loc = $3; gsub(/[[:space:]]/, "", loc)
+        if (length(scan) < 10 || split(scan, sw, /[[:space:]]+/) < 2) { print $1 ": evidence lacks scan: <the grep or script that found every instance>"; exit }
+        if (inst == "") { print $1 ": evidence lacks instances: single, or instances: <path:line>, <path:line>, ..."; exit }
+        if (inst != "single" && index(inst, loc) == 0 && loc != "" && loc != "-") { print $1 ": instances do not include the row location " loc; exit } }' "$rv_t/findings")
+      [ -z "$rv_scanbad" ] || { record_reject "finding $rv_scanbad (A171: a rules review scans for the whole class and lists every instance, so one fix round clears them all)"; return 1; } ;;
+    esac
+  fi
+  # A171: the same observation keeps its classification across revisions while the written rule (GATES.md, "Blocking or info")
+  # is unchanged: an info row cannot become blocking, nor a blocking row info, without a rule change or a waiver.
+  if [ "$rv_kind" = gate ] && [ -n "$rv_gate" ] && [ "$rv_res" != BLOCKED ] && [ -s "$rv_t/findings" ]; then
+    rv_flip=$(classification_flip "$rv_id" "$rv_gate" "$rv_focus" "$rv_fp" "$rv_t/findings") || rv_flip=''
+    [ -z "$rv_flip" ] || { record_reject "classification changed for the same observation: $rv_flip. Blocking or info follows the written rule (GATES.md), not the round: keep the earlier classification (a blocking finding the user accepts is waived, not downgraded)"; return 1; }
+  fi
   rv_blocking=$(awk -F'|' '$2 != "info"' "$rv_t/findings" | wc -l | tr -d ' ')
   if [ "$rv_res" = FAIL ] && [ "$rv_blocking" = 0 ]; then record_reject "FAIL needs at least one blocking finding"; return 1; fi
   if [ "$rv_res" = PASS ] && [ "$rv_blocking" != 0 ]; then record_reject "PASS cannot carry blocking findings"; return 1; fi
@@ -3447,20 +3687,40 @@ record_apply() {
 # exempt: the user's own words, quoted.
 # language_scan FILE... -> prints "file:line" (where the third such letter appears) per offending file; exit 1.
 language_scan() {
-  ls_rc=0
+  ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX")
+  cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
-    ls_hit=$(LC_ALL=C awk '
+    # A171 (review): the user's answers are written by the script as a quote block and are exempt whole; in any other file a quote
+    # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history), so a model cannot
+    # hide its own non-English text behind '> ' or a fence.
+    ls_own=no; case "$ls_f" in */questions/*.answer.md|*/questions/*.answer.amended-*.md|*/approvals/*|*/runs/*/TASK.md) ls_own=yes ;; esac
+    ls_hit=$(LC_ALL=C awk -v own="$ls_own" -v hist="$ls_blob" '
+      BEGIN { while ((getline l < hist) > 0) blob = blob "\n" l "\n" }
+      function quoted(t) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); return t == "" || index(blob, "\n" t "\n") > 0 }
       /^[[:space:]]*```/ { fence = !fence; next }
-      fence || /^[[:space:]]*>/ { next }
-      { c = gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&")
+      { t = $0; skip = 0
+        if (fence || $0 ~ /^[[:space:]]*>/) { if (own == "yes") skip = 1; else { sub(/^[[:space:]]*>[[:space:]]?/, "", t); if (quoted(t)) skip = 1 } }
+        if (skip) next
+        c = gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&", t)
         if (c > 0) { total += c; if (total >= 3 && !at) at = NR } }
       END { if (at) print at }' "$ls_f")
     if [ -n "$ls_hit" ]; then printf '%s:%s\n' "${ls_f#"$root"/}" "$ls_hit"; ls_rc=1; fi
   done
+  rm -f "$ls_blob"
   return "$ls_rc"
 }
-language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text (put the user's own words in a > blockquote, write everything else in English)" "$1"; }
+language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. The user's own words go verbatim into a quote block: every line starts with '> ' (A171); write everything else in English" "$1"; }
+# language_check FILE|-: the write-time check (A171, the runtime write hook calls it with the text about to be written; stdin for -).
+# Exit 1 and the "file:line" hit when the text holds non-English text outside a quote block.
+language_check() {
+  lk_f=${1:--}; lk_t=''
+  if [ "$lk_f" = - ]; then lk_t=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); cat > "$lk_t"; lk_f=$lk_t; fi
+  lk_hit=$(language_scan "$lk_f") && lk_rc=0 || lk_rc=1
+  [ -z "$lk_t" ] || rm -f "$lk_t"
+  if [ "$lk_rc" = 1 ]; then printf '%s\n' "$(language_fail_text "line ${lk_hit##*:}")"; return 1; fi
+  return 0
+}
 # verify_run_language ID: every run artifact a person or role wrote; raw runtime logs are exempt.
 verify_run_language() {
   vrl_d=$(run_dir "$1"); vrl_files=$(find "$vrl_d" -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.json' \) ! -path "$vrl_d/dispatch/*" ! -path "$vrl_d/scratch/*" ! -path "$vrl_d/gates/*" ! -name 'dispatch-*' ! -name 'LEDGER.log' | sort)
@@ -3571,9 +3831,24 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
         if (t(f[1]) !~ /^(blocking|info)$/ && n >= 5) i = 2
         sev = t(f[i]); loc = t(f[i + 1]); fnd = t(f[i + 2]); ev = ""
         for (j = i + 3; j <= n; j++) ev = ev (ev == "" ? "" : " / ") t(f[j])
+        if (ev ~ /^agent\.sh([[:space:]]|$)/) { print "BAD " NR ": the evidence of a row may not start with agent.sh (reserved for rows the script adds; name the command you ran after scan:)"; bad = 1; next }
         if (sev !~ /^(blocking|info)$/ || loc == "" || fnd == "" || ev == "") { print "BAD " NR ": want severity|path:line|finding|evidence with severity blocking or info (an answer-only result: --findings none, or the row info|-|answer|<one line>; report text on stdin goes to --report -, never --findings -)"; bad = 1; next }
         c++; printf "%s|%s|%s|%s\n", sev, loc, fnd, ev }
       END { exit bad }' "$sb_tmp/findings.in" > "$sb_tmp/rows" || submit_fail "$(grep '^BAD' "$sb_tmp/rows" | head -1)"
+  fi
+  # A171: design-sync drift in a knowledge-scope document (DESIGN.md, design_docs.*, the wiki and ADR roots) is information
+  # before the knowledge step, which must fix it; it is not a verifier failure and needs no waiver or scope widening.
+  # `knowledge-done` and delivery block while the drift remains.
+  if [ "$execution_role" = verifier ] && [ -s "$sb_tmp/rows" ]; then
+    : > "$sb_tmp/rows.kd"
+    while IFS= read -r sb_kr; do
+      sb_kp=$(printf '%s' "$sb_kr" | cut -d '|' -f2); sb_kp=${sb_kp%%:*}
+      case "$sb_kr" in
+        blocking\|*design-sync\ drift*) if in_knowledge_scope "$sb_kp"; then sb_kr="info|$(printf '%s' "$sb_kr" | cut -d '|' -f2)|KNOWLEDGE_DRIFT: $(printf '%s' "$sb_kr" | cut -d '|' -f3)|$(printf '%s' "$sb_kr" | cut -d '|' -f4-)"; fi ;;
+      esac
+      printf '%s\n' "$sb_kr" >> "$sb_tmp/rows.kd"
+    done < "$sb_tmp/rows"
+    cp "$sb_tmp/rows.kd" "$sb_tmp/rows"
   fi
   sb_blocking=$(awk -F'|' '$1 == "blocking"' "$sb_tmp/rows" | wc -l | tr -d ' ')
   # A gate result follows from the findings (the skill's rule), never from a free choice.
@@ -3730,7 +4005,7 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
   {
     printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
     [ -z "$sb_focus" ] || printf 'FOCUS: %s\n' "$sb_focus"
-    printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(content_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
+    printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(gate_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
     printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
     sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
     awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
@@ -3782,7 +4057,7 @@ record_gate() {
     [ -n "$(scope_entry_paths "$g_fscope")" ] || { rm -f "$g_rows"; fail "a failing gate requires fix_scope with at least one path (comma-separated paths the fix may touch)"; }
     g_i=0; for g_p in $(printf '%s' "$g_fscope" | tr ',' ' '); do g_i=$((g_i + 1)); printf '%s-%s|blocking|%s|%s|%s\n' "$g_gate" "$g_i" "$g_p" "$(one_line "$g_findings")" "$g_art" >> "$g_rows"; done
   fi
-  write_gate "$g_id" "$g_gate" "$g_result" "$execution_role" high "$(gate_focus "$g_gate")" "$g_art" "$g_rows" '' "$(content_fingerprint)"
+  write_gate "$g_id" "$g_gate" "$g_result" "$execution_role" high "$(gate_focus "$g_gate")" "$g_art" "$g_rows" '' "$(gate_fingerprint)"
   rm -f "$g_rows"
 }
 # SECRETS (D14): a script gate, never a role and never waivable.
@@ -3802,7 +4077,7 @@ secret_scan() {
        [ -s "$ss_tmp/rows" ] || printf 'SECRETS-1|blocking|-|secret scanner reported findings without locations|secret-scan.sh\n' > "$ss_tmp/rows" ;;
     *) ss_err=$(head -3 "$ss_tmp/err" | tr '\n' ' '); rm -rf "$ss_tmp"; fail "secret scan error (exit $ss_rc): $ss_err — nothing recorded (BLOCKED)" ;;
   esac
-  write_gate "$ss_id" SECRETS "$ss_res" secret-scan high '' '' "$ss_tmp/rows" '' "$(content_fingerprint)"
+  write_gate "$ss_id" SECRETS "$ss_res" secret-scan high '' '' "$ss_tmp/rows" '' "$(gate_fingerprint)"
   [ "$ss_res" = pass ] || sed 's/^/  /' "$ss_tmp/rows"
   rm -rf "$ss_tmp"
 }
@@ -4032,9 +4307,25 @@ approval_unanswered() {
 approval_wait_o() {
   if approval_unanswered "$1" "$2" "$3"; then
     o "the user's last reply is not an explicit approval (an answer that is ambiguous or a refusal never approves): relay the question again verbatim with its accepted answers: agent.sh request-approval $3 $2 (relay verbatim), then wait for the reply and: agent.sh next $3"
+  elif approval_retry "$1" "$2" "$3"; then
+    o "the user's approval of $2 was recorded just now (the prompt hook had not finished it, A171; log .agents/local/approve.log): agent.sh next $3"
   else
     o "wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next $3"
   fi
+}
+# approval_retry REQFILE KIND ID (A171): the newest user message approves this request but no approval exists (the prompt hook
+# was cut off or could not take the lock): record it now, so the user never has to run `approve` in a terminal. 0 when recorded.
+approval_retry() {
+  [ "$execution_role" = lead ] || return 1
+  ar_c=$(latest_capture 2>/dev/null) || return 1
+  ar_t=$(capture_field "$ar_c" time 2>/dev/null) || return 1
+  [ "$ar_t" -gt "$(gate_field "$1" requested_at)" ] 2>/dev/null || return 1
+  ar_f=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); capture_field "$ar_c" text > "$ar_f" 2>/dev/null || :
+  if ! text_has_approval "$ar_f" "$2" "${3:-}"; then rm -f "$ar_f"; return 1; fi
+  rm -f "$ar_f"
+  ar_o=$(sh "$scripts/agent.sh" approve "$3" "$2" 2>&1 </dev/null) && ar_rc=0 || ar_rc=$?
+  printf '%s target=%s kinds=%s rc=%s retry output: %s\n' "$(now_iso)" "$3" "$2" "$ar_rc" "$(printf '%s' "$ar_o" | tr '\n' ' ' | cut -c1-300)" >> "$root/.agents/local/approve.log" 2>/dev/null || :
+  [ "$ar_rc" = 0 ]
 }
 latest_request() { # ID KIND -> request file
   ls -1 "$(approvals_dir "$1")" 2>/dev/null | grep -E "^[0-9]{3}-request-$(kind_slug "$2")\.yaml\$" | sort | tail -1 | sed "s#^#$(approvals_dir "$1")/#" | grep . || return 1
@@ -4055,7 +4346,8 @@ pending_request() {
 # satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
 # kind is attempted in its own process, so a refusal ("no approval phrase") changes nothing.
 approve_pending() {
-  ap_run=${1:-}
+  ap_run=${1:-}; ap_log=$root/.agents/local/approve.log
+  mkdir -p "$root/.agents/local" 2>/dev/null || :
   for ap_t in $ap_run -; do
     [ -n "$ap_t" ] || continue
     [ "$ap_t" = - ] || [ -d "$(run_dir "$ap_t")" ] || continue
@@ -4064,15 +4356,45 @@ approve_pending() {
       [ -f "$ap_rf" ] || continue
       ap_k=$(gate_field "$ap_rf" kind)
       valid_approval_kind "$ap_k" || continue
+      pending_request "$ap_t" "$ap_k" >/dev/null || continue   # A171: an answered request is used up; no process is started for it
       printf '%s %s\n' "$ap_t" "$ap_k"
     done
   done | sort -u | awk '{ r = 0; if ($2 == "commit") r = 1; else if ($2 == "push") r = 2; else if ($2 == "pr") r = 3; else if ($2 == "merge") r = 4; else if ($2 == "cleanup") r = 5; print $1, r, $2 }' |
     sort -k1,1 -k2,2n -k3,3 | awk '{ if ($1 != t) { if (t != "") print t k; t = $1; k = "" } k = k " " $3 } END { if (t != "") print t k }' |
   while read -r ap_t ap_ks; do
     # one process per target, the delivery steps in their order (A169): a cut-off by the hook's time limit leaves a usable prefix
+    # A171: its output goes to .agents/local/approve.log and one line per target to stdout (the hook shows what matters to the
+    # lead and the user): "approved: ..." or "not recorded: <reason>" for a refusal that is not simply "this reply is no approval".
     # shellcheck disable=SC2086 # the kinds, one word each
-    sh "$scripts/agent.sh" approve "$ap_t" $ap_ks 2>/dev/null </dev/null || :
+    ap_o=$(sh "$scripts/agent.sh" approve "$ap_t" $ap_ks 2>&1 </dev/null) && ap_rc=0 || ap_rc=$?
+    ap_l=$(printf '%s' "$ap_o" | tr '\n' ' ' | tr -s ' ' | cut -c1-300)
+    printf '%s target=%s kinds=%s rc=%s output: %s\n' "$(now_iso)" "$ap_t" "${ap_ks# }" "$ap_rc" "$ap_l" >> "$ap_log" 2>/dev/null || :
+    if [ "$ap_rc" = 0 ]; then echo "approved: ${ap_t#-} ${ap_ks# }: $ap_l"
+    else case "$ap_o" in *"contain no approval phrase"*|*"none of the open requests"*) ;; *) echo "not recorded: ${ap_t#-} ${ap_ks# }: $ap_l" ;; esac; fi
   done
+  if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ]; then tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; fi
+  return 0
+}
+# hook_time ID: the runtime hooks' own timings (A171). A hook appends `epoch|name|ms|result|note` to
+# .agents/local/hook-times (a plain append, no lock, so a slow or killed hook still leaves its line; a killed one is found by the
+# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's ledger
+# under the locks: one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
+# event per timeout (`name=<event> ms=<n> note=...`). The friction report counts both. A run without lifecycle gates takes none.
+hook_time() {
+  ht_id=${1:-}; require_lead; ht_f=$root/.agents/local/hook-times
+  [ -s "$ht_f" ] || return 0
+  [ -n "$ht_id" ] && [ "$ht_id" != - ] && [ -d "$(run_dir "$ht_id")" ] || return 0
+  ht_w=$ht_f.$$; mv "$ht_f" "$ht_w" 2>/dev/null || return 0
+  if gates_enforced "$ht_id"; then
+    awk -F'|' '$2 ~ /^[A-Za-z0-9_.-]+$/ && $3 ~ /^[0-9]+$/ {
+        if ($4 == "timeout") { print "hook-timeout\tname=" $2 " ms=" $3 ($5 != "" ? " note=" $5 : ""); next }
+        n[$2]++; t[$2] += $3; if ($3 + 0 > m[$2]) m[$2] = $3 + 0 }
+      END { for (k in n) print "hook\tname=" k " runs=" n[k] " total_ms=" t[k] " max_ms=" m[k] }' "$ht_w" | sort |
+    while IFS="$(printf '\t')" read -r ht_ev ht_detail; do
+      ledger_append "$ht_id" "$ht_ev" - - "$(printf '%s' "$ht_detail" | tr -c 'A-Za-z0-9_.=,: -' '_')"
+    done
+  fi
+  rm -f "$ht_w"
 }
 # run_language [ID]: `tr` or `en`, the language the script's own questions are printed in (A99, A103). Sources
 # are the user's own words, in order: a `Language: tr|en` line of the run's TASK.md; the `>` blockquote lines of
@@ -4206,13 +4528,14 @@ approve() {
   # A106: single-use is per capture event (session + time + hash), never per text: the same words answer a later request.
   ap_cid="$ap_session:$ap_time:$ap_csha"
   text_has_approval "$ap_txt" "$ap_words" "$ap_id" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_words (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_words")', and no other word; the question stays pending)"; }
-  rm -f "$ap_txt"
   if [ "$ap_src" = prompt_capture ] && grep -l "^capture_id: \"$ap_cid\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
   ap_n=$(next_num "$ap_ad")
   printf 'kind: "%s"\nbound: "%s"\nsource: "%s"\nsession: "%s"\ncapture_sha256: "%s"\ncapture_id: "%s"\ncapture_time: %s\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\n' \
     "$ap_kind" "$ap_bound" "$ap_src" "$ap_session" "$ap_csha" "$ap_cid" "$ap_time" "$(basename "$ap_req")" "$(now_epoch)" > "$ap_ad/$ap_n-$ap_slug.yaml"
   [ -z "$ap_dlv" ] || printf 'delivery: "%s"\n' "$ap_dlv" >> "$ap_ad/$ap_n-$ap_slug.yaml"
   ap_ref=$(gate_field "$ap_req" ref); [ -z "$ap_ref" ] || printf 'ref: "%s"\n' "$ap_ref" >> "$ap_ad/$ap_n-$ap_slug.yaml"   # A169
+  # A171: the user's reply, verbatim, as a quote block (the language check exempts it; the first 20 lines)
+  { printf 'reply: |\n'; head -n 20 "$ap_txt" | quote_block | sed 's/^/  /'; } >> "$ap_ad/$ap_n-$ap_slug.yaml"; rm -f "$ap_txt"
   ap_tok=''; [ "$ap_id" = - ] || ap_tok="$(ledger_token "approvals/$ap_n-$ap_slug.yaml" "$ap_id") "
   ledger_if "$ap_id" approval - - "${ap_tok}$ap_kind source=$ap_src answered_by=user bound=$ap_bound"
   echo "approval recorded: $ap_id $ap_kind ($ap_src)"
@@ -4347,7 +4670,7 @@ gate_latest_file() { # ID GATE [FOCUS] -> latest record after the last reopen (o
 # waive_target ID FINDING-ID [FINGERPRINT]: the gate record holding that open blocking finding on the current
 # content; SECRETS and SECURITY findings are refused.
 waive_target() {
-  wt_now=${3:-$(content_fingerprint)} wt_rec=''
+  wt_now=${3:-$(gate_fingerprint)} wt_rec=''
   for wt_g in $(required_gates "$1"); do
     for wt_fc in - $(risk_gate_focuses "$1" "$wt_g"); do
       [ "$(gate_focus_status "$1" "$wt_g" "$wt_fc" strict "$wt_now")" = fail ] || continue
@@ -4365,7 +4688,7 @@ waive() {
   while [ $# -gt 0 ]; do case "$1" in --reason) wv_reason=${2:-}; shift 2 || shift ;; *) fail "unknown waive argument: $1" ;; esac; done
   require_run "$wv_id"; require_lead; require_open_run "$wv_id"; wv_d=$(run_dir "$wv_id")
   reject_generic_justification "$wv_reason" || fail "waive requires a specific --reason (>=20 chars)"
-  wv_now=$(content_fingerprint); wv_rec=$(waive_target "$wv_id" "$wv_fid" "$wv_now") || return 1
+  wv_now=$(gate_fingerprint); wv_rec=$(waive_target "$wv_id" "$wv_fid" "$wv_now") || return 1
   wv_gate=$(gate_field "$wv_rec" gate); wv_rsha=$(hash_file "$wv_rec")
   wv_app=$(find_approval "$wv_id" "waive:$wv_fid" "$(basename "$wv_rec")@$wv_rsha#$wv_fid") || fail "waiving $wv_fid needs the user's approval naming it: 'agent.sh request-approval $wv_id waive:$wv_fid', relay, then 'agent.sh approve $wv_id waive:$wv_fid'"
   mkdir -p "$wv_d/waivers"; wv_n=$(next_num "$wv_d/waivers"); wv_out=$wv_d/waivers/$wv_n-$wv_fid.yaml
@@ -4423,27 +4746,53 @@ assumption_prompt_accepts() {
   if printf ' %s ' "$apa_rest" | grep -Eq "(^|[^[:alpha:]])(not|never|no|nope|n't|don't|dont|do not|only if|if|unless|but|except|until|yet|wait|without|maybe|reject|rejected|decline|declined|or|actually|instead|rather|değil|degil|hayır|hayir|reddet|reddediyorum|yerine|olmasın|olmasin|sadece eğer|sadece eger|ama|eğer|eger)([^[:alpha:]]|$)"; then return 1; fi
   return 0
 }
+# quote_block: stdin -> the same text as a quote block, every line prefixed with '> ' (A171): the one syntax in which the
+# user's own words (an answer, an approval) are kept verbatim in a run file; the language check exempts these lines.
+epoch_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1"; }
+quote_block() { sed 's/^\(.\)/> \1/; s/^$/>/'; }
+# unquote_block: the inverse of quote_block (tests and readers get the user's text back byte for byte).
+unquote_block() { sed 's/^> //; s/^>$//'; }
+# answer ID N [--captured|--amend]: record the answer to question N. --captured takes the NEWEST user message captured
+# after the question was asked (A171; A171 replaces "oldest unused": a later correction by the user is what counts) and says
+# which message it took. --amend replaces a recorded answer with a newer captured user message: the old answer file is kept,
+# renamed NNN.answer.amended-K.md and marked `amended: true`; only a captured user message amends, never the lead's text.
 answer() {
   an_id=$1 an_n=$2; require_run "$an_id"; require_lead; an_d=$(run_dir "$an_id")
   case "$an_n" in ''|*[!0-9]*) fail "question number must be numeric" ;; esac
   an_q=$an_d/questions/$(printf '%03d' "$(printf '%s' "$an_n" | sed 's/^0*//; s/^$/0/')").md
   [ -f "$an_q" ] || fail "no question $an_n for $an_id"
-  [ ! -e "${an_q%.md}.answer.md" ] || fail "question $an_n is already answered"
-  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used=
-  if [ "${3:-}" = --captured ]; then
-    # The answer is the user's own message as the prompt hook captured it (the oldest real prompt since the question), not
-    # text the lead relays: a lead's rewrite never matched, a short "1" was under the 3-character rule, and a later
-    # prompt (a follow-up, a task notification) replaced the newest capture.
+  an_amend=no; [ "${3:-}" != --amend ] || an_amend=yes
+  an_prev=${an_q%.md}.answer.md
+  if [ "$an_amend" = yes ]; then
+    [ -e "$an_prev" ] || fail "question $an_n has no answer to amend"
+  else
+    [ ! -e "$an_prev" ] || fail "question $an_n is already answered (a wrong answer is corrected with: agent.sh answer $an_id $an_n --amend, after the user's new message)"
+  fi
+  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used='' an_src=''
+  if [ "${3:-}" = --captured ] || [ "$an_amend" = yes ]; then
+    # The answer is the user's own message as the prompt hook captured it, not text the lead relays: a lead's rewrite never
+    # matched, a short "1" was under the 3-character rule. A171: the NEWEST real prompt since the question (by its capture time),
+    # not the oldest unused one: an earlier message may be a remark, the latest is what the user settled on.
     an_cm=yes; an_a0=$(gate_field "$an_q" asked_at); case "$an_a0" in ''|*[!0-9]*) an_a0=0 ;; esac
+    an_prevsrc=''
+    if [ "$an_amend" = yes ]; then
+      an_pe=$(gate_field "$an_prev" answered_epoch); case "$an_pe" in ''|*[!0-9]*) an_pe=$an_a0 ;; esac
+      an_a0=$an_pe; an_prevsrc=$(gate_field "$an_prev" source_message)
+    fi
+    an_pick=''
     for an_h in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
       an_e=${an_h##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
       [ "$an_e" -ge "$an_a0" ] || continue
       grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
-      # one prompt answers one question: a prompt an earlier --captured answer used is skipped
-      ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
-      cat "$an_h" > "$an_t"; an_used=${an_h##*/}; break
+      [ "${an_h##*/}" != "$an_prevsrc" ] || continue
+      # an amend takes the newest message no answer has used (a used one belongs to another question)
+      [ "$an_amend" = no ] || ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
+      an_pick=$an_h
     done
-    [ -s "$an_t" ] || { rm -f "$an_t"; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
+    [ -n "$an_pick" ] || { rm -f "$an_t"; if [ "$an_amend" = yes ]; then fail "no captured user message newer than the recorded answer to question $an_n: only a new message of the user corrects an answer (ask the user, wait for the reply, then run this again)"; fi; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
+    # one message answers one question: the newest message was already used by an earlier --captured answer
+    if grep -qxF "${an_pick##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null; then rm -f "$an_t"; fail "the user's newest message since question $an_n (${an_pick##*/}) already answered another question: the user has not answered this one yet"; fi
+    cat "$an_pick" > "$an_t"; an_used=${an_pick##*/}; an_src=$an_used
   else cat > "$an_t"; fi
   grep -q '[^[:space:]]' "$an_t" || { rm -f "$an_t"; fail "empty answer"; }
   # answered_by user only when the newest prompt capture is not older than the question (epoch seconds), its sha256 matches its
@@ -4469,21 +4818,43 @@ answer() {
   # the user's accept is stored normalized as exactly `accept <id>`.
   if [ -n "$an_tok" ] && printf '%s' "$an_norm" | grep -Eiq '^accept'; then
     if [ "$an_acc" = yes ]; then printf 'accept %s\n' "${an_tok%@*}" > "$an_t"; else an_by=lead; fi
+  elif [ "$an_by" = user ]; then
+    quote_block < "$an_t" > "$an_t.q" && mv "$an_t.q" "$an_t"   # A171: the user's words are kept as a verbatim quote block
   fi
-  { printf 'answered_by: %s\ntime: %s\n---\n' "$an_by" "$(now_iso)"; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
+  an_amends=''
+  if [ "$an_amend" = yes ]; then
+    an_k=1; while [ -e "${an_q%.md}.answer.amended-$an_k.md" ]; do an_k=$((an_k + 1)); done
+    an_amends=$(basename "${an_q%.md}.answer.amended-$an_k.md")
+    awk -v t="$(now_epoch)" 'NR == 1 { print "amended: true"; print "amended_at: " t } { print }' "$an_prev" > "$an_d/questions/$an_amends" && rm -f "$an_prev" || { rm -f "$an_t"; fail "could not keep the old answer of question $an_n"; }
+  fi
+  { printf 'answered_by: %s\ntime: %s\nanswered_epoch: %s\n' "$an_by" "$(now_iso)" "$(now_epoch)"
+    [ -z "$an_src" ] || printf 'source_message: %s\n' "$an_src"
+    [ -z "$an_amends" ] || printf 'amends: %s\n' "$an_amends"
+    printf -- '---\n'; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
   # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is
   # derived from the answer file (answered_by user, starting "accept <id>") by verify-assumptions.
   an_as=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/ assumption=\1/p' "$an_q" | head -1)
-  if gates_enforced "$an_id"; then ledger_append "$an_id" answer - - "$(basename "$an_q") answered_by=$an_by$an_as"; fi
-  echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by"
+  an_ev=answer; [ "$an_amend" = no ] || an_ev=answer-amend
+  if gates_enforced "$an_id"; then ledger_append "$an_id" "$an_ev" - - "$(basename "$an_q") answered_by=$an_by${an_src:+ source=$an_src}${an_amends:+ amends=$an_amends}$an_as"; fi
+  echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by${an_amends:+ (amends $an_amends, the old record is kept)}"
+  if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$root/.agents/local/prompts/history/$an_src" | cut -c1-80)"; fi
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
 }
 
 # --- Execution policy (D5): decide persists and ledgers one resolved decision ---------------
 # The configured runtime of a role: exec-policy.sh owns the role -> runtime-group table (one source of truth).
 role_runtime() { sh "$scripts/exec-policy.sh" runtime "$1" 2>/dev/null || echo -; }
+role_results_count() { # ID ROLE [FOCUS] -> recorded results of exactly this role (and focus: the FOCUS header of the raw message)
+  rc_n=0
+  for rc_f in "$(run_dir "$1")"/results/[0-9][0-9][0-9]-"$2".result.md; do
+    [ -f "$rc_f" ] || continue
+    if [ -n "${3:-}" ]; then grep -qx "FOCUS: $3" "$rc_f" || continue; fi
+    rc_n=$((rc_n + 1))
+  done
+  echo "$rc_n"
+}
 decision_files() { ls -1 "$(run_dir "$1")/decisions" 2>/dev/null | grep -E '^[0-9]{3}-.*\.decision$' | sort || true; }
 latest_decision() { # ID ROLE [FOCUS]
   ld_tag=$2; [ -z "${3:-}" ] || ld_tag="$2-$(printf '%s' "$3" | tr '+' '-')"
@@ -4531,16 +4902,60 @@ decide() {
   dc_id=$1 dc_role=$(canon_role "$2"); shift 2; require_run "$dc_id"; require_lead; require_open_run "$dc_id"
   valid_role "$dc_role" || fail "invalid role: $dc_role"
   dc_class=$(pipeline_class "$dc_id"); pipeline_class_valid "$dc_class" || fail "run $dc_id is not classified: the execution policy is derived from its class"
-  dc_focus='' dc_over='' dc_uimode=''
+  dc_focus='' dc_over='' dc_uimode='' dc_dry=no dc_ap=no dc_redo=no
   while [ $# -gt 0 ]; do
     case "$1" in
+      --dry) dc_dry=yes; shift ;;
+      --agent-path) dc_ap=yes; shift ;;
+      --redecide) dc_redo=yes; dc_ap=yes; shift ;;
       --ui-mode) dc_uimode=${2:?--ui-mode needs a value}; shift 2 ;;
       --focus) dc_focus=${2:?--focus needs a value}; shift 2 ;;
       --model|--effort|--context-bytes|--runtime) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;
       *) fail "unknown decide argument: $1" ;;
     esac
   done
+  # A171: decide records the decision of one dispatch (a decisions/ file, a ledger event, an escalation count). It is run by dispatch.sh
+  # (which sets PROOFLINE_DISPATCH) or, on the Agent path, once right before the Agent call (--agent-path). Called ahead of a `D`
+  # dispatch it only duplicates the decision that dispatch.sh makes itself; to just read the decision use --dry (writes nothing).
+  [ "$dc_dry$dc_ap" != yesyes ] || fail "decide --dry and --agent-path exclude each other: --dry only reads, --agent-path records"
+  # The exemption is a per-dispatch nonce: dispatch.sh writes .agents/local/dispatch/nonce-<value> for the one decide it runs and
+  # removes it right after, so setting the variable by hand (any spelling) proves nothing.
+  # The nonce file holds the pid of the dispatch.sh that wrote it: it must be alive and an ancestor of this process; the file is
+  # removed on acceptance (one use).
+  dc_nonce=${PROOFLINE_DISPATCH:-}; dc_nok=no
+  case "$dc_nonce" in ''|*[!0-9a-f]*) ;; *)
+    dc_nf=$root/.agents/local/dispatch/nonce-$dc_nonce
+    if [ "${#dc_nonce}" -ge 16 ] && [ -f "$dc_nf" ]; then
+      dc_npid=$(head -n 1 "$dc_nf" 2>/dev/null)
+      case "$dc_npid" in ''|*[!0-9]*) ;; *)
+        if kill -0 "$dc_npid" 2>/dev/null; then
+          dc_anc=$$; dc_hops=0
+          while [ "$dc_hops" -lt 12 ] && [ -n "$dc_anc" ] && [ "$dc_anc" -gt 1 ]; do
+            [ "$dc_anc" != "$dc_npid" ] || { dc_nok=yes; break; }
+            dc_anc=$(ps -o ppid= -p "$dc_anc" 2>/dev/null | tr -d ' '); dc_hops=$((dc_hops + 1))
+          done
+        fi ;; esac
+      [ "$dc_nok" != yes ] || [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || rm -f "$dc_nf"
+    fi ;; esac
+  [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "$dc_nok" = yes ] ||
+    fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
   [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
+  # A171 (review): the Agent route decides once per step. A second --agent-path for the same role and focus is refused until a
+  # result of that role is recorded after the first (explorers run in parallel and are bounded by their slots instead).
+  if [ "$dc_redo" = yes ]; then
+    [ "$execution_role" = lead ] || fail "decide --redecide is the lead's"
+    gates_enforced "$dc_id" && ledger_append "$dc_id" note - - "decide --redecide $dc_role${dc_focus:+ focus=$dc_focus}: the earlier Agent-route decision stays in decisions/; another runtime or model is wanted"
+  elif [ "$dc_ap" = yes ] && [ "$dc_role" != explorer ]; then
+    dc_pv=$(latest_decision "$dc_id" "$dc_role" "$dc_focus")
+    if [ -n "$dc_pv" ] && grep -qx 'via=agent-path' "$dc_pv" && [ "$(sed -n 's/^results_n=//p' "$dc_pv" | head -n 1)" = "$(role_results_count "$dc_id" "$dc_role" "$dc_focus")" ]; then
+      fail "decide --agent-path refused: the $dc_role${dc_focus:+ ($dc_focus)} decision ${dc_pv##*/} was recorded for the Agent call and no result has been recorded since. Make the Agent call with that decision (agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --dry shows it again), or record its result first, or to choose another runtime or model: agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --redecide [--runtime R] [--model M]"
+    fi
+  fi
+  # A171: a gate whose dependency has not completed is not dispatched
+  if dc_dgate=$(gate_of "$dc_role" "$dc_focus" "$dc_id" 2>/dev/null) && [ -n "$(gate_deps "$dc_id" "$dc_dgate")" ]; then
+    dc_unmet=$(gate_deps_unmet "$dc_id" "$dc_dgate" | tr '\n' ' ')
+    [ -z "$dc_unmet" ] || fail "$dc_dgate needs ${dc_unmet% } first (GATES.md, Gate dependencies): dispatch that gate and let it pass for the current content, then run this again ('agent.sh next $dc_id' lists the order)"
+  fi
   dc_tier=$(tier_effective "$dc_id"); dc_sig=''
   [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
   dc_stats=$(diff_stats "$dc_id"); if [ "${dc_stats% *}" -gt 15 ] || [ "${dc_stats#* }" -gt 400 ]; then dc_sig="$dc_sig large_diff"; fi
@@ -4566,15 +4981,24 @@ decide() {
   set -- "$@" --escalations-used "$dc_esc"
   # shellcheck disable=SC2086 # overrides are flag/value pairs without whitespace
   set -- "$@" $dc_over
+  dc_rc=0
+  dc_res=$(sh "$scripts/exec-policy.sh" "$@") || dc_rc=$?
+  if [ "$dc_rc" != 0 ]; then [ "$dc_rc" != 1 ] || dc_rc=4; echo "decision refused by exec-policy.sh (exit $dc_rc)" >&2; return "$dc_rc"; fi
+  dc_body=$(printf '%s\nrole=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_res" "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)")
+  [ "$dc_ap" != yes ] || dc_body="$dc_body
+via=agent-path
+results_n=$(role_results_count "$dc_id" "$dc_role" "$dc_focus")"
+  # The first line is a one-line summary (role, runtime, model, effort, reason): a truncated output still reads right (A171).
+  dc_v() { printf '%s\n' "$dc_body" | sed -n "s/^$1=//p" | head -n 1; }
+  dc_sum="decision: role=$(dc_v role) runtime=$(dc_v runtime) model=$(dc_v model) effort=$(dc_v effort) reason=$(dc_v model_reason)"
+  if [ "$dc_dry" = yes ]; then printf '%s (dry run: nothing recorded)\n%s\n' "$dc_sum" "$dc_body"; return 0; fi
   dc_dir=$(run_dir "$dc_id")/decisions; mkdir -p "$dc_dir"
   dc_tag=$dc_role; [ -z "$dc_focus" ] || dc_tag="$dc_role-$(printf '%s' "$dc_focus" | tr '+' '-')"
-  dc_out=$dc_dir/$(next_num "$dc_dir")-$dc_tag.decision; dc_rc=0
-  sh "$scripts/exec-policy.sh" "$@" > "$dc_out.tmp" || dc_rc=$?
-  if [ "$dc_rc" != 0 ]; then rm -f "$dc_out.tmp"; [ "$dc_rc" != 1 ] || dc_rc=4; echo "decision refused by exec-policy.sh (exit $dc_rc)" >&2; return "$dc_rc"; fi
-  printf 'role=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)" >> "$dc_out.tmp"
+  dc_out=$dc_dir/$(next_num "$dc_dir")-$dc_tag.decision
+  printf '%s\n' "$dc_body" > "$dc_out.tmp"
   mv "$dc_out.tmp" "$dc_out"
   if gates_enforced "$dc_id"; then ledger_append "$dc_id" decide - - "$(basename "$dc_out") runtime=$(sed -n 's/^runtime=//p' "$dc_out" | head -1) model=$(sed -n 's/^model=//p' "$dc_out" | head -1) effort=$(sed -n 's/^effort=//p' "$dc_out" | head -1) signals=${dc_sig# }"; fi
-  cat "$dc_out"; echo "decision_file=${dc_out#"$root"/}"
+  printf '%s\n' "$dc_sum"; cat "$dc_out"; echo "decision_file=${dc_out#"$root"/}"
 }
 
 # ledger-note: a ledgered free-text note (lead or dispatch.sh: failover, policy violation, ...).
@@ -4586,6 +5010,38 @@ ledger_note() {
   ln_s=$(section_value "$(run_dir "$ln_id")" handoff state)
   ledger_append "$ln_id" note "$ln_s" "$ln_s" "$ln_text"
   echo "ledger note recorded: $ln_id"
+}
+
+# friction-note (A171): the lead (or the Stop hook) records that the user was asked to run an internal command or a shell command.
+# That is a proofline bug, never normal flow; the ledger event counts in the friction report. KIND is a controlled word (no free
+# text, so nothing identifying reaches the report): user-command (an agent.sh/approve/answer command) | user-shell (a shell command).
+friction_note() {
+  fn_id=$1 fn_kind=${2:-}; require_run "$fn_id"; require_lead
+  case "$fn_kind" in user-command|user-shell) ;; *) fail "usage: agent.sh friction-note <ID> <user-command|user-shell>" ;; esac
+  gates_enforced "$fn_id" || { echo "friction noted (not ledgered: the run has no lifecycle_gates policy): $fn_kind"; return 0; }
+  verify_seal "$fn_id"
+  fn_s=$(section_value "$(run_dir "$fn_id")" handoff state)
+  ledger_append "$fn_id" friction-note "$fn_s" "$fn_s" "$fn_kind"
+  echo "friction noted: $fn_kind"
+}
+# wait-line (A171): the one-line status for a wait. `agent.sh wait-line <ID> ["WHAT"] [--done]` prints
+# `waiting: <what>, <M>m<SS>s so far`; WHAT defaults to the dispatch in flight. The first call for a WHAT starts its clock
+# (.agents/local/wait/); --done stops it. The lead prints this line and nothing more while it waits.
+wait_line() {
+  wl_id=$1 wl_what=${2:-} wl_done=no; require_run "$wl_id"; require_lead
+  if [ "$wl_what" = --done ]; then wl_what=''; wl_done=yes; fi
+  [ "${3:-}" != --done ] || wl_done=yes
+  if [ -z "$wl_what" ]; then
+    if wl_if=$(inflight_dispatch "$wl_id"); then wl_what="dispatch ${wl_if% *}"; else fail "nothing is in flight: name what you wait for, for example agent.sh wait-line $wl_id \"CI of the pull request\""; fi
+  fi
+  wl_what=$(printf '%s' "$wl_what" | tr -c 'A-Za-z0-9 ._-' ' ' | cut -c1-80)
+  wl_f=$root/.agents/local/wait/$wl_id-$(printf '%s' "$wl_what" | tr -c 'A-Za-z0-9' '-' | cut -c1-60)
+  if [ "$wl_done" = yes ]; then rm -f "$wl_f"; echo "wait over: $wl_what"; return 0; fi
+  mkdir -p "$root/.agents/local/wait" 2>/dev/null || true
+  [ -s "$wl_f" ] || now_epoch > "$wl_f" 2>/dev/null || true
+  wl_s=$(cat "$wl_f" 2>/dev/null); case "$wl_s" in ''|*[!0-9]*) wl_s=$(now_epoch) ;; esac
+  wl_e=$(( $(now_epoch) - wl_s ))
+  printf 'waiting: %s, %dm%02ds so far\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60))
 }
 
 # --- Metrics (D5, A80): .agents/local/metrics/, best effort, `metrics: off` disables ALL of it ---
@@ -4629,6 +5085,7 @@ metrics_run() { # ID OUTCOME
   metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
   mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
   metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2"
+  hook_time "$1" 2>/dev/null || :   # A171: the hooks' timings spooled so far reach the ledger (this process holds the locks) before the report counts them
   sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A149: the friction report is built at run end, never sent unasked
 }
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
@@ -4662,6 +5119,8 @@ inflight_pid_alive() {
   case "$1" in ''|*[!0-9]*|0) return 1 ;; esac
   kill -0 "$1" 2>/dev/null || return 1
   ipa_t=$(cfg dispatch.timeout_seconds 1800); case "$ipa_t" in ''|*[!0-9]*) ipa_t=1800 ;; esac
+  # A171: the marker names the timeout of its own attempt (a class may run longer than the global one)
+  ipa_m=$(sed -n 's/^timeout=//p' "$2" 2>/dev/null | head -n 1); case "$ipa_m" in ''|*[!0-9]*) ;; *) [ "$ipa_m" -le "$ipa_t" ] || ipa_t=$ipa_m ;; esac
   [ -z "$(find "$2" -mmin "+$(( (ipa_t + 119) / 60 ))" 2>/dev/null)" ]
 }
 inflight_sweep() { # ID
@@ -4747,7 +5206,7 @@ next_step() {
       [ -n "$ns_ask" ] || { o "agent.sh handoff $ns_id IMPLEMENTING"; r "plan frozen"; } ;;
     IMPLEMENTING) o "dispatch.sh $ns_id implementer"; o "agent.sh handoff $ns_id IMPLEMENTED"; fix_paths_lines "$ns_id"; r "implementation in progress" ;;
     IMPLEMENTED)
-      ns_fp=$(content_fingerprint); ns_fail='' ns_todo=''
+      ns_fp=$(gate_fingerprint); ns_fail='' ns_todo=''
       for ns_g in $(required_gates "$ns_id"); do
         ns_s=$(gate_status "$ns_id" "$ns_g" reuse "$ns_fp")
         case "$ns_s" in pass|waived) ;; fail) ns_fail="$ns_fail $ns_g" ;; *) ns_todo="$ns_todo $ns_g:$ns_s" ;; esac
@@ -4789,8 +5248,12 @@ next_step() {
         [ "$ns_ac" -eq 0 ] || o "re-dispatch the verifier citing only a configured or planned command with a recorded exit status and one stable output line (A107 rows); a command missing from Verification commands needs the amendment route"
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
+        # A171: the build record the reviewers and the verifier read comes first; it is a missing step, not a reviewer's lowered confidence
+        case "$ns_todo" in *REVIEW_*|*VERIFY*) ! build_record_missing "$ns_id" || o "agent.sh build-record $ns_id run   (the build record is missing for this tree: make it before the review gates; reviewers and the verifier read it)" ;; esac
         for ns_x in $ns_todo; do
           ns_g=${ns_x%%:*}
+          ns_um=$(gate_deps_unmet "$ns_id" "$ns_g" "$ns_fp" | tr '\n' ' ')
+          if [ -n "$ns_um" ]; then printf 'note=%s waits for %s (gate dependency, A171): not offered before it passes\n' "$ns_g" "${ns_um% }"; continue; fi
           case "$ns_g" in SECRETS) o "agent.sh secret-scan $ns_id" ;; *)
             for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
               gate_satisfied "$(gate_focus_status "$ns_id" "$ns_g" "$ns_fc" reuse "$ns_fp")" && continue
@@ -4808,7 +5271,9 @@ next_step() {
         KNOWLEDGE_DONE|not_applicable)
           if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
-        *) o "agent.sh knowledge-done $ns_id [not_applicable \"<reason>\"]"; r "knowledge transaction not recorded" ;;
+        *) ns_kd=$(knowledge_drift "$ns_id" | head -n 5 | tr '\n' ';')
+           [ -z "$ns_kd" ] || printf 'note=design-sync drift in knowledge-scope documents (information for the knowledge step, which must fix it before knowledge-done): %s\n' "${ns_kd%;}"
+           o "agent.sh knowledge-done $ns_id [not_applicable \"<reason>\"]"; r "knowledge transaction not recorded" ;;
       esac ;;
     DONE)
       # A169: once the merge step ran (a pull request is open) CI decides: merge and clean up, or a CI-fix round; resume continues from here
@@ -4851,7 +5316,7 @@ amend_run() {
   g_prev_hs=$(section_value "$g_d" handoff state)
   {
     printf 'task_id: "%s"\nseq: %s\ngate: "REOPEN"\nresult: "reopen"\nrole: "%s"\n' "$g_id" "$g_seq" "$execution_role"
-    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(content_fingerprint)" "$g_patch" "$(hash_file "$g_gd/$g_name.manifest")"
+    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(gate_fingerprint)" "$g_patch" "$(hash_file "$g_gd/$g_name.manifest")"
     printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$g_d" freeze task_sha256)" "$(section_value "$g_d" freeze evidence_sha256)" "$(section_value "$g_d" freeze plan_sha256)" "$(section_value "$g_d" freeze qa_plan_sha256)"
     printf 'reason: %s\nauthorized_by: %s\nfix_scope: %s\nfix_instruction: %s\nplan_change: %s\n' "$(one_line "$g_reason")" "$(one_line "$g_auth")" "$g_fscope" "$(one_line "$g_finstr")" "${g_pchange:-no}"
     printf 'previous_execution_state: "%s"\nprevious_handoff_state: "%s"\nprevious_knowledge_state: "%s"\n' "$(run_state "$g_d")" "$g_prev_hs" "$(section_value "$g_d" execution knowledge_state)"
@@ -4940,7 +5405,7 @@ reopen_run() {
   ro_hs=$(section_value "$ro_d" handoff state)
   {
     printf 'task_id: "%s"\nseq: %s\ngate: "REOPEN"\nresult: "reopen"\nrole: "%s"\n' "$ro_id" "$ro_seq" "$execution_role"
-    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(content_fingerprint)" "$(task_patch_fingerprint "$ro_id")" "$(hash_file "$ro_gd/$ro_name.manifest")"
+    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(gate_fingerprint)" "$(task_patch_fingerprint "$ro_id")" "$(hash_file "$ro_gd/$ro_name.manifest")"
     printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$ro_d" freeze task_sha256)" "$(section_value "$ro_d" freeze evidence_sha256)" "$(section_value "$ro_d" freeze plan_sha256)" "$(section_value "$ro_d" freeze qa_plan_sha256)"
     printf 'reason: %s\nauthorized_by: user approval %s\nreopened_from: "%s"\nrestored_execution_state: "%s"\nhandoff_state: "%s"\n' "$(one_line "$ro_reason")" "$(basename "$ro_app")" "$ro_st" "$ro_prev" "$ro_hs"
     printf 'previous_knowledge_state: "%s"\ntimestamp: "%s"\n' "$(section_value "$ro_d" execution knowledge_state)" "$(now_iso)"
@@ -5067,7 +5532,7 @@ evidence_run_counts() { # ID -> "<records> <passed>": the worker-evidence record
 }
 report_facts() {
   rf_id=$1; require_run "$rf_id"; risk_prime "$rf_id"
-  rf_fp=$(content_fingerprint); rf_gl=$(required_gates "$rf_id")
+  rf_fp=$(gate_fingerprint); rf_gl=$(required_gates "$rf_id")
   rf_wt=$(evidence_run_counts "$rf_id"); rf_wp=${rf_wt#* }; rf_wt=${rf_wt%% *}; rf_wp=${rf_wp%% *}
   printf '%s\n## Facts\n\nGenerated from the run records by %s when the report is published; never edited by hand. Numbers in the text above must match it.\n\n' "$REPORT_FACTS_BEGIN" "\`agent.sh report-facts $rf_id\`"
   printf -- '- Class: %s\n- Required gates: %s\n' "$(pipeline_class "$rf_id")" "$(printf '%s\n' "$rf_gl" | grep -c .)"
@@ -5212,6 +5677,34 @@ knowledge_na_signal() {
   if [ -n "$kn_w" ]; then echo "the acceptance criteria mention '$kn_w' (user-visible behaviour)"; return 0; fi
   return 1
 }
+# A171: design-sync drift in knowledge-scope documents that the verifier reported (design/SYNC.md) and that the current
+# tree still shows. Printed as `<doc>:<line> -> <claim>`; empty when nothing is left, when the run has no SYNC.md (design-sync
+# did not run for it) or when node / the design-sync script is not installed (nothing can be proven then: no block).
+knowledge_drift() { # ID
+  kdr_s=$(run_dir "$1")/design/SYNC.md; kdr_x=$root/.agents/skills/design-sync/scripts/design-sync.mjs
+  [ -f "$kdr_s" ] && [ -f "$kdr_x" ] && command -v node >/dev/null 2>&1 || return 0
+  kdr_j=$(mktemp "${TMPDIR:-/tmp}/agent-kdrift.XXXXXX")
+  # run from the root with a relative script path: node compares the real path of the script with its own URL, so a
+  # symlinked root (macOS /var) would make the script print nothing
+  ( cd "$root" && node .agents/skills/design-sync/scripts/design-sync.mjs --root . ) > "$kdr_j" 2>/dev/null || :
+  kdr_l=$(node -e '
+    const fs = require("fs");
+    let j; try { j = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { process.exit(0); }
+    const sync = fs.readFileSync(process.argv[2], "utf8");
+    const m = /^## Drift\s*$([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(sync); const drift = m ? m[1] : "";
+    for (const c of j.claims || []) if (c.status === "unmatched" && drift.includes(c.doc) && drift.includes(c.claim)) console.log(c.doc + ":" + c.line + " -> " + c.kind + " " + c.claim);
+  ' "$kdr_j" "$kdr_s" 2>/dev/null || true)
+  rm -f "$kdr_j"
+  printf '%s\n' "$kdr_l" | while IFS= read -r kdr_r; do
+    [ -n "$kdr_r" ] || continue
+    in_knowledge_scope "${kdr_r%%:*}" && printf '%s\n' "$kdr_r"
+  done
+  return 0
+}
+require_no_knowledge_drift() { # ID WHAT
+  rnk=$(knowledge_drift "$1" | head -n 5 | tr '\n' ';')
+  [ -z "$rnk" ] || fail "$2: design-sync drift in knowledge-scope documents is still there (${rnk%;}); the knowledge step must fix it (update the document or the code claim), then 'agent.sh knowledge-done $1'. No waiver or scope change applies to these documents"
+}
 knowledge_done() {
   id=$1 state=${2:-KNOWLEDGE_DONE} reason=${3:-}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   case "$state" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "invalid knowledge state: $state" ;; esac
@@ -5229,6 +5722,7 @@ knowledge_done() {
     [ -z "$reason" ] || fail "a reason is only for not_applicable"
   fi
   verify_seal "$id"
+  require_no_knowledge_drift "$id" "knowledge-done blocked"
   [ "$term" = 1 ] || ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
   [ ! -f "$scripts/lessons.sh" ] || sh "$scripts/lessons.sh" validate >/dev/null || fail "knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)"
   set_run_value "$id" execution knowledge_state "$state"
@@ -5246,6 +5740,7 @@ knowledge_done() {
 # Delivery waits for the knowledge step (A147); deliver-plan runs it as part of the delivery (A152) instead of stopping.
 require_knowledge_done() {
   case "$(section_value "$(run_dir "$1")" execution knowledge_state)" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "delivery blocked: knowledge step not complete; run '/proofline knowledge $1' (agent.sh knowledge-done $1 [not_applicable \"<reason>\"])" ;; esac
+  require_no_knowledge_drift "$1" "delivery blocked"
 }
 
 # --- Terminal outcomes and cleanup -----------------------------------------------------------
@@ -6004,7 +6499,7 @@ summary_run() {
   printf 'TASK: %s %s\n' "$sm_id" "$(sed -n '1s/^#[[:space:]]*//p' "$sm_d/TASK.md" 2>/dev/null | tr -d '\000-\037\177')"
   printf 'CLASS/TOPOLOGY: %s / %s\n' "$(ua "$(pipeline_class "$sm_id" | grep -v PENDING || true)")" "$(ua "$(resolve_topology "$sm_d" 2>/dev/null || true)")"
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
-    sm_fp=$(content_fingerprint)
+    sm_fp=$(gate_fingerprint)
     printf 'TIER: %s\n' "$(tier_effective "$sm_id")"
     for sm_g in $(required_gates "$sm_id"); do printf '%s: %s\n' "$sm_g" "$(gate_label "$sm_id" "$sm_g" reuse "$sm_fp")"; done
     printf 'FIX ROUNDS: %s of %s\n' "$(fix_rounds_done "$sm_id")" "$(max_fix_rounds)"
@@ -6042,7 +6537,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
+read_only_commands='language-check next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -6088,10 +6583,12 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   open-runs | discard-stray <ID> <FILE-NAME>   (lead: remove one stray, non-artifact top-level regular file of the run directory)
   submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
-  decide <ID> <ROLE> [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
+  decide <ID> <ROLE> --dry|--agent-path [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
+  hook-time <ID> (runtime hooks: move the hook timings spooled in .agents/local/hook-times into the ledger) | language-check [FILE|-] (the write-time language check; exit 1 on non-English text outside a '> ' quote block)
+  friction-note <ID> <user-command|user-shell> | wait-line <ID> [WHAT] [--done]   (A171: record that the user was asked to run a command, a proofline bug; the one-line wait status)
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND>... | approval-consume <ID> <KIND> [FINGERPRINT]
-  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured] (answer on stdin, or the captured user prompt)
+  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)
   terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable "<reason>"]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-plan <ID...|all> [--codex-danger-full-access] | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check | batch-start | batch-stop   (A157: night mode; lead only; A163: start/stop the background driver)
@@ -6117,7 +6614,7 @@ case "$command" in
   status) id=$(active_run); echo "active_task=${id:-none}"; effective "$id" ;;
   open-runs) open_runs ;;
   effective) effective "${2:-}" ;;
-  fingerprint) [ -z "${2:-}" ] || require_run "$2"; content_fingerprint ;;
+  fingerprint) [ -z "${2:-}" ] || require_run "$2"; if [ "${3:-}" = full ]; then content_fingerprint; else gate_fingerprint; fi ;;
   config-get) config_get "${2:?usage: agent.sh config-get <dotted.key>}" || fail "config key not found: $2" ;;
   config-check) config_check "${2:-}" ;;
   baseline) require_lead; baseline "${2:?usage: agent.sh baseline <ID>}" ;;
@@ -6140,7 +6637,7 @@ case "$command" in
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
-  decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
+  decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> --dry|--agent-path [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;
   refreeze) require_lead; freeze "${2:?usage: agent.sh refreeze <ID> <AMENDMENT>}" refreeze "${3:?usage: agent.sh refreeze <ID> <AMENDMENT>}" ;;
   verify-freeze) verify_freeze "${2:?usage: agent.sh verify-freeze <ID>}" ;;
@@ -6161,6 +6658,8 @@ case "$command" in
   secret-scan) secret_scan "${2:?usage: agent.sh secret-scan <ID>}" ;;
   request-approval) request_approval "${2:?usage: agent.sh request-approval <ID> <KIND>}" "${3:?usage: agent.sh request-approval <ID> <KIND>}" ;;
   approve) [ $# -ge 3 ] || fail "usage: agent.sh approve <ID> <KIND>..."; ap_a=$2; shift 2; approve_kinds "$ap_a" "$@" ;;
+  hook-time) hook_time "${2:-}" ;;
+  language-check) language_check "${2:--}" ;;
   run-language) run_language "${2:--}" ;;
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) [ $# -ge 3 ] || fail "usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT [REF...]]"; shift; approval_consume "$@" ;;
@@ -6168,9 +6667,11 @@ case "$command" in
   waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
+  friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell>}" "${3:-}" ;;
+  wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
-  answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured]}" "${3:?usage: agent.sh answer <ID> <N> [--captured]}" "${4:-}" ;;
+  answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
   cleanup) require_lead; cleanup_run "${2:?usage: agent.sh cleanup <ID>}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;

@@ -54,7 +54,7 @@ COMPLEX, tier full; every required gate passes; `SECURITY` is `pass_low` (PASS w
 
 - next: `dispatch.sh LK-7 security_reviewer`
 - do: re-run the security reviewer on the same content with escalation: Agent-tool path ->
-  `agent.sh decide LK-7 security_reviewer` once (its `signals=` contains `low_confidence_pass`) and use the
+  `agent.sh decide LK-7 security_reviewer --agent-path` once (its `signals=` contains `low_confidence_pass`) and use the
   decided model; dispatch.sh path -> `dispatch.sh LK-7 security_reviewer` alone (it decides itself). Then
   `agent.sh pipeline LK-7`; `handoff CODE_DONE` only when `gate.SECURITY=pass`.
 - must not: run `agent.sh handoff LK-7 CODE_DONE` now; treat `pass_low` as a pass in the report; re-run the

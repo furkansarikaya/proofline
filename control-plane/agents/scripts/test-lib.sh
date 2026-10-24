@@ -168,14 +168,19 @@ result_for() {
 rec() { rc_f=$(result_for "$@"); AGENT_ROLE=$(gate_owner "$1") sh ./.agents/scripts/agent.sh record "$RID" --file "$rc_f" >/dev/null; }
 gpass() { rec "$1" PASS; }
 # gfail GATE FIX-PATH: one blocking finding on that path.
-gfail() { rec "$1" FAIL high "$1-1|blocking|$2:1|lookup returns the wrong value for an empty key|traced: empty key -> nil"; }
+gfail() { # the rules gates also record how they scanned and which instances they found (A171)
+  case "$1" in REVIEW_RULES|REVIEW_SMALL) gf_ev="traced: empty key -> nil; scan: grep -n lookup $2; instances: single" ;; *) gf_ev='traced: empty key -> nil' ;; esac
+  rec "$1" FAIL high "$1-1|blocking|$2:1|lookup returns the wrong value for an empty key|$gf_ev"
+}
 required() { pipe_val gates; }
 pass_all() {
   for pa_g in $(required); do
+    [ "$pa_g" != VERIFY ] || continue   # A171: VERIFY runs after the gates it depends on (QA visual)
     if [ "$pa_g" = SECRETS ]; then A secret-scan "$RID" >/dev/null; else gpass "$pa_g"; fi
   done
   # every risk focus a gate carries (A78)
   A pipeline "$RID" | sed -n 's/^focus\.\([A-Z_]*\)\.\([a-z]*\)=.*/\1 \2/p' | while read -r pa_g pa_f; do RF_FOCUS=$pa_f gpass "$pa_g"; done
+  gpass VERIFY
 }
 
 # --- implementation helpers ------------------------------------------------------------------

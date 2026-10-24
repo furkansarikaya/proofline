@@ -20,6 +20,10 @@ The highest class any indicator reaches wins; when unsure, take the higher.
 | COMPLEX | several modules, new integration or dependency, public contract, persistence, real design tradeoffs |
 | CRITICAL | auth, crypto, secrets, destructive migration, financial or data-integrity behaviour, high-impact CI or deploy |
 
+A plan with more scope paths than `pipelines.<CLASS>.max_scope_paths` (15 by default) does not freeze: `freeze` records a split question (task-author's split flow), and only the user's answer `proceed without splitting` lets it continue, recorded in the ledger (A171). `pipelines.<CLASS>.dispatch_timeout_seconds` sets the dispatch timeout per class; a timed-out step leaves `dispatch/RESUME-<role>.md`, which the next dispatch of that role carries in its prompt.
+
+`agent.sh decide <ID> <role> --dry` shows the execution decision without writing a decision file or ledger row; a bare `decide` ahead of a dispatch is refused, because `dispatch.sh` decides for itself (with a one-use nonce file under `.agents/local/dispatch/`, removed right after) and the Agent route records its decision once per step with `decide ... --agent-path` (a second one for the same role and focus waits for a recorded result). `agent.sh answer <ID> <N> --amend` replaces a recorded answer with a newer, unused user message and keeps the old record as `NNN.answer.amended-K.md`; the lead alone cannot amend.
+
 The class selects the artifacts (EVIDENCE, QA plan, `## Architecture`) and the QA gate. A plan whose `## Data`
 starts with `destructive: yes` makes the task CRITICAL at freeze.
 

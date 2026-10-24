@@ -4,7 +4,7 @@ description: Checks durable design documents against the code and reports drift 
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.27"
+  version: "0.0.28"
 ---
 
 # design-sync
@@ -55,7 +55,7 @@ Standalone final message in the user's language: the `SYNC.md` path, verdict, dr
 
 ## Team mode
 
-**Check mode inside a run** belongs to the verifier and is part of its `VERIFY` gate result; design-sync has no result header of its own. It writes only `design/SYNC.md` and hands the verifier `design-sync: PASS|FAIL|SKIPPED (reason)` for `VERIFY.md`. Each drift line becomes one row of the verifier's findings table, `| VERIFY-<n> | blocking | <doc>:<line> | D-<m>: design-sync drift: <claim> | <search that found nothing> |` (`D-<m>` is the internal id kept in `SYNC.md`; the row id is `VERIFY-<n>`, numbered by the verifier across all its rows), with `fix_scope` the document path. Unverifiable claims are `info` rows (`VERIFY-<n>`, `D-<m>: unverifiable: <reason>`) that never affect the result. The verifier's `RESULT` is only `PASS | FAIL | BLOCKED`.
+**Check mode inside a run** belongs to the verifier and is part of its `VERIFY` gate result; design-sync has no result header of its own. It writes only `design/SYNC.md` and hands the verifier `design-sync: PASS|FAIL|SKIPPED (reason)` for `VERIFY.md`. Each drift line becomes one row of the verifier's findings table, `| VERIFY-<n> | blocking | <doc>:<line> | D-<m>: design-sync drift: <claim> | <search that found nothing> |` (`D-<m>` is the internal id kept in `SYNC.md`; the row id is `VERIFY-<n>`, numbered by the verifier across all its rows), with `fix_scope` the document path. Drift in a knowledge-scope document (DESIGN.md and the other `design_docs.*` documents) is not a verifier failure (A171): its row is `info` (`KNOWLEDGE_DRIFT: D-<m>: design-sync drift: <claim>`), `VERIFY.md` records `design-sync: PASS (knowledge-scope drift: <n> handed to the knowledge step)`, and the knowledge step must fix it; `agent.sh knowledge-done` and delivery block while it remains, with no waiver or scope change. Unverifiable claims are `info` rows (`VERIFY-<n>`, `D-<m>: unverifiable: <reason>`) that never affect the result. The verifier's `RESULT` is only `PASS | FAIL | BLOCKED`.
 
 **Reverse mode inside a run** is a task of the architect, data_architect or designer (the role that owns the target document), never of the verifier: that role returns `RESULT: DONE | BLOCKED | NEEDS_INPUT` with the draft under `design/` as `ARTIFACT` and rows `<role>-<n>` (for example `architect-1`) for what it could not trace (`info`); a fact it cannot get is `BLOCKED` with a `BLOCKED_REASON`; the lead routes the draft through the knowledge step. Standalone, reverse mode reports to the user.
 
@@ -74,7 +74,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 8. **Project rules** that are written and checkable are evidence; vague rules produce no finding; only new violations introduced by the change are reported.
 9. **Sandbox warning** once, before any project code first runs.
 10. **Ledger.** Each step's rows are written before the next step starts; the ledger is the resume point and never records what did not happen.
-11. **Language.** Every file written inside a run (`.agents/runs/<ID>/`, reports included) is English, whatever the user's language; the user's own words appear only as a `>` blockquote. Standalone, `REPORT.md` and the final message use the user's language. Identifiers, paths, commands and enum values are never translated.
+11. **Language.** Every file written inside a run (`.agents/runs/<ID>/`, reports included) is English, whatever the user's language; the user's own words appear only in a quote block, every line starting with `> ` (the language check exempts these lines and runs when a file is written, A171). Standalone, `REPORT.md` and the final message use the user's language. Identifiers, paths, commands and enum values are never translated.
 12. **Commit identity.** Never commit, push or tag on the user's behalf unless asked; never assume the user's global git identity.
 13. **Temporary files** only in a fresh `mktemp -d` directory outside the repository, removed after use; never inside the repository, `.agents/runs/` or `.agents/local/` (unknown files there block the run). Inside a run, the content fingerprint comes from `.agents/scripts/agent.sh fingerprint <TASK-ID>`.
 

@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.27"
+  version: "0.0.28"
 ---
 
 # proofline-lead
@@ -40,9 +40,9 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    `waivers/`, `questions/` by hand, never writes a result header for a specialist. A rejected record means
    re-dispatch, never repair.
 4. **Dispatch by runtime (D6)** ([DISPATCH.md](references/DISPATCH.md)). Runtime `claude` and a Claude lead:
-   `A decide` once, then the Agent tool with `proofline-<role>` (underscores in the role id become hyphens: `proofline-security-reviewer`) and the decided model. Otherwise:
+   `A decide <ID> <role> --agent-path` once, then the Agent tool with `proofline-<role>` (underscores in the role id become hyphens: `proofline-security-reviewer`) and the decided model. Otherwise:
    `D <ID> <role> [--focus F] --prompt-file .agents/local/assignments/<ID>/<file>`, which decides and records
-   itself (never `A decide` before `D`). Never both for one step. `.agents/local/assignments/<ID>/` is the
+   itself (never `A decide` before `D`: the script refuses a bare `decide`, A171; `A decide <ID> <role> --dry` only reads the decision and writes nothing; if the Agent call failed before any result and another runtime or model is wanted, `A decide <ID> <role> [--focus F] --redecide [--runtime R] [--model M]` decides again, ledgered, the earlier decision kept). Never both for one step. `.agents/local/assignments/<ID>/` is the
    only place under `.agents/local/` the lead writes (the runtime hook allows exactly that directory).
 5. **No re-asking.** A decision TASK.md, INTENT.md or the user's answers already record (an `Out of scope`
    item, a constraint, an answered question) is never asked again; a defect found next to the task that the
@@ -84,6 +84,14 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
     `pkill`, `killall` and `kill` by pattern, name or port (`kill $(pgrep ...)`, `pgrep ... | xargs kill`,
     `fuser -k`) and mass kills (`kill -1`, `kill 0`) are forbidden; the runtime hook denies them. The same holds
     for every specialist you dispatch.
+13. **The user never runs an internal command (A171).** Never ask the user to run `agent.sh`, `approve`, `answer`, a `proofline` internal or any
+    shell command; the lead runs them, and the user's part is a plain reply or a `/proofline <command>` from the Next step line. When a
+    step seems to need the user to run one, that is a proofline bug: say it in ONE line ("proofline needs you to run a command here, which is a
+    bug; recorded") and run `A friction-note <ID> user-command` (`user-shell` for a shell command). The friction report counts them and the
+    Stop hook notes a message that asks anyway.
+14. **A wait is one line (A171).** While a sub-agent or CI runs, the status message is one line: what is awaited and how long so far, for example
+    `waiting: dispatch reviewer, 4m12s so far` (`A wait-line <ID> ["CI of the pull request"]` prints exactly this; `--done` ends the clock). No
+    progress essay, no plan recap, no repeated questions; the next message after the wait carries the result.
 
 ## Boot (every session, `/proofline`, `resume`)
 
@@ -250,7 +258,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 8. **Project rules** that are written and checkable are evidence; vague rules produce no finding; only new violations introduced by the change are reported.
 9. **Sandbox warning** once, before any project code first runs.
 10. **Ledger.** Each step's rows are written before the next step starts; the ledger is the resume point and never records what did not happen.
-11. **Language.** Every file written inside a run (`.agents/runs/<ID>/`, reports included) is English, whatever the user's language; the user's own words appear only as a `>` blockquote. Standalone, `REPORT.md` and the final message use the user's language. Identifiers, paths, commands and enum values are never translated.
+11. **Language.** Every file written inside a run (`.agents/runs/<ID>/`, reports included) is English, whatever the user's language; the user's own words appear only in a quote block, every line starting with `> ` (the language check exempts these lines and runs when a file is written, A171). Standalone, `REPORT.md` and the final message use the user's language. Identifiers, paths, commands and enum values are never translated.
 12. **Commit identity.** Never commit, push or tag on the user's behalf unless asked; never assume the user's global git identity.
 13. **Temporary files** only in a fresh `mktemp -d` directory outside the repository, removed after use; never inside the repository, `.agents/runs/` or `.agents/local/` (unknown files there block the run). Inside a run, the content fingerprint comes from `.agents/scripts/agent.sh fingerprint <TASK-ID>`.
 

@@ -12,7 +12,7 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
 
 | Lead | Role runtime | Path |
 |---|---|---|
-| Claude Code | `claude` | **Agent path**: `A decide <ID> <role> [--focus F]` exactly once; take `model=` (and `effort=`) from its output; call the Agent tool with `subagent_type` = `proofline-<role>` with `_` written as `-` (`proofline-security-reviewer`; plugin install: `proofline:proofline-security-reviewer`; use the name the Agent tool lists), `model` = the decided model, `prompt` = the assignment. |
+| Claude Code | `claude` | **Agent path**: `A decide <ID> <role> [--focus F] --agent-path` exactly once (a bare `decide` is refused, A171; `--dry` reads the decision and writes nothing); take `model=` (and `effort=`) from its output; call the Agent tool with `subagent_type` = `proofline-<role>` with `_` written as `-` (`proofline-security-reviewer`; plugin install: `proofline:proofline-security-reviewer`; use the name the Agent tool lists), `model` = the decided model, `prompt` = the assignment. |
 | Claude Code | `codex` or a command-template runtime | **dispatch path**: `D <ID> <role> [--focus F] --prompt-file <assignment file>`. |
 | Codex, terminal agent | any | **dispatch path**. |
 

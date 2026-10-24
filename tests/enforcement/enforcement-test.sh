@@ -16,6 +16,8 @@ fi
 hook=$ENF_REPO/adapters/claude/hooks/proofline-hook.sh
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
+# a loaded runner must not expire the approval step of the hook mid-test: tests that exercise the budget set their own
+PROOFLINE_HOOK_APPROVE_BUDGET=300; PROOFLINE_HOOK_LOCK_WAIT=120; export PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT
 
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) print "\\n"; print }'; }
 H() { printf '%s' "$2" | sh "$hook" "$1" "${3:-claude}"; }   # EVENT JSON [RUNTIME] -> hook stdout
@@ -513,6 +515,23 @@ final_report_tokens() {
   out=$(stop_plain "All gates passed.")
   [ -z "$out" ] || die "A169-3 a subagent's command marked the lead's turn: $out"
   ok "A169-3 the mark belongs to one turn of the lead's own commands"
+  # A171: a final message that asks the user to run an internal command is a proofline bug: noted in the ledger, one line to the user
+  out=$(stop_plain "Almost done. Please run: sh .agents/scripts/agent.sh approve LC delivery")
+  printf '%s' "$out" | grep -q 'proofline bug' && ! printf '%s' "$out" | grep -q '"decision"' || die "A171 a request to run agent.sh got no friction message or was blocked: $out"
+  grep -q 'event=friction-note .*detail=user-command' .agents/runs/LC/LEDGER.log || die "A171 the request to run agent.sh was not ledgered as a friction note"
+  # a mere mention of agent.sh (a report of what the lead did) is not a request to the user
+  n0=$(grep -c 'event=friction-note' .agents/runs/LC/LEDGER.log)
+  out=$(stop_plain "I checked the state with agent.sh next and agent.sh status; all gates are green.")
+  ! printf '%s' "$out" | grep -q 'proofline bug' || die "A171 a mention of agent.sh next was taken as a request to the user: $out"
+  [ "$(grep -c 'event=friction-note' .agents/runs/LC/LEDGER.log)" = "$n0" ] || die "A171 a mention of agent.sh next was ledgered as friction"
+  out=$(stop_plain "To continue, please run the following in your terminal:
+\`\`\`
+sh .agents/scripts/agent.sh next LC
+\`\`\`")
+  printf '%s' "$out" | grep -q 'proofline bug' || die "A171 a fenced command the user is asked to run got no friction message: $out"
+  out=$(stop_plain "Almost done. Next step: reply approve delivery, or run /proofline status LC")
+  [ -z "$out" ] || die "A171 a user command (/proofline ...) got a friction message: $out"
+  ok "A171 asking the user to run an internal command is noted as friction; a user command is not"
 }
 
 # A159: the knowledge step needs the wiki and the design documents; the lead may write exactly those, only after
@@ -712,8 +731,50 @@ agent_sh_forms() { # H3/H4: agent.sh and AGENT_ROLE matched on dequoted words, n
   denied "H3 escaped script name" "$(pre_bash 'sh .agents/scripts/agent\.sh record LC --file r.md')" "SubagentStop hook"
   denied "H3 split quotes in the script name" "$(pre_bash 'sh .agents/scripts/agen""t.sh gate LC VERIFY pass')" "SubagentStop hook"
   denied "H3 script path in a variable" "$(pre_bash 'a=.agents/scripts/agent.sh; sh $a record LC')" "not literal"
-  denied "H3 subcommand in a variable" "$(pre_bash 'c=record; sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "H3 subcommand in a variable from a substitution" "$(pre_bash 'c=$(echo record); sh .agents/scripts/agent.sh $c LC')" "not literal"
   denied "H3 command word in a variable" "$(pre_bash 'a=.agents/scripts/agent.sh; $a record LC')" "not literal"
+  # A171: a variable the same command assigns from a plain literal is read as that literal in arguments, and the literal is checked
+  allowed "A171 literal variable as an argument" "$(pre_bash 'ID=LC; sh .agents/scripts/agent.sh next $ID')"
+  allowed "A171 literal variable in braces and quotes after &&" "$(pre_bash 'ID=LC && sh .agents/scripts/agent.sh status "${ID}"')"
+  allowed "A171 literal variable on a following line" "$(pre_bash 'ID=LC
+sh .agents/scripts/agent.sh next $ID')"
+  allowed "A171 literal subcommand variable (a read-only one)" "$(pre_bash 'S=status; sh .agents/scripts/agent.sh $S LC')"
+  denied "A171 literal variable naming a forbidden subcommand is still checked" "$(pre_bash 'c=record; sh .agents/scripts/agent.sh $c LC')" "SubagentStop hook"
+  denied "A171 subcommand split over two variables is joined and checked" "$(pre_bash 'c=rec; d=ord; sh .agents/scripts/agent.sh $c$d LC')" "SubagentStop hook"
+  denied "A171 variable from a command substitution stays non-literal" "$(pre_bash 'ID=$(date); sh .agents/scripts/agent.sh $ID LC')" "not literal"
+  denied "A171 variable from a backtick substitution stays non-literal" "$(pre_bash 'ID=`date`; sh .agents/scripts/agent.sh $ID LC')" "not literal"
+  denied "A171 variable overwritten by read stays non-literal" "$(pre_bash 'c=status; read c; sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 variable reassigned from a substitution stays non-literal" "$(pre_bash 'c=status; c=$(x); sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 loop variable stays non-literal" "$(pre_bash 'for c in record; do sh .agents/scripts/agent.sh $c LC; done')" "not literal"
+  denied "A171 variable set in a subshell stays non-literal" "$(pre_bash '(c=status); sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 conditional assignment stays non-literal" "$(pre_bash 'true && c=status; sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 undefined variable stays non-literal" "$(pre_bash 'sh .agents/scripts/agent.sh $c LC')" "not literal"
+  denied "A171 literal variable as the command word stays denied" "$(pre_bash 'a=.agents/scripts/agent.sh; $a status LC')" "not literal"
+  denied "A171 literal variable as the script path stays denied" "$(pre_bash 'a=.agents/scripts/agent.sh; sh $a status LC')" "not literal"
+  denied "A171 denial shows the allowed form" "$(pre_bash 'sh .agents/scripts/agent.sh $c LC')" "Allowed form: ID=T-1; sh .agents/scripts/agent.sh next"
+  # A171: the runtime's own background task output is readable (read only)
+  # /tmp is scratch space when $TMPDIR itself is under /tmp (a Linux runner), where no /tmp path is denied: pin $TMPDIR elsewhere for this block
+  tmpd_save=${TMPDIR-}; TMPDIR=/var/tmp; export TMPDIR
+  allowed "A171 background task output read by a specialist" "$(pre_bash 'tail -n 20 /private/tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)"
+  allowed "A171 background task output read with cat by a specialist" "$(pre_bash 'cat /tmp/claude-501/-proj/sess/tasks/b1.output | head -5' proofline-reviewer)"
+  allowed "A171 background task output read by the lead" "$(pre_bash 'cat /private/tmp/claude-501/-proj/sess/tasks/b1.output')"
+  denied "A171 writing a background task output stays denied" "$(pre_bash 'echo x > /private/tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 task output path with .. stays denied" "$(pre_bash 'cat /private/tmp/claude-501/-proj/sess/tasks/../../b1.output' proofline-explorer)" "outside the project"
+  denied "A171 other file in the tasks folder stays denied" "$(pre_bash 'cat /private/tmp/claude-501/-proj/sess/tasks/b1.sh' proofline-explorer)" "outside the project"
+  denied "A171 sh running a task output file" "$(pre_bash 'sh /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 bash running a task output file" "$(pre_bash 'bash /private/tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 dot-sourcing a task output file" "$(pre_bash '. /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 source of a task output file" "$(pre_bash 'source /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 sed without -n on a task output" "$(pre_bash 'sed -e 1e /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 task output path deeper than the runtime's layout" "$(pre_bash 'cat /tmp/claude-501/-proj/sess/x/y/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 task output nested below the tasks folder" "$(pre_bash 'cat /tmp/claude-501/-proj/sess/tasks/sub/b1.output' proofline-explorer)" "outside the project"
+  allowed "A171 sed -n on a task output" "$(pre_bash 'sed -n 1,5p /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)"
+  denied "A171 sed -n writing a file from a task output" "$(pre_bash "sed -n '1w src/evil.sh' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)" "outside the project"
+  denied "A171 sed -n executing a task output line" "$(pre_bash 'sed -n e /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 sed -n -f reading a script from a task output" "$(pre_bash 'sed -n -f /tmp/claude-501/-proj/sess/tasks/b1.output src/a' proofline-explorer)" "outside the project"
+  allowed "A171 sed -n last line of a task output" "$(pre_bash "sed -n '\$p' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)"
+  denied "A171 other /tmp file stays denied for the lead" "$(pre_bash 'cat /tmp/other/x.output')" "outside the project"
+  TMPDIR=$tmpd_save; export TMPDIR
   denied "H3 sh -c recursion" "$(pre_bash "sh -c 'sh .agents/scripts/agent.sh record LC'")" "SubagentStop hook"
   denied "H3 bash -c write" "$(pre_bash "bash -c 'echo x > impl.txt'")" "product changes go through the implementer"
   denied "H3 command substitution in double quotes" "$(pre_bash 'echo "$(sh .agents/scripts/agent.sh record LC)"')" "SubagentStop hook"
@@ -727,6 +788,29 @@ agent_sh_forms() { # H3/H4: agent.sh and AGENT_ROLE matched on dequoted words, n
   denied "H4 escaped AGENT_ROLE assignment" "$(pre_bash 'env AGENT_ROLE\=reviewer true')" "does not match"
   denied "H4 env -S split string" "$(pre_bash 'env -S "sh x.sh"')" "env -S"
   denied "H4 read into AGENT_ROLE" "$(pre_bash 'read AGENT_ROLE < f')" "indirectly"
+  denied "A171 a model never sets PROOFLINE_DISPATCH" "$(pre_bash 'PROOFLINE_DISPATCH=1 sh .agents/scripts/agent.sh decide LC implementer')" "dispatch.sh alone"
+  # shellcheck disable=SC2016 # variables stay unexpanded on purpose
+  denied "A171 PROOFLINE_DISPATCH split by quotes" "$(pre_bash "env PROOFLINE_DISP''ATCH=1 sh .agents/scripts/agent.sh decide LC implementer")" "dispatch.sh alone"
+  # shellcheck disable=SC2016
+  denied "A171 PROOFLINE_DISPATCH joined from a variable in sh -c" "$(pre_bash 'p=PROOFLINE; sh -c "env ${p}_DISPATCH=1 sh .agents/scripts/agent.sh decide LC implementer"')" "dispatch.sh alone"
+  # shellcheck disable=SC2016
+  denied "A171 PROOFLINE_DISPATCH name ending in a variable" "$(pre_bash 'p=PROOFLINE_; export ${p}DISPATCH=1; sh .agents/scripts/agent.sh decide LC implementer')" "dispatch.sh alone"
+  denied "A171 ls of a glob that reaches the nonce folder" "$(pre_bash 'ls .agents/local/d*')" "dispatch.sh"
+  denied "A171 cat of a nonce file through globs" "$(pre_bash 'cat .agents/local/*/nonce-*')" "dispatch.sh"
+  denied "A171 find for nonce files" "$(pre_bash "find .agents -name 'nonce-*'")" "dispatch.sh"
+  denied "A171 find over .agents/local" "$(pre_bash 'find .agents/local -type f')" "dispatch.sh"
+  # shellcheck disable=SC2016
+  denied "A171 PROOFLINE_DISPATCH name built at run time" "$(pre_bash "export \$(printf 'PROOFLINE_%s=abc' DISPATCH); sh .agents/scripts/agent.sh decide LC implementer")" "dispatch.sh"
+  allowed "A171 a literal read of the runs folder with a glob below it" "$(pre_bash 'ls .agents/runs/LC/*.md')"
+  denied "A171 the dispatch nonce folder is not named" "$(pre_bash 'ls .agents/local/dispatch')" "dispatch.sh alone"
+  # shellcheck disable=SC2016
+  denied "A171 printf -v clears a tracked variable" "$(pre_bash 'S=status; printf -v S record; sh .agents/scripts/agent.sh $S LC')" "not literal"
+  # shellcheck disable=SC2016
+  denied "A171 let clears a tracked variable" "$(pre_bash 'S=status; let S=3; sh .agents/scripts/agent.sh $S LC')" "not literal"
+  # shellcheck disable=SC2016
+  denied "A171 IFS assignment drops variable tracking" "$(pre_bash 'IFS=x; S=recordxfoo; sh .agents/scripts/agent.sh $S LC')" "not literal"
+  # shellcheck disable=SC2016
+  denied "A171 IFS assignment after the variable drops tracking" "$(pre_bash 'S=recordxfoo; IFS=x; sh .agents/scripts/agent.sh $S LC')" "not literal"
   allowed "H3 sh -c with a read-only agent.sh command" "$(pre_bash "sh -c 'sh .agents/scripts/agent.sh next LC'")"
   allowed "H4 reading \$AGENT_ROLE" "$(pre_bash 'echo $AGENT_ROLE')"
   # subagents: literal form and the role's command allowlist
@@ -814,6 +898,83 @@ hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing
   out=$(prompt 'approve plan' sM)
   printf '%s' "$out" | grep -q 'NOT recorded' && [ ! -e .agents/local/prompts/.approving-sM ] || die "a timed-out approval hook was not reported: $out"
   ok "a task notification is not captured; an approval hook that timed out is reported to the user"
+}
+
+# A171: the approval hook is transparent (a log, one line for a refusal, stale markers cleaned, the lead retries), hook timings and
+# timeouts reach the ledger, and run files are checked for language when they are written.
+hook_transparency() {
+  fixture
+  A request-approval LC plan >/dev/null; sleep 1
+  prompt 'plan approved, go ahead' > "$base/p1.out"
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 || die "A171-1 the approval was not recorded"
+  grep -q 'rc=0 output: approval recorded' .agents/local/approve.log || die "A171-1 the output of approve was not logged to .agents/local/approve.log: $(cat .agents/local/approve.log 2>/dev/null)"
+  grep -q 'approval recorded' "$base/p1.out" || die "A171-1 the lead was not told the approval was recorded: $(cat "$base/p1.out")"
+  grep -q 'reply: |' .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml && grep -q '^  > plan approved, go ahead' .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml || die "A171-1 the user's reply is not kept as a quote block in the approval"
+  ok "A171-1 approve output is logged to .agents/local/approve.log and the recorded approval is reported; the reply is a quote block"
+  # stale markers of killed hooks (another session, older than two minutes) are removed at the next call, never reported
+  mkdir -p .agents/local/prompts; : > .agents/local/prompts/.approving-sOld; touch -t 202001010000 .agents/local/prompts/.approving-sOld
+  : > .agents/local/prompts/.approving-sFresh
+  out=$(prompt 'hello again' sNew)
+  [ ! -e .agents/local/prompts/.approving-sOld ] || die "A171-2 a stale .approving- marker survived the next call"
+  [ -e .agents/local/prompts/.approving-sFresh ] || die "A171-2 a fresh marker of another session (a hook still running) was removed"
+  ! printf '%s' "$out" | grep -q 'NOT recorded' || die "A171-2 another session's stale marker was reported: $out"
+  rm -f .agents/local/prompts/.approving-sFresh
+  ok "A171-2 stale .approving- markers are cleaned on the next call"
+  # a refusal is one line to the lead and the user, with the reason; nobody runs a command in a terminal
+  sleep 1; A request-approval LC scope >/dev/null; sleep 1
+  sleep 60 & holder=$!
+  mkdir .agents/local/.lock && printf '%s\n' "$holder" > .agents/local/.lock/pid
+  out=$(PROOFLINE_HOOK_LOCK_WAIT=1 prompt 'scope approved, go ahead')
+  printf '%s' "$out" | grep -q '"systemMessage":"proofline: approval NOT recorded: ' && printf '%s' "$out" | grep -q 'approve.log' || die "A171-3 a lock-bound refusal was not shown as one line to the user: $out"
+  printf '%s' "$out" | grep -q 'hookSpecificOutput' || die "A171-3 the lead did not get the reason"
+  [ "$(printf '%s' "$out" | wc -l | tr -d ' ')" -le 1 ] || die "A171-3 the message is more than one line: $out"
+  ! ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "A171-3 an approval was recorded while the lock was held"
+  grep -q 'rc=1' .agents/local/approve.log || die "A171-3 the refusal is not in the log"
+  # the step is also stopped by its own budget, and the timeout is written down
+  t0=$(date +%s); out=$(PROOFLINE_HOOK_LOCK_WAIT=30 PROOFLINE_HOOK_APPROVE_BUDGET=1 prompt 'scope approved, go ahead'); t1=$(date +%s)
+  [ $((t1 - t0)) -lt 25 ] || die "A171-4 the hook did not stop its approval step in time ($((t1 - t0))s)"
+  printf '%s' "$out" | grep -q 'ran out of time' || die "A171-4 no message about the stopped step: $out"
+  grep -q '|prompt.approve|[0-9]*|timeout|' .agents/local/hook-times || die "A171-4 the step timeout is not in the spool: $(cat .agents/local/hook-times)"
+  sleep 1
+  ! ps -A -o command= | grep -F "$PWD/.agents/scripts/agent.sh approve" | grep -v grep >/dev/null || die "A171 a child of the stopped approval step (agent.sh approve) is still running"
+  kill "$holder" 2>/dev/null; rm -rf .agents/local/.lock
+  # a stopped approval step is not a lost approval: the request stays pending and the captured reply stays newer than it, so the
+  # next `agent.sh next` of a run in PLANNING records it (gates-test sc_approval_retry exercises that fallback end to end)
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-request-scope.yaml >/dev/null 2>&1 || die "A171-8 the request was consumed by a timed-out step"
+  grep -q 'scope approved, go ahead' .agents/local/prompts/history/* || die "A171-8 the reply of the timed-out step was not captured"
+  ok "A171-3 a refused approval is one line to the lead and the user, with the reason; A171-4 the step is stopped by its budget and the timeout is written"
+  # a hook the runtime killed leaves an in-flight marker: the next prompt hook writes it down as a timeout
+  mkdir -p .agents/local/hooks-inflight; printf '99999999 %s\n' "$(( $(date +%s) * 1000 - 31000 ))" > .agents/local/hooks-inflight/prompt.99999999
+  prompt 'one more' sTimeout >/dev/null
+  [ ! -e .agents/local/hooks-inflight/prompt.99999999 ] || die "A171-6 the in-flight marker was not removed"
+  # durations and timeouts reach the ledger of the run; the friction report counts them
+  A hook-time LC
+  grep -q 'event=hook .*detail=name=prompt runs=[0-9]* total_ms=[0-9]* max_ms=[0-9]*' .agents/runs/LC/LEDGER.log || die "A171-6 hook duration is not in the ledger: $(tail -5 .agents/runs/LC/LEDGER.log)"
+  grep -q 'event=hook .*detail=name=prompt.capture ' .agents/runs/LC/LEDGER.log || die "A171-6 the capture step is not timed in the ledger"
+  [ "$(grep -c 'event=hook-timeout ' .agents/runs/LC/LEDGER.log)" -ge 2 ] || die "A171-6 hook timeouts are not in the ledger"
+  grep -q 'event=hook-timeout .*detail=name=prompt ms=[0-9]* note=killed-before-finish' .agents/runs/LC/LEDGER.log || die "A171-6 a killed hook (in-flight marker) is not a timeout in the ledger"
+  [ ! -s .agents/local/hook-times ] || die "A171-6 the spool was not emptied"
+  sh .agents/scripts/agent.sh verify-seal LC >/dev/null 2>&1 || A verify-seal LC >/dev/null || die "A171-6 the ledger chain broke after hook events"
+  cp "$tl_agents/scripts/friction.sh" .agents/scripts/
+  mkdir -p .agents/local/metrics; : > .agents/local/metrics/records.jsonl; A friction report LC >/dev/null
+  grep -Eq '^- hook timeouts: [2-9] \(of [0-9]+ recorded hook runs; total hook time [0-9]+ ms, slowest [0-9]+ ms\)' .agents/local/friction/latest.md || die "A171-6 the friction report does not count hook timeouts: $(grep -i hook .agents/local/friction/latest.md)"
+  ok "A171-6 hook durations and timeouts are written to the ledger and counted in the friction report"
+  # language at write time (the write hook), quote blocks exempt
+  tr_text='Bence şu şekilde olsun: ığüşöç çok güzel'
+  w() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\".agents/runs/LC/PLAN.md\",\"content\":\"$(jstr "$1")\"}}"; }
+  denied "A171-7 unquoted Turkish in a run file is refused when written" "$(w "# Report
+$tr_text")" "language: run artifacts are English"
+  denied "A171-7 an invented quote block (not a captured user prompt) hides nothing" "$(w "# Report
+The user said:
+> $tr_text")" "language: run artifacts are English"
+  mkdir -p .agents/local/prompts/history; printf '%s\n' "$tr_text" > .agents/local/prompts/history/1-bbbbbbbb.txt
+  allowed "A171-7 the same Turkish inside a quote block is written" "$(w "# Report
+The user said:
+> $tr_text")"
+  allowed "A171-7 English is written" "$(w '# Report
+all fine')"
+  other=$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\".agents/local/assignments/x.md\",\"content\":\"$(jstr "$tr_text")\"}}")
+  allowed "A171-7 Turkish outside the run folder is not this check's business" "$other"
 }
 
 not_installed() {
@@ -985,7 +1146,7 @@ read_roles_tree() {
 }
 
 fails=0
-scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
+scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done

@@ -168,7 +168,7 @@ sc_submit() {
   expect_msg "an artifact outside the run was accepted" 'inside the run' AS reviewer submit LC --focus rules+tests --artifact ../../../impl.txt --confidence high
   expect_msg "an artifact of another focus was accepted" 'outside the paths' AS reviewer submit LC --focus plan --artifact reviews/proof-review/small/REPORT.md --confidence high
   # the result follows from the findings
-  printf 'blocking|impl.txt:1|lookup returns the wrong value for an empty key|traced: empty key -> nil\n' > "$base/f.rows"
+  printf 'blocking|impl.txt:1|lookup returns the wrong value for an empty key|traced: empty key -> nil; scan: grep -n lookup impl.txt; instances: single\n' > "$base/f.rows"
   expect_msg "PASS with a blocking finding was accepted" 'contradicts' AS reviewer submit LC --focus rules+tests --result PASS --findings "$base/f.rows" --confidence high
   AS reviewer submit LC --focus rules+tests --findings "$base/f.rows" --confidence high >/dev/null
   [ "$(gate_st REVIEW_SMALL)" = fail ] || die "blocking findings did not fail the gate"
@@ -190,10 +190,19 @@ sc_language() {
   small=.agents/runs/LC/reviews/proof-review/small; mkdir -p "$small"
   printf 'Bu rapor T\303\274rk\303\247e yaz\304\261ld\304\261: \303\247ok \305\237\303\266yle \304\237\303\274zel.\n' > "$small/REPORT.md"
   expect_msg "a Turkish report was accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
+  # A171 (review): a quote line or a fence is exempt only when it repeats a captured user prompt, whatever the file
+  printf 'The review is complete.\n\n> Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n' > "$small/REPORT.md"
+  expect_msg "an invented quote block hid non-English text" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
+  printf 'The review is complete.\n\n```\n\305\237\303\266yle \303\274\303\247 \304\237\n```\n' > "$small/REPORT.md"
+  expect_msg "an invented fence hid non-English text" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --confidence high
+  mkdir -p .agents/local/prompts/history
+  printf 'Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n\305\237\303\266yle\n' > .agents/local/prompts/history/1-aaaaaaaa.txt
   printf 'The review is complete.\n\n> Kullan\304\261c\304\261 iste\304\237i: s\303\274r\303\274m\303\274 d\303\274zelt\n\n```\n\305\237\303\266yle\n```\nJos\303\251 reviewed it.\n' > "$small/REPORT.md"
   AS reviewer submit LC --focus rules+tests --confidence high >/dev/null || die "a quoted request / one accented name was refused"
-  printf 'blocking|impl.txt:1|de\304\237er \303\274retilmiyor \305\237\303\266yle|traced\n' > "$base/tr.rows"
+  printf 'blocking|impl.txt:1|de\304\237er \303\274retilmiyor \305\237\303\266yle|traced; scan: grep -n lookup impl.txt; instances: single\n' > "$base/tr.rows"
   expect_msg "Turkish findings were accepted" 'run artifacts are English' AS reviewer submit LC --focus rules+tests --findings "$base/tr.rows" --confidence high
+  printf 'blocking|impl.txt:1|wrong value|agent.sh pipeline LC\n' > "$base/ag.rows"
+  expect_msg "a reviewer opted out of the scan rule with an agent.sh evidence prefix" 'reserved for rows the script adds' AS reviewer submit LC --focus rules+tests --findings "$base/ag.rows" --confidence high
   ok "language: non-English report and findings are rejected at submit; blockquotes, fences and one accented name pass"
 }
 
@@ -225,7 +234,7 @@ sc_stdin_contract() { # A104
   out=$(printf 'report text\n' | AS reviewer submit LC --focus rules+tests --confidence high --report - --findings - 2>&1) && die "both-stdin was accepted"
   case "$out" in *'only one of --report/--findings may read stdin'*'=== FINDINGS ==='*) ;; *) die "both-stdin message wrong: $out" ;; esac
   # the documented separator splits one document
-  printf 'review of the tree\n\n=== FINDINGS ===\nblocking|impl.txt:1|wrong value|traced\ninfo|impl.txt:2|a note|seen\n' \
+  printf 'review of the tree\n\n=== FINDINGS ===\nblocking|impl.txt:1|wrong value|traced; scan: grep -n lookup impl.txt; instances: single\ninfo|impl.txt:2|a note|seen\n' \
     | AS reviewer submit LC --focus rules+tests --confidence high --report - --findings - >/dev/null || die "separator submit failed"
   [ "$(gate_st REVIEW_SMALL)" = fail ] || die "separator findings did not fail the gate"
   grep -q 'review of the tree' "$rp" && ! grep -q 'FINDINGS\|wrong value' "$rp" || die "report not split from the findings"
@@ -307,8 +316,8 @@ sc_report_names() {
 # A132: max_explorers bounds recorded explorer results; a dispatch whose result never arrived holds no slot
 sc_explorer_limit() {
   scaffold orchestrated
-  A decide LC explorer >/dev/null || die "first explorer decide refused"
-  A decide LC explorer >/dev/null || die "second (parallel) explorer decide refused"
+  A decide LC explorer --agent-path >/dev/null || die "first explorer decide refused"
+  A decide LC explorer --agent-path >/dev/null || die "second (parallel) explorer decide refused"
   printf 'one\n' > "$base/ag1-rep"; printf 'two\n' > "$base/ag2-rep"
   # a BLOCKED result holds no slot: its retry (and a NEEDS_INPUT ANSWERS re-dispatch) is allowed
   AS explorer submit LC --result BLOCKED --reason 'no entry point' --confidence high --agent agB >/dev/null || die "explorer BLOCKED submit failed"
@@ -317,28 +326,28 @@ sc_explorer_limit() {
   printf 'one revised\n' > "$base/ag1-rep"
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "explorer 1 resubmit failed"
   [ "$(ls .agents/runs/LC/results/???-explorer.result.md | wc -l | tr -d ' ')" -ge 3 ] || die "the resubmit did not leave a second DONE result file"
-  A decide LC explorer >/dev/null || die "a decide after a BLOCKED result and one explorer resubmitting was refused"
+  A decide LC explorer --agent-path >/dev/null || die "a decide after a BLOCKED result and one explorer resubmitting was refused"
   # a live marker whose submission is already recorded is the delivered result, not a second slot
   mkdir -p .agents/runs/LC/dispatch .agents/local/submissions; printf 'pid=%s\nrole=explorer\n' "$$" > .agents/runs/LC/dispatch/091-explorer-claude.running
   printf 'status=ok\n' > .agents/local/submissions/d091-explorer-claude.status
-  A decide LC explorer >/dev/null || die "a DONE result plus its own live marker was counted twice"
+  A decide LC explorer --agent-path >/dev/null || die "a DONE result plus its own live marker was counted twice"
   rm -f .agents/runs/LC/dispatch/091-explorer-claude.running
   # a running explorer dispatch occupies a slot: one DONE + one running = 2 of 2
   mkdir -p .agents/runs/LC/dispatch; printf 'pid=%s\nrole=explorer\n' "$$" > .agents/runs/LC/dispatch/090-explorer-claude.running
-  expect_msg "a parallel start beyond the limit was granted" '1 delivered result(s)' A decide LC explorer
+  expect_msg "a parallel start beyond the limit was granted" '1 delivered result(s)' A decide LC explorer --agent-path
   rm -f .agents/runs/LC/dispatch/090-explorer-claude.running
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag2-rep" --agent ag2 >/dev/null || die "explorer 2 submit failed"
-  expect_msg "a third delivered explorer was granted" 'allows 2 explorer slot(s) (pipelines.COMPLEX.max_explorers) and run LC holds 2 delivered result(s)' A decide LC explorer
+  expect_msg "a third delivered explorer was granted" 'allows 2 explorer slot(s) (pipelines.COMPLEX.max_explorers) and run LC holds 2 delivered result(s)' A decide LC explorer --agent-path
   ok "A132: the explorer after max_explorers delivered reports is refused; BLOCKED and a lost dispatch hold no slot; a running one does"
   # a limit of 0 is not checked, and the count restarts at each freeze
   unfrozen TRIVIAL
-  A decide LC explorer >/dev/null || die "an explorer decide on a limit of 0 was refused"
+  A decide LC explorer --agent-path >/dev/null || die "an explorer decide on a limit of 0 was refused"
   unfrozen STANDARD
   printf 'one\n' > "$base/ag1-rep"
   AS explorer submit LC --result DONE --confidence high --findings none --report "$base/ag1-rep" --agent ag1 >/dev/null || die "pre-freeze explorer failed"
-  expect_msg "a second pre-freeze explorer was granted (STANDARD allows 1)" 'holds 1 delivered result(s)' A decide LC explorer
+  expect_msg "a second pre-freeze explorer was granted (STANDARD allows 1)" 'holds 1 delivered result(s)' A decide LC explorer --agent-path
   A freeze LC >/dev/null || die "freeze failed"
-  A decide LC explorer >/dev/null || die "an explorer after the freeze was refused (the count restarts at each freeze)"
+  A decide LC explorer --agent-path >/dev/null || die "an explorer after the freeze was refused (the count restarts at each freeze)"
   ok "A132: a limit of 0 is not checked; the slot count restarts at each freeze"
 }
 
@@ -348,7 +357,9 @@ sc_parallel_lock() {
   f=$(result_for REVIEW_SMALL PASS)
   i=1 pids=''
   while [ "$i" -le 8 ]; do
-    if [ $((i % 2)) -eq 0 ]; then A decide LC reviewer --focus rules+tests > "$base/parallel-$i.out" 2>&1 &
+    if [ $((i % 2)) -eq 0 ]; then
+      case $i in 2) pf=rules+tests ;; 4) pf=plan ;; 6) pf=tests ;; *) pf=rules ;; esac   # one --agent-path per role and focus (A171)
+      A decide LC reviewer --agent-path --focus "$pf" > "$base/parallel-$i.out" 2>&1 &
     else A ledger-note LC "parallel-$i" > "$base/parallel-$i.out" 2>&1 & fi
     pids="$pids $!"; i=$((i + 1))
   done
@@ -406,7 +417,7 @@ sc_fix_loop() {
   gfail VERIFY impl.txt
   A handoff LC IMPLEMENTING >/dev/null
   [ "$(pipe_val fix_round)" = 2 ] && [ "$(pipe_val escalation)" = yes ] || die "round 2 does not set the escalation flag"
-  A decide LC implementer >/dev/null; grep -q 'signals=fix_round_2' .agents/runs/LC/decisions/*-implementer.decision || die "decide misses fix_round_2"
+  A decide LC implementer --agent-path >/dev/null; grep -q 'signals=fix_round_2' .agents/runs/LC/decisions/*-implementer.decision || die "decide misses fix_round_2"
   worker FIX pass impl.txt 'impl: second attempt'; A handoff LC IMPLEMENTED >/dev/null
   gfail REVIEW_SMALL impl.txt
   expect_msg "a third round was allowed" 'fix rounds exhausted' A handoff LC IMPLEMENTING
@@ -414,6 +425,92 @@ sc_fix_loop() {
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: REVIEW_SMALL and VERIFY failed on all three contents\n' | A terminate LC FAILED >/dev/null
   expect_state execution state FAILED
   ok "fix loop: per-gate status, only stale gates listed, round-2 escalation, terminate FAILED"
+}
+
+# A171: an example of a finding class that an earlier revision already contained (the reviewer missed it) does not
+# use up the implementer's fix round; a line already cited, or one that is new, still counts.
+sc_fix_round_missed_example() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: example two' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  gfail REVIEW_SMALL impl.txt                                   # round 1 cites impl.txt:1
+  [ "$(pipe_val fix_round)" = 1 ] || die "the first failing content is not round 1: $(pipe_val fix_round)"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: fix of example one'; A handoff LC IMPLEMENTED >/dev/null
+  # the next revision: the reviewer now cites impl.txt:2, a line of the previous revision that no finding cited
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-2|blocking|impl.txt:2|a second example of the same class|traced: example two; scan: grep -n example impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 1 ] || die "a missed example used up a fix round: $(pipe_val fix_round)"
+  A handoff LC IMPLEMENTING >/dev/null || die "the fix round after a missed example was refused"
+  worker FIX pass impl.txt 'impl: fix of example two'; A handoff LC IMPLEMENTED >/dev/null
+  # re-citing the line that was already cited (the fix did not address it) is a real round
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-3|blocking|impl.txt:2|example two still not fixed|traced: example two; scan: grep -n example impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 2 ] || die "a re-cited line did not count as a round: $(pipe_val fix_round)"
+  # a line that only exists in the latest revision (new code) is a real round too
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: third change'; A handoff LC IMPLEMENTED >/dev/null
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-4|blocking|impl.txt:5|new code from the last fix|traced: last fix; scan: grep -n fix impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 3 ] || die "a finding on new code did not count as a round: $(pipe_val fix_round)"
+  expect_msg "a round beyond the maximum" 'fix rounds exhausted' A handoff LC IMPLEMENTING
+  ok "fix rounds: a missed example of an earlier revision is not a round; a re-cited or new line is"
+}
+
+# A171 (review): a NEW copy of a line that exists elsewhere in the earlier revision is new code, not a missed example.
+sc_fix_round_copied_line() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: dup' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  gfail REVIEW_SMALL impl.txt
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: dup'; A handoff LC IMPLEMENTED >/dev/null
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-2|blocking|impl.txt:3|the copy of the dup line is wrong|traced: copy; scan: grep -n dup impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 2 ] || die "a copied line was treated as a missed example: $(pipe_val fix_round)"
+  ok "fix rounds: a new copy of an existing line is a round"
+}
+
+# A171 (review): a NEW copy of a line that exists elsewhere in the earlier revision is new code, not a missed example.
+sc_fix_round_copied_line() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: dup' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  gfail REVIEW_SMALL impl.txt
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: dup'; A handoff LC IMPLEMENTED >/dev/null
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-2|blocking|impl.txt:3|the copy of the dup line is wrong|traced: copy; scan: grep -n dup impl.txt; instances: single"
+  [ "$(pipe_val fix_round)" = 2 ] || die "a copied line was treated as a missed example: $(pipe_val fix_round)"
+  ok "fix rounds: a new copy of an existing line is a round"
+}
+
+# A171: a rules review records how it scanned and lists every instance of the class in one pass.
+sc_scan_method() {
+  scaffold orchestrated; implemented orchestrated; A secret-scan LC >/dev/null
+  expect_msg "a rules finding without a scan method" "lacks scan:" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced'
+  expect_msg "a six-character scan passed" "lacks scan:" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: abcdef; instances: single'
+  expect_msg "a rules finding without the instances" "lacks instances: single" rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .'
+  expect_msg "instances that omit the row location" 'instances do not include the row location impl.txt:1' rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .; instances: other.txt:9'
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|scan: grep -rn lookup .; instances: impl.txt:1, other.txt:9'
+  [ "$(gate_st REVIEW_SMALL)" = fail ] || die "a finding with a scan method and the instance list was not recorded"
+  ok "scan method: a rules finding names its scan and lists the instances, else it is rejected"
+}
+
+# A171: blocking or info is decided by the written rule, not by the round: the same observation keeps its
+# classification on later revisions (the rule version is recorded with each gate record).
+sc_classification_stable() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'
+  wopen; printf '%s\n' 'impl: example one' 'impl: example two' >> impl.txt; wev GREEN pass; wclose
+  A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null
+  sev="scan: grep -n example impl.txt; instances: single"
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; $sev" "REVIEW_SMALL-2|info|impl.txt:2|observation only|traced"
+  grep -q '^blocking_rule: "1"$' .agents/runs/LC/gates/*-REVIEW_SMALL.yaml || die "the gate record does not carry the rule version"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: a fix'; A handoff LC IMPLEMENTED >/dev/null
+  expect_msg "an info observation became blocking" 'classification changed for the same observation: REVIEW_SMALL-2 (impl.txt:2) is blocking, and was info' \
+    rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; $sev" "REVIEW_SMALL-2|blocking|impl.txt:2|observation only|traced; $sev"
+  expect_msg "a blocking finding was downgraded to info" 'is info, and was blocking' \
+    rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|info|impl.txt:1|wrong default|traced" "REVIEW_SMALL-2|blocking|impl.txt:3|new finding|traced; $sev"
+  rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; $sev" "REVIEW_SMALL-2|info|impl.txt:2|observation only|traced"
+  [ "$(gate_st REVIEW_SMALL)" = fail ] || die "the same classification was not recorded"
+  [ "$(sed -n 's/^blocking_rule_version=//p' "$tl_agents/scripts/agent.sh")" = "$(sed -n 's/^Blocking rule version: //p' "$tl_agents/GATES.md")" ] \
+    || die "GATES.md and agent.sh state different blocking rule versions"
+  ok "classification: the same observation keeps blocking or info across revisions under one rule version"
 }
 
 sc_waiver() {
@@ -520,6 +617,21 @@ sc_approvals() {
   ok "approvals: request, capture freshness/phrase/sha, single-use, commit binding, no-run push"
 }
 
+# A171: the lead's `next` records an approval the prompt hook could not (cut off, or the lock was busy), so the user never runs
+# `approve` in a terminal; a reply that is no approval is not recorded.
+sc_approval_retry() {
+  unfrozen COMPLEX
+  A request-approval LC plan >/dev/null
+  capture 'looks fine to me'
+  A next LC | grep -q "the user's last reply is not an explicit approval" || die "a non-approval reply was not reported by next"
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 && die "a reply without an approval phrase was recorded by next"
+  capture 'approve the plan'
+  out=$(A next LC); printf '%s' "$out" | grep -q 'was recorded just now' || die "next did not record the approval the hook could not: $out"
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 || die "no approval file after the retry"
+  grep -q 'retry output: approval recorded' .agents/local/approve.log || die "the retry is not logged: $(cat .agents/local/approve.log 2>/dev/null)"
+  ok "next retries the approval of the user's newest message and logs it (A171)"
+}
+
 # Prompt captures and approval files must be regular single-link files on a symlink-free path under the project.
 sc_capture_integrity() {
   unfrozen COMPLEX
@@ -564,6 +676,30 @@ sc_ask() {
   ok "ask: the lead's question is pending, verbatim, ledgered, answered like a specialist's"
 }
 
+# A171: a plan over the class's max_scope_paths stops at freeze and proposes a split; only the user's own
+# `proceed without splitting` lets it continue, and that answer is recorded in the ledger.
+sc_split_override() {
+  SC_SCOPE_EXTRA=AC-1 SC_SCOPE_OTHER=AC-1 unfrozen STANDARD
+  d=.agents/runs/LC
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "3"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  grep -q 'max_scope_paths: 3' .agents/config.yaml || die "the test config was not narrowed"
+  expect_msg "a plan over max_scope_paths froze" 'at least 2 tasks of at most 3 paths each' A freeze LC
+  [ "$(ls $d/questions/[0-9][0-9][0-9].md | wc -l | tr -d ' ')" = 1 ] || die "freeze did not keep exactly one split question"
+  grep -q '^ *SPLIT: 4@[0-9a-f]\{12\}$' $d/questions/001.md || die "the question is not bound to the scope list"
+  expect_fail "freeze passed with the split question unanswered" A freeze LC
+  # the lead's own answer, a negated or conditional user answer never lets it through
+  printf 'proceed without splitting\n' | A answer LC 1 >/dev/null
+  grep -q '^answered_by: lead' $d/questions/001.answer.md || die "an answer without a user capture was recorded as the user's"
+  expect_msg "the lead's own override froze" 'pipeline allows at most 3' A freeze LC
+  q=$(ls $d/questions/[0-9][0-9][0-9].md | tail -1); n=$(basename "$q" .md | sed 's/^0*//')
+  capture 'proceed without splitting only if the reviewer agrees'; printf 'proceed without splitting only if the reviewer agrees\n' | A answer LC "$n" >/dev/null
+  expect_msg "a conditional override froze" 'pipeline allows at most 3' A freeze LC
+  q=$(ls $d/questions/[0-9][0-9][0-9].md | tail -1); n=$(basename "$q" .md | sed 's/^0*//')
+  capture 'Proceed without splitting'; printf 'Proceed without splitting\n' | A answer LC "$n" >/dev/null
+  A freeze LC >/dev/null 2>&1 || die "the user's override did not let the freeze through: $(A freeze LC 2>&1)"
+  grep -q 'event=split_override .*scope_paths=4 max=3 class=STANDARD answer=questions/' $d/LEDGER.log || die "the override is not in the ledger"
+  ok "freeze over max_scope_paths stops with a split proposal and proceeds only on the user's recorded 'proceed without splitting'"
+}
 # A79: the assumption register. Freeze checks the shape of both registers, refuses an unverified high-risk
 # assumption until the user answered its bound question with `accept`, never accepts one silently, and the
 # completion report lists every unverified or accepted-by-user assumption.
@@ -882,23 +1018,51 @@ sc_questions() {
   capture 'ok'
   printf 'ok\n' | A answer LC 4 >/dev/null
   grep -q '^answered_by: lead' .agents/runs/LC/questions/004.answer.md || die "a two-character answer is answered_by user"
-  # --captured: the answer is the user's own captured message (multi-line, skipping a task notification, ignoring a later
-  # prompt), not text the lead relays (site run: lead-rewritten and one-character answers were recorded as the lead's)
+  # --captured: the answer is the user's own captured message (multi-line, skipping a task notification), not text the lead
+  # relays (site run: lead-rewritten and one-character answers were recorded as the lead's). A171: it is the NEWEST message
+  # since the question, by capture time, not the oldest unused one; the command says which message it took.
   QR=data_architect q 'QUESTIONS:
 1. Which fix?
 ' >/dev/null
-  h=.agents/local/prompts/history; mkdir -p "$h"; now=$(date +%s)
-  printf '<task-notification>\nAgent done\n</task-notification>\n' > "$h/$((now + 1))-aaaaaaaa.txt"
-  printf '1: fix qa-1 now\n   (CSS in Base.astro)\n2: waive drift\n' > "$h/$((now + 2))-bbbbbbbb.txt"
-  printf 'Confirm that these answers are recorded as mine\n' > "$h/$((now + 3))-cccccccc.txt"
-  A answer LC 5 --captured >/dev/null
+  h=.agents/local/prompts/history; mkdir -p "$h"; now=$(( $(date +%s) + 1000 ))   # far enough ahead that a slow run still asks every later question before these stamps
+  printf '1: fix qa-1 now\n   (CSS in Base.astro)\n2: waive drift\n' > "$h/$((now + 1))-bbbbbbbb.txt"
+  printf '1: fix qa-1 later, 2: waive drift\n' > "$h/$((now + 2))-cccccccc.txt"
+  printf '<task-notification>\nAgent done\n</task-notification>\n' > "$h/$((now + 3))-aaaaaaaa.txt"
+  out=$(A answer LC 5 --captured) || die "--captured failed: $out"
   grep -q '^answered_by: user' .agents/runs/LC/questions/005.answer.md || die "--captured did not record the user's message as the user's"
-  sed '1,/^---$/d' .agents/runs/LC/questions/005.answer.md | cmp -s - "$h/$((now + 2))-bbbbbbbb.txt" || die "--captured did not record the captured multi-line message verbatim"
-  # one prompt answers one question: the next open question gets the next prompt, and none once they are used up
-  printf '1. Another?\n' | A ask LC >/dev/null; printf '1. And another?\n' | A ask LC >/dev/null
+  sed '1,/^---$/d' .agents/runs/LC/questions/005.answer.md | sed 's/^> //; s/^>$//' | cmp -s - "$h/$((now + 2))-cccccccc.txt" || die "--captured did not take the LATEST user message (a task notification is skipped) verbatim: $(cat .agents/runs/LC/questions/005.answer.md)"
+  printf '%s' "$out" | grep -Fq "answer source: the user's message $((now + 2))-cccccccc.txt" || die "--captured did not say which message it took: $out"
+  grep -q "^source_message: $((now + 2))-cccccccc.txt" .agents/runs/LC/questions/005.answer.md || die "the answer file does not name its source message"
+  ok "answer --captured takes the newest user message after the question and prints which one (A171)"
+  # one message answers one question: while the newest message is the used one, the next question has no answer yet
+  printf '1. Another?\n' | A ask LC >/dev/null
+  expect_msg "a used-up newest message answered a second question" 'already answered another question' A answer LC 6 --captured
+  printf 'and for the other one: use the fallback\n' > "$h/$((now + 4))-dddddddd.txt"
   A answer LC 6 --captured >/dev/null
-  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | cmp -s - "$h/$((now + 3))-cccccccc.txt" || die "the second question did not get the next captured prompt"
-  expect_fail "a used-up captured prompt answered a second question" A answer LC 7 --captured
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | sed 's/^> //' | cmp -s - "$h/$((now + 4))-dddddddd.txt" || die "the second question did not get the newer message"
+  sed "s/^answered_epoch: .*/answered_epoch: $((now + 10))/" .agents/runs/LC/questions/006.answer.md > "$base/a6.tmp" && mv "$base/a6.tmp" .agents/runs/LC/questions/006.answer.md   # the answer was given at a fixed time, so older messages are not 'newer'
+  # A171: --amend: a newer user message corrects a recorded answer; the old record is kept, marked amended. The lead alone cannot.
+  expect_msg "the lead amended an answer without a newer user message" 'no captured user message newer than the recorded answer' A answer LC 6 --amend
+  expect_msg "an amend with the lead's own text on stdin was accepted" 'no captured user message newer' sh -c 'echo "forced" | sh ./.agents/scripts/agent.sh answer LC 6 --amend'
+  printf 'sorry, I meant: use the strict mode\n' > "$h/$((now + 60))-eeeeeeee.txt"
+  out=$(A answer LC 6 --amend) || die "--amend with a newer user message failed: $out"
+  [ -f .agents/runs/LC/questions/006.answer.amended-1.md ] && grep -q '^amended: true' .agents/runs/LC/questions/006.answer.amended-1.md || die "the old answer was not kept as amended"
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.amended-1.md | sed 's/^> //' | cmp -s - "$h/$((now + 4))-dddddddd.txt" || die "the amended record lost the old answer"
+  sed '1,/^---$/d' .agents/runs/LC/questions/006.answer.md | sed 's/^> //' | cmp -s - "$h/$((now + 60))-eeeeeeee.txt" || die "the new answer is not the newer message"
+  grep -q '^amends: 006.answer.amended-1.md' .agents/runs/LC/questions/006.answer.md && printf '%s' "$out" | grep -q 'old record is kept' || die "the new answer does not reference the amended record: $out"
+  grep -q 'event=answer-amend' .agents/runs/LC/LEDGER.log || die "the amend is not in the ledger"
+  sed "s/^answered_epoch: .*/answered_epoch: $((now + 61))/" .agents/runs/LC/questions/006.answer.md > "$base/a6.tmp" && mv "$base/a6.tmp" .agents/runs/LC/questions/006.answer.md
+  expect_msg "a second amend with the same message" 'no captured user message newer' A answer LC 6 --amend
+  ok "answer --amend keeps the old record (amended), needs a newer captured user message; the lead alone cannot amend (A171)"
+  # A171: the user's text is stored in a quote block, so a Turkish answer passes the language check
+  printf '1. Which name?\n' | A ask LC >/dev/null
+  printf 'Bence şu şekilde olsun: ığüşöç çok güzel\n' > "$h/$((now + 70))-ffffffff.txt"
+  A answer LC 7 --captured >/dev/null
+  grep -qx '> Bence şu şekilde olsun: ığüşöç çok güzel' .agents/runs/LC/questions/007.answer.md || die "the Turkish answer is not stored as a quote block: $(cat .agents/runs/LC/questions/007.answer.md)"
+  A language-check .agents/runs/LC/questions/007.answer.md >/dev/null || die "a quoted Turkish answer failed the language check"
+  printf 'Bence şu şekilde olsun: ığüşöç çok güzel\n' | expect_msg "unquoted Turkish passed the language check" 'language: run artifacts are English' A language-check -
+  printf '> Bence şu şekilde olsun: ığüşöç çok güzel\n' | A language-check - >/dev/null || die "a quote block is not exempt"
+  ok "a quoted Turkish answer passes the language check, the same text unquoted fails"
   # A92: a risk FOCUS on a task result does not open a second round for qa (C-14)
   QF=visual QR=qa expect_msg "a second NEEDS_INPUT from qa with FOCUS: visual" 'already asked its questions in this run' q 'QUESTIONS:
 1. And the dark theme?
@@ -976,21 +1140,71 @@ sc_next() {
 sc_decide() {
   scaffold orchestrated; implemented orchestrated
   STUB_ARGS=$base/args; export STUB_ARGS; : > "$STUB_ARGS"
-  A decide LC reviewer --focus rules+tests >/dev/null
+  A decide LC reviewer --agent-path --focus rules+tests >/dev/null
   ls .agents/runs/LC/decisions/001-reviewer-rules-tests.decision >/dev/null
   grep -q -- '--role reviewer --class COMPLEX --tier small --escalations-used 0' "$STUB_ARGS" || die "decide args: $(cat "$STUB_ARGS")"
   ! grep -q -- '--runtime\|--profile' "$STUB_ARGS" || die "decide passed runtime/profile without an override"
   grep -q 'event=decide .*model=sonnet' .agents/runs/LC/LEDGER.log
-  A decide LC implementer --runtime codex >/dev/null
+  A decide LC implementer --agent-path --runtime codex >/dev/null
   tail -1 "$STUB_ARGS" | grep -q -- '--runtime codex' || die "--runtime override not passed"
   grep -q '^runtime=codex' .agents/runs/LC/decisions/002-implementer.decision
-  expect_fail "an invalid override was accepted" A decide LC reviewer --model bogus
+  expect_fail "an invalid override was accepted" A decide LC reviewer --agent-path --model bogus
   [ ! -e .agents/runs/LC/decisions/003-reviewer.decision ] || die "a refused decision was persisted"
-  expect_fail "an unknown decide flag was accepted" A decide LC reviewer --turbo yes
+  expect_fail "an unknown decide flag was accepted" A decide LC reviewer --agent-path --turbo yes
   expect_fail "a reviewer called decide" AS reviewer decide LC reviewer
-  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced'
+  # A171: decide is not called ahead of a dispatch; --dry reads without writing; the output starts with a one-line summary
+  nd=$(($(ls .agents/runs/LC/decisions | wc -l))); nl=$(($(wc -l < .agents/runs/LC/LEDGER.log)))
+  expect_msg "a bare decide (ahead of a dispatch) was accepted" 'not called ahead of one' A decide LC reviewer --focus rules+tests
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$nd" ] || die "a refused decide persisted a decision"
+  dry=$(A decide LC reviewer --focus rules+tests --dry) || die "decide --dry refused: $dry"
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$nd" ] || die "decide --dry wrote a decision file"
+  [ "$(($(wc -l < .agents/runs/LC/LEDGER.log)))" = "$nl" ] || die "decide --dry wrote the ledger"
+  printf '%s\n' "$dry" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+ \(dry run: nothing recorded\)$' || die "decide --dry: first line is not the summary: $(printf '%s\n' "$dry" | head -n 1)"
+  printf '%s\n' "$dry" | grep -q '^model=' || die "decide --dry lost the key=value lines"
+  expect_msg "a repeated --agent-path was accepted before any result" 'no result has been recorded since' A decide LC reviewer --focus rules+tests --agent-path
+  # a result of another role or another focus does not release the step; one of this role and focus does
+  mkdir -p .agents/runs/LC/results; printf 'FOCUS: rules+tests\n' > .agents/runs/LC/results/098-security_reviewer.result.md; printf 'FOCUS: plan\n' > .agents/runs/LC/results/097-reviewer.result.md
+  expect_msg "a result of another role or focus released the step" 'no result has been recorded since' A decide LC reviewer --focus rules+tests --agent-path
+  rm -f .agents/runs/LC/results/098-security_reviewer.result.md .agents/runs/LC/results/097-reviewer.result.md
+  printf 'FOCUS: rules+tests\n' > .agents/runs/LC/results/099-reviewer.result.md   # a result recorded since the first decision
+  real=$(A decide LC reviewer --focus rules+tests --agent-path) || die "decide --agent-path refused: $real"
+  printf '%s\n' "$real" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+$' || die "decide: first line is not the summary: $(printf '%s\n' "$real" | head -n 1)"
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((nd + 1))" ] || die "decide --agent-path did not record one decision: before $nd now $(ls .agents/runs/LC/decisions | tr "\n" " ")"
+  expect_msg "a second decide --agent-path for the same step was accepted" 'no result has been recorded since' A decide LC reviewer --focus rules+tests --agent-path
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((nd + 1))" ] || die "a refused second --agent-path persisted a decision"
+  rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)" .agents/runs/LC/results/099-reviewer.result.md
+  expect_msg "a hand-set PROOFLINE_DISPATCH=1 was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=1 sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  # --redecide: the lead may decide again for the same step (another runtime or model), the earlier decision stays, a ledger note says so
+  ndr=$(($(ls .agents/runs/LC/decisions | wc -l)))
+  expect_msg "the refusal does not show --redecide" '--redecide' A decide LC reviewer --focus rules+tests --agent-path
+  if AS reviewer decide LC reviewer --focus rules+tests --redecide >/dev/null 2>&1; then die "a reviewer used --redecide"; fi
+  A decide LC reviewer --focus rules+tests --redecide >/dev/null || die "--redecide refused"
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((ndr + 1))" ] || die "--redecide did not add a decision beside the earlier one"
+  grep -q 'detail=decide --redecide reviewer' .agents/runs/LC/LEDGER.log || die "--redecide is not in the ledger"
+  # the dispatch nonce: pid-bound and one use
+  mkdir -p .agents/local/dispatch; nn=0123456789abcdef0123456789abcdef
+  sleep 30 & npid=$!; printf '%s\n' "$npid" > ".agents/local/dispatch/nonce-$nn"
+  expect_msg "a nonce of a live process that is not an ancestor was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  kill "$npid" 2>/dev/null; printf '%s\n' "$$" > ".agents/local/dispatch/nonce-$nn"
+  PROOFLINE_DISPATCH=$nn A decide LC reviewer --focus rules+tests >/dev/null || die "a nonce naming an ancestor was refused"
+  [ ! -e ".agents/local/dispatch/nonce-$nn" ] || die "the nonce survived its use"
+  expect_msg "a replayed nonce was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  printf '1\n' > ".agents/local/dispatch/nonce-$nn"
+  expect_msg "a nonce naming pid 1 was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  rm -f .agents/local/dispatch/nonce-*
+  rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)"
+  # A171: friction-note ledgers that the user was asked to run a command; wait-line is one line
+  A friction-note LC user-command >/dev/null || die "friction-note refused"
+  grep -q 'event=friction-note .*detail=user-command' .agents/runs/LC/LEDGER.log || die "friction-note not in the ledger"
+  expect_fail "friction-note took a free-text kind" A friction-note LC "run approve for me"
+  expect_fail "a reviewer wrote a friction note" AS reviewer friction-note LC user-command
+  wl=$(A wait-line LC "CI of the pull request") || die "wait-line refused"
+  [ "$(printf '%s\n' "$wl" | wc -l | tr -d ' ')" = 1 ] && printf '%s\n' "$wl" | grep -Eq '^waiting: CI of the pull request, [0-9]+m[0-9]{2}s so far$' || die "wait-line is not one line of the documented shape: $wl"
+  A wait-line LC "CI of the pull request" --done >/dev/null
+  expect_fail "wait-line without a wait" A wait-line LC
+  rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'
   printf 'escalated=yes\n' >> .agents/runs/LC/decisions/001-reviewer-rules-tests.decision
-  A decide LC reviewer --focus rules+tests >/dev/null
+  A decide LC reviewer --agent-path --focus rules+tests >/dev/null
   tail -1 "$STUB_ARGS" | grep -q -- '--signal recent_fail_same_focus --escalations-used 1' || die "signals/escalations: $(tail -1 "$STUB_ARGS")"
   # metrics: one line per recorded specialist step with runtime and model from the decision
   grep -q "$(printf '\tLC\treviewer\tclaude\tsonnet\t')" .agents/local/metrics/history.tsv || die "metrics line missing: $(cat .agents/local/metrics/history.tsv)"
@@ -1004,7 +1218,7 @@ sc_decide() {
     printf '{"message":{"id":"msg_A","role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":5000,"output_tokens":40}}}\n'
     printf '{"message":{"id":"msg_B","role":"assistant","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":6000,"output_tokens":10}}}\n'; } > "$tr"
   mkdir -p .agents/local/submissions; printf '%s\n' "$tr" > .agents/local/submissions/t9.started
-  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced'; unset PROOFLINE_STEP_AGENT
+  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'; unset PROOFLINE_STEP_AGENT
   tail -1 "$mj" | grep -q '"kind":"step".*"tokens_in":103,"tokens_out":50,"tokens_total":153,' || die "step record without the subagent's session-log tokens: $(tail -1 "$mj")"
   # dispatch record: numbers kept, strings sanitized (no free text, so no secret), non-lead refused
   A metrics-dispatch LC reviewer rules claude 'sonnet"; sk-LIVE secret' 12 100 50 150 3 1 submitted >/dev/null
@@ -1205,6 +1419,52 @@ sc_wiki_knowledge_scope() {
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
 }
 
+# A171: the files the knowledge step writes (knowledge_scope_root, design_docs) are not part of the content fingerprint
+# the gates bind, so recorded gates stay fresh after the step.
+sc_knowledge_gates_fresh() {
+  scaffold orchestrated; to_code_done orchestrated
+  before=$(A pipeline LC | grep '^gate\.')
+  printf '%s\n' "$before" | grep -q 'gate\.[A-Z_]*=\(stale\|missing\|fail\)' && die "gates are not fresh before the knowledge step: $before"
+  mkdir -p docs/wiki/concepts docs/design docs/adr docs/product; printf '# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  printf '# Design\n' > docs/design/DESIGN.md; printf '# ADR 1\n' > docs/adr/0001-x.md; printf '# PRD\n' > docs/product/PRD.md
+  A knowledge-done LC >/dev/null
+  after=$(A pipeline LC | grep '^gate\.')
+  [ "$before" = "$after" ] || die "the knowledge step's files changed the gate statuses: before [$before] after [$after]"
+  A delivery-check LC >/dev/null 2>&1 || :
+  A pipeline LC | grep '^gate\.' | grep -q '=stale' && die "a gate went stale after the knowledge step"
+  ok "gates do not go stale after the knowledge step writes its files"
+}
+# A171: design-sync drift in a knowledge-scope document is information for the verifier (no FAIL, no waiver, no scope
+# change) and an obligation of the knowledge step; knowledge-done and delivery block while the drift remains.
+sc_knowledge_drift() {
+  evidence_gap_fixture
+  cp -R "$tl_agents/../../skills/design-sync" .agents/skills/design-sync
+  mkdir -p docs/design "$d/design"; printf '# Design\n\nThe widget lives in `src/missing.js`.\n' > docs/design/DESIGN.md; printf 'docs/\n' >> .git/info/exclude
+  printf '%s\n' '# Design sync: LC' '' 'Verdict: FAIL' '' '## Documents' '' '| Role | Path | Present |' '|---|---|---|' '| design | docs/design/DESIGN.md | yes |' '' '## Counts' '' 'matched: 0, unmatched (after review): 1, unverifiable: 0' '' '## Drift' '' '- docs/design/DESIGN.md:3 -> path src/missing.js: no such file or directory' '' '## Unverifiable' '' 'None.' > "$d/design/SYNC.md"
+  vw PASS 0 'ok 3 tests' PASS
+  sed -i.bak 's|^design-sync: SKIPPED.*|design-sync: PASS (knowledge-scope drift: 1 line handed to the knowledge step)|' "$d/VERIFY.md"; rm -f "$d/VERIFY.md.bak"
+  # a drift row on a code path stays blocking; the same row on a knowledge-scope document is information
+  printf 'blocking|src/app.js:4|D-2: design-sync drift: route GET /x not found|design-sync exit=1\n' > "$base/rows"
+  expect_msg "a drift row on a code path was not blocking" 'contradicts' AS verifier submit LC --confidence high --result PASS --findings "$base/rows" --agent kd0
+  printf 'blocking|docs/design/DESIGN.md:3|D-1: design-sync drift: path src/missing.js not found|design-sync exit=1\n' > "$base/rows"
+  out=$(AS verifier submit LC --confidence high --findings "$base/rows" --agent kd1 2>&1) || die "knowledge-scope drift failed the verifier: $out"
+  printf '%s' "$out" | grep -q 'submitted: LC verifier PASS' || die "knowledge-scope drift was not information: $out"
+  grep -rq 'info.*KNOWLEDGE_DRIFT: D-1: design-sync drift' "$d/results" "$d/reports" 2>/dev/null || grep -rq 'KNOWLEDGE_DRIFT' "$d" || die "the drift row was not recorded as KNOWLEDGE_DRIFT information"
+  pass_all; A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused: $(A handoff LC CODE_DONE 2>&1)"
+  sed -i.bak '/^docs\/$/d' .git/info/exclude; rm -f .git/info/exclude.bak   # the knowledge step's files are visible from here on
+  # before the knowledge step the drift is information in next
+  A next LC | grep -q 'note=design-sync drift in knowledge-scope documents' || die "next does not show the drift as information: $(A next LC)"
+  # after the knowledge step it still drifts: blocked, nothing to waive
+  expect_msg "knowledge-done with drift left" 'design-sync drift in knowledge-scope documents is still there' A knowledge-done LC
+  expect_state execution knowledge_state not_started
+  # the knowledge step fixes the document: both pass
+  printf '# Design\n\nThe widget lives in `impl.txt`.\n' > docs/design/DESIGN.md
+  A knowledge-done LC >/dev/null || die "knowledge-done refused after the document was fixed: $(A knowledge-done LC 2>&1)"
+  expect_state execution knowledge_state KNOWLEDGE_DONE
+  printf '# Design\n\nThe widget lives in `src/missing.js`.\n' > docs/design/DESIGN.md
+  expect_msg "delivery with the drift back" 'design-sync drift in knowledge-scope documents is still there' A delivery-check LC
+  ok "design-sync drift in knowledge-scope documents is information before the knowledge step and blocks knowledge-done and delivery after it"
+}
 # A159: `knowledge-done not_applicable` is a claim the script checks: a reason is required, it is shown in the report,
 # and a task that changes what the user sees, a contract or a design document is refused.
 sc_knowledge_na() {
@@ -2087,7 +2347,11 @@ run_sc sc_question_language
 run_sc sc_supervised_destructive
 run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
+run_sc sc_approval_retry
 run_sc sc_ask
+run_sc sc_knowledge_gates_fresh
+run_sc sc_knowledge_drift
+run_sc sc_split_override
 run_sc sc_assumptions
 run_sc sc_questions
 run_sc sc_questions_keys
@@ -2137,6 +2401,27 @@ sc_legacy_fingerprint_new_rule() {
   ok "gates recorded on the current rule are stale after a product edit; the legacy path never revives them"
 }
 
+# A171: the build record is made before the review gate wave (at handoff IMPLEMENTED) and, when it is missing,
+# `next` names it as a missing step before any review gate.
+sc_build_record_auto() {
+  scaffold standalone no STANDARD manual
+  cp "$tl_agents/scripts/build-record.sh" .agents/scripts/
+  sed -i.bak 's|^  build:.*|  build: echo built-line|; s|^  test:.*|  test: echo tested-line|' .agents/config.yaml && rm -f .agents/config.yaml.bak
+  A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  implemented SOLO
+  rc=0; A build-record LC show >/dev/null 2>&1 || rc=$?; [ "$rc" -eq 0 ] || die "handoff IMPLEMENTED did not make the build record (show exit $rc)"
+  A build-record LC show | grep -q tested-line || die "the automatic record lacks the test output"
+  ok "build record: made at handoff IMPLEMENTED, before the review gate wave"
+  # a tree without a record (here: config added after the handoff) shows the step first in next
+  rm -rf .agents/local/builds
+  nx=$(A next LC)
+  printf '%s\n' "$nx" | grep -Fq 'next=agent.sh build-record LC run' || die "next does not show the missing build record: $nx"
+  [ "$(printf '%s\n' "$nx" | grep -n 'next=' | head -1 | grep -c 'build-record')" = 1 ] || die "the build record is not the first step: $nx"
+  A build-record LC run >/dev/null
+  ! A next LC | grep -Fq 'build-record' || die "next still names the build record after it was made"
+  ok "next shows a missing build record as the first missing step and drops it once made"
+}
+
 run_sc sc_secret_scan
 run_sc sc_provenance
 run_sc sc_waiver_rebind
@@ -2176,4 +2461,9 @@ run_sc sc_evidence_gap_r2
 run_sc sc_evidence_gap_files_gate
 run_sc sc_legacy_fingerprint
 run_sc sc_legacy_fingerprint_new_rule
+run_sc sc_build_record_auto
+run_sc sc_fix_round_missed_example
+run_sc sc_fix_round_copied_line
+run_sc sc_scan_method
+run_sc sc_classification_stable
 echo 'gates tests passed'
