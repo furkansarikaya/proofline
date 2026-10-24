@@ -1,0 +1,45 @@
+tool: Node.js 24.14.1
+ecosystem: npm
+runner: node:test
+command: node --test --test-reporter=tap bad.test.mjs
+exit_code: 1
+scenario: assertion
+expected_class: assertion
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+TAP version 13
+# Subtest: adds
+not ok 1 - adds
+  ---
+  duration_ms: 0.66025
+  type: 'test'
+  location: '/work/a/bad.test.mjs:4:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    4 !== 5
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 5
+  actual: 4
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///work/a/bad.test.mjs:4:29)
+    Test.runInAsyncScope (node:async_hooks:228:14)
+    Test.run (node:internal/test_runner/test:1118:25)
+    Test.start (node:internal/test_runner/test:1015:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:358:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 48.563791

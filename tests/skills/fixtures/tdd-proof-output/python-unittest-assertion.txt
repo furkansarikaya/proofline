@@ -1,0 +1,24 @@
+tool: Python 3.12.3 unittest
+ecosystem: python
+runner: unittest
+command: python3 -m unittest test_bad
+exit_code: 1
+scenario: assertion
+expected_class: assertion
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+F
+======================================================================
+FAIL: test_add (test_bad.T.test_add)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/work/py/test_bad.py", line 4, in test_add
+    self.assertEqual(2 + 2, 5)
+AssertionError: 4 != 5
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (failures=1)

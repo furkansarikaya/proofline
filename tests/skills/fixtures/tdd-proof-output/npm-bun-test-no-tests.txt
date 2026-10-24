@@ -1,0 +1,20 @@
+tool: bun 1.2.8
+ecosystem: npm
+runner: bun test
+command: bun test nonexistent.test.ts
+exit_code: 0
+scenario: no_tests (no file matches the filter)
+expected_class: no_tests
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+bun test v1.2.8 (adab0f64)
+The following filters did not match any test files:
+  nonexistent.test.ts
+5 files were searched [4.00ms]
+
+note: Tests need ".test", "_test_", ".spec" or "_spec_" in the filename (ex: "MyApp.test.ts")
+note: To treat the "nonexistent.test.ts" filter as a path, run "bun test ./nonexistent.test.ts"
+
+Learn more about the test runner: https://bun.sh/docs/cli/test

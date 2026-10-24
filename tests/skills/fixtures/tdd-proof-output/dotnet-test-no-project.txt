@@ -1,0 +1,12 @@
+tool: .NET SDK 10.0.402
+ecosystem: dotnet
+runner: dotnet test
+command: dotnet test
+exit_code: 1
+scenario: compile (an empty directory: MSB1003)
+expected_class: compile
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+MSBUILD : error MSB1003: Specify a project or solution file. The current working directory does not contain a project or solution file.

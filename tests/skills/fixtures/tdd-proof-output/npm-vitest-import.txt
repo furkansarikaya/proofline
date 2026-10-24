@@ -1,0 +1,35 @@
+tool: vitest 5.0.1 (Node.js 24.14.1)
+ecosystem: npm
+runner: vitest
+command: vitest run imp.test.ts
+exit_code: 1
+scenario: import
+expected_class: import
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+
+ RUN  v5.0.1 /work/vit
+
+ ❯ imp.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  imp.test.ts [ imp.test.ts ]
+Error: Cannot find module './missing' imported from /work/vit/imp.test.ts
+ ❯ imp.test.ts:2:1
+      1| import { test } from "vitest";
+      2| import { nope } from "./missing";
+       | ^
+      3| test("x", () => { nope(); });
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  00:43:16
+   Duration  104ms (worker 97%, environment 3%)
+

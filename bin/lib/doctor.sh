@@ -146,6 +146,7 @@ doctor_toolchain() {
   dt_out=$(cd "$ROOT" && sh "$dt_s" 2>/dev/null) || return 0
   while read -r dt_k dt_n dt_l dt_c dt_f dt_st; do
     [ "$dt_k" = 'runtime:' ] || continue
+    [ "$dt_n" != none ] || continue # `runtime: none (...)` says no runtime was found; it is not a runtime named none
     dt_l=${dt_l#local=}; dt_c=${dt_c#ci=}; dt_f=${dt_f#source=}; dt_st=${dt_st#status=}
     case "$dt_n" in go|python) dt_u='major.minor' ;; *) dt_u=major ;; esac
     if [ -n "$D_ECO" ]; then # the number of version components compared comes from the ecosystem definition (A173)

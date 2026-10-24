@@ -1,0 +1,16 @@
+tool: Python 3.12.3 unittest
+ecosystem: python
+runner: unittest
+command: python3 -m unittest discover
+exit_code: 5
+scenario: no_tests (empty directory)
+expected_class: no_tests
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+NO TESTS RAN

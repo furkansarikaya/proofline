@@ -192,22 +192,110 @@ npm	native_ui.3.file	tauri.conf.json5
 npm	native_ui.3.platform	tauri
 npm	native_ui.3.kind	shell
 npm	native_ui.3.why	tauri configuration
-npm	test_output.status	seed
+npm	test_output.status	verified
 npm	test_output.runners	jest
 npm	test_output.runners	vitest
 npm	test_output.runners	mocha
 npm	test_output.runners	node:test
-npm	test_output.no_tests	/No tests found, exiting with code/
-npm	test_output.no_tests	/No test files found/
-npm	test_output.no_tests	/^\s*(ℹ|#)\s*tests\s+0\b/m
-npm	test_output.compile	/error TS\d+/
-npm	test_output.assertion	/AssertionError/
-npm	test_output.assertion	/\bexpect\(.*\)\.(not\.)?to\w+/
-npm	test_output.assertion	/Expected:[\s\S]{0,400}?(Received|Actual):/
-npm	test_output.exit_codes.no_tests	1
-npm	test_output.exit_codes.compile	1
-npm	test_output.exit_codes.compile	2
-npm	test_output.exit_codes.assertion	1
+npm	test_output.runners	bun test
+npm	test_output.runners	tsc
+npm	test_output.no_tests.0.pattern	/No tests found, exiting with code/
+npm	test_output.no_tests.0.runner	jest
+npm	test_output.no_tests.0.source	docs
+npm	test_output.no_tests.0.evidence	https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts
+npm	test_output.no_tests.1.pattern	/No test files found/
+npm	test_output.no_tests.1.runner	vitest
+npm	test_output.no_tests.1.source	captured
+npm	test_output.no_tests.1.evidence	npm-vitest-no-tests
+npm	test_output.no_tests.2.pattern	/No test files found/
+npm	test_output.no_tests.2.runner	mocha
+npm	test_output.no_tests.2.source	docs
+npm	test_output.no_tests.2.evidence	https://github.com/mochajs/mocha/blob/main/lib/cli/collect-files.cjs
+npm	test_output.no_tests.3.pattern	/^\s*(ℹ|#)\s*tests\s+0\b/m
+npm	test_output.no_tests.3.runner	node:test
+npm	test_output.no_tests.3.source	captured
+npm	test_output.no_tests.3.evidence	npm-node-test-no-tests
+npm	test_output.no_tests.4.pattern	/^Could not find '/m
+npm	test_output.no_tests.4.runner	node:test
+npm	test_output.no_tests.4.source	captured
+npm	test_output.no_tests.4.evidence	npm-node-test-missing-file
+npm	test_output.no_tests.5.pattern	/The following filters did not match any test files/
+npm	test_output.no_tests.5.runner	bun test
+npm	test_output.no_tests.5.source	captured
+npm	test_output.no_tests.5.evidence	npm-bun-test-no-tests
+npm	test_output.compile.0.pattern	/error TS\d+/
+npm	test_output.compile.0.runner	tsc
+npm	test_output.compile.0.source	captured
+npm	test_output.compile.0.evidence	npm-tsc-compile
+npm	test_output.compile.1.pattern	/\[PARSE_ERROR\]/
+npm	test_output.compile.1.runner	vitest
+npm	test_output.compile.1.source	captured
+npm	test_output.compile.1.evidence	npm-vitest-syntax
+npm	test_output.compile.2.pattern	/Transform failed with \d+ errors?/
+npm	test_output.compile.2.runner	vitest
+npm	test_output.compile.2.source	captured
+npm	test_output.compile.2.evidence	npm-vitest-syntax
+npm	test_output.compile.3.pattern	/^# Unhandled error between tests/m
+npm	test_output.compile.3.runner	bun test
+npm	test_output.compile.3.source	captured
+npm	test_output.compile.3.evidence	npm-bun-test-syntax
+npm	test_output.compile.3.unless	/Cannot find module/
+npm	test_output.assertion.0.pattern	/AssertionError/
+npm	test_output.assertion.0.runner	node:test
+npm	test_output.assertion.0.source	captured
+npm	test_output.assertion.0.evidence	npm-node-test-assertion
+npm	test_output.assertion.1.pattern	/\bexpect\(received\)\.(not\.)?to\w+/
+npm	test_output.assertion.1.runner	bun test
+npm	test_output.assertion.1.source	captured
+npm	test_output.assertion.1.evidence	npm-bun-test-assertion
+npm	test_output.assertion.2.pattern	/\bexpect\(received\)\.(not\.)?to\w+/
+npm	test_output.assertion.2.runner	jest
+npm	test_output.assertion.2.source	docs
+npm	test_output.assertion.2.evidence	https://github.com/jestjs/jest/blob/main/docs/ExpectAPI.md
+npm	test_output.assertion.3.pattern	/Expected:[\s\S]{0,400}?(Received|Actual):/
+npm	test_output.assertion.3.runner	bun test
+npm	test_output.assertion.3.source	captured
+npm	test_output.assertion.3.evidence	npm-bun-test-assertion
+npm	test_output.exit_codes.no_tests.0.code	1
+npm	test_output.exit_codes.no_tests.0.runner	vitest
+npm	test_output.exit_codes.no_tests.0.source	captured
+npm	test_output.exit_codes.no_tests.0.evidence	npm-vitest-no-tests
+npm	test_output.exit_codes.no_tests.1.code	1
+npm	test_output.exit_codes.no_tests.1.runner	jest
+npm	test_output.exit_codes.no_tests.1.source	docs
+npm	test_output.exit_codes.no_tests.1.evidence	https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts
+npm	test_output.exit_codes.no_tests.2.code	0
+npm	test_output.exit_codes.no_tests.2.runner	node:test
+npm	test_output.exit_codes.no_tests.2.source	captured
+npm	test_output.exit_codes.no_tests.2.evidence	npm-node-test-no-tests
+npm	test_output.exit_codes.no_tests.3.code	0
+npm	test_output.exit_codes.no_tests.3.runner	bun test
+npm	test_output.exit_codes.no_tests.3.source	captured
+npm	test_output.exit_codes.no_tests.3.evidence	npm-bun-test-no-tests
+npm	test_output.exit_codes.compile.0.code	2
+npm	test_output.exit_codes.compile.0.runner	tsc
+npm	test_output.exit_codes.compile.0.source	captured
+npm	test_output.exit_codes.compile.0.evidence	npm-tsc-compile
+npm	test_output.exit_codes.compile.1.code	1
+npm	test_output.exit_codes.compile.1.runner	vitest
+npm	test_output.exit_codes.compile.1.source	captured
+npm	test_output.exit_codes.compile.1.evidence	npm-vitest-syntax
+npm	test_output.exit_codes.compile.2.code	1
+npm	test_output.exit_codes.compile.2.runner	bun test
+npm	test_output.exit_codes.compile.2.source	captured
+npm	test_output.exit_codes.compile.2.evidence	npm-bun-test-syntax
+npm	test_output.exit_codes.assertion.0.code	1
+npm	test_output.exit_codes.assertion.0.runner	node:test
+npm	test_output.exit_codes.assertion.0.source	captured
+npm	test_output.exit_codes.assertion.0.evidence	npm-node-test-assertion
+npm	test_output.exit_codes.assertion.1.code	1
+npm	test_output.exit_codes.assertion.1.runner	vitest
+npm	test_output.exit_codes.assertion.1.source	captured
+npm	test_output.exit_codes.assertion.1.evidence	npm-vitest-assertion
+npm	test_output.exit_codes.assertion.2.code	1
+npm	test_output.exit_codes.assertion.2.runner	bun test
+npm	test_output.exit_codes.assertion.2.source	captured
+npm	test_output.exit_codes.assertion.2.evidence	npm-bun-test-assertion
 python	id	python
 python	name	Python (pip, Poetry, uv, PDM, Hatch)
 python	prune	.eggs
@@ -328,20 +416,61 @@ python	benchmark.dependencies.0.in	noxfile.py
 python	benchmark.dependencies.0.contains	pytest-benchmark|pyperf
 python	benchmark.dependencies.0.why	pytest-benchmark or pyperf
 python	benchmark.config_files	asv.conf.json
-python	test_output.status	seed
+python	test_output.status	verified
 python	test_output.runners	pytest
 python	test_output.runners	unittest
-python	test_output.no_tests	/collected 0 items/
-python	test_output.no_tests	/\bno tests ran\b/i
-python	test_output.no_tests	/\bRan 0 tests\b/
-python	test_output.compile	/SyntaxError/
-python	test_output.compile	/IndentationError/
-python	test_output.assertion	/AssertionError/
-python	test_output.assertion	/^E\s+assert\b/m
-python	test_output.exit_codes.no_tests	5
-python	test_output.exit_codes.compile	2
-python	test_output.exit_codes.compile	4
-python	test_output.exit_codes.assertion	1
+python	test_output.no_tests.0.pattern	/collected 0 items/
+python	test_output.no_tests.0.runner	pytest
+python	test_output.no_tests.0.source	docs
+python	test_output.no_tests.0.evidence	https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst
+python	test_output.no_tests.1.pattern	/\bno tests ran\b/i
+python	test_output.no_tests.1.runner	unittest
+python	test_output.no_tests.1.source	captured
+python	test_output.no_tests.1.evidence	python-unittest-no-tests
+python	test_output.no_tests.2.pattern	/\bno tests ran\b/i
+python	test_output.no_tests.2.runner	pytest
+python	test_output.no_tests.2.source	docs
+python	test_output.no_tests.2.evidence	https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst
+python	test_output.no_tests.3.pattern	/\bRan 0 tests\b/
+python	test_output.no_tests.3.runner	unittest
+python	test_output.no_tests.3.source	captured
+python	test_output.no_tests.3.evidence	python-unittest-no-tests
+python	test_output.no_tests.4.pattern	/\(unittest\.loader\._FailedTest\.\w+\)/
+python	test_output.no_tests.4.runner	unittest
+python	test_output.no_tests.4.source	captured
+python	test_output.no_tests.4.evidence	python-unittest-no-tests-filter
+python	test_output.compile.0.pattern	/SyntaxError/
+python	test_output.compile.0.runner	unittest
+python	test_output.compile.0.source	captured
+python	test_output.compile.0.evidence	python-unittest-syntax
+python	test_output.compile.1.pattern	/IndentationError/
+python	test_output.compile.1.runner	unittest
+python	test_output.compile.1.source	captured
+python	test_output.compile.1.evidence	python-unittest-indentation
+python	test_output.assertion.0.pattern	/AssertionError/
+python	test_output.assertion.0.runner	unittest
+python	test_output.assertion.0.source	captured
+python	test_output.assertion.0.evidence	python-unittest-assertion
+python	test_output.assertion.1.pattern	/^E\s+assert\b/m
+python	test_output.assertion.1.runner	pytest
+python	test_output.assertion.1.source	docs
+python	test_output.assertion.1.evidence	https://github.com/pytest-dev/pytest/blob/main/doc/en/getting-started.rst
+python	test_output.exit_codes.no_tests.0.code	5
+python	test_output.exit_codes.no_tests.0.runner	unittest
+python	test_output.exit_codes.no_tests.0.source	captured
+python	test_output.exit_codes.no_tests.0.evidence	python-unittest-no-tests
+python	test_output.exit_codes.no_tests.1.code	5
+python	test_output.exit_codes.no_tests.1.runner	pytest
+python	test_output.exit_codes.no_tests.1.source	docs
+python	test_output.exit_codes.no_tests.1.evidence	https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst
+python	test_output.exit_codes.assertion.0.code	1
+python	test_output.exit_codes.assertion.0.runner	unittest
+python	test_output.exit_codes.assertion.0.source	captured
+python	test_output.exit_codes.assertion.0.evidence	python-unittest-assertion
+python	test_output.exit_codes.assertion.1.code	1
+python	test_output.exit_codes.assertion.1.runner	pytest
+python	test_output.exit_codes.assertion.1.source	docs
+python	test_output.exit_codes.assertion.1.evidence	https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst
 go	id	go
 go	name	Go (modules, go.work)
 go	project_files	go.mod
@@ -390,17 +519,55 @@ go	commands.lint.0.at	go -C {dir} vet ./...
 go	benchmark.files.0.glob	*_test.go
 go	benchmark.files.0.contains	^func Benchmark
 go	benchmark.files.0.why	Go func Benchmark in *_test.go
-go	test_output.status	seed
+go	test_output.status	verified
 go	test_output.runners	go test
-go	test_output.no_tests	/no test files/
-go	test_output.no_tests	/\[no tests to run\]/
-go	test_output.compile	/\[build failed\]/
-go	test_output.compile	/\bundefined: \w+/
-go	test_output.compile	/cannot use .+ as .+ value/
-go	test_output.assertion	/^\s*--- FAIL: /m
-go	test_output.exit_codes.no_tests	0
-go	test_output.exit_codes.compile	1
-go	test_output.exit_codes.assertion	1
+go	test_output.no_tests.0.pattern	/\[no test files\]/
+go	test_output.no_tests.0.runner	go test
+go	test_output.no_tests.0.source	captured
+go	test_output.no_tests.0.evidence	go-test-no-test-files
+go	test_output.no_tests.0.unless	/^(--- FAIL|FAIL\s)|^ok\s+\S+\s+(\(cached\)|[0-9.]+s)\s*$/m
+go	test_output.no_tests.1.pattern	/\[no tests to run\]/
+go	test_output.no_tests.1.runner	go test
+go	test_output.no_tests.1.source	captured
+go	test_output.no_tests.1.evidence	go-test-no-tests-to-run
+go	test_output.no_tests.1.unless	/^(--- FAIL|FAIL\s)|^ok\s+\S+\s+(\(cached\)|[0-9.]+s)\s*$/m
+go	test_output.no_tests.2.pattern	/testing: warning: no tests to run/
+go	test_output.no_tests.2.runner	go test
+go	test_output.no_tests.2.source	captured
+go	test_output.no_tests.2.evidence	go-test-no-tests-to-run-v
+go	test_output.no_tests.2.unless	/^(--- FAIL|FAIL\s)|^ok\s+\S+\s+(\(cached\)|[0-9.]+s)\s*$/m
+go	test_output.compile.0.pattern	/\[build failed\]/
+go	test_output.compile.0.runner	go test
+go	test_output.compile.0.source	captured
+go	test_output.compile.0.evidence	go-test-build-failed
+go	test_output.compile.1.pattern	/\[setup failed\]/
+go	test_output.compile.1.runner	go test
+go	test_output.compile.1.source	captured
+go	test_output.compile.1.evidence	go-test-setup-failed
+go	test_output.compile.2.pattern	/\bundefined: \w+/
+go	test_output.compile.2.runner	go test
+go	test_output.compile.2.source	captured
+go	test_output.compile.2.evidence	go-test-build-failed
+go	test_output.compile.3.pattern	/cannot use .+ as .+ value/
+go	test_output.compile.3.runner	go test
+go	test_output.compile.3.source	captured
+go	test_output.compile.3.evidence	go-test-type-error
+go	test_output.assertion.0.pattern	/^\s*--- FAIL: [\s\S]*?_test\.go:\d+:/m
+go	test_output.assertion.0.runner	go test
+go	test_output.assertion.0.source	captured
+go	test_output.assertion.0.evidence	go-test-assertion
+go	test_output.exit_codes.no_tests.0.code	0
+go	test_output.exit_codes.no_tests.0.runner	go test
+go	test_output.exit_codes.no_tests.0.source	captured
+go	test_output.exit_codes.no_tests.0.evidence	go-test-no-test-files
+go	test_output.exit_codes.compile.0.code	1
+go	test_output.exit_codes.compile.0.runner	go test
+go	test_output.exit_codes.compile.0.source	captured
+go	test_output.exit_codes.compile.0.evidence	go-test-build-failed
+go	test_output.exit_codes.assertion.0.code	1
+go	test_output.exit_codes.assertion.0.runner	go test
+go	test_output.exit_codes.assertion.0.source	captured
+go	test_output.exit_codes.assertion.0.evidence	go-test-assertion
 jvm	id	jvm
 jvm	name	Java / Kotlin (Maven multi-module, Gradle with a version catalog)
 jvm	prune	.mvn
@@ -524,22 +691,42 @@ jvm	native_ui.2.file	AndroidManifest.xml
 jvm	native_ui.2.platform	android
 jvm	native_ui.2.kind	mobile
 jvm	native_ui.2.why	AndroidManifest.xml
-jvm	test_output.status	seed
+jvm	test_output.status	verified
 jvm	test_output.runners	maven surefire
 jvm	test_output.runners	gradle test
 jvm	test_output.runners	junit
-jvm	test_output.no_tests	/No tests were executed/
-jvm	test_output.no_tests	/No tests found for given includes/
-jvm	test_output.no_tests	/Tests run: 0\b/
-jvm	test_output.compile	/COMPILATION ERROR/
-jvm	test_output.compile	/cannot find symbol/
-jvm	test_output.compile	/Compilation failed/i
-jvm	test_output.assertion	/AssertionFailedError/
-jvm	test_output.assertion	/ComparisonFailure/
-jvm	test_output.exit_codes.no_tests	0
-jvm	test_output.exit_codes.no_tests	1
-jvm	test_output.exit_codes.compile	1
-jvm	test_output.exit_codes.assertion	1
+jvm	test_output.no_tests.0.pattern	/No tests to run\./
+jvm	test_output.no_tests.0.runner	maven surefire
+jvm	test_output.no_tests.0.source	docs
+jvm	test_output.no_tests.0.evidence	https://github.com/apache/maven-surefire/blob/master/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/AbstractSurefireMojo.java
+jvm	test_output.no_tests.1.pattern	/No tests were executed!/
+jvm	test_output.no_tests.1.runner	maven surefire
+jvm	test_output.no_tests.1.source	docs
+jvm	test_output.no_tests.1.evidence	https://github.com/apache/maven-surefire/blob/master/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/SurefireHelper.java
+jvm	test_output.no_tests.2.pattern	/No tests found for given includes/
+jvm	test_output.no_tests.2.runner	gradle test
+jvm	test_output.no_tests.2.source	docs
+jvm	test_output.no_tests.2.evidence	https://github.com/gradle/gradle/blob/master/platforms/jvm/testing-jvm/src/integTest/groovy/org/gradle/testing/AbstractTestFilteringIntegrationTest.groovy
+jvm	test_output.compile.0.pattern	/COMPILATION ERROR/
+jvm	test_output.compile.0.runner	maven compiler
+jvm	test_output.compile.0.source	docs
+jvm	test_output.compile.0.evidence	https://github.com/apache/maven-compiler-plugin/blob/master/src/it/mcompiler-182/verify.groovy
+jvm	test_output.compile.1.pattern	/cannot find symbol/
+jvm	test_output.compile.1.runner	javac
+jvm	test_output.compile.1.source	docs
+jvm	test_output.compile.1.evidence	https://github.com/openjdk/jdk/blob/master/src/jdk.compiler/share/classes/com/sun/tools/javac/resources/compiler.properties
+jvm	test_output.compile.2.pattern	/Compilation failed; see the compiler/
+jvm	test_output.compile.2.runner	gradle
+jvm	test_output.compile.2.source	docs
+jvm	test_output.compile.2.evidence	https://github.com/gradle/gradle/blob/master/platforms/jvm/java-compiler-worker/src/main/java/org/gradle/api/internal/tasks/compile/CompilationFailedException.java
+jvm	test_output.assertion.0.pattern	/AssertionFailedError/
+jvm	test_output.assertion.0.runner	junit 5
+jvm	test_output.assertion.0.source	docs
+jvm	test_output.assertion.0.evidence	https://github.com/ota4j-team/opentest4j/blob/main/src/main/java/org/opentest4j/AssertionFailedError.java
+jvm	test_output.assertion.1.pattern	/ComparisonFailure/
+jvm	test_output.assertion.1.runner	junit 4
+jvm	test_output.assertion.1.source	docs
+jvm	test_output.assertion.1.evidence	https://github.com/junit-team/junit4/blob/main/src/main/java/org/junit/ComparisonFailure.java
 cargo	id	cargo
 cargo	name	Rust (Cargo workspace)
 cargo	project_files	Cargo.toml
@@ -594,16 +781,41 @@ cargo	native_ui.0.contains	^ *(egui|eframe|iced|slint)\b
 cargo	native_ui.0.platform	desktop
 cargo	native_ui.0.kind	desktop
 cargo	native_ui.0.why	Rust desktop UI crate
-cargo	test_output.status	seed
+cargo	test_output.status	verified
 cargo	test_output.runners	cargo test
-cargo	test_output.no_tests	/running 0 tests/
-cargo	test_output.compile	/error\[E\d+\]/
-cargo	test_output.compile	/could not compile/i
-cargo	test_output.assertion	/assertion `?(left|right)?.*failed/
-cargo	test_output.assertion	/panicked at/
-cargo	test_output.exit_codes.no_tests	0
-cargo	test_output.exit_codes.compile	101
-cargo	test_output.exit_codes.assertion	101
+cargo	test_output.no_tests.0.pattern	/^running 0 tests/m
+cargo	test_output.no_tests.0.runner	cargo test
+cargo	test_output.no_tests.0.source	docs
+cargo	test_output.no_tests.0.evidence	https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/listing-11-01/output.txt
+cargo	test_output.no_tests.0.unless	/^running [1-9][0-9]* tests?/m
+cargo	test_output.compile.0.pattern	/error\[E\d+\]/
+cargo	test_output.compile.0.runner	cargo test
+cargo	test_output.compile.0.source	docs
+cargo	test_output.compile.0.evidence	https://github.com/rust-lang/book/blob/main/listings/ch18-oop/listing-18-10/output.txt
+cargo	test_output.compile.1.pattern	/could not compile/
+cargo	test_output.compile.1.runner	cargo test
+cargo	test_output.compile.1.source	docs
+cargo	test_output.compile.1.evidence	https://github.com/rust-lang/book/blob/main/listings/ch18-oop/listing-18-10/output.txt
+cargo	test_output.assertion.0.pattern	/assertion `left (==|!=) right` failed/
+cargo	test_output.assertion.0.runner	cargo test
+cargo	test_output.assertion.0.source	docs
+cargo	test_output.assertion.0.evidence	https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/no-listing-04-bug-in-add-two/output.txt
+cargo	test_output.assertion.1.pattern	/assertion failed: /
+cargo	test_output.assertion.1.runner	cargo test
+cargo	test_output.assertion.1.source	docs
+cargo	test_output.assertion.1.evidence	https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/no-listing-03-introducing-a-bug/output.txt
+cargo	test_output.exit_codes.no_tests.0.code	0
+cargo	test_output.exit_codes.no_tests.0.runner	cargo test
+cargo	test_output.exit_codes.no_tests.0.source	docs
+cargo	test_output.exit_codes.no_tests.0.evidence	https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md
+cargo	test_output.exit_codes.compile.0.code	101
+cargo	test_output.exit_codes.compile.0.runner	cargo test
+cargo	test_output.exit_codes.compile.0.source	docs
+cargo	test_output.exit_codes.compile.0.evidence	https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md
+cargo	test_output.exit_codes.assertion.0.code	101
+cargo	test_output.exit_codes.assertion.0.runner	cargo test
+cargo	test_output.exit_codes.assertion.0.source	docs
+cargo	test_output.exit_codes.assertion.0.evidence	https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md
 dotnet	id	dotnet
 dotnet	name	.NET (sln, slnx, csproj, fsproj, vbproj)
 dotnet	prune	packages
@@ -724,25 +936,111 @@ dotnet	native_ui.7.contains	UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\.Sdk|Uno\.W
 dotnet	native_ui.7.platform	desktop
 dotnet	native_ui.7.kind	desktop
 dotnet	native_ui.7.why	desktop UI project
-dotnet	test_output.status	seed
+dotnet	test_output.status	verified
 dotnet	test_output.runners	vstest
 dotnet	test_output.runners	microsoft.testing.platform
-dotnet	test_output.no_tests	/No test is available/
-dotnet	test_output.no_tests	/Zero tests ran/i
-dotnet	test_output.no_tests	/\bno tests? (were )?(found|ran|to run)\b/i
-dotnet	test_output.compile	/error CS\d+/
-dotnet	test_output.compile	/error FS\d+/
-dotnet	test_output.compile	/error BC\d+/
-dotnet	test_output.compile	/\bBuild FAILED\b/
-dotnet	test_output.compile	/Test Run Aborted/
-dotnet	test_output.assertion	/Assert\.\w+\(\) Failure/
-dotnet	test_output.assertion	/Assert\.That/
-dotnet	test_output.assertion	/Assert\.AreEqual failed/
-dotnet	test_output.assertion	/Expected: .* But was: /
-dotnet	test_output.exit_codes.no_tests	8
-dotnet	test_output.exit_codes.compile	1
-dotnet	test_output.exit_codes.assertion	1
-dotnet	test_output.exit_codes.assertion	2
+dotnet	test_output.runners	xunit
+dotnet	test_output.runners	nunit
+dotnet	test_output.runners	mstest
+dotnet	test_output.no_tests.0.pattern	/No test is available in/
+dotnet	test_output.no_tests.0.runner	vstest
+dotnet	test_output.no_tests.0.source	captured
+dotnet	test_output.no_tests.0.evidence	dotnet-xunit3-vstest-no-tests
+dotnet	test_output.no_tests.0.unless	/^\s*(Passed|Failed)!\s+- /m
+dotnet	test_output.no_tests.1.pattern	/No test matches the given testcase filter/
+dotnet	test_output.no_tests.1.runner	vstest
+dotnet	test_output.no_tests.1.source	captured
+dotnet	test_output.no_tests.1.evidence	dotnet-xunit3-vstest-no-tests-filter
+dotnet	test_output.no_tests.1.unless	/^\s*(Passed|Failed)!\s+- /m
+dotnet	test_output.no_tests.2.pattern	/Zero tests ran/
+dotnet	test_output.no_tests.2.runner	microsoft.testing.platform
+dotnet	test_output.no_tests.2.source	captured
+dotnet	test_output.no_tests.2.evidence	dotnet-xunit3-mtp-no-tests
+dotnet	test_output.no_tests.2.unless	/\([^()|]+\|[^()|]+\) (passed|failed) |^Exit code: (?!8\b)\d+/m
+dotnet	test_output.compile.0.pattern	/error CS\d+/
+dotnet	test_output.compile.0.runner	dotnet build
+dotnet	test_output.compile.0.source	captured
+dotnet	test_output.compile.0.evidence	dotnet-xunit3-vstest-compile
+dotnet	test_output.compile.1.pattern	/error FS\d+/
+dotnet	test_output.compile.1.runner	dotnet build
+dotnet	test_output.compile.1.source	captured
+dotnet	test_output.compile.1.evidence	dotnet-build-fsharp-compile
+dotnet	test_output.compile.2.pattern	/error BC\d+/
+dotnet	test_output.compile.2.runner	dotnet build
+dotnet	test_output.compile.2.source	captured
+dotnet	test_output.compile.2.evidence	dotnet-build-vb-compile
+dotnet	test_output.compile.3.pattern	/\bBuild FAILED\b/
+dotnet	test_output.compile.3.runner	dotnet build
+dotnet	test_output.compile.3.source	captured
+dotnet	test_output.compile.3.evidence	dotnet-build-compile
+dotnet	test_output.compile.4.pattern	/Build failed with exit code: \d+/
+dotnet	test_output.compile.4.runner	microsoft.testing.platform
+dotnet	test_output.compile.4.source	captured
+dotnet	test_output.compile.4.evidence	dotnet-xunit3-mtp-compile
+dotnet	test_output.compile.5.pattern	/error MSB\d+/
+dotnet	test_output.compile.5.runner	dotnet
+dotnet	test_output.compile.5.source	captured
+dotnet	test_output.compile.5.evidence	dotnet-test-no-project
+dotnet	test_output.compile.6.pattern	/error NU\d+/
+dotnet	test_output.compile.6.runner	dotnet
+dotnet	test_output.compile.6.source	captured
+dotnet	test_output.compile.6.evidence	dotnet-test-restore-failed
+dotnet	test_output.compile.7.pattern	/Testing with VSTest target is no longer supported by Microsoft\.Testing\.Platform/
+dotnet	test_output.compile.7.runner	microsoft.testing.platform
+dotnet	test_output.compile.7.source	captured
+dotnet	test_output.compile.7.evidence	dotnet-nunit-mtp-without-opt-in
+dotnet	test_output.compile.8.pattern	/Test Run Aborted/
+dotnet	test_output.compile.8.runner	vstest
+dotnet	test_output.compile.8.source	captured
+dotnet	test_output.compile.8.evidence	dotnet-nunit-vstest-host-crash
+dotnet	test_output.assertion.0.pattern	/Assert\.\w+\(\) Failure/
+dotnet	test_output.assertion.0.runner	xunit
+dotnet	test_output.assertion.0.source	captured
+dotnet	test_output.assertion.0.evidence	dotnet-xunit3-vstest-assertion
+dotnet	test_output.assertion.1.pattern	/^\s*Expected: .+\n\s*But was:\s/m
+dotnet	test_output.assertion.1.runner	nunit
+dotnet	test_output.assertion.1.source	captured
+dotnet	test_output.assertion.1.evidence	dotnet-nunit-vstest-assertion
+dotnet	test_output.assertion.2.pattern	/\bAssertion failed\. Expected/
+dotnet	test_output.assertion.2.runner	mstest 4
+dotnet	test_output.assertion.2.source	captured
+dotnet	test_output.assertion.2.evidence	dotnet-mstest-vstest-assertion
+dotnet	test_output.assertion.3.pattern	/\bAssert\.\w+ failed\./
+dotnet	test_output.assertion.3.runner	mstest 3
+dotnet	test_output.assertion.3.source	captured
+dotnet	test_output.assertion.3.evidence	dotnet-mstest3-vstest-assertion
+dotnet	test_output.exit_codes.no_tests.0.code	0
+dotnet	test_output.exit_codes.no_tests.0.runner	vstest
+dotnet	test_output.exit_codes.no_tests.0.source	captured
+dotnet	test_output.exit_codes.no_tests.0.evidence	dotnet-xunit3-vstest-no-tests
+dotnet	test_output.exit_codes.no_tests.1.code	8
+dotnet	test_output.exit_codes.no_tests.1.runner	microsoft.testing.platform
+dotnet	test_output.exit_codes.no_tests.1.source	captured
+dotnet	test_output.exit_codes.no_tests.1.evidence	dotnet-xunit3-mtp-no-tests
+dotnet	test_output.exit_codes.no_tests.2.code	8
+dotnet	test_output.exit_codes.no_tests.2.runner	microsoft.testing.platform
+dotnet	test_output.exit_codes.no_tests.2.source	docs
+dotnet	test_output.exit_codes.no_tests.2.evidence	https://learn.microsoft.com/dotnet/core/testing/unit-testing-platform-exit-codes
+dotnet	test_output.exit_codes.compile.0.code	1
+dotnet	test_output.exit_codes.compile.0.runner	vstest
+dotnet	test_output.exit_codes.compile.0.source	captured
+dotnet	test_output.exit_codes.compile.0.evidence	dotnet-xunit3-vstest-compile
+dotnet	test_output.exit_codes.compile.1.code	1
+dotnet	test_output.exit_codes.compile.1.runner	microsoft.testing.platform
+dotnet	test_output.exit_codes.compile.1.source	captured
+dotnet	test_output.exit_codes.compile.1.evidence	dotnet-xunit3-mtp-compile
+dotnet	test_output.exit_codes.assertion.0.code	1
+dotnet	test_output.exit_codes.assertion.0.runner	vstest
+dotnet	test_output.exit_codes.assertion.0.source	captured
+dotnet	test_output.exit_codes.assertion.0.evidence	dotnet-xunit3-vstest-assertion
+dotnet	test_output.exit_codes.assertion.1.code	2
+dotnet	test_output.exit_codes.assertion.1.runner	microsoft.testing.platform
+dotnet	test_output.exit_codes.assertion.1.source	captured
+dotnet	test_output.exit_codes.assertion.1.evidence	dotnet-xunit3-mtp-assertion
+dotnet	test_output.exit_codes.assertion.2.code	2
+dotnet	test_output.exit_codes.assertion.2.runner	microsoft.testing.platform
+dotnet	test_output.exit_codes.assertion.2.source	docs
+dotnet	test_output.exit_codes.assertion.2.evidence	https://learn.microsoft.com/dotnet/core/testing/unit-testing-platform-exit-codes
 php	id	php
 php	name	PHP (Composer)
 php	project_files	composer.json
@@ -794,17 +1092,28 @@ php	benchmark.dependencies.0.in	composer.json
 php	benchmark.dependencies.0.contains	phpbench
 php	benchmark.dependencies.0.why	phpbench
 php	benchmark.config_files	phpbench.json
-php	test_output.status	seed
+php	test_output.status	verified
 php	test_output.runners	phpunit
-php	test_output.runners	pest
-php	test_output.no_tests	/No tests executed!/
-php	test_output.no_tests	/No tests found in class/
-php	test_output.compile	/PHP Parse error/
-php	test_output.compile	/Parse error: /
-php	test_output.assertion	/Failed asserting that/
-php	test_output.exit_codes.no_tests	0
-php	test_output.exit_codes.compile	255
-php	test_output.exit_codes.assertion	1
+php	test_output.no_tests.0.pattern	/No tests executed!/
+php	test_output.no_tests.0.runner	phpunit
+php	test_output.no_tests.0.source	docs
+php	test_output.no_tests.0.evidence	https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/Output/SummaryPrinter.php
+php	test_output.compile.0.pattern	/Parse error: /
+php	test_output.compile.0.runner	php
+php	test_output.compile.0.source	docs
+php	test_output.compile.0.evidence	https://github.com/php/doc-en/blob/master/language/control-structures/elseif.xml
+php	test_output.assertion.0.pattern	/Failed asserting that/
+php	test_output.assertion.0.runner	phpunit
+php	test_output.assertion.0.source	docs
+php	test_output.assertion.0.evidence	https://github.com/sebastianbergmann/phpunit/blob/main/src/Framework/Constraint/Array/IsList.php
+php	test_output.exit_codes.no_tests.0.code	0
+php	test_output.exit_codes.no_tests.0.runner	phpunit
+php	test_output.exit_codes.no_tests.0.source	docs
+php	test_output.exit_codes.no_tests.0.evidence	https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/ShellExitCodeCalculator.php
+php	test_output.exit_codes.assertion.0.code	1
+php	test_output.exit_codes.assertion.0.runner	phpunit
+php	test_output.exit_codes.assertion.0.source	docs
+php	test_output.exit_codes.assertion.0.evidence	https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/ShellExitCodeCalculator.php
 ruby	id	ruby
 ruby	name	Ruby (Bundler)
 ruby	project_files	Gemfile
@@ -849,17 +1158,66 @@ ruby	benchmark.dependencies.0.in	Gemfile
 ruby	benchmark.dependencies.0.in	*.gemspec
 ruby	benchmark.dependencies.0.contains	benchmark-ips
 ruby	benchmark.dependencies.0.why	benchmark-ips
-ruby	test_output.status	seed
+ruby	test_output.status	verified
 ruby	test_output.runners	rspec
 ruby	test_output.runners	minitest
-ruby	test_output.no_tests	/\b0 examples, 0 failures/
-ruby	test_output.no_tests	/\b0 runs, 0 assertions/
-ruby	test_output.compile	/SyntaxError/
-ruby	test_output.assertion	/Failure\/Error:/
-ruby	test_output.assertion	/expected: .+ got: /i
-ruby	test_output.exit_codes.no_tests	0
-ruby	test_output.exit_codes.compile	1
-ruby	test_output.exit_codes.assertion	1
+ruby	test_output.runners	test-unit
+ruby	test_output.no_tests.0.pattern	/\b0 examples, 0 failures/
+ruby	test_output.no_tests.0.runner	rspec
+ruby	test_output.no_tests.0.source	docs
+ruby	test_output.no_tests.0.evidence	https://github.com/rspec/rspec-core/blob/main/features/configuration/fail_if_no_examples.feature
+ruby	test_output.no_tests.1.pattern	/\b0 runs, 0 assertions/
+ruby	test_output.no_tests.1.runner	minitest
+ruby	test_output.no_tests.1.source	captured
+ruby	test_output.no_tests.1.evidence	ruby-minitest-no-tests
+ruby	test_output.no_tests.2.pattern	/Nothing ran for filter/
+ruby	test_output.no_tests.2.runner	minitest
+ruby	test_output.no_tests.2.source	captured
+ruby	test_output.no_tests.2.evidence	ruby-minitest-no-tests-filter
+ruby	test_output.compile.0.pattern	/SyntaxError/
+ruby	test_output.compile.0.runner	minitest
+ruby	test_output.compile.0.source	captured
+ruby	test_output.compile.0.evidence	ruby-minitest-syntax
+ruby	test_output.assertion.0.pattern	/^\s*expected: .+\n\s*got: /m
+ruby	test_output.assertion.0.runner	rspec
+ruby	test_output.assertion.0.source	docs
+ruby	test_output.assertion.0.evidence	https://github.com/rspec/rspec-core/blob/main/features/expectation_framework_integration/aggregating_failures.feature
+ruby	test_output.assertion.1.pattern	/Expected:[\s\S]{0,400}?Actual:/
+ruby	test_output.assertion.1.runner	minitest
+ruby	test_output.assertion.1.source	captured
+ruby	test_output.assertion.1.evidence	ruby-minitest-assertion
+ruby	test_output.assertion.2.pattern	/> expected but was\s*\n</
+ruby	test_output.assertion.2.runner	test-unit
+ruby	test_output.assertion.2.source	captured
+ruby	test_output.assertion.2.evidence	ruby-test-unit-assertion
+ruby	test_output.exit_codes.no_tests.0.code	0
+ruby	test_output.exit_codes.no_tests.0.runner	minitest
+ruby	test_output.exit_codes.no_tests.0.source	captured
+ruby	test_output.exit_codes.no_tests.0.evidence	ruby-minitest-no-tests
+ruby	test_output.exit_codes.no_tests.1.code	1
+ruby	test_output.exit_codes.no_tests.1.runner	minitest
+ruby	test_output.exit_codes.no_tests.1.source	captured
+ruby	test_output.exit_codes.no_tests.1.evidence	ruby-minitest-no-tests-filter
+ruby	test_output.exit_codes.no_tests.2.code	0
+ruby	test_output.exit_codes.no_tests.2.runner	rspec
+ruby	test_output.exit_codes.no_tests.2.source	docs
+ruby	test_output.exit_codes.no_tests.2.evidence	https://github.com/rspec/rspec-core/blob/main/features/configuration/fail_if_no_examples.feature
+ruby	test_output.exit_codes.compile.0.code	1
+ruby	test_output.exit_codes.compile.0.runner	minitest
+ruby	test_output.exit_codes.compile.0.source	captured
+ruby	test_output.exit_codes.compile.0.evidence	ruby-minitest-syntax
+ruby	test_output.exit_codes.assertion.0.code	1
+ruby	test_output.exit_codes.assertion.0.runner	minitest
+ruby	test_output.exit_codes.assertion.0.source	captured
+ruby	test_output.exit_codes.assertion.0.evidence	ruby-minitest-assertion
+ruby	test_output.exit_codes.assertion.1.code	1
+ruby	test_output.exit_codes.assertion.1.runner	test-unit
+ruby	test_output.exit_codes.assertion.1.source	captured
+ruby	test_output.exit_codes.assertion.1.evidence	ruby-test-unit-assertion
+ruby	test_output.exit_codes.assertion.2.code	1
+ruby	test_output.exit_codes.assertion.2.runner	rspec
+ruby	test_output.exit_codes.assertion.2.source	docs
+ruby	test_output.exit_codes.assertion.2.evidence	https://github.com/rspec/rspec-core/blob/main/features/command_line/exit_status.feature
 swift	id	swift
 swift	name	Swift (SwiftPM)
 swift	prune	.swiftpm
@@ -929,18 +1287,57 @@ swift	native_ui.3.contains	SDKROOT = macosx|MACOSX_DEPLOYMENT_TARGET
 swift	native_ui.3.platform	desktop
 swift	native_ui.3.kind	desktop
 swift	native_ui.3.why	Xcode project for macOS
-swift	test_output.status	seed
+swift	test_output.status	verified
 swift	test_output.runners	swift test
-swift	test_output.runners	xcodebuild test
-swift	test_output.no_tests	/Executed 0 tests/
-swift	test_output.no_tests	/No matching test cases were run/
-swift	test_output.compile	/error: cannot find .+ in scope/
-swift	test_output.compile	/error: .*(build|compilation) (failed|error)/i
-swift	test_output.assertion	/XCTAssert\w+ failed/
-swift	test_output.assertion	/\bXCTAssert\w*\(.*\) failed/
-swift	test_output.exit_codes.no_tests	0
-swift	test_output.exit_codes.compile	1
-swift	test_output.exit_codes.assertion	1
+swift	test_output.no_tests.0.pattern	/Executed 0 tests/
+swift	test_output.no_tests.0.runner	swift test
+swift	test_output.no_tests.0.source	captured
+swift	test_output.no_tests.0.evidence	swift-xctest-no-tests
+swift	test_output.no_tests.0.unless	/Test run with [1-9][0-9]* tests?/
+swift	test_output.no_tests.1.pattern	/No matching test cases were run/
+swift	test_output.no_tests.1.runner	swift test
+swift	test_output.no_tests.1.source	captured
+swift	test_output.no_tests.1.evidence	swift-xctest-no-tests-filter
+swift	test_output.compile.0.pattern	/error: cannot find .+ in scope/
+swift	test_output.compile.0.runner	swift test
+swift	test_output.compile.0.source	captured
+swift	test_output.compile.0.evidence	swift-xctest-compile
+swift	test_output.compile.1.pattern	/\.swift:\d+:\d+: error: /
+swift	test_output.compile.1.runner	swift test
+swift	test_output.compile.1.source	captured
+swift	test_output.compile.1.evidence	swift-xctest-compile-instance-method
+swift	test_output.compile.2.pattern	/^error: Build failed/m
+swift	test_output.compile.2.runner	swift test
+swift	test_output.compile.2.source	captured
+swift	test_output.compile.2.evidence	swift-xctest-compile
+swift	test_output.assertion.0.pattern	/XCTAssert\w* failed/
+swift	test_output.assertion.0.runner	XCTest
+swift	test_output.assertion.0.source	captured
+swift	test_output.assertion.0.evidence	swift-xctest-assertion
+swift	test_output.assertion.1.pattern	/Expectation failed:/
+swift	test_output.assertion.1.runner	swift-testing
+swift	test_output.assertion.1.source	captured
+swift	test_output.assertion.1.evidence	swift-testing-assertion
+swift	test_output.exit_codes.no_tests.0.code	0
+swift	test_output.exit_codes.no_tests.0.runner	swift test
+swift	test_output.exit_codes.no_tests.0.source	captured
+swift	test_output.exit_codes.no_tests.0.evidence	swift-xctest-no-tests
+swift	test_output.exit_codes.no_tests.1.code	0
+swift	test_output.exit_codes.no_tests.1.runner	swift test
+swift	test_output.exit_codes.no_tests.1.source	captured
+swift	test_output.exit_codes.no_tests.1.evidence	swift-xctest-no-tests-filter
+swift	test_output.exit_codes.compile.0.code	1
+swift	test_output.exit_codes.compile.0.runner	swift test
+swift	test_output.exit_codes.compile.0.source	captured
+swift	test_output.exit_codes.compile.0.evidence	swift-xctest-compile
+swift	test_output.exit_codes.assertion.0.code	1
+swift	test_output.exit_codes.assertion.0.runner	XCTest
+swift	test_output.exit_codes.assertion.0.source	captured
+swift	test_output.exit_codes.assertion.0.evidence	swift-xctest-assertion
+swift	test_output.exit_codes.assertion.1.code	1
+swift	test_output.exit_codes.assertion.1.runner	swift-testing
+swift	test_output.exit_codes.assertion.1.source	captured
+swift	test_output.exit_codes.assertion.1.evidence	swift-testing-assertion
 dart	id	dart
 dart	name	Dart / Flutter
 dart	prune	.flutter-plugins
@@ -995,15 +1392,38 @@ dart	native_ui.0.contains	^ *sdk: *flutter|^flutter:
 dart	native_ui.0.platform	flutter
 dart	native_ui.0.kind	mobile
 dart	native_ui.0.why	pubspec.yaml with the flutter sdk
-dart	test_output.status	seed
+dart	test_output.status	verified
 dart	test_output.runners	dart test
 dart	test_output.runners	flutter test
-dart	test_output.no_tests	/No tests ran/
-dart	test_output.no_tests	/No test files/i
-dart	test_output.compile	/Compilation failed/i
-dart	test_output.compile	/Error: /
-dart	test_output.assertion	/Expected: .*\n\s*Actual: /
-dart	test_output.assertion	/Expected: /
-dart	test_output.exit_codes.no_tests	79
-dart	test_output.exit_codes.compile	1
-dart	test_output.exit_codes.assertion	1
+dart	test_output.no_tests.0.pattern	/No tests were found\./
+dart	test_output.no_tests.0.runner	dart test
+dart	test_output.no_tests.0.source	docs
+dart	test_output.no_tests.0.evidence	https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner.dart
+dart	test_output.no_tests.1.pattern	/No tests match /
+dart	test_output.no_tests.1.runner	dart test
+dart	test_output.no_tests.1.source	docs
+dart	test_output.no_tests.1.evidence	https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner.dart
+dart	test_output.no_tests.2.pattern	/does not appear to contain any test files/
+dart	test_output.no_tests.2.runner	flutter test
+dart	test_output.no_tests.2.source	docs
+dart	test_output.no_tests.2.evidence	https://github.com/flutter/flutter/blob/master/packages/flutter_tools/lib/src/commands/test.dart
+dart	test_output.no_tests.3.pattern	/Test directory ".*" not found/
+dart	test_output.no_tests.3.runner	flutter test
+dart	test_output.no_tests.3.source	docs
+dart	test_output.no_tests.3.evidence	https://github.com/flutter/flutter/blob/master/packages/flutter_tools/lib/src/commands/test.dart
+dart	test_output.compile.0.pattern	/Failed to load "/
+dart	test_output.compile.0.runner	dart test
+dart	test_output.compile.0.source	docs
+dart	test_output.compile.0.evidence	https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner/load_exception.dart
+dart	test_output.assertion.0.pattern	/^\s*Expected: .+\n\s*Actual: /m
+dart	test_output.assertion.0.runner	dart test
+dart	test_output.assertion.0.source	docs
+dart	test_output.assertion.0.evidence	https://github.com/dart-lang/test/blob/master/pkgs/matcher/lib/src/expect/expect.dart
+dart	test_output.exit_codes.no_tests.0.code	79
+dart	test_output.exit_codes.no_tests.0.runner	dart test
+dart	test_output.exit_codes.no_tests.0.source	docs
+dart	test_output.exit_codes.no_tests.0.evidence	https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/executable.dart
+dart	test_output.exit_codes.assertion.0.code	1
+dart	test_output.exit_codes.assertion.0.runner	dart test
+dart	test_output.exit_codes.assertion.0.source	docs
+dart	test_output.exit_codes.assertion.0.evidence	https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/executable.dart
