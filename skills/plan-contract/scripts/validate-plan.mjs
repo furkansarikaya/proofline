@@ -11,6 +11,9 @@ import { readFileSync, realpathSync, statSync, existsSync } from "node:fs";
 import { resolve, sep, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// A172: ids compare by key (case-insensitive, leading zeros ignored); every message and record keeps the spelling its author wrote.
+const idKey = (s) => String(s).toUpperCase().replace(/-0+(?=\d)/g, "-");
+
 // Shared rule, duplicated in verify-proof's validate-verify.mjs (skills share no files; tests pin both): an
 // optional bullet marker followed by a space, optional backticks, `visual_proof:` and the value.
 // A112: the same line visual-proof's validate-visual.mjs accepts as the same-origin-write allowance.
@@ -130,8 +133,8 @@ export function assumptionProblems(lines) {
     const at = `Assumptions ${id || "(no id)"}`;
     if (c.length !== 7) { out.push(`${at}: expected 7 columns`); continue; }
     if (!/^AS-\d+$/.test(id)) out.push(`${at}: id must match AS-<n>`);
-    if (ids.has(id)) out.push(`${at}: duplicate id`);
-    ids.add(id);
+    if (ids.has(idKey(id))) out.push(`${at}: duplicate id`);
+    ids.add(idKey(id));
     if (!text) out.push(`${at}: assumption text is empty`);
     if (!source) out.push(`${at}: source is empty`);
     if (!["low", "medium", "high"].includes(risk)) out.push(`${at}: risk must be low|medium|high`);
@@ -236,7 +239,7 @@ export function parseTask(md) {
   const secs = sections(lines);
   const criteria = [];
   for (const l of secs.get("Acceptance criteria") || []) {
-    const m = /^\s*(?:[-*]|\d+\.)?\s*(AC-\d+):\s*\S/.exec(l);
+    const m = /^\s*(?:[-*]|\d+\.)?\s*(AC-\d+):\s*\S/i.exec(l);
     if (m) criteria.push(m[1]);
   }
   const cls = ((secs.get("Suggested class") || []).join(" ").match(/\b(TRIVIAL|STANDARD|COMPLEX|CRITICAL)\b/) || [])[1] || null;
@@ -253,14 +256,15 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
   const klass = cls || task.cls;
   if (!CLASSES.includes(klass)) errors.push(`class: "${klass}" is not one of ${CLASSES.join("|")} (pass --class or set TASK.md "## Suggested class")`);
   if (task.criteria.length === 0) errors.push("TASK.md: no acceptance criteria (AC-<n>: ...) found");
-  if (new Set(task.criteria).size !== task.criteria.length) errors.push("TASK.md: duplicate acceptance criterion ids");
+  if (new Set(task.criteria.map(idKey)).size !== task.criteria.length) errors.push("TASK.md: duplicate acceptance criterion ids");
   const planId = (/^# Plan: (\S+)/m.exec(planMd) || [])[1];
   if (!planId) errors.push('title: "# Plan: <TASK-ID>" is missing');
   else if (task.id && planId !== task.id) errors.push(`title: plan is for ${planId}, task is ${task.id}`);
 
   const rootReal = realpathSync(root);
   const seen = new Set();
-  const mapped = new Set();
+  const mapped = new Set();   // keys of the criteria some scope path or test covers
+  const taskHas = (c) => task.criteria.some((t) => idKey(t) === idKey(c));
   if (fm.scope.length === 0 && fm.errors.length === 0) errors.push("scope: empty; a plan without scope changes nothing");
   if (MAX_SCOPE_PATHS[klass] && fm.scope.length > MAX_SCOPE_PATHS[klass]) errors.push(`scope: ${klass} allows at most ${MAX_SCOPE_PATHS[klass]} paths, plan has ${fm.scope.length}; reclassify`);
   for (const e of fm.scope) {
@@ -272,8 +276,8 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
     seen.add(e.path);
     if (!e.criteria || e.criteria.length === 0) errors.push(`${at}: maps to no criterion`);
     for (const c of e.criteria || []) {
-      if (!task.criteria.includes(c)) errors.push(`${at}: unknown criterion ${c}`);
-      else mapped.add(c);
+      if (!taskHas(c)) errors.push(`${at}: unknown criterion ${c}`);
+      else mapped.add(idKey(c));
     }
     if ("tdd_exemption" in e) {
       const p = exemptionProblem(e.tdd_exemption);
@@ -302,15 +306,15 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
 
   const tests = body.get("Tests") || [];
   for (const l of tests) {
-    const m = /^\s*-\s*(AC-\d+):\s*(.*)$/.exec(l);
+    const m = /^\s*-\s*(AC-\d+):\s*(.*)$/i.exec(l);
     if (!m) continue;
-    if (!task.criteria.includes(m[1])) { errors.push(`Tests: unknown criterion ${m[1]}`); continue; }
+    if (!taskHas(m[1])) { errors.push(`Tests: unknown criterion ${m[1]}`); continue; }
     const refs = [...m[2].matchAll(/`([^`\s:]+)(?::[^`\s]+)?`/g)].map((x) => x[1]);
     const ok = refs.some((p) => scopePaths.includes(p) || (!isAbsolute(p) && !p.split("/").includes("..") && existsSync(resolve(rootReal, p))));
     if (!ok) errors.push(`Tests: ${m[1]} names no test file in backticks that exists or is in scope`);
-    else mapped.add(m[1]);
+    else mapped.add(idKey(m[1]));
   }
-  for (const c of task.criteria) if (!mapped.has(c)) errors.push(`${c}: maps to no scope path and no explicit test`);
+  for (const c of task.criteria) if (!mapped.has(idKey(c))) errors.push(`${c}: maps to no scope path and no explicit test`);
 
   const data = body.get("Data");
   if (data) {
@@ -363,10 +367,10 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
     else if (vp.length === 0 && ARCHITECTURE_CLASSES.includes(klass)) errors.push(`section "## UI": the line "visual_proof: <AC ids|none>" is required for ${klass} (the designer marks the criteria that need visual evidence)`);
     else if (vp.length === 1 && !/^none$/i.test(vp[0][1])) {
       const ids = vp[0][1].split(",").map((s) => s.trim());
-      if (new Set(ids).size !== ids.length) errors.push('section "## UI": visual_proof lists a criterion twice');
+      if (new Set(ids.map(idKey)).size !== ids.length) errors.push('section "## UI": visual_proof lists a criterion twice');
       for (const id of ids) {
-        if (!/^AC-\d+$/.test(id)) errors.push(`section "## UI": visual_proof "${id}" is not an AC-<n> id (write the ids comma-separated, or none)`);
-        else if (!task.criteria.includes(id)) errors.push(`section "## UI": visual_proof names unknown criterion ${id}`);
+        if (!/^AC-\d+$/i.test(id)) errors.push(`section "## UI": visual_proof "${id}" is not an AC-<n> id (write the ids comma-separated, or none)`);
+        else if (!taskHas(id)) errors.push(`section "## UI": visual_proof names unknown criterion ${id}`);
       }
     }
   }

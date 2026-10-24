@@ -20,6 +20,25 @@ import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, SEO_NOT_APPLICABLE_NOTE, SEO_SITE, requiredCells, validateReport } from "./validate-visual.mjs";
 import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, designPages } from "./design-audit.mjs";
+// A172: the project's visual.ascii_turkish_words / visual.ascii_turkish_allow (.agents/config.yaml, the keys `cfg` reads), else the
+// defaults of design-audit.mjs. The file is looked for from the working directory and from the report folder upwards.
+export function asciiConfig(dirs) {
+  for (const d0 of dirs) for (let d = resolve(d0), i = 0; i < 8; i++, d = resolve(d, "..")) {
+    const f = join(d, ".agents", "config.yaml");
+    if (!existsSync(f)) continue;
+    const out = {};
+    let inV = false;
+    for (const l of readFileSync(f, "utf8").split("\n")) {
+      if (/^visual:\s*$/.test(l)) { inV = true; continue; }
+      if (inV && /^\S/.test(l)) break;
+      const m = inV ? /^  (ascii_turkish_words|ascii_turkish_allow):\s*(.*)$/.exec(l) : null;
+      const v = m ? m[2].replace(/\s+#.*$/, "").trim().replace(/^"(.*)"$/, "$1") : "";
+      if (m && v) out[m[1] === "ascii_turkish_words" ? "words" : "allow"] = v;
+    }
+    return out;
+  }
+  return {};
+}
 import { motionAudit } from "./motion-audit.mjs";
 import { FONTS_PROBE, IMAGES_PROBE, ledgerItems } from "./ledger.mjs";
 
@@ -976,7 +995,7 @@ export function assemble(raw, outDir) {
   }
   if (c.design) {
     const unreadable = (p) => { throw new Error(`cannot read ${p}`); };
-    report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)));
+    report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)), { ascii: asciiConfig([process.cwd(), outDir]) });
   }
   const v = validateReport({ ...report, result: "PASS" }, { root: outDir });
   report.result = v.computed;

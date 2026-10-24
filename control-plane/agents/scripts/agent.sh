@@ -130,7 +130,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -145,6 +145,7 @@ config_check() {
       }
       if (k == "risk.unsupported") en(k, v, "block|report")
       if (top == "validation" && k != "validation" && k !~ /^validation\.(entry_words|entry_candidates|entry_input|entry_new|entry_output|entry_skip|code_patterns)$/) bad("unknown validation key: " k " (want validation.entry_words, entry_candidates, entry_input, entry_new, entry_output, entry_skip or code_patterns)")
+      if (top == "visual" && k != "visual") { if (k !~ /^visual\.(ascii_turkish_words|ascii_turkish_allow)$/) bad("unknown visual key: " k " (want visual.ascii_turkish_words or visual.ascii_turkish_allow)"); else if (v !~ /^[A-Za-z]*([ ,]+[A-Za-z]+)*[ ,]*$/) bad(k " must be ASCII words separated by spaces: " v) }
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
@@ -733,8 +734,8 @@ assumption_scan() {
       id = t($2); risk = t($5); st = t($7)
       if (NF != 9) { err("Assumptions " id ": expected 7 columns"); next }
       if (id !~ /^AS-[0-9]+$/) err("Assumptions " id ": id must match AS-<n>")
-      if (id in seen) err("Assumptions " id ": duplicate id")
-      seen[id] = 1
+      if (toupper(id) in seen) err("Assumptions " id ": duplicate id")
+      seen[toupper(id)] = 1
       if (t($3) == "") err("Assumptions " id ": assumption text is empty")
       if (t($4) == "") err("Assumptions " id ": source is empty")
       if (risk != "low" && risk != "medium" && risk != "high") err("Assumptions " id ": risk must be low|medium|high")
@@ -1186,6 +1187,27 @@ gate_default_artifact() {
     REVIEW_TESTS) echo reviews/test-trust/tests/REPORT.md ;; REVIEW_DATA) echo reviews/data-design/REVIEW.md ;; SECURITY) echo security/REPORT.md ;; QA) echo QA_REPORT.md ;; VERIFY) echo VERIFY.md ;; esac
 }
 valid_gate_name() { case "$1" in SECRETS|REVIEW_SMALL|REVIEW_PLAN|REVIEW_RULES|REVIEW_TESTS|REVIEW_DATA|SECURITY|QA|VERIFY) return 0 ;; *) return 1 ;; esac; }
+
+# A172: identity of the ids the control plane writes and reads (QA-n, AC-n, AS-n, finding ids <GATE>-<n> / <role id>-<n>).
+# The form the producer wrote is canonical and is never rewritten; every check compares by KEY: case-insensitive, leading
+# zeros of the number ignored. One place decides it, so a producer and its checker cannot disagree again (the QA plan step
+# was submitted as QA-1 and recorded as qa-1). The node validators carry the same idKey (skills share no files).
+id_key() { printf '%s\n' "$1" | tr '[:lower:]' '[:upper:]' | sed -E 's/-0+([0-9])/-\1/g'; }
+id_eq() { [ "$(id_key "$1")" = "$(id_key "$2")" ]; }
+# id_keys: stdin ids -> keys (for sort/comm/uniq over a list)
+id_keys() { tr '[:lower:]' '[:upper:]' | sed -E 's/-0+([0-9])/-\1/g'; }
+# result_kind ROLE RESULT -> gate | task | (empty: the result is not valid for the role). The one rule `submit` and `record` share.
+result_kind() {
+  case "$2" in
+    UNSUPPORTED|PASS|FAIL) is_gate_role "$1" && echo gate ;;
+    BLOCKED) if is_gate_role "$1" && [ "$1" != qa ]; then echo gate; else echo task; fi ;;
+    DONE|NEEDS_INPUT) case "$1" in reviewer|security_reviewer|verifier) ;; *) echo task ;; esac ;;
+  esac
+  return 0
+}
+# finding_prefix ROLE KIND GATE -> the prefix of the finding ids of one result: a gate result is <GATE>-<n>, a task result
+# <role id>-<n> (roles/README.md). `submit` writes it and `record` demands it, both from this function.
+finding_prefix() { if [ "$2" = gate ] && [ -n "$3" ]; then printf '%s\n' "$3"; else printf '%s\n' "$1"; fi; }
 
 # A171: a plan over the class's max_scope_paths stops at freeze and proposes a split. The user's answer
 # `proceed without splitting` (answered_by user, at the start of the prompt, no negation or condition) to the question
@@ -2068,7 +2090,7 @@ qa_invalid_missing() { # PLAN.md QA_PLAN.md -> the entry points with no [invalid
     QI_N=$qi_n awk '
       BEGIN { n = ENVIRON["QI_N"] }
       function flush() { if (inv && index(blk, n)) ok = 1 }
-      /^- QA-[0-9]+ \(/ { flush(); blk = $0; inv = ($0 ~ /\[invalid-input\]/); next }
+      toupper($0) ~ /^- QA-[0-9]+ \(/ { flush(); blk = $0; inv = ($0 ~ /\[invalid-input\]/); next }
       /^## / { flush(); blk = ""; inv = 0; next }
       /^- / { flush(); blk = ""; inv = 0; next }
       { blk = blk "\n" $0 }
@@ -2106,12 +2128,13 @@ verify_qa_plan_bound() { # ID
   vq_cited=$(sed -n 's/^Plan sha256: \([0-9a-f]\{64\}\)[[:space:]]*$/\1/p' "$vq_d/QA_PLAN.md" | head -n 1)
   [ -n "$vq_cited" ] || fail "QA_PLAN.md must cite the plan it is derived from: a line 'Plan sha256: <64 hex>' (the sha256 of the final PLAN.md; 'node <qa-plan skill>/scripts/validate-qa.mjs hash PLAN.md'). Write the QA plan after PLAN.md is final"
   [ "$vq_cited" = "$(hash_file "$vq_d/PLAN.md")" ] || fail "QA_PLAN.md was derived from a different PLAN.md (it cites $(printf '%.12s' "$vq_cited")..., PLAN.md is $(printf '%.12s' "$(hash_file "$vq_d/PLAN.md")")...): re-derive the QA plan from the current plan (dispatch qa) before freeze; a plan or contract change changes the scenarios"
-  vq_pacs=$( { awk '/^[[:space:]]*criteria:[[:space:]]*\[/ { l = $0; while (match(l, /AC-[0-9]+/)) { print substr(l, RSTART, RLENGTH); l = substr(l, RSTART + RLENGTH) } }' "$vq_d/PLAN.md"
-    awk '/^## / { i = ($0 ~ /^## Behavior[[:space:]]*$/); next } i && /^[-*][[:space:]]+AC-[0-9]+:/ { l = $0; match(l, /AC-[0-9]+/); print substr(l, RSTART, RLENGTH) }' "$vq_d/PLAN.md"; } | sort -u)
-  vq_qacs=$(awk '/^- QA-[0-9]+ \(AC-/ { l = $0; sub(/^- QA-[0-9]+ \(/, "", l); sub(/\).*/, "", l); n = split(l, a, /,[[:space:]]*/); for (i = 1; i <= n; i++) print a[i] }' "$vq_d/QA_PLAN.md" | sort -u)
+  # A172: criteria are compared by key (id_key: case-insensitive, leading zeros ignored); the text names them as written.
+  vq_pacs=$( { awk '/^[[:space:]]*criteria:[[:space:]]*\[/ { l = toupper($0); while (match(l, /AC-[0-9]+/)) { print substr(l, RSTART, RLENGTH); l = substr(l, RSTART + RLENGTH) } }' "$vq_d/PLAN.md"
+    awk '/^## / { i = ($0 ~ /^## Behavior[[:space:]]*$/); next } i && toupper($0) ~ /^[-*][[:space:]]+AC-[0-9]+:/ { l = toupper($0); match(l, /AC-[0-9]+/); print substr(l, RSTART, RLENGTH) }' "$vq_d/PLAN.md"; } | id_keys | sort -u)
+  vq_qacs=$(awk 'toupper($0) ~ /^- QA-[0-9]+ \(AC-/ { l = toupper($0); sub(/^- QA-[0-9]+ \(/, "", l); sub(/\).*/, "", l); n = split(l, a, /,[[:space:]]*/); for (i = 1; i <= n; i++) print a[i] }' "$vq_d/QA_PLAN.md" | id_keys | sort -u)
   vq_acc=$(awk '
       /^## Adversarial scenarios[[:space:]]*$/ { skip = 1; next } /^## / { skip = 0 }
-      !skip && /^- QA-[0-9]+ \(AC-/ { l = $0; sub(/^- QA-[0-9]+ \(/, "", l); sub(/\).*/, "", l); n = split(l, a, /,[[:space:]]*/); for (i = 1; i <= n; i++) print a[i] }' "$vq_d/QA_PLAN.md" | sort -u)
+      !skip && toupper($0) ~ /^- QA-[0-9]+ \(AC-/ { l = toupper($0); sub(/^- QA-[0-9]+ \(/, "", l); sub(/\).*/, "", l); n = split(l, a, /,[[:space:]]*/); for (i = 1; i <= n; i++) print a[i] }' "$vq_d/QA_PLAN.md" | id_keys | sort -u)
   for vq_a in $vq_pacs; do
     printf '%s\n' "$vq_acc" | grep -Fxq "$vq_a" || fail "QA_PLAN.md has no acceptance scenario for $vq_a, a criterion of PLAN.md: derive the QA plan from the whole plan"
   done
@@ -3248,9 +3271,7 @@ record_validate() {
       grep -q '^UNSUPPORTED_EVIDENCE:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs --evidence (an UNSUPPORTED_EVIDENCE line): the saved output of the skill's validator that prints 'RESULT: UNSUPPORTED' (submit --evidence <run-relative path>, A102); a reason alone is not evidence"; return 1; }
       grep -q '^UNSUPPORTED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)"; return 1; }
       unsupported_reason_ok "$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1)" || { record_reject "UNSUPPORTED_REASON is too vague: name the concrete missing tool, parser, capability or file (at least 12 characters, e.g. 'no machine-readable contract file; API.md is prose, no parser' or 'no headless browser installed'); a check you could run is PASS or FAIL (A98)"; return 1; } ;;
-    PASS|FAIL) is_gate_role "$rv_role" && rv_kind=gate ;;
-    BLOCKED) if is_gate_role "$rv_role" && [ "$rv_role" != qa ]; then rv_kind=gate; else rv_kind=task; fi ;;
-    DONE|NEEDS_INPUT) case "$rv_role" in reviewer|security_reviewer|verifier) ;; *) rv_kind=task ;; esac ;;
+    PASS|FAIL|BLOCKED|DONE|NEEDS_INPUT) rv_kind=$(result_kind "$rv_role" "$rv_res") ;;   # A172: the rule `submit` shares
   esac
   # A92: a task result (DONE, NEEDS_INPUT, BLOCKED) has no focus: a risk FOCUS must not open a second C-14 round.
   if [ "$rv_kind" = task ]; then rv_focus=''; fi
@@ -3318,10 +3339,11 @@ record_validate() {
   parse_findings "$rv_t/raw" > "$rv_t/findings"
   ! grep -qx MALFORMED "$rv_t/findings" || { record_reject "malformed findings row (want | id | severity | path:line | finding | evidence |)"; return 1; }
   ! grep -qx NO_FINDINGS_PLACEHOLDER "$rv_t/findings" || { record_reject "no findings: omit rows, keep only the table header"; return 1; }
-  rv_prefix=$rv_role; [ -z "$rv_gate" ] || rv_prefix=$rv_gate
-  rv_badrow=$(awk -F'|' -v p="$rv_prefix" '{ if ($1 !~ ("^" p "-[0-9]+$")) { print "id " $1 " (want " p "-<n>)"; exit } if ($2 !~ /^(blocking|info)$/) { print "severity " $2; exit } }' "$rv_t/findings")
+  # A172: the prefix is the one `submit` wrote (finding_prefix); the id is checked by key (case-insensitive) and recorded as written.
+  rv_prefix=$(finding_prefix "$rv_role" "$rv_kind" "$rv_gate")
+  rv_badrow=$(awk -F'|' -v p="$rv_prefix" '{ if (toupper($1) !~ ("^" toupper(p) "-[0-9]+$")) { print "id " $1 " (want " p "-<n>)"; exit } if ($2 !~ /^(blocking|info)$/) { print "severity " $2; exit } }' "$rv_t/findings")
   [ -z "$rv_badrow" ] || { record_reject "invalid finding $rv_badrow"; return 1; }
-  [ "$(cut -d'|' -f1 "$rv_t/findings" | sort | uniq -d)" = '' ] || { record_reject "duplicate finding ids"; return 1; }
+  [ "$(cut -d'|' -f1 "$rv_t/findings" | id_keys | sort | uniq -d)" = '' ] || { record_reject "duplicate finding ids"; return 1; }
   # A171: a rules review states how it scanned and lists every instance in one pass, so the fix round is not spent on
   # the examples one by one (the evidence column carries `scan: <command or method>` and `instances: single` or the
   # `path:line` of every instance, the row's own location included).
@@ -3683,38 +3705,168 @@ record_apply() {
 # --- Language check (A33): run artifacts are English. -----------------------------------------
 # Heuristic: three or more letters outside ASCII and the common typographic symbols (UTF-8 lead bytes of
 # Latin letters C3 C4 C5, Greek CE CF, Cyrillic D0-D4, CJK E3-E9) in one file are non-English text; one or
-# two (a name such as "José") are tolerated. Lines inside a `>` blockquote or a fenced code block are
-# exempt: the user's own words, quoted.
+# two (a name such as "José") are tolerated. Exempt (A171, A172):
+#  - a `>` quote line or a fenced line that repeats a line of a captured user prompt (prompts/history): the user's own words;
+#  - product text: inline code (`...`), a double-quoted span ("..." or “...”), a `>` quote line or a fenced line (a JSON
+#    string value is a double-quoted span) whose WHOLE inner text, whitespace normalized, occurs in the run's TASK.md or in
+#    COMMITTED product content (`git grep` on HEAD outside .agents/: never the index, the working tree or an untracked file, because
+#    an agent can create or stage a file holding its own text and quote it; only a commit, which a model cannot make, counts).
+#    The piece is at least 4 characters and is matched on word boundaries: a letter right before or after the match is no match.
+#    The match is on the inner text, never on the delimiter: a model cannot hide a sentence of its own behind a quote, a code span or a fence;
+#  - machine output of the skills (reviews/visual-proof/, reports/qa-evidence/): measured and saved by tools, never written by a model.
+#    An accepted, unchecked channel (A172): a model that is allowed to write there could put text there.
 # language_scan FILE... -> prints "file:line" (where the third such letter appears) per offending file; exit 1.
+# Cost: a file is scanned once without product text (an English write costs one awk pass). Only a file with a hit gathers its quoted
+# pieces (language_awk cands), at most 1000 characters each, and looks them up without a scan per piece (language_ok_pieces); the
+# committed text is read once per HEAD commit (language_head cache), and both sides are marked at word boundaries (language_mark).
+language_awk() { # FILE OWN HISTORY-BLOB MODE(scan|cands) OK-PIECES-FILE|'' -> scan: the line where the third foreign letter appears; cands: the quoted pieces to look up
+  LC_ALL=C awk -v own="$2" -v hist="$3" -v mode="$4" -v okf="$5" -v minc=4 '
+    BEGIN { while ((getline l < hist) > 0) blob = blob "\n" l "\n"
+      if (okf != "") { while ((getline l < okf) > 0) ok[l] = 1; close(okf) } }
+    function trim(t) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); return t }
+    function norm(t) { gsub(/[[:space:]]+/, " ", t); return trim(t) }
+    function nchars(t) { gsub(/[\200-\277]/, "", t); return length(t) }
+    function quoted(t) { t = trim(t); return t == "" || index(blob, "\n" t "\n") > 0 }
+    function inprod(t) { t = norm(t); if (nchars(t) < minc || length(t) > 1000) return 0; if (mode == "cands") { want[t] = 1; return 0 } return (t in ok) }
+    function foreign(t) { return gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&", t) }
+    function strip_spans(t,   out, rest, b, bo, i, after, j, inner, closer) {
+      out = ""; rest = t
+      while (1) {
+        b = 0; bo = ""
+        i = index(rest, "`");           if (i > 0 && (b == 0 || i < b)) { b = i; bo = "`" }
+        i = index(rest, "\"");          if (i > 0 && (b == 0 || i < b)) { b = i; bo = "\"" }
+        i = index(rest, "\342\200\234"); if (i > 0 && (b == 0 || i < b)) { b = i; bo = "\342\200\234" }
+        if (b == 0) break
+        closer = (bo == "\342\200\234") ? "\342\200\235" : bo
+        after = substr(rest, b + length(bo)); j = index(after, closer)
+        if (j == 0) break
+        inner = substr(after, 1, j - 1)
+        if (inprod(inner)) out = out substr(rest, 1, b - 1) " "
+        else out = out substr(rest, 1, b - 1 + length(bo) + j - 1 + length(closer))
+        rest = substr(after, j + length(closer))
+      }
+      return out rest
+    }
+    /^[[:space:]]*```/ { fence = !fence; next }
+    { t = $0; skip = 0
+      if (fence || $0 ~ /^[[:space:]]*>/) {
+        if (own == "yes") skip = 1
+        else { sub(/^[[:space:]]*>[[:space:]]?/, "", t); if (quoted(t) || inprod(t)) skip = 1 }
+      }
+      if (skip || foreign(t) == 0) next
+      c = foreign(strip_spans(t))
+      if (c > 0) { total += c; if (total >= 3 && !at) at = NR } }
+    END { if (mode == "cands") { for (k in want) print k } else if (at) print at }' "$1"
+}
+# language_mark: stdin -> stdout, a control byte (\001) after every letter that ends a word and before every letter that starts one,
+# and at the line edges. A word character is anything but ASCII punctuation, space and control bytes (every byte of a UTF-8 letter
+# counts). A marked piece found in the marked corpus therefore begins and ends on word boundaries.
+language_mark() {
+  lm_s=$(printf '\001')
+  sed -E "s/([^[:punct:][:space:][:cntrl:]])([[:punct:][:space:][:cntrl:]])/\\1${lm_s}\\2/g; s/([[:punct:][:space:][:cntrl:]])([^[:punct:][:space:][:cntrl:]])/\\1${lm_s}\\2/g; s/^([^[:punct:][:space:][:cntrl:]])/${lm_s}\\1/; s/([^[:punct:][:space:][:cntrl:]])\$/\\1${lm_s}/"
+}
+# language_head -> sets ls_hc (the marked, whitespace-collapsed COMMITTED product text: `git grep -I` on HEAD outside .agents/, text files
+# only, capped at 50 MB) and ls_hw (its sorted unique words). Both are cached under .agents/local/language/ by the HEAD commit id, which
+# fixes their content, so the 8 MB are read once per commit and not on every write. Empty when the repository has no commit.
+language_head() {
+  ls_hc=''; ls_hw=''
+  lh_sha=$(git -C "$root" rev-parse -q --verify HEAD 2>/dev/null) || return 0
+  lh_dir=$agents/local/language
+  mkdir -p "$lh_dir" 2>/dev/null || lh_dir=$(mktemp -d "${TMPDIR:-/tmp}/proofline-lang-head.XXXXXX")
+  ls_hc=$lh_dir/$lh_sha.corpus; ls_hw=$lh_dir/$lh_sha.words
+  if [ ! -s "$ls_hw" ] || [ ! -f "$ls_hc" ]; then
+    git -C "$root" grep -I -h -e '' HEAD -- . ':(exclude).agents' 2>/dev/null | head -c 50000000 | tr -s '[:space:]' ' ' | language_mark > "$ls_hc.$$" || :
+    tr -s '[:punct:][:space:][:cntrl:]' '\n' < "$ls_hc.$$" | sed '/^$/d' | sort -u > "$ls_hw.$$"
+    mv "$ls_hc.$$" "$ls_hc"; mv "$ls_hw.$$" "$ls_hw"   # the words file last: it marks the pair complete
+    for lh_f in "$lh_dir"/*.corpus "$lh_dir"/*.words; do case "$lh_f" in "$lh_dir/$lh_sha".*) ;; *) rm -f "$lh_f" ;; esac; done
+  fi
+}
+# language_extra FILE -> the path of a small marked corpus: the run's TASK.md and the captured user prompts. The run is the one FILE
+# lives in (or LANG_HINT, the path the write hook passes), else the active run.
+language_extra() {
+  le_t=$(mktemp "${TMPDIR:-/tmp}/proofline-corpus.XXXXXX"); le_p=${LANG_HINT:-$1}; le_run=''
+  case "$le_p" in *.agents/runs/*) le_run=${le_p#*.agents/runs/}; le_run=${le_run%%/*} ;; esac
+  [ -n "$le_run" ] || le_run=$(head -n 1 "$root/.agents/local/ACTIVE_RUN" 2>/dev/null || :)
+  case "$le_run" in ''|*[!A-Za-z0-9._-]*) le_run='' ;; esac
+  {
+    [ -z "$le_run" ] || cat "$(run_dir "$le_run")/TASK.md" 2>/dev/null || :
+    cat "$root"/.agents/local/prompts/history/*.txt 2>/dev/null || :
+  } | tr -s '[:space:]' ' ' | language_mark > "$le_t"
+  printf '%s\n' "$le_t"
+}
+# language_ok_pieces FILE OWN HISTORY-BLOB EXTRA -> the path of a file with the quoted pieces of FILE that occur in the product text.
+# Three steps, none of them a scan per piece: (1) a piece with a word that no corpus holds is absent (comm over sorted word lists);
+# (2) the few pieces whose words all exist are searched in ONE pass over each corpus with one alternation pattern, in chunks;
+# (3) a piece counts when its marked form lies inside a match (a longer piece can hide a shorter one from the leftmost-longest match).
+# language_confirm PIECE: the piece (whitespace normalized) occurs in one line of committed content (HEAD, outside .agents/), on word
+# boundaries: a letter right before or after it is no match. Runs of spaces in the piece match any whitespace run. Exit 0 when it does.
+language_confirm() {
+  lc_pat=$(printf '%s' "$1" | sed -e 's/[][\\.^$*+?(){}|]/\\&/g' -e 's/ /[[:space:]]+/g')
+  case "$1" in [[:punct:][:space:]]*) lc_pre='' ;; *) lc_pre='(^|[[:punct:][:space:]])' ;; esac
+  case "$1" in *[[:punct:][:space:]]) lc_post='' ;; *) lc_post='($|[[:punct:][:space:]])' ;; esac
+  git -C "$root" grep -q -I -E -e "$lc_pre$lc_pat$lc_post" HEAD -- . ':(exclude).agents' 2>/dev/null
+}
+language_ok_pieces() {
+  lo_c=$(mktemp "${TMPDIR:-/tmp}/proofline-pieces.XXXXXX"); lo_o=$lo_c.ok; lo_h=$lo_c.h; lo_w=$lo_c.w; lo_a=$lo_c.a; lo_s=$lo_c.s; lo_m=$lo_c.m
+  language_awk "$1" "$2" "$3" cands "" | sed '/^$/d' > "$lo_c"
+  : > "$lo_o"
+  if [ -s "$lo_c" ]; then
+    tr -s '[:punct:][:space:][:cntrl:]' '\n' < "$lo_c" | sed '/^$/d' | sort -u > "$lo_w"
+    { comm -23 "$lo_w" "${ls_hw:-/dev/null}"; } > "$lo_a"
+    tr -s '[:punct:][:space:][:cntrl:]' '\n' < "$4" | sed '/^$/d' | sort -u > "$lo_w"
+    comm -23 "$lo_a" "$lo_w" > "$lo_a.2"
+    awk -v af="$lo_a.2" 'BEGIN { while ((getline w < af) > 0) gone[w] = 1 }
+      { n = split($0, ws, /[[:punct:][:space:][:cntrl:]]+/); for (i = 1; i <= n; i++) if (ws[i] in gone) next; print }' "$lo_c" > "$lo_s"
+    if [ -s "$lo_s" ]; then
+      language_mark < "$lo_s" > "$lo_m"
+      awk -v eo="$lo_o" -v ho="$lo_h" -v cf="$lo_m" -v c1="${ls_hc:-}" -v c2="$4" 'BEGIN {
+          while ((getline l < cf) > 0) { m[++k] = l; e = l; gsub(/[][\\.^$*+?(){}|\/]/, "\\\\&", e); re = re (re == "" ? "" : "|") e }
+          for (q = 1; q <= 2; q++) { f = (q == 1 ? c1 : c2); if (f == "") continue
+            s = ""; getline s < f; n = length(s)
+            for (p = 1; p <= n; p += 2000) { c = substr(s, p, 4000)
+              while (match(c, re)) { hit[q, substr(c, RSTART, RLENGTH)] = 1; c = substr(c, RSTART + 1) } } }
+          while ((getline o < ARGV[1]) > 0) { i++; inH = 0; inE = 0
+            for (h in hit) { split(h, hk, SUBSEP); if (index(hk[2], m[i]) > 0) { if (hk[1] == 2) inE = 1; else inH = 1 } }
+            if (inE) print o > eo; else if (inH) print o > ho } }' "$lo_s"
+    fi
+  fi
+  # The cached committed text only PRE-FILTERS: a file under .agents/local/ can be written by a runtime with no write hook, so a piece
+  # that only the cache vouches for is confirmed against HEAD itself (git grep, one per piece, never a scan of lines). A forged hit is
+  # refused here; a forged miss only refuses a quote. TASK.md and the user's prompts need no confirmation.
+  if [ -s "$lo_h" ]; then
+    while IFS= read -r lo_p; do language_confirm "$lo_p" && printf '%s\n' "$lo_p" >> "$lo_o"; done < "$lo_h"
+  fi
+  rm -f "$lo_c" "$lo_w" "$lo_a" "$lo_a.2" "$lo_s" "$lo_m" "$lo_h"
+  printf '%s\n' "$lo_o"
+}
 language_scan() {
-  ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX")
+  ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); ls_extra=''; ls_hc=''; ls_hw=''; ls_ready=no
   cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
+    case "$ls_f" in */runs/*/reviews/visual-proof/*|*/runs/*/reports/qa-evidence/*) continue ;; esac   # machine output (A172)
     # A171 (review): the user's answers are written by the script as a quote block and are exempt whole; in any other file a quote
-    # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history), so a model cannot
-    # hide its own non-English text behind '> ' or a fence.
+    # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history) or product text
+    # (A172, above), so a model cannot hide its own non-English text behind '> ' or a fence.
     ls_own=no; case "$ls_f" in */questions/*.answer.md|*/questions/*.answer.amended-*.md|*/approvals/*|*/runs/*/TASK.md) ls_own=yes ;; esac
-    ls_hit=$(LC_ALL=C awk -v own="$ls_own" -v hist="$ls_blob" '
-      BEGIN { while ((getline l < hist) > 0) blob = blob "\n" l "\n" }
-      function quoted(t) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); return t == "" || index(blob, "\n" t "\n") > 0 }
-      /^[[:space:]]*```/ { fence = !fence; next }
-      { t = $0; skip = 0
-        if (fence || $0 ~ /^[[:space:]]*>/) { if (own == "yes") skip = 1; else { sub(/^[[:space:]]*>[[:space:]]?/, "", t); if (quoted(t)) skip = 1 } }
-        if (skip) next
-        c = gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&", t)
-        if (c > 0) { total += c; if (total >= 3 && !at) at = NR } }
-      END { if (at) print at }' "$ls_f")
+    ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "")
+    if [ -n "$ls_hit" ]; then
+      if [ "$ls_ready" = no ]; then language_head; ls_extra=$(language_extra "$ls_f"); ls_ready=yes; fi
+      ls_ok=$(language_ok_pieces "$ls_f" "$ls_own" "$ls_blob" "$ls_extra")
+      ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "$ls_ok")
+      rm -f "$ls_ok"
+    fi
     if [ -n "$ls_hit" ]; then printf '%s:%s\n' "${ls_f#"$root"/}" "$ls_hit"; ls_rc=1; fi
   done
-  rm -f "$ls_blob"
+  rm -f "$ls_blob" "$ls_extra"
   return "$ls_rc"
 }
-language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. The user's own words go verbatim into a quote block: every line starts with '> ' (A171); write everything else in English" "$1"; }
-# language_check FILE|-: the write-time check (A171, the runtime write hook calls it with the text about to be written; stdin for -).
-# Exit 1 and the "file:line" hit when the text holds non-English text outside a quote block.
+language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span (\"...\"), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file COMMITTED to git (HEAD; never a staged, modified or untracked file) outside .agents/, on word boundaries; the user's own messages are quoted verbatim in a '> ' block. Text that this task writes into new or changed files cannot be quoted until it is committed, except through TASK.md: put the text in TASK.md to quote it (A171, A172). Write everything else in English" "$1"; }
+# language_check FILE|- [PATH]: the write-time check (A171, the runtime write hook calls it with the text about to be written; stdin for -;
+# PATH is the run-relative file being written, which names the run whose TASK.md holds the quotable product text).
+# Exit 1 and the "file:line" hit when the text holds non-English text outside the exemptions above.
 language_check() {
-  lk_f=${1:--}; lk_t=''
+  lk_f=${1:--}; lk_t=''; LANG_HINT=${2:-}
   if [ "$lk_f" = - ]; then lk_t=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); cat > "$lk_t"; lk_f=$lk_t; fi
   lk_hit=$(language_scan "$lk_f") && lk_rc=0 || lk_rc=1
   [ -z "$lk_t" ] || rm -f "$lk_t"
@@ -3976,12 +4128,14 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
     fi
   fi
   # Run artifacts are English (A33): the report, the findings and the questions are scanned before recording.
+  LANG_HINT=$sb_d/   # the run whose TASK.md holds the quotable product text (A172)
   sb_lang_files="$sb_d/$sb_norm $sb_tmp/rows"; [ -z "$sb_questions" ] || sb_lang_files="$sb_lang_files $sb_questions"
   # shellcheck disable=SC2086
   sb_hits=$(language_scan $sb_lang_files) || submit_fail "$(language_fail_text "$(printf '%s' "$sb_hits" | tr '\n' ' ' | sed "s#$sb_tmp/rows#your findings#")")"
   # A43: the result cites an immutable copy of the artifact (reports/snapshots/<sha12>-<role>-<path>), never the
   # live path. A later round that writes the same report path (REPORT.md, VERIFY.md, QA_REPORT.md) then cannot
   # make an earlier result's ARTIFACT sha256 stale. The original path is checked against the role's paths here.
+  # the artifact paths: a qa BLOCKED may still report in QA_REPORT.md (the report step); the finding ids follow result_kind (A172)
   sb_kind=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_kind=gate; fi
   artifact_allowed "$execution_role" "$sb_kind" "$sb_focus" "$sb_norm" || submit_fail "artifact $sb_norm is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_kind" "$sb_focus")"
   # A113: an explorer cites only the report this submit allocated (or an immutable snapshot of it)
@@ -4007,7 +4161,8 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
     [ -z "$sb_focus" ] || printf 'FOCUS: %s\n' "$sb_focus"
     printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(gate_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
     printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
-    sb_prefix=$execution_role; [ -z "$sb_gate" ] || sb_prefix=$sb_gate
+    sb_idkind=$(result_kind "$execution_role" "$sb_res")
+    sb_prefix=$(finding_prefix "$execution_role" "$sb_idkind" "$sb_gate")   # A172: record demands exactly this prefix
     awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
     if [ -s "$sb_tmp/evlines" ]; then printf '\n'; sed 's/^/EVIDENCE: /' "$sb_tmp/evlines"; fi
     if [ -n "${sb_nr:-}" ]; then printf '\nNOT_RERUN: %s\n' "$sb_nr"; fi
@@ -4083,7 +4238,7 @@ secret_scan() {
 }
 
 # --- Mutation budget floor: one claim mutant per distinct AC of PLAN `## Tests` ----------------
-plan_test_acs() { awk '/^## /{ i = ($0 ~ /^## Tests/); next } i && match($0, /^[ \t]*[-*][ \t]+AC-[0-9]+:/) { a = substr($0, RSTART, RLENGTH); sub(/^[^A]*/, "", a); seen[a] = 1 } END { n = 0; for (k in seen) n++; print n }' "$1"; }
+plan_test_acs() { awk '/^## /{ i = ($0 ~ /^## Tests/); next } i && match(toupper($0), /^[ \t]*[-*][ \t]+AC-[0-9]+:/) { a = toupper(substr($0, RSTART, RLENGTH)); sub(/^[^A]*/, "", a); sub(/-0+/, "-", a); seen[a] = 1 } END { n = 0; for (k in seen) n++; print n }' "$1"; }
 # Budget in force: the larger of config test_trust.mutation_budget and the user-approved per-run override.
 mutation_budget() {
   mb_b=$(cfg test_trust.mutation_budget 20); mb_o=$(cat "$(run_dir "$1")/mutation_budget" 2>/dev/null || :)
@@ -4429,6 +4584,7 @@ rl_detect() {
 }
 request_approval() {
   rq_id=$1 rq_kind=$2; require_lead; approval_target "$rq_id" "$rq_kind"
+  rq_kind=$(canon_kind "$rq_id" "$rq_kind")
   rq_ad=$(approvals_dir "$rq_id"); mkdir -p "$rq_ad"; rq_n=$(next_num "$rq_ad")
   rq_bound=$(approval_bound "$rq_id" "$rq_kind")
   printf 'kind: "%s"\nbound: "%s"\nrequested_at: %s\n' "$rq_kind" "$rq_bound" "$(now_epoch)" > "$rq_ad/$rq_n-request-$(kind_slug "$rq_kind").yaml"
@@ -4493,6 +4649,7 @@ approval_why() { # KIND BOUND [tr]
 }
 approve() {
   ap_id=$1 ap_kind=$2; require_lead; approval_target "$ap_id" "$ap_kind"
+  ap_kind=$(canon_kind "$ap_id" "$ap_kind")
   ap_req=$(latest_request "$ap_id" "$ap_kind") || fail "no approval request for $ap_kind: run 'agent.sh request-approval $ap_id $ap_kind' and relay it to the user first"
   safe_state_file "$ap_req" || fail "approval request $(basename "$ap_req") is not a regular single-link file on a symlink-free path"
   ap_reqn=$(basename "$ap_req" | cut -c1-3); ap_slug=$(kind_slug "$ap_kind"); ap_ad=$(approvals_dir "$ap_id")
@@ -4683,11 +4840,22 @@ waive_target() {
   case "$(gate_field "$wt_rec" gate)" in SECRETS|SECURITY) fail "$(gate_field "$wt_rec" gate) findings are never waivable"; return 1 ;; esac
   printf '%s\n' "$wt_rec"
 }
+# A172: a finding id typed by a person (waive, the approval kind waive:<id>) is matched by key against the open blocking
+# findings and used in the spelling the gate record holds; an id that matches nothing is returned as typed (waive_target refuses it).
+waive_canon() { # ID FINDING-ID
+  wc_rec=$(waive_target "$1" "$2" 2>/dev/null) || { printf '%s\n' "$2"; return 0; }
+  wc_hit=$(blocking_finding_ids "$wc_rec" | while IFS= read -r wc_x; do if id_eq "$wc_x" "$2"; then printf '%s\n' "$wc_x"; break; fi; done)
+  printf '%s\n' "${wc_hit:-$2}"
+}
+canon_kind() { # ID KIND -> the approval kind with a waive:<id> in the recorded spelling of the finding id
+  case "$2" in waive:*) if [ "$1" = - ]; then printf '%s\n' "$2"; else printf 'waive:%s\n' "$(waive_canon "$1" "${2#waive:}")"; fi ;; *) printf '%s\n' "$2" ;; esac
+}
 waive() {
   wv_id=$1 wv_fid=$2; shift 2; wv_reason=''
   while [ $# -gt 0 ]; do case "$1" in --reason) wv_reason=${2:-}; shift 2 || shift ;; *) fail "unknown waive argument: $1" ;; esac; done
   require_run "$wv_id"; require_lead; require_open_run "$wv_id"; wv_d=$(run_dir "$wv_id")
   reject_generic_justification "$wv_reason" || fail "waive requires a specific --reason (>=20 chars)"
+  wv_fid=$(waive_canon "$wv_id" "$wv_fid")
   wv_now=$(gate_fingerprint); wv_rec=$(waive_target "$wv_id" "$wv_fid" "$wv_now") || return 1
   wv_gate=$(gate_field "$wv_rec" gate); wv_rsha=$(hash_file "$wv_rec")
   wv_app=$(find_approval "$wv_id" "waive:$wv_fid" "$(basename "$wv_rec")@$wv_rsha#$wv_fid") || fail "waiving $wv_fid needs the user's approval naming it: 'agent.sh request-approval $wv_id waive:$wv_fid', relay, then 'agent.sh approve $wv_id waive:$wv_fid'"
@@ -5439,12 +5607,16 @@ gate_report_ids() { # ID GATE [FOCUS] -> ids, one per line (FOCUS '-' = the gate
 }
 # a report line that names the gate exactly (the gate name is not just part of an id like QA-1 or a longer word)
 # and carries the finding id: the narrowest rule that keeps 'scenarios QA-1 to QA-9' from naming a QA finding.
+# A172: by key (id_key): QA-1, qa-1 and QA-01 name the same finding.
 report_names_id() { # REPORT GATE ID
-  grep -E "(^|[^A-Za-z0-9_-])$3([^0-9]|\$)" "$1" | sed -E "s/$2-[0-9]+//g" | grep -Eq "(^|[^A-Za-z0-9_-])$2([^A-Za-z0-9_-]|\$)"
+  awk -v g="$2" -v id="$3" 'BEGIN { g = tolower(g); id = tolower(id); n = id; sub(/^.*-/, "", n); sub(/-[0-9]+$/, "", id); sub(/^0+/, "", n); if (n == "") n = "0"
+      idre = "(^|[^a-z0-9_-])" id "-0*" n "([^0-9]|$)"; gre = g "-[0-9]+"; gname = "(^|[^a-z0-9_-])" g "([^a-z0-9_-]|$)" }
+    { l = tolower($0); if (l !~ idre) next; gsub(gre, "", l); if (l ~ gname) found = 1 }
+    END { exit !found }' "$1"
 }
 # a report line that names GATE:focus exactly (the next character is not part of a longer focus) -> the lines
-report_key_lines() { # REPORT KEY
-  awk -v k="$2" '{ l = $0; while ((i = index(l, k)) > 0) { c = substr(l, i + length(k), 1); if (c == "" || c !~ /[A-Za-z0-9_+-]/) { print $0; break }; l = substr(l, i + length(k)) } }' "$1"
+report_key_lines() { # REPORT KEY (case-insensitive, A172)
+  awk -v k="$2" 'BEGIN { k = tolower(k) } { l = tolower($0); while ((i = index(l, k)) > 0) { c = substr(l, i + length(k), 1); if (c == "" || c !~ /[a-z0-9_+-]/) { print $0; break }; l = substr(l, i + length(k)) } }' "$1"
 }
 # A130: every gate that re-ran nothing is named in the report on its own line, "not reproduced (NOT_RERUN)";
 # `next` before the report lists what the report must carry, so the lead writes it right the first time.
@@ -6659,7 +6831,7 @@ case "$command" in
   request-approval) request_approval "${2:?usage: agent.sh request-approval <ID> <KIND>}" "${3:?usage: agent.sh request-approval <ID> <KIND>}" ;;
   approve) [ $# -ge 3 ] || fail "usage: agent.sh approve <ID> <KIND>..."; ap_a=$2; shift 2; approve_kinds "$ap_a" "$@" ;;
   hook-time) hook_time "${2:-}" ;;
-  language-check) language_check "${2:--}" ;;
+  language-check) language_check "${2:--}" "${3:-}" ;;
   run-language) run_language "${2:--}" ;;
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) [ $# -ge 3 ] || fail "usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT [REF...]]"; shift; approval_consume "$@" ;;

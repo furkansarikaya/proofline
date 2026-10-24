@@ -338,7 +338,7 @@ export function validateReport(report, opt = {}) {
     const planIds = planVisualProof(opt.planText);
     if (planIds === null) err("PLAN.md has no `visual_proof:` line in ## UI");
     for (const id of planIds || []) {
-      const c = criteria.find((x) => x?.id === id);
+      const c = criteria.find((x) => String(x?.id).toUpperCase().replace(/-0+(?=\d)/g, "-") === id.toUpperCase().replace(/-0+(?=\d)/g, "-"));   // A172: by key
       if (!c) err(`${id} is marked visual_proof in PLAN.md but missing from criteria (unproven)`);
       else if (!c.required) err(`${id} is marked visual_proof in PLAN.md: criteria entry must be required: true`);
     }
@@ -516,6 +516,8 @@ export function validateReport(report, opt = {}) {
       }
       for (const id of Array.isArray(design.scene_ids) ? design.scene_ids : []) if (!sids.has(id) && !dnm.some((n) => n?.check === "design_scene" && (n.scene === id || n.scene === undefined) && str(n.reason))) err(`design scene ${id} is neither photographed nor listed as not_measured`);
       for (const [i, im] of images.entries()) if (!isObj(im) || !str(im.src) || typeof im.in_ledger !== "boolean") err(`design.images[${i}]: needs src and in_ledger true|false`);
+      // A172: optional information about a language page (ASCII-ized Turkish); it never changes the result
+      for (const [i, n] of arr("language_notes").entries()) if (!isObj(n) || !str(n.path) || n.kind !== "ascii_turkish" || !Array.isArray(n.words) || !n.words.length || !n.words.every((x) => isObj(x) && str(x.word) && Number.isInteger(x.count) && x.count > 0)) err(`design.language_notes[${i}]: needs path, kind ascii_turkish and words [{word, count}]`);
     }
   }
   const critique = report.critique;
@@ -659,6 +661,8 @@ function rowsOf(report, fails, judged, seoItems = [], designItems = [], lintBloc
     if (m.status === "fail") rows.push(["blocking", `${spath(m.screen)}:${m.selector}`, `${m.id} ${m.check}: ${m.value} fails ${m.threshold} at ${m.screen}/${m.viewport}: ${m.note}`, `measured; ${m.screenshot?.path || "design"} sha256:${String(m.screenshot?.sha256 || "").slice(0, 12)}`]);
     else if (m.status === "not_measured") rows.push(["info", `${spath(m.screen)}:${m.selector}`, `${m.id} ${m.check} not measured at ${m.screen}/${m.viewport}: ${m.reason ?? m.note}`, "not_measured"]);
   }
+  // A172: Turkish typed without its letters on a Turkish page is information only; the words are config (visual.ascii_turkish_words / _allow)
+  for (const n of Array.isArray(report.design?.language_notes) ? report.design.language_notes : []) if (isObj(n) && n.kind === "ascii_turkish" && Array.isArray(n.words)) rows.push(["info", `${n.path}:${n.words[0]?.selector || "body"}`, `design language ${n.lang}: possible Turkish text without its letters on ${n.path}: ${n.words.slice(0, 6).map((x) => `${x.word} x${x.count}`).join(", ")}; if intended, list the word under visual.ascii_turkish_allow`, "measured; design language_notes"]);
   for (const c of Array.isArray(report.critique) ? report.critique : []) if (c?.status === "concern") rows.push(["info", `critique:${c.id}`, `critique ${c.id}: ${c.reason}`, `judged; ${c.screenshot?.path}`]);
   for (const c of Array.isArray(report.ux_review) ? report.ux_review : []) if (c?.status === "concern") rows.push(["info", `ux_review:${c.rule}`, `ux rule ${c.rule}: ${c.reason}`, `judged; ${c.screenshot?.path}`]);
   for (const f of lintBlocking) rows.push(["blocking", `${f.file}:${f.line}`, `lint ${f.id}: ${f.excerpt ?? f.reason ?? "registry pattern without a written justification"}`, "measured; lint.json"]);

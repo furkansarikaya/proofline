@@ -8,8 +8,8 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { validateReport, CORE, loadUxRules } from "../../skills/visual-proof/scripts/validate-visual.mjs";
-import { assemble, detect } from "../../skills/visual-proof/scripts/measure.mjs";
-import { evaluateStatic, untranslatedBlocks, vacuumOf, designHolds, designThresholdError, CRITIQUE_IDS } from "../../skills/visual-proof/scripts/design-audit.mjs";
+import { assemble, detect, asciiConfig } from "../../skills/visual-proof/scripts/measure.mjs";
+import { evaluateStatic, asciiTurkishWords, untranslatedBlocks, vacuumOf, designHolds, designThresholdError, CRITIQUE_IDS } from "../../skills/visual-proof/scripts/design-audit.mjs";
 import { decideMotionCount, decideReducedMotion, decideNoScript, decideSceneStarted, sceneRange } from "../../skills/visual-proof/scripts/motion-audit.mjs";
 import { parseLedger, ledgerItems } from "../../skills/visual-proof/scripts/ledger.mjs";
 import { lintText, applyJustifications, parseJustifications, lintProject, validateLint } from "../../skills/visual-proof/scripts/lint-source.mjs";
@@ -198,4 +198,15 @@ test("browser: the bad site fails with its planted design findings, the good sit
   writeFileSync(join(tmp, "DESIGN.md"), `${readFileSync(md, "utf8")}\n- mono-labels: kept on purpose\n- hairline-newspaper: kept on purpose\n- eyebrow-label: kept on purpose\n`);
   const info = lintProject({ root, designMd: join(tmp, "DESIGN.md") }).findings;
   assert.ok(info.length > 0 && info.every((f) => f.severity === "info" && f.justified));
+});
+
+test("ascii-ized Turkish: listed words are counted, an allowed word and correct Turkish are not; the config keys are read", () => {
+  const blocks = [{ selector: "h1", text: "Bu ürün degil, icin Turkce" }, { selector: "p", text: "Bu ürün değil, için Türkçe" }];
+  const hit = (a) => asciiTurkishWords(blocks, a).map((x) => x.word).sort();
+  assert.deepEqual(hit({}), ["degil", "icin", "turkce"]);
+  assert.deepEqual(hit({ allow: "icin" }), ["degil", "turkce"]);
+  assert.deepEqual(asciiTurkishWords([{ selector: "p", text: "Bu ürün değil, için Türkçe" }], {}), []);
+  const d = mktmp(); mkdirSync(join(d, ".agents"));
+  writeFileSync(join(d, ".agents/config.yaml"), 'visual:\n  ascii_turkish_words: "degil kapi"\n  ascii_turkish_allow: "degil"\n');
+  assert.deepEqual(asciiConfig([d]), { words: "degil kapi", allow: "degil" });
 });

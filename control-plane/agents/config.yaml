@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
 # phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
 # validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.28
+proofline_version: 0.0.29
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -134,6 +134,14 @@ validation:
   entry_output: "responses?|returns?|returning|returned|omits?|omitted|output|status +codes?|shape|results?"
   entry_skip: "unchanged|documented|documents|no +change|not +changed|unmodified|as +before"
   code_patterns: "@(Get|Post|Put|Patch|Delete|Request)Mapping|@(app|router|bp|blueprint)\.(route|get|post|put|patch|delete)|(app|router|api|server)\.(get|post|put|patch|delete|all|use)\(|http\.HandleFunc|\.Handle\(|\.(GET|POST|PUT|PATCH|DELETE)\(|add_argument\(|argparse|\.command\(|yargs|cobra\.Command|flag\.(String|Int|Bool)|process\.argv|sys\.argv|webhook|subscribe\(|consumer|createServer"
+
+# visual-proof, language pages (A172): on a page whose language is Turkish (a `design.languages` entry), words that look like Turkish typed
+# without its letters ("Turkce", "degil", "icin") are reported as INFORMATION in the visual report, never as a blocking finding. `ascii_turkish_words`
+# is the space-separated word list (lower case; extend it for the project); `ascii_turkish_allow` lists words used on purpose.
+# Read with `agent.sh config-get visual.ascii_turkish_words`; empty words = the built-in list of visual-proof.
+visual:
+  ascii_turkish_words: "degil icin Turkce Turkiye cunku gore guvenli ozellik calisir ucretsiz giris cikis lutfen sifre guzel musteri iletisim urunler ogrenin baslayin"
+  ascii_turkish_allow: ""
 
 # Risk-adaptive pipeline (A78; `agent.sh pipeline <ID>` shows what fired and why). A signal comes from a changed
 # or planned path (`paths`, globs as in risky_paths), from text the diff adds (`content`, an extended regular

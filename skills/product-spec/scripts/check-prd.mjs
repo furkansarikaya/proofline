@@ -11,6 +11,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateClaims } from "./validate-product-claims.mjs";
 
+// A172: ids (FR-n, NFR-n, US-n, AC-n) compare by key: case-insensitive, leading zeros ignored; a document keeps the spelling its author wrote.
+export const idKey = (s) => String(s).toUpperCase().replace(/-0+(?=\d)/g, "-");
 export const SECTIONS = ["Problem", "Goals", "Non-goals", "User stories", "Functional requirements", "Non-functional requirements", "Success metrics", "Assumptions", "Open questions"];
 export const VERDICTS = ["ship", "ship-with-conditions", "do-not-ship"];
 // Words an acceptance criterion cannot be measured by. English and Turkish; extended by product.vague_words.

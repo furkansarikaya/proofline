@@ -30,7 +30,8 @@ QUESTIONS:                                     with RESULT: NEEDS_INPUT (format 
 ```
 
 - `severity` is `blocking` or `info`. `info` never fails a gate (suspicions, pre-existing failures).
-- Finding ids: `<GATE>-<n>` for gate results (`SECURITY-1`), `<role>-<n>` otherwise (`explorer-2`).
+- Finding ids: `<GATE>-<n>` for gate results (`SECURITY-1`, `QA-1`), `<role>-<n>` for task results (`explorer-2`, `qa-1` in the QA plan step).
+  `submit` writes the prefix and `record` demands it, both from one function (A172); ids are compared by key (case-insensitive, leading zeros ignored).
 - `FINGERPRINT` is the git tree id of the working tree including untracked files, excluding `.agents/runs/`
   and `.agents/local/`; any byte change produces another value.
 - `ARTIFACT` may use an absolute path or a project-relative `.agents/runs/<TASK-ID>/...` path that resolves inside the run directory; `record` normalizes it to a

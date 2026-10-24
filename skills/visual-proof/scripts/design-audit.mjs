@@ -142,6 +142,18 @@ export function untranslatedBlocks(blocks, allow = []) {
   return out;
 }
 
+// A172: Turkish typed without its letters ("Turkce", "degil", "icin") on a Turkish page. Information only, never a finding that blocks:
+// the words are the project's `visual.ascii_turkish_words` (.agents/config.yaml, read with `cfg`), minus `visual.ascii_turkish_allow`
+// (a word used on purpose). The defaults are frequent Turkish words whose ASCII form is rarely English.
+export const DEFAULT_ASCII_TURKISH = "degil icin Turkce Turkiye cunku gore guvenli ozellik calisir ucretsiz giris cikis lutfen sifre guzel musteri iletisim urunler ogrenin baslayin";
+export const asciiTurkishWords = (blocks, ascii = {}) => {
+  const list = (v) => (Array.isArray(v) ? v : String(v ?? "").split(/[\s,]+/)).map((w) => w.toLowerCase()).filter(Boolean);
+  const want = new Set(list(ascii.words ?? DEFAULT_ASCII_TURKISH)), allow = new Set(list(ascii.allow));
+  const found = new Map();
+  for (const b of blocks || []) for (const w of words(b.text)) if (want.has(w) && !allow.has(w)) { const x = found.get(w) || { word: w, count: 0, selector: b.selector }; x.count++; found.set(w, x); }
+  return [...found.values()].sort((a, b) => b.count - a.count || a.word.localeCompare(b.word));
+};
+
 // --- evaluation ----------------------------------------------------------------------------------------------
 // facts: the DESIGN_PROBE result; ctx: { mode, viewport (name), static (default true), language: { lang, allow_text } | null }.
 // Returns items { check, viewport, selector, value, threshold, status, note?, reason? } (no id, screen or screenshot).
@@ -296,7 +308,7 @@ export const designMotionMin = (d) => ({ load: Number.isInteger(d?.motion_min?.l
 // raw.design = { pages: [{ path, not_measured?, viewports: [{ viewport, screenshot?, facts?, error?, images? }], ledger?: { items, images } }],
 //                motion?: { items, scenes, not_measured } | { error } }   (screenshots are relative path strings)
 // -> report.design. sha(path) returns the hex sha256 of a screenshot file, or throws when it is missing.
-export function assembleDesign(raw, c, sha) {
+export function assembleDesign(raw, c, sha, opts = {}) {
   const d = c.design, mode = d.visitor_mode, rd = raw?.design || {};
   const pages = designPages(c);
   const out = { status: "run", mode, viewports: DESIGN_VIEWPORTS.map((v) => ({ ...v })), pages: [], items: [], screenshots: [], scenes: [], images: [], not_measured: [],
@@ -319,6 +331,10 @@ export function assembleDesign(raw, c, sha) {
         continue;
       }
       for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
+      if (pg.language && vp.name === "wide" && /^tr(-|$)/i.test(String(pg.language.lang))) {   // A172: information only
+        const hits = asciiTurkishWords(rv.facts.textBlocks, opts.ascii);
+        if (hits.length) (out.language_notes ||= []).push({ screen: pg.screen, path: pg.path, lang: String(pg.language.lang), kind: "ascii_turkish", words: hits });
+      }
     }
     for (const it of rp.ledger?.items || []) push(normExternal(it, pg, shot));
     for (const im of rp.ledger?.images || []) if (!out.images.some((x) => x.src === im.src && x.file === im.file)) out.images.push(im);

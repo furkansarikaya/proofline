@@ -82,7 +82,9 @@ export function resolveRef(root, slug, id, dir = productDirOf(root)) {
   try { names = readdirSync(folder).filter((n) => n.endsWith(".md")).sort(); } catch { /* missing folder */ }
   for (const n of names) {
     const lines = stripComments(readFileSync(join(folder, n), "utf8")).split(/\r?\n/);
-    const at = lines.findIndex((l) => l.startsWith(`- ${id} `));
+    // A172: the ref regex accepts any case, so the claim line is found by key (case-insensitive, leading zeros ignored)
+    const key = (x) => String(x).toUpperCase().replace(/-0+(?=\d)/g, "-");
+    const at = lines.findIndex((l) => { const m = /^- ([A-Za-z]+-\d+) /.exec(l); return m !== null && key(m[1]) === key(id); });
     if (at < 0) continue;
     const text = lines[at], ref = { file: join(dir, slug, n), line: at + 1, text };
     const found = [...text.matchAll(MARKER)];

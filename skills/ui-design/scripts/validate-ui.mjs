@@ -65,7 +65,7 @@ export function parseTask(md) {
   }
   const criteria = [];
   for (const l of secs.get("Acceptance criteria") || []) {
-    const m = /^\s*(?:[-*]|\d+\.)?\s*(AC-\d+):\s*\S/.exec(l);
+    const m = /^\s*(?:[-*]|\d+\.)?\s*(AC-\d+):\s*\S/i.exec(l);
     if (m) criteria.push(m[1]);
   }
   const cls = ((secs.get("Suggested class") || []).join(" ").match(/\b(TRIVIAL|STANDARD|COMPLEX|CRITICAL)\b/) || [])[1] || null;
@@ -576,7 +576,7 @@ function criteriaList(list, sid, task, err) {
     else if (seen.has(c.id)) err(`${q}.id`, `duplicate criterion ${c.id}`);
     else {
       seen.add(c.id);
-      if (task && !task.criteria.includes(c.id)) err(`${q}.id`, `${c.id} is not an acceptance criterion of the task (known: ${task.criteria.join(", ") || "none"})`);
+      if (task && !task.criteria.some((t) => t.toUpperCase().replace(/-0+(?=\d)/g, "-") === String(c.id).toUpperCase().replace(/-0+(?=\d)/g, "-")))   /* A172: by key */ err(`${q}.id`, `${c.id} is not an acceptance criterion of the task (known: ${task.criteria.join(", ") || "none"})`);
     }
     if (!Array.isArray(c.screens) || c.screens.length === 0) err(`${q}.screens`, "expected non-empty array of screen ids");
     else for (const s of c.screens) if (!sid.has(s)) err(`${q}.screens`, `unknown screen ${s}`);

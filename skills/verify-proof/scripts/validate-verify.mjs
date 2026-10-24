@@ -22,6 +22,8 @@ import { parseFrontMatter } from "../../plan-contract/scripts/validate-plan.mjs"
 
 const strip = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
 const PLACEHOLDER = /(<[A-Za-z][A-Za-z -]*>|\bTBD\b|\bTODO\b|\?\?\?)/;
+// A172: ids compare by key (case-insensitive, leading zeros ignored); a row keeps the spelling its author wrote.
+const idKey = (s) => String(s).toUpperCase().replace(/-0+(?=\d)/g, "-");
 
 function sections(text) {
   const out = new Map();
@@ -81,23 +83,23 @@ export function validateVerify(text, taskText, planText) {
   for (const line of secs.get("AC coverage") || []) {
     if (!/^\|/.test(line) || /^\|\s*-/.test(line) || /^\|\s*AC\s*\|/i.test(line)) continue;
     const c = line.split("|").slice(1, -1).map((x) => x.trim());
-    if (c.length < 4 || !/^AC-\d+$/.test(c[0]) || !["PASS", "FAIL", "MISSING"].includes(c[2])) { errors.push(`malformed AC coverage row "${line.slice(0, 70)}"`); continue; }
+    if (c.length < 4 || !/^AC-\d+$/i.test(c[0]) || !["PASS", "FAIL", "MISSING"].includes(c[2])) { errors.push(`malformed AC coverage row "${line.slice(0, 70)}"`); continue; }
     if (c[2] === "PASS" && (!c[1] || !c[3])) errors.push(`${c[0]}: PASS needs a test reference or verification command and evidence`);
     if (c[2] === "PASS" && c[1].startsWith("command: ")) {
-      const mapped = plan?.scope.filter((s) => s.criteria?.includes(c[0])) || [];
+      const mapped = plan?.scope.filter((s) => s.criteria?.some((k) => idKey(k) === idKey(c[0]))) || [];
       if (!mapped.length || !mapped.every((s) => s.tdd_exemption)) errors.push(`${c[0]}: command proof requires tdd_exemption on every mapped PLAN scope path`);
       const match = /^command: `([^`]+)`$/.exec(c[1]);
       const command = match && cmds.find((x) => x.cmd === match[1] && x.exit === 0);
       if (!command || !c[3].includes(`\`${match?.[1]}\` exit=0`) || !command.outputs.length || !command.outputs.some((output) => output.trim() && c[3].includes(output))) errors.push(`${c[0]}: command proof needs a recorded passing exact command, exit=0, and its demonstrating output line`);
     }
     // A82: a criterion on the PLAN `## UI` line `visual_proof:` needs visual evidence besides its test.
-    if (c[2] === "PASS" && visual.includes(c[0]) && !new RegExp(`visual-proof: ${c[0]} proven\\b`).test(c[3])) errors.push(`${c[0]}: marked visual_proof in PLAN.md; PASS needs the visual evidence \`visual-proof: ${c[0]} proven\` (otherwise MISSING)`);
+    if (c[2] === "PASS" && visual.some((k) => idKey(k) === idKey(c[0])) && ![...c[3].matchAll(/visual-proof: (AC-\d+) proven\b/gi)].some((m) => idKey(m[1]) === idKey(c[0]))) errors.push(`${c[0]}: marked visual_proof in PLAN.md; PASS needs the visual evidence \`visual-proof: ${c[0]} proven\` (otherwise MISSING)`);
     rows.push({ ac: c[0], status: c[2] });
     if (c[2] !== "PASS") reasons.push(`${c[0]} ${c[2]}`);
   }
   if (taskText) {
-    const acs = [...strip(taskText).matchAll(/^(?:[-*]\s+)?(AC-\d+):/gm)].map((m) => m[1]);
-    for (const a of acs) if (!rows.some((r) => r.ac === a)) errors.push(`${a} has no row in ## AC coverage`);
+    const acs = [...strip(taskText).matchAll(/^(?:[-*]\s+)?(AC-\d+):/gim)].map((m) => m[1]);
+    for (const a of acs) if (!rows.some((r) => idKey(r.ac) === idKey(a))) errors.push(`${a} has no row in ## AC coverage`);
   } else if (secs.has("AC coverage") && !rows.length) errors.push("## AC coverage has no rows");
 
   // scope

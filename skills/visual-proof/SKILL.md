@@ -4,7 +4,7 @@ description: Visual proof of a UI change with the browser tooling the project or
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.28"
+  version: "0.0.29"
 ---
 
 # visual-proof
@@ -15,7 +15,12 @@ Role: QA (`qa`, gate `QA`, focus `visual`, A82). Never edits product code or tes
 a driver or a package, never creates visual-regression baselines.
 
 Talk to the user in their language. Files written for machines (`report.json`, `REPORT.md`, `visual.json`,
-`ledger.md`) are English; identifiers, paths, commands and enum values are never translated.
+`ledger.md`) are English; identifiers, paths, commands and enum values are never translated. In a run, the language
+check skips `reviews/visual-proof/` (tool output, A172), and screen text a report quotes stays as the page has it.
+On a page listed in `design.languages` with a Turkish `lang`, words that look like Turkish typed without its letters
+("Turkce", "degil", "icin") are reported as information (`design.language_notes`, an `info` row), never as a finding that
+blocks; the word list and the words used on purpose are `visual.ascii_turkish_words` and `visual.ascii_turkish_allow` in
+`.agents/config.yaml` (read with `agent.sh config-get`).
 
 **Bundled paths.** `references/`, `assets/`, `scripts/` resolve relative to the directory containing this `SKILL.md`.
 
@@ -164,7 +169,7 @@ These rules are identical in every proofline skill; `tests/shared/check-shared.s
 8. **Project rules** that are written and checkable are evidence; vague rules produce no finding; only new violations introduced by the change are reported.
 9. **Sandbox warning** once, before any project code first runs.
 10. **Ledger.** Each step's rows are written before the next step starts; the ledger is the resume point and never records what did not happen.
-11. **Language.** Every file written inside a run (`.agents/runs/<ID>/`, reports included) is English, whatever the user's language; the user's own words appear only in a quote block, every line starting with `> ` (the language check exempts these lines and runs when a file is written, A171). Standalone, `REPORT.md` and the final message use the user's language. Identifiers, paths, commands and enum values are never translated.
+11. **Language.** Every file written inside a run (`.agents/runs/<ID>/`, reports included) is English, whatever the user's language; the user's own words appear only in a quote block, every line starting with `> ` (the language check exempts these lines and runs when a file is written, A171). Product text and quotes are never translated or transliterated to ASCII (ç→c, ş→s, ğ→g, ı→i, ü→u, ö→o): quote them in place (inline code, "double quotes" or a `> ` line) when the exact text is in the task's `TASK.md` or in a committed product file (A172), and never ask the user whether to translate. Standalone, `REPORT.md` and the final message use the user's language. Identifiers, paths, commands and enum values are never translated.
 12. **Commit identity.** Never commit, push or tag on the user's behalf unless asked; never assume the user's global git identity.
 13. **Temporary files** only in a fresh `mktemp -d` directory outside the repository, removed after use; never inside the repository, `.agents/runs/` or `.agents/local/` (unknown files there block the run). Inside a run, the content fingerprint comes from `.agents/scripts/agent.sh fingerprint <TASK-ID>`.
 

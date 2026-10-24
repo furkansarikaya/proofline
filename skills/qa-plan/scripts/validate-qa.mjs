@@ -12,6 +12,8 @@ import { fileURLToPath } from "node:url";
 
 export const CATEGORIES = ["boundaries", "invalid-input", "concurrency", "idempotency", "permissions", "persistence", "ui-states", "error-paths"];
 const strip = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
+// A172: ids (QA-n, AC-n) compare by key: case-insensitive, leading zeros ignored. A plan or report keeps the spelling its author wrote.
+export const idKey = (s) => String(s).toUpperCase().replace(/-0+(?=\d)/g, "-");
 const PLACEHOLDER = /(<[A-Za-z][A-Za-z -]*>|\bTBD\b|\bTODO\b|\?\?\?)/;
 export const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
@@ -27,13 +29,13 @@ function sections(text) {
 }
 
 export function taskAcs(taskText) {
-  return [...strip(taskText).matchAll(/^(?:[-*]\s+)?(AC-\d+):/gm)].map((m) => m[1]);
+  return [...strip(taskText).matchAll(/^(?:[-*]\s+)?(AC-\d+):/gim)].map((m) => m[1]);
 }
 
 function scenarios(lines, errors, secName) {
   const list = [];
   for (const line of lines) {
-    const head = /^- (QA-\d+) \((AC-\d+(?:,\s*AC-\d+)*)\)(?: \[([a-z-]+)\])?: (.+)$/.exec(line);
+    const head = /^- ([Qq][Aa]-\d+) \(([Aa][Cc]-\d+(?:,\s*[Aa][Cc]-\d+)*)\)(?: \[([a-z-]+)\])?: (.+)$/.exec(line);
     if (head) { list.push({ id: head[1], acs: head[2].split(/,\s*/), category: head[3], title: head[4], kv: {} }); continue; }
     const kv = /^\s+(input|expected|run|execution|reason|human-check): (.+)$/.exec(line);
     if (kv && list.length) { list[list.length - 1].kv[kv[1]] = kv[2].trim(); continue; }
@@ -46,9 +48,9 @@ function scenarios(lines, errors, secName) {
 export function planAcs(planText) {
   const t = strip(planText);
   const out = new Set();
-  for (const m of t.matchAll(/^\s*criteria:\s*\[([^\]]*)\]/gm)) for (const a of m[1].match(/AC-\d+/g) || []) out.add(a);
+  for (const m of t.matchAll(/^\s*criteria:\s*\[([^\]]*)\]/gm)) for (const a of m[1].match(/AC-\d+/gi) || []) out.add(idKey(a));
   const beh = sections(t).get("Behavior") || [];
-  for (const l of beh) { const m = /^(?:[-*]\s+)?(AC-\d+):/.exec(l); if (m) out.add(m[1]); }
+  for (const l of beh) { const m = /^(?:[-*]\s+)?(AC-\d+):/i.exec(l); if (m) out.add(idKey(m[1])); }
   return [...out];
 }
 // Terms the plan's `## Contracts` section removes, renames or drops: a scenario must not expect them back.
@@ -147,8 +149,8 @@ export function validatePlan(text, taskText, planText, entryWords) {
   if (!acc.length && secs.has("Acceptance scenarios")) errors.push("no acceptance scenarios");
   const seen = new Set();
   for (const s of [...acc, ...adv]) {
-    if (seen.has(s.id)) errors.push(`duplicate scenario id ${s.id}`);
-    seen.add(s.id);
+    if (seen.has(idKey(s.id))) errors.push(`duplicate scenario id ${s.id}`);
+    seen.add(idKey(s.id));
     for (const k of ["input", "expected", "run"]) if (!s.kv[k]) errors.push(`${s.id}: missing "${k}:" line`);
     if (!s.kv.execution) errors.push(`${s.id}: missing "execution: auto|manual" line`);
     else if (!["auto", "manual"].includes(s.kv.execution)) errors.push(`${s.id}: execution must be auto or manual, got "${s.kv.execution}"`);
@@ -159,18 +161,19 @@ export function validatePlan(text, taskText, planText, entryWords) {
   if (PLACEHOLDER.test(strip(text).replace(/^# QA plan:.*$/m, ""))) errors.push("unfilled placeholder remains");
   if (taskText) {
     const acs = taskAcs(taskText);
-    const covered = new Set(acc.flatMap((s) => s.acs));
-    for (const a of acs) if (!covered.has(a)) errors.push(`${a} has no acceptance scenario`);
-    for (const s of [...acc, ...adv]) for (const a of s.acs) if (!acs.includes(a)) errors.push(`${s.id} references unknown ${a}`);
+    const covered = new Set(acc.flatMap((s) => s.acs.map(idKey)));
+    const known = new Set(acs.map(idKey));
+    for (const a of acs) if (!covered.has(idKey(a))) errors.push(`${a} has no acceptance scenario`);
+    for (const s of [...acc, ...adv]) for (const a of s.acs) if (!known.has(idKey(a))) errors.push(`${s.id} references unknown ${a}`);
   }
   if (planText !== undefined) {
     const cited = /^Plan sha256: ([0-9a-f]{64})\s*$/m.exec(strip(text))?.[1];
     if (!cited) errors.push("missing `Plan sha256: <64 hex>` line (hash of the PLAN.md this QA plan is derived from; `validate-qa.mjs hash PLAN.md`)");
     else if (cited !== sha256(planText)) errors.push("Plan sha256 does not match PLAN.md: the QA plan was derived from a different plan; re-derive it from the current PLAN.md");
-    const pacs = planAcs(planText);
+    const pacs = planAcs(planText);   // keys
     const qacs = new Set([...acc, ...adv].flatMap((s) => s.acs));
-    for (const a of pacs) if (!acc.some((s) => s.acs.includes(a))) errors.push(`${a} is in PLAN.md but has no acceptance scenario`);
-    for (const a of qacs) if (pacs.length && !pacs.includes(a)) errors.push(`${a} is not a criterion of PLAN.md`);
+    for (const a of pacs) if (!acc.some((s) => s.acs.some((x) => idKey(x) === a))) errors.push(`${a} is in PLAN.md but has no acceptance scenario`);
+    for (const a of qacs) if (pacs.length && !pacs.includes(idKey(a))) errors.push(`${a} is not a criterion of PLAN.md`);
     const text_of = (s) => [s.title, ...Object.values(s.kv)].join("\n");
     for (const n of entryPoints(planText, entryWords || ENTRY)) {
       if (!adv.some((s) => s.category === "invalid-input" && text_of(s).includes(n))) errors.push(`no invalid-input scenario for the entry point ${n} of PLAN.md ## Contracts: add an adversarial scenario "- QA-<n> (AC-<k>) [invalid-input]: ..." that names it, with an input the server must reject`);
@@ -207,29 +210,31 @@ export function validateReport(text, planText) {
   if (!secs.has("Failures")) errors.push('missing section "## Failures"');
   const res = new Map();
   for (const line of secs.get("Scenarios") || []) {
-    const m = /^- (QA-\d+): (PASS|FAIL|BLOCKED|PRE-EXISTING|not-run \(manual\))(?:\s+(?:—|--|-)\s*(.*))?$/.exec(line);
+    const m = /^- ([Qq][Aa]-\d+): (PASS|FAIL|BLOCKED|PRE-EXISTING|not-run \(manual\))(?:\s+(?:—|--|-)\s*(.*))?$/.exec(line);
     if (!m) { if (/^- /.test(line)) errors.push(`malformed result line "${line.slice(0, 60)}"`); continue; }
-    if (res.has(m[1])) errors.push(`duplicate result for ${m[1]}`);
+    if (res.has(idKey(m[1]))) errors.push(`duplicate result for ${m[1]}`);
     if (!m[3] || !m[3].trim()) errors.push(`${m[1]}: evidence (observed behaviour and command) is required after the dash`);
     if (m[2] === "PRE-EXISTING" && !/\b(base|baseline|pre-change)\b/i.test(m[3] || "")) errors.push(`${m[1]}: PRE-EXISTING needs the pre-change run as evidence (name the base revision and its observed failure)`);
-    res.set(m[1], m[2]);
+    res.set(idKey(m[1]), m[2]);
   }
   if (res.size === 0) errors.push("no scenario results: \"## Scenarios\" must list at least one `- QA-n: PASS|FAIL|BLOCKED|PRE-EXISTING|not-run (manual) — evidence` line");
   const failures = (secs.get("Failures") || []).join("\n");
-  for (const [id, r] of res) if ((r === "FAIL" || r === "BLOCKED") && !failures.includes(id)) errors.push(`${id} is ${r} but is not described in "## Failures"`);
+  const described = new Set((failures.match(/QA-\d+/gi) || []).map(idKey));   // exact ids by key: QA-1 is not described by QA-10
+  for (const [id, r] of res) if ((r === "FAIL" || r === "BLOCKED") && !described.has(id)) errors.push(`${id} is ${r} but is not described in "## Failures"`);
   const computed = computeVerdict([...res.values()]);
   if (verdicts.length === 1 && res.size && verdicts[0] !== computed) errors.push(`verdict ${verdicts[0]} contradicts the gate rule (computed ${computed})`);
   if (planText !== undefined) {
     const plan = validatePlan(planText);
     const ids = [...plan.acceptance, ...plan.adversarial];
     if (cited && cited !== sha256(planText)) errors.push("Plan sha256 does not match the QA_PLAN.md on disk (plan changed after freeze or report cites another plan)");
-    for (const id of ids) if (!res.has(id)) errors.push(`no result for plan scenario ${id}`);
+    const idKeys = ids.map(idKey);
+    for (const id of ids) if (!res.has(idKey(id))) errors.push(`no result for plan scenario ${id}`);
     for (const id of ids) {
-      const manual = plan.manual.includes(id), r = res.get(id);
+      const manual = plan.manual.some((x) => idKey(x) === idKey(id)), r = res.get(idKey(id));
       if (manual && r && r !== "not-run (manual)") errors.push(`${id} is execution: manual and must be reported as "not-run (manual)", not ${r}`);
       if (!manual && r === "not-run (manual)") errors.push(`${id} is execution: auto; "not-run (manual)" is only for manual scenarios (use BLOCKED if it could not run)`);
     }
-    for (const id of res.keys()) if (!ids.includes(id)) errors.push(`result for ${id}, which is not in the plan`);
+    for (const id of res.keys()) if (!idKeys.includes(id)) errors.push(`result for ${id}, which is not in the plan`);
   }
   if (PLACEHOLDER.test(body.replace(/^# QA report:.*$/m, ""))) errors.push("unfilled placeholder remains");
   return { valid: errors.length === 0, errors, verdict: verdicts[0], computed };

@@ -42,7 +42,8 @@ export function thresholds(yamlText) {
 // The validator's floor for mutation_budget: one claim mutant per distinct AC of the PLAN "## Tests" section.
 export function minMutants(planText) {
   const m = /^## Tests[^\n]*\n([\s\S]*?)(?=^## |\s*$(?![\s\S]))/m.exec(String(planText ?? ""));
-  return new Set([...(m ? m[1] : "").matchAll(/^\s*[-*]\s+(AC-\d+):/gm)].map((x) => x[1])).size;
+  // A172: criteria count by key (case-insensitive, leading zeros ignored), like validate-findings.mjs
+  return new Set([...(m ? m[1] : "").matchAll(/^\s*[-*]\s+(AC-\d+):/gim)].map((x) => x[1].toUpperCase().replace(/-0+(?=\d)/g, "-"))).size;
 }
 
 // Gate rule of diff mode: a confirmed flaky finding (any flaky_* kind) or a confirmed

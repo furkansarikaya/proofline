@@ -43,8 +43,8 @@ export function assumptionProblems(lines) {
     const at = `Assumptions ${id || "(no id)"}`;
     if (c.length !== 7) { out.push(`${at}: expected 7 columns`); continue; }
     if (!/^AS-\d+$/.test(id)) out.push(`${at}: id must match AS-<n>`);
-    if (ids.has(id)) out.push(`${at}: duplicate id`);
-    ids.add(id);
+    if (ids.has(id.toUpperCase().replace(/-0+(?=\d)/g, "-"))) out.push(`${at}: duplicate id`);   // A172: by key
+    ids.add(id.toUpperCase().replace(/-0+(?=\d)/g, "-"));
     if (!text) out.push(`${at}: assumption text is empty`);
     if (!source) out.push(`${at}: source is empty`);
     if (!["low", "medium", "high"].includes(risk)) out.push(`${at}: risk must be low|medium|high`);

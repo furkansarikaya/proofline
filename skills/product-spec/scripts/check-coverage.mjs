@@ -7,9 +7,9 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parsePrd, resolvePrd, tasksDir } from "./check-prd.mjs";
+import { idKey, parsePrd, resolvePrd, tasksDir } from "./check-prd.mjs";
 
-export const COVERS = /\bCovers:\s*([A-Z]+-\d+(?:\s*,\s*[A-Z]+-\d+)*)\s*\.?\s*$/;
+export const COVERS = /\bCovers:\s*([A-Za-z]+-\d+(?:\s*,\s*[A-Za-z]+-\d+)*)\s*\.?\s*$/;
 
 // Front matter right after the `# Task:` line (or leading), flat `key: value` lines.
 function frontMatter(text) {
@@ -56,14 +56,14 @@ export function coverage(prdFile, dirs) {
   const p = parsePrd(readFileSync(prdFile, "utf8"));
   const ids = p.reqs.filter((r) => r.id).map((r) => r.id);
   const tasks = dirs.flatMap(taskFiles).map(parseTaskFile).filter((t) => t.prd === slug);
-  const links = new Map(ids.map((id) => [id, []]));
+  const links = new Map(ids.map((id) => [idKey(id), []]));
   const unknown = [];
   for (const t of tasks) for (const a of t.acs) for (const c of a.covers) {
-    if (links.has(c)) links.get(c).push({ task: t.id, ac: a.ac, file: t.file });
+    if (links.has(idKey(c))) links.get(idKey(c)).push({ task: t.id, ac: a.ac, file: t.file });
     else unknown.push({ task: t.id, ac: a.ac, id: c });
   }
-  const deferred = new Map(p.deferred.filter((d) => d.id && d.reason).map((d) => [d.id, d.reason]));
-  const requirements = ids.map((id) => ({ id, tasks: links.get(id), deferred: deferred.get(id) || null }));
+  const deferred = new Map(p.deferred.filter((d) => d.id && d.reason).map((d) => [idKey(d.id), d.reason]));
+  const requirements = ids.map((id) => ({ id, tasks: links.get(idKey(id)), deferred: deferred.get(idKey(id)) || null }));
   const gaps = requirements.filter((r) => !r.tasks.length && !r.deferred).map((r) => r.id);
   return { slug, complete: gaps.length === 0 && unknown.length === 0, gaps, unknown, requirements, tasks: tasks.map((t) => t.id) };
 }

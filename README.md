@@ -17,7 +17,7 @@
 
 ## Status
 
-Version 0.0.28 is an early release.
+Version 0.0.29 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -121,6 +121,8 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **Observations and unrelated changes.** The implementer lists out-of-scope issues it saw but did not touch, and a task is written only after you approve it. The plan review fails a change inside the scope that serves no acceptance criterion ([workflow](docs/concepts/workflow.md#observations-and-unrelated-changes)).
 
+**Language of run files.** Run files are English, but a project in another language quotes its own product text as it is: inline code, "double quotes", a `> ` line or a JSON string is accepted when its exact text is in the task or in a project file; agents never transliterate it to ASCII or ask you about it ([details](docs/concepts/workflow.md#language-of-run-files)).
+
 **Processes.** An agent stops only a process it started itself, by its own PID: the runtime hook denies `pkill`, `killall`, `kill` by pattern and mass kills. The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent. What it sees and what it cannot: [process rules](docs/concepts/enforcement-layers.md#process-rules).
 
 ## Real output
@@ -141,7 +143,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.28**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.29**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

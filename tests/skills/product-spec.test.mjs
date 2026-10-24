@@ -230,3 +230,12 @@ test("product.stale_days defaults to 90 and ignores a non-positive value", async
   assert.equal(staleDays(root), 90);
   rmSync(root, { recursive: true, force: true });
 });
+
+test("ids: Covers matches FR-n/NFR-n in any case and with leading zeros", () => {
+  const { root, prd } = project();
+  const f = join(root, ".agents/tasks/todo/TASK-1.md");
+  writeFileSync(f, readFileSync(f, "utf8").replace("Covers: FR-1, NFR-1", "Covers: fr-01, nfr-1, FR-2"));
+  const r = coverage(prd, [join(root, ".agents/tasks")]);
+  assert.deepEqual([r.gaps, r.unknown], [[], []]);
+  rmSync(root, { recursive: true, force: true });
+});
