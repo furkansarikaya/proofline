@@ -4768,7 +4768,7 @@ answer() {
   else
     [ ! -e "$an_prev" ] || fail "question $an_n is already answered (a wrong answer is corrected with: agent.sh answer $an_id $an_n --amend, after the user's new message)"
   fi
-  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used= an_src=
+  an_t=$(mktemp "${TMPDIR:-/tmp}/proofline-answer.XXXXXX"); an_cm=no an_used='' an_src=''
   if [ "${3:-}" = --captured ] || [ "$an_amend" = yes ]; then
     # The answer is the user's own message as the prompt hook captured it, not text the lead relays: a lead's rewrite never
     # matched, a short "1" was under the 3-character rule. A171: the NEWEST real prompt since the question (by its capture time),

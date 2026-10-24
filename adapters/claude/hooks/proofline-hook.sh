@@ -1846,7 +1846,7 @@ pretool)
       lp=$(relpath "$(jget tool_input.file_path tool_input.path)")
       case "$lp" in
         .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log) ;;
-        .agents/runs/*/*.md|.agents/runs/*/*.yaml|.agents/runs/*/*.json|.agents/runs/*/*/*.md|.agents/runs/*/*/*.yaml|.agents/runs/*/*/*.json)
+        .agents/runs/*/*.md|.agents/runs/*/*.yaml|.agents/runs/*/*.json)
           if [ "$tool" = MultiEdit ]; then   # the new_string of every edit, as text (a JSON array would hide the line starts)
             case "$jp" in
               jq) jq -r '.tool_input.edits[]? | .new_string // empty' < "$tmp/in" > "$tmp/lang" 2>/dev/null || : ;;

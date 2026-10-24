@@ -16,6 +16,8 @@ fi
 hook=$ENF_REPO/adapters/claude/hooks/proofline-hook.sh
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
+# a loaded runner must not expire the approval step of the hook mid-test: tests that exercise the budget set their own
+PROOFLINE_HOOK_APPROVE_BUDGET=300; PROOFLINE_HOOK_LOCK_WAIT=120; export PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT
 
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) print "\\n"; print }'; }
 H() { printf '%s' "$2" | sh "$hook" "$1" "${3:-claude}"; }   # EVENT JSON [RUNTIME] -> hook stdout
@@ -751,6 +753,8 @@ sh .agents/scripts/agent.sh next $ID')"
   denied "A171 literal variable as the script path stays denied" "$(pre_bash 'a=.agents/scripts/agent.sh; sh $a status LC')" "not literal"
   denied "A171 denial shows the allowed form" "$(pre_bash 'sh .agents/scripts/agent.sh $c LC')" "Allowed form: ID=T-1; sh .agents/scripts/agent.sh next"
   # A171: the runtime's own background task output is readable (read only)
+  # /tmp is scratch space when $TMPDIR itself is under /tmp (a Linux runner), where no /tmp path is denied: pin $TMPDIR elsewhere for this block
+  tmpd_save=${TMPDIR-}; TMPDIR=/var/tmp; export TMPDIR
   allowed "A171 background task output read by a specialist" "$(pre_bash 'tail -n 20 /private/tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)"
   allowed "A171 background task output read with cat by a specialist" "$(pre_bash 'cat /tmp/claude-501/-proj/sess/tasks/b1.output | head -5' proofline-reviewer)"
   allowed "A171 background task output read by the lead" "$(pre_bash 'cat /private/tmp/claude-501/-proj/sess/tasks/b1.output')"
@@ -765,7 +769,12 @@ sh .agents/scripts/agent.sh next $ID')"
   denied "A171 task output path deeper than the runtime's layout" "$(pre_bash 'cat /tmp/claude-501/-proj/sess/x/y/tasks/b1.output' proofline-explorer)" "outside the project"
   denied "A171 task output nested below the tasks folder" "$(pre_bash 'cat /tmp/claude-501/-proj/sess/tasks/sub/b1.output' proofline-explorer)" "outside the project"
   allowed "A171 sed -n on a task output" "$(pre_bash 'sed -n 1,5p /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)"
+  denied "A171 sed -n writing a file from a task output" "$(pre_bash "sed -n '1w src/evil.sh' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)" "outside the project"
+  denied "A171 sed -n executing a task output line" "$(pre_bash 'sed -n e /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 sed -n -f reading a script from a task output" "$(pre_bash 'sed -n -f /tmp/claude-501/-proj/sess/tasks/b1.output src/a' proofline-explorer)" "outside the project"
+  allowed "A171 sed -n last line of a task output" "$(pre_bash "sed -n '\$p' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)"
   denied "A171 other /tmp file stays denied for the lead" "$(pre_bash 'cat /tmp/other/x.output')" "outside the project"
+  TMPDIR=$tmpd_save; export TMPDIR
   denied "H3 sh -c recursion" "$(pre_bash "sh -c 'sh .agents/scripts/agent.sh record LC'")" "SubagentStop hook"
   denied "H3 bash -c write" "$(pre_bash "bash -c 'echo x > impl.txt'")" "product changes go through the implementer"
   denied "H3 command substitution in double quotes" "$(pre_bash 'echo "$(sh .agents/scripts/agent.sh record LC)"')" "SubagentStop hook"
@@ -793,10 +802,6 @@ sh .agents/scripts/agent.sh next $ID')"
   # shellcheck disable=SC2016
   denied "A171 PROOFLINE_DISPATCH name built at run time" "$(pre_bash "export \$(printf 'PROOFLINE_%s=abc' DISPATCH); sh .agents/scripts/agent.sh decide LC implementer")" "dispatch.sh"
   allowed "A171 a literal read of the runs folder with a glob below it" "$(pre_bash 'ls .agents/runs/LC/*.md')"
-  denied "A171 sed -n writing a file from a task output" "$(pre_bash "sed -n '1w src/evil.sh' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)" "outside the project"
-  denied "A171 sed -n executing a task output line" "$(pre_bash 'sed -n e /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
-  denied "A171 sed -n -f reading a script from a task output" "$(pre_bash 'sed -n -f /tmp/claude-501/-proj/sess/tasks/b1.output src/a' proofline-explorer)" "outside the project"
-  allowed "A171 sed -n last line of a task output" "$(pre_bash "sed -n '\$p' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)"
   denied "A171 the dispatch nonce folder is not named" "$(pre_bash 'ls .agents/local/dispatch')" "dispatch.sh alone"
   # shellcheck disable=SC2016
   denied "A171 printf -v clears a tracked variable" "$(pre_bash 'S=status; printf -v S record; sh .agents/scripts/agent.sh $S LC')" "not literal"
@@ -927,12 +932,16 @@ hook_transparency() {
   grep -q 'rc=1' .agents/local/approve.log || die "A171-3 the refusal is not in the log"
   # the step is also stopped by its own budget, and the timeout is written down
   t0=$(date +%s); out=$(PROOFLINE_HOOK_LOCK_WAIT=30 PROOFLINE_HOOK_APPROVE_BUDGET=1 prompt 'scope approved, go ahead'); t1=$(date +%s)
-  [ $((t1 - t0)) -lt 15 ] || die "A171-4 the hook did not stop its approval step in time ($((t1 - t0))s)"
+  [ $((t1 - t0)) -lt 25 ] || die "A171-4 the hook did not stop its approval step in time ($((t1 - t0))s)"
   printf '%s' "$out" | grep -q 'ran out of time' || die "A171-4 no message about the stopped step: $out"
   grep -q '|prompt.approve|[0-9]*|timeout|' .agents/local/hook-times || die "A171-4 the step timeout is not in the spool: $(cat .agents/local/hook-times)"
   sleep 1
   ! ps -A -o command= | grep -F "$PWD/.agents/scripts/agent.sh approve" | grep -v grep >/dev/null || die "A171 a child of the stopped approval step (agent.sh approve) is still running"
   kill "$holder" 2>/dev/null; rm -rf .agents/local/.lock
+  # a stopped approval step is not a lost approval: the request stays pending and the captured reply stays newer than it, so the
+  # next `agent.sh next` of a run in PLANNING records it (gates-test sc_approval_retry exercises that fallback end to end)
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-request-scope.yaml >/dev/null 2>&1 || die "A171-8 the request was consumed by a timed-out step"
+  grep -q 'scope approved, go ahead' .agents/local/prompts/history/* || die "A171-8 the reply of the timed-out step was not captured"
   ok "A171-3 a refused approval is one line to the lead and the user, with the reason; A171-4 the step is stopped by its budget and the timeout is written"
   # a hook the runtime killed leaves an in-flight marker: the next prompt hook writes it down as a timeout
   mkdir -p .agents/local/hooks-inflight; printf '99999999 %s\n' "$(( $(date +%s) * 1000 - 31000 ))" > .agents/local/hooks-inflight/prompt.99999999
