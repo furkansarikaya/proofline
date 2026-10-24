@@ -1846,6 +1846,7 @@ pretool)
       lp=$(relpath "$(jget tool_input.file_path tool_input.path)")
       case "$lp" in
         .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log) ;;
+        .agents/runs/*/reviews/visual-proof/*|.agents/runs/*/reports/qa-evidence/*) ;;   # A172: machine output of the skills
         .agents/runs/*/*.md|.agents/runs/*/*.yaml|.agents/runs/*/*.json)
           if [ "$tool" = MultiEdit ]; then   # the new_string of every edit, as text (a JSON array would hide the line starts)
             case "$jp" in
@@ -1854,7 +1855,7 @@ pretool)
               *) : > "$tmp/lang" ;;
             esac
           else jget tool_input.content tool_input.new_string > "$tmp/lang"; fi
-          if lres=$(unset AGENT_ROLE; sh "$agent" language-check - < "$tmp/lang" 2>&1); then :; else deny "$tool $lp: $lres"; fi ;;
+          if lres=$(unset AGENT_ROLE; sh "$agent" language-check - "$lp" < "$tmp/lang" 2>&1); then :; else deny "$tool $lp: $lres"; fi ;;
       esac ;;
   esac
   exit 0 ;;

@@ -38,6 +38,10 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
 - During an active run, proofline's method skills replace overlapping skills from elsewhere (TDD, debug,
   review, plan, UI audit). Language- and ecosystem-specific skills stay free. Files other skills produce go
   to the run's `scratch/` folder. No skill is blocked.
+- Run artifacts are English, but product text and the user's words are quoted, never rewritten: never translate or transliterate them
+  to ASCII (ç→c, ş→s, ğ→g, ı→i, ü→u, ö→o), and never ask the user whether to. Quote the text exactly as the project has it (inline
+  code, "double quotes" or a `> ` line) when it occurs in the run's TASK.md or in a tracked product file; the language check
+  (A172) accepts exactly that.
 - Never install anything into the project. Never touch global git configuration.
 - Stop only a process you started yourself, by its own PID. `pkill`, `killall` and `kill` by pattern, name or
   port (`kill $(pgrep ...)`, `pgrep ... | xargs kill`, `fuser -k`) are forbidden, as are mass kills (`kill -1`,

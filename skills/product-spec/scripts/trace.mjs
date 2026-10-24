@@ -17,7 +17,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { effectiveDecision, parsePrd, productDir, resolvePrd, tasksDir } from "./check-prd.mjs";
+import { effectiveDecision, idKey, parsePrd, productDir, resolvePrd, tasksDir } from "./check-prd.mjs";
 import { MARKER, parseMarker, resolveRef } from "./validate-product-claims.mjs";
 import { parseTaskFile, taskFiles } from "./check-coverage.mjs";
 
@@ -193,18 +193,19 @@ export function trace(query, opts = {}) {
   const root = resolve(opts.root || ".");
   const all = tasks(root, resolve(root, opts.tasksDir || tasksDir(root)));
   const missing = [];
-  if (/^N?FR-\d+$/.test(query)) {
+  if (/^N?FR-\d+$/i.test(query)) {
+    const qk = idKey(query);   // A172: by key, so fr-1, FR-1 and FR-01 are one requirement
     const chains = [];
     for (const f of prds(root, opts.prd)) {
       const p = parsePrd(readFileSync(f, "utf8"));
-      const r = p.reqs.find((x) => x.id === query);
+      const r = p.reqs.find((x) => x.id && idKey(x.id) === qk);
       if (!r) continue;
       const slug = basename(dirname(f));
-      const deferred = p.deferred.find((d) => d.id === query)?.reason || null;
-      const linked = [...all.values()].filter((t) => t.prd === slug && t.acs.some((a) => a.covers.includes(query)));
+      const deferred = p.deferred.find((d) => d.id && idKey(d.id) === qk)?.reason || null;
+      const linked = [...all.values()].filter((t) => t.prd === slug && t.acs.some((a) => a.covers.some((c) => idKey(c) === qk)));
       if (!linked.length) missing.push(deferred ? `${query} (${slug}): deferred, no task: ${deferred}` : `${query} (${slug}): no task linked (no task with prd: ${slug} has an acceptance criterion that Covers ${query})`);
       chains.push({ requirement: { id: query, prd: relative(root, f), line: r.line, text: r.text }, deferred, evidence: evidenceChain(root, slug, { id: query, rawText: r.text }, missing),
-        tasks: linked.map((t) => taskNode(root, t, t.acs.filter((a) => a.covers.includes(query)), missing)) });
+        tasks: linked.map((t) => taskNode(root, t, t.acs.filter((a) => a.covers.some((c) => idKey(c) === qk)), missing)) });
     }
     if (!chains.length) return { query, found: false, error: `${query} is defined in no PRD under ${productDir(root)}${opts.prd ? ` (--prd ${opts.prd})` : ""}` };
     return { query, found: true, kind: "requirement", chains, missing, complete: missing.length === 0 };
@@ -216,14 +217,14 @@ export function trace(query, opts = {}) {
   else {
     const f = prds(root, t.prd)[0];
     if (!f) missing.push(`${t.id}: PRD ${t.prd} not found under ${productDir(root)}`);
-    else for (const r of parsePrd(readFileSync(f, "utf8")).reqs) if (r.id) reqs.set(r.id, { id: r.id, prd: relative(root, f), line: r.line, text: r.text });
+    else for (const r of parsePrd(readFileSync(f, "utf8")).reqs) if (r.id) reqs.set(idKey(r.id), { id: r.id, prd: relative(root, f), line: r.line, text: r.text });
   }
   for (const a of t.acs) {
     if (!a.covers.length) missing.push(`${t.id} ${a.ac}: covers no requirement (no Covers: line)`);
-    for (const c of a.covers) if (t.prd && !reqs.has(c)) missing.push(`${t.id} ${a.ac}: Covers ${c}, which PRD ${t.prd} does not define`);
+    for (const c of a.covers) if (t.prd && !reqs.has(idKey(c))) missing.push(`${t.id} ${a.ac}: Covers ${c}, which PRD ${t.prd} does not define`);
   }
   const node = taskNode(root, t, t.acs, missing);
-  const requirements = [...new Set(t.acs.flatMap((a) => a.covers))].map((c) => reqs.get(c) || { id: c, prd: null });
+  const requirements = [...new Set(t.acs.flatMap((a) => a.covers))].map((c) => reqs.get(idKey(c)) || { id: c, prd: null });
   for (const q of requirements) if (q.prd) q.evidence = evidenceChain(root, t.prd, { id: q.id, rawText: q.text }, missing);
   return { query, found: true, kind: "task", requirements, task: node, missing, complete: missing.length === 0 };
 }

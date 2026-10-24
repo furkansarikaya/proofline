@@ -233,6 +233,32 @@ The task author writes a task into `tasks.dir` only after you approve it. The im
 Inside the scope, the plan review fails a hunk that changes behaviour but ties to no acceptance criterion.
 Formatting, comments and import order only produce a note. So does a hunk the reviewer cannot judge.
 
+## Language of run files
+
+Files inside a run are English (A33), whatever your language. The check (`agent.sh language-check`, also run by `freeze`, `submit` and
+`verify`, and by the runtime hook at the moment a run file is written) counts letters outside ASCII in a file; three or more are
+refused. A project written in Turkish, German, Japanese and so on has acceptance criteria, QA plans and review findings that must
+repeat its product text, so these are exempt (A172), and only these:
+
+- a `> ` quote line or a fenced line that repeats a line of one of your own messages (A171);
+- inline code (`` `...` ``), a double-quoted span (`"..."`, `“...”`), a `> ` quote line, a fenced line or a JSON string value whose
+  whole inner text occurs in the run's `TASK.md` or in a tracked (or new, not ignored) product file outside `.agents/`. Whitespace is
+  normalized (runs of spaces and line breaks count as one space) and the quoted text must be at least 4 characters; a shorter piece
+  occurs in almost any file and proves nothing. A sentence an agent wrote itself is never in the project, so it cannot be hidden
+  behind a quote, a code span or a fence: it stays refused;
+- machine output of the skills, which tools measure and save instead of people writing it: `reviews/visual-proof/` and
+  `reports/qa-evidence/` of a run (dispatch output, scratch, gates and the ledger were exempt already).
+
+Agents never transliterate product text to ASCII (no `ç` to `c`) and never ask you whether to translate; the refusal message says
+to quote the text the project has. Each file is checked once without the product text, and the text is gathered (`git grep`, capped at 50 MB) only
+when a file has a hit, so an English write costs one pass.
+
+## Ids
+
+Ids that scripts write and read (`QA-n`, `AC-n`, `AS-n`, `FR-n`, finding ids) are compared by key: case-insensitive, leading zeros ignored (A172).
+The spelling the producer wrote stays canonical and is recorded as written. A gate result uses `<GATE>-<n>` (`QA-1`, `REVIEW_RULES-2`); a task
+result uses `<role id>-<n>` (`explorer-3`, `qa-1` for the QA plan step); `submit` and `record` take the prefix from one function.
+
 ## Sources of truth
 
 1. Current source code: authoritative for behaviour.

@@ -90,7 +90,7 @@ export const SIZES = ["S", "M", "L"];
 // Optional link from a criterion to the PRD requirements it satisfies (product-spec): the criterion ends with
 // `Covers: FR-1, NFR-2` (usually on its own indented line under it); the task names the PRD with front matter `prd: <slug>`.
 export const COVERS = /\bCovers:\s*(.*?)\s*\.?\s*$/;
-const REQ_ID = /^N?FR-\d+$/;
+const REQ_ID = /^N?FR-\d+$/i;   // A172: ids are compared by key (case-insensitive); the task keeps the spelling its author wrote
 
 // Optional YAML front matter (size, sprint, assignee, depends_on, prd); flat `key: value` lines only.
 export function frontMatter(text) {

@@ -17,7 +17,9 @@ const STOCK = /^(test (fails?|failed)|not implemented|fails as expected|assertio
 export const specific = (s) => isStr(s) && s.trim().length >= 20 && !STOCK.test(s.trim());
 const KEYS = ["schema_version", "mode", "task", "cycles", "exemptions"];
 
-const acsOf = (s) => (isStr(s) ? (s.match(/AC-\d+/g) || [s.trim()]) : []);
+// A172: ids compare by key (case-insensitive, leading zeros ignored); the cycle keeps the spelling its author wrote.
+const idKey = (s) => String(s).toUpperCase().replace(/-0+(?=\d)/g, "-");
+const acsOf = (s) => (isStr(s) ? (s.match(/AC-\d+/gi) || [s.trim()]).map(idKey) : []);
 
 export function validate(doc, { scope = null, criteria = null } = {}) {
   const errors = [];
@@ -104,7 +106,7 @@ export function validate(doc, { scope = null, criteria = null } = {}) {
   if (criteria) {
     for (const [path, acs] of criteria) {
       if (!proved.has(path)) continue;   // exempt or missing paths are reported above
-      for (const a of acs) if (!proved.get(path).has(a)) err("$.cycles", `${path} carries ${a} but no cycle proves it: one cycle per criterion`);
+      for (const a of acs) if (!proved.get(path).has(idKey(a))) err("$.cycles", `${path} carries ${a} but no cycle proves it: one cycle per criterion`);
     }
   }
   return errors;

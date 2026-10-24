@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.29 — 2026-10-24
+
+- Finding ids have one identity (A172): `submit` and `record` take the prefix from one function, so a QA plan step with findings (`qa-1`, a task result) is no longer rejected after it was written; gate ids (`QA-1`, `REVIEW_TESTS-2`) and task ids (`explorer-3`) are unchanged. Ids (`QA-n`, `AC-n`, `AS-n`, `FR-n`, finding ids) are compared by key, case-insensitive and ignoring leading zeros, in `agent.sh` and the validators of the QA plan, plan-contract, tdd-proof, verify-proof, test-trust, evidence-map, ui-design, visual-proof, product-spec, task-author and product claims; `waive` and its approval accept a finding id in any case.
+- The language check lets a project in another language quote its own product text (A172): inline code, a double-quoted span, a `> ` line, a fenced line or a JSON string value is exempt when its exact text (at least 4 characters) is in the run's `TASK.md`, the captured user messages or a tracked or new product file; a sentence an agent wrote itself is still refused. `reviews/visual-proof/` and `reports/qa-evidence/` are machine output and exempt. The refusal tells agents to quote, never to transliterate to ASCII or to ask you; the same rule is in every role, the shared skill rule and the `AGENTS.md` block.
+- visual-proof reports Turkish typed without its letters on a Turkish language page as information (`design.language_notes`, never blocking); the words and an allow list are `visual.ascii_turkish_words` and `visual.ascii_turkish_allow` in `.agents/config.yaml`.
+
 ## 0.0.28 — 2026-10-23
 
 - Reviews list every instance of a blocking rule finding in one pass (`scan:` and `instances:` evidence, enforced by `record`); a failing record that only carries over lines the previous revision already had costs no fix round; the blocking-or-info rule is written, versioned and stable across rounds; a mutation budget overrun (21/20) is a warning (A171).
