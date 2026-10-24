@@ -4,7 +4,7 @@ Entry point of `/proofline design system|data|api|ui --check`: the script lists 
 
 | Command | Facts | Target document (config key) |
 |---|---|---|
-| `design-sync.mjs --reverse system` | manifests found, directories to depth 2 with source file counts | `ARCHITECTURE.md` (`architecture`) |
+| `design-sync.mjs --reverse system` | every manifest kind of every ecosystem in `references/ecosystems.json` (A173), directories to depth 2 and every project directory at any depth, with source file counts | `ARCHITECTURE.md` (`architecture`) |
 | `--reverse data` | tables with `file:line` and the schema style that defined them | `DATA_MODEL.md` (`data_model`) |
 | `--reverse api` | `METHOD path` with `file:line` | `API.md` (`api`) |
 | `--reverse ui` | CSS custom properties with `file:line`, component files | `docs/design/DESIGN.md` (`design`) |

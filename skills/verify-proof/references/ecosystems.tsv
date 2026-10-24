@@ -46,16 +46,28 @@
 *	limits.discover_max_markers	1000
 *	limits.version_scan_depth	6
 *	limits.version_scan_max_files	400
+*	limits.scan_max_files	20000
 *	risky_paths	.github/**
 *	risky_paths	.gitlab-ci.yml
 *	risky_paths	.circleci/**
 *	risky_paths	Jenkinsfile
 *	risky_paths	azure-pipelines.yml
 *	risky_paths	bitbucket-pipelines.yml
+*	risky_paths	azure-pipelines*.yml
+*	risky_paths	.travis.yml
+*	risky_paths	.drone.yml
+*	risky_paths	appveyor.yml
+*	risky_paths	cloudbuild.yaml
+*	risky_paths	.buildkite/**
+*	risky_paths	.woodpecker/**
+*	risky_paths	.gitlab/**
 *	risky_paths	Dockerfile
 *	risky_paths	**/Dockerfile*
+*	risky_paths	**/Containerfile*
 *	risky_paths	docker-compose*.yml
+*	risky_paths	docker-compose*.yaml
 *	risky_paths	compose*.yml
+*	risky_paths	compose*.yaml
 *	ci_scan.tools	make
 *	ci_scan.build	 (build|compile|package)( |$)
 *	ci_scan.test	 (test|tests|pytest)( |$)|^pytest
@@ -68,6 +80,7 @@ npm	prune	.expo
 npm	prune	.docusaurus
 npm	project_files	package.json
 npm	manifests	package.json
+npm	manifests	pnpm-workspace.yaml
 npm	locks	package-lock.json
 npm	locks	npm-shrinkwrap.json
 npm	locks	yarn.lock
@@ -119,7 +132,6 @@ npm	risky_paths	turbo.json
 npm	risky_paths	nx.json
 npm	risky_paths	lerna.json
 npm	risky_paths	rush.json
-npm	risky_paths	pnpm-workspace.yaml
 npm	commands.truth	scripts
 npm	commands.tools	npm
 npm	commands.tools	pnpm
@@ -159,6 +171,9 @@ npm	commands.lint.0.at	{at_run} lint
 npm	benchmark.scripts	bench
 npm	benchmark.scripts	benchmark
 npm	benchmark.scripts	perf*
+npm	benchmark.dependencies.0.in	package.json
+npm	benchmark.dependencies.0.contains	"(benchmark|tinybench|mitata)" *:
+npm	benchmark.dependencies.0.why	a JavaScript benchmark library in package.json
 npm	native_ui.0.file	package.json
 npm	native_ui.0.contains	"react-native" *:
 npm	native_ui.0.platform	react-native
@@ -205,11 +220,14 @@ python	project_files	setup.cfg
 python	project_files	Pipfile
 python	project_files	pytest.ini
 python	manifests	requirements*.txt
+python	manifests	*requirements*.txt
 python	manifests	requirements*.in
+python	manifests	*requirements*.in
 python	manifests	**/requirements/*.txt
 python	manifests	**/requirements/*.in
 python	manifests	constraints*.txt
 python	manifests	pyproject.toml
+python	manifests	hatch.toml
 python	manifests	setup.py
 python	manifests	setup.cfg
 python	manifests	Pipfile
@@ -220,7 +238,9 @@ python	locks	uv.lock
 python	locks	pdm.lock
 python	locks	Pipfile.lock
 python	settings	pip.conf
+python	settings	pip.ini
 python	settings	.pypirc
+python	settings	.condarc
 python	settings	uv.toml
 python	settings	pdm.toml
 python	settings	poetry.toml
@@ -260,7 +280,6 @@ python	version_files.6.kind	gitlab_image
 python	version_files.6.image	python
 python	risky_paths	tox.ini
 python	risky_paths	noxfile.py
-python	risky_paths	hatch.toml
 python	commands.truth	tools
 python	commands.tools	pytest
 python	commands.tools	ruff
@@ -300,10 +319,14 @@ python	commands.lint.1.run	{py}ruff check .
 python	commands.lint.1.at	{py}ruff check {dir}
 python	benchmark.dependencies.0.in	pyproject.toml
 python	benchmark.dependencies.0.in	setup.cfg
-python	benchmark.dependencies.0.in	requirements-dev.txt
-python	benchmark.dependencies.0.in	requirements.txt
-python	benchmark.dependencies.0.contains	pytest-benchmark
-python	benchmark.dependencies.0.why	pytest-benchmark
+python	benchmark.dependencies.0.in	Pipfile
+python	benchmark.dependencies.0.in	hatch.toml
+python	benchmark.dependencies.0.in	*requirements*.txt
+python	benchmark.dependencies.0.in	*requirements*.in
+python	benchmark.dependencies.0.in	tox.ini
+python	benchmark.dependencies.0.in	noxfile.py
+python	benchmark.dependencies.0.contains	pytest-benchmark|pyperf
+python	benchmark.dependencies.0.why	pytest-benchmark or pyperf
 python	benchmark.config_files	asv.conf.json
 python	test_output.status	seed
 python	test_output.runners	pytest
@@ -389,14 +412,11 @@ jvm	project_files	build.gradle.kts
 jvm	project_files	settings.gradle
 jvm	project_files	settings.gradle.kts
 jvm	manifests	pom.xml
-jvm	manifests	build.gradle
-jvm	manifests	build.gradle.kts
-jvm	manifests	settings.gradle
-jvm	manifests	settings.gradle.kts
+jvm	manifests	*.gradle
+jvm	manifests	*.gradle.kts
 jvm	manifests	*.versions.toml
 jvm	manifests	gradle.properties
-jvm	manifests	**/buildSrc/**/*.gradle
-jvm	manifests	**/buildSrc/**/*.gradle.kts
+jvm	manifests	*.sbt
 jvm	locks	gradle.lockfile
 jvm	locks	**/dependency-locks/*.lockfile
 jvm	settings	settings.xml
@@ -484,10 +504,12 @@ jvm	commands.test.1.when.any_file	settings.gradle.kts
 jvm	commands.test.1.run	{gradle} test
 jvm	commands.test.1.at	{at_gradle} test
 jvm	benchmark.dependencies.0.in	pom.xml
-jvm	benchmark.dependencies.0.in	build.gradle
-jvm	benchmark.dependencies.0.in	build.gradle.kts
-jvm	benchmark.dependencies.0.contains	jmh
-jvm	benchmark.dependencies.0.why	JMH
+jvm	benchmark.dependencies.0.in	*.gradle
+jvm	benchmark.dependencies.0.in	*.gradle.kts
+jvm	benchmark.dependencies.0.in	*.versions.toml
+jvm	benchmark.dependencies.0.in	*.sbt
+jvm	benchmark.dependencies.0.contains	jmh|kotlinx-benchmark|kotlinx\.benchmark
+jvm	benchmark.dependencies.0.why	JMH or kotlinx-benchmark
 jvm	native_ui.0.file	build.gradle
 jvm	native_ui.0.contains	com\.android\.(application|library)|apply plugin: *['"]com\.android
 jvm	native_ui.0.platform	android
@@ -564,8 +586,11 @@ cargo	commands.lint.0.when.file	Cargo.toml
 cargo	commands.lint.0.run	cargo clippy
 cargo	commands.lint.0.at	cargo clippy --manifest-path {dir}/Cargo.toml
 cargo	benchmark.dirs	benches
+cargo	benchmark.dependencies.0.in	Cargo.toml
+cargo	benchmark.dependencies.0.contains	^ *(criterion|divan|iai|iai-callgrind) *=
+cargo	benchmark.dependencies.0.why	a Rust benchmark crate in Cargo.toml
 cargo	native_ui.0.file	Cargo.toml
-cargo	native_ui.0.contains	^(egui|eframe|iced|slint)\b
+cargo	native_ui.0.contains	^ *(egui|eframe|iced|slint)\b
 cargo	native_ui.0.platform	desktop
 cargo	native_ui.0.kind	desktop
 cargo	native_ui.0.why	Rust desktop UI crate
@@ -593,8 +618,15 @@ dotnet	manifests	*.vbproj
 dotnet	manifests	Directory.Build.props
 dotnet	manifests	Directory.Build.targets
 dotnet	manifests	Directory.Packages.props
+dotnet	manifests	*.props
+dotnet	manifests	*.targets
 dotnet	manifests	packages.config
+dotnet	manifests	paket.dependencies
+dotnet	manifests	paket.references
+dotnet	manifests	global.json
+dotnet	manifests	**/.config/dotnet-tools.json
 dotnet	locks	packages.lock.json
+dotnet	locks	paket.lock
 dotnet	settings	NuGet.config
 dotnet	settings	nuget.config
 dotnet	settings	NuGet.Config
@@ -629,15 +661,7 @@ dotnet	version_files.1.group	1
 dotnet	version_files.2.kind	tool_versions
 dotnet	version_files.2.names	dotnet
 dotnet	version_files.2.names	dotnet-core
-dotnet	risky_paths	Directory.Build.props
-dotnet	risky_paths	Directory.Build.targets
 dotnet	risky_paths	Directory.Build.rsp
-dotnet	risky_paths	Directory.Solution.props
-dotnet	risky_paths	Directory.Solution.targets
-dotnet	risky_paths	*.props
-dotnet	risky_paths	*.targets
-dotnet	risky_paths	global.json
-dotnet	risky_paths	**/.config/dotnet-tools.json
 dotnet	risky_paths	*.sln
 dotnet	risky_paths	*.slnx
 dotnet	commands.truth	tools
@@ -653,35 +677,53 @@ dotnet	commands.lint.0.at	dotnet format {target} --verify-no-changes
 dotnet	benchmark.dependencies.0.in	*.csproj
 dotnet	benchmark.dependencies.0.in	*.fsproj
 dotnet	benchmark.dependencies.0.in	*.vbproj
-dotnet	benchmark.dependencies.0.in	Directory.Packages.props
-dotnet	benchmark.dependencies.0.in	Directory.Build.props
+dotnet	benchmark.dependencies.0.in	*.props
+dotnet	benchmark.dependencies.0.in	*.targets
+dotnet	benchmark.dependencies.0.in	packages.config
+dotnet	benchmark.dependencies.0.in	paket.dependencies
+dotnet	benchmark.dependencies.0.in	paket.references
 dotnet	benchmark.dependencies.0.contains	BenchmarkDotNet
 dotnet	benchmark.dependencies.0.why	BenchmarkDotNet
 dotnet	native_ui.0.file	*.csproj
-dotnet	native_ui.0.contains	UseMaui
+dotnet	native_ui.0.contains	<UseMaui> *[Tt]rue *</UseMaui>
 dotnet	native_ui.0.platform	maui
 dotnet	native_ui.0.kind	mobile
-dotnet	native_ui.0.why	.NET MAUI project
+dotnet	native_ui.0.why	.NET MAUI project (UseMaui is true)
 dotnet	native_ui.1.file	*.csproj
-dotnet	native_ui.1.contains	UseWPF|UseWinForms|Avalonia
+dotnet	native_ui.1.contains	UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\.Sdk|Uno\.WinUI
 dotnet	native_ui.1.platform	desktop
 dotnet	native_ui.1.kind	desktop
 dotnet	native_ui.1.why	desktop UI project
 dotnet	native_ui.2.file	*.fsproj
-dotnet	native_ui.2.contains	UseMaui
+dotnet	native_ui.2.contains	<UseMaui> *[Tt]rue *</UseMaui>
 dotnet	native_ui.2.platform	maui
 dotnet	native_ui.2.kind	mobile
-dotnet	native_ui.2.why	.NET MAUI project
+dotnet	native_ui.2.why	.NET MAUI project (UseMaui is true)
 dotnet	native_ui.3.file	*.fsproj
-dotnet	native_ui.3.contains	UseWPF|UseWinForms|Avalonia
+dotnet	native_ui.3.contains	UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\.Sdk|Uno\.WinUI
 dotnet	native_ui.3.platform	desktop
 dotnet	native_ui.3.kind	desktop
 dotnet	native_ui.3.why	desktop UI project
 dotnet	native_ui.4.file	*.vbproj
-dotnet	native_ui.4.contains	UseWPF|UseWinForms|Avalonia
-dotnet	native_ui.4.platform	desktop
-dotnet	native_ui.4.kind	desktop
-dotnet	native_ui.4.why	desktop UI project
+dotnet	native_ui.4.contains	<UseMaui> *[Tt]rue *</UseMaui>
+dotnet	native_ui.4.platform	maui
+dotnet	native_ui.4.kind	mobile
+dotnet	native_ui.4.why	.NET MAUI project (UseMaui is true)
+dotnet	native_ui.5.file	*.vbproj
+dotnet	native_ui.5.contains	UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\.Sdk|Uno\.WinUI
+dotnet	native_ui.5.platform	desktop
+dotnet	native_ui.5.kind	desktop
+dotnet	native_ui.5.why	desktop UI project
+dotnet	native_ui.6.file	Directory.Build.props
+dotnet	native_ui.6.contains	<UseMaui> *[Tt]rue *</UseMaui>
+dotnet	native_ui.6.platform	maui
+dotnet	native_ui.6.kind	mobile
+dotnet	native_ui.6.why	.NET MAUI project (UseMaui is true)
+dotnet	native_ui.7.file	Directory.Build.props
+dotnet	native_ui.7.contains	UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\.Sdk|Uno\.WinUI
+dotnet	native_ui.7.platform	desktop
+dotnet	native_ui.7.kind	desktop
+dotnet	native_ui.7.why	desktop UI project
 dotnet	test_output.status	seed
 dotnet	test_output.runners	vstest
 dotnet	test_output.runners	microsoft.testing.platform
@@ -824,7 +866,9 @@ swift	prune	.swiftpm
 swift	prune	Carthage
 swift	project_files	Package.swift
 swift	manifests	Package.swift
+swift	manifests	Package@swift-*.swift
 swift	manifests	Podfile
+swift	manifests	*.podspec
 swift	manifests	Cartfile
 swift	locks	Package.resolved
 swift	locks	Podfile.lock

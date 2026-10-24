@@ -13,6 +13,8 @@
 #   eco_all PATH          `id<TAB>value` for every ecosystem
 #   eco_union PATH        the distinct values of PATH over all ecosystems
 #   eco_risky             every risky glob (global, plus risky_paths, manifests, locks and settings of each ecosystem)
+#   eco_sets              two lines: eco_risky and eco_dependency, space-joined
+#   eco_dependency        every glob a dependency review looks at (manifests, locks and settings of each ecosystem)
 #   eco_glob_match PATH GLOB...   0 when PATH matches a glob (the agent.sh dialect: no / means any depth, ** spans directories)
 #   eco_pruned ID PATH    0 when a directory segment of PATH is a global or the ecosystem's prune dir
 ECO_FLAT=${ECO_FLAT:-}
@@ -29,6 +31,16 @@ eco_all() { awk -F'\t' -v p="$1" '$1 != "*" && $2 == p { print $1 "\t" $3 }' "$E
 eco_union() { awk -F'\t' -v p="$1" '$1 != "*" && $2 == p && !s[$3]++ { print $3 }' "$ECO_FLAT" 2>/dev/null; }
 eco_risky() {
   awk -F'\t' '($1 == "*" && $2 == "risky_paths") || ($1 != "*" && ($2 == "risky_paths" || $2 == "manifests" || $2 == "locks" || $2 == "settings")) { if (!s[$3]++) print $3 }' "$ECO_FLAT" 2>/dev/null
+}
+# eco_sets: two lines, the risky set (eco_risky) and the dependency set (eco_dependency), each space-joined (one awk run: agent.sh reads both at every start)
+eco_sets() {
+  awk -F'\t' '
+    ($1 == "*" && $2 == "risky_paths") || ($1 != "*" && ($2 == "risky_paths" || $2 == "manifests" || $2 == "locks" || $2 == "settings")) { if (!r[$3]++) rl = rl (rl == "" ? "" : " ") $3 }
+    $1 != "*" && ($2 == "manifests" || $2 == "locks" || $2 == "settings") { if (!d[$3]++) dl = dl (dl == "" ? "" : " ") $3 }
+    END { print rl; print dl }' "$ECO_FLAT" 2>/dev/null
+}
+eco_dependency() {
+  awk -F'\t' '$1 != "*" && ($2 == "manifests" || $2 == "locks" || $2 == "settings") { if (!s[$3]++) print $3 }' "$ECO_FLAT" 2>/dev/null
 }
 
 # The same translation as g2re in agent.sh and globToRegExp in ecosystems.mjs.

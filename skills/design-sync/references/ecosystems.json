@@ -1,0 +1,687 @@
+{
+  "$comment": "The single definition of the language ecosystems proofline knows (A173). Every script reads this file: bin/lib/discover.sh (command discovery), skills/verify-proof/scripts/runtime-versions.sh (runtime versions) and, later, the review, dependency, design, visual, performance and TDD checks. Adding an ecosystem is one object in `ecosystems`. Never edit ecosystems.tsv by hand: `node ecosystems.mjs write` regenerates it and `node ecosystems.mjs check` fails when it differs. Shapes are documented in docs/concepts/ecosystems.md. Globs use the dialect of agent.sh (a pattern without / matches at any depth, ** spans directories, * and ? stay inside one segment). Every regular expression is written in the part that POSIX ERE and JavaScript share (no lookarounds, no \\d, \\s, \\w, no [[:classes:]]) and is applied to one line of a file at a time, except where a source says `flatten`. A /source/flags string is a JavaScript regular expression.",
+  "schema_version": 1,
+  "global": {
+    "prune": [
+      ".git", ".hg", ".svn", ".agents", ".claude", ".codex", ".proofline",
+      "node_modules", "bin", "obj", "build", "dist", "out", "target", "vendor", "artifacts",
+      ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+      ".gradle", ".idea", ".vs", ".vscode", ".cache", "coverage", ".terraform",
+      ".next", ".nuxt", ".turbo", ".nx", ".svelte-kit", ".yarn", ".pnpm-store",
+      ".dart_tool", ".pub-cache", ".build", ".swiftpm", "Pods", "DerivedData", ".bundle", ".nuget"
+    ],
+    "limits": {
+      "discover_max_markers": "1000",
+      "version_scan_depth": "6",
+      "version_scan_max_files": "400",
+      "scan_max_files": "20000"
+    },
+    "risky_paths": [
+      ".github/**", ".gitlab-ci.yml", ".circleci/**", "Jenkinsfile", "azure-pipelines.yml", "bitbucket-pipelines.yml",
+      "azure-pipelines*.yml", ".travis.yml", ".drone.yml", "appveyor.yml", "cloudbuild.yaml", ".buildkite/**", ".woodpecker/**", ".gitlab/**",
+      "Dockerfile", "**/Dockerfile*", "**/Containerfile*", "docker-compose*.yml", "docker-compose*.yaml", "compose*.yml", "compose*.yaml"
+    ],
+    "ci_scan": {
+      "tools": ["make"],
+      "build": " (build|compile|package)( |$)",
+      "test": " (test|tests|pytest)( |$)|^pytest",
+      "lint": " (lint|vet|clippy)( |$)|^(ruff|eslint)"
+    }
+  },
+  "ecosystems": [
+    {
+      "id": "npm",
+      "name": "JavaScript / TypeScript (npm, pnpm, yarn, bun; workspaces, turbo, nx)",
+      "prune": [".parcel-cache", ".angular", ".expo", ".docusaurus"],
+      "project_files": ["package.json"],
+      "manifests": ["package.json", "pnpm-workspace.yaml"],
+      "locks": ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock"],
+      "settings": [".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs", "bunfig.toml"],
+      "workspace_roots": [
+        { "file": "pnpm-workspace.yaml" },
+        { "file": "package.json", "contains": "\"workspaces\" *:" },
+        { "file": "turbo.json" },
+        { "file": "nx.json" },
+        { "file": "lerna.json" },
+        { "file": "rush.json" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "node",
+        "compare": "1",
+        "present": ["package.json"],
+        "local": { "commands": ["node --version"], "extract": "^v?([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["node-version"] },
+        { "kind": "line", "file": ".nvmrc" },
+        { "kind": "line", "file": ".node-version" },
+        { "kind": "tool_versions", "names": ["nodejs", "node"] },
+        { "kind": "match", "file": "package.json", "flatten": "true", "pattern": "\"engines\" *: *\\{[^}]*\"node\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "match", "file": "package.json", "flatten": "true", "pattern": "\"volta\" *: *\\{[^}]*\"node\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "gitlab_image", "image": "node" }
+      ],
+      "risky_paths": ["turbo.json", "nx.json", "lerna.json", "rush.json"],
+      "commands": {
+        "truth": "scripts",
+        "tools": ["npm", "pnpm", "yarn", "bun", "eslint"],
+        "ci_lint": [],
+        "runners": [
+          { "when": { "file": "pnpm-lock.yaml" }, "run": "pnpm run", "test": "pnpm test", "at_run": "pnpm --dir {dir} run", "at_test": "pnpm --dir {dir} test" },
+          { "when": { "file": "yarn.lock" }, "run": "yarn", "test": "yarn test", "at_run": "yarn --cwd {dir}", "at_test": "yarn --cwd {dir} test" },
+          { "when": { "any_file": ["bun.lockb", "bun.lock"] }, "run": "bun run", "test": "bun test", "at_run": "bun --cwd {dir} run", "at_test": "bun --cwd {dir} test" },
+          { "run": "npm run", "test": "npm test", "at_run": "npm --prefix {dir} run", "at_test": "npm --prefix {dir} test" }
+        ],
+        "build": [
+          { "when": { "script": "build" }, "run": "{run} build", "at": "{at_run} build" }
+        ],
+        "test": [
+          { "when": { "script": "test", "script_not": "no test specified" }, "run": "{test}", "at": "{at_test}" }
+        ],
+        "lint": [
+          { "when": { "script": "lint" }, "run": "{run} lint", "at": "{at_run} lint" }
+        ]
+      },
+      "benchmark": {
+        "scripts": ["bench", "benchmark", "perf*"],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["package.json"], "contains": "\"(benchmark|tinybench|mitata)\" *:", "why": "a JavaScript benchmark library in package.json" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "package.json", "contains": "\"react-native\" *:", "platform": "react-native", "kind": "mobile", "why": "package.json depends on react-native" },
+        { "file": "package.json", "contains": "\"electron\" *:", "platform": "electron", "kind": "shell", "why": "package.json depends on electron" },
+        { "file": "tauri.conf.json", "platform": "tauri", "kind": "shell", "why": "tauri configuration" },
+        { "file": "tauri.conf.json5", "platform": "tauri", "kind": "shell", "why": "tauri configuration" }
+      ],
+      "test_output": {
+        "status": "seed",
+        "runners": ["jest", "vitest", "mocha", "node:test"],
+        "no_tests": ["/No tests found, exiting with code/", "/No test files found/", "/^\\s*(ℹ|#)\\s*tests\\s+0\\b/m"],
+        "compile": ["/error TS\\d+/"],
+        "assertion": ["/AssertionError/", "/\\bexpect\\(.*\\)\\.(not\\.)?to\\w+/", "/Expected:[\\s\\S]{0,400}?(Received|Actual):/"],
+        "exit_codes": { "no_tests": ["1"], "compile": ["1", "2"], "assertion": ["1"] }
+      }
+    },
+    {
+      "id": "python",
+      "name": "Python (pip, Poetry, uv, PDM, Hatch)",
+      "prune": [".eggs", "site-packages", ".nox", ".hypothesis"],
+      "project_files": ["pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "pytest.ini"],
+      "manifests": ["requirements*.txt", "*requirements*.txt", "requirements*.in", "*requirements*.in", "**/requirements/*.txt", "**/requirements/*.in", "constraints*.txt", "pyproject.toml", "hatch.toml", "setup.py", "setup.cfg", "Pipfile", "environment.yml", "environment.yaml"],
+      "locks": ["poetry.lock", "uv.lock", "pdm.lock", "Pipfile.lock"],
+      "settings": ["pip.conf", "pip.ini", ".pypirc", ".condarc", "uv.toml", "pdm.toml", "poetry.toml"],
+      "workspace_roots": [
+        { "file": "pyproject.toml", "contains": "^\\[tool\\.uv\\.workspace\\]" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "python",
+        "compare": "2",
+        "present": ["pyproject.toml", "requirements.txt", "setup.py"],
+        "local": { "commands": ["python3 --version", "python --version"], "extract": "Python ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["python-version"] },
+        { "kind": "line", "file": ".python-version" },
+        { "kind": "tool_versions", "names": ["python", "python3"] },
+        { "kind": "match", "file": "pyproject.toml", "pattern": "^requires-python *= *[\"']([^\"']*)[\"']", "group": "1" },
+        { "kind": "match", "file": "Pipfile", "pattern": "^python_version *= *[\"']([^\"']*)[\"']", "group": "1" },
+        { "kind": "match", "file": "runtime.txt", "pattern": "^python-([0-9][0-9.]*)", "group": "1" },
+        { "kind": "gitlab_image", "image": "python" }
+      ],
+      "risky_paths": ["tox.ini", "noxfile.py"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["pytest", "ruff", "python", "python3", "uv", "poetry", "pdm", "hatch", "tox", "nox"],
+        "ci_lint": [],
+        "runners": [
+          { "when": { "file": "uv.lock" }, "py": "uv run " },
+          { "when": { "file": "poetry.lock" }, "py": "poetry run " },
+          { "when": { "file": "pdm.lock" }, "py": "pdm run " },
+          { "py": "" }
+        ],
+        "build": [],
+        "test": [
+          { "when": { "in": ["pyproject.toml", "pytest.ini", "setup.cfg"], "contains": "pytest" }, "run": "{py}pytest", "at": "{py}pytest {dir}" },
+          { "when": { "any_file": ["pyproject.toml", "pytest.ini", "setup.cfg"], "dir": "tests" }, "run": "{py}pytest", "at": "{py}pytest {dir}" }
+        ],
+        "lint": [
+          { "when": { "in": ["pyproject.toml"], "contains": "^\\[tool\\.ruff" }, "run": "{py}ruff check .", "at": "{py}ruff check {dir}" },
+          { "when": { "file": "ruff.toml" }, "run": "{py}ruff check .", "at": "{py}ruff check {dir}" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["pyproject.toml", "setup.cfg", "Pipfile", "hatch.toml", "*requirements*.txt", "*requirements*.in", "tox.ini", "noxfile.py"], "contains": "pytest-benchmark|pyperf", "why": "pytest-benchmark or pyperf" }
+        ],
+        "config_files": ["asv.conf.json"]
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "seed",
+        "runners": ["pytest", "unittest"],
+        "no_tests": ["/collected 0 items/", "/\\bno tests ran\\b/i", "/\\bRan 0 tests\\b/"],
+        "compile": ["/SyntaxError/", "/IndentationError/"],
+        "assertion": ["/AssertionError/", "/^E\\s+assert\\b/m"],
+        "exit_codes": { "no_tests": ["5"], "compile": ["2", "4"], "assertion": ["1"] }
+      }
+    },
+    {
+      "id": "go",
+      "name": "Go (modules, go.work)",
+      "prune": [],
+      "project_files": ["go.mod"],
+      "manifests": ["go.mod", "go.work"],
+      "locks": ["go.sum", "go.work.sum"],
+      "settings": [],
+      "workspace_roots": [
+        { "file": "go.work" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "go",
+        "compare": "2",
+        "present": ["go.mod", "go.work"],
+        "local": { "commands": ["go version"], "extract": "go([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["go-version"] },
+        { "kind": "match", "file": "go.mod", "pattern": "^go ([0-9][0-9.]*)", "group": "1", "spec_prefix": ">=" },
+        { "kind": "match", "file": "go.work", "pattern": "^go ([0-9][0-9.]*)", "group": "1", "spec_prefix": ">=" },
+        { "kind": "tool_versions", "names": ["golang", "go"] },
+        { "kind": "gitlab_image", "image": "golang" }
+      ],
+      "risky_paths": [],
+      "commands": {
+        "truth": "tools",
+        "tools": ["go"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [
+          { "when": { "file": "go.mod" }, "run": "go build ./...", "at": "go -C {dir} build ./..." }
+        ],
+        "test": [
+          { "when": { "file": "go.mod" }, "run": "go test ./...", "at": "go -C {dir} test ./..." }
+        ],
+        "lint": [
+          { "when": { "file": "go.mod" }, "run": "go vet ./...", "at": "go -C {dir} vet ./..." }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [
+          { "glob": "*_test.go", "contains": "^func Benchmark", "why": "Go func Benchmark in *_test.go" }
+        ],
+        "dependencies": [],
+        "config_files": []
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "seed",
+        "runners": ["go test"],
+        "no_tests": ["/no test files/", "/\\[no tests to run\\]/"],
+        "compile": ["/\\[build failed\\]/", "/\\bundefined: \\w+/", "/cannot use .+ as .+ value/"],
+        "assertion": ["/^\\s*--- FAIL: /m"],
+        "exit_codes": { "no_tests": ["0"], "compile": ["1"], "assertion": ["1"] }
+      }
+    },
+    {
+      "id": "jvm",
+      "name": "Java / Kotlin (Maven multi-module, Gradle with a version catalog)",
+      "prune": [".mvn", ".settings", ".kotlin"],
+      "project_files": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+      "manifests": ["pom.xml", "*.gradle", "*.gradle.kts", "*.versions.toml", "gradle.properties", "*.sbt"],
+      "locks": ["gradle.lockfile", "**/dependency-locks/*.lockfile"],
+      "settings": ["settings.xml", "**/.mvn/settings.xml", "**/.mvn/extensions.xml", "**/.mvn/maven.config", "**/.mvn/jvm.config", "gradle/wrapper/gradle-wrapper.properties", "**/gradle-wrapper.properties"],
+      "workspace_roots": [
+        { "file": "pom.xml", "contains": "<modules>" },
+        { "file": "settings.gradle", "contains": "^ *include(Build)?[ (]" },
+        { "file": "settings.gradle.kts", "contains": "^ *include(Build)?[ (]" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "java",
+        "compare": "1",
+        "present": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+        "local": { "commands": ["java -version"], "extract": "version \"(1\\.)?([0-9][0-9.]*)", "group": "2" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["java-version"] },
+        { "kind": "line", "file": ".java-version" },
+        { "kind": "tool_versions", "names": ["java"] },
+        { "kind": "match", "file": ".sdkmanrc", "pattern": "^java=(1\\.)?([0-9][0-9.]*)", "group": "2" },
+        { "kind": "match", "file": "pom.xml", "flatten": "true", "pattern": "<(java\\.version|maven\\.compiler\\.release|maven\\.compiler\\.source|release)>(1\\.)?([0-9][0-9.]*)<", "group": "3" },
+        { "kind": "match", "file": "build.gradle.kts", "flatten": "true", "pattern": "JavaLanguageVersion\\.of\\(([0-9]+)\\)", "group": "1" },
+        { "kind": "match", "file": "build.gradle", "flatten": "true", "pattern": "JavaLanguageVersion\\.of\\(([0-9]+)\\)", "group": "1" }
+      ],
+      "risky_paths": ["gradlew", "gradlew.bat", "mvnw", "mvnw.cmd", "**/buildSrc/**", "**/build-logic/**", "**/.mvn/**"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["mvn", "gradle", "./gradlew"],
+        "ci_lint": [],
+        "runners": [
+          { "when": { "file": "gradlew" }, "gradle": "./gradlew", "at_gradle": "{dir}/gradlew -p {dir}" },
+          { "gradle": "gradle", "at_gradle": "gradle -p {dir}" }
+        ],
+        "build": [
+          { "when": { "file": "pom.xml" }, "run": "mvn -B package", "at": "mvn -B -f {dir}/pom.xml package" },
+          { "when": { "any_file": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"] }, "run": "{gradle} build", "at": "{at_gradle} build" }
+        ],
+        "test": [
+          { "when": { "file": "pom.xml" }, "run": "mvn -B test", "at": "mvn -B -f {dir}/pom.xml test" },
+          { "when": { "any_file": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"] }, "run": "{gradle} test", "at": "{at_gradle} test" }
+        ],
+        "lint": []
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["pom.xml", "*.gradle", "*.gradle.kts", "*.versions.toml", "*.sbt"], "contains": "jmh|kotlinx-benchmark|kotlinx\\.benchmark", "why": "JMH or kotlinx-benchmark" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "build.gradle", "contains": "com\\.android\\.(application|library)|apply plugin: *['\"]com\\.android", "platform": "android", "kind": "mobile", "why": "gradle file with the android plugin" },
+        { "file": "build.gradle.kts", "contains": "com\\.android\\.(application|library)|id\\( *\"com\\.android", "platform": "android", "kind": "mobile", "why": "gradle file with the android plugin" },
+        { "file": "AndroidManifest.xml", "platform": "android", "kind": "mobile", "why": "AndroidManifest.xml" }
+      ],
+      "test_output": {
+        "status": "seed",
+        "runners": ["maven surefire", "gradle test", "junit"],
+        "no_tests": ["/No tests were executed/", "/No tests found for given includes/", "/Tests run: 0\\b/"],
+        "compile": ["/COMPILATION ERROR/", "/cannot find symbol/", "/Compilation failed/i"],
+        "assertion": ["/AssertionFailedError/", "/ComparisonFailure/"],
+        "exit_codes": { "no_tests": ["0", "1"], "compile": ["1"], "assertion": ["1"] }
+      }
+    },
+    {
+      "id": "cargo",
+      "name": "Rust (Cargo workspace)",
+      "prune": [],
+      "project_files": ["Cargo.toml"],
+      "manifests": ["Cargo.toml"],
+      "locks": ["Cargo.lock"],
+      "settings": ["**/.cargo/config.toml", "**/.cargo/config"],
+      "workspace_roots": [
+        { "file": "Cargo.toml", "contains": "^\\[workspace\\]" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "rust",
+        "compare": "2",
+        "present": ["Cargo.toml"],
+        "local": { "commands": ["rustc --version"], "extract": "rustc ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "line", "file": "rust-toolchain" },
+        { "kind": "match", "file": "rust-toolchain.toml", "pattern": "^channel *= *\"([^\"]*)\"", "group": "1" },
+        { "kind": "tool_versions", "names": ["rust"] },
+        { "kind": "match", "file": "Cargo.toml", "pattern": "^rust-version *= *\"([^\"]*)\"", "group": "1", "spec_prefix": ">=" }
+      ],
+      "risky_paths": ["build.rs", "rust-toolchain", "rust-toolchain.toml", "deny.toml"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["cargo"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [
+          { "when": { "file": "Cargo.toml" }, "run": "cargo build", "at": "cargo build --manifest-path {dir}/Cargo.toml" }
+        ],
+        "test": [
+          { "when": { "file": "Cargo.toml" }, "run": "cargo test", "at": "cargo test --manifest-path {dir}/Cargo.toml" }
+        ],
+        "lint": [
+          { "when": { "file": "Cargo.toml" }, "run": "cargo clippy", "at": "cargo clippy --manifest-path {dir}/Cargo.toml" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": ["benches"],
+        "files": [],
+        "dependencies": [
+          { "in": ["Cargo.toml"], "contains": "^ *(criterion|divan|iai|iai-callgrind) *=", "why": "a Rust benchmark crate in Cargo.toml" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "Cargo.toml", "contains": "^ *(egui|eframe|iced|slint)\\b", "platform": "desktop", "kind": "desktop", "why": "Rust desktop UI crate" }
+      ],
+      "test_output": {
+        "status": "seed",
+        "runners": ["cargo test"],
+        "no_tests": ["/running 0 tests/"],
+        "compile": ["/error\\[E\\d+\\]/", "/could not compile/i"],
+        "assertion": ["/assertion `?(left|right)?.*failed/", "/panicked at/"],
+        "exit_codes": { "no_tests": ["0"], "compile": ["101"], "assertion": ["101"] }
+      }
+    },
+    {
+      "id": "dotnet",
+      "name": ".NET (sln, slnx, csproj, fsproj, vbproj)",
+      "prune": ["packages", "TestResults", "publish"],
+      "project_files": ["*.csproj", "*.fsproj", "*.vbproj"],
+      "manifests": ["*.csproj", "*.fsproj", "*.vbproj", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", "*.props", "*.targets", "packages.config", "paket.dependencies", "paket.references", "global.json", "**/.config/dotnet-tools.json"],
+      "locks": ["packages.lock.json", "paket.lock"],
+      "settings": ["NuGet.config", "nuget.config", "NuGet.Config"],
+      "workspace_roots": [],
+      "solution_files": ["*.slnx", "*.sln"],
+      "units": {
+        "target": "file",
+        "bare": "project_files@root",
+        "stages": ["solution_files@root", "project_files@root", "solution_files@nested", "project_files@nested"],
+        "legacy": [{ "keep": ".slnx", "drop": ".sln" }]
+      },
+      "runtime": {
+        "name": "dotnet",
+        "compare": "1",
+        "present": ["global.json", "*.slnx", "*.sln", "*.csproj", "*.fsproj", "*.vbproj"],
+        "local": { "commands": ["dotnet --version"], "extract": "^([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["dotnet-version"] },
+        { "kind": "match", "file": "global.json", "flatten": "true", "pattern": "\"sdk\"[^}]*\"version\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "tool_versions", "names": ["dotnet", "dotnet-core"] }
+      ],
+      "risky_paths": ["Directory.Build.rsp", "*.sln", "*.slnx"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["dotnet"],
+        "ci_lint": ["^dotnet format( .*)? --verify-no-changes( |$)"],
+        "runners": [],
+        "build": [
+          { "run": "dotnet build", "at": "dotnet build {target}" }
+        ],
+        "test": [
+          { "run": "dotnet test", "at": "dotnet test {target}" }
+        ],
+        "lint": [
+          { "when": { "root_file": ".editorconfig" }, "run": "dotnet format --verify-no-changes", "at": "dotnet format {target} --verify-no-changes" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["*.csproj", "*.fsproj", "*.vbproj", "*.props", "*.targets", "packages.config", "paket.dependencies", "paket.references"], "contains": "BenchmarkDotNet", "why": "BenchmarkDotNet" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "*.csproj", "contains": "<UseMaui> *[Tt]rue *</UseMaui>", "platform": "maui", "kind": "mobile", "why": ".NET MAUI project (UseMaui is true)" },
+        { "file": "*.csproj", "contains": "UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\\.Sdk|Uno\\.WinUI", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" },
+        { "file": "*.fsproj", "contains": "<UseMaui> *[Tt]rue *</UseMaui>", "platform": "maui", "kind": "mobile", "why": ".NET MAUI project (UseMaui is true)" },
+        { "file": "*.fsproj", "contains": "UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\\.Sdk|Uno\\.WinUI", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" },
+        { "file": "*.vbproj", "contains": "<UseMaui> *[Tt]rue *</UseMaui>", "platform": "maui", "kind": "mobile", "why": ".NET MAUI project (UseMaui is true)" },
+        { "file": "*.vbproj", "contains": "UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\\.Sdk|Uno\\.WinUI", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" },
+        { "file": "Directory.Build.props", "contains": "<UseMaui> *[Tt]rue *</UseMaui>", "platform": "maui", "kind": "mobile", "why": ".NET MAUI project (UseMaui is true)" },
+        { "file": "Directory.Build.props", "contains": "UseWPF|UseWinForms|UseWinUI|Avalonia|Uno\\.Sdk|Uno\\.WinUI", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" }
+      ],
+      "test_output": {
+        "status": "seed",
+        "runners": ["vstest", "microsoft.testing.platform"],
+        "no_tests": ["/No test is available/", "/Zero tests ran/i", "/\\bno tests? (were )?(found|ran|to run)\\b/i"],
+        "compile": ["/error CS\\d+/", "/error FS\\d+/", "/error BC\\d+/", "/\\bBuild FAILED\\b/", "/Test Run Aborted/"],
+        "assertion": ["/Assert\\.\\w+\\(\\) Failure/", "/Assert\\.That/", "/Assert\\.AreEqual failed/", "/Expected: .* But was: /"],
+        "exit_codes": { "no_tests": ["8"], "compile": ["1"], "assertion": ["1", "2"] }
+      }
+    },
+    {
+      "id": "php",
+      "name": "PHP (Composer)",
+      "prune": [],
+      "project_files": ["composer.json"],
+      "manifests": ["composer.json"],
+      "locks": ["composer.lock"],
+      "settings": ["auth.json"],
+      "workspace_roots": [],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "php",
+        "compare": "2",
+        "present": ["composer.json"],
+        "local": { "commands": ["php --version"], "extract": "PHP ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["php-version"] },
+        { "kind": "line", "file": ".php-version" },
+        { "kind": "tool_versions", "names": ["php"] },
+        { "kind": "match", "file": "composer.json", "flatten": "true", "pattern": "\"require\" *: *\\{[^}]*\"php\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "gitlab_image", "image": "php" }
+      ],
+      "risky_paths": [],
+      "commands": {
+        "truth": "scripts",
+        "tools": ["composer", "phpunit", "vendor/bin/phpunit"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [
+          { "when": { "script": "build", "script_file": "composer.json" }, "run": "composer build", "at": "composer --working-dir={dir} build" }
+        ],
+        "test": [
+          { "when": { "script": "test", "script_file": "composer.json" }, "run": "composer test", "at": "composer --working-dir={dir} test" },
+          { "when": { "any_file": ["phpunit.xml", "phpunit.xml.dist"] }, "run": "vendor/bin/phpunit", "at": "{dir}/vendor/bin/phpunit --configuration {dir}" }
+        ],
+        "lint": [
+          { "when": { "script": "lint", "script_file": "composer.json" }, "run": "composer lint", "at": "composer --working-dir={dir} lint" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["composer.json"], "contains": "phpbench", "why": "phpbench" }
+        ],
+        "config_files": ["phpbench.json"]
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "seed",
+        "runners": ["phpunit", "pest"],
+        "no_tests": ["/No tests executed!/", "/No tests found in class/"],
+        "compile": ["/PHP Parse error/", "/Parse error: /"],
+        "assertion": ["/Failed asserting that/"],
+        "exit_codes": { "no_tests": ["0"], "compile": ["255"], "assertion": ["1"] }
+      }
+    },
+    {
+      "id": "ruby",
+      "name": "Ruby (Bundler)",
+      "prune": [],
+      "project_files": ["Gemfile"],
+      "manifests": ["Gemfile", "*.gemspec"],
+      "locks": ["Gemfile.lock"],
+      "settings": ["**/.bundle/config"],
+      "workspace_roots": [],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "ruby",
+        "compare": "2",
+        "present": ["Gemfile"],
+        "local": { "commands": ["ruby --version"], "extract": "ruby ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["ruby-version"] },
+        { "kind": "line", "file": ".ruby-version" },
+        { "kind": "tool_versions", "names": ["ruby"] },
+        { "kind": "match", "file": "Gemfile", "pattern": "^ruby [\"']([^\"']*)[\"']", "group": "1" },
+        { "kind": "gitlab_image", "image": "ruby" }
+      ],
+      "risky_paths": ["Rakefile"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["bundle", "rake", "rspec", "rubocop"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [],
+        "test": [
+          { "when": { "dir": "spec" }, "run": "bundle exec rspec" },
+          { "when": { "file": "Rakefile", "dir": "test" }, "run": "bundle exec rake test" }
+        ],
+        "lint": [
+          { "when": { "file": ".rubocop.yml" }, "run": "bundle exec rubocop" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["Gemfile", "*.gemspec"], "contains": "benchmark-ips", "why": "benchmark-ips" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "seed",
+        "runners": ["rspec", "minitest"],
+        "no_tests": ["/\\b0 examples, 0 failures/", "/\\b0 runs, 0 assertions/"],
+        "compile": ["/SyntaxError/"],
+        "assertion": ["/Failure\\/Error:/", "/expected: .+ got: /i"],
+        "exit_codes": { "no_tests": ["0"], "compile": ["1"], "assertion": ["1"] }
+      }
+    },
+    {
+      "id": "swift",
+      "name": "Swift (SwiftPM)",
+      "prune": [".swiftpm", "Carthage"],
+      "project_files": ["Package.swift"],
+      "manifests": ["Package.swift", "Package@swift-*.swift", "Podfile", "*.podspec", "Cartfile"],
+      "locks": ["Package.resolved", "Podfile.lock", "Cartfile.resolved"],
+      "settings": [],
+      "workspace_roots": [],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "swift",
+        "compare": "2",
+        "present": ["Package.swift"],
+        "local": { "commands": ["swift --version"], "extract": "Swift version ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["swift-version"] },
+        { "kind": "line", "file": ".swift-version" },
+        { "kind": "tool_versions", "names": ["swift"] },
+        { "kind": "match", "file": "Package.swift", "pattern": "^// swift-tools-version:? *([0-9][0-9.]*)", "group": "1", "spec_prefix": ">=" }
+      ],
+      "risky_paths": [],
+      "commands": {
+        "truth": "tools",
+        "tools": ["swift", "swiftlint"],
+        "ci_lint": ["^swiftlint( |$)"],
+        "runners": [],
+        "build": [
+          { "when": { "file": "Package.swift" }, "run": "swift build", "at": "swift build --package-path {dir}" }
+        ],
+        "test": [
+          { "when": { "file": "Package.swift" }, "run": "swift test", "at": "swift test --package-path {dir}" }
+        ],
+        "lint": [
+          { "when": { "file": ".swiftlint.yml" }, "run": "swiftlint lint", "at": "swiftlint lint {dir}" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": ["Benchmarks"],
+        "files": [],
+        "dependencies": [
+          { "in": ["Package.swift"], "contains": "package-benchmark", "why": "package-benchmark" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "Package.swift", "contains": "\\.iOS *\\(", "platform": "ios", "kind": "mobile", "why": "Package.swift with an iOS platform" },
+        { "file": "Package.swift", "contains": "\\.macOS *\\(", "platform": "desktop", "kind": "desktop", "why": "Package.swift with a macOS platform" },
+        { "file": "project.pbxproj", "contains": "SDKROOT = iphoneos|IPHONEOS_DEPLOYMENT_TARGET", "platform": "ios", "kind": "mobile", "why": "Xcode project for iOS" },
+        { "file": "project.pbxproj", "contains": "SDKROOT = macosx|MACOSX_DEPLOYMENT_TARGET", "platform": "desktop", "kind": "desktop", "why": "Xcode project for macOS" }
+      ],
+      "test_output": {
+        "status": "seed",
+        "runners": ["swift test", "xcodebuild test"],
+        "no_tests": ["/Executed 0 tests/", "/No matching test cases were run/"],
+        "compile": ["/error: cannot find .+ in scope/", "/error: .*(build|compilation) (failed|error)/i"],
+        "assertion": ["/XCTAssert\\w+ failed/", "/\\bXCTAssert\\w*\\(.*\\) failed/"],
+        "exit_codes": { "no_tests": ["0"], "compile": ["1"], "assertion": ["1"] }
+      }
+    },
+    {
+      "id": "dart",
+      "name": "Dart / Flutter",
+      "prune": [".flutter-plugins", ".flutter-plugins-dependencies"],
+      "project_files": ["pubspec.yaml"],
+      "manifests": ["pubspec.yaml", "pubspec_overrides.yaml"],
+      "locks": ["pubspec.lock"],
+      "settings": [],
+      "workspace_roots": [
+        { "file": "pubspec.yaml", "contains": "^workspace:" },
+        { "file": "melos.yaml" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "dart",
+        "compare": "2",
+        "present": ["pubspec.yaml"],
+        "local": { "commands": ["dart --version"], "extract": "Dart SDK version: ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "tool_versions", "names": ["dart"] },
+        { "kind": "match", "file": "pubspec.yaml", "pattern": "^  sdk: *[\"']?([\\^><=~0-9][^\"']*)", "group": "1" }
+      ],
+      "risky_paths": ["melos.yaml", "analysis_options.yaml"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["dart", "flutter"],
+        "ci_lint": ["^(dart|flutter) analyze( |$)"],
+        "runners": [],
+        "build": [],
+        "test": [
+          { "when": { "in": ["pubspec.yaml"], "contains": "^ *sdk: *flutter", "dir": "test" }, "run": "flutter test" },
+          { "when": { "dir": "test", "file": "pubspec.yaml" }, "run": "dart test" }
+        ],
+        "lint": [
+          { "when": { "in": ["pubspec.yaml"], "contains": "^ *sdk: *flutter" }, "run": "flutter analyze", "at": "flutter analyze {dir}" },
+          { "when": { "file": "pubspec.yaml" }, "run": "dart analyze", "at": "dart analyze {dir}" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": ["benchmark"],
+        "files": [],
+        "dependencies": [
+          { "in": ["pubspec.yaml"], "contains": "benchmark_harness", "why": "benchmark_harness" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "pubspec.yaml", "contains": "^ *sdk: *flutter|^flutter:", "platform": "flutter", "kind": "mobile", "why": "pubspec.yaml with the flutter sdk" }
+      ],
+      "test_output": {
+        "status": "seed",
+        "runners": ["dart test", "flutter test"],
+        "no_tests": ["/No tests ran/", "/No test files/i"],
+        "compile": ["/Compilation failed/i", "/Error: /"],
+        "assertion": ["/Expected: .*\\n\\s*Actual: /", "/Expected: /"],
+        "exit_codes": { "no_tests": ["79"], "compile": ["1"], "assertion": ["1"] }
+      }
+    }
+  ]
+}

@@ -53,6 +53,7 @@ install_control_plane() {
   mkdir -p "$1/.agents/scripts" "$1/.agents/task-integrations" "$1/.agents/local"
   cp "$tl_agents/config.yaml" "$1/.agents/"; cp -R "$tl_agents/modes" "$tl_agents/templates" "$1/.agents/"
   cp "$tl_agents/scripts/agent.sh" "$1/.agents/scripts/"
+  [ ! -f "$tl_agents/ecosystems.tsv" ] || { cp "$tl_agents/ecosystems.tsv" "$1/.agents/"; cp "$tl_agents/scripts/ecosystems.sh" "$1/.agents/scripts/"; }   # A173: the risk sets read the ecosystem definition
   [ ! -f "$tl_agents/scripts/next-user.sh" ] || cp "$tl_agents/scripts/next-user.sh" "$1/.agents/scripts/"   # A159: agent.sh next-user runs it
   cat > "$1/.agents/scripts/secret-scan.sh" <<'STUB'
 #!/bin/sh
@@ -123,7 +124,7 @@ tl_template=''
 tl_ensure_template() {
   [ -z "$tl_template" ] || return 0
   if command -v fx_template >/dev/null 2>&1; then
-    tl_key=$(fx_key "$tl_agents" config.yaml modes templates scripts/agent.sh scripts/next-user.sh scripts/test-lib.sh)
+    tl_key=$(fx_key "$tl_agents" config.yaml modes templates scripts/agent.sh scripts/next-user.sh scripts/test-lib.sh ecosystems.tsv scripts/ecosystems.sh)
     tl_template=$(fx_template "ctl-$tl_key" tl_build_template) || { echo "test-lib: cannot build the fixture template" >&2; exit 2; }
   else
     mkdir "$base/template"; tl_build_template "$base/template"; tl_template=$base/template

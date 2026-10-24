@@ -10,19 +10,26 @@
 //   globToRegExp(glob), matchesGlob(path, glob), matchesAny(path, globs)    the agent.sh glob dialect
 //   pruneDirs([id]), isPruned(path, [id])   global prune dirs plus the ecosystem's own
 //   riskyPaths()                  every risky glob: global + per ecosystem (risky_paths, manifests, locks, settings)
+//   dependencyPaths()             every glob a dependency review must look at: manifests, locks and settings of all ecosystems
+//   allPruneDirs()                the global prune dirs plus those of every ecosystem (for a scan that is not ecosystem-specific)
+//   manifestGlobs()               every manifest glob of all ecosystems
 //   classifyPath(path)            [{ecosystem, role}] roles: manifest, lock, settings, project, solution, workspace, risky
 //   toRegExp(spec)                "/source/flags" -> RegExp; a bare string is a source
 //   flatten(data)                 the rows [id, path, value] of ecosystems.tsv
-// CLI: node ecosystems.mjs write|check|validate|get <id|*> <path>|ids|risky
+// CLI: node ecosystems.mjs write|sync|check|validate|get <id|*> <path>|ids|risky|dependency
 //   write     regenerates ecosystems.tsv next to ecosystems.json
+//   sync      write, then refreshes the byte-identical copies in every skills/*/ that carries one (the control plane only)
 //   check     validate + the tsv equals what write would produce (exit 1 otherwise)
 //   validate  the schema (every key every consumer relies on exists)
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CANDIDATES = (name) => [join(HERE, name), join(HERE, "..", "references", name), join(HERE, "..", name)];
+// A skill installed in a project (.agents/skills/<name>/scripts) prefers the project's own .agents/ecosystems.json, so a language
+// added there reaches every node reader without touching the skill's copy; the skill's own copy is the fallback.
+const IN_PROJECT = /[\\/]\.agents[\\/]skills[\\/][^\\/]+[\\/]scripts$/.test(HERE);
+const CANDIDATES = (name) => [...(IN_PROJECT ? [join(HERE, "..", "..", "..", name)] : []), join(HERE, name), join(HERE, "..", "references", name), join(HERE, "..", name)];
 let cache = null;
 
 export function findDefinition(name = "ecosystems.json") {
@@ -43,7 +50,15 @@ export const ecosystem = (id, data = loadEcosystems()) => data.ecosystems.find((
 export const globalDef = (data = loadEcosystems()) => data.global;
 
 // --- globs: the dialect of agent.sh (g2re): no / means any depth, ** spans directories, * and ? stay in a segment
+const GLOBS = new Map();
 export function globToRegExp(glob) {
+  const hit = GLOBS.get(glob);
+  if (hit) return hit;
+  const re = buildGlob(glob);
+  GLOBS.set(glob, re);
+  return re;
+}
+function buildGlob(glob) {
   const p = glob.includes("/") ? glob : `**/${glob}`;
   let r = "";
   for (let i = 0; i < p.length; i++) {
@@ -61,6 +76,9 @@ export function globToRegExp(glob) {
 export const matchesGlob = (path, glob) => globToRegExp(glob).test(path);
 export const matchesAny = (path, globs) => globs.some((g) => matchesGlob(path, g));
 
+export function allPruneDirs(data = loadEcosystems()) {
+  return [...new Set([...data.global.prune, ...data.ecosystems.flatMap((e) => e.prune ?? [])])];
+}
 export function pruneDirs(id, data = loadEcosystems()) {
   const own = id ? ecosystem(id, data)?.prune ?? [] : [];
   return [...new Set([...data.global.prune, ...own])];
@@ -75,6 +93,12 @@ const riskyOf = (e) => [...(e.risky_paths ?? []), ...(e.manifests ?? []), ...(e.
 export function riskyPaths(data = loadEcosystems()) {
   return [...new Set([...data.global.risky_paths, ...data.ecosystems.flatMap(riskyOf)])];
 }
+
+// What a dependency review must look at: manifests, locks and package-source settings. Build-only risky files are not in it.
+export function dependencyPaths(data = loadEcosystems()) {
+  return [...new Set(data.ecosystems.flatMap((e) => [...e.manifests, ...e.locks, ...e.settings]))];
+}
+export const manifestGlobs = (data = loadEcosystems()) => [...new Set(data.ecosystems.flatMap((e) => e.manifests))];
 
 export function classifyPath(path, data = loadEcosystems()) {
   const out = [];
@@ -131,7 +155,7 @@ export function validate(data = loadEcosystems()) {
   need(data.schema_version === 1, "schema_version must be 1");
   const g = data.global ?? {};
   for (const k of ["prune", "risky_paths"]) need(Array.isArray(g[k]) && g[k].length > 0, `global.${k} must be a non-empty array`);
-  for (const k of ["discover_max_markers", "version_scan_depth", "version_scan_max_files"]) need(/^[0-9]+$/.test(g.limits?.[k] ?? ""), `global.limits.${k} must be a digit string`);
+  for (const k of ["discover_max_markers", "version_scan_depth", "version_scan_max_files", "scan_max_files"]) need(/^[0-9]+$/.test(g.limits?.[k] ?? ""), `global.limits.${k} must be a digit string`);
   for (const k of ["tools", "build", "test", "lint"]) need(g.ci_scan && k in g.ci_scan, `global.ci_scan.${k} missing`);
   const seen = new Set();
   for (const e of data.ecosystems ?? []) {
@@ -156,6 +180,9 @@ export function validate(data = loadEcosystems()) {
     need(["scripts", "tools"].includes(e.commands?.truth), `${w}: commands.truth must be scripts or tools`);
     for (const k of TEST_KEYS) need(k in (e.test_output ?? {}), `${w}: test_output.${k} missing`);
     for (const k of BENCH_KEYS) need(k in (e.benchmark ?? {}), `${w}: benchmark.${k} missing`);
+    for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
+    for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);
+    for (const x of e.benchmark?.files ?? []) need(typeof x.glob === "string" && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.files entries need glob, contains and why`);
   }
   for (const [id, path, value] of flatten(data)) {
     need(!/[\t\n]/.test(value), `${id} ${path}: a value holds a tab or newline`);
@@ -182,10 +209,23 @@ const main = () => {
     if (e.length) { console.error(e.join("\n")); process.exit(1); }
     return;
   }
+  if (cmd === "sync") {
+    const e = validate(data); if (e.length) { console.error(e.join("\n")); process.exit(1); }
+    writeFileSync(tsv, toTsv(data));
+    // only in the repository layout (control-plane/agents next to skills/); an installed .agents/ has no skills/ to refresh
+    const here = dirname(json), skills = basename(here) === "agents" && basename(dirname(here)) === "control-plane" ? join(here, "..", "..", "skills") : null;
+    const pairs = [["scripts/ecosystems.sh", "scripts/ecosystems.sh"], ["scripts/ecosystems.mjs", "ecosystems.mjs"], ["references/ecosystems.json", "ecosystems.json"], ["references/ecosystems.tsv", "ecosystems.tsv"]];
+    if (skills && existsSync(skills)) for (const d of readdirSync(skills)) for (const [rel, src] of pairs) {
+      const to = join(skills, d, rel), from = join(dirname(json), src);
+      if (existsSync(to)) { if (readFileSync(to, "utf8") !== readFileSync(from, "utf8")) { copyFileSync(from, to); console.log(`synced skills/${d}/${rel}`); } }
+    }
+    return;
+  }
+  if (cmd === "dependency") { console.log(dependencyPaths(data).join("\n")); return; }
   if (cmd === "ids") { console.log(ecosystemIds(data).join("\n")); return; }
   if (cmd === "risky") { console.log(riskyPaths(data).join("\n")); return; }
   if (cmd === "get" && a && b) { for (const [id, p, v] of flatten(data)) if (id === a && p === b) console.log(v); return; }
-  console.error("usage: ecosystems.mjs write|check|validate|ids|risky|get <id|*> <path>");
+  console.error("usage: ecosystems.mjs write|sync|check|validate|ids|risky|dependency|get <id|*> <path>");
   process.exit(2);
 };
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();

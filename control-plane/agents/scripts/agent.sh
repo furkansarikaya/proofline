@@ -122,6 +122,25 @@ $1="}; cfg_v=${cfg_v%%"
 }
 config_value() { cfg "$1"; }
 
+# --- Ecosystem facts (A173): .agents/ecosystems.tsv (generated from ecosystems.json) is the one source of what each language
+# calls a manifest, lock, package-source setting or build-changing file. config.yaml keeps the project's own globs; these two
+# sets are added to them at read time, so a new ecosystem or file kind reaches every project on upgrade without editing its
+# config (a user edit of config.yaml is never touched). Empty when the definition is missing: the config alone then decides.
+#   eco_risky_set       review.risky_paths += every risky glob (a change to these is never tier small)
+#   eco_dependency_set  the signal whose check is `dependencies` += manifests, locks and package-source settings
+eco_risky_set='' eco_dependency_set='' eco_loaded=0
+if [ -f "$scripts/ecosystems.sh" ] && [ -f "$agents/ecosystems.tsv" ]; then
+  # shellcheck source=/dev/null # ecosystems.sh next to this script
+  . "$scripts/ecosystems.sh"
+  if eco_init "$agents/ecosystems.tsv"; then
+    eco_loaded=1
+    eco_both=$(eco_sets)
+    eco_risky_set=${eco_both%%"
+"*} eco_dependency_set=${eco_both#*"
+"}
+  fi
+fi
+
 config_check() {
   cc_file=${1:-$config}; [ -f "$cc_file" ] || fail "config missing: $cc_file"
   cc_out=$(config_lines "$cc_file" | awk -F= '
@@ -889,7 +908,7 @@ tier_compute() {
   [ "$(pipeline_class "$tc_id")" != CRITICAL ] || { echo full; return 0; }
   tc_docs=yes tc_risky=no tc_files=0 tc_lines=0
   tc_cl=$(cfg review.code_like_markdown '.agents/** skills/** roles/** adapters/** .claude/** .codex/** AGENTS.md CLAUDE.md **/SKILL.md **/*.prompt.md')
-  tc_rp=$(cfg review.risky_paths '')
+  tc_rp="$(cfg review.risky_paths '') $eco_risky_set"; tc_rp=${tc_rp# }
   # A78: a path signal checked by the migration focus is risky too, so REVIEW_DATA exists to carry the check.
   tc_mg=''; for tc_n in $(risk_names); do [ "$(cfg "risk.$tc_n.check")" != migration ] || tc_mg="$tc_mg $(cfg "risk.$tc_n.paths")"; done
   # Risky paths and code-like markdown are checked first; only a plain-documentation extension is docs
@@ -955,16 +974,39 @@ plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: ye
 # (A88: license policy, audit command) and every non-empty contract.* key (A83: contract.paths / contract.ignore
 # globs), so a mid-run edit of any of them is refused. Empty security and contract keys are left out, so a config
 # that does not set them hashes as before.
-risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true; }
+# A173: the ecosystem set that joins the signal whose check is `dependencies` is bound too (one synthetic line), so a changed
+# definition cannot silently change a frozen run's signal.
+risk_config() {
+  { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true
+    [ -z "$eco_dependency_set" ] || printf 'risk.ecosystems.dependencies=%s\n' "$eco_dependency_set"; }
+}
 # A162: `risk.log_sensitive` is a new default signal. A run frozen before it existed bound a risk block without it, and
 # `proofline upgrade` adds the key to the config; the bounded legacy rule: a freeze whose recorded hash equals the hash
 # of the block WITHOUT `risk.log_sensitive.*` stays valid, and that run keeps the signal set it was frozen with (the
 # logging focus never opens for it). A run frozen under this rule hashes the key, so it cannot match the legacy value
 # and an edit of the key is refused. A refreeze binds the current block (the key included).
-risk_config_legacy() { risk_config | grep -v '^risk\.log_sensitive[.=]'; }
+# A173: a run frozen before the ecosystem set joined the block (0.0.29 and older) bound the block without the synthetic line;
+# such a run keeps the signal paths it was frozen with (the config's own), and `verify-freeze` accepts its recorded hash.
+risk_config_noeco() { risk_config | grep -v '^risk\.ecosystems\.'; }
+risk_config_legacy() { risk_config | grep -v '^risk\.log_sensitive[.=]'; }   # (A162) without log_sensitive
+risk_config_legacy_noeco() { risk_config_legacy | grep -v '^risk\.ecosystems\.'; }   # frozen by 0.0.28 or older: neither
+risk_freeze_ok() { # RECORDED-HASH -> 0 when it is the current block or one of the bounded legacy forms
+  [ "$1" = "$(risk_config | sha256)" ] || [ "$1" = "$(risk_config_noeco | sha256)" ] || [ "$1" = "$(risk_config_legacy | sha256)" ] || [ "$1" = "$(risk_config_legacy_noeco | sha256)" ]
+}
+risk_eco_unbound() { # ID -> 0 when the run was frozen on a block without the ecosystem set (it keeps its own paths)
+  re_d=$(run_dir "$1"); re_h=$(section_value "$re_d" freeze risk_sha256 2>/dev/null || true); [ -n "$re_h" ] || return 1
+  [ "$re_h" != "$(risk_config | sha256)" ] && { [ "$re_h" = "$(risk_config_noeco | sha256)" ] || [ "$re_h" = "$(risk_config_legacy_noeco | sha256)" ]; }
+}
+# risk_paths ID NAME -> the globs of one signal: its config value, plus the ecosystem set when its check is `dependencies`
+# (unless the run was frozen before that set existed).
+risk_paths() {
+  rpa_g=$(cfg "risk.$2.paths")
+  if [ "$(cfg "risk.$2.check")" = dependencies ] && [ -n "$eco_dependency_set" ] && ! risk_eco_unbound "$1"; then rpa_g="$rpa_g $eco_dependency_set"; fi
+  printf '%s\n' "${rpa_g# }"
+}
 risk_legacy_frozen() { # ID -> 0 when the run was frozen on the block without risk.log_sensitive
   rl_d=$(run_dir "$1"); rl_h=$(section_value "$rl_d" freeze risk_sha256 2>/dev/null || true); [ -n "$rl_h" ] || return 1
-  [ "$rl_h" != "$(risk_config | sha256)" ] && [ "$rl_h" = "$(risk_config_legacy | sha256)" ]
+  [ "$rl_h" != "$(risk_config | sha256)" ] && [ "$rl_h" != "$(risk_config_noeco | sha256)" ] && { [ "$rl_h" = "$(risk_config_legacy | sha256)" ] || [ "$rl_h" = "$(risk_config_legacy_noeco | sha256)" ]; }
 }
 # Verbatim copy of contract-proof's NOT_A_CONTRACT (skills stay standalone; risk-test asserts equality, A92).
 risk_not_contract='(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|openapi-generator-config\.ya?ml|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^\.github\/(workflows|actions|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)\/|^\.github\/(dependabot|labeler|release|stale|FUNDING|config)\.ya?ml$|^(\.vscode|\.idea|\.agents|\.devcontainer)\/'
@@ -1007,7 +1049,7 @@ risk_compute() {
   rc_legacy=no; ! risk_legacy_frozen "$1" || rc_legacy=yes
   for rc_n in $(risk_names); do
     [ "$rc_n:$rc_legacy" != log_sensitive:yes ] || continue   # a run frozen before the signal keeps its focus set
-    rc_g=$(cfg "risk.$rc_n.paths")
+    rc_g=$(risk_paths "$1" "$rc_n")
     if [ -n "$rc_g" ]; then
       { [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; } |
         awk -v n="$rc_n" -v pats="$rc_g" "$g2re_awk"'
@@ -1404,7 +1446,7 @@ verify_freeze() {
   # A92: fail closed when the key is missing (a RUN.yaml from before A78): a refreeze inserts it.
   section_key_present "$dir" freeze risk_sha256 || fail "freeze mismatch: risk (RUN.yaml has no freeze.risk_sha256, so the risk mapping is unbound; record an amendment and refreeze to bind it)"
   vf_rh=$(section_value "$dir" freeze risk_sha256)
-  [ "$vf_rh" = "$(risk_config | sha256)" ] || [ "$vf_rh" = "$(risk_config_legacy | sha256)" ] || fail "freeze mismatch: risk (the risk:, performance:, security: or contract: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
+  risk_freeze_ok "$vf_rh" || fail "freeze mismatch: risk (the risk:, performance:, security: or contract: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
   stored=$(section_value "$dir" freeze policy_sha256); actual=$(hash_file "$agents/modes/$mode.yaml")
   [ -n "$stored" ] && [ "$stored" = "$actual" ] || fail "freeze mismatch: policy"
   echo "freeze verified: $id"
@@ -2740,7 +2782,7 @@ focus_untouched() { # ID RECORD FOCUS MODE NOW
   for fu_n in $(risk_names); do
     [ "$(cfg "risk.$fu_n.check")" = "$3" ] || continue
     [ -z "$(cfg "risk.$fu_n.content")" ] || return 1
-    fu_pats="$fu_pats $(cfg "risk.$fu_n.paths")"
+    fu_pats="$fu_pats $(risk_paths "$1" "$fu_n")"
   done
   [ -n "${fu_pats# }" ] || return 1
   fu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
@@ -3433,28 +3475,52 @@ probe_visual() {
   done
   return 0
 }
-# probe_performance: a benchmark command the project already has (performance-proof METHOD.md section 1, tracked
-# files only): a package.json script bench|benchmark|perf*, a Makefile/justfile bench|benchmark target, a cargo
-# benches/ directory, a Go `func Benchmark`, pytest-benchmark or asv, a JMH or BenchmarkDotNet dependency.
+# probe_performance: a benchmark setup the project already has (performance-proof METHOD.md section 1, tracked files only).
+# What counts is the `benchmark` section of every ecosystem in .agents/ecosystems.json (A173): package.json script names, a
+# benchmark directory next to a project of that ecosystem, a file pattern with a content marker, a dependency marker in any
+# manifest of the ecosystem, a benchmark config file. There is no limit on the number of projects or files, and no layout:
+# BenchmarkDotNet in the 55th project of a solution is found like one in the first. A Makefile, justfile or Taskfile target
+# `bench` or `benchmark` counts too. Without the definition nothing is reported, so a missing file never grants a capability.
 probe_performance() {
+  [ "$eco_loaded" = 1 ] || return 0
   pp_ls=$(git -C "$root" ls-files 2>/dev/null || true)
-  pp_has() { printf '%s\n' "$pp_ls" | grep -Eq "$1"; }
-  if [ -f "$root/package.json" ] && sed -n '/"scripts"[[:space:]]*:/,/}/p' "$root/package.json" | grep -Eq '"(bench|benchmark|perf[A-Za-z0-9:_-]*)"[[:space:]]*:'; then echo 'package.json script bench/benchmark/perf*'; return 0; fi
-  for pp_m in Makefile makefile GNUmakefile justfile Justfile; do
+  [ -n "$pp_ls" ] || return 0
+  pp_prune=$( { eco_get '*' prune; for pp_e in $(eco_ids); do eco_get "$pp_e" prune; done; } | tr '\n' ' ')
+  pp_ls=$(printf '%s\n' "$pp_ls" | awk -v dirs="$pp_prune" 'BEGIN { n = split(dirs, a, " "); for (i = 1; i <= n; i++) d[a[i]] = 1 } { m = split($0, s, "/"); for (i = 1; i < m; i++) if (s[i] in d) next; print }')
+  pp_pick() { printf '%s\n' "$pp_ls" | awk -v pats="$*" "$ECO_G2RE"' { n = split(pats, a, " "); for (j = 1; j <= n; j++) if (a[j] != "" && $0 ~ g2re(a[j])) { print; break } }'; }
+  pp_grep() { # RE with the picked files on stdin: the first file that holds RE
+    pp_g=$(cat); [ -n "$pp_g" ] || return 1
+    (cd "$root" && printf '%s\n' "$pp_g" | tr '\n' '\0' | xargs -0 grep -lE -e "$1" 2>/dev/null | head -1) | grep . 
+  }
+  for pp_m in Makefile makefile GNUmakefile justfile Justfile Taskfile.yml Taskfile.yaml; do
     [ -f "$root/$pp_m" ] && grep -Eq '^(bench|benchmark)[[:space:]]*:' "$root/$pp_m" && { echo "$pp_m target bench/benchmark"; return 0; }
   done
-  if [ -f "$root/Cargo.toml" ] && pp_has '^benches/'; then echo 'cargo benches/ directory'; return 0; fi
-  pp_go=$(printf '%s\n' "$pp_ls" | grep -E '_test\.go$' || true)
-  if [ -n "$pp_go" ] && (cd "$root" && printf '%s\n' "$pp_go" | while IFS= read -r pp_f; do [ -f "$pp_f" ] && grep -q '^func Benchmark' "$pp_f" && echo y && break; done) | grep -q y; then echo 'Go func Benchmark in *_test.go'; return 0; fi
-  if pp_has '(^|/)asv\.conf\.json$'; then echo 'asv.conf.json'; return 0; fi
-  for pp_f in pyproject.toml setup.cfg requirements-dev.txt requirements.txt; do
-    [ -f "$root/$pp_f" ] && grep -q 'pytest-benchmark' "$root/$pp_f" && { echo "pytest-benchmark in $pp_f"; return 0; }
+  for pp_e in $(eco_ids); do
+    # a script of any tracked package.json
+    pp_sc=$(eco_get "$pp_e" benchmark.scripts | sed 's/[.]/\\./g; s/[*]/[A-Za-z0-9:_.-]*/g' | tr '\n' '|' | sed 's/|$//')
+    if [ -n "$pp_sc" ]; then
+      for pp_f in $(pp_pick "$(eco_get "$pp_e" manifests | head -1)"); do
+        sed -n '/"scripts"[[:space:]]*:/,/}/p' "$root/$pp_f" 2>/dev/null | grep -Eq "\"($pp_sc)\"[[:space:]]*:" && { echo "$pp_f script bench/benchmark/perf*"; return 0; }
+      done
+    fi
+    # a benchmark directory beside a project of the ecosystem
+    pp_proj=$(eco_get "$pp_e" project_files | tr '\n' ' ')
+    for pp_d in $(eco_get "$pp_e" benchmark.dirs); do
+      if [ -n "$(pp_pick "$pp_proj" | head -1)" ] && [ -n "$(pp_pick "$pp_d/**" "**/$pp_d/**" | head -1)" ]; then echo "$pp_e $pp_d/ directory"; return 0; fi
+    done
+    # config files
+    for pp_c in $(eco_get "$pp_e" benchmark.config_files); do
+      pp_hit=$(pp_pick "$pp_c" | head -1); [ -z "$pp_hit" ] || { echo "$pp_hit"; return 0; }
+    done
+    # file patterns with a content marker
+    eco_rows "$pp_e" benchmark.files glob contains why | while IFS="$(printf '\037')" read -r pp_gl pp_ct pp_wy; do
+      pp_hit=$(pp_pick "$pp_gl" | pp_grep "$pp_ct") && { echo "$pp_wy ($pp_hit)"; break; }
+    done | grep . && return 0
+    # dependency markers in any manifest of the ecosystem
+    eco_rows "$pp_e" benchmark.dependencies in contains why | while IFS="$(printf '\037')" read -r pp_in pp_ct pp_wy; do
+      pp_hit=$(pp_pick "$(printf '%s' "$pp_in" | tr '\036' ' ')" | pp_grep "$pp_ct") && { echo "$pp_wy in $pp_hit"; break; }
+    done | grep . && return 0
   done
-  for pp_f in pom.xml build.gradle build.gradle.kts; do
-    [ -f "$root/$pp_f" ] && grep -q 'jmh' "$root/$pp_f" && { echo "JMH in $pp_f"; return 0; }
-  done
-  pp_cs=$(printf '%s\n' "$pp_ls" | grep -E '\.csproj$' | head -50 || true)
-  if [ -n "$pp_cs" ] && (cd "$root" && printf '%s\n' "$pp_cs" | while IFS= read -r pp_f; do grep -q 'BenchmarkDotNet' "$pp_f" 2>/dev/null && echo y && break; done) | grep -q y; then echo 'BenchmarkDotNet in a .csproj'; return 0; fi
   return 0
 }
 # A107: a cited evidence file exists inside the run, in a folder the role reports in (or reports/,
