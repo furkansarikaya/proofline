@@ -219,8 +219,8 @@ export function validateReport(text, planText) {
   }
   if (res.size === 0) errors.push("no scenario results: \"## Scenarios\" must list at least one `- QA-n: PASS|FAIL|BLOCKED|PRE-EXISTING|not-run (manual) — evidence` line");
   const failures = (secs.get("Failures") || []).join("\n");
-  const failuresKeyed = idKey(failures);
-  for (const [id, r] of res) if ((r === "FAIL" || r === "BLOCKED") && !failuresKeyed.includes(id)) errors.push(`${id} is ${r} but is not described in "## Failures"`);
+  const described = new Set((failures.match(/QA-\d+/gi) || []).map(idKey));   // exact ids by key: QA-1 is not described by QA-10
+  for (const [id, r] of res) if ((r === "FAIL" || r === "BLOCKED") && !described.has(id)) errors.push(`${id} is ${r} but is not described in "## Failures"`);
   const computed = computeVerdict([...res.values()]);
   if (verdicts.length === 1 && res.size && verdicts[0] !== computed) errors.push(`verdict ${verdicts[0]} contradicts the gate rule (computed ${computed})`);
   if (planText !== undefined) {

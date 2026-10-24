@@ -3708,21 +3708,26 @@ record_apply() {
 # two (a name such as "José") are tolerated. Exempt (A171, A172):
 #  - a `>` quote line or a fenced line that repeats a line of a captured user prompt (prompts/history): the user's own words;
 #  - product text: inline code (`...`), a double-quoted span ("..." or “...”), a `>` quote line or a fenced line (a JSON
-#    string value is a double-quoted span) whose WHOLE inner text, whitespace normalized, occurs in the run's TASK.md or in a
-#    file tracked by git outside .agents/ (git grep, never an untracked file: a model could write its own text there and quote it), and is at least 4 characters. The match is on the inner
-#    text, never on the delimiter: a model cannot hide a sentence of its own behind a quote, a code span or a fence;
-#  - machine output of the skills (reviews/visual-proof/, reports/qa-evidence/): measured and saved by tools, never written.
+#    string value is a double-quoted span) whose WHOLE inner text, whitespace normalized, occurs in the run's TASK.md or in
+#    COMMITTED product content (`git grep` on HEAD outside .agents/: never the index, the working tree or an untracked file, because
+#    an agent can create or stage a file holding its own text and quote it; only a commit, which a model cannot make, counts).
+#    The piece is at least 4 characters and is matched on word boundaries: a letter right before or after the match is no match.
+#    The match is on the inner text, never on the delimiter: a model cannot hide a sentence of its own behind a quote, a code span or a fence;
+#  - machine output of the skills (reviews/visual-proof/, reports/qa-evidence/): measured and saved by tools, never written by a model.
+#    An accepted, unchecked channel (A172): a model that is allowed to write there could put text there.
 # language_scan FILE... -> prints "file:line" (where the third such letter appears) per offending file; exit 1.
-# The corpus is built once per call and only when a file has a hit without it (an English file costs one awk pass).
-language_awk() { # FILE OWN HISTORY-BLOB CORPUS-FILE|'' -> the line where the third foreign letter appears, nothing when the file is clean
-  LC_ALL=C awk -v own="$2" -v hist="$3" -v corpf="$4" -v minc=4 '
+# Cost: a file is scanned once without product text (an English write costs one awk pass). Only a file with a hit gathers its quoted
+# pieces (language_awk cands), at most 1000 characters each, and looks them up without a scan per piece (language_ok_pieces); the
+# committed text is read once per HEAD commit (language_head cache), and both sides are marked at word boundaries (language_mark).
+language_awk() { # FILE OWN HISTORY-BLOB MODE(scan|cands) OK-PIECES-FILE|'' -> scan: the line where the third foreign letter appears; cands: the quoted pieces to look up
+  LC_ALL=C awk -v own="$2" -v hist="$3" -v mode="$4" -v okf="$5" -v minc=4 '
     BEGIN { while ((getline l < hist) > 0) blob = blob "\n" l "\n"
-      if (corpf != "") { getline corp < corpf; close(corpf) } }
+      if (okf != "") { while ((getline l < okf) > 0) ok[l] = 1; close(okf) } }
     function trim(t) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); return t }
     function norm(t) { gsub(/[[:space:]]+/, " ", t); return trim(t) }
     function nchars(t) { gsub(/[\200-\277]/, "", t); return length(t) }
     function quoted(t) { t = trim(t); return t == "" || index(blob, "\n" t "\n") > 0 }
-    function inprod(t) { t = norm(t); return corp != "" && nchars(t) >= minc && index(corp, t) > 0 }
+    function inprod(t) { t = norm(t); if (nchars(t) < minc || length(t) > 1000) return 0; if (mode == "cands") { want[t] = 1; return 0 } return (t in ok) }
     function foreign(t) { return gsub(/\303[\200-\226\230-\266\270-\277]|[\304\305\316\317\320-\324]|[\343-\351][\200-\277]/, "&", t) }
     function strip_spans(t,   out, rest, b, bo, i, after, j, inner, closer) {
       out = ""; rest = t
@@ -3751,24 +3756,75 @@ language_awk() { # FILE OWN HISTORY-BLOB CORPUS-FILE|'' -> the line where the th
       if (skip || foreign(t) == 0) next
       c = foreign(strip_spans(t))
       if (c > 0) { total += c; if (total >= 3 && !at) at = NR } }
-    END { if (at) print at }' "$1"
+    END { if (mode == "cands") { for (k in want) print k } else if (at) print at }' "$1"
 }
-# language_corpus FILE -> the path of a temp file: the run's TASK.md, the captured user prompts and the product files, one line,
-# whitespace collapsed. The run is the one FILE lives in (or LANG_HINT, the path the write hook passes), else the active run.
-language_corpus() {
-  lcp_t=$(mktemp "${TMPDIR:-/tmp}/proofline-corpus.XXXXXX"); lcp_p=${LANG_HINT:-$1}; lcp_run=''
-  case "$lcp_p" in *.agents/runs/*) lcp_run=${lcp_p#*.agents/runs/}; lcp_run=${lcp_run%%/*} ;; esac
-  [ -n "$lcp_run" ] || lcp_run=$(head -n 1 "$root/.agents/local/ACTIVE_RUN" 2>/dev/null || :)
-  case "$lcp_run" in ''|*[!A-Za-z0-9._-]*) lcp_run='' ;; esac
+# language_mark: stdin -> stdout, a control byte (\001) after every letter that ends a word and before every letter that starts one,
+# and at the line edges. A word character is anything but ASCII punctuation, space and control bytes (every byte of a UTF-8 letter
+# counts). A marked piece found in the marked corpus therefore begins and ends on word boundaries.
+language_mark() {
+  lm_s=$(printf '\001')
+  sed -E "s/([^[:punct:][:space:][:cntrl:]])([[:punct:][:space:][:cntrl:]])/\\1${lm_s}\\2/g; s/([[:punct:][:space:][:cntrl:]])([^[:punct:][:space:][:cntrl:]])/\\1${lm_s}\\2/g; s/^([^[:punct:][:space:][:cntrl:]])/${lm_s}\\1/; s/([^[:punct:][:space:][:cntrl:]])\$/\\1${lm_s}/"
+}
+# language_head -> sets ls_hc (the marked, whitespace-collapsed COMMITTED product text: `git grep -I` on HEAD outside .agents/, text files
+# only, capped at 50 MB) and ls_hw (its sorted unique words). Both are cached under .agents/local/language/ by the HEAD commit id, which
+# fixes their content, so the 8 MB are read once per commit and not on every write. Empty when the repository has no commit.
+language_head() {
+  ls_hc=''; ls_hw=''
+  lh_sha=$(git -C "$root" rev-parse -q --verify HEAD 2>/dev/null) || return 0
+  lh_dir=$agents/local/language
+  mkdir -p "$lh_dir" 2>/dev/null || lh_dir=$(mktemp -d "${TMPDIR:-/tmp}/proofline-lang-head.XXXXXX")
+  ls_hc=$lh_dir/$lh_sha.corpus; ls_hw=$lh_dir/$lh_sha.words
+  if [ ! -s "$ls_hw" ] || [ ! -f "$ls_hc" ]; then
+    git -C "$root" grep -I -h -e '' HEAD -- . ':(exclude).agents' 2>/dev/null | head -c 50000000 | tr -s '[:space:]' ' ' | language_mark > "$ls_hc.$$" || :
+    tr -s '[:punct:][:space:][:cntrl:]' '\n' < "$ls_hc.$$" | sed '/^$/d' | sort -u > "$ls_hw.$$"
+    mv "$ls_hc.$$" "$ls_hc"; mv "$ls_hw.$$" "$ls_hw"   # the words file last: it marks the pair complete
+    for lh_f in "$lh_dir"/*.corpus "$lh_dir"/*.words; do case "$lh_f" in "$lh_dir/$lh_sha".*) ;; *) rm -f "$lh_f" ;; esac; done
+  fi
+}
+# language_extra FILE -> the path of a small marked corpus: the run's TASK.md and the captured user prompts. The run is the one FILE
+# lives in (or LANG_HINT, the path the write hook passes), else the active run.
+language_extra() {
+  le_t=$(mktemp "${TMPDIR:-/tmp}/proofline-corpus.XXXXXX"); le_p=${LANG_HINT:-$1}; le_run=''
+  case "$le_p" in *.agents/runs/*) le_run=${le_p#*.agents/runs/}; le_run=${le_run%%/*} ;; esac
+  [ -n "$le_run" ] || le_run=$(head -n 1 "$root/.agents/local/ACTIVE_RUN" 2>/dev/null || :)
+  case "$le_run" in ''|*[!A-Za-z0-9._-]*) le_run='' ;; esac
   {
-    [ -z "$lcp_run" ] || cat "$(run_dir "$lcp_run")/TASK.md" 2>/dev/null || :
+    [ -z "$le_run" ] || cat "$(run_dir "$le_run")/TASK.md" 2>/dev/null || :
     cat "$root"/.agents/local/prompts/history/*.txt 2>/dev/null || :
-    git -C "$root" grep -I -h -e '' -- . ':(exclude).agents' 2>/dev/null | head -c 50000000 || :
-  } | tr -s '[:space:]' ' ' > "$lcp_t"
-  printf '%s\n' "$lcp_t"
+  } | tr -s '[:space:]' ' ' | language_mark > "$le_t"
+  printf '%s\n' "$le_t"
+}
+# language_ok_pieces FILE OWN HISTORY-BLOB EXTRA -> the path of a file with the quoted pieces of FILE that occur in the product text.
+# Three steps, none of them a scan per piece: (1) a piece with a word that no corpus holds is absent (comm over sorted word lists);
+# (2) the few pieces whose words all exist are searched in ONE pass over each corpus with one alternation pattern, in chunks;
+# (3) a piece counts when its marked form lies inside a match (a longer piece can hide a shorter one from the leftmost-longest match).
+language_ok_pieces() {
+  lo_c=$(mktemp "${TMPDIR:-/tmp}/proofline-pieces.XXXXXX"); lo_o=$lo_c.ok; lo_w=$lo_c.w; lo_a=$lo_c.a; lo_s=$lo_c.s; lo_m=$lo_c.m
+  language_awk "$1" "$2" "$3" cands "" | sed '/^$/d' > "$lo_c"
+  : > "$lo_o"
+  if [ -s "$lo_c" ]; then
+    tr -s '[:punct:][:space:][:cntrl:]' '\n' < "$lo_c" | sed '/^$/d' | sort -u > "$lo_w"
+    { comm -23 "$lo_w" "${ls_hw:-/dev/null}"; } > "$lo_a"
+    tr -s '[:punct:][:space:][:cntrl:]' '\n' < "$4" | sed '/^$/d' | sort -u > "$lo_w"
+    comm -23 "$lo_a" "$lo_w" > "$lo_a.2"
+    awk -v af="$lo_a.2" 'BEGIN { while ((getline w < af) > 0) gone[w] = 1 }
+      { n = split($0, ws, /[[:punct:][:space:][:cntrl:]]+/); for (i = 1; i <= n; i++) if (ws[i] in gone) next; print }' "$lo_c" > "$lo_s"
+    if [ -s "$lo_s" ]; then
+      language_mark < "$lo_s" > "$lo_m"
+      awk -v cf="$lo_m" -v c1="${ls_hc:-}" -v c2="$4" 'BEGIN {
+          while ((getline l < cf) > 0) { m[++k] = l; e = l; gsub(/[][\\.^$*+?(){}|\/]/, "\\\\&", e); re = re (re == "" ? "" : "|") e }
+          for (q = 1; q <= 2; q++) { f = (q == 1 ? c1 : c2); if (f == "") continue
+            s = ""; getline s < f; n = length(s)
+            for (p = 1; p <= n; p += 2000) { c = substr(s, p, 4000)
+              while (match(c, re)) { hit[substr(c, RSTART, RLENGTH)] = 1; c = substr(c, RSTART + 1) } } }
+          while ((getline o < ARGV[1]) > 0) { i++; ok = 0; for (h in hit) if (index(h, m[i]) > 0) { ok = 1; break }; if (ok) print o } }' "$lo_s" > "$lo_o"
+    fi
+  fi
+  rm -f "$lo_c" "$lo_w" "$lo_a" "$lo_a.2" "$lo_s" "$lo_m"
+  printf '%s\n' "$lo_o"
 }
 language_scan() {
-  ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); ls_corp=''
+  ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); ls_extra=''; ls_hc=''; ls_hw=''; ls_ready=no
   cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
@@ -3777,17 +3833,19 @@ language_scan() {
     # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history) or product text
     # (A172, above), so a model cannot hide its own non-English text behind '> ' or a fence.
     ls_own=no; case "$ls_f" in */questions/*.answer.md|*/questions/*.answer.amended-*.md|*/approvals/*|*/runs/*/TASK.md) ls_own=yes ;; esac
-    ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" "")
+    ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "")
     if [ -n "$ls_hit" ]; then
-      [ -n "$ls_corp" ] || ls_corp=$(language_corpus "$ls_f")
-      ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" "$ls_corp")
+      if [ "$ls_ready" = no ]; then language_head; ls_extra=$(language_extra "$ls_f"); ls_ready=yes; fi
+      ls_ok=$(language_ok_pieces "$ls_f" "$ls_own" "$ls_blob" "$ls_extra")
+      ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "$ls_ok")
+      rm -f "$ls_ok"
     fi
     if [ -n "$ls_hit" ]; then printf '%s:%s\n' "${ls_f#"$root"/}" "$ls_hit"; ls_rc=1; fi
   done
-  rm -f "$ls_blob" "$ls_corp"
+  rm -f "$ls_blob" "$ls_extra"
   return "$ls_rc"
 }
-language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span (\"...\"), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file tracked by git outside .agents/; the user's own messages are quoted verbatim in a '> ' block (A171, A172). Write everything else in English" "$1"; }
+language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span (\"...\"), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file COMMITTED to git (HEAD; never a staged, modified or untracked file) outside .agents/, on word boundaries; the user's own messages are quoted verbatim in a '> ' block (A171, A172). Write everything else in English" "$1"; }
 # language_check FILE|- [PATH]: the write-time check (A171, the runtime write hook calls it with the text about to be written; stdin for -;
 # PATH is the run-relative file being written, which names the run whose TASK.md holds the quotable product text).
 # Exit 1 and the "file:line" hit when the text holds non-English text outside the exemptions above.

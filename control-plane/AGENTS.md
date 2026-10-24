@@ -40,7 +40,7 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
   to the run's `scratch/` folder. No skill is blocked.
 - Run artifacts are English, but product text and the user's words are quoted, never rewritten: never translate or transliterate them
   to ASCII (ç→c, ş→s, ğ→g, ı→i, ü→u, ö→o), and never ask the user whether to. Quote the text exactly as the project has it (inline
-  code, "double quotes" or a `> ` line) when it occurs in the run's TASK.md or in a tracked product file; the language check
+  code, "double quotes" or a `> ` line) when it occurs in the run's TASK.md or in a committed product file; the language check
   (A172) accepts exactly that.
 - Never install anything into the project. Never touch global git configuration.
 - Stop only a process you started yourself, by its own PID. `pkill`, `killall` and `kill` by pattern, name or

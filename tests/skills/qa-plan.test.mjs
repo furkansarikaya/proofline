@@ -94,6 +94,13 @@ test("report: a FAIL scenario forces FAIL and must be described", () => {
   assert.equal(e({ scenarios: sc, verdict: "FAIL", failures: "QA-2: expected 1, got 3" }), "");
 });
 
+test("report: a failure is described by its exact id (QA-1 is not described by QA-10, qa-01 is QA-1)", () => {
+  const sc = "- QA-1: FAIL — wrong (curl)\n- QA-2: PASS — ok (cmd)\n- QA-3: PASS — fine (script)";
+  const e = (failures) => validateReport(report(PLAN, { scenarios: sc, verdict: "FAIL", failures }), PLAN).errors.join("\n");
+  assert.match(e("QA-10: something else broke"), /QA-1 is FAIL but is not described/);
+  assert.equal(e("qa-01: wrong value"), "");
+});
+
 test("report: BLOCKED needs a reason; PASS cannot hide a BLOCKED scenario", () => {
   const sc = "- QA-1: PASS — ok (cmd)\n- QA-2: BLOCKED — no database available\n- QA-3: PASS — fine (script)";
   const r = validateReport(report(PLAN, { scenarios: sc, verdict: "PASS", failures: "QA-2: no database" }), PLAN);

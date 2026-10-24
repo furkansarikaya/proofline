@@ -49,6 +49,7 @@ sc_id_identity() {
 lang_run() { # sets up a scaffolded run whose TASK.md holds $TR
   SC_TASK_EXTRA="- AC-2: the page says \`$TR\`" scaffold standalone no STANDARD manual
   git add -A >/dev/null 2>&1 || :
+  git commit -qm lang-fixture >/dev/null 2>&1 || :   # product text counts only when it is committed (HEAD)
 }
 lang_ok() { printf '%s\n' "$2" > "$base/q.md"; A language-check "$base/q.md" >/dev/null 2>&1 || die "$1 was refused: $2"; }
 lang_no() { printf '%s\n' "$2" > "$base/q.md"; expect_msg "$1" 'language: run artifacts are English' A language-check "$base/q.md"; }
@@ -76,10 +77,18 @@ sc_language_foreign() {
 sc_language_tracked() {
   lang_run
   q=.agents/runs/LC/QA_PLAN.md; prod='Sepetiniz şu anda boş görünüyor, ürün ekleyin'
-  printf '<p>%s</p>\n' "$prod" > page.html; git add page.html
+  staged='Ödeme sayfası açılmadı, tekrar deneyiniz lütfen şimdi'
+  printf '<p>%s</p>\n' "$staged" > staged.html; git add staged.html   # staged, not committed: no source
+  printf '# QA plan\n\nExpect `%s` on the page.\n' "$staged" > "$q"
+  expect_msg "a sentence found only in a STAGED file was accepted" 'language: run artifacts' A language-check "$q"
+  printf '<p>%s</p>\n' "$prod" > page.html; git add page.html; git commit -qm page
   printf '# QA plan\n\nExpect `%s` on the page.\n' "$prod" > "$q"
-  A language-check "$q" >/dev/null 2>&1 || die "a sentence of a git-tracked product file was refused"
-  ok "language: a sentence of a tracked product file is quotable"
+  A language-check "$q" >/dev/null 2>&1 || die "a sentence of a committed product file was refused"
+  printf '# QA plan\n\nExpect `%s` on the page.\n' "Sepetiniz şu anda boş" > "$q"
+  A language-check "$q" >/dev/null 2>&1 || die "a whole-word piece of a committed sentence was refused"
+  printf '# QA plan\n\nExpect `%s` on the page.\n' "epetiniz şu anda boş görünüyor, ürün ekleyi" > "$q"
+  expect_msg "a piece cut inside a word was accepted" 'language: run artifacts' A language-check "$q"
+  ok "language: committed product text is quotable on word boundaries; a staged file is no source"
 }
 sc_language_machine_output() {
   lang_run

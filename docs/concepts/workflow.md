@@ -242,16 +242,16 @@ repeat its product text, so these are exempt (A172), and only these:
 
 - a `> ` quote line or a fenced line that repeats a line of one of your own messages (A171);
 - inline code (`` `...` ``), a double-quoted span (`"..."`, `“...”`), a `> ` quote line, a fenced line or a JSON string value whose
-  whole inner text occurs in the run's `TASK.md` or in a product file tracked by git outside `.agents/` (an untracked file never counts: an agent could write its own text there and quote it). Whitespace is
-  normalized (runs of spaces and line breaks count as one space) and the quoted text must be at least 4 characters; a shorter piece
+  whole inner text occurs in the run's `TASK.md` or in a product file COMMITTED to git (`HEAD`) outside `.agents/`. A staged, modified or untracked file never counts: an agent can create or stage a file holding its own text, but cannot commit (the hook blocks it). Whitespace is
+  normalized (runs of spaces and line breaks count as one space) and the quoted text must be at least 4 characters and match on word boundaries (no letter right before or after it); a shorter piece
   occurs in almost any file and proves nothing. A sentence an agent wrote itself is never in the project, so it cannot be hidden
   behind a quote, a code span or a fence: it stays refused;
 - machine output of the skills, which tools measure and save instead of people writing it: `reviews/visual-proof/` and
-  `reports/qa-evidence/` of a run (dispatch output, scratch, gates and the ledger were exempt already).
+  `reports/qa-evidence/` of a run (dispatch output, scratch, gates and the ledger were exempt already). This is an accepted channel that is not checked: a role allowed to write there could put text there.
 
 Agents never transliterate product text to ASCII (no `ç` to `c`) and never ask you whether to translate; the refusal message says
-to quote the text the project has. Each file is checked once without the product text, and the text is gathered (`git grep`, capped at 50 MB) only
-when a file has a hit, so an English write costs one pass.
+to quote the text the project has. Each file is checked once without the product text, and the text is gathered (`git grep` on `HEAD`, capped at 50 MB, cached per commit under `.agents/local/language/`) only
+when a file has a hit, so an English write costs one pass and a quote check one lookup, not one scan per quote.
 
 ## Ids
 
