@@ -345,7 +345,13 @@ printf '#!/bin/sh\ncase "${1:-}" in --version) echo v20.5.0 ;; *) exec "%s" "$@"
 out=$(PATH="$T/fakenode:$PATH" pl "$dtc" doctor 2>&1)
 expect "doctor passes the toolchain check on the same major" "$out" "PASS toolchain node: local 20.5.0 matches CI 20 (.github/workflows/ci.yml)"
 reject "doctor has no toolchain warning on the same major" "$out" "WARN toolchain"
+# The base repository has a package.json (base_build), so it IS a Node project and doctor reports the Node toolchain (any
+# version, or "not installed here"). "No runtime" needs its own fixture with no runtime marker (A173); doctor looks only
+# inside the project (never at a parent directory), so the result does not depend on the directories above $T.
 out=$(pl "$d1" doctor 2>&1)
+expect "doctor reports the Node toolchain of a project with a package.json" "$out" "toolchain node:"
+dnr=$T/dnr; cp -R "$base" "$dnr"; rm -f "$dnr/package.json"
+out=$(pl "$dnr" doctor 2>&1)
 reject "doctor says nothing about toolchains in a project without a runtime" "$out" "toolchain"
 # 0.0.5: foreign context hooks and overlapping skills are listed as WARN, never FAIL, and the exit stays 0
 mkdir -p "$HOME/.claude/skills/test-driven-dev" "$HOME/.claude/skills/rust-lint"
