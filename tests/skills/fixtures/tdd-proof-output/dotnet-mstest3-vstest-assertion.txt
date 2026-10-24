@@ -1,0 +1,45 @@
+tool: .NET SDK 10.0.402; MSTest 3.11.1 (EnableMSTestRunner=false)
+ecosystem: dotnet
+runner: mstest3 VSTest
+command: dotnet test
+exit_code: 1
+scenario: assertion
+expected_class: assertion
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+  Determining projects to restore...
+  Restored /work/mstest3-vstest/Probe.csproj (in 7.14 sec).
+  Probe -> /work/mstest3-vstest/bin/Debug/net10.0/Probe.dll
+Test run for /work/mstest3-vstest/bin/Debug/net10.0/Probe.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+  Failed Add_equal [13 ms]
+  Error Message:
+   Assert.AreEqual failed. Expected:<5>. Actual:<4>. 
+  Stack Trace:
+     at CalcTests.Add_equal() in /work/mstest3-vstest/Tests.cs:line 5
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+  Failed Add_true [< 1 ms]
+  Error Message:
+   Assert.IsTrue failed. 
+  Stack Trace:
+     at CalcTests.Add_true() in /work/mstest3-vstest/Tests.cs:line 6
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+  Failed Str_equal [< 1 ms]
+  Error Message:
+   Assert.AreEqual failed. String lengths are both 3 but differ at index 2.
+Expected: "abc"
+But was:  "abd"
+-------------^
+  Stack Trace:
+     at CalcTests.Str_equal() in /work/mstest3-vstest/Tests.cs:line 7
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+
+Failed!  - Failed:     3, Passed:     0, Skipped:     0, Total:     3, Duration: 28 ms - Probe.dll (net10.0)

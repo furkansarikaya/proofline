@@ -1,0 +1,24 @@
+tool: .NET SDK 10.0.402; NUnit 5.0.0, NUnit3TestAdapter 6.3.1 (EnableNUnitRunner), global.json test.runner = Microsoft.Testing.Platform
+ecosystem: dotnet
+runner: nunit Microsoft.Testing.Platform
+command: dotnet test
+exit_code: 8
+scenario: no-tests
+expected_class: no_tests
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+Running tests from /work/nunit-mtp/bin/Debug/net10.0/Probe.dll (net10.0|arm64)
+/work/nunit-mtp/bin/Debug/net10.0/Probe.dll (net10.0|arm64) Zero tests ran (158ms)
+Exit code: 8
+
+Test run summary: Zero tests ran
+  error: 1
+
+  total: 0
+  failed: 0
+  succeeded: 0
+  skipped: 0
+  duration: 431ms
+Test run completed with non-success exit code: 8 (see: https://aka.ms/testingplatform/exitcodes)

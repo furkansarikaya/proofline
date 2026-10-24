@@ -95,12 +95,46 @@
         { "file": "tauri.conf.json5", "platform": "tauri", "kind": "shell", "why": "tauri configuration" }
       ],
       "test_output": {
-        "status": "seed",
-        "runners": ["jest", "vitest", "mocha", "node:test"],
-        "no_tests": ["/No tests found, exiting with code/", "/No test files found/", "/^\\s*(ℹ|#)\\s*tests\\s+0\\b/m"],
-        "compile": ["/error TS\\d+/"],
-        "assertion": ["/AssertionError/", "/\\bexpect\\(.*\\)\\.(not\\.)?to\\w+/", "/Expected:[\\s\\S]{0,400}?(Received|Actual):/"],
-        "exit_codes": { "no_tests": ["1"], "compile": ["1", "2"], "assertion": ["1"] }
+        "status": "verified",
+        "runners": ["jest","vitest","mocha","node:test","bun test","tsc"],
+        "no_tests": [
+          { "pattern": "/No tests found, exiting with code/", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts" },
+          { "pattern": "/No test files found/", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-no-tests" },
+          { "pattern": "/No test files found/", "runner": "mocha", "source": "docs", "evidence": "https://github.com/mochajs/mocha/blob/main/lib/cli/collect-files.cjs" },
+          { "pattern": "/^\\s*(ℹ|#)\\s*tests\\s+0\\b/m", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-no-tests" },
+          { "pattern": "/^Could not find '/m", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-missing-file" },
+          { "pattern": "/The following filters did not match any test files/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-no-tests" }
+        ],
+        "compile": [
+          { "pattern": "/error TS\\d+/", "runner": "tsc", "source": "captured", "evidence": "npm-tsc-compile" },
+          { "pattern": "/\\[PARSE_ERROR\\]/", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-syntax" },
+          { "pattern": "/Transform failed with \\d+ errors?/", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-syntax" },
+          { "pattern": "/^# Unhandled error between tests/m", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-syntax", "unless": "/Cannot find module/" }
+        ],
+        "assertion": [
+          { "pattern": "/AssertionError/", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-assertion" },
+          { "pattern": "/\\bexpect\\(received\\)\\.(not\\.)?to\\w+/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" },
+          { "pattern": "/\\bexpect\\(received\\)\\.(not\\.)?to\\w+/", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/docs/ExpectAPI.md" },
+          { "pattern": "/Expected:[\\s\\S]{0,400}?(Received|Actual):/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "1", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-no-tests" },
+            { "code": "1", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts" },
+            { "code": "0", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-no-tests" },
+            { "code": "0", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-no-tests" }
+          ],
+          "compile": [
+            { "code": "2", "runner": "tsc", "source": "captured", "evidence": "npm-tsc-compile" },
+            { "code": "1", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-syntax" },
+            { "code": "1", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-syntax" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-assertion" },
+            { "code": "1", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-assertion" },
+            { "code": "1", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" }
+          ]
+        }
       }
     },
     {
@@ -163,12 +197,34 @@
       },
       "native_ui": [],
       "test_output": {
-        "status": "seed",
-        "runners": ["pytest", "unittest"],
-        "no_tests": ["/collected 0 items/", "/\\bno tests ran\\b/i", "/\\bRan 0 tests\\b/"],
-        "compile": ["/SyntaxError/", "/IndentationError/"],
-        "assertion": ["/AssertionError/", "/^E\\s+assert\\b/m"],
-        "exit_codes": { "no_tests": ["5"], "compile": ["2", "4"], "assertion": ["1"] }
+        "status": "verified",
+        "runners": ["pytest","unittest"],
+        "no_tests": [
+          { "pattern": "/collected 0 items/", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst" },
+          { "pattern": "/\\bno tests ran\\b/i", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
+          { "pattern": "/\\bno tests ran\\b/i", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst" },
+          { "pattern": "/\\bRan 0 tests\\b/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
+          { "pattern": "/\\(unittest\\.loader\\._FailedTest\\.\\w+\\)/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests-filter" }
+        ],
+        "compile": [
+          { "pattern": "/SyntaxError/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-syntax" },
+          { "pattern": "/IndentationError/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-indentation" }
+        ],
+        "assertion": [
+          { "pattern": "/AssertionError/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-assertion" },
+          { "pattern": "/^E\\s+assert\\b/m", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/getting-started.rst" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "5", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
+            { "code": "5", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst" }
+          ],
+          "compile": [],
+          "assertion": [
+            { "code": "1", "runner": "unittest", "source": "captured", "evidence": "python-unittest-assertion" },
+            { "code": "1", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst" }
+          ]
+        }
       }
     },
     {
@@ -224,12 +280,33 @@
       },
       "native_ui": [],
       "test_output": {
-        "status": "seed",
+        "status": "verified",
         "runners": ["go test"],
-        "no_tests": ["/no test files/", "/\\[no tests to run\\]/"],
-        "compile": ["/\\[build failed\\]/", "/\\bundefined: \\w+/", "/cannot use .+ as .+ value/"],
-        "assertion": ["/^\\s*--- FAIL: /m"],
-        "exit_codes": { "no_tests": ["0"], "compile": ["1"], "assertion": ["1"] }
+        "no_tests": [
+          { "pattern": "/\\[no test files\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-no-test-files", "unless": "/^(--- FAIL|FAIL\\s)|^ok\\s+\\S+\\s+(\\(cached\\)|[0-9.]+s)\\s*$/m" },
+          { "pattern": "/\\[no tests to run\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-no-tests-to-run", "unless": "/^(--- FAIL|FAIL\\s)|^ok\\s+\\S+\\s+(\\(cached\\)|[0-9.]+s)\\s*$/m" },
+          { "pattern": "/testing: warning: no tests to run/", "runner": "go test", "source": "captured", "evidence": "go-test-no-tests-to-run-v", "unless": "/^(--- FAIL|FAIL\\s)|^ok\\s+\\S+\\s+(\\(cached\\)|[0-9.]+s)\\s*$/m" }
+        ],
+        "compile": [
+          { "pattern": "/\\[build failed\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-build-failed" },
+          { "pattern": "/\\[setup failed\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-setup-failed" },
+          { "pattern": "/\\bundefined: \\w+/", "runner": "go test", "source": "captured", "evidence": "go-test-build-failed" },
+          { "pattern": "/cannot use .+ as .+ value/", "runner": "go test", "source": "captured", "evidence": "go-test-type-error" }
+        ],
+        "assertion": [
+          { "pattern": "/^\\s*--- FAIL: [\\s\\S]*?_test\\.go:\\d+:/m", "runner": "go test", "source": "captured", "evidence": "go-test-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "go test", "source": "captured", "evidence": "go-test-no-test-files" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "go test", "source": "captured", "evidence": "go-test-build-failed" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "go test", "source": "captured", "evidence": "go-test-assertion" }
+          ]
+        }
       }
     },
     {
@@ -296,12 +373,27 @@
         { "file": "AndroidManifest.xml", "platform": "android", "kind": "mobile", "why": "AndroidManifest.xml" }
       ],
       "test_output": {
-        "status": "seed",
-        "runners": ["maven surefire", "gradle test", "junit"],
-        "no_tests": ["/No tests were executed/", "/No tests found for given includes/", "/Tests run: 0\\b/"],
-        "compile": ["/COMPILATION ERROR/", "/cannot find symbol/", "/Compilation failed/i"],
-        "assertion": ["/AssertionFailedError/", "/ComparisonFailure/"],
-        "exit_codes": { "no_tests": ["0", "1"], "compile": ["1"], "assertion": ["1"] }
+        "status": "verified",
+        "runners": ["maven surefire","gradle test","junit"],
+        "no_tests": [
+          { "pattern": "/No tests to run\\./", "runner": "maven surefire", "source": "docs", "evidence": "https://github.com/apache/maven-surefire/blob/master/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/AbstractSurefireMojo.java" },
+          { "pattern": "/No tests were executed!/", "runner": "maven surefire", "source": "docs", "evidence": "https://github.com/apache/maven-surefire/blob/master/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/SurefireHelper.java" },
+          { "pattern": "/No tests found for given includes/", "runner": "gradle test", "source": "docs", "evidence": "https://github.com/gradle/gradle/blob/master/platforms/jvm/testing-jvm/src/integTest/groovy/org/gradle/testing/AbstractTestFilteringIntegrationTest.groovy" }
+        ],
+        "compile": [
+          { "pattern": "/COMPILATION ERROR/", "runner": "maven compiler", "source": "docs", "evidence": "https://github.com/apache/maven-compiler-plugin/blob/master/src/it/mcompiler-182/verify.groovy" },
+          { "pattern": "/cannot find symbol/", "runner": "javac", "source": "docs", "evidence": "https://github.com/openjdk/jdk/blob/master/src/jdk.compiler/share/classes/com/sun/tools/javac/resources/compiler.properties" },
+          { "pattern": "/Compilation failed; see the compiler/", "runner": "gradle", "source": "docs", "evidence": "https://github.com/gradle/gradle/blob/master/platforms/jvm/java-compiler-worker/src/main/java/org/gradle/api/internal/tasks/compile/CompilationFailedException.java" }
+        ],
+        "assertion": [
+          { "pattern": "/AssertionFailedError/", "runner": "junit 5", "source": "docs", "evidence": "https://github.com/ota4j-team/opentest4j/blob/main/src/main/java/org/opentest4j/AssertionFailedError.java" },
+          { "pattern": "/ComparisonFailure/", "runner": "junit 4", "source": "docs", "evidence": "https://github.com/junit-team/junit4/blob/main/src/main/java/org/junit/ComparisonFailure.java" }
+        ],
+        "exit_codes": {
+          "no_tests": [],
+          "compile": [],
+          "assertion": []
+        }
       }
     },
     {
@@ -356,12 +448,30 @@
         { "file": "Cargo.toml", "contains": "^(egui|eframe|iced|slint)\\b", "platform": "desktop", "kind": "desktop", "why": "Rust desktop UI crate" }
       ],
       "test_output": {
-        "status": "seed",
+        "status": "verified",
         "runners": ["cargo test"],
-        "no_tests": ["/running 0 tests/"],
-        "compile": ["/error\\[E\\d+\\]/", "/could not compile/i"],
-        "assertion": ["/assertion `?(left|right)?.*failed/", "/panicked at/"],
-        "exit_codes": { "no_tests": ["0"], "compile": ["101"], "assertion": ["101"] }
+        "no_tests": [
+          { "pattern": "/^running 0 tests/m", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/listing-11-01/output.txt", "unless": "/^running [1-9][0-9]* tests?/m" }
+        ],
+        "compile": [
+          { "pattern": "/error\\[E\\d+\\]/", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch18-oop/listing-18-10/output.txt" },
+          { "pattern": "/could not compile/", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch18-oop/listing-18-10/output.txt" }
+        ],
+        "assertion": [
+          { "pattern": "/assertion `left (==|!=) right` failed/", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/no-listing-04-bug-in-add-two/output.txt" },
+          { "pattern": "/assertion failed: /", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/no-listing-03-introducing-a-bug/output.txt" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md" }
+          ],
+          "compile": [
+            { "code": "101", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md" }
+          ],
+          "assertion": [
+            { "code": "101", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md" }
+          ]
+        }
       }
     },
     {
@@ -424,12 +534,46 @@
         { "file": "*.vbproj", "contains": "UseWPF|UseWinForms|Avalonia", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" }
       ],
       "test_output": {
-        "status": "seed",
-        "runners": ["vstest", "microsoft.testing.platform"],
-        "no_tests": ["/No test is available/", "/Zero tests ran/i", "/\\bno tests? (were )?(found|ran|to run)\\b/i"],
-        "compile": ["/error CS\\d+/", "/error FS\\d+/", "/error BC\\d+/", "/\\bBuild FAILED\\b/", "/Test Run Aborted/"],
-        "assertion": ["/Assert\\.\\w+\\(\\) Failure/", "/Assert\\.That/", "/Assert\\.AreEqual failed/", "/Expected: .* But was: /"],
-        "exit_codes": { "no_tests": ["8"], "compile": ["1"], "assertion": ["1", "2"] }
+        "status": "verified",
+        "runners": ["vstest","microsoft.testing.platform","xunit","nunit","mstest"],
+        "no_tests": [
+          { "pattern": "/No test is available in/", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-no-tests", "unless": "/^\\s*(Passed|Failed)!\\s+- /m" },
+          { "pattern": "/No test matches the given testcase filter/", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-no-tests-filter", "unless": "/^\\s*(Passed|Failed)!\\s+- /m" },
+          { "pattern": "/Zero tests ran/", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-no-tests", "unless": "/\\([^()|]+\\|[^()|]+\\) (passed|failed) |^Exit code: (?!8\\b)\\d+/m" }
+        ],
+        "compile": [
+          { "pattern": "/error CS\\d+/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-xunit3-vstest-compile" },
+          { "pattern": "/error FS\\d+/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-build-fsharp-compile" },
+          { "pattern": "/error BC\\d+/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-build-vb-compile" },
+          { "pattern": "/\\bBuild FAILED\\b/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-build-compile" },
+          { "pattern": "/Build failed with exit code: \\d+/", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-compile" },
+          { "pattern": "/error MSB\\d+/", "runner": "dotnet", "source": "captured", "evidence": "dotnet-test-no-project" },
+          { "pattern": "/error NU\\d+/", "runner": "dotnet", "source": "captured", "evidence": "dotnet-test-restore-failed" },
+          { "pattern": "/Testing with VSTest target is no longer supported by Microsoft\\.Testing\\.Platform/", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-nunit-mtp-without-opt-in" },
+          { "pattern": "/Test Run Aborted/", "runner": "vstest", "source": "captured", "evidence": "dotnet-nunit-vstest-host-crash" }
+        ],
+        "assertion": [
+          { "pattern": "/Assert\\.\\w+\\(\\) Failure/", "runner": "xunit", "source": "captured", "evidence": "dotnet-xunit3-vstest-assertion" },
+          { "pattern": "/^\\s*Expected: .+\\n\\s*But was:\\s/m", "runner": "nunit", "source": "captured", "evidence": "dotnet-nunit-vstest-assertion" },
+          { "pattern": "/\\bAssertion failed\\. Expected/", "runner": "mstest 4", "source": "captured", "evidence": "dotnet-mstest-vstest-assertion" },
+          { "pattern": "/\\bAssert\\.\\w+ failed\\./", "runner": "mstest 3", "source": "captured", "evidence": "dotnet-mstest3-vstest-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-no-tests" },
+            { "code": "8", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-no-tests" },
+            { "code": "8", "runner": "microsoft.testing.platform", "source": "docs", "evidence": "https://learn.microsoft.com/dotnet/core/testing/unit-testing-platform-exit-codes" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-compile" },
+            { "code": "1", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-compile" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-assertion" },
+            { "code": "2", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-assertion" },
+            { "code": "2", "runner": "microsoft.testing.platform", "source": "docs", "evidence": "https://learn.microsoft.com/dotnet/core/testing/unit-testing-platform-exit-codes" }
+          ]
+        }
       }
     },
     {
@@ -484,12 +628,26 @@
       },
       "native_ui": [],
       "test_output": {
-        "status": "seed",
-        "runners": ["phpunit", "pest"],
-        "no_tests": ["/No tests executed!/", "/No tests found in class/"],
-        "compile": ["/PHP Parse error/", "/Parse error: /"],
-        "assertion": ["/Failed asserting that/"],
-        "exit_codes": { "no_tests": ["0"], "compile": ["255"], "assertion": ["1"] }
+        "status": "verified",
+        "runners": ["phpunit"],
+        "no_tests": [
+          { "pattern": "/No tests executed!/", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/Output/SummaryPrinter.php" }
+        ],
+        "compile": [
+          { "pattern": "/Parse error: /", "runner": "php", "source": "docs", "evidence": "https://github.com/php/doc-en/blob/master/language/control-structures/elseif.xml" }
+        ],
+        "assertion": [
+          { "pattern": "/Failed asserting that/", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/Framework/Constraint/Array/IsList.php" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/ShellExitCodeCalculator.php" }
+          ],
+          "compile": [],
+          "assertion": [
+            { "code": "1", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/ShellExitCodeCalculator.php" }
+          ]
+        }
       }
     },
     {
@@ -542,12 +700,36 @@
       },
       "native_ui": [],
       "test_output": {
-        "status": "seed",
-        "runners": ["rspec", "minitest"],
-        "no_tests": ["/\\b0 examples, 0 failures/", "/\\b0 runs, 0 assertions/"],
-        "compile": ["/SyntaxError/"],
-        "assertion": ["/Failure\\/Error:/", "/expected: .+ got: /i"],
-        "exit_codes": { "no_tests": ["0"], "compile": ["1"], "assertion": ["1"] }
+        "status": "verified",
+        "runners": ["rspec","minitest","test-unit"],
+        "no_tests": [
+          { "pattern": "/\\b0 examples, 0 failures/", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/configuration/fail_if_no_examples.feature" },
+          { "pattern": "/\\b0 runs, 0 assertions/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests" },
+          { "pattern": "/Nothing ran for filter/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests-filter" }
+        ],
+        "compile": [
+          { "pattern": "/SyntaxError/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-syntax" }
+        ],
+        "assertion": [
+          { "pattern": "/^\\s*expected: .+\\n\\s*got: /m", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/expectation_framework_integration/aggregating_failures.feature" },
+          { "pattern": "/Expected:[\\s\\S]{0,400}?Actual:/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-assertion" },
+          { "pattern": "/> expected but was\\s*\\n</", "runner": "test-unit", "source": "captured", "evidence": "ruby-test-unit-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests" },
+            { "code": "1", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests-filter" },
+            { "code": "0", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/configuration/fail_if_no_examples.feature" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-syntax" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-assertion" },
+            { "code": "1", "runner": "test-unit", "source": "captured", "evidence": "ruby-test-unit-assertion" },
+            { "code": "1", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/command_line/exit_status.feature" }
+          ]
+        }
       }
     },
     {
@@ -605,12 +787,34 @@
         { "file": "project.pbxproj", "contains": "SDKROOT = macosx|MACOSX_DEPLOYMENT_TARGET", "platform": "desktop", "kind": "desktop", "why": "Xcode project for macOS" }
       ],
       "test_output": {
-        "status": "seed",
-        "runners": ["swift test", "xcodebuild test"],
-        "no_tests": ["/Executed 0 tests/", "/No matching test cases were run/"],
-        "compile": ["/error: cannot find .+ in scope/", "/error: .*(build|compilation) (failed|error)/i"],
-        "assertion": ["/XCTAssert\\w+ failed/", "/\\bXCTAssert\\w*\\(.*\\) failed/"],
-        "exit_codes": { "no_tests": ["0"], "compile": ["1"], "assertion": ["1"] }
+        "status": "verified",
+        "runners": ["swift test"],
+        "no_tests": [
+          { "pattern": "/Executed 0 tests/", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests", "unless": "/Test run with [1-9][0-9]* tests?/" },
+          { "pattern": "/No matching test cases were run/", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests-filter" }
+        ],
+        "compile": [
+          { "pattern": "/error: cannot find .+ in scope/", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile" },
+          { "pattern": "/\\.swift:\\d+:\\d+: error: /", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile-instance-method" },
+          { "pattern": "/^error: Build failed/m", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile" }
+        ],
+        "assertion": [
+          { "pattern": "/XCTAssert\\w* failed/", "runner": "XCTest", "source": "captured", "evidence": "swift-xctest-assertion" },
+          { "pattern": "/Expectation failed:/", "runner": "swift-testing", "source": "captured", "evidence": "swift-testing-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests" },
+            { "code": "0", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests-filter" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "XCTest", "source": "captured", "evidence": "swift-xctest-assertion" },
+            { "code": "1", "runner": "swift-testing", "source": "captured", "evidence": "swift-testing-assertion" }
+          ]
+        }
       }
     },
     {
@@ -666,12 +870,29 @@
         { "file": "pubspec.yaml", "contains": "^ *sdk: *flutter|^flutter:", "platform": "flutter", "kind": "mobile", "why": "pubspec.yaml with the flutter sdk" }
       ],
       "test_output": {
-        "status": "seed",
-        "runners": ["dart test", "flutter test"],
-        "no_tests": ["/No tests ran/", "/No test files/i"],
-        "compile": ["/Compilation failed/i", "/Error: /"],
-        "assertion": ["/Expected: .*\\n\\s*Actual: /", "/Expected: /"],
-        "exit_codes": { "no_tests": ["79"], "compile": ["1"], "assertion": ["1"] }
+        "status": "verified",
+        "runners": ["dart test","flutter test"],
+        "no_tests": [
+          { "pattern": "/No tests were found\\./", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner.dart" },
+          { "pattern": "/No tests match /", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner.dart" },
+          { "pattern": "/does not appear to contain any test files/", "runner": "flutter test", "source": "docs", "evidence": "https://github.com/flutter/flutter/blob/master/packages/flutter_tools/lib/src/commands/test.dart" },
+          { "pattern": "/Test directory \".*\" not found/", "runner": "flutter test", "source": "docs", "evidence": "https://github.com/flutter/flutter/blob/master/packages/flutter_tools/lib/src/commands/test.dart" }
+        ],
+        "compile": [
+          { "pattern": "/Failed to load \"/", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner/load_exception.dart" }
+        ],
+        "assertion": [
+          { "pattern": "/^\\s*Expected: .+\\n\\s*Actual: /m", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/matcher/lib/src/expect/expect.dart" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "79", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/executable.dart" }
+          ],
+          "compile": [],
+          "assertion": [
+            { "code": "1", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/executable.dart" }
+          ]
+        }
       }
     }
   ]

@@ -1,0 +1,15 @@
+tool: Apple Swift 6.4 (swift test)
+ecosystem: swift
+runner: XCTest
+command: swift test --filter NoSuchTests
+exit_code: 0
+scenario: no_tests (--filter matched nothing)
+expected_class: no_tests
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+Building for debugging...
+[1 / 2] CalcTests-product
+Build complete! (0.27s)
+warning: No matching test cases were run

@@ -1,0 +1,899 @@
+{
+  "$comment": "The single definition of the language ecosystems proofline knows (A173). Every script reads this file: bin/lib/discover.sh (command discovery), skills/verify-proof/scripts/runtime-versions.sh (runtime versions) and, later, the review, dependency, design, visual, performance and TDD checks. Adding an ecosystem is one object in `ecosystems`. Never edit ecosystems.tsv by hand: `node ecosystems.mjs write` regenerates it and `node ecosystems.mjs check` fails when it differs. Shapes are documented in docs/concepts/ecosystems.md. Globs use the dialect of agent.sh (a pattern without / matches at any depth, ** spans directories, * and ? stay inside one segment). Every regular expression is written in the part that POSIX ERE and JavaScript share (no lookarounds, no \\d, \\s, \\w, no [[:classes:]]) and is applied to one line of a file at a time, except where a source says `flatten`. A /source/flags string is a JavaScript regular expression.",
+  "schema_version": 1,
+  "global": {
+    "prune": [
+      ".git", ".hg", ".svn", ".agents", ".claude", ".codex", ".proofline",
+      "node_modules", "bin", "obj", "build", "dist", "out", "target", "vendor", "artifacts",
+      ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+      ".gradle", ".idea", ".vs", ".vscode", ".cache", "coverage", ".terraform",
+      ".next", ".nuxt", ".turbo", ".nx", ".svelte-kit", ".yarn", ".pnpm-store",
+      ".dart_tool", ".pub-cache", ".build", ".swiftpm", "Pods", "DerivedData", ".bundle", ".nuget"
+    ],
+    "limits": {
+      "discover_max_markers": "1000",
+      "version_scan_depth": "6",
+      "version_scan_max_files": "400"
+    },
+    "risky_paths": [
+      ".github/**", ".gitlab-ci.yml", ".circleci/**", "Jenkinsfile", "azure-pipelines.yml", "bitbucket-pipelines.yml",
+      "Dockerfile", "**/Dockerfile*", "docker-compose*.yml", "compose*.yml"
+    ],
+    "ci_scan": {
+      "tools": ["make"],
+      "build": " (build|compile|package)( |$)",
+      "test": " (test|tests|pytest)( |$)|^pytest",
+      "lint": " (lint|vet|clippy)( |$)|^(ruff|eslint)"
+    }
+  },
+  "ecosystems": [
+    {
+      "id": "npm",
+      "name": "JavaScript / TypeScript (npm, pnpm, yarn, bun; workspaces, turbo, nx)",
+      "prune": [".parcel-cache", ".angular", ".expo", ".docusaurus"],
+      "project_files": ["package.json"],
+      "manifests": ["package.json"],
+      "locks": ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock"],
+      "settings": [".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs", "bunfig.toml"],
+      "workspace_roots": [
+        { "file": "pnpm-workspace.yaml" },
+        { "file": "package.json", "contains": "\"workspaces\" *:" },
+        { "file": "turbo.json" },
+        { "file": "nx.json" },
+        { "file": "lerna.json" },
+        { "file": "rush.json" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "node",
+        "compare": "1",
+        "present": ["package.json"],
+        "local": { "commands": ["node --version"], "extract": "^v?([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["node-version"] },
+        { "kind": "line", "file": ".nvmrc" },
+        { "kind": "line", "file": ".node-version" },
+        { "kind": "tool_versions", "names": ["nodejs", "node"] },
+        { "kind": "match", "file": "package.json", "flatten": "true", "pattern": "\"engines\" *: *\\{[^}]*\"node\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "match", "file": "package.json", "flatten": "true", "pattern": "\"volta\" *: *\\{[^}]*\"node\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "gitlab_image", "image": "node" }
+      ],
+      "risky_paths": ["turbo.json", "nx.json", "lerna.json", "rush.json", "pnpm-workspace.yaml"],
+      "commands": {
+        "truth": "scripts",
+        "tools": ["npm", "pnpm", "yarn", "bun", "eslint"],
+        "ci_lint": [],
+        "runners": [
+          { "when": { "file": "pnpm-lock.yaml" }, "run": "pnpm run", "test": "pnpm test", "at_run": "pnpm --dir {dir} run", "at_test": "pnpm --dir {dir} test" },
+          { "when": { "file": "yarn.lock" }, "run": "yarn", "test": "yarn test", "at_run": "yarn --cwd {dir}", "at_test": "yarn --cwd {dir} test" },
+          { "when": { "any_file": ["bun.lockb", "bun.lock"] }, "run": "bun run", "test": "bun test", "at_run": "bun --cwd {dir} run", "at_test": "bun --cwd {dir} test" },
+          { "run": "npm run", "test": "npm test", "at_run": "npm --prefix {dir} run", "at_test": "npm --prefix {dir} test" }
+        ],
+        "build": [
+          { "when": { "script": "build" }, "run": "{run} build", "at": "{at_run} build" }
+        ],
+        "test": [
+          { "when": { "script": "test", "script_not": "no test specified" }, "run": "{test}", "at": "{at_test}" }
+        ],
+        "lint": [
+          { "when": { "script": "lint" }, "run": "{run} lint", "at": "{at_run} lint" }
+        ]
+      },
+      "benchmark": {
+        "scripts": ["bench", "benchmark", "perf*"],
+        "dirs": [],
+        "files": [],
+        "dependencies": [],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "package.json", "contains": "\"react-native\" *:", "platform": "react-native", "kind": "mobile", "why": "package.json depends on react-native" },
+        { "file": "package.json", "contains": "\"electron\" *:", "platform": "electron", "kind": "shell", "why": "package.json depends on electron" },
+        { "file": "tauri.conf.json", "platform": "tauri", "kind": "shell", "why": "tauri configuration" },
+        { "file": "tauri.conf.json5", "platform": "tauri", "kind": "shell", "why": "tauri configuration" }
+      ],
+      "test_output": {
+        "status": "verified",
+        "runners": ["jest","vitest","mocha","node:test","bun test","tsc"],
+        "no_tests": [
+          { "pattern": "/No tests found, exiting with code/", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts" },
+          { "pattern": "/No test files found/", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-no-tests" },
+          { "pattern": "/No test files found/", "runner": "mocha", "source": "docs", "evidence": "https://github.com/mochajs/mocha/blob/main/lib/cli/collect-files.cjs" },
+          { "pattern": "/^\\s*(ℹ|#)\\s*tests\\s+0\\b/m", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-no-tests" },
+          { "pattern": "/^Could not find '/m", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-missing-file" },
+          { "pattern": "/The following filters did not match any test files/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-no-tests" }
+        ],
+        "compile": [
+          { "pattern": "/error TS\\d+/", "runner": "tsc", "source": "captured", "evidence": "npm-tsc-compile" },
+          { "pattern": "/\\[PARSE_ERROR\\]/", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-syntax" },
+          { "pattern": "/Transform failed with \\d+ errors?/", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-syntax" },
+          { "pattern": "/^# Unhandled error between tests/m", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-syntax", "unless": "/Cannot find module/" }
+        ],
+        "assertion": [
+          { "pattern": "/AssertionError/", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-assertion" },
+          { "pattern": "/\\bexpect\\(received\\)\\.(not\\.)?to\\w+/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" },
+          { "pattern": "/\\bexpect\\(received\\)\\.(not\\.)?to\\w+/", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/docs/ExpectAPI.md" },
+          { "pattern": "/Expected:[\\s\\S]{0,400}?(Received|Actual):/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "1", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-no-tests" },
+            { "code": "1", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts" },
+            { "code": "0", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-no-tests" },
+            { "code": "0", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-no-tests" }
+          ],
+          "compile": [
+            { "code": "2", "runner": "tsc", "source": "captured", "evidence": "npm-tsc-compile" },
+            { "code": "1", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-syntax" },
+            { "code": "1", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-syntax" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-assertion" },
+            { "code": "1", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-assertion" },
+            { "code": "1", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "python",
+      "name": "Python (pip, Poetry, uv, PDM, Hatch)",
+      "prune": [".eggs", "site-packages", ".nox", ".hypothesis"],
+      "project_files": ["pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "pytest.ini"],
+      "manifests": ["requirements*.txt", "requirements*.in", "**/requirements/*.txt", "**/requirements/*.in", "constraints*.txt", "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "environment.yml", "environment.yaml"],
+      "locks": ["poetry.lock", "uv.lock", "pdm.lock", "Pipfile.lock"],
+      "settings": ["pip.conf", ".pypirc", "uv.toml", "pdm.toml", "poetry.toml"],
+      "workspace_roots": [
+        { "file": "pyproject.toml", "contains": "^\\[tool\\.uv\\.workspace\\]" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "python",
+        "compare": "2",
+        "present": ["pyproject.toml", "requirements.txt", "setup.py"],
+        "local": { "commands": ["python3 --version", "python --version"], "extract": "Python ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["python-version"] },
+        { "kind": "line", "file": ".python-version" },
+        { "kind": "tool_versions", "names": ["python", "python3"] },
+        { "kind": "match", "file": "pyproject.toml", "pattern": "^requires-python *= *[\"']([^\"']*)[\"']", "group": "1" },
+        { "kind": "match", "file": "Pipfile", "pattern": "^python_version *= *[\"']([^\"']*)[\"']", "group": "1" },
+        { "kind": "match", "file": "runtime.txt", "pattern": "^python-([0-9][0-9.]*)", "group": "1" },
+        { "kind": "gitlab_image", "image": "python" }
+      ],
+      "risky_paths": ["tox.ini", "noxfile.py", "hatch.toml"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["pytest", "ruff", "python", "python3", "uv", "poetry", "pdm", "hatch", "tox", "nox"],
+        "ci_lint": [],
+        "runners": [
+          { "when": { "file": "uv.lock" }, "py": "uv run " },
+          { "when": { "file": "poetry.lock" }, "py": "poetry run " },
+          { "when": { "file": "pdm.lock" }, "py": "pdm run " },
+          { "py": "" }
+        ],
+        "build": [],
+        "test": [
+          { "when": { "in": ["pyproject.toml", "pytest.ini", "setup.cfg"], "contains": "pytest" }, "run": "{py}pytest", "at": "{py}pytest {dir}" },
+          { "when": { "any_file": ["pyproject.toml", "pytest.ini", "setup.cfg"], "dir": "tests" }, "run": "{py}pytest", "at": "{py}pytest {dir}" }
+        ],
+        "lint": [
+          { "when": { "in": ["pyproject.toml"], "contains": "^\\[tool\\.ruff" }, "run": "{py}ruff check .", "at": "{py}ruff check {dir}" },
+          { "when": { "file": "ruff.toml" }, "run": "{py}ruff check .", "at": "{py}ruff check {dir}" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["pyproject.toml", "setup.cfg", "requirements-dev.txt", "requirements.txt"], "contains": "pytest-benchmark", "why": "pytest-benchmark" }
+        ],
+        "config_files": ["asv.conf.json"]
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "verified",
+        "runners": ["pytest","unittest"],
+        "no_tests": [
+          { "pattern": "/collected 0 items/", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst" },
+          { "pattern": "/\\bno tests ran\\b/i", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
+          { "pattern": "/\\bno tests ran\\b/i", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst" },
+          { "pattern": "/\\bRan 0 tests\\b/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
+          { "pattern": "/\\(unittest\\.loader\\._FailedTest\\.\\w+\\)/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests-filter" }
+        ],
+        "compile": [
+          { "pattern": "/SyntaxError/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-syntax" },
+          { "pattern": "/IndentationError/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-indentation" }
+        ],
+        "assertion": [
+          { "pattern": "/AssertionError/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-assertion" },
+          { "pattern": "/^E\\s+assert\\b/m", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/getting-started.rst" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "5", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
+            { "code": "5", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst" }
+          ],
+          "compile": [],
+          "assertion": [
+            { "code": "1", "runner": "unittest", "source": "captured", "evidence": "python-unittest-assertion" },
+            { "code": "1", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "go",
+      "name": "Go (modules, go.work)",
+      "prune": [],
+      "project_files": ["go.mod"],
+      "manifests": ["go.mod", "go.work"],
+      "locks": ["go.sum", "go.work.sum"],
+      "settings": [],
+      "workspace_roots": [
+        { "file": "go.work" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "go",
+        "compare": "2",
+        "present": ["go.mod", "go.work"],
+        "local": { "commands": ["go version"], "extract": "go([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["go-version"] },
+        { "kind": "match", "file": "go.mod", "pattern": "^go ([0-9][0-9.]*)", "group": "1", "spec_prefix": ">=" },
+        { "kind": "match", "file": "go.work", "pattern": "^go ([0-9][0-9.]*)", "group": "1", "spec_prefix": ">=" },
+        { "kind": "tool_versions", "names": ["golang", "go"] },
+        { "kind": "gitlab_image", "image": "golang" }
+      ],
+      "risky_paths": [],
+      "commands": {
+        "truth": "tools",
+        "tools": ["go"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [
+          { "when": { "file": "go.mod" }, "run": "go build ./...", "at": "go -C {dir} build ./..." }
+        ],
+        "test": [
+          { "when": { "file": "go.mod" }, "run": "go test ./...", "at": "go -C {dir} test ./..." }
+        ],
+        "lint": [
+          { "when": { "file": "go.mod" }, "run": "go vet ./...", "at": "go -C {dir} vet ./..." }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [
+          { "glob": "*_test.go", "contains": "^func Benchmark", "why": "Go func Benchmark in *_test.go" }
+        ],
+        "dependencies": [],
+        "config_files": []
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "verified",
+        "runners": ["go test"],
+        "no_tests": [
+          { "pattern": "/\\[no test files\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-no-test-files", "unless": "/^(--- FAIL|FAIL\\s)|^ok\\s+\\S+\\s+(\\(cached\\)|[0-9.]+s)\\s*$/m" },
+          { "pattern": "/\\[no tests to run\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-no-tests-to-run", "unless": "/^(--- FAIL|FAIL\\s)|^ok\\s+\\S+\\s+(\\(cached\\)|[0-9.]+s)\\s*$/m" },
+          { "pattern": "/testing: warning: no tests to run/", "runner": "go test", "source": "captured", "evidence": "go-test-no-tests-to-run-v", "unless": "/^(--- FAIL|FAIL\\s)|^ok\\s+\\S+\\s+(\\(cached\\)|[0-9.]+s)\\s*$/m" }
+        ],
+        "compile": [
+          { "pattern": "/\\[build failed\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-build-failed" },
+          { "pattern": "/\\[setup failed\\]/", "runner": "go test", "source": "captured", "evidence": "go-test-setup-failed" },
+          { "pattern": "/\\bundefined: \\w+/", "runner": "go test", "source": "captured", "evidence": "go-test-build-failed" },
+          { "pattern": "/cannot use .+ as .+ value/", "runner": "go test", "source": "captured", "evidence": "go-test-type-error" }
+        ],
+        "assertion": [
+          { "pattern": "/^\\s*--- FAIL: [\\s\\S]*?_test\\.go:\\d+:/m", "runner": "go test", "source": "captured", "evidence": "go-test-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "go test", "source": "captured", "evidence": "go-test-no-test-files" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "go test", "source": "captured", "evidence": "go-test-build-failed" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "go test", "source": "captured", "evidence": "go-test-assertion" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "jvm",
+      "name": "Java / Kotlin (Maven multi-module, Gradle with a version catalog)",
+      "prune": [".mvn", ".settings", ".kotlin"],
+      "project_files": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+      "manifests": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "*.versions.toml", "gradle.properties", "**/buildSrc/**/*.gradle", "**/buildSrc/**/*.gradle.kts"],
+      "locks": ["gradle.lockfile", "**/dependency-locks/*.lockfile"],
+      "settings": ["settings.xml", "**/.mvn/settings.xml", "**/.mvn/extensions.xml", "**/.mvn/maven.config", "**/.mvn/jvm.config", "gradle/wrapper/gradle-wrapper.properties", "**/gradle-wrapper.properties"],
+      "workspace_roots": [
+        { "file": "pom.xml", "contains": "<modules>" },
+        { "file": "settings.gradle", "contains": "^ *include(Build)?[ (]" },
+        { "file": "settings.gradle.kts", "contains": "^ *include(Build)?[ (]" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "java",
+        "compare": "1",
+        "present": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+        "local": { "commands": ["java -version"], "extract": "version \"(1\\.)?([0-9][0-9.]*)", "group": "2" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["java-version"] },
+        { "kind": "line", "file": ".java-version" },
+        { "kind": "tool_versions", "names": ["java"] },
+        { "kind": "match", "file": ".sdkmanrc", "pattern": "^java=(1\\.)?([0-9][0-9.]*)", "group": "2" },
+        { "kind": "match", "file": "pom.xml", "flatten": "true", "pattern": "<(java\\.version|maven\\.compiler\\.release|maven\\.compiler\\.source|release)>(1\\.)?([0-9][0-9.]*)<", "group": "3" },
+        { "kind": "match", "file": "build.gradle.kts", "flatten": "true", "pattern": "JavaLanguageVersion\\.of\\(([0-9]+)\\)", "group": "1" },
+        { "kind": "match", "file": "build.gradle", "flatten": "true", "pattern": "JavaLanguageVersion\\.of\\(([0-9]+)\\)", "group": "1" }
+      ],
+      "risky_paths": ["gradlew", "gradlew.bat", "mvnw", "mvnw.cmd", "**/buildSrc/**", "**/build-logic/**", "**/.mvn/**"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["mvn", "gradle", "./gradlew"],
+        "ci_lint": [],
+        "runners": [
+          { "when": { "file": "gradlew" }, "gradle": "./gradlew", "at_gradle": "{dir}/gradlew -p {dir}" },
+          { "gradle": "gradle", "at_gradle": "gradle -p {dir}" }
+        ],
+        "build": [
+          { "when": { "file": "pom.xml" }, "run": "mvn -B package", "at": "mvn -B -f {dir}/pom.xml package" },
+          { "when": { "any_file": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"] }, "run": "{gradle} build", "at": "{at_gradle} build" }
+        ],
+        "test": [
+          { "when": { "file": "pom.xml" }, "run": "mvn -B test", "at": "mvn -B -f {dir}/pom.xml test" },
+          { "when": { "any_file": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"] }, "run": "{gradle} test", "at": "{at_gradle} test" }
+        ],
+        "lint": []
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["pom.xml", "build.gradle", "build.gradle.kts"], "contains": "jmh", "why": "JMH" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "build.gradle", "contains": "com\\.android\\.(application|library)|apply plugin: *['\"]com\\.android", "platform": "android", "kind": "mobile", "why": "gradle file with the android plugin" },
+        { "file": "build.gradle.kts", "contains": "com\\.android\\.(application|library)|id\\( *\"com\\.android", "platform": "android", "kind": "mobile", "why": "gradle file with the android plugin" },
+        { "file": "AndroidManifest.xml", "platform": "android", "kind": "mobile", "why": "AndroidManifest.xml" }
+      ],
+      "test_output": {
+        "status": "verified",
+        "runners": ["maven surefire","gradle test","junit"],
+        "no_tests": [
+          { "pattern": "/No tests to run\\./", "runner": "maven surefire", "source": "docs", "evidence": "https://github.com/apache/maven-surefire/blob/master/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/AbstractSurefireMojo.java" },
+          { "pattern": "/No tests were executed!/", "runner": "maven surefire", "source": "docs", "evidence": "https://github.com/apache/maven-surefire/blob/master/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/SurefireHelper.java" },
+          { "pattern": "/No tests found for given includes/", "runner": "gradle test", "source": "docs", "evidence": "https://github.com/gradle/gradle/blob/master/platforms/jvm/testing-jvm/src/integTest/groovy/org/gradle/testing/AbstractTestFilteringIntegrationTest.groovy" }
+        ],
+        "compile": [
+          { "pattern": "/COMPILATION ERROR/", "runner": "maven compiler", "source": "docs", "evidence": "https://github.com/apache/maven-compiler-plugin/blob/master/src/it/mcompiler-182/verify.groovy" },
+          { "pattern": "/cannot find symbol/", "runner": "javac", "source": "docs", "evidence": "https://github.com/openjdk/jdk/blob/master/src/jdk.compiler/share/classes/com/sun/tools/javac/resources/compiler.properties" },
+          { "pattern": "/Compilation failed; see the compiler/", "runner": "gradle", "source": "docs", "evidence": "https://github.com/gradle/gradle/blob/master/platforms/jvm/java-compiler-worker/src/main/java/org/gradle/api/internal/tasks/compile/CompilationFailedException.java" }
+        ],
+        "assertion": [
+          { "pattern": "/AssertionFailedError/", "runner": "junit 5", "source": "docs", "evidence": "https://github.com/ota4j-team/opentest4j/blob/main/src/main/java/org/opentest4j/AssertionFailedError.java" },
+          { "pattern": "/ComparisonFailure/", "runner": "junit 4", "source": "docs", "evidence": "https://github.com/junit-team/junit4/blob/main/src/main/java/org/junit/ComparisonFailure.java" }
+        ],
+        "exit_codes": {
+          "no_tests": [],
+          "compile": [],
+          "assertion": []
+        }
+      }
+    },
+    {
+      "id": "cargo",
+      "name": "Rust (Cargo workspace)",
+      "prune": [],
+      "project_files": ["Cargo.toml"],
+      "manifests": ["Cargo.toml"],
+      "locks": ["Cargo.lock"],
+      "settings": ["**/.cargo/config.toml", "**/.cargo/config"],
+      "workspace_roots": [
+        { "file": "Cargo.toml", "contains": "^\\[workspace\\]" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "rust",
+        "compare": "2",
+        "present": ["Cargo.toml"],
+        "local": { "commands": ["rustc --version"], "extract": "rustc ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "line", "file": "rust-toolchain" },
+        { "kind": "match", "file": "rust-toolchain.toml", "pattern": "^channel *= *\"([^\"]*)\"", "group": "1" },
+        { "kind": "tool_versions", "names": ["rust"] },
+        { "kind": "match", "file": "Cargo.toml", "pattern": "^rust-version *= *\"([^\"]*)\"", "group": "1", "spec_prefix": ">=" }
+      ],
+      "risky_paths": ["build.rs", "rust-toolchain", "rust-toolchain.toml", "deny.toml"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["cargo"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [
+          { "when": { "file": "Cargo.toml" }, "run": "cargo build", "at": "cargo build --manifest-path {dir}/Cargo.toml" }
+        ],
+        "test": [
+          { "when": { "file": "Cargo.toml" }, "run": "cargo test", "at": "cargo test --manifest-path {dir}/Cargo.toml" }
+        ],
+        "lint": [
+          { "when": { "file": "Cargo.toml" }, "run": "cargo clippy", "at": "cargo clippy --manifest-path {dir}/Cargo.toml" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": ["benches"],
+        "files": [],
+        "dependencies": [],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "Cargo.toml", "contains": "^(egui|eframe|iced|slint)\\b", "platform": "desktop", "kind": "desktop", "why": "Rust desktop UI crate" }
+      ],
+      "test_output": {
+        "status": "verified",
+        "runners": ["cargo test"],
+        "no_tests": [
+          { "pattern": "/^running 0 tests/m", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/listing-11-01/output.txt", "unless": "/^running [1-9][0-9]* tests?/m" }
+        ],
+        "compile": [
+          { "pattern": "/error\\[E\\d+\\]/", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch18-oop/listing-18-10/output.txt" },
+          { "pattern": "/could not compile/", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch18-oop/listing-18-10/output.txt" }
+        ],
+        "assertion": [
+          { "pattern": "/assertion `left (==|!=) right` failed/", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/no-listing-04-bug-in-add-two/output.txt" },
+          { "pattern": "/assertion failed: /", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/book/blob/main/listings/ch11-writing-automated-tests/no-listing-03-introducing-a-bug/output.txt" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md" }
+          ],
+          "compile": [
+            { "code": "101", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md" }
+          ],
+          "assertion": [
+            { "code": "101", "runner": "cargo test", "source": "docs", "evidence": "https://github.com/rust-lang/cargo/blob/master/doc/man/includes/section-exit-status.md" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "dotnet",
+      "name": ".NET (sln, slnx, csproj, fsproj, vbproj)",
+      "prune": ["packages", "TestResults", "publish"],
+      "project_files": ["*.csproj", "*.fsproj", "*.vbproj"],
+      "manifests": ["*.csproj", "*.fsproj", "*.vbproj", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", "packages.config"],
+      "locks": ["packages.lock.json"],
+      "settings": ["NuGet.config", "nuget.config", "NuGet.Config"],
+      "workspace_roots": [],
+      "solution_files": ["*.slnx", "*.sln"],
+      "units": {
+        "target": "file",
+        "bare": "project_files@root",
+        "stages": ["solution_files@root", "project_files@root", "solution_files@nested", "project_files@nested"],
+        "legacy": [{ "keep": ".slnx", "drop": ".sln" }]
+      },
+      "runtime": {
+        "name": "dotnet",
+        "compare": "1",
+        "present": ["global.json", "*.slnx", "*.sln", "*.csproj", "*.fsproj", "*.vbproj"],
+        "local": { "commands": ["dotnet --version"], "extract": "^([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["dotnet-version"] },
+        { "kind": "match", "file": "global.json", "flatten": "true", "pattern": "\"sdk\"[^}]*\"version\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "tool_versions", "names": ["dotnet", "dotnet-core"] }
+      ],
+      "risky_paths": ["Directory.Build.props", "Directory.Build.targets", "Directory.Build.rsp", "Directory.Solution.props", "Directory.Solution.targets", "*.props", "*.targets", "global.json", "**/.config/dotnet-tools.json", "*.sln", "*.slnx"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["dotnet"],
+        "ci_lint": ["^dotnet format( .*)? --verify-no-changes( |$)"],
+        "runners": [],
+        "build": [
+          { "run": "dotnet build", "at": "dotnet build {target}" }
+        ],
+        "test": [
+          { "run": "dotnet test", "at": "dotnet test {target}" }
+        ],
+        "lint": [
+          { "when": { "root_file": ".editorconfig" }, "run": "dotnet format --verify-no-changes", "at": "dotnet format {target} --verify-no-changes" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["*.csproj", "*.fsproj", "*.vbproj", "Directory.Packages.props", "Directory.Build.props"], "contains": "BenchmarkDotNet", "why": "BenchmarkDotNet" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "*.csproj", "contains": "UseMaui", "platform": "maui", "kind": "mobile", "why": ".NET MAUI project" },
+        { "file": "*.csproj", "contains": "UseWPF|UseWinForms|Avalonia", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" },
+        { "file": "*.fsproj", "contains": "UseMaui", "platform": "maui", "kind": "mobile", "why": ".NET MAUI project" },
+        { "file": "*.fsproj", "contains": "UseWPF|UseWinForms|Avalonia", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" },
+        { "file": "*.vbproj", "contains": "UseWPF|UseWinForms|Avalonia", "platform": "desktop", "kind": "desktop", "why": "desktop UI project" }
+      ],
+      "test_output": {
+        "status": "verified",
+        "runners": ["vstest","microsoft.testing.platform","xunit","nunit","mstest"],
+        "no_tests": [
+          { "pattern": "/No test is available in/", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-no-tests", "unless": "/^\\s*(Passed|Failed)!\\s+- /m" },
+          { "pattern": "/No test matches the given testcase filter/", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-no-tests-filter", "unless": "/^\\s*(Passed|Failed)!\\s+- /m" },
+          { "pattern": "/Zero tests ran/", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-no-tests", "unless": "/\\([^()|]+\\|[^()|]+\\) (passed|failed) |^Exit code: (?!8\\b)\\d+/m" }
+        ],
+        "compile": [
+          { "pattern": "/error CS\\d+/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-xunit3-vstest-compile" },
+          { "pattern": "/error FS\\d+/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-build-fsharp-compile" },
+          { "pattern": "/error BC\\d+/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-build-vb-compile" },
+          { "pattern": "/\\bBuild FAILED\\b/", "runner": "dotnet build", "source": "captured", "evidence": "dotnet-build-compile" },
+          { "pattern": "/Build failed with exit code: \\d+/", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-compile" },
+          { "pattern": "/error MSB\\d+/", "runner": "dotnet", "source": "captured", "evidence": "dotnet-test-no-project" },
+          { "pattern": "/error NU\\d+/", "runner": "dotnet", "source": "captured", "evidence": "dotnet-test-restore-failed" },
+          { "pattern": "/Testing with VSTest target is no longer supported by Microsoft\\.Testing\\.Platform/", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-nunit-mtp-without-opt-in" },
+          { "pattern": "/Test Run Aborted/", "runner": "vstest", "source": "captured", "evidence": "dotnet-nunit-vstest-host-crash" }
+        ],
+        "assertion": [
+          { "pattern": "/Assert\\.\\w+\\(\\) Failure/", "runner": "xunit", "source": "captured", "evidence": "dotnet-xunit3-vstest-assertion" },
+          { "pattern": "/^\\s*Expected: .+\\n\\s*But was:\\s/m", "runner": "nunit", "source": "captured", "evidence": "dotnet-nunit-vstest-assertion" },
+          { "pattern": "/\\bAssertion failed\\. Expected/", "runner": "mstest 4", "source": "captured", "evidence": "dotnet-mstest-vstest-assertion" },
+          { "pattern": "/\\bAssert\\.\\w+ failed\\./", "runner": "mstest 3", "source": "captured", "evidence": "dotnet-mstest3-vstest-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-no-tests" },
+            { "code": "8", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-no-tests" },
+            { "code": "8", "runner": "microsoft.testing.platform", "source": "docs", "evidence": "https://learn.microsoft.com/dotnet/core/testing/unit-testing-platform-exit-codes" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-compile" },
+            { "code": "1", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-compile" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "vstest", "source": "captured", "evidence": "dotnet-xunit3-vstest-assertion" },
+            { "code": "2", "runner": "microsoft.testing.platform", "source": "captured", "evidence": "dotnet-xunit3-mtp-assertion" },
+            { "code": "2", "runner": "microsoft.testing.platform", "source": "docs", "evidence": "https://learn.microsoft.com/dotnet/core/testing/unit-testing-platform-exit-codes" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "php",
+      "name": "PHP (Composer)",
+      "prune": [],
+      "project_files": ["composer.json"],
+      "manifests": ["composer.json"],
+      "locks": ["composer.lock"],
+      "settings": ["auth.json"],
+      "workspace_roots": [],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "php",
+        "compare": "2",
+        "present": ["composer.json"],
+        "local": { "commands": ["php --version"], "extract": "PHP ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["php-version"] },
+        { "kind": "line", "file": ".php-version" },
+        { "kind": "tool_versions", "names": ["php"] },
+        { "kind": "match", "file": "composer.json", "flatten": "true", "pattern": "\"require\" *: *\\{[^}]*\"php\" *: *\"([^\"]*)\"", "group": "1" },
+        { "kind": "gitlab_image", "image": "php" }
+      ],
+      "risky_paths": [],
+      "commands": {
+        "truth": "scripts",
+        "tools": ["composer", "phpunit", "vendor/bin/phpunit"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [
+          { "when": { "script": "build", "script_file": "composer.json" }, "run": "composer build", "at": "composer --working-dir={dir} build" }
+        ],
+        "test": [
+          { "when": { "script": "test", "script_file": "composer.json" }, "run": "composer test", "at": "composer --working-dir={dir} test" },
+          { "when": { "any_file": ["phpunit.xml", "phpunit.xml.dist"] }, "run": "vendor/bin/phpunit", "at": "{dir}/vendor/bin/phpunit --configuration {dir}" }
+        ],
+        "lint": [
+          { "when": { "script": "lint", "script_file": "composer.json" }, "run": "composer lint", "at": "composer --working-dir={dir} lint" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["composer.json"], "contains": "phpbench", "why": "phpbench" }
+        ],
+        "config_files": ["phpbench.json"]
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "verified",
+        "runners": ["phpunit"],
+        "no_tests": [
+          { "pattern": "/No tests executed!/", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/Output/SummaryPrinter.php" }
+        ],
+        "compile": [
+          { "pattern": "/Parse error: /", "runner": "php", "source": "docs", "evidence": "https://github.com/php/doc-en/blob/master/language/control-structures/elseif.xml" }
+        ],
+        "assertion": [
+          { "pattern": "/Failed asserting that/", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/Framework/Constraint/Array/IsList.php" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/ShellExitCodeCalculator.php" }
+          ],
+          "compile": [],
+          "assertion": [
+            { "code": "1", "runner": "phpunit", "source": "docs", "evidence": "https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/ShellExitCodeCalculator.php" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ruby",
+      "name": "Ruby (Bundler)",
+      "prune": [],
+      "project_files": ["Gemfile"],
+      "manifests": ["Gemfile", "*.gemspec"],
+      "locks": ["Gemfile.lock"],
+      "settings": ["**/.bundle/config"],
+      "workspace_roots": [],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "ruby",
+        "compare": "2",
+        "present": ["Gemfile"],
+        "local": { "commands": ["ruby --version"], "extract": "ruby ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["ruby-version"] },
+        { "kind": "line", "file": ".ruby-version" },
+        { "kind": "tool_versions", "names": ["ruby"] },
+        { "kind": "match", "file": "Gemfile", "pattern": "^ruby [\"']([^\"']*)[\"']", "group": "1" },
+        { "kind": "gitlab_image", "image": "ruby" }
+      ],
+      "risky_paths": ["Rakefile"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["bundle", "rake", "rspec", "rubocop"],
+        "ci_lint": [],
+        "runners": [],
+        "build": [],
+        "test": [
+          { "when": { "dir": "spec" }, "run": "bundle exec rspec" },
+          { "when": { "file": "Rakefile", "dir": "test" }, "run": "bundle exec rake test" }
+        ],
+        "lint": [
+          { "when": { "file": ".rubocop.yml" }, "run": "bundle exec rubocop" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": [],
+        "files": [],
+        "dependencies": [
+          { "in": ["Gemfile", "*.gemspec"], "contains": "benchmark-ips", "why": "benchmark-ips" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [],
+      "test_output": {
+        "status": "verified",
+        "runners": ["rspec","minitest","test-unit"],
+        "no_tests": [
+          { "pattern": "/\\b0 examples, 0 failures/", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/configuration/fail_if_no_examples.feature" },
+          { "pattern": "/\\b0 runs, 0 assertions/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests" },
+          { "pattern": "/Nothing ran for filter/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests-filter" }
+        ],
+        "compile": [
+          { "pattern": "/SyntaxError/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-syntax" }
+        ],
+        "assertion": [
+          { "pattern": "/^\\s*expected: .+\\n\\s*got: /m", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/expectation_framework_integration/aggregating_failures.feature" },
+          { "pattern": "/Expected:[\\s\\S]{0,400}?Actual:/", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-assertion" },
+          { "pattern": "/> expected but was\\s*\\n</", "runner": "test-unit", "source": "captured", "evidence": "ruby-test-unit-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests" },
+            { "code": "1", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-no-tests-filter" },
+            { "code": "0", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/configuration/fail_if_no_examples.feature" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-syntax" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "minitest", "source": "captured", "evidence": "ruby-minitest-assertion" },
+            { "code": "1", "runner": "test-unit", "source": "captured", "evidence": "ruby-test-unit-assertion" },
+            { "code": "1", "runner": "rspec", "source": "docs", "evidence": "https://github.com/rspec/rspec-core/blob/main/features/command_line/exit_status.feature" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "swift",
+      "name": "Swift (SwiftPM)",
+      "prune": [".swiftpm", "Carthage"],
+      "project_files": ["Package.swift"],
+      "manifests": ["Package.swift", "Podfile", "Cartfile"],
+      "locks": ["Package.resolved", "Podfile.lock", "Cartfile.resolved"],
+      "settings": [],
+      "workspace_roots": [],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "swift",
+        "compare": "2",
+        "present": ["Package.swift"],
+        "local": { "commands": ["swift --version"], "extract": "Swift version ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "workflow", "keys": ["swift-version"] },
+        { "kind": "line", "file": ".swift-version" },
+        { "kind": "tool_versions", "names": ["swift"] },
+        { "kind": "match", "file": "Package.swift", "pattern": "^// swift-tools-version:? *([0-9][0-9.]*)", "group": "1", "spec_prefix": ">=" }
+      ],
+      "risky_paths": [],
+      "commands": {
+        "truth": "tools",
+        "tools": ["swift", "swiftlint"],
+        "ci_lint": ["^swiftlint( |$)"],
+        "runners": [],
+        "build": [
+          { "when": { "file": "Package.swift" }, "run": "swift build", "at": "swift build --package-path {dir}" }
+        ],
+        "test": [
+          { "when": { "file": "Package.swift" }, "run": "swift test", "at": "swift test --package-path {dir}" }
+        ],
+        "lint": [
+          { "when": { "file": ".swiftlint.yml" }, "run": "swiftlint lint", "at": "swiftlint lint {dir}" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": ["Benchmarks"],
+        "files": [],
+        "dependencies": [
+          { "in": ["Package.swift"], "contains": "package-benchmark", "why": "package-benchmark" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "Package.swift", "contains": "\\.iOS *\\(", "platform": "ios", "kind": "mobile", "why": "Package.swift with an iOS platform" },
+        { "file": "Package.swift", "contains": "\\.macOS *\\(", "platform": "desktop", "kind": "desktop", "why": "Package.swift with a macOS platform" },
+        { "file": "project.pbxproj", "contains": "SDKROOT = iphoneos|IPHONEOS_DEPLOYMENT_TARGET", "platform": "ios", "kind": "mobile", "why": "Xcode project for iOS" },
+        { "file": "project.pbxproj", "contains": "SDKROOT = macosx|MACOSX_DEPLOYMENT_TARGET", "platform": "desktop", "kind": "desktop", "why": "Xcode project for macOS" }
+      ],
+      "test_output": {
+        "status": "verified",
+        "runners": ["swift test"],
+        "no_tests": [
+          { "pattern": "/Executed 0 tests/", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests", "unless": "/Test run with [1-9][0-9]* tests?/" },
+          { "pattern": "/No matching test cases were run/", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests-filter" }
+        ],
+        "compile": [
+          { "pattern": "/error: cannot find .+ in scope/", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile" },
+          { "pattern": "/\\.swift:\\d+:\\d+: error: /", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile-instance-method" },
+          { "pattern": "/^error: Build failed/m", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile" }
+        ],
+        "assertion": [
+          { "pattern": "/XCTAssert\\w* failed/", "runner": "XCTest", "source": "captured", "evidence": "swift-xctest-assertion" },
+          { "pattern": "/Expectation failed:/", "runner": "swift-testing", "source": "captured", "evidence": "swift-testing-assertion" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "0", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests" },
+            { "code": "0", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-no-tests-filter" }
+          ],
+          "compile": [
+            { "code": "1", "runner": "swift test", "source": "captured", "evidence": "swift-xctest-compile" }
+          ],
+          "assertion": [
+            { "code": "1", "runner": "XCTest", "source": "captured", "evidence": "swift-xctest-assertion" },
+            { "code": "1", "runner": "swift-testing", "source": "captured", "evidence": "swift-testing-assertion" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "dart",
+      "name": "Dart / Flutter",
+      "prune": [".flutter-plugins", ".flutter-plugins-dependencies"],
+      "project_files": ["pubspec.yaml"],
+      "manifests": ["pubspec.yaml", "pubspec_overrides.yaml"],
+      "locks": ["pubspec.lock"],
+      "settings": [],
+      "workspace_roots": [
+        { "file": "pubspec.yaml", "contains": "^workspace:" },
+        { "file": "melos.yaml" }
+      ],
+      "solution_files": [],
+      "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
+      "runtime": {
+        "name": "dart",
+        "compare": "2",
+        "present": ["pubspec.yaml"],
+        "local": { "commands": ["dart --version"], "extract": "Dart SDK version: ([0-9][0-9.]*)", "group": "1" }
+      },
+      "version_files": [
+        { "kind": "tool_versions", "names": ["dart"] },
+        { "kind": "match", "file": "pubspec.yaml", "pattern": "^  sdk: *[\"']?([\\^><=~0-9][^\"']*)", "group": "1" }
+      ],
+      "risky_paths": ["melos.yaml", "analysis_options.yaml"],
+      "commands": {
+        "truth": "tools",
+        "tools": ["dart", "flutter"],
+        "ci_lint": ["^(dart|flutter) analyze( |$)"],
+        "runners": [],
+        "build": [],
+        "test": [
+          { "when": { "in": ["pubspec.yaml"], "contains": "^ *sdk: *flutter", "dir": "test" }, "run": "flutter test" },
+          { "when": { "dir": "test", "file": "pubspec.yaml" }, "run": "dart test" }
+        ],
+        "lint": [
+          { "when": { "in": ["pubspec.yaml"], "contains": "^ *sdk: *flutter" }, "run": "flutter analyze", "at": "flutter analyze {dir}" },
+          { "when": { "file": "pubspec.yaml" }, "run": "dart analyze", "at": "dart analyze {dir}" }
+        ]
+      },
+      "benchmark": {
+        "scripts": [],
+        "dirs": ["benchmark"],
+        "files": [],
+        "dependencies": [
+          { "in": ["pubspec.yaml"], "contains": "benchmark_harness", "why": "benchmark_harness" }
+        ],
+        "config_files": []
+      },
+      "native_ui": [
+        { "file": "pubspec.yaml", "contains": "^ *sdk: *flutter|^flutter:", "platform": "flutter", "kind": "mobile", "why": "pubspec.yaml with the flutter sdk" }
+      ],
+      "test_output": {
+        "status": "verified",
+        "runners": ["dart test","flutter test"],
+        "no_tests": [
+          { "pattern": "/No tests were found\\./", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner.dart" },
+          { "pattern": "/No tests match /", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner.dart" },
+          { "pattern": "/does not appear to contain any test files/", "runner": "flutter test", "source": "docs", "evidence": "https://github.com/flutter/flutter/blob/master/packages/flutter_tools/lib/src/commands/test.dart" },
+          { "pattern": "/Test directory \".*\" not found/", "runner": "flutter test", "source": "docs", "evidence": "https://github.com/flutter/flutter/blob/master/packages/flutter_tools/lib/src/commands/test.dart" }
+        ],
+        "compile": [
+          { "pattern": "/Failed to load \"/", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/runner/load_exception.dart" }
+        ],
+        "assertion": [
+          { "pattern": "/^\\s*Expected: .+\\n\\s*Actual: /m", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/matcher/lib/src/expect/expect.dart" }
+        ],
+        "exit_codes": {
+          "no_tests": [
+            { "code": "79", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/executable.dart" }
+          ],
+          "compile": [],
+          "assertion": [
+            { "code": "1", "runner": "dart test", "source": "docs", "evidence": "https://github.com/dart-lang/test/blob/master/pkgs/test_core/lib/src/executable.dart" }
+          ]
+        }
+      }
+    }
+  ]
+}

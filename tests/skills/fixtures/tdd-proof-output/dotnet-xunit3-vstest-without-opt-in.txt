@@ -1,0 +1,14 @@
+tool: .NET SDK 10.0.402; xunit.v3 4.0.2 (Microsoft.Testing.Platform based), xunit.runner.visualstudio 4.0.1, Microsoft.NET.Test.Sdk 18.11.0, no global.json opt-in
+ecosystem: dotnet
+runner: xunit3 VSTest
+command: dotnet test
+exit_code: 1
+scenario: without-opt-in
+expected_class: compile
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+=== OUTPUT ===
+  Determining projects to restore...
+  Restored /work/xunit3-vstest/Probe.csproj (in 6.15 sec).
+/work/dn-nuget/microsoft.testing.platform.msbuild/2.5.1/buildMultiTargeting/Microsoft.Testing.Platform.MSBuild.targets(395,5): error : Testing with VSTest target is no longer supported by Microsoft.Testing.Platform on .NET 10 SDK and later. If you use dotnet test, you should opt-in to the new dotnet test experience. For more information, see https://aka.ms/dotnet-test-mtp-error [/work/xunit3-vstest/Probe.csproj]
