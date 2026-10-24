@@ -786,6 +786,17 @@ sh .agents/scripts/agent.sh next $ID')"
   denied "A171 PROOFLINE_DISPATCH joined from a variable in sh -c" "$(pre_bash 'p=PROOFLINE; sh -c "env ${p}_DISPATCH=1 sh .agents/scripts/agent.sh decide LC implementer"')" "dispatch.sh alone"
   # shellcheck disable=SC2016
   denied "A171 PROOFLINE_DISPATCH name ending in a variable" "$(pre_bash 'p=PROOFLINE_; export ${p}DISPATCH=1; sh .agents/scripts/agent.sh decide LC implementer')" "dispatch.sh alone"
+  denied "A171 ls of a glob that reaches the nonce folder" "$(pre_bash 'ls .agents/local/d*')" "dispatch.sh"
+  denied "A171 cat of a nonce file through globs" "$(pre_bash 'cat .agents/local/*/nonce-*')" "dispatch.sh"
+  denied "A171 find for nonce files" "$(pre_bash "find .agents -name 'nonce-*'")" "dispatch.sh"
+  denied "A171 find over .agents/local" "$(pre_bash 'find .agents/local -type f')" "dispatch.sh"
+  # shellcheck disable=SC2016
+  denied "A171 PROOFLINE_DISPATCH name built at run time" "$(pre_bash "export \$(printf 'PROOFLINE_%s=abc' DISPATCH); sh .agents/scripts/agent.sh decide LC implementer")" "dispatch.sh"
+  allowed "A171 a literal read of the runs folder with a glob below it" "$(pre_bash 'ls .agents/runs/LC/*.md')"
+  denied "A171 sed -n writing a file from a task output" "$(pre_bash "sed -n '1w src/evil.sh' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)" "outside the project"
+  denied "A171 sed -n executing a task output line" "$(pre_bash 'sed -n e /tmp/claude-501/-proj/sess/tasks/b1.output' proofline-explorer)" "outside the project"
+  denied "A171 sed -n -f reading a script from a task output" "$(pre_bash 'sed -n -f /tmp/claude-501/-proj/sess/tasks/b1.output src/a' proofline-explorer)" "outside the project"
+  allowed "A171 sed -n last line of a task output" "$(pre_bash "sed -n '\$p' /tmp/claude-501/-proj/sess/tasks/b1.output" proofline-explorer)"
   denied "A171 the dispatch nonce folder is not named" "$(pre_bash 'ls .agents/local/dispatch')" "dispatch.sh alone"
   # shellcheck disable=SC2016
   denied "A171 printf -v clears a tracked variable" "$(pre_bash 'S=status; printf -v S record; sh .agents/scripts/agent.sh $S LC')" "not literal"

@@ -569,11 +569,14 @@ content_fingerprint() {
       # (mode gate). A path a plan scope names stays in whole (put back below); approvals bind the full tree (no mode).
       if [ "$cf_mode" = gate ]; then
         # Only documentation extensions leave the gate fingerprint: an executable or any other file under a knowledge path stays counted.
-        for cf_x in $cf_kn; do
-          git -C "$root" ls-files -- "${cf_x%/}" 2>/dev/null | grep -Ei '\.(md|json|ya?ml|txt)$' | while IFS= read -r cf_f; do
-            git -C "$root" rm -q --cached --ignore-unmatch -- "$cf_f" >/dev/null 2>&1
-          done
-        done
+        # One ls-files and batched removals (a large docs tree must not cost a git call per file).
+        : > "$cf_tmp/kn.list"
+        for cf_x in $cf_kn; do printf '%s\n' "${cf_x%/}"; done > "$cf_tmp/kn.paths"
+        if [ -s "$cf_tmp/kn.paths" ]; then
+          # shellcheck disable=SC2046 # the entries are plain paths without whitespace (config values)
+          git -C "$root" ls-files -z -- $(cat "$cf_tmp/kn.paths") 2>/dev/null | grep -zEi '\.(md|json|ya?ml|txt)$' > "$cf_tmp/kn.list" || :
+          [ ! -s "$cf_tmp/kn.list" ] || xargs -0 -n 500 git -C "$root" rm -q --cached --ignore-unmatch -- < "$cf_tmp/kn.list" >/dev/null 2>&1 || :
+        fi
         for cf_n in $cf_named; do
           if in_knowledge_scope "$cf_n" && [ -f "$root/$cf_n" ]; then git -C "$root" add -f -- "$cf_n" >/dev/null 2>&1 || exit 1; fi
         done
@@ -4843,7 +4846,15 @@ answer() {
 # --- Execution policy (D5): decide persists and ledgers one resolved decision ---------------
 # The configured runtime of a role: exec-policy.sh owns the role -> runtime-group table (one source of truth).
 role_runtime() { sh "$scripts/exec-policy.sh" runtime "$1" 2>/dev/null || echo -; }
-role_results_count() { ls -1 "$(run_dir "$1")/results" 2>/dev/null | grep -c -- "-$2\.result\.md\$" || true; }
+role_results_count() { # ID ROLE [FOCUS] -> recorded results of exactly this role (and focus: the FOCUS header of the raw message)
+  rc_n=0
+  for rc_f in "$(run_dir "$1")"/results/[0-9][0-9][0-9]-"$2".result.md; do
+    [ -f "$rc_f" ] || continue
+    if [ -n "${3:-}" ]; then grep -qx "FOCUS: $3" "$rc_f" || continue; fi
+    rc_n=$((rc_n + 1))
+  done
+  echo "$rc_n"
+}
 decision_files() { ls -1 "$(run_dir "$1")/decisions" 2>/dev/null | grep -E '^[0-9]{3}-.*\.decision$' | sort || true; }
 latest_decision() { # ID ROLE [FOCUS]
   ld_tag=$2; [ -z "${3:-}" ] || ld_tag="$2-$(printf '%s' "$3" | tr '+' '-')"
@@ -4891,11 +4902,12 @@ decide() {
   dc_id=$1 dc_role=$(canon_role "$2"); shift 2; require_run "$dc_id"; require_lead; require_open_run "$dc_id"
   valid_role "$dc_role" || fail "invalid role: $dc_role"
   dc_class=$(pipeline_class "$dc_id"); pipeline_class_valid "$dc_class" || fail "run $dc_id is not classified: the execution policy is derived from its class"
-  dc_focus='' dc_over='' dc_uimode='' dc_dry=no dc_ap=no
+  dc_focus='' dc_over='' dc_uimode='' dc_dry=no dc_ap=no dc_redo=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry) dc_dry=yes; shift ;;
       --agent-path) dc_ap=yes; shift ;;
+      --redecide) dc_redo=yes; dc_ap=yes; shift ;;
       --ui-mode) dc_uimode=${2:?--ui-mode needs a value}; shift 2 ;;
       --focus) dc_focus=${2:?--focus needs a value}; shift 2 ;;
       --model|--effort|--context-bytes|--runtime) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;
@@ -4908,17 +4920,35 @@ decide() {
   [ "$dc_dry$dc_ap" != yesyes ] || fail "decide --dry and --agent-path exclude each other: --dry only reads, --agent-path records"
   # The exemption is a per-dispatch nonce: dispatch.sh writes .agents/local/dispatch/nonce-<value> for the one decide it runs and
   # removes it right after, so setting the variable by hand (any spelling) proves nothing.
+  # The nonce file holds the pid of the dispatch.sh that wrote it: it must be alive and an ancestor of this process; the file is
+  # removed on acceptance (one use).
   dc_nonce=${PROOFLINE_DISPATCH:-}; dc_nok=no
-  case "$dc_nonce" in ''|*[!0-9a-f]*) ;; *) [ "${#dc_nonce}" -ge 16 ] && [ -f "$root/.agents/local/dispatch/nonce-$dc_nonce" ] && dc_nok=yes ;; esac
+  case "$dc_nonce" in ''|*[!0-9a-f]*) ;; *)
+    dc_nf=$root/.agents/local/dispatch/nonce-$dc_nonce
+    if [ "${#dc_nonce}" -ge 16 ] && [ -f "$dc_nf" ]; then
+      dc_npid=$(head -n 1 "$dc_nf" 2>/dev/null)
+      case "$dc_npid" in ''|*[!0-9]*) ;; *)
+        if kill -0 "$dc_npid" 2>/dev/null; then
+          dc_anc=$$; dc_hops=0
+          while [ "$dc_hops" -lt 12 ] && [ -n "$dc_anc" ] && [ "$dc_anc" -gt 1 ]; do
+            [ "$dc_anc" != "$dc_npid" ] || { dc_nok=yes; break; }
+            dc_anc=$(ps -o ppid= -p "$dc_anc" 2>/dev/null | tr -d ' '); dc_hops=$((dc_hops + 1))
+          done
+        fi ;; esac
+      [ "$dc_nok" != yes ] || [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || rm -f "$dc_nf"
+    fi ;; esac
   [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "$dc_nok" = yes ] ||
     fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
   [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
   # A171 (review): the Agent route decides once per step. A second --agent-path for the same role and focus is refused until a
   # result of that role is recorded after the first (explorers run in parallel and are bounded by their slots instead).
-  if [ "$dc_ap" = yes ] && [ "$dc_role" != explorer ]; then
+  if [ "$dc_redo" = yes ]; then
+    [ "$execution_role" = lead ] || fail "decide --redecide is the lead's"
+    gates_enforced "$dc_id" && ledger_append "$dc_id" note - - "decide --redecide $dc_role${dc_focus:+ focus=$dc_focus}: the earlier Agent-route decision stays in decisions/; another runtime or model is wanted"
+  elif [ "$dc_ap" = yes ] && [ "$dc_role" != explorer ]; then
     dc_pv=$(latest_decision "$dc_id" "$dc_role" "$dc_focus")
-    if [ -n "$dc_pv" ] && grep -qx 'via=agent-path' "$dc_pv" && [ "$(sed -n 's/^results_n=//p' "$dc_pv" | head -n 1)" = "$(role_results_count "$dc_id" "$dc_role")" ]; then
-      fail "decide --agent-path refused: the $dc_role${dc_focus:+ ($dc_focus)} decision ${dc_pv##*/} was recorded for the Agent call and no result has been recorded since. Make the Agent call with that decision (agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --dry shows it again), or record its result first"
+    if [ -n "$dc_pv" ] && grep -qx 'via=agent-path' "$dc_pv" && [ "$(sed -n 's/^results_n=//p' "$dc_pv" | head -n 1)" = "$(role_results_count "$dc_id" "$dc_role" "$dc_focus")" ]; then
+      fail "decide --agent-path refused: the $dc_role${dc_focus:+ ($dc_focus)} decision ${dc_pv##*/} was recorded for the Agent call and no result has been recorded since. Make the Agent call with that decision (agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --dry shows it again), or record its result first, or to choose another runtime or model: agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --redecide [--runtime R] [--model M]"
     fi
   fi
   # A171: a gate whose dependency has not completed is not dispatched
@@ -4957,7 +4987,7 @@ decide() {
   dc_body=$(printf '%s\nrole=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_res" "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)")
   [ "$dc_ap" != yes ] || dc_body="$dc_body
 via=agent-path
-results_n=$(role_results_count "$dc_id" "$dc_role")"
+results_n=$(role_results_count "$dc_id" "$dc_role" "$dc_focus")"
   # The first line is a one-line summary (role, runtime, model, effort, reason): a truncated output still reads right (A171).
   dc_v() { printf '%s\n' "$dc_body" | sed -n "s/^$1=//p" | head -n 1; }
   dc_sum="decision: role=$(dc_v role) runtime=$(dc_v runtime) model=$(dc_v model) effort=$(dc_v effort) reason=$(dc_v model_reason)"

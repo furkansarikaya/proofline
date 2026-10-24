@@ -256,9 +256,12 @@ finish() {
     "$agent" metrics-dispatch "$id" "$role" "$focus" "${rt:-}" "${model:-}" "$(( $(date +%s) - t0 ))" "$m_in" "$m_out" "$fin_tot" "$m_turns" "$((attempts - 1))" "$fin_res" >/dev/null 2>&1 || true
   fi
   [ -z "$running" ] || rm -f "$running"
+  [ -z "$d_nonce" ] || rm -f "$root/.agents/local/dispatch/nonce-$d_nonce"
   rm -rf "$work"
 }
+d_nonce=''
 trap finish EXIT
+trap 'exit 143' HUP INT TERM
 
 # attempt RUNTIME-OVERRIDE : sets $status (0 ok, 124 timeout, other failure), $rt, $out, $log
 attempt() {
@@ -271,11 +274,13 @@ attempt() {
   [ -n "$o_model" ] && set -- "$@" --model "$o_model"
   [ -n "$o_effort" ] && set -- "$@" --effort "$o_effort"
   [ -n "$a_runtime" ] && set -- "$@" --runtime "$a_runtime"
-  # A171: the decide exemption is a one-use nonce file, present only while this decide runs (a hand-set variable proves nothing).
+  # A171: the decide exemption is a one-use nonce file holding this script's pid; decide checks the pid is alive and its ancestor and
+  # removes the file on acceptance. A killed dispatch leaves none behind (trap) and stale ones are swept (older than a minute).
   mkdir -p "$root/.agents/local/dispatch"
-  d_nonce=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); : > "$root/.agents/local/dispatch/nonce-$d_nonce"
+  find "$root/.agents/local/dispatch" -name 'nonce-*' -mmin +1 -exec rm -f {} + 2>/dev/null || :
+  d_nonce=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); printf '%s\n' "$$" > "$root/.agents/local/dispatch/nonce-$d_nonce"
   d_rc=0; decision=$(PROOFLINE_DISPATCH=$d_nonce "$agent" decide "$id" "$role" "$@" 2>"$work/decide.err") || d_rc=$?
-  rm -f "$root/.agents/local/dispatch/nonce-$d_nonce"
+  rm -f "$root/.agents/local/dispatch/nonce-$d_nonce"; d_nonce=''
   if [ "$d_rc" -ne 0 ]; then
     cat "$work/decide.err" >&2
     [ "$d_rc" -eq 4 ] && blocked "no decision for $role on ${a_runtime:-the configured runtime}: capability floor unmet or unresolvable"

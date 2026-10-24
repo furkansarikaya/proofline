@@ -307,6 +307,12 @@ ck "non-code role editing the product tree: BLOCKED, not recorded, not reverted"
 echo original > "$p/product.txt"
 reset; d T-1 reviewer --model 'x y'
 ck "unsafe override value is a usage error" '[ "$rc" -eq 2 ]'
+# A171 (review): a nonce a killed dispatch left behind is swept at the next attempt; a fresh one (a live dispatch) is not; none remains after a run
+reset; mkdir -p "$a/local/dispatch"; echo 1 > "$a/local/dispatch/nonce-0000000000000000old"; touch -t 202001010000 "$a/local/dispatch/nonce-0000000000000000old"
+echo 1 > "$a/local/dispatch/nonce-0000000000000000new"
+d FAKE_CODEX=ok PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
+ck "A171 stale dispatch nonce is swept, a fresh one kept, and the run's own is removed" '[ ! -e "$a/local/dispatch/nonce-0000000000000000old" ] && [ -e "$a/local/dispatch/nonce-0000000000000000new" ] && [ "$(ls "$a/local/dispatch" | wc -l | tr -d " ")" = 1 ]'
+rm -f "$a/local/dispatch"/nonce-*
 
 # Metrics (A80): the dispatch record. Fields: ID|ROLE|FOCUS|RUNTIME|MODEL|DURATION|TIN|TOUT|TTOTAL|TURNS|RETRIES|RESULT|
 reset; d FAKE_CLAUDE=usage T-1 reviewer --focus rules

@@ -1022,6 +1022,11 @@ scenario_fingerprint_knowledge_extensions() {
   [ "$(A fingerprint LC)" = "$fp0" ] || die "documentation under docs/design/ altered the gate fingerprint"
   printf 'echo pwned\n' > docs/design/evil.sh
   [ "$(A fingerprint LC)" != "$fp0" ] || die "an executable under docs/design/ is invisible to the gate fingerprint"
+  # many documents cost one batched git call, not one per file
+  fp1=$(A fingerprint LC); mkdir -p docs/design/bulk; i=0; while [ "$i" -lt 500 ]; do printf 'doc %s\n' "$i" > "docs/design/bulk/d$i.md"; i=$((i + 1)); done
+  t0=$(date +%s); fp2=$(A fingerprint LC); t1=$(date +%s)
+  [ "$fp2" = "$fp1" ] || die "500 documents altered the gate fingerprint"
+  [ $((t1 - t0)) -lt 15 ] || die "the gate fingerprint took $((t1 - t0))s with 500 documents (one git call per file?)"
   ok "fingerprint: knowledge-scope documents are excluded by extension, executables there still count"
 }
 

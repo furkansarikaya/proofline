@@ -42,7 +42,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 4. **Dispatch by runtime (D6)** ([DISPATCH.md](references/DISPATCH.md)). Runtime `claude` and a Claude lead:
    `A decide <ID> <role> --agent-path` once, then the Agent tool with `proofline-<role>` (underscores in the role id become hyphens: `proofline-security-reviewer`) and the decided model. Otherwise:
    `D <ID> <role> [--focus F] --prompt-file .agents/local/assignments/<ID>/<file>`, which decides and records
-   itself (never `A decide` before `D`: the script refuses a bare `decide`, A171; `A decide <ID> <role> --dry` only reads the decision and writes nothing). Never both for one step. `.agents/local/assignments/<ID>/` is the
+   itself (never `A decide` before `D`: the script refuses a bare `decide`, A171; `A decide <ID> <role> --dry` only reads the decision and writes nothing; if the Agent call failed before any result and another runtime or model is wanted, `A decide <ID> <role> [--focus F] --redecide [--runtime R] [--model M]` decides again, ledgered, the earlier decision kept). Never both for one step. `.agents/local/assignments/<ID>/` is the
    only place under `.agents/local/` the lead writes (the runtime hook allows exactly that directory).
 5. **No re-asking.** A decision TASK.md, INTENT.md or the user's answers already record (an `Out of scope`
    item, a constraint, an answered question) is never asked again; a defect found next to the task that the

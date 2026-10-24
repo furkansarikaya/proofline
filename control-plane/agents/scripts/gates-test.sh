@@ -1162,7 +1162,11 @@ sc_decide() {
   printf '%s\n' "$dry" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+ \(dry run: nothing recorded\)$' || die "decide --dry: first line is not the summary: $(printf '%s\n' "$dry" | head -n 1)"
   printf '%s\n' "$dry" | grep -q '^model=' || die "decide --dry lost the key=value lines"
   expect_msg "a repeated --agent-path was accepted before any result" 'no result has been recorded since' A decide LC reviewer --focus rules+tests --agent-path
-  mkdir -p .agents/runs/LC/results; : > .agents/runs/LC/results/099-reviewer.result.md   # a result recorded since the first decision
+  # a result of another role or another focus does not release the step; one of this role and focus does
+  mkdir -p .agents/runs/LC/results; printf 'FOCUS: rules+tests\n' > .agents/runs/LC/results/098-security_reviewer.result.md; printf 'FOCUS: plan\n' > .agents/runs/LC/results/097-reviewer.result.md
+  expect_msg "a result of another role or focus released the step" 'no result has been recorded since' A decide LC reviewer --focus rules+tests --agent-path
+  rm -f .agents/runs/LC/results/098-security_reviewer.result.md .agents/runs/LC/results/097-reviewer.result.md
+  printf 'FOCUS: rules+tests\n' > .agents/runs/LC/results/099-reviewer.result.md   # a result recorded since the first decision
   real=$(A decide LC reviewer --focus rules+tests --agent-path) || die "decide --agent-path refused: $real"
   printf '%s\n' "$real" | head -n 1 | grep -Eq '^decision: role=reviewer runtime=claude model=[a-z0-9.-]+ effort=[a-z]+ reason=[A-Za-z_,]+$' || die "decide: first line is not the summary: $(printf '%s\n' "$real" | head -n 1)"
   [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((nd + 1))" ] || die "decide --agent-path did not record one decision: before $nd now $(ls .agents/runs/LC/decisions | tr "\n" " ")"
@@ -1170,10 +1174,24 @@ sc_decide() {
   [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((nd + 1))" ] || die "a refused second --agent-path persisted a decision"
   rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)" .agents/runs/LC/results/099-reviewer.result.md
   expect_msg "a hand-set PROOFLINE_DISPATCH=1 was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=1 sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
-  mkdir -p .agents/local/dispatch; nn=0123456789abcdef0123456789abcdef; : > ".agents/local/dispatch/nonce-$nn"
-  PROOFLINE_DISPATCH=$nn A decide LC reviewer --focus rules+tests >/dev/null || die "decide with a dispatch nonce was refused"
-  rm -f ".agents/local/dispatch/nonce-$nn"
-  expect_msg "a spent nonce was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  # --redecide: the lead may decide again for the same step (another runtime or model), the earlier decision stays, a ledger note says so
+  ndr=$(($(ls .agents/runs/LC/decisions | wc -l)))
+  expect_msg "the refusal does not show --redecide" '--redecide' A decide LC reviewer --focus rules+tests --agent-path
+  if AS reviewer decide LC reviewer --focus rules+tests --redecide >/dev/null 2>&1; then die "a reviewer used --redecide"; fi
+  A decide LC reviewer --focus rules+tests --redecide >/dev/null || die "--redecide refused"
+  [ "$(($(ls .agents/runs/LC/decisions | wc -l)))" = "$((ndr + 1))" ] || die "--redecide did not add a decision beside the earlier one"
+  grep -q 'detail=decide --redecide reviewer' .agents/runs/LC/LEDGER.log || die "--redecide is not in the ledger"
+  # the dispatch nonce: pid-bound and one use
+  mkdir -p .agents/local/dispatch; nn=0123456789abcdef0123456789abcdef
+  sleep 30 & npid=$!; printf '%s\n' "$npid" > ".agents/local/dispatch/nonce-$nn"
+  expect_msg "a nonce of a live process that is not an ancestor was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  kill "$npid" 2>/dev/null; printf '%s\n' "$$" > ".agents/local/dispatch/nonce-$nn"
+  PROOFLINE_DISPATCH=$nn A decide LC reviewer --focus rules+tests >/dev/null || die "a nonce naming an ancestor was refused"
+  [ ! -e ".agents/local/dispatch/nonce-$nn" ] || die "the nonce survived its use"
+  expect_msg "a replayed nonce was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  printf '1\n' > ".agents/local/dispatch/nonce-$nn"
+  expect_msg "a nonce naming pid 1 was accepted" 'not called ahead of one' env PROOFLINE_DISPATCH=$nn sh ./.agents/scripts/agent.sh decide LC reviewer --focus rules+tests
+  rm -f .agents/local/dispatch/nonce-*
   rm -f ".agents/runs/LC/decisions/$(ls .agents/runs/LC/decisions | tail -n 1)"
   # A171: friction-note ledgers that the user was asked to run a command; wait-line is one line
   A friction-note LC user-command >/dev/null || die "friction-note refused"

@@ -702,7 +702,7 @@ stray_tmp_path() {
         $1 ~ /^[WEPQL]$/ && $2 == p { bad = 1 }
         $1 == "C" && index($3, p) > 0 {
           if ($2 !~ /^(cat|head|tail|grep|wc|sed)$/) bad = 1
-          else if ($2 == "sed" && ("\003" $3) !~ /\003-[A-Za-z]*n/) bad = 1
+          else if ($2 == "sed") { n = split($3, a, "\003"); if (!(n == 3 && a[1] == "-n" && a[2] ~ /^([0-9]+(,[0-9]+)?|\$)p$/ && a[3] == p)) bad = 1 }
         }
         END { exit bad }' "$tmp/scan" 2>/dev/null && continue
     fi
@@ -1700,7 +1700,12 @@ pretool)
     # Checked on the text as written and with quotes, backslashes and variable references removed (so a name split by quotes or
     # joined from a variable is caught too); agent.sh itself accepts only a per-dispatch nonce file, which this text never names.
     cmd_norm=$(printf '%s' "$cmd" | sed -e "s/[\"'\\\\]//g" -e 's/\${[^}]*}//g' -e 's/\$[A-Za-z_][A-Za-z0-9_]*//g')
-    case "$cmd$cmd_norm" in *PROOFLINE_DISPATCH*|*DISPATCH=*|*.agents/local/dispatch*) deny "PROOFLINE_DISPATCH is set by dispatch.sh alone (A171). To only read a decision run: sh .agents/scripts/agent.sh decide <ID> <role> --dry" ;; esac
+    case "$cmd$cmd_norm" in *PROOFLINE_DISPATCH*|*DISPATCH=*|*nonce-*|*.agents/local/dispatch*) deny "PROOFLINE_DISPATCH is set by dispatch.sh alone (A171). To only read a decision run: sh .agents/scripts/agent.sh decide <ID> <role> --dry" ;; esac
+    # A name built at run time (printf 'PROOFLINE_%s' DISPATCH), a glob or a find over the folders that could hold the nonce file.
+    if printf '%s' "$cmd_norm" | grep -q 'PROOFLINE' && printf '%s' "$cmd_norm" | grep -q 'DISPATCH' \
+       || printf '%s' "$cmd" | grep -Eq '\.agents/[^/[:space:]]*[*?[]|\.agents/local/[^/[:space:]]*[*?[]|find[[:space:]][^;&|]*\.agents(/local)?/?([[:space:]]|$)'; then
+      deny "PROOFLINE_DISPATCH and the dispatch nonce are dispatch.sh's alone (A171); list .agents/local by a literal path, no glob or find over .agents or .agents/local"
+    fi
     # A102: the capability probes' self-test switches are never set by a model (they would hide a browser or benchmark).
     case "$cmd" in *PROOFLINE_PROBE_ROOT*|*PROOFLINE_SELFTEST*) deny "PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them" ;; esac
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
