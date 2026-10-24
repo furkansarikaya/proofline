@@ -123,6 +123,8 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **Language of run files.** Run files are English, but a project in another language quotes its own product text as it is: inline code, "double quotes", a `> ` line or a JSON string is accepted when its exact text is in the task or in a project file; agents never transliterate it to ASCII or ask you about it ([details](docs/concepts/workflow.md#language-of-run-files)).
 
+**Project layout.** proofline assumes no folder layout: a root, nested, multi-project or monorepo project is equal. `init` reads commands from CI, README and scripts; with no or several targets it proposes none and the run asks you once ([ecosystems](docs/concepts/ecosystems.md)).
+
 **Processes.** An agent stops only a process it started itself, by its own PID: the runtime hook denies `pkill`, `killall`, `kill` by pattern and mass kills. The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent. What it sees and what it cannot: [process rules](docs/concepts/enforcement-layers.md#process-rules).
 
 ## Real output
@@ -131,7 +133,7 @@ A real end-to-end run's unedited final message (STANDARD bug fix, headless, 2026
 
 ## Documentation
 
-- Concepts: [workflow](docs/concepts/workflow.md), [night mode](docs/concepts/night-mode.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md), [product](docs/concepts/product.md)
+- Concepts: [workflow](docs/concepts/workflow.md), [night mode](docs/concepts/night-mode.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md), [ecosystems](docs/concepts/ecosystems.md), [product](docs/concepts/product.md)
 - Guides: [daily use](docs/guides/daily-use.md), [existing project](docs/guides/existing-project.md), [task templates](docs/guides/task-templates.md), [writing an adapter](docs/guides/writing-an-adapter.md), [prompt catalogue](docs/guides/prompt-catalogue.md)
 - Turkish: [gunluk kullanim](docs/guides/tr/gunluk-kullanim.md), [prompt katalogu](docs/guides/tr/prompt-katalogu.md)
 - Reference: [skills](docs/reference/skills.md), [roles](docs/reference/roles.md), [design decisions](docs/decisions.md)

@@ -7,6 +7,7 @@
 #   --root DIR   repository root (default: two directories above this script)
 #   skill-name   check only these skills; default: every skills/*/SKILL.md that exists
 #
+# Also: skills/<name>/scripts/ecosystems.{sh,mjs} and references/ecosystems.{json,tsv}, when present, equal control-plane/agents/ (A173).
 # Also: skills/<name>/references/WRITING.md and scripts/check-writing.mjs, when present, equal tests/shared/writing-profile.md and check-writing.mjs.
 #
 # Block = from the line starting with `<!-- proofline:shared-rules:begin` through the line
@@ -75,4 +76,22 @@ for f in "$root"/skills/*/scripts/validate-product-claims.mjs; do
   if cmp -s "$f" "$root/skills/product-spec/scripts/validate-product-claims.mjs"; then echo "PASS $name scripts/validate-product-claims.mjs"
   else echo "FAIL $name (scripts/validate-product-claims.mjs differs from skills/product-spec/scripts/validate-product-claims.mjs)"; status=1; fi
 done
+# Ecosystem definition copies (A173): control-plane/agents holds the canonical ecosystems.json, ecosystems.tsv (generated),
+# ecosystems.mjs and scripts/ecosystems.sh; a skill that carries one carries the same bytes (it is installable alone).
+# The canonical flat file must also be what `node ecosystems.mjs write` produces, and the definition must pass its schema.
+eco="$root/control-plane/agents"
+if [ -f "$eco/ecosystems.json" ]; then
+  if command -v node >/dev/null 2>&1; then
+    if node "$eco/ecosystems.mjs" check 2>"$tmp/eco.err"; then echo "PASS control-plane ecosystems.json and ecosystems.tsv"
+    else echo "FAIL control-plane ecosystems definition ($(tr '\n' ' ' < "$tmp/eco.err"))"; status=1; fi
+  fi
+  for name in $names; do
+    for pair in scripts/ecosystems.sh:scripts/ecosystems.sh scripts/ecosystems.mjs:ecosystems.mjs references/ecosystems.json:ecosystems.json references/ecosystems.tsv:ecosystems.tsv; do
+      f="$root/skills/$name/${pair%%:*}"
+      [ -f "$f" ] || continue
+      if cmp -s "$f" "$eco/${pair##*:}"; then echo "PASS $name ${pair%%:*}"
+      else echo "FAIL $name (${pair%%:*} differs from control-plane/agents/${pair##*:})"; status=1; fi
+    done
+  done
+fi
 exit $status

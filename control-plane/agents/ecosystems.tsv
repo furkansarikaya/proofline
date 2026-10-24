@@ -1,0 +1,965 @@
+*	prune	.git
+*	prune	.hg
+*	prune	.svn
+*	prune	.agents
+*	prune	.claude
+*	prune	.codex
+*	prune	.proofline
+*	prune	node_modules
+*	prune	bin
+*	prune	obj
+*	prune	build
+*	prune	dist
+*	prune	out
+*	prune	target
+*	prune	vendor
+*	prune	artifacts
+*	prune	.venv
+*	prune	venv
+*	prune	__pycache__
+*	prune	.tox
+*	prune	.mypy_cache
+*	prune	.pytest_cache
+*	prune	.ruff_cache
+*	prune	.gradle
+*	prune	.idea
+*	prune	.vs
+*	prune	.vscode
+*	prune	.cache
+*	prune	coverage
+*	prune	.terraform
+*	prune	.next
+*	prune	.nuxt
+*	prune	.turbo
+*	prune	.nx
+*	prune	.svelte-kit
+*	prune	.yarn
+*	prune	.pnpm-store
+*	prune	.dart_tool
+*	prune	.pub-cache
+*	prune	.build
+*	prune	.swiftpm
+*	prune	Pods
+*	prune	DerivedData
+*	prune	.bundle
+*	prune	.nuget
+*	limits.discover_max_markers	1000
+*	limits.version_scan_depth	6
+*	limits.version_scan_max_files	400
+*	risky_paths	.github/**
+*	risky_paths	.gitlab-ci.yml
+*	risky_paths	.circleci/**
+*	risky_paths	Jenkinsfile
+*	risky_paths	azure-pipelines.yml
+*	risky_paths	bitbucket-pipelines.yml
+*	risky_paths	Dockerfile
+*	risky_paths	**/Dockerfile*
+*	risky_paths	docker-compose*.yml
+*	risky_paths	compose*.yml
+*	ci_scan.tools	make
+*	ci_scan.build	 (build|compile|package)( |$)
+*	ci_scan.test	 (test|tests|pytest)( |$)|^pytest
+*	ci_scan.lint	 (lint|vet|clippy)( |$)|^(ruff|eslint)
+npm	id	npm
+npm	name	JavaScript / TypeScript (npm, pnpm, yarn, bun; workspaces, turbo, nx)
+npm	prune	.parcel-cache
+npm	prune	.angular
+npm	prune	.expo
+npm	prune	.docusaurus
+npm	project_files	package.json
+npm	manifests	package.json
+npm	locks	package-lock.json
+npm	locks	npm-shrinkwrap.json
+npm	locks	yarn.lock
+npm	locks	pnpm-lock.yaml
+npm	locks	bun.lockb
+npm	locks	bun.lock
+npm	settings	.npmrc
+npm	settings	.yarnrc
+npm	settings	.yarnrc.yml
+npm	settings	.pnpmfile.cjs
+npm	settings	bunfig.toml
+npm	workspace_roots.0.file	pnpm-workspace.yaml
+npm	workspace_roots.1.file	package.json
+npm	workspace_roots.1.contains	"workspaces" *:
+npm	workspace_roots.2.file	turbo.json
+npm	workspace_roots.3.file	nx.json
+npm	workspace_roots.4.file	lerna.json
+npm	workspace_roots.5.file	rush.json
+npm	units.target	dir
+npm	units.bare	root
+npm	runtime.name	node
+npm	runtime.compare	1
+npm	runtime.present	package.json
+npm	runtime.local.commands	node --version
+npm	runtime.local.extract	^v?([0-9][0-9.]*)
+npm	runtime.local.group	1
+npm	version_files.0.kind	workflow
+npm	version_files.0.keys	node-version
+npm	version_files.1.kind	line
+npm	version_files.1.file	.nvmrc
+npm	version_files.2.kind	line
+npm	version_files.2.file	.node-version
+npm	version_files.3.kind	tool_versions
+npm	version_files.3.names	nodejs
+npm	version_files.3.names	node
+npm	version_files.4.kind	match
+npm	version_files.4.file	package.json
+npm	version_files.4.flatten	true
+npm	version_files.4.pattern	"engines" *: *\{[^}]*"node" *: *"([^"]*)"
+npm	version_files.4.group	1
+npm	version_files.5.kind	match
+npm	version_files.5.file	package.json
+npm	version_files.5.flatten	true
+npm	version_files.5.pattern	"volta" *: *\{[^}]*"node" *: *"([^"]*)"
+npm	version_files.5.group	1
+npm	version_files.6.kind	gitlab_image
+npm	version_files.6.image	node
+npm	risky_paths	turbo.json
+npm	risky_paths	nx.json
+npm	risky_paths	lerna.json
+npm	risky_paths	rush.json
+npm	risky_paths	pnpm-workspace.yaml
+npm	commands.truth	scripts
+npm	commands.tools	npm
+npm	commands.tools	pnpm
+npm	commands.tools	yarn
+npm	commands.tools	bun
+npm	commands.tools	eslint
+npm	commands.runners.0.when.file	pnpm-lock.yaml
+npm	commands.runners.0.run	pnpm run
+npm	commands.runners.0.test	pnpm test
+npm	commands.runners.0.at_run	pnpm --dir {dir} run
+npm	commands.runners.0.at_test	pnpm --dir {dir} test
+npm	commands.runners.1.when.file	yarn.lock
+npm	commands.runners.1.run	yarn
+npm	commands.runners.1.test	yarn test
+npm	commands.runners.1.at_run	yarn --cwd {dir}
+npm	commands.runners.1.at_test	yarn --cwd {dir} test
+npm	commands.runners.2.when.any_file	bun.lockb
+npm	commands.runners.2.when.any_file	bun.lock
+npm	commands.runners.2.run	bun run
+npm	commands.runners.2.test	bun test
+npm	commands.runners.2.at_run	bun --cwd {dir} run
+npm	commands.runners.2.at_test	bun --cwd {dir} test
+npm	commands.runners.3.run	npm run
+npm	commands.runners.3.test	npm test
+npm	commands.runners.3.at_run	npm --prefix {dir} run
+npm	commands.runners.3.at_test	npm --prefix {dir} test
+npm	commands.build.0.when.script	build
+npm	commands.build.0.run	{run} build
+npm	commands.build.0.at	{at_run} build
+npm	commands.test.0.when.script	test
+npm	commands.test.0.when.script_not	no test specified
+npm	commands.test.0.run	{test}
+npm	commands.test.0.at	{at_test}
+npm	commands.lint.0.when.script	lint
+npm	commands.lint.0.run	{run} lint
+npm	commands.lint.0.at	{at_run} lint
+npm	benchmark.scripts	bench
+npm	benchmark.scripts	benchmark
+npm	benchmark.scripts	perf*
+npm	native_ui.0.file	package.json
+npm	native_ui.0.contains	"react-native" *:
+npm	native_ui.0.platform	react-native
+npm	native_ui.0.kind	mobile
+npm	native_ui.0.why	package.json depends on react-native
+npm	native_ui.1.file	package.json
+npm	native_ui.1.contains	"electron" *:
+npm	native_ui.1.platform	electron
+npm	native_ui.1.kind	shell
+npm	native_ui.1.why	package.json depends on electron
+npm	native_ui.2.file	tauri.conf.json
+npm	native_ui.2.platform	tauri
+npm	native_ui.2.kind	shell
+npm	native_ui.2.why	tauri configuration
+npm	native_ui.3.file	tauri.conf.json5
+npm	native_ui.3.platform	tauri
+npm	native_ui.3.kind	shell
+npm	native_ui.3.why	tauri configuration
+npm	test_output.status	seed
+npm	test_output.runners	jest
+npm	test_output.runners	vitest
+npm	test_output.runners	mocha
+npm	test_output.runners	node:test
+npm	test_output.no_tests	/No tests found, exiting with code/
+npm	test_output.no_tests	/No test files found/
+npm	test_output.no_tests	/^\s*(ℹ|#)\s*tests\s+0\b/m
+npm	test_output.compile	/error TS\d+/
+npm	test_output.assertion	/AssertionError/
+npm	test_output.assertion	/\bexpect\(.*\)\.(not\.)?to\w+/
+npm	test_output.assertion	/Expected:[\s\S]{0,400}?(Received|Actual):/
+npm	test_output.exit_codes.no_tests	1
+npm	test_output.exit_codes.compile	1
+npm	test_output.exit_codes.compile	2
+npm	test_output.exit_codes.assertion	1
+python	id	python
+python	name	Python (pip, Poetry, uv, PDM, Hatch)
+python	prune	.eggs
+python	prune	site-packages
+python	prune	.nox
+python	prune	.hypothesis
+python	project_files	pyproject.toml
+python	project_files	setup.py
+python	project_files	setup.cfg
+python	project_files	Pipfile
+python	project_files	pytest.ini
+python	manifests	requirements*.txt
+python	manifests	requirements*.in
+python	manifests	**/requirements/*.txt
+python	manifests	**/requirements/*.in
+python	manifests	constraints*.txt
+python	manifests	pyproject.toml
+python	manifests	setup.py
+python	manifests	setup.cfg
+python	manifests	Pipfile
+python	manifests	environment.yml
+python	manifests	environment.yaml
+python	locks	poetry.lock
+python	locks	uv.lock
+python	locks	pdm.lock
+python	locks	Pipfile.lock
+python	settings	pip.conf
+python	settings	.pypirc
+python	settings	uv.toml
+python	settings	pdm.toml
+python	settings	poetry.toml
+python	workspace_roots.0.file	pyproject.toml
+python	workspace_roots.0.contains	^\[tool\.uv\.workspace\]
+python	units.target	dir
+python	units.bare	root
+python	runtime.name	python
+python	runtime.compare	2
+python	runtime.present	pyproject.toml
+python	runtime.present	requirements.txt
+python	runtime.present	setup.py
+python	runtime.local.commands	python3 --version
+python	runtime.local.commands	python --version
+python	runtime.local.extract	Python ([0-9][0-9.]*)
+python	runtime.local.group	1
+python	version_files.0.kind	workflow
+python	version_files.0.keys	python-version
+python	version_files.1.kind	line
+python	version_files.1.file	.python-version
+python	version_files.2.kind	tool_versions
+python	version_files.2.names	python
+python	version_files.2.names	python3
+python	version_files.3.kind	match
+python	version_files.3.file	pyproject.toml
+python	version_files.3.pattern	^requires-python *= *["']([^"']*)["']
+python	version_files.3.group	1
+python	version_files.4.kind	match
+python	version_files.4.file	Pipfile
+python	version_files.4.pattern	^python_version *= *["']([^"']*)["']
+python	version_files.4.group	1
+python	version_files.5.kind	match
+python	version_files.5.file	runtime.txt
+python	version_files.5.pattern	^python-([0-9][0-9.]*)
+python	version_files.5.group	1
+python	version_files.6.kind	gitlab_image
+python	version_files.6.image	python
+python	risky_paths	tox.ini
+python	risky_paths	noxfile.py
+python	risky_paths	hatch.toml
+python	commands.truth	tools
+python	commands.tools	pytest
+python	commands.tools	ruff
+python	commands.tools	python
+python	commands.tools	python3
+python	commands.tools	uv
+python	commands.tools	poetry
+python	commands.tools	pdm
+python	commands.tools	hatch
+python	commands.tools	tox
+python	commands.tools	nox
+python	commands.runners.0.when.file	uv.lock
+python	commands.runners.0.py	uv run 
+python	commands.runners.1.when.file	poetry.lock
+python	commands.runners.1.py	poetry run 
+python	commands.runners.2.when.file	pdm.lock
+python	commands.runners.2.py	pdm run 
+python	commands.runners.3.py	
+python	commands.test.0.when.in	pyproject.toml
+python	commands.test.0.when.in	pytest.ini
+python	commands.test.0.when.in	setup.cfg
+python	commands.test.0.when.contains	pytest
+python	commands.test.0.run	{py}pytest
+python	commands.test.0.at	{py}pytest {dir}
+python	commands.test.1.when.any_file	pyproject.toml
+python	commands.test.1.when.any_file	pytest.ini
+python	commands.test.1.when.any_file	setup.cfg
+python	commands.test.1.when.dir	tests
+python	commands.test.1.run	{py}pytest
+python	commands.test.1.at	{py}pytest {dir}
+python	commands.lint.0.when.in	pyproject.toml
+python	commands.lint.0.when.contains	^\[tool\.ruff
+python	commands.lint.0.run	{py}ruff check .
+python	commands.lint.0.at	{py}ruff check {dir}
+python	commands.lint.1.when.file	ruff.toml
+python	commands.lint.1.run	{py}ruff check .
+python	commands.lint.1.at	{py}ruff check {dir}
+python	benchmark.dependencies.0.in	pyproject.toml
+python	benchmark.dependencies.0.in	setup.cfg
+python	benchmark.dependencies.0.in	requirements-dev.txt
+python	benchmark.dependencies.0.in	requirements.txt
+python	benchmark.dependencies.0.contains	pytest-benchmark
+python	benchmark.dependencies.0.why	pytest-benchmark
+python	benchmark.config_files	asv.conf.json
+python	test_output.status	seed
+python	test_output.runners	pytest
+python	test_output.runners	unittest
+python	test_output.no_tests	/collected 0 items/
+python	test_output.no_tests	/\bno tests ran\b/i
+python	test_output.no_tests	/\bRan 0 tests\b/
+python	test_output.compile	/SyntaxError/
+python	test_output.compile	/IndentationError/
+python	test_output.assertion	/AssertionError/
+python	test_output.assertion	/^E\s+assert\b/m
+python	test_output.exit_codes.no_tests	5
+python	test_output.exit_codes.compile	2
+python	test_output.exit_codes.compile	4
+python	test_output.exit_codes.assertion	1
+go	id	go
+go	name	Go (modules, go.work)
+go	project_files	go.mod
+go	manifests	go.mod
+go	manifests	go.work
+go	locks	go.sum
+go	locks	go.work.sum
+go	workspace_roots.0.file	go.work
+go	units.target	dir
+go	units.bare	root
+go	runtime.name	go
+go	runtime.compare	2
+go	runtime.present	go.mod
+go	runtime.present	go.work
+go	runtime.local.commands	go version
+go	runtime.local.extract	go([0-9][0-9.]*)
+go	runtime.local.group	1
+go	version_files.0.kind	workflow
+go	version_files.0.keys	go-version
+go	version_files.1.kind	match
+go	version_files.1.file	go.mod
+go	version_files.1.pattern	^go ([0-9][0-9.]*)
+go	version_files.1.group	1
+go	version_files.1.spec_prefix	>=
+go	version_files.2.kind	match
+go	version_files.2.file	go.work
+go	version_files.2.pattern	^go ([0-9][0-9.]*)
+go	version_files.2.group	1
+go	version_files.2.spec_prefix	>=
+go	version_files.3.kind	tool_versions
+go	version_files.3.names	golang
+go	version_files.3.names	go
+go	version_files.4.kind	gitlab_image
+go	version_files.4.image	golang
+go	commands.truth	tools
+go	commands.tools	go
+go	commands.build.0.when.file	go.mod
+go	commands.build.0.run	go build ./...
+go	commands.build.0.at	go -C {dir} build ./...
+go	commands.test.0.when.file	go.mod
+go	commands.test.0.run	go test ./...
+go	commands.test.0.at	go -C {dir} test ./...
+go	commands.lint.0.when.file	go.mod
+go	commands.lint.0.run	go vet ./...
+go	commands.lint.0.at	go -C {dir} vet ./...
+go	benchmark.files.0.glob	*_test.go
+go	benchmark.files.0.contains	^func Benchmark
+go	benchmark.files.0.why	Go func Benchmark in *_test.go
+go	test_output.status	seed
+go	test_output.runners	go test
+go	test_output.no_tests	/no test files/
+go	test_output.no_tests	/\[no tests to run\]/
+go	test_output.compile	/\[build failed\]/
+go	test_output.compile	/\bundefined: \w+/
+go	test_output.compile	/cannot use .+ as .+ value/
+go	test_output.assertion	/^\s*--- FAIL: /m
+go	test_output.exit_codes.no_tests	0
+go	test_output.exit_codes.compile	1
+go	test_output.exit_codes.assertion	1
+jvm	id	jvm
+jvm	name	Java / Kotlin (Maven multi-module, Gradle with a version catalog)
+jvm	prune	.mvn
+jvm	prune	.settings
+jvm	prune	.kotlin
+jvm	project_files	pom.xml
+jvm	project_files	build.gradle
+jvm	project_files	build.gradle.kts
+jvm	project_files	settings.gradle
+jvm	project_files	settings.gradle.kts
+jvm	manifests	pom.xml
+jvm	manifests	build.gradle
+jvm	manifests	build.gradle.kts
+jvm	manifests	settings.gradle
+jvm	manifests	settings.gradle.kts
+jvm	manifests	*.versions.toml
+jvm	manifests	gradle.properties
+jvm	manifests	**/buildSrc/**/*.gradle
+jvm	manifests	**/buildSrc/**/*.gradle.kts
+jvm	locks	gradle.lockfile
+jvm	locks	**/dependency-locks/*.lockfile
+jvm	settings	settings.xml
+jvm	settings	**/.mvn/settings.xml
+jvm	settings	**/.mvn/extensions.xml
+jvm	settings	**/.mvn/maven.config
+jvm	settings	**/.mvn/jvm.config
+jvm	settings	gradle/wrapper/gradle-wrapper.properties
+jvm	settings	**/gradle-wrapper.properties
+jvm	workspace_roots.0.file	pom.xml
+jvm	workspace_roots.0.contains	<modules>
+jvm	workspace_roots.1.file	settings.gradle
+jvm	workspace_roots.1.contains	^ *include(Build)?[ (]
+jvm	workspace_roots.2.file	settings.gradle.kts
+jvm	workspace_roots.2.contains	^ *include(Build)?[ (]
+jvm	units.target	dir
+jvm	units.bare	root
+jvm	runtime.name	java
+jvm	runtime.compare	1
+jvm	runtime.present	pom.xml
+jvm	runtime.present	build.gradle
+jvm	runtime.present	build.gradle.kts
+jvm	runtime.present	settings.gradle
+jvm	runtime.present	settings.gradle.kts
+jvm	runtime.local.commands	java -version
+jvm	runtime.local.extract	version "(1\.)?([0-9][0-9.]*)
+jvm	runtime.local.group	2
+jvm	version_files.0.kind	workflow
+jvm	version_files.0.keys	java-version
+jvm	version_files.1.kind	line
+jvm	version_files.1.file	.java-version
+jvm	version_files.2.kind	tool_versions
+jvm	version_files.2.names	java
+jvm	version_files.3.kind	match
+jvm	version_files.3.file	.sdkmanrc
+jvm	version_files.3.pattern	^java=(1\.)?([0-9][0-9.]*)
+jvm	version_files.3.group	2
+jvm	version_files.4.kind	match
+jvm	version_files.4.file	pom.xml
+jvm	version_files.4.flatten	true
+jvm	version_files.4.pattern	<(java\.version|maven\.compiler\.release|maven\.compiler\.source|release)>(1\.)?([0-9][0-9.]*)<
+jvm	version_files.4.group	3
+jvm	version_files.5.kind	match
+jvm	version_files.5.file	build.gradle.kts
+jvm	version_files.5.flatten	true
+jvm	version_files.5.pattern	JavaLanguageVersion\.of\(([0-9]+)\)
+jvm	version_files.5.group	1
+jvm	version_files.6.kind	match
+jvm	version_files.6.file	build.gradle
+jvm	version_files.6.flatten	true
+jvm	version_files.6.pattern	JavaLanguageVersion\.of\(([0-9]+)\)
+jvm	version_files.6.group	1
+jvm	risky_paths	gradlew
+jvm	risky_paths	gradlew.bat
+jvm	risky_paths	mvnw
+jvm	risky_paths	mvnw.cmd
+jvm	risky_paths	**/buildSrc/**
+jvm	risky_paths	**/build-logic/**
+jvm	risky_paths	**/.mvn/**
+jvm	commands.truth	tools
+jvm	commands.tools	mvn
+jvm	commands.tools	gradle
+jvm	commands.tools	./gradlew
+jvm	commands.runners.0.when.file	gradlew
+jvm	commands.runners.0.gradle	./gradlew
+jvm	commands.runners.0.at_gradle	{dir}/gradlew -p {dir}
+jvm	commands.runners.1.gradle	gradle
+jvm	commands.runners.1.at_gradle	gradle -p {dir}
+jvm	commands.build.0.when.file	pom.xml
+jvm	commands.build.0.run	mvn -B package
+jvm	commands.build.0.at	mvn -B -f {dir}/pom.xml package
+jvm	commands.build.1.when.any_file	build.gradle
+jvm	commands.build.1.when.any_file	build.gradle.kts
+jvm	commands.build.1.when.any_file	settings.gradle
+jvm	commands.build.1.when.any_file	settings.gradle.kts
+jvm	commands.build.1.run	{gradle} build
+jvm	commands.build.1.at	{at_gradle} build
+jvm	commands.test.0.when.file	pom.xml
+jvm	commands.test.0.run	mvn -B test
+jvm	commands.test.0.at	mvn -B -f {dir}/pom.xml test
+jvm	commands.test.1.when.any_file	build.gradle
+jvm	commands.test.1.when.any_file	build.gradle.kts
+jvm	commands.test.1.when.any_file	settings.gradle
+jvm	commands.test.1.when.any_file	settings.gradle.kts
+jvm	commands.test.1.run	{gradle} test
+jvm	commands.test.1.at	{at_gradle} test
+jvm	benchmark.dependencies.0.in	pom.xml
+jvm	benchmark.dependencies.0.in	build.gradle
+jvm	benchmark.dependencies.0.in	build.gradle.kts
+jvm	benchmark.dependencies.0.contains	jmh
+jvm	benchmark.dependencies.0.why	JMH
+jvm	native_ui.0.file	build.gradle
+jvm	native_ui.0.contains	com\.android\.(application|library)|apply plugin: *['"]com\.android
+jvm	native_ui.0.platform	android
+jvm	native_ui.0.kind	mobile
+jvm	native_ui.0.why	gradle file with the android plugin
+jvm	native_ui.1.file	build.gradle.kts
+jvm	native_ui.1.contains	com\.android\.(application|library)|id\( *"com\.android
+jvm	native_ui.1.platform	android
+jvm	native_ui.1.kind	mobile
+jvm	native_ui.1.why	gradle file with the android plugin
+jvm	native_ui.2.file	AndroidManifest.xml
+jvm	native_ui.2.platform	android
+jvm	native_ui.2.kind	mobile
+jvm	native_ui.2.why	AndroidManifest.xml
+jvm	test_output.status	seed
+jvm	test_output.runners	maven surefire
+jvm	test_output.runners	gradle test
+jvm	test_output.runners	junit
+jvm	test_output.no_tests	/No tests were executed/
+jvm	test_output.no_tests	/No tests found for given includes/
+jvm	test_output.no_tests	/Tests run: 0\b/
+jvm	test_output.compile	/COMPILATION ERROR/
+jvm	test_output.compile	/cannot find symbol/
+jvm	test_output.compile	/Compilation failed/i
+jvm	test_output.assertion	/AssertionFailedError/
+jvm	test_output.assertion	/ComparisonFailure/
+jvm	test_output.exit_codes.no_tests	0
+jvm	test_output.exit_codes.no_tests	1
+jvm	test_output.exit_codes.compile	1
+jvm	test_output.exit_codes.assertion	1
+cargo	id	cargo
+cargo	name	Rust (Cargo workspace)
+cargo	project_files	Cargo.toml
+cargo	manifests	Cargo.toml
+cargo	locks	Cargo.lock
+cargo	settings	**/.cargo/config.toml
+cargo	settings	**/.cargo/config
+cargo	workspace_roots.0.file	Cargo.toml
+cargo	workspace_roots.0.contains	^\[workspace\]
+cargo	units.target	dir
+cargo	units.bare	root
+cargo	runtime.name	rust
+cargo	runtime.compare	2
+cargo	runtime.present	Cargo.toml
+cargo	runtime.local.commands	rustc --version
+cargo	runtime.local.extract	rustc ([0-9][0-9.]*)
+cargo	runtime.local.group	1
+cargo	version_files.0.kind	line
+cargo	version_files.0.file	rust-toolchain
+cargo	version_files.1.kind	match
+cargo	version_files.1.file	rust-toolchain.toml
+cargo	version_files.1.pattern	^channel *= *"([^"]*)"
+cargo	version_files.1.group	1
+cargo	version_files.2.kind	tool_versions
+cargo	version_files.2.names	rust
+cargo	version_files.3.kind	match
+cargo	version_files.3.file	Cargo.toml
+cargo	version_files.3.pattern	^rust-version *= *"([^"]*)"
+cargo	version_files.3.group	1
+cargo	version_files.3.spec_prefix	>=
+cargo	risky_paths	build.rs
+cargo	risky_paths	rust-toolchain
+cargo	risky_paths	rust-toolchain.toml
+cargo	risky_paths	deny.toml
+cargo	commands.truth	tools
+cargo	commands.tools	cargo
+cargo	commands.build.0.when.file	Cargo.toml
+cargo	commands.build.0.run	cargo build
+cargo	commands.build.0.at	cargo build --manifest-path {dir}/Cargo.toml
+cargo	commands.test.0.when.file	Cargo.toml
+cargo	commands.test.0.run	cargo test
+cargo	commands.test.0.at	cargo test --manifest-path {dir}/Cargo.toml
+cargo	commands.lint.0.when.file	Cargo.toml
+cargo	commands.lint.0.run	cargo clippy
+cargo	commands.lint.0.at	cargo clippy --manifest-path {dir}/Cargo.toml
+cargo	benchmark.dirs	benches
+cargo	native_ui.0.file	Cargo.toml
+cargo	native_ui.0.contains	^(egui|eframe|iced|slint)\b
+cargo	native_ui.0.platform	desktop
+cargo	native_ui.0.kind	desktop
+cargo	native_ui.0.why	Rust desktop UI crate
+cargo	test_output.status	seed
+cargo	test_output.runners	cargo test
+cargo	test_output.no_tests	/running 0 tests/
+cargo	test_output.compile	/error\[E\d+\]/
+cargo	test_output.compile	/could not compile/i
+cargo	test_output.assertion	/assertion `?(left|right)?.*failed/
+cargo	test_output.assertion	/panicked at/
+cargo	test_output.exit_codes.no_tests	0
+cargo	test_output.exit_codes.compile	101
+cargo	test_output.exit_codes.assertion	101
+dotnet	id	dotnet
+dotnet	name	.NET (sln, slnx, csproj, fsproj, vbproj)
+dotnet	prune	packages
+dotnet	prune	TestResults
+dotnet	prune	publish
+dotnet	project_files	*.csproj
+dotnet	project_files	*.fsproj
+dotnet	project_files	*.vbproj
+dotnet	manifests	*.csproj
+dotnet	manifests	*.fsproj
+dotnet	manifests	*.vbproj
+dotnet	manifests	Directory.Build.props
+dotnet	manifests	Directory.Build.targets
+dotnet	manifests	Directory.Packages.props
+dotnet	manifests	packages.config
+dotnet	locks	packages.lock.json
+dotnet	settings	NuGet.config
+dotnet	settings	nuget.config
+dotnet	settings	NuGet.Config
+dotnet	solution_files	*.slnx
+dotnet	solution_files	*.sln
+dotnet	units.target	file
+dotnet	units.bare	project_files@root
+dotnet	units.stages	solution_files@root
+dotnet	units.stages	project_files@root
+dotnet	units.stages	solution_files@nested
+dotnet	units.stages	project_files@nested
+dotnet	units.legacy.0.keep	.slnx
+dotnet	units.legacy.0.drop	.sln
+dotnet	runtime.name	dotnet
+dotnet	runtime.compare	1
+dotnet	runtime.present	global.json
+dotnet	runtime.present	*.slnx
+dotnet	runtime.present	*.sln
+dotnet	runtime.present	*.csproj
+dotnet	runtime.present	*.fsproj
+dotnet	runtime.present	*.vbproj
+dotnet	runtime.local.commands	dotnet --version
+dotnet	runtime.local.extract	^([0-9][0-9.]*)
+dotnet	runtime.local.group	1
+dotnet	version_files.0.kind	workflow
+dotnet	version_files.0.keys	dotnet-version
+dotnet	version_files.1.kind	match
+dotnet	version_files.1.file	global.json
+dotnet	version_files.1.flatten	true
+dotnet	version_files.1.pattern	"sdk"[^}]*"version" *: *"([^"]*)"
+dotnet	version_files.1.group	1
+dotnet	version_files.2.kind	tool_versions
+dotnet	version_files.2.names	dotnet
+dotnet	version_files.2.names	dotnet-core
+dotnet	risky_paths	Directory.Build.props
+dotnet	risky_paths	Directory.Build.targets
+dotnet	risky_paths	Directory.Build.rsp
+dotnet	risky_paths	Directory.Solution.props
+dotnet	risky_paths	Directory.Solution.targets
+dotnet	risky_paths	*.props
+dotnet	risky_paths	*.targets
+dotnet	risky_paths	global.json
+dotnet	risky_paths	**/.config/dotnet-tools.json
+dotnet	risky_paths	*.sln
+dotnet	risky_paths	*.slnx
+dotnet	commands.truth	tools
+dotnet	commands.tools	dotnet
+dotnet	commands.ci_lint	^dotnet format( .*)? --verify-no-changes( |$)
+dotnet	commands.build.0.run	dotnet build
+dotnet	commands.build.0.at	dotnet build {target}
+dotnet	commands.test.0.run	dotnet test
+dotnet	commands.test.0.at	dotnet test {target}
+dotnet	commands.lint.0.when.root_file	.editorconfig
+dotnet	commands.lint.0.run	dotnet format --verify-no-changes
+dotnet	commands.lint.0.at	dotnet format {target} --verify-no-changes
+dotnet	benchmark.dependencies.0.in	*.csproj
+dotnet	benchmark.dependencies.0.in	*.fsproj
+dotnet	benchmark.dependencies.0.in	*.vbproj
+dotnet	benchmark.dependencies.0.in	Directory.Packages.props
+dotnet	benchmark.dependencies.0.in	Directory.Build.props
+dotnet	benchmark.dependencies.0.contains	BenchmarkDotNet
+dotnet	benchmark.dependencies.0.why	BenchmarkDotNet
+dotnet	native_ui.0.file	*.csproj
+dotnet	native_ui.0.contains	UseMaui
+dotnet	native_ui.0.platform	maui
+dotnet	native_ui.0.kind	mobile
+dotnet	native_ui.0.why	.NET MAUI project
+dotnet	native_ui.1.file	*.csproj
+dotnet	native_ui.1.contains	UseWPF|UseWinForms|Avalonia
+dotnet	native_ui.1.platform	desktop
+dotnet	native_ui.1.kind	desktop
+dotnet	native_ui.1.why	desktop UI project
+dotnet	native_ui.2.file	*.fsproj
+dotnet	native_ui.2.contains	UseMaui
+dotnet	native_ui.2.platform	maui
+dotnet	native_ui.2.kind	mobile
+dotnet	native_ui.2.why	.NET MAUI project
+dotnet	native_ui.3.file	*.fsproj
+dotnet	native_ui.3.contains	UseWPF|UseWinForms|Avalonia
+dotnet	native_ui.3.platform	desktop
+dotnet	native_ui.3.kind	desktop
+dotnet	native_ui.3.why	desktop UI project
+dotnet	native_ui.4.file	*.vbproj
+dotnet	native_ui.4.contains	UseWPF|UseWinForms|Avalonia
+dotnet	native_ui.4.platform	desktop
+dotnet	native_ui.4.kind	desktop
+dotnet	native_ui.4.why	desktop UI project
+dotnet	test_output.status	seed
+dotnet	test_output.runners	vstest
+dotnet	test_output.runners	microsoft.testing.platform
+dotnet	test_output.no_tests	/No test is available/
+dotnet	test_output.no_tests	/Zero tests ran/i
+dotnet	test_output.no_tests	/\bno tests? (were )?(found|ran|to run)\b/i
+dotnet	test_output.compile	/error CS\d+/
+dotnet	test_output.compile	/error FS\d+/
+dotnet	test_output.compile	/error BC\d+/
+dotnet	test_output.compile	/\bBuild FAILED\b/
+dotnet	test_output.compile	/Test Run Aborted/
+dotnet	test_output.assertion	/Assert\.\w+\(\) Failure/
+dotnet	test_output.assertion	/Assert\.That/
+dotnet	test_output.assertion	/Assert\.AreEqual failed/
+dotnet	test_output.assertion	/Expected: .* But was: /
+dotnet	test_output.exit_codes.no_tests	8
+dotnet	test_output.exit_codes.compile	1
+dotnet	test_output.exit_codes.assertion	1
+dotnet	test_output.exit_codes.assertion	2
+php	id	php
+php	name	PHP (Composer)
+php	project_files	composer.json
+php	manifests	composer.json
+php	locks	composer.lock
+php	settings	auth.json
+php	units.target	dir
+php	units.bare	root
+php	runtime.name	php
+php	runtime.compare	2
+php	runtime.present	composer.json
+php	runtime.local.commands	php --version
+php	runtime.local.extract	PHP ([0-9][0-9.]*)
+php	runtime.local.group	1
+php	version_files.0.kind	workflow
+php	version_files.0.keys	php-version
+php	version_files.1.kind	line
+php	version_files.1.file	.php-version
+php	version_files.2.kind	tool_versions
+php	version_files.2.names	php
+php	version_files.3.kind	match
+php	version_files.3.file	composer.json
+php	version_files.3.flatten	true
+php	version_files.3.pattern	"require" *: *\{[^}]*"php" *: *"([^"]*)"
+php	version_files.3.group	1
+php	version_files.4.kind	gitlab_image
+php	version_files.4.image	php
+php	commands.truth	scripts
+php	commands.tools	composer
+php	commands.tools	phpunit
+php	commands.tools	vendor/bin/phpunit
+php	commands.build.0.when.script	build
+php	commands.build.0.when.script_file	composer.json
+php	commands.build.0.run	composer build
+php	commands.build.0.at	composer --working-dir={dir} build
+php	commands.test.0.when.script	test
+php	commands.test.0.when.script_file	composer.json
+php	commands.test.0.run	composer test
+php	commands.test.0.at	composer --working-dir={dir} test
+php	commands.test.1.when.any_file	phpunit.xml
+php	commands.test.1.when.any_file	phpunit.xml.dist
+php	commands.test.1.run	vendor/bin/phpunit
+php	commands.test.1.at	{dir}/vendor/bin/phpunit --configuration {dir}
+php	commands.lint.0.when.script	lint
+php	commands.lint.0.when.script_file	composer.json
+php	commands.lint.0.run	composer lint
+php	commands.lint.0.at	composer --working-dir={dir} lint
+php	benchmark.dependencies.0.in	composer.json
+php	benchmark.dependencies.0.contains	phpbench
+php	benchmark.dependencies.0.why	phpbench
+php	benchmark.config_files	phpbench.json
+php	test_output.status	seed
+php	test_output.runners	phpunit
+php	test_output.runners	pest
+php	test_output.no_tests	/No tests executed!/
+php	test_output.no_tests	/No tests found in class/
+php	test_output.compile	/PHP Parse error/
+php	test_output.compile	/Parse error: /
+php	test_output.assertion	/Failed asserting that/
+php	test_output.exit_codes.no_tests	0
+php	test_output.exit_codes.compile	255
+php	test_output.exit_codes.assertion	1
+ruby	id	ruby
+ruby	name	Ruby (Bundler)
+ruby	project_files	Gemfile
+ruby	manifests	Gemfile
+ruby	manifests	*.gemspec
+ruby	locks	Gemfile.lock
+ruby	settings	**/.bundle/config
+ruby	units.target	dir
+ruby	units.bare	root
+ruby	runtime.name	ruby
+ruby	runtime.compare	2
+ruby	runtime.present	Gemfile
+ruby	runtime.local.commands	ruby --version
+ruby	runtime.local.extract	ruby ([0-9][0-9.]*)
+ruby	runtime.local.group	1
+ruby	version_files.0.kind	workflow
+ruby	version_files.0.keys	ruby-version
+ruby	version_files.1.kind	line
+ruby	version_files.1.file	.ruby-version
+ruby	version_files.2.kind	tool_versions
+ruby	version_files.2.names	ruby
+ruby	version_files.3.kind	match
+ruby	version_files.3.file	Gemfile
+ruby	version_files.3.pattern	^ruby ["']([^"']*)["']
+ruby	version_files.3.group	1
+ruby	version_files.4.kind	gitlab_image
+ruby	version_files.4.image	ruby
+ruby	risky_paths	Rakefile
+ruby	commands.truth	tools
+ruby	commands.tools	bundle
+ruby	commands.tools	rake
+ruby	commands.tools	rspec
+ruby	commands.tools	rubocop
+ruby	commands.test.0.when.dir	spec
+ruby	commands.test.0.run	bundle exec rspec
+ruby	commands.test.1.when.file	Rakefile
+ruby	commands.test.1.when.dir	test
+ruby	commands.test.1.run	bundle exec rake test
+ruby	commands.lint.0.when.file	.rubocop.yml
+ruby	commands.lint.0.run	bundle exec rubocop
+ruby	benchmark.dependencies.0.in	Gemfile
+ruby	benchmark.dependencies.0.in	*.gemspec
+ruby	benchmark.dependencies.0.contains	benchmark-ips
+ruby	benchmark.dependencies.0.why	benchmark-ips
+ruby	test_output.status	seed
+ruby	test_output.runners	rspec
+ruby	test_output.runners	minitest
+ruby	test_output.no_tests	/\b0 examples, 0 failures/
+ruby	test_output.no_tests	/\b0 runs, 0 assertions/
+ruby	test_output.compile	/SyntaxError/
+ruby	test_output.assertion	/Failure\/Error:/
+ruby	test_output.assertion	/expected: .+ got: /i
+ruby	test_output.exit_codes.no_tests	0
+ruby	test_output.exit_codes.compile	1
+ruby	test_output.exit_codes.assertion	1
+swift	id	swift
+swift	name	Swift (SwiftPM)
+swift	prune	.swiftpm
+swift	prune	Carthage
+swift	project_files	Package.swift
+swift	manifests	Package.swift
+swift	manifests	Podfile
+swift	manifests	Cartfile
+swift	locks	Package.resolved
+swift	locks	Podfile.lock
+swift	locks	Cartfile.resolved
+swift	units.target	dir
+swift	units.bare	root
+swift	runtime.name	swift
+swift	runtime.compare	2
+swift	runtime.present	Package.swift
+swift	runtime.local.commands	swift --version
+swift	runtime.local.extract	Swift version ([0-9][0-9.]*)
+swift	runtime.local.group	1
+swift	version_files.0.kind	workflow
+swift	version_files.0.keys	swift-version
+swift	version_files.1.kind	line
+swift	version_files.1.file	.swift-version
+swift	version_files.2.kind	tool_versions
+swift	version_files.2.names	swift
+swift	version_files.3.kind	match
+swift	version_files.3.file	Package.swift
+swift	version_files.3.pattern	^// swift-tools-version:? *([0-9][0-9.]*)
+swift	version_files.3.group	1
+swift	version_files.3.spec_prefix	>=
+swift	commands.truth	tools
+swift	commands.tools	swift
+swift	commands.tools	swiftlint
+swift	commands.ci_lint	^swiftlint( |$)
+swift	commands.build.0.when.file	Package.swift
+swift	commands.build.0.run	swift build
+swift	commands.build.0.at	swift build --package-path {dir}
+swift	commands.test.0.when.file	Package.swift
+swift	commands.test.0.run	swift test
+swift	commands.test.0.at	swift test --package-path {dir}
+swift	commands.lint.0.when.file	.swiftlint.yml
+swift	commands.lint.0.run	swiftlint lint
+swift	commands.lint.0.at	swiftlint lint {dir}
+swift	benchmark.dirs	Benchmarks
+swift	benchmark.dependencies.0.in	Package.swift
+swift	benchmark.dependencies.0.contains	package-benchmark
+swift	benchmark.dependencies.0.why	package-benchmark
+swift	native_ui.0.file	Package.swift
+swift	native_ui.0.contains	\.iOS *\(
+swift	native_ui.0.platform	ios
+swift	native_ui.0.kind	mobile
+swift	native_ui.0.why	Package.swift with an iOS platform
+swift	native_ui.1.file	Package.swift
+swift	native_ui.1.contains	\.macOS *\(
+swift	native_ui.1.platform	desktop
+swift	native_ui.1.kind	desktop
+swift	native_ui.1.why	Package.swift with a macOS platform
+swift	native_ui.2.file	project.pbxproj
+swift	native_ui.2.contains	SDKROOT = iphoneos|IPHONEOS_DEPLOYMENT_TARGET
+swift	native_ui.2.platform	ios
+swift	native_ui.2.kind	mobile
+swift	native_ui.2.why	Xcode project for iOS
+swift	native_ui.3.file	project.pbxproj
+swift	native_ui.3.contains	SDKROOT = macosx|MACOSX_DEPLOYMENT_TARGET
+swift	native_ui.3.platform	desktop
+swift	native_ui.3.kind	desktop
+swift	native_ui.3.why	Xcode project for macOS
+swift	test_output.status	seed
+swift	test_output.runners	swift test
+swift	test_output.runners	xcodebuild test
+swift	test_output.no_tests	/Executed 0 tests/
+swift	test_output.no_tests	/No matching test cases were run/
+swift	test_output.compile	/error: cannot find .+ in scope/
+swift	test_output.compile	/error: .*(build|compilation) (failed|error)/i
+swift	test_output.assertion	/XCTAssert\w+ failed/
+swift	test_output.assertion	/\bXCTAssert\w*\(.*\) failed/
+swift	test_output.exit_codes.no_tests	0
+swift	test_output.exit_codes.compile	1
+swift	test_output.exit_codes.assertion	1
+dart	id	dart
+dart	name	Dart / Flutter
+dart	prune	.flutter-plugins
+dart	prune	.flutter-plugins-dependencies
+dart	project_files	pubspec.yaml
+dart	manifests	pubspec.yaml
+dart	manifests	pubspec_overrides.yaml
+dart	locks	pubspec.lock
+dart	workspace_roots.0.file	pubspec.yaml
+dart	workspace_roots.0.contains	^workspace:
+dart	workspace_roots.1.file	melos.yaml
+dart	units.target	dir
+dart	units.bare	root
+dart	runtime.name	dart
+dart	runtime.compare	2
+dart	runtime.present	pubspec.yaml
+dart	runtime.local.commands	dart --version
+dart	runtime.local.extract	Dart SDK version: ([0-9][0-9.]*)
+dart	runtime.local.group	1
+dart	version_files.0.kind	tool_versions
+dart	version_files.0.names	dart
+dart	version_files.1.kind	match
+dart	version_files.1.file	pubspec.yaml
+dart	version_files.1.pattern	^  sdk: *["']?([\^><=~0-9][^"']*)
+dart	version_files.1.group	1
+dart	risky_paths	melos.yaml
+dart	risky_paths	analysis_options.yaml
+dart	commands.truth	tools
+dart	commands.tools	dart
+dart	commands.tools	flutter
+dart	commands.ci_lint	^(dart|flutter) analyze( |$)
+dart	commands.test.0.when.in	pubspec.yaml
+dart	commands.test.0.when.contains	^ *sdk: *flutter
+dart	commands.test.0.when.dir	test
+dart	commands.test.0.run	flutter test
+dart	commands.test.1.when.dir	test
+dart	commands.test.1.when.file	pubspec.yaml
+dart	commands.test.1.run	dart test
+dart	commands.lint.0.when.in	pubspec.yaml
+dart	commands.lint.0.when.contains	^ *sdk: *flutter
+dart	commands.lint.0.run	flutter analyze
+dart	commands.lint.0.at	flutter analyze {dir}
+dart	commands.lint.1.when.file	pubspec.yaml
+dart	commands.lint.1.run	dart analyze
+dart	commands.lint.1.at	dart analyze {dir}
+dart	benchmark.dirs	benchmark
+dart	benchmark.dependencies.0.in	pubspec.yaml
+dart	benchmark.dependencies.0.contains	benchmark_harness
+dart	benchmark.dependencies.0.why	benchmark_harness
+dart	native_ui.0.file	pubspec.yaml
+dart	native_ui.0.contains	^ *sdk: *flutter|^flutter:
+dart	native_ui.0.platform	flutter
+dart	native_ui.0.kind	mobile
+dart	native_ui.0.why	pubspec.yaml with the flutter sdk
+dart	test_output.status	seed
+dart	test_output.runners	dart test
+dart	test_output.runners	flutter test
+dart	test_output.no_tests	/No tests ran/
+dart	test_output.no_tests	/No test files/i
+dart	test_output.compile	/Compilation failed/i
+dart	test_output.compile	/Error: /
+dart	test_output.assertion	/Expected: .*\n\s*Actual: /
+dart	test_output.assertion	/Expected: /
+dart	test_output.exit_codes.no_tests	79
+dart	test_output.exit_codes.compile	1
+dart	test_output.exit_codes.assertion	1

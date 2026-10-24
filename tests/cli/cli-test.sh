@@ -453,6 +453,7 @@ sc_discovery() {
 # ---- discovery ---------------------------------------------------------------------------------------------
 say() { :; }
 # shellcheck source=../../bin/lib/discover.sh
+PL_HOME=$repo # discover.sh reads the ecosystem definition from the plugin home (A173)
 . "$repo/bin/lib/discover.sh"
 fx() { rm -rf "$T/fx"; mkdir -p "$T/fx"; }
 fx; printf '{"scripts":{"build":"b","test":"echo \\"Error: no test specified\\" && exit 1"}}' > "$T/fx/package.json"; : > "$T/fx/pnpm-lock.yaml"

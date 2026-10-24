@@ -123,7 +123,7 @@ export function validateVerify(text, taskText, planText) {
       const t = line.trim();
       if (!t) continue;
       if (/^runtime: none \(\S.*\)$/.test(t)) { valid++; continue; }
-      const m = /^runtime: (node|dotnet|go|python) local=(\S+) ci=(\S+) source=(\S+) status=(match|mismatch|unknown)$/.exec(t);
+      const m = /^runtime: ([a-z][a-z0-9_-]*) local=(\S+) ci=(\S+) source=(\S+) status=(match|mismatch|unknown)$/.exec(t);
       if (!m) { if (/^runtime:/.test(t)) errors.push(`malformed runtime line "${t.slice(0, 70)}" (expected "runtime: <name> local=<version|missing> ci=<spec|none> source=<file|-> status=match|mismatch|unknown")`); continue; }
       valid++;
       if ((m[2] === "missing" || m[3] === "none") && m[5] !== "unknown") errors.push(`runtime ${m[1]}: status must be unknown when local is missing or ci is none`);

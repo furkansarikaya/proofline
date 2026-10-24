@@ -139,7 +139,7 @@ doctor_foreign() {
 }
 
 # 0.0.26: the language runtimes the project's CI specifies against the ones installed here. WARN only, never FAIL:
-# a different major version (major.minor for go and python) means a green local run may not hold in CI.
+# a different major version (major.minor for go, python and the runtimes the definition compares so) means a green local run may not hold in CI.
 doctor_toolchain() {
   dt_s=$PL_HOME/skills/verify-proof/scripts/runtime-versions.sh
   [ -f "$dt_s" ] || return 0
@@ -148,6 +148,10 @@ doctor_toolchain() {
     [ "$dt_k" = 'runtime:' ] || continue
     dt_l=${dt_l#local=}; dt_c=${dt_c#ci=}; dt_f=${dt_f#source=}; dt_st=${dt_st#status=}
     case "$dt_n" in go|python) dt_u='major.minor' ;; *) dt_u=major ;; esac
+    if [ -n "$D_ECO" ]; then # the number of version components compared comes from the ecosystem definition (A173)
+      dt_id=$(eco_match '^runtime\.name$' | awk -F'\t' -v n="$dt_n" '$3 == n { print $1; exit }')
+      [ -z "$dt_id" ] || case "$(eco_first "$dt_id" runtime.compare)" in 1) dt_u=major ;; *) dt_u='major.minor' ;; esac
+    fi
     if [ "$dt_l" = missing ]; then
       d_warn "toolchain $dt_n: not installed here$([ "$dt_c" = none ] || printf ', CI specifies %s (%s)' "$dt_c" "$dt_f")"
     elif [ "$dt_st" = mismatch ]; then

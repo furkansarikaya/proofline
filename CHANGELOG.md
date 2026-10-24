@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- proofline no longer assumes a folder layout (A173): `proofline init` finds the build, test and lint commands of a root, nested, multi-project or monorepo project in every ecosystem from one definition (`control-plane/agents/ecosystems.json`); .NET `.slnx`, `*.fsproj` and `*.vbproj` are supported, `dotnet build App.slnx` is proposed only when exactly one target exists, and zero or several targets propose no command instead of a broken one (`MSB1011`, `MSB1003`). `proofline doctor` and verify-proof read runtime versions of nested projects and of java, rust, php, ruby, swift and dart too. See [ecosystems](docs/concepts/ecosystems.md).
+
 ## 0.0.29 — 2026-10-24
 
 - Finding ids have one identity (A172): `submit` and `record` take the prefix from one function, so a QA plan step with findings (`qa-1`, a task result) is no longer rejected after it was written; gate ids (`QA-1`, `REVIEW_TESTS-2`) and task ids (`explorer-3`) are unchanged. Ids (`QA-n`, `AC-n`, `AS-n`, `FR-n`, finding ids) are compared by key, case-insensitive and ignoring leading zeros, in `agent.sh` and the validators of the QA plan, plan-contract, tdd-proof, verify-proof, test-trust, evidence-map, ui-design, visual-proof, product-spec, task-author and product claims; `waive` and its approval accept a finding id in any case.
