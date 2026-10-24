@@ -270,3 +270,9 @@ test("a backslash entry name matches its scenario (A162)", () => {
   assert.match(epErr(BODY, plan), /entry point GET \/u\/\\d\+/);
   assert.equal(epErr(withScenario("invalid-input", "GET /u/\\d+ with letters"), plan), "");
 });
+
+test("ids: QA-n and AC-n are one identity in any case and with leading zeros", () => {
+  const lower = PLAN.replace(/QA-(\d)/g, "qa-0$1").replace(/\(AC-/g, "(ac-");
+  assert.equal(validatePlan(lower, TASK).valid, true, perr(lower, TASK));
+  assert.equal(validatePlan(PLAN, TASK.replace(/AC-(\d)/g, "ac-0$1")).valid, true, perr(PLAN, TASK.replace(/AC-(\d)/g, "ac-0$1")));
+});
