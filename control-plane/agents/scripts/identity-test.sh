@@ -90,6 +90,23 @@ sc_language_tracked() {
   expect_msg "a piece cut inside a word was accepted" 'language: run artifacts' A language-check "$q"
   ok "language: committed product text is quotable on word boundaries; a staged file is no source"
 }
+sc_language_forged_cache() {
+  lang_run
+  q=.agents/runs/LC/QA_PLAN.md; prod='Sepetiniz şu anda boş görünüyor, ürün ekleyin'; forged='Bu cümle depoda yok, çünkü onu ben yazdım şimdi'
+  printf '<p>%s</p>\n' "$prod" > page.html; git add page.html; git commit -qm page
+  printf '# QA plan\n\nExpect `%s` on the page.\n' "$prod" > "$q"
+  A language-check "$q" >/dev/null 2>&1 || die "a committed sentence was refused (the cache is built here)"
+  c=$(ls .agents/local/language/*.corpus) || die "no committed-text cache was written"
+  w=${c%.corpus}.words; sep=$(printf '\001')
+  printf ' %s ' "$forged" | sed -E "s/([^[:punct:][:space:][:cntrl:]])([[:punct:][:space:][:cntrl:]])/\\1${sep}\\2/g; s/([[:punct:][:space:][:cntrl:]])([^[:punct:][:space:][:cntrl:]])/\\1${sep}\\2/g" >> "$c"
+  printf '%s\n' "$forged" | tr -s '[:punct:][:space:][:cntrl:]' '\n' >> "$w"; sort -u "$w" > "$w.s"; mv "$w.s" "$w"
+  grep -q 'depoda' "$c" || die "the forged sentence is not in the cache file"
+  printf '# QA plan\n\nExpect `%s` on the page.\n' "$forged" > "$q"
+  expect_msg "a sentence forged into the cache was accepted" 'language: run artifacts' A language-check "$q"
+  printf '# QA plan\n\nExpect `%s` on the page.\n' "$prod" > "$q"
+  A language-check "$q" >/dev/null 2>&1 || die "a committed sentence was refused after the cache was forged"
+  ok "language: a sentence forged into the cache is refused (confirmed against HEAD); committed text still passes"
+}
 sc_language_machine_output() {
   lang_run
   d=.agents/runs/LC; mkdir -p "$d/reviews/visual-proof" "$d/reports/qa-evidence"
@@ -114,6 +131,7 @@ run_sc sc_id_identity
 run_sc sc_language_quotable
 run_sc sc_language_foreign
 run_sc sc_language_tracked
+run_sc sc_language_forged_cache
 run_sc sc_language_machine_output
 run_sc sc_language_message
 echo 'identity tests passed'

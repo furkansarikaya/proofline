@@ -3798,8 +3798,16 @@ language_extra() {
 # Three steps, none of them a scan per piece: (1) a piece with a word that no corpus holds is absent (comm over sorted word lists);
 # (2) the few pieces whose words all exist are searched in ONE pass over each corpus with one alternation pattern, in chunks;
 # (3) a piece counts when its marked form lies inside a match (a longer piece can hide a shorter one from the leftmost-longest match).
+# language_confirm PIECE: the piece (whitespace normalized) occurs in one line of committed content (HEAD, outside .agents/), on word
+# boundaries: a letter right before or after it is no match. Runs of spaces in the piece match any whitespace run. Exit 0 when it does.
+language_confirm() {
+  lc_pat=$(printf '%s' "$1" | sed -e 's/[][\\.^$*+?(){}|]/\\&/g' -e 's/ /[[:space:]]+/g')
+  case "$1" in [[:punct:][:space:]]*) lc_pre='' ;; *) lc_pre='(^|[[:punct:][:space:]])' ;; esac
+  case "$1" in *[[:punct:][:space:]]) lc_post='' ;; *) lc_post='($|[[:punct:][:space:]])' ;; esac
+  git -C "$root" grep -q -I -E -e "$lc_pre$lc_pat$lc_post" HEAD -- . ':(exclude).agents' 2>/dev/null
+}
 language_ok_pieces() {
-  lo_c=$(mktemp "${TMPDIR:-/tmp}/proofline-pieces.XXXXXX"); lo_o=$lo_c.ok; lo_w=$lo_c.w; lo_a=$lo_c.a; lo_s=$lo_c.s; lo_m=$lo_c.m
+  lo_c=$(mktemp "${TMPDIR:-/tmp}/proofline-pieces.XXXXXX"); lo_o=$lo_c.ok; lo_h=$lo_c.h; lo_w=$lo_c.w; lo_a=$lo_c.a; lo_s=$lo_c.s; lo_m=$lo_c.m
   language_awk "$1" "$2" "$3" cands "" | sed '/^$/d' > "$lo_c"
   : > "$lo_o"
   if [ -s "$lo_c" ]; then
@@ -3811,16 +3819,24 @@ language_ok_pieces() {
       { n = split($0, ws, /[[:punct:][:space:][:cntrl:]]+/); for (i = 1; i <= n; i++) if (ws[i] in gone) next; print }' "$lo_c" > "$lo_s"
     if [ -s "$lo_s" ]; then
       language_mark < "$lo_s" > "$lo_m"
-      awk -v cf="$lo_m" -v c1="${ls_hc:-}" -v c2="$4" 'BEGIN {
+      awk -v eo="$lo_o" -v ho="$lo_h" -v cf="$lo_m" -v c1="${ls_hc:-}" -v c2="$4" 'BEGIN {
           while ((getline l < cf) > 0) { m[++k] = l; e = l; gsub(/[][\\.^$*+?(){}|\/]/, "\\\\&", e); re = re (re == "" ? "" : "|") e }
           for (q = 1; q <= 2; q++) { f = (q == 1 ? c1 : c2); if (f == "") continue
             s = ""; getline s < f; n = length(s)
             for (p = 1; p <= n; p += 2000) { c = substr(s, p, 4000)
-              while (match(c, re)) { hit[substr(c, RSTART, RLENGTH)] = 1; c = substr(c, RSTART + 1) } } }
-          while ((getline o < ARGV[1]) > 0) { i++; ok = 0; for (h in hit) if (index(h, m[i]) > 0) { ok = 1; break }; if (ok) print o } }' "$lo_s" > "$lo_o"
+              while (match(c, re)) { hit[q, substr(c, RSTART, RLENGTH)] = 1; c = substr(c, RSTART + 1) } } }
+          while ((getline o < ARGV[1]) > 0) { i++; inH = 0; inE = 0
+            for (h in hit) { split(h, hk, SUBSEP); if (index(hk[2], m[i]) > 0) { if (hk[1] == 2) inE = 1; else inH = 1 } }
+            if (inE) print o > eo; else if (inH) print o > ho } }' "$lo_s"
     fi
   fi
-  rm -f "$lo_c" "$lo_w" "$lo_a" "$lo_a.2" "$lo_s" "$lo_m"
+  # The cached committed text only PRE-FILTERS: a file under .agents/local/ can be written by a runtime with no write hook, so a piece
+  # that only the cache vouches for is confirmed against HEAD itself (git grep, one per piece, never a scan of lines). A forged hit is
+  # refused here; a forged miss only refuses a quote. TASK.md and the user's prompts need no confirmation.
+  if [ -s "$lo_h" ]; then
+    while IFS= read -r lo_p; do language_confirm "$lo_p" && printf '%s\n' "$lo_p" >> "$lo_o"; done < "$lo_h"
+  fi
+  rm -f "$lo_c" "$lo_w" "$lo_a" "$lo_a.2" "$lo_s" "$lo_m" "$lo_h"
   printf '%s\n' "$lo_o"
 }
 language_scan() {
@@ -3845,7 +3861,7 @@ language_scan() {
   rm -f "$ls_blob" "$ls_extra"
   return "$ls_rc"
 }
-language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span (\"...\"), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file COMMITTED to git (HEAD; never a staged, modified or untracked file) outside .agents/, on word boundaries; the user's own messages are quoted verbatim in a '> ' block (A171, A172). Write everything else in English" "$1"; }
+language_fail_text() { printf "language: run artifacts are English, but %s holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span (\"...\"), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file COMMITTED to git (HEAD; never a staged, modified or untracked file) outside .agents/, on word boundaries; the user's own messages are quoted verbatim in a '> ' block. Text that this task writes into new or changed files cannot be quoted until it is committed, except through TASK.md: put the text in TASK.md to quote it (A171, A172). Write everything else in English" "$1"; }
 # language_check FILE|- [PATH]: the write-time check (A171, the runtime write hook calls it with the text about to be written; stdin for -;
 # PATH is the run-relative file being written, which names the run whose TASK.md holds the quotable product text).
 # Exit 1 and the "file:line" hit when the text holds non-English text outside the exemptions above.
