@@ -13,7 +13,7 @@ const SCHEMA = JSON.parse(readFileSync(new URL("../../skills/proof-review/schema
 const loc = { file: "src/shop.ts", line: 12 };
 // structuredClone: tests mutate documents, and `loc` must not be shared between them.
 const doc = () => structuredClone({
-  schema_version: 1, skill_version: "0.0.29", generated_at: "2026-10-08T12:00:00Z",
+  schema_version: 1, skill_version: "0.0.30", generated_at: "2026-10-08T12:00:00Z",
   target: { type: "branch", name: "feature/discount", slug: "feature-discount", base: "aaa111", head: "bbb222" },
   scope: { changed_files: 2, changed_lines: 40, excluded: ["package-lock.json"], not_reviewed: [{ path: "docs/", reason: "docs only" }], rule_files_read: ["CLAUDE.md"], rule_files_not_read: [] },
   claims: [

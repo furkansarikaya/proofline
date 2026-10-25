@@ -328,8 +328,8 @@ nr_path_ok() {
   case "$np" in
     .agents/runs/*/RUN.yaml|.agents/runs/*/LEDGER.log|.agents/runs/*/mutation_budget|.agents/runs/*/gates/*|.agents/runs/*/approvals/*|.agents/runs/*/waivers/*|.agents/runs/*/questions/*|.agents/runs/*/decisions/*|.agents/runs/*/dispatch/*|.agents/runs/*/worker-evidence/*|.agents/runs/*/ci-fix/*|.agents/runs/*/results/*.result.md|.agents/runs/*/results/dispatch-*|.agents/hooks|.agents/hooks/*)
       echo "$np is written only by agent.sh and the runtime hooks"; return 1 ;;
-    .claude/settings*|.codex/*|.agents/scripts/*|.agents/config.yaml)
-      echo "$np holds the runtime hooks, the control-plane scripts or the configuration; the lead never edits it itself (A169)"; return 1 ;;
+    .claude/settings*|.codex/*|.agents/scripts/*|.agents/config.yaml|.agents/ecosystems.json|.agents/ecosystems.tsv|.agents/ecosystems.mjs)
+      echo "$np holds the runtime hooks, the control-plane scripts, the configuration or the ecosystem definition (the risky-path and dependency sets, A174); the lead never edits it itself (A169)"; return 1 ;;
     .agents/local/scratch/*|.agents/local/explain/*|.agents/local/assignments/*|.agents/local/product-spec/*|.agents/local/product-discovery/*|.agents/local/intent-grill/*|.agents/local/task-author/*) return 0 ;;
     .agents/local|.agents/local/*) echo "$np is runtime state (approvals, prompts, windows, records); the lead writes under .agents/local/ only in scratch/, explain/, assignments/ and the standalone skill folders (product-spec, product-discovery, intent-grill, task-author)"; return 1 ;;
   esac
@@ -1844,6 +1844,10 @@ pretool)
   case "$tool" in
     Write|Edit|MultiEdit)
       lp=$(relpath "$(jget tool_input.file_path tool_input.path)")
+      # A178: exactly .agents/runs/<ID>/questions/NNN.md (the question block for the user, in the user's language) is not checked; the remainder after
+      # the run folder is compared whole, so results/questions/001.md or reviews/a/questions/001.md are not taken for one. (agent.sh writes it;
+      # target_ok denies every other writer first, so this line is a consistency guard, not a reachable path.)
+      case "$lp" in .agents/runs/*/*) lq=${lp#.agents/runs/}; lq=${lq#*/}; case "$lq" in questions/[0-9][0-9][0-9].md) exit 0 ;; esac ;; esac
       case "$lp" in
         .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log) ;;
         .agents/runs/*/reviews/visual-proof/*|.agents/runs/*/reports/qa-evidence/*) ;;   # A172: machine output of the skills

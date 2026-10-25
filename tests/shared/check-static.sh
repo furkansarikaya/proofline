@@ -14,6 +14,9 @@
 #    skills/ui-design/library/THIRD_PARTY_NOTICES.md (lines `- <id> | <name> | <url>`), never hardcoded here. Every tracked
 #    or untracked file except that notices file and .claude/ is scanned, case-insensitively. Without a notices file the rule passes.
 #
+# 4. Captured tool output in tests/skills/fixtures/tdd-proof-output holds no personal path: /Users/, /home/<name>/... (a
+#    bare /home/user is allowed), /private/var, /var/folders, /opt/homebrew or C:\Users. Redact such a path to /work/... when a fixture is added.
+#
 # Prints PASS or FAIL per rule. Exit 0 when every rule passes, 1 on a failure, 2 on a usage error.
 FOREIGN_TAGS='ponytail'
 README_MAX_LINES=178
@@ -90,6 +93,17 @@ else
   if [ -z "$hits" ]; then echo "PASS third-party names (none outside the notices file and its listed copies)"
   else
     echo "FAIL third-party names: a source name (any spelling) from the notices file appears outside it; refer to 'source N' instead"
+    printf '%s\n' "$hits" | cut -c1-200 | sed 's/^/  /'
+    status=1
+  fi
+fi
+# 4. personal paths in captured tool output
+fx=tests/skills/fixtures/tdd-proof-output
+if [ -d "$root/$fx" ]; then
+  hits=$(grep -rnE -e '/Users/|/home/[A-Za-z0-9._-]+/|/private/var|/var/folders|/opt/homebrew|C:\\Users' "$root/$fx" 2>/dev/null | sed "s|^$root/||")
+  if [ -z "$hits" ]; then echo "PASS no personal paths in $fx"
+  else
+    echo "FAIL personal paths in $fx: write /work/... instead of a real home directory, checkout or Homebrew path"
     printf '%s\n' "$hits" | cut -c1-200 | sed 's/^/  /'
     status=1
   fi

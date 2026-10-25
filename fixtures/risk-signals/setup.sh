@@ -22,6 +22,7 @@ mkdir -p .agents/scripts .agents/local .agents/tasks api db/migrations web src d
 cp "$CP/agents/config.yaml" .agents/
 cp -R "$CP/agents/modes" "$CP/agents/templates" .agents/
 cp "$CP/agents/scripts/agent.sh" .agents/scripts/
+cp "$CP/agents/ecosystems.tsv" .agents/; cp "$CP/agents/scripts/ecosystems.sh" .agents/scripts/   # as `proofline init` installs them (A174): the manifests of the languages come from the definition
 printf '.agents/runs/\n.agents/local/\n' > .gitignore
 printf '{ "name": "settings-fixture", "private": true, "dependencies": {} }\n' > package.json
 printf 'openapi: 3.0.0\npaths:\n  /settings:\n    get:\n      responses:\n        "200":\n          description: ok\n' > api/openapi.yaml

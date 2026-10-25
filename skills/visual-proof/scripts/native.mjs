@@ -17,13 +17,18 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpat
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA, requiredCells, validateReport } from "./validate-visual.mjs";
+import { allPruneDirs, loadEcosystems, matchesGlob } from "./ecosystems.mjs";
 
 export const NATIVE_SCHEMA = "visual-proof.native/1";
 export const TARGET_SCHEMA = "visual-proof.target/1";
-const SKIP_DIRS = new Set(["node_modules", ".git", "build", "Pods", ".dart_tool", "dist", ".gradle", "DerivedData", ".agents", "vendor", ".idea"]);
+// Folders never entered and the native-UI markers of every ecosystem come from the ecosystem definition (ecosystems.json, A173).
+const ECO = loadEcosystems();
+const SKIP_DIRS = new Set(allPruneDirs(ECO));
+const SCAN_LIMIT = Number(ECO.global.limits.scan_max_files) || 20000;
+const NATIVE_RULES = ECO.ecosystems.flatMap((e) => (e.native_ui ?? []).map((r) => ({ ...r, ecosystem: e.id, re: r.contains ? new RegExp(r.contains, "m") : null })));
 
 // --- file helpers ----------------------------------------------------------------------------------------
-function walk(repo, maxDepth = 4, limit = 6000) {
+function walk(repo, limit = SCAN_LIMIT) {
   const out = [];
   const rec = (dir, depth) => {
     if (out.length >= limit) return;
@@ -34,7 +39,7 @@ function walk(repo, maxDepth = 4, limit = 6000) {
       const rel = relative(repo, p).split("\\").join("/");
       if (e.isDirectory()) {
         out.push({ rel, dir: true });
-        if (depth < maxDepth && !SKIP_DIRS.has(e.name)) rec(p, depth + 1);
+        if (!SKIP_DIRS.has(e.name)) rec(p, depth + 1);
       } else out.push({ rel, dir: false });
     }
   };
@@ -59,49 +64,44 @@ export function detectTarget(repo) {
 
   for (const f of files) {
     const base = basename(f);
-    if (base === "pubspec.yaml") {
-      const t = read(f);
-      if (/^\s*sdk:\s*flutter\b/m.test(t) || /^flutter:/m.test(t)) { platforms.add("flutter"); ev(f, "pubspec.yaml with the flutter sdk"); }
-    } else if (base === "package.json") {
+    // the first matching rule of a file decides (package.json: react-native before electron; Package.swift: iOS before macOS)
+    for (const r of NATIVE_RULES) {
+      if (!matchesGlob(f, r.file)) continue;
+      const text = r.re ? read(f) : "";
+      if (r.re && !r.re.test(text)) continue;
+      const at = base === "project.pbxproj" ? dirname(f) : f;
+      let why = r.why;
+      if (r.platform === "maui") { const t = [...new Set([...text.matchAll(/net\d+(?:\.\d+)?-(android|ios|maccatalyst|windows)/g)].map((x) => x[1]))]; if (t.length) why += `; targets: ${t.join(", ")}`; }
+      if (r.kind === "mobile") { platforms.add(r.platform); ev(at, why); }
+      else if (r.kind === "shell") { shell = r.platform; ev(at, why); }
+      else desktop.push([at, why]);
+      break;
+    }
+    if (base === "package.json") {
       let pkg = {};
       try { pkg = JSON.parse(read(f)); } catch { continue; }
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-      if (deps["react-native"]) { platforms.add("react-native"); ev(f, "package.json depends on react-native"); }
-      else if (deps.electron) { shell = "electron"; ev(f, "package.json depends on electron"); }
       const scripts = pkg.scripts || {};
       if (!deps["react-native"] && (Object.keys(scripts).some((k) => /^(dev|start|serve|preview)$/.test(k)) || Object.keys(deps).some((d) => /^(react|vue|svelte|next|vite|@angular\/core|solid-js|astro)$/.test(d)))) webEntry.push(f);
-    } else if (base === "AndroidManifest.xml") {
-      platforms.add("android"); ev(f, "AndroidManifest.xml");
-    } else if (/^build\.gradle(\.kts)?$/.test(base)) {
-      if (/com\.android\.(application|library)|apply plugin:\s*['"]com\.android|id\(\s*["']com\.android/.test(read(f))) { platforms.add("android"); ev(f, "gradle file with the android plugin"); }
-    } else if (base === "Package.swift") {
-      const t = read(f);
-      if (/\.iOS\s*\(/.test(t)) { platforms.add("ios"); ev(f, "Package.swift with an iOS platform"); }
-      else if (/\.macOS\s*\(/.test(t)) desktop.push([f, "Package.swift with a macOS platform"]);
-    } else if (base === "project.pbxproj") {
-      const t = read(f);
-      if (/SDKROOT = iphoneos|IPHONEOS_DEPLOYMENT_TARGET/.test(t)) { platforms.add("ios"); ev(dirname(f), "Xcode project for iOS"); }
-      else if (/SDKROOT = macosx|MACOSX_DEPLOYMENT_TARGET/.test(t)) desktop.push([dirname(f), "Xcode project for macOS"]);
-    } else if (base === "tauri.conf.json" || base === "tauri.conf.json5") {
-      shell = "tauri"; ev(f, "tauri configuration");
-    } else if (/\.csproj$/.test(base) && /UseWPF|UseWinForms|Avalonia/.test(read(f))) desktop.push([f, "desktop UI project"]);
-    else if (/\.pro$/.test(base) || base === "CMakeLists.txt") { if (/find_package\(\s*Qt|QT\s*\+=/.test(read(f))) desktop.push([f, "Qt project"]); }
-    else if (base === "Cargo.toml" && /^\s*(egui|eframe|iced|slint)\b/m.test(read(f))) desktop.push([f, "Rust desktop UI crate"]);
-    else if (base === "index.html" && !/^(android|ios)\//.test(f)) webEntry.push(f);
+    } else if (/\.pro$/.test(base) || base === "CMakeLists.txt") {
+      // shortcut: Qt is not described by an ecosystem in ecosystems.json (no C/C++ entry), so it is still matched here; move it to a native_ui entry when one exists
+      if (/find_package\(\s*Qt|QT\s*\+=/.test(read(f))) desktop.push([f, "Qt project"]);
+    } else if (base === "index.html" && !/^(android|ios)\//.test(f)) webEntry.push(f);
   }
   // Xcode project directories carry their own project.pbxproj; a bare *.xcodeproj dir without it still counts.
   for (const d of dirs) if (/\.xcodeproj$/.test(d) && !platforms.has("ios") && !desktop.some(([p]) => p === d) && !files.includes(`${d}/project.pbxproj`)) { platforms.add("ios"); ev(d, "Xcode project"); }
   for (const [p, why] of desktop) ev(p, why);
 
-  const mobile = ["flutter", "react-native", "android", "ios"].filter((p) => platforms.has(p));
-  const plat = (list) => (list.includes("flutter") ? "flutter" : list.includes("react-native") ? "react-native" : list.length === 1 ? list[0] : "multi");
+  const mobile = [...platforms];
+  // a .NET MAUI project carries Platforms/Android/AndroidManifest.xml and Platforms/iOS: they are its targets, not a second app
+  const plat = (list) => (list.includes("flutter") ? "flutter" : list.includes("react-native") ? "react-native" : list.includes("maui") ? "maui" : list.length === 1 ? list[0] : "multi");
   const web = webEntry.filter((f) => !(platforms.has("flutter") && /^(web|android|ios)\//.test(f)));
   let out;
   if (shell) {
     out = web.length ? { type: "web", via: "browser", shell, platform: null } : { type: "desktop", shell, platform: shell };
   } else if (mobile.length) {
     out = { type: "native-mobile", platform: plat(mobile), platforms: mobile };
-    if (web.length && !platforms.has("flutter") && !platforms.has("react-native")) out.also = ["web"];
+    if (web.length && !platforms.has("flutter") && !platforms.has("react-native") && !platforms.has("maui")) out.also = ["web"];
   } else if (desktop.length) out = { type: "desktop", platform: "desktop" };
   else out = { type: "web", platform: null, note: web.length ? "web entry found" : "no native evidence; web is the default" };
   const keep = out.type === "web" && !shell ? web.map((f) => ({ path: f, why: "web entry" })) : out.type === "web" ? [...evidence, ...web.map((f) => ({ path: f, why: "web entry" }))] : evidence;
@@ -193,17 +193,18 @@ function projectContext(repo) {
   const files = all.filter((f) => !f.dir).map((f) => f.rel);
   const dirs = all.filter((f) => f.dir).map((f) => f.rel);
   const cat = (re) => files.filter((f) => re.test(basename(f))).map((f) => readCap(join(repo, f))).join("\n");
-  const pkgRel = files.find((f) => f === "package.json");
+  // detection reads every package.json; only the root one's scripts are commands (they run with the repository root as the working directory)
+  const hasRootPkg = files.includes("package.json");
   let scripts = {};
   try { scripts = JSON.parse(readCap(join(repo, "package.json"))).scripts || {}; } catch { /* none */ }
   const docs = files.filter((f) => /^(\.github\/workflows\/[^/]+\.ya?ml|\.gitlab-ci\.yml|\.circleci\/config\.yml|bitrise\.yml|codemagic\.yaml|fastlane\/Fastfile|Makefile)$/.test(f) || /^README[^/]*$/i.test(f));
   return {
     repo, files, dirs, scripts,
     pubspec: cat(/^pubspec\.yaml$/),
-    packageJson: pkgRel ? readCap(join(repo, pkgRel)) : "",
+    packageJson: hasRootPkg || files.some((f) => basename(f) === "package.json") ? cat(/^package\.json$/) : "",
     gradle: cat(/^(build\.gradle(\.kts)?|settings\.gradle(\.kts)?|libs\.versions\.toml)$/),
     pbxproj: cat(/^project\.pbxproj$/),
-    dart: files.filter((f) => /^test\/.+\.dart$|^integration_test\/.+\.dart$/.test(f)).slice(0, 80).map((f) => readCap(join(repo, f), 60_000)),
+    dart: files.filter((f) => /(^|\/)(test|integration_test)\/.+\.dart$/.test(f)).slice(0, 80).map((f) => readCap(join(repo, f), 60_000)),
     docs: docs.map((f) => ({ file: f, text: readCap(join(repo, f)) })),
     gradlew: files.includes("gradlew"),
   };
@@ -242,6 +243,7 @@ export function suggestion(target) {
   const what = p === "flutter" ? "integration tests or golden tests (flutter test)"
     : p === "react-native" ? "a Maestro or Detox flow that dumps the view hierarchy"
     : p === "ios" ? "an XCUITest that attaches screenshots and the accessibility hierarchy"
+    : p === "maui" ? "a Maestro flow against the Android or iOS build of the app that dumps the view hierarchy (no dotnet command is run by visual-proof)"
     : p === "android" ? "Espresso, Paparazzi, Roborazzi or Compose screenshot tests, or a uiautomator dump step"
     : "a UI test tool that writes screenshots and an element tree (JSON or XML)";
   return `adding ${what} would let visual-proof measure this app; nothing was added`;

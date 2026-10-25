@@ -1,0 +1,16 @@
+tool: go 1.27.1 darwin/arm64
+ecosystem: go
+runner: go test
+command: go test ./vet/
+exit_code: 1
+scenario: compile (go vet failure inside go test)
+expected_class: compile
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: no path or locale change was needed; nothing else changed
+=== OUTPUT ===
+# example.com/calc/vet
+# [example.com/calc/vet]
+vet/v_test.go:6:14: fmt.Printf format %d has arg "str" of wrong type string
+FAIL	example.com/calc/vet [build failed]
+FAIL

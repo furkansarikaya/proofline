@@ -14,8 +14,22 @@ exit 0 / 1 (UNSUPPORTED or a failed command) / 2 (usage). `target.type` is decid
 | `native-mobile`, platform `react-native` | `package.json` depending on react-native |
 | `native-mobile`, platform `android` | `AndroidManifest.xml`, or a gradle file with the android plugin |
 | `native-mobile`, platform `ios` | an Xcode project for iOS, or `Package.swift` with an iOS platform |
-| `desktop` | Xcode project for macOS, a WPF/WinForms project, a Qt project, a Rust UI crate |
+| `native-mobile`, platform `maui` | a `.csproj`, `.fsproj`, `.vbproj` or `Directory.Build.props` with `<UseMaui>true</UseMaui>` (`UseMaui` set to false is not MAUI); the evidence names the targets of its `TargetFrameworks` (android, ios, maccatalyst, windows) |
+| `desktop` | Xcode project for macOS, a WPF, WinForms, WinUI, Avalonia or Uno project, a Qt project, a Rust UI crate |
 | `web` | everything else, and Electron or Tauri with a usable web entry (`index.html` or a dev/start script): `via: browser`, measured by `measure.mjs` |
+
+Which files are markers, and what they must contain, is the `native_ui` section of the ecosystem definition
+(`references/ecosystems.json`, a byte-identical copy of `control-plane/agents/ecosystems.json`, A173): adding a framework is
+one entry there. The search has no depth limit and does not enter build output, dependency or tool folders (the definition's
+`prune` lists), so a project three folders down is found like a root project. The first matching marker of a file decides.
+
+**.NET MAUI.** It is detected like the others, as `native-mobile` with platform `maui`; the `AndroidManifest.xml` of its
+`Platforms/Android` folder is one of its targets, not a second app. visual-proof runs no `dotnet` command (a build or run
+would restore workloads and execute project code, which the allowlist below never permits), so a MAUI app is measured only
+through a tool the project already has: a Maestro flow folder (`.maestro/`) run against a booted emulator or simulator that
+holds the debug build, with `--os android|ios` saying which build the dump comes from. Without such a tool, or without a booted
+device, the result is `UNSUPPORTED` with the reason and the one suggestion line (a Maestro flow that dumps the view
+hierarchy); a MAUI project never falls back to the web measurement and is never a PASS.
 
 A project with a native app and a separate web front end reports `also: ["web"]`; the changed paths decide which one the focus measures.
 Electron or Tauri without a web entry is `desktop`.

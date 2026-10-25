@@ -90,23 +90,42 @@ acquire_lock() {
 }
 
 # --- Config (.agents/config.yaml): indented YAML of scalars, read with awk. ---------
+# One exception (A173): commands.build|test|lint may be a block list, one command per `- ` line under the key. The item lines
+# become `key.0=...`, `key.1=...` (the key itself stays empty); config_items / cfg_cmds read them back.
+# bin/lib/config.sh (cfg_lines) keeps the same awk for the CLI; tests/shared/check-shared.sh compares the two programs.
 # Prints "dotted.key=value" for every key; comments and surrounding quotes are stripped.
 config_lines() {
   awk '
     function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
-    $0 !~ /:/ { next }
     {
       ind = match($0, /[^ ]/) - 1; lvl = int(ind / 2)
-      body = substr($0, ind + 1); k = body; sub(/:.*/, "", k)
+      body = substr($0, ind + 1)
+      if (body ~ /^-([[:space:]]|$)/) {
+        if (lastfull == "" || ind < lastind) next
+        it = body; sub(/^-[[:space:]]*/, "", it); sub(/[[:space:]]+#.*$/, "", it); it = trim(it)
+        if (it ~ /^".*"$/ || it ~ /^\047.*\047$/) it = substr(it, 2, length(it) - 2)
+        print lastfull "." (cnt[lastfull]++) "=" it
+        next
+      }
+      if ($0 !~ /:/) next
+      k = body; sub(/:.*/, "", k)
       v = body; sub(/^[^:]*:/, "", v); sub(/[[:space:]]+#.*$/, "", v); v = trim(v)
       if (v ~ /^".*"$/) v = substr(v, 2, length(v) - 2)
       path[lvl] = k; full = path[0]; for (i = 1; i <= lvl; i++) full = full "." path[i]
+      lastfull = full; lastind = ind
       print full "=" v
     }' "${1:-$config}"
 }
-# config_get <dotted.key> [file]: the value; exit 1 when the key is absent.
-config_get() { config_lines "${2:-$config}" | awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); f = 1; exit } END { exit !f }'; }
+# config_items <dotted.key>: reads config_lines on stdin; prints the items of a block list, one per line, in order.
+config_items() { awk -v k="$1" 'index($0, k ".") == 1 { r = substr($0, length(k) + 2); n = index(r, "="); if (n > 1 && substr(r, 1, n - 1) ~ /^[0-9]+$/) print substr(r, n + 1) }'; }
+# config_get <dotted.key> [file]: the value (the items one per line for a block list); exit 1 when the key is absent.
+config_get() {
+  config_lines "${2:-$config}" | awk -v k="$1" '
+    index($0, k "=") == 1 && !f { v = substr($0, length(k) + 2); f = 1 }
+    index($0, k ".") == 1 { r = substr($0, length(k) + 2); n = index(r, "="); if (n > 1 && substr(r, 1, n - 1) ~ /^[0-9]+$/) it[++c] = substr(r, n + 1) }
+    END { if (!f && !c) exit 1; if (v == "" && c) { for (i = 1; i <= c; i++) print it[i]; exit 0 } print v }'
+}
 # cfg <dotted.key> [default]: the value, or the default when absent or empty.
 # The config is parsed once per process; cfg looks keys up without spawning processes.
 cfg_cache=''
@@ -120,7 +139,46 @@ $1="}; cfg_v=${cfg_v%%"
 "*} ;; *) cfg_v='' ;; esac
   [ -n "$cfg_v" ] || cfg_v=${2:-}; printf '%s\n' "$cfg_v"
 }
+# cfg_cmds <commands.build|test|lint|...>: the one helper for a configured command (A173). One command per line: the scalar, or
+# every item of the block list; nothing when the key is empty or absent. Every consumer of commands.* uses this, never cfg.
+cfg_cmds() {
+  cfg_cv=$(cfg "$1" '')
+  if [ -n "$cfg_cv" ]; then printf '%s\n' "$cfg_cv"; else printf '%s\n' "$cfg_cache" | config_items "$1"; fi
+}
 config_value() { cfg "$1"; }
+
+# --- Ecosystem facts (A173): .agents/ecosystems.tsv (generated from ecosystems.json) is the one source of what each language
+# calls a manifest, lock, package-source setting or build-changing file. config.yaml keeps the project's own globs; these two
+# sets are added to them at read time, so a new ecosystem or file kind reaches every project on upgrade without editing its
+# config (a user edit of config.yaml is never touched). Empty when the definition is missing: the config alone then decides.
+#   eco_risky_set       review.risky_paths += every risky glob (a change to these is never tier small)
+#   eco_dependency_set  the signal whose check is `dependencies` += manifests, locks and package-source settings
+eco_risky_set='' eco_dependency_set='' eco_loaded=0
+eco_sh=$scripts/ecosystems.sh eco_tsv=$agents/ecosystems.tsv
+if [ ! -s "$eco_tsv" ] || [ ! -f "$eco_sh" ]; then
+  # The project's copy is missing. When this script runs from another folder than the project's .agents/ (the repository layout:
+  # control-plane/agents/scripts), the definition shipped beside it is used, so risk never shrinks silently. In an installed project
+  # the shipped copy IS the project's copy (same folder), so nothing is substituted and the warning and `doctor` apply.
+  eco_ship=$(CDPATH='' cd "$(dirname "$0")/.." 2>/dev/null && pwd) || eco_ship=''
+  if [ -n "$eco_ship" ] && [ "$eco_ship" != "$agents" ] && [ -s "$eco_ship/ecosystems.tsv" ] && [ -f "$eco_ship/scripts/ecosystems.sh" ]; then
+    eco_sh=$eco_ship/scripts/ecosystems.sh eco_tsv=$eco_ship/ecosystems.tsv
+  fi
+fi
+if [ -f "$eco_sh" ] && [ -s "$eco_tsv" ]; then
+  # shellcheck source=/dev/null # ecosystems.sh next to this script
+  . "$eco_sh"
+  if eco_init "$eco_tsv"; then
+    eco_loaded=1
+    eco_both=$(eco_sets)
+    eco_risky_set=${eco_both%%"
+"*} eco_dependency_set=${eco_both#*"
+"}
+  fi
+fi
+
+# One visible line when the definition is not readable: risk is then judged by config.yaml alone, which no longer lists the language files (A174).
+# Old runs are not failed over it (freeze and verify-freeze stay as they were); `proofline doctor` fails.
+eco_warning() { [ "$eco_loaded" = 1 ] || printf 'warning: .agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty and only the config.yaml globs apply: run proofline upgrade (proofline doctor shows it)\n'; }
 
 config_check() {
   cc_file=${1:-$config}; [ -f "$cc_file" ] || fail "config missing: $cc_file"
@@ -147,6 +205,17 @@ config_check() {
       if (top == "validation" && k != "validation" && k !~ /^validation\.(entry_words|entry_candidates|entry_input|entry_new|entry_output|entry_skip|code_patterns)$/) bad("unknown validation key: " k " (want validation.entry_words, entry_candidates, entry_input, entry_new, entry_output, entry_skip or code_patterns)")
       if (top == "visual" && k != "visual") { if (k !~ /^visual\.(ascii_turkish_words|ascii_turkish_allow)$/) bad("unknown visual key: " k " (want visual.ascii_turkish_words or visual.ascii_turkish_allow)"); else if (v !~ /^[A-Za-z]*([ ,]+[A-Za-z]+)*[ ,]*$/) bad(k " must be ASCII words separated by spaces: " v) }
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
+      if (top == "commands" && p[2] != "") {
+        # A173: commands.build|test|lint is one command, or a block list of commands (`- ` lines under the key)
+        if (p[3] != "") {
+          if (p[2] !~ /^(build|test|lint)$/) bad("commands." p[2] " takes one command, not a list: " k)
+          else if (p[3] !~ /^[0-9]+$/ || p[4] != "") bad("commands." p[2] " is a command or a list of commands (- command), not a map: " k)
+          else if (v == "") bad("empty command in the commands." p[2] " list (item " (p[3] + 1) ")")
+          else if ((p[2] SUBSEP v) in cmdseen) bad("duplicate command in the commands." p[2] " list: " v)
+          else { cmdseen[p[2], v] = 1; hasl[p[2]] = 1 }
+        } else if (p[2] ~ /^(build|test|lint)$/ && v ~ /^\[[^ ].*\]$/) bad(k " is an inline list; write a block list (one `- command` line per command): " v)
+        if (p[3] == "" && v != "") hasv[p[2]] = 1
+      }
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
       else if (k ~ /^runtime\.(lead|worker|reviewers)$/ || k ~ /^runtime\.roles\./) en(k, v, "claude|codex")
@@ -179,6 +248,7 @@ config_check() {
       seen[k] = 1
     }
     END {
+      for (s in hasl) if (hasv[s]) bad("commands." s " has both a value and a list of commands; keep one")
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
       for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
@@ -889,7 +959,7 @@ tier_compute() {
   [ "$(pipeline_class "$tc_id")" != CRITICAL ] || { echo full; return 0; }
   tc_docs=yes tc_risky=no tc_files=0 tc_lines=0
   tc_cl=$(cfg review.code_like_markdown '.agents/** skills/** roles/** adapters/** .claude/** .codex/** AGENTS.md CLAUDE.md **/SKILL.md **/*.prompt.md')
-  tc_rp=$(cfg review.risky_paths '')
+  tc_rp="$(cfg review.risky_paths '') $eco_risky_set"; tc_rp=${tc_rp# }
   # A78: a path signal checked by the migration focus is risky too, so REVIEW_DATA exists to carry the check.
   tc_mg=''; for tc_n in $(risk_names); do [ "$(cfg "risk.$tc_n.check")" != migration ] || tc_mg="$tc_mg $(cfg "risk.$tc_n.paths")"; done
   # Risky paths and code-like markdown are checked first; only a plain-documentation extension is docs
@@ -955,16 +1025,39 @@ plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: ye
 # (A88: license policy, audit command) and every non-empty contract.* key (A83: contract.paths / contract.ignore
 # globs), so a mid-run edit of any of them is refused. Empty security and contract keys are left out, so a config
 # that does not set them hashes as before.
-risk_config() { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true; }
+# A173: the ecosystem set that joins the signal whose check is `dependencies` is bound too (one synthetic line), so a changed
+# definition cannot silently change a frozen run's signal.
+risk_config() {
+  { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true
+    [ -z "$eco_dependency_set" ] || printf 'risk.ecosystems.dependencies=%s\n' "$eco_dependency_set"; }
+}
 # A162: `risk.log_sensitive` is a new default signal. A run frozen before it existed bound a risk block without it, and
 # `proofline upgrade` adds the key to the config; the bounded legacy rule: a freeze whose recorded hash equals the hash
 # of the block WITHOUT `risk.log_sensitive.*` stays valid, and that run keeps the signal set it was frozen with (the
 # logging focus never opens for it). A run frozen under this rule hashes the key, so it cannot match the legacy value
 # and an edit of the key is refused. A refreeze binds the current block (the key included).
-risk_config_legacy() { risk_config | grep -v '^risk\.log_sensitive[.=]'; }
+# A173: a run frozen before the ecosystem set joined the block (0.0.29 and older) bound the block without the synthetic line;
+# such a run keeps the signal paths it was frozen with (the config's own), and `verify-freeze` accepts its recorded hash.
+risk_config_noeco() { risk_config | grep -v '^risk\.ecosystems\.'; }
+risk_config_legacy() { risk_config | grep -v '^risk\.log_sensitive[.=]'; }   # (A162) without log_sensitive
+risk_config_legacy_noeco() { risk_config_legacy | grep -v '^risk\.ecosystems\.'; }   # frozen by 0.0.28 or older: neither
+risk_freeze_ok() { # RECORDED-HASH -> 0 when it is the current block or one of the bounded legacy forms
+  [ "$1" = "$(risk_config | sha256)" ] || [ "$1" = "$(risk_config_noeco | sha256)" ] || [ "$1" = "$(risk_config_legacy | sha256)" ] || [ "$1" = "$(risk_config_legacy_noeco | sha256)" ]
+}
+risk_eco_unbound() { # ID -> 0 when the run was frozen on a block without the ecosystem set (it keeps its own paths)
+  re_d=$(run_dir "$1"); re_h=$(section_value "$re_d" freeze risk_sha256 2>/dev/null || true); [ -n "$re_h" ] || return 1
+  [ "$re_h" != "$(risk_config | sha256)" ] && { [ "$re_h" = "$(risk_config_noeco | sha256)" ] || [ "$re_h" = "$(risk_config_legacy_noeco | sha256)" ]; }
+}
+# risk_paths ID NAME -> the globs of one signal: its config value, plus the ecosystem set when its check is `dependencies`
+# (unless the run was frozen before that set existed).
+risk_paths() {
+  rpa_g=$(cfg "risk.$2.paths")
+  if [ "$(cfg "risk.$2.check")" = dependencies ] && [ -n "$eco_dependency_set" ] && ! risk_eco_unbound "$1"; then rpa_g="$rpa_g $eco_dependency_set"; fi
+  printf '%s\n' "${rpa_g# }"
+}
 risk_legacy_frozen() { # ID -> 0 when the run was frozen on the block without risk.log_sensitive
   rl_d=$(run_dir "$1"); rl_h=$(section_value "$rl_d" freeze risk_sha256 2>/dev/null || true); [ -n "$rl_h" ] || return 1
-  [ "$rl_h" != "$(risk_config | sha256)" ] && [ "$rl_h" = "$(risk_config_legacy | sha256)" ]
+  [ "$rl_h" != "$(risk_config | sha256)" ] && [ "$rl_h" != "$(risk_config_noeco | sha256)" ] && { [ "$rl_h" = "$(risk_config_legacy | sha256)" ] || [ "$rl_h" = "$(risk_config_legacy_noeco | sha256)" ]; }
 }
 # Verbatim copy of contract-proof's NOT_A_CONTRACT (skills stay standalone; risk-test asserts equality, A92).
 risk_not_contract='(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|composer\.json|(ts|js)config[^/]*\.json|openapitools\.json|openapi-generator-config\.ya?ml|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|babel\.config\.json|\.stylelintrc[^/]*|\.markdownlint[^/]*|lerna\.json|nx\.json|turbo\.json|renovate\.json|deno\.jsonc?|bower\.json|pnpm-(lock|workspace)\.yaml|\.pre-commit-config\.yaml|\.gitlab-ci\.yml|docker-compose[^/]*\.ya?ml|compose\.ya?ml|mkdocs\.ya?ml|\.readthedocs\.ya?ml|codecov\.ya?ml|dependabot\.ya?ml)$|^\.github\/(workflows|actions|ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE|DISCUSSION_TEMPLATE)\/|^\.github\/(dependabot|labeler|release|stale|FUNDING|config)\.ya?ml$|^(\.vscode|\.idea|\.agents|\.devcontainer)\/'
@@ -1007,7 +1100,7 @@ risk_compute() {
   rc_legacy=no; ! risk_legacy_frozen "$1" || rc_legacy=yes
   for rc_n in $(risk_names); do
     [ "$rc_n:$rc_legacy" != log_sensitive:yes ] || continue   # a run frozen before the signal keeps its focus set
-    rc_g=$(cfg "risk.$rc_n.paths")
+    rc_g=$(risk_paths "$1" "$rc_n")
     if [ -n "$rc_g" ]; then
       { [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; } |
         awk -v n="$rc_n" -v pats="$rc_g" "$g2re_awk"'
@@ -1143,7 +1236,7 @@ gate_focus() { case "$1" in REVIEW_SMALL) echo rules+tests ;; REVIEW_PLAN) echo 
 # A171: the build record (A148) is made before the review gate wave, not left to the first reviewer dispatch.
 # build_record_missing ID: 0 when build/test are configured and the current tree has no finished record.
 build_record_missing() {
-  [ -n "$(cfg commands.build '')$(cfg commands.test '')" ] || return 1
+  [ -n "$(cfg_cmds commands.build)$(cfg_cmds commands.test)" ] || return 1
   [ -f "$scripts/build-record.sh" ] || return 1
   sh "$scripts/build-record.sh" show >/dev/null 2>&1; [ $? -eq 3 ]
 }
@@ -1294,6 +1387,7 @@ pipeline_show() {
   pipeline_declared "$id" || fail "run $id has no pipeline block"
   class=$(pipeline_class "$id"); pipeline_class_valid "$class" || fail "run $id is not classified yet"
   risk_prime "$id"
+  if [ "$eco_loaded" != 1 ]; then printf 'warning=%s\n' "$(eco_warning | sed 's/^warning: //')"; fi
   if ps_if=$(inflight_dispatch "$id"); then printf 'in_flight=dispatch.sh %s %s (pid %s): wait for the command to return\n' "$id" "${ps_if% *}" "${ps_if#* }"; fi
   ps_tier=$(tier_effective "$id"); ps_gates=$(required_gates "$id" "$ps_tier" | tr '\n' ' ' | sed 's/ $//')
   ps_art='TASK.md PLAN.md'
@@ -1360,6 +1454,7 @@ classify() {
   set_run_value "$id" pipeline classification "$class"; set_run_value "$id" pipeline review "$review"
   ledger_append "$id" classify "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$class review=$review"
   echo "classified: $id $class (autonomy: $(run_autonomy "$id"))"
+  eco_warning >&2
 }
 
 # --- Freeze ------------------------------------------------------------------------
@@ -1404,7 +1499,7 @@ verify_freeze() {
   # A92: fail closed when the key is missing (a RUN.yaml from before A78): a refreeze inserts it.
   section_key_present "$dir" freeze risk_sha256 || fail "freeze mismatch: risk (RUN.yaml has no freeze.risk_sha256, so the risk mapping is unbound; record an amendment and refreeze to bind it)"
   vf_rh=$(section_value "$dir" freeze risk_sha256)
-  [ "$vf_rh" = "$(risk_config | sha256)" ] || [ "$vf_rh" = "$(risk_config_legacy | sha256)" ] || fail "freeze mismatch: risk (the risk:, performance:, security: or contract: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
+  risk_freeze_ok "$vf_rh" || fail "freeze mismatch: risk (the risk:, performance:, security: or contract: block of .agents/config.yaml changed after freeze; restore it, or record an amendment and refreeze)"
   stored=$(section_value "$dir" freeze policy_sha256); actual=$(hash_file "$agents/modes/$mode.yaml")
   [ -n "$stored" ] && [ "$stored" = "$actual" ] || fail "freeze mismatch: policy"
   echo "freeze verified: $id"
@@ -2740,7 +2835,7 @@ focus_untouched() { # ID RECORD FOCUS MODE NOW
   for fu_n in $(risk_names); do
     [ "$(cfg "risk.$fu_n.check")" = "$3" ] || continue
     [ -z "$(cfg "risk.$fu_n.content")" ] || return 1
-    fu_pats="$fu_pats $(cfg "risk.$fu_n.paths")"
+    fu_pats="$fu_pats $(risk_paths "$1" "$fu_n")"
   done
   [ -n "${fu_pats# }" ] || return 1
   fu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
@@ -3433,28 +3528,52 @@ probe_visual() {
   done
   return 0
 }
-# probe_performance: a benchmark command the project already has (performance-proof METHOD.md section 1, tracked
-# files only): a package.json script bench|benchmark|perf*, a Makefile/justfile bench|benchmark target, a cargo
-# benches/ directory, a Go `func Benchmark`, pytest-benchmark or asv, a JMH or BenchmarkDotNet dependency.
+# probe_performance: a benchmark setup the project already has (performance-proof METHOD.md section 1, tracked files only).
+# What counts is the `benchmark` section of every ecosystem in .agents/ecosystems.json (A173): package.json script names, a
+# benchmark directory next to a project of that ecosystem, a file pattern with a content marker, a dependency marker in any
+# manifest of the ecosystem, a benchmark config file. There is no limit on the number of projects or files, and no layout:
+# BenchmarkDotNet in the 55th project of a solution is found like one in the first. A Makefile, justfile or Taskfile target
+# `bench` or `benchmark` counts too. Without the definition nothing is reported, so a missing file never grants a capability.
 probe_performance() {
+  [ "$eco_loaded" = 1 ] || return 0
   pp_ls=$(git -C "$root" ls-files 2>/dev/null || true)
-  pp_has() { printf '%s\n' "$pp_ls" | grep -Eq "$1"; }
-  if [ -f "$root/package.json" ] && sed -n '/"scripts"[[:space:]]*:/,/}/p' "$root/package.json" | grep -Eq '"(bench|benchmark|perf[A-Za-z0-9:_-]*)"[[:space:]]*:'; then echo 'package.json script bench/benchmark/perf*'; return 0; fi
-  for pp_m in Makefile makefile GNUmakefile justfile Justfile; do
+  [ -n "$pp_ls" ] || return 0
+  pp_prune=$( { eco_get '*' prune; for pp_e in $(eco_ids); do eco_get "$pp_e" prune; done; } | tr '\n' ' ')
+  pp_ls=$(printf '%s\n' "$pp_ls" | awk -v dirs="$pp_prune" 'BEGIN { n = split(dirs, a, " "); for (i = 1; i <= n; i++) d[a[i]] = 1 } { m = split($0, s, "/"); for (i = 1; i < m; i++) if (s[i] in d) next; print }')
+  pp_pick() { printf '%s\n' "$pp_ls" | awk -v pats="$*" "$ECO_G2RE"' { n = split(pats, a, " "); for (j = 1; j <= n; j++) if (a[j] != "" && $0 ~ g2re(a[j])) { print; break } }'; }
+  pp_grep() { # RE with the picked files on stdin: the first file that holds RE
+    pp_g=$(cat); [ -n "$pp_g" ] || return 1
+    (cd "$root" && printf '%s\n' "$pp_g" | tr '\n' '\0' | xargs -0 grep -lE -e "$1" 2>/dev/null | head -1) | grep . 
+  }
+  for pp_m in Makefile makefile GNUmakefile justfile Justfile Taskfile.yml Taskfile.yaml; do
     [ -f "$root/$pp_m" ] && grep -Eq '^(bench|benchmark)[[:space:]]*:' "$root/$pp_m" && { echo "$pp_m target bench/benchmark"; return 0; }
   done
-  if [ -f "$root/Cargo.toml" ] && pp_has '^benches/'; then echo 'cargo benches/ directory'; return 0; fi
-  pp_go=$(printf '%s\n' "$pp_ls" | grep -E '_test\.go$' || true)
-  if [ -n "$pp_go" ] && (cd "$root" && printf '%s\n' "$pp_go" | while IFS= read -r pp_f; do [ -f "$pp_f" ] && grep -q '^func Benchmark' "$pp_f" && echo y && break; done) | grep -q y; then echo 'Go func Benchmark in *_test.go'; return 0; fi
-  if pp_has '(^|/)asv\.conf\.json$'; then echo 'asv.conf.json'; return 0; fi
-  for pp_f in pyproject.toml setup.cfg requirements-dev.txt requirements.txt; do
-    [ -f "$root/$pp_f" ] && grep -q 'pytest-benchmark' "$root/$pp_f" && { echo "pytest-benchmark in $pp_f"; return 0; }
+  for pp_e in $(eco_ids); do
+    # a script of any tracked package.json
+    pp_sc=$(eco_get "$pp_e" benchmark.scripts | sed 's/[.]/\\./g; s/[*]/[A-Za-z0-9:_.-]*/g' | tr '\n' '|' | sed 's/|$//')
+    if [ -n "$pp_sc" ]; then
+      for pp_f in $(pp_pick "$(eco_get "$pp_e" manifests | head -1)"); do
+        sed -n '/"scripts"[[:space:]]*:/,/}/p' "$root/$pp_f" 2>/dev/null | grep -Eq "\"($pp_sc)\"[[:space:]]*:" && { echo "$pp_f script bench/benchmark/perf*"; return 0; }
+      done
+    fi
+    # a benchmark directory beside a project of the ecosystem
+    pp_proj=$(eco_get "$pp_e" project_files | tr '\n' ' ')
+    for pp_d in $(eco_get "$pp_e" benchmark.dirs); do
+      if [ -n "$(pp_pick "$pp_proj" | head -1)" ] && [ -n "$(pp_pick "$pp_d/**" "**/$pp_d/**" | head -1)" ]; then echo "$pp_e $pp_d/ directory"; return 0; fi
+    done
+    # config files
+    for pp_c in $(eco_get "$pp_e" benchmark.config_files); do
+      pp_hit=$(pp_pick "$pp_c" | head -1); [ -z "$pp_hit" ] || { echo "$pp_hit"; return 0; }
+    done
+    # file patterns with a content marker
+    eco_rows "$pp_e" benchmark.files glob contains why | while IFS="$(printf '\037')" read -r pp_gl pp_ct pp_wy; do
+      pp_hit=$(pp_pick "$pp_gl" | pp_grep "$pp_ct") && { echo "$pp_wy ($pp_hit)"; break; }
+    done | grep . && return 0
+    # dependency markers in any manifest of the ecosystem
+    eco_rows "$pp_e" benchmark.dependencies in contains why | while IFS="$(printf '\037')" read -r pp_in pp_ct pp_wy; do
+      pp_hit=$(pp_pick "$(printf '%s' "$pp_in" | tr '\036' ' ')" | pp_grep "$pp_ct") && { echo "$pp_wy in $pp_hit"; break; }
+    done | grep . && return 0
   done
-  for pp_f in pom.xml build.gradle build.gradle.kts; do
-    [ -f "$root/$pp_f" ] && grep -q 'jmh' "$root/$pp_f" && { echo "JMH in $pp_f"; return 0; }
-  done
-  pp_cs=$(printf '%s\n' "$pp_ls" | grep -E '\.csproj$' | head -50 || true)
-  if [ -n "$pp_cs" ] && (cd "$root" && printf '%s\n' "$pp_cs" | while IFS= read -r pp_f; do grep -q 'BenchmarkDotNet' "$pp_f" 2>/dev/null && echo y && break; done) | grep -q y; then echo 'BenchmarkDotNet in a .csproj'; return 0; fi
   return 0
 }
 # A107: a cited evidence file exists inside the run, in a folder the role reports in (or reports/,
@@ -3519,7 +3638,7 @@ skill_validator() { # ID ROLE FOCUS ARTIFACT
 # commands and the PLAN.md `## Verification commands` of the frozen plan. A PLAN.md that no longer has the
 # frozen sha256 contributes nothing (a plan edited after the freeze cannot widen the list).
 reproduce_allowed() { # ID
-  for ra_k in build test lint; do cfg "commands.$ra_k" ''; done | sed '/^$/d'
+  for ra_k in build test lint; do cfg_cmds "commands.$ra_k"; done | sed '/^$/d'
   ra_p=$(run_dir "$1")/PLAN.md
   [ -f "$ra_p" ] || return 0
   ra_f=$(section_value "$(run_dir "$1")" freeze plan_sha256)
@@ -3839,12 +3958,20 @@ language_ok_pieces() {
   rm -f "$lo_c" "$lo_w" "$lo_a" "$lo_a.2" "$lo_s" "$lo_m" "$lo_h"
   printf '%s\n' "$lo_o"
 }
+# language_question_file PATH: 0 when PATH is exactly <...>/.agents/runs/<ID>/questions/NNN.md (A178). The remainder after `.agents/runs/<ID>/`
+# is compared as a whole, so a file in a deeper folder (results/questions/001.md, reviews/a/questions/001.md) is never taken for one.
+language_question_file() {
+  lq_r="/$1"; case "$lq_r" in *"/.agents/runs/"*) lq_r=${lq_r#*"/.agents/runs/"} ;; *) return 1 ;; esac
+  case "$lq_r" in */*) lq_r=${lq_r#*/} ;; *) return 1 ;; esac   # drop <ID>/
+  case "$lq_r" in questions/[0-9][0-9][0-9].md) return 0 ;; *) return 1 ;; esac
+}
 language_scan() {
   ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); ls_extra=''; ls_hc=''; ls_hw=''; ls_ready=no
   cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
     case "$ls_f" in */runs/*/reviews/visual-proof/*|*/runs/*/reports/qa-evidence/*) continue ;; esac   # machine output (A172)
+    ! language_question_file "$ls_f" || continue   # the question block `ask` and `record` store: addressed to the user in the user's language (A99, A178)
     # A171 (review): the user's answers are written by the script as a quote block and are exempt whole; in any other file a quote
     # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history) or product text
     # (A172, above), so a model cannot hide its own non-English text behind '> ' or a fence.
@@ -6013,10 +6140,12 @@ ci_check() {
 }
 # ci_absent: true only when ci-check says absent (unknown and present are not a block).
 ci_absent() { ci_out=$(ci_check) && return 1; [ "$(printf '%s\n' "$ci_out" | head -1)" = 'ci: absent' ]; }
+# ci_join: stdin lines joined with "; " (a command list on one line)
+ci_join() { awk 'NF { printf "%s%s", (n++ ? "; " : ""), $0 }'; }
 # ci_task_command: one pasteable line that asks for the missing workflow, with the project's own build and test commands.
 ci_task_command() {
-  ct_b=$(cfg commands.build ''); ct_t=$(cfg commands.test '')
-  [ -n "$ct_b" ] || ct_b=${PROOFLINE_CI_BUILD:-}; [ -n "$ct_t" ] || ct_t=${PROOFLINE_CI_TEST:-}
+  ct_b=$(cfg_cmds commands.build | ci_join); ct_t=$(cfg_cmds commands.test | ci_join)   # a list reads "a; b" (A173)
+  [ -n "$ct_b" ] || ct_b=$(printf '%s\n' "${PROOFLINE_CI_BUILD:-}" | ci_join); [ -n "$ct_t" ] || ct_t=$(printf '%s\n' "${PROOFLINE_CI_TEST:-}" | ci_join)
   [ -n "$ct_b" ] || ct_b='(none found; add yours)'; [ -n "$ct_t" ] || ct_t='(none found; add yours)'
   printf '/proofline task Add a GitHub Actions workflow that runs on pull_request and runs: build: %s; test: %s (the workflow must trigger on pull_request)\n' "$ct_b" "$ct_t"
 }

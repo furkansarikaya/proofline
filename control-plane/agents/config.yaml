@@ -1,8 +1,9 @@
 # proofline control-plane configuration (installed as .agents/config.yaml).
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
-# phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
-# validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.29
+# phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
+# commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
+# `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
+proofline_version: 0.0.30
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -27,8 +28,10 @@ review:
   max_fix_rounds: 2
   small_max_files: 2
   small_max_lines: 30
-  # A change touching one of these globs is never tier small.
-  risky_paths: "**/migrations/** **/migration/** **/*migration*.* **/schema.* **/auth/** **/*auth*.* **/security/** **/*security*.* **/payment*/** **/*payment*.* **/billing/** **/crypto/** **/*crypto*.* **/secrets/** .github/** .gitlab-ci.yml .circleci/** Jenkinsfile azure-pipelines.yml bitbucket-pipelines.yml **/deploy/** **/*deploy*.* Dockerfile **/Dockerfile* docker-compose*.yml compose*.yml **/k8s/** **/helm/** **/infra/** **/terraform/** *.tf *.tfvars package.json package-lock.json yarn.lock pnpm-lock.yaml go.mod go.sum Cargo.toml Cargo.lock requirements*.txt pyproject.toml poetry.lock uv.lock Pipfile Pipfile.lock Gemfile Gemfile.lock pom.xml build.gradle build.gradle.kts *.csproj Directory.Packages.props packages.lock.json composer.json composer.lock mix.exs mix.lock CMakeLists.txt conanfile.txt vcpkg.json"
+  # A change touching one of these globs is never tier small. The files of the languages (manifests, locks, package-source
+  # settings, build-changing files, CI workflows, Dockerfile and compose files) come from .agents/ecosystems.json and are added
+  # at read time (A173); list here only what is specific to this project, plus the kinds that file does not describe.
+  risky_paths: "**/migrations/** **/migration/** **/*migration*.* **/schema.* **/auth/** **/*auth*.* **/security/** **/*security*.* **/payment*/** **/*payment*.* **/billing/** **/crypto/** **/*crypto*.* **/secrets/** **/deploy/** **/*deploy*.* **/k8s/** **/helm/** **/infra/** **/terraform/** *.tf *.tfvars mix.exs mix.lock CMakeLists.txt conanfile.txt vcpkg.json"
   # Markdown that is code: never tier docs.
   code_like_markdown: ".agents/** skills/** roles/** adapters/** .claude/** .codex/** AGENTS.md CLAUDE.md **/SKILL.md **/*.prompt.md"
   # none | task: `task` writes a follow-up task per waiver through the task adapter.
@@ -47,6 +50,12 @@ commands:
   # Optional: installs dependencies in the build record's export directory (agent.sh build-record); without it
   # node_modules, vendor and .venv of the project root are linked into the export.
   install:
+  # build, test and lint take one command (`build: dotnet build App.slnx`) or several, one `- ` line each, for a project with more
+  # than one stack (A173). agent.sh build-record and the verify gate run every one and report the one that broke on its own:
+  #   build:
+  #     - dotnet build App.slnx
+  #     - npm --prefix web run build
+  # Write one form per key; `agent.sh config-check` rejects both at once, an empty item and a duplicate.
   build:
   test:
   lint:
@@ -184,7 +193,9 @@ risk:
     check: visual
     design_role: designer
   dependency_manifest:
-    paths: "package.json package-lock.json yarn.lock pnpm-lock.yaml go.mod go.sum Cargo.toml Cargo.lock requirements*.txt pyproject.toml poetry.lock uv.lock Pipfile Pipfile.lock Gemfile Gemfile.lock pom.xml build.gradle build.gradle.kts *.csproj Directory.Packages.props packages.lock.json composer.json composer.lock mix.exs mix.lock conanfile.txt vcpkg.json npm-shrinkwrap.json requirements*.in **/requirements/*.txt **/requirements/*.in setup.py setup.cfg *.versions.toml .npmrc .yarnrc .yarnrc.yml pip.conf packages.config environment.yml environment.yaml deno.json deno.jsonc deno.lock nuget.config NuGet.Config Package.swift Package.resolved pubspec.yaml pubspec.lock Podfile Podfile.lock build.sbt"
+    # The manifests, locks and package-source settings of every ecosystem in .agents/ecosystems.json are added at read time
+    # (A173; a run frozen before that keeps the paths it was frozen with). List here only what that file does not describe.
+    paths: "mix.exs mix.lock conanfile.txt vcpkg.json deno.json deno.jsonc deno.lock"
     check: dependencies
   config_env:
     paths: ".env .env.* *.env **/config/*.yaml **/config/*.yml **/config/*.json **/config/*.toml **/config/*.ini *.ini *.properties appsettings*.json"

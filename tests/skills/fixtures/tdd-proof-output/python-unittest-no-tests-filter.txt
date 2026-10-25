@@ -1,0 +1,21 @@
+tool: Python 3.12.3 unittest
+ecosystem: python
+runner: unittest
+command: python3 -m unittest test_ok.T.test_nomatch
+exit_code: 1
+scenario: no_tests (the named test does not exist)
+expected_class: no_tests
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: no path or locale change was needed; nothing else changed
+=== OUTPUT ===
+E
+======================================================================
+ERROR: test_nomatch (unittest.loader._FailedTest.test_nomatch)
+----------------------------------------------------------------------
+AttributeError: type object 'T' has no attribute 'test_nomatch'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (errors=1)

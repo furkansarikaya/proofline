@@ -12,9 +12,11 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, resolve, basename, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { allPruneDirs, loadEcosystems, manifestGlobs, matchesAny } from "./ecosystems.mjs";
 
-const SKIP_DIRS = new Set([".git", "node_modules", ".agents", "dist", "build", "out", "vendor", "target", "bin", "obj", ".venv", "venv", "__pycache__", ".next", ".gradle", ".idea", "coverage", ".claude", ".codex"]);
-const CODE_EXT = new Set(".js .mjs .cjs .ts .tsx .jsx .vue .svelte .py .rb .go .java .kt .cs .cshtml .razor .php .rs .swift .sql .prisma .graphql .css .scss .sass .less .html .json .yaml .yml .toml .xml .gradle .sh".split(" "));
+// Build output, dependency and tool folders come from the ecosystem definition (ecosystems.json, A173), never from a layout assumption.
+const SKIP_DIRS = new Set(allPruneDirs());
+const CODE_EXT = new Set(".js .mjs .cjs .ts .tsx .jsx .vue .svelte .py .rb .go .java .kt .cs .cshtml .razor .php .rs .swift .sql .prisma .graphql .css .scss .sass .less .html .json .yaml .yml .toml .xml .gradle .sh .fs .fsx .vb .dart .kts .scala".split(" "));
 const MAX_BYTES = 1_000_000;
 const METHODS = "GET POST PUT PATCH DELETE HEAD OPTIONS";
 const DEFAULT_DOCS = { design: "docs/design/DESIGN.md", architecture: "docs/design/ARCHITECTURE.md", data_model: "docs/design/DATA_MODEL.md", api: "docs/design/API.md" };
@@ -309,8 +311,13 @@ export function reverse(mode, root, files, dirs, code) {
   if (mode === "data") return extractTables(code).map(({ name, file, line, source }) => ({ name, file, line, source }));
   if (mode === "api") return extractRoutes(code).map(({ method, raw, file, line, source }) => ({ method, path: raw, file, line, source }));
   if (mode === "system") {
-    const manifests = files.filter((f) => /(^|\/)(package\.json|go\.mod|pom\.xml|build\.gradle(\.kts)?|Cargo\.toml|pyproject\.toml|requirements\.txt|Gemfile|composer\.json|[^/]+\.csproj)$/.test(f));
-    const modules = dirs.filter((d) => d.split("/").length <= 2).map((d) => ({ dir: d, source_files: files.filter((f) => f.startsWith(d + "/") && CODE_EXT.has(extname(f))).length })).filter((m) => m.source_files > 0);
+    // every manifest kind of every ecosystem in the definition (project files, dependency lists, build inputs), at any depth
+    const globs = manifestGlobs();
+    const manifests = files.filter((f) => matchesAny(f, globs));
+    // directories to depth 2, plus every directory that holds a project file of an ecosystem, whatever its depth
+    const projectGlobs = loadEcosystems().ecosystems.flatMap((e) => e.project_files);
+    const projectDirs = new Set(files.filter((f) => f.includes("/") && matchesAny(f, projectGlobs)).map((f) => f.slice(0, f.lastIndexOf("/"))));
+    const modules = dirs.filter((d) => d.split("/").length <= 2 || projectDirs.has(d)).map((d) => ({ dir: d, source_files: files.filter((f) => f.startsWith(d + "/") && CODE_EXT.has(extname(f))).length })).filter((m) => m.source_files > 0);
     return { manifests, modules };
   }
   if (mode === "ui") {

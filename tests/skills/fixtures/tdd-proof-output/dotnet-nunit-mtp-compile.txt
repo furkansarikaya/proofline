@@ -1,0 +1,13 @@
+tool: .NET SDK 10.0.402; NUnit 5.0.0, NUnit3TestAdapter 6.3.1 (EnableNUnitRunner), global.json test.runner = Microsoft.Testing.Platform
+ecosystem: dotnet
+runner: nunit Microsoft.Testing.Platform
+command: dotnet test
+exit_code: 1
+scenario: compile
+expected_class: compile
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: the project directory written as /work; nothing else changed
+=== OUTPUT ===
+/work/nunit-mtp/Tests.cs(5,41): error CS0103: The name 'Undefined' does not exist in the current context [/work/nunit-mtp/Probe.csproj]
+Build failed with exit code: 1.

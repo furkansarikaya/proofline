@@ -4,7 +4,7 @@ description: Implements a change test-first with recorded proof. For every non-e
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.29"
+  version: "0.0.30"
 ---
 
 # tdd-proof
@@ -45,7 +45,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
 2. **Baseline.** Run the suite once untouched; record exit code. Pre-existing failures are listed, never fixed, and excluded from "nothing else broke" by name.
 3. **For each non-exempt scope path and each acceptance criterion the plan maps to it, one cycle** (a path with two criteria gets two cycles, each with its own test and criterion):
    1. Write the test for the criterion. Stub the unit if needed to compile ([RED.md](references/RED.md#3-stub-first)).
-   2. Run it; classify the output (`node <skill-dir>/scripts/classify-red.mjs`). Not `assertion` -> fix the cause and re-run; never record it as RED. Record RED.
+   2. Run it; classify the output (`node <skill-dir>/scripts/classify-red.mjs --exit-code <N> --ecosystem <id>`; the last two are optional, the patterns come from `references/ecosystems.json`, [RED.md](references/RED.md)). Not `assertion` -> fix the cause and re-run; never record it as RED. Record RED.
    3. Implement the minimum production change.
    4. Run the same command: it passes. Run the suite: nothing else broke.
    5. Hollow check in a worktree ([HOLLOW.md](references/HOLLOW.md)). Passing test there -> back to 3.1.

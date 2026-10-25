@@ -1,0 +1,58 @@
+tool: Apple Swift 6.4 (swift test)
+ecosystem: swift
+runner: XCTest
+command: swift test
+exit_code: 1
+scenario: assertion
+expected_class: assertion
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: the project directory written as /work; nothing else changed
+=== OUTPUT ===
+Building for debugging...
+[Planning deferred tasks]
+[2 / 21] Calc
+[6 / 25] Calc
+[14 / 25] CalcTests-product
+[23 / 94]
+[25 / 94]
+[33 / 94]
+[35 / 94]
+[36 / 94]
+[42 / 94]
+[45 / 94]
+[48 / 94]
+[53 / 94]
+[56 / 94]
+[58 / 94]
+[59 / 94]
+[68 / 94]
+[70 / 94]
+[71 / 94]
+[74 / 94]
+[76 / 94]
+[78 / 94]
+[79 / 94]
+[80 / 94]
+[81 / 94]
+[84 / 93] CalcTests-product
+[89 / 93] CalcTests-product
+Build complete! (8.29s)
+Test Suite 'All tests' started at 2026-10-25 00:44:56.835.
+Test Suite 'CalcTests.xctest' started at 2026-10-25 00:44:56.837.
+Test Suite 'CalcTests' started at 2026-10-25 00:44:56.837.
+Test Case '-[CalcTests.CalcTests testAdd]' started.
+/work/sw/Tests/CalcTests/CalcTests.swift:4: error: -[CalcTests.CalcTests testAdd] : XCTAssertEqual failed: ("4") is not equal to ("5")
+Test Case '-[CalcTests.CalcTests testAdd]' failed (0.212 seconds).
+Test Suite 'CalcTests' failed at 2026-10-25 00:44:57.049.
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.212 (0.212) seconds
+Test Suite 'CalcTests.xctest' failed at 2026-10-25 00:44:57.049.
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.212 (0.212) seconds
+Test Suite 'All tests' failed at 2026-10-25 00:44:57.049.
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.212 (0.214) seconds
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+Note: Some test targets reported failures:
+  - CalcTests (XCTest)

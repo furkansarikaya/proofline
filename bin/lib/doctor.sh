@@ -139,15 +139,20 @@ doctor_foreign() {
 }
 
 # 0.0.26: the language runtimes the project's CI specifies against the ones installed here. WARN only, never FAIL:
-# a different major version (major.minor for go and python) means a green local run may not hold in CI.
+# a different major version (major.minor for go, python and the runtimes the definition compares so) means a green local run may not hold in CI.
 doctor_toolchain() {
   dt_s=$PL_HOME/skills/verify-proof/scripts/runtime-versions.sh
   [ -f "$dt_s" ] || return 0
   dt_out=$(cd "$ROOT" && sh "$dt_s" 2>/dev/null) || return 0
   while read -r dt_k dt_n dt_l dt_c dt_f dt_st; do
     [ "$dt_k" = 'runtime:' ] || continue
+    [ "$dt_n" != none ] || continue # `runtime: none (...)` says no runtime was found; it is not a runtime named none
     dt_l=${dt_l#local=}; dt_c=${dt_c#ci=}; dt_f=${dt_f#source=}; dt_st=${dt_st#status=}
     case "$dt_n" in go|python) dt_u='major.minor' ;; *) dt_u=major ;; esac
+    if [ -n "$D_ECO" ]; then # the number of version components compared comes from the ecosystem definition (A173)
+      dt_id=$(eco_match '^runtime\.name$' | awk -F'\t' -v n="$dt_n" '$3 == n { print $1; exit }')
+      [ -z "$dt_id" ] || case "$(eco_first "$dt_id" runtime.compare)" in 1) dt_u=major ;; *) dt_u='major.minor' ;; esac
+    fi
     if [ "$dt_l" = missing ]; then
       d_warn "toolchain $dt_n: not installed here$([ "$dt_c" = none ] || printf ', CI specifies %s (%s)' "$dt_c" "$dt_f")"
     elif [ "$dt_st" = mismatch ]; then
@@ -158,6 +163,23 @@ doctor_toolchain() {
   done <<EOF2
 $dt_out
 EOF2
+}
+
+# A174: the review risk paths and the dependency signal read .agents/ecosystems.tsv; config.yaml no longer lists the language files. A missing, empty or
+# stale tsv would silently shrink them, so doctor FAILs. Sound check: the tsv must be what the project's own ecosystems.json generates (node), or, without node,
+# equal to the shipped copy when the project's ecosystems.json is the shipped one.
+doctor_ecosystems() {
+  de_j=$ROOT/.agents/ecosystems.json; de_t=$ROOT/.agents/ecosystems.tsv; de_m=$ROOT/.agents/ecosystems.mjs
+  if [ ! -s "$de_t" ]; then d_fail "ecosystems: .agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)"; return 0; fi
+  if [ ! -s "$de_j" ]; then d_fail "ecosystems: .agents/ecosystems.json is missing (run: proofline upgrade)"; return 0; fi
+  if [ ! -f "$ROOT/.agents/scripts/ecosystems.sh" ]; then d_fail "ecosystems: .agents/scripts/ecosystems.sh is missing, so agent.sh cannot read the definition (run: proofline upgrade)"; return 0; fi
+  if command -v node >/dev/null 2>&1 && [ -f "$de_m" ]; then
+    if de_o=$(node "$de_m" check 2>&1); then d_pass "ecosystems: .agents/ecosystems.tsv is what .agents/ecosystems.json generates"
+    else d_fail "ecosystems: $(printf '%s' "$de_o" | head -2 | tr '\n' ' ') (fix: node .agents/ecosystems.mjs write, or proofline upgrade)"; fi
+  elif cmp -s "$de_j" "$PL_HOME/control-plane/agents/ecosystems.json"; then
+    if cmp -s "$de_t" "$PL_HOME/control-plane/agents/ecosystems.tsv"; then d_pass "ecosystems: .agents/ecosystems.tsv equals the shipped one"
+    else d_fail "ecosystems: .agents/ecosystems.tsv differs from the shipped one although ecosystems.json is the shipped file (run: proofline upgrade)"; fi
+  else d_warn "ecosystems: node is not available and .agents/ecosystems.json is not the shipped file, so the tsv could not be checked"; fi
 }
 
 cmd_doctor() {
@@ -209,6 +231,8 @@ EOF
   if out=$(cd "$ROOT" && sh "$A" config-check 2>&1); then d_pass "config: $(printf '%s' "$out" | head -1)"
   else d_fail "config: agent.sh config-check failed: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"; fi
 
+  doctor_ecosystems
+
   # A135: a Codex lead needs the base model; report the model the policy resolves for the lead.
   EP=$ROOT/.agents/scripts/exec-policy.sh
   if [ "$(cfg_val "$CFG" runtime.lead claude)" = codex ] && [ -f "$EP" ]; then
@@ -253,7 +277,7 @@ EOF
   fi
 
   dc_empty=''
-  for dc_k in build test lint; do [ -n "$(cfg_val "$CFG" "commands.$dc_k" '')" ] || dc_empty="$dc_empty $dc_k"; done
+  for dc_k in build test lint; do [ -n "$(cfg_cmds "$CFG" "commands.$dc_k")" ] || dc_empty="$dc_empty $dc_k"; done
   [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them; proofline proposes the ones proven in a run when it ends)"
 
   # A163: proofline merge refuses a pull request without checks; say so before the first delivery, with the fix.

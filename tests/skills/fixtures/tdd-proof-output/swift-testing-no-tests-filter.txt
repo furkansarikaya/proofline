@@ -1,0 +1,14 @@
+tool: Apple Swift 6.4 (swift test)
+ecosystem: swift
+runner: swift-testing
+command: swift test --filter NoSuchTests
+exit_code: 0
+scenario: no_tests (--filter matched nothing)
+expected_class: no_tests
+source: captured
+captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
+redaction: no path or locale change was needed; nothing else changed
+=== OUTPUT ===
+Building for debugging...
+Build complete! (0.25s)
+warning: No matching test cases were run

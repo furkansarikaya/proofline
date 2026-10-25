@@ -88,19 +88,19 @@ const git = (cwd, ...a) => execFileSync("git", ["-C", cwd, ...a], { encoding: "u
 test("manual_review: a recomputed diff hash lets an unparsed manifest pass at medium; without it, low", () => {
   const r = mktmp();
   git(r, "init", "-q", "-b", "main");
-  writeFileSync(join(r, ".npmrc"), "registry=https://registry.npmjs.org/\n");
+  writeFileSync(join(r, ".pnpmfile.cjs"), "module.exports = {};\n");
   git(r, "add", "-A"); git(r, "commit", "-q", "-m", "base");
-  writeFileSync(join(r, ".npmrc"), "registry=https://registry.npmjs.org/\nsave-exact=true\n");
+  writeFileSync(join(r, ".pnpmfile.cjs"), "module.exports = { hooks: {} };\n");
   const plan = "## Dependencies\n\nnone\n";
   const d = buildDocument({ repo: r, base: "HEAD", planText: plan, configText: "", pathLookup: () => false });
   d.audit = { status: "none_detected" };
   assert.equal(gate(d).confidence, "low");
-  const sha = manifestDiffSha(r, "HEAD", ".npmrc");
-  d.manual_review = [{ file: ".npmrc", note: "save-exact only; registry unchanged", diff_sha256: sha }];
+  const sha = manifestDiffSha(r, "HEAD", ".pnpmfile.cjs");
+  d.manual_review = [{ file: ".pnpmfile.cjs", note: "hooks stub only; no dependency touched", diff_sha256: sha }];
   assert.deepEqual(validate(d), []);
   assert.equal(gate(d).confidence, "low", "not recomputed: stays low");
-  assert.equal(gate(d, { verified: new Set([".npmrc"]) }).confidence, "medium");
-  assert.match(tableRows(d, new Set([".npmrc"])), /reviewed by hand/);
+  assert.equal(gate(d, { verified: new Set([".pnpmfile.cjs"]) }).confidence, "medium");
+  assert.match(tableRows(d, new Set([".pnpmfile.cjs"])), /reviewed by hand/);
   // the CLI recomputes with --repo/--base
   const f = join(mktmp(), "d.json"); writeFileSync(f, JSON.stringify(d));
   const V = join(process.cwd(), "skills/exploit-proof/scripts/validate-dependencies.mjs");
@@ -116,6 +116,6 @@ test("manual_review: a recomputed diff hash lets an unparsed manifest pass at me
   // a review row for a parsed manifest is refused
   d.manual_review = [{ file: "package.json", note: "x", diff_sha256: sha }];
   assert.ok(validate(d).some((e) => /unparsed manifest/.test(e)));
-  o = spawnSync("node", [V, "--diff-sha", ".npmrc", "--base", "HEAD", "--repo", r], { encoding: "utf8" });
+  o = spawnSync("node", [V, "--diff-sha", ".pnpmfile.cjs", "--base", "HEAD", "--repo", r], { encoding: "utf8" });
   assert.equal(o.stdout.trim(), sha);
 });

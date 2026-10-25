@@ -248,6 +248,7 @@ repeat its product text, so these are exempt (A172), and only these:
   behind a quote, a code span or a fence: it stays refused;
 - machine output of the skills, which tools measure and save instead of people writing it: `reviews/visual-proof/` and
   `reports/qa-evidence/` of a run (dispatch output, scratch, gates and the ledger were exempt already). This is an accepted channel that is not checked: a role allowed to write there could put text there.
+- the question block the script stores for you in `questions/NNN.md` (`agent.sh ask`, and a specialist's question recorded by `record`): it is addressed to you and printed in your language (A99), so it is not scanned (A178); the front-matter lines stay English. Only the files `questions/NNN.md` directly under the run folder are exempt (a file of that name in a deeper folder is checked), and the question text is never evidence. The text itself is not checked: a specialist's question reaches the file through `record`, so it could contain non-English text; it is shown only to you.
 
 Agents never transliterate product text to ASCII (no `ç` to `c`) and never ask you whether to translate; the refusal message says
 to quote the text the project has. Each file is checked once without the product text, and the text is gathered (`git grep` on `HEAD`, capped at 50 MB, cached per commit under `.agents/local/language/`, as a pre-filter only: every piece the cache accepts is confirmed with one `git grep` on `HEAD`, because the cache is a file) only

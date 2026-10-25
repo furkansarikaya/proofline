@@ -61,6 +61,11 @@ confidence for a missing record. A tree without a record (a changed tree, a fail
 `agent.sh build-record <ID> run` as the first step of `agent.sh next`; `dispatch.sh` still makes it before a reviewer
 or verifier starts. A failing build is recorded and shown, it never blocks the handoff.
 
+A key may hold several commands (a block list under `commands.build`, `commands.test` or `commands.lint`, A173, for a
+project with more than one stack). The record runs every command of a key, even when an earlier one failed, and shows each
+as `build[2/3]: <command>` with its own `exit:` and `output-tail:` plus a `failed: build[2/3] (exit 7)` line for each that
+broke; a failed key stops the next key (a build that failed is not tested). A key with one command is recorded as before.
+
 ### Blocking or info (A171)
 
 Blocking rule version: 1

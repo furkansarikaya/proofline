@@ -12,7 +12,7 @@ proofline doctor
 `init` discovers your language, build and test commands and fills `.agents/config.yaml`. It never overwrites
 existing files: `AGENTS.md` and `CLAUDE.md` are merged, and it shows what changed. Set protected branches and
 forbidden commit identities (`--protected-branches "a b"`, `--forbidden-identity PATTERN`) if your team has them.
-Check the discovered commands: the verify gate runs them (`--verify-commands`).
+Check the discovered commands: the verify gate runs them (`--verify-commands`). `commands.build`, `commands.test` and `commands.lint` take one command or a list, one `- command` line each, so a repository with a .NET backend and a React frontend gets both; an ecosystem with several candidate projects gets none and `init` names it ([ecosystems](../concepts/ecosystems.md)).
 
 ## 2. Reverse-engineer the design documents first
 

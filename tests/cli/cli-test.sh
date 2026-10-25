@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2015,SC2016,SC2012,SC2086 # assertion chains; literal command text; split flag string; ls of generated names
+# shellcheck disable=SC2015,SC2016,SC2012,SC2086,SC2317,SC2329 # assertion chains; literal command text; split flag string; ls of generated names; functions run indirectly by run_sc
 # shellcheck source-path=SCRIPTDIR
 # CLI tests (D27 layer 1): bin/proofline init, upgrade, doctor and the state commands in throwaway
 # repositories under $TMPDIR, with fake claude/codex binaries on PATH and a private HOME / global git config.
@@ -76,8 +76,10 @@ INIT_FLAGS="--yes --runtimes claude,codex --lead claude --worker codex --reviewe
 run_sc() {
   if [ -n "${LC_EXACT:-}" ]; then [ "$LC_EXACT" = "$*" ] || return 0
   elif [ -n "${LC_ONLY:-}" ]; then printf '%s' "$*" | grep -q -- "$LC_ONLY" || return 0; fi
-  ( "$@"; printf 'cli-test [%s]: %s checks passed\n' "$1" "$n" )
+  # A dying scenario (die exits its subshell with 1) must fail the unit: remember it and exit nonzero at the end.
+  ( "$@"; printf 'cli-test [%s]: %s checks passed\n' "$1" "$n" ) || sc_failed=1
 }
+sc_failed=0
 base_build() { # DIR (empty): a repository with a package.json, initialised with INIT_FLAGS
   mkrepo_at "$1"
   printf '{"scripts":{"build":"tsc","test":"jest","lint":"eslint ."}}\n' > "$1/package.json"
@@ -100,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.29" "$out" "proofline 0.0.29"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.29 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.30" "$out" "proofline 0.0.30"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.30 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -120,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.29 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.30 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -155,7 +157,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.29' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.30' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -324,6 +326,14 @@ dz=$T/dz; cp -R "$base" "$dz"; sed -e 's/^  build:.*/  build:/' -e 's/^  lint:.*
 out=$(pl "$dz" doctor 2>&1)
 expect "doctor warns about empty commands.build and commands.lint" "$out" "WARN commands: empty in .agents/config.yaml: build lint ("
 reject "doctor lists no foreign hook or skill on a clean HOME" "$out" "WARN foreign hook"
+# A174: the risk sets live in .agents/ecosystems.tsv; a missing or stale one is a doctor FAIL, a fresh one passes
+expect "doctor passes the ecosystem definition check on a fresh install" "$(pl "$d1" doctor 2>&1)" "PASS ecosystems:"
+dec=$T/dec; cp -R "$base" "$dec"; rm "$dec/.agents/ecosystems.tsv"
+out=$(pl "$dec" doctor 2>&1); rc=$?
+expect "doctor FAILs when .agents/ecosystems.tsv is missing" "$out" "FAIL ecosystems: .agents/ecosystems.tsv is missing or empty"
+[ "$rc" != 0 ] && ok "doctor exits non-zero without the ecosystem definition" || die "doctor passed without .agents/ecosystems.tsv"
+dec2=$T/dec2; cp -R "$base" "$dec2"; printf 'npm\tmanifests\tstale.lock\n' >> "$dec2/.agents/ecosystems.tsv"
+expect "doctor FAILs when .agents/ecosystems.tsv is not what ecosystems.json generates" "$(pl "$dec2" doctor 2>&1)" "FAIL ecosystems:"
 # A163: a GitHub project without a pull_request workflow gets a WARN with the exact fix line; with one it passes
 dci=$T/dci; cp -R "$base" "$dci"; git -C "$dci" remote add origin https://github.com/acme/app.git 2>/dev/null || git -C "$dci" remote set-url origin https://github.com/acme/app.git
 out=$(pl "$dci" doctor 2>&1)
@@ -345,7 +355,13 @@ printf '#!/bin/sh\ncase "${1:-}" in --version) echo v20.5.0 ;; *) exec "%s" "$@"
 out=$(PATH="$T/fakenode:$PATH" pl "$dtc" doctor 2>&1)
 expect "doctor passes the toolchain check on the same major" "$out" "PASS toolchain node: local 20.5.0 matches CI 20 (.github/workflows/ci.yml)"
 reject "doctor has no toolchain warning on the same major" "$out" "WARN toolchain"
+# The base repository has a package.json (base_build), so it IS a Node project and doctor reports the Node toolchain (any
+# version, or "not installed here"). "No runtime" needs its own fixture with no runtime marker (A173); doctor looks only
+# inside the project (never at a parent directory), so the result does not depend on the directories above $T.
 out=$(pl "$d1" doctor 2>&1)
+expect "doctor reports the Node toolchain of a project with a package.json" "$out" "toolchain node:"
+dnr=$T/dnr; cp -R "$base" "$dnr"; rm -f "$dnr/package.json"
+out=$(pl "$dnr" doctor 2>&1)
 reject "doctor says nothing about toolchains in a project without a runtime" "$out" "toolchain"
 # 0.0.5: foreign context hooks and overlapping skills are listed as WARN, never FAIL, and the exit stays 0
 mkdir -p "$HOME/.claude/skills/test-driven-dev" "$HOME/.claude/skills/rust-lint"
@@ -453,6 +469,7 @@ sc_discovery() {
 # ---- discovery ---------------------------------------------------------------------------------------------
 say() { :; }
 # shellcheck source=../../bin/lib/discover.sh
+PL_HOME=$repo # discover.sh reads the ecosystem definition from the plugin home (A173)
 . "$repo/bin/lib/discover.sh"
 fx() { rm -rf "$T/fx"; mkdir -p "$T/fx"; }
 fx; printf '{"scripts":{"build":"b","test":"echo \\"Error: no test specified\\" && exit 1"}}' > "$T/fx/package.json"; : > "$T/fx/pnpm-lock.yaml"
@@ -490,7 +507,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.29" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.30" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -641,6 +658,78 @@ out=$(pl "$(mkrepo rolebad5)" init --yes --runtimes claude --role implementer=co
 
 }
 
+sc_cmd_lists() {
+  need_base
+# ---- commands.build|test|lint as a list (A176): build record, config-check, discovery through init, idempotence ----
+# shellcheck source=../../bin/lib/config.sh
+. "$repo/bin/lib/config.sh"
+br() { ( cd "$1" && sh .agents/scripts/build-record.sh run ); }   # prints the record, exits like the record
+setc() { cfg_set "$1/.agents/config.yaml" "commands.$2" "$3"; }
+step_exit() { printf '%s\n' "$1" | awk -v l="$2: " 'index($0, l) == 1 { f = 1; next } f && /^exit: / { print $2; exit }'; }
+nl='
+'
+# a scalar config: one record per key, plain labels, no list summary
+setc "$base" build "echo b1; echo built-line"; setc "$base" test "echo t1"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 0 ] && has "$out" "build: echo b1; echo built-line" && has "$out" "test: echo t1" && [ "$(step_exit "$out" build)" = 0 ] && [ "$(step_exit "$out" test)" = 0 ] && has "$out" "  built-line" && ok "a scalar command records as before" || { LAST=$out; die "scalar record (rc=$rc)"; }
+reject "...with no list label and no list summary" "$out" "["
+reject "...and no failed or all-passed line" "$out" "failed:"
+reject "...nor an all-commands line" "$out" "all commands passed"
+key=$(printf '%s\n' "$out" | sed -n 's/^key: //p' | head -n 1)
+[ "$(printf '%s' "$(cat "$base/.agents/local/builds/$key/steps")" | tr '\n\t' ',:')" = "build:build,test:test" ] && ok "the steps file of a scalar config keeps the ids build and test" || die "steps file: $(cat "$base/.agents/local/builds/$key/steps")"
+# a list whose second build command fails: its own exit and tail, the first reported OK, a failed: line, the test not run
+setc "$base" build "echo first-ok${nl}sh -c 'echo second-out; exit 4'"; setc "$base" test "echo never-run"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 1 ] && [ "$(step_exit "$out" 'build[1/2]')" = 0 ] && [ "$(step_exit "$out" 'build[2/2]')" = 4 ] && has "$out" "  second-out" && has "$out" "failed: build[2/2] (exit 4)" && ok "a failing second build command is build[2/2] with its own exit and tail, the first is OK, a failed: line names it" || { LAST=$out; die "list record (rc=$rc)"; }
+reject "...and the failed key stops the next key" "$out" "never-run"
+reject "...the first command is not listed as failed" "$out" "failed: build[1/2]"
+# a failing test in a list does not stop the other tests
+setc "$base" build "echo b"; setc "$base" test "sh -c 'echo broke; exit 1'${nl}echo other-test-ran"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 1 ] && [ "$(step_exit "$out" 'test[1/2]')" = 1 ] && [ "$(step_exit "$out" 'test[2/2]')" = 0 ] && has "$out" "  other-test-ran" && has "$out" "failed: test[1/2] (exit 1)" && ok "a failing test in a list does not stop the other tests" || { LAST=$out; die "test list (rc=$rc)"; }
+setc "$base" test "echo one${nl}echo two"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 0 ] && has "$out" "all commands passed" && ok "a list in which every command passes says so" || { LAST=$out; die "all-pass list (rc=$rc)"; }
+
+# config-check: valid list; value plus list, empty item, duplicate, inline list, list under install and secret_scan
+cp "$base/.agents/config.yaml" "$T/cfg.pristine"
+cfg_with() { awk -v k="$1" -v t="$2" '$0 ~ ("^  " k ":") { n = split(t, a, "|"); for (i = 1; i <= n; i++) print a[i]; next } { print }' "$T/cfg.pristine" > "$T/cfg.try"; }
+cc() { ( cd "$base" && sh .agents/scripts/agent.sh config-check "$T/cfg.try" 2>&1 ); }
+cfg_with test "  test:|    - a|    - b"; out=$(cc) && ok "config-check accepts a list of two commands" || { LAST=$out; die "valid list rejected"; }
+cfg_bad() { cfg_with "$2" "$3"; if out=$(cc); then LAST=$out; die "$1 accepted"; fi; expect "config-check rejects $1" "$out" "$4"; }
+cfg_bad "a value plus a list" build "  build: x|    - y" "commands.build"
+cfg_bad "an empty item" build "  build:|    - a|    -" "empty command in the commands.build list"
+cfg_bad "a duplicate item" lint "  lint:|    - a|    - a" "duplicate command in the commands.lint list"
+cfg_bad "an inline [a, b]" test "  test: [a, b]" "inline list"
+cfg_bad "a list under install" install "  install:|    - a" "commands.install takes one command, not a list"
+cfg_bad "a list under secret_scan" secret_scan "  secret_scan:|    - a" "commands.secret_scan takes one command, not a list"
+
+# discovery through init: a root .slnx and a nested npm app become a list; two ambiguous solutions leave only the npm app
+mkrepo_at "$T/poly"; : > "$T/poly/App.slnx"; mkdir -p "$T/poly/web"
+printf '{"scripts":{"build":"b","test":"t"}}\n' > "$T/poly/web/package.json"
+out=$(pl "$T/poly" init --yes --runtimes claude 2>&1) || { LAST=$out; die "init in a polyglot repository"; }
+[ "$(cfgv "$T/poly" commands.build)" = "dotnet build App.slnx${nl}npm --prefix web run build" ] && [ "$(cfgv "$T/poly" commands.test)" = "dotnet test App.slnx${nl}npm --prefix web test" ] && ok "init writes a root .slnx and a nested web/package.json as a list of two" || die "poly commands: $(cfgv "$T/poly" commands.build) / $(cfgv "$T/poly" commands.test)"
+grep -qE '^  build:$' "$T/poly/.agents/config.yaml" && grep -qE '^    - dotnet build App.slnx$' "$T/poly/.agents/config.yaml" && ok "...as a block list under the key" || die "config.yaml has no block list"
+check "...and config-check accepts it" sh -c "cd '$T/poly' && sh .agents/scripts/agent.sh config-check"
+cs1=$(cksum < "$T/poly/.agents/config.yaml")
+pl "$T/poly" init --yes --runtimes claude >/dev/null 2>&1; pl "$T/poly" upgrade >/dev/null 2>&1
+[ "$cs1" = "$(cksum < "$T/poly/.agents/config.yaml")" ] && ok "re-running init and upgrade leaves the config byte-identical" || die "config changed by a second init or upgrade"
+mkrepo_at "$T/amb"; : > "$T/amb/App.sln"; : > "$T/amb/Other.sln"; mkdir -p "$T/amb/web"
+printf '{"scripts":{"build":"b","test":"t"}}\n' > "$T/amb/web/package.json"
+out=$(pl "$T/amb" init --yes --runtimes claude 2>&1) || { LAST=$out; die "init with two solutions"; }
+[ "$(cfgv "$T/amb" commands.build)" = "npm --prefix web run build" ] && ok "two ambiguous solutions and an npm app: only the npm command is written" || die "amb build: $(cfgv "$T/amb" commands.build)"
+expect "...and init names .NET as the ecosystem it proposed nothing for" "$out" "no command proposed for .NET"
+}
+
+sc_harness() {
+# ---- harness: a failing or dying scenario must fail the unit (it used to exit 0 and hide every failure) -------------
+sc_failed=0; LC_ONLY=''
+sh_dies() { exit 1; }
+sh_passes() { :; }
+LC_EXACT=sh_passes; run_sc sh_passes >/dev/null; [ "$sc_failed" = 0 ] && ok "run_sc leaves the failure flag clear after a passing scenario" || die "run_sc flagged a passing scenario"
+LC_EXACT=sh_dies; run_sc sh_dies >/dev/null; [ "$sc_failed" = 1 ] && ok "run_sc records a dying scenario as a failure" || die "run_sc swallowed a dying scenario"
+}
+
 sc_static() {
 # ---- static analysis ----------------------------------------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
@@ -667,4 +756,7 @@ run_sc sc_plugin
 run_sc sc_insights
 run_sc sc_help_lists
 run_sc sc_init_role
+run_sc sc_cmd_lists
+run_sc sc_harness
 run_sc sc_static
+exit "$sc_failed"
