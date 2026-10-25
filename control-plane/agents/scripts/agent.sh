@@ -3947,13 +3947,20 @@ language_ok_pieces() {
   rm -f "$lo_c" "$lo_w" "$lo_a" "$lo_a.2" "$lo_s" "$lo_m" "$lo_h"
   printf '%s\n' "$lo_o"
 }
+# language_question_file PATH: 0 when PATH is exactly <...>/.agents/runs/<ID>/questions/NNN.md (A178). The remainder after `.agents/runs/<ID>/`
+# is compared as a whole, so a file in a deeper folder (results/questions/001.md, reviews/a/questions/001.md) is never taken for one.
+language_question_file() {
+  lq_r="/$1"; case "$lq_r" in *"/.agents/runs/"*) lq_r=${lq_r#*"/.agents/runs/"} ;; *) return 1 ;; esac
+  case "$lq_r" in */*) lq_r=${lq_r#*/} ;; *) return 1 ;; esac   # drop <ID>/
+  case "$lq_r" in questions/[0-9][0-9][0-9].md) return 0 ;; *) return 1 ;; esac
+}
 language_scan() {
   ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); ls_extra=''; ls_hc=''; ls_hw=''; ls_ready=no
   cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
     case "$ls_f" in */runs/*/reviews/visual-proof/*|*/runs/*/reports/qa-evidence/*) continue ;; esac   # machine output (A172)
-    case "$ls_f" in */runs/*/questions/[0-9][0-9][0-9].md) continue ;; esac   # the question block `ask` and `record` store: addressed to the user in the user's language (A99, A178)
+    ! language_question_file "$ls_f" || continue   # the question block `ask` and `record` store: addressed to the user in the user's language (A99, A178)
     # A171 (review): the user's answers are written by the script as a quote block and are exempt whole; in any other file a quote
     # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history) or product text
     # (A172, above), so a model cannot hide its own non-English text behind '> ' or a fence.

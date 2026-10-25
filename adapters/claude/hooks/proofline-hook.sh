@@ -1844,10 +1844,13 @@ pretool)
   case "$tool" in
     Write|Edit|MultiEdit)
       lp=$(relpath "$(jget tool_input.file_path tool_input.path)")
+      # A178: exactly .agents/runs/<ID>/questions/NNN.md (the question block for the user, in the user's language) is not checked; the remainder after
+      # the run folder is compared whole, so results/questions/001.md or reviews/a/questions/001.md are not taken for one. (agent.sh writes it;
+      # target_ok denies every other writer first, so this line is a consistency guard, not a reachable path.)
+      case "$lp" in .agents/runs/*/*) lq=${lp#.agents/runs/}; lq=${lq#*/}; case "$lq" in questions/[0-9][0-9][0-9].md) exit 0 ;; esac ;; esac
       case "$lp" in
         .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log) ;;
         .agents/runs/*/reviews/visual-proof/*|.agents/runs/*/reports/qa-evidence/*) ;;   # A172: machine output of the skills
-        .agents/runs/*/questions/[0-9][0-9][0-9].md) ;;   # A178: the question block for the user, in the user's language (written by agent.sh ask and record)
         .agents/runs/*/*.md|.agents/runs/*/*.yaml|.agents/runs/*/*.json)
           if [ "$tool" = MultiEdit ]; then   # the new_string of every edit, as text (a JSON array would hide the line starts)
             case "$jp" in

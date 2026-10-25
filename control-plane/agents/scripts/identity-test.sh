@@ -132,10 +132,17 @@ sc_language_question() {
   expect_msg "Turkish text in a result file" 'language: run artifacts are English' A language-check "$d/results/001-implementer.result.md"
   printf '# Plan\n\n%s\n' "$trq" > "$d/PLAN.md"
   expect_msg "Turkish text in PLAN.md" 'language: run artifacts are English' A language-check "$d/PLAN.md"
+  # only .agents/runs/<ID>/questions/NNN.md is exempt, not a file with such a name in a deeper folder (specialists can write there)
+  for deep in results/questions/001.md reviews/a/questions/001.md reports/questions/002.md; do
+    mkdir -p "$d/$(dirname "$deep")"; printf '%s\n' "$trq" > "$d/$deep"
+    expect_msg "Turkish text in $deep" 'language: run artifacts are English' A language-check "$d/$deep"
+    expect_msg "Turkish text in $deep (relative path)" 'language: run artifacts are English' A language-check ".agents/runs/LC/$deep"
+  done
+  A language-check ".agents/runs/LC/questions/001.md" >/dev/null 2>&1 || die "the question file is refused by its relative path"
   # only the numbered question files are exempt: a note dropped next to them is checked
   printf '%s\n' "$trq" > "$d/questions/notes.md"
   expect_msg "Turkish text in a non-question file of questions/" 'language: run artifacts are English' A language-check "$d/questions/notes.md"
-  ok "language: the question block stored by ask is exempt (A178); the same text in results/, PLAN.md or another questions/ file is refused"
+  ok "language: the question block stored by ask is exempt (A178); the same text in results/, PLAN.md, a deeper questions/ folder or another questions/ file is refused"
 }
 sc_language_message() {
   scaffold standalone no STANDARD manual
