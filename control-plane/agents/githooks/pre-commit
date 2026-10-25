@@ -7,7 +7,7 @@
 #    cleaned up; ACTIVE_RUN plays no part, so emptying it opens nothing): a commit only on the task branch
 #    of one of them, only exactly the gated content (nothing unstaged or untracked outside .agents/runs
 #    and .agents/local), only when `agent.sh delivery-check` passes for that run, and only with a `commit`
-#    approval bound to the content fingerprint (`agent.sh approval-consume`); a human skips the
+#    approval bound to the full content fingerprint (the one `approve delivery` records, knowledge documents included) (`agent.sh approval-consume`); a human skips the
 #    approval step but never the gate check.
 set -u
 root=$(git rev-parse --show-toplevel) || exit 1
@@ -50,6 +50,6 @@ dirty=$(git -C "$root" status --porcelain --untracked-files=all | grep -v -e '^.
 [ -z "$dirty" ] || block "run $id: the commit must contain exactly the gated content; stage every change (unstaged or untracked paths exist)"
 "$agent" delivery-check "$id" >&2 || block "run $id is not delivery-ready (required gates must pass for the current content)"
 human && exit 0
-fp=$("$agent" fingerprint "$id") || block "run $id: could not compute the content fingerprint"
+fp=$("$agent" fingerprint "$id" full) || block "run $id: could not compute the content fingerprint"
 "$agent" approval-consume "$id" commit "$fp" >&2 || block "run $id: no user commit approval for this content"
 exit 0

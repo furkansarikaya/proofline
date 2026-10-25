@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.0.31 — 2026-10-25
+
+- The pre-commit hook asks for the commit approval with the full content fingerprint (A179): `approve delivery` binds the approval to the content including the knowledge step's documents (ADRs, wiki, IMAGES.md), but the hook looked it up with the gate fingerprint, which leaves them out, so a delivery whose knowledge step wrote documents was refused with "no user commit approval for this content" for an agent session. `githooks-test.sh` pins the binding.
+- `deliver-test.sh` no longer fails on the second push scenario: both scenarios shared one bare remote, so the branch of the first made the push of the second a non-fast-forward; each scenario now starts from a fresh remote, and a failed push shows git's message. A test fix, the product code is unchanged.
+
 ## 0.0.30 — 2026-10-25
 
 - proofline no longer assumes a folder layout (A173): `proofline init` finds the build, test and lint commands of a root, nested, multi-project or monorepo project in every ecosystem from one definition (`control-plane/agents/ecosystems.json`); .NET `.slnx`, `*.fsproj` and `*.vbproj` are supported, `dotnet build App.slnx` is proposed only when exactly one target exists, and zero or several targets of an ecosystem propose no command for it instead of a broken one (`MSB1011`, `MSB1003`). `proofline doctor` and verify-proof read runtime versions of nested projects and of java, rust, php, ruby, swift and dart too. See [ecosystems](docs/concepts/ecosystems.md).
