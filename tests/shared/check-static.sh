@@ -14,8 +14,8 @@
 #    skills/ui-design/library/THIRD_PARTY_NOTICES.md (lines `- <id> | <name> | <url>`), never hardcoded here. Every tracked
 #    or untracked file except that notices file and .claude/ is scanned, case-insensitively. Without a notices file the rule passes.
 #
-# 4. Captured tool output in tests/skills/fixtures/tdd-proof-output holds no personal path: /Users/, /home/<name>/ (the
-#    placeholder /home/user is allowed) or /opt/homebrew/Cellar. Redact such a path to /work/... when a fixture is added.
+# 4. Captured tool output in tests/skills/fixtures/tdd-proof-output holds no personal path: /Users/, /home/<name>/... (a
+#    bare /home/user is allowed), /private/var, /var/folders, /opt/homebrew or C:\Users. Redact such a path to /work/... when a fixture is added.
 #
 # Prints PASS or FAIL per rule. Exit 0 when every rule passes, 1 on a failure, 2 on a usage error.
 FOREIGN_TAGS='ponytail'
@@ -100,10 +100,10 @@ fi
 # 4. personal paths in captured tool output
 fx=tests/skills/fixtures/tdd-proof-output
 if [ -d "$root/$fx" ]; then
-  hits=$(grep -rnE -e '/Users/|/home/[A-Za-z0-9._-]+|/opt/homebrew/Cellar' "$root/$fx" 2>/dev/null | grep -vE '/home/user([/ :;,.)]|$)' | sed "s|^$root/||")
+  hits=$(grep -rnE -e '/Users/|/home/[A-Za-z0-9._-]+/|/private/var|/var/folders|/opt/homebrew|C:\\Users' "$root/$fx" 2>/dev/null | sed "s|^$root/||")
   if [ -z "$hits" ]; then echo "PASS no personal paths in $fx"
   else
-    echo "FAIL personal paths in $fx: write /work/... (or /home/user) instead of a real home directory, checkout or Homebrew path"
+    echo "FAIL personal paths in $fx: write /work/... instead of a real home directory, checkout or Homebrew path"
     printf '%s\n' "$hits" | cut -c1-200 | sed 's/^/  /'
     status=1
   fi
