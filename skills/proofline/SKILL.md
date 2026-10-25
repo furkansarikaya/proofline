@@ -38,7 +38,7 @@ with "proofline is not installed here".
 | (empty), `status` | Run the CLI `status`; show the active run and its state in one short block. |
 | `init` | Ask the user (one message, defaults in brackets): runtimes [the installed ones], lead / worker / reviewer runtime [claude], model profile [balanced], task adapter [markdown], protected branches [none], push needs approval [true], forbidden commit identities [none]. Then run the CLI `init --yes` with the matching flags (`--runtimes`, `--lead`, `--worker`, `--reviewers`, `--profile`, `--task-adapter`, `--protected-branches`, `--push-approval`, `--forbidden-identity`, repeatable). Run `init --dry-run` first when the project already has `AGENTS.md`, `CLAUDE.md` or `.claude/settings.json`, show the plan, and continue on the user's yes. Finish with `doctor`. |
 | `upgrade` | CLI `upgrade --dry-run`, show it, then `upgrade` on the user's yes. Report every conflict (a file you modified, with its `.proofline-new` copy) and stop; merging is the user's call. |
-| `doctor` | CLI `doctor`; relay PASS / WARN / FAIL lines unchanged and name the fix for each FAIL. A WARN that no CI check runs on pull requests stays visible: `proofline merge` does not merge a PR without checks, and a batch is refused. |
+| `doctor` | CLI `doctor`; relay PASS / WARN / FAIL lines unchanged and name the fix for each FAIL. `doctor` also shows the hosting platform of `origin`, the installed tool (gh, glab, az) and which merge rule applies. A WARN that no CI check runs on pull requests stays visible: `proofline merge` then verifies the commit locally ("verified locally, no CI"); a batch is not refused. |
 | `queue` | CLI `queue`. |
 | `clean` | CLI `clean` lists what goes; remove only after the user's yes (`clean --yes`). |
 | `version` | CLI `version`. |
@@ -58,14 +58,14 @@ Every command ends with ONE line `Next step: <what the user does next>`: a `/pro
 | `design` | the next queued task, else `/proofline task --grill` |
 | `run`, `status`, `resume`, `queue` | a question waits: reply in the session (the line names the question); CODE_DONE: `/proofline deliver <ID>`; FAILED or BLOCKED: `/proofline reopen <ID>`; running: `/proofline resume`; no run: the next queued task, else `/proofline task --grill` |
 | `knowledge` | `/proofline deliver <ID>` (FAILED or BLOCKED: `/proofline reopen <ID>`) |
-| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; already delivered: the next queued task, else `/proofline task --grill`; no CI check on pull requests: the ready `/proofline task Add a GitHub Actions workflow ...` line; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
+| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; already delivered: the next queued task, else `/proofline task --grill`; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
 | `reopen` | `/proofline resume` |
 | `merge`, `clean` | the next queued task, else `/proofline task --grill` |
 | `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
 | `insights`, `explain`, `trace` | `/proofline status` |
 | `product` | `prd`: `/proofline product review <slug>`; `review`: `/proofline product split <slug>` (do-not-ship: revise the PRD, then review again); `split`: `/proofline run <ID>`; `discover` steps: the next discover or assess step, `assess decision`: `/proofline product prd <slug>` (stop: frame a different problem; clarify: more research); `outcome`: `/proofline status` |
 | `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
-| `batch` | no CI: the ready CI task line; not approved: reply `approve batch`; driver started: `driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status` |
+| `batch` | not approved: reply `approve batch`; driver started: `driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status` |
 | `batch status` | driver running: wait, then `/proofline batch status` again; a task is parked: `/proofline resume <ID>, then reply in this session to the open question: ...` (or `/proofline reopen <ID>`); none parked: the next queued task, else `/proofline task --grill` |
 | `batch stop` | `/proofline batch status`; a stopped batch is resumed by `proofline batch run` in a terminal |
 | `version` | `/proofline doctor` |

@@ -2,7 +2,8 @@
 # proofline CLI (D8, D23). POSIX sh. Installs and checks the control plane (init, upgrade, doctor), shows
 # state (status, resume, queue) and tells you the exact instruction for your agent session for the commands
 # that need one (task, design, run, review, audit, debug, deliver). It never commits, pushes or approves;
-# its one merge path is `merge`, which merges a pull request only when every check is green (A136).
+# its one merge path is `merge`, which merges a pull request only when every check is green (A136), on GitHub, GitLab and
+# Azure DevOps through gh, glab or az (A180); on any other platform the user merges.
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
@@ -72,7 +73,11 @@ state (works without an agent session)
   clean [--yes]           remove .agents/local state and finished runs
   merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]
                           the only allowed merge path: checks that every check of the pull request is
-                            green on its current head, then merges (--admin and --auto are refused)
+                            green on its current head, then merges (--admin and --auto are refused).
+                            GitHub (gh), GitLab (glab) and Azure DevOps (az repos) when the tool is installed;
+                            a pull request without any check is merged only after build and test pass in a
+                            clean copy of its commit ("verified locally, no CI"). Bitbucket, other hosts and a
+                            missing tool: nothing is merged here, the link and steps are printed, YOU merge
   insights [--run ID] [--json]
                           read-only report: cost per run, role and model (tokens only where the runtime
                             reported them) and recurring failures with suggestions; changes nothing
@@ -99,8 +104,8 @@ agent session (prints the exact instruction for your runtime)
   trace <FR-n|TASK-ID>    follow a requirement or task to its tests, run evidence and pull request, and the evidence, assumption, decision and outcome behind it (read-only)
   reopen <TASK>           take a FAILED or BLOCKED run back into the workflow, only with your approval
   batch <ID...|all>       night mode: one summary and one "approve batch" stand in for the plan and delivery approvals of
-                            the listed tasks (no CRITICAL task; nothing else is covered; refused while no CI check runs
-                            on pull requests). After "approve batch" the session starts the driver in the background
+                            the listed tasks (no CRITICAL task; nothing else is covered; a project without CI gets a
+                            warning: each pull request is then verified locally before it merges). After "approve batch" the session starts the driver in the background
                             (it keeps running when the session closes, and keeps the computer awake): plug in the
                             computer; do not close the laptop lid. One clean headless session per task, one at a time,
                             parked on any other question. Also, in a terminal without an agent session: batch run
@@ -215,8 +220,8 @@ cmd_deliver() {
   say "what delivery would do (proofline never commits by itself):"
   say "  commit : $n changed path(s) on branch $br, message format $(cfg_val "$CFG" git.commit_format conventional), identity $(git -C "$ROOT" var GIT_AUTHOR_IDENT 2>/dev/null | sed 's/ [0-9]* [-+][0-9]*$//')"
   say "  push   : remote(s): $(git -C "$ROOT" remote 2>/dev/null | tr '\n' ' ')"
-  say "  pr     : a pull request with the completion report as its body"
-  say "  merge  : only when every check is green, through 'proofline merge'; a red check stops before cleanup"
+  say "  pr     : a pull request with the completion report as its body (Bitbucket or another host, or no gh/glab/az: the branch is pushed, the link is printed and you merge)"
+  say "  merge  : only when every check is green, through 'proofline merge'; a red check stops before cleanup; without any check the build and test run in a clean copy first"
   say "  cleanup: after the merge"
   say "  one approval: the lead shows one summary; your reply \"approve delivery\" approves each step of it, bound to this content"
   say "  never  : tag, force-push, touch a protected branch (configured: $(cfg_val "$CFG" git.protected_branches none))"

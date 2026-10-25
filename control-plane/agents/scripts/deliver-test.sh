@@ -164,11 +164,34 @@ scenario_task_move_skipped() {
 scenario_summary_warns_without_ci() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks; finish_done
   A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused"
-  grep -q 'WARNING: no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks.' "$base/plan.out" || die "no CI warning: $(cat "$base/plan.out")"
+  grep -q 'WARNING: no CI check runs on pull requests here. proofline merge verifies the commit locally instead' "$base/plan.out" || die "no CI warning: $(cat "$base/plan.out")"
   grep -q '^  fix: /proofline task Add a GitHub Actions workflow' "$base/plan.out" || die "no fix line"
   printf '7\n' > .agents/local/deliver/LC/PR; A deliver-plan LC >/dev/null
   [ ! -e .agents/local/deliver/LC/PR ] || die "a re-plan kept the old pull request number"
   ok "deliver: the summary warns under the merge step when no workflow runs on pull requests"
+}
+
+# A180: the platform decides who merges. Without CI the description and the delivery record say "verified locally, no CI"; a
+# platform without a supported tool (Bitbucket, unrecognized, tool missing) has no merge or cleanup step: the user merges.
+scenario_platforms() {
+  SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks; finish_done
+  A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused"
+  grep -q '^platform: github$' .agents/local/deliver/LC/SUMMARY.md && grep -q '^ci: verified locally, no CI$' .agents/local/deliver/LC/SUMMARY.md || die "the record lacks platform or the no-CI statement: $(cat .agents/local/deliver/LC/SUMMARY.md)"
+  grep -q 'verified locally, no CI' .agents/local/deliver/LC/PR_BODY.md || die "the pull request description lacks 'verified locally, no CI'"
+  grep -q '^steps: commit push pr merge cleanup$' .agents/local/deliver/LC/SUMMARY.md || die "github steps"
+  git remote set-url origin https://bitbucket.org/acme/app.git
+  A deliver-plan LC > "$base/plan.out" || die "deliver-plan on bitbucket refused: $(cat "$base/plan.out")"
+  grep -q '^steps: commit push pr$' .agents/local/deliver/LC/SUMMARY.md && grep -q '^merge_by: user$' .agents/local/deliver/LC/SUMMARY.md || die "bitbucket must have no merge step: $(cat .agents/local/deliver/LC/SUMMARY.md)"
+  grep -q 'YOU open it and YOU merge it' "$base/plan.out" && grep -q 'bitbucket.org/acme/app/pull-requests/new' "$base/plan.out" || die "no explicit manual statement or link: $(cat "$base/plan.out")"
+  git remote set-url origin https://gitlab.com/acme/app.git
+  A deliver-plan LC > "$base/plan.out" || die "deliver-plan on gitlab refused"
+  grep -q '^merge_by: user$' .agents/local/deliver/LC/SUMMARY.md || die "gitlab without glab on PATH must be manual"
+  printf '#!/bin/sh\nexit 0\n' > "$base/bin/glab"; chmod +x "$base/bin/glab"
+  A deliver-plan LC > "$base/plan.out" || die "deliver-plan on gitlab with glab refused"
+  grep -q '^tool: glab$' .agents/local/deliver/LC/SUMMARY.md && grep -q '^steps: commit push pr merge cleanup$' .agents/local/deliver/LC/SUMMARY.md || die "gitlab with glab: $(cat .agents/local/deliver/LC/SUMMARY.md)"
+  rm -f "$base/bin/glab"
+  [ "$(A platform | sed -n 1p)" = 'platform: gitlab' ] || die "agent.sh platform: $(A platform)"
+  ok "deliver: the platform picks the steps; no CI is stated in the description and the record; manual platforms have no merge step"
 }
 
 # A163: another adapter or a file already in done/ is left alone.
@@ -184,7 +207,7 @@ scenario_task_done_noop() {
 scenario_ci_check() {
   SC_BRANCH=1 scaffold orchestrated; origin; wf=.github/workflows; mkdir -p $wf
   rc=0; A ci-check > "$base/ci.out" || rc=$?
-  [ "$rc" = 1 ] && [ "$(sed -n 1p "$base/ci.out")" = 'ci: absent' ] && [ "$(sed -n 2p "$base/ci.out")" = 'no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks.' ] || die "no workflow: rc=$rc $(cat "$base/ci.out")"
+  [ "$rc" = 1 ] && [ "$(sed -n 1p "$base/ci.out")" = 'ci: absent' ] && [ "$(sed -n 2p "$base/ci.out" | cut -c1-68)" = 'no CI check runs on pull requests here. proofline merge verifies the' ] || die "no workflow: rc=$rc $(cat "$base/ci.out")"
   printf 'on: push\njobs: {}\n' > $wf/a.yml; rc=0; A ci-check > "$base/ci.out" || rc=$?; [ "$rc" = 1 ] || die "a push-only workflow counts as CI"
   printf 'on:\n  push:\n  # pull_request:\njobs: {}\n# on: pull_request\n' > $wf/a.yml; rc=0; A ci-check > "$base/ci.out" || rc=$?; [ "$rc" = 1 ] || die "a commented-out trigger counts as CI"
   printf 'name: ci\non: pull_request\njobs: {}\n' > $wf/a.yml; has '^ci: present (.github/workflows/a.yml)$' A ci-check
@@ -198,8 +221,13 @@ scenario_ci_check() {
   printf 'on:\n  - push\n  - pull_request\njobs: {}\n' > $wf/a.yml; has '^ci: present' A ci-check
   rm $wf/a.yml; printf 'on: pull_request\n' > $wf/b.yaml; has '^ci: present (.github/workflows/b.yaml)$' A ci-check
   AS reviewer ci-check >/dev/null || die "ci-check is not open to every role"
-  git remote set-url origin https://gitlab.com/acme/app.git; rm $wf/b.yaml
-  has '^ci: unknown (not a GitHub repository)$' A ci-check
+  git remote set-url origin https://bitbucket.org/acme/app.git; rm $wf/b.yaml
+  has '^ci: unknown (platform bitbucket' A ci-check
+  git remote set-url origin https://gitlab.com/acme/app.git
+  rc=0; A ci-check > "$base/ci.out" || rc=$?; [ "$rc" = 1 ] && [ "$(sed -n 1p "$base/ci.out")" = 'ci: absent' ] || die "gitlab without .gitlab-ci.yml: rc=$rc"
+  printf 'test:\n  script: [true]\n' > .gitlab-ci.yml; has '^ci: present (.gitlab-ci.yml)$' A ci-check; rm .gitlab-ci.yml
+  git remote set-url origin https://dev.azure.com/acme/proj/_git/app
+  has '^ci: unknown (Azure DevOps' A ci-check
   # the task line: commands from the config, a valid line when none exist
   has '^/proofline task Add a GitHub Actions workflow that runs on pull_request and runs: build: (none found; add yours); test: (none found; add yours)' A ci-task-command
   sed 's#^  build:$#  build: npm run build#; s#^  test:$#  test: npm test#' .agents/config.yaml > "$base/cfg" && cp "$base/cfg" .agents/config.yaml
@@ -266,6 +294,7 @@ run_sc scenario_reopened_run_delivers
 run_sc scenario_task_moves_to_done
 run_sc scenario_task_move_skipped
 run_sc scenario_summary_warns_without_ci
+run_sc scenario_platforms
 run_sc scenario_task_done_noop
 run_sc scenario_ci_check
 run_sc scenario_one_approval_real_chain

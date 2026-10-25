@@ -113,9 +113,11 @@ debt                                  list the shortcut comments in the code (re
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
 
-**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, for example `init` -> `/proofline doctor`, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
+**Platforms.** GitHub, GitLab, Azure DevOps; elsewhere you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
 
-**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and the session starts the driver in the background (plug in the computer; do not close the laptop lid), which works through the tasks one at a time in clean headless sessions, each in a git worktree of its own (a parked task never blocks an independent one and your working tree stays clean); it needs a CI check on pull requests. Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table, `proofline batch stop` stops the driver. Detail and limits: [night mode](docs/concepts/night-mode.md).
+**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
+
+**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and the session starts the driver in the background (plug in the computer; do not close the laptop lid), which works through the tasks one at a time in clean headless sessions, each in a git worktree of its own (a parked task never blocks an independent one). Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table, `proofline batch stop` stops the driver. Detail and limits: [night mode](docs/concepts/night-mode.md).
 
 **Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition ([workflow](docs/concepts/workflow.md#shortcut-debt)).
 

@@ -33,6 +33,24 @@ identity_forbidden() {
 }
 email_of() { g var "$1" 2>/dev/null | sed -n 's/.*<\([^>]*\)>.*/\1/p'; }
 
+# doctor_platform (A180): platform of origin, the installed tool, the merge rule that will apply.
+doctor_platform() {
+  dp_o=$(cd "$ROOT" && sh "$A" platform 2>/dev/null) || dp_o=''
+  dp_p=$(printf '%s\n' "$dp_o" | sed -n 's/^platform: //p'); dp_c=$(printf '%s\n' "$dp_o" | sed -n 's/^cli: //p')
+  dp_w=$(printf '%s\n' "$dp_o" | sed -n 's/^web: //p')
+  if [ -z "$(g remote get-url origin 2>/dev/null || true)" ]; then
+    d_warn "platform: the project has no origin remote yet, so the platform is unknown; with one, proofline detects GitHub, GitLab, Azure DevOps and Bitbucket from its address"; return 0
+  fi
+  case "$dp_p:$dp_c" in
+    github:gh) d_pass "platform: github, tool gh installed; merge rule: proofline opens and merges the pull request, every check must be green, and a pull request without checks is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    gitlab:glab) d_pass "platform: gitlab, tool glab installed; merge rule: proofline opens and merges the merge request, the pipeline must be green, and a merge request without a pipeline is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    azure:az) d_pass "platform: azure devops, tool az installed; merge rule: proofline opens and merges the pull request, every build policy must be approved, and a pull request without one is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    github:*|gitlab:*|azure:*) d_warn "platform: $dp_p, but its tool ($(case $dp_p in gitlab) echo glab ;; azure) echo az ;; *) echo gh ;; esac) is not installed; merge rule: manual. proofline pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
+    bitbucket:*) d_warn "platform: bitbucket; merge rule: manual. proofline has no adapter: it pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
+    *) d_warn "platform: not recognized (${dp_w:-the origin address}); merge rule: manual. proofline pushes the branch and prints the manual steps; YOU open and merge the pull request" ;;
+  esac
+}
+
 doctor_identity() {
   di_ae=$(email_of GIT_AUTHOR_IDENT); di_ce=$(email_of GIT_COMMITTER_IDENT)
   if [ -z "$di_ae" ] || [ -z "$di_ce" ]; then
@@ -280,7 +298,9 @@ EOF
   for dc_k in build test lint; do [ -n "$(cfg_cmds "$CFG" "commands.$dc_k")" ] || dc_empty="$dc_empty $dc_k"; done
   [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them; proofline proposes the ones proven in a run when it ends)"
 
-  # A163: proofline merge refuses a pull request without checks; say so before the first delivery, with the fix.
+  # A180: which hosting platform the origin remote is, which tool is installed for it, and so which merge rule applies.
+  doctor_platform
+  # A163, A180: no pull_request check is a warning (the commit is then verified locally before the merge), with the fix line.
   dc_ci=$(cd "$ROOT" && sh "$A" ci-check 2>/dev/null) || :   # exit 1 means absent; the output still holds the verdict
   case "$(printf '%s\n' "$dc_ci" | head -1)" in
     'ci: absent')

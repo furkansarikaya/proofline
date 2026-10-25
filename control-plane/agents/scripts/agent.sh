@@ -6108,9 +6108,10 @@ cleanup_run() {
   echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
 }
 
-# --- CI visibility (A163): does a pull request here get any check at all? Read-only, repository files only. ----------
-# proofline merge refuses a pull request without checks, so a project with no pull_request workflow can never be merged by it.
-CI_WARN='no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks.'
+# --- CI visibility (A163, A180): does a pull request here get any check at all? Read-only, repository files only. ----------
+# Without checks proofline merge does not wait for them: it verifies the commit with the project's build and test commands in a
+# clean copy, and the pull request and the delivery record say "verified locally, no CI". That is a warning, not a blocker.
+CI_WARN='no CI check runs on pull requests here. proofline merge verifies the commit locally instead (commands.build and commands.test in a clean copy) and the pull request says "verified locally, no CI".'
 # ci_workflow_has_pr FILE: the workflow's `on:` has a pull_request or pull_request_target trigger (comments ignored;
 # `on: pull_request`, `on: [push, pull_request]`, `on: {pull_request: ...}` and the mapping or list form).
 ci_workflow_has_pr() {
@@ -6130,8 +6131,17 @@ ci_workflow_has_pr() {
     END { exit !f }' "$1"
 }
 ci_check() {
-  cc_url=$(git -C "$root" remote get-url origin 2>/dev/null || true)
-  case "$cc_url" in *github.com[:/]*) ;; *) echo 'ci: unknown (not a GitHub repository)'; return 0 ;; esac
+  cc_pf=$(sh "$scripts/platform.sh" field platform -C "$root" 2>/dev/null || echo other)
+  case "$cc_pf" in
+    gitlab) if [ -f "$root/.gitlab-ci.yml" ]; then echo 'ci: present (.gitlab-ci.yml)'; return 0; fi
+      printf 'ci: absent\n%s\n' "$CI_WARN"; return 1 ;;
+    azure) for cc_f in azure-pipelines.yml azure-pipelines.yaml .azure-pipelines; do
+        if [ -e "$root/$cc_f" ]; then echo "ci: present ($cc_f)"; return 0; fi
+      done
+      echo 'ci: unknown (Azure DevOps build policies are not visible from the repository files)'; return 0 ;;
+    github) ;;
+    *) echo "ci: unknown (platform $cc_pf: checks are read through its tool or by the person who merges)"; return 0 ;;
+  esac
   for cc_f in "$root"/.github/workflows/*.yml "$root"/.github/workflows/*.yaml; do
     [ -f "$cc_f" ] || continue
     if ci_workflow_has_pr "$cc_f"; then echo "ci: present (${cc_f#"$root"/})"; return 0; fi
@@ -6147,6 +6157,9 @@ ci_task_command() {
   ct_b=$(cfg_cmds commands.build | ci_join); ct_t=$(cfg_cmds commands.test | ci_join)   # a list reads "a; b" (A173)
   [ -n "$ct_b" ] || ct_b=$(printf '%s\n' "${PROOFLINE_CI_BUILD:-}" | ci_join); [ -n "$ct_t" ] || ct_t=$(printf '%s\n' "${PROOFLINE_CI_TEST:-}" | ci_join)
   [ -n "$ct_b" ] || ct_b='(none found; add yours)'; [ -n "$ct_t" ] || ct_t='(none found; add yours)'
+  if [ "$(sh "$scripts/platform.sh" field platform -C "$root" 2>/dev/null)" = gitlab ]; then
+    printf '/proofline task Add a GitLab CI pipeline (.gitlab-ci.yml) that runs on merge requests and runs: build: %s; test: %s (the pipeline must run for merge requests)\n' "$ct_b" "$ct_t"; return 0
+  fi
   printf '/proofline task Add a GitHub Actions workflow that runs on pull_request and runs: build: %s; test: %s (the workflow must trigger on pull_request)\n' "$ct_b" "$ct_t"
 }
 
@@ -6189,11 +6202,12 @@ task_done_plan() {
 # deliver-step checks the shown content still holds and its step's approval exists before each step, then prints
 # the command the lead runs (agent.sh never commits, pushes or merges; the git hooks consume commit and push).
 deliver_dir() { printf '%s/.agents/local/deliver/%s\n' "$root" "$1"; }
-# deliver_gh_path: the absolute path of gh, or one line `unreadable...` on stdout and status 1. No env seam: gh comes from
-# PATH and, like `proofline merge`, is refused when it resolves into the project, the working directory or a temp directory
-# (PROOFLINE_SELFTEST=1 lifts that for the self-tests; the runtime hook denies any command naming it).
-deliver_gh_path() {
-  dv_g=$(command -v gh 2>/dev/null) || { echo unreadable; return 1; }
+# deliver_cli_path NAME: the absolute path of the platform tool (gh, glab or az), or one line `unreadable...` on stdout and status 1.
+# No env seam: the tool comes from PATH and, like `proofline merge`, is refused when it resolves into the project, the working
+# directory or a temp directory (PROOFLINE_SELFTEST=1 lifts that for the self-tests; the runtime hook denies any command naming it).
+deliver_gh_path() { deliver_cli_path gh; }
+deliver_cli_path() {
+  dv_g=$(command -v "$1" 2>/dev/null) || { echo unreadable; return 1; }
   case "$dv_g" in /*) ;; *) echo unreadable; return 1 ;; esac
   # the real location: directory symlinks (pwd -P) and a symlinked gh itself are resolved before the check
   dv_n=0
@@ -6204,17 +6218,54 @@ deliver_gh_path() {
   if [ "${PROOFLINE_SELFTEST:-}" != 1 ]; then
     for dv_d in "$root" "$PWD" "${TMPDIR:-/nonexistent}" /tmp /var/folders /dev/shm; do
       dv_r=$(CDPATH='' cd "$dv_d" 2>/dev/null && pwd -P) || dv_r=$dv_d
-      case "$dv_g" in "$dv_d"/*|"$dv_r"/*) echo "unreadable (gh at $dv_g may be shadowed)"; return 1 ;; esac
+      case "$dv_g" in "$dv_d"/*|"$dv_r"/*) echo "unreadable ($1 at $dv_g may be shadowed)"; return 1 ;; esac
     done
   fi
   printf '%s\n' "$dv_g"
 }
 # deliver_pr_view PR -> "STATE ISDRAFT HEAD-SHA HEAD-BRANCH BASE-BRANCH OWNER", or "unreadable". Runs before the locks are
-# taken (a slow gh never holds them).
+# taken (a slow tool never holds them). The platform tool reads it (A180): gh, glab (merge request) or az repos; STATE is OPEN or
+# MERGED for all of them. Another platform, or a missing tool or jq, is "unreadable".
 deliver_pr_view() {
+  dv_cli=$(sh "$scripts/platform.sh" field cli -C "$root" 2>/dev/null || echo none)
+  dv_own=$(sh "$scripts/platform.sh" field owner -C "$root" 2>/dev/null || true)
+  case "$dv_cli" in
+    gh) ;;
+    glab|az)
+      dv_g=$(deliver_cli_path "$dv_cli") || { printf '%s\n' "$dv_g"; return 0; }
+      dv_j=$(command -v jq 2>/dev/null) || { echo unreadable; return 0; }
+      if [ "$dv_cli" = glab ]; then
+        "$dv_g" mr view "$1" -F json 2>/dev/null </dev/null | "$dv_j" -r --arg o "$dv_own" '(if .state == "opened" then "OPEN" elif .state == "merged" then "MERGED" else ((.state // "?") | ascii_upcase) end) + " " + ((.draft // .work_in_progress // false) | tostring) + " " + .sha + " " + .source_branch + " " + .target_branch + " " + (if .source_project_id == .target_project_id then $o else "-" end)' 2>/dev/null || echo unreadable
+      else
+        "$dv_g" repos pr show --id "$1" -o json 2>/dev/null </dev/null | "$dv_j" -r --arg o "$dv_own" '(if .status == "active" then "OPEN" elif .status == "completed" then "MERGED" else ((.status // "?") | ascii_upcase) end) + " " + ((.isDraft // false) | tostring) + " " + .lastMergeSourceCommit.commitId + " " + (.sourceRefName | sub("^refs/heads/"; "")) + " " + (.targetRefName | sub("^refs/heads/"; "")) + " " + (if .forkSource == null then $o else "-" end)' 2>/dev/null || echo unreadable
+      fi
+      return 0 ;;
+    *) echo unreadable; return 0 ;;
+  esac
   dv_g=$(deliver_gh_path) || { printf '%s\n' "$dv_g"; return 0; }
   "$dv_g" pr view "$1" --json state,isDraft,headRefOid,headRefName,baseRefName,headRepositoryOwner \
     --jq '.state + " " + (.isDraft | tostring) + " " + .headRefOid + " " + .headRefName + " " + .baseRefName + " " + (.headRepositoryOwner.login // "-")' 2>/dev/null </dev/null || echo unreadable
+}
+# deliver_platform: "PLATFORM CLI MERGE" of the origin remote (platform.sh), e.g. "gitlab glab cli" or "bitbucket none manual".
+deliver_platform() { sh "$scripts/platform.sh" detect -C "$root" 2>/dev/null | awk -F': ' '$1 == "platform" { p = $2 } $1 == "cli" { c = $2 } $1 == "merge" { m = $2 } END { print (p ? p : "other"), (c ? c : "none"), (m ? m : "manual") }'; }
+# deliver_create_cmd BASE BRANCH TITLE BODYFILE: the command that opens the pull request / merge request (cli), or the push
+# result and the link (manual). One command per line.
+deliver_create_cmd() {
+  dc_pl=$(deliver_platform); dc_cli=$(printf '%s\n' "$dc_pl" | awk '{ print $2 }')
+  case "$dc_cli" in
+    gh) printf 'run: gh pr create --base %s --head %s --title "%s" --body-file %s\n' "$1" "$2" "$3" "$4" ;;
+    glab) printf 'run: glab mr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)" --yes\n' "$1" "$2" "$3" "$4" ;;
+    az) printf 'run: az repos pr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)"\n' "$1" "$2" "$3" "$4" ;;
+    *) printf 'platform %s: proofline does not open or merge a pull request here. The branch %s is pushed; open the pull request yourself: %s\n' "$(printf '%s\n' "$dc_pl" | awk '{ print $1 }')" "$2" "$(sh "$scripts/platform.sh" link "$2" "$1" -C "$root" 2>/dev/null)" ;;
+  esac
+}
+# deliver_watch_cmd PR: the command that shows the checks of the pull request until they finish (cli platforms)
+deliver_watch_cmd() {
+  case "$(deliver_platform | awk '{ print $2 }')" in
+    glab) echo 'glab ci status --live' ;;
+    az) printf 'az repos pr policy list --id %s -o table\n' "$1" ;;
+    *) printf 'gh pr checks %s --watch --fail-fast\n' "$1" ;;
+  esac
 }
 # deliver_consumed TARGET KIND HASH: this summary's KIND approval exists and was consumed (its step ran).
 deliver_consumed() {
@@ -6249,18 +6300,25 @@ deliver_plan() {
   [ "$(printf '%s\n' "$dl_msg" | wc -l | tr -d ' ')" = 1 ] || fail "the commit message is one line"
   dl_br=$(git -C "$root" branch --show-current); dl_base=$(cfg canonical_branch main)
   [ -n "$dl_br" ] && [ "$dl_br" != "$dl_base" ] || fail "delivery blocked: deliver from the task branch, not '${dl_br:-detached HEAD}'"
-  # the owner of origin on GitHub: the pull request's head repository must be it (a fork's PR never counts)
-  dl_own=$(git -C "$root" remote get-url origin 2>/dev/null | sed -n 's#^.*github\.com[:/]\([^/]*\)/.*$#\1#p')
-  [ -n "$dl_own" ] || fail "delivery blocked: the origin remote is not a GitHub repository (git remote get-url origin)"
+  # the owner of origin: the pull request's head repository must be it (a fork's PR never counts). The platform (A180) decides who
+  # opens and merges the pull request: a supported tool does it through proofline; otherwise the branch is pushed and the USER merges.
+  dl_pl=$(deliver_platform); dl_pf=${dl_pl%% *}; dl_pm=${dl_pl##* }
+  dl_own=$(sh "$scripts/platform.sh" field owner -C "$root" 2>/dev/null || true)
+  [ -n "$dl_own" ] || fail "delivery blocked: the origin remote is not a hosting service address proofline can read (git remote get-url origin)"
+  [ "$dl_pm" = cli ] || dl_steps='commit push pr'   # manual: no merge, no cleanup step; the user merges
   dl_paths=$(git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || true)
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
   dl_kn=$(knowledge_owned_paths "$dl_id" 2>/dev/null || true)
   mkdir -p "$dl_dir"; rm -f "$dl_dir/PR"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
   cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg
+  # A180: no CI here -> the description says the verification was local (the merge step makes it true before merging)
+  if ci_absent; then printf '\n\n## Verification\n\nverified locally, no CI: no check runs on pull requests here; proofline merge runs the configured build and test commands in a clean copy of the commit before it merges.\n' >> "$dl_dir/PR_BODY.md"; fi
   dl_fp=$(content_fingerprint); dl_td=''
   case " $dl_steps " in *" commit "*) dl_td=$(task_done_plan "$dl_id") ;; esac   # no commit step, no move
   {
     printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nowner: %s\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$dl_own" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
+    printf 'platform: %s\ntool: %s\nmerge_by: %s\n' "$dl_pf" "$(printf '%s\n' "$dl_pl" | awk '{ print $2 }')" "$([ "$dl_pm" = cli ] && echo proofline || echo user)"
+    if ci_absent; then printf 'ci: verified locally, no CI\n'; fi
     # a fresh nonce per plan: an approval or consumed step of an earlier, otherwise identical summary never counts
     printf 'nonce: %s-%s\n' "$(now_epoch)" "$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || echo $$)"
     [ -z "$dl_td" ] || printf 'task_done: %s -> %s\n' "${dl_td% *}" "${dl_td#* }"
@@ -6271,7 +6329,11 @@ deliver_plan() {
     printf '\nsteps, in order:\n'
     case " $dl_steps " in *" commit "*) printf '  commit : git commit -F .agents/local/deliver/%s/COMMIT_MSG on %s (the pre-commit hook checks the gated content)\n' "$dl_id" "$dl_br" ;; esac
     printf '  push   : git push -u origin %s\n' "$dl_br"
-    printf '  pr     : a pull request into %s, body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a refused merge stops here (no cleanup)\n  ci fix : a red check opens a CI-fix round without a new question, at most 2 (A169): the error is read from the failed run, the fix passes the gates again and is pushed to the same branch %s; the approval of this summary covers those pushes and no other push, no other branch; a third red CI stops with one question\n  cleanup: after the merge\n' "$dl_base" "$dl_br"
+    if [ "$dl_pm" = cli ]; then
+      printf '  pr     : a pull request into %s (%s), body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a refused merge stops here (no cleanup). A pull request without any check is merged only after the project'"'"'s build and test pass in a clean copy of the commit (verified locally, no CI)\n  ci fix : a red check opens a CI-fix round without a new question, at most 2 (A169): the error is read from the failed run (GitHub only), the fix passes the gates again and is pushed to the same branch %s; the approval of this summary covers those pushes and no other push, no other branch; a third red CI stops with one question\n  cleanup: after the merge\n' "$dl_base" "$dl_pf" "$dl_br"
+    else
+      printf '  pr     : the branch is pushed and the pull request address is printed (%s: %s). proofline does not open or merge a pull request on this platform: YOU open it and YOU merge it. There is no merge or cleanup step; after you merged, run agent.sh cleanup %s\n' "$dl_pf" "$(sh "$scripts/platform.sh" link "$dl_br" "$dl_base" -C "$root" 2>/dev/null)" "$dl_id"
+    fi
     if ci_absent; then printf '  WARNING: %s\n  fix: %s\n' "$CI_WARN" "$(ci_task_command)"; fi
     [ -z "$dl_td" ] || printf '  task file: moved to done/ only inside the pull request; the task is not done on %s until the merge succeeds\n' "$dl_base"
     dl_r=''
@@ -6378,7 +6440,7 @@ ci_progress() {
     committed)
       if [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/origin/$(git -C "$root" branch --show-current)" 2>/dev/null || true)" = "$cpg_head" ]; then echo "$cpg_a ci-merge $cpg_pr"; else echo "$cpg_a ci-push $cpg_pr"; fi ;;
     *)
-      echo "gh pr checks $cpg_pr --watch --fail-fast"
+      echo "$(deliver_watch_cmd "$cpg_pr")"
       echo "if every check passed: proofline merge $cpg_pr, then $cpg_a cleanup $cpg_pr"
       echo "if a check is red: $cpg_a ci-fix $cpg_pr   (a CI-fix round, at most $(ci_fix_max); the command refuses when the CI is not red)" ;;
   esac
@@ -6451,6 +6513,7 @@ ci_fix_step() {
       fi
       ci_chain_ok "$cf_id" || cf_stop "HEAD is not the delivery commit (and the recorded CI-fix commits) on top of the summary's HEAD"
       [ "$cf_pvok" = yes ] || cf_stop "pull request $cf_pr is not this delivery's open, non-draft pull request at HEAD ($cf_want; gh: ${deliver_pv:-unreadable})"
+      [ "$(deliver_platform | awk '{ print $1 }')" = github ] || cf_stop "a CI-fix round reads the failed run through gh, so it works on GitHub only (this platform: $(deliver_platform | awk '{ print $1 }')); read the failing job yourself, fix it as a new task and ask the user"
       cf_red=$(printf '%s\n' "${deliver_ci:-}" | sed -n 1p)
       case "$cf_red" in RED"$(printf '\t')"*) ;; *) cf_stop "the CI of ${cf_head} shows no failed check (gh run list --commit, gh pr checks): wait for the checks, then merge, or ask again" ;; esac
       ci_fix_open ;;
@@ -6578,8 +6641,8 @@ ci_fix_merge() {
     ci_rec_set "$cf_last" pushed_head "$cf_head"; ci_rec_set "$cf_last" state pushed
     ci_rec_ledger "$cf_id" ci-fix-push "$cf_last" "attempt=$cf_n pr=$cf_pr ci_run=$(gate_field "$cf_last" ci_run) from=$(gate_field "$cf_last" failing_head) to=$cf_head branch=$cf_br push_approval=$cf_pa"
   fi
-  printf 'run: gh pr checks %s --watch --fail-fast\nrun: proofline merge %s\nif a check is red again: agent.sh deliver-step %s ci-fix %s (attempt %s of %s is the last); if proofline merge refuses: STOP, no cleanup\nthen: agent.sh deliver-step %s cleanup %s\n' \
-    "$cf_pr" "$cf_pr" "$cf_id" "$cf_pr" "$((cf_n + 1))" "$(ci_fix_max)" "$cf_id" "$cf_pr"
+  printf 'run: %s\nrun: proofline merge %s\nif a check is red again: agent.sh deliver-step %s ci-fix %s (attempt %s of %s is the last); if proofline merge refuses: STOP, no cleanup\nthen: agent.sh deliver-step %s cleanup %s\n' \
+    "$(deliver_watch_cmd "$cf_pr")" "$cf_pr" "$cf_id" "$cf_pr" "$((cf_n + 1))" "$(ci_fix_max)" "$cf_id" "$cf_pr"
 }
 # deliver_step ID STEP [PR]: STEP is commit, push, pr, merge, cleanup, or a CI-fix step (ci-fix, ci-commit, ci-push, ci-merge, A169); merge, cleanup and the CI-fix steps take the pull request number.
 deliver_step() {
@@ -6642,12 +6705,15 @@ deliver_step() {
       ds_td_check
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
       consume_approval "$ds_t" "$ds_app"
-      printf 'run: gh pr create --base %s --head %s --title "%s" --body-file %s/PR_BODY.md\nthen: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel" "$ds_id" ;;
+      deliver_create_cmd "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel/PR_BODY.md"
+      if [ "$(ds_v merge_by)" = user ]; then printf 'STOP: the user merges this pull request (proofline does not merge on platform %s). Report the address above; after the user merged: agent.sh cleanup %s\n' "$(ds_v platform)" "$ds_id"
+      else printf 'then: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$ds_id"; fi ;;
     merge)
       deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
       [ "$ds_pv" = "OPEN false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open, non-draft pull request ($ds_want; gh: $ds_pv)"
       consume_approval "$ds_t" "$ds_app"; printf '%s\n' "$ds_pr" > "$ds_dir/PR"
-      printf 'run: gh pr checks %s --watch --fail-fast\nrun: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\n' "$ds_pr" "$ds_pr"
+      if [ "$(ds_v ci)" = 'verified locally, no CI' ]; then printf 'no CI here: nothing to watch\n'; else printf 'run: %s\n' "$(deliver_watch_cmd "$ds_pr")"; fi
+      printf 'run: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\n' "$ds_pr"
       [ -z "$(ds_v task_done)" ] || printf 'on that STOP also report: the task file was moved to done/ only in the unmerged pull request branch, so the task is still not done on %s\n' "$(ds_v base)"
       printf 'then: agent.sh deliver-step %s cleanup %s\n' "$ds_id" "$ds_pr" ;;
     cleanup)
@@ -6838,7 +6904,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='language-check next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
+read_only_commands='platform language-check next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -6895,6 +6961,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   batch-plan <ID...|all> [--codex-danger-full-access] | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check | batch-start | batch-stop   (A157: night mode; lead only; A163: start/stop the background driver)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one "approve delivery", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH> | task-source-done <ID>
+  platform   (A180: the hosting platform of the origin remote, the installed tool and who merges: platform, cli, merge, owner, web)
   ci-check | ci-task-command   (A163: is there a pull_request workflow; the task line that adds one)
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   entry-tier <BULLET TEXT>   (read-only: mandatory, information or none for one PLAN.md ## Contracts bullet, A162)
@@ -6993,6 +7060,7 @@ case "$command" in
   window-close) require_lead; window_close "${2:?usage: agent.sh window-close <ID> <BEFORE> [EXIT-STATUS] [implementer|designer]}" "${3:-}" "${4:-0}" "${5:-}" ;;
   verify-gates) verify_lifecycle_gates "${2:?usage: agent.sh verify-gates <ID>}"; echo "lifecycle gates verified: $2" ;;
   verify-seal) verify_seal "${2:?usage: agent.sh verify-seal <ID>}"; echo "lifecycle seal verified: $2" ;;
+  platform) sh "$scripts/platform.sh" detect -C "$root"; exit $? ;;
   ci-check) ci_check; exit $? ;;
   ci-task-command) ci_task_command ;;
   task-source-done) task_source_done "${2:?usage: agent.sh task-source-done <ID>}" ;;

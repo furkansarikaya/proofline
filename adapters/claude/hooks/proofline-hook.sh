@@ -1051,6 +1051,9 @@ stash_net_count() {
 # included), gh api calls to a merge endpoint / GraphQL merge mutation / protected-ref update, gh alias, git push
 # to a protected branch (or a bare push while one is checked out), git merge on one. Token matching on the scan's
 # command records, like the rest: a script that merges by itself is not seen (see A136, known limits).
+# A180: the same single merge path on the other platforms: glab mr merge, glab api merge endpoints and glab alias, az repos pr update
+# that completes (--status completed, --auto-complete), az rest / az devops invoke aimed at pull requests, and an HTTP client aimed at
+# a GitLab merge request or an Azure DevOps pull request.
 MG_MSG='merging a pull request goes only through `proofline merge <PR-NUMBER> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]`, which checks that every check is green on the current head and then merges (A136); --admin and --auto are never allowed'
 mg_prot=''
 mg_isprot() { case " $mg_prot " in *" $1 "*) return 0 ;; esac; return 1; }
@@ -1136,7 +1139,7 @@ mg_git() {
 mg_api() {
   mg_aw=no; mg_atxt=$(printf '%s' "$1" | tr '\n' ' ')
   ! printf '%s\n' "$1" | grep -Eq '^(-X|--method|-f|-F|--field|--raw-field|--input)(=.*)?$|^-X.' || mg_aw=yes
-  printf '%s\n' "$1" | grep -Eiq '^--input|=@|mutation|/pulls/[^/[:space:]]*/merge|/merges?([[:space:]?#]|$)|mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|auto_merge|git/refs/heads/(main|master)' \
+  printf '%s\n' "$1" | grep -Eiq '^--input|=@|mutation|/pulls/[^/[:space:]]*/merge|/merge_requests/[^/[:space:]]*/(merge|cancel_merge)|merge_when_pipeline_succeeds|state_event|/pullrequests/|/merges?([[:space:]?#]|$)|mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|auto_merge|git/refs/heads/(main|master)' \
     && deny "gh api call with a merge endpoint, a GraphQL mutation, --input or a field read from a file (=@) is denied: $MG_MSG"
   [ "$mg_aw" = no ] || {
     printf '%s' "$mg_atxt" | grep -Eiq '/contents/' && deny "gh api write to repository contents (default branch included) is denied: $MG_MSG"
@@ -1150,10 +1153,10 @@ merge_guard() {
   mg_flat=$(printf '%s' "$cmd" | tr '\n' ' ')
   case "$cmd" in *PROOFLINE_SELFTEST*) deny "PROOFLINE_SELFTEST is a self-test switch (it lifts the wrapper's PATH-shadowing rule); a model command never names it: $MG_MSG" ;; esac
   # (a) a variable, substitution or backtick where the gh subcommand goes
-  printf '%s' "$mg_flat" | grep -Eq '(^|[^[:alnum:]_./-])gh([[:space:]]+(-R|--repo)[[:space:]]+[^[:space:]]+)?([[:space:]]+[A-Za-z][A-Za-z-]*)?[[:space:]]+["'"'"']?[$`]' \
+  printf '%s' "$mg_flat" | grep -Eq '(^|[^[:alnum:]_./-])(gh|glab)([[:space:]]+(-R|--repo)[[:space:]]+[^[:space:]]+)?([[:space:]]+[A-Za-z][A-Za-z-]*)?[[:space:]]+["'"'"']?[$`]' \
     && deny "a variable or substitution where the gh subcommand goes cannot be checked (gh pr \$m, gh \$SUB ...); write the subcommand literally: $MG_MSG"
   # (d) merge text piped, heredoc'd or passed to a shell / interpreter / eval / git alias
-  mg_pay='(^|[^[:alnum:]_])pr["'"'"'[:space:]]+merge([^[:alnum:]_]|$)|/pulls/[^[:space:]]*merge|mergePullRequest|enablePullRequestAutoMerge|git[[:space:]]+([^;&|]*[[:space:]])?push[^;&|]*[[:space:]:/+](main|master)([^[:alnum:]_.-]|$)|git[[:space:]]+merge'
+  mg_pay='(^|[^[:alnum:]_])(pr|mr)["'"'"'[:space:]]+merge([^[:alnum:]_]|$)|repos[[:space:]]+pr[[:space:]]+update[^;&|]*(completed|auto-complete)|/merge_requests/[^[:space:]]*merge|/pulls/[^[:space:]]*merge|mergePullRequest|enablePullRequestAutoMerge|git[[:space:]]+([^;&|]*[[:space:]])?push[^;&|]*[[:space:]:/+](main|master)([^[:alnum:]_.-]|$)|git[[:space:]]+merge'
   mg_sink='\|[[:space:]]*((env|sudo|command|exec)[[:space:]]+)*(/[^[:space:]|;&]*/)?(sh|bash|zsh|dash|ksh|ash)([[:space:]]|;|&|\)|$)|(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh)([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<|(sh|bash|zsh|dash|ksh)[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-s([[:space:]]|$)|(^|[^[:alnum:]_.-])(python[0-9.]*|node|nodejs|deno|bun|ruby|perl|php|lua)[[:space:]]+(-[A-Za-z]*[ceErp]|--eval)([[:space:]]|$)|awk[^|;&]*system[[:space:]]*\(|(^|[;&|({[:space:]])eval[[:space:]]|alias\.[A-Za-z0-9_-]+=["'"'"']?!'
   if printf '%s' "$mg_flat" | grep -Eq "$mg_sink" && printf '%s' "$mg_flat" | grep -Eq "$mg_pay"; then
     deny "merge text passed to a shell, an interpreter, eval or a git alias cannot be checked: $MG_MSG"
@@ -1185,19 +1188,26 @@ merge_guard() {
         if printf '%s\n' "$mg_args" | grep -Eiq 'github' && printf '%s\n' "$mg_args" | grep -Eiq '/pulls/[^[:space:]]*/merge|/merges|git/refs|/contents/|graphql|mergePull|auto_merge'; then
           deny "$mg_cw aimed at a GitHub merge, refs, contents or graphql endpoint is denied: $MG_MSG"
         fi
+        if printf '%s\n' "$mg_args" | grep -Eiq 'gitlab|dev\.azure|visualstudio' && printf '%s\n' "$mg_args" | grep -Eiq '/merge_requests/[^[:space:]]*(merge|state_event)|merge_when_pipeline_succeeds|/pullrequests/|_apis/git'; then
+          deny "$mg_cw aimed at a GitLab merge request or an Azure DevOps pull request endpoint is denied: $MG_MSG"
+        fi
         continue ;;
       echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true|agent.sh|proofline|'<') continue ;;
     esac
     if [ "$mg_cw" = git ]; then mg_git "$mg_args"; continue; fi
     # every other command word (gh itself, ssh, xargs, a variable): the words pr merge, api, alias
-    mg_pr=no mg_mg=no mg_ap=no mg_al=no
+    mg_pr=no mg_mg=no mg_ap=no mg_al=no mg_mr=no mg_up=no mg_cp=no mg_rs=no
     while IFS= read -r mg_t; do
-      case "$mg_t" in pr) mg_pr=yes ;; merge) mg_mg=yes ;; api) mg_ap=yes ;; alias) mg_al=yes ;; esac
+      case "$mg_t" in pr) mg_pr=yes ;; mr) mg_mr=yes ;; merge) mg_mg=yes ;; api) mg_ap=yes ;; alias) mg_al=yes ;; update) mg_up=yes ;; completed|--status=completed|--auto-complete|--auto-complete=*) mg_cp=yes ;; rest|invoke) mg_rs=yes ;; esac
     done <<MGARGS
 $mg_args
 MGARGS
     [ "$mg_pr$mg_mg" != yesyes ] || deny "$mg_cw pr merge is denied: $MG_MSG"
+    [ "$mg_mr$mg_mg" != yesyes ] || deny "$mg_cw mr merge is denied: $MG_MSG"
+    [ "$mg_cw$mg_pr$mg_up$mg_cp" != az''yesyesyes ] || deny "az repos pr update that completes or auto-completes a pull request is denied: $MG_MSG"
+    if [ "$mg_cw$mg_rs" = az''yes ] && printf '%s' "$mg_flat" | grep -Eiq 'pullrequest|_apis/git'; then deny "az rest / az devops invoke aimed at a pull request is denied: $MG_MSG"; fi
     [ "$mg_cw$mg_al" != gh''yes ] || deny "gh alias could hide a merge command: $MG_MSG"
+    [ "$mg_cw$mg_al" != glab''yes ] || deny "glab alias could hide a merge command: $MG_MSG"
     [ "$mg_ap" = no ] || mg_api "$mg_args"
   done < "$tmp/scan"
 }

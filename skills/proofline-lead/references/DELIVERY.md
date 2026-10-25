@@ -34,7 +34,7 @@ Never `--force`, never another branch, never a tag.
 
 A PR is a separate stop point: `A ask <ID>` with the D13 block, relay `A questions <ID>`, STOP; open it
 only when the user's current message approves it (`A answer <ID> <N>` with their words). Body = the completion report's summary, gates and fix rounds, waivers, and open follow-ups
-(from `COMPLETION_REPORT.md`, nothing invented). GitHub: `gh pr create --base <canonical_branch> --head
+(from `COMPLETION_REPORT.md`, nothing invented). GitHub (GitLab: `glab mr create`, Azure DevOps: `az repos pr create`, anything else: the user opens it, A180): `gh pr create --base <canonical_branch> --head
 <task branch> --title <commit subject> --body-file .agents/local/assignments/<ID>/PR_BODY.md` (the only `.agents/local/` directory the lead
 writes; never `$TMPDIR`). The lead never approves, tags or closes, and merges only in `deliver` (section 5),
 through `proofline merge`.
@@ -74,9 +74,16 @@ with ONE question to the user. It applies to a CODE_DONE run only. A FAILED or B
    - `commit`: `git add -A`, `git commit -F .agents/local/deliver/<ID>/COMMIT_MSG` (the pre-commit hook
      consumes the approval).
    - `push`: `git push -u origin <task branch>` (the pre-push hook consumes it).
-   - `pr`: `gh pr create ... --body-file .agents/local/deliver/<ID>/PR_BODY.md`; note the number.
-   - `merge <PR>`: `gh pr checks <PR> --watch --fail-fast`, then
-     `proofline merge <PR>`. A failed check or a refused merge: STOP, no cleanup, report the state.
+   - `pr`: the step prints the command for the platform (A180): `gh pr create ...`, `glab mr create ...` or
+     `az repos pr create ...` with the body of `.agents/local/deliver/<ID>/PR_BODY.md`; note the number. On Bitbucket, an
+     unrecognized host or without the tool it prints the pull request address and `STOP: the user merges`: say plainly that
+     proofline does not merge there and the USER opens and merges it; there is no `merge` or `cleanup` step, and after the user
+     merged `A cleanup <ID>` closes the run.
+   - `merge <PR>`: the printed watch command (`gh pr checks <PR> --watch --fail-fast`, `glab ci status --live`, or
+     `az repos pr policy list`; none when the project has no CI), then `proofline merge <PR>`. A pull request without any check
+     is merged only after the configured build and test pass in a clean copy of its commit (the build record), and gets the
+     note "verified locally, no CI"; the PR description already says so when `agent.sh ci-check` shows no CI. A failed
+     check or a refused merge: STOP, no cleanup, report the state.
    - `cleanup <PR>`: checks that the pull request is this delivery's (head commit = HEAD, head and base branch
      as in the summary, head repository owned by the owner of `origin`, so a fork's pull request never counts, the merge step ran for that number) and is merged, then runs `A cleanup <ID>` itself. `merge` checks the same head, branches and that the pr step ran.
 5. Final report, STOP. Without the user's approval nothing is committed; `A cleanup <ID>` is run when the
