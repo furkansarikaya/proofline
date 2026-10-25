@@ -16,7 +16,8 @@ computed from the diff by `agent.sh tier`, never from the lead's claim.
 | `full` | everything else; CRITICAL is always full | plan, rules, tests, data (if the plan has `## Data`), security, in parallel |
 
 Risky paths (migrations, auth, security, payment, crypto, CI and deploy, dependency manifests, infrastructure)
-come from `review.risky_paths`. Code-like Markdown (`.agents/**`, `skills/**`, `roles/**`, agent definitions,
+come from `review.risky_paths` plus, at read time, the manifests, lock files, package-source settings and
+build-changing files of every ecosystem in `.agents/ecosystems.tsv` ([ecosystems](ecosystems.md), A174). Code-like Markdown (`.agents/**`, `skills/**`, `roles/**`, agent definitions,
 `AGENTS.md`, `CLAUDE.md`, prompt files) is never docs. The tier never decreases within a run.
 
 ## Gate set
@@ -45,13 +46,14 @@ the runtime version the project's CI specifies with the one installed here (`ski
 read-only). The CI version is the first found of: a workflow's `node-version`, `go-version`, `dotnet-version` or
 `python-version` (a value, an inline list or a block list; `${{ ... }}` expressions are skipped), a version file
 (`.nvmrc`, `.node-version`, `.python-version`, `global.json`, `.tool-versions`), a manifest (`package.json`
-`engines.node`, `go.mod` `go`, `pyproject.toml` `requires-python`) or a `.gitlab-ci.yml` image. The check covers node,
-dotnet, go and python. Node and dotnet compare the major version; go and python compare major.minor, because their
+`engines.node`, `go.mod` `go`, `pyproject.toml` `requires-python`) or a `.gitlab-ci.yml` image. The check covers node, python, go,
+java, rust, dotnet, php, ruby, swift and dart, in the root and in nested projects. Node and dotnet compare the major version; go and python compare major.minor, because their
 major never changes. `go.mod` and `>=` specs are minimums, a list (a matrix) matches when the local version is in it,
 and a spec that cannot be compared (`lts/*`, `stable`, a `<` range) is `unknown`.
 
 - `proofline doctor` prints `WARN toolchain <name>: local <v>, CI specifies <spec> (<file>); the major version differs ...`
-  on a difference and `PASS toolchain <name>: ...` otherwise. It never prints FAIL for this.
+  on a difference and `PASS toolchain <name>: ...` otherwise. It never prints FAIL for this. A project with no
+  language runtime prints no toolchain line (`runtime: none` is not a runtime).
 - The verifier records the script's `runtime:` lines unchanged in a `## Runtime` section of `VERIFY.md`, so the report
   says which version it verified with (`runtime: node local=22.13.0 ci=20 source=.github/workflows/ci.yml status=mismatch`).
   `validate-verify.mjs` requires the section and checks the line format; a `mismatch` never changes the verdict.
@@ -120,8 +122,8 @@ review; the implementer is told to use the project's own logger and standard and
 
 Two of these focuses are tool-free (decision A88):
 
-- **SECURITY `dependencies`** (exploit-proof). A manifest diff of the changed manifests and lockfiles
-  (`skills/exploit-proof/scripts/diff-manifests.mjs`) is checked against PLAN `## Dependencies`: an undeclared new
+- **SECURITY `dependencies`** (exploit-proof). A manifest diff of the changed manifests, lockfiles and package-source settings
+  of every ecosystem in the definition (`skills/exploit-proof/scripts/diff-manifests.mjs`; [ecosystems](ecosystems.md)) is checked against PLAN `## Dependencies`: an undeclared new
   or changed direct dependency or install hook is blocking, lockfile-only and transitive changes are notes, git or
   URL sources and unpinned ranges are flagged. The license policy comes from `security.licenses.allow|deny` in
   `.agents/config.yaml` (unset: "not configured", never a pass). The project's own audit tool is used only if it

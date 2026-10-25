@@ -59,6 +59,9 @@ Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|de
 | data-design migration validation | tested on fixtures (`migration-validation`, skill tests); applying migrations to a project's own throwaway database not exercised |
 | SECURITY `dependencies` and REVIEW `config` | tested on fixtures (`dependency-audit`, `config-consistency`); a project's own audit tool not exercised; not exercised by a team run |
 | UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests) |
+| Command discovery, several commands per key, runtime versions, risky paths and dependency manifests per ecosystem (A173, A174, A176) | tested on hand-written project layouts and file samples (`tests/cli`, skill tests, self-tests); the real tool of most ecosystems was not run for them; the per-ecosystem table is the [ecosystem matrix](ecosystems.md#ecosystem-matrix) |
+| tdd-proof test-output classes (A175) | tested against 94 recorded runner outputs (`tests/skills/fixtures/tdd-proof-output`); `captured` ones are real runs with tool, version, command and exit code, `docs` ones come from the tool's documentation |
+| A suite fails when a scenario dies (A177) | tested (`run_sc` in `tests/cli/cli-test.sh` remembers a failed scenario and the suite exits non-zero) |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
 Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and `roles/` (eleven roles). `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep the generated references in step with them.
