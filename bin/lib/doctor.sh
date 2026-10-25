@@ -165,6 +165,23 @@ $dt_out
 EOF2
 }
 
+# A174: the review risk paths and the dependency signal read .agents/ecosystems.tsv; config.yaml no longer lists the language files. A missing, empty or
+# stale tsv would silently shrink them, so doctor FAILs. Sound check: the tsv must be what the project's own ecosystems.json generates (node), or, without node,
+# equal to the shipped copy when the project's ecosystems.json is the shipped one.
+doctor_ecosystems() {
+  de_j=$ROOT/.agents/ecosystems.json; de_t=$ROOT/.agents/ecosystems.tsv; de_m=$ROOT/.agents/ecosystems.mjs
+  if [ ! -s "$de_t" ]; then d_fail "ecosystems: .agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)"; return 0; fi
+  if [ ! -s "$de_j" ]; then d_fail "ecosystems: .agents/ecosystems.json is missing (run: proofline upgrade)"; return 0; fi
+  if [ ! -f "$ROOT/.agents/scripts/ecosystems.sh" ]; then d_fail "ecosystems: .agents/scripts/ecosystems.sh is missing, so agent.sh cannot read the definition (run: proofline upgrade)"; return 0; fi
+  if command -v node >/dev/null 2>&1 && [ -f "$de_m" ]; then
+    if de_o=$(node "$de_m" check 2>&1); then d_pass "ecosystems: .agents/ecosystems.tsv is what .agents/ecosystems.json generates"
+    else d_fail "ecosystems: $(printf '%s' "$de_o" | head -2 | tr '\n' ' ') (fix: node .agents/ecosystems.mjs write, or proofline upgrade)"; fi
+  elif cmp -s "$de_j" "$PL_HOME/control-plane/agents/ecosystems.json"; then
+    if cmp -s "$de_t" "$PL_HOME/control-plane/agents/ecosystems.tsv"; then d_pass "ecosystems: .agents/ecosystems.tsv equals the shipped one"
+    else d_fail "ecosystems: .agents/ecosystems.tsv differs from the shipped one although ecosystems.json is the shipped file (run: proofline upgrade)"; fi
+  else d_warn "ecosystems: node is not available and .agents/ecosystems.json is not the shipped file, so the tsv could not be checked"; fi
+}
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   CFG=$ROOT/.agents/config.yaml; A=$ROOT/.agents/scripts/agent.sh
@@ -213,6 +230,8 @@ EOF
 
   if out=$(cd "$ROOT" && sh "$A" config-check 2>&1); then d_pass "config: $(printf '%s' "$out" | head -1)"
   else d_fail "config: agent.sh config-check failed: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"; fi
+
+  doctor_ecosystems
 
   # A135: a Codex lead needs the base model; report the model the policy resolves for the lead.
   EP=$ROOT/.agents/scripts/exec-policy.sh

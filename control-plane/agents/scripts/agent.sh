@@ -165,6 +165,9 @@ if [ -f "$scripts/ecosystems.sh" ] && [ -f "$agents/ecosystems.tsv" ]; then
 "}
   fi
 fi
+# One visible line when the definition is not readable: risk is then judged by config.yaml alone, which no longer lists the language files (A174).
+# Old runs are not failed over it (freeze and verify-freeze stay as they were); `proofline doctor` fails.
+eco_warning() { [ "$eco_loaded" = 1 ] || printf 'warning: .agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty and only the config.yaml globs apply: run proofline upgrade (proofline doctor shows it)\n'; }
 
 config_check() {
   cc_file=${1:-$config}; [ -f "$cc_file" ] || fail "config missing: $cc_file"
@@ -1373,6 +1376,7 @@ pipeline_show() {
   pipeline_declared "$id" || fail "run $id has no pipeline block"
   class=$(pipeline_class "$id"); pipeline_class_valid "$class" || fail "run $id is not classified yet"
   risk_prime "$id"
+  if [ "$eco_loaded" != 1 ]; then printf 'warning=%s\n' "$(eco_warning | sed 's/^warning: //')"; fi
   if ps_if=$(inflight_dispatch "$id"); then printf 'in_flight=dispatch.sh %s %s (pid %s): wait for the command to return\n' "$id" "${ps_if% *}" "${ps_if#* }"; fi
   ps_tier=$(tier_effective "$id"); ps_gates=$(required_gates "$id" "$ps_tier" | tr '\n' ' ' | sed 's/ $//')
   ps_art='TASK.md PLAN.md'
@@ -1439,6 +1443,7 @@ classify() {
   set_run_value "$id" pipeline classification "$class"; set_run_value "$id" pipeline review "$review"
   ledger_append "$id" classify "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$class review=$review"
   echo "classified: $id $class (autonomy: $(run_autonomy "$id"))"
+  eco_warning >&2
 }
 
 # --- Freeze ------------------------------------------------------------------------

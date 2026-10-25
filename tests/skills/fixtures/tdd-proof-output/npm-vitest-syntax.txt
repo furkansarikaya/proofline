@@ -7,7 +7,7 @@ scenario: compile (a file that does not parse)
 expected_class: compile
 source: captured
 captured: 2026-10-25 on macOS arm64, real run of the command above in a throwaway project
-redaction: absolute paths replaced by /work and /home/user; terminal colour codes removed; the localised duration of swift's Build complete line (decimal comma, unit sn.) written as (0.83s); nothing else changed
+redaction: the relative path from the project into the maintainer's home directory and checkout (home directory, project name) written as /work/; the project directory written as /work; nothing else changed
 === OUTPUT ===
 
  RUN  v5.0.1 /work/vit
@@ -29,10 +29,10 @@ Error: Transform failed with 1 error:
 
   Plugin: vite:oxc
   File: /work/vit/syn.test.ts
- ❯ transformWithOxc ../../../../../../../../home/user/claude/FsPackages/KnowWeave/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:7208:19
- ❯ TransformPluginContext.transform ../../../../../../../../home/user/claude/FsPackages/KnowWeave/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:7280:26
- ❯ EnvironmentPluginContainer.transform ../../../../../../../../home/user/claude/FsPackages/KnowWeave/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:8172:51
- ❯ loadAndTransform ../../../../../../../../home/user/claude/FsPackages/KnowWeave/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:19634:26
+ ❯ transformWithOxc /work/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:7208:19
+ ❯ TransformPluginContext.transform /work/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:7280:26
+ ❯ EnvironmentPluginContainer.transform /work/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:8172:51
+ ❯ loadAndTransform /work/node_modules/.pnpm/vite@8.3.0_@types+node@24.13.5/node_modules/vite/dist/node/chunks/node.js:19634:26
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 

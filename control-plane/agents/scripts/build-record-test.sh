@@ -72,3 +72,26 @@ echo node_modules >> .gitignore; mkdir node_modules; echo dep > node_modules/m
 setcmd build "test -f node_modules/m"
 A build-record LC run > "$base/dep.out" || die "the build did not see the ignored node_modules: $(cat "$base/dep.out")"
 ok "an ignored dependency directory is available to the build"
+
+# --- A174: the key tells command lists apart, and keeps the original form for scalar config ---
+setlist() { # build-items test-items (items separated by |): rewrite the build and test keys as block lists
+  awk -v b="$1" -v t="$2" '
+    function emit(k, items,   n, a, i) { print "  " k ":"; n = split(items, a, "|"); for (i = 1; i <= n; i++) print "    - " a[i] }
+    /^  (build|test):/ { skip = 1; emit(substr($1, 1, length($1) - 1), ($1 == "build:" ? b : t)); next }
+    skip && /^    - / { next }
+    { skip = 0; print }' .agents/config.yaml > .agents/config.new && mv .agents/config.new .agents/config.yaml
+}
+git add -A; git commit -q -m three
+setlist 'echo a|echo b' 'echo c'
+k1=$(B run | sed -n 's/^key: //p' | head -n 1)
+setlist 'echo a' 'echo b|echo c'
+k2=$(B run | sed -n 's/^key: //p' | head -n 1)
+[ -n "$k1" ] && [ -n "$k2" ] && [ "$k1" != "$k2" ] || die "build:[a,b] test:[c] and build:[a] test:[b,c] share a key: $k1 $k2"
+ok "command lists that differ only in where the list boundary falls get different keys"
+setcmd build "echo build-ok >> $cnt; echo built-line-2"
+setcmd test "echo tested-line"
+git add -A; git commit -q -m four
+ks=$(B run | sed -n 's/^key: //p' | head -n 1)
+old=$(printf '%s\n%s\n%s\n' "$(sh .agents/scripts/agent.sh config-get commands.install)" "$(sh .agents/scripts/agent.sh config-get commands.build)" "$(sh .agents/scripts/agent.sh config-get commands.test)" | git hash-object --stdin | cut -c1-8)
+[ "$ks" = "$(git rev-parse HEAD)-$old" ] || die "scalar config no longer uses the original key form: $ks, expected $(git rev-parse HEAD)-$old"
+ok "scalar config keeps the original key, so a record made before command lists existed is still found"

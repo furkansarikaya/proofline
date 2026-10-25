@@ -199,20 +199,29 @@ d_hits() {
 }
 
 # d_ws_ok ROOT ID FILE: FILE (a W hit) is a workspace root: one rule of workspace_roots names it and its `contains` matches.
+# The rules of the ecosystem are read once into D_WS_RULES (`file<TAB>contains` lines) by d_ws_load, not once per file.
+d_ws_load() { D_WS_RULES=$(eco_rows "$1" workspace_roots file contains | tr '\037' '\t'); }
 d_ws_ok() {
   dwo_b=${3##*/}
-  for dwo_i in $(eco_children "$2" workspace_roots); do
-    [ "$(eco_first "$2" "workspace_roots.$dwo_i.file")" = "$dwo_b" ] || continue
-    dwo_c=$(eco_first "$2" "workspace_roots.$dwo_i.contains")
+  while IFS="	" read -r dwo_f dwo_c; do
+    [ "$dwo_f" = "$dwo_b" ] || continue
     [ -z "$dwo_c" ] && return 0
     grep -Eq -- "$dwo_c" "$1/$3" 2>/dev/null && return 0
-  done
+  done <<D_WS_EOF
+$D_WS_RULES
+D_WS_EOF
   return 1
 }
 
 # d_unit_dirs ROOT ID HITS: the outermost directories (one per line) that hold a project file or a confirmed workspace root.
+# A workspace-root file that sits in a directory with a project file of its own (package.json is both) adds nothing: the
+# project file already names the directory, so it is not checked (one fork less per nested project).
 d_unit_dirs() {
-  printf '%s\n' "$3" | while IFS="	" read -r du_k du_f; do
+  d_ws_load "$2"
+  duh=$(printf '%s\n' "$3" | awk -F'\t' '
+    { f[NR] = $0; d = $2; if (index(d, "/")) sub(/\/[^\/]*$/, "", d); else d = "."; if ($1 == "P") hasp[d] = 1; dir[NR] = d }
+    END { for (i = 1; i <= NR; i++) { split(f[i], a, "\t"); if (a[1] == "W" && (dir[i] in hasp)) continue; print f[i] } }')
+  printf '%s\n' "$duh" | while IFS="	" read -r du_k du_f; do
     if [ "$du_k" = W ]; then d_ws_ok "$1" "$2" "$du_f" || continue; elif [ "$du_k" != P ]; then continue; fi
     case "$du_f" in */*) printf '%s\n' "${du_f%/*}" ;; *) printf '.\n' ;; esac
   done | sort -u | awk '{ d[NR] = $0 } END { for (i = 1; i <= NR; i++) { keep = 1
@@ -373,6 +382,24 @@ discover_commands() {
   d_apply_set "$1" root tools
   d_apply_set "$1" nested any
   d_ci_readme "$1"
+  d_unruled "$1"
+}
+
+# d_unruled ROOT: a planned ecosystem whose target was found but whose rules gave no command, while no command at all was found
+# (a Go workspace without a root go.mod, a pnpm workspace without scripts, a Cargo workspace of virtual manifests): D_AMBIG names
+# it, so init says it asks the user instead of staying silent.
+d_unruled() {
+  [ -z "$D_BUILD$D_TEST$D_LINT" ] || return 0
+  [ -n "$D_PLAN" ] || return 0
+  du_notes=$(printf '%s\n' "$D_PLAN" | while IFS='|' read -r du_id du_mode du_dir du_tgt; do
+    [ -n "$du_id" ] || continue
+    if [ "$du_dir" = . ]; then du_unit=$1; else du_unit=$1/$du_dir; fi
+    du_got=no
+    for du_k in build test lint; do d_rule "$du_id" "$du_k" "$du_mode" "$du_unit" "$1" "$du_dir" "$du_tgt" >/dev/null && { du_got=yes; break; }; done
+    [ "$du_got" = yes ] || printf '%s|found at %s but no build, test or lint rule of it matches there\n' "$du_id" "$du_dir"
+  done)
+  [ -z "$du_notes" ] || D_AMBIG="$D_AMBIG
+$du_notes"
 }
 
 # Process-group helpers. nap, grp_alive and pg_start are the same text as in control-plane/agents/scripts/batch.sh (A161):

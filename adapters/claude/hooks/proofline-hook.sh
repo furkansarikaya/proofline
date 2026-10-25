@@ -328,8 +328,8 @@ nr_path_ok() {
   case "$np" in
     .agents/runs/*/RUN.yaml|.agents/runs/*/LEDGER.log|.agents/runs/*/mutation_budget|.agents/runs/*/gates/*|.agents/runs/*/approvals/*|.agents/runs/*/waivers/*|.agents/runs/*/questions/*|.agents/runs/*/decisions/*|.agents/runs/*/dispatch/*|.agents/runs/*/worker-evidence/*|.agents/runs/*/ci-fix/*|.agents/runs/*/results/*.result.md|.agents/runs/*/results/dispatch-*|.agents/hooks|.agents/hooks/*)
       echo "$np is written only by agent.sh and the runtime hooks"; return 1 ;;
-    .claude/settings*|.codex/*|.agents/scripts/*|.agents/config.yaml)
-      echo "$np holds the runtime hooks, the control-plane scripts or the configuration; the lead never edits it itself (A169)"; return 1 ;;
+    .claude/settings*|.codex/*|.agents/scripts/*|.agents/config.yaml|.agents/ecosystems.json|.agents/ecosystems.tsv|.agents/ecosystems.mjs)
+      echo "$np holds the runtime hooks, the control-plane scripts, the configuration or the ecosystem definition (the risky-path and dependency sets, A174); the lead never edits it itself (A169)"; return 1 ;;
     .agents/local/scratch/*|.agents/local/explain/*|.agents/local/assignments/*|.agents/local/product-spec/*|.agents/local/product-discovery/*|.agents/local/intent-grill/*|.agents/local/task-author/*) return 0 ;;
     .agents/local|.agents/local/*) echo "$np is runtime state (approvals, prompts, windows, records); the lead writes under .agents/local/ only in scratch/, explain/, assignments/ and the standalone skill folders (product-spec, product-discovery, intent-grill, task-author)"; return 1 ;;
   esac

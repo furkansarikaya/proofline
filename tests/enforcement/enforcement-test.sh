@@ -88,10 +88,11 @@ EOF")" "$msg"
   denied "A169 no run: lead Edit of RUN.yaml" "$(pre_edit Edit .agents/runs/LC/RUN.yaml)" "written only by agent.sh"
   denied "A169 no run: lead Write of a ci-fix record" "$(pre_edit Write .agents/runs/LC/ci-fix/001.yaml)" "written only by agent.sh"
   printf '.claude/settings.local.json\n' >> .git/info/exclude   # a git-ignored file must not make these writable
-  for f in .claude/settings.json .claude/settings.local.json .codex/hooks.json .codex/config.toml .agents/scripts/agent.sh .agents/config.yaml; do
+  for f in .claude/settings.json .claude/settings.local.json .codex/hooks.json .codex/config.toml .agents/scripts/agent.sh .agents/config.yaml .agents/ecosystems.json .agents/ecosystems.tsv .agents/ecosystems.mjs; do
     denied "A169 no run: lead Write of $f" "$(pre_edit Write "$f")" "never edits it itself"
   done
   denied "A169 no run: lead shell write of the config" "$(pre_bash "sed -i.bak 's/a/b/' .agents/config.yaml")" "never edits it itself"
+  denied "A174 no run: lead shell write of the ecosystem definition" "$(pre_bash "echo '{}' > .agents/ecosystems.json")" "never edits it itself"
   allowed "A169 no run: lead Write under .agents/local/explain/" "$(pre_bash 'echo x > .agents/local/explain/a.html')"
   allowed "A169 no run: lead Write under .agents/local/scratch/" "$(pre_edit Write .agents/local/scratch/n.txt)"
   allowed "A169 no run: lead Write of a product-spec draft" "$(pre_edit Write .agents/local/product-spec/s/PRD.md)"

@@ -42,7 +42,14 @@ else
 fi
 tab=$(printf '\t')
 ic=$(cfgv install); bc=$(cfgv build); tc=$(cfgv test)
-key=$key-$(printf '%s\n%s\n%s\n' "$ic" "$bc" "$tc" | g hash-object --stdin | cut -c1-8)
+# The commands are part of the key. Scalar config (one command or none per kind) keeps the original form, so a record made before the
+# lists existed stays valid. A list prefixes every line with its kind, so `build:[a,b] test:[c]` and `build:[a] test:[b,c]` differ.
+if [ "$(printf '%s\n%s\n%s\n' "$ic" "$bc" "$tc" | wc -l | tr -d ' ')" -le 3 ]; then
+  ckey=$(printf '%s\n%s\n%s\n' "$ic" "$bc" "$tc" | g hash-object --stdin | cut -c1-8)
+else
+  ckey=$( { printf '%s\n' "$ic" | sed 's/^/install:/'; printf '%s\n' "$bc" | sed 's/^/build:/'; printf '%s\n' "$tc" | sed 's/^/test:/'; } | g hash-object --stdin | cut -c1-8)
+fi
+key=$key-$ckey
 dir=$root/.agents/local/builds/$key
 
 show() { # per command: its text, exit status, the last output lines; the full output stays in the .out file

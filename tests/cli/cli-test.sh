@@ -326,6 +326,14 @@ dz=$T/dz; cp -R "$base" "$dz"; sed -e 's/^  build:.*/  build:/' -e 's/^  lint:.*
 out=$(pl "$dz" doctor 2>&1)
 expect "doctor warns about empty commands.build and commands.lint" "$out" "WARN commands: empty in .agents/config.yaml: build lint ("
 reject "doctor lists no foreign hook or skill on a clean HOME" "$out" "WARN foreign hook"
+# A174: the risk sets live in .agents/ecosystems.tsv; a missing or stale one is a doctor FAIL, a fresh one passes
+expect "doctor passes the ecosystem definition check on a fresh install" "$(pl "$d1" doctor 2>&1)" "PASS ecosystems:"
+dec=$T/dec; cp -R "$base" "$dec"; rm "$dec/.agents/ecosystems.tsv"
+out=$(pl "$dec" doctor 2>&1); rc=$?
+expect "doctor FAILs when .agents/ecosystems.tsv is missing" "$out" "FAIL ecosystems: .agents/ecosystems.tsv is missing or empty"
+[ "$rc" != 0 ] && ok "doctor exits non-zero without the ecosystem definition" || die "doctor passed without .agents/ecosystems.tsv"
+dec2=$T/dec2; cp -R "$base" "$dec2"; printf 'npm\tmanifests\tstale.lock\n' >> "$dec2/.agents/ecosystems.tsv"
+expect "doctor FAILs when .agents/ecosystems.tsv is not what ecosystems.json generates" "$(pl "$dec2" doctor 2>&1)" "FAIL ecosystems:"
 # A163: a GitHub project without a pull_request workflow gets a WARN with the exact fix line; with one it passes
 dci=$T/dci; cp -R "$base" "$dci"; git -C "$dci" remote add origin https://github.com/acme/app.git 2>/dev/null || git -C "$dci" remote set-url origin https://github.com/acme/app.git
 out=$(pl "$dci" doctor 2>&1)

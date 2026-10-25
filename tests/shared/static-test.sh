@@ -74,4 +74,14 @@ printf 'Inspired by acme-widgets.\n' >> "$T/names/README.md"; git -C "$T/names" 
 if sh "$chk" --root "$T/names" > "$T/o" 2>&1; then die "a source name in the README passed"; fi
 grep -q '^FAIL third-party names' "$T/o" || die "no FAIL line for the name rule: $(cat "$T/o")"
 echo "ok a source name outside the notices file fails (exit 1)"
+# A174: captured tool output holds no personal path
+scratch pp; mkdir -p "$T/pp/tests/skills/fixtures/tdd-proof-output"
+printf 'tool: x\n=== OUTPUT ===\n at /work/a.ts and /home/user/b\n' > "$T/pp/tests/skills/fixtures/tdd-proof-output/ok.txt"
+sh "$chk" --root "$T/pp" 2>&1 | grep -q '^PASS no personal paths' || die "a clean fixture failed the personal-path rule"
+for pp_bad in '/Users/jane/x' '/home/jane/x' '/opt/homebrew/Cellar/go/1.2/libexec'; do
+  printf 'tool: x\n=== OUTPUT ===\n at %s\n' "$pp_bad" > "$T/pp/tests/skills/fixtures/tdd-proof-output/bad.txt"
+  sh "$chk" --root "$T/pp" > "$T/o" 2>&1 && die "a fixture with $pp_bad passed"
+  grep -q '^FAIL personal paths' "$T/o" || die "no FAIL line for $pp_bad: $(cat "$T/o")"
+done
+echo "ok a personal path in captured tool output fails (exit 1)"
 echo "static-test: all passed"

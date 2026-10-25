@@ -63,7 +63,8 @@ dn "python: two nested projects" python a/pyproject.toml b/setup.py
 dc "go: module at the root" "go build ./..." "go test ./..." "go vet ./..." go.mod
 dc "go: one nested module" "go -C svc build ./..." "go -C svc test ./..." "go -C svc vet ./..." svc/go.mod
 dn "go: two nested modules" go a/go.mod b/go.mod
-dc "go: go.work without a root module gives nothing" "-" "-" "-" go.work a/go.mod b/go.mod
+dn "go: go.work without a root module gives nothing, and init names it" go go.work a/go.mod b/go.mod
+dn "npm: a pnpm workspace root without scripts gives nothing, and init names it" npm package.json='{"name":"w"}' pnpm-workspace.yaml='packages:\n  - "a/*"\n' a/x/package.json='{"name":"x"}'
 # --- jvm
 dc "jvm: maven at the root" "mvn -B package" "mvn -B test" "-" pom.xml
 dc "jvm: maven multi-module root stands for its modules" "mvn -B package" "mvn -B test" "-" pom.xml='<modules><module>a</module></modules>' a/pom.xml b/pom.xml
@@ -111,6 +112,12 @@ dc "mixed: a root .slnx and a nested npm app give a list" "dotnet build App.slnx
 dc "mixed: two ambiguous solutions leave only the npm app" "npm --prefix web run build" "npm --prefix web test" "npm --prefix web run lint" App.sln Other.sln web/package.json="$S"
 case "$D_AMBIG" in *"dotnet|"*) ;; *) bad=1; echo "FAIL: mixed: D_AMBIG does not name .NET: $D_AMBIG" >&2 ;; esac
 dc "mixed: a Makefile target closes its kind, the other kinds still list every ecosystem" "make build" "dotnet test App.slnx;npm --prefix web test" "npm --prefix web run lint" Makefile='build:\n\tx\n' App.slnx web/package.json="$S"
+# --- nested-marker work does not grow with a fork per project: 300 nested package.json are judged in seconds (it took 17 s)
+rm -rf "$T/f"; mkdir -p "$T/f"; i=0
+while [ "$i" -lt 300 ]; do mkdir -p "$T/f/pkgs/p$i"; printf '{"name":"p%s"}\n' "$i" > "$T/f/pkgs/p$i/package.json"; i=$((i + 1)); done
+t0=$(date +%s); discover_commands "$T/f"; t1=$(date +%s); n=$((n + 1))
+[ $((t1 - t0)) -le 6 ] || { bad=1; echo "FAIL: 300 nested package.json took $((t1 - t0)) s" >&2; }
+case "$D_AMBIG" in *"npm|several projects"*) ;; *) bad=1; echo "FAIL: 300 projects: D_AMBIG does not say several projects: $D_AMBIG" >&2 ;; esac
 
 [ "$bad" = 0 ] || exit 1
 printf 'discover-eco-test: %s checks passed\n' "$n"

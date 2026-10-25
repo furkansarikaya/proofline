@@ -88,7 +88,14 @@ if [ -f "$eco/ecosystems.json" ]; then
   for name in $names; do
     for pair in scripts/ecosystems.sh:scripts/ecosystems.sh scripts/ecosystems.mjs:ecosystems.mjs references/ecosystems.json:ecosystems.json references/ecosystems.tsv:ecosystems.tsv; do
       f="$root/skills/$name/${pair%%:*}"
-      [ -f "$f" ] || continue
+      if [ ! -f "$f" ]; then
+        # a skill whose own scripts import the definition must carry the copy it imports (it is installable alone): a missing copy fails
+        case "${pair%%:*}" in scripts/ecosystems.sh|references/ecosystems.tsv) imp=ecosystems.sh ;; *) imp=ecosystems.mjs ;; esac
+        if grep -lE "$imp" "$root/skills/$name"/scripts/* 2>/dev/null | grep -vE '/ecosystems\.(mjs|sh)$' | grep -q .; then
+          echo "FAIL $name (${pair%%:*} is missing: a script of the skill uses $imp, and a skill is installable alone)"; status=1
+        fi
+        continue
+      fi
       if cmp -s "$f" "$eco/${pair##*:}"; then echo "PASS $name ${pair%%:*}"
       else echo "FAIL $name (${pair%%:*} differs from control-plane/agents/${pair##*:})"; status=1; fi
     done

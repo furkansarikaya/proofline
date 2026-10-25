@@ -688,8 +688,12 @@ sc_eco_freeze_compat() {
   rrun COMPLEX ''
   [ -f .agents/ecosystems.tsv ] || die "the fixture has no .agents/ecosystems.tsv"
   cp .agents/ecosystems.tsv "$base/eco.keep"; rm .agents/ecosystems.tsv
+  # a missing definition is never silent: classify prints one warning line, pipeline names it (A174); nothing fails
+  A classify LC COMPLEX 2>&1 | grep -q '^warning: .agents/ecosystems.tsv is missing or empty' || die "classify does not warn about the missing definition"
+  snap; has 'warning=.agents/ecosystems.tsv is missing or empty'
   approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
   cp "$base/eco.keep" .agents/ecosystems.tsv
+  snap; hasnt 'warning=.agents/ecosystems.tsv'
   A verify-freeze LC >/dev/null || die "a run frozen before the ecosystem set joined the hash fails verify-freeze: $(A verify-freeze LC 2>&1)"
   mkdir -p src/Api; printf 'x\n' > src/Api/a.fsproj; printf 'x\n' > Directory.Build.props
   snap; hasnt 'diff:src/Api/a.fsproj('; hasnt 'diff:Directory.Build.props('
