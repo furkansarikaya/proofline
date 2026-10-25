@@ -1188,23 +1188,24 @@ merge_guard() {
         if printf '%s\n' "$mg_args" | grep -Eiq 'github' && printf '%s\n' "$mg_args" | grep -Eiq '/pulls/[^[:space:]]*/merge|/merges|git/refs|/contents/|graphql|mergePull|auto_merge'; then
           deny "$mg_cw aimed at a GitHub merge, refs, contents or graphql endpoint is denied: $MG_MSG"
         fi
-        if printf '%s\n' "$mg_args" | grep -Eiq 'gitlab|dev\.azure|visualstudio' && printf '%s\n' "$mg_args" | grep -Eiq '/merge_requests/[^[:space:]]*(merge|state_event)|merge_when_pipeline_succeeds|/pullrequests/|_apis/git'; then
-          deny "$mg_cw aimed at a GitLab merge request or an Azure DevOps pull request endpoint is denied: $MG_MSG"
+        # path shapes of the merge / completion endpoints of any host (GitHub pulls, GitLab merge requests, Azure pullrequests), whatever the host name
+        if printf '%s\n' "$mg_args" | grep -Eiq '/pulls/[^[:space:]]*/merge|/merge_requests/[^[:space:]]*(merge|state_event)|state_event|merge_when_pipeline_succeeds|/pullrequests/|_apis/git/[^[:space:]]*pullrequests'; then
+          deny "$mg_cw aimed at a pull request / merge request merge or completion endpoint is denied: $MG_MSG"
         fi
         continue ;;
       echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|less|more|man|sed|awk|head|tail|wc|tr|cut|sort|uniq|jq|diff|ls|test|type|which|true|agent.sh|proofline|'<') continue ;;
     esac
     if [ "$mg_cw" = git ]; then mg_git "$mg_args"; continue; fi
     # every other command word (gh itself, ssh, xargs, a variable): the words pr merge, api, alias
-    mg_pr=no mg_mg=no mg_ap=no mg_al=no mg_mr=no mg_up=no mg_cp=no mg_rs=no
+    mg_pr=no mg_mg=no mg_ap=no mg_al=no mg_mr=no mg_cp=no mg_rs=no
     while IFS= read -r mg_t; do
-      case "$mg_t" in pr) mg_pr=yes ;; mr) mg_mr=yes ;; merge) mg_mg=yes ;; api) mg_ap=yes ;; alias) mg_al=yes ;; update) mg_up=yes ;; completed|--status=completed|--auto-complete|--auto-complete=*) mg_cp=yes ;; rest|invoke) mg_rs=yes ;; esac
+      case "$mg_t" in pr) mg_pr=yes ;; mr) mg_mr=yes ;; merge|accept) mg_mg=yes ;; api) mg_ap=yes ;; alias) mg_al=yes ;; completed|--status=completed|--auto-complete|--auto-complete=*|--bypass-policy|--bypass-policy=*) mg_cp=yes ;; rest|invoke) mg_rs=yes ;; esac
     done <<MGARGS
 $mg_args
 MGARGS
     [ "$mg_pr$mg_mg" != yesyes ] || deny "$mg_cw pr merge is denied: $MG_MSG"
     [ "$mg_mr$mg_mg" != yesyes ] || deny "$mg_cw mr merge is denied: $MG_MSG"
-    [ "$mg_cw$mg_pr$mg_up$mg_cp" != az''yesyesyes ] || deny "az repos pr update that completes or auto-completes a pull request is denied: $MG_MSG"
+    [ "$mg_cw$mg_cp" != az''yes ] || deny "az with --status completed, --auto-complete or --bypass-policy (any verb) completes or merges a pull request and is denied: $MG_MSG"
     if [ "$mg_cw$mg_rs" = az''yes ] && printf '%s' "$mg_flat" | grep -Eiq 'pullrequest|_apis/git'; then deny "az rest / az devops invoke aimed at a pull request is denied: $MG_MSG"; fi
     [ "$mg_cw$mg_al" != gh''yes ] || deny "gh alias could hide a merge command: $MG_MSG"
     [ "$mg_cw$mg_al" != glab''yes ] || deny "glab alias could hide a merge command: $MG_MSG"

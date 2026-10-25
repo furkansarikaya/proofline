@@ -23,7 +23,7 @@ want() { [ "$(det "$1" "$2")" = "$3" ] || die "$1 of $2: want $3, got $(det "$1"
 want platform git@github.com:acme/app.git github
 want platform https://github.com/acme/app github
 want platform https://gitlab.com/acme/sub/app.git gitlab
-want platform git@gitlab.example.org:acme/app.git gitlab
+want platform git@gitlab.example.org:acme/app.git other
 want platform https://acme@dev.azure.com/acme/Proj/_git/app azure
 want platform git@ssh.dev.azure.com:v3/acme/Proj/app azure
 want platform https://acme.visualstudio.com/DefaultCollection/Proj/_git/app azure
@@ -137,6 +137,17 @@ merge 7 || die "azure without build policy, verification passing: $(cat "$base/o
 grep -Fq 'old text' "$FS/note.log" && grep -Fq 'verified locally, no CI' "$FS/note.log" || die "the description keeps its text and gains the note: $(cat "$FS/note.log" 2>/dev/null)"
 ok "azure: no build policy -> verified locally in a clean copy, the description gains 'verified locally, no CI', then it merges"
 
+for u in https://github.com.evil.example/a/b https://gitlab.example.evil.com/a/b https://evilgitlab.com/a/b https://bitbucket.org.evil.example/a/b https://notdev.azure.com/a/b/_git/c https://gitlab.company.com/a/b; do
+  want platform "$u" other
+done
+want platform https://www.github.com/a/b github
+[ "$(PROOFLINE_PLATFORM=gitlab sh "$pfs" field platform --url https://gitlab.company.com/a/b)" = gitlab ] || die "PROOFLINE_PLATFORM must name a self-hosted host"
+ok "lookalike and self-hosted hosts are other; PROOFLINE_PLATFORM names a self-hosted one"
+glabview opened false "$sha" "$green_pipe"; git -C "$proj" remote set-url origin https://gitlab.com/acme/app.git; reset; glabview opened false "$sha" "$green_pipe"
+merge 7 || die "glab merge: $(cat "$base/out")"
+[ "$(cat "$FS/merge.log")" = "mr merge 7 --sha $sha --yes" ] || die "the glab merge line is exactly sha-pinned and final: $(cat "$FS/merge.log")"
+ok "glab merge call line is pinned to the verified sha, only after a final (success) pipeline"
+
 # --- the user merges: Bitbucket, unrecognized, missing tool ---------------------------------------------
 for u in https://bitbucket.org/acme/app.git ssh://git@git.example.com/acme/app.git; do
   git -C "$proj" remote set-url origin "$u"; reset; glabview opened false "$sha" "$green_pipe"
@@ -182,7 +193,10 @@ for c in 'glab mr merge 7' 'glab mr merge 7 --squash --yes' 'glab -R acme/app mr
   'glab api projects/1/merge_requests/7/merge -X PUT -f merge_when_pipeline_succeeds=true' 'sh -c "glab mr merge 7"' 'm=merge; glab mr $m 7' \
   'az repos pr update --id 7 --status completed' 'az repos pr update --id 7 --auto-complete true' 'az repos pr update --id 7 --status=completed --squash true' \
   'az rest --method patch --uri https://dev.azure.com/o/p/_apis/git/repositories/r/pullrequests/7' 'az devops invoke --area git --resource pullRequests --http-method PATCH' \
-  'curl -X PUT https://gitlab.com/api/v4/projects/1/merge_requests/7/merge'; do
+  'curl -X PUT https://gitlab.com/api/v4/projects/1/merge_requests/7/merge' 'glab mr accept 7' 'az repos pr create --title t --auto-complete true' 'az repos pr create --bypass-policy true' \
+  'az repos pr update --id 7 --bypass-policy true' 'az repos pr set-vote --id 7 --status completed' \
+  'curl -X PUT https://git.corp.example/api/v4/projects/1/merge_requests/7/merge' 'curl -X PUT https://code.corp.example/api/v3/repos/o/r/pulls/7/merge' \
+  'wget --method=PATCH https://tfs.corp.example/o/p/_apis/git/repositories/r/pullrequests/7' 'curl -X PUT -d state_event=merge https://x.example/api/v4/projects/1/merge_requests/7'; do
   out=$(pre "$c"); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "not denied: $c -> $out"
   printf '%s' "$out" | grep -Fq 'proofline merge' || die "the denial does not name proofline merge: $c"
 done

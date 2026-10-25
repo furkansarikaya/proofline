@@ -33,11 +33,11 @@ case "$url" in /*|.*|file://*) hp='' ;; esac   # a local path has no hosting ser
 host=${hp%%/*}; path=${hp#*/}; [ "$hp" != "$host" ] || path=''
 host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')
 platform=other owner='' org='' proj='' repo='' web=''
-case "$host" in
-  github.com|*.github.com|github.*|*.github.*) platform=github ;;
+case "$host" in   # exact hosts only: a lookalike (github.com.evil.example) or a self-hosted name is `other` unless PROOFLINE_PLATFORM names it
+  github.com|www.github.com) platform=github ;;
   dev.azure.com|ssh.dev.azure.com|*.visualstudio.com) platform=azure ;;
-  bitbucket.org|*.bitbucket.org|bitbucket.*|*.bitbucket.*) platform=bitbucket ;;
-  gitlab.com|*.gitlab.com|gitlab.*|*.gitlab.*) platform=gitlab ;;
+  bitbucket.org) platform=bitbucket ;;
+  gitlab.com) platform=gitlab ;;
 esac
 [ -n "$host" ] && [ -n "$path" ] || platform=other
 case "$platform" in

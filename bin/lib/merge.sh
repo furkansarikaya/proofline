@@ -204,6 +204,7 @@ EOF
   if [ -n "$mg_vnote" ]; then mg_gh mr note "$mg_pr" -m "$mg_vnote" >/dev/null 2>&1 || mg_refuse "could not record \"verified locally, no CI\" on merge request $mg_pr (glab mr note failed); nothing was merged"; fi
   say "proofline merge: merge request $mg_pr at $mg_sha: ${mg_vnote:-green pipeline}; merging ($mg_method)"
   mg_gm=''; case "$mg_method" in --squash) mg_gm=--squash ;; --rebase) mg_gm=--rebase ;; esac
+  # only a final pipeline (success) or none reaches this line, so glab has nothing to wait for; glab's own auto-merge flag could not be verified here (glab not installed)
   mg_gh mr merge "$mg_pr" --sha "$mg_sha" --yes ${mg_gm:+"$mg_gm"} ${mg_del:+--remove-source-branch}
 }
 mg_merge_az() {
