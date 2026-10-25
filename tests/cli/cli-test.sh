@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2015,SC2016,SC2012,SC2086,SC2329 # assertion chains; literal command text; split flag string; ls of generated names; functions run indirectly by run_sc
+# shellcheck disable=SC2015,SC2016,SC2012,SC2086,SC2317,SC2329 # assertion chains; literal command text; split flag string; ls of generated names; functions run indirectly by run_sc
 # shellcheck source-path=SCRIPTDIR
 # CLI tests (D27 layer 1): bin/proofline init, upgrade, doctor and the state commands in throwaway
 # repositories under $TMPDIR, with fake claude/codex binaries on PATH and a private HOME / global git config.

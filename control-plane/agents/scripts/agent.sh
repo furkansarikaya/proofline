@@ -154,10 +154,20 @@ config_value() { cfg "$1"; }
 #   eco_risky_set       review.risky_paths += every risky glob (a change to these is never tier small)
 #   eco_dependency_set  the signal whose check is `dependencies` += manifests, locks and package-source settings
 eco_risky_set='' eco_dependency_set='' eco_loaded=0
-if [ -f "$scripts/ecosystems.sh" ] && [ -f "$agents/ecosystems.tsv" ]; then
+eco_sh=$scripts/ecosystems.sh eco_tsv=$agents/ecosystems.tsv
+if [ ! -s "$eco_tsv" ] || [ ! -f "$eco_sh" ]; then
+  # The project's copy is missing. When this script runs from another folder than the project's .agents/ (the repository layout:
+  # control-plane/agents/scripts), the definition shipped beside it is used, so risk never shrinks silently. In an installed project
+  # the shipped copy IS the project's copy (same folder), so nothing is substituted and the warning and `doctor` apply.
+  eco_ship=$(CDPATH='' cd "$(dirname "$0")/.." 2>/dev/null && pwd) || eco_ship=''
+  if [ -n "$eco_ship" ] && [ "$eco_ship" != "$agents" ] && [ -s "$eco_ship/ecosystems.tsv" ] && [ -f "$eco_ship/scripts/ecosystems.sh" ]; then
+    eco_sh=$eco_ship/scripts/ecosystems.sh eco_tsv=$eco_ship/ecosystems.tsv
+  fi
+fi
+if [ -f "$eco_sh" ] && [ -s "$eco_tsv" ]; then
   # shellcheck source=/dev/null # ecosystems.sh next to this script
-  . "$scripts/ecosystems.sh"
-  if eco_init "$agents/ecosystems.tsv"; then
+  . "$eco_sh"
+  if eco_init "$eco_tsv"; then
     eco_loaded=1
     eco_both=$(eco_sets)
     eco_risky_set=${eco_both%%"
@@ -165,6 +175,7 @@ if [ -f "$scripts/ecosystems.sh" ] && [ -f "$agents/ecosystems.tsv" ]; then
 "}
   fi
 fi
+
 # One visible line when the definition is not readable: risk is then judged by config.yaml alone, which no longer lists the language files (A174).
 # Old runs are not failed over it (freeze and verify-freeze stay as they were); `proofline doctor` fails.
 eco_warning() { [ "$eco_loaded" = 1 ] || printf 'warning: .agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty and only the config.yaml globs apply: run proofline upgrade (proofline doctor shows it)\n'; }

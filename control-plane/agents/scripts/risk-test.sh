@@ -724,6 +724,21 @@ sc_eco_freeze_compat() {
   ok "ecosystem freeze: a run frozen before the set keeps its hash and signal paths, a run frozen with it binds it, config-owned paths still count"
 }
 
+# A174: when the project's .agents/ecosystems.tsv is missing but the script runs from another folder that ships the definition (the
+# repository layout, control-plane/agents/scripts), that shipped copy is used: the dependency signal does not shrink and nothing warns.
+# An installed project (the shipped copy is the project's own) keeps the warning.
+sc_eco_fallback() {
+  rrun STANDARD 'src/Api/a.fsproj'
+  [ -f .agents/ecosystems.tsv ] || { ok "ecosystem fallback skipped (no definition)"; return 0; }
+  mkdir -p ship/scripts; cp .agents/scripts/agent.sh ship/scripts/agent.sh
+  mv .agents/ecosystems.tsv ship/ecosystems.tsv; mv .agents/scripts/ecosystems.sh ship/scripts/ecosystems.sh
+  PO=$(sh ./.agents/scripts/agent.sh pipeline "$RID")
+  has 'warning=.agents/ecosystems.tsv is missing or empty'; hasnt 'signal.dependency_manifest'
+  PO=$(sh ./ship/scripts/agent.sh pipeline "$RID")
+  has 'signal.dependency_manifest=source=scope:src/Api/a.fsproj(*.fsproj)'; hasnt 'warning='
+  ok "ecosystem fallback: a script run from a folder that ships the definition uses it when the project's copy is missing; an installed project warns"
+}
+
 # Drift guard (A92): the control plane's not-a-contract list is a verbatim copy of contract-proof's.
 sc_not_contract_drift() {
   cp_re=$(sed -n "s/^risk_not_contract='\(.*\)'\$/\1/p" "$(dirname "$0")/agent.sh")
@@ -900,6 +915,7 @@ run_sc sc_mapping
 run_sc sc_dependency_manifests
 run_sc sc_eco_risky_paths
 run_sc sc_eco_freeze_compat
+run_sc sc_eco_fallback
 run_sc sc_not_contract_drift
 run_sc sc_contract_content
 run_sc sc_contract_content_edit
