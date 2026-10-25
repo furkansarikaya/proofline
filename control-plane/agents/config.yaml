@@ -73,7 +73,7 @@ design_docs:
   #   surfaces:
   #     site:
   #       doc: docs/design/SITE.md
-  #       paths: apps/web/** apps/landing/**
+  #       paths: apps/web/** apps/landing/**   (one **/ per glob at most; no \ or |)
   #       mode: persuade
   #     app:
   #       doc: docs/design/APP.md

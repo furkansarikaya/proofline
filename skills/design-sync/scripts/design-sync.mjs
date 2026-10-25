@@ -106,7 +106,7 @@ export function checkSurfaces(docsCfg) {
     if (!/^[A-Za-z0-9_-]+$/.test(s.name)) errs.push(`invalid surface name: ${s.name}`);
     if (!s.doc) errs.push(`design surface ${s.name} has no doc`); else if (rel(s.doc)) errs.push(`surface ${s.name} doc must be project-relative: ${s.doc}`);
     if (!s.paths.length) errs.push(`design surface ${s.name} has no paths`);
-    for (const g of s.paths) { if (/[\\|]/.test(g)) errs.push(`surface ${s.name} paths may not contain \\ or |: ${g}`); if (rel(g)) errs.push(`surface ${s.name} paths must be project-relative globs: ${g}`); }
+    for (const g of s.paths) { if (g.split("**/").length > 2) errs.push(`surface ${s.name} paths allow one **/ per glob: ${g}`); if (/[\\|]/.test(g)) errs.push(`surface ${s.name} paths may not contain \\ or |: ${g}`); if (rel(g)) errs.push(`surface ${s.name} paths must be project-relative globs: ${g}`); }
     if (s.mode && !/^[a-z][a-z-]*$/.test(s.mode)) errs.push(`surface ${s.name} mode is a visitor mode in lower case: ${s.mode}`);
   }
   return errs;

@@ -265,6 +265,7 @@ test("surfaces: the config rules match agent.sh config-check", () => {
   assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "apps/../web"))[0], /project-relative globs/);
   assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "apps\\web"))[0], /may not contain/);
   assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "apps/(a|b)"))[0], /may not contain/);
+  assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "a/**/b/**/c"))[0], /one \*\*\/ per glob/);
   assert.match(bad((c) => c.replace("shared: docs/design/BASE.md", "shared: /etc/base.md"))[0], /shared must be project-relative/);
   assert.match(bad((c) => c.replace("mode: persuade", "mode: Persuade"))[0], /visitor mode/);
   assert.match(bad((c) => c.replace("        paths: apps/dashboard/**\n", ""))[0], /has no paths/);

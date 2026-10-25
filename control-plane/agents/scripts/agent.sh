@@ -234,7 +234,7 @@ config_check() {
         else if (p[3] == "surfaces" && p[6] == "" && (p[5] == "doc" || p[5] == "paths" || p[5] == "mode")) {
           sn[p[4]] = 1
           if (p[5] == "doc") { if (v ~ /^\// || v ~ /(^|\/)\.\.(\/|$)/) bad(k " must be project-relative: " v); if (v != "") sd[p[4]] = 1 }
-          else if (p[5] == "paths") { if (v ~ /[\\|]/) bad(k " may not contain \\ or |: " v); if (v ~ /^\// || v ~ /(^|[ \/])\.\.(\/|[ ]|$)/) bad(k " must be project-relative globs: " v); if (v != "") sp[p[4]] = 1 }
+          else if (p[5] == "paths") { ne = split(v, pe, " "); for (ei = 1; ei <= ne; ei++) { pt = pe[ei]; if (gsub(/\*\*\//, "", pt) > 1) bad(k " allows one **/ per glob: " pe[ei]) } if (v ~ /[\\|]/) bad(k " may not contain \\ or |: " v); if (v ~ /^\// || v ~ /(^|[ \/])\.\.(\/|[ ]|$)/) bad(k " must be project-relative globs: " v); if (v != "") sp[p[4]] = 1 }
           else if (v != "" && v !~ /^[a-z][a-z-]*$/) bad(k " is a visitor mode in lower case, for example persuade or operate: " v)
         } else bad("unknown design_docs.design key: " k " (want shared or surfaces.<name>.doc|paths|mode)")
       }

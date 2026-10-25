@@ -1299,6 +1299,7 @@ sc_design_surfaces() {
   ds_bad "an absolute path glob" 's#paths: apps/web/\*\* apps/landing/#paths: /apps/web/**#' 'must be project-relative globs'
   ds_bad "a path glob with .." 's#paths: apps/web/\*\* apps/landing/#paths: apps/../web#' 'must be project-relative globs'
   ds_bad "a backslash in paths" 's#paths: apps/web/\*\* apps/landing/#paths: apps\\web#' 'may not contain'
+  ds_bad "two **/ in one glob" 's#paths: apps/web/\*\* apps/landing/#paths: a/**/b/**/c#' 'allows one **/ per glob'
   ds_bad "a pipe in paths" 's#paths: apps/web/\*\* apps/landing/#paths: apps/(a|b)#' 'may not contain'
   ds_bad "an absolute shared document" 's#shared: docs/design/BASE.md#shared: /etc/base.md#' 'design_docs.design.shared must be project-relative'
   ds_bad "a bad surface name" 's#^      site:#      si te:#' 'invalid surface name'
