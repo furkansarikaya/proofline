@@ -402,8 +402,8 @@ d_unruled() {
 $du_notes"
 }
 
-# Process-group helpers. nap, grp_alive and pg_start are the same text as in control-plane/agents/scripts/batch.sh (A161):
-# the CLI and the control plane install separately, so each keeps its own copy and a test compares the function bodies.
+# Process-group helpers for run_with_timeout (A162). They were copied from the night-mode driver (A161) until it was removed (0.0.32);
+# this is now their only copy.
 G_PID=''
 nap() { sleep 0.2 2>/dev/null || sleep 1; }
 grp_alive() { ps -A -o pgid=,stat= 2>/dev/null | awk -v g="$1" '$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }'; }

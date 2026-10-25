@@ -587,8 +587,10 @@ out=$(pl "$noruns" insights --json 2>&1); printf '%s' "$out" | jq -e '.metrics.o
 out=$(sh "$PL" help); expect "help lists insights" "$out" "insights [--run ID] [--json]"
 # A157: night mode. help lists `batch` (the entry skill and README lists are compared by the checks below)
 printf '%s\n' "$out" | grep -Eq '^[[:space:]]*batch[[:space:]]' && printf '%s\n' "$out" | grep -E '^[[:space:]]*batch[[:space:]]' | grep -q 'ID' && ok "help lists batch" || { LAST=$out; die "help does not list batch <ID...|all>"; }
-expect "help names batch run and batch status" "$out" "batch run"
+printf "%s\n" "$out" | grep -q "batch run" && { LAST=$out; die "help still names batch run"; }
 printf '%s\n' "$out" | grep -q 'batch status' || { LAST=$out; die "help does not name batch status"; }
+out=$(pl "$noruns" batch run 2>&1) && die "proofline batch run still works"; expect "proofline batch run says what to do instead" "$out" "runs in your agent session"
+out=$(pl "$noruns" batch stop 2>&1) && die "proofline batch stop still works"; expect "proofline batch stop says what to do instead" "$out" "continue an interrupted batch with /proofline batch"
 
 }
 

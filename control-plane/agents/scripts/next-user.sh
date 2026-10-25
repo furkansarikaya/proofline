@@ -11,13 +11,13 @@
 # waits for the user), codedone, finished (handoff DONE) and failed (FAILED or BLOCKED).
 # --error: the command failed; the suggestion is the command that fixes it. <kind> is not-installed, dirty-tree,
 # knowledge, failed-run, doctor or usage; without it the kind is read from the state.
-# `batch`, `batch status` and `batch stop` (A163) read the batch folder (.agents/local/batch) instead of a run. States: nobatch, unapproved, running (the driver is alive), approved, stopped,
-# finished-parked and finished-clean. `deliver` for a run that still exists is also delivered (cleanup approval consumed), or merge-open (deliver/<ID>/PR
+# `batch` and `batch status` read the batch (agent.sh batch-next --tsv: records only) instead of a run. States: nobatch, unapproved, approved (work is
+# left: the same approved batch continues with /proofline batch), finished-parked and finished-clean. `deliver` for a run that still exists is also delivered (cleanup approval consumed), or merge-open (deliver/<ID>/PR
 # holds the pull request number: the merge step started), read from the delivery records. No CI is not a state (A180): it is a
 # warning in the summary, and proofline merge verifies the commit locally instead.
 # Placeholders in the table: <ID> the task id, {WORK} the next queued task or a new task, {NEW} the newest task
 # file, {Q} the first open question,
-# {LOG} the driver log, {PARKED} what to do with the first parked task of the batch.
+# {PARKED} what to do with the first parked task of the batch.
 set -u
 root=${PROOFLINE_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 agent=$root/.agents/scripts/agent.sh
@@ -58,15 +58,12 @@ docs|*|/proofline docs audit
 wiki|*|/proofline wiki lint
 batch|nobatch|{WORK}
 batch|unapproved|reply "approve batch" in this session to start the batch
-batch|running|driver started, log: {LOG}. In the morning: /proofline batch status
-batch|approved,stopped|run proofline batch run in a terminal to start the batch; merged tasks are not run again
+batch|approved|run /proofline batch to continue the batch; merged tasks are not run again
 batch|finished-parked,finished-clean|/proofline batch status
 batch-status|nobatch,finished-clean|{WORK}
 batch-status|unapproved|reply "approve batch" in this session to start the batch
-batch-status|running|wait for the driver to finish, then run /proofline batch status again
-batch-status|approved,stopped|run proofline batch run in a terminal to resume the batch; merged tasks are not run again
+batch-status|approved|run /proofline batch to continue the batch; merged tasks are not run again
 batch-status|finished-parked|{PARKED}
-batch-stop|*|/proofline batch status
 product-prd|*|/proofline product review <SLUG>
 product-review|dnship|/proofline product prd <SLUG> to revise the PRD, then /proofline product review <SLUG> again
 product-review|dnship2|/proofline product prd <SLUG> if you revise the PRD (both review rounds are used, so what happens next is your call)
@@ -89,7 +86,7 @@ trace|*|/proofline status
 EOF
 }
 table_names() { table | awk -F'|' '{ n = split($1, a, ","); for (i = 1; i <= n; i++) print a[i] }' | sort -u; }
-# the commands of `proofline help`; batch-status and batch-stop are the table's names for `batch status` and `batch stop`
+# the commands of `proofline help`; batch-status is the table's name for `batch status`
 commands() { table_names | grep -v '^batch-' | sed 's/^product-.*/product/' | sort -u; }
 
 # sub TEXT FROM TO: TEXT with every FROM replaced by TO
@@ -148,7 +145,7 @@ for a in "$@"; do
 done
 case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac
 [ -n "$cmd" ] || cmd=help
-if [ "$cmd" = batch ]; then case "$id" in status|stop) cmd=batch-$id; id='' ;; run) id='' ;; esac; fi
+if [ "$cmd" = batch ]; then case "$id" in status) cmd=batch-$id; id='' ;; run|stop) id='' ;; esac; fi
 if [ "$cmd" = product ]; then case "$id" in prd|review|split|outcome) cmd=product-$id; id=$id2; case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac ;; discover|assess) case "$id2" in ''|-*|*[!a-z]*) cmd=product-prd; id='' ;; *) cmd=product-$id-$id2; id=$id3; case "$id" in -*|*[!A-Za-z0-9_-]*) id='' ;; esac ;; esac ;;
   *) cmd=product-prd; id='' ;; esac; fi
 if [ "$err" = no ]; then table_names | grep -Fqx -- "$cmd" || { echo "next-user: unknown command: $cmd" >&2; exit 2; }; fi
@@ -156,7 +153,6 @@ if [ "$err" = no ]; then table_names | grep -Fqx -- "$cmd" || { echo "next-user:
 # the state of the run the command is about
 installed=no; { [ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ]; } && installed=yes
 state=none; ks=''
-bd=$root/.agents/local/batch
 # run_state ID: state and ks of the run ID (none when it has no run)
 # A169: a night-mode task's run lives in .agents/local/worktrees/<ID>; agent.sh forwards the commands for it there, and inwt marks it
 run_state() {
@@ -174,38 +170,24 @@ run_state() {
     if [ "$state" != failed ] && grep -Eq '^  awaiting_input: "?true' "$rs_r/.agents/runs/$1/RUN.yaml" 2>/dev/null; then state=question; fi
   fi
 }
-# drv_alive: the recorded driver is alive, holds the LOCK and is a batch.sh process (as batch.sh drv_live)
-drv_alive() {
-  dp=$(awk 'NR == 1 { print $1 }' "$bd/driver.pid" 2>/dev/null)
-  case "$dp" in ''|*[!0-9]*|0|1) return 1 ;; esac
-  [ "$(cat "$bd/LOCK" 2>/dev/null)" = "$dp" ] || return 1
-  ps -o command= -p "$dp" 2>/dev/null | grep -q 'batch\.sh'
-}
-batch_state() {
-  if drv_alive; then echo running; return; fi
-  bs=nobatch
-  if [ -f "$bd/SUMMARY.md" ]; then
-    if ! sh "$agent" batch-check >/dev/null 2>&1; then bs=unapproved
-    elif [ ! -f "$bd/state.tsv" ]; then bs=approved
-    elif grep -q '^# stopped:' "$bd/state.tsv"; then bs=stopped
-    elif awk -F'\t' '$2 == "pending" || $2 == "running" { f = 1 } END { exit !f }' "$bd/state.tsv"; then bs=approved
-    elif awk -F'\t' '$2 == "parked" { f = 1 } END { exit !f }' "$bd/state.tsv"; then bs=finished-parked
-    else bs=finished-clean; fi
-  fi
-  echo "$bs"
-}
+# batch_state: the state word of the batch, from records only (agent.sh batch-next --tsv)
+batch_state() { sh "$agent" batch-next --tsv 2>/dev/null | awk -F'\t' 'NR == 1 && $1 == "state" { print $2; f = 1 } END { if (!f) print "nobatch" }'; }
+# batch_rows: ID state detail question of the batch's tasks
+batch_rows() { sh "$agent" batch-next --tsv 2>/dev/null | sed '1d'; }
 # parked_line: what to do with the first parked task of the batch (its full id; the question text when it waits for one)
 parked_line() {
-  pk=$(awk -F'\t' '$2 == "parked" { print $1; exit }' "$bd/state.tsv" 2>/dev/null)
+  pk_row=$(batch_rows | awk -F'\t' '$2 == "parked" { print; exit }')
+  pk=${pk_row%%	*}
   [ -n "$pk" ] || { work; return; }
+  pk_q=$(printf '%s' "$pk_row" | awk -F'\t' '{ print $4 }' | tr -d '`' | cut -c1-120)
   id=$pk; run_state "$id"
-  if [ "$inwt" = yes ]; then   # A169: the run is in its task's worktree: answer or reopen from here (forwarded), the driver resumes it
+  if [ "$inwt" = yes ]; then   # A169: the run is in its task's worktree: answer or reopen from here (forwarded), /proofline batch resumes it
     case "$state" in
       question)
-        q=$(question); [ "$q" != 'see the question above' ] || q=$(awk -F'\t' -v t="$id" '$1 == t && $4 != "" { print $4; exit }' "$bd/state.tsv" | tr -d '`' | cut -c1-120)
-        printf 'reply in this session to the open question: %s, then run proofline batch run' "${q:-see the question above}" ;;
-      failed) printf '/proofline reopen %s, then run proofline batch run' "$id" ;;
-      *) printf 'run proofline batch run: it resumes %s in its worktree' "$id" ;;
+        q=$(question); [ "$q" != 'see the question above' ] || q=$pk_q
+        printf 'reply in this session to the open question: %s, then run /proofline batch' "${q:-see the question above}" ;;
+      failed) printf '/proofline reopen %s, then run /proofline batch' "$id" ;;
+      *) printf 'run /proofline batch: it resumes %s in its worktree' "$id" ;;
     esac
     return 0
   fi
@@ -213,7 +195,7 @@ parked_line() {
     none) printf '/proofline run %s' "$id" ;;
     question)
       q=$(question)
-      [ "$q" != 'see the question above' ] || q=$(awk -F'\t' -v t="$id" '$1 == t && $4 != "" { print $4; exit }' "$bd/state.tsv" | tr -d '`' | cut -c1-120)
+      [ "$q" != 'see the question above' ] || q=$pk_q
       printf '/proofline resume %s, then reply in this session to the open question: %s' "$id" "${q:-see the question above}" ;;
     failed) printf '/proofline reopen %s' "$id" ;;
     codedone|finished) printf '/proofline deliver %s' "$id" ;;
@@ -279,7 +261,6 @@ else
     *'{NEW}'*) n=$(newest_task); if [ -n "$n" ]; then n="/proofline run $n"; else n='/proofline task --grill'; fi; text=$(sub "$text" '{NEW}' "$n") ;;
   esac
   case "$text" in *'{PR}'*) text=$(sub "$text" '{PR}' "$pr") ;; esac
-  case "$text" in *'{LOG}'*) text=$(sub "$text" '{LOG}' '.agents/local/batch/driver.log') ;; esac
   case "$text" in *'{PARKED}'*) text=$(parked_line) ;; esac
   case "$text" in *'{Q}'*) text=$(sub "$text" '{Q}' "$(question)") ;; esac
   case "$cmd" in product-*) text=$(sub "$text" '<SLUG>' "${id:-<slug>}") ;; esac

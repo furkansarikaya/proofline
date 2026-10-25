@@ -108,7 +108,7 @@ trace <FR-n|TASK-ID>                  follow a requirement or task to its tests 
 knowledge <TASK>                      knowledge step of a finished run
 reopen <TASK>                         take a FAILED or BLOCKED run back into the workflow, with your approval
 deliver <TASK>                        commit, push, pull request, merge and cleanup after one approval
-batch <ID...|all>                     night mode: one approval of one summary for several tasks; batch run, batch status
+batch <ID...|all>                     night mode: one approval of one summary for several tasks, run in this session; batch status
 debt                                  list the shortcut comments in the code (read-only, needs no run)
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
@@ -117,7 +117,7 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
 
-**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and the session starts the driver in the background (plug in the computer; do not close the laptop lid), which works through the tasks one at a time in clean headless sessions, each in a git worktree of its own (a parked task never blocks an independent one). Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table, `proofline batch stop` stops the driver. Detail and limits: [night mode](docs/concepts/night-mode.md).
+**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it. The same session then runs and delivers each task in dependency order, the next one only after the previous is merged, each in its own git worktree. Keep the computer awake and the session open; `/proofline batch` continues after an interruption. What the approval does not cover (a waiver, scope expansion, new dependency, reopen, destructive data change) parks that task with its question. `proofline batch status` is the morning table ([night mode](docs/concepts/night-mode.md)).
 
 **Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition ([workflow](docs/concepts/workflow.md#shortcut-debt)).
 

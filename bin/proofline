@@ -104,15 +104,14 @@ agent session (prints the exact instruction for your runtime)
                           record the measured outcome of a shipped change against its baseline
   trace <FR-n|TASK-ID>    follow a requirement or task to its tests, run evidence and pull request, and the evidence, assumption, decision and outcome behind it (read-only)
   reopen <TASK>           take a FAILED or BLOCKED run back into the workflow, only with your approval
-  batch <ID...|all>       night mode: one summary and one "approve batch" stand in for the plan and delivery approvals of
-                            the listed tasks (no CRITICAL task; nothing else is covered; a project without CI gets a
-                            warning: each pull request is then verified locally before it merges). After "approve batch" the session starts the driver in the background
-                            (it keeps running when the session closes, and keeps the computer awake): plug in the
-                            computer; do not close the laptop lid. One clean headless session per task, one at a time,
-                            parked on any other question. Also, in a terminal without an agent session: batch run
-                            (the same driver), batch status (the morning table and the driver, from records only) and
-                            batch stop (stops the running driver; its task is parked as stopped); a Codex session
-                            runs in a sandbox that can commit (.git and .agents writable, network on), add --codex-danger-full-access when planning to lift it
+  batch <ID...|all>       night mode, in this session: one summary and one "approve batch" stand in for the plan and delivery
+                            approvals of the listed tasks (no CRITICAL task; nothing else is covered; a project without CI gets a
+                            warning: each pull request is then verified locally before it merges). The lead runs each task and
+                            delivers it, in dependency order, and starts the next one only when the previous is merged; a stuck task is
+                            parked, its dependents are skipped, independent tasks go on. Keep the computer awake and the session
+                            open (on macOS the session offers caffeinate for exactly its own lifetime); after an interruption
+                            /proofline batch continues the approved batch and never runs a merged task again.
+                            batch status: the morning table, from records only
 EOF
 }
 
@@ -289,14 +288,13 @@ cmd_run() {
   hint run "$@"
 }
 
-cmd_batch() { # A157: night mode. plan = agent session; run and status need none
+cmd_batch() { # A157: night mode. The plan and the tasks run in the agent session; status needs none
   require_installed
   case "${1:-}" in
-    run) (cd "$ROOT" && sh "$ROOT/.agents/scripts/batch.sh" run) ;;
     status) agent batch-status ;;
-    stop) (cd "$ROOT" && sh "$ROOT/.agents/scripts/batch.sh" stop) ;;
-    '') die "usage: proofline batch <ID...|all> [--codex-danger-full-access] | batch run | batch status | batch stop" ;;
-    *) say "night mode plans the batch in the lead's session (one summary, one \"approve batch\"); the same \"approve batch\" in that session starts the driver in the background (agent.sh batch-start); proofline batch run still starts it from a terminal, and proofline batch stop ends it"
+    run|stop) die "proofline batch $1 is gone (removed in 0.0.32): night mode runs in your agent session, not in a background driver. Plan it with /proofline batch <ID...|all>, reply \"approve batch\", and continue an interrupted batch with /proofline batch in the session; proofline batch status shows the table" ;;
+    '') hint batch ;;
+    *) say "night mode runs in the lead's session: one summary, one \"approve batch\", then the lead runs and delivers the tasks one after the other; keep the computer awake and the session open"
        hint batch "$@" ;;
   esac
 }

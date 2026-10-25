@@ -24,7 +24,8 @@ state_run() {
   scaffold orchestrated
   case "$1" in
     active) ;;
-    question) sed 's/^  awaiting_input: false/  awaiting_input: true/' .agents/runs/LC/RUN.yaml > .agents/runs/LC/RUN.tmp && mv .agents/runs/LC/RUN.tmp .agents/runs/LC/RUN.yaml ;;
+    question) sed 's/^  awaiting_input: false/  awaiting_input: true/' .agents/runs/LC/RUN.yaml > .agents/runs/LC/RUN.tmp && mv .agents/runs/LC/RUN.tmp .agents/runs/LC/RUN.yaml
+      mkdir -p .agents/runs/LC/questions; printf 'from: lead\nasked_at: 1\n---\n1. Which cache do we use?\n   options: a | b\n' > .agents/runs/LC/questions/001.md ;;
     codedone) to_code_done orchestrated ;;
     finished) to_code_done orchestrated; A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null ;;
     failed) printf 'reason: the environment lacks the database the lookup needs to be proven\nevidence: the staging database is unreachable from this environment\n' | A terminate LC BLOCKED >/dev/null ;;
@@ -155,11 +156,13 @@ sc_delivery_finished() {
   ok "after delivery, merge or clean the next step is the next queued task, else a new task"
 }
 
-# batch fixtures: the batch scripts, one task file, a planned batch
-batch_plan_fixture() {
+# batch fixtures: the batch scripts, one task file (default T-1), a planned batch. The state comes from records only : merged.tsv,
+# ci.tsv, the run's own records and the lead's parks (state.tsv).
+batch_plan_fixture() { # [ID]
+  bp_id=${1:-T-1}
   for s in "$tl_agents"/scripts/*.sh; do case "$(basename "$s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac; cp "$s" .agents/scripts/; done
-  mkdir -p .agents/tasks; printf '# Task: T-1 — one\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nCOMPLEX\n' > .agents/tasks/T-1.md
-  A batch-plan T-1 >/dev/null || die "batch-plan failed"
+  mkdir -p .agents/tasks; printf '# Task: %s — one\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nCOMPLEX\n' "$bp_id" > ".agents/tasks/$bp_id.md"
+  A batch-plan "$bp_id" >/dev/null || die "batch-plan failed"
   bdir=.agents/local/batch
 }
 batch_approve_fixture() { capture 'approve batch'; A approve-pending >/dev/null; }
@@ -170,56 +173,50 @@ sc_batch_rows() {
   batch_plan_fixture
   [ "$(NU batch T-1)" = 'Next step: reply "approve batch" in this session to start the batch' ] || die "batch, planned not approved: $(NU batch T-1)"
   batch_approve_fixture
-  [ "$(NU batch)" = 'Next step: run proofline batch run in a terminal to start the batch; merged tasks are not run again' ] || die "batch, approved not started: $(NU batch)"
-  [ "$(NU batch status)" = 'Next step: run proofline batch run in a terminal to resume the batch; merged tasks are not run again' ] || die "batch status, approved: $(NU batch status)"
-  # stopped
-  printf 'T-1\tpending\t\t\n# stopped: stopped by the user\n' > "$bdir/state.tsv"
-  [ "$(NU batch)" = 'Next step: run proofline batch run in a terminal to start the batch; merged tasks are not run again' ] || die "batch, stopped: $(NU batch)"
-  [ "$(NU batch stop)" = 'Next step: /proofline batch status' ] || die "batch stop: $(NU batch stop)"
-  [ "$(NU batch-stop)" = 'Next step: /proofline batch status' ] || die "batch-stop: $(NU batch-stop)"
-  # the driver runs
-  printf 'while :; do sleep 1; done\n' > "$base/batch.sh"; sh "$base/batch.sh" & dpid=$!
-  printf '%s %s\n' "$dpid" "$dpid" > "$bdir/driver.pid"; printf '%s\n' "$dpid" > "$bdir/LOCK"
-  [ "$(NU batch)" = 'Next step: driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status' ] || { kill "$dpid"; die "batch, driver running: $(NU batch)"; }
-  [ "$(NU batch status)" = 'Next step: wait for the driver to finish, then run /proofline batch status again' ] || { kill "$dpid"; die "batch status, driver running: $(NU batch status)"; }
-  kill "$dpid" 2>/dev/null; wait "$dpid" 2>/dev/null || :
-  rm -f "$bdir/driver.pid" "$bdir/LOCK"
-  # finished, nothing parked
-  printf 'T-1\tmerged\t\t\n' > "$bdir/state.tsv"; rm -f .agents/tasks/T-1.md   # a delivered task file is in done/
+  [ "$(NU batch)" = 'Next step: run /proofline batch to continue the batch; merged tasks are not run again' ] || die "batch, approved: $(NU batch)"
+  [ "$(NU batch status)" = 'Next step: run /proofline batch to continue the batch; merged tasks are not run again' ] || die "batch status, approved: $(NU batch status)"
+  [ "$(NU batch stop)" = "$(NU batch)" ] && [ "$(NU batch run)" = "$(NU batch)" ] || die "the removed batch stop and batch run are not answered like batch: $(NU batch stop)"
+  # the lead parked the only task
+  printf 'T-1\tparked\tno worktree\t\n' > "$bdir/state.tsv"
+  [ "$(NU batch)" = 'Next step: /proofline batch status' ] || die "batch, finished with a parked task: $(NU batch)"
+  rm -f "$bdir/state.tsv"
+  # merged, but the CI of its merge commit was not checked yet: the batch is not finished
+  printf 'T-1\t101\t1\n' > "$bdir/merged.tsv"; rm -f .agents/tasks/T-1.md   # a delivered task file is in done/
+  [ "$(NU batch status)" = 'Next step: run /proofline batch to continue the batch; merged tasks are not run again' ] || die "batch status, merged, CI not checked: $(NU batch status)"
+  printf 'T-1\tsha\t1\n' > "$bdir/ci.tsv"
   [ "$(NU batch status)" = 'Next step: /proofline task --grill' ] || die "batch status, finished clean: $(NU batch status)"
   [ "$(NU batch)" = 'Next step: /proofline batch status' ] || die "batch, finished: $(NU batch)"
   printf '# Task: NEXT-7 — queued\n' > .agents/tasks/NEXT-7.md
   [ "$(NU batch status)" = 'Next step: /proofline run NEXT-7' ] || die "batch status, finished clean, NEXT-7 queued: $(NU batch status)"
-  ok "batch: unapproved, approved, stopped, driver started, stop, finished clean"
+  ok "batch: unapproved, approved (continue with /proofline batch), parked, merged, finished clean"
 }
 
 sc_batch_parked() {
   new_repo
   state_run question
-  batch_plan_fixture; batch_approve_fixture
+  batch_plan_fixture LC; batch_approve_fixture
   q=$(NU resume LC | sed 's/^Next step: reply in this session to the open question: //')
   [ -n "$q" ] || die "no question text"
-  printf 'LC\tparked\tquestion\tpending\n' > "$bdir/state.tsv"
   [ "$(NU batch status)" = "Next step: /proofline resume LC, then reply in this session to the open question: $q" ] || die "parked question: $(NU batch status)"
-  state_run failed; batch_plan_fixture; batch_approve_fixture
-  printf 'LC\tparked\tBLOCKED\t\n' > "$bdir/state.tsv"
+  state_run failed; batch_plan_fixture LC; batch_approve_fixture
   [ "$(NU batch status)" = 'Next step: /proofline reopen LC' ] || die "parked, failed run: $(NU batch status)"
-  state_run codedone; batch_plan_fixture; batch_approve_fixture
+  state_run codedone; batch_plan_fixture LC; batch_approve_fixture
   printf 'LC\tparked\ttimeout\t\n' > "$bdir/state.tsv"
   [ "$(NU batch status)" = 'Next step: /proofline deliver LC' ] || die "parked, code done: $(NU batch status)"
-  state_run active; batch_plan_fixture; batch_approve_fixture
+  state_run active; batch_plan_fixture LC; batch_approve_fixture
   printf 'LC\tparked\tstopped\t\n' > "$bdir/state.tsv"
   [ "$(NU batch status)" = 'Next step: /proofline resume LC' ] || die "parked, active run: $(NU batch status)"
-  printf 'GONE-1\tparked\tstopped\t\n' > "$bdir/state.tsv"
-  [ "$(NU batch status)" = 'Next step: /proofline run GONE-1' ] || die "parked, no run: $(NU batch status)"
+  new_repo; rm -rf .agents/tasks; batch_plan_fixture; batch_approve_fixture
+  printf 'T-1\tparked\tno worktree\t\n' > "$bdir/state.tsv"
+  [ "$(NU batch status)" = 'Next step: /proofline run T-1' ] || die "parked, no run: $(NU batch status)"
   ok "batch status with a parked task names its full id and the question, or the fixing command"
 }
 
 sc_batch_every_state() {
   new_repo; rm -rf .agents/tasks
   batch_plan_fixture; batch_approve_fixture
-  printf 'T-1\tparked\tquestion\tWhich database?\n' > "$bdir/state.tsv"
-  for c in batch 'batch status' 'batch stop'; do
+  printf 'T-1\tparked\tno worktree\tWhich database?\n' > "$bdir/state.tsv"
+  for c in batch 'batch status' 'batch stop' 'batch run'; do
     out=$(eval "NU $c" 2>&1) || die "next-user $c failed: $out"
     printf '%s\n' "$out" | grep -Eq "$shape" || die "next-user $c is not a user command: $out"
     ! printf '%s' "$out" | grep -Eq 'agent\.sh|<TASK-ID>|\{[A-Z]+\}|<ID>' || die "next-user $c names an internal command or leaves a placeholder: $out"

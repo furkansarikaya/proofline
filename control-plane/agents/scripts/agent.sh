@@ -252,6 +252,7 @@ config_check() {
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
+      # batch.task_timeout and batch.runtimes belonged to the removed headless driver (0.0.32): accepted and ignored, so an existing config stays valid
       else if (k == "batch.task_timeout" || k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
       else if (k == "batch.runtimes") { nr = split(v, rt, " "); for (ri = 1; ri <= nr; ri++) en(k, rt[ri], "claude|codex") }
       else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
@@ -4961,7 +4962,7 @@ approval_consume() { # ID KIND [FINGERPRINT [REF...]] — for the git hooks; exi
 }
 
 # --- Night mode (A157): one approval of one summary stands in for the plan, delivery and mutation budget approvals of the
-# listed tasks. The plan, the driver and the report are batch.sh; here are only the approval checks and the cover.
+# listed tasks. The plan, the digest of its state and the report are batch.sh; here are only the approval checks and the cover.
 batch_dir() { printf '%s/.agents/local/batch\n' "$root"; }
 # batch_approval: the batch approval file, valid only while SUMMARY.md still has the hash it is bound to; it is never consumed.
 batch_approval() {
@@ -4973,7 +4974,9 @@ batch_approval() {
 batch_check() { batch_approval >/dev/null || fail "no valid batch approval for the current summary (agent.sh batch-plan, then the user's reply \"approve batch\")"; hash_file "$(batch_dir)/SUMMARY.md"; }
 batch_plan() {
   require_lead; mkdir -p "$agents/local"
-  sh "$scripts/batch.sh" plan "$@" || return 1
+  bp_rc=0; sh "$scripts/batch.sh" plan "$@" || bp_rc=$?
+  [ "$bp_rc" -ne 3 ] || return 0   # the same approved batch continues: no new plan, no new approval
+  [ "$bp_rc" -eq 0 ] || return 1
   request_approval - batch
 }
 # batch_record ID KIND REQUEST BATCH-HASH [DELIVERY [CAP]]: an approval as `approve` writes it, marked source batch.
@@ -6998,7 +7001,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-start ] || [ "$command" = batch-stop ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 # deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
 # A169: ci-fix also reads the failed check and its log, ci-merge the pull request's head
@@ -7039,7 +7042,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)
   terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable "<reason>"]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
-  batch-plan <ID...|all> [--codex-danger-full-access] | batch-cover <ID> <plan|delivery|mutation_budget> | batch-status | batch-check | batch-start | batch-stop   (A157: night mode; lead only; A163: start/stop the background driver)
+  batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one "approve delivery", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH> | task-source-done <ID>
   platform   (A180: the hosting platform of the origin remote, the installed tool and who merges: platform, cli, merge, owner, web)
@@ -7132,8 +7135,10 @@ case "$command" in
   batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" ;;
   batch-status) sh "$scripts/batch.sh" status ;;
   batch-check) batch_check ;;
-  batch-start) require_lead; sh "$scripts/batch.sh" start ;;
-  batch-stop) require_lead; sh "$scripts/batch.sh" stop ;;
+  batch-next) shift; sh "$scripts/batch.sh" next "$@" ;;
+  batch-ci) sh "$scripts/batch.sh" ci "${2:?usage: agent.sh batch-ci <ID>}" ;;
+  batch-awake) require_lead; sh "$scripts/batch.sh" awake ;;
+  batch-park) require_lead; sh "$scripts/batch.sh" park "${2:?usage: agent.sh batch-park <ID> <reason>|--clear}" "${3:?usage: agent.sh batch-park <ID> <reason>|--clear}" ;;
   deliver-plan) require_lead; dpid=${2:?usage: agent.sh deliver-plan <ID> [--message MSG]}; shift 2; deliver_plan "$dpid" "$@" ;;
   deliver-step) require_lead; deliver_step "${2:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${3:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${4:-}" ;;
   amend) require_lead; amend_run "${2:?usage: agent.sh amend <ID>}" ;;
