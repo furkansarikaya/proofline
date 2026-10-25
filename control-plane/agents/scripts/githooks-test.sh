@@ -34,7 +34,7 @@ echo "$*" >> "$st/calls.log"
 case "$1" in
   open-runs) if [ -f "$st/active" ]; then echo "$(cat "$st/active") proofline/T-1-x"; fi ;;
   delivery-check) [ -f "$st/gates_ok" ] ;;
-  fingerprint) echo fp-123 ;;
+  fingerprint) if [ "${3:-}" = full ]; then echo fp-full-456; else echo fp-123; fi ;;
   approval-consume) [ -f "$st/approve_$3" ] && rm "$st/approve_$3" ;;
 esac
 EOF
@@ -83,7 +83,7 @@ touch "$st/gates_ok"; commit h
 touch "$st/approve_commit"; echo partial > "$r/other.txt"; commit i
 [ "$rc" -ne 0 ] && said "exactly the gated content" && ok "active run: untracked content outside the commit blocked" || no "active run: untracked content outside the commit blocked"
 rm -f "$r/other.txt"; commit j
-[ "$rc" -eq 0 ] && [ ! -f "$st/approve_commit" ] && grep -q '^approval-consume T-1 commit fp-123' "$st/calls.log" && ok "active run: gated, approved commit passes" || no "active run: gated, approved commit passes ($(cat "$tmp/out"))"
+[ "$rc" -eq 0 ] && [ ! -f "$st/approve_commit" ] && grep -q '^approval-consume T-1 commit fp-full-456' "$st/calls.log" && ok "active run: the commit approval is bound to the full content fingerprint, as approve delivery records it" || no "active run: the commit approval is bound to the full content fingerprint ($(cat "$tmp/out"))"
 EMAIL=dev@example-corp.com; touch "$st/approve_commit"; commit k; EMAIL=alice@example.org
 [ "$rc" -ne 0 ] && said forbidden_identities && ok "identity guard applies inside a run too" || no "identity guard applies inside a run too"
 

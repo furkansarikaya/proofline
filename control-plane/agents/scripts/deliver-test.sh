@@ -218,7 +218,7 @@ scenario_one_approval_real_chain() {
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   worker GREEN pass .github/workflows/ci.yml 'on: pull_request'
   A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null; hooks; finish_done
-  git init -q --bare "$base/remote.git"; git config remote.origin.pushurl "$base/remote.git"
+  rm -rf "$base/remote.git"; git init -q --bare "$base/remote.git"; git config remote.origin.pushurl "$base/remote.git"
   A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused: $(A deliver-plan LC 2>&1 | tail -1)"
   # a git that counts the content fingerprints computed (each one is one `git write-tree`)
   mkdir -p "$base/gs"; printf '#!/bin/sh\ncase " $* " in *" write-tree "*) echo w >> "%s/wt.log" ;; esac\nexec "%s" "$@"\n' "$base" "$(command -v git)" > "$base/gs/git"; chmod +x "$base/gs/git"
@@ -245,7 +245,7 @@ scenario_one_approval_real_chain() {
 # the cause, and the user's reply once more records the steps that are missing, after the commit already exists.
 scenario_partial_reply_recovers() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; finish_done; hooks
-  git init -q --bare "$base/remote.git"; git config remote.origin.pushurl "$base/remote.git"
+  rm -rf "$base/remote.git"; git init -q --bare "$base/remote.git"; git config remote.origin.pushurl "$base/remote.git"
   A deliver-plan LC >/dev/null; capture 'approve delivery'
   A approve LC commit >/dev/null   # what a cut-off hook leaves: the first step only
   S commit >/dev/null; A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the approved commit was blocked"
@@ -253,7 +253,7 @@ scenario_partial_reply_recovers() {
   expect_msg "that refusal does not send the lead to a new summary" 'do not prepare it again' S push
   capture 'approve delivery'; A approve-pending LC >/dev/null   # the user sends the reply once more
   S push >/dev/null || die "push step after the repeated reply: $(S push 2>&1 | tail -1)"
-  git push -u origin proofline/LC-lc >/dev/null 2>&1 || die "git push after the repeated reply"
+  git push -u origin proofline/LC-lc > "$base/push.out" 2>&1 || die "git push after the repeated reply: $(tail -3 "$base/push.out")"
   expect_msg "a second push on the used approval" 'was already used' S push
   S pr >/dev/null || die "pr step after the repeated reply: $(S pr 2>&1 | tail -1)"
   ok "deliver: a reply recorded in part is completed by the same reply once more, not by a new summary"
