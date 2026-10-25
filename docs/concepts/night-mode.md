@@ -10,10 +10,12 @@ the hook rules around it in [enforcement layers](enforcement-layers.md), and eve
 covers, what it does not, and the tasks left out (CRITICAL or unclassified tasks, and tasks that depend on them). Your one
 reply "approve batch" is bound to that summary.
 
-A project with no CI check on pull requests cannot run a batch (A163): `proofline merge` does not merge a pull request that
-has no checks, so every task would stop at the merge step. The summary then carries a BLOCKER instead of a question, with
-the ready `/proofline task Add a GitHub Actions workflow ...` line that adds the workflow. There is no setting that merges
-without CI. `proofline doctor` and the delivery summary warn about the same thing early.
+A project with no CI check on pull requests can still run a batch (A180; before 0.0.32 it was refused, A163). The summary carries
+a WARNING with the ready `/proofline task Add a GitHub Actions workflow ...` line, and each pull request is merged only after the
+project's build and test commands pass in a clean copy of its commit; the pull request then says "verified locally, no CI".
+The batch needs a platform proofline can merge on (GitHub with gh, GitLab with glab, Azure DevOps with az): on Bitbucket, another
+host or without the tool the driver pushes each branch and leaves the pull request for you to merge. `proofline doctor` and the
+delivery summary show the same warning early.
 
 ## Starting, stopping, status
 

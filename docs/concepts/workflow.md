@@ -186,6 +186,17 @@ pending question) from the records, never from a session log, with the friction 
 | `debt` | list the shortcut comments in the code; read-only, needs no run |
 | `clean`, `merge`, `insights` | clean up, the only allowed merge, cost and recurring failures |
 
+## Delivery on other platforms
+
+The platform comes from the `origin` URL (A180): GitHub, GitLab, Azure DevOps (`dev.azure.com`, `*.visualstudio.com`, `ssh.dev.azure.com`), Bitbucket, or other. `agent.sh platform` and `proofline doctor` show it, the tool found on `PATH` (`gh`, `glab`, `az`) and who merges.
+
+| Platform and tool | Pull request | Merge |
+|---|---|---|
+| GitHub + `gh`, GitLab + `glab`, Azure DevOps + `az` | opened with that tool | `proofline merge <PR>`: open, not a draft, every check (GitHub checks, the GitLab pipeline of the head, the Azure build and status policies) passed on the head being merged; the same fail-closed strictness on all three |
+| Bitbucket, any other host, or the tool is not installed | the branch is pushed and the address is printed | you merge it; `proofline merge` merges nothing and says so; the delivery has no merge or cleanup step, run `agent.sh cleanup <ID>` afterwards |
+
+When a pull request has **no checks** (or the project has no CI), it is not refused: the build and test commands of `.agents/config.yaml` run in a clean export of exactly the commit to be merged (the build record), the pull request description and the delivery summary say "verified locally, no CI", and `proofline merge` posts the same note before it merges. Checks that exist but are red or pending still refuse. A CI-fix round (A169) reads the failed run through `gh` and so exists on GitHub only. Only the exact hosts `github.com`, `www.github.com`, `gitlab.com`, `bitbucket.org`, `dev.azure.com`, `ssh.dev.azure.com` and `*.visualstudio.com` are recognized (a lookalike such as `github.com.example` is `other`); `PROOFLINE_PLATFORM=github|gitlab|azure|bitbucket|other` names the platform of a self-hosted host.
+
 ## The next step
 
 Every command ends with one line, `Next step: ...` (A159): a `/proofline` command or an action you do yourself, never an internal command. The lead writes it, the Stop hook adds it when the lead left it out, and the CLI prints it for its own commands. All three read one table, `next-user.sh` in the control plane (`agent.sh next-user`), which maps a command and the run state to the line:
@@ -199,13 +210,13 @@ Every command ends with one line, `Next step: ...` (A159): a `/proofline` comman
 | `design` | the next queued task, else `/proofline task --grill` |
 | `run`, `status`, `resume`, `queue` | a question waits: reply in the session (the line names the question); CODE_DONE: `/proofline deliver <ID>`; FAILED or BLOCKED: `/proofline reopen <ID>`; running: `/proofline resume`; no run: the next queued task, else `/proofline task --grill` |
 | `knowledge` | `/proofline deliver <ID>` (FAILED or BLOCKED: `/proofline reopen <ID>`) |
-| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; no CI check on pull requests: the ready CI task line; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
+| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
 | `reopen` | `/proofline resume` |
 | `merge`, `clean` | the next queued task, else `/proofline task --grill` |
 | `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
 | `insights`, `explain` | `/proofline status` |
 | `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
-| `batch` | no CI: the ready CI task line; not approved: reply `approve batch`; driver started: `driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status` |
+| `batch` | not approved: reply `approve batch`; driver started: `driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status` |
 | `batch status` | driver running: wait; a task parked: `/proofline resume <ID>, then reply in this session to the open question: ...`; none parked: the next queued task, else `/proofline task --grill` |
 | `batch stop` | `/proofline batch status` |
 | `version` | `/proofline doctor` |

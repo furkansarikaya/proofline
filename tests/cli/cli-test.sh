@@ -337,7 +337,7 @@ expect "doctor FAILs when .agents/ecosystems.tsv is not what ecosystems.json gen
 # A163: a GitHub project without a pull_request workflow gets a WARN with the exact fix line; with one it passes
 dci=$T/dci; cp -R "$base" "$dci"; git -C "$dci" remote add origin https://github.com/acme/app.git 2>/dev/null || git -C "$dci" remote set-url origin https://github.com/acme/app.git
 out=$(pl "$dci" doctor 2>&1)
-expect "doctor warns when no workflow runs on pull requests" "$out" "WARN ci: no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks."
+expect "doctor warns when no workflow runs on pull requests" "$out" "WARN ci: no CI check runs on pull requests here. proofline merge verifies the commit locally instead"
 task_line=$(cd "$dci" && sh .agents/scripts/agent.sh ci-task-command)
 expect "doctor prints the ci-task-command line as the fix" "$out" "Fix: $task_line"
 mkdir -p "$dci/.github/workflows"; printf 'on:\n  pull_request:\njobs: {}\n' > "$dci/.github/workflows/ci.yml"

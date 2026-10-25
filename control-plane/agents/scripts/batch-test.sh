@@ -868,27 +868,23 @@ sc_merge_commit_ci() {
   ok "merge-commit CI: red run of the SHA stops (an old green main run does not count), no run in ci_appear_minutes stops, green run continues"
 }
 
-# --- A163: a GitHub project without a pull_request workflow cannot start a batch -------------------------------------------
+# --- A163, A180: a GitHub project without a pull_request workflow can plan a batch; it is a WARNING, not a blocker -----------
 sc_ci_required() {
   bnew; mktask T-1 COMPLEX; binstall no; rm -rf .github   # binstall adds a workflow; this scenario starts without one
   git remote add origin https://github.com/acme/app.git
-  rc=0; BP T-1 > "$base/plan.out" 2>&1 || rc=$?
-  [ "$rc" != 0 ] || die "batch-plan produced a batch although no workflow runs on pull requests"
-  grep -q 'BLOCKER' "$summary" || die "SUMMARY.md has no BLOCKER section"
-  for t in 'no CI check runs on pull requests here.' 'proofline merge does not merge a PR that has no checks.' '/proofline task Add a GitHub Actions workflow'; do
-    grep -Fq -- "$t" "$base/plan.out" || die "the refusal lacks '$t': $(cat "$base/plan.out")"
+  BP T-1 > "$base/plan.out" 2>&1 || die "batch-plan refused although the missing CI is only a warning: $(cat "$base/plan.out")"
+  grep -q '^## WARNING' "$summary" || die "SUMMARY.md has no WARNING section"
+  ! grep -q 'BLOCKER' "$summary" || die "a BLOCKER section is back"
+  for t in 'no CI check runs on pull requests here.' 'verifies the commit locally' '/proofline task Add a GitHub Actions workflow'; do
+    grep -Fq -- "$t" "$summary" || die "the warning lacks '$t': $(cat "$summary")"
   done
-  [ ! -e .agents/local/batch/order.tsv ] || die "a refused plan left an order"
-  [ "$(nfiles .agents/local/approvals -batch)" = 0 ] || die "a refused plan requested a batch approval"
-  capture 'approve batch'; A approve-pending >/dev/null 2>&1 || :
-  expect_msg "the driver without a batch" "no valid batch approval" BB run
-  # with a workflow the same plan passes, and the driver refuses again once the workflow is gone
+  [ -e .agents/local/batch/order.tsv ] || die "no order although the plan is valid"
+  batch_approve
+  A batch-check >/dev/null 2>&1 || die "the approved batch without CI is not valid"
   mkdir -p .github/workflows; printf 'on: [push, pull_request]\njobs: {}\n' > .github/workflows/ci.yml
   BP T-1 > "$base/plan.out" 2>&1 || die "batch-plan refused with a workflow: $(cat "$base/plan.out")"
-  ! grep -q 'BLOCKER' "$summary" || die "BLOCKER in a summary with CI"
-  batch_approve; rm -rf .github
-  expect_msg "the driver without CI" "proofline merge does not merge a PR that has no checks." BB run
-  ok "batch: no pull_request workflow refuses batch-plan (BLOCKER, no order, no approval) and batch.sh run; with one it plans"
+  ! grep -q '^## WARNING' "$summary" || die "WARNING in a summary with CI"
+  ok "batch: no pull_request workflow is a WARNING in the summary and the approved batch is valid (A180); with one there is no warning"
 }
 
 # --- 10. (A163) the background driver: batch-start, batch-stop, the sleep inhibitor and the driver line of status --------------

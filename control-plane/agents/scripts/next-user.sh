@@ -10,13 +10,13 @@
 # Without <ID> the active run decides. Run state seen by the table: none (no run), active, question (a question
 # waits for the user), codedone, finished (handoff DONE) and failed (FAILED or BLOCKED).
 # --error: the command failed; the suggestion is the command that fixes it. <kind> is not-installed, dirty-tree,
-# knowledge, failed-run, ci, doctor or usage; without it the kind is read from the state.
-# `batch`, `batch status` and `batch stop` (A163) read the batch folder (.agents/local/batch) instead of a run. States: ci
-# (no pull_request workflow, so a batch cannot start), nobatch, unapproved, running (the driver is alive), approved, stopped,
-# finished-parked and finished-clean. `deliver` for a run that still exists is also delivered (cleanup approval consumed), merge-open (deliver/<ID>/PR
-# holds the pull request number: the merge step started) or ci (ready to deliver, no CI), read from the delivery records.
+# knowledge, failed-run, doctor or usage; without it the kind is read from the state.
+# `batch`, `batch status` and `batch stop` (A163) read the batch folder (.agents/local/batch) instead of a run. States: nobatch, unapproved, running (the driver is alive), approved, stopped,
+# finished-parked and finished-clean. `deliver` for a run that still exists is also delivered (cleanup approval consumed), or merge-open (deliver/<ID>/PR
+# holds the pull request number: the merge step started), read from the delivery records. No CI is not a state (A180): it is a
+# warning in the summary, and proofline merge verifies the commit locally instead.
 # Placeholders in the table: <ID> the task id, {WORK} the next queued task or a new task, {NEW} the newest task
-# file, {Q} the first open question, {CI} the ready task line that adds a CI workflow (agent.sh ci-task-command),
+# file, {Q} the first open question,
 # {LOG} the driver log, {PARKED} what to do with the first parked task of the batch.
 set -u
 root=${PROOFLINE_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
@@ -36,7 +36,6 @@ status,resume,queue,run|codedone,finished|/proofline deliver <ID>
 status,resume,queue,run|failed|/proofline reopen <ID>
 status,resume,queue,run|active|/proofline resume
 status,resume,queue,run|none|{WORK}
-deliver|ci|{CI}
 deliver|delivered|{WORK}
 deliver|merge-open|proofline merge {PR}
 deliver|question|reply in this session to the open question: {Q}
@@ -57,13 +56,12 @@ insights|*|/proofline status
 explain|*|/proofline status
 docs|*|/proofline docs audit
 wiki|*|/proofline wiki lint
-batch|ci|{CI}
 batch|nobatch|{WORK}
 batch|unapproved|reply "approve batch" in this session to start the batch
 batch|running|driver started, log: {LOG}. In the morning: /proofline batch status
 batch|approved,stopped|run proofline batch run in a terminal to start the batch; merged tasks are not run again
 batch|finished-parked,finished-clean|/proofline batch status
-batch-status|ci,nobatch,finished-clean|{WORK}
+batch-status|nobatch,finished-clean|{WORK}
 batch-status|unapproved|reply "approve batch" in this session to start the batch
 batch-status|running|wait for the driver to finish, then run /proofline batch status again
 batch-status|approved,stopped|run proofline batch run in a terminal to resume the batch; merged tasks are not run again
@@ -176,7 +174,6 @@ run_state() {
     if [ "$state" != failed ] && grep -Eq '^  awaiting_input: "?true' "$rs_r/.agents/runs/$1/RUN.yaml" 2>/dev/null; then state=question; fi
   fi
 }
-ci_absent() { [ "$(sh "$agent" ci-check 2>/dev/null | head -n 1)" = 'ci: absent' ]; }
 # drv_alive: the recorded driver is alive, holds the LOCK and is a batch.sh process (as batch.sh drv_live)
 drv_alive() {
   dp=$(awk 'NR == 1 { print $1 }' "$bd/driver.pid" 2>/dev/null)
@@ -195,7 +192,6 @@ batch_state() {
     elif awk -F'\t' '$2 == "parked" { f = 1 } END { exit !f }' "$bd/state.tsv"; then bs=finished-parked
     else bs=finished-clean; fi
   fi
-  case "$cmd:$bs" in batch:nobatch|batch:unapproved|batch:approved|batch:stopped) ! ci_absent || bs=ci ;; esac
   echo "$bs"
 }
 # parked_line: what to do with the first parked task of the batch (its full id; the question text when it waits for one)
@@ -250,8 +246,7 @@ if [ "$installed" = yes ]; then
         pr=$(cat "$root/.agents/local/deliver/$id/PR" 2>/dev/null)
         case "$pr" in ''|*[!0-9]*) pr='' ;; esac
         if grep -qs '^consumed: "\{0,1\}true' "$root/.agents/runs/$id"/approvals/[0-9][0-9][0-9]-cleanup.yaml; then state=delivered
-        elif [ -n "$pr" ]; then state=merge-open
-        elif ci_absent; then state=ci; fi
+        elif [ -n "$pr" ]; then state=merge-open; fi
       fi ;;
   esac
 fi
@@ -261,7 +256,6 @@ if [ "$err" = yes ]; then
     if [ "$installed" = no ]; then kind=not-installed
     elif [ "$state" = failed ]; then kind=failed-run
     elif [ "$state" = codedone ] && [ "$ks" != KNOWLEDGE_DONE ] && [ "$ks" != not_applicable ]; then kind=knowledge
-    elif { [ "$cmd" = deliver ] || [ "$cmd" = merge ]; } && ci_absent; then kind=ci
     elif [ "$cmd" = doctor ]; then kind=doctor
     fi
   fi
@@ -271,7 +265,6 @@ if [ "$err" = yes ]; then
     dirty-tree) text="commit or stash your changes yourself, then run /proofline $cmd${id:+ $id} again" ;;
     knowledge) text="/proofline knowledge ${id:-<TASK-ID>}" ;;
     failed-run) text="/proofline reopen ${id:-<TASK-ID>}" ;;
-    ci) text=$(sh "$agent" ci-task-command 2>/dev/null) ;;
     doctor) text='fix what /proofline doctor reported (each failed check names its fix), then run /proofline doctor again' ;;
     *) text='/proofline status' ;;
   esac
@@ -285,7 +278,6 @@ else
   case "$text" in
     *'{NEW}'*) n=$(newest_task); if [ -n "$n" ]; then n="/proofline run $n"; else n='/proofline task --grill'; fi; text=$(sub "$text" '{NEW}' "$n") ;;
   esac
-  case "$text" in *'{CI}'*) text=$(sub "$text" '{CI}' "$(sh "$agent" ci-task-command 2>/dev/null)") ;; esac
   case "$text" in *'{PR}'*) text=$(sub "$text" '{PR}' "$pr") ;; esac
   case "$text" in *'{LOG}'*) text=$(sub "$text" '{LOG}' '.agents/local/batch/driver.log') ;; esac
   case "$text" in *'{PARKED}'*) text=$(parked_line) ;; esac

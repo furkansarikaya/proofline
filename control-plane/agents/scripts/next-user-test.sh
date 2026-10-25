@@ -115,18 +115,12 @@ ci_line() { A ci-task-command; }
 sc_ci_rows() {
   state_run codedone   # builds its own repository: the CI fixture comes after it
   ci_absent_fixture
-  want="Next step: $(ci_line)"
-  case "$want" in 'Next step: /proofline task Add a GitHub Actions workflow that runs on pull_request'*) ;; *) die "ci task command: $want" ;; esac
-  [ "$(NU deliver LC)" = "$want" ] || die "deliver on CODE_DONE without CI: $(NU deliver LC)"
-  [ "$(NU deliver LC --error=ci)" = "$want" ] || die "--error=ci: $(NU deliver LC --error=ci)"
-  [ "$(NU status)" = 'Next step: /proofline deliver LC' ] || die "status is not about CI: $(NU status)"
+  # A180: no CI is a warning, not a blocker: the delivery approval step stays
+  NU deliver LC | grep -Fq 'approve delivery' || die "deliver on CODE_DONE without CI: $(NU deliver LC)"
+  [ "$(NU status)" = 'Next step: /proofline deliver LC' ] || die "status without CI: $(NU status)"
   state_run finished; ci_absent_fixture
-  [ "$(NU deliver LC)" = "$want" ] || die "deliver on a finished run without CI: $(NU deliver LC)"
-  [ "$(NU merge LC --error)" = "$want" ] || die "merge refused without CI: $(NU merge LC --error)"
-  # a pull_request workflow exists: the delivery approval step is back
-  mkdir -p .github/workflows; printf 'name: ci\non: pull_request\njobs: {}\n' > .github/workflows/ci.yml
-  NU deliver LC | grep -Fq 'approve delivery' || die "deliver with CI: $(NU deliver LC)"
-  ok "deliver and --error=ci give the ready CI task line when no pull_request workflow exists"
+  NU deliver LC | grep -Fq 'approve delivery' || die "deliver on a finished run without CI: $(NU deliver LC)"
+  ok "without a pull_request workflow the delivery step is the same (no CI is a warning, A180)"
 }
 
 sc_deliver_records() {
@@ -196,11 +190,7 @@ sc_batch_rows() {
   [ "$(NU batch)" = 'Next step: /proofline batch status' ] || die "batch, finished: $(NU batch)"
   printf '# Task: NEXT-7 — queued\n' > .agents/tasks/NEXT-7.md
   [ "$(NU batch status)" = 'Next step: /proofline run NEXT-7' ] || die "batch status, finished clean, NEXT-7 queued: $(NU batch status)"
-  # a project without CI cannot start a batch
-  ci_absent_fixture
-  rm -f "$bdir/state.tsv"
-  [ "$(NU batch)" = "Next step: $(ci_line)" ] || die "batch without CI: $(NU batch)"
-  ok "batch: ci line, unapproved, approved, stopped, driver started, stop, finished clean"
+  ok "batch: unapproved, approved, stopped, driver started, stop, finished clean"
 }
 
 sc_batch_parked() {
