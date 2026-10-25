@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-- The question the script stores for you in your own language (`questions/NNN.md`, written by `agent.sh ask` and for a specialist's question) is no longer refused by the run language check, so a Turkish question no longer blocks `handoff DONE` (A178); the same text anywhere else in a run is still refused.
-
 ## 0.0.30 — 2026-10-25
 
 - proofline no longer assumes a folder layout (A173): `proofline init` finds the build, test and lint commands of a root, nested, multi-project or monorepo project in every ecosystem from one definition (`control-plane/agents/ecosystems.json`); .NET `.slnx`, `*.fsproj` and `*.vbproj` are supported, `dotnet build App.slnx` is proposed only when exactly one target exists, and zero or several targets of an ecosystem propose no command for it instead of a broken one (`MSB1011`, `MSB1003`). `proofline doctor` and verify-proof read runtime versions of nested projects and of java, rust, php, ruby, swift and dart too. See [ecosystems](docs/concepts/ecosystems.md).
@@ -12,6 +10,7 @@
 - `commands.build`, `commands.test` and `commands.lint` take a list of commands (A176): a block list under the key, the scalar stays valid. The build record and the verify re-run run every command of a key, report each (`build[2/3]`, exit, output tail, a `failed:` line) and a failed key stops the next one; `config-check` rejects a value plus a list, an empty item, a duplicate and an inline `[a, b]`. Discovery adds one command per ecosystem (a root .NET solution plus a nested npm app give a list), a Makefile, justfile, Taskfile, CI or README command covers the whole repository, and a root project no longer hides a nested project of another ecosystem.
 - `proofline doctor` no longer reads `runtime: none` as a runtime named "none" (A173); the fresh-install test has a Node fixture and a no-runtime fixture.
 - A suite cannot go red from a dying scenario: `run_sc` in `tests/cli/cli-test.sh` ran scenarios in a subshell that ended with a `printf`, so a scenario that died exited 0 and the cli suite could never fail in `selftest.sh`; it now propagates the failure (A177).
+- The question the script stores for you in your own language (`questions/NNN.md`, written by `agent.sh ask` and for a specialist's question) is no longer refused by the run language check, so a Turkish question no longer blocks `handoff DONE` (A178); the same text anywhere else in a run is still refused.
 
 ## 0.0.29 — 2026-10-24
 
