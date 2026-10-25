@@ -194,6 +194,7 @@ for c in 'glab mr merge 7' 'glab mr merge 7 --squash --yes' 'glab -R acme/app mr
   'az repos pr update --id 7 --status completed' 'az repos pr update --id 7 --auto-complete true' 'az repos pr update --id 7 --status=completed --squash true' \
   'az rest --method patch --uri https://dev.azure.com/o/p/_apis/git/repositories/r/pullrequests/7' 'az devops invoke --area git --resource pullRequests --http-method PATCH' \
   'curl -X PUT https://gitlab.com/api/v4/projects/1/merge_requests/7/merge' 'glab mr accept 7' 'az repos pr create --title t --auto-complete true' 'az repos pr create --bypass-policy true' \
+  'az repos pr update --id 7 --status Completed' 'az repos pr update --id 7 --status COMPLETED' 'az repos pr update --id 7 --status=Completed' 'GLAB mr MERGE 7' 'az repos pr create --Auto-Complete true' \
   'az repos pr update --id 7 --bypass-policy true' 'az repos pr set-vote --id 7 --status completed' \
   'curl -X PUT https://git.corp.example/api/v4/projects/1/merge_requests/7/merge' 'curl -X PUT https://code.corp.example/api/v3/repos/o/r/pulls/7/merge' \
   'wget --method=PATCH https://tfs.corp.example/o/p/_apis/git/repositories/r/pullrequests/7' 'curl -X PUT -d state_event=merge https://x.example/api/v4/projects/1/merge_requests/7'; do
@@ -201,7 +202,7 @@ for c in 'glab mr merge 7' 'glab mr merge 7 --squash --yes' 'glab -R acme/app mr
   printf '%s' "$out" | grep -Fq 'proofline merge' || die "the denial does not name proofline merge: $c"
 done
 ok "glab mr merge, glab api merge, az repos pr update that completes, az rest on pull requests and HTTP clients are denied"
-for c in 'proofline merge 7' 'glab mr view 7' 'glab mr create --target-branch main' 'glab ci status' 'az repos pr show --id 7' 'az repos pr create --source-branch x --target-branch main' 'az repos pr policy list --id 7' 'az repos pr update --id 7 --title t' 'glab api projects/1/merge_requests/7'; do
+for c in 'proofline merge 7' 'glab mr view 7' 'glab mr create --target-branch main' 'glab ci status' 'az repos pr show --id 7' 'az repos pr create --source-branch x --target-branch main' 'az repos pr policy list --id 7' 'az repos pr list --status completed' 'az pipelines runs list --status completed' 'az repos pr update --id 7 --title t' 'glab api projects/1/merge_requests/7'; do
   out=$(pre "$c"); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "denied: $c -> $out"
 done
 ok "reading, creating and retitling stay allowed"

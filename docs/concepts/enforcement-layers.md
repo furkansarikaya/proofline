@@ -17,6 +17,8 @@ enforced by proofline hooks and gates. Dispatched workers retain `workspace-writ
 | Runtime hook | `adapters/claude/hooks/proofline-hook.sh` (installed as `.agents/hooks/proofline-hook.sh`), wired by `adapters/claude/hooks/hooks.json` (plugin), `adapters/claude/settings.fragment.json` (project `.claude/settings.json`), `adapters/codex/hooks.json` (project `.codex/hooks.json`) | Claude Code, Codex |
 | Policy | role instructions, `AGENTS.md`, the proofline-lead skill | — |
 
+The HTTP-client check (curl, wget, http, xh) is method-blind by design: it matches the merge and completion path shapes (`/pulls/<n>/merge`, `/merge_requests/<n>/merge`, `/pullrequests/<n>`, `state_event`) on any host, so even a GET on them is denied.
+
 ## Which rule is enforced where
 
 | Rule | Control plane (all runtimes) | Claude Code hook | Codex hook | Policy-only part |

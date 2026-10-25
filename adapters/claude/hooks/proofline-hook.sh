@@ -1197,15 +1197,17 @@ merge_guard() {
     esac
     if [ "$mg_cw" = git ]; then mg_git "$mg_args"; continue; fi
     # every other command word (gh itself, ssh, xargs, a variable): the words pr merge, api, alias
-    mg_pr=no mg_mg=no mg_ap=no mg_al=no mg_mr=no mg_cp=no mg_rs=no
+    mg_pr=no mg_mg=no mg_ap=no mg_al=no mg_mr=no mg_cp=no mg_rs=no mg_vb=no mg_sc=no
     while IFS= read -r mg_t; do
-      case "$mg_t" in pr) mg_pr=yes ;; mr) mg_mr=yes ;; merge|accept) mg_mg=yes ;; api) mg_ap=yes ;; alias) mg_al=yes ;; completed|--status=completed|--auto-complete|--auto-complete=*|--bypass-policy|--bypass-policy=*) mg_cp=yes ;; rest|invoke) mg_rs=yes ;; esac
+      mg_t=$(printf '%s' "$mg_t" | tr '[:upper:]' '[:lower:]')   # Completed, COMPLETED and --Status=Completed are the same words
+      case "$mg_t" in pr) mg_pr=yes ;; mr) mg_mr=yes ;; merge|accept) mg_mg=yes ;; api) mg_ap=yes ;; alias) mg_al=yes ;; update|create|set-vote) mg_vb=yes ;; completed|--status=completed) mg_sc=yes ;; --auto-complete|--auto-complete=*|--bypass-policy|--bypass-policy=*) mg_cp=yes ;; rest|invoke) mg_rs=yes ;; esac
     done <<MGARGS
 $mg_args
 MGARGS
     [ "$mg_pr$mg_mg" != yesyes ] || deny "$mg_cw pr merge is denied: $MG_MSG"
     [ "$mg_mr$mg_mg" != yesyes ] || deny "$mg_cw mr merge is denied: $MG_MSG"
-    [ "$mg_cw$mg_cp" != az''yes ] || deny "az with --status completed, --auto-complete or --bypass-policy (any verb) completes or merges a pull request and is denied: $MG_MSG"
+    [ "$mg_cw$mg_pr$mg_cp" != az''yesyes ] || deny "az repos pr with --auto-complete or --bypass-policy (any verb) completes or merges a pull request and is denied: $MG_MSG"
+    [ "$mg_cw$mg_pr$mg_vb$mg_sc" != az''yesyesyes ] || deny "az repos pr update/create/set-vote with --status completed completes a pull request and is denied: $MG_MSG"
     if [ "$mg_cw$mg_rs" = az''yes ] && printf '%s' "$mg_flat" | grep -Eiq 'pullrequest|_apis/git'; then deny "az rest / az devops invoke aimed at a pull request is denied: $MG_MSG"; fi
     [ "$mg_cw$mg_al" != gh''yes ] || deny "gh alias could hide a merge command: $MG_MSG"
     [ "$mg_cw$mg_al" != glab''yes ] || deny "glab alias could hide a merge command: $MG_MSG"
