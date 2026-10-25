@@ -33,8 +33,8 @@ One function decides it. `sh .agents/scripts/agent.sh design-surface <PATH>` pri
 (`surface`, `visitor_mode`, `doc`, `shared`, `status`); the designer, QA, the verifier (design-sync) and the knowledge step
 use it, and `design-sync.mjs --file <PATH>` applies the same rules.
 
-- In a glob `*` and `**` match any characters including `/`, `?` matches one character, and an entry ending in `/` is a
-  directory prefix.
+- In a glob `*` and `**` match any characters including `/`, `**/` also matches zero directories (`apps/**/x.ts` matches
+  `apps/x.ts`), `?` matches one character, and an entry ending in `/` is a directory prefix. `\` and `|` are refused in `paths`.
 - A file that matches **one** surface is held to that surface document plus the shared base. A contradiction with the shared
   base is a finding.
 - A file that matches **two** surfaces is an error (`status=overlap`, exit 1): narrow the globs.

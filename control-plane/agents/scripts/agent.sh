@@ -234,7 +234,7 @@ config_check() {
         else if (p[3] == "surfaces" && p[6] == "" && (p[5] == "doc" || p[5] == "paths" || p[5] == "mode")) {
           sn[p[4]] = 1
           if (p[5] == "doc") { if (v ~ /^\// || v ~ /(^|\/)\.\.(\/|$)/) bad(k " must be project-relative: " v); if (v != "") sd[p[4]] = 1 }
-          else if (p[5] == "paths") { if (v ~ /^\// || v ~ /(^|[ \/])\.\.(\/|[ ]|$)/) bad(k " must be project-relative globs: " v); if (v != "") sp[p[4]] = 1 }
+          else if (p[5] == "paths") { if (v ~ /[\\|]/) bad(k " may not contain \\ or |: " v); if (v ~ /^\// || v ~ /(^|[ \/])\.\.(\/|[ ]|$)/) bad(k " must be project-relative globs: " v); if (v != "") sp[p[4]] = 1 }
           else if (v != "" && v !~ /^[a-z][a-z-]*$/) bad(k " is a visitor mode in lower case, for example persuade or operate: " v)
         } else bad("unknown design_docs.design key: " k " (want shared or surfaces.<name>.doc|paths|mode)")
       }
@@ -1889,9 +1889,15 @@ task_source_status() {
 #           doc: docs/design/SITE.md
 #           paths: apps/web/** apps/landing/**      (space-separated globs)
 #           mode: persuade                          (the visitor mode: persuade, operate, ...)
-# Glob: `*` and `**` match any characters including `/`, `?` one character, `[..]` a class; an entry ending in `/` is a directory prefix.
+# Glob: `*` and `**` match any characters including `/`, `**/` also zero directories, `?` one character, `[..]` a class; an entry ending in `/` is a directory prefix.
+# `\` and `|` are refused in paths by config-check (the shell would read them as an escape and an alternation).
 design_surface_names() { # the surface names in config order
   printf '%s\n' "$cfg_cache" | awk 'index($0, "design_docs.design.surfaces.") == 1 { r = substr($0, 29); n = index(r, "."); if (n > 1) { s = substr(r, 1, n - 1); if (!(s in q)) { q[s] = 1; print s } } }'
+}
+design_glob_one() { # PATH GLOB: `**/` also matches zero directories (git style), so apps/**/x.ts matches apps/x.ts
+  # shellcheck disable=SC2254 # the glob from the config is the pattern
+  case "$1" in $2) return 0 ;; esac
+  case "$2" in *'**/'*) design_glob_one "$1" "${2%%'**/'*}${2#*'**/'}" ;; *) return 1 ;; esac
 }
 design_glob_match() { # PATH GLOBS: exit 0 when PATH matches one of the space-separated globs (read without pathname expansion)
   dg_rest=$2
@@ -1899,8 +1905,7 @@ design_glob_match() { # PATH GLOBS: exit 0 when PATH matches one of the space-se
     dg_rest=${dg_rest#"${dg_rest%%[! ]*}"}; [ -n "$dg_rest" ] || return 1
     dg_g=${dg_rest%% *}; dg_rest=${dg_rest#"$dg_g"}; dg_g=${dg_g#./}
     case "$dg_g" in */) dg_g="$dg_g*" ;; esac
-    # shellcheck disable=SC2254 # the glob from the config is the pattern
-    case "$1" in $dg_g) return 0 ;; esac
+    ! design_glob_one "$1" "$dg_g" || return 0
   done
 }
 design_doc_paths() { # every design document of the config, one per line (the knowledge step may write all of them)

@@ -442,6 +442,13 @@ out=$(pl "$st" run T-2 2>&1); expect "run prints the Claude instruction" "$out" 
 out=$(pl "$st" task --grill "add a lookup" 2>&1); expect "task --grill prints the instruction" "$out" "/proofline task --grill add a lookup"
 out=$(pl "$st" design api --check 2>&1); expect "design api --check prints the instruction" "$out" "/proofline design api --check"
 nocheck "design with an unknown kind fails" pl "$st" design nonsense
+out=$(pl "$st" design system 2>&1); expect "design lists the single design document by default" "$out" "durable design documents: docs/design/DESIGN.md"
+cp "$st/.agents/config.yaml" "$st/cfg.single"
+awk '/^  design: / { print "  design:"; print "    surfaces:"; print "      site:"; print "        doc: docs/design/SITE.md"; print "        paths: apps/web/**"; print "        mode: persuade"; print "      app:"; print "        doc: docs/design/APP.md"; print "        paths: apps/dashboard/**"; next } { print }' "$st/cfg.single" > "$st/.agents/config.yaml"
+out=$(pl "$st" design system 2>&1); expect "design in surfaces mode lists each surface document" "$out" "surfaces: site=docs/design/SITE.md app=docs/design/APP.md"; expect "design in surfaces mode without a shared document says none" "$out" "shared: none"
+sed 's#^    surfaces:#    shared: docs/design/BASE.md\n    surfaces:#' "$st/.agents/config.yaml" > "$st/cfg.shared" && cp "$st/cfg.shared" "$st/.agents/config.yaml"
+out=$(pl "$st" design system 2>&1); expect "design in surfaces mode names the shared document" "$out" "shared: docs/design/BASE.md"
+cp "$st/cfg.single" "$st/.agents/config.yaml"; rm -f "$st/cfg.single" "$st/cfg.shared"
 for c in review audit debug; do out=$(pl "$st" "$c" 2>&1); expect "$c prints the instruction" "$out" "/proofline $c"; done
 awk '/^  lead:/ { print "  lead: codex"; next } { print }' "$st/.agents/config.yaml" > "$st/cfg.tmp" && cat "$st/cfg.tmp" > "$st/.agents/config.yaml" && rm "$st/cfg.tmp"
 out=$(pl "$st" run T-2 2>&1); expect "run prints the Codex instruction when the lead is codex" "$out" '$proofline run T-2'

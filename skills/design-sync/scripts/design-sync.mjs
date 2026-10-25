@@ -64,7 +64,7 @@ export function readDocConfig(configText) {
 }
 
 // ---------- design surfaces ----------
-// The same rules as `agent.sh design-surface`: `*` (and `**`) matches any characters including `/`, `?` one character, `[..]` a class;
+// The same rules as `agent.sh design-surface`: `*` (and `**`) matches any characters including `/`, `**/` also zero directories (apps/**/x.ts matches apps/x.ts), `?` one character, `[..]` a class;
 // an entry ending in `/` is a directory prefix. One surface matches: its document (plus `shared`). Two: an error. None: `shared` only.
 export function globMatch(glob, path) {
   let g = glob.replace(/^\.\//, "");
@@ -72,7 +72,8 @@ export function globMatch(glob, path) {
   let re = "";
   for (let i = 0; i < g.length; i++) {
     const c = g[i];
-    if (c === "*") { while (g[i + 1] === "*") i++; re += ".*"; }
+    if (g.startsWith("**/", i)) { re += "(?:.*/)?"; i += 2; } // `**/` also matches zero directories
+    else if (c === "*") { while (g[i + 1] === "*") i++; re += ".*"; }
     else if (c === "?") re += ".";
     else if (c === "[" && g.indexOf("]", i + 2) > 0) { const j = g.indexOf("]", i + 2); re += "[" + g.slice(i + 1, j).replace(/^!/, "^").replace(/\\/g, "\\\\") + "]"; i = j; }
     else re += c.replace(/[.+^${}()|\\\]\[]/g, "\\$&");
@@ -80,7 +81,8 @@ export function globMatch(glob, path) {
   return new RegExp(`^${re}$`).test(path);
 }
 
-export function resolveSurface(docsCfg, file) {
+// root (optional): when given, a matched surface whose document is missing is "new-direction" (as in agent.sh design-surface)
+export function resolveSurface(docsCfg, file, root) {
   const f = file.replace(/^\.\//, "");
   if (!docsCfg.surfaces) return { mode: "single", status: "ok", surface: "", docs: docsCfg.design ? [docsCfg.design] : [], warnings: [] };
   const hits = docsCfg.surfaces.filter((s) => s.paths.some((g) => globMatch(g, f)));
@@ -88,7 +90,26 @@ export function resolveSurface(docsCfg, file) {
   if (hits.length > 1) return { mode: "surfaces", status: "overlap", surface: "", docs: [], warnings: [], error: `${f} matches more than one surface: ${hits.map((h) => h.name).join(", ")}` };
   if (!hits.length) return { mode: "surfaces", status: "no-surface", surface: "", docs: shared, warnings: shared.length ? [] : [`no surface matches ${f} and design_docs.design.shared is not set: no design document applies`] };
   const h = hits[0];
-  return { mode: "surfaces", status: "ok", surface: h.name, visitorMode: h.mode, docs: [...shared, h.doc], warnings: [] };
+  const missing = root !== undefined && !(h.doc && existsSync(join(root, h.doc)));
+  return { mode: "surfaces", status: missing ? "new-direction" : "ok", surface: h.name, visitorMode: h.mode, docs: [...shared, h.doc], warnings: [] };
+}
+
+// the same rules as `agent.sh config-check` for the surfaces mapping; returns the error lines
+export function checkSurfaces(docsCfg) {
+  if (!docsCfg.surfaces) return [];
+  const errs = [];
+  const rel = (v) => v.startsWith("/") || /(^|\/)\.\.(\/|$)/.test(v);
+  if (docsCfg.shared && rel(docsCfg.shared)) errs.push(`design_docs.design.shared must be project-relative: ${docsCfg.shared}`);
+  if (!docsCfg.surfaces.length) errs.push("design_docs.design.surfaces names no surface");
+  if (docsCfg.shared && !docsCfg.surfaces.length) errs.push("design_docs.design.shared needs design_docs.design.surfaces");
+  for (const s of docsCfg.surfaces) {
+    if (!/^[A-Za-z0-9_-]+$/.test(s.name)) errs.push(`invalid surface name: ${s.name}`);
+    if (!s.doc) errs.push(`design surface ${s.name} has no doc`); else if (rel(s.doc)) errs.push(`surface ${s.name} doc must be project-relative: ${s.doc}`);
+    if (!s.paths.length) errs.push(`design surface ${s.name} has no paths`);
+    for (const g of s.paths) { if (/[\\|]/.test(g)) errs.push(`surface ${s.name} paths may not contain \\ or |: ${g}`); if (rel(g)) errs.push(`surface ${s.name} paths must be project-relative globs: ${g}`); }
+    if (s.mode && !/^[a-z][a-z-]*$/.test(s.mode)) errs.push(`surface ${s.name} mode is a visitor mode in lower case: ${s.mode}`);
+  }
+  return errs;
 }
 
 // every design document the configuration names (the single document, or the shared one and each surface document)
@@ -397,10 +418,11 @@ export function run(opts) {
   const flagMap = { data_model: opts.dataModel, architecture: opts.architecture, api: opts.api, design: opts.design };
   for (const r of ROLES) if (flagMap[r]) docsCfg[r] = flagMap[r];
   if (opts.design) { delete docsCfg.surfaces; delete docsCfg.shared; } // an explicit --design is one document, whatever the config says
+  if (!opts.design) { const bad = checkSurfaces(docsCfg); if (bad.length) throw new Error(`design_docs.design: ${bad.join("; ")}`); }
   const designDocs = designDocList(docsCfg);
   let designSel = designDocs, surface = null;
   if (opts.file) {
-    surface = resolveSurface(docsCfg, opts.file);
+    surface = resolveSurface(docsCfg, opts.file, root);
     if (surface.status === "overlap") throw new Error(surface.error);
     designSel = surface.docs;
   }

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { run, readDocConfig, resolveSurface, designDocList, extractRoutes, extractTables, parseOpenApi, apiClaims, dataModelClaims, pathClaims, designClaims } from "../../skills/design-sync/scripts/design-sync.mjs";
+import { run, readDocConfig, resolveSurface, designDocList, globMatch, checkSurfaces, extractRoutes, extractTables, parseOpenApi, apiClaims, dataModelClaims, pathClaims, designClaims } from "../../skills/design-sync/scripts/design-sync.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../skills/design-sync/scripts/design-sync.mjs", import.meta.url));
 
@@ -235,4 +235,40 @@ test("surfaces: run checks the documents of one file and fails on an overlap", (
   assert.throws(() => run({ root: bad, file: "apps/web/a.css" }), /more than one surface/);
   const r = spawnSync("node", [SCRIPT, "--root", bad, "--file", "apps/web/a.css"], { encoding: "utf8" });
   assert.equal(r.status, 2);
+});
+
+test("surfaces: a matched surface whose document is missing is a new direction on the shared base", () => {
+  const root = project({ "docs/design/BASE.md": "# base\n" });
+  const c = readDocConfig(SURFACE_CFG);
+  const r = resolveSurface(c, "apps/web/a.tsx", root);
+  assert.deepEqual([r.status, r.surface, r.docs], ["new-direction", "site", ["docs/design/BASE.md", "docs/design/SITE.md"]]);
+  const root2 = project({ "docs/design/SITE.md": "# site\n" });
+  assert.equal(resolveSurface(c, "apps/web/a.tsx", root2).status, "ok");
+  const root3 = project({ ".agents/config.yaml": SURFACE_CFG, "docs/design/BASE.md": "# base\n" });
+  assert.equal(run({ root: root3, file: "apps/web/a.css" }).surface.status, "new-direction");
+});
+
+test("surfaces: **/ matches zero directories", () => {
+  assert.ok(globMatch("apps/**/x.ts", "apps/x.ts"));
+  assert.ok(globMatch("apps/**/x.ts", "apps/a/b/x.ts"));
+  assert.ok(!globMatch("apps/**/x.ts", "apps/xx.ts"));
+  assert.ok(globMatch("**/x.ts", "x.ts"));
+  assert.ok(globMatch("apps/web/**", "apps/web/a/b.tsx"));
+});
+
+test("surfaces: the config rules match agent.sh config-check", () => {
+  const bad = (edit) => checkSurfaces(readDocConfig(edit(SURFACE_CFG)));
+  assert.deepEqual(checkSurfaces(readDocConfig(SURFACE_CFG)), []);
+  assert.match(bad((c) => c.replace("doc: docs/design/SITE.md", "doc: /etc/site.md"))[0], /project-relative/);
+  assert.match(bad((c) => c.replace("doc: docs/design/SITE.md", "doc: ../site.md"))[0], /project-relative/);
+  assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "/apps/web/**"))[0], /project-relative globs/);
+  assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "apps/../web"))[0], /project-relative globs/);
+  assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "apps\\web"))[0], /may not contain/);
+  assert.match(bad((c) => c.replace("apps/web/** apps/landing/", "apps/(a|b)"))[0], /may not contain/);
+  assert.match(bad((c) => c.replace("shared: docs/design/BASE.md", "shared: /etc/base.md"))[0], /shared must be project-relative/);
+  assert.match(bad((c) => c.replace("mode: persuade", "mode: Persuade"))[0], /visitor mode/);
+  assert.match(bad((c) => c.replace("        paths: apps/dashboard/**\n", ""))[0], /has no paths/);
+  assert.match(bad((c) => c.replace("        doc: docs/design/APP.md\n", ""))[0], /has no doc/);
+  const root = project({ ".agents/config.yaml": SURFACE_CFG.replace("mode: persuade", "mode: Persuade") });
+  assert.throws(() => run({ root }), /visitor mode/);
 });

@@ -1279,10 +1279,32 @@ sc_design_surfaces() {
         paths: apps/web/pages/*'
   expect_msg "two matching surfaces were accepted" 'matches more than one surface (site wide)' A design-surface apps/web/pages/a.tsx
   [ "$(ds_val "$(A design-surface apps/dashboard/b.tsx)" surface)" = app ] || die "a file matching one surface failed beside an overlap elsewhere"
+  # `**/` matches zero directories
+  ds_cfg yes '      deep:
+        doc: docs/design/DEEP.md
+        paths: lib/**/x.ts'
+  [ "$(ds_val "$(A design-surface lib/x.ts)" surface)" = deep ] && [ "$(ds_val "$(A design-surface lib/a/b/x.ts)" surface)" = deep ] || die "lib/**/x.ts does not match zero or more directories"
+  [ "$(ds_val "$(A design-surface lib/xx.ts 2>/dev/null)" status)" = no-surface ] || die "lib/**/x.ts matched lib/xx.ts"
   # config-check
   ds_cfg yes '      broken:
         doc: docs/design/B.md'
   expect_msg "a surface without paths was accepted" 'design surface broken has no paths' A config-check
+  ds_cfg yes ''; A config-check >/dev/null; cp .agents/config.yaml "$base/cfg.good"
+  ds_bad() { # DESCRIPTION SED-EXPRESSION MESSAGE
+    sed -e "$2" "$base/cfg.good" > "$base/bad.yaml"
+    expect_msg "config-check accepted: $1" "$3" A config-check "$base/bad.yaml"
+  }
+  ds_bad "an absolute surface doc" 's#doc: docs/design/SITE.md#doc: /etc/site.md#' 'must be project-relative'
+  ds_bad "a surface doc with .." 's#doc: docs/design/SITE.md#doc: ../site.md#' 'must be project-relative'
+  ds_bad "an absolute path glob" 's#paths: apps/web/\*\* apps/landing/#paths: /apps/web/**#' 'must be project-relative globs'
+  ds_bad "a path glob with .." 's#paths: apps/web/\*\* apps/landing/#paths: apps/../web#' 'must be project-relative globs'
+  ds_bad "a backslash in paths" 's#paths: apps/web/\*\* apps/landing/#paths: apps\\web#' 'may not contain'
+  ds_bad "a pipe in paths" 's#paths: apps/web/\*\* apps/landing/#paths: apps/(a|b)#' 'may not contain'
+  ds_bad "an absolute shared document" 's#shared: docs/design/BASE.md#shared: /etc/base.md#' 'design_docs.design.shared must be project-relative'
+  ds_bad "a bad surface name" 's#^      site:#      si te:#' 'invalid surface name'
+  ds_bad "a bad visitor mode" 's#mode: persuade#mode: Persuade#' 'visitor mode'
+  awk '/^  design:/ { print; print "    shared: docs/design/BASE.md"; skip = 1; next } skip && /^    / { next } { skip = 0; print }' "$base/cfg.orig" > "$base/bad.yaml"
+  expect_msg "a shared document without surfaces was accepted" 'design_docs.design.shared needs design_docs.design.surfaces' A config-check "$base/bad.yaml"
   ok "design surfaces: single document unchanged, surface selected, overlap errors, no match falls to the shared document"
 }
 
