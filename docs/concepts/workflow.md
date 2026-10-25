@@ -216,6 +216,8 @@ A failed command suggests the command that fixes the error instead: not installe
 
 The knowledge step always runs after CODE_DONE (and for a FAILED or BLOCKED run). It evaluates the wiki and the design documents every time and ends in `knowledge-done` with pages written under `docs/design/`, `docs/adr/`, `docs/wiki/` and the `design_docs` paths (the only paths the lead may write, and only in this step), or in `knowledge-done <ID> not_applicable "<reason>"` with one specific sentence. The script refuses the reason, naming the signal, when the task changed user-visible behaviour, a durable contract or something a design document describes. The reason is recorded and shown in the completion report.
 
+With design surfaces (`design_docs.design` as a mapping) the shared document and every surface document are `design_docs` paths ([design surfaces](design-surfaces.md)).
+
 ## Shortcut debt
 
 When the implementer cuts a corner on purpose, it writes a comment next to it: `shortcut: <limit>, <when to improve>`

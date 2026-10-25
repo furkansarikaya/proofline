@@ -33,7 +33,8 @@
    other `design_docs.*` documents, the wiki, ADRs): that is `info` information for the knowledge step (A171), written as the
    row `info|<doc>:<line>|KNOWLEDGE_DRIFT: D-<n>: design-sync drift: <claim>|<search>` and recorded `design-sync: PASS
    (knowledge-scope drift: <n> handed to the knowledge step)`; `agent.sh submit` makes a blocking row of that kind `info` itself. Otherwise record `design-sync: SKIPPED (<reason>)`
-   and write no `design/SYNC.md` (a TRIVIAL run has no `design/` folder).
+   and write no `design/SYNC.md` (a TRIVIAL run has no `design/` folder). With design surfaces (`design_docs.design` as a mapping)
+   run design-sync once per touched UI file with `--file <path>`: it checks that file's surface document and the shared one.
 5. Apply the gate rule, compute the sha256 of `VERIFY.md`, return the result. Stop.
 
 ## Output

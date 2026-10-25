@@ -4,7 +4,7 @@ Judgement covers what no measurement settles: **hierarchy** (what the eye reads 
 primary task), **density** (information per screen against the spec's stated density and the users' task),
 **consistency** (the same element looks and behaves the same across screens, states and the existing design
 system) and **typography** (scale, line length, weight contrast, legibility at each viewport). A fifth aspect, **character**, asks whether the rendered UI reflects the visual
-character written in DESIGN.md and whether patterns listed in `creative_direction.avoided` have leaked back in.
+character written in DESIGN.md (with design surfaces, the surface document of the changed file plus the shared base document: `agent.sh design-surface <PATH>` names them; a screen that contradicts the shared base is a finding, and a surface with no document yet is judged by the designer's spec on the shared base, never against another surface) and whether patterns listed in `creative_direction.avoided` have leaked back in.
 It is required only for COMPLEX and CRITICAL tasks whose `creative_direction.basis` is `new` or `redesign`
 (the validator reads it from `--ui <ui.json>`); otherwise it is accepted but optional. It follows the same rules below.
 

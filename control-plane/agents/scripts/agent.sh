@@ -226,6 +226,18 @@ config_check() {
       else if (k == "git.commit_format") en(k, v, "conventional|plain")
       else if (k == "git.push_requires_approval") en(k, v, "true|false")
       else if (k == "tasks.adapter") en(k, v, "markdown|github|jira|linear")
+      else if (top == "design_docs" && p[2] == "design" && p[3] != "") {
+        # design_docs.design is a path, or a mapping: shared (a document) and surfaces.<name>.doc|paths|mode
+        if (p[3] == "shared" && p[4] == "") { if (v ~ /^\// || v ~ /(^|\/)\.\.(\/|$)/) bad(k " must be project-relative: " v) }
+        else if (p[3] == "surfaces" && p[4] == "") hs = 1
+        else if (p[3] == "surfaces" && p[5] == "") { if (p[4] !~ /^[A-Za-z0-9_-]+$/) bad("invalid surface name: " p[4] " (letters, digits, - and _)"); sn[p[4]] = 1 }
+        else if (p[3] == "surfaces" && p[6] == "" && (p[5] == "doc" || p[5] == "paths" || p[5] == "mode")) {
+          sn[p[4]] = 1
+          if (p[5] == "doc") { if (v ~ /^\// || v ~ /(^|\/)\.\.(\/|$)/) bad(k " must be project-relative: " v); if (v != "") sd[p[4]] = 1 }
+          else if (p[5] == "paths") { if (v ~ /^\// || v ~ /(^|[ \/])\.\.(\/|[ ]|$)/) bad(k " must be project-relative globs: " v); if (v != "") sp[p[4]] = 1 }
+          else if (v != "" && v !~ /^[a-z][a-z-]*$/) bad(k " is a visitor mode in lower case, for example persuade or operate: " v)
+        } else bad("unknown design_docs.design key: " k " (want shared or surfaces.<name>.doc|paths|mode)")
+      }
       else if (k == "local_state" || k == "metrics") en(k, v, "on|off")
       else if (k == "writing.profile") en(k, v, "auto|ste|plain")
       else if (k == "writing.strictness") en(k, v, "relaxed|strict")
@@ -251,6 +263,10 @@ config_check() {
       for (s in hasl) if (hasv[s]) bad("commands." s " has both a value and a list of commands; keep one")
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
+      for (s in sn) { if (!sd[s]) bad("design surface " s " has no doc (design_docs.design.surfaces." s ".doc)"); if (!sp[s]) bad("design surface " s " has no paths (design_docs.design.surfaces." s ".paths)") }
+      for (s in sn) nsn++
+      if (hs && !nsn) bad("design_docs.design.surfaces names no surface")
+      if (seen["design_docs.design.shared"] && !hs) bad("design_docs.design.shared needs design_docs.design.surfaces")
       for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
       for (s in wrd) if (!cnt[s]) bad("risk signal " s " has words but no content (the pattern the line must match as well)")
       for (s in wk) if (!wrd[s]) bad("risk." s ".words is empty (a signal with words matches a line that names one of them; remove the content as well to switch the signal off)")
@@ -1863,15 +1879,75 @@ task_source_status() {
   echo "task source status synchronized: $id $path $have -> $want"
 }
 
+# --- Design surfaces ------------------------------------------------------------------
+# design_docs.design is a path (one document) or a mapping (surfaces); both forms are read here and nowhere else:
+#   design_docs:
+#     design:
+#       shared: docs/design/BASE.md                 (optional common base document)
+#       surfaces:
+#         site:                                     (name: letters, digits, - and _)
+#           doc: docs/design/SITE.md
+#           paths: apps/web/** apps/landing/**      (space-separated globs)
+#           mode: persuade                          (the visitor mode: persuade, operate, ...)
+# Glob: `*` and `**` match any characters including `/`, `?` one character, `[..]` a class; an entry ending in `/` is a directory prefix.
+design_surface_names() { # the surface names in config order
+  printf '%s\n' "$cfg_cache" | awk 'index($0, "design_docs.design.surfaces.") == 1 { r = substr($0, 29); n = index(r, "."); if (n > 1) { s = substr(r, 1, n - 1); if (!(s in q)) { q[s] = 1; print s } } }'
+}
+design_glob_match() { # PATH GLOBS: exit 0 when PATH matches one of the space-separated globs (read without pathname expansion)
+  dg_rest=$2
+  while :; do
+    dg_rest=${dg_rest#"${dg_rest%%[! ]*}"}; [ -n "$dg_rest" ] || return 1
+    dg_g=${dg_rest%% *}; dg_rest=${dg_rest#"$dg_g"}; dg_g=${dg_g#./}
+    case "$dg_g" in */) dg_g="$dg_g*" ;; esac
+    # shellcheck disable=SC2254 # the glob from the config is the pattern
+    case "$1" in $dg_g) return 0 ;; esac
+  done
+}
+design_doc_paths() { # every design document of the config, one per line (the knowledge step may write all of them)
+  for dp_k in architecture data_model api; do dp_v=$(cfg "design_docs.$dp_k" ""); [ -z "$dp_v" ] || printf '%s\n' "$dp_v"; done
+  dp_n=$(design_surface_names)
+  if [ -z "$dp_n" ]; then dp_v=$(cfg design_docs.design ""); [ -z "$dp_v" ] || printf '%s\n' "$dp_v"; return 0; fi
+  dp_v=$(cfg design_docs.design.shared ""); [ -z "$dp_v" ] || printf '%s\n' "$dp_v"
+  for dp_s in $dp_n; do dp_v=$(cfg "design_docs.design.surfaces.$dp_s.doc" ""); [ -z "$dp_v" ] || printf '%s\n' "$dp_v"; done
+}
+# design_surface <REL-PATH>: the design documents that apply to a file, as key=value lines (read-only).
+#   mode=single|surfaces  status=ok|new-direction|no-surface|overlap  surface=<name|->  visitor_mode=<mode|->
+#   doc=<document of the surface, or the one document|->  doc_exists=yes|no  shared=<shared document|->  shared_exists=yes|no
+# new-direction: the surface matched but its document does not exist yet: design it as a new direction on the shared base, never
+# conform it to another surface. no-surface: only the shared document applies (a warning when there is none). overlap: exit 1.
+design_surface() {
+  ds_f=${1#./}; ds_n=$(design_surface_names)
+  if [ -z "$ds_n" ]; then
+    ds_d=$(cfg design_docs.design docs/design/DESIGN.md); ds_e=no; [ ! -f "$root/$ds_d" ] || ds_e=yes
+    printf 'mode=single\nstatus=ok\nsurface=-\nvisitor_mode=-\ndoc=%s\ndoc_exists=%s\nshared=-\nshared_exists=no\n' "$ds_d" "$ds_e"; return 0
+  fi
+  ds_sh=$(cfg design_docs.design.shared ""); ds_she=no; [ -z "$ds_sh" ] || [ ! -f "$root/$ds_sh" ] || ds_she=yes
+  ds_hits=''; ds_c=0
+  for ds_s in $ds_n; do
+    if design_glob_match "$ds_f" "$(cfg "design_docs.design.surfaces.$ds_s.paths" "")"; then ds_hits="$ds_hits $ds_s"; ds_c=$((ds_c + 1)); fi
+  done
+  if [ "$ds_c" -gt 1 ]; then
+    printf 'mode=surfaces\nstatus=overlap\nsurface=-\nsurfaces=%s\n' "${ds_hits# }"
+    echo "design-surface: $ds_f matches more than one surface (${ds_hits# }): narrow the paths of design_docs.design.surfaces in .agents/config.yaml" >&2; return 1
+  fi
+  if [ "$ds_c" = 0 ]; then
+    printf 'mode=surfaces\nstatus=no-surface\nsurface=-\nvisitor_mode=-\ndoc=-\ndoc_exists=no\nshared=%s\nshared_exists=%s\n' "${ds_sh:--}" "$ds_she"
+    [ -n "$ds_sh" ] || echo "warning: no design surface matches $ds_f and design_docs.design.shared is not set: no design document applies to it" >&2
+    return 0
+  fi
+  ds_s=${ds_hits# }; ds_d=$(cfg "design_docs.design.surfaces.$ds_s.doc" ""); ds_e=no; [ -z "$ds_d" ] || [ ! -f "$root/$ds_d" ] || ds_e=yes
+  ds_st=ok; [ "$ds_e" = yes ] || ds_st=new-direction
+  printf 'mode=surfaces\nstatus=%s\nsurface=%s\nvisitor_mode=%s\ndoc=%s\ndoc_exists=%s\nshared=%s\nshared_exists=%s\n' "$ds_st" "$ds_s" "$(cfg "design_docs.design.surfaces.$ds_s.mode" "-")" "${ds_d:--}" "$ds_e" "${ds_sh:--}" "$ds_she"
+}
+
 # --- Scope ---------------------------------------------------------------------------
 # Knowledge scope (Transaction B): space-separated entries of knowledge_scope_root; an entry ending in /
 # is a directory prefix, any other entry an exact path. A plan-scoped path stays application scope.
 # The configured design documents (design_docs.*) belong to it too (A159); an installed project without the key gets the default roots.
 knowledge_scope_entries() { # the knowledge_scope_root entries plus the configured design documents (dir entries end in /)
   ks_r=$(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/ docs/product/')
-  for ks_k in design architecture data_model api adr_dir; do
-    ks_p=$(cfg "design_docs.$ks_k" ""); [ -z "$ks_p" ] || { [ "$ks_k" != adr_dir ] || ks_p=${ks_p%/}/; ks_r="$ks_r $ks_p"; }
-  done
+  for ks_p in $(design_doc_paths); do ks_r="$ks_r $ks_p"; done
+  ks_p=$(cfg design_docs.adr_dir ""); [ -z "$ks_p" ] || ks_r="$ks_r ${ks_p%/}/"
   printf '%s\n' "$ks_r"
 }
 in_knowledge_scope() {
@@ -5961,7 +6037,7 @@ verify_completion_report() {
 # data or design-document mention in the frozen plan, or user-visible words in the acceptance criteria. Any signal refuses.
 knowledge_na_signal() {
   kn_id=$1; kn_d=$(run_dir "$kn_id"); kn_pl=$kn_d/PLAN.md; kn_dd=''
-  for kn_k in design architecture data_model api; do kn_q=$(cfg "design_docs.$kn_k" ""); [ -z "$kn_q" ] || kn_dd="$kn_dd $kn_q"; done
+  for kn_q in $(design_doc_paths); do kn_dd="$kn_dd $kn_q"; done
   for kn_p in $(task_owned_paths "$kn_id" 2>/dev/null || true); do
     case "$kn_p" in docs/*) echo "the task changed $kn_p, a documentation path"; return 0 ;; esac
     for kn_q in $kn_dd; do [ "$kn_p" != "$kn_q" ] || { echo "the task changed the design document $kn_p"; return 0; }; done
@@ -6838,7 +6914,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='language-check next-user in-knowledge-scope report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
+read_only_commands='language-check next-user in-knowledge-scope design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -6905,6 +6981,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   debt [list|page]   (A153: the project's `shortcut: <limit>, <when to improve>` code comments with file:line; read-only, needs no run; `page` is lead-only and rewrites the one wiki page)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in next-user.sh, A159)
+  design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
@@ -6935,6 +7012,7 @@ case "$command" in
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
+  design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;

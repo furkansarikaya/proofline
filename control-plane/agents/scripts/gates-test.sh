@@ -1236,6 +1236,56 @@ sc_decide() {
   ok "decide: signals, overrides, escalations-used, persisted and ledgered; metrics on/off"
 }
 
+# Design surfaces: design_docs.design is a path (unchanged) or a mapping of surfaces with an optional shared base.
+ds_cfg() { # ds_cfg SHARED(yes|no) EXTRA-SURFACE-LINES: rewrite the design line of the config
+  DS_EXTRA="$2" awk -v sh="$1" '
+    /^  design: / { print "  design:"; if (sh == "yes") print "    shared: docs/design/BASE.md"; print "    surfaces:";
+      print "      site:"; print "        doc: docs/design/SITE.md"; print "        paths: apps/web/** apps/landing/"; print "        mode: persuade";
+      print "      app:"; print "        doc: docs/design/APP.md"; print "        paths: apps/dashboard/**"; print "        mode: operate";
+      if (ENVIRON["DS_EXTRA"] != "") print ENVIRON["DS_EXTRA"]; next }
+    { print }' "$base/cfg.orig" > .agents/config.yaml
+}
+ds_val() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
+sc_design_surfaces() {
+  new_repo
+  cp .agents/config.yaml "$base/cfg.orig"
+  # single document: unchanged
+  out=$(A design-surface apps/web/a.tsx)
+  [ "$(ds_val "$out" mode)" = single ] && [ "$(ds_val "$out" doc)" = docs/design/DESIGN.md ] && [ "$(ds_val "$out" doc_exists)" = no ] || die "single-document mode changed: $out"
+  A in-knowledge-scope docs/design/DESIGN.md
+  # two surfaces and a shared base
+  ds_cfg yes ''
+  A config-check >/dev/null
+  mkdir -p docs/design; printf '# base\n' > docs/design/BASE.md
+  out=$(A design-surface apps/web/pages/a.tsx)
+  [ "$(ds_val "$out" surface)" = site ] && [ "$(ds_val "$out" doc)" = docs/design/SITE.md ] && [ "$(ds_val "$out" visitor_mode)" = persuade ] \
+    && [ "$(ds_val "$out" shared)" = docs/design/BASE.md ] && [ "$(ds_val "$out" status)" = new-direction ] || die "site surface not selected as a new direction: $out"
+  printf '# site\n' > docs/design/SITE.md
+  [ "$(ds_val "$(A design-surface apps/landing/x.css)" status)" = ok ] || die "a directory-prefix glob did not match"
+  out=$(A design-surface ./apps/dashboard/deep/b.tsx)
+  [ "$(ds_val "$out" surface)" = app ] && [ "$(ds_val "$out" doc)" = docs/design/APP.md ] && [ "$(ds_val "$out" visitor_mode)" = operate ] || die "app surface not selected: $out"
+  A in-knowledge-scope docs/design/SITE.md; A in-knowledge-scope docs/design/APP.md; A in-knowledge-scope docs/design/BASE.md
+  expect_fail "a path outside every design document is knowledge scope" A in-knowledge-scope apps/web/a.tsx
+  # no match: the shared document only; a warning without one
+  out=$(A design-surface lib/util.js 2>&1)
+  [ "$(ds_val "$out" status)" = no-surface ] && [ "$(ds_val "$out" shared)" = docs/design/BASE.md ] && [ "$(ds_val "$out" doc)" = - ] || die "no match did not fall to the shared document: $out"
+  printf '%s' "$out" | grep -q '^warning' && die "a warning with a shared document: $out"
+  ds_cfg no ''
+  out=$(A design-surface lib/util.js 2>&1)
+  printf '%s' "$out" | grep -Fq 'warning: no design surface matches lib/util.js' || die "no warning without a shared document: $out"
+  # overlap is an error
+  ds_cfg yes '      wide:
+        doc: docs/design/WIDE.md
+        paths: apps/web/pages/*'
+  expect_msg "two matching surfaces were accepted" 'matches more than one surface (site wide)' A design-surface apps/web/pages/a.tsx
+  [ "$(ds_val "$(A design-surface apps/dashboard/b.tsx)" surface)" = app ] || die "a file matching one surface failed beside an overlap elsewhere"
+  # config-check
+  ds_cfg yes '      broken:
+        doc: docs/design/B.md'
+  expect_msg "a surface without paths was accepted" 'design surface broken has no paths' A config-check
+  ok "design surfaces: single document unchanged, surface selected, overlap errors, no match falls to the shared document"
+}
+
 sc_config_scope_misc() {
   new_repo
   A config-check >/dev/null
@@ -2430,6 +2480,7 @@ run_sc sc_report_finding_ids
 run_sc sc_report_facts
 run_sc sc_knowledge_secrets
 run_sc sc_wiki_knowledge_scope
+run_sc sc_design_surfaces
 run_sc sc_knowledge_na
 run_sc sc_next_order
 run_sc sc_start

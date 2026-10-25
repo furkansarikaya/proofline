@@ -66,6 +66,19 @@ tasks:
   dir: .agents/tasks
 design_docs:
   design: docs/design/DESIGN.md
+  # One document per UI surface instead of one path: write design as a mapping (agent.sh design-surface <PATH> names the
+  # documents that apply to a file; two surfaces matching one file is an error, no match means the shared document only).
+  # design:
+  #   shared: docs/design/BASE.md
+  #   surfaces:
+  #     site:
+  #       doc: docs/design/SITE.md
+  #       paths: apps/web/** apps/landing/**
+  #       mode: persuade
+  #     app:
+  #       doc: docs/design/APP.md
+  #       paths: apps/dashboard/**
+  #       mode: operate
   architecture: docs/design/ARCHITECTURE.md
   data_model: docs/design/DATA_MODEL.md
   api: docs/design/API.md

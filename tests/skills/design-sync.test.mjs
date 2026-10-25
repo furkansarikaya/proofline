@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { run, readDocConfig, extractRoutes, extractTables, parseOpenApi, apiClaims, dataModelClaims, pathClaims, designClaims } from "../../skills/design-sync/scripts/design-sync.mjs";
+import { run, readDocConfig, resolveSurface, designDocList, extractRoutes, extractTables, parseOpenApi, apiClaims, dataModelClaims, pathClaims, designClaims } from "../../skills/design-sync/scripts/design-sync.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../skills/design-sync/scripts/design-sync.mjs", import.meta.url));
 
@@ -183,4 +183,56 @@ test("SKILL.md team mode: drift rows are VERIFY-<n> of the verifier's result; re
   assert.doesNotMatch(team, /Reverse mode returns `RESULT: DONE`/);
   assert.match(md, /standalone only: `\/proofline design system\|data\|api\|ui --check`/);
   assert.match(md, /never the verifier/);
+});
+
+// ---------- design surfaces (design_docs.design as a mapping) ----------
+const SURFACE_CFG = "design_docs:\n  design:\n    shared: docs/design/BASE.md\n    surfaces:\n      site:\n        doc: docs/design/SITE.md\n        paths: apps/web/** apps/landing/\n        mode: persuade\n      app:\n        doc: docs/design/APP.md\n        paths: apps/dashboard/**\n        mode: operate\n  api: docs/design/API.md\nlocal_state: on\n";
+
+test("surfaces: single-document config is unchanged", () => {
+  const c = readDocConfig("design_docs:\n  design: UI.md\n");
+  assert.equal(c.surfaces, undefined);
+  assert.deepEqual(resolveSurface(c, "apps/web/a.tsx"), { mode: "single", status: "ok", surface: "", docs: ["UI.md"], warnings: [] });
+  assert.deepEqual(designDocList(c), ["UI.md"]);
+});
+
+test("surfaces: the config is read and a file selects its surface document plus the shared one", () => {
+  const c = readDocConfig(SURFACE_CFG);
+  assert.equal(c.shared, "docs/design/BASE.md");
+  assert.equal(c.api, "docs/design/API.md");
+  assert.deepEqual(c.surfaces.map((s) => [s.name, s.doc, s.mode]), [["site", "docs/design/SITE.md", "persuade"], ["app", "docs/design/APP.md", "operate"]]);
+  assert.deepEqual(resolveSurface(c, "apps/web/pages/a.tsx").docs, ["docs/design/BASE.md", "docs/design/SITE.md"]);
+  assert.deepEqual(resolveSurface(c, "apps/landing/x.css").docs, ["docs/design/BASE.md", "docs/design/SITE.md"]);
+  assert.equal(resolveSurface(c, "./apps/dashboard/deep/b.tsx").surface, "app");
+  assert.deepEqual(designDocList(c), ["docs/design/BASE.md", "docs/design/SITE.md", "docs/design/APP.md"]);
+});
+
+test("surfaces: two matching surfaces are an error; no match is the shared document only, with a warning when there is none", () => {
+  const c = readDocConfig(SURFACE_CFG.replace("apps/dashboard/**", "apps/dashboard/** apps/web/pages/*"));
+  const r = resolveSurface(c, "apps/web/pages/a.tsx");
+  assert.equal(r.status, "overlap");
+  assert.match(r.error, /more than one surface: site, app/);
+  const n = resolveSurface(readDocConfig(SURFACE_CFG), "lib/util.js");
+  assert.deepEqual([n.status, n.docs, n.warnings], ["no-surface", ["docs/design/BASE.md"], []]);
+  const w = resolveSurface(readDocConfig(SURFACE_CFG.replace("    shared: docs/design/BASE.md\n", "")), "lib/util.js");
+  assert.deepEqual([w.docs, w.warnings.length], [[], 1]);
+});
+
+test("surfaces: run checks the documents of one file and fails on an overlap", () => {
+  const root = project({
+    ".agents/config.yaml": SURFACE_CFG,
+    "docs/design/BASE.md": "Use `--space-md`.\n",
+    "docs/design/SITE.md": "Use `--site-gone`.\n",
+    "docs/design/APP.md": "Use `--app-gone`.\n",
+    "apps/web/a.css": ":root { --space-md: 4px; }\n",
+  });
+  const site = run({ root, file: "apps/web/a.css" });
+  assert.deepEqual(site.docs.filter((d) => d.role === "design").map((d) => d.path), ["docs/design/BASE.md", "docs/design/SITE.md"]);
+  assert.equal(site.surface.name, "site");
+  assert.ok(site.drift.some((d) => d.startsWith("docs/design/SITE.md:") && d.includes("--site-gone")));
+  assert.ok(!site.drift.some((d) => d.includes("--app-gone")));
+  assert.deepEqual(run({ root }).docs.filter((d) => d.role === "design").map((d) => d.path).sort(), ["docs/design/APP.md", "docs/design/BASE.md", "docs/design/SITE.md"]);
+  const bad = project({ ".agents/config.yaml": SURFACE_CFG.replace("apps/dashboard/**", "apps/**") });
+  assert.throws(() => run({ root: bad, file: "apps/web/a.css" }), /more than one surface/);
+  const r = spawnSync("node", [SCRIPT, "--root", bad, "--file", "apps/web/a.css"], { encoding: "utf8" });
+  assert.equal(r.status, 2);
 });

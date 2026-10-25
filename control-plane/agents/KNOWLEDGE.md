@@ -1,7 +1,7 @@
 # Knowledge precedence and read contract
 
 Resolve conflicts in this order: (1) the frozen task, (2) current behaviour and tests, (3) durable design
-documents (`design_docs` in config: `docs/design/*` including `DESIGN.md`, ADRs), (4) skill guidance, (5) model
+documents (`design_docs` in config: `docs/design/*` including `DESIGN.md`, or the surface documents and the shared base when `design_docs.design` is a mapping; ADRs), (4) skill guidance, (5) model
 preference. A task that forbids dependencies beats a skill that recommends one; current tests beat a stale
 document.
 
@@ -16,7 +16,8 @@ Two transactions:
   BLOCKED run). The wiki and the design documents are evaluated every time, and the outcome is exactly one of:
   - `agent.sh knowledge-done <ID>` (KNOWLEDGE_DONE) with the pages written: the lead writes only under
     `knowledge_scope_root` and the `design_docs` paths (the runtime hook allows exactly these in this step and
-    nowhere else); proposed ADRs move from the run's `design/adr/` to `design_docs.adr_dir`.
+    nowhere else; with design surfaces that is the shared document and every surface document, `agent.sh design-surface <PATH>`
+    names the ones that apply to a changed file); proposed ADRs move from the run's `design/adr/` to `design_docs.adr_dir`.
     For a persuade or experience UI the designer wrote `DESIGN.md` first as the direction contract; here its final
     form is updated from the world as built (patterns used with their reasons, fonts and images in the ledger), so a
     rule is never defended against what was really built.

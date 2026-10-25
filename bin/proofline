@@ -80,6 +80,7 @@ state (works without an agent session)
 agent session (prints the exact instruction for your runtime)
   task [--grill] <text>   write a task file (grill the intent first with --grill)
   design system|data|api|ui [--check]
+  (design documents: design_docs.design in .agents/config.yaml is one path, or one document per UI surface; see docs/concepts/design-surfaces.md)
   design ui <mode> <target>  focused UI change of one target, as a normal run; mode: bolder quieter polish animate typeset
                             colorize layout delight harden adapt (touches only the target, keeps the existing design system)
   docs create|update|audit  write, update from a diff, or audit documentation
@@ -269,7 +270,9 @@ cmd_design() {
     hint design "$@"
     return 0
   fi
-  say "durable design documents: $(cfg_val "$CFG" design_docs.design docs/design/DESIGN.md), $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
+  dd_sf=$(cfg_lines "$CFG" 2>/dev/null | sed -n 's/^design_docs\.design\.surfaces\.\([^.=]*\)\.doc=\(.*\)$/\1=\2/p' | tr '\n' ' ' | sed 's/ $//')
+  if [ -n "$dd_sf" ]; then dd_main="surfaces: $dd_sf; shared: $(cfg_val "$CFG" design_docs.design.shared none)"; else dd_main=$(cfg_val "$CFG" design_docs.design docs/design/DESIGN.md); fi
+  say "durable design documents: $dd_main, $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
   hint design "$@"
 }
 

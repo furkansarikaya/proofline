@@ -31,6 +31,7 @@
     "drift": { "type": "array", "items": { "type": "string", "pattern": "^.+:\\d+ -> .+" } },
     "unverifiable": { "type": "array", "items": { "type": "string" } },
     "summary": { "type": "object", "required": ["matched", "unmatched", "unverifiable"], "properties": { "matched": { "type": "integer" }, "unmatched": { "type": "integer" }, "unverifiable": { "type": "integer" } } },
+    "surface": { "type": "object", "description": "present with --file: which design documents applied", "properties": { "status": { "enum": ["ok", "no-surface", "overlap"] }, "name": { "type": "string" }, "mode": { "type": "string" }, "warnings": { "type": "array", "items": { "type": "string" } } } },
     "verdict": { "enum": ["PASS", "FAIL", "SKIPPED"] }
   }
 }
