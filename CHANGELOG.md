@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The question the script stores for you in your own language (`questions/NNN.md`, written by `agent.sh ask` and for a specialist's question) is no longer refused by the run language check, so a Turkish question no longer blocks `handoff DONE` (A178); the same text anywhere else in a run is still refused.
+
 ## 0.0.30 — 2026-10-25
 
 - proofline no longer assumes a folder layout (A173): `proofline init` finds the build, test and lint commands of a root, nested, multi-project or monorepo project in every ecosystem from one definition (`control-plane/agents/ecosystems.json`); .NET `.slnx`, `*.fsproj` and `*.vbproj` are supported, `dotnet build App.slnx` is proposed only when exactly one target exists, and zero or several targets of an ecosystem propose no command for it instead of a broken one (`MSB1011`, `MSB1003`). `proofline doctor` and verify-proof read runtime versions of nested projects and of java, rust, php, ruby, swift and dart too. See [ecosystems](docs/concepts/ecosystems.md).

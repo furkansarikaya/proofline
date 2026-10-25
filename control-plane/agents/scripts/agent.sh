@@ -3953,6 +3953,7 @@ language_scan() {
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
     case "$ls_f" in */runs/*/reviews/visual-proof/*|*/runs/*/reports/qa-evidence/*) continue ;; esac   # machine output (A172)
+    case "$ls_f" in */runs/*/questions/[0-9][0-9][0-9].md) continue ;; esac   # the question block `ask` and `record` store: addressed to the user in the user's language (A99, A178)
     # A171 (review): the user's answers are written by the script as a quote block and are exempt whole; in any other file a quote
     # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history) or product text
     # (A172, above), so a model cannot hide its own non-English text behind '> ' or a fence.

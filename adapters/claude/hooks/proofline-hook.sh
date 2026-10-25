@@ -1847,6 +1847,7 @@ pretool)
       case "$lp" in
         .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log) ;;
         .agents/runs/*/reviews/visual-proof/*|.agents/runs/*/reports/qa-evidence/*) ;;   # A172: machine output of the skills
+        .agents/runs/*/questions/[0-9][0-9][0-9].md) ;;   # A178: the question block for the user, in the user's language (written by agent.sh ask and record)
         .agents/runs/*/*.md|.agents/runs/*/*.yaml|.agents/runs/*/*.json)
           if [ "$tool" = MultiEdit ]; then   # the new_string of every edit, as text (a JSON array would hide the line starts)
             case "$jp" in
