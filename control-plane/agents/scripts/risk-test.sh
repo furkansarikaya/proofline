@@ -425,6 +425,40 @@ sc_unsupported_probes() {
   ok "unsupported probes: a browser or a bench script refuses UNSUPPORTED; INCONCLUSIVE keeps its prefix both ways; another role's file is refused"
 }
 
+# A173: the benchmark probe reads the ecosystem definition: BenchmarkDotNet is found in any project of any depth, in the 55th of 60
+# projects and in an fsproj (the old probe looked at the first 50 *.csproj only), so an UNSUPPORTED performance result is refused;
+# 60 projects without it leave UNSUPPORTED allowed.
+sc_probe_benchmark_dotnet() {
+  bm_run() { # SETUP-FUNCTION: a frozen run flagged performance_critical whose base holds the project files that function writes
+    rrun COMPLEX 'src/search.js' "$(printf '%s\n' '' '## Risk' '' 'performance_critical: yes')"
+    "$1"; git add -A; git commit -qm 'projects'
+    sed "s/^  base_sha:.*/  base_sha: \"$(git rev-parse HEAD)\"/" .agents/runs/LC/RUN.yaml > "$base/run.base"; cp "$base/run.base" .agents/runs/LC/RUN.yaml
+    frozen; implement src/search.js 'export const search = () => [];'
+    bm_d=.agents/runs/LC; mkdir -p "$bm_d/reviews/performance-proof"; printf '# perf\n' > "$bm_d/reviews/performance-proof/REPORT.md"
+    printf 'valid: UNSUPPORTED\nresult: UNSUPPORTED\nreason: performance UNSUPPORTED: no benchmark command; never a PASS; add one\n' > "$bm_d/reviews/performance-proof/validator.txt"
+  }
+  bm_sub() { AS reviewer submit LC --focus performance --result UNSUPPORTED --reason 'performance UNSUPPORTED: no benchmark command in the project' --confidence low --artifact reviews/performance-proof/REPORT.md --evidence reviews/performance-proof/validator.txt; }
+  bm_sixty() { # 60 projects; $1 = the number of the one that references BenchmarkDotNet (0: none)
+    bm_i=1
+    while [ "$bm_i" -le 60 ]; do
+      bm_n=$(printf 'P%02d' "$bm_i"); mkdir -p "src/$bm_n"
+      if [ "$bm_i" -eq "${1:-0}" ]; then printf '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="BenchmarkDotNet" Version="0.14.0" /></ItemGroup></Project>\n' > "src/$bm_n/$bm_n.csproj"
+      else printf '<Project Sdk="Microsoft.NET.Sdk"></Project>\n' > "src/$bm_n/$bm_n.csproj"; fi
+      bm_i=$((bm_i + 1))
+    done
+  }
+  bm_55() { bm_sixty 55; }
+  bm_none() { bm_sixty 0; }
+  bm_fs() { mkdir -p tools/Bench; printf '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="BenchmarkDotNet" Version="0.14.0" /></ItemGroup></Project>\n' > tools/Bench/Bench.fsproj; }
+  bm_run bm_55
+  expect_msg "performance UNSUPPORTED with BenchmarkDotNet in project 55 of 60" 'capability present: BenchmarkDotNet' bm_sub
+  bm_run bm_fs
+  expect_msg "performance UNSUPPORTED with BenchmarkDotNet in an fsproj" 'capability present: BenchmarkDotNet' bm_sub
+  bm_run bm_none
+  out=$(bm_sub); printf '%s' "$out" | grep -Fq 'submitted: LC reviewer UNSUPPORTED gate=' || die "performance UNSUPPORTED with 60 projects and no benchmark refused: $out"
+  ok "benchmark probe: BenchmarkDotNet in project 55 of 60 and in an fsproj refuses UNSUPPORTED; 60 projects without it do not"
+}
+
 # Drift guard (A102): the visual probe's browser and tool lists equal visual-proof's measure.mjs.
 sc_probe_drift() {
   pd_m=$(dirname "$0")/../../../skills/visual-proof/scripts/measure.mjs
@@ -580,6 +614,110 @@ sc_dependency_manifests() {
   done
   hasnt 'docs/requirements.md'; hasnt 'setup.pyc'
   ok "dependency manifests: every manifest and lockfile the dependency diff reads is a SECURITY:dependencies signal; documentation is not"
+}
+
+# A173: every risky path of the ecosystem definition (read from ecosystems.json, so a new ecosystem or file kind is covered
+# without editing this test) makes the tier full on its own, at the root and nested; a manifest, lock or package-source
+# setting is also a SECURITY:dependencies signal. A plain source file stays tier small (the control).
+sc_eco_risky_paths() {
+  command -v node >/dev/null 2>&1 || { ok "ecosystem risky paths skipped (no node)"; return 0; }
+  er_json=$tl_agents/ecosystems.json
+  [ -f "$er_json" ] || { ok "ecosystem risky paths skipped (no ecosystems.json)"; return 0; }
+  er_list=$base/eco-paths.txt
+  node -e '
+    const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const sample = (g) => g.split("/").map((s, i, a) => s === "**" ? (i === a.length - 1 ? "sub/f.txt" : "sub") : s.replace(/\*/g, "a")).join("/");
+    const out = new Set();
+    const add = (kind, g) => {
+      const root = g.replace(/^(\*\*\/)+/, "");
+      out.add(kind + " " + sample(root));
+      if (g.startsWith("**/") || (kind === "dep" && !g.includes("/"))) out.add(kind + " src/Api/" + sample(root));
+    };
+    for (const g of j.global.risky_paths) add("risk", g);
+    for (const e of j.ecosystems) {
+      for (const g of e.risky_paths) add("risk", g);
+      for (const g of [...e.manifests, ...e.locks, ...e.settings]) add("dep", g);
+    }
+    console.log([...out].join("\n"));' "$er_json" > "$er_list"
+  [ "$(wc -l < "$er_list")" -gt 100 ] || die "the generated path list is too short: $(wc -l < "$er_list")"
+  # the named ones of the 0.0.30 request must be in the list (the loop would pass vacuously on an emptied definition)
+  for er_n in Directory.Build.props Directory.Build.targets global.json src/Api/a.fsproj a.vbproj .config/dotnet-tools.json NuGet.config nuget.config .npmrc .yarnrc.yml pip.conf .cargo/config.toml settings.xml build.rs gradle-wrapper.properties a.gradle .github/ Dockerfile docker-compose package-lock.json; do
+    grep -Fq -- "$er_n" "$er_list" || die "the definition no longer lists $er_n"
+  done
+  rrun STANDARD 'lib.txt'
+  A classify LC STANDARD review >/dev/null; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  printf 'x\n' > lib.txt; snap
+  [ "$(pv tier)" = small ] || die "the control (a plain file) is tier $(pv tier), want small"
+  hasnt 'signal.dependency_manifest'
+  rm lib.txt
+  # risk paths (CI, containers, build-changing files): each one alone makes the tier full. A manifest, lock or
+  # package-source setting is proven by its dependency signal below; a few named ones also by the tier, alone.
+  er_n=0 er_dep='' er_alone=' Directory.Build.props src/Api/Directory.Build.props src/Api/a.fsproj src/Api/a.vbproj global.json package-lock.json src/Api/.config/dotnet-tools.json '
+  while IFS=' ' read -r er_kind er_path; do
+    if [ "$er_kind" = dep ]; then er_dep="$er_dep $er_path"; case "$er_alone" in *" $er_path "*) ;; *) continue ;; esac; fi
+    mkdir -p "$(dirname "$er_path")"; printf 'x\n' > "$er_path"
+    er_t=$(A tier LC) || die "tier failed for $er_path"
+    [ "$er_t" = full ] || die "$er_path ($er_kind) is tier $er_t, want full"
+    sed 's/^  tier: .*/  tier: small/' .agents/runs/LC/RUN.yaml > "$base/run.tier"; cp "$base/run.tier" .agents/runs/LC/RUN.yaml   # `tier` records a rise; reset it
+    rm -f "$er_path"; er_n=$((er_n + 1))
+  done < "$er_list"
+  # the dependency signal names every such path (one pipeline run per round; NuGet.config and nuget.config share a file
+  # on a case-insensitive filesystem, so a path whose lower-case form was already placed waits for the next round)
+  er_rest=$er_dep er_rounds=0
+  while [ -n "${er_rest# }" ]; do
+    er_now='' er_next='' er_seen=' '
+    for er_p in $er_rest; do
+      er_k=$(printf '%s' "$er_p" | tr '[:upper:]' '[:lower:]')
+      case "$er_seen" in *" $er_k "*) er_next="$er_next $er_p" ;; *) er_seen="$er_seen$er_k "; er_now="$er_now $er_p" ;; esac
+    done
+    for er_p in $er_now; do mkdir -p "$(dirname "$er_p")"; printf 'x\n' > "$er_p"; done
+    snap
+    for er_p in $er_now; do has "diff:$er_p("; done
+    for er_p in $er_now; do rm -f "$er_p"; done
+    er_rest=$er_next er_rounds=$((er_rounds + 1)); [ "$er_rounds" -lt 4 ] || die "case-variant rounds do not end: $er_rest"
+  done
+  ok "ecosystem risky paths: $er_n paths from ecosystems.json (root and nested) make the tier full alone; every manifest, lock and package-source setting is a dependency signal"
+}
+
+# A173: the ecosystem set is bound into risk_sha256. A run frozen by 0.0.29 or older (no definition, so no synthetic line
+# in the hash; modelled by freezing without ecosystems.tsv, which is exactly the old hash form) still passes verify-freeze
+# once the definition is installed, and keeps the signal paths it was frozen with; a run frozen with the definition binds
+# it (a changed definition is refused); a customised config risky_paths / dependency_manifest.paths keeps working beside it.
+sc_eco_freeze_compat() {
+  [ -f .agents/ecosystems.tsv ] || [ -f "$tl_agents/ecosystems.tsv" ] || { ok "ecosystem freeze compatibility skipped (no definition)"; return 0; }
+  rrun COMPLEX ''
+  [ -f .agents/ecosystems.tsv ] || die "the fixture has no .agents/ecosystems.tsv"
+  cp .agents/ecosystems.tsv "$base/eco.keep"; rm .agents/ecosystems.tsv
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  cp "$base/eco.keep" .agents/ecosystems.tsv
+  A verify-freeze LC >/dev/null || die "a run frozen before the ecosystem set joined the hash fails verify-freeze: $(A verify-freeze LC 2>&1)"
+  mkdir -p src/Api; printf 'x\n' > src/Api/a.fsproj; printf 'x\n' > Directory.Build.props
+  snap; hasnt 'diff:src/Api/a.fsproj('; hasnt 'diff:Directory.Build.props('
+  # another risk key edited on that run is still refused
+  cp .agents/config.yaml "$base/cfg.keep"
+  sed 's/^  regression_pct: 10$/  regression_pct: 500/' "$base/cfg.keep" > .agents/config.yaml
+  ! cmp -s "$base/cfg.keep" .agents/config.yaml || die "the regression_pct edit did not apply"
+  expect_msg "another risk key edited on a run frozen before the ecosystem set" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/cfg.keep" .agents/config.yaml
+  # a run frozen with the definition binds it and reads it for the dependency signal
+  rrun COMPLEX ''
+  approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  A verify-freeze LC >/dev/null || die "a run frozen with the definition fails verify-freeze"
+  mkdir -p src/Api; printf 'x\n' > src/Api/a.fsproj; printf 'x\n' > Directory.Build.props
+  snap; has 'diff:src/Api/a.fsproj('; has 'diff:Directory.Build.props('
+  printf 'npm\tmanifests\tmy-new-manifest.lock2\n' >> .agents/ecosystems.tsv
+  expect_msg "the ecosystem definition changed after freeze" 'freeze mismatch: risk' A verify-freeze LC
+  cp "$base/eco.keep" .agents/ecosystems.tsv; A verify-freeze LC >/dev/null || die "restoring the definition does not restore the freeze"
+  # the project's own config paths are read beside the definition's
+  sed 's#^  risky_paths: "#  risky_paths: "custom/** #; s#^    paths: "mix.exs mix.lock#    paths: "my.lock mix.exs mix.lock#' "$base/cfg.keep" > "$base/cfg.mine"
+  cmp -s "$base/cfg.keep" "$base/cfg.mine" && die "the config customisation did not apply"
+  rrun STANDARD 'lib.txt'; cp "$base/cfg.mine" .agents/config.yaml
+  A classify LC STANDARD review >/dev/null; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  mkdir -p custom; printf 'x\n' > custom/f.txt
+  [ "$(A tier LC)" = full ] || die "a customised risky_paths entry no longer makes the tier full"
+  rm -rf custom; printf 'x\n' > my.lock
+  snap; has 'diff:my.lock('
+  ok "ecosystem freeze: a run frozen before the set keeps its hash and signal paths, a run frozen with it binds it, config-owned paths still count"
 }
 
 # Drift guard (A92): the control plane's not-a-contract list is a verbatim copy of contract-proof's.
@@ -756,6 +894,8 @@ run_sc sc_log_unsupported
 run_sc sc_log_upgrade_legacy
 run_sc sc_mapping
 run_sc sc_dependency_manifests
+run_sc sc_eco_risky_paths
+run_sc sc_eco_freeze_compat
 run_sc sc_not_contract_drift
 run_sc sc_contract_content
 run_sc sc_contract_content_edit
@@ -770,6 +910,7 @@ run_sc sc_unsupported_evidence
 run_sc sc_unsupported_evidence_base_move
 run_sc sc_unsupported_toolfree
 run_sc sc_unsupported_probes
+run_sc sc_probe_benchmark_dotnet
 run_sc sc_probe_drift
 run_sc sc_frozen
 run_sc sc_prefreeze

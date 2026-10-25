@@ -67,3 +67,55 @@ test("a spec that cannot be compared, or no spec at all, is unknown; no runtime 
   assert.match(run(project({ "package.json": "{}" }), { node: "v22.0.0" }), /^runtime: node local=22\.0\.0 ci=none source=- status=unknown$/);
   assert.equal(run(project({ "README.md": "x" }), {}), "runtime: none (no language runtime detected)");
 });
+
+// A173: the project is not assumed to sit at the root; the line of one runtime is picked out of the output.
+const line = (dir, tools, name) => run(dir, tools).split("\n").filter((l) => l.startsWith(`runtime: ${name} `)).join("\n");
+const DOTNET = { dotnet: "10.0.100" };
+
+test(".NET is present with only an App.slnx, only a nested src/Api/Api.csproj, or a root fsproj", () => {
+  const want = "runtime: dotnet local=10.0.100 ci=none source=- status=unknown";
+  assert.equal(line(project({ "App.slnx": "<Solution/>" }), DOTNET, "dotnet"), want);
+  assert.equal(line(project({ "src/Api/Api.csproj": "<Project/>" }), DOTNET, "dotnet"), want);
+  assert.equal(line(project({ "Lib.fsproj": "<Project/>" }), DOTNET, "dotnet"), want);
+});
+
+test("a project only under obj or bin is not a .NET project", () => {
+  assert.equal(run(project({ "obj/Api.csproj": "<Project/>", "src/Api/bin/Debug/X.csproj": "<Project/>" }), DOTNET), "runtime: none (no language runtime detected)");
+});
+
+test("a setup-dotnet version that differs from the local SDK is a mismatch, also with no global.json", () => {
+  const wf = "steps:\n  - uses: actions/setup-dotnet@v4\n    with:\n      dotnet-version: 8.0.x\n";
+  const dir = project({ ".github/workflows/ci.yml": wf, "src/Api/Api.csproj": "<Project/>" });
+  assert.equal(line(dir, DOTNET, "dotnet"), "runtime: dotnet local=10.0.100 ci=8.0.x source=.github/workflows/ci.yml status=mismatch");
+});
+
+test("a nested global.json names the SDK; the root one wins over a nested one", () => {
+  const nested = project({ "src/Api/global.json": '{"sdk":{"version":"8.0.400"}}', "src/Api/Api.csproj": "<Project/>" });
+  assert.equal(line(nested, DOTNET, "dotnet"), "runtime: dotnet local=10.0.100 ci=8.0.400 source=src/Api/global.json status=mismatch");
+  const both = project({ "global.json": '{"sdk":{"version":"10.0.100"}}', "src/Api/global.json": '{"sdk":{"version":"8.0.400"}}' });
+  assert.equal(line(both, DOTNET, "dotnet"), "runtime: dotnet local=10.0.100 ci=10.0.100 source=global.json status=match");
+});
+
+test("version files of the other ecosystems are read in nested folders", () => {
+  const tools = { node: "v22.1.0", python3: "Python 3.12.1", go: "go version go1.24.1 darwin/arm64", rustc: "rustc 1.75.0 (abc 2023-12-21)", java: 'openjdk version "17.0.2" 2022-01-18' };
+  const dir = project({
+    "web/.nvmrc": "v20\n", "web/package.json": "{}",
+    "svc/.python-version": "3.11\n",
+    "api/go.mod": "module x\n\ngo 1.25\n",
+    "crates/core/rust-toolchain": "1.70\n", "crates/core/Cargo.toml": "[package]\n",
+    "srv/.java-version": "21\n",
+  });
+  assert.equal(line(dir, tools, "node"), "runtime: node local=22.1.0 ci=v20 source=web/.nvmrc status=mismatch");
+  assert.equal(line(dir, tools, "python"), "runtime: python local=3.12.1 ci=3.11 source=svc/.python-version status=mismatch");
+  assert.equal(line(dir, tools, "go"), "runtime: go local=1.24.1 ci=>=1.25 source=api/go.mod status=mismatch");
+  assert.equal(line(dir, tools, "rust"), "runtime: rust local=1.75.0 ci=1.70 source=crates/core/rust-toolchain status=mismatch");
+  assert.equal(line(dir, tools, "java"), "runtime: java local=17.0.2 ci=21 source=srv/.java-version status=mismatch");
+});
+
+test("a nested .tool-versions names the versions, and a pruned folder is not read", () => {
+  const dir = project({ "app/.tool-versions": "nodejs 20.1.0\njava 17.0.1\n", "app/package.json": "{}", "node_modules/x/.nvmrc": "v10\n", "node_modules/x/package.json": "{}" });
+  const tools = { node: "v20.9.0", java: 'openjdk version "17.0.2"' };
+  assert.equal(line(dir, tools, "node"), "runtime: node local=20.9.0 ci=20.1.0 source=app/.tool-versions status=match");
+  assert.equal(line(dir, tools, "java"), "runtime: java local=17.0.2 ci=17.0.1 source=app/.tool-versions status=match");
+  assert.equal(run(project({ "node_modules/x/.nvmrc": "v10\n", "node_modules/x/package.json": "{}" }), tools), "runtime: none (no language runtime detected)");
+});

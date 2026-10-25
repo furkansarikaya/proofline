@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2015,SC2016,SC2012,SC2086 # assertion chains; literal command text; split flag string; ls of generated names
+# shellcheck disable=SC2015,SC2016,SC2012,SC2086,SC2329 # assertion chains; literal command text; split flag string; ls of generated names; functions run indirectly by run_sc
 # shellcheck source-path=SCRIPTDIR
 # CLI tests (D27 layer 1): bin/proofline init, upgrade, doctor and the state commands in throwaway
 # repositories under $TMPDIR, with fake claude/codex binaries on PATH and a private HOME / global git config.
@@ -76,8 +76,10 @@ INIT_FLAGS="--yes --runtimes claude,codex --lead claude --worker codex --reviewe
 run_sc() {
   if [ -n "${LC_EXACT:-}" ]; then [ "$LC_EXACT" = "$*" ] || return 0
   elif [ -n "${LC_ONLY:-}" ]; then printf '%s' "$*" | grep -q -- "$LC_ONLY" || return 0; fi
-  ( "$@"; printf 'cli-test [%s]: %s checks passed\n' "$1" "$n" )
+  # A dying scenario (die exits its subshell with 1) must fail the unit: remember it and exit nonzero at the end.
+  ( "$@"; printf 'cli-test [%s]: %s checks passed\n' "$1" "$n" ) || sc_failed=1
 }
+sc_failed=0
 base_build() { # DIR (empty): a repository with a package.json, initialised with INIT_FLAGS
   mkrepo_at "$1"
   printf '{"scripts":{"build":"tsc","test":"jest","lint":"eslint ."}}\n' > "$1/package.json"
@@ -648,6 +650,78 @@ out=$(pl "$(mkrepo rolebad5)" init --yes --runtimes claude --role implementer=co
 
 }
 
+sc_cmd_lists() {
+  need_base
+# ---- commands.build|test|lint as a list (A176): build record, config-check, discovery through init, idempotence ----
+# shellcheck source=../../bin/lib/config.sh
+. "$repo/bin/lib/config.sh"
+br() { ( cd "$1" && sh .agents/scripts/build-record.sh run ); }   # prints the record, exits like the record
+setc() { cfg_set "$1/.agents/config.yaml" "commands.$2" "$3"; }
+step_exit() { printf '%s\n' "$1" | awk -v l="$2: " 'index($0, l) == 1 { f = 1; next } f && /^exit: / { print $2; exit }'; }
+nl='
+'
+# a scalar config: one record per key, plain labels, no list summary
+setc "$base" build "echo b1; echo built-line"; setc "$base" test "echo t1"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 0 ] && has "$out" "build: echo b1; echo built-line" && has "$out" "test: echo t1" && [ "$(step_exit "$out" build)" = 0 ] && [ "$(step_exit "$out" test)" = 0 ] && has "$out" "  built-line" && ok "a scalar command records as before" || { LAST=$out; die "scalar record (rc=$rc)"; }
+reject "...with no list label and no list summary" "$out" "["
+reject "...and no failed or all-passed line" "$out" "failed:"
+reject "...nor an all-commands line" "$out" "all commands passed"
+key=$(printf '%s\n' "$out" | sed -n 's/^key: //p' | head -n 1)
+[ "$(printf '%s' "$(cat "$base/.agents/local/builds/$key/steps")" | tr '\n\t' ',:')" = "build:build,test:test" ] && ok "the steps file of a scalar config keeps the ids build and test" || die "steps file: $(cat "$base/.agents/local/builds/$key/steps")"
+# a list whose second build command fails: its own exit and tail, the first reported OK, a failed: line, the test not run
+setc "$base" build "echo first-ok${nl}sh -c 'echo second-out; exit 4'"; setc "$base" test "echo never-run"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 1 ] && [ "$(step_exit "$out" 'build[1/2]')" = 0 ] && [ "$(step_exit "$out" 'build[2/2]')" = 4 ] && has "$out" "  second-out" && has "$out" "failed: build[2/2] (exit 4)" && ok "a failing second build command is build[2/2] with its own exit and tail, the first is OK, a failed: line names it" || { LAST=$out; die "list record (rc=$rc)"; }
+reject "...and the failed key stops the next key" "$out" "never-run"
+reject "...the first command is not listed as failed" "$out" "failed: build[1/2]"
+# a failing test in a list does not stop the other tests
+setc "$base" build "echo b"; setc "$base" test "sh -c 'echo broke; exit 1'${nl}echo other-test-ran"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 1 ] && [ "$(step_exit "$out" 'test[1/2]')" = 1 ] && [ "$(step_exit "$out" 'test[2/2]')" = 0 ] && has "$out" "  other-test-ran" && has "$out" "failed: test[1/2] (exit 1)" && ok "a failing test in a list does not stop the other tests" || { LAST=$out; die "test list (rc=$rc)"; }
+setc "$base" test "echo one${nl}echo two"
+rc=0; out=$(br "$base") || rc=$?
+[ "$rc" = 0 ] && has "$out" "all commands passed" && ok "a list in which every command passes says so" || { LAST=$out; die "all-pass list (rc=$rc)"; }
+
+# config-check: valid list; value plus list, empty item, duplicate, inline list, list under install and secret_scan
+cp "$base/.agents/config.yaml" "$T/cfg.pristine"
+cfg_with() { awk -v k="$1" -v t="$2" '$0 ~ ("^  " k ":") { n = split(t, a, "|"); for (i = 1; i <= n; i++) print a[i]; next } { print }' "$T/cfg.pristine" > "$T/cfg.try"; }
+cc() { ( cd "$base" && sh .agents/scripts/agent.sh config-check "$T/cfg.try" 2>&1 ); }
+cfg_with test "  test:|    - a|    - b"; out=$(cc) && ok "config-check accepts a list of two commands" || { LAST=$out; die "valid list rejected"; }
+cfg_bad() { cfg_with "$2" "$3"; if out=$(cc); then LAST=$out; die "$1 accepted"; fi; expect "config-check rejects $1" "$out" "$4"; }
+cfg_bad "a value plus a list" build "  build: x|    - y" "commands.build"
+cfg_bad "an empty item" build "  build:|    - a|    -" "empty command in the commands.build list"
+cfg_bad "a duplicate item" lint "  lint:|    - a|    - a" "duplicate command in the commands.lint list"
+cfg_bad "an inline [a, b]" test "  test: [a, b]" "inline list"
+cfg_bad "a list under install" install "  install:|    - a" "commands.install takes one command, not a list"
+cfg_bad "a list under secret_scan" secret_scan "  secret_scan:|    - a" "commands.secret_scan takes one command, not a list"
+
+# discovery through init: a root .slnx and a nested npm app become a list; two ambiguous solutions leave only the npm app
+mkrepo_at "$T/poly"; : > "$T/poly/App.slnx"; mkdir -p "$T/poly/web"
+printf '{"scripts":{"build":"b","test":"t"}}\n' > "$T/poly/web/package.json"
+out=$(pl "$T/poly" init --yes --runtimes claude 2>&1) || { LAST=$out; die "init in a polyglot repository"; }
+[ "$(cfgv "$T/poly" commands.build)" = "dotnet build App.slnx${nl}npm --prefix web run build" ] && [ "$(cfgv "$T/poly" commands.test)" = "dotnet test App.slnx${nl}npm --prefix web test" ] && ok "init writes a root .slnx and a nested web/package.json as a list of two" || die "poly commands: $(cfgv "$T/poly" commands.build) / $(cfgv "$T/poly" commands.test)"
+grep -qE '^  build:$' "$T/poly/.agents/config.yaml" && grep -qE '^    - dotnet build App.slnx$' "$T/poly/.agents/config.yaml" && ok "...as a block list under the key" || die "config.yaml has no block list"
+check "...and config-check accepts it" sh -c "cd '$T/poly' && sh .agents/scripts/agent.sh config-check"
+cs1=$(cksum < "$T/poly/.agents/config.yaml")
+pl "$T/poly" init --yes --runtimes claude >/dev/null 2>&1; pl "$T/poly" upgrade >/dev/null 2>&1
+[ "$cs1" = "$(cksum < "$T/poly/.agents/config.yaml")" ] && ok "re-running init and upgrade leaves the config byte-identical" || die "config changed by a second init or upgrade"
+mkrepo_at "$T/amb"; : > "$T/amb/App.sln"; : > "$T/amb/Other.sln"; mkdir -p "$T/amb/web"
+printf '{"scripts":{"build":"b","test":"t"}}\n' > "$T/amb/web/package.json"
+out=$(pl "$T/amb" init --yes --runtimes claude 2>&1) || { LAST=$out; die "init with two solutions"; }
+[ "$(cfgv "$T/amb" commands.build)" = "npm --prefix web run build" ] && ok "two ambiguous solutions and an npm app: only the npm command is written" || die "amb build: $(cfgv "$T/amb" commands.build)"
+expect "...and init names .NET as the ecosystem it proposed nothing for" "$out" "no command proposed for .NET"
+}
+
+sc_harness() {
+# ---- harness: a failing or dying scenario must fail the unit (it used to exit 0 and hide every failure) -------------
+sc_failed=0; LC_ONLY=''
+sh_dies() { exit 1; }
+sh_passes() { :; }
+LC_EXACT=sh_passes; run_sc sh_passes >/dev/null; [ "$sc_failed" = 0 ] && ok "run_sc leaves the failure flag clear after a passing scenario" || die "run_sc flagged a passing scenario"
+LC_EXACT=sh_dies; run_sc sh_dies >/dev/null; [ "$sc_failed" = 1 ] && ok "run_sc records a dying scenario as a failure" || die "run_sc swallowed a dying scenario"
+}
+
 sc_static() {
 # ---- static analysis ----------------------------------------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
@@ -674,4 +748,7 @@ run_sc sc_plugin
 run_sc sc_insights
 run_sc sc_help_lists
 run_sc sc_init_role
+run_sc sc_cmd_lists
+run_sc sc_harness
 run_sc sc_static
+exit "$sc_failed"
