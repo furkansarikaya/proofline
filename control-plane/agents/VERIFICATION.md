@@ -3,7 +3,7 @@
 The verifier proves, in `VERIFY.md`, that the frozen plan is implemented and the repository shows it:
 
 - every acceptance criterion maps to a passing test or command (`AC-n: <evidence>`);
-- every command from PLAN `## Verification commands` and `commands.build|test|lint` ran:
+- every command from PLAN `## Verification commands` and `commands.build|test|lint` ran (a key that lists several commands: every one, each in its own entry with its own exit status and output line):
   ``- `<exact command>` | exit=<n>`` with one `output:` line;
 - `agent.sh verify-freeze`, `verify-scope`, `verify-worker-evidence` pass;
 - design-sync (`design/SYNC.md`) when design documents exist: drift is a FAIL.

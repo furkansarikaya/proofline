@@ -258,7 +258,7 @@ EOF
   fi
 
   dc_empty=''
-  for dc_k in build test lint; do [ -n "$(cfg_val "$CFG" "commands.$dc_k" '')" ] || dc_empty="$dc_empty $dc_k"; done
+  for dc_k in build test lint; do [ -n "$(cfg_cmds "$CFG" "commands.$dc_k")" ] || dc_empty="$dc_empty $dc_k"; done
   [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them; proofline proposes the ones proven in a run when it ends)"
 
   # A163: proofline merge refuses a pull request without checks; say so before the first delivery, with the fix.

@@ -90,23 +90,42 @@ acquire_lock() {
 }
 
 # --- Config (.agents/config.yaml): indented YAML of scalars, read with awk. ---------
+# One exception (A173): commands.build|test|lint may be a block list, one command per `- ` line under the key. The item lines
+# become `key.0=...`, `key.1=...` (the key itself stays empty); config_items / cfg_cmds read them back.
+# bin/lib/config.sh (cfg_lines) keeps the same awk for the CLI; tests/shared/check-shared.sh compares the two programs.
 # Prints "dotted.key=value" for every key; comments and surrounding quotes are stripped.
 config_lines() {
   awk '
     function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
-    $0 !~ /:/ { next }
     {
       ind = match($0, /[^ ]/) - 1; lvl = int(ind / 2)
-      body = substr($0, ind + 1); k = body; sub(/:.*/, "", k)
+      body = substr($0, ind + 1)
+      if (body ~ /^-([[:space:]]|$)/) {
+        if (lastfull == "" || ind < lastind) next
+        it = body; sub(/^-[[:space:]]*/, "", it); sub(/[[:space:]]+#.*$/, "", it); it = trim(it)
+        if (it ~ /^".*"$/ || it ~ /^\047.*\047$/) it = substr(it, 2, length(it) - 2)
+        print lastfull "." (cnt[lastfull]++) "=" it
+        next
+      }
+      if ($0 !~ /:/) next
+      k = body; sub(/:.*/, "", k)
       v = body; sub(/^[^:]*:/, "", v); sub(/[[:space:]]+#.*$/, "", v); v = trim(v)
       if (v ~ /^".*"$/) v = substr(v, 2, length(v) - 2)
       path[lvl] = k; full = path[0]; for (i = 1; i <= lvl; i++) full = full "." path[i]
+      lastfull = full; lastind = ind
       print full "=" v
     }' "${1:-$config}"
 }
-# config_get <dotted.key> [file]: the value; exit 1 when the key is absent.
-config_get() { config_lines "${2:-$config}" | awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); f = 1; exit } END { exit !f }'; }
+# config_items <dotted.key>: reads config_lines on stdin; prints the items of a block list, one per line, in order.
+config_items() { awk -v k="$1" 'index($0, k ".") == 1 { r = substr($0, length(k) + 2); n = index(r, "="); if (n > 1 && substr(r, 1, n - 1) ~ /^[0-9]+$/) print substr(r, n + 1) }'; }
+# config_get <dotted.key> [file]: the value (the items one per line for a block list); exit 1 when the key is absent.
+config_get() {
+  config_lines "${2:-$config}" | awk -v k="$1" '
+    index($0, k "=") == 1 && !f { v = substr($0, length(k) + 2); f = 1 }
+    index($0, k ".") == 1 { r = substr($0, length(k) + 2); n = index(r, "="); if (n > 1 && substr(r, 1, n - 1) ~ /^[0-9]+$/) it[++c] = substr(r, n + 1) }
+    END { if (!f && !c) exit 1; if (v == "" && c) { for (i = 1; i <= c; i++) print it[i]; exit 0 } print v }'
+}
 # cfg <dotted.key> [default]: the value, or the default when absent or empty.
 # The config is parsed once per process; cfg looks keys up without spawning processes.
 cfg_cache=''
@@ -119,6 +138,12 @@ $1="*) cfg_v=${cfg_cache#*"
 $1="}; cfg_v=${cfg_v%%"
 "*} ;; *) cfg_v='' ;; esac
   [ -n "$cfg_v" ] || cfg_v=${2:-}; printf '%s\n' "$cfg_v"
+}
+# cfg_cmds <commands.build|test|lint|...>: the one helper for a configured command (A173). One command per line: the scalar, or
+# every item of the block list; nothing when the key is empty or absent. Every consumer of commands.* uses this, never cfg.
+cfg_cmds() {
+  cfg_cv=$(cfg "$1" '')
+  if [ -n "$cfg_cv" ]; then printf '%s\n' "$cfg_cv"; else printf '%s\n' "$cfg_cache" | config_items "$1"; fi
 }
 config_value() { cfg "$1"; }
 
@@ -166,6 +191,17 @@ config_check() {
       if (top == "validation" && k != "validation" && k !~ /^validation\.(entry_words|entry_candidates|entry_input|entry_new|entry_output|entry_skip|code_patterns)$/) bad("unknown validation key: " k " (want validation.entry_words, entry_candidates, entry_input, entry_new, entry_output, entry_skip or code_patterns)")
       if (top == "visual" && k != "visual") { if (k !~ /^visual\.(ascii_turkish_words|ascii_turkish_allow)$/) bad("unknown visual key: " k " (want visual.ascii_turkish_words or visual.ascii_turkish_allow)"); else if (v !~ /^[A-Za-z]*([ ,]+[A-Za-z]+)*[ ,]*$/) bad(k " must be ASCII words separated by spaces: " v) }
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
+      if (top == "commands" && p[2] != "") {
+        # A173: commands.build|test|lint is one command, or a block list of commands (`- ` lines under the key)
+        if (p[3] != "") {
+          if (p[2] !~ /^(build|test|lint)$/) bad("commands." p[2] " takes one command, not a list: " k)
+          else if (p[3] !~ /^[0-9]+$/ || p[4] != "") bad("commands." p[2] " is a command or a list of commands (- command), not a map: " k)
+          else if (v == "") bad("empty command in the commands." p[2] " list (item " (p[3] + 1) ")")
+          else if ((p[2] SUBSEP v) in cmdseen) bad("duplicate command in the commands." p[2] " list: " v)
+          else { cmdseen[p[2], v] = 1; hasl[p[2]] = 1 }
+        } else if (p[2] ~ /^(build|test|lint)$/ && v ~ /^\[[^ ].*\]$/) bad(k " is an inline list; write a block list (one `- command` line per command): " v)
+        if (p[3] == "" && v != "") hasv[p[2]] = 1
+      }
       if (k == "default_topology") en(k, v, "standalone|orchestrated")
       else if (k == "profile") en(k, v, "max|balanced|economy")
       else if (k ~ /^runtime\.(lead|worker|reviewers)$/ || k ~ /^runtime\.roles\./) en(k, v, "claude|codex")
@@ -198,6 +234,7 @@ config_check() {
       seen[k] = 1
     }
     END {
+      for (s in hasl) if (hasv[s]) bad("commands." s " has both a value and a list of commands; keep one")
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
       for (s in sig) if (!chk[s]) bad("risk signal " s " has patterns but no check")
@@ -1185,7 +1222,7 @@ gate_focus() { case "$1" in REVIEW_SMALL) echo rules+tests ;; REVIEW_PLAN) echo 
 # A171: the build record (A148) is made before the review gate wave, not left to the first reviewer dispatch.
 # build_record_missing ID: 0 when build/test are configured and the current tree has no finished record.
 build_record_missing() {
-  [ -n "$(cfg commands.build '')$(cfg commands.test '')" ] || return 1
+  [ -n "$(cfg_cmds commands.build)$(cfg_cmds commands.test)" ] || return 1
   [ -f "$scripts/build-record.sh" ] || return 1
   sh "$scripts/build-record.sh" show >/dev/null 2>&1; [ $? -eq 3 ]
 }
@@ -3585,7 +3622,7 @@ skill_validator() { # ID ROLE FOCUS ARTIFACT
 # commands and the PLAN.md `## Verification commands` of the frozen plan. A PLAN.md that no longer has the
 # frozen sha256 contributes nothing (a plan edited after the freeze cannot widen the list).
 reproduce_allowed() { # ID
-  for ra_k in build test lint; do cfg "commands.$ra_k" ''; done | sed '/^$/d'
+  for ra_k in build test lint; do cfg_cmds "commands.$ra_k"; done | sed '/^$/d'
   ra_p=$(run_dir "$1")/PLAN.md
   [ -f "$ra_p" ] || return 0
   ra_f=$(section_value "$(run_dir "$1")" freeze plan_sha256)
@@ -6079,10 +6116,12 @@ ci_check() {
 }
 # ci_absent: true only when ci-check says absent (unknown and present are not a block).
 ci_absent() { ci_out=$(ci_check) && return 1; [ "$(printf '%s\n' "$ci_out" | head -1)" = 'ci: absent' ]; }
+# ci_join: stdin lines joined with "; " (a command list on one line)
+ci_join() { awk 'NF { printf "%s%s", (n++ ? "; " : ""), $0 }'; }
 # ci_task_command: one pasteable line that asks for the missing workflow, with the project's own build and test commands.
 ci_task_command() {
-  ct_b=$(cfg commands.build ''); ct_t=$(cfg commands.test '')
-  [ -n "$ct_b" ] || ct_b=${PROOFLINE_CI_BUILD:-}; [ -n "$ct_t" ] || ct_t=${PROOFLINE_CI_TEST:-}
+  ct_b=$(cfg_cmds commands.build | ci_join); ct_t=$(cfg_cmds commands.test | ci_join)   # a list reads "a; b" (A173)
+  [ -n "$ct_b" ] || ct_b=$(printf '%s\n' "${PROOFLINE_CI_BUILD:-}" | ci_join); [ -n "$ct_t" ] || ct_t=$(printf '%s\n' "${PROOFLINE_CI_TEST:-}" | ci_join)
   [ -n "$ct_b" ] || ct_b='(none found; add yours)'; [ -n "$ct_t" ] || ct_t='(none found; add yours)'
   printf '/proofline task Add a GitHub Actions workflow that runs on pull_request and runs: build: %s; test: %s (the workflow must trigger on pull_request)\n' "$ct_b" "$ct_t"
 }

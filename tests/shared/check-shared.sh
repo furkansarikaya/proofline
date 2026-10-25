@@ -94,4 +94,13 @@ if [ -f "$eco/ecosystems.json" ]; then
     done
   done
 fi
+# Config reader copies (A173): the CLI (bin/lib/config.sh, cfg_lines) and the control plane (agent.sh, config_lines) are installed
+# separately, so each keeps the awk program that turns config.yaml into `dotted.key=value` lines (and `key.N=item` for a block
+# list of commands); the two programs must stay the same text.
+cfg_awk() { sed -n "/^$2() {/,/^}/p" "$1" | sed -n "/awk '\$/,/}' /p" | sed '1d;$d'; }
+if [ -f "$root/bin/lib/config.sh" ] && [ -f "$root/control-plane/agents/scripts/agent.sh" ]; then
+  cfg_awk "$root/bin/lib/config.sh" cfg_lines > "$tmp/cfg-cli.awk"; cfg_awk "$root/control-plane/agents/scripts/agent.sh" config_lines > "$tmp/cfg-cp.awk"
+  if [ -s "$tmp/cfg-cli.awk" ] && cmp -s "$tmp/cfg-cli.awk" "$tmp/cfg-cp.awk"; then echo "PASS config reader (bin/lib/config.sh cfg_lines = agent.sh config_lines)"
+  else echo "FAIL config reader (the awk of bin/lib/config.sh cfg_lines differs from agent.sh config_lines)"; status=1; fi
+fi
 exit $status

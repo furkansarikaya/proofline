@@ -3,13 +3,17 @@
 # files. proofline never assumes a folder layout: root, nested, multi-project and monorepo layouts are equal.
 # Order: the project's declared scripts (package.json, composer.json) at the root, the Makefile / justfile /
 # Taskfile, the ecosystem's build files at the root, the same for a single nested project, then CI
-# configuration, then the README. What each ecosystem looks like (marker files, workspace roots, command
+# configuration, then the README. The ecosystem steps (scripts, build files, nested project) add one command per
+# ecosystem, so a .NET solution at the root and a nested npm frontend give a LIST of two (A173); a Makefile,
+# justfile or Taskfile command, or a CI or README line, covers the whole repository and is the only candidate. What each ecosystem looks like (marker files, workspace roots, command
 # templates, prune dirs) is read from control-plane/agents/ecosystems.json through ecosystems.tsv.
 # A command is only a candidate until `--verify-commands` proves it with a trial run. With zero or several
-# candidate targets no command is proposed (the run asks the user once, 0.0.5), never a command that fails.
+# candidate targets of ONE ecosystem no command is proposed for it (the run asks the user once, 0.0.5), never a
+# command that fails; the other ecosystems still get theirs.
 # Sourced by bin/proofline, which provides say/warn/die, sha256, PL_HOME, ROOT, PROOFLINE_VERSION.
 
-D_BUILD=''; D_TEST=''; D_LINT=''
+# D_BUILD, D_TEST and D_LINT hold one command per line (several lines: a command list, written as a block list under the key).
+D_BUILD=''; D_TEST=''; D_LINT=''; D_CLOSED=''; D_AMBIG=''
 
 # The ecosystem definition (shipped with the control plane); without it only the project's own text is read.
 D_ECO=''
@@ -19,13 +23,28 @@ if [ -f "${PL_HOME:-/nonexistent}/control-plane/agents/scripts/ecosystems.sh" ];
   ! eco_init "$PL_HOME/control-plane/agents/ecosystems.tsv" || D_ECO=1
 fi
 
-d_set() { # KIND CMD: first writer wins
-  case "$1" in
-    build) [ -n "$D_BUILD" ] || D_BUILD=$2 ;;
-    test) [ -n "$D_TEST" ] || D_TEST=$2 ;;
-    lint) [ -n "$D_LINT" ] || D_LINT=$2 ;;
-  esac
+d_cur() { case "$1" in build) printf '%s' "$D_BUILD" ;; test) printf '%s' "$D_TEST" ;; lint) printf '%s' "$D_LINT" ;; esac; }
+d_put() { case "$1" in build) D_BUILD=$2 ;; test) D_TEST=$2 ;; lint) D_LINT=$2 ;; esac; }
+# d_set KIND CMD: a command that covers the whole repository (Makefile, justfile, Taskfile, CI, README): first writer wins,
+# and a kind it writes takes no further ecosystem command.
+d_set() {
+  [ -z "$(d_cur "$1")" ] || return 0
+  d_put "$1" "$2"; D_CLOSED="$D_CLOSED $1"
 }
+# d_add KIND CMD: the command of one ecosystem's project; added to the list of KIND (once) unless a covering command wrote it.
+d_add() {
+  case " $D_CLOSED " in *" $1 "*) return 0 ;; esac
+  da_cur=$(d_cur "$1")
+  case "
+$da_cur
+" in *"
+$2
+"*) return 0 ;; esac
+  d_put "$1" "${da_cur:+$da_cur
+}$2"
+}
+# d_join LINES: the commands of a list on one line, "a; b" (for messages)
+d_join() { printf '%s\n' "$1" | awk 'NF { printf "%s%s", (n++ ? "; " : ""), $0 }'; }
 
 # d_pkg_script ROOT NAME [FILE]: the script body in package.json (or another JSON file with `scripts`), empty when absent.
 d_pkg_script() {
@@ -201,6 +220,9 @@ d_unit_dirs() {
     if (keep) print d[i] } }'
 }
 
+# d_names LINES: up to four names, comma separated, then "..."
+d_names() { printf '%s\n' "$1" | awk 'NF { n++; if (n <= 4) printf "%s%s", (n > 1 ? ", " : ""), $0 } END { if (n > 4) printf ", ..." }'; }
+
 # d_select ROOT ID: picks the one target of an ecosystem. Sets D_SEL_MODE (bare | targeted | none), D_SEL_DIR
 # (the unit directory, . for the root) and D_SEL_TARGET (the file, for a file-target ecosystem).
 #   dir target: the outermost directories that hold a project file or a workspace root (members of a workspace
@@ -208,7 +230,7 @@ d_unit_dirs() {
 #   file target (units.stages): the first stage that has candidates decides; exactly one candidate is the target,
 #     several are ambiguous (none). A legacy twin (units.legacy: a .sln beside a same-name .slnx) is ignored.
 d_select() {
-  D_SEL_MODE=none; D_SEL_DIR=.; D_SEL_TARGET=''
+  D_SEL_MODE=none; D_SEL_DIR=.; D_SEL_TARGET=''; D_SEL_WHY=''
   ds_hits=$(d_hits "$2")
   [ -n "$ds_hits" ] || return 0
   if [ "$(eco_first "$2" units.target)" = file ]; then
@@ -228,8 +250,8 @@ d_select() {
         [ "$ds_w" = root ] || [ -z "$D_TRUNC" ] || return 0   # a truncated search cannot say there is no nested candidate
         continue
       fi
-      if [ "$(printf '%s\n' "$ds_set" | grep -c .)" -ne 1 ]; then return 0; fi
-      d_safe_path "$ds_set" || return 0
+      if [ "$(printf '%s\n' "$ds_set" | grep -c .)" -ne 1 ]; then D_SEL_WHY="several targets: $(d_names "$ds_set")"; return 0; fi
+      d_safe_path "$ds_set" || { D_SEL_WHY="a path with a space or an unusual character: $ds_set"; return 0; }
       D_SEL_TARGET=$ds_set
       case "$ds_set" in */*) D_SEL_DIR=${ds_set%/*} ;; *) D_SEL_DIR=. ;; esac
       if [ "$ds_s" = "$(eco_first "$2" units.bare)" ]; then D_SEL_MODE=bare; else D_SEL_MODE=targeted; fi
@@ -240,21 +262,26 @@ d_select() {
   ds_dirs=$(d_unit_dirs "$1" "$2" "$ds_hits")
   [ -n "$ds_dirs" ] || return 0
   if [ "$ds_dirs" = . ]; then D_SEL_MODE=bare; D_SEL_DIR=.; return 0; fi
-  [ -z "$D_TRUNC" ] || return 0
-  [ "$(printf '%s\n' "$ds_dirs" | grep -c .)" -eq 1 ] || return 0
-  d_safe_path "$ds_dirs" || return 0
+  [ -z "$D_TRUNC" ] || { D_SEL_WHY="more marker files than the search reads"; return 0; }
+  [ "$(printf '%s\n' "$ds_dirs" | grep -c .)" -eq 1 ] || { D_SEL_WHY="several projects: $(d_names "$ds_dirs")"; return 0; }
+  d_safe_path "$ds_dirs" || { D_SEL_WHY="a path with a space or an unusual character: $ds_dirs"; return 0; }
   D_SEL_DIR=$ds_dirs; D_SEL_MODE=targeted
 }
 
-# d_plan ROOT: D_PLAN = one line `id|mode|dir|target` per ecosystem that has exactly one target.
+# d_plan ROOT: D_PLAN = one line `id|mode|dir|target` per ecosystem that has exactly one target. An ecosystem with several
+# targets (or an unsafe path) gets no command; D_AMBIG = one line `id|reason` for each, so the run can say it asks the user.
 d_plan() {
-  D_PLAN=''
+  D_PLAN=''; D_AMBIG=''
   [ -n "$D_ECO" ] || return 0
   d_markers "$1"
   [ -n "$D_MARKERS" ] || return 0
   for dp_id in $(eco_ids); do
     d_select "$1" "$dp_id"
-    [ "$D_SEL_MODE" != none ] || continue
+    if [ "$D_SEL_MODE" = none ]; then
+      [ -z "$D_SEL_WHY" ] || D_AMBIG="$D_AMBIG
+$dp_id|$D_SEL_WHY"
+      continue
+    fi
     D_PLAN="$D_PLAN
 $dp_id|$D_SEL_MODE|$D_SEL_DIR|$D_SEL_TARGET"
   done
@@ -276,11 +303,11 @@ d_apply() {
   done
 }
 
-# d_apply_set ROOT WHERE TRUTH: d_apply, recorded with d_set (a pipe would lose the variables).
+# d_apply_set ROOT WHERE TRUTH: d_apply, recorded with d_add (a pipe would lose the variables).
 d_apply_set() {
   das_out=$(d_apply "$1" "$2" "$3")
   [ -n "$das_out" ] || return 0
-  while IFS="	" read -r das_k das_c; do d_set "$das_k" "$das_c"; done <<D_EOF
+  while IFS="	" read -r das_k das_c; do d_add "$das_k" "$das_c"; done <<D_EOF
 $das_out
 D_EOF
 }
@@ -327,9 +354,19 @@ d_patterns() {
   D_TOOLS_RE=$( { eco_get '*' ci_scan.tools; eco_union commands.tools; } | sed 's/\./\\./g' | paste -sd'|' -)
 }
 
-# discover_commands ROOT: sets D_BUILD D_TEST D_LINT (empty when nothing was found).
+# d_ambig_notes: one line per ecosystem that got no command because its target is ambiguous (D_AMBIG). The user is asked
+# once, after a run that proved a command (the 0.0.5 flow), never given a guess.
+d_ambig_notes() {
+  [ -n "$D_AMBIG" ] || return 0
+  printf '%s\n' "$D_AMBIG" | while IFS='|' read -r dn_id dn_why; do
+    [ -n "$dn_id" ] || continue
+    dn_n=$(eco_first "$dn_id" name 2>/dev/null); dn_n=${dn_n%% (*}; printf '%s\n' "no command proposed for ${dn_n:-$dn_id} ($dn_why); a run that proves one asks you once to add it"
+  done
+}
+
+# discover_commands ROOT: sets D_BUILD D_TEST D_LINT (one command per line; empty when nothing was found) and D_AMBIG.
 discover_commands() {
-  D_BUILD=''; D_TEST=''; D_LINT=''
+  D_BUILD=''; D_TEST=''; D_LINT=''; D_CLOSED=''
   d_patterns; d_plan "$1"
   d_apply_set "$1" root scripts
   d_make "$1"; d_just "$1"; d_taskfile "$1"
@@ -419,16 +456,21 @@ run_with_timeout() {
 # shellcheck disable=SC2016 # literal $( and ${ patterns
 d_safe() { case "$1" in *['&;|<>`']*|*'$('*|*'${'*|*'{{'*) return 1 ;; esac; return 0; }
 
-# verify_commands ROOT: trial-runs every discovered command (timeout 600 s each); a failing one is dropped.
+# verify_commands ROOT: trial-runs every discovered command (timeout 600 s each, one by one, also inside a list); a failing
+# one is dropped and the others of its list stay.
 verify_commands() {
   for vc_k in build test lint; do
-    case "$vc_k" in build) vc_c=$D_BUILD ;; test) vc_c=$D_TEST ;; lint) vc_c=$D_LINT ;; esac
-    [ -n "$vc_c" ] || continue
-    d_safe "$vc_c" || { say "  commands.$vc_k has shell operators, not trial-run and left empty: $vc_c"; case "$vc_k" in build) D_BUILD='' ;; test) D_TEST='' ;; lint) D_LINT='' ;; esac; continue; }
-    if (cd "$1" && run_with_timeout 600 sh -c "$vc_c"); then say "  verified commands.$vc_k: $vc_c"
-    else
-      say "  commands.$vc_k trial failed, left empty: $vc_c"
-      case "$vc_k" in build) D_BUILD='' ;; test) D_TEST='' ;; lint) D_LINT='' ;; esac
-    fi
+    vc_all=$(d_cur "$vc_k"); [ -n "$vc_all" ] || continue
+    vc_keep=''
+    while IFS= read -r vc_c; do
+      [ -n "$vc_c" ] || continue
+      d_safe "$vc_c" || { say "  commands.$vc_k has shell operators, not trial-run and left empty: $vc_c"; continue; }
+      if (cd "$1" && run_with_timeout 600 sh -c "$vc_c" < /dev/null); then say "  verified commands.$vc_k: $vc_c"; vc_keep="${vc_keep:+$vc_keep
+}$vc_c"
+      else say "  commands.$vc_k trial failed, left empty: $vc_c"; fi
+    done <<VC_EOF
+$vc_all
+VC_EOF
+    d_put "$vc_k" "$vc_keep"
   done
 }

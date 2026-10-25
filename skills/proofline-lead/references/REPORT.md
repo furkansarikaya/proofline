@@ -88,3 +88,10 @@ in a recorded implementer, QA or verifier step), ask the user ONE question at th
 (the config is locked during a run): the command per key, recommended answer "write them". On yes, edit only
 those empty keys in `.agents/config.yaml`; on no or no answer, change nothing. Never propose an unproven
 command or replace a configured one.
+
+A key can hold a list (A173, a project with several stacks). When the run proved several commands for one key (for example
+a .NET build and an npm build), propose them as one list and write a block list (`build:` then one `    - command` line
+each); one proven command stays a single `build: command`. The same question covers a key that is not empty but lacks a
+command the run proved for another project of the repository (discovery proposes nothing for an ambiguous target, for
+example two solutions): offer to append it to the key (the configured command first, the proven one after it, turning a
+single command into a list); never reorder or remove a configured command. Run `agent.sh config-check` after the edit.

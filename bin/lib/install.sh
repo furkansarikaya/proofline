@@ -229,7 +229,9 @@ do_config() {
     done
     for dc_k in build test lint; do
       case "$dc_k" in build) dc_v=$D_BUILD ;; test) dc_v=$D_TEST ;; lint) dc_v=$D_LINT ;; esac
-      [ -n "$dc_v" ] && [ -z "$(cfg_val "$dc_w" "commands.$dc_k" '')" ] && cfg_set_if "$dc_w" "commands.$dc_k" "$dc_v"
+      # D_BUILD, D_TEST and D_LINT hold one command per line; several lines are written as a block list (A173). A configured
+      # command (a value or a list) is never replaced.
+      if [ -n "$dc_v" ] && [ -z "$(cfg_cmds "$dc_w" "commands.$dc_k")" ]; then cfg_set "$dc_w" "commands.$dc_k" "$dc_v" || warn "config key not set: commands.$dc_k"; fi
     done
   fi
   if [ "$dc_new" = yes ]; then plog merged ".agents/config.yaml (created from the discovered project settings)"
@@ -394,9 +396,10 @@ cmd_init() {
   else ask FORBIDDEN "Forbidden commit identities, space separated patterns (empty: none)" "$(cfg_val "$ex" git.forbidden_identities '')"; fi
   CANON=$(detect_branch)
   D_BUILD=''; D_TEST=''; D_LINT=''
-  if [ ! -f "$ex" ] || [ -z "$(cfg_val "$ex" commands.test '')$(cfg_val "$ex" commands.build '')" ]; then
+  if [ ! -f "$ex" ] || [ -z "$(cfg_cmds "$ex" commands.test)$(cfg_cmds "$ex" commands.build)" ]; then
     discover_commands "$ROOT"
-    say "discovered commands: build='${D_BUILD:-}' test='${D_TEST:-}' lint='${D_LINT:-}'"
+    say "discovered commands: build='$(d_join "${D_BUILD:-}")' test='$(d_join "${D_TEST:-}")' lint='$(d_join "${D_LINT:-}")'"
+    d_ambig_notes | while IFS= read -r dn_l; do say "  $dn_l"; done
     [ "$VERIFY" != 1 ] || { say "verifying commands (trial runs)..."; verify_commands "$ROOT"; }
   fi
   install_run

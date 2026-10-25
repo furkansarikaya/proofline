@@ -1,7 +1,8 @@
 # proofline control-plane configuration (installed as .agents/config.yaml).
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a
-# phrase may contain spaces). `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check`
-# validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
+# phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
+# commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
+# `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
 proofline_version: 0.0.29
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
@@ -49,6 +50,12 @@ commands:
   # Optional: installs dependencies in the build record's export directory (agent.sh build-record); without it
   # node_modules, vendor and .venv of the project root are linked into the export.
   install:
+  # build, test and lint take one command (`build: dotnet build App.slnx`) or several, one `- ` line each, for a project with more
+  # than one stack (A173). agent.sh build-record and the verify gate run every one and report the one that broke on its own:
+  #   build:
+  #     - dotnet build App.slnx
+  #     - npm --prefix web run build
+  # Write one form per key; `agent.sh config-check` rejects both at once, an empty item and a duplicate.
   build:
   test:
   lint:
