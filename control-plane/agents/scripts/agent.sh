@@ -11,6 +11,16 @@ root=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
 agents=$root/.agents
 config=$agents/config.yaml
 scripts=$agents/scripts
+# A185: shared_dir NAME is the ONE place the state that belongs to no single run (batch approvals metrics friction prompts) lives:
+# <main working tree>/.agents/local/NAME, reached by path from the main tree and from every run worktree, never through a link (a
+# link is a copy on Windows without symlink rights, and a copy would go stale). In the main tree sr_main is root, so nothing changes there.
+sr_main=$root
+if [ -f "$root/.git" ]; then   # a linked worktree has a .git file; only the ones proofline made under <main>/.agents/local/worktrees share
+  sr_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); sr_p=$(cd "$root" && pwd -P)
+  case "$sr_p" in "$sr_m"/.agents/local/worktrees/*) sr_main=$sr_m ;; esac
+fi
+shared_dir() { printf '%s/.agents/local/%s\n' "$sr_main" "$1"; }
+PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
 
 if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 | awk '{print $1}'; }
@@ -188,7 +198,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -251,6 +261,8 @@ config_check() {
       else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad(k " must be at least 30") }
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
+      else if (k == "worktree.copy_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[|\\]/) bad("worktree.copy_files must be project-relative globs without a leading / or .. : " v) }
+      else if (top == "worktree" && k != "worktree") bad("unknown worktree key: " k " (want worktree.copy_files)")
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
       else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
       else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
@@ -1593,7 +1605,7 @@ verify_intent_provenance() { # ID
   vi_id=$1
   vi_f=$(run_dir "$vi_id")/design/INTENT.md
   [ -f "$vi_f" ] || vi_f=$root/$(cfg tasks.dir .agents/tasks)/$vi_id/design/INTENT.md
-  vi_h=$root/.agents/local/prompts/history
+  vi_h=$(shared_dir prompts)/history
   [ -f "$vi_f" ] || return 0
   vi_all=$(cat "$vi_h"/* 2>/dev/null | tr -s ' \t\n' ' ')
   # `id<TAB>decision` of every scope decision of the tree (A105 reads the decision).
@@ -3990,7 +4002,7 @@ language_extra() {
   case "$le_run" in ''|*[!A-Za-z0-9._-]*) le_run='' ;; esac
   {
     [ -z "$le_run" ] || cat "$(run_dir "$le_run")/TASK.md" 2>/dev/null || :
-    cat "$root"/.agents/local/prompts/history/*.txt 2>/dev/null || :
+    cat "$(shared_dir prompts)"/history/*.txt 2>/dev/null || :
   } | tr -s '[:space:]' ' ' | language_mark > "$le_t"
   printf '%s\n' "$le_t"
 }
@@ -4048,7 +4060,7 @@ language_question_file() {
 }
 language_scan() {
   ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); ls_extra=''; ls_hc=''; ls_hw=''; ls_ready=no
-  cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
+  cat "$(shared_dir prompts)"/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
     case "$ls_f" in */runs/*/reviews/visual-proof/*|*/runs/*/reports/qa-evidence/*) continue ;; esac   # machine output (A172)
@@ -4493,7 +4505,7 @@ valid_approval_kind() {
   esac
 }
 kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
-approvals_dir() { if [ "$1" = - ]; then printf '%s/.agents/local/approvals\n' "$root"; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
+approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
   valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>)"
@@ -4514,8 +4526,8 @@ ab_fp=''   # the content fingerprint approve_kinds computed once for all the kin
 approval_bound() { # ID KIND
   case "$2" in
     commit|push|pr|merge|cleanup) if [ -n "$ab_fp" ]; then printf '%s\n' "$ab_fp"; else content_fingerprint; fi ;;
-    report) hash_file "$root/.agents/local/friction/latest.md" ;;
-    batch) hash_file "$root/.agents/local/batch/SUMMARY.md" ;;
+    report) hash_file "$(shared_dir friction)/latest.md" ;;
+    batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
@@ -4571,7 +4583,7 @@ safe_state_file() {
 }
 latest_capture() { # -> the capture file with the greatest time, or exit 1; any unsafe capture file fails
   lc_best='' lc_t=-1
-  for lc_f in "$root"/.agents/local/prompts/*.json; do
+  for lc_f in "$(shared_dir prompts)"/*.json; do
     [ -e "$lc_f" ] || [ -L "$lc_f" ] || continue
     safe_state_file "$lc_f" || { fail "prompt capture ${lc_f#"$root"/} is not a regular single-link file on a symlink-free path; refusing every capture"; return 1; }
     lc_v=$(capture_field "$lc_f" time 2>/dev/null) || continue
@@ -4780,7 +4792,7 @@ run_language() {
     rl_q=$(grep -E '^[[:space:]]*>' "$rl_t" 2>/dev/null || :)
     if [ "$(printf '%s\n' "$rl_q" | wc -w)" -ge 3 ]; then printf '%s\n' "$rl_q" | rl_detect; return 0; fi
   fi
-  for rl_f in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
+  for rl_f in $(ls -1 "$(shared_dir prompts)"/history/*.txt 2>/dev/null | sort); do
     [ "$(wc -w < "$rl_f")" -ge 6 ] || continue
     rl_detect < "$rl_f"; return 0
   done
@@ -4967,7 +4979,7 @@ approval_consume() { # ID KIND [FINGERPRINT [REF...]] — for the git hooks; exi
 
 # --- Night mode (A157): one approval of one summary stands in for the plan, delivery and mutation budget approvals of the
 # listed tasks. The plan, the digest of its state and the report are batch.sh; here are only the approval checks and the cover.
-batch_dir() { printf '%s/.agents/local/batch\n' "$root"; }
+batch_dir() { shared_dir batch; }
 # batch_approval: the batch approval file, valid only while SUMMARY.md still has the hash it is bound to; it is never consumed.
 batch_approval() {
   ba_s=$(batch_dir)/SUMMARY.md; [ -f "$ba_s" ] || return 1
@@ -5163,18 +5175,18 @@ answer() {
       an_a0=$an_pe; an_prevsrc=$(gate_field "$an_prev" source_message)
     fi
     an_pick=''
-    for an_h in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
+    for an_h in $(ls -1 "$(shared_dir prompts)"/history/*.txt 2>/dev/null | sort); do
       an_e=${an_h##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
       [ "$an_e" -ge "$an_a0" ] || continue
       grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
       [ "${an_h##*/}" != "$an_prevsrc" ] || continue
       # an amend takes the newest message no answer has used (a used one belongs to another question)
-      [ "$an_amend" = no ] || ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
+      [ "$an_amend" = no ] || ! grep -qxF "${an_h##*/}" "$(shared_dir prompts)/consumed" 2>/dev/null || continue
       an_pick=$an_h
     done
     [ -n "$an_pick" ] || { rm -f "$an_t"; if [ "$an_amend" = yes ]; then fail "no captured user message newer than the recorded answer to question $an_n: only a new message of the user corrects an answer (ask the user, wait for the reply, then run this again)"; fi; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
     # one message answers one question: the newest message was already used by an earlier --captured answer
-    if grep -qxF "${an_pick##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null; then rm -f "$an_t"; fail "the user's newest message since question $an_n (${an_pick##*/}) already answered another question: the user has not answered this one yet"; fi
+    if grep -qxF "${an_pick##*/}" "$(shared_dir prompts)/consumed" 2>/dev/null; then rm -f "$an_t"; fail "the user's newest message since question $an_n (${an_pick##*/}) already answered another question: the user has not answered this one yet"; fi
     cat "$an_pick" > "$an_t"; an_used=${an_pick##*/}; an_src=$an_used
   else cat > "$an_t"; fi
   grep -q '[^[:space:]]' "$an_t" || { rm -f "$an_t"; fail "empty answer"; }
@@ -5213,7 +5225,7 @@ answer() {
   { printf 'answered_by: %s\ntime: %s\nanswered_epoch: %s\n' "$an_by" "$(now_iso)" "$(now_epoch)"
     [ -z "$an_src" ] || printf 'source_message: %s\n' "$an_src"
     [ -z "$an_amends" ] || printf 'amends: %s\n' "$an_amends"
-    printf -- '---\n'; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
+    printf -- '---\n'; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$(shared_dir prompts)/consumed"   # consumed only once the answer is written
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
   # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is
@@ -5222,7 +5234,7 @@ answer() {
   an_ev=answer; [ "$an_amend" = no ] || an_ev=answer-amend
   if gates_enforced "$an_id"; then ledger_append "$an_id" "$an_ev" - - "$(basename "$an_q") answered_by=$an_by${an_src:+ source=$an_src}${an_amends:+ amends=$an_amends}$an_as"; fi
   echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by${an_amends:+ (amends $an_amends, the old record is kept)}"
-  if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$root/.agents/local/prompts/history/$an_src" | cut -c1-80)"; fi
+  if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$(shared_dir prompts)/history/$an_src" | cut -c1-80)"; fi
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
 }
 
@@ -5431,7 +5443,7 @@ wait_line() {
 # history.tsv: one flat line per step. records.jsonl: versioned records (schema in docs/concepts/metrics.md).
 metrics_line() { # TASK ROLE RUNTIME MODEL DURATION OUTCOME
   [ "$(cfg metrics on)" != off ] || return 0
-  ml_f=$root/.agents/local/metrics/history.tsv
+  ml_f=$(shared_dir metrics)/history.tsv
   mkdir -p "$(dirname "$ml_f")" 2>/dev/null || return 0
   [ -s "$ml_f" ] || printf 'time\ttask\trole\truntime\tmodel\tduration_s\toutcome\n' > "$ml_f" 2>/dev/null || return 0
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(now_iso)" "$1" "$2" "$3" "$4" "$5" "$6" >> "$ml_f" 2>/dev/null || true
@@ -5478,7 +5490,7 @@ metrics_run() { # ID OUTCOME
 #   record can never carry free text (and so never a secret). `metrics: off` writes nothing.
 metrics_json() {
   [ "$(cfg metrics on)" != off ] || return 0
-  mj_f=$root/.agents/local/metrics/records.jsonl
+  mj_f=$(shared_dir metrics)/records.jsonl
   mkdir -p "$(dirname "$mj_f")" 2>/dev/null || return 0
   mj_s() { mj_v=$(printf '%s' "$1" | tr -cd 'A-Za-z0-9._+:-'); case "$mj_v" in ''|-) printf null ;; *) printf '"%s"' "$mj_v" ;; esac; }
   mj_n() { case "$1" in ''|*[!0-9]*) printf null ;; *) printf '%s' "$1" ;; esac; }
@@ -6810,7 +6822,7 @@ deliver_step() {
       consume_approval "$ds_t" "$ds_app"
       # A157: a batch keeps its own record of the merge. It is written BEFORE the cleanup: a crash in between must leave the task merged
       # (never run again), not a half-cleaned run that looks unmerged.
-      [ ! -d "$root/.agents/local/batch" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$root/.agents/local/batch/merged.tsv"
+      [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
       cleanup_run "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
@@ -6833,21 +6845,23 @@ rw_main() { (cd "$root" && pwd -P); }   # the main working tree's folder (worktr
 rw_dir() { printf '%s/.agents/local/worktrees/%s\n' "$(rw_main)" "$1"; }
 rw_valid_id() { valid_task_id "$1" && case "$1" in [!A-Za-z0-9]*|*..*) return 1 ;; esac; }
 rw_registered() { git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$1"; }
-# The state every worktree of this project shares through links, so a session in a task worktree finds the batch approval and writes
-# metrics and the merge record where the main working tree reads them. Per-worktree on purpose: runs, ACTIVE_RUN, deliver, assignments, locks.
-rw_shared='batch approvals metrics friction prompts'   # prompts: `answer --captured` finds the user's reply captured in the main working tree
-rw_prepare() { # WORKTREE: links to the shared state, the runtime config git does not track, the dependency folder
+# A185: the state that belongs to no single run (batch approvals metrics friction prompts) is NOT linked into a worktree: every reader asks
+# shared_dir, which names the main tree's folder by path. A link would be a copy where symlinks are not allowed (Git Bash without
+# developer mode), and a copy goes stale. Per-run state (runs, ACTIVE_RUN, deliver, assignments, locks, windows, records) lives in the
+# worktree that owns the run; the runtime hook resolves the same folder (adapters/claude/hooks/proofline-hook.sh, state root).
+rw_shared='batch approvals metrics friction prompts'
+rw_prepare() { # WORKTREE: the shared folders exist, the runtime config git does not track, dependency folders and local env files
   rp_w=$1; rp_m=$(rw_main); mkdir -p "$rp_w/.agents/local"
-  for rp_s in $rw_shared; do
-    mkdir -p "$rp_m/.agents/local/$rp_s"
-    [ -e "$rp_w/.agents/local/$rp_s" ] || [ -L "$rp_w/.agents/local/$rp_s" ] || ln -s "$rp_m/.agents/local/$rp_s" "$rp_w/.agents/local/$rp_s"
-  done
+  for rp_s in $rw_shared; do mkdir -p "$rp_m/.agents/local/$rp_s"; done
   # runtime hooks and settings that are ignored or untracked are not in a checkout; without them the session would run unconfined
   for rp_f in .claude/settings.json .claude/settings.local.json .codex/hooks.json .codex/config.toml; do
     if [ -f "$rp_m/$rp_f" ] && [ ! -e "$rp_w/$rp_f" ]; then mkdir -p "$rp_w/$(dirname "$rp_f")"; cp "$rp_m/$rp_f" "$rp_w/$rp_f"; fi
   done
-  # git-ignored dependency folder: linked, as for an evidence worktree (the lead skill, isolated execution)
-  if [ -d "$rp_m/node_modules" ] && [ ! -e "$rp_w/node_modules" ]; then ln -s "$rp_m/node_modules" "$rp_w/node_modules"; fi
+  # dependency folders (data: worktree_deps in ecosystems.json) become the worktree's own copies, never links into the main tree, and
+  # the untracked local files of worktree.copy_files (default .env*) are copied in; both by worktree-prep.sh (A185)
+  if [ -f "$scripts/worktree-prep.sh" ]; then
+    sh "$scripts/worktree-prep.sh" "$rp_m" "$rp_w" "$(cfg worktree.copy_files '.env*')" >&2 || echo "warning: worktree preparation reported a problem (the worktree is usable; dependencies or env files may be missing)" >&2
+  fi
 }
 # worktree_add ID: a detached worktree at the canonical branch's local tip, prepared; prints its folder. An existing one is reused.
 worktree_add() {
@@ -7045,6 +7059,8 @@ if [ "$lock_command" = yes ]; then
   trap 'exit 130' INT
   trap 'exit 143' TERM
   acquire_lock "$agents/local/.lock"
+  # A185: the shared state (approvals, metrics, prompts, batch) is written from every worktree, so its lock is the main tree's (the same path as above there)
+  [ "$sr_main" = "$root" ] || { [ -d "$sr_main/.agents/local" ] && acquire_lock "$sr_main/.agents/local/.lock"; }
   if [ "$command" != start ] && [ -n "${2:-}" ] && valid_task_id "$2" && [ -d "$(run_dir "$2")" ]; then
     acquire_lock "$(run_dir "$2")/.lock"
   fi

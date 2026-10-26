@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- One run state per worktree (A185): the runtime hook finds the run and its state folder from the worktree that contains the event's path or working directory (the hook used to read the main tree's `ACTIVE_RUN`, saw no run for a run started in a worktree and never opened the implementer's write window); state of no single run (`batch`, `approvals`, `metrics`, `friction`, `prompts`) is read from the main tree by path, with no links, so it also works where symlinks cannot be created (Windows Git Bash). A worktree gets its own copy of the dependency folders listed as `worktree_deps` in `ecosystems.json` (no more `node_modules` link into the main tree) and a copy of the git-ignored `.env*` files (`worktree.copy_files`), which the pre-commit hook never lets into a commit.
 - Path classification follows the git worktree root (A184): the lead can write `EVIDENCE.md` in a run's worktree (`.agents/local/worktrees/<ID>/.agents/runs/<ID>/`) while run state, gates, approvals and the worktree's `.agents/local/**` stay protected; the root comes from `agent.sh worktree-root`, which answers only for a registered worktree of the project (a crafted folder or link is not one). Explorers return a claims table (with an example in the role and the assignment); a prose report goes back to the same explorer and the lead never writes `EVIDENCE.md` from prose. Rejected: a path-string allowance for `.agents/local/worktrees/**`.
 
 ## 0.0.32 — 2026-10-26

@@ -58,7 +58,39 @@ root=$(CDPATH='' cd "$root" 2>/dev/null && pwd -P) || exit 0
 agent=$root/.agents/scripts/agent.sh
 # Not installed: every event is a no-op, except the merge guard of pretool (A136), which protects any project the hook runs in.
 installed=yes; { [ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ]; } || installed=no
-local_dir=$root/.agents/local
+# A185: ONE folder per kind of state. Per-run state (ACTIVE_RUN, windows, records, submissions, baseline, hook-times, in-flight marks) lives in the
+# worktree that owns the run: sroot, the root of the run worktree the event belongs to (the path the tool touches when it is inside the
+# project, else the working directory), as decided by agent.sh worktree-root; otherwise the project root. agent.sh of that worktree is the
+# one that is asked, so it and the hook read and write the same run folder. State that belongs to no run (prompts, approvals of no run)
+# is the main working tree's, reached by path (shared_local), never through a link. Outside a run worktree sroot is root: nothing changes.
+main_root=$root
+if [ -f "$root/.git" ]; then   # root itself is a linked worktree (CLAUDE_PROJECT_DIR or git named it): its main tree holds the shared state
+  mr_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  case "$root" in "$mr_m"/.agents/local/worktrees/*) main_root=$mr_m ;; esac
+fi
+shared_local=$main_root/.agents/local
+sroot=$root
+ev_phys() { # P: the physical absolute path (existing parents resolved); nothing when it cannot be resolved
+  ep_q=$1; case "$ep_q" in /*) ;; *) ep_q=$cwd/$ep_q ;; esac
+  ep_d=$(dirname "$ep_q"); ep_t=$(basename "$ep_q")
+  while [ ! -d "$ep_d" ]; do ep_t=$(basename "$ep_d")/$ep_t; ep_n=$(dirname "$ep_d"); [ "$ep_n" != "$ep_d" ] || return 0; ep_d=$ep_n; done
+  ep_d=$(CDPATH='' cd "$ep_d" 2>/dev/null && pwd -P) || return 0
+  printf '%s/%s\n' "$ep_d" "$ep_t"
+}
+if [ "$installed" = yes ] && [ "$main_root" = "$root" ]; then
+  ev_p=''; [ "$parsed" = no ] || case "$ev" in pretool|posttool) ev_p=$(jget tool_input.file_path tool_input.notebook_path tool_input.path) ;; esac
+  for ev_c in "$ev_p" "$cwd"; do
+    [ -n "$ev_c" ] || continue
+    ev_c=$(ev_phys "$ev_c"); [ -n "$ev_c" ] || continue
+    case "$ev_c" in
+      "$root"/.agents/local/worktrees/*)
+        if ev_w=$(sh "$agent" worktree-root "$ev_c" 2>/dev/null) && [ -n "$ev_w" ] && [ -f "$ev_w/.agents/config.yaml" ] && [ -f "$ev_w/.agents/scripts/agent.sh" ]; then sroot=$ev_w; agent=$ev_w/.agents/scripts/agent.sh; fi
+        break ;;
+      "$root"|"$root"/*) break ;;   # a path inside the project but outside every run worktree: the main tree decides
+    esac
+  done
+fi
+local_dir=$sroot/.agents/local
 # once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
 # once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side
 # effects (prompt, session).
@@ -207,8 +239,8 @@ erasable() {
   case "$er_r" in .agents/runs/"$act"/scratch/*) return 0 ;; esac
   [ "$ro" = no ] || return 1   # A143: a read role leaves the project tree unchanged
   ! always_protected "$er_r" || return 1
-  [ -z "$(git -C "$root" ls-files -- "$er_r" 2>/dev/null)" ] || return 1
-  ! git -C "$root" check-ignore -q -- "$er_r" 2>/dev/null || return 1
+  [ -z "$(git -C "$sroot" ls-files -- "$er_r" 2>/dev/null)" ] || return 1
+  ! git -C "$sroot" check-ignore -q -- "$er_r" 2>/dev/null || return 1
   # not in the untracked set recorded when the run's first hook event came (the user's own work in progress is in it)
   [ -f "$local_dir/baseline/$act" ] && ! grep -qxF -- "$er_r" "$local_dir/baseline/$act"
 }
@@ -217,7 +249,7 @@ baseline() {
   [ "$installed" = yes ] && [ -n "$act" ] && [ "$act" != INVALID ] && [ ! -f "$local_dir/baseline/$act" ] || return 0
   mkdir -p "$local_dir/baseline" 2>/dev/null || return 0
   # git's own status is checked (a pipe into tr would hide its failure); a failed git writes no baseline, so erasable() refuses
-  if git -C "$root" ls-files -z --others --exclude-standard >"$local_dir/baseline/.$act.raw" 2>/dev/null &&
+  if git -C "$sroot" ls-files -z --others --exclude-standard >"$local_dir/baseline/.$act.raw" 2>/dev/null &&
      tr '\0' '\n' <"$local_dir/baseline/.$act.raw" >"$local_dir/baseline/.$act.tmp"; then
     mv "$local_dir/baseline/.$act.tmp" "$local_dir/baseline/$act"
   fi
@@ -292,7 +324,7 @@ path_ok() {
   # implementer PRODUCT_SCOPE, task_author the run dir and tasks.dir, everyone else the run dir only.
   # Implementer and designer subagents write outside the run dir only inside their window.
   po_own=''
-  [ -f "$root/.agents/owns.conf" ] && po_own=$(awk -v r="$role" '$1 == r { $1 = ""; print; exit }' "$root/.agents/owns.conf")
+  [ -f "$sroot/.agents/owns.conf" ] && po_own=$(awk -v r="$role" '$1 == r { $1 = ""; print; exit }' "$sroot/.agents/owns.conf")
   if [ -z "$po_own" ]; then
     case "$role" in implementer) po_own=PRODUCT_SCOPE ;; task_author) po_own="@run /$tasks_dir/" ;; *) po_own=@run ;; esac
   fi
@@ -303,7 +335,7 @@ path_ok() {
       PRODUCT_SCOPE)
         case "$po" in "$run"/*) po_hit=yes ;; esac
         # shellcheck disable=SC2013 # scope paths contain no whitespace (agent.sh scope format)
-        for po_s in $(awk '/^scope:$/ { i = 1; next } i && /^---$/ { exit } i && /^  - path: / { sub(/^  - path: /, ""); gsub(/["\047]/, ""); print }' "$root/$run/PLAN.md" 2>/dev/null); do
+        for po_s in $(awk '/^scope:$/ { i = 1; next } i && /^---$/ { exit } i && /^  - path: / { sub(/^  - path: /, ""); gsub(/["\047]/, ""); print }' "$sroot/$run/PLAN.md" 2>/dev/null); do
           case "$po_s" in */) case "$po" in "$po_s"*) po_hit=yes ;; esac ;; *) [ "$po" != "$po_s" ] || po_hit=yes ;; esac
         done ;;
       /*) ! own_match "$po" "${po_t#/}" '' || po_hit=yes ;;
@@ -345,7 +377,7 @@ nr_path_ok() {
     .agents/local|.agents/local/*) echo "$np is runtime state (approvals, prompts, windows, records); the lead writes under .agents/local/ only in scratch/, explain/, assignments/ and the standalone skill folders (product-spec, product-discovery, intent-grill, task-author)"; return 1 ;;
   esac
   case "$np" in "$tasks_dir"/*|.agents/*) return 0 ;; esac
-  ! git -C "$root" check-ignore -q -- "$np" 2>/dev/null || return 0
+  ! git -C "$sroot" check-ignore -q -- "$np" 2>/dev/null || return 0
   sh "$agent" in-knowledge-scope "$np" >/dev/null 2>&1 && return 0
   # product.dir (product-spec output) may be set to another folder than docs/product
   np_pd=$(sh "$agent" config-get product.dir 2>/dev/null) || np_pd=''
@@ -1961,20 +1993,20 @@ prompt)
   case "$(head -c 19 "$tmp/text")" in "<task-notification>") exit 0 ;; esac
   once
   sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
-  mkdir -p "$local_dir/prompts" || exit 0
+  mkdir -p "$shared_local/prompts" || exit 0
   # A171: the order is fixed. 1. the critical records (this prompt's capture and history file: they are what an approval or an
   # answer is checked against), nothing else before them; 2. housekeeping; 3. the approval, bounded in time; 4. the ledger flush.
   hk_c0=$(hk_now)
   h=$(sha "$tmp/text")
-  printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$local_dir/prompts/.$sess.tmp" &&
-    mv "$local_dir/prompts/.$sess.tmp" "$local_dir/prompts/$sess.json"
+  printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$shared_local/prompts/.$sess.tmp" &&
+    mv "$shared_local/prompts/.$sess.tmp" "$shared_local/prompts/$sess.json"
   # Every prompt is kept (raw text) so an answer recorded as the user's can be checked against what was said (A60).
-  mkdir -p "$local_dir/prompts/history" && cp "$tmp/text" "$local_dir/prompts/history/$(date +%s)-$(printf '%.8s' "$h").txt" 2>/dev/null || :
+  mkdir -p "$shared_local/prompts/history" && cp "$tmp/text" "$shared_local/prompts/history/$(date +%s)-$(printf '%.8s' "$h").txt" 2>/dev/null || :
   hk_step capture "$hk_c0"
   # The previous run of this hook did not finish (killed at the runtime's timeout): say so plainly. An .approving- marker of
   # another session that is older than two minutes is left over from a killed hook too: removed (A171), never reported here.
-  warn=''; if [ -f "$local_dir/prompts/.approving-$sess" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; rm -f "$local_dir/prompts/.approving-$sess"; fi
-  find "$local_dir/prompts" -maxdepth 1 -name '.approving-*' -mmin +2 -exec rm -f {} + 2>/dev/null || :
+  warn=''; if [ -f "$shared_local/prompts/.approving-$sess" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; rm -f "$shared_local/prompts/.approving-$sess"; fi
+  find "$shared_local/prompts" -maxdepth 1 -name '.approving-*' -mmin +2 -exec rm -f {} + 2>/dev/null || :
   hk_sweep
   [ "$(wc -l < "$local_dir/hook-times" 2>/dev/null || echo 0)" -le 5000 ] || { tail -n 2000 "$local_dir/hook-times" > "$local_dir/hook-times.t" && mv "$local_dir/hook-times.t" "$local_dir/hook-times"; } 2>/dev/null || :
   # Approvals are recorded here, by the runtime, from the user's own reply (A41): every open request this
@@ -1985,9 +2017,9 @@ prompt)
   # stopped after PROOFLINE_HOOK_APPROVE_BUDGET seconds (default 20 of the runtime's 30) and a lock is waited for at most
   # PROOFLINE_HOOK_LOCK_WAIT seconds (default 8), so the hook ends in time, writes the reason and the next `agent.sh next` retries.
   msgs=''
-  req=no; for f in "$root/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$local_dir/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
+  req=no; for f in "$sroot/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$shared_local/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
   if [ "$act" != INVALID ] && [ "$req" = yes ]; then
-    hk_a0=$(hk_now); printf '%s\n' "$h" > "$local_dir/prompts/.approving-$sess"
+    hk_a0=$(hk_now); printf '%s\n' "$h" > "$shared_local/prompts/.approving-$sess"
     ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$agent" approve-pending "$act" ) >"$tmp/ap.out" 2>&1 </dev/null &
     ap_pid=$!; ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=0
     while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do sleep 0.1; ap_i=$((ap_i + 1)); done
@@ -2014,7 +2046,7 @@ prompt)
       [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
     fi
   fi
-  rm -f "$local_dir/prompts/.approving-$sess"
+  rm -f "$shared_local/prompts/.approving-$sess"
   hk_flush
   [ -z "$warn" ] || msgs="$warn${msgs:+ $msgs}"
   [ -n "$msgs" ] || exit 0
@@ -2067,7 +2099,7 @@ $l" ;; esac
     fi
   fi
   # the command of the user's last prompt: "/proofline <command> [<TASK-ID>]" ("$proofline" for Codex)
-  pc=''; [ ! -f "$local_dir/prompts/$sess.json" ] || pc=$(sed -n 's/^.*"text":"\(.*\)"}$/\1/p' "$local_dir/prompts/$sess.json" | sed 's/\\n.*//' | head -n 1)
+  pc=''; [ ! -f "$shared_local/prompts/$sess.json" ] || pc=$(sed -n 's/^.*"text":"\(.*\)"}$/\1/p' "$shared_local/prompts/$sess.json" | sed 's/\\n.*//' | head -n 1)
   case "$pc" in
     '/proofline '*|'$proofline '*)
       # shellcheck disable=SC2086 # the prompt's words are split on purpose

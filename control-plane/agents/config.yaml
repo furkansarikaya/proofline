@@ -83,6 +83,12 @@ design_docs:
   data_model: docs/design/DATA_MODEL.md
   api: docs/design/API.md
   adr_dir: docs/adr
+# Run worktrees (A185). copy_files: space-separated globs (a pattern without / matches at any depth) of untracked local files a new
+# worktree gets a copy of, so the task can run the project (default `.env*`; `none` copies nothing). Only a file git IGNORES is copied, and a
+# copied file can never be committed (the pre-commit hook refuses it); the secret scan still sees it. Dependency folders are prepared from
+# worktree_deps in ecosystems.json, never linked to the main tree.
+worktree:
+  copy_files: ".env*"
 local_state: on
 metrics: on
 # Writing profile (A138) for the docs-writer skill and any skill that writes prose. profile: auto = English text

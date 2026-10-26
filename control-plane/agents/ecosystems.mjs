@@ -180,6 +180,9 @@ export function validate(data = loadEcosystems()) {
     need(["scripts", "tools"].includes(e.commands?.truth), `${w}: commands.truth must be scripts or tools`);
     for (const k of TEST_KEYS) need(k in (e.test_output ?? {}), `${w}: test_output.${k} missing`);
     for (const k of BENCH_KEYS) need(k in (e.benchmark ?? {}), `${w}: benchmark.${k} missing`);
+    // A185: git-ignored dependency folders a run worktree gets its own copy of (never a link into the main tree)
+    need(Array.isArray(e.worktree_deps?.folders), `${w}: worktree_deps.folders must be an array`);
+    for (const x of e.worktree_deps?.folders ?? []) need(/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(x) && !x.split("/").some((q) => q === "." || q === ".." || q === ".git" || q === ".agents"), `${w}: worktree_deps.folders entry ${x} must be a plain relative folder name`);
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);
     for (const x of e.benchmark?.files ?? []) need(typeof x.glob === "string" && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.files entries need glob, contains and why`);

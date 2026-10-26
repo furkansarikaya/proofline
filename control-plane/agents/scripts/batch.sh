@@ -29,7 +29,7 @@ LC_ALL=C; export LC_ALL
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
 agent=$here/agent.sh
-bd=$root/.agents/local/batch
+bd=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/batch   # A185: the main tree's folder from any worktree, by path
 wtb=$(cd "$root" && pwd -P)/.agents/local/worktrees   # A169: one worktree per task, <wtb>/<ID>
 
 die() { echo "batch: $*" >&2; exit 1; }
@@ -269,7 +269,7 @@ derive_state() {
   else echo finished-clean; fi
 }
 approved_at() {
-  ap=$(grep -l "^bound: \"$(sha "$bd/SUMMARY.md")\"" "$root"/.agents/local/approvals/[0-9][0-9][0-9]-batch.yaml 2>/dev/null | sort | tail -1 || :)
+  ap=$(grep -l "^bound: \"$(sha "$bd/SUMMARY.md")\"" "${PROOFLINE_SHARED_ROOT:-$root}"/.agents/local/approvals/[0-9][0-9][0-9]-batch.yaml 2>/dev/null | sort | tail -1 || :)
   at=''; [ -z "$ap" ] || at=$(sed -n 's/^approved_at: //p' "$ap" | head -1)
   [ -z "$at" ] || fmt_ts "$at"
 }

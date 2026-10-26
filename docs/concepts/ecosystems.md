@@ -270,3 +270,7 @@ The risk lists are read at read time: `agent.sh` adds the ecosystem globs to `re
 - **sh:** `scripts/ecosystems.sh` reads `ecosystems.tsv`, the flat copy (`<id><TAB><path><TAB><value>`), so no sh script needs node or a JSON parser. `eco_init FILE`, then `eco_ids`, `eco_get ID PATH`, `eco_first`, `eco_children`, `eco_pack`, `eco_rows`, `eco_union`, `eco_risky`, `eco_glob_match`, `eco_pruned`.
 - **node:** `ecosystems.mjs` (`loadEcosystems`, `globToRegExp`, `matchesAny`, `isPruned`, `riskyPaths`, `classifyPath`, `toRegExp`, `validate`) and the command line `node ecosystems.mjs write|check|validate|ids|risky|get`.
 - **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies (`scripts/ecosystems.sh`, `scripts/ecosystems.mjs`, `references/ecosystems.json`, `references/ecosystems.tsv`). `tests/shared/check-shared.sh` compares them with `control-plane/agents/` and checks that the flat file is what `write` produces.
+
+## Worktree dependencies (A185)
+
+`worktree_deps.folders` lists the git-ignored folders a package manager fills (`node_modules`, `vendor`, `vendor/bundle`) that a run worktree gets its own copy of; an ecosystem whose folder is not relocatable (virtual environments, `.dart_tool`, `obj`) or whose cache lives outside the project lists none. `worktree-prep.sh` reads it; nothing else knows the names. See [night mode](night-mode.md).

@@ -56,6 +56,7 @@ install_control_plane() {
   [ ! -f "$tl_agents/ecosystems.tsv" ] || { cp "$tl_agents/ecosystems.tsv" "$1/.agents/"; cp "$tl_agents/scripts/ecosystems.sh" "$1/.agents/scripts/"; }   # A173: the risk sets read the ecosystem definition
   [ ! -f "$tl_agents/scripts/next-user.sh" ] || cp "$tl_agents/scripts/next-user.sh" "$1/.agents/scripts/"   # A159: agent.sh next-user runs it
   [ ! -f "$tl_agents/scripts/platform.sh" ] || cp "$tl_agents/scripts/platform.sh" "$1/.agents/scripts/"   # A180: the delivery reads the hosting platform
+  [ ! -f "$tl_agents/scripts/worktree-prep.sh" ] || cp "$tl_agents/scripts/worktree-prep.sh" "$1/.agents/scripts/"   # A185: worktree-add prepares dependency folders and env files
   cat > "$1/.agents/scripts/secret-scan.sh" <<'STUB'
 #!/bin/sh
 # test stub: a line containing PLANTED_SECRET is a finding (path:line:rule); exit 1 on findings.

@@ -3,6 +3,7 @@
 #  1 identity guard: author or committer email matching git.forbidden_identities (case-insensitive glob or
 #    ERE) is blocked for everyone, humans included. The patterns are never printed.
 #  2 protected branches (git.protected_branches, globs): agents never commit there; a human may.
+#  2b local files copied into a run worktree (A185) are never committed.
 #  3 open runs (`agent.sh open-runs`: every run under .agents/runs/ not terminated FAILED/BLOCKED and not
 #    cleaned up; ACTIVE_RUN plays no part, so emptying it opens nothing): a commit only on the task branch
 #    of one of them, only exactly the gated content (nothing unstaged or untracked outside .agents/runs
@@ -40,6 +41,13 @@ for pb in $(cfg git protected_branches); do
   # shellcheck disable=SC2254
   case "$branch" in $pb) human || block "branch '$branch' is listed in git.protected_branches; agents never commit there" ;; esac
 done
+
+# 2b (A185) local files proofline copied into this run worktree (.env*, listed in .agents/local/worktree-copied) never enter a commit,
+# not even with `git add -f`; this holds for humans too. The secret scan is separate and still scans such a file if it is a changed path.
+if [ -s "$root/.agents/local/worktree-copied" ]; then
+  wc_hit=$(git diff --cached --name-only 2>/dev/null | grep -Fxf "$root/.agents/local/worktree-copied" | head -n 1 || true)
+  [ -z "$wc_hit" ] || block "$wc_hit is a local file copied into this worktree (worktree.copy_files); it must stay out of commits: git restore --staged -- $wc_hit"
+fi
 
 [ -f "$agent" ] || exit 0
 runs=$("$agent" open-runs 2>/dev/null) || block "agent.sh open-runs failed; cannot tell whether a run is open"
