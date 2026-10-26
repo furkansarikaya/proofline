@@ -145,6 +145,26 @@ jobs:
       - name: visual-proof browser measurement
         run: sh fixtures/visual-proof/browser-check.sh --no-sandbox
 
+  # A188: how many processes the runtime hook starts per event and how long that takes on Git Bash (Windows), where a process is slow.
+  # Nightly and manual runs only (A164), a measurement and not a gate: it is not in `checks` and a failure of the runner image
+  # (no jq, no node) does not fail the workflow. The table is written to the job summary. Never run by a pull request or a push.
+  hook-time-windows:
+    needs: [changes]
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: hook processes and time per event
+        run: |
+          { echo '### Runtime hook per event (Git Bash on Windows)'; echo; echo '```'; REPEAT=5 sh tests/bench/hook-procs.sh; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
   # The self-test suites are split into scenario units and spread over sixteen shards, balanced by unit weight (A109); inside a shard the units
   # run on every core (tests/selftest.sh).
   selftest:
