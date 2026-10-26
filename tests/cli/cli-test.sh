@@ -381,6 +381,12 @@ sc_doctor_platform_source() {
   sed -e 's/^  platform:.*/  platform: gitlab/' -e 's/^  platform_host:.*/  platform_host: gitlab.company.com/' "$dp/.agents/config.yaml" > "$dp/cfg.t" && mv "$dp/cfg.t" "$dp/.agents/config.yaml"
   out=$(pl "$dp" doctor 2>&1)
   expect "doctor shows the platform came from config (A186)" "$out" "platform: gitlab (source config: git.platform)"
+  sed -e 's/^  platform_host:.*/  platform_host:/' "$dp/.agents/config.yaml" > "$dp/cfg.t" && mv "$dp/cfg.t" "$dp/.agents/config.yaml"
+  git -C "$dp" remote set-url origin https://gitlab.com.evil.example/acme/app.git
+  expect "doctor warns about git.platform without git.platform_host on a look-alike origin" "$(pl "$dp" doctor 2>&1)" "WARN platform: git.platform is gitlab without git.platform_host"
+  cc=$(cd "$dp" && sh .agents/scripts/agent.sh config-check 2>&1 || true)
+  expect "config-check warns the same way (A185 review)" "$cc" "git.platform is gitlab without git.platform_host"
+  git -C "$dp" remote set-url origin https://gitlab.company.com/acme/app.git
   sed -i.bak 's#^  platform_host:.*#  platform_host: other.company.com#' "$dp/.agents/config.yaml"; rm -f "$dp/.agents/config.yaml.bak"
   expect "doctor: a configured host that is not the origin host is not applied" "$(pl "$dp" doctor 2>&1)" "source auto: origin URL; a private host is named with git.platform"
 }

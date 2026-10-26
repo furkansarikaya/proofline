@@ -385,6 +385,26 @@ sc_unsupported_toolfree() {
   ok "unsupported: refused for concurrency, which always has a tool-free check"
 }
 
+# A188: the project browser-test probe is data (browser_test of ecosystems.json), not a package.json branch: a custom ecosystem entry is honoured
+sc_unsupported_browser_data() {
+  uns_run
+  r='no headless browser installed in the project'
+  # the shipped npm entry still works through the same reader
+  printf 'package.json\nnode_modules/\n' >> .git/info/exclude
+  printf '{"devDependencies":{"playwright":"1"}}\n' > package.json; mkdir -p node_modules/playwright
+  expect_msg "npm browser_test entry: declared and installed" 'project browser-test dependency playwright (package.json, node_modules)' uns_visual "$r"
+  rm -rf package.json node_modules
+  # a manifest the shipped data does not know: nothing is found until the data names it
+  printf 'zig.json\nzigdeps/\npackage.json\nnode_modules/\n' >> .git/info/exclude   # ignored files are not task-introduced paths
+  printf '{"deps":["zigdrive"]}\n' > zig.json; mkdir -p zigdeps/zigdrive
+  out=$(uns_visual "$r") && printf '%s' "$out" | grep -Fq 'submitted: LC qa UNSUPPORTED' || die "an unknown manifest was probed without data: $out"
+  printf 'zig\tid\tzig\nzig\tbrowser_test.manifest\tzig.json\nzig\tbrowser_test.deps_dir\tzigdeps\nzig\tbrowser_test.names\tzigdrive\n' >> .agents/ecosystems.tsv
+  expect_msg "a custom browser_test entry in the data" 'project browser-test dependency zigdrive (zig.json, zigdeps)' uns_visual "$r"
+  rm -rf zigdeps/zigdrive
+  out=$(uns_visual "$r") && printf '%s' "$out" | grep -Fq 'submitted: LC qa UNSUPPORTED' || die "a declared but not installed dependency refused UNSUPPORTED: $out"
+  ok "unsupported probes: browser_test is read from the ecosystem data; a custom entry is honoured, an uninstalled one is not"
+}
+
 # A102: capability probes refuse an UNSUPPORTED whose capability is present (a browser on PATH, a project
 # benchmark script); an INCONCLUSIVE must keep its prefix and an UNSUPPORTED must not borrow one; only the
 # submitting role's own files are evidence.
@@ -930,6 +950,7 @@ run_sc sc_unsupported_evidence
 run_sc sc_unsupported_evidence_base_move
 run_sc sc_unsupported_toolfree
 run_sc sc_unsupported_probes
+run_sc sc_unsupported_browser_data
 run_sc sc_probe_benchmark_dotnet
 run_sc sc_probe_drift
 run_sc sc_frozen

@@ -586,6 +586,29 @@ sc_worktree_prep() {
   ok "worktree-add: dependency folder copied (a change stays in the worktree), .env* copied and refused by pre-commit, works with ln -s blocked (A185)"
 }
 
+# --- A185 review: a link inside a copied dependency folder never leads back into the main tree ---------------------------------------
+sc_worktree_links() {
+  bnew; binstall no
+  main=$(pwd -P)
+  printf 'node_modules/\n' >> .gitignore; git add .gitignore; git commit -qm ignore
+  mkdir -p node_modules/pkg node_modules/.bin shared; echo v1 > node_modules/pkg/index.js; echo tool > shared/tool.js
+  # relative, leaves the folder: from main/node_modules/.bin six levels up is above the main tree, but from the copy (main/.agents/local/worktrees/W-1/node_modules/.bin) it is the main tree
+  ln -s ../../../../../../shared/tool.js node_modules/.bin/rel
+  ln -s "$main/shared/tool.js" node_modules/abs                   # absolute, into the main tree
+  ln -s pkg/index.js node_modules/inside                          # relative, stays inside the folder
+  wt=$(A worktree-add W-1) || die "worktree-add: $wt"
+  for l in "$wt/node_modules/.bin/rel" "$wt/node_modules/abs"; do
+    [ -L "$l" ] || continue                                       # rejected (removed) is as good as re-pointed
+    case "$l" in */rel) [ "$(readlink "$l")" != ../../../../../../shared/tool.js ] || die "the relative link that reaches the main tree was copied unchanged" ;; esac
+    r=$(python3 -I -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$l")
+    case "$r" in "$wt"/*) ;; "$main"/*) die "the copied link ${l#"$wt"/} still leads into the main tree: $r" ;; esac
+  done
+  echo changed > "$wt/node_modules/.bin/rel" 2>/dev/null || :
+  [ "$(cat shared/tool.js)" = tool ] || die "a write through a copied link reached the main tree's shared/tool.js"
+  [ "$(readlink "$wt/node_modules/inside")" = pkg/index.js ] || die "a link that stays inside the folder was changed: $(readlink "$wt/node_modules/inside")"
+  ok "worktree-add: a relative or absolute link in a copied dependency folder that led into the main tree is re-pointed; an inner link is kept (A185)"
+}
+
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
 sc_adapter_refused() {
   bnew; mktask T-1 COMPLEX; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; binstall no
@@ -696,6 +719,7 @@ run_sc sc_park_skip_continue
 run_sc sc_restart
 run_sc sc_worktree_cmds
 run_sc sc_worktree_prep
+run_sc sc_worktree_links
 run_sc sc_status_from_records
 run_sc sc_adapter_refused
 run_sc sc_merge_commit_ci

@@ -1200,6 +1200,24 @@ worktree_state() {
   ok "A185 the implementer window opens in the worktree that owns the run"
   allowed "A185 implementer edits an in-scope file in the worktree inside its window" "$(wedit "$wt/impl.txt")"
   denied "A185 implementer edits an out-of-scope file in the worktree" "$(wedit "$wt/src/app.js")" "outside the paths role implementer owns"
+  # review round 1: a link inside the worktree that leads to the main tree's runtime state is judged by where it LEADS
+  ln -s "$M/.agents/local" "$wt/locallink"; ln -s "$M/.agents/local/approvals" "$wt/applink"
+  denied "A184 lead writes through a worktree symlink to the main .agents/local" "$(pre_edit Write "$wt/locallink/approvals/001-plan.yaml")"
+  denied "A184 lead writes through a worktree symlink to the main approvals" "$(pre_edit Write "$wt/applink/001-plan.yaml")"
+  denied "A184 lead shell-writes through a worktree symlink to the main approvals" "$(pre_bash "echo x > $wt/applink/001-plan.yaml")"
+  # a folder with a COPIED .git file that git does not list as a worktree is no worktree
+  fk=$M/.agents/local/worktrees/FAKE2; mkdir -p "$fk/.agents/runs/LC"; cp "$wt/.git" "$fk/.git"
+  cp .agents/config.yaml "$fk/.agents/"; cp -R .agents/scripts "$fk/.agents/scripts"
+  denied "A184 lead writes EVIDENCE.md in a folder with a copied .git file that is not registered" "$(pre_edit Write "$fk/.agents/runs/LC/EVIDENCE.md")"
+  # CLAUDE_PROJECT_DIR already names the run worktree (the runtime sets it so): the same judgement, and the main tree's shared state stays protected
+  cpd() { ( CLAUDE_PROJECT_DIR=$wt; export CLAUDE_PROJECT_DIR; "$@" ); }
+  allowed "A185 CLAUDE_PROJECT_DIR=worktree: lead writes EVIDENCE.md in the run folder" "$(cpd pre_edit Write "$wt/.agents/runs/LC/EVIDENCE.md")"
+  denied "A185 CLAUDE_PROJECT_DIR=worktree: lead writes RUN.yaml" "$(cpd pre_edit Write "$wt/.agents/runs/LC/RUN.yaml")"
+  denied "A185 CLAUDE_PROJECT_DIR=worktree: lead writes the worktree's approvals" "$(cpd pre_edit Write "$wt/.agents/local/approvals/001-plan.yaml")"
+  rm -f "$wt/.agents/local/windows/a7"
+  out=$(cpd wsub proofline:proofline-implementer a8)
+  [ -s "$wt/.agents/local/windows/a8" ] && [ ! -e "$M/.agents/local/windows/a8" ] || die "A185 CLAUDE_PROJECT_DIR=worktree: the window is not in the worktree: $out"
+  ok "A185 CLAUDE_PROJECT_DIR=worktree: the implementer window opens in the worktree"
   git worktree remove --force "$wt" >/dev/null 2>&1 || :
 }
 

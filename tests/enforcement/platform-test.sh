@@ -210,6 +210,19 @@ cfgp gitlab gitlab.company.com
 rm -f "$proj/.agents/config.yaml"
 ok "git.platform_host recognises an on-prem address by whole-host equality; look-alikes stay other; config beats env beats auto; the tool gets the host"
 
+# git.platform without git.platform_host on a look-alike origin: platform.sh warns and exports no host variable; a known host does not warn
+cfgp gitlab
+la=https://gitlab.com.evil.example/a/b
+w=$(sh "$pfs" warn -C "$proj" --url "$la"); case "$w" in "warning: git.platform is gitlab without git.platform_host"*) ;; *) die "no warning for a look-alike origin: $w" ;; esac
+[ -z "$(sh "$pfs" env -C "$proj" --url "$la")" ] || die "a look-alike origin got a host variable: $(sh "$pfs" env -C "$proj" --url "$la")"
+[ -z "$(sh "$pfs" warn -C "$proj" --url https://gitlab.com/a/b)" ] || die "gitlab.com warned although it is a known gitlab host"
+cfgp github; [ -z "$(sh "$pfs" env -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "GH_HOST exported for github.com.evil.example"
+[ -n "$(sh "$pfs" warn -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "no warning for github.com.evil.example"
+cfgp gitlab gitlab.company.com
+[ -z "$(sh "$pfs" warn -C "$proj" --url https://gitlab.company.com.evil.example/a/b)" ] && [ "$(sh "$pfs" env -C "$proj" --url https://gitlab.company.com/a/b)" = GITLAB_HOST=gitlab.company.com ] || die "an exact platform_host must not warn and must export its host"
+rm -f "$proj/.agents/config.yaml"
+ok "git.platform without platform_host on a look-alike origin warns and exports no GH_HOST/GITLAB_HOST; exact hosts are unaffected"
+
 # --- the user merges: Bitbucket, unrecognized, missing tool ---------------------------------------------
 for u in https://bitbucket.org/acme/app.git ssh://git@git.example.com/acme/app.git; do
   git -C "$proj" remote set-url origin "$u"; reset; glabview opened false "$sha" "$green_pipe"
