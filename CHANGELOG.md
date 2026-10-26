@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.33 — 2026-10-26
+
 - Fewer processes on the hook's hot paths (A188): one JSON parse per event, shell builtins for path, name, clock and digest work, one `agent.sh hook-config` call per event, one `grep` for the migration-command check and one normalisation pipeline for the approval phrases; behaviour is unchanged. External processes per event, before then after: Write 61 then 11, Read 42 then 9, Bash 101 then 33, PostToolUse 20 then 7, prompt 28 then 10, a prompt that records an approval 500 then 206, stop 56 then 32. `tests/bench/hook-procs.sh` counts them and a nightly Windows job writes the table; no Windows measurement exists yet.
 - Documentation (A184 to A188): README notes for worktree dependencies and `.env` files, `git.platform` and `git.platform_host`, workspace member lists and Windows (no symlinks); concept pages for path classification in a run worktree and for hook cost.
 - One run state per worktree (A185): the runtime hook finds the run and its state folder from the worktree that contains the event's path or working directory (the hook used to read the main tree's `ACTIVE_RUN`, saw no run for a run started in a worktree and never opened the implementer's write window); state of no single run (`batch`, `approvals`, `metrics`, `friction`, `prompts`) is read from the main tree by path, with no links, so it also works where symlinks cannot be created (Windows Git Bash). A worktree gets its own copy of the dependency folders listed as `worktree_deps` in `ecosystems.json` (no more `node_modules` link into the main tree) and a copy of the git-ignored `.env*` files (`worktree.copy_files`), which the pre-commit hook never lets into a commit.

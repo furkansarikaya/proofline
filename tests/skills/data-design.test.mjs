@@ -351,7 +351,7 @@ test("skill files: shared rules block present, SKILL.md under 500 lines, frontma
   const shared = readFileSync(new URL("../shared/shared-rules.md", import.meta.url), "utf8").trim();
   assert.ok(skill.includes(shared), "shared rules block drifted");
   assert.ok(skill.split("\n").length < 500);
-  assert.match(skill, /^---\nname: data-design\ndescription: .{1,900}\nlicense: MIT\ndisable-model-invocation: true\nmetadata:\n  version: "0\.0\.32"\n---\n/);
+  assert.match(skill, /^---\nname: data-design\ndescription: .{1,900}\nlicense: MIT\ndisable-model-invocation: true\nmetadata:\n  version: "0\.0\.33"\n---\n/);
   for (const ref of skill.matchAll(/\]\(((?:references|assets|schema|scripts)\/[^)#]+)/g))
     assert.ok(readFileSync(join(SKILL, ref[1])), ref[1]);
 });
