@@ -142,7 +142,7 @@ sc_ci_fix_limit() {
   A questions LC > "$base/q.out"; [ "$(grep -c '=== QUESTION' "$base/q.out")" = 1 ] || die "a repeated stop asked again"
   [ "$(ledger_n ci-fix-open)" = 2 ] || die "a repeated stop used an attempt"
   expect_msg "ci-commit after the last attempt" 'not open for a commit' S ci-commit 7
-  [ -n "$(sed -n '/^=== QUESTION/{n;p;q;}' "$base/q.out")" ] || die "the night driver reads no first question line"
+  [ -n "$(sed -n '/^=== QUESTION/{n;p;q;}' "$base/q.out")" ] || die "the batch reads no first question line"
   ok "ci-fix: two attempts, then the third red CI stops with one question (a batch parks the task on it)"
 }
 
@@ -168,7 +168,7 @@ sc_ci_fix_batch() {
   ci_red 130 'Error: still failing'; gh_says "OPEN false"
   expect_msg "a third attempt in a batch" 'STOP: the CI is red after 2 CI-fix attempts' S ci-fix 7
   [ "$(ls .agents/local/prompts/ 2>/dev/null | wc -l | tr -d ' ')" = 0 ] || die "a prompt capture appeared: the round asked the user"
-  q_has 'still red after 2 CI-fix attempts' "the question a batch parks on is missing"; [ -n "$(sed -n '/^=== QUESTION/{n;p;q;}' "$base/q.out")" ] || die "the night driver reads no first question line"
+  q_has 'still red after 2 CI-fix attempts' "the question a batch parks on is missing"; [ -n "$(sed -n '/^=== QUESTION/{n;p;q;}' "$base/q.out")" ] || die "the batch reads no first question line"
   ok "ci-fix (batch): the batch delivery cover carries two rounds to the same PR branch with no user reply; the third red CI leaves the question a batch parks on"
 }
 

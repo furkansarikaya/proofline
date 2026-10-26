@@ -58,9 +58,9 @@ refused "neutral is refused" "conclusion NEUTRAL" 7
 reset; view 7 OPEN false $sha "[$run_ok,{\"__typename\":\"CheckRun\",\"name\":\"n\",\"status\":\"COMPLETED\",\"conclusion\":\"CANCELLED\"}]"
 refused "cancelled is refused" "conclusion CANCELLED" 7
 reset; view 7 OPEN false $sha "[]"
-refused "no checks at all is refused" "no checks at all" 7
+refused "no checks at all is refused when the commit cannot be verified locally" "has no checks and its head commit" 7
 reset; view 7 OPEN false $sha "null"
-refused "a null rollup is refused" "no checks at all" 7
+refused "a null rollup is refused when the commit cannot be verified locally" "has no checks and its head commit" 7
 reset; HEAD2=$sha2 view 7 OPEN false $sha "$green"
 refused "head moved after the check is refused" "moved after the check" 7
 reset; view 7 OPEN true $sha "$green"; refused "a draft is refused" "is a draft" 7

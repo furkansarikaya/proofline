@@ -2,12 +2,11 @@
 # shellcheck disable=SC2015,SC2016 # assertion chains; the hung tree is literal command text
 # shellcheck source-path=SCRIPTDIR
 # Tests for the discover timeout (A162): run_with_timeout closes the whole process group of a hung command, for every
-# process-group method this machine has, and the helper functions shared with batch.sh have not drifted apart.
+# process-group method this machine has.
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 repo=$(CDPATH='' cd "$here/../.." && pwd)
 disc=$repo/bin/lib/discover.sh
-batch=$repo/control-plane/agents/scripts/batch.sh
 ok() { printf 'ok %s\n' "$*"; }
 die() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/proofline-pgt.XXXXXX") || exit 1
@@ -17,18 +16,7 @@ left() { ps -A -o pid=,stat=,command= 2>/dev/null | awk -v t="$tok" '$2 !~ /^Z/ 
 reap() { for r_p in $(left); do kill -KILL "$r_p" 2>/dev/null || :; done; }
 trap 'reap; rm -rf "$T"' EXIT HUP INT TERM
 
-# 1. drift: nap, grp_alive and pg_start are the same text in both files
-body() { # FILE NAME
-  awk -v n="$2" '$0 ~ "^" n "\\(\\) \\{" { p = 1; print; if ($0 ~ /\}$/) exit; next } p { print } p && /^}$/ { exit }' "$1"
-}
-for f in nap grp_alive pg_start; do
-  a=$(body "$disc" "$f"); b=$(body "$batch" "$f")
-  [ -n "$a" ] || die "$f is missing in bin/lib/discover.sh"
-  [ "$a" = "$b" ] || die "$f differs between bin/lib/discover.sh and control-plane/agents/scripts/batch.sh"
-done
-ok "nap, grp_alive and pg_start are identical in discover.sh and batch.sh"
-
-# 2. a hung tree under run_with_timeout, per method
+# 1. a hung tree under run_with_timeout, per method
 # hung tree: a nested sh, a plain sleep, a subshell that ignores TERM (its sleep too), and the sh itself waits
 tree() { # N: the sleep number suffix base
   printf 'sh -c "sleep %s%s" & sleep %s%s & (trap "" TERM; sleep %s%s) & wait' "$tok" 1 "$tok" 2 "$tok" 3

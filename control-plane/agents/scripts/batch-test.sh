@@ -1,10 +1,12 @@
 #!/bin/sh
-# shellcheck disable=SC2010,SC2012,SC2015,SC2154,SC2016,SC2329 # assertion chains; tl_agents and base come from test-lib.sh; literal text in fake scripts
-# Tests for night mode (A157): `agent.sh batch-plan|batch-cover|batch-status` and `batch.sh run|status`.
-# No real claude, gh or network: `claude` and `gh` are fakes on PATH (the driver honours them only under PROOFLINE_TEST=1),
-# "origin" is a bare repository on disk. The fake claude writes synthetic records (merged.tsv, run dirs, questions).
+# shellcheck disable=SC2010,SC2012,SC2086,SC2015,SC2154,SC2016,SC2329 # assertion chains; tl_agents and base come from test-lib.sh; literal text in fake scripts
+# Tests for night mode (A157): `agent.sh batch-plan|batch-cover|batch-next|batch-status|batch-ci|batch-awake|batch-park`.
+# There is no driver and no headless session any more: the lead runs the tasks in its own session, one after the other. These tests play the
+# lead with a FAKE run and a FAKE deliver (drive below): they act on what `batch-next` says and write the records a real run and a real
+# delivery leave (RUN.yaml, questions, deliver/<ID>/PR, merged.tsv). No real claude, gh or network: `gh` is a fake on PATH, "origin" is a bare
+# repository on disk.
 #
-# ASSUMPTIONS about the interface (the spec leaves these open; the implementation follows them):
+# ASSUMPTIONS about the interface:
 #  1. Task files are .agents/tasks/<ID>.md (and todo/, done/, backlog/ below it). The task ID is the file name without .md.
 #     Format (task-author TEMPLATES): line 1 `# Task: <ID> — <title>`, optional flat front matter right after it
 #     (`---`, `depends_on: A-1, B-2` comma/space separated, blank line, `---`), and a `## Suggested class` section whose
@@ -20,21 +22,18 @@
 #  5. `agent.sh batch-cover <ID> <KIND>` exits non-zero with a one-line reason and writes no file when a check fails; the
 #     refusal for kinds outside plan|delivery|mutation_budget contains `not covered by the batch approval`. A covered approval
 #     file carries `via_batch:`, `source: "batch"` (quoted or not) and, for mutation_budget, `cap:`.
-#  6. `sh .agents/scripts/batch.sh run|status` from the repository root. The driver refuses a missing/invalid approval with a
-#     message containing `batch approval`, a live LOCK with `only one task at a time`. It starts the headless session as
-#     `claude -p "<prompt containing 'Task <ID> only'>" ...` (the prompt is an argument; the fake finds the ID there), in the
-#     repository root, with PROOFLINE_TEST=1 in the environment. It needs `gh auth status`, `gh run list` (JSON) and a git
-#     remote `origin` with main (git pull --ff-only); config batch.ci_wait_minutes is irrelevant (the fake CI is green).
-#  7. state.tsv rows: ID<TAB>status<TAB>reason<TAB>question (status pending|running|merged|parked|skipped). A parked task's
-#     reason is `question`, `FAILED` or `BLOCKED`; a skipped task's reason starts with `depends on <ID>`.
-#  8. merged.tsv rows: ID<TAB>PR<TAB>epoch. `batch.sh status` prints one line per task containing the ID, the result word,
-#     the PR number, the park reason and the first line of the pending question of the parked run (read from its questions/
-#     dir), plus `no friction report` when none exists. `agent.sh batch-status` prints the same table.
-#  9. A run the fake parks exists as .agents/runs/<ID>/ (RUN.yaml with execution.state and awaiting_input, questions/001.md).
-# 10. batch-plan does not require branch main or a clean tree (only the driver does); it writes only under .agents/local/.
-# 11. batch-cover finds the batch approval, the run (RUN.yaml pipeline.classification, execution.state) and the pending request
+#  6. `agent.sh batch-next` is read-only and prints the table (task | state | detail | pending question) and one line `NEXT: run|resume|
+#     cover|deliver|ci <ID> ...`, `NEXT: finished` or `NEXT: approve`, derived from merged.tsv, the runs, their questions and approvals,
+#     ci.tsv and the lead's own parks (state.tsv). States: merged, parked, skipped (a dependency is parked or skipped), waiting (a
+#     dependency is still open), open. `--tsv` prints `state<TAB><word>` and one ID/state/detail/question row per task.
+#  7. merged.tsv rows: ID<TAB>PR<TAB>epoch. `batch.sh status` prints one line per task containing the ID, the result word, the PR
+#     number, the park reason and the first line of the pending question, plus `no friction report` when none exists.
+#  8. A run the fake parks exists in the task's worktree .agents/local/worktrees/<ID>/.agents/runs/<ID>/ (RUN.yaml with
+#     execution.state and awaiting_input, questions/001.md).
+#  9. batch-plan does not require branch main or a clean tree; it writes only under .agents/local/.
+# 10. batch-cover finds the batch approval, the run (RUN.yaml pipeline.classification, execution.state) and the pending request
 #     as agent.sh does today; a covered `delivery` records one approval per pending step request with the same delivery: hash.
-# 12. Fixture config: tests replace the `batch:` block of .agents/config.yaml (mutation_budget_cap, ci_wait_minutes).
+# 11. Fixture config: tests replace the `batch:` block of .agents/config.yaml (mutation_budget_cap, ci_wait_minutes).
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
 set -eu
@@ -42,56 +41,6 @@ PROOFLINE_TEST=1; export PROOFLINE_TEST
 FAKE=$base/fake; mkdir -p "$FAKE/bin" "$FAKE/behave"; export FAKE
 PATH=$FAKE/bin:$PATH; export PATH
 
-# fake claude: -p "<prompt>"; the task ID is in "Task <ID> only"; the behaviour is the first line of $FAKE/behave/<ID>
-cat > "$FAKE/bin/claude" <<'EOF'
-#!/bin/sh
-prompt=''
-while [ $# -gt 0 ]; do case "$1" in -p) prompt=$2; shift ;; esac; shift; done
-id=$(printf '%s' "$prompt" | sed -n 's/.*Task \([A-Za-z0-9_.-]*\) only.*/\1/p')
-[ -n "$id" ] || { echo "fake claude: no task id in the prompt" >&2; exit 2; }
-printf '%s\n' "$id" >> "$FAKE/calls.log"
-printf '%s %s\n' "$id" "$(pwd -P)" >> "$FAKE/cwd.log"   # A169: where the session runs (its task's own worktree)
-echo "LOGONLY-$id narrative text that exists only in the session log"
-beh=$(head -1 "$FAKE/behave/$id" 2>/dev/null); [ -n "$beh" ] || beh=nothing
-mkrun() { # STATE AWAITING
-  mkdir -p ".agents/runs/$id/questions"
-  printf 'task:\n  id: %s\nexecution:\n  state: %s\n  awaiting_input: %s\npipeline:\n  classification: COMPLEX\nhandoff:\n  state: PLANNED\n' "$id" "$1" "$2" > ".agents/runs/$id/RUN.yaml"
-}
-case "$beh" in
-  merge|merge+worktree)
-    [ "$beh" = merge ] || git worktree add -q -b "tmp-$id" "$FAKE/wt-$id" >/dev/null 2>&1
-    pr=$((100 + $(printf '%s' "$id" | tr -dc 0-9)))
-    printf '%s\t%s\t%s\n' "$id" "$pr" "$(date +%s)" >> .agents/local/batch/merged.tsv ;;
-  question)
-    mkrun PLANNING true
-    printf 'from: lead\nasked_at: %s\n---\n1. Which cache do we use for %s?\n   options: a | b\n' "$(date +%s)" "$id" > ".agents/runs/$id/questions/001.md" ;;
-  failed) mkrun FAILED false ;;
-  realpark|realmerge|realawait) # A169: the real `agent.sh start` in the session's own folder, then what the lead would leave behind
-    if [ ! -d ".agents/runs/$id" ]; then
-      sh .agents/scripts/agent.sh start "$id" --task-file ".agents/tasks/$id.md" >/dev/null 2>>"$FAKE/start.err" < /dev/null || echo "START-FAILED-$id: $(tail -1 "$FAKE/start.err")" >&2
-    fi
-    case "$beh" in
-      realpark) mkdir -p ".agents/runs/$id/questions"; sed 's/^  awaiting_input: false/  awaiting_input: true/' ".agents/runs/$id/RUN.yaml" > ".agents/runs/$id/RUN.tmp" && mv ".agents/runs/$id/RUN.tmp" ".agents/runs/$id/RUN.yaml"
-        printf 'from: lead\nasked_at: %s\n---\n1. Which cache do we use for %s?\n   options: a | b\n' "$(date +%s)" "$id" > ".agents/runs/$id/questions/001.md" ;;
-      realawait) mkdir -p ".agents/local/deliver/$id"; echo 77 > ".agents/local/deliver/$id/PR" ;;
-      realmerge) rm -rf ".agents/runs/$id"; : > .agents/local/ACTIVE_RUN
-        printf '%s\t%s\t%s\n' "$id" "$((100 + $(printf '%s' "$id" | tr -dc 0-9)))" "$(date +%s)" >> .agents/local/batch/merged.tsv ;;
-    esac ;;
-  limit) echo "usage limit reached, try later"; exit 1 ;;
-  hang) # A160/A161: a session that outlives batch.task_timeout, with descendants of every kind: a plain grandchild, a nested sh with its own
-    # child, a backgrounded subshell that ignores TERM and has a child of its own. Every pid goes to descendants.pids.
-    sleep 300 & echo $! > "$FAKE/grandchild.pid"; echo $! >> "$FAKE/descendants.pids"
-    sh -c 'sleep 301 & echo $! >> "$FAKE/descendants.pids"; sleep 302' & echo $! >> "$FAKE/descendants.pids"
-    ( trap '' TERM; sleep 303 & echo $! >> "$FAKE/descendants.pids"; sleep 304; sleep 305 ) & echo $! >> "$FAKE/descendants.pids"
-    sleep 20 ;;
-  limitchmod) # A161: the usage limit, after the package cache dir was made group-readable (the dir is unsafe by the time codex is tried)
-    chmod 755 "$(cat "$FAKE/pkgdir")"; echo "usage limit reached, try later"; exit 1 ;;
-  slow) # A163: a session that is still working: one visible log line, then a long wait (its pid goes to slow.pid)
-    echo "SLOWLINE-$id working on it"; sleep 120 & echo $! > "$FAKE/slow.pid"; wait ;;
-  nothing) : ;;
-esac
-exit 0
-EOF
 # fake gh: authenticated, main CI green
 cat > "$FAKE/bin/gh" <<'EOF'
 #!/bin/sh
@@ -101,20 +50,11 @@ if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha" ]; then cat "$FAKE/ci/$sha"; exit 0; fi
 if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha.none" ]; then echo '[]'; exit 0; fi
 case "$*" in
   *"run list"*) echo '[{"status":"completed","conclusion":"success"}]' ;;
-  *"pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;   # the merge commit of a PR (A160: the driver waits for the CI of that SHA)
+  *"pr view"*"state,isDraft"*) cat "$FAKE/prview" 2>/dev/null || echo "OPEN false aaa b main o" ;;   # the pull request state read by deliver_pr_view
+  *"pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;   # the merge commit of a PR (A160: the CI of that SHA gates the next task)
   *) : ;;
 esac
 exit 0
-EOF
-# fake codex: records its argv, then behaves like the fake claude for the task named in the last argument (the prompt)
-cat > "$FAKE/bin/codex" <<'EOF'
-#!/bin/sh
-[ "$1" != --version ] || { echo "codex-cli 0.163.0"; exit 0; }
-for a in "$@"; do last=$a; done
-printf '%s\n' "$*" >> "$FAKE/codex.argv"
-# A160: a session that rewrites the approved summary to widen the sandbox for the sessions after it
-if [ -f "$FAKE/codex.tamper" ]; then sed 's/^codex sandbox: .*/codex sandbox: danger-full-access/' .agents/local/batch/SUMMARY.md > .agents/local/batch/SUMMARY.tmp && mv .agents/local/batch/SUMMARY.tmp .agents/local/batch/SUMMARY.md; fi
-exec claude -p "$last"
 EOF
 # A163: fake caffeinate and systemd-inhibit (the real ones are never needed): they record their arguments; caffeinate honours -w PID like the real one
 cat > "$FAKE/bin/caffeinate" <<'EOF'
@@ -130,7 +70,7 @@ printf '%s\n' "$*" >> "$FAKE/inhibit.argv"
 while :; do case "${1:-}" in --*) shift ;; *) break ;; esac; done
 exec "$@"
 EOF
-chmod +x "$FAKE/bin/claude" "$FAKE/bin/gh" "$FAKE/bin/codex" "$FAKE/bin/caffeinate" "$FAKE/bin/systemd-inhibit"
+chmod +x "$FAKE/bin/gh" "$FAKE/bin/caffeinate" "$FAKE/bin/systemd-inhibit"
 mkdir -p "$FAKE/ci"; MSHA=0123456789abcdef0123456789abcdef01234567   # the merge commit the fake gh reports for every PR
 
 # --- fixture helpers ------------------------------------------------------------------------------------------
@@ -181,11 +121,63 @@ BAPP_N=0
 batch_approve() { BAPP_N=$((BAPP_N + 1)); capture 'approve batch' $(( $(date +%s) + 3600 + BAPP_N )); A approve-pending >/dev/null; }
 summary=.agents/local/batch/SUMMARY.md
 calls() { cat "$FAKE/calls.log" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'; }
-state_of() { awk -F'\t' -v t="$1" -v c="$2" '$1 == t { print $c }' .agents/local/batch/state.tsv; }
 order_ids() { cut -f1 .agents/local/batch/order.tsv | tr '\n' ' ' | sed 's/ *$//'; }
 # nfiles DIR GLOB: how many files match (a refused command must write none)
 nfiles() { case "$2" in -*) nf_p="^[0-9][0-9][0-9]$2" ;; *) nf_p=$2 ;; esac; ls -1 "$1" 2>/dev/null | grep -c -e "$nf_p" || :; }
 
+
+# --- the lead, played by the test ----------------------------------------------------------------------------------
+# Behaviour per task in $FAKE/behave/<ID> (default merge): merge (the run reaches CODE_DONE, the delivery merges), question (the run asks a
+# question and waits), await (the delivery leaves an open pull request), fail (the run is FAILED).
+beh_of() { b=$(head -1 "$FAKE/behave/$1" 2>/dev/null); printf '%s\n' "${b:-merge}"; }
+wtp() { printf '%s/.agents/local/worktrees/%s\n' "$(pwd -P)" "$1"; }
+set_handoff() { # ID STATE: the handoff state in the run's own RUN.yaml
+  sh_f=$(wtp "$1")/.agents/runs/$1/RUN.yaml
+  awk -v s="$2" '/^handoff:/ { h = 1; print; next } h && /^[^ ]/ { h = 0 } h && /^  state:/ { print "  state: " s; next } { print }' "$sh_f" > "$sh_f.tmp" && mv "$sh_f.tmp" "$sh_f"
+}
+ask_question() { # ID: the run waits for the user
+  aq_d=$(wtp "$1")/.agents/runs/$1; mkdir -p "$aq_d/questions"
+  sed 's/^  awaiting_input: false/  awaiting_input: true/' "$aq_d/RUN.yaml" > "$aq_d/RUN.tmp" && mv "$aq_d/RUN.tmp" "$aq_d/RUN.yaml"
+  printf 'from: lead\nasked_at: %s\n---\n1. Which cache do we use for %s?\n   options: a | b\n' "$(date +%s)" "$1" > "$aq_d/questions/001.md"
+}
+fake_run() { # ID: "NEXT: run ID": a worktree, the real `agent.sh start` in it, then what the run ends up as
+  echo "run $1" >> "$FAKE/calls.log"
+  fr_wt=$(A worktree-add "$1") || die "worktree-add $1: $fr_wt"
+  ( cd "$fr_wt" && sh .agents/scripts/agent.sh start "$1" --task-file ".agents/tasks/$1.md" >/dev/null 2>"$FAKE/start.err" < /dev/null ) || die "start $1 failed in its worktree: $(tail -1 "$FAKE/start.err")"
+  case "$(beh_of "$1")" in
+    question) ask_question "$1" ;;
+    fail) sed 's/^  state: PLANNING/  state: FAILED/' "$fr_wt/.agents/runs/$1/RUN.yaml" > "$fr_wt/.agents/runs/$1/RUN.tmp" && mv "$fr_wt/.agents/runs/$1/RUN.tmp" "$fr_wt/.agents/runs/$1/RUN.yaml" ;;
+    *) set_handoff "$1" CODE_DONE ;;
+  esac
+}
+fake_resume() { echo "resume $1" >> "$FAKE/calls.log"; case "$(beh_of "$1")" in question|fail) ;; *) set_handoff "$1" CODE_DONE ;; esac; }
+fake_deliver() { # ID: "NEXT: deliver ID"
+  echo "deliver $1" >> "$FAKE/calls.log"; fd_wt=$(wtp "$1")
+  case "$(beh_of "$1")" in
+    await) mkdir -p "$fd_wt/.agents/local/deliver/$1"; echo 77 > "$fd_wt/.agents/local/deliver/$1/PR" ;;
+    *) rm -rf "$fd_wt/.agents/runs/$1"
+       printf '%s\t%s\t%s\n' "$1" "$((100 + $(printf '%s' "$1" | tr -dc 0-9)))" "$(date +%s)" >> .agents/local/batch/merged.tsv
+       A worktree-remove "$1" >/dev/null || die "worktree-remove $1" ;;
+  esac
+}
+nextline() { A batch-next | sed -n 's/^NEXT: //p' | head -1; }
+# drive [N]: act on "NEXT:" until finished, or N actions (an interruption)
+drive() {
+  dr_max=${1:-0}; dr_n=0
+  while :; do
+    nl=$(nextline); set -- $nl
+    case "${1:-}" in
+      finished) return 0 ;;
+      run) fake_run "$2" ;;
+      resume) fake_resume "$2" ;;
+      deliver) fake_deliver "$2" ;;
+      ci) A batch-ci "$2" >/dev/null || die "batch-ci $2 failed" ;;
+      *) die "unexpected NEXT: '$nl'" ;;
+    esac
+    dr_n=$((dr_n + 1)); [ "$dr_n" -lt 60 ] || die "drive does not end"
+    [ "$dr_max" -eq 0 ] || [ "$dr_n" -lt "$dr_max" ] || return 0
+  done
+}
 # --- 1. depends_on order and cycle rejection ---------------------------------------------------------------------------
 sc_order_and_cycle() {
   bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX T-1; mktask T-5 COMPLEX T-9
@@ -215,27 +207,217 @@ sc_order_and_cycle() {
   ok "batch-plan: topological order (ties in the listed order), all = top-level + todo, done/ dependencies satisfied, cycle refuses and writes nothing"
 }
 
+
 # --- 2. a batch without the approval does not start; the approval is bound to the summary hash --------------------------
 sc_no_approval_no_start() {
   bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
-  expect_msg "run without a plan" "batch" BB run
+  [ "$(A batch-next)" = 'no batch planned (agent.sh batch-plan <ID...|all>)' ] || die "batch-next without a plan: $(A batch-next)"
   BP all >/dev/null || die "batch-plan failed"
-  expect_msg "run before the user approved" "batch approval" BB run
-  [ -z "$(calls)" ] || die "a headless session was started without the approval: $(calls)"
+  A batch-next | grep -q '^NEXT: approve$' || die "batch-next before the user approved: $(A batch-next)"
+  [ "$(A batch-next --tsv | sed -n 1p)" = "$(printf 'state\tunapproved')" ] || die "state before the approval: $(A batch-next --tsv)"
+  grep -q 'Keep the computer awake' "$summary" && grep -q 'caffeinate -i -w' "$summary" && grep -q 'session open' "$summary" || die "the summary does not say the computer must stay awake and the session open: $(cat "$summary")"
+  grep -qi 'headless\|driver\|sandbox' "$summary" && die "the summary still names the removed driver: $(grep -i 'headless\|driver\|sandbox' "$summary")"
+  expect_msg "batch-check before the user approved" "no valid batch approval" A batch-check
   capture 'sounds good'; A approve-pending >/dev/null
-  expect_msg "run after a reply that is not the approval" "batch approval" BB run
+  expect_msg "batch-check after a reply that is not the approval" "no valid batch approval" A batch-check
   batch_approve
   [ "$(nfiles .agents/local/approvals -batch.yaml)" = 1 ] || die "the reply 'approve batch' recorded no batch approval"
+  A batch-next | grep -q '^NEXT: run T-1' || die "batch-next after the approval: $(A batch-next)"
   # bound to the summary hash: a changed SUMMARY.md invalidates it
   cp "$summary" "$base/summary.keep"; printf 'extra line\n' >> "$summary"
-  expect_msg "run with an edited summary" "batch approval" BB run
-  [ -z "$(calls)" ] || die "a session started with an edited summary"
+  expect_msg "batch-check with an edited summary" "no valid batch approval" A batch-check
+  A batch-next | grep -q '^NEXT: approve$' || die "an edited summary is still approved: $(A batch-next)"
   cp "$base/summary.keep" "$summary"
   # a new plan has a fresh nonce: the old approval does not carry over
-  old=$(tsha "$summary"); BP all >/dev/null; [ "$(tsha "$summary")" != "$old" ] || die "a new plan reused the old summary (no fresh nonce)"
-  expect_msg "run after a re-plan" "batch approval" BB run
-  [ -z "$(calls)" ] || die "a session started after a re-plan without a new approval"
-  ok "batch run: refuses without (or with a stale) approval, no session started; the approval is bound to the SUMMARY.md hash"
+  old=$(tsha "$summary"); BP --replace all >/dev/null; [ "$(tsha "$summary")" != "$old" ] || die "a new plan reused the old summary (no fresh nonce)"
+  expect_msg "batch-check after a re-plan" "no valid batch approval" A batch-check
+  [ -z "$(calls)" ] || die "a task was started without the approval: $(calls)"
+  ok "batch: nothing is next before the approval (or with an edited or re-planned summary); the approval is bound to the SUMMARY.md hash; the summary says to keep the computer awake and the session open"
+}
+
+# --- 5. two tasks, one after the other: run, deliver, and only then the next -----------------------------------------------------
+sc_sequential() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  [ "$(nextline)" = 'run T-1   (agent.sh worktree-add T-1, then /proofline run T-1 with .agents/local/worktrees/T-1 as the working folder)' ] || die "first action: $(nextline)"
+  fake_run T-1
+  [ "$(nextline | cut -d' ' -f1-2)" = 'deliver T-1' ] || die "after the run of T-1 the next action is not its delivery: $(nextline)"
+  A batch-next | grep -q '^T-2 | waiting | depends on T-1 (not merged yet)' || die "T-2 does not wait for the merge of T-1: $(A batch-next)"
+  fake_deliver T-1
+  [ "$(nextline | cut -d' ' -f1-2)" = 'ci T-1' ] || die "after the merge the CI of the merge commit comes first: $(nextline)"
+  A batch-ci T-1 > "$base/ci.out" || die "batch-ci: $(cat "$base/ci.out")"
+  [ "$(nextline | cut -d' ' -f1-2)" = 'run T-2' ] || die "after the merge and the CI of T-1 the next task is T-2: $(nextline)"
+  drive
+  [ "$(calls)" = 'run T-1 deliver T-1 run T-2 deliver T-2' ] || die "the tasks did not run one after the other (run, deliver, next): '$(calls)'"
+  [ "$(A batch-next --tsv | sed -n 1p)" = "$(printf 'state\tfinished-clean')" ] || die "state at the end: $(A batch-next --tsv)"
+  [ "$(cut -f1 .agents/local/batch/merged.tsv | tr '\n' ' ')" = 'T-1 T-2 ' ] || die "merged.tsv: $(cat .agents/local/batch/merged.tsv)"
+  [ ! -d .agents/local/worktrees/T-1 ] && [ ! -d .agents/local/worktrees/T-2 ] || die "a merged task kept its worktree"
+  ok "batch: with a fake deliver two tasks finish one after the other (run, deliver, CI check, then the next); a dependent waits for the merge"
+}
+
+# --- 5a. a parked task skips its dependent, an independent task goes on; every task has a worktree of its own (A169) ----------------
+# T-1 parks with a question, T-4 waits for its merge, T-3 is independent and merges, T-2 depends on T-1. The runs use the REAL
+# `agent.sh start`: with all runs in one folder T-3 would fail with "another open run exists in this worktree".
+sc_park_skip_continue() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; mktask T-4 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'question\n' > "$FAKE/behave/T-1"; printf 'await\n' > "$FAKE/behave/T-4"
+  main=$(pwd -P)
+  drive
+  [ "$(calls)" = 'run T-1 run T-3 deliver T-3 run T-4 deliver T-4' ] || die "a parked task and one waiting for merge must not block the independent T-3, and the dependent T-2 must not start: '$(calls)'"
+  tsv=$(A batch-next --tsv)
+  for w in "T-1 parked question" "T-2 skipped depends on T-1 (parked)" "T-3 merged" "T-4 parked awaiting merge"; do
+    printf '%s\n' "$tsv" | tr '\t' ' ' | grep -q "^$w" || die "batch-next --tsv lacks '$w': $tsv"
+  done
+  printf '%s\n' "$tsv" | grep -q 'Which cache' || die "the pending question is not in the digest: $tsv"
+  [ "$(printf '%s\n' "$tsv" | sed -n 1p)" = "$(printf 'state\tfinished-parked')" ] || die "state: $tsv"
+  # the main working tree: clean, the task files where they were, no run, no open run
+  [ -z "$(git status --porcelain)" ] || die "the main working tree is dirty: $(git status --porcelain)"
+  [ -f .agents/tasks/T-1.md ] && [ -f .agents/tasks/T-4.md ] && [ ! -e .agents/tasks/in-progress ] || die "a task file moved in the main working tree: $(ls -R .agents/tasks)"
+  [ -z "$(ls .agents/runs 2>/dev/null)" ] && [ -z "$(A open-runs)" ] && [ ! -s .agents/local/ACTIVE_RUN ] || die "the main working tree holds a run: $(ls .agents/runs) / $(A open-runs)"
+  [ "$(git branch --show-current)" = main ] || die "the batch left main"
+  # the parked and the waiting task keep their worktree and their run; the merged one is gone, the skipped one never had one
+  [ -d .agents/local/worktrees/T-1/.agents/runs/T-1 ] && [ -d .agents/local/worktrees/T-4/.agents/runs/T-4 ] || die "a parked or waiting task lost its worktree: $(git worktree list)"
+  [ ! -d .agents/local/worktrees/T-3 ] && [ ! -e .agents/local/worktrees/T-2 ] || die "worktree of the merged T-3 left, or one made for the never-started T-2: $(git worktree list)"
+  [ "$(cd .agents/local/worktrees/T-1 && sh .agents/scripts/agent.sh open-runs)" = 'T-1 -' ] || die "open runs of T-1's worktree"
+  A next-user batch status | grep -q 'reply in this session to the open question.*then run /proofline batch$' || die "next step for a parked task whose run is in a worktree: $(A next-user batch status)"
+  A questions T-1 | grep -q 'Which cache' || die "questions for a run in a worktree are not forwarded from the main tree: $(A questions T-1 2>&1)"
+  # the dependent waits for the merge: T-1 gets its answer and merges in the SAME worktree, then T-2 runs, not before
+  printf 'a\n' > .agents/local/worktrees/T-1/.agents/runs/T-1/questions/001.answer.md
+  printf 'merge\n' > "$FAKE/behave/T-1"; : > "$FAKE/calls.log"
+  A batch-next | grep -q '^NEXT: resume T-1' || die "after the answer the parked T-1 is resumed: $(A batch-next)"
+  drive
+  [ "$(calls)" = 'resume T-1 deliver T-1 run T-2 deliver T-2' ] || die "second pass: T-1 resumes and merges, only then T-2 starts, T-3 is not run again: '$(calls)'"
+  [ ! -d .agents/local/worktrees/T-1 ] && [ ! -d .agents/local/worktrees/T-2 ] || die "worktrees of merged tasks left"
+  [ -d .agents/local/worktrees/T-4 ] || die "the worktree of the task awaiting its merge was removed"
+  ok "batch: T-1 parked, T-2 skipped (depends on T-1), T-3 merged on its own, T-4 awaits its merge; worktrees per task, main tree clean; the answered T-1 resumes in its worktree and only then T-2 runs"
+}
+
+# --- 5c. an interruption: the same approved batch continues where it stopped and never runs a merged task again -------------------
+sc_restart() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  h1=$(tsha "$summary")
+  drive 4   # run T-1, deliver T-1, CI T-1, run T-2: the session ends here (closed, limit, sleep)
+  [ "$(calls)" = 'run T-1 deliver T-1 run T-2' ] || die "before the interruption: '$(calls)'"
+  # a new session: the digest alone says where to go on
+  [ "$(nextline | cut -d' ' -f1-2)" = 'deliver T-2' ] || die "after the interruption the half-done T-2 is delivered, not run again: $(nextline)"
+  BP T-1 T-2 T-3 > "$base/again.out" || die "the same batch could not be continued: $(cat "$base/again.out")"
+  grep -q 'is approved and not finished: continuing it' "$base/again.out" && grep -q '^NEXT: deliver T-2' "$base/again.out" || die "batch-plan of the same batch did not continue it: $(cat "$base/again.out")"
+  [ "$(tsha "$summary")" = "$h1" ] && [ "$(nfiles .agents/local/approvals request-batch)" = 1 ] || die "continuing the batch wrote a new summary or asked a new approval"
+  drive
+  [ "$(calls)" = 'run T-1 deliver T-1 run T-2 deliver T-2 run T-3 deliver T-3' ] || die "after the restart: '$(calls)'"
+  [ "$(grep -c '^run T-1' "$FAKE/calls.log")" = 1 ] && [ "$(grep -c '^deliver T-1' "$FAKE/calls.log")" = 1 ] || die "a merged task was run again: $(calls)"
+  # finished: the same words plan a new batch (the old one goes to history)
+  BP T-1 T-2 T-3 > "$base/new.out" || die "re-plan after the end: $(cat "$base/new.out")"
+  [ "$(tsha "$summary")" != "$h1" ] && [ -d .agents/local/batch/history ] && [ ! -s .agents/local/batch/merged.tsv ] || die "a finished batch was not archived by the next plan"
+  ok "batch: after an interruption the approved batch continues (no new plan, no new approval), a half-done task is delivered not run again, merged tasks never run twice; a finished batch is archived by the next plan"
+}
+
+# --- 6. the morning report comes from the records only -----------------------------------------------------------------------
+sc_status_from_records() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX T-2; mktask T-4 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'question\n' > "$FAKE/behave/T-2"
+  A batch-park T-4 reason-xyz-from-the-lead >/dev/null || die "batch-park"
+  drive
+  [ "$(calls)" = 'run T-1 deliver T-1 run T-2' ] || die "the lead's own park of T-4 did not keep it out: '$(calls)'"
+  BB status > "$base/st1.out" || die "batch.sh status failed"
+  row() { grep "$2" "$1" | head -1; }
+  row "$base/st1.out" T-1 | grep -q 'merged' && row "$base/st1.out" T-1 | grep -q '101' || die "T-1 row: $(cat "$base/st1.out")"
+  row "$base/st1.out" T-2 | grep -q 'parked' && row "$base/st1.out" T-2 | grep -q 'Which cache' || die "T-2 row: $(cat "$base/st1.out")"
+  row "$base/st1.out" T-3 | grep -q 'skipped' || die "T-3 row: $(cat "$base/st1.out")"
+  grep -qi 'no friction report' "$base/st1.out" || die "no 'no friction report' line"
+  grep -qi 'driver' "$base/st1.out" && die "status still has a driver line: $(grep -i driver "$base/st1.out")"
+  A batch-status > "$base/st1b.out" || die "agent.sh batch-status failed"
+  grep -q 'T-1' "$base/st1b.out" && grep -q 'Which cache' "$base/st1b.out" || die "batch-status table: $(cat "$base/st1b.out")"
+  # change the records: the table changes
+  awk -F'\t' -v OFS='\t' '$1 == "T-1" { $2 = 777 } { print }' .agents/local/batch/merged.tsv > "$base/m.tsv"
+  cp "$base/m.tsv" .agents/local/batch/merged.tsv
+  BB status > "$base/st2.out"; row "$base/st2.out" T-1 | grep -q '777' && ! row "$base/st2.out" T-1 | grep -q '101' || die "merged.tsv edit not reflected: $(row "$base/st2.out" T-1)"
+  BB status > "$base/st3.out"; row "$base/st3.out" T-4 | grep -q 'parked' && row "$base/st3.out" T-4 | grep -q 'reason-xyz-from-the-lead' || die "state.tsv park not reflected: $(row "$base/st3.out" T-4)"
+  A batch-park T-4 --clear >/dev/null; BB status | grep T-4 | grep -q 'pending' || die "a cleared park is still shown"
+  printf '1\n' > .agents/local/worktrees/T-2/.agents/runs/T-2/questions/001.answer.md   # the user answered (the parked run lives in its task's worktree, A169): the pending question is gone
+  BB status > "$base/st4.out"; row "$base/st4.out" T-2 | grep -q 'Which cache' && die "an answered question is still shown as pending"
+  row "$base/st4.out" T-2 | grep -q 'pending' || die "an answered task is not pending again: $(row "$base/st4.out" T-2)"
+  # batch-next reads and never writes
+  before=$(find .agents/local/batch -type f ! -name owner | sort | xargs cat | tsha /dev/stdin 2>/dev/null || find .agents/local/batch -type f ! -name owner | sort)
+  A batch-next >/dev/null; A batch-next --tsv >/dev/null
+  after=$(find .agents/local/batch -type f ! -name owner | sort | xargs cat | tsha /dev/stdin 2>/dev/null || find .agents/local/batch -type f ! -name owner | sort)
+  [ "$before" = "$after" ] || die "batch-next wrote something besides the owner claim"
+  ok "batch status and batch-next: generated from merged.tsv, the runs' records and the lead's parks; edits to the records change the table; an answered question un-parks; batch-next changes nothing but the owner claim"
+}
+
+# --- 10. (A160) the CI that gates the next task is the one of the merge commit ---------------------------------------------------
+sc_merge_commit_ci() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; cfg_batch 40; cfg_extra '  ci_appear_minutes: 1'; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve; rm -f "$FAKE/ci"/*
+  drive 2   # run T-1, deliver T-1
+  git remote set-url origin https://github.com/acme/app.git   # a GitHub project: the CI of a merge commit is read through gh
+  ci() { A batch-ci T-1 > "$base/ci.out" 2>&1; ci_rc=$?; }
+  # an old green run exists (the fake answers green to any query that is not about the merge commit); the merge commit's run is red
+  printf '[{"status":"completed","conclusion":"failure"}]\n' > "$FAKE/ci/$MSHA"; ci_rc=0; ci || :
+  [ "$ci_rc" = 1 ] && grep -q 'RED (run of 0123456)' "$base/ci.out" || die "a red run of the merge commit: rc $ci_rc, $(cat "$base/ci.out")"
+  [ "$(nextline | cut -d' ' -f1-2)" = 'ci T-1' ] || die "a red CI must keep the batch at the CI check: $(nextline)"
+  # a running run next to a red one is red; a running one alone is not green
+  printf '[{"status":"in_progress","conclusion":""},{"status":"completed","conclusion":"failure"}]\n' > "$FAKE/ci/$MSHA"; ci_rc=0; ci || :
+  [ "$ci_rc" = 1 ] || die "red + running: rc $ci_rc"
+  printf '[{"status":"in_progress","conclusion":""}]\n' > "$FAKE/ci/$MSHA"; ci_rc=0; ci || :
+  [ "$ci_rc" = 2 ] || die "a running run: rc $ci_rc, $(cat "$base/ci.out")"
+  # no run for the merge commit
+  rm -f "$FAKE/ci/$MSHA"; : > "$FAKE/ci/$MSHA.none"; ci_rc=0; ci || :
+  [ "$ci_rc" = 4 ] && grep -q 'no run for 0123456 yet' "$base/ci.out" || die "no run: rc $ci_rc, $(cat "$base/ci.out")"
+  [ "$(nextline | cut -d' ' -f1-2)" = 'ci T-1' ] || die "no CI run yet must keep the batch at the CI check: $(nextline)"
+  # a green run of the merge commit lets the batch go on
+  rm -f "$FAKE/ci/$MSHA.none"; printf '[{"status":"completed","conclusion":"success"}]\n' > "$FAKE/ci/$MSHA"; ci_rc=0; ci || :
+  [ "$ci_rc" = 0 ] && grep -q 'green' "$base/ci.out" || die "green: rc $ci_rc, $(cat "$base/ci.out")"
+  [ "$(nextline | cut -d' ' -f1-2)" = 'run T-2' ] || die "after a green CI the next task is T-2: $(nextline)"
+  ok "merge-commit CI: red run of the SHA (an old green main run does not count) and no run yet keep the batch at the check, a running one is 'ask again', green continues"
+}
+
+# --- 11. the sleep inhibitor belongs to the session, not to a driver -------------------------------------------------------------
+sc_awake() {
+  bnew; mktask T-1 COMPLEX; binstall no
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  rm -f "$FAKE/caffeinate.argv" "$FAKE/inhibit.argv"
+  sleep 60 & sess=$!   # the "session" process
+  PROOFLINE_SESSION_PID=$sess PROOFLINE_UNAME=Darwin A batch-awake > "$base/aw.out" 2>&1 || { kill "$sess"; die "batch-awake on macOS: $(cat "$base/aw.out")"; }
+  grep -q "caffeinate -i -w $sess" "$base/aw.out" && grep -q 'Keep the computer awake' "$base/aw.out" || { kill "$sess"; die "batch-awake output: $(cat "$base/aw.out")"; }
+  until_ok() { u_i=0; while ! eval "$1" >/dev/null 2>&1; do u_i=$((u_i + 1)); [ "$u_i" -lt 50 ] || return 1; sleep 0.1; done; }
+  until_ok "[ -s '$FAKE/caffeinate.argv' ]" || { kill "$sess"; die "caffeinate was not started"; }
+  [ "$(cat "$FAKE/caffeinate.argv")" = "-i -w $sess" ] || { kill "$sess"; die "caffeinate arguments: $(cat "$FAKE/caffeinate.argv")"; }
+  PROOFLINE_SESSION_PID=$sess PROOFLINE_UNAME=Darwin A batch-awake >/dev/null 2>&1; [ "$(wc -l < "$FAKE/caffeinate.argv" | tr -d ' ')" = 1 ] || { kill "$sess"; die "a second batch-awake started a second inhibitor"; }
+  BB status | grep -q "^sleep inhibitor: caffeinate -i -w $sess" || { kill "$sess"; die "status does not show the inhibitor: $(BB status | head -4)"; }
+  cpid=$(cat "$FAKE/caffeinate.pid"); kill -0 "$cpid" 2>/dev/null || { kill "$sess"; die "caffeinate is not running"; }
+  kill "$sess"; wait "$sess" 2>/dev/null || :
+  until_ok "! kill -0 $cpid" || die "caffeinate outlived the session it is tied to"
+  BB status | grep -q '^awake: the sleep inhibitor ended' || die "status after the session ended: $(BB status | head -4)"
+  sleep 60 & sess=$!
+  PROOFLINE_SESSION_PID=$sess PROOFLINE_UNAME=Linux A batch-awake > "$base/aw2.out" 2>&1 || { kill "$sess"; die "batch-awake on Linux: $(cat "$base/aw2.out")"; }
+  until_ok "[ -s '$FAKE/inhibit.argv' ]" || { kill "$sess"; die "systemd-inhibit was not started"; }
+  grep -q -- '--what=idle:sleep' "$FAKE/inhibit.argv" || { kill "$sess"; die "systemd-inhibit arguments: $(cat "$FAKE/inhibit.argv")"; }
+  kill "$sess"; wait "$sess" 2>/dev/null || :
+  rm -f "$FAKE/caffeinate.argv" "$FAKE/inhibit.argv"
+  sleep 60 & sess=$!
+  PROOFLINE_SESSION_PID=$sess PROOFLINE_UNAME=Linux PROOFLINE_BATCH_INHIBIT=none A batch-awake > "$base/aw3.out" 2>&1 || { kill "$sess"; die "batch-awake without an inhibitor: $(cat "$base/aw3.out")"; }
+  kill "$sess"; wait "$sess" 2>/dev/null || :
+  grep -q 'sleep inhibitor: none available.*the machine may sleep' "$base/aw3.out" || die "no-inhibitor output: $(cat "$base/aw3.out")"
+  [ ! -s "$FAKE/caffeinate.argv" ] && [ ! -s "$FAKE/inhibit.argv" ] || die "an inhibitor was started although none is available"
+  ok "sleep inhibitor: caffeinate -i -w <session pid> (gone with the session), once; systemd-inhibit on Linux; no inhibitor is said plainly; status shows it"
+}
+
+# --- 12. the removed headless driver says what to do instead ---------------------------------------------------------------------
+sc_driver_removed() {
+  bnew; mktask T-1 COMPLEX; binstall no
+  for c in run start stop; do
+    BB $c > "$base/gone.out" 2>&1 && die "batch.sh $c still exists"
+    grep -q 'driver is gone' "$base/gone.out" && grep -q '/proofline batch' "$base/gone.out" || die "batch.sh $c: $(cat "$base/gone.out")"
+  done
+  expect_msg "the old Codex sandbox flag" "is gone" BP T-1 --codex-danger-full-access
+  expect_fail "agent.sh batch-start" A batch-start
+  expect_fail "agent.sh batch-stop" A batch-stop
+  [ ! -e .agents/local/batch/SUMMARY.md ] || die "a refused plan wrote a summary"
+  ok "removed driver: batch.sh run|start|stop, batch-start, batch-stop and --codex-danger-full-access are refused with what to do instead"
 }
 
 # --- 3. the batch approval covers plan, delivery, mutation budget only; not waiver, scope, reopen, rule ... ---------------
@@ -339,70 +521,6 @@ sc_late_critical() {
   ok "batch-cover: a task classified CRITICAL after the batch started is refused"
 }
 
-# --- 5. a middle task parks: its dependent is skipped, an independent later task still runs ---------------------------------
-sc_park_skip_continue() {
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX T-2; mktask T-4 COMPLEX; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'merge\n' > "$FAKE/behave/T-1"; printf 'question\n' > "$FAKE/behave/T-2"; printf 'merge+worktree\n' > "$FAKE/behave/T-4"
-  BB run > "$base/run.out" 2>&1 || :
-  [ "$(calls)" = "T-1 T-2 T-4" ] || die "sessions started (one at a time, in order, none for the skipped dependent): '$(calls)'; $(tail -5 "$base/run.out")"
-  [ "$(state_of T-1 2)" = merged ] && [ "$(state_of T-2 2)" = parked ] && [ "$(state_of T-3 2)" = skipped ] && [ "$(state_of T-4 2)" = merged ] || die "state.tsv: $(cat .agents/local/batch/state.tsv)"
-  [ "$(state_of T-2 3)" = question ] || die "T-2 park reason: $(state_of T-2 3)"
-  state_of T-2 4 | grep -q 'Which cache' || die "T-2 pending question not copied: $(state_of T-2 4)"
-  state_of T-3 3 | grep -q 'depends on T-2' || die "T-3 skip reason: $(state_of T-3 3)"
-  [ -f .agents/local/batch/logs/T-1.log ] && grep -q 'LOGONLY-T-1' .agents/local/batch/logs/T-1.log || die "no session log for T-1"
-  # A169: the worktree a session added is removed; the run's own worktree goes with a merge (T-1, T-4) and stays for the parked T-2
-  [ "$(git worktree list | wc -l | tr -d ' ')" = 2 ] && git worktree list | grep -q '/\.agents/local/worktrees/T-2 ' || die "worktrees after the batch (only the parked T-2 keeps one): $(git worktree list)"
-  [ ! -d .agents/local/worktrees/T-1 ] && [ ! -d .agents/local/worktrees/T-4 ] || die "the worktree of a merged task was left"
-  [ "$(git branch --show-current)" = main ] && [ -z "$(git status --porcelain)" ] || die "the driver left the repository off main or dirty"
-  BB run >/dev/null 2>&1 || :
-  [ "$(calls)" = "T-1 T-2 T-4" ] || die "a second run restarted merged or still-parked tasks: '$(calls)'"
-  ok "batch run: T-2 parked, T-3 skipped (depends on T-2), T-4 still ran and merged; hygiene (session worktree and merged tasks' worktrees removed, back on main); a re-run changes nothing"
-}
-
-# --- 5a. A169: every task runs in a worktree of its own ------------------------------------------------------------------------
-# T-1 parks with a question, T-4 waits for its merge, T-3 is independent and merges, T-2 depends on T-1. The sessions run the REAL
-# `agent.sh start`: with all runs in one folder T-3 would fail with "another open run exists in this worktree" (the failure that
-# skipped the dependents of an independent task).
-sc_task_worktrees() {
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; mktask T-4 COMPLEX; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'realpark\n' > "$FAKE/behave/T-1"; printf 'realmerge\n' > "$FAKE/behave/T-2"; printf 'realmerge\n' > "$FAKE/behave/T-3"; printf 'realawait\n' > "$FAKE/behave/T-4"
-  main=$(pwd -P)
-  BB run > "$base/run.out" 2>&1 || :
-  grep -q 'START-FAILED' .agents/local/batch/logs/*.log && die "a session could not start its run (the second open run in one folder?): $(cat .agents/local/batch/logs/*.log)"
-  [ "$(calls)" = "T-1 T-3 T-4" ] || die "sessions: a parked task and one waiting for merge must not block the independent T-3, and the dependent T-2 must not start: '$(calls)'; $(tail -5 "$base/run.out")"
-  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = question ] && [ "$(state_of T-2 2)" = skipped ] && [ "$(state_of T-3 2)" = merged ] && [ "$(state_of T-4 2)" = parked ] || die "state.tsv: $(cat .agents/local/batch/state.tsv)"
-  state_of T-2 3 | grep -q 'depends on T-1' || die "T-2 skip reason: $(state_of T-2 3)"
-  [ "$(state_of T-4 3)" = 'awaiting merge' ] || die "T-4 park reason: $(state_of T-4 3)"
-  for i in T-1 T-3 T-4; do grep -qx "$i $main/.agents/local/worktrees/$i" "$FAKE/cwd.log" || die "session of $i did not run in its own worktree: $(cat "$FAKE/cwd.log")"; done
-  # the main working tree: clean, the task files where they were, no run, no open run
-  [ -z "$(git status --porcelain)" ] || die "the main working tree is dirty: $(git status --porcelain)"
-  [ -f .agents/tasks/T-1.md ] && [ -f .agents/tasks/T-4.md ] && [ ! -e .agents/tasks/in-progress ] || die "a task file moved in the main working tree: $(ls -R .agents/tasks)"
-  [ -z "$(ls .agents/runs 2>/dev/null)" ] && [ -z "$(A open-runs)" ] && [ ! -s .agents/local/ACTIVE_RUN ] || die "the main working tree holds a run: $(ls .agents/runs) / $(A open-runs)"
-  [ "$(git branch --show-current)" = main ] || die "the driver left main"
-  # the parked and the waiting task keep their worktree and their run; the merged one is gone
-  [ -d .agents/local/worktrees/T-1/.agents/runs/T-1 ] && [ -d .agents/local/worktrees/T-4/.agents/runs/T-4 ] || die "a parked or waiting task lost its worktree: $(git worktree list)"
-  [ ! -d .agents/local/worktrees/T-3 ] && [ ! -e .agents/local/worktrees/T-2 ] || die "worktree of the merged T-3 left, or one made for the never-started T-2: $(git worktree list)"
-  [ ! -f .agents/local/worktrees/T-1/.agents/tasks/T-1.md ] || die "T-1's task file was not moved in its own worktree"
-  [ "$(cd .agents/local/worktrees/T-1 && sh .agents/scripts/agent.sh open-runs)" = 'T-1 -' ] || die "open runs of T-1's worktree"
-  [ "$(cd .agents/local/worktrees/T-4 && sh .agents/scripts/agent.sh open-runs)" = 'T-4 -' ] || die "open runs of T-4's worktree"
-  A next-user batch status | grep -q 'reply in this session to the open question.*then run proofline batch run' || die "next step for a parked task whose run is in a worktree: $(A next-user batch status)"
-  A next-user batch status | grep -q '/proofline resume' && die "next step sends the user to resume in the main tree: $(A next-user batch status)"
-  A questions T-1 | grep -q 'Which cache' || die "questions for a run in a worktree are not forwarded from the main tree: $(A questions T-1 2>&1)"
-  BB status | grep -q 'T-4 | parked | - | - | awaiting merge' || die "status does not say T-4 awaits its merge: $(BB status | grep T-4)"
-  # the dependent waits for the merge: T-1 gets its answer and merges in the SAME worktree, then T-2 runs, not before
-  printf 'a\n' > .agents/local/worktrees/T-1/.agents/runs/T-1/questions/001.answer.md
-  printf 'realmerge\n' > "$FAKE/behave/T-1"; : > "$FAKE/calls.log"
-  BB run > "$base/run2.out" 2>&1 || :
-  [ "$(calls)" = "T-1 T-2 T-4" ] || die "second run: T-1 resumes and merges, only then T-2 starts: '$(calls)'; $(tail -5 "$base/run2.out")"
-  [ "$(state_of T-1 2)" = merged ] && [ "$(state_of T-2 2)" = merged ] || die "state.tsv after the second run: $(cat .agents/local/batch/state.tsv)"
-  [ "$(grep -c '^T-1 ' "$FAKE/cwd.log")" = 2 ] && [ "$(grep '^T-1 ' "$FAKE/cwd.log" | sort -u | wc -l | tr -d ' ')" = 1 ] || die "the resumed T-1 session did not run in the same worktree: $(cat "$FAKE/cwd.log")"
-  [ ! -d .agents/local/worktrees/T-1 ] && [ ! -d .agents/local/worktrees/T-2 ] || die "worktrees of merged tasks left"
-  [ -z "$(git status --porcelain)" ] || die "the main working tree is dirty after the second run: $(git status --porcelain)"
-  ok "batch run: every task in its own worktree; a parked task and one awaiting merge block nobody, the main tree stays clean, the dependent starts only after T-1 merged, merged tasks' worktrees are removed"
-}
-
 wbody() { printf '## Goal\n\n%s.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n' "$2"; }   # ID TITLE -> a task body for `agent.sh start --title`
 # --- 5a'. A169: agent.sh worktree-add|worktree-path|worktree-remove, the open-run check per worktree --------------------------------
 sc_worktree_cmds() {
@@ -431,213 +549,6 @@ sc_worktree_cmds() {
   ok "worktree-add|path|remove: one worktree per run, open runs counted per worktree, branch from the detached canonical tip, removal refused while a run is inside"
 }
 
-# --- 5b. one at a time: a live lock refuses a second run, a stale lock is replaced -----------------------------------------
-sc_lock() {
-  bnew; mktask T-1 COMPLEX; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'merge\n' > "$FAKE/behave/T-1"
-  sleep 120 & lp=$!
-  printf '%s\n' "$lp" > .agents/local/batch/LOCK
-  expect_msg "second run while the lock holder is alive" "only one task at a time" BB run
-  [ -z "$(calls)" ] || die "a session started while the batch was locked"
-  kill "$lp" 2>/dev/null; wait "$lp" 2>/dev/null || :
-  BB run >/dev/null 2>&1 || die "a stale lock (dead pid) blocked the run"
-  [ "$(calls)" = "T-1" ] && [ "$(state_of T-1 2)" = merged ] || die "run after the stale lock: '$(calls)' $(cat .agents/local/batch/state.tsv)"
-  ok "lock: a live LOCK pid refuses a second run (only one task at a time), a stale lock is replaced"
-}
-
-# --- 6. the morning report comes from the records only -----------------------------------------------------------------------
-sc_status_from_records() {
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX T-2; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'merge\n' > "$FAKE/behave/T-1"; printf 'question\n' > "$FAKE/behave/T-2"
-  BB run >/dev/null 2>&1 || :
-  BB status > "$base/st1.out" || die "batch.sh status failed"
-  row() { grep "$2" "$1" | head -1; }
-  row "$base/st1.out" T-1 | grep -q 'merged' && row "$base/st1.out" T-1 | grep -q '101' || die "T-1 row: $(cat "$base/st1.out")"
-  row "$base/st1.out" T-2 | grep -q 'parked' && row "$base/st1.out" T-2 | grep -q 'Which cache' || die "T-2 row: $(cat "$base/st1.out")"
-  row "$base/st1.out" T-3 | grep -q 'skipped' || die "T-3 row: $(cat "$base/st1.out")"
-  grep -qi 'no friction report' "$base/st1.out" || die "no 'no friction report' line"
-  grep -q 'LOGONLY' "$base/st1.out" && die "the report holds text that exists only in the session log"
-  grep -q 'LOGONLY' .agents/local/batch/logs/T-1.log || die "test setup: the log lacks its marker"
-  A batch-status > "$base/st1b.out" || die "agent.sh batch-status failed"
-  grep -q 'T-1' "$base/st1b.out" && grep -q 'Which cache' "$base/st1b.out" || die "batch-status table: $(cat "$base/st1b.out")"
-  # change the records: the table changes
-  awk -F'\t' -v OFS='\t' '$1 == "T-1" { $2 = 777 } { print }' .agents/local/batch/merged.tsv > "$base/m.tsv"
-  cp "$base/m.tsv" .agents/local/batch/merged.tsv
-  BB status > "$base/st2.out"; row "$base/st2.out" T-1 | grep -q '777' && ! row "$base/st2.out" T-1 | grep -q '101' || die "merged.tsv edit not reflected: $(row "$base/st2.out" T-1)"
-  awk -F'\t' -v OFS='\t' '$1 == "T-3" { $2 = "parked"; $3 = "reason-xyz-from-state" } { print }' .agents/local/batch/state.tsv > "$base/s.tsv"
-  cp "$base/s.tsv" .agents/local/batch/state.tsv
-  BB status > "$base/st3.out"; row "$base/st3.out" T-3 | grep -q 'parked' && row "$base/st3.out" T-3 | grep -q 'reason-xyz-from-state' || die "state.tsv edit not reflected: $(row "$base/st3.out" T-3)"
-  printf '1\n' > .agents/local/worktrees/T-2/.agents/runs/T-2/questions/001.answer.md   # the user answered (the parked run lives in its task's worktree, A169): the pending question is gone
-  BB status > "$base/st4.out"; row "$base/st4.out" T-2 | grep -q 'Which cache' && die "an answered question is still shown as pending"
-  ok "batch status: table from state.tsv, merged.tsv and the parked run's records; no log-only text; edits to the records change the table"
-}
-
-# --- 7. stale log text is not this session's output ---------------------------------------------------------------------------
-sc_stale_log() {
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  mkdir -p .agents/local/batch/logs; printf 'usage limit reached yesterday; 401 rate limit quota\n' > .agents/local/batch/logs/T-1.log
-  printf 'nothing\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-2"
-  BB run > "$base/run.out" 2>&1 || :
-  [ "$(calls)" = "T-1 T-2" ] || die "stale log text stopped the batch or switched runtime: '$(calls)'; $(tail -5 "$base/run.out")"
-  [ "$(state_of T-1 2)" = parked ] && state_of T-1 3 | grep -q 'session ended without a result' || die "T-1: $(state_of T-1 2) $(state_of T-1 3)"
-  [ "$(state_of T-2 2)" = merged ] || die "the next task did not run: $(cat .agents/local/batch/state.tsv)"
-  grep -q '^# stopped' .agents/local/batch/state.tsv && die "the batch recorded a stop"
-  ok "batch run: stale limit/auth text in the cumulative log is ignored; no-result session parks, next task still runs"
-}
-
-# --- 8. (A160) a session that outlives batch.task_timeout is parked with its whole process group closed -------------------------
-sc_task_timeout() {
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; cfg_batch 40; cfg_extra '  task_timeout: 1'; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'hang\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-3"; rm -f "$FAKE/grandchild.pid" "$FAKE/descendants.pids"
-  ( PROOFLINE_BATCH_MINUTE=3; export PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :
-  gc=$(cat "$FAKE/grandchild.pid" 2>/dev/null || :); [ -n "$gc" ] || die "test setup: the fake session spawned no grandchild"
-  [ "$(wc -l < "$FAKE/descendants.pids" | tr -d ' ')" -ge 5 ] || die "test setup: the fake session recorded $(wc -l < "$FAKE/descendants.pids") descendants, want 5"
-  for dp in $(cat "$FAKE/descendants.pids"); do
-    if kill -0 "$dp" 2>/dev/null; then for dq in $(cat "$FAKE/descendants.pids"); do kill -KILL "$dq" 2>/dev/null || :; done; die "a descendant (pid $dp) of the timed-out session is still alive (method ${PROOFLINE_BATCH_PGMETHOD:-auto}): its process group was not closed"; fi
-  done
-  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = timeout ] || die "T-1 after the timeout: $(cat .agents/local/batch/state.tsv); $(tail -5 "$base/run.out")"
-  state_of T-1 4 | grep -q 'no result within 1 minutes' || die "T-1 reason text: $(state_of T-1 4)"
-  [ "$(state_of T-2 2)" = skipped ] && state_of T-2 3 | grep -q 'depends on T-1 (parked)' || die "T-2: $(state_of T-2 2) $(state_of T-2 3)"
-  [ "$(state_of T-3 2)" = merged ] && [ "$(calls)" = "T-1 T-3" ] || die "the batch did not go on after the timeout: '$(calls)' $(cat .agents/local/batch/state.tsv)"
-  ok "batch run: a hanging session is parked (timeout), its dependent skipped, the next task merged, the grandchild of its process group is dead"
-}
-
-# --- 9. (A160) Codex sessions run sandboxed; danger-full-access only when the approved summary says so ---------------------------
-sc_codex_sandbox() {
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
-  printf 'merge\n' > "$FAKE/behave/T-1"
-  # default: the proofline_night profile with network (package caches redirected); the summary says so and carries no warning
-  BP all >/dev/null || die "batch-plan failed"
-  grep -q '^codex sandbox: proofline_night profile' "$summary" && ! grep -q 'danger-full-access\|^WARNING:' "$summary" || die "default summary: $(grep -i 'sandbox\|WARNING' "$summary")"
-  batch_approve; : > "$FAKE/codex.argv"
-  BB run >/dev/null 2>&1 || :
-  grep -q 'default_permissions="proofline_night"' "$FAKE/codex.argv" && grep -q 'permissions.proofline_night.network.enabled=true' "$FAKE/codex.argv" && ! grep -q -- ' -s ' "$FAKE/codex.argv" || die "codex argv: $(cat "$FAKE/codex.argv")"
-  if grep -q 'danger-full-access' "$FAKE/codex.argv"; then die "danger-full-access without the flag: $(cat "$FAKE/codex.argv")"; fi
-  # A169: the session works in the task's own worktree; the grants outside it are exact (verified with `codex sandbox -P` on codex-cli 0.163.0):
-  # the main .git and the task's worktrees/<ID> entry writable, hooks and config read-only, only the shared state folders of .agents/local
-  gm=$(pwd -P)
-  for g in "\"$gm/.git\"=\"write\"" "\"$gm/.git/hooks\"=\"read\"" "\"$gm/.git/config\"=\"read\"" "\"$gm/.git/worktrees/T-1\"=\"write\"" "\"$gm/.agents/local/batch\"=\"write\"" " -C $gm/.agents/local/worktrees/T-1 "; do
-    grep -qF -- "$g" "$FAKE/codex.argv" || die "codex argv lacks $g: $(cat "$FAKE/codex.argv")"
-  done
-  ! grep -qF -- "\"$gm/.agents\"=" "$FAKE/codex.argv" && ! grep -qF -- "\"$gm\"=" "$FAKE/codex.argv" || die "codex argv grants the main working tree: $(cat "$FAKE/codex.argv")"
-  # config and environment cannot enable it: only the flag at plan time, visible with the warning
-  cg_reset() { rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/codex.argv"; }
-  cg_reset; cfg_extra '  codex_sandbox: danger-full-access' '  sandbox: danger-full-access'
-  git add -A; git commit -qm 'extra config keys'
-  BP all >/dev/null || die "batch-plan with extra config keys failed"; batch_approve
-  ( PROOFLINE_CODEX_SANDBOX=danger-full-access; CODEX_SANDBOX=danger-full-access; export PROOFLINE_CODEX_SANDBOX CODEX_SANDBOX; BB run >/dev/null 2>&1 ) || :
-  grep -q 'default_permissions="proofline_night"' "$FAKE/codex.argv" && ! grep -q 'danger-full-access' "$FAKE/codex.argv" || die "config/env enabled danger-full-access: $(cat "$FAKE/codex.argv")"
-  for pos in first last; do   # the flag in any position
-    if [ $pos = first ]; then BP --codex-danger-full-access all > "$base/plan.out" || die "flag first refused: $(cat "$base/plan.out")"
-    else BP all --codex-danger-full-access > "$base/plan.out" || die "flag last refused: $(cat "$base/plan.out")"; fi
-    grep -q '^codex sandbox: danger-full-access' "$summary" && grep -q '^WARNING:' "$summary" || die "flag $pos: summary lacks the sandbox line or the warning: $(grep -i 'sandbox\|WARNING' "$summary")"
-  done
-  cg_reset; BP all --codex-danger-full-access >/dev/null || die "batch-plan with the flag failed"; batch_approve; BB run >/dev/null 2>&1 || :
-  grep -q -- '-s danger-full-access' "$FAKE/codex.argv" && ! grep -q 'proofline_night' "$FAKE/codex.argv" || die "codex argv with the flag: $(cat "$FAKE/codex.argv")"
-  ok "codex: the proofline_night profile (+network) by default; danger-full-access only via --codex-danger-full-access in the approved summary (with WARNING), never config or env"
-}
-
-sc_codex_sandbox_tamper() {
-  # session 1 rewrites SUMMARY.md to danger-full-access: the driver read the approved choice once, so session 2 stays in the profile
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
-  printf 'merge\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-2"
-  BP all >/dev/null || die "batch-plan failed"; batch_approve; : > "$FAKE/codex.argv"; : > "$FAKE/codex.tamper"
-  BB run >/dev/null 2>&1 || :
-  rm -f "$FAKE/codex.tamper"
-  [ "$(calls)" = "T-1 T-2" ] || die "both tasks should have run: '$(calls)'"
-  grep -q '^codex sandbox: danger-full-access' .agents/local/batch/SUMMARY.md || die "the fake codex did not rewrite SUMMARY.md"
-  [ "$(wc -l < "$FAKE/codex.argv" | tr -d ' ')" = 2 ] || die "expected two codex sessions: $(cat "$FAKE/codex.argv")"
-  sed -n 2p "$FAKE/codex.argv" | grep -q 'default_permissions="proofline_night"' || die "session 2 argv lacks the proofline_night profile: $(sed -n 2p "$FAKE/codex.argv")"
-  if grep -q 'danger-full-access' "$FAKE/codex.argv"; then die "danger-full-access reached a session: $(cat "$FAKE/codex.argv")"; fi
-  ok "codex sandbox is read once at run start: a session editing SUMMARY.md cannot widen it for the next session"
-}
-
-# --- 9b. (A161, #135) the headless session leads its own process group, by every method; no method = no batch --------------------------
-pg_setup() { # a batch of T-1 (hangs, timeout 1 minute), T-2 (depends on T-1), T-3 (merges), approved
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; mktask T-3 COMPLEX; cfg_batch 40; cfg_extra '  task_timeout: 1'; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'hang\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-3"; rm -f "$FAKE/grandchild.pid" "$FAKE/descendants.pids"
-}
-pg_alive_any() { for pa in $(cat "$FAKE/descendants.pids" 2>/dev/null); do if kill -0 "$pa" 2>/dev/null; then return 0; fi; done; return 1; }
-sc_pgroup_method() { # METHOD: every available method leaves all five descendants of a hung session dead
-  pm=$1
-  case "$pm" in setsid) command -v setsid >/dev/null 2>&1 || { ok "process group method setsid: not available on this machine, skipped"; return 0; } ;;
-    perl) command -v perl >/dev/null 2>&1 || { ok "process group method perl: not available, skipped"; return 0; } ;;
-    python) command -v python3 >/dev/null 2>&1 || { ok "process group method python: not available, skipped"; return 0; } ;; esac
-  pg_setup
-  ( PROOFLINE_BATCH_PGMETHOD=$pm; PROOFLINE_BATCH_MINUTE=3; export PROOFLINE_BATCH_PGMETHOD PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :
-  if [ "$pm" = setm ] && grep -q 'no way to start a headless session' "$base/run.out"; then ok "process group method setm: job control not available here, skipped"; return 0; fi
-  [ "$(wc -l < "$FAKE/descendants.pids" 2>/dev/null | tr -d ' ')" -ge 5 ] || die "method $pm: the fake session recorded too few descendants: $(tail -3 "$base/run.out")"
-  if pg_alive_any; then for dq in $(cat "$FAKE/descendants.pids"); do kill -KILL "$dq" 2>/dev/null || :; done; die "method $pm: a descendant of the timed-out session is still alive"; fi
-  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = timeout ] && [ "$(state_of T-3 2)" = merged ] || die "method $pm: state: $(cat .agents/local/batch/state.tsv)"
-  rf=.agents/local/batch/sessions/T-1.1.rec
-  [ -f "$rf" ] || die "method $pm: no session record $rf"
-  for kv in id=T-1 n=1 runtime=claude "method=$pm" log=.agents/local/batch/logs/T-1.log timeout=1 exit=124; do grep -qx "$kv" "$rf" || die "method $pm: record lacks $kv: $(cat "$rf")"; done
-  grep -q '^start=[0-9]' "$rf" && grep -q '^end=[0-9]' "$rf" || die "method $pm: record lacks start or end: $(cat "$rf")"
-  BB status > "$base/st.out" || die "batch status failed"
-  grep -q '^sessions (from records; ' "$base/st.out" || die "method $pm: no sessions section: $(cat "$base/st.out")"
-  grep -q '^task | # | runtime | start | end | exit | park reason | log$' "$base/st.out" || die "sessions header: $(cat "$base/st.out")"
-  grep '^T-1 | 1 | claude | ' "$base/st.out" | grep -q '| 124 (timeout) | timeout | .agents/local/batch/logs/T-1.log$' || die "T-1 session row: $(grep '^T-1 |' "$base/st.out")"
-  grep '^T-3 | 1 | claude | ' "$base/st.out" | grep -q '| 0 | - | ' || die "T-3 session row: $(grep '^T-3 |' "$base/st.out")"
-  ok "process group method $pm: every descendant of a hung session is dead, record says method=$pm, status shows 124 (timeout) and the log path"
-}
-sc_pgroup_refuse() { # none, an unavailable method and an unknown one: one clear line, no session, nothing parked
-  for pm in none bogus; do
-    pg_setup
-    ( PROOFLINE_BATCH_PGMETHOD=$pm; export PROOFLINE_BATCH_PGMETHOD
-      expect_msg "method $pm" 'batch: no way to start a headless session in its own process group on this machine (' BB run )
-    [ -z "$(calls)" ] || die "method $pm: a session started: $(calls)"
-    ls .agents/local/batch/sessions/*.rec >/dev/null 2>&1 && die "method $pm: a session record was written"
-    pg_alive_any && die "method $pm: a descendant exists"
-    [ ! -f .agents/local/batch/state.tsv ] || [ "$(state_of T-1 2)" = pending ] || die "method $pm: T-1 is not pending: $(cat .agents/local/batch/state.tsv)"
-  done
-  # the probe itself prints "<pid> <pgid>"
-  sh ./.agents/scripts/batch.sh _pgprobe "$base/probe.out" || die "_pgprobe failed"
-  grep -Eq '^[0-9]+ [0-9]+$' "$base/probe.out" || die "_pgprobe output: $(cat "$base/probe.out")"
-  ok "process group: method none or an unavailable one refuses the batch with one line, no session, no record, tasks stay pending; _pgprobe prints pid and pgid"
-}
-sc_pgroup_not_leader() { # the probe passes but the session is not its own group leader: it exits 125, the batch stops, the task stays pending
-  command -v perl >/dev/null 2>&1 || { ok "not-leader stop: no perl here, skipped"; return 0; }
-  pg_setup; mkdir -p "$FAKE/fakebin"
-  cat > "$FAKE/fakebin/setsid" <<'EOF'
-#!/bin/sh
-# a setsid that only really leads a group for the probe; the session stays in the driver's group
-case "$*" in *_pgprobe*) exec perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' "$@" ;; *) exec "$@" ;; esac
-EOF
-  chmod +x "$FAKE/fakebin/setsid"
-  ( PATH=$FAKE/fakebin:$PATH; PROOFLINE_BATCH_PGMETHOD=setsid; PROOFLINE_BATCH_MINUTE=3; export PATH PROOFLINE_BATCH_PGMETHOD PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :
-  grep -q 'a session could not be started as the leader of its own process group (method setsid)' "$base/run.out" || die "no stop message: $(tail -4 "$base/run.out")"
-  [ -z "$(calls)" ] || die "the session ran: $(calls)"
-  [ "$(state_of T-1 2)" = pending ] || die "T-1 after the 125 stop: $(cat .agents/local/batch/state.tsv)"
-  [ "$(state_of T-3 2)" = pending ] || die "the batch went on after the stop: $(cat .agents/local/batch/state.tsv)"
-  grep -qx 'exit=125' .agents/local/batch/sessions/T-1.1.rec || die "record: $(cat .agents/local/batch/sessions/T-1.1.rec)"
-  ok "a session that is not its own group leader exits 125: the batch stops with the method named, nothing ran, the task stays pending"
-}
-
-# --- 9c. (A161, #135) the morning report: sessions from records; an old state has none; a session without an end is said so -------
-sc_session_records() {
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-  printf 'merge\n' > "$FAKE/behave/T-1"; printf 'question\n' > "$FAKE/behave/T-2"
-  BB run >/dev/null 2>&1 || :
-  ls .agents/local/batch/sessions/T-1.1.rec .agents/local/batch/sessions/T-2.1.rec >/dev/null || die "no session records"
-  BB status > "$base/st.out" || die "status failed"
-  grep '^T-2 | 1 | claude | ' "$base/st.out" | grep -q '| 0 | question | ' || die "T-2 session row (exit 0, park reason question): $(grep '^T-2 |' "$base/st.out")"
-  # a record without an end (a driver that was stopped)
-  printf 'id=T-1\nn=2\nruntime=codex\nmethod=perl\nlog=.agents/local/batch/logs/T-1.log\nstart=1700000000\n' > .agents/local/batch/sessions/T-1.2.rec
-  BB status > "$base/st.out"; grep '^T-1 | 2 | codex | ' "$base/st.out" | grep -q 'no end recorded' || die "no 'no end recorded' row: $(grep '^T-1 |' "$base/st.out")"
-  # a state from before the records: no sessions section, the table still works
-  rm -rf .agents/local/batch/sessions
-  BB status > "$base/st.out" || die "status of an old state failed"
-  grep -q '^sessions' "$base/st.out" && die "an old state shows a sessions section: $(cat "$base/st.out")"
-  grep 'T-1' "$base/st.out" | grep -q 'merged' || die "the old state's table is gone: $(cat "$base/st.out")"
-  ok "batch status: session rows from records (exit, park reason), 'no end recorded' for an open record, no sessions section for an old state"
-}
-
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
 sc_adapter_refused() {
   bnew; mktask T-1 COMPLEX; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; binstall no
@@ -650,384 +561,90 @@ sc_adapter_refused() {
   ok "batch-plan: tasks.adapter github exits 1 with the exact next step and writes nothing"
 }
 
-# --- 9c. (A161) codex-cli floor: an explicit codex runtime refuses an old or unparsable version, a fallback is left out with one line ---
-cv_plan() { # re-plan and approve the current fixture (T-1 merges)
-  rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/codex.argv"; : > "$FAKE/calls.log"; printf 'merge\n' > "$FAKE/behave/T-1"
-  BP all >/dev/null || die "batch-plan failed"; batch_approve
-}
-cv_run() { # VERSION: the driver run with PROOFLINE_CODEX_VERSION=VERSION (set, possibly empty); output in run.out
-  cv_rc=0; ( PROOFLINE_CODEX_VERSION=$1; export PROOFLINE_CODEX_VERSION; BB run > "$base/run.out" 2>&1 ) || cv_rc=$?
-}
-sc_codex_version() {
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
-  cv_plan
-  # refused for a runtime the configuration names: no session starts
-  for v in 0.162.9 0.163.0-alpha.1 0.100.0; do
-    cv_run "$v"
-    [ "$cv_rc" != 0 ] && grep -q "^batch: codex-cli $v is below the minimum 0.163.0 the proofline_night profile was verified on; update Codex or use runtime claude" "$base/run.out" || die "batch.runtimes codex, version $v not refused as below: rc=$cv_rc $(cat "$base/run.out")"
-    [ -z "$(calls)" ] && [ ! -s "$FAKE/codex.argv" ] || die "a session started on codex-cli $v"
-  done
-  for v in '' garbage 'codex-cli'; do
-    cv_run "$v"
-    [ "$cv_rc" != 0 ] && grep -q '^batch: codex --version gave no parsable version (minimum 0.163.0, ' "$base/run.out" || die "batch.runtimes codex, version '$v' not refused as unparsable: rc=$cv_rc $(cat "$base/run.out")"
-    [ -z "$(calls)" ] || die "a session started with an unparsable codex version '$v'"
-  done
-  # accepted (a fresh approved plan each: a finished run leaves state behind)
-  for v in 0.163.0 0.163.1 0.164.0-alpha.1 1.0.0; do
-    cv_plan; cv_run "$v"
-    [ "$cv_rc" = 0 ] && [ "$(calls)" = "T-1" ] && [ -s "$FAKE/codex.argv" ] || die "codex-cli $v refused or not run: rc=$cv_rc calls='$(calls)' $(cat "$base/run.out")"
-    grep -q 'is below the minimum\|no parsable version' "$base/run.out" && die "codex-cli $v produced a refusal text: $(cat "$base/run.out")"
-  done
-  # the lead runtime codex (no batch.runtimes) is refused the same way
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; sed 's/^  lead: .*/  lead: codex/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml
-  git add -A; git commit -qm 'lead codex'; cv_plan; cv_run 0.162.9
-  [ "$cv_rc" != 0 ] && grep -q '^batch: codex-cli 0.162.9 is below the minimum 0.163.0 ' "$base/run.out" && [ -z "$(calls)" ] || die "lead codex, 0.162.9 not refused: rc=$cv_rc $(cat "$base/run.out")"
-  cv_plan; cv_run ''
-  [ "$cv_rc" != 0 ] && grep -q '^batch: codex --version gave no parsable version' "$base/run.out" || die "lead codex, empty version not refused: rc=$cv_rc $(cat "$base/run.out")"
-  # a fallback (claude lead, codex installed, claude hits its limit): codex is left out with one line on stderr, the batch goes on with claude only
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall
-  cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; cv_run 0.162.9
-  [ "$(grep -c 'Codex is left out of this batch' "$base/run.out")" = 1 ] && grep -q '^batch: codex-cli 0.162.9 is below the minimum 0.163.0 the proofline_night profile was verified on: Codex is left out of this batch$' "$base/run.out" || die "fallback codex below the floor: no single left-out line: $(cat "$base/run.out")"
-  [ ! -s "$FAKE/codex.argv" ] || die "a left-out codex was used as the fallback: $(cat "$FAKE/codex.argv")"
-  cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; cv_run ''
-  grep -q '^batch: codex --version gave no parsable version (minimum 0.163.0, .*): Codex is left out of this batch$' "$base/run.out" && [ ! -s "$FAKE/codex.argv" ] || die "fallback codex unparsable: $(cat "$base/run.out")"
-  # an accepted version keeps the fallback: claude hits its limit, codex takes the task
-  cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; cv_run 0.163.0
-  grep -q 'left out' "$base/run.out" && die "an accepted codex was left out: $(cat "$base/run.out")"
-  [ -s "$FAKE/codex.argv" ] || die "an accepted codex was not tried as the fallback after claude's limit: $(cat "$base/run.out")"
-  ok "codex version floor: 0.162.9, 0.163.0-alpha.1, empty and garbage refused for batch.runtimes/lead codex; 0.163.0, 0.163.1, 0.164.0-alpha.1 accepted; a fallback below the floor is left out with one stderr line"
-}
-
-# summary: the verified package managers and the codex version line (A161)
-sc_codex_summary_version() {
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
-  bp_v() { ( PROOFLINE_CODEX_VERSION=$1; export PROOFLINE_CODEX_VERSION; BP all >/dev/null 2>&1 ) || die "batch-plan failed with codex version '$1'"; }
-  bp_v 0.163.0
-  grep -q '^codex sandbox: proofline_night profile (.*verified for: npm, pnpm, yarn, pip, go; ' "$summary" || die "sandbox line: $(grep '^codex sandbox' "$summary")"
-  grep -qx 'codex version: 0.163.0 (minimum 0.163.0)' "$summary" || die "version line (ok): $(grep '^codex version' "$summary")"
-  bp_v 0.162.9
-  grep -qx 'codex version: 0.162.9 (below the minimum 0.163.0; the driver refuses it)' "$summary" || die "version line (below): $(grep '^codex version' "$summary")"
-  bp_v ''
-  grep -q '^codex version: unknown (' "$summary" && grep -q 'minimum 0.163.0)' "$summary" || die "version line (unknown): $(grep '^codex version' "$summary")"
-  # the version is part of what is approved: the summary hash differs between versions
-  bp_v 0.164.0; [ "$(grep -c '^codex version: 0.164.0' "$summary")" = 1 ] || die "version not shown: $(grep '^codex version' "$summary")"
-  # a claude-only batch (no codex runtime in the list) carries no codex lines
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall no
-  ( PATH=$(path_without codex); export PATH; BP all >/dev/null 2>&1 ) || die "batch-plan failed without codex"
-  grep -q '^codex version:\|^WARNING' "$summary" && die "codex version or nesting lines in a claude-only batch: $(grep '^codex version\|^WARNING' "$summary")"
-  ok "summary: the sandbox line names the verified package managers; the codex version line shows ok, below-minimum or unknown; no version line without a codex runtime"
-}
-
-# the package-manager caches go into the writable temp dir through shell_environment_policy.set, never into $HOME (A161)
-sc_codex_pkg_env() {
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall
-  mkdir -p "$base/tmp" "$base/home"
-  cv_plan
-  ( TMPDIR=$base/tmp; HOME=$base/home; export TMPDIR HOME; BB run > "$base/run.out" 2>&1 ) || :
-  [ "$(calls)" = "T-1" ] || die "the codex session did not run: $(cat "$base/run.out")"
-  argv=$(cat "$FAKE/codex.argv")
-  pe=$(printf '%s\n' "$argv" | sed -n 's/.*-c shell_environment_policy\.set=\({[^}]*}\).*/\1/p')
-  [ -n "$pe" ] || die "no shell_environment_policy.set in the codex argv: $argv"
-  pkg=$base/tmp/proofline-pkg-$(id -u)
-  case "$pe" in *"npm_config_cache=\"$pkg/npm\""*) ;; *) die "npm_config_cache is not under $pkg/npm: $pe" ;; esac
-  [ -d "$pkg" ] || die "the cache folder $pkg was not created"
-  for kv in $(printf '%s' "$pe" | tr -d '{}"' | tr ',' ' '); do
-    case "$kv" in *=*) ;; *) continue ;; esac
-    val=${kv#*=}
-    case "$val" in "$base/home"*|'~'*|'$HOME'*) die "a cache variable points into \$HOME: $kv" ;; esac
-    case "$kv" in npm_config_update_notifier=false) ;; *) case "$val" in "$pkg"/*) ;; *) die "a cache variable is not under $pkg: $kv" ;; esac ;; esac
-  done
-  for var in npm_config_store_dir YARN_CACHE_FOLDER YARN_GLOBAL_FOLDER PIP_CACHE_DIR GOCACHE GOPATH; do
-    case "$pe" in *"$var="*) ;; *) die "$var missing from the environment policy: $pe" ;; esac
-  done
-  # the danger case runs without the sandbox profile and without the environment redirection
-  cv_plan; BP all --codex-danger-full-access >/dev/null || die "batch-plan with the flag failed"; batch_approve
-  ( TMPDIR=$base/tmp; HOME=$base/home; export TMPDIR HOME; BB run > "$base/run.out" 2>&1 ) || :
-  grep -q -- '-s danger-full-access' "$FAKE/codex.argv" && ! grep -q 'shell_environment_policy' "$FAKE/codex.argv" || die "danger argv: $(cat "$FAKE/codex.argv")"
-  ok "codex argv: shell_environment_policy.set puts npm/pnpm/yarn/pip/go caches under the proofline-pkg temp dir, none under \$HOME; absent with --codex-danger-full-access"
-}
-
-# --- (A161) the Codex package cache dir: created with mkdir -m 700, never followed or changed, refused when it is not private ---
-pk_load() { sed -n '/^codex_pkg_check() {/,/^}/p' .agents/scripts/batch.sh > "$base/pkcheck.sh"; [ -s "$base/pkcheck.sh" ] || die "codex_pkg_check is not in batch.sh"; }
-pk_try() { # TMPDIR-DIR: run codex_pkg_check with that TMPDIR; sets pk_rc, pk_msg, pk_ce
-  pk_out=$( ( TMPDIR=$1; export TMPDIR; . "$base/pkcheck.sh"; rc=0; codex_pkg_check || rc=$?; printf '%s\n%s\n' "$rc" "$CE"; printf '%s' "$PKG_BAD" ) 2>&1 )
-  pk_rc=$(printf '%s\n' "$pk_out" | sed -n 1p); pk_ce=$(printf '%s\n' "$pk_out" | sed -n 2p); pk_msg=$(printf '%s\n' "$pk_out" | sed -n '3,$p')
-}
-sc_codex_pkg_dir() {
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; pk_load; uid=$(id -u)
-  # a normal fresh dir is accepted and made with mode 700
-  t1=$base/pk1; mkdir -p "$t1"; pk_try "$t1"
-  [ "$pk_rc" = 0 ] && [ "$pk_ce" = "$t1/proofline-pkg-$uid" ] && [ -z "$pk_msg" ] || die "fresh dir refused: rc=$pk_rc ce=$pk_ce $pk_msg"
-  ls -ld "$pk_ce" | grep -q '^drwx------' || die "the new dir is not mode 700: $(ls -ld "$pk_ce")"
-  pk_try "$t1"; [ "$pk_rc" = 0 ] || die "an existing private dir was refused: $pk_msg"
-  # a symlink in its place is refused and not followed
-  t2=$base/pk2; mkdir -p "$t2/other"; ln -s "$t2/other" "$t2/proofline-pkg-$uid"; chmod 700 "$t2/other"; pk_try "$t2"
-  [ "$pk_rc" = 1 ] && printf '%s' "$pk_msg" | grep -q 'is a symlink or not a directory' || die "symlinked dir not refused: rc=$pk_rc $pk_msg"
-  # a regular file in its place is refused
-  t2f=$base/pk2f; mkdir -p "$t2f"; : > "$t2f/proofline-pkg-$uid"; pk_try "$t2f"
-  [ "$pk_rc" = 1 ] && printf '%s' "$pk_msg" | grep -q 'is a symlink or not a directory' || die "a file in its place not refused: rc=$pk_rc $pk_msg"
-  # mode 755 is refused and left as it was
-  t3=$base/pk3; mkdir -p "$t3/proofline-pkg-$uid"; chmod 755 "$t3/proofline-pkg-$uid"; pk_try "$t3"
-  [ "$pk_rc" = 1 ] && printf '%s' "$pk_msg" | grep -q "found uid $uid, drwxr-xr-x" || die "mode 755 not refused: rc=$pk_rc $pk_msg"
-  ls -ld "$t3/proofline-pkg-$uid" | grep -q '^drwxr-xr-x' || die "the refused dir was changed"
-  # a foreign owner: id -u prints another uid
-  mkdir -p "$base/idstub"; printf '#!/bin/sh\n[ "$1" = -u ] && { echo %s; exit 0; }\nexec /usr/bin/id "$@"\n' "$((uid + 1))" > "$base/idstub/id"; chmod +x "$base/idstub/id"
-  t4=$base/pk4; mkdir -p "$t4"
-  pk_out=$( ( PATH=$base/idstub:$PATH; TMPDIR=$t4; export PATH TMPDIR; . "$base/pkcheck.sh"; rc=0; codex_pkg_check || rc=$?; echo "$rc"; printf '%s' "$PKG_BAD" ) 2>&1 )
-  [ "$(printf '%s\n' "$pk_out" | sed -n 1p)" = 1 ] && printf '%s' "$pk_out" | grep -q "not owned by uid $((uid + 1)) with mode 700 (found uid $uid" || die "foreign owner not refused: $pk_out"
-  ok "codex package cache dir: a fresh dir is made 700 and accepted; a symlink, a file, mode 755 and a foreign owner are refused (and nothing is followed or changed)"
-}
-sc_codex_pkg_batch() {
-  uid=$(id -u); mkdir -p "$base/tmp"
-  pkb_run() { ( TMPDIR=$base/tmp; export TMPDIR; BB run > "$base/run.out" 2>&1 ) && pkb_rc=0 || pkb_rc=$?; }
-  pkb_bad() { rm -rf "$base/tmp/proofline-pkg-$uid" "$base/tmp/other"; mkdir "$base/tmp/other"; ln -s "$base/tmp/other" "$base/tmp/proofline-pkg-$uid"; }
-  # batch.runtimes names codex: refused, no session
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall; cv_plan; pkb_bad; pkb_run
-  [ "$pkb_rc" != 0 ] && grep -q 'is a symlink or not a directory' "$base/run.out" && [ -z "$(calls)" ] && [ ! -s "$FAKE/codex.argv" ] || die "batch.runtimes codex with a symlinked cache dir: rc=$pkb_rc calls='$(calls)' $(cat "$base/run.out")"
-  # codex only an installed fallback: left out with one line, the batch goes on with claude
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; cv_plan; printf 'limit\n' > "$FAKE/behave/T-1"; pkb_bad; pkb_run
-  [ "$(grep -c 'Codex is left out of this batch' "$base/run.out")" = 1 ] && grep -q '^batch: .*is a symlink or not a directory.*: Codex is left out of this batch$' "$base/run.out" && [ ! -s "$FAKE/codex.argv" ] || die "fallback codex with a symlinked cache dir: $(cat "$base/run.out")"
-  # run_session itself refuses (the dir became unsafe after the start): the line is printed and no session starts
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall; cv_plan; printf 'limitchmod\n' > "$FAKE/behave/T-1"
-  rm -rf "$base/tmp/proofline-pkg-$uid" "$base/tmp/other"; mkdir -m 700 "$base/tmp/proofline-pkg-$uid"; printf '%s\n' "$base/tmp/proofline-pkg-$uid" > "$FAKE/pkgdir"; pkb_run
-  grep -q 'batch: the Codex package cache .* is not owned by uid .* with mode 700 (found uid .*drwxr-xr-x).*; no Codex session is started' .agents/local/batch/logs/T-1.log || die "run_session did not refuse: $(cat .agents/local/batch/logs/T-1.log) / $(cat "$base/run.out")"
-  [ ! -s "$FAKE/codex.argv" ] || die "a codex session started on an unsafe cache dir: $(cat "$FAKE/codex.argv")"
-  # a good dir: the codex session runs
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; cfg_extra '  runtimes: codex'; binstall; cv_plan; rm -rf "$base/tmp/proofline-pkg-$uid" "$base/tmp/other"; pkb_run
-  [ -s "$FAKE/codex.argv" ] || die "a good cache dir was refused: $(cat "$base/run.out")"
-  ok "batch: a refused package cache dir refuses batch.runtimes codex, leaves out an installed fallback with one line, and run_session starts no Codex session; a private dir runs"
-}
-
-# --- 9e. (A161) plan-time WARNING: a Codex lead whose workers also run on Codex ------------------------------------------------------
-wn_setup() { # LEAD WORKER [QA-RUNTIME]: the real exec-policy.sh (the fixture stubs it) and the runtime keys
-  bnew; mktask T-1 COMPLEX; cfg_batch 40; binstall no; cp "$tl_agents/scripts/exec-policy.sh" .agents/scripts/exec-policy.sh
-  sed "s/^  lead: .*/  lead: $1/; s/^  worker: .*/  worker: $2/" .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml
-  if [ -n "${3:-}" ]; then awk -v r="    qa: $3" '{ print } /^  roles:/ { print r }' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; fi
-}
-path_without() { # CMD: a PATH where CMD is not found. A directory that holds CMD is replaced by a folder of symlinks to its other tools,
-  # so a machine with a real codex installed (next to git, sh, ...) does not leak it into the test.
-  pw_o=''; pw_ifs=$IFS; IFS=:; for pw_d in $PATH; do
-    if [ -x "$pw_d/$1" ]; then
-      pw_n=$base/nocmd-$(printf '%s' "$pw_d" | tr -c 'A-Za-z0-9' _); mkdir -p "$pw_n"
-      for pw_f in "$pw_d"/*; do [ -x "$pw_f" ] && [ "${pw_f##*/}" != "$1" ] && ln -sf "$pw_f" "$pw_n/${pw_f##*/}" || :; done
-      pw_o="$pw_o:$pw_n"
-    else pw_o="$pw_o:$pw_d"; fi
-  done; IFS=$pw_ifs; printf '%s\n' "${pw_o#:}"
-}
-sc_codex_lead_warning() {
-  wn_setup codex codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q '^WARNING: the lead runs on Codex and these roles also run on Codex: task_author explorer architect data_architect designer implementer\. ' "$summary" || die "codex lead + codex worker: $(grep -i 'WARNING' "$summary")"
-  sed -n 's/^WARNING: the lead runs on Codex and these roles also run on Codex:\([^.]*\)\..*/\1/p' "$summary" | grep -Eq '(^| )(qa|reviewer|security_reviewer|verifier)( |$)' && die "claude roles listed: $(grep '^WARNING' "$summary")"
-  wn_setup codex claude codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q '^WARNING: the lead runs on Codex and these roles also run on Codex: qa\. ' "$summary" || die "only roles.qa codex: $(sed -n 12,18p .agents/config.yaml) / $(tail -3 "$base/p.out")"
-  BP all --codex-danger-full-access > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q 'the lead runs on Codex' "$summary" && die "the nesting warning shows with --codex-danger-full-access"
-  grep -q '^WARNING: you chose --codex-danger-full-access' "$summary" || die "danger warning gone: $(grep WARNING "$summary")"
-  wn_setup codex claude; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q '^WARNING' "$summary" && die "a codex lead with only claude roles got a warning: $(grep WARNING "$summary")"
-  # A161 (maintainer-approved change): a claude lead with Codex on PATH as the fallback runtime and Codex workers now DOES get the warning
-  wn_setup claude codex; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q '^WARNING: a lead session can run on Codex (runtimes tried, in order: claude codex) and these roles also run on Codex: task_author explorer ' "$summary" || die "claude lead + codex fallback + codex workers: $(grep -i 'WARNING' "$summary")"
-  grep -q 'the lead runs on Codex' "$summary" && die "a claude lead's warning says the lead runs on Codex: $(grep WARNING "$summary")"
-  # codex not installed and no codex runtime in rt_list: no warning
-  wn_setup claude codex; wn_rc=0; ( PATH=$(path_without codex); export PATH; BP all > "$base/p.out" 2>&1 ) || wn_rc=$?
-  [ "$wn_rc" = 0 ] || die "plan refused without codex installed: $(cat "$base/p.out")"
-  grep -q '^WARNING' "$summary" && die "no codex installed and no codex runtime, yet a warning: $(grep WARNING "$summary")"
-  grep -q '^codex version:' "$summary" && die "a codex version line without a codex runtime"
-  # the danger flag removes it
-  wn_setup claude codex; BP all --codex-danger-full-access > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q 'a lead session can run on Codex' "$summary" && die "the nesting warning shows with --codex-danger-full-access on a claude lead"
-  # a claude lead whose batch.runtimes names codex: the same wording, runtimes in the configured order
-  wn_setup claude codex; cfg_extra '  runtimes: claude codex'; BP all > "$base/p.out" 2>&1 || die "plan refused: $(cat "$base/p.out")"
-  grep -q '^WARNING: a lead session can run on Codex (runtimes tried, in order: claude codex) and ' "$summary" || die "batch.runtimes claude codex: $(grep WARNING "$summary")"
-  ok "plan WARNING: codex lead + codex workers (roles listed), only roles.qa codex lists qa; a claude lead with codex as fallback warns (new wording); none without codex installed or with --codex-danger-full-access; all-claude roles none"
-}
-
-# --- 10. (A160) the CI that gates the next task is the one of the merge commit ---------------------------------------------------
-ci_setup() {
-  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; cfg_batch 40; cfg_extra '  ci_appear_minutes: 1'; binstall
-  BP all >/dev/null || die "batch-plan failed"; batch_approve; printf 'merge\n' > "$FAKE/behave/T-1"; printf 'merge\n' > "$FAKE/behave/T-2"; rm -f "$FAKE/ci"/*
-}
-ci_run() { ( PROOFLINE_BATCH_MINUTE=1; export PROOFLINE_BATCH_MINUTE; BB run > "$base/run.out" 2>&1 ) || :; }
-sc_merge_commit_ci() {
-  # an old green run on main exists (the fake answers green to any query that is not about the merge commit); the merge commit's run is red
-  ci_setup; printf '[{"status":"completed","conclusion":"failure"}]\n' > "$FAKE/ci/$MSHA"; ci_run
-  [ "$(calls)" = "T-1" ] || die "a red run of the merge commit did not stop the batch: '$(calls)'; $(tail -3 "$base/run.out")"
-  grep -q '^# stopped: main CI is red (run of 0123456)' .agents/local/batch/state.tsv || die "stop reason: $(tail -2 .agents/local/batch/state.tsv)"
-  [ "$(state_of T-2 2)" = pending ] || die "T-2 after the stop: $(state_of T-2 2)"
-  # a running run next to a red one is red
-  ci_setup; printf '[{"status":"in_progress","conclusion":""},{"status":"completed","conclusion":"failure"}]\n' > "$FAKE/ci/$MSHA"; ci_run
-  [ "$(calls)" = "T-1" ] || die "red + running did not stop the batch: '$(calls)'"
-  # no run for the merge commit appears within ci_appear_minutes
-  ci_setup; : > "$FAKE/ci/$MSHA.none"; ci_run
-  [ "$(calls)" = "T-1" ] || die "no run for the merge commit did not stop the batch: '$(calls)'; $(tail -3 "$base/run.out")"
-  grep -q '^# stopped: no CI run appeared for 0123456' .agents/local/batch/state.tsv || die "stop reason: $(tail -2 .agents/local/batch/state.tsv)"
-  # a green run for the merge commit lets the batch go on
-  ci_setup; printf '[{"status":"completed","conclusion":"success"}]\n' > "$FAKE/ci/$MSHA"; ci_run
-  [ "$(calls)" = "T-1 T-2" ] && [ "$(state_of T-2 2)" = merged ] || die "a green run of the merge commit stopped the batch: '$(calls)'; $(tail -3 "$base/run.out")"
-  ok "merge-commit CI: red run of the SHA stops (an old green main run does not count), no run in ci_appear_minutes stops, green run continues"
-}
-
-# --- A163: a GitHub project without a pull_request workflow cannot start a batch -------------------------------------------
+# --- A163, A180: a GitHub project without a pull_request workflow can plan a batch; it is a WARNING, not a blocker -----------
 sc_ci_required() {
   bnew; mktask T-1 COMPLEX; binstall no; rm -rf .github   # binstall adds a workflow; this scenario starts without one
   git remote add origin https://github.com/acme/app.git
-  rc=0; BP T-1 > "$base/plan.out" 2>&1 || rc=$?
-  [ "$rc" != 0 ] || die "batch-plan produced a batch although no workflow runs on pull requests"
-  grep -q 'BLOCKER' "$summary" || die "SUMMARY.md has no BLOCKER section"
-  for t in 'no CI check runs on pull requests here.' 'proofline merge does not merge a PR that has no checks.' '/proofline task Add a GitHub Actions workflow'; do
-    grep -Fq -- "$t" "$base/plan.out" || die "the refusal lacks '$t': $(cat "$base/plan.out")"
+  BP T-1 > "$base/plan.out" 2>&1 || die "batch-plan refused although the missing CI is only a warning: $(cat "$base/plan.out")"
+  grep -q '^## WARNING' "$summary" || die "SUMMARY.md has no WARNING section"
+  ! grep -q 'BLOCKER' "$summary" || die "a BLOCKER section is back"
+  for t in 'no CI check runs on pull requests here.' 'verifies the commit locally' '/proofline task Add a GitHub Actions workflow'; do
+    grep -Fq -- "$t" "$summary" || die "the warning lacks '$t': $(cat "$summary")"
   done
-  [ ! -e .agents/local/batch/order.tsv ] || die "a refused plan left an order"
-  [ "$(nfiles .agents/local/approvals -batch)" = 0 ] || die "a refused plan requested a batch approval"
-  capture 'approve batch'; A approve-pending >/dev/null 2>&1 || :
-  expect_msg "the driver without a batch" "no valid batch approval" BB run
-  # with a workflow the same plan passes, and the driver refuses again once the workflow is gone
+  [ -e .agents/local/batch/order.tsv ] || die "no order although the plan is valid"
+  batch_approve
+  A batch-check >/dev/null 2>&1 || die "the approved batch without CI is not valid"
   mkdir -p .github/workflows; printf 'on: [push, pull_request]\njobs: {}\n' > .github/workflows/ci.yml
-  BP T-1 > "$base/plan.out" 2>&1 || die "batch-plan refused with a workflow: $(cat "$base/plan.out")"
-  ! grep -q 'BLOCKER' "$summary" || die "BLOCKER in a summary with CI"
-  batch_approve; rm -rf .github
-  expect_msg "the driver without CI" "proofline merge does not merge a PR that has no checks." BB run
-  ok "batch: no pull_request workflow refuses batch-plan (BLOCKER, no order, no approval) and batch.sh run; with one it plans"
+  BP --replace T-1 > "$base/plan.out" 2>&1 || die "batch-plan refused with a workflow: $(cat "$base/plan.out")"
+  ! grep -q '^## WARNING' "$summary" || die "WARNING in a summary with CI"
+  ok "batch: no pull_request workflow is a WARNING in the summary and the approved batch is valid (A180); with one there is no warning"
 }
 
-# --- 10. (A163) the background driver: batch-start, batch-stop, the sleep inhibitor and the driver line of status --------------
-until_ok() { u_i=0; while ! eval "$1" >/dev/null 2>&1; do u_i=$((u_i + 1)); [ "$u_i" -lt "${2:-100}" ] || return 1; sleep 0.1; done; }
-grp_up() { ps -A -o pgid=,stat= 2>/dev/null | awk -v g="$1" '$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }'; }
-drv_replan() { # BEHAVIOUR: a fresh approved plan of T-1 that behaves as given
-  rm -rf .agents/local/batch .agents/runs/T-1; : > "$FAKE/calls.log"; rm -f "$FAKE/caffeinate.argv" "$FAKE/caffeinate.pid" "$FAKE/inhibit.argv"; printf '%s\n' "$1" > "$FAKE/behave/T-1"
+# --- 13. one session works a batch: a live owner makes the others wait, a dead one is taken over -------------------------------
+sc_owner_guard() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
   BP all >/dev/null || die "batch-plan failed"; batch_approve
+  sleep 60 & s1=$!; sleep 60 & s2=$!
+  PROOFLINE_SESSION_PID=$s1 A batch-next | grep -q '^NEXT: run T-1' || { kill $s1 $s2; die "the first session did not get the batch"; }
+  PROOFLINE_SESSION_PID=$s2 A batch-next > "$base/own.out"
+  grep -q "^NEXT: wait (owned by pid $s1)" "$base/own.out" || { kill $s1 $s2; die "a second live session was not told to wait: $(cat "$base/own.out")"; }
+  PROOFLINE_SESSION_PID=$s1 A batch-next | grep -q '^NEXT: run T-1' || { kill $s1 $s2; die "the owner itself is told to wait"; }
+  kill $s1; wait $s1 2>/dev/null || :
+  PROOFLINE_SESSION_PID=$s2 A batch-next | grep -q '^NEXT: run T-1' || { kill $s2; die "a dead owner was not taken over"; }
+  [ "$(cut -f1 .agents/local/batch/owner)" = "$s2" ] || { kill $s2; die "owner file: $(cat .agents/local/batch/owner)"; }
+  # a specialist role neither claims nor takes over: the command allow-list denies it, and batch.sh itself claims only for the lead
+  PROOFLINE_SESSION_PID=$s2 A batch-next >/dev/null; own_before=$(cat .agents/local/batch/owner)
+  sleep 60 & s3=$!
+  expect_msg "a specialist role calling batch-next" "command denied for reviewer" env AGENT_ROLE=reviewer PROOFLINE_SESSION_PID=$s3 sh ./.agents/scripts/agent.sh batch-next
+  PROOFLINE_SESSION_PID=$s3 sh ./.agents/scripts/batch.sh next > "$base/spec.out" 2>&1   # no lead role given: a digest, no claim, no verdict
+  grep -q '^NEXT: run T-1' "$base/spec.out" && ! grep -q 'NEXT: wait' "$base/spec.out" || { kill $s2 $s3; die "a non-lead caller got a wait verdict: $(cat "$base/spec.out")"; }
+  [ "$(cat .agents/local/batch/owner)" = "$own_before" ] || { kill $s2 $s3; die "a non-lead caller claimed the batch"; }
+  kill $s2; wait $s2 2>/dev/null || :
+  PROOFLINE_SESSION_PID=$s3 sh ./.agents/scripts/batch.sh next >/dev/null
+  [ "$(cut -f1 .agents/local/batch/owner)" = "$s2" ] || { kill $s3; die "a non-lead caller took over a dead owner"; }
+  kill $s3; wait $s3 2>/dev/null || :
+  ok "batch-next: one session owns the batch (a live owner makes another wait with its pid), a dead owner is taken over"
 }
-drv_fixture() { bnew; mktask T-1 COMPLEX; binstall; trap 'BB stop >/dev/null 2>&1 || :' EXIT; drv_replan "$1"; }
-sc_driver_start() { # (a) survives its starter, (b) one driver only, (e) status
-  drv_fixture slow
-  expect_msg "batch-start by a reviewer" "command denied" env AGENT_ROLE=reviewer sh ./.agents/scripts/agent.sh batch-start
-  BB status | grep -q '^driver: not running' || die "status before the start: $(BB status | grep driver)"
-  cp "$summary" "$base/summary.keep"; printf 'edit\n' >> "$summary"
-  expect_msg "batch-start with a stale approval" "batch approval" A batch-start
-  cp "$base/summary.keep" "$summary"
-  [ ! -e .agents/local/batch/driver.pid ] || die "a refused batch-start left a driver.pid"
-  rm -f "$FAKE/start.flag"
-  sh -c 'sh ./.agents/scripts/agent.sh batch-start > "$1" 2>&1; : > "$2"; exec sleep 120' _ "$base/start.out" "$FAKE/start.flag" & par=$!
-  until_ok "[ -f $FAKE/start.flag ]" 600 || die "batch-start did not return: $(cat "$base/start.out")"
-  grep -Eq '^driver started, pid [0-9]+, log [^ ]*driver\.log$' "$base/start.out" || die "start output: $(cat "$base/start.out")"
-  grep -qx 'plug in the computer; do not close the laptop lid.' "$base/start.out" || die "no plug-in reminder: $(cat "$base/start.out")"
-  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
-  pgd=$(ps -o pgid= -p "$dp" | tr -d ' '); pgp=$(ps -o pgid= -p "$par" | tr -d ' ')
-  [ "$pgd" = "$dp" ] && [ "$pgd" != "$pgp" ] || die "the driver is not the leader of a group of its own: pid $dp pgid $pgd, starter pgid $pgp"
-  [ "$(cat .agents/local/batch/driver.pid)" = "$dp $dp" ] || die "driver.pid: $(cat .agents/local/batch/driver.pid)"
-  [ "$(cat .agents/local/batch/LOCK)" = "$dp" ] || die "LOCK is not the driver pid"
-  kill "$par" 2>/dev/null; wait "$par" 2>/dev/null || :
-  sleep 1
-  kill -0 "$dp" 2>/dev/null || die "the driver died with the session that started it"
-  until_ok "BB status | grep -q 'last log line: SLOWLINE-T-1 working on it'" 100 || die "status: $(BB status | grep driver)"
-  BB status | grep -Eq "^driver: running, pid $dp, started [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+, last log line: SLOWLINE-T-1 working on it\$" || die "driver line: $(BB status | grep driver)"
-  BB status | grep -q '^sleep inhibitor: ' || die "status names no sleep inhibitor"
-  bdir=.agents/local/batch; sum0=$(cksum "$bdir/driver.log" "$bdir/driver.pid" "$bdir/driver.up" "$bdir/inhibit" "$bdir/driver.start")
-  expect_msg "second batch-start" "pid $dp" A batch-start
-  mv "$bdir/LOCK" "$bdir/LOCK.aside"   # a driver in its start-up holds no LOCK yet: still the driver, nothing of it is touched
-  expect_msg "batch-start while the driver holds no LOCK yet" "pid $dp" A batch-start
-  mv "$bdir/LOCK.aside" "$bdir/LOCK"
-  [ "$(cksum "$bdir/driver.log" "$bdir/driver.pid" "$bdir/driver.up" "$bdir/inhibit" "$bdir/driver.start")" = "$sum0" ] || die "a refused second batch-start changed the live driver's files or log"
-  expect_msg "batch run next to the driver" "only one task at a time" BB run
-  kill -0 "$dp" 2>/dev/null || die "the refused second start killed the driver"
-  ok "batch-start: the driver outlives the session that started it (own group, driver.pid, LOCK), a second start names the pid, status shows driver running with pid and last log line"
+
+# --- 14. the pull request is open, but merged.tsv has no record: the platform decides ----------------------------------------------
+sc_pr_recovery() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'await\n' > "$FAKE/behave/T-1"
+  drive
+  A batch-next --tsv | tr '\t' ' ' | grep -q '^T-1 parked awaiting merge pull request 77: its state cannot be read' || die "a PR whose state cannot be read must say so: $(A batch-next --tsv)"
+  git remote set-url origin https://github.com/acme/app.git; PROOFLINE_SELFTEST=1; export PROOFLINE_SELFTEST
+  printf 'OPEN false aaa b main o\n' > "$FAKE/prview"
+  A batch-next --tsv | tr '\t' ' ' | grep -q '^T-1 parked awaiting merge pull request 77 is open' || die "an open PR keeps the task parked: $(A batch-next --tsv)"
+  printf 'MERGED false aaa b main o\n' > "$FAKE/prview"
+  A batch-next | grep -q '^NEXT: deliver T-1 cleanup 77' || die "a merged PR without a record must lead to the cleanup step: $(A batch-next)"
+  [ ! -s .agents/local/batch/merged.tsv ] || die "batch-next recorded a merge itself"
+  ok "batch-next: a PR file without a merged.tsv record asks the platform: merged -> deliver cleanup, open -> parked, unreadable -> parked and says so"
 }
-sc_driver_stop() { # (d) stop kills only its own group, parks the task `stopped`; the batch resumes afterwards (f)
-  command -v perl >/dev/null 2>&1 || { ok "batch-stop: no perl here, skipped"; return 0; }
-  drv_fixture slow
-  perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' sleep 300 & unrel=$!
-  # `|| :` on the kill: the scenario kills $unrel itself first, and under `set -e` a second kill of the already reaped pid
-  # would end the scenario with exit 1 after its `ok` line (a race with the shell reaping the job: silent flake on loaded runners)
-  trap 'kill "$unrel" 2>/dev/null || :; BB stop >/dev/null 2>&1 || :' EXIT
-  A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
-  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
-  # Wait for NON-EMPTY pid files (the session creates them and then writes: an existing file can still be empty) and for
-  # the helper to have made its own group (perl runs setpgid after it started: on a loaded macOS runner that is late).
-  until_ok "[ -s $FAKE/slow.pid ] && [ -s \"\$(ls .agents/local/batch/logs/pgid.* 2>/dev/null | head -n 1)\" ] && [ \"\$(ps -o pgid= -p $unrel | tr -d ' ')\" = $unrel ]" 100 || die "the session did not start"
-  sg=$(cat .agents/local/batch/logs/pgid.*); sg=${sg%% *}; sp=$(cat "$FAKE/slow.pid")
-  [ "$sg" != "$dp" ] && grp_up "$sg" && grp_up "$dp" || die "setup: session group $sg, driver group $dp"
-  [ "$(ps -o pgid= -p "$unrel" | tr -d ' ')" = "$unrel" ] || die "setup: the unrelated process is not in a group of its own"
-  A batch-stop > "$base/stop.out" 2>&1 || die "batch-stop failed: $(cat "$base/stop.out")"
-  grep -q "^batch driver stopped (pid $dp)" "$base/stop.out" || die "stop output: $(cat "$base/stop.out")"
-  if kill -0 "$dp" 2>/dev/null; then die "the driver is still alive"; fi
-  if grp_up "$dp"; then die "the driver group is still alive"; fi
-  if grp_up "$sg"; then die "the session group is still alive"; fi
-  if kill -0 "$sp" 2>/dev/null; then die "the session's child is still alive"; fi
-  kill -0 "$unrel" 2>/dev/null || die "batch-stop killed an unrelated process in another group"
-  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = stopped ] || die "T-1 after the stop: $(cat .agents/local/batch/state.tsv)"
-  grep -qx '# stopped: stopped by the user' .agents/local/batch/state.tsv || die "no stopped trailer: $(cat .agents/local/batch/state.tsv)"
-  grep -q '^end=' .agents/local/batch/sessions/T-1.1.rec || die "session record has no end: $(cat .agents/local/batch/sessions/T-1.1.rec)"
-  for f in LOCK driver.pid driver.start driver.up inhibit inhibit.pid stop.req; do [ ! -e ".agents/local/batch/$f" ] || die "$f is left after the stop"; done
-  BB status > "$base/st.out"; grep -q '^driver: not running (stopped: stopped by the user)' "$base/st.out" || die "status after the stop: $(grep -i 'driver\|STOP' "$base/st.out")"
-  BB stop > "$base/stop2.out" 2>&1 || die "batch stop with nothing running failed"
-  [ "$(cat "$base/stop2.out")" = "no batch driver is running" ] || die "nothing-running output: $(cat "$base/stop2.out")"
-  # a terminal run (the same run()) resumes the stopped task
-  printf 'merge\n' > "$FAKE/behave/T-1"; BB run > "$base/run.out" 2>&1 || die "batch run after the stop: $(tail -3 "$base/run.out")"
-  [ "$(state_of T-1 2)" = merged ] || die "T-1 after the resume: $(cat .agents/local/batch/state.tsv)"
-  [ ! -e .agents/local/batch/driver.pid ] || die "the terminal run left driver.pid"
-  kill "$unrel" 2>/dev/null || :
-  ok "batch-stop: closes the driver and the session group, parks the task as stopped (trailer, record end, files removed), spares an unrelated group, says so when nothing runs; a terminal batch run resumes"
+
+# --- 15. the approved batch is continued only for tasks it knows ------------------------------------------------------------------
+sc_plan_all_subset() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask CR CRITICAL; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  BP all > "$base/same.out" 2>&1 || die "all (with a CRITICAL task left out by the plan) must continue the batch: $(cat "$base/same.out")"
+  grep -q 'continuing it' "$base/same.out" || die "no continue: $(cat "$base/same.out")"
+  mktask T-9 COMPLEX
+  expect_msg "all with a task added after the approval" "does not contain: T-9" BP all
+  expect_msg "an explicit ID the batch does not know" "does not contain: T-9" BP T-1 T-9
+  BP --replace all >/dev/null || die "--replace"; order_ids | grep -q 'T-9' || die "--replace did not include T-9"
+  ok "batch-plan: 'all' or IDs that the approved batch does not contain are refused with --replace as the way out; tasks it left out on purpose do not count"
 }
-sc_driver_crash() { # the driver is killed with KILL: batch stop still parks its task, sets the trailer, closes the session group, spares an unrelated group
-  command -v perl >/dev/null 2>&1 || { ok "batch-stop after a crash: no perl here, skipped"; return 0; }
-  drv_fixture slow
-  perl -e 'use POSIX; setpgid(0, 0); exec @ARGV' sleep 300 & unrel=$!
-  # `|| :` on the kill: the scenario kills $unrel itself first, and under `set -e` a second kill of the already reaped pid
-  # would end the scenario with exit 1 after its `ok` line (a race with the shell reaping the job: silent flake on loaded runners)
-  trap 'kill "$unrel" 2>/dev/null || :; BB stop >/dev/null 2>&1 || :' EXIT
-  A batch-start > "$base/start.out" 2>&1 || die "batch-start: $(cat "$base/start.out")"
-  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
-  # Wait for NON-EMPTY pid files (the session creates them and then writes: an existing file can still be empty) and for
-  # the helper to have made its own group (perl runs setpgid after it started: on a loaded macOS runner that is late).
-  until_ok "[ -s $FAKE/slow.pid ] && [ -s \"\$(ls .agents/local/batch/logs/pgid.* 2>/dev/null | head -n 1)\" ] && [ \"\$(ps -o pgid= -p $unrel | tr -d ' ')\" = $unrel ]" 100 || die "the session did not start"
-  sg=$(cat .agents/local/batch/logs/pgid.*); sg=${sg%% *}; sp=$(cat "$FAKE/slow.pid")
-  printf '%s %s\n' "$unrel" "$unrel" > .agents/local/batch/logs/pgid.99999   # a stale file that names a live group of something else
-  kill -KILL "$dp"; until_ok "! kill -0 $dp" 50 || die "the driver survived KILL"
-  [ "$(state_of T-1 2)" = running ] || die "setup: T-1 is not running after the crash: $(cat .agents/local/batch/state.tsv)"
-  A batch-stop > "$base/stop.out" 2>&1 || die "batch-stop after a crash failed: $(cat "$base/stop.out")"
-  grep -q "^the batch driver (pid $dp) was gone without cleaning up" "$base/stop.out" || die "stop output: $(cat "$base/stop.out")"
-  [ "$(state_of T-1 2)" = parked ] && [ "$(state_of T-1 3)" = stopped ] || die "T-1 after the crash stop: $(cat .agents/local/batch/state.tsv)"
-  grep -qx '# stopped: stopped by the user' .agents/local/batch/state.tsv || die "no stopped trailer: $(cat .agents/local/batch/state.tsv)"
-  grep -q '^end=' .agents/local/batch/sessions/T-1.1.rec || die "session record has no end"
-  for f in LOCK driver.pid driver.up inhibit stop.req; do [ ! -e ".agents/local/batch/$f" ] || die "$f is left after the stop"; done
-  if grp_up "$sg"; then die "the session group of the dead driver is still alive"; fi
-  if kill -0 "$sp" 2>/dev/null; then die "the session's child is still alive"; fi
-  kill -0 "$unrel" 2>/dev/null || die "a stale pgid file made batch-stop kill an unrelated group"
-  [ ! -e .agents/local/batch/logs/pgid.99999 ] || die "the stale pgid file is left"
-  kill "$unrel" 2>/dev/null || :
-  ok "batch-stop after SIGKILL of the driver: task parked as stopped, trailer, record end, session group closed, a stale pgid file naming an unrelated group is only removed"
-}
-sc_driver_inhibit() { # (c) the sleep inhibitor is bound to the driver, on macOS, on Linux, and plainly absent
-  drv_fixture merge
-  PROOFLINE_UNAME=Darwin A batch-start > "$base/start.out" 2>&1 || die "batch-start (Darwin): $(cat "$base/start.out")"
-  dp=$(sed -n 's/^driver started, pid \([0-9]*\),.*/\1/p' "$base/start.out")
-  grep -q 'sleep inhibitor: caffeinate -i' "$base/start.out" || die "Darwin start output: $(cat "$base/start.out")"
-  until_ok "[ -s $FAKE/caffeinate.argv ]" 50 || die "caffeinate was not started"
-  [ "$(cat "$FAKE/caffeinate.argv")" = "-i -w $dp" ] || die "caffeinate arguments: $(cat "$FAKE/caffeinate.argv"), driver pid $dp"
-  until_ok "! kill -0 $dp" 100 || die "the driver did not end"
-  cpid=$(cat "$FAKE/caffeinate.pid"); until_ok "! kill -0 $cpid" 50 || die "caffeinate outlived the driver"
-  [ "$(state_of T-1 2)" = merged ] || die "the background driver did not run the batch: $(cat .agents/local/batch/state.tsv)"
-  grep -q '^batch finished' .agents/local/batch/driver.log || die "driver.log: $(tail -3 .agents/local/batch/driver.log)"
-  # the terminal route gets the same inhibitor, once
-  drv_replan merge
-  ( PROOFLINE_UNAME=Darwin; export PROOFLINE_UNAME; BB run > "$base/run.out" 2>&1 ) || die "batch run (Darwin): $(tail -3 "$base/run.out")"
-  [ "$(wc -l < "$FAKE/caffeinate.argv" | tr -d ' ')" = 1 ] || die "caffeinate started more than once: $(cat "$FAKE/caffeinate.argv")"
-  grep -q '^batch: sleep inhibitor: caffeinate -i' "$base/run.out" || die "batch run does not say which inhibitor it uses: $(head -3 "$base/run.out")"
-  # Linux with systemd-inhibit
-  drv_replan merge
-  PROOFLINE_UNAME=Linux A batch-start > "$base/start.out" 2>&1 || die "batch-start (Linux): $(cat "$base/start.out")"
-  grep -q 'sleep inhibitor: systemd-inhibit --what=idle:sleep' "$base/start.out" || die "Linux start output: $(cat "$base/start.out")"
-  until_ok "[ -s $FAKE/inhibit.argv ] && grep -q 'batch finished' .agents/local/batch/driver.log" 100 || die "systemd-inhibit: $(cat "$FAKE/inhibit.argv" 2>/dev/null)"
-  grep -q -- '--what=idle:sleep' "$FAKE/inhibit.argv" || die "systemd-inhibit arguments: $(cat "$FAKE/inhibit.argv")"
-  # Linux without an inhibitor: said plainly at the start and in status
-  drv_replan slow
-  PROOFLINE_UNAME=Linux PROOFLINE_BATCH_INHIBIT=none A batch-start > "$base/start.out" 2>&1 || die "batch-start (no inhibitor): $(cat "$base/start.out")"
-  grep -q 'sleep inhibitor: none available.*the machine may sleep' "$base/start.out" || die "no-inhibitor start output: $(cat "$base/start.out")"
-  until_ok "BB status | grep -q '^sleep inhibitor: none available'" 50 || die "status does not say there is no inhibitor: $(BB status | grep -i 'driver\|inhib')"
-  [ ! -s "$FAKE/caffeinate.argv" ] && [ ! -s "$FAKE/inhibit.argv" ] || die "an inhibitor was started although none is available"
-  BB stop >/dev/null 2>&1
-  ok "sleep inhibitor: caffeinate -i -w <driver pid> (gone with the driver), once for batch run too; systemd-inhibit on Linux; no inhibitor is said plainly at the start and in status"
+
+# --- 16. the keys of the removed driver are ignored, not validated; the live keys still are -------------------------------------------
+sc_config_ignored_keys() {
+  bnew; binstall no
+  cfg_batch 40; cfg_extra '  task_timeout: soon' '  runtimes: nothing'
+  A config-check >/dev/null 2>"$base/cc.err" || die "an old config with batch.task_timeout and batch.runtimes is refused: $(cat "$base/cc.err")"
+  cfg_batch 40; cfg_extra '  ci_appear_minutes: 0'
+  expect_msg "batch.ci_appear_minutes: 0 stays invalid" "ci_appear_minutes must be at least 1" A config-check
+  cfg_batch 40; cfg_extra '  frobnicate: 1'
+  expect_msg "an unknown batch key" "unknown batch key" A config-check
+  ok "config: batch.task_timeout and batch.runtimes are accepted and ignored (old configs), batch.ci_appear_minutes and unknown keys are still checked"
 }
 
 run_sc sc_order_and_cycle
@@ -1037,33 +654,18 @@ run_sc sc_mutation_cap
 run_sc sc_cover_delivery
 run_sc sc_critical_excluded
 run_sc sc_late_critical
+run_sc sc_sequential
 run_sc sc_park_skip_continue
-run_sc sc_task_worktrees
+run_sc sc_restart
 run_sc sc_worktree_cmds
-run_sc sc_lock
 run_sc sc_status_from_records
-run_sc sc_stale_log
-run_sc sc_task_timeout
-run_sc sc_codex_sandbox
-run_sc sc_codex_sandbox_tamper
-run_sc sc_codex_version
-run_sc sc_codex_summary_version
-run_sc sc_codex_pkg_env
-run_sc sc_codex_pkg_dir
-run_sc sc_codex_pkg_batch
-run_sc sc_pgroup_method setm
-run_sc sc_pgroup_method setsid
-run_sc sc_pgroup_method perl
-run_sc sc_pgroup_method python
-run_sc sc_pgroup_refuse
-run_sc sc_pgroup_not_leader
-run_sc sc_session_records
 run_sc sc_adapter_refused
-run_sc sc_codex_lead_warning
 run_sc sc_merge_commit_ci
 run_sc sc_ci_required
-run_sc sc_driver_start
-run_sc sc_driver_stop
-run_sc sc_driver_crash
-run_sc sc_driver_inhibit
+run_sc sc_awake
+run_sc sc_driver_removed
+run_sc sc_owner_guard
+run_sc sc_pr_recovery
+run_sc sc_plan_all_subset
+run_sc sc_config_ignored_keys
 echo 'batch tests passed'

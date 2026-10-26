@@ -10,19 +10,19 @@
 - Independent **gates** (secrets, reviews, security, QA, verify) judged by scripts on the exact content, never by the lead.
 - **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script. A check that cannot run is reported UNSUPPORTED and never counts as a pass. [Testing](docs/concepts/testing.md) lists what tests each check.
 - Visual verification works on native apps with the project's own test tools.
-- UI craft: each surface gets a visitor mode (persuade, operate, read, experience). Looks that generated UIs converge on are defaults that need a written reason, not bans; persuade and experience surfaces must also bring real imagery, motion and a characterful type voice, with directions dealt reproducibly (no model) from a bundled design library and a draft visual (comp) before coding when an image tool exists. `design ui <mode> <target>` makes one focused change to one target. visual-proof measures this in a browser, checks a UX rules list and lints the source ([details](docs/concepts/testing.md)).
+- UI craft: each surface gets a visitor mode (persuade, operate, read, experience); `design_docs.design` can hold one document per surface ([details](docs/concepts/design-surfaces.md)). Generated-UI looks need a written reason; persuade and experience surfaces must also bring real imagery, motion and a characterful type voice, with directions dealt reproducibly from a bundled design library and a draft visual (comp) before coding when an image tool exists. `design ui <mode> <target>` makes one focused change to one target. visual-proof measures this in a browser and lints the source ([details](docs/concepts/testing.md)).
 - **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
-- Claude Code is the primary runtime, Codex is experimental, and any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
+- Claude Code is the primary runtime, Codex is supported as implementer, and any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
 - proofline works alongside skills specific to your ecosystem; the gates verify the result regardless of which skill produced it.
 
 ## Status
 
-Version 0.0.31 is an early release.
+Version 0.0.32 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
-Codex, mixed setups and failover are experimental.
-Their integration checks passed, and the full team runs are still in progress.
+Codex as implementer is supported (real use, 2026-10-23 to 25).
+Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
 [tests/e2e/README.md](tests/e2e/README.md) lists the detailed full-team results.
 
 ## What to expect from AI behaviour
@@ -108,14 +108,16 @@ trace <FR-n|TASK-ID>                  follow a requirement or task to its tests 
 knowledge <TASK>                      knowledge step of a finished run
 reopen <TASK>                         take a FAILED or BLOCKED run back into the workflow, with your approval
 deliver <TASK>                        commit, push, pull request, merge and cleanup after one approval
-batch <ID...|all>                     night mode: one approval of one summary for several tasks; batch run, batch status
+batch <ID...|all>                     night mode: one approval of one summary for several tasks, run in this session; batch status
 debt                                  list the shortcut comments in the code (read-only, needs no run)
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
 
-**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, for example `init` -> `/proofline doctor`, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
+**Platforms.** GitHub, GitLab, Azure DevOps; elsewhere you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
 
-**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it, and the session starts the driver in the background (plug in the computer; do not close the laptop lid), which works through the tasks one at a time in clean headless sessions, each in a git worktree of its own (a parked task never blocks an independent one and your working tree stays clean); it needs a CI check on pull requests. Anything the approval does not cover (a waiver, a scope expansion, a new dependency, a reopen, a destructive data change) parks that task with its question. `proofline batch status` is the morning table, `proofline batch stop` stops the driver. Detail and limits: [night mode](docs/concepts/night-mode.md).
+**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
+
+**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it. The same session then runs and delivers each task in dependency order, the next one only after the previous is merged, each in its own git worktree. Keep the computer awake and the session open; `/proofline batch` continues after an interruption. What the approval does not cover (a waiver, scope expansion, new dependency, reopen, destructive data change) parks that task with its question. `proofline batch status` is the morning table ([night mode](docs/concepts/night-mode.md)).
 
 **Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition ([workflow](docs/concepts/workflow.md#shortcut-debt)).
 
@@ -145,7 +147,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.31**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.32**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

@@ -567,6 +567,22 @@ knowledge_stage() {
   denied "A159 BLOCKED: lead Write of product code" "$(pre_edit Write "$PWD/src/x.js")"
 }
 
+# Design surfaces: the shared document and every surface document are design_docs paths, so the lead writes them in the
+# knowledge step and nowhere else.
+knowledge_surfaces() {
+  fixture
+  awk '/^  design: / { print "  design:"; print "    shared: docs/design/BASE.md"; print "    surfaces:"; print "      site:"; print "        doc: docs/design/SITE.md"; print "        paths: apps/web/**"; print "        mode: persuade"; print "      app:"; print "        doc: ops/APP-DESIGN.md"; print "        paths: apps/dashboard/**"; print "        mode: operate"; next } { print }' .agents/config.yaml > .agents/config.new && mv .agents/config.new .agents/config.yaml
+  A config-check >/dev/null || die "surface fixture config is invalid"
+  denied "surfaces IMPLEMENTING: lead Write of the shared document" "$(pre_edit Write "$PWD/docs/design/BASE.md")" "the lead writes only run artifacts"
+  denied "surfaces IMPLEMENTING: lead Write of a surface document outside docs/" "$(pre_edit Write "$PWD/ops/APP-DESIGN.md")" "the lead writes only run artifacts"
+  to_code_done orchestrated
+  allowed "surfaces CODE_DONE: lead Write of the shared document" "$(pre_edit Write "$PWD/docs/design/BASE.md")"
+  allowed "surfaces CODE_DONE: lead Write of a surface document" "$(pre_edit Write "$PWD/docs/design/SITE.md")"
+  allowed "surfaces CODE_DONE: lead Write of a surface document outside docs/" "$(pre_edit Edit "$PWD/ops/APP-DESIGN.md")"
+  denied "surfaces CODE_DONE: lead Write of another file in that folder" "$(pre_edit Write "$PWD/ops/other.md")" "product changes go through the implementer"
+  denied "surfaces CODE_DONE: lead Write of product code under a surface path" "$(pre_edit Write "$PWD/apps/web/a.tsx")" "product changes go through the implementer"
+}
+
 # A159: every /proofline command ends with a "Next step:" line; the Stop hook adds it once when the lead left it out.
 stop_next_step() {
   fixture
@@ -1147,7 +1163,7 @@ read_roles_tree() {
 }
 
 fails=0
-scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage stop_next_step not_installed live_claude read_roles_tree'
+scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage knowledge_surfaces stop_next_step not_installed live_claude read_roles_tree'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done

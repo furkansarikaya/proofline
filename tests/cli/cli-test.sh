@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.31" "$out" "proofline 0.0.31"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.31 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.32" "$out" "proofline 0.0.32"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.32 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.31 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.32 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -157,7 +157,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.31' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.32' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -337,7 +337,7 @@ expect "doctor FAILs when .agents/ecosystems.tsv is not what ecosystems.json gen
 # A163: a GitHub project without a pull_request workflow gets a WARN with the exact fix line; with one it passes
 dci=$T/dci; cp -R "$base" "$dci"; git -C "$dci" remote add origin https://github.com/acme/app.git 2>/dev/null || git -C "$dci" remote set-url origin https://github.com/acme/app.git
 out=$(pl "$dci" doctor 2>&1)
-expect "doctor warns when no workflow runs on pull requests" "$out" "WARN ci: no CI check runs on pull requests here. proofline merge does not merge a PR that has no checks."
+expect "doctor warns when no workflow runs on pull requests" "$out" "WARN ci: no CI check runs on pull requests here. proofline merge verifies the commit locally instead"
 task_line=$(cd "$dci" && sh .agents/scripts/agent.sh ci-task-command)
 expect "doctor prints the ci-task-command line as the fix" "$out" "Fix: $task_line"
 mkdir -p "$dci/.github/workflows"; printf 'on:\n  pull_request:\njobs: {}\n' > "$dci/.github/workflows/ci.yml"
@@ -442,6 +442,13 @@ out=$(pl "$st" run T-2 2>&1); expect "run prints the Claude instruction" "$out" 
 out=$(pl "$st" task --grill "add a lookup" 2>&1); expect "task --grill prints the instruction" "$out" "/proofline task --grill add a lookup"
 out=$(pl "$st" design api --check 2>&1); expect "design api --check prints the instruction" "$out" "/proofline design api --check"
 nocheck "design with an unknown kind fails" pl "$st" design nonsense
+out=$(pl "$st" design system 2>&1); expect "design lists the single design document by default" "$out" "durable design documents: docs/design/DESIGN.md"
+cp "$st/.agents/config.yaml" "$st/cfg.single"
+awk '/^  design: / { print "  design:"; print "    surfaces:"; print "      site:"; print "        doc: docs/design/SITE.md"; print "        paths: apps/web/**"; print "        mode: persuade"; print "      app:"; print "        doc: docs/design/APP.md"; print "        paths: apps/dashboard/**"; next } { print }' "$st/cfg.single" > "$st/.agents/config.yaml"
+out=$(pl "$st" design system 2>&1); expect "design in surfaces mode lists each surface document" "$out" "surfaces: site=docs/design/SITE.md app=docs/design/APP.md"; expect "design in surfaces mode without a shared document says none" "$out" "shared: none"
+sed 's#^    surfaces:#    shared: docs/design/BASE.md\n    surfaces:#' "$st/.agents/config.yaml" > "$st/cfg.shared" && cp "$st/cfg.shared" "$st/.agents/config.yaml"
+out=$(pl "$st" design system 2>&1); expect "design in surfaces mode names the shared document" "$out" "shared: docs/design/BASE.md"
+cp "$st/cfg.single" "$st/.agents/config.yaml"; rm -f "$st/cfg.single" "$st/cfg.shared"
 for c in review audit debug; do out=$(pl "$st" "$c" 2>&1); expect "$c prints the instruction" "$out" "/proofline $c"; done
 awk '/^  lead:/ { print "  lead: codex"; next } { print }' "$st/.agents/config.yaml" > "$st/cfg.tmp" && cat "$st/cfg.tmp" > "$st/.agents/config.yaml" && rm "$st/cfg.tmp"
 out=$(pl "$st" run T-2 2>&1); expect "run prints the Codex instruction when the lead is codex" "$out" '$proofline run T-2'
@@ -507,7 +514,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.31" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.32" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -580,8 +587,10 @@ out=$(pl "$noruns" insights --json 2>&1); printf '%s' "$out" | jq -e '.metrics.o
 out=$(sh "$PL" help); expect "help lists insights" "$out" "insights [--run ID] [--json]"
 # A157: night mode. help lists `batch` (the entry skill and README lists are compared by the checks below)
 printf '%s\n' "$out" | grep -Eq '^[[:space:]]*batch[[:space:]]' && printf '%s\n' "$out" | grep -E '^[[:space:]]*batch[[:space:]]' | grep -q 'ID' && ok "help lists batch" || { LAST=$out; die "help does not list batch <ID...|all>"; }
-expect "help names batch run and batch status" "$out" "batch run"
+printf "%s\n" "$out" | grep -q "batch run" && { LAST=$out; die "help still names batch run"; }
 printf '%s\n' "$out" | grep -q 'batch status' || { LAST=$out; die "help does not name batch status"; }
+out=$(pl "$noruns" batch run 2>&1) && die "proofline batch run still works"; expect "proofline batch run says what to do instead" "$out" "runs in your agent session"
+out=$(pl "$noruns" batch stop 2>&1) && die "proofline batch stop still works"; expect "proofline batch stop says what to do instead" "$out" "continue an interrupted batch with /proofline batch"
 
 }
 

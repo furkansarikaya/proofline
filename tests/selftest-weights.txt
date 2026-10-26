@@ -128,6 +128,7 @@
 46 lifecycle-test scenario_failed_run_cleanup
 46 risk-test sc_frozen
 45 lifecycle-test scenario_upgrade_named_path
+40 batch-test sc_park_skip_continue
 39 gates-test sc_tier
 39 lifecycle-test scenario_approval_fail_closed
 38 gates-test sc_questions
@@ -159,6 +160,7 @@
 25 gates-test sc_evidence_gap_files
 25 reply-loop-test plan
 25 risk-test sc_log_unsupported
+25 batch-test sc_restart
 24 enforcement-test questions
 24 gates-test sc_evidence_gap_ac
 24 reply-loop-test budget
@@ -170,7 +172,6 @@
 20 cli-test sc_doctor_global_hookspath
 20 reply-loop-test single_step
 20 risk-test sc_log_upgrade_legacy
-19 batch-test sc_codex_version
 19 cli-test sc_discovery
 19 gates-test sc_tests_findings
 18 cli-test sc_init
@@ -183,6 +184,7 @@
 16 lifecycle-test scenario_evidence_order
 16 next-user-test sc_every_state_failed
 15 risk-test sc_unsupported_toolfree
+15 batch-test sc_sequential
 14 next-user-test sc_every_state_none
 13 cli-test sc_init_dry_errors
 13 controls-test sc_policy
@@ -199,65 +201,46 @@
 11 gates-test sc_control_plane_edit
 11 lifecycle-test scenario_freeze_ac_coverage
 11 lifecycle-test scenario_reopen_blocked_and_state
-10 batch-test sc_driver_inhibit
 10 lifecycle-test scenario_classification_diff
 10 lifecycle-test scenario_task_contract_projection
 10 next-user-test sc_every_state_question
-9 batch-test sc_pgroup_method perl
-9 batch-test sc_task_timeout
 9 enforcement-test runtime_approvals
 9 gates-test sc_defect_scope
 9 lifecycle-test scenario_trivial_freeze_code
-8 batch-test sc_pgroup_method python
-8 batch-test sc_pgroup_method setsid
 8 gates-test sc_approvals
 8 gates-test sc_intent_provenance
 8 gates-test sc_qa_plan_bound
 8 gates-test sc_validation_tiers
 8 risk-test sc_dependency_manifests
+8 batch-test sc_awake
 7 enforcement-test out_of_scope
 7 gates-test sc_config_scope_misc
 7 merge-guard-test
-6 batch-test sc_codex_lead_warning
-6 batch-test sc_codex_pkg_batch
-6 batch-test sc_codex_sandbox
 6 deliver-test scenario_ci_check
 6 enforcement-test git_hooks
 6 gates-test sc_lock_break_race
 6 gates-test sc_open_runs
 6 gates-test sc_validation_qa
 6 lessons-test
-5 batch-test sc_codex_pkg_env
 5 batch-test sc_cover_limits
-5 batch-test sc_driver_start
 5 batch-test sc_mutation_cap
 5 batch-test sc_status_from_records
 5 cli-test sc_static
 5 enforcement-test git_bypass
 5 gates-test sc_question_language
 5 kill-guard-test script_files_allowed
-4 batch-test sc_driver_stop
-4 batch-test sc_park_skip_continue
 4 build-record-test
 4 controls-test sc_standalone
 4 exec-policy-test
 4 gates-test sc_mutation_budget
 4 gates-test sc_start
 4 lifecycle-test scenario_task_source_status
-3 batch-test sc_codex_sandbox_tamper
-3 batch-test sc_codex_summary_version
-3 batch-test sc_driver_crash
 3 batch-test sc_order_and_cycle
-3 batch-test sc_pgroup_refuse
-3 batch-test sc_stale_log
 3 fixture-test
 3 gates-test sc_capture_integrity
 3 next-user-test sc_delivery_finished
 2 batch-test sc_ci_required
 2 batch-test sc_late_critical
-2 batch-test sc_lock
-2 batch-test sc_pgroup_not_leader
-2 batch-test sc_session_records
 2 cli-test sc_insights
 2 controls-test sc_branch
 2 controls-test sc_roles
@@ -268,10 +251,8 @@
 2 next-user-test sc_batch_rows
 1 affected-test
 1 batch-test sc_adapter_refused
-1 batch-test sc_codex_pkg_dir
 1 batch-test sc_critical_excluded
 1 batch-test sc_no_approval_no_start
-1 batch-test sc_pgroup_method setm
 1 classify-test
 1 cli-test sc_basics
 1 cli-test sc_help_lists
@@ -316,3 +297,4 @@
 1 secret-scan-test
 1 static-test
 1 weights-test
+1 batch-test sc_driver_removed

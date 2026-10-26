@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.31
+proofline_version: 0.0.32
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -66,6 +66,19 @@ tasks:
   dir: .agents/tasks
 design_docs:
   design: docs/design/DESIGN.md
+  # One document per UI surface instead of one path: write design as a mapping (agent.sh design-surface <PATH> names the
+  # documents that apply to a file; two surfaces matching one file is an error, no match means the shared document only).
+  # design:
+  #   shared: docs/design/BASE.md
+  #   surfaces:
+  #     site:
+  #       doc: docs/design/SITE.md
+  #       paths: apps/web/** apps/landing/**   (one **/ per glob at most; no \ or |)
+  #       mode: persuade
+  #     app:
+  #       doc: docs/design/APP.md
+  #       paths: apps/dashboard/**
+  #       mode: operate
   architecture: docs/design/ARCHITECTURE.md
   data_model: docs/design/DATA_MODEL.md
   api: docs/design/API.md
@@ -319,18 +332,14 @@ capabilities:
     gpt-6-luna: 1
     gpt-6-sol: 2
     gpt-6-astra: 3
-# Night mode (A157): `proofline batch`. mutation_budget_cap is the highest mutation budget the batch approval may raise
-# to (a task that needs more is parked with a question); ci_wait_minutes is how long the driver waits for a running CI
-# on the canonical branch before it stops; runtimes (space separated, claude|codex) is the order of headless lead
-# sessions, empty = runtime.lead, then the other runtime when its CLI exists. task_timeout (A160) is the minutes one headless
-# session may run before it is closed and the task is parked with the reason timeout; ci_appear_minutes is how long the driver
-# waits for a CI run of a merge commit to appear before it stops. The Codex sandbox is not a key: it is chosen when planning.
+# Night mode (A157): `proofline batch`, run in the lead's own session since 0.0.32. mutation_budget_cap is the highest mutation budget the
+# batch approval may raise to (a task that needs more is parked with a question); ci_wait_minutes is how long the lead waits for a running CI
+# run of a merge commit before it stops the batch; ci_appear_minutes is how long it waits for that run to appear. runtimes and task_timeout
+# belonged to the removed headless driver: old configs may keep them, they are accepted, not validated, and ignored.
 batch:
   mutation_budget_cap: 40
   ci_wait_minutes: 30
   ci_appear_minutes: 10
-  task_timeout: 120
-  runtimes:
 dispatch:
   # Timeout of one specialist run in seconds (minimum 30).
   timeout_seconds: 1800

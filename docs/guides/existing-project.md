@@ -28,7 +28,7 @@ proofline design ui       # docs/design/DESIGN.md (tokens, typography, spacing, 
 
 Every component maps to a verified repository path. Read the drafts and correct them; they are yours.
 Later, `proofline design <kind> --check` reports drift as `doc:line -> missing code fact`, and the verify gate
-runs the same check (design-sync) on tasks that touch these contracts. Locations are configurable in `design_docs:`.
+runs the same check (design-sync) on tasks that touch these contracts. Locations are configurable in `design_docs:`; `design_docs.design` can also hold one document per UI surface ([design surfaces](../concepts/design-surfaces.md)).
 
 ## 3. Pick a task adapter
 

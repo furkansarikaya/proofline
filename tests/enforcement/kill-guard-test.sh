@@ -106,7 +106,7 @@ PY"
     rm -f "$outside"
     mkdir -p "$proj/control-plane/agents/scripts"; cp "$repo/control-plane/agents/scripts/batch.sh" "$proj/control-plane/agents/scripts/batch.sh"
     allows 'sh control-plane/agents/scripts/batch.sh'; allows "sh $repo/control-plane/agents/scripts/batch.sh"
-    ok "clean, missing, oversized, node_modules and out-of-allowed-dir script files are allowed, and the batch driver run as sh batch.sh is allowed" ;;
+    ok "clean, missing, oversized, node_modules and out-of-allowed-dir script files are allowed, and a control-plane script run as sh batch.sh is allowed" ;;
   eval_variable)
     denies 'eval "pkill node"'; denies 'eval "kill 0"'; denies 'CMD="pkill node"; eval "$CMD"'; denies 'K=pkill; $K node'
     denies 'K=killall; "$K" node'; denies 'CMD="kill 0"; $CMD'; denies 'PID=0; kill $PID'

@@ -133,7 +133,7 @@ Cleanup deletes the run directory so the git hooks no longer see the run; then t
 
 ## Night mode
 
-The summary, the limits and the Codex profile are also described on their own page: [night mode](night-mode.md).
+The summary, the limits and the resume rules are also described on their own page: [night mode](night-mode.md).
 
 `/proofline batch <ID...|all>` (`agent.sh batch-plan`) is for several tasks that would each wait for your plan and delivery
 approval. It orders the tasks by `depends_on` (a cycle refuses the whole batch), leaves out every CRITICAL task, every task
@@ -141,30 +141,13 @@ without a parseable `## Suggested class` and every task that depends on one of t
 nor in `done/`, and writes one summary (`.agents/local/batch/SUMMARY.md`): the order, what the approval covers, what it
 does not, the mutation budget cap and the stop rules. `all` means the top-level and `todo/` task files, in ID order. Your
 reply "approve batch" is the one approval; it is bound to the sha256 of that summary, never consumed, and stops being valid
-when the summary changes. It reads task files through the markdown adapter only, and `batch-plan` refuses another adapter with the exact next step (a design decision, A161: `depends_on` and `Suggested class` live in the task file's own front matter and sections, and the other adapters resolve ids through network calls an unattended driver must not depend on; import the task with `/proofline task <issue reference>` into markdown tasks first).
+when the summary changes. It reads task files through the markdown adapter only, and `batch-plan` refuses another adapter with the exact next step (a design decision, A161: `depends_on` and `Suggested class` live in the task file's own front matter and sections, and the other adapters resolve ids through network calls; import the task with `/proofline task <issue reference>` into markdown tasks first).
 
-After "approve batch" the lead runs `agent.sh batch-start`, which starts the driver in the background, detached from the session, under a sleep inhibitor (A163, [night mode](night-mode.md#starting-stopping-status)); `proofline batch run` (a terminal, no agent session) starts the same driver in the foreground, and `batch stop` stops the recorded one. A project with no pull_request workflow is refused at `batch-plan`. The driver refuses without a valid batch approval, a clean
-tree on the canonical branch and an authenticated `gh`, and runs one task at a time (`.agents/local/batch/LOCK`). Before each
-task it updates the canonical branch and checks the CI run of its HEAD (no run yet is no signal); for each task it starts a
-clean headless lead session (`claude -p`, or `codex exec` in a named permissions profile with network access, see below; the next runtime takes
-over when one hits its usage limit). Each session is the leader of its own process group, started by the first method that a probe
-verifies on the machine (`set -m` job control, `setsid`, a perl `setpgid` one-liner, python3 `os.setpgid`; the session itself checks that
-its pgid equals its pid and does nothing otherwise); when none works the batch is refused with one line, there is no weaker mode. When a session
-ends, or runs longer than `batch.task_timeout` minutes (120), the driver closes that group (TERM, a short grace, KILL) and nothing else, and a timed-out
-task is parked with the reason `timeout`. A Codex night session does not use the legacy `workspace-write` mode, which keeps `.git`, `.agents` and `.codex` read-only (it could not branch, commit, add a worktree or write its run records): it runs in the profile `proofline_night`, passed as `-c` overrides (nothing is written to disk): everything readable, the project folder writable including `.git` and `.agents`, but `.git/hooks`, `.git/config` and `.codex` read-only (a changed hook or `core.hooksPath` would run code outside the sandbox), the temp dir writable and the network on. `$HOME` stays read-only, so the package-manager caches (`~/.npm` and the like) are redirected into the temp dir with `shell_environment_policy.set`; this is verified for npm, pnpm, yarn, pip and go, and for no other tool. The summary records `codex --version`, and the driver refuses a Codex runtime older than codex-cli 0.163.0 (the version the profile was verified on) or one whose version cannot be read. `git push -u` pushes but cannot record the upstream in `.git/config`. Seatbelt on macOS cannot be nested: a sandboxed Codex lead cannot start a sandboxed `codex exec` worker (sandboxes do not nest; set the worker and reviewer runtimes to claude with `proofline init --worker claude --reviewers claude`, or plan again with `--codex-danger-full-access`); `batch-plan` puts a WARNING line in the summary when a Codex session can run as the lead (the lead runtime, `batch.runtimes`, or the installed fallback runtime) and any role runs on Codex, without that option. `agent.sh batch-plan <ID...|all> --codex-danger-full-access` is the only way to
-run Codex sessions with `danger-full-access`: the summary says so with a warning line and the approval hash covers it, the
-driver reads the choice from the approved summary only, never from config or environment. The driver is started by `batch-start` or in a
-terminal (`proofline batch run`): the runtime hook's kill guard (A156) concerns an agent's own tool calls, not this program. In that session the lead calls
-`agent.sh batch-cover <ID> <plan|delivery|mutation_budget>`, which records the approval of that request as yours only while
+After "approve batch" the lead works through the batch in this same session, in dependency order ([night mode](night-mode.md#running-the-batch-in-this-session)); there is no background process. A project with no pull_request workflow gets a WARNING in the summary and each pull request is verified locally before it merges (A180). Before each task the lead calls `agent.sh batch-next`, which prints the batch's state from records only (`merged.tsv`, the runs, their questions and approvals, `ci.tsv`, the lead's own parks) and the next action (`run`, `resume`, `cover`, `deliver`, `ci` or `finished`), so after a context compaction it continues at the right place. Each task runs in a git worktree of its own (A169, [night mode](night-mode.md#one-worktree-per-task-a169)): a parked task blocks no independent one, the main working tree stays clean, and a task starts only when its dependencies are merged. The lead runs the task, then delivers it, and goes on only when the pull request is merged; then `agent.sh batch-ci <ID>` checks the CI run of the merge commit itself (never the latest run): red, still running after `batch.ci_wait_minutes`, or no run within `batch.ci_appear_minutes` (10) stops the batch. The lead calls `agent.sh batch-cover <ID> <plan|delivery|mutation_budget>`, which records the approval of that request as yours only while
 the batch approval is valid, the task is in the batch, its run is open and not CRITICAL and the request is pending; a mutation
 budget stays within `batch.mutation_budget_cap` (40). Every other approval kind (waiver, scope, reopen, destructive,
-single_step, rule, report, a fix-round budget) is refused: the lead records the question with `agent.sh ask` and the
-session ends. The driver decides each outcome from records (`merged.tsv`, the run state, the run's questions), parks the
-task, skips the tasks that depend on it and goes on with the next independent one. It stops, leaving the rest pending,
-when main CI is red or still running after `batch.ci_wait_minutes`, when every runtime hit its limit, or when one is not
-logged in. After each merge it takes the merge commit's own SHA, pulls, and waits for the CI run of that SHA (never the
-latest run): red stops the batch, and so does no run for that SHA within `batch.ci_appear_minutes` (10). Each task runs in a git worktree of its own (A169, [night mode](night-mode.md#one-worktree-per-task-a169)): a parked task blocks no independent one, the main working tree stays clean, and a task starts only when its dependencies are merged. After every task it removes the worktrees the session added (and a merged task's own) and returns to the canonical branch.
-`proofline batch run` again resumes: a parked task whose question was answered (or whose run was reopened) is resumed.
+single_step, rule, report, a fix-round budget) is refused: the lead records the question with `agent.sh ask`, the task is parked, the tasks that depend on it are skipped and the next independent task goes on.
+The computer must stay awake and the session open: on macOS the session offers `caffeinate -i -w <session pid>` (`agent.sh batch-awake`). An interrupted batch (session closed, limit hit, computer asleep) just stops; `/proofline batch` with the same approved batch continues where it stopped and never runs a merged task again.
 `proofline batch status` (`agent.sh batch-status`) prints the morning table (task, result, PR, merge time, park reason,
 pending question) from the records, never from a session log, with the friction report under it.
 
@@ -182,9 +165,20 @@ pending question) from the records, never from a session log, with the friction 
 | `knowledge <TASK>` | the knowledge step of a finished run |
 | `reopen <TASK>` | take a FAILED or BLOCKED run back into the workflow, only with your approval |
 | `deliver <TASK>` | commit, push, pull request, merge and cleanup after one approval |
-| `batch <ID...\|all>` | night mode: one approval of one summary for several tasks (`batch run`, `batch status`) |
+| `batch <ID...\|all>` | night mode: one approval of one summary for several tasks (`batch status`) |
 | `debt` | list the shortcut comments in the code; read-only, needs no run |
 | `clean`, `merge`, `insights` | clean up, the only allowed merge, cost and recurring failures |
+
+## Delivery on other platforms
+
+The platform comes from the `origin` URL (A180): GitHub, GitLab, Azure DevOps (`dev.azure.com`, `*.visualstudio.com`, `ssh.dev.azure.com`), Bitbucket, or other. `agent.sh platform` and `proofline doctor` show it, the tool found on `PATH` (`gh`, `glab`, `az`) and who merges.
+
+| Platform and tool | Pull request | Merge |
+|---|---|---|
+| GitHub + `gh`, GitLab + `glab`, Azure DevOps + `az` | opened with that tool | `proofline merge <PR>`: open, not a draft, every check (GitHub checks, the GitLab pipeline of the head, the Azure build and status policies) passed on the head being merged; the same fail-closed strictness on all three |
+| Bitbucket, any other host, or the tool is not installed | the branch is pushed and the address is printed | you merge it; `proofline merge` merges nothing and says so; the delivery has no merge or cleanup step, run `agent.sh cleanup <ID>` afterwards |
+
+When a pull request has **no checks** (or the project has no CI), it is not refused: the build and test commands of `.agents/config.yaml` run in a clean export of exactly the commit to be merged (the build record), the pull request description and the delivery summary say "verified locally, no CI", and `proofline merge` posts the same note before it merges. Checks that exist but are red or pending still refuse. A CI-fix round (A169) reads the failed run through `gh` and so exists on GitHub only. Only the exact hosts `github.com`, `www.github.com`, `gitlab.com`, `bitbucket.org`, `dev.azure.com`, `ssh.dev.azure.com` and `*.visualstudio.com` are recognized (a lookalike such as `github.com.example` is `other`); `PROOFLINE_PLATFORM=github|gitlab|azure|bitbucket|other` names the platform of a self-hosted host.
 
 ## The next step
 
@@ -199,15 +193,14 @@ Every command ends with one line, `Next step: ...` (A159): a `/proofline` comman
 | `design` | the next queued task, else `/proofline task --grill` |
 | `run`, `status`, `resume`, `queue` | a question waits: reply in the session (the line names the question); CODE_DONE: `/proofline deliver <ID>`; FAILED or BLOCKED: `/proofline reopen <ID>`; running: `/proofline resume`; no run: the next queued task, else `/proofline task --grill` |
 | `knowledge` | `/proofline deliver <ID>` (FAILED or BLOCKED: `/proofline reopen <ID>`) |
-| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; no CI check on pull requests: the ready CI task line; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
+| `deliver` | waiting for you: reply `approve delivery`; the merge step stopped (a check is red): `proofline merge <PR>`; finished: `/proofline run <NEXT-ID>` when another task is queued, else `/proofline task --grill` |
 | `reopen` | `/proofline resume` |
 | `merge`, `clean` | the next queued task, else `/proofline task --grill` |
 | `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
 | `insights`, `explain` | `/proofline status` |
 | `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
-| `batch` | no CI: the ready CI task line; not approved: reply `approve batch`; driver started: `driver started, log: .agents/local/batch/driver.log. In the morning: /proofline batch status` |
-| `batch status` | driver running: wait; a task parked: `/proofline resume <ID>, then reply in this session to the open question: ...`; none parked: the next queued task, else `/proofline task --grill` |
-| `batch stop` | `/proofline batch status` |
+| `batch` | not approved: reply `approve batch`; approved with work left: `run /proofline batch to continue the batch; merged tasks are not run again`; finished: `/proofline batch status` |
+| `batch status` | work left: `run /proofline batch to continue the batch`; a task parked: `/proofline resume <ID>, then reply in this session to the open question: ...`; none parked: the next queued task, else `/proofline task --grill` |
 | `version` | `/proofline doctor` |
 
 A failed command suggests the command that fixes the error instead: not installed `proofline init`; a dirty tree: commit or stash it yourself; a missing knowledge step `/proofline knowledge <ID>`; a FAILED run on `deliver` `/proofline reopen <ID>`.
@@ -215,6 +208,8 @@ A failed command suggests the command that fixes the error instead: not installe
 ## Knowledge step
 
 The knowledge step always runs after CODE_DONE (and for a FAILED or BLOCKED run). It evaluates the wiki and the design documents every time and ends in `knowledge-done` with pages written under `docs/design/`, `docs/adr/`, `docs/wiki/` and the `design_docs` paths (the only paths the lead may write, and only in this step), or in `knowledge-done <ID> not_applicable "<reason>"` with one specific sentence. The script refuses the reason, naming the signal, when the task changed user-visible behaviour, a durable contract or something a design document describes. The reason is recorded and shown in the completion report.
+
+With design surfaces (`design_docs.design` as a mapping) the shared document and every surface document are `design_docs` paths ([design surfaces](design-surfaces.md)).
 
 ## Shortcut debt
 

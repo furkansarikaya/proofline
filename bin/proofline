@@ -2,11 +2,12 @@
 # proofline CLI (D8, D23). POSIX sh. Installs and checks the control plane (init, upgrade, doctor), shows
 # state (status, resume, queue) and tells you the exact instruction for your agent session for the commands
 # that need one (task, design, run, review, audit, debug, deliver). It never commits, pushes or approves;
-# its one merge path is `merge`, which merges a pull request only when every check is green (A136).
+# its one merge path is `merge`, which merges a pull request only when every check is green (A136), on GitHub, GitLab and
+# Azure DevOps through gh, glab or az (A180); on any other platform the user merges.
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.31
+PROOFLINE_VERSION=0.0.32
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -72,7 +73,11 @@ state (works without an agent session)
   clean [--yes]           remove .agents/local state and finished runs
   merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]
                           the only allowed merge path: checks that every check of the pull request is
-                            green on its current head, then merges (--admin and --auto are refused)
+                            green on its current head, then merges (--admin and --auto are refused).
+                            GitHub (gh), GitLab (glab) and Azure DevOps (az repos) when the tool is installed;
+                            a pull request without any check is merged only after build and test pass in a
+                            clean copy of its commit ("verified locally, no CI"). Bitbucket, other hosts and a
+                            missing tool: nothing is merged here, the link and steps are printed, YOU merge
   insights [--run ID] [--json]
                           read-only report: cost per run, role and model (tokens only where the runtime
                             reported them) and recurring failures with suggestions; changes nothing
@@ -80,6 +85,7 @@ state (works without an agent session)
 agent session (prints the exact instruction for your runtime)
   task [--grill] <text>   write a task file (grill the intent first with --grill)
   design system|data|api|ui [--check]
+  (design documents: design_docs.design in .agents/config.yaml is one path, or one document per UI surface; see docs/concepts/design-surfaces.md)
   design ui <mode> <target>  focused UI change of one target, as a normal run; mode: bolder quieter polish animate typeset
                             colorize layout delight harden adapt (touches only the target, keeps the existing design system)
   docs create|update|audit  write, update from a diff, or audit documentation
@@ -98,15 +104,14 @@ agent session (prints the exact instruction for your runtime)
                           record the measured outcome of a shipped change against its baseline
   trace <FR-n|TASK-ID>    follow a requirement or task to its tests, run evidence and pull request, and the evidence, assumption, decision and outcome behind it (read-only)
   reopen <TASK>           take a FAILED or BLOCKED run back into the workflow, only with your approval
-  batch <ID...|all>       night mode: one summary and one "approve batch" stand in for the plan and delivery approvals of
-                            the listed tasks (no CRITICAL task; nothing else is covered; refused while no CI check runs
-                            on pull requests). After "approve batch" the session starts the driver in the background
-                            (it keeps running when the session closes, and keeps the computer awake): plug in the
-                            computer; do not close the laptop lid. One clean headless session per task, one at a time,
-                            parked on any other question. Also, in a terminal without an agent session: batch run
-                            (the same driver), batch status (the morning table and the driver, from records only) and
-                            batch stop (stops the running driver; its task is parked as stopped); a Codex session
-                            runs in a sandbox that can commit (.git and .agents writable, network on), add --codex-danger-full-access when planning to lift it
+  batch <ID...|all>       night mode, in this session: one summary and one "approve batch" stand in for the plan and delivery
+                            approvals of the listed tasks (no CRITICAL task; nothing else is covered; a project without CI gets a
+                            warning: each pull request is then verified locally before it merges). The lead runs each task and
+                            delivers it, in dependency order, and starts the next one only when the previous is merged; a stuck task is
+                            parked, its dependents are skipped, independent tasks go on. Keep the computer awake and the session
+                            open (on macOS the session offers caffeinate for exactly its own lifetime); after an interruption
+                            /proofline batch continues the approved batch and never runs a merged task again.
+                            batch status: the morning table, from records only
 EOF
 }
 
@@ -215,8 +220,8 @@ cmd_deliver() {
   say "what delivery would do (proofline never commits by itself):"
   say "  commit : $n changed path(s) on branch $br, message format $(cfg_val "$CFG" git.commit_format conventional), identity $(git -C "$ROOT" var GIT_AUTHOR_IDENT 2>/dev/null | sed 's/ [0-9]* [-+][0-9]*$//')"
   say "  push   : remote(s): $(git -C "$ROOT" remote 2>/dev/null | tr '\n' ' ')"
-  say "  pr     : a pull request with the completion report as its body"
-  say "  merge  : only when every check is green, through 'proofline merge'; a red check stops before cleanup"
+  say "  pr     : a pull request with the completion report as its body (Bitbucket or another host, or no gh/glab/az: the branch is pushed, the link is printed and you merge)"
+  say "  merge  : only when every check is green, through 'proofline merge'; a red check stops before cleanup; without any check the build and test run in a clean copy first"
   say "  cleanup: after the merge"
   say "  one approval: the lead shows one summary; your reply \"approve delivery\" approves each step of it, bound to this content"
   say "  never  : tag, force-push, touch a protected branch (configured: $(cfg_val "$CFG" git.protected_branches none))"
@@ -269,7 +274,9 @@ cmd_design() {
     hint design "$@"
     return 0
   fi
-  say "durable design documents: $(cfg_val "$CFG" design_docs.design docs/design/DESIGN.md), $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
+  dd_sf=$(cfg_lines "$CFG" 2>/dev/null | sed -n 's/^design_docs\.design\.surfaces\.\([^.=]*\)\.doc=\(.*\)$/\1=\2/p' | tr '\n' ' ' | sed 's/ $//')
+  if [ -n "$dd_sf" ]; then dd_main="surfaces: $dd_sf; shared: $(cfg_val "$CFG" design_docs.design.shared none)"; else dd_main=$(cfg_val "$CFG" design_docs.design docs/design/DESIGN.md); fi
+  say "durable design documents: $dd_main, $(cfg_val "$CFG" design_docs.architecture ''), $(cfg_val "$CFG" design_docs.data_model ''), $(cfg_val "$CFG" design_docs.api '')"
   hint design "$@"
 }
 
@@ -281,14 +288,13 @@ cmd_run() {
   hint run "$@"
 }
 
-cmd_batch() { # A157: night mode. plan = agent session; run and status need none
+cmd_batch() { # A157: night mode. The plan and the tasks run in the agent session; status needs none
   require_installed
   case "${1:-}" in
-    run) (cd "$ROOT" && sh "$ROOT/.agents/scripts/batch.sh" run) ;;
     status) agent batch-status ;;
-    stop) (cd "$ROOT" && sh "$ROOT/.agents/scripts/batch.sh" stop) ;;
-    '') die "usage: proofline batch <ID...|all> [--codex-danger-full-access] | batch run | batch status | batch stop" ;;
-    *) say "night mode plans the batch in the lead's session (one summary, one \"approve batch\"); the same \"approve batch\" in that session starts the driver in the background (agent.sh batch-start); proofline batch run still starts it from a terminal, and proofline batch stop ends it"
+    run|stop) die "proofline batch $1 is gone (removed in 0.0.32): night mode runs in your agent session, not in a background driver. Plan it with /proofline batch <ID...|all>, reply \"approve batch\", and continue an interrupted batch with /proofline batch in the session; proofline batch status shows the table" ;;
+    '') hint batch ;;
+    *) say "night mode runs in the lead's session: one summary, one \"approve batch\", then the lead runs and delivers the tasks one after the other; keep the computer awake and the session open"
        hint batch "$@" ;;
   esac
 }

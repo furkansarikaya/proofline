@@ -145,7 +145,7 @@ the plan stays frozen and its scope is checked again, gate records that passed o
 runs again, the fix-round allowance restarts, and the knowledge step starts over. When the gates pass the run is
 CODE_DONE and delivery works (A152).
 
-Night mode (A157): `agent.sh batch-plan <ID...|all>` writes one summary and requests the `batch` approval; after the user's "approve batch" the lead runs `agent.sh batch-start` (the background driver, detached from the session, sleep inhibitor, `batch-stop` to stop it; `proofline batch run` in a terminal is the same driver) and it runs the tasks one at a time in clean headless lead sessions, each task in a git worktree of its own (A169: `.agents/local/worktrees/<ID>`; a parked task or one waiting for its merge blocks no independent task, the main working tree stays clean, a task starts only when the tasks it depends on are merged), and in each the lead calls `agent.sh batch-cover <ID> plan|delivery|mutation_budget` instead of waiting. Nothing else is covered (waiver, scope, reopen, destructive, rule, report, fix-round budget; CRITICAL tasks are not in a batch); those park the task with a question. `proofline batch status` is the morning table.
+Night mode (A157): `agent.sh batch-plan <ID...|all>` writes one summary and requests the `batch` approval; after the user's "approve batch" the lead works through the tasks in the same session, one at a time (run, deliver, and only when merged the next), each task in a git worktree of its own (A169: `.agents/local/worktrees/<ID>`; a parked task or one waiting for its merge blocks no independent task, the main working tree stays clean, a task starts only when the tasks it depends on are merged). `agent.sh batch-next` prints the state from records and the next action before every task; in each task the lead calls `agent.sh batch-cover <ID> plan|delivery|mutation_budget` instead of waiting, and `agent.sh batch-ci <ID>` checks the CI of the merge commit. Nothing else is covered (waiver, scope, reopen, destructive, rule, report, fix-round budget; CRITICAL tasks are not in a batch); those park the task with a question. An interruption just stops the batch; `/proofline batch` continues the same approved batch. `proofline batch status` is the morning table.
 
 ## Task-source contract
 
@@ -159,7 +159,7 @@ checks freshness before and after the adapter and restores the file byte for byt
 
 One rule, stated in [KNOWLEDGE.md](KNOWLEDGE.md) (A159): the step always runs after CODE_DONE and ends in
 `knowledge-done <ID>` with pages written under `knowledge_scope_root` (`docs/design/ docs/adr/ docs/wiki/ docs/product/`) and the
-`design_docs` paths, or in `knowledge-done <ID> not_applicable "<reason>"`. A knowledge write before CODE_DONE is out
+`design_docs` paths (with design surfaces: the shared document and every surface document), or in `knowledge-done <ID> not_applicable "<reason>"`. A knowledge write before CODE_DONE is out
 of scope; a write without `KNOWLEDGE_DONE`, or `KNOWLEDGE_DONE` without a write, FAILS DONE, delivery-check and validate.
 
 ## Execution policy

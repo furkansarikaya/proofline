@@ -4,7 +4,7 @@ description: Visual proof of a UI change with the browser tooling the project or
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.31"
+  version: "0.0.32"
 ---
 
 # visual-proof
@@ -71,6 +71,8 @@ blocks; the word list and the words used on purpose are `visual.ascii_turkish_wo
    only by name (a script called `pixel-art.js` on the page's own origin, a lone `dataLayer`) is information, never blocking.
 
 10. **Design is a measured group too (A170).** Optional `design` block of `visual.json`, absent means not requested: fixed viewports 1440, 768 and 390, items such as `design_empty_hero`, `design_vacuum`, `design_reduced_motion` and `design_image_ledger` ([MEASURE.md](references/MEASURE.md#design-audit)); a failed item is a blocking row, an item that could not be measured is `not_measured` with a reason. `scripts/lint-source.mjs` reads project source for the dated pattern registry and writes `lint.json` beside `report.json`: a finding is blocking unless `DESIGN.md` has a `## Pattern justifications` line for its id; the validator counts blocking findings as FAIL reasons. The image ledger (`docs/design/IMAGES.md`) must list every raster image and self-hosted font with licence and credit. The 14-point `critique[]` ([JUDGED.md](references/JUDGED.md#critique-14-points)) is `ok` or `concern` with a reason, never a score, and never closes the gate. Native apps are unchanged: no design group.
+
+11. **Design documents per surface.** When `design_docs.design` is a mapping of surfaces, the design document of a changed screen is the surface document of its file plus the shared base (`agent.sh design-surface <PATH>`, read-only; in a project without `.agents/`, read the config by hand with the same rules). A contradiction with the shared base is a finding; a surface without a document yet is never judged against another surface ([JUDGED.md](references/JUDGED.md)).
 
 **Limits.** The validator checks a report's consistency: statuses against values and the documented
 thresholds, screenshot hashes, coverage and the network record. It cannot detect a report fabricated
