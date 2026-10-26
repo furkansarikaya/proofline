@@ -1941,7 +1941,7 @@ design_surface() {
     return 0
   fi
   ds_s=${ds_hits# }; ds_d=$(cfg "design_docs.design.surfaces.$ds_s.doc" ""); ds_e=no; [ -z "$ds_d" ] || [ ! -f "$root/$ds_d" ] || ds_e=yes
-  ds_st=ok; [ "$ds_e" = yes ] || ds_st=new-direction
+  ds_st=ok; [ "$ds_e" = yes ] || ds_st="new-direction"
   printf 'mode=surfaces\nstatus=%s\nsurface=%s\nvisitor_mode=%s\ndoc=%s\ndoc_exists=%s\nshared=%s\nshared_exists=%s\n' "$ds_st" "$ds_s" "$(cfg "design_docs.design.surfaces.$ds_s.mode" "-")" "${ds_d:--}" "$ds_e" "${ds_sh:--}" "$ds_she"
 }
 
