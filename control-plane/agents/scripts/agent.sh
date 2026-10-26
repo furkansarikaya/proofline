@@ -967,9 +967,14 @@ tier_max() { if [ "$(tier_rank "$1")" -ge "$(tier_rank "$2")" ]; then echo "$1";
 task_changed_paths() {
   tcp_d=$(run_dir "$1"); tcp_base=$(repository_base_sha "$tcp_d"); case "$tcp_base" in ''|PENDING) tcp_base=HEAD ;; esac
   tcp_tasks=$(cfg tasks.dir .agents/tasks); tcp_maps=$(scope_mappings "$tcp_d/PLAN.md" 2>/dev/null) || tcp_maps=''
+  # A184 (round 2): from CODE_DONE on, a knowledge-scope file (docs/wiki, design documents, ADR) the plan does not name is the knowledge step's
+  # output, not task output: it never moves the tier, risk signals or the gates (knowledge_owned_paths and the SECRETS rescan own it). Before
+  # CODE_DONE such a file still counts (verify-scope reports it as unauthorized).
+  tcp_ks=no; case "$(section_value "$tcp_d" handoff state 2>/dev/null)" in CODE_DONE|DONE) tcp_ks=yes ;; esac
   { git -C "$root" diff --no-renames --name-only "$tcp_base" -- 2>/dev/null; current_untracked_paths; } | sort -u | while IFS= read -r tcp_p; do
     [ -n "$tcp_p" ] || continue
     case "$tcp_p" in .agents/runs/*|.agents/local/*|"$tcp_tasks"/*) continue ;; esac
+    if [ "$tcp_ks" = yes ] && in_knowledge_scope "$tcp_p" && ! authorized_path "$tcp_maps" "$tcp_p"; then continue; fi
     # a control-plane file the plan scope does not name is the user's edit, not a task change (verify-scope lists it)
     case "$tcp_p" in .agents/*) authorized_path "$tcp_maps" "$tcp_p" || continue ;; esac
     # A154: nor is a file `upgrade` installs (or the proofline block of AGENTS.md/CLAUDE.md): an upgrade never moves the tier
@@ -4598,8 +4603,11 @@ safe_state_file() {
   { [ ! -L "$1" ] && [ -f "$1" ]; } || return 1
   [ -n "$(find "$1" -prune -type f -links 1 2>/dev/null)" ] || return 1
   sf_d=$(dirname "$1")
-  while [ "$sf_d" != "$root" ]; do
-    case "$sf_d" in "$root"/*) ;; *) return 1 ;; esac
+  # A185: shared state (prompts, approvals of no run) lives in the main tree, which is not under a worktree's root: the walk ends at whichever
+  # of the two roots holds the file, and every folder on the way is still checked
+  sf_b=$root; case "$sf_d" in "$root"|"$root"/*) ;; "$sr_main"|"$sr_main"/*) sf_b=$sr_main ;; esac
+  while [ "$sf_d" != "$sf_b" ]; do
+    case "$sf_d" in "$sf_b"/*) ;; *) return 1 ;; esac
     [ ! -L "$sf_d" ] || return 1
     sf_d=$(dirname "$sf_d")
   done
@@ -4734,7 +4742,7 @@ approval_retry() {
   if ! text_has_approval "$ar_f" "$2" "${3:-}"; then rm -f "$ar_f"; return 1; fi
   rm -f "$ar_f"
   ar_o=$(sh "$scripts/agent.sh" approve "$3" "$2" 2>&1 </dev/null) && ar_rc=0 || ar_rc=$?
-  printf '%s target=%s kinds=%s rc=%s retry output: %s\n' "$(now_iso)" "$3" "$2" "$ar_rc" "$(printf '%s' "$ar_o" | tr '\n' ' ' | cut -c1-300)" >> "$root/.agents/local/approve.log" 2>/dev/null || :
+  printf '%s target=%s kinds=%s rc=%s retry output: %s\n' "$(now_iso)" "$3" "$2" "$ar_rc" "$(printf '%s' "$ar_o" | tr '\n' ' ' | cut -c1-300)" >> "$sr_main/.agents/local/approve.log" 2>/dev/null || :
   [ "$ar_rc" = 0 ]
 }
 latest_request() { # ID KIND -> request file
@@ -4756,8 +4764,8 @@ pending_request() {
 # satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
 # kind is attempted in its own process, so a refusal ("no approval phrase") changes nothing.
 approve_pending() {
-  ap_run=${1:-}; ap_log=$root/.agents/local/approve.log
-  mkdir -p "$root/.agents/local" 2>/dev/null || :
+  ap_run=${1:-}; ap_log=$sr_main/.agents/local/approve.log   # the shared log (A185): the prompt hook, the main tree and a worktree write one file
+  mkdir -p "$sr_main/.agents/local" 2>/dev/null || :
   for ap_t in $ap_run -; do
     [ -n "$ap_t" ] || continue
     [ "$ap_t" = - ] || [ -d "$(run_dir "$ap_t")" ] || continue
@@ -5692,6 +5700,14 @@ next_step() {
         unsupported_next "$ns_id"; not_rerun_next "$ns_id"
         o "agent.sh handoff $ns_id CODE_DONE"; r "every required gate passes"; fi ;;
     CODE_DONE)
+      # A184 (round 2): a gate of the effective tier that is not satisfied for the task-owned patch cannot be recorded any more (gates are
+      # recorded in IMPLEMENTED only, and only `amend` leaves CODE_DONE): never send the lead to dispatch reviewers whose results are refused
+      ns_miss=''; ns_tp=$(task_patch_fingerprint "$ns_id")
+      for ns_g in $(required_gates "$ns_id" "$(tier_effective "$ns_id")"); do gate_satisfied "$(gate_status "$ns_id" "$ns_g" patch "$ns_tp")" || ns_miss="$ns_miss $ns_g"; done
+      if [ -n "$ns_miss" ]; then
+        o "agent.sh amend $ns_id (reopens the run only when every required gate passes) or a new task for the extra work; do NOT dispatch reviewers: a gate result cannot be recorded in CODE_DONE"
+        r "the effective tier is $(tier_effective "$ns_id") at CODE_DONE and these gates do not pass for the task-owned patch:$ns_miss (what raised it: agent.sh report-facts $ns_id)"; return 0
+      fi
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
           if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
@@ -6146,7 +6162,7 @@ knowledge_done() {
     case "$reason" in *'"'*|*'\'*|*'#'*) fail "the not_applicable reason must not contain a double quote, a backslash or a #" ;; esac
     [ "$(printf '%s\n' "$reason" | grep -c .)" -le 1 ] && ! printf '%s' "$reason" | grep -Eq '[.!?][[:space:]]+[^[:space:]]' || fail "the not_applicable reason must be one sentence on one line"
     kn_sig=$(knowledge_na_signal "$id" || true)
-    [ -z "$kn_sig" ] || fail "not_applicable refused: $kn_sig. Run the knowledge step instead (wiki, design documents), then 'agent.sh knowledge-done $id'"
+    [ -z "$kn_sig" ] || fail "not_applicable refused: $kn_sig. Run the knowledge step instead: a one-page note under docs/wiki/ is enough and does not change the tier or any gate (knowledge files the plan does not name are not task output); then 'agent.sh knowledge-done $id'"
   else
     [ -z "$reason" ] || fail "a reason is only for not_applicable"
   fi

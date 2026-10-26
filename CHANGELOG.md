@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Knowledge-step files no longer raise the tier after CODE_DONE (A184), and the prompt hook records the approvals of runs that live in a worktree (A185): a reply to a scope, waiver or destructive request of a night-mode task is now seen.
 ## 0.0.33 — 2026-10-26
 
 - Fewer processes on the hook's hot paths (A188): one JSON parse per event, shell builtins for path, name, clock and digest work, one `agent.sh hook-config` call per event, one `grep` for the migration-command check and one normalisation pipeline for the approval phrases; behaviour is unchanged. External processes per event, before then after: Write 61 then 11, Read 42 then 9, Bash 101 then 33, PostToolUse 20 then 7, prompt 28 then 10, a prompt that records an approval 500 then 206, stop 56 then 32. `tests/bench/hook-procs.sh` counts them and a nightly Windows job writes the table; no Windows measurement exists yet.

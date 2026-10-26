@@ -2184,6 +2184,57 @@ prompt)
       [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
     fi
   fi
+  # A185 (round 2): a prompt has no path and the session's working directory is usually the main tree, so the run of a worktree (night mode,
+  # worktree-add) is not `act` here. Its pending request (scope, waive:*, destructive, single_step, budget, reopen) is found by a glob of the main
+  # tree's worktree folder (no process when none exists, A188) and approved by THAT worktree's agent.sh, which agent.sh worktree-root must
+  # confirm as a registered worktree of this project (never the path string alone); the same budget, the log is the shared approve.log.
+  wl=''
+  for f in "$shared_local"/worktrees/*/.agents/runs/*/approvals/[0-9][0-9][0-9]-request-*.yaml; do
+    [ -f "$f" ] || continue
+    wl_r=${f#"$shared_local"/worktrees/}; wl_d=$shared_local/worktrees/${wl_r%%/*}
+    [ "$wl_d" != "$sroot" ] || continue   # the session's own worktree is the run handled above
+    wl_run=${wl_r#*/.agents/runs/}; wl_run=${wl_run%%/*}
+    case "$wl_run" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
+    case " $wl " in *" $wl_d|$wl_run "*) continue ;; esac
+    wl="$wl $wl_d|$wl_run"
+  done
+  if [ -n "$wl" ] && [ "$act" != INVALID ]; then
+    [ -e "$shared_local/prompts/.approving-$sess" ] || printf '%s\n' "$h" > "$shared_local/prompts/.approving-$sess"
+    hk_tick; hk_a2=$hk_v; : > "$tmp/apw.all"
+    ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=${ap_i:-0}
+    for wl_e in $wl; do
+      wl_d=${wl_e%%|*}; wl_run=${wl_e#*|}
+      wl_ok=$(sh "$agent" worktree-root "$wl_d" 2>/dev/null) || continue
+      [ "$wl_ok" = "$wl_d" ] && [ -f "$wl_d/.agents/scripts/agent.sh" ] || continue
+      ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$wl_d/.agents/scripts/agent.sh" approve-pending "$wl_run" ) >"$tmp/apw.out" 2>&1 </dev/null &
+      ap_pid=$!
+      while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do
+        if [ "$ap_i" -lt 10 ]; then sleep 0.1; ap_i=$((ap_i + 1)); else sleep 0.5; ap_i=$((ap_i + 5)); fi
+      done
+      if kill -0 "$ap_pid" 2>/dev/null; then
+        ap_all=$ap_pid; ap_new=$ap_pid
+        while [ -n "$ap_new" ]; do
+          ap_next=''
+          for ap_c in $ap_new; do ap_next="$ap_next $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$ap_c" '$2 == p { print $1 }')"; done
+          ap_new=$(printf '%s\n' $ap_next); ap_all="$ap_all $ap_new"
+        done
+        # shellcheck disable=SC2086 # pids
+        kill $ap_all 2>/dev/null || :
+        { wait "$ap_pid"; } 2>/dev/null || :
+        hk_tick; hk_line "$ev.approve" $(( hk_v - hk_a2 )) timeout "stopped-by-hook-budget"
+        printf '%s approval step of worktree run %s stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wl_run" "${PROOFLINE_HOOK_APPROVE_BUDGET:-20}" >> "$shared_local/approve.log" 2>/dev/null || :
+        msgs="${msgs:+$msgs }proofline: the approval step of run $wl_run ran out of time and was stopped, so an approval in your last message may NOT be recorded (details: .agents/local/approve.log)."
+        break
+      fi
+      wait "$ap_pid" 2>/dev/null || :
+      cat "$tmp/apw.out" >> "$tmp/apw.all"
+    done
+    hk_step approve "$hk_a2"
+    ap_ok=$(sed -n 's/^approved: //p' "$tmp/apw.all" | head -n 3 | tr '\n' ';')
+    ap_bad=$(sed -n 's/^not recorded: //p' "$tmp/apw.all" | head -n 1)
+    [ -z "$ap_ok" ] || msgs="${msgs:+$msgs }proofline: approval recorded: ${ap_ok%;}"
+    [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
+  fi
   [ ! -e "$shared_local/prompts/.approving-$sess" ] || rm -f "$shared_local/prompts/.approving-$sess"
   hk_flush
   [ -z "$warn" ] || msgs="$warn${msgs:+ $msgs}"

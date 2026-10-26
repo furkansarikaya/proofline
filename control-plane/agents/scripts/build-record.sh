@@ -68,7 +68,8 @@ EOF_STEPS
   if [ "$multi" = yes ]; then   # a command list: say which one broke, and that the others did not
     if [ -n "$failed" ]; then printf '%s' "$failed" | sed 's/^/failed: /'; else echo 'all commands passed'; fi
   fi
-  [ "$(cat "$dir/done")" = 0 ]
+  # a failed record: the export is clean (tracked and untracked files only), so a test that needs a git-ignored file (.env, a local database, generated files) fails there
+  [ "$(cat "$dir/done")" = 0 ] || { echo 'note: the build export holds no git-ignored files (such as .env; secrets are never copied into it): a test that needs one must be self-contained, or commands.install must prepare it'; return 1; }
 }
 
 if [ "$op" = show ]; then

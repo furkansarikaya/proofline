@@ -310,7 +310,7 @@ next_report() {
   nr_ci=$(ci_pending) || nr_ci=''
   nr_open=$(printf '%s\n' "$nr_rows" | awk -F'\t' '$2 == "open" { print $1 "\t" $3; exit }')
   if [ -n "$nr_wait" ]; then
-    echo "NEXT: wait (owned by pid $nr_wait)   (another session works this batch; do not start a second one. If that session is gone, ask again: a dead owner is taken over)"
+    echo "NEXT: wait (owned by pid $nr_wait)   (pid $nr_wait is another live session; if it is yours, run the batch there or close it; do not start a second one. If that session is gone, ask again: a dead owner is taken over)"
   elif [ -n "$nr_ci" ]; then
     echo "NEXT: ci $nr_ci   (agent.sh batch-ci $nr_ci: the CI of its merge commit; red or no run in time: stop the batch)"
   elif [ -n "$nr_open" ]; then
