@@ -7135,8 +7135,10 @@ case "$command" in
   batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" ;;
   batch-status) sh "$scripts/batch.sh" status ;;
   batch-check) batch_check ;;
+  # pr-state only reads the platform (deliver_pr_view): read-only and role-agnostic by design
   pr-state) printf '%s\n' "$(deliver_pr_view "${2:?usage: agent.sh pr-state <PR>}" | awk 'NR == 1 { print $1 }')" ;;
-  batch-next) shift; sh "$scripts/batch.sh" next "$@" ;;
+  batch-next) shift; PROOFLINE_BATCH_ROLE=$execution_role sh "$scripts/batch.sh" next "$@" ;;   # every role may read the digest; only the lead claims the batch owner
+
   batch-ci) sh "$scripts/batch.sh" ci "${2:?usage: agent.sh batch-ci <ID>}" ;;
   batch-awake) require_lead; sh "$scripts/batch.sh" awake ;;
   batch-park) require_lead; sh "$scripts/batch.sh" park "${2:?usage: agent.sh batch-park <ID> <reason>|--clear}" "${3:?usage: agent.sh batch-park <ID> <reason>|--clear}" ;;

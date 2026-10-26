@@ -592,7 +592,17 @@ sc_owner_guard() {
   kill $s1; wait $s1 2>/dev/null || :
   PROOFLINE_SESSION_PID=$s2 A batch-next | grep -q '^NEXT: run T-1' || { kill $s2; die "a dead owner was not taken over"; }
   [ "$(cut -f1 .agents/local/batch/owner)" = "$s2" ] || { kill $s2; die "owner file: $(cat .agents/local/batch/owner)"; }
+  # a specialist role neither claims nor takes over: the command allow-list denies it, and batch.sh itself claims only for the lead
+  PROOFLINE_SESSION_PID=$s2 A batch-next >/dev/null; own_before=$(cat .agents/local/batch/owner)
+  sleep 60 & s3=$!
+  expect_msg "a specialist role calling batch-next" "command denied for reviewer" env AGENT_ROLE=reviewer PROOFLINE_SESSION_PID=$s3 sh ./.agents/scripts/agent.sh batch-next
+  PROOFLINE_SESSION_PID=$s3 sh ./.agents/scripts/batch.sh next > "$base/spec.out" 2>&1   # no lead role given: a digest, no claim, no verdict
+  grep -q '^NEXT: run T-1' "$base/spec.out" && ! grep -q 'NEXT: wait' "$base/spec.out" || { kill $s2 $s3; die "a non-lead caller got a wait verdict: $(cat "$base/spec.out")"; }
+  [ "$(cat .agents/local/batch/owner)" = "$own_before" ] || { kill $s2 $s3; die "a non-lead caller claimed the batch"; }
   kill $s2; wait $s2 2>/dev/null || :
+  PROOFLINE_SESSION_PID=$s3 sh ./.agents/scripts/batch.sh next >/dev/null
+  [ "$(cut -f1 .agents/local/batch/owner)" = "$s2" ] || { kill $s3; die "a non-lead caller took over a dead owner"; }
+  kill $s3; wait $s3 2>/dev/null || :
   ok "batch-next: one session owns the batch (a live owner makes another wait with its pid), a dead owner is taken over"
 }
 

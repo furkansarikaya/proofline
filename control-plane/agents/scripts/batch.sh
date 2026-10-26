@@ -282,7 +282,9 @@ awake_line() {
 }
 # claim_owner: one session works a batch. owner holds the pid of the session that last asked `next`; another live session gets `wait`
 # (its pid is printed), a dead owner is taken over. Without a findable session process there is no guard.
+# Only the lead claims or is told to wait (PROOFLINE_BATCH_ROLE is set by agent.sh batch-next); any other role gets the digest and writes nothing.
 claim_owner() {
+  [ "${PROOFLINE_BATCH_ROLE:-}" = lead ] || return 0
   co_me=$(session_pid) || return 0
   co_o=$(cut -f1 "$bd/owner" 2>/dev/null || :)
   if [ -n "$co_o" ] && [ "$co_o" != "$co_me" ]; then
