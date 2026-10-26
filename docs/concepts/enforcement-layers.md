@@ -61,6 +61,28 @@ An agent stops only a process it started itself, by its own PID. `pkill`, `killa
 
 The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent: a command assembled at run time, a script outside those folders, and what another tool runs for you (`npm run`, `make`, `ssh host pkill x`, `docker exec c pkill x`) are not seen (A161). Code that only prints or matches a kill word is denied too, because it cannot be told from a command; the denial says so and you can run the command yourself with the `!` prefix. The runtime's permission mode and sandbox are the boundary. Commands you type yourself are not affected.
 
+## Paths inside a run worktree (A184, A185)
+
+A run that lives in its own git worktree (`<main>/.agents/local/worktrees/<ID>`, night mode or `agent.sh worktree-add`) is judged by the same
+rules as a run in the main tree, relative to THAT worktree's root. The one definition is `agent.sh worktree-root <ABS-PATH>`: it answers only
+for a folder that is exactly such a registered linked worktree of this project (not a link, not nested, containing the physical path) and exits 1
+on any doubt. The runtime hook asks it for every path it classifies and for the working directory of the event, then uses that worktree's
+`agent.sh`, so the lead may write `EVIDENCE.md` and the other lead artifacts under the worktree's `.agents/runs/<ID>/`, while gates, approvals,
+questions and `RUN.yaml` stay protected and the worktree's `.agents/local/**` stays runtime state. On any doubt (agent.sh missing, folder not
+registered, a crafted folder) the old project-relative path applies, which is denied as runtime state. State that belongs to no run
+(`batch approvals metrics friction prompts`) is the main tree's and is reached by path, never through a link.
+
+## Hook cost (A188)
+
+Every tool call starts the runtime hook (PreToolUse for Edit, Write, Bash, Read, Grep and Glob; PostToolUse for every tool), so the number of
+processes one run starts is the cost that matters, most of all in Git Bash on Windows, where starting a process takes tens of milliseconds
+(there is no Windows runner in CI: that figure is an estimate, not a measurement). The hook therefore reads the event's JSON in one `jq` or
+`node` run, answers path, name and number work with shell builtins and parameter expansion (`dirname`, `basename`, `tr`, `sed`, `awk`, `sha`
+helpers are used only when the text needs them), asks `agent.sh hook-config` once per event for every config value it needs, and takes the clock
+once per measurement. The approval step (recording an approval from your reply) normalises all allowed phrases in one pass instead of one
+pipeline per phrase. Behaviour is unchanged; `tests/bench/hook-procs.sh` (not run by CI) counts external processes per event with a PATH shim, and
+the numbers are in decision A188.
+
 ## Verified platform behaviour (Claude Code 2.1.295)
 
 Probed in a throwaway project with a logging hook (`claude -p --setting-sources project,local

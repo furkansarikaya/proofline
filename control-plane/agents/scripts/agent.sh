@@ -7,7 +7,9 @@
 set -eu
 LC_ALL=C; export LC_ALL
 
-root=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
+# A188: the folder of this script by parameter expansion (no dirname process; every hook event starts this script at least once)
+case "$0" in */*) self_dir=${0%/*}; [ -n "$self_dir" ] || self_dir=/ ;; *) self_dir=. ;; esac
+root=$(CDPATH='' cd "$self_dir/../.." && pwd)
 agents=$root/.agents
 config=$agents/config.yaml
 scripts=$agents/scripts
@@ -23,9 +25,13 @@ shared_dir() { printf '%s/.agents/local/%s\n' "$sr_main" "$1"; }
 PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
 
-if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 | awk '{print $1}'; }
-else sha256() { sha256sum | awk '{print $1}'; }; fi
+# A188: the digest is the first word of the tool's line (no awk process)
+if command -v shasum >/dev/null 2>&1; then sha256() { sh_o=$(shasum -a 256) || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }
+else sha256() { sh_o=$(sha256sum) || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }; fi
 hash_file() { sha256 < "$1"; }
+# seq3 FILE [raw]: the first three characters of the file's name (its sequence number), leading zeros removed unless `raw` (A188: replaces
+# basename | cut -c1-3 | sed 's/^0*//', three processes per approval or request file).
+seq3() { s3_b=${1##*/}; case $s3_b in ???*) s3_b=${s3_b%"${s3_b#???}"} ;; esac; [ "${2:-}" = raw ] || s3_b=${s3_b#"${s3_b%%[!0]*}"}; printf '%s\n' "$s3_b"; }
 fail() { echo "$*" >&2; return 1; }
 now_epoch() { date +%s; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -64,7 +70,7 @@ acquire_lock() {
   case " $held_locks " in *" $al_path "*) return 0 ;; esac
   al_timeout=${PROOFLINE_LOCK_TIMEOUT:-120}
   case "$al_timeout" in ''|*[!0-9]*) fail "invalid PROOFLINE_LOCK_TIMEOUT: $al_timeout"; return 1 ;; esac
-  [ -w "$(dirname "$al_path")" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
+  [ -w "${al_path%/*}" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
   al_tries=$((al_timeout * 5)) al_n=0 al_broke=''
   while ! mkdir "$al_path" 2>/dev/null; do
     if [ -f "$al_path/pid" ]; then
@@ -165,16 +171,19 @@ config_value() { cfg "$1"; }
 #   eco_dependency_set  the signal whose check is `dependencies` += manifests, locks and package-source settings
 eco_risky_set='' eco_dependency_set='' eco_loaded=0
 eco_sh=$scripts/ecosystems.sh eco_tsv=$agents/ecosystems.tsv
-if [ ! -s "$eco_tsv" ] || [ ! -f "$eco_sh" ]; then
+# A188: the runtime hook asks these read-only questions on most tool calls; none of them reads the ecosystem sets, so the
+# definition (two processes to read) is not loaded for them.
+eco_lazy=no; case "${1:-}" in config-get|db-config|hook-config|worktree-root|in-knowledge-scope) eco_lazy=yes ;; esac
+if [ "$eco_lazy" = no ] && { [ ! -s "$eco_tsv" ] || [ ! -f "$eco_sh" ]; }; then
   # The project's copy is missing. When this script runs from another folder than the project's .agents/ (the repository layout:
   # control-plane/agents/scripts), the definition shipped beside it is used, so risk never shrinks silently. In an installed project
   # the shipped copy IS the project's copy (same folder), so nothing is substituted and the warning and `doctor` apply.
-  eco_ship=$(CDPATH='' cd "$(dirname "$0")/.." 2>/dev/null && pwd) || eco_ship=''
+  eco_ship=$(CDPATH='' cd "$self_dir/.." 2>/dev/null && pwd) || eco_ship=''
   if [ -n "$eco_ship" ] && [ "$eco_ship" != "$agents" ] && [ -s "$eco_ship/ecosystems.tsv" ] && [ -f "$eco_ship/scripts/ecosystems.sh" ]; then
     eco_sh=$eco_ship/scripts/ecosystems.sh eco_tsv=$eco_ship/ecosystems.tsv
   fi
 fi
-if [ -f "$eco_sh" ] && [ -s "$eco_tsv" ]; then
+if [ "$eco_lazy" = no ] && [ -f "$eco_sh" ] && [ -s "$eco_tsv" ]; then
   # shellcheck source=/dev/null # ecosystems.sh next to this script
   . "$eco_sh"
   if eco_init "$eco_tsv"; then
@@ -2179,6 +2188,12 @@ db_config() { # paths | clients | migrate_commands | all
     *) fail "usage: agent.sh db-config <paths|clients|migrate_commands|all>" ;;
   esac
 }
+# hook_config (A188): every config value the runtime hook needs on a tool call, in one run: the database settings (db-config all) and
+# tasks.dir, canonical_branch and product.dir, empty when absent. The hook asks it once per event instead of one process tree per value.
+hook_config() {
+  db_config all
+  printf 'tasks_dir=%s\ncanonical_branch=%s\nproduct_dir=%s\n' "$(cfg tasks.dir '')" "$(cfg canonical_branch '')" "$(cfg product.dir '')"
+}
 db_file_meta() { stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1" 2>/dev/null || echo unknown; }
 db_snapshot() { # "path|size mtime" per database file inside the project, sorted
   ds_globs=$(db_config paths)
@@ -3367,7 +3382,7 @@ next_num() { # DIR -> next NNN over files whose name starts with three digits
   nn_max=0
   for nn_f in "$1"/[0-9][0-9][0-9]*; do
     [ -e "$nn_f" ] || continue
-    nn_v=$(basename "$nn_f" | cut -c1-3 | sed 's/^0*//'); nn_v=${nn_v:-0}
+    nn_v=$(seq3 "$nn_f"); nn_v=${nn_v:-0}
     [ "$nn_v" -le "$nn_max" ] || nn_max=$nn_v
   done
   printf '%03d\n' $((nn_max + 1))
@@ -4602,6 +4617,13 @@ latest_capture() { # -> the capture file with the greatest time, or exit 1; any 
 approval_norm() {
   LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sed "s/'//g; s/’//g" | LC_ALL=C tr '!"#$%&()*+,./:;<=>?@[\\]^`{|}~' ' ' | LC_ALL=C tr -s '[:space:]' ' ' | LC_ALL=C sed 's/^ //; s/ $//'
 }
+# approval_norm_lines (A188): the same normalisation for many lines at once, one output line per input line (a line that normalises to
+# nothing stays an empty line). The runtime hook records an approval on the user's prompt, where approval_norm ran five processes for each
+# of the dozens of allowlisted sentences; here one pipeline does them all. The whitespace squeeze leaves newlines alone, so every line
+# is normalised exactly as approval_norm would normalise it alone.
+approval_norm_lines() {
+  LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sed "s/'//g; s/’//g" | LC_ALL=C tr '!"#$%&()*+,./:;<=>?@[\\]^`{|}~' ' ' | LC_ALL=C tr -s '[:blank:]\r\f\v' ' ' | LC_ALL=C sed 's/^ //; s/ $//'
+}
 # approval_phrases: the explicit approval allowlist (A108): `approval.phrases`, else the built-in English and Turkish list.
 approval_phrases() { cfg approval.phrases 'approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur'; }
 # approval_fillers: the words an approval reply may carry besides a phrase and the kind word (A108).
@@ -4654,13 +4676,13 @@ text_has_approval() {
   case "$tha_raw" in *\?*) return 1 ;; esac
   tha_n=$(printf '%s\n' "$tha_raw" | approval_norm); [ -n "$tha_n" ] || return 1
   tha_low=" $tha_n "
-  tha_full=$(approval_sentences "$2" "${3:-}" | while IFS= read -r tha_s; do printf '%s\n' "$tha_s" | approval_norm; echo; done)
+  tha_full=$(approval_sentences "$2" "${3:-}" | approval_norm_lines)
   case "
 $tha_full
 " in *"
 $tha_n
 "*) return 0 ;; esac
-  tha_pl=$(approval_phrases | tr ',' '\n' | while IFS= read -r tha_x; do printf '%s\n' "$tha_x" | approval_norm; echo; done)
+  tha_pl=$(approval_phrases | tr ',' '\n' | approval_norm_lines)
   tha_kw=$(kind_words "$2" | approval_norm)
   tha_ok=" $(printf '%s' "$tha_pl" | tr '\n' ' ') $tha_kw $(approval_fillers | approval_norm) "
   for tha_t in $tha_n; do case "$tha_ok" in *" $tha_t "*) ;; *) return 1 ;; esac; done
@@ -4717,10 +4739,10 @@ latest_request() { # ID KIND -> request file
 # that was approved (and perhaps consumed) is used up and never reused, even when its bound hash is unchanged.
 pending_request() {
   pr_r=$(latest_request "$1" "$2") || return 1
-  pr_n=$(basename "$pr_r" | cut -c1-3 | sed 's/^0*//')
+  pr_n=$(seq3 "$pr_r")
   for pr_f in "$(approvals_dir "$1")"/[0-9][0-9][0-9]-"$(kind_slug "$2")".yaml; do
     [ -e "$pr_f" ] || continue
-    [ "$(basename "$pr_f" | cut -c1-3 | sed 's/^0*//')" -lt "$pr_n" ] || return 1
+    [ "$(seq3 "$pr_f")" -lt "$pr_n" ] || return 1
   done
   printf '%s\n' "$pr_r"
 }
@@ -4880,10 +4902,10 @@ approve() {
   ap_kind=$(canon_kind "$ap_id" "$ap_kind")
   ap_req=$(latest_request "$ap_id" "$ap_kind") || fail "no approval request for $ap_kind: run 'agent.sh request-approval $ap_id $ap_kind' and relay it to the user first"
   safe_state_file "$ap_req" || fail "approval request $(basename "$ap_req") is not a regular single-link file on a symlink-free path"
-  ap_reqn=$(basename "$ap_req" | cut -c1-3); ap_slug=$(kind_slug "$ap_kind"); ap_ad=$(approvals_dir "$ap_id")
+  ap_reqn=$(seq3 "$ap_req" raw); ap_slug=$(kind_slug "$ap_kind"); ap_ad=$(approvals_dir "$ap_id")
   for ap_f in "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml; do
     [ -e "$ap_f" ] || continue
-    [ "$(basename "$ap_f" | cut -c1-3 | sed "s/^0*//")" -lt "$(printf "%s" "$ap_reqn" | sed "s/^0*//")" ] || fail "request $(basename "$ap_req") is already approved; request again for a new approval"
+    [ "$(seq3 "$ap_f")" -lt "$(seq3 "$ap_reqn")" ] || fail "request $(basename "$ap_req") is already approved; request again for a new approval"
   done
   ap_bound=$(approval_bound "$ap_id" "$ap_kind") || return 1
   [ "$ap_bound" = "$(gate_field "$ap_req" bound)" ] || fail "the content changed since the approval request; request again"
@@ -7055,7 +7077,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = pr-state ] || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = pr-state ] || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 # deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
 # A169: ci-fix also reads the failed check and its log, ci-merge the pull request's head
@@ -7220,6 +7242,7 @@ case "$command" in
   verify-completion-report) verify_completion_report "${2:?usage: agent.sh verify-completion-report <ID>}" ;;
   validate) validate_run "${2:?usage: agent.sh validate <ID>}" ;;
   db-config) db_config "${2:-all}" ;;
+  hook-config) hook_config ;;
   db-check) require_run "${2:?usage: agent.sh db-check <ID>}"; db_guard_check "$2"; echo "database guard: unchanged ($2)" ;;
   test) require_lead; run_suites ;;
   help) usage; exit 0 ;;
