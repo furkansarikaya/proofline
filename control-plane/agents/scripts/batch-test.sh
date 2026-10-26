@@ -609,6 +609,44 @@ sc_worktree_links() {
   ok "worktree-add: a relative or absolute link in a copied dependency folder that led into the main tree is re-pointed; an inner link is kept (A185)"
 }
 
+# --- A185 (round 2): the prompt hook of the main tree approves the pending request of a run that lives in a worktree ---------------------------------
+sc_worktree_prompt_approval() {
+  bnew; mktask W-1 COMPLEX; binstall no
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; [ -f "$hook" ] || die "no hook at $hook"
+  main=$(pwd -P)
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  wt=$(A worktree-add W-1) || die "worktree-add: $wt"
+  ( cd "$wt" && sh .agents/scripts/agent.sh start W-1 --task-file .agents/tasks/W-1.md >/dev/null 2>"$base/st.err" </dev/null ) || die "start W-1 in its worktree: $(tail -1 "$base/st.err")"
+  printf -- '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n' > "$wt/.agents/runs/W-1/PLAN.md"
+  ( cd "$wt" && sh .agents/scripts/agent.sh request-approval W-1 scope >/dev/null ) || die "request-approval scope in the worktree"
+  ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-request-scope.yaml >/dev/null 2>&1 || die "no scope request in the worktree run"
+  # the user's reply reaches the hook of the MAIN tree session; the run is in the worktree
+  sleep 1; out=$(hp 'approve scope')
+  ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "the prompt hook did not record the scope approval in the worktree run: $out"
+  printf '%s' "$out" | grep -q 'approval recorded' || die "the hook did not say it recorded the approval: $out"
+  [ ! -e .agents/runs/W-1 ] || die "the approval created a run folder in the main tree"
+  [ -s .agents/local/approve.log ] && grep -q 'W-1' .agents/local/approve.log || die "no line for W-1 in the shared approve.log of the main tree: $(cat .agents/local/approve.log 2>/dev/null)"
+  [ ! -e "$wt/.agents/local/approve.log" ] || die "the worktree kept its own approve.log"
+  # a run in another worktree with NO request: the prompt adds no work for it, its agent.sh is never started
+  mktask W-2 COMPLEX; git add -A; git commit -qm 'task W-2'
+  wt2=$(A worktree-add W-2) || die "worktree-add W-2: $wt2"
+  ( cd "$wt2" && sh .agents/scripts/agent.sh start W-2 --task-file .agents/tasks/W-2.md >/dev/null 2>"$base/st2.err" </dev/null ) || die "start W-2: $(tail -1 "$base/st2.err")"
+  mv "$wt2/.agents/scripts/agent.sh" "$wt2/.agents/scripts/agent.real.sh"
+  printf '#!/bin/sh\necho "$*" >> "%s/wtcalls"\nexec sh "$(dirname "$0")/agent.real.sh" "$@"\n' "$base" > "$wt2/.agents/scripts/agent.sh"
+  : > "$base/wtcalls"; hp 'thanks, looks good' >/dev/null
+  [ ! -s "$base/wtcalls" ] || die "a prompt without a pending request started the worktree's agent.sh: $(cat "$base/wtcalls")"
+  mv "$wt2/.agents/scripts/agent.real.sh" "$wt2/.agents/scripts/agent.sh"
+  # the capture is safe state in the main tree: a capture planted as a link is refused, as in the main tree
+  ( cd "$wt" && sh .agents/scripts/agent.sh request-approval W-1 scope >/dev/null ) || die "second scope request"; sleep 1
+  cp .agents/local/prompts/s1.json "$base/cap.real"; rm -f .agents/local/prompts/s1.json; ln -s "$base/cap.real" .agents/local/prompts/s1.json
+  ( cd "$wt" && sh .agents/scripts/agent.sh approve-pending W-1 >"$base/lnk.out" 2>&1 ) || :
+  grep -q 'not a regular single-link file' "$base/lnk.out" && [ "$(ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml | wc -l | tr -d ' ')" = 1 ] || die "a symlinked capture in the shared prompts folder was accepted from the worktree: $(cat "$base/lnk.out")"
+  rm -f .agents/local/prompts/s1.json; ln "$base/cap.real" .agents/local/prompts/s1.json
+  ( cd "$wt" && sh .agents/scripts/agent.sh approve-pending W-1 >"$base/lnk2.out" 2>&1 ) || :
+  grep -q 'not a regular single-link file' "$base/lnk2.out" && [ "$(ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml | wc -l | tr -d ' ')" = 1 ] || die "a hard-linked capture was accepted from the worktree: $(cat "$base/lnk2.out")"
+  ok "a worktree run's pending request is approved by the main tree's prompt hook (shared approve.log, no worktree process without a request); a linked capture is refused (A185)"
+}
+
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
 sc_adapter_refused() {
   bnew; mktask T-1 COMPLEX; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; binstall no
@@ -720,6 +758,7 @@ run_sc sc_restart
 run_sc sc_worktree_cmds
 run_sc sc_worktree_prep
 run_sc sc_worktree_links
+run_sc sc_worktree_prompt_approval
 run_sc sc_status_from_records
 run_sc sc_adapter_refused
 run_sc sc_merge_commit_ci

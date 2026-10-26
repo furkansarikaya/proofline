@@ -303,6 +303,41 @@ scenario_cleanup_crash_keeps_merged() {
   ok "deliver: the merge is recorded in merged.tsv before the cleanup, so a crash in between leaves the task merged"
 }
 
+# A184 (round 2): the knowledge step's files (docs/wiki, not named by the plan) written from CODE_DONE on never move the tier, a gate or the delivery
+scenario_knowledge_tier() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; tasks_in_tasks; hooks
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go
+  A handoff LC IMPLEMENTED >/dev/null; [ "$(A tier LC)" = small ] || die "the fixture is not tier small: $(A tier LC)"
+  pass_all; n_gates=$(ls .agents/runs/LC/gates/*.yaml | wc -l | tr -d ' ')
+  A handoff LC CODE_DONE >/dev/null
+  mkdir -p docs/wiki; for i in 1 2 3 4; do printf '# Page %s\n\nThe lookup returns the stored value.\n' "$i" > "docs/wiki/page$i.md"; done
+  [ "$(A tier LC)" = small ] || die "four knowledge files at CODE_DONE moved the tier to $(A tier LC)"
+  A knowledge-done LC >/dev/null || die "knowledge-done refused four wiki pages: $(A knowledge-done LC 2>&1 | tail -1)"
+  [ "$(A tier LC)" = small ] && [ "$(ls .agents/runs/LC/gates/*.yaml | wc -l | tr -d ' ')" = "$n_gates" ] || die "the tier or the gate files changed after the knowledge step"
+  for g in $(pipe_val gates); do case "$(A pipeline LC | sed -n "s/^gate.$g=//p")" in *missing*|*stale*) die "gate $g became $(A pipeline LC | sed -n "s/^gate.$g=//p") after the knowledge files" ;; esac; done
+  write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
+  A deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan refused after the knowledge files: $(tail -2 "$base/plan.out")"
+  grep -q 'approve delivery' "$base/plan.out" || die "deliver-plan is not ready: $(cat "$base/plan.out")"
+  ok "knowledge: four wiki pages the plan does not name, written at CODE_DONE, leave the tier small, every gate satisfied and deliver-plan ready (A184)"
+}
+
+# the same four files BEFORE CODE_DONE still count (the plan names none of them), and a gate the effective tier needs but that cannot be recorded at CODE_DONE
+# sends `next` to amend or a new task, never to reviewers
+scenario_knowledge_tier_before_and_next() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; tasks_in_tasks; hooks
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go
+  A handoff LC IMPLEMENTED >/dev/null; [ "$(A tier LC)" = small ] || die "the fixture is not tier small: $(A tier LC)"
+  mkdir -p docs/wiki; for i in 1 2 3 4; do printf '# Page %s\n\nThe lookup returns the stored value.\n' "$i" > "docs/wiki/page$i.md"; done
+  [ "$(AS reviewer tier LC)" = full ] || die "four unnamed wiki files before CODE_DONE did not count: $(AS reviewer tier LC)"
+  rm -rf docs; [ "$(AS reviewer tier LC)" = small ] || die "the fixture is not tier small again: $(AS reviewer tier LC)"
+  pass_all; A handoff LC CODE_DONE >/dev/null
+  printf '{}\n' > package.json   # a risky path at CODE_DONE: a task change, so the effective tier is full and its gates are missing
+  out=$(A next LC)
+  printf '%s\n' "$out" | grep -q 'agent.sh amend LC' && printf '%s\n' "$out" | grep -q 'do NOT dispatch reviewers' || die "next at CODE_DONE with an unsatisfied gate: $out"
+  printf '%s\n' "$out" | grep -q 'dispatch.sh LC reviewer' && die "next still sends the lead to reviewers: $out"
+  ok "knowledge: the same files before CODE_DONE count; next at CODE_DONE with an unsatisfied tier gate says amend or new task, no reviewers (A184)"
+}
+
 run_sc scenario_normal_chain
 run_sc scenario_cleanup_crash_keeps_merged
 run_sc scenario_content_change_stops
@@ -316,4 +351,6 @@ run_sc scenario_task_done_noop
 run_sc scenario_ci_check
 run_sc scenario_one_approval_real_chain
 run_sc scenario_partial_reply_recovers
+run_sc scenario_knowledge_tier
+run_sc scenario_knowledge_tier_before_and_next
 echo 'deliver tests passed'
