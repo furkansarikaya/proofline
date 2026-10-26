@@ -173,6 +173,10 @@ pending question) from the records, never from a session log, with the friction 
 
 The platform comes from the `origin` URL (A180): GitHub, GitLab, Azure DevOps (`dev.azure.com`, `*.visualstudio.com`, `ssh.dev.azure.com`), Bitbucket, or other. `agent.sh platform` and `proofline doctor` show it, the tool found on `PATH` (`gh`, `glab`, `az`) and who merges.
 
+A private host is named in `.agents/config.yaml` (A186): `git.platform` (`github`, `gitlab`, `azure`, `bitbucket` or `other`) and `git.platform_host` (a bare host such as `gitlab.company.com`, `github.company.com` or an Azure DevOps Server host). The order is config, then the `PROOFLINE_PLATFORM` environment variable, then the origin URL; `proofline doctor` shows the platform and which of the three decided (config, env, auto). `git.platform_host` applies the platform only when it equals the host of `origin` as a whole, so `github.com.evil.example` is still `other`. The tool then talks to that host (`GH_HOST` for GitHub Enterprise, `GITLAB_HOST` for self-hosted GitLab, the collection address of `origin` as `--org` for Azure DevOps Server). `agent.sh config-check` validates both keys.
+
+When CI is red after the pull request is open, the CI-fix round (A169) reads the failed check through the platform adapter on all three platforms: `gh`, `glab` (the failed job of the merge request's pipeline) or `az` (the failed build policy and the errors of its failed tasks). If the tool cannot give the log, the round starts from the check's name and status only and says so; where there is no reader (Bitbucket, other hosts, no tool) no failed check is known, so the command stops with a message and you read the failing check yourself.
+
 | Platform and tool | Pull request | Merge |
 |---|---|---|
 | GitHub + `gh`, GitLab + `glab`, Azure DevOps + `az` | opened with that tool | `proofline merge <PR>`: open, not a draft, every check (GitHub checks, the GitLab pipeline of the head, the Azure build and status policies) passed on the head being merged; the same fail-closed strictness on all three |

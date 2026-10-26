@@ -42,6 +42,15 @@ git:
   # Empty by default (D34): the team decides.
   protected_branches:
   push_requires_approval: true
+  # Hosting platform of the remote (A186), for a private host proofline cannot recognize by name: github | gitlab | azure |
+  # bitbucket | other. Precedence: this key, then the PROOFLINE_PLATFORM environment variable, then the origin URL (github.com,
+  # gitlab.com, dev.azure.com, bitbucket.org). `proofline doctor` shows the platform and which of the three decided.
+  platform:
+  # Bare host name of the origin remote that `platform` applies to, for example gitlab.company.com, github.company.com or an
+  # Azure DevOps Server host. It must EQUAL the host of the origin URL (never a prefix, suffix or part of it), so a look-alike
+  # host never gets the platform; empty means `platform` applies to whatever the origin is. GitHub Enterprise uses GH_HOST and
+  # self-hosted GitLab GITLAB_HOST (set for the tool from this host); Azure DevOps Server uses the collection URL of the origin.
+  platform_host:
   # Forbidden commit identities (glob or ERE, case-insensitive), for example *@example-corp.com
   forbidden_identities:
 approval:

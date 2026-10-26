@@ -38,16 +38,18 @@ doctor_platform() {
   dp_o=$(cd "$ROOT" && sh "$A" platform 2>/dev/null) || dp_o=''
   dp_p=$(printf '%s\n' "$dp_o" | sed -n 's/^platform: //p'); dp_c=$(printf '%s\n' "$dp_o" | sed -n 's/^cli: //p')
   dp_w=$(printf '%s\n' "$dp_o" | sed -n 's/^web: //p')
+  dp_s=$(printf '%s\n' "$dp_o" | sed -n 's/^source: //p'); dp_src=${dp_s:-auto}
+  case "$dp_src" in config) dp_src='config: git.platform' ;; env) dp_src='env: PROOFLINE_PLATFORM' ;; *) dp_src='auto: origin URL' ;; esac
   if [ -z "$(g remote get-url origin 2>/dev/null || true)" ]; then
     d_warn "platform: the project has no origin remote yet, so the platform is unknown; with one, proofline detects GitHub, GitLab, Azure DevOps and Bitbucket from its address"; return 0
   fi
   case "$dp_p:$dp_c" in
-    github:gh) d_pass "platform: github, tool gh installed; merge rule: proofline opens and merges the pull request, every check must be green, and a pull request without checks is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
-    gitlab:glab) d_pass "platform: gitlab, tool glab installed; merge rule: proofline opens and merges the merge request, the pipeline must be green, and a merge request without a pipeline is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
-    azure:az) d_pass "platform: azure devops, tool az installed; merge rule: proofline opens and merges the pull request, every build policy must be approved, and a pull request without one is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
-    github:*|gitlab:*|azure:*) d_warn "platform: $dp_p, but its tool ($(case $dp_p in gitlab) echo glab ;; azure) echo az ;; *) echo gh ;; esac) is not installed; merge rule: manual. proofline pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
-    bitbucket:*) d_warn "platform: bitbucket; merge rule: manual. proofline has no adapter: it pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
-    *) d_warn "platform: not recognized (${dp_w:-the origin address}); merge rule: manual. proofline pushes the branch and prints the manual steps; YOU open and merge the pull request" ;;
+    github:gh) d_pass "platform: github (source $dp_src), tool gh installed; merge rule: proofline opens and merges the pull request, every check must be green, and a pull request without checks is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    gitlab:glab) d_pass "platform: gitlab (source $dp_src), tool glab installed; merge rule: proofline opens and merges the merge request, the pipeline must be green, and a merge request without a pipeline is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    azure:az) d_pass "platform: azure devops (source $dp_src), tool az installed; merge rule: proofline opens and merges the pull request, every build policy must be approved, and a pull request without one is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    github:*|gitlab:*|azure:*) d_warn "platform: $dp_p (source $dp_src), but its tool ($(case $dp_p in gitlab) echo glab ;; azure) echo az ;; *) echo gh ;; esac) is not installed; merge rule: manual. proofline pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
+    bitbucket:*) d_warn "platform: bitbucket (source $dp_src); merge rule: manual. proofline has no adapter: it pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
+    *) d_warn "platform: not recognized (${dp_w:-the origin address}; source $dp_src; a private host is named with git.platform and git.platform_host in .agents/config.yaml); merge rule: manual. proofline pushes the branch and prints the manual steps; YOU open and merge the pull request" ;;
   esac
 }
 

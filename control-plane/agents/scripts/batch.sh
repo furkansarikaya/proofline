@@ -358,6 +358,8 @@ ci_cmd() { # ID
   cc_pr=$(merged_pr "$cc_id") || die "$cc_id is not merged (no record in merged.tsv)"
   if [ "$(sh "$agent" ci-check 2>/dev/null | head -1)" = 'ci: absent' ]; then ci_record "$cc_id" none; echo "ci: not applicable (no CI check runs on pull requests; the merge was verified locally)"; return 0; fi
   cc_pf=$(sh "$here/platform.sh" field platform -C "$root" 2>/dev/null || echo other)
+  cc_pe=$(sh "$here/platform.sh" env -C "$root" 2>/dev/null || true)   # a private host (A186)
+  case "$cc_pe" in GH_HOST=*) GH_HOST=${cc_pe#GH_HOST=}; export GH_HOST ;; esac
   if [ "$cc_pf" != github ] || ! command -v gh >/dev/null 2>&1; then ci_record "$cc_id" none; echo "ci: not checked here (the CI of a merge commit is read through gh on GitHub; platform $cc_pf): look at it yourself before you go on"; return 0; fi
   cc_sha=$(cd "$root" && gh pr view "$cc_pr" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null) || cc_sha=''
   [ -n "$cc_sha" ] || { echo "ci: cannot read the merge commit of PR $cc_pr ($cc_id)"; return 3; }
