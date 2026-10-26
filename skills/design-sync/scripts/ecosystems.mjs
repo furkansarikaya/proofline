@@ -16,6 +16,8 @@
 //   classifyPath(path)            [{ecosystem, role}] roles: manifest, lock, settings, project, solution, workspace, risky
 //   toRegExp(spec)                "/source/flags" -> RegExp; a bare string is a source
 //   flatten(data)                 the rows [id, path, value] of ecosystems.tsv
+// Workspace members (A187): workspace_roots[].members says how a workspace file's member list is read, commands.*[].workspace and
+// at_workspace are command templates with {members}; discover.sh (d_members, d_rule) builds the command from them.
 // CLI: node ecosystems.mjs write|sync|check|validate|get <id|*> <path>|ids|risky|dependency
 //   write     regenerates ecosystems.tsv next to ecosystems.json
 //   sync      write, then refreshes the byte-identical copies in every skills/*/ that carries one (the control plane only)
@@ -166,7 +168,25 @@ export function validate(data = loadEcosystems()) {
     need(typeof e.name === "string" && e.name !== "", `${w}: name missing`);
     for (const k of ECO_ARRAYS) need(Array.isArray(e[k]), `${w}: ${k} must be an array`);
     for (const k of ["project_files", "manifests"]) need(e[k]?.length > 0, `${w}: ${k} must not be empty`);
-    for (const x of e.workspace_roots ?? []) need(typeof x.file === "string" && /^[^/*]+$/.test(x.file), `${w}: workspace_roots.file must be one plain file name`);
+    for (const x of e.workspace_roots ?? []) {
+      need(typeof x.file === "string" && /^[^/*]+$/.test(x.file), `${w}: workspace_roots.file must be one plain file name`);
+      if (x.members === undefined) continue;
+      // members (A187): how the member list of the workspace file is read and written into a command
+      const m = x.members, mw = `${w}: workspace_roots ${x.file} members`;
+      need(m && typeof m === "object" && !Array.isArray(m), `${mw} must be an object`);
+      const known = ["single_prefix", "block_open", "block_close", "block_item_prefix", "comment", "format"];
+      for (const k of Object.keys(m ?? {})) need(known.includes(k) && typeof m[k] === "string" && m[k] !== "", `${mw}: ${k} must be one of ${known.join(", ")} and a non-empty string`);
+      need(typeof m?.format === "string" && m.format.includes("{member}"), `${mw}: format must hold {member}`);
+      need(Boolean(m?.single_prefix) || Boolean(m?.block_open && m?.block_close), `${mw}: needs single_prefix or block_open with block_close`);
+      for (const k of ["single_prefix", "block_open", "block_close", "block_item_prefix"]) if (m?.[k]) { try { new RegExp(m[k]); } catch { err.push(`${mw}: ${k} is not a regular expression`); } }
+    }
+    const canList = (e.workspace_roots ?? []).some((x) => x.members);
+    for (const kind of ["build", "test", "lint"]) for (const r of e.commands?.[kind] ?? []) {
+      if (r.workspace === undefined && r.at_workspace === undefined) continue;
+      need(canList, `${w}: commands.${kind} has a workspace template but no workspace_roots entry has members`);
+      need(typeof r.workspace === "string" && r.workspace.includes("{members}"), `${w}: commands.${kind} workspace must hold {members}`);
+      need(typeof r.at_workspace === "string" && r.at_workspace.includes("{members}"), `${w}: commands.${kind} at_workspace must hold {members}`);
+    }
     for (const x of e.version_files ?? []) need(["workflow", "line", "tool_versions", "match", "gitlab_image"].includes(x.kind), `${w}: version_files kind ${x.kind}`);
     const u = e.units ?? {};
     need(["dir", "file"].includes(u.target), `${w}: units.target must be dir or file`);

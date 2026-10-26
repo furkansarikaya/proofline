@@ -22,7 +22,7 @@ tree() { # N: the sleep number suffix base
   printf 'sh -c "sleep %s%s" & sleep %s%s & (trap "" TERM; sleep %s%s) & wait' "$tok" 1 "$tok" 2 "$tok" 3
 }
 tried=0
-for m in setm setsid perl python none; do
+for m in setm setsid perl pysetpgid none; do
   out=$( (
     say() { :; }
     PROOFLINE_TEST=1; PROOFLINE_PGMETHOD=$m; export PROOFLINE_TEST PROOFLINE_PGMETHOD

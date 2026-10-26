@@ -480,6 +480,12 @@ go	manifests	go.work
 go	locks	go.sum
 go	locks	go.work.sum
 go	workspace_roots.0.file	go.work
+go	workspace_roots.0.members.single_prefix	^use +
+go	workspace_roots.0.members.block_open	^use *[(]$
+go	workspace_roots.0.members.block_close	^[)]
+go	workspace_roots.0.members.block_item_prefix	^ +
+go	workspace_roots.0.members.comment	//
+go	workspace_roots.0.members.format	./{member}/...
 go	units.target	dir
 go	units.bare	root
 go	runtime.name	go
@@ -508,15 +514,21 @@ go	version_files.4.kind	gitlab_image
 go	version_files.4.image	golang
 go	commands.truth	tools
 go	commands.tools	go
-go	commands.build.0.when.file	go.mod
-go	commands.build.0.run	go build ./...
-go	commands.build.0.at	go -C {dir} build ./...
-go	commands.test.0.when.file	go.mod
-go	commands.test.0.run	go test ./...
-go	commands.test.0.at	go -C {dir} test ./...
-go	commands.lint.0.when.file	go.mod
-go	commands.lint.0.run	go vet ./...
-go	commands.lint.0.at	go -C {dir} vet ./...
+go	commands.build.0.workspace	go build {members}
+go	commands.build.0.at_workspace	go -C {dir} build {members}
+go	commands.build.1.when.file	go.mod
+go	commands.build.1.run	go build ./...
+go	commands.build.1.at	go -C {dir} build ./...
+go	commands.test.0.workspace	go test {members}
+go	commands.test.0.at_workspace	go -C {dir} test {members}
+go	commands.test.1.when.file	go.mod
+go	commands.test.1.run	go test ./...
+go	commands.test.1.at	go -C {dir} test ./...
+go	commands.lint.0.workspace	go vet {members}
+go	commands.lint.0.at_workspace	go -C {dir} vet {members}
+go	commands.lint.1.when.file	go.mod
+go	commands.lint.1.run	go vet ./...
+go	commands.lint.1.at	go -C {dir} vet ./...
 go	benchmark.files.0.glob	*_test.go
 go	benchmark.files.0.contains	^func Benchmark
 go	benchmark.files.0.why	Go func Benchmark in *_test.go

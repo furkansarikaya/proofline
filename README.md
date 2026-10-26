@@ -125,7 +125,7 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **Language of run files.** Run files are English, but a project in another language quotes its own product text as it is: inline code, "double quotes", a `> ` line or a JSON string is accepted when its exact text is in the task or in a project file; agents never transliterate it to ASCII or ask you about it ([details](docs/concepts/workflow.md#language-of-run-files)).
 
-**Project layout.** proofline assumes no folder layout. One ecosystem definition drives `init`: it proposes one command per ecosystem, and `commands.build|test|lint` may be a list. An ambiguous ecosystem gets none and the run asks you once ([ecosystems](docs/concepts/ecosystems.md)).
+**Project layout.** No layout is assumed. One ecosystem definition (no ecosystem code) drives `init`: a command per ecosystem, from workspace members if any; `commands.build|test|lint` may be a list. An ambiguous one gets none; the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
 
 **Processes.** An agent stops only a process it started itself, by its own PID: the runtime hook denies `pkill`, `killall`, `kill` by pattern and mass kills. The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent. What it sees and what it cannot: [process rules](docs/concepts/enforcement-layers.md#process-rules).
 
