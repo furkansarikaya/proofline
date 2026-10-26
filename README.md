@@ -57,7 +57,7 @@ cd your-project && proofline init
 npx skills add furkansarikaya/proofline --skill <name>
 ```
 
-Windows: use WSL or Git Bash (the control plane is POSIX `sh`); no symlinks or developer mode needed.
+Windows: use WSL or Git Bash (the control plane is POSIX `sh`); no symlinks needed.
 
 ## Quick start (5 minutes)
 
@@ -115,7 +115,7 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **Platforms.** GitHub, GitLab, Azure DevOps; a private host is named by `git.platform` and `git.platform_host`; else you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
 
-**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal one. One table (`next-user.sh`) holds it ([details](docs/concepts/workflow.md#the-next-step)).
+**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal one. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [details](docs/concepts/workflow.md#the-next-step).
 
 **Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it. The same session then runs and delivers each task in dependency order, the next one only after the previous is merged, each in its own git worktree. Keep the computer awake and the session open; `/proofline batch` continues after an interruption. What the approval does not cover (waiver, scope expansion, new dependency, reopen, destructive data change) parks that task with its question. `proofline batch status` is the morning table. A worktree gets copies of the main tree's dependency folders (`node_modules`, `vendor`, ...) and its git-ignored `.env*` files (`worktree.copy_files`), so an install in a task never changes the main tree ([night mode](docs/concepts/night-mode.md)).
 
@@ -125,13 +125,13 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **Language of run files.** Run files are English; a project in another language quotes its own product text as it is (inline code, "double quotes", a `> ` line or a JSON string found in the task or a project file), never transliterated ([details](docs/concepts/workflow.md#language-of-run-files)).
 
-**Project layout.** No layout is assumed. One ecosystem definition (no ecosystem code) drives `init`: a command per ecosystem, built from the workspace member list in the definition if there is one (`go.work`); `commands.build|test|lint` may be a list. An ambiguous one gets none; the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
+**Project layout.** No layout is assumed. One ecosystem definition drives `init`: a command per ecosystem, built from the workspace member list in the definition if there is one (`go.work`); `commands.build|test|lint` may be a list. An ambiguous one gets none; the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
 
 **Processes.** An agent stops only a process it started itself, by its own PID: the runtime hook denies `pkill`, `killall`, `kill` by pattern and mass kills. A tripwire against an honest mistake, not a sandbox: [process rules](docs/concepts/enforcement-layers.md#process-rules).
 
 ## Real output
 
-An end-to-end run's unedited final message (STANDARD bug fix, headless, 2026-10-09): [workflow](docs/concepts/workflow.md#real-output). All results: [tests/e2e/README.md](tests/e2e/README.md).
+An end-to-end run's final message, unedited (STANDARD bug fix, headless, 2026-10-09): [workflow](docs/concepts/workflow.md#real-output). All results: [tests/e2e/README.md](tests/e2e/README.md).
 
 ## Documentation
 
