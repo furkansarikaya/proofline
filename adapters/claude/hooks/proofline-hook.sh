@@ -259,7 +259,13 @@ relpath() {
   case "/$rp_tail/" in */../*|*/./*) echo @unknown; return ;; esac
   rp_dir=$(CDPATH='' cd "$rp_dir" 2>/dev/null && pwd -P) || { echo @unknown; return; }
   rp=$rp_dir/$rp_tail
-  case "$rp" in "$root") echo . ;; "$root"/*) rp_r=${rp#"$root"/}
+  # A184 (review): a session whose project root is a run worktree still protects the MAIN tree: a path inside main_root (the main working tree of
+  # the same git common dir) that is not inside the session's own worktree is judged with the main tree's rules, relative to main_root, never as
+  # "outside the project" (that would let the lead write .agents/local/approvals there). In the main tree main_root is root: nothing changes.
+  rp_b=''
+  case "$rp" in "$root"|"$root"/*) rp_b=$root ;; "$main_root"|"$main_root"/*) rp_b=$main_root ;; esac
+  [ -n "$rp_b" ] || { echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp"; return; }   # (an empty base would make "$rp_b"/* match every path)
+  case "$rp" in "$rp_b") echo . ;; "$rp_b"/*) rp_r=${rp#"$rp_b"/}
     # A184: a path inside a run's own git worktree (.agents/local/worktrees/<ID>/...) is judged relative to THAT worktree's root, so its
     # .agents/runs/<ID>/ obeys the rules of the main tree and its .agents/local/** stays runtime state. Whether the folder is a registered
     # worktree of this project is decided by agent.sh worktree-root (the one definition, never inferred from the path string here); any

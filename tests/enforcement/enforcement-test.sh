@@ -1214,6 +1214,11 @@ worktree_state() {
   allowed "A185 CLAUDE_PROJECT_DIR=worktree: lead writes EVIDENCE.md in the run folder" "$(cpd pre_edit Write "$wt/.agents/runs/LC/EVIDENCE.md")"
   denied "A185 CLAUDE_PROJECT_DIR=worktree: lead writes RUN.yaml" "$(cpd pre_edit Write "$wt/.agents/runs/LC/RUN.yaml")"
   denied "A185 CLAUDE_PROJECT_DIR=worktree: lead writes the worktree's approvals" "$(cpd pre_edit Write "$wt/.agents/local/approvals/001-plan.yaml")"
+  # review: the MAIN tree stays protected by the main tree's rules for a session whose project root is the worktree (never "outside the project")
+  denied "A184 CLAUDE_PROJECT_DIR=worktree: lead writes the MAIN tree's approvals" "$(cpd pre_edit Write "$M/.agents/local/approvals/001-plan.yaml")"
+  denied "A184 CLAUDE_PROJECT_DIR=worktree: lead writes the MAIN tree's ACTIVE_RUN" "$(cpd pre_edit Write "$M/.agents/local/ACTIVE_RUN")"
+  denied "A184 CLAUDE_PROJECT_DIR=worktree: lead writes the MAIN tree's RUN.yaml" "$(cpd pre_edit Write "$M/.agents/runs/LC/RUN.yaml")"
+  denied "A184 CLAUDE_PROJECT_DIR=worktree: lead shell-writes the MAIN tree's approvals" "$(cpd pre_bash "echo x > $M/.agents/local/approvals/001-plan.yaml")"
   rm -f "$wt/.agents/local/windows/a7"
   out=$(cpd wsub proofline:proofline-implementer a8)
   [ -s "$wt/.agents/local/windows/a8" ] && [ ! -e "$M/.agents/local/windows/a8" ] || die "A185 CLAUDE_PROJECT_DIR=worktree: the window is not in the worktree: $out"
