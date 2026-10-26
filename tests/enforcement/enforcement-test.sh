@@ -1162,8 +1162,63 @@ read_roles_tree() {
   git worktree remove --force "$W" >/dev/null 2>&1 || :
 }
 
+# A184, A185: a run that lives in its own worktree is judged by that worktree's root; the lead writes EVIDENCE.md there, never the runtime
+# state or the gated files; a crafted folder is no worktree; the hook finds the run (and opens the implementer window) in the worktree.
+worktree_state() {
+  fixture
+  printf 'impl.txt\n' > .agents/owns.conf.tmp; rm -f .agents/owns.conf.tmp
+  M=$PWD
+  wt=$(sh .agents/scripts/agent.sh worktree-add W-1) || die "worktree-add: $wt"
+  mkdir -p "$wt/.agents/runs" "$wt/.agents/local/approvals" "$wt/.agents/local/records"
+  cp -R .agents/runs/LC "$wt/.agents/runs/LC"; cp .agents/local/ACTIVE_RUN "$wt/.agents/local/ACTIVE_RUN"
+  [ "$(sh .agents/scripts/agent.sh worktree-root "$wt/.agents/runs/LC")" = "$wt" ] || die "worktree-root of the run folder"
+  # item 1: the lead's own artifact in the worktree's run folder, nothing of the real runtime state or the gated files
+  allowed "A184 lead writes EVIDENCE.md in the worktree's run folder" "$(pre_edit Write "$wt/.agents/runs/LC/EVIDENCE.md")"
+  allowed "A184 lead shell-writes EVIDENCE.md in the worktree's run folder" "$(pre_bash "echo x > $wt/.agents/runs/LC/EVIDENCE.md")"
+  denied "A184 lead writes a worktree approval" "$(pre_edit Write "$wt/.agents/local/approvals/001-plan.yaml")"
+  denied "A184 lead writes a worktree record" "$(pre_edit Write "$wt/.agents/local/records/a1.txt")"
+  denied "A184 lead writes the worktree's ACTIVE_RUN" "$(pre_edit Write "$wt/.agents/local/ACTIVE_RUN")"
+  denied "A184 lead writes the worktree's RUN.yaml" "$(pre_edit Write "$wt/.agents/runs/LC/RUN.yaml")"
+  denied "A184 lead writes a worktree gate" "$(pre_edit Write "$wt/.agents/runs/LC/gates/001-PLAN.yaml")"
+  denied "A184 lead shell-writes the worktree's RUN.yaml" "$(pre_bash "echo x > $wt/.agents/runs/LC/RUN.yaml")"
+  # the main tree is judged as before
+  allowed "A184 main tree: lead writes EVIDENCE.md" "$(pre_edit Write .agents/runs/LC/EVIDENCE.md)"
+  denied "A184 main tree: lead writes RUN.yaml" "$(pre_edit Write .agents/runs/LC/RUN.yaml)"
+  denied "A184 main tree: lead writes .agents/local/approvals" "$(pre_edit Write .agents/local/approvals/001-plan.yaml)"
+  # a crafted folder is not a registered worktree: it stays runtime state
+  mkdir -p "$M/.agents/local/worktrees/FAKE/.agents/runs/LC" "$M/.agents/local/worktrees/FAKE/.agents"
+  cp .agents/config.yaml "$M/.agents/local/worktrees/FAKE/.agents/"; cp -R .agents/scripts "$M/.agents/local/worktrees/FAKE/.agents/scripts"
+  denied "A184 lead writes EVIDENCE.md in a crafted worktrees/FAKE folder" "$(pre_edit Write "$M/.agents/local/worktrees/FAKE/.agents/runs/LC/EVIDENCE.md")"
+  denied "A184 lead shell-writes into a crafted worktrees/FAKE folder" "$(pre_bash "echo x > $M/.agents/local/worktrees/FAKE/.agents/runs/LC/EVIDENCE.md")"
+  # item 3: the hook sees the run in the worktree (path and cwd), and the implementer window opens there
+  wsub() { H subagent-start "{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"s1\",\"cwd\":\"$wt\"$(who "$1" "$2")}"; }
+  wedit() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$wt\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$1\"}$(who proofline-implementer a7)}"; }
+  denied "A185 implementer without a window in the worktree" "$(wedit "$wt/impl.txt")" "no implementer window"
+  out=$(wsub proofline:proofline-implementer a7)
+  [ -s "$wt/.agents/local/windows/a7" ] && printf '%s' "$out" | grep -q 'AGENT_ROLE=implementer' || die "A185 SubagentStart did not open the window in the worktree: $out"
+  [ ! -e .agents/local/windows/a7 ] || die "A185 the window opened in the main tree"
+  ok "A185 the implementer window opens in the worktree that owns the run"
+  allowed "A185 implementer edits an in-scope file in the worktree inside its window" "$(wedit "$wt/impl.txt")"
+  denied "A185 implementer edits an out-of-scope file in the worktree" "$(wedit "$wt/src/app.js")" "outside the paths role implementer owns"
+  git worktree remove --force "$wt" >/dev/null 2>&1 || :
+}
+
+# A184: an explorer's prose report is recorded with a NOTE that sends the lead back to the explorer for the claims table
+explorer_prose_note() {
+  fixture
+  mkdir -p .agents/runs/LC/scratch; art=.agents/runs/LC/scratch/e5-report.md
+  printf '# findings\nThe cache is in lookup.js and looks fine.\n' > "$art"
+  AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit LC --agent e5 --result DONE --confidence high --report "$art" > "$base/np.out" 2>&1 || die "A184 explorer prose submit refused: $(cat "$base/np.out")"
+  grep -q '^NOTE: the explorer report .* has no claims table' "$base/np.out" && grep -q 'send the SAME explorer' "$base/np.out" || die "A184 no NOTE for a prose report: $(cat "$base/np.out")"
+  art=.agents/runs/LC/scratch/e6-report.md
+  printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n| C1 | low | src/lookup.js:3 | x | y |\n' > "$art"
+  AGENT_ROLE=explorer sh .agents/scripts/agent.sh submit LC --agent e6 --result DONE --confidence high --report "$art" > "$base/np2.out" 2>&1 || die "A184 explorer table submit refused: $(cat "$base/np2.out")"
+  ! grep -q 'has no claims table' "$base/np2.out" || die "A184 a claims table got the NOTE: $(cat "$base/np2.out")"
+  ok "A184 an explorer prose report gets the NOTE to ask the explorer for the table; a table does not"
+}
+
 fails=0
-scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage knowledge_surfaces stop_next_step not_installed live_claude read_roles_tree'
+scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage knowledge_surfaces stop_next_step not_installed live_claude read_roles_tree worktree_state explorer_prose_note'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done

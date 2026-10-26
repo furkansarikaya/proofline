@@ -374,6 +374,17 @@ reject "doctor leaves ecosystem skills and other events alone" "$out" "rust-lint
 reject "doctor ignores a foreign PreToolUse hook" "$out" "not-listed"
 }
 
+sc_doctor_platform_source() {
+  need_base
+  dp=$T/dp; cp -R "$base" "$dp"; git -C "$dp" remote add origin https://gitlab.company.com/acme/app.git 2>/dev/null || git -C "$dp" remote set-url origin https://gitlab.company.com/acme/app.git
+  expect "doctor: an unknown private host is auto, origin URL" "$(pl "$dp" doctor 2>&1)" "source auto: origin URL; a private host is named with git.platform"
+  sed -e 's/^  platform:.*/  platform: gitlab/' -e 's/^  platform_host:.*/  platform_host: gitlab.company.com/' "$dp/.agents/config.yaml" > "$dp/cfg.t" && mv "$dp/cfg.t" "$dp/.agents/config.yaml"
+  out=$(pl "$dp" doctor 2>&1)
+  expect "doctor shows the platform came from config (A186)" "$out" "platform: gitlab (source config: git.platform)"
+  sed -i.bak 's#^  platform_host:.*#  platform_host: other.company.com#' "$dp/.agents/config.yaml"; rm -f "$dp/.agents/config.yaml.bak"
+  expect "doctor: a configured host that is not the origin host is not applied" "$(pl "$dp" doctor 2>&1)" "source auto: origin URL; a private host is named with git.platform"
+}
+
 sc_doctor_faults() {
   need_base
 d2=$T/d2; cp -R "$base" "$d2"; git -C "$d2" config --local --unset core.hooksPath
@@ -755,6 +766,7 @@ run_sc sc_upgrade
 run_sc sc_upgrade_logging
 run_sc sc_upgrade_block
 run_sc sc_doctor_fresh
+run_sc sc_doctor_platform_source
 run_sc sc_doctor_faults
 run_sc sc_doctor_missing
 run_sc sc_doctor_global_hookspath

@@ -532,7 +532,9 @@ sc_worktree_cmds() {
   [ "$wt" = "$main/.agents/local/worktrees/W-2" ] && [ -d "$wt/.agents/scripts" ] || die "worktree-add printed '$wt'"
   [ "$(A worktree-add W-2)" = "$wt" ] || die "a second worktree-add did not reuse the worktree"
   [ "$(A worktree-path W-2)" = "$wt" ] && ! A worktree-path W-9 >/dev/null 2>&1 || die "worktree-path"
-  for d in batch approvals metrics friction prompts; do [ -L "$wt/.agents/local/$d" ] || die "no link to the shared $d folder in the worktree"; done
+  for d in batch approvals metrics friction prompts; do [ ! -L "$wt/.agents/local/$d" ] || die "A185: the worktree has a link to the shared $d folder"; done
+  [ -z "$(find "$wt/.agents/local" -type l 2>/dev/null)" ] || die "A185: the worktree holds a symlink: $(find "$wt/.agents/local" -type l)"
+  [ -d "$main/.agents/local/approvals" ] || die "A185: the shared folders live in the main tree"
   git check-ignore -q .agents/local/worktrees/W-2 || die "the worktree folder is not git-ignored"
   wbody W-2 second | ( cd "$wt" && sh .agents/scripts/agent.sh start W-2 --title second >/dev/null ) || die "start W-2 in its own worktree"
   [ "$(A open-runs)" = 'W-1 -' ] && [ "$(cd "$wt" && sh .agents/scripts/agent.sh open-runs)" = 'W-2 -' ] || die "open runs are not per worktree: main '$(A open-runs)' worktree '$(cd "$wt" && sh .agents/scripts/agent.sh open-runs)'"
@@ -547,6 +549,41 @@ sc_worktree_cmds() {
   [ ! -e "$wt" ] && [ "$(git worktree list | wc -l | tr -d ' ')" = 1 ] || die "worktree left after removal: $(git worktree list)"
   A worktree-remove W-2 | grep -q 'no worktree' || die "removing a missing worktree is not a no-op"
   ok "worktree-add|path|remove: one worktree per run, open runs counted per worktree, branch from the detached canonical tip, removal refused while a run is inside"
+}
+
+# --- A185 items 4-6: dependencies are the worktree's own copy, .env* is copied and never committed, no symlink is needed ------------------
+sc_worktree_prep() {
+  bnew; binstall no
+  main=$(pwd -P)
+  printf 'node_modules/\n.env*\n' >> .gitignore; git add .gitignore; git commit -qm ignore
+  mkdir -p node_modules/pkg; echo v1 > node_modules/pkg/index.js; printf 'SECRET=1\n' > .env; printf 'X=1\n' > .env.local
+  wt=$(A worktree-add W-1) || die "worktree-add: $wt"
+  # 4: a dependency change in the worktree leaves the main tree alone
+  [ -d "$wt/node_modules/pkg" ] && [ ! -L "$wt/node_modules" ] || die "node_modules is not a real copy in the worktree"
+  echo v2 > "$wt/node_modules/pkg/index.js"; echo new > "$wt/node_modules/added.js"; rm -rf "$wt/node_modules/pkg/gone"
+  [ "$(cat node_modules/pkg/index.js)" = v1 ] && [ ! -e node_modules/added.js ] || die "a dependency change in the worktree reached the main tree"
+  # 5: .env* is copied, listed, and refused by the pre-commit hook even when forced; evidence and status never carry it
+  [ "$(cat "$wt/.env")" = SECRET=1 ] && [ -f "$wt/.env.local" ] || die ".env* was not copied into the worktree"
+  grep -qxF .env "$wt/.agents/local/worktree-copied" || die "the copied file is not listed: $(cat "$wt/.agents/local/worktree-copied" 2>/dev/null)"
+  [ -z "$(git -C "$wt" status --porcelain | grep -F .env)" ] || die "git status shows the copied .env"
+  git -C "$wt" add -A; [ -z "$(git -C "$wt" diff --cached --name-only | grep -F .env)" ] || die "git add -A staged the copied .env"
+  cp -R "$tl_agents/githooks" "$wt/.agents/githooks" || die "no githooks to copy"
+  git -C "$wt" add -f .env
+  if git -C "$wt" -c core.hooksPath=.agents/githooks -c user.name=t -c user.email=t@example.invalid commit -qm env >"$base/pc.out" 2>&1; then die "the pre-commit hook let a copied .env into a commit"; fi
+  grep -q 'worktree.copy_files' "$base/pc.out" || die "the refusal does not say why: $(cat "$base/pc.out")"
+  # a file git does not ignore is reported, never copied
+  printf 'C=1\n' > .envrc.keep; sed 's/^\.env\*$/.env/' .gitignore > .gitignore.t && mv .gitignore.t .gitignore
+  wt2=$(A worktree-add W-2 2>"$base/w2.err") || die "worktree-add W-2: $wt2"
+  [ ! -e "$wt2/.envrc.keep" ] || die "a file git does not ignore was copied"
+  # 6: the same with symlink creation blocked
+  mkdir -p "$base/lnfail"; printf '#!/bin/sh\necho "ln: symbolic links not allowed" >&2\nexit 1\n' > "$base/lnfail/ln"; chmod +x "$base/lnfail/ln"
+  printf 'node_modules/\n.env*\n' > .gitignore
+  wt3=$(PATH=$base/lnfail:$PATH A worktree-add W-3 2>"$base/w3.err") || die "worktree-add failed with symlinks blocked: $(cat "$base/w3.err")"
+  [ -d "$wt3/node_modules/pkg" ] && [ ! -L "$wt3/node_modules" ] && [ -f "$wt3/.env" ] || die "no real copy with symlinks blocked"
+  [ -z "$(find "$wt3/.agents/local" -type l 2>/dev/null)" ] || die "a link was made with symlinks blocked"
+  echo 'rec=1' > .agents/local/metrics/probe.txt
+  [ "$(PATH=$base/lnfail:$PATH A worktree-add W-3)" = "$wt3" ] || die "reuse with symlinks blocked"
+  ok "worktree-add: dependency folder copied (a change stays in the worktree), .env* copied and refused by pre-commit, works with ln -s blocked (A185)"
 }
 
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
@@ -658,6 +695,7 @@ run_sc sc_sequential
 run_sc sc_park_skip_continue
 run_sc sc_restart
 run_sc sc_worktree_cmds
+run_sc sc_worktree_prep
 run_sc sc_status_from_records
 run_sc sc_adapter_refused
 run_sc sc_merge_commit_ci

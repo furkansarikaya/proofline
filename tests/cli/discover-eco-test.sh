@@ -64,6 +64,14 @@ dc "go: module at the root" "go build ./..." "go test ./..." "go vet ./..." go.m
 dc "go: one nested module" "go -C svc build ./..." "go -C svc test ./..." "go -C svc vet ./..." svc/go.mod
 dn "go: two nested modules" go a/go.mod b/go.mod
 dn "go: go.work without a root module gives nothing, and init names it" go go.work a/go.mod b/go.mod
+# A187: a go.work use list is a workspace; its members come from data (workspace_roots[].members), not from a Go branch in sh
+GW='go 1.22\n\nuse (\n\t./svc/api\n\t./svc/worker // comment\n)\n'
+dc "go.work: a use block gives the member commands (no root module)" "go build ./svc/api/... ./svc/worker/..." "go test ./svc/api/... ./svc/worker/..." "go vet ./svc/api/... ./svc/worker/..." go.work="$GW" svc/api/go.mod svc/worker/go.mod
+dc "go.work: with a root go.mod the members still decide, not ./..." "go build ./svc/api/... ./svc/worker/..." "go test ./svc/api/... ./svc/worker/..." "go vet ./svc/api/... ./svc/worker/..." go.mod go.work="$GW" svc/api/go.mod svc/worker/go.mod
+dc "go.work: single-line use" "go build ./svc/api/..." "go test ./svc/api/..." "go vet ./svc/api/..." go.mod go.work='go 1.22\nuse ./svc/api\n' svc/api/go.mod
+dc "go.work: an empty use list behaves as before (root module)" "go build ./..." "go test ./..." "go vet ./..." go.mod go.work='go 1.22\n'
+dn "go.work: an empty use list without a root module still gives nothing" go go.work='go 1.22\nuse (\n)\n' a/go.mod b/go.mod
+dc "go.work: an unsafe member path falls back to the plain rule" "go build ./..." "go test ./..." "go vet ./..." go.mod go.work='use ./a;b\n'
 dn "npm: a pnpm workspace root without scripts gives nothing, and init names it" npm package.json='{"name":"w"}' pnpm-workspace.yaml='packages:\n  - "a/*"\n' a/x/package.json='{"name":"x"}'
 # --- jvm
 dc "jvm: maven at the root" "mvn -B package" "mvn -B test" "-" pom.xml
