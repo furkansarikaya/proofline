@@ -4283,6 +4283,11 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
     else [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions" > "$sb_tmp/questions.in"; fi
     sb_questions=$sb_tmp/questions.in
   fi
+  # A184: an explorer's DONE report is a claims table (evidence-map team format); prose is recorded but flagged, and the lead redoes it, never rewrites it
+  if [ "$execution_role" = explorer ] && [ "$sb_res" = DONE ] && [ -f "$sb_d/$sb_norm" ] \
+    && ! grep -Eq '^\|[[:space:]]*id[[:space:]]*\|[[:space:]]*severity[[:space:]]*\|[[:space:]]*path:line' "$sb_d/$sb_norm"; then
+    echo "NOTE: the explorer report $sb_norm has no claims table (| id | severity | path:line | finding | evidence |, evidence-map's format). The lead must not turn it into EVIDENCE.md itself: send the SAME explorer (or the same assignment again) back to redo it as that table, one verified path:symbol per row" >&2
+  fi
   if [ "$execution_role" = verifier ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
     sb_ds=$(verify_design_sync "$sb_id") || submit_fail "$sb_ds"
   fi
@@ -6863,6 +6868,29 @@ worktree_path() { # ID: the folder of a registered run worktree (exit 1 when the
   wp_d=$(rw_dir "$1"); rw_registered "$wp_d" && [ -d "$wp_d" ] || return 1
   printf '%s\n' "$wp_d"
 }
+# worktree_root PATH (A184): the root of the run worktree that contains PATH, the ONE definition every path classification asks (the runtime
+# hook calls `agent.sh worktree-root`; paths that agent.sh gets from git are already relative to the git worktree that contains them).
+# PATH is a physical absolute path. A folder counts only when it is exactly <main working tree>/.agents/local/worktrees/<ID>, is
+# registered by `git worktree list` of this project, is a linked worktree of the same common git-dir, and PATH is inside it; a crafted
+# folder, a link, an unregistered or pruned worktree, a nested one: no answer (exit 1) and the caller keeps the old, stricter judgement.
+worktree_root() {
+  wo_p=$1; case "$wo_p" in /*) ;; *) return 1 ;; esac
+  case "/$wo_p/" in */../*|*/./*) return 1 ;; esac
+  wo_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n "$wo_m" ] || return 1
+  wo_m=$(cd "$wo_m" 2>/dev/null && pwd -P) || return 1
+  wo_c=$(cd "$wo_m" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
+  wo_b=$wo_m/.agents/local/worktrees
+  case "$wo_p" in "$wo_b"/*) ;; *) return 1 ;; esac
+  wo_id=${wo_p#"$wo_b"/}; wo_id=${wo_id%%/*}
+  rw_valid_id "$wo_id" || return 1
+  wo_d=$wo_b/$wo_id
+  [ -d "$wo_d" ] && [ ! -L "$wo_d" ] && [ -f "$wo_d/.git" ] || return 1
+  [ "$(cd "$wo_d" 2>/dev/null && pwd -P)" = "$wo_d" ] || return 1
+  git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$wo_d" || return 1
+  wo_g=$(cd "$wo_d" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
+  [ "$wo_g" = "$wo_c" ] || return 1
+  case "$wo_p" in "$wo_d"|"$wo_d"/*) printf '%s\n' "$wo_d" ;; *) return 1 ;; esac
+}
 # worktree_remove ID [--force]: only a worktree under .agents/local/worktrees; refused while it still holds a run (its evidence), unless forced.
 worktree_remove() {
   rw_valid_id "${1:-}" || fail "usage: agent.sh worktree-remove <TASK-ID> [--force]"
@@ -6988,7 +7016,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='platform language-check next-user in-knowledge-scope design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
+read_only_commands='platform language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7057,6 +7085,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in next-user.sh, A159)
   design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)
+  worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
@@ -7088,6 +7117,7 @@ case "$command" in
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
+  worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;

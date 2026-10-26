@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Path classification follows the git worktree root (A184): the lead can write `EVIDENCE.md` in a run's worktree (`.agents/local/worktrees/<ID>/.agents/runs/<ID>/`) while run state, gates, approvals and the worktree's `.agents/local/**` stay protected; the root comes from `agent.sh worktree-root`, which answers only for a registered worktree of the project (a crafted folder or link is not one). Explorers return a claims table (with an example in the role and the assignment); a prose report goes back to the same explorer and the lead never writes `EVIDENCE.md` from prose. Rejected: a path-string allowance for `.agents/local/worktrees/**`.
+
 ## 0.0.32 — 2026-10-26
 
 - Delivery works on GitHub, GitLab and Azure DevOps (A180): the platform comes from the exact host of `origin` (`PROOFLINE_PLATFORM` names a self-hosted one), `proofline merge` applies the same fail-closed checks through gh, glab or az, and on Bitbucket, other hosts or without the tool the branch is pushed and you merge. A pull request with no checks is merged only after build and test pass in a clean export of the exact commit, and says so; "no CI" is a warning. The hook also denies glab, az and HTTP-client merge paths. Known limit: az has no match-head option.

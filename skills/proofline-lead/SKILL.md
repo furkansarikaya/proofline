@@ -145,7 +145,7 @@ exactly this: propose the run.
 | `agent.sh classify` / `branch` / `baseline` | Intake step 3. |
 | `wait:` | A dispatch is still running: wait for its command to return, then `A next` again. Never re-dispatch it. |
 | `agent.sh questions` | [HANDOFF.md](references/HANDOFF.md): print verbatim, STOP. |
-| `dispatch.sh <ID> explorer` | DISCOVER: split into at most `max_explorers` bounded assignments; dispatch in parallel; consolidate `EVIDENCE.md` with evidence-map's CONSOLIDATION format; verify it ([LIFECYCLE.md](references/LIFECYCLE.md#3-discover)). |
+| `dispatch.sh <ID> explorer` | DISCOVER: split into at most `max_explorers` bounded assignments; dispatch in parallel; consolidate `EVIDENCE.md` with evidence-map's CONSOLIDATION format from claims tables only (an explorer report in prose goes back to the same explorer to redo as the table; the lead never writes `EVIDENCE.md` from prose); verify it ([LIFECYCLE.md](references/LIFECYCLE.md#3-discover)). |
 | `write PLAN.md` | Design roles when their conditions hold, then plan-contract and `validate-plan.mjs` exit 0 ([LIFECYCLE.md](references/LIFECYCLE.md#4-design-and-plan)). |
 | `dispatch.sh <ID> architect` / `qa` | Dispatch that role; paste a returned section into PLAN.md unchanged. |
 | `agent.sh request-approval <ID> <kind>` | Run it, relay its question (the prose in the user's language; the kind, ids, hashes and options exactly as printed), STOP. |

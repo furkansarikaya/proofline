@@ -155,7 +155,18 @@ relpath() {
   case "/$rp_tail/" in */../*|*/./*) echo @unknown; return ;; esac
   rp_dir=$(CDPATH='' cd "$rp_dir" 2>/dev/null && pwd -P) || { echo @unknown; return; }
   rp=$rp_dir/$rp_tail
-  case "$rp" in "$root") echo . ;; "$root"/*) printf '%s\n' "${rp#"$root"/}" ;; *) echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp" ;; esac
+  case "$rp" in "$root") echo . ;; "$root"/*) rp_r=${rp#"$root"/}
+    # A184: a path inside a run's own git worktree (.agents/local/worktrees/<ID>/...) is judged relative to THAT worktree's root, so its
+    # .agents/runs/<ID>/ obeys the rules of the main tree and its .agents/local/** stays runtime state. Whether the folder is a registered
+    # worktree of this project is decided by agent.sh worktree-root (the one definition, never inferred from the path string here); any
+    # doubt (agent.sh missing, not registered, a link, a crafted folder) keeps the project-relative path, which is denied as runtime state.
+    case "$rp_r" in .agents/local/worktrees/*/*)
+      if [ "$installed" = yes ] && rp_w=$(sh "$agent" worktree-root "$rp" 2>/dev/null) && [ -n "$rp_w" ]; then
+        case "$rp" in "$rp_w"/*) rp_r=${rp#"$rp_w"/} ;; esac
+      fi ;;
+    esac
+    printf '%s\n' "$rp_r" ;;
+  *) echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp" ;; esac
 }
 # outside_ok P: may a Write/Edit tool write P, which relpath put outside the project? Only inside a registered
 # worktree or the runtime's own storage (~/.claude/projects/*/memory, tool-results, ~/.claude/plans); a sibling such as <project>-x is outside (A120, C-18).

@@ -60,7 +60,9 @@ Skipped for TRIVIAL (`next` goes straight to `write PLAN.md`).
    explorers never share a name; the explorer never chooses it, A113).
 3. Consolidate: follow evidence-map `references/CONSOLIDATION.md` (title `# Evidence: <ID>`, sections
    `## Repository`, `## Claims`, `## Not found`, `## Open questions`, `## Derived constraints`,
-   `## Assumptions`), reading only the claims tables of the explorer artifacts. Write `EVIDENCE.md`. The
+   `## Assumptions`), reading only the claims tables of the explorer artifacts. An explorer report that is prose, not the claims table
+   (`| id | severity | path:line | finding | evidence |`; `submit` prints a NOTE for it), is never turned into claims by the lead: send the SAME
+   explorer back (or re-dispatch the same assignment) to redo it as the table, and write `EVIDENCE.md` only from tables. Write `EVIDENCE.md`. The
    mandatory `## Assumptions` register (`none` or the table) lists what the exploration could not verify
    (A79).
 4. Verify: `node <evidence-map-skill-dir>/scripts/verify-claims.mjs .agents/runs/<ID>/EVIDENCE.md` exits 0.
