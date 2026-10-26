@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A CI-fix round runs on GitLab and Azure DevOps as well as GitHub, and the platform can come from config (A186): the platform adapter reads the failed check and its log (`glab`, `az`; the round starts from the name and status and says so when no log can be read), `git.platform` and `git.platform_host` name a private host (config, then `PROOFLINE_PLATFORM`, then the origin URL; `proofline doctor` shows which), the host must equal the origin's host, and `GH_HOST`, `GITLAB_HOST` and the Azure DevOps Server organization URL follow it.
 - Path classification follows the git worktree root (A184): the lead can write `EVIDENCE.md` in a run's worktree (`.agents/local/worktrees/<ID>/.agents/runs/<ID>/`) while run state, gates, approvals and the worktree's `.agents/local/**` stay protected; the root comes from `agent.sh worktree-root`, which answers only for a registered worktree of the project (a crafted folder or link is not one). Explorers return a claims table (with an example in the role and the assignment); a prose report goes back to the same explorer and the lead never writes `EVIDENCE.md` from prose. Rejected: a path-string allowance for `.agents/local/worktrees/**`.
 
 ## 0.0.32 — 2026-10-26

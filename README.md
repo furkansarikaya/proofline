@@ -113,7 +113,7 @@ debt                                  list the shortcut comments in the code (re
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
 
-**Platforms.** GitHub, GitLab, Azure DevOps; elsewhere you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
+**Platforms.** GitHub, GitLab, Azure DevOps (`git.platform`); else you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
 
 **The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
 

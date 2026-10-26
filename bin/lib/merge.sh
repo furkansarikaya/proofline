@@ -21,6 +21,7 @@
 # A pull request with NO checks (or no pipeline / no build policy) is merged only after the verification commands of the
 # project (commands.build and commands.test, the build-record mechanism) pass in a CLEAN export of the commit to be merged;
 # the pull request then gets a comment "verified locally, no CI". Checks that exist but are not green still refuse.
+# A186: git.platform / git.platform_host (config) and PROOFLINE_PLATFORM name a private host's platform; GH_HOST, GITLAB_HOST and az --org follow it.
 
 mg_refuse() { printf 'proofline merge: REFUSED: %s\n' "$*" >&2; exit 1; }
 
@@ -69,10 +70,15 @@ cmd_merge() {
   if [ -f "$mg_pf" ]; then
     mg_pd=$(sh "$mg_pf" detect 2>/dev/null) || mg_pd=''
     mg_url=$(git remote get-url origin 2>/dev/null || true)
-    if [ -n "$mg_url" ] || [ -n "${PROOFLINE_PLATFORM:-}" ]; then   # no origin at all keeps the old gh behaviour (gh resolves the repository, or -R names it)
+    mg_src=$(printf '%s\n' "$mg_pd" | sed -n 's/^source: //p')
+    if [ -n "$mg_url" ] || [ "${mg_src:-auto}" != auto ]; then   # no origin at all keeps the old gh behaviour (gh resolves the repository, or -R names it)
       mg_plat=$(printf '%s\n' "$mg_pd" | sed -n 's/^platform: //p'); mg_cli=$(printf '%s\n' "$mg_pd" | sed -n 's/^cli: //p')
     fi
   fi
+  # a private host (A186): the tool talks to the origin's host; Azure DevOps Server takes its organization URL
+  mg_pe=$(sh "$mg_pf" env 2>/dev/null || true)
+  case "$mg_pe" in GH_HOST=*) GH_HOST=${mg_pe#GH_HOST=}; export GH_HOST ;; GITLAB_HOST=*) GITLAB_HOST=${mg_pe#GITLAB_HOST=}; export GITLAB_HOST ;; esac
+  mg_org=''; [ "$mg_plat" != azure ] || mg_org=$(sh "$mg_pf" field org_url 2>/dev/null || true)
   case "$mg_plat:$mg_cli" in
     github:gh|gitlab:glab|azure:az) ;;
     github:*|gitlab:*|azure:*) mg_manual "$mg_plat" "the command line tool for it ($(case $mg_plat in gitlab) echo glab ;; azure) echo az ;; *) echo gh ;; esac) is not installed or not on PATH" ;;
@@ -208,7 +214,7 @@ EOF
   mg_gh mr merge "$mg_pr" --sha "$mg_sha" --yes ${mg_gm:+"$mg_gm"} ${mg_del:+--remove-source-branch}
 }
 mg_merge_az() {
-  mg_json=$("$mg_ghp" repos pr show --id "$mg_pr" -o json 2>&1) || mg_refuse "az repos pr show $mg_pr failed (offline, not logged in or no such pull request): $mg_json"
+  mg_json=$("$mg_ghp" repos pr show --id "$mg_pr" ${mg_org:+--org "$mg_org"} -o json 2>&1) || mg_refuse "az repos pr show $mg_pr failed (offline, not logged in or no such pull request): $mg_json"
   mg_rows=$(printf '%s' "$mg_json" | "$mg_jqp" -r '[(.pullRequestId // "?"), (.status // "?"), ((.isDraft // false) | tostring), (.lastMergeSourceCommit.commitId // "?")] | join(" ")' 2>&1) \
     || mg_refuse "az repos pr show output is not parseable JSON of the expected shape: $(printf '%s' "$mg_json" | head -c 200)"
   read -r mg_num mg_state0 mg_draft mg_sha mg_extra <<EOF
@@ -219,7 +225,7 @@ EOF
   [ "$mg_draft" = false ] || mg_refuse "pull request $mg_pr is a draft"
   case "$mg_sha" in *[!0-9a-f]*|'') mg_refuse "head commit of pull request $mg_pr is not a SHA (saw: $mg_sha)" ;; esac
   [ "${#mg_sha}" -eq 40 ] || mg_refuse "head commit of pull request $mg_pr is not a 40-digit SHA (saw: $mg_sha)"
-  mg_pol=$("$mg_ghp" repos pr policy list --id "$mg_pr" -o json 2>&1) || mg_refuse "az repos pr policy list $mg_pr failed, so the checks cannot be judged: $mg_pol"
+  mg_pol=$("$mg_ghp" repos pr policy list --id "$mg_pr" ${mg_org:+--org "$mg_org"} -o json 2>&1) || mg_refuse "az repos pr policy list $mg_pr failed, so the checks cannot be judged: $mg_pol"
   # build and status policies are the checks; every one must be approved (a queued, running, rejected or broken one refuses)
   mg_prow=$(printf '%s' "$mg_pol" | "$mg_jqp" -r '.[] | select((.configuration.type.displayName // "") | test("build|status"; "i")) | [(.status // "?"), ((.configuration.type.displayName // "?") | gsub(" "; "_"))] | join(" ")' 2>&1) \
     || mg_refuse "az repos pr policy list output is not parseable: $(printf '%s' "$mg_pol" | head -c 200)"
@@ -233,11 +239,11 @@ EOF
   [ -z "$mg_bad" ] || mg_refuse "pull request $mg_pr is not green ($mg_n checks seen); not approved:$mg_bad"
   mg_nochk=no; [ "$mg_n" -gt 0 ] || mg_nochk=yes
   mg_tail_pre "$mg_pr" "$mg_sha" "$mg_nochk"
-  mg_now=$("$mg_ghp" repos pr show --id "$mg_pr" -o json 2>&1 | "$mg_jqp" -r '.lastMergeSourceCommit.commitId // empty' 2>/dev/null) || mg_now=''
+  mg_now=$("$mg_ghp" repos pr show --id "$mg_pr" ${mg_org:+--org "$mg_org"} -o json 2>&1 | "$mg_jqp" -r '.lastMergeSourceCommit.commitId // empty' 2>/dev/null) || mg_now=''
   [ "$mg_now" = "$mg_sha" ] || mg_refuse "the head of pull request $mg_pr moved after the check (checked $mg_sha, now ${mg_now:-unreadable}); run the merge again"
   if [ -n "$mg_vnote" ]; then   # the note is appended to the description (update replaces it, so the old text is read first)
     mg_desc=$(printf '%s' "$mg_json" | "$mg_jqp" -r '.description // ""' 2>/dev/null) || mg_desc=''
-    "$mg_ghp" repos pr update --id "$mg_pr" --description "${mg_desc:+$mg_desc
+    "$mg_ghp" repos pr update --id "$mg_pr" ${mg_org:+--org "$mg_org"} --description "${mg_desc:+$mg_desc
 
 }$mg_vnote" >/dev/null 2>&1 || mg_refuse "could not record \"verified locally, no CI\" on pull request $mg_pr (az repos pr update failed); nothing was merged"
   fi
@@ -246,5 +252,5 @@ EOF
   set -- --id "$mg_pr" --status completed
   case "$mg_method" in --squash) set -- "$@" --squash true ;; --rebase) set -- "$@" --merge-strategy rebase ;; esac
   [ -z "$mg_del" ] || set -- "$@" --delete-source-branch true
-  "$mg_ghp" repos pr update "$@"
+  "$mg_ghp" repos pr update "$@" ${mg_org:+--org "$mg_org"}
 }
