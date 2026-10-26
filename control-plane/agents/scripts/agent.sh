@@ -252,9 +252,8 @@ config_check() {
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
-      # batch.task_timeout and batch.runtimes belonged to the removed headless driver (0.0.32): accepted and ignored, so an existing config stays valid
-      else if (k == "batch.task_timeout" || k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
-      else if (k == "batch.runtimes") { nr = split(v, rt, " "); for (ri = 1; ri <= nr; ri++) en(k, rt[ri], "claude|codex") }
+      else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
+      else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
       else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
       else if (k == "dispatch.claude_permission_mode") en(k, v, "bypassPermissions|acceptEdits|default")
       else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad("dispatch.timeout_seconds must be at least 30") }
@@ -6804,9 +6803,10 @@ deliver_step() {
       deliver_consumed "$ds_t" merge "$ds_h" && [ "$(cat "$ds_dir/PR" 2>/dev/null)" = "$ds_pr" ] || ds_stop "the merge step of this delivery did not run for pull request $ds_pr"
       [ "$ds_pv" = "MERGED false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's merged pull request ($ds_want; gh: $ds_pv); no cleanup before the merge"
       consume_approval "$ds_t" "$ds_app"
-      cleanup_run "$ds_id"
-      # A157: the run evidence is gone after this; a batch keeps its own record of the merge
+      # A157: a batch keeps its own record of the merge. It is written BEFORE the cleanup: a crash in between must leave the task merged
+      # (never run again), not a half-cleaned run that looks unmerged.
       [ ! -d "$root/.agents/local/batch" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$root/.agents/local/batch/merged.tsv"
+      cleanup_run "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
@@ -7001,7 +7001,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = pr-state ] || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 # deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
 # A169: ci-fix also reads the failed check and its log, ci-merge the pull request's head
@@ -7135,6 +7135,7 @@ case "$command" in
   batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" ;;
   batch-status) sh "$scripts/batch.sh" status ;;
   batch-check) batch_check ;;
+  pr-state) printf '%s\n' "$(deliver_pr_view "${2:?usage: agent.sh pr-state <PR>}" | awk 'NR == 1 { print $1 }')" ;;
   batch-next) shift; sh "$scripts/batch.sh" next "$@" ;;
   batch-ci) sh "$scripts/batch.sh" ci "${2:?usage: agent.sh batch-ci <ID>}" ;;
   batch-awake) require_lead; sh "$scripts/batch.sh" awake ;;

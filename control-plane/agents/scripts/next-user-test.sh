@@ -7,7 +7,7 @@ set -eu
 . "$(dirname "$0")/test-lib.sh"
 
 # the allowed shapes of a suggestion: a /proofline or proofline command, or an explicit user action
-shape='^Next step: (/proofline |driver started, |wait for the driver |proofline |run proofline |reply |commit |commit or stash |fix what )'
+shape='^Next step: (/proofline |proofline |run proofline |reply |commit |commit or stash |fix what )'
 NU() { sh ./.agents/scripts/agent.sh next-user "$@"; }
 # every_command STATE: every command of the table gives exactly one user-facing line in this run state
 every_command() {

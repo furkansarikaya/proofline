@@ -287,7 +287,24 @@ scenario_partial_reply_recovers() {
   ok "deliver: a reply recorded in part is completed by the same reply once more, not by a new summary"
 }
 
+scenario_cleanup_crash_keeps_merged() {
+  [ "$(id -u)" != 0 ] || { ok "cleanup crash case skipped (running as root): not tested"; return 0; }
+  SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks
+  finish_done; mkdir -p .agents/local/batch
+  A deliver-plan LC >/dev/null; capture 'approve delivery'; A approve-pending LC >/dev/null
+  S commit >/dev/null; A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG
+  S push >/dev/null; pushed LC; S pr >/dev/null; gh_says "OPEN false"; S merge 7 >/dev/null; gh_says "MERGED false"
+  # the cleanup dies half way (the runs folder cannot be changed): the merge must already be on record, so a batch never runs the task again
+  chmod a-w .agents/runs
+  S cleanup 7 > "$base/crash.out" 2>&1 && { chmod u+w .agents/runs; die "cleanup succeeded although the run folder could not be removed"; }
+  chmod u+w .agents/runs
+  [ -d .agents/runs/LC ] || die "the test did not interrupt the cleanup"
+  [ "$(awk -F'\t' '$1 == "LC" { print $2 }' .agents/local/batch/merged.tsv)" = 7 ] || die "merged.tsv after a cleanup that died: $(cat .agents/local/batch/merged.tsv 2>&1)"
+  ok "deliver: the merge is recorded in merged.tsv before the cleanup, so a crash in between leaves the task merged"
+}
+
 run_sc scenario_normal_chain
+run_sc scenario_cleanup_crash_keeps_merged
 run_sc scenario_content_change_stops
 run_sc scenario_failed_refused
 run_sc scenario_reopened_run_delivers

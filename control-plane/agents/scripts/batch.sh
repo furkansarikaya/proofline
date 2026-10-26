@@ -51,8 +51,11 @@ plan() {
   td=$root/$(cfgv tasks.dir .agents/tasks)
   # the same approved batch, not finished: continue it instead of planning a new one (a new plan has a new summary and needs a new approval)
   if [ "$repl" = no ] && [ -f "$bd/order.tsv" ] && sh "$agent" batch-check >/dev/null 2>&1 && [ "$(derive_state)" = approved ]; then
-    rs_all=yes; for a in "$@"; do [ "$a" = all ] || grep -q "^$a	" "$bd/order.tsv" || rs_all=no; done
-    if [ "$rs_all" = yes ]; then
+    rs_sel="$*"; [ "$rs_sel" != all ] || rs_sel=$(for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && basename "$f" .md; done | sort -u | tr '\n' ' ')
+    rs_out=''; for a in $rs_sel; do grep -q "^$a	" "$bd/order.tsv" || grep -q "^- $a:" "$bd/SUMMARY.md" || rs_out="$rs_out $a"; done
+    if [ -n "$rs_out" ]; then
+      die "batch $(bid) is approved and not finished, and it does not contain:$rs_out. Continue it with /proofline batch (no task IDs), or plan a new batch that includes them with agent.sh batch-plan --replace <ID...|all> (a new summary and a new approval)"
+    else
       printf 'batch %s is approved and not finished: continuing it, no new plan and no new approval (to plan a new batch instead: agent.sh batch-plan --replace <ID...|all>).\n\n' "$(bid)"
       next_report; return 3
     fi
@@ -209,7 +212,16 @@ own_state() {
     commit|push|pr|merge|cleanup) DD="cover delivery"; return 0 ;;
     *) DS=parked; DD="approval request"; DQ="$os_k"; return 0 ;;
   esac
-  if [ -s "$(rroot "$os_id")/.agents/local/deliver/$os_id/PR" ]; then DS=parked; DD="awaiting merge"; DQ="pull request $(cat "$(rroot "$os_id")/.agents/local/deliver/$os_id/PR" 2>/dev/null) is open and not merged"; return 0; fi
+  if [ -s "$(rroot "$os_id")/.agents/local/deliver/$os_id/PR" ]; then
+    # the merge step ran but merged.tsv has no record: ask the platform (a session died after the merge, or the user merged by hand)
+    os_pr=$(cat "$(rroot "$os_id")/.agents/local/deliver/$os_id/PR" 2>/dev/null)
+    case "$os_pr" in ''|*[!0-9]*) os_ps=unreadable ;; *) os_ps=$(sh "$agent" pr-state "$os_pr" 2>/dev/null | sed -n 1p | awk '{ print $1 }') ;; esac
+    case "$os_ps" in
+      MERGED) DD="deliver cleanup"; DQ=$os_pr; return 0 ;;
+      OPEN) DS=parked; DD="awaiting merge"; DQ="pull request $os_pr is open and not merged"; return 0 ;;
+      *) DS=parked; DD="awaiting merge"; DQ="pull request $os_pr: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself"; return 0 ;;
+    esac
+  fi
   case "$(rsec "$os_id" handoff state)" in CODE_DONE|DONE) DD=deliver ;; esac
 }
 # derive: one row per task of order.tsv, in order: ID state detail question PR merge-epoch
@@ -268,6 +280,17 @@ awake_line() {
   aw_s=$(ps -o stat= -p "$aw_p" 2>/dev/null | tr -d ' ' || :)
   case "$aw_s" in ''|Z*) printf 'awake: the sleep inhibitor ended (the session it was tied to is gone)\n' ;; *) cat "$bd/awake" ;; esac
 }
+# claim_owner: one session works a batch. owner holds the pid of the session that last asked `next`; another live session gets `wait`
+# (its pid is printed), a dead owner is taken over. Without a findable session process there is no guard.
+claim_owner() {
+  co_me=$(session_pid) || return 0
+  co_o=$(cut -f1 "$bd/owner" 2>/dev/null || :)
+  if [ -n "$co_o" ] && [ "$co_o" != "$co_me" ]; then
+    co_s=$(ps -o stat= -p "$co_o" 2>/dev/null | tr -d ' ' || :)
+    case "$co_s" in ''|Z*) ;; *) printf '%s\n' "$co_o"; return 1 ;; esac
+  fi
+  printf '%s\t%s\n' "$co_me" "$(date +%s)" > "$bd/owner"
+}
 # next_report [--tsv]: the digest the lead re-reads before every task
 next_report() {
   nr_state=$(derive_state); nr_rows=$(derive)
@@ -279,11 +302,14 @@ next_report() {
   esac
   printf 'batch %s, approved at %s\n' "$(bid)" "$(approved_at)"
   awake_line
+  nr_wait=''; nr_wait=$(claim_owner) || :
   printf '%s | %s | %s | %s\n' task state detail 'pending question'
   printf '%s\n' "$nr_rows" | awk -F'\t' '{ printf "%s | %s | %s | %s\n", $1, $2, ($3 == "" ? "-" : $3), ($4 == "" ? "-" : $4) }'
   nr_ci=$(ci_pending) || nr_ci=''
   nr_open=$(printf '%s\n' "$nr_rows" | awk -F'\t' '$2 == "open" { print $1 "\t" $3; exit }')
-  if [ -n "$nr_ci" ]; then
+  if [ -n "$nr_wait" ]; then
+    echo "NEXT: wait (owned by pid $nr_wait)   (another session works this batch; do not start a second one. If that session is gone, ask again: a dead owner is taken over)"
+  elif [ -n "$nr_ci" ]; then
     echo "NEXT: ci $nr_ci   (agent.sh batch-ci $nr_ci: the CI of its merge commit; red or no run in time: stop the batch)"
   elif [ -n "$nr_open" ]; then
     nr_id=${nr_open%%	*}; nr_act=${nr_open#*	}
@@ -291,6 +317,7 @@ next_report() {
       run) echo "NEXT: run $nr_id   (agent.sh worktree-add $nr_id, then /proofline run $nr_id with .agents/local/worktrees/$nr_id as the working folder)" ;;
       resume) echo "NEXT: resume $nr_id   (agent.sh next $nr_id, in $(rroot "$nr_id" | sed "s|^$root/*||; s|^$|the main working tree|"))" ;;
       "cover "*) echo "NEXT: cover $nr_id ${nr_act#cover }   (agent.sh batch-cover $nr_id ${nr_act#cover })" ;;
+      "deliver cleanup") nr_pr=$(printf '%s\n' "$nr_rows" | awk -F'\t' -v t="$nr_id" '$1 == t { print $4 }'); echo "NEXT: deliver $nr_id cleanup $nr_pr   (pull request $nr_pr is merged but not recorded: agent.sh deliver-step $nr_id cleanup $nr_pr records the merge and cleans up)" ;;
       deliver) echo "NEXT: deliver $nr_id   (the whole delivery of the lead skill; the approval is covered by batch-cover $nr_id delivery)" ;;
     esac
   else

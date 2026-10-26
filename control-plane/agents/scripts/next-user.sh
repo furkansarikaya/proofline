@@ -204,7 +204,7 @@ parked_line() {
 }
 if [ "$installed" = yes ]; then
   case "$cmd" in
-    batch|batch-status|batch-stop) state=$(batch_state) ;;
+    batch|batch-status) state=$(batch_state) ;;
     product-*)
       # product-review: the verdict line of <product.dir>/<slug>/REVIEW.md (do-not-ship asks for a revised PRD)
       pd=$(awk '/^product:/ { i = 1; next } /^[^[:space:]#]/ { i = 0 } i && $1 == "dir:" { gsub(/"/, "", $2); print $2; exit }' "$root/.agents/config.yaml" 2>/dev/null); pd=${pd%/}

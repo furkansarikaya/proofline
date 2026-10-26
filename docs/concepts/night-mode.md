@@ -92,7 +92,8 @@ merge time, park reason and the pending question of each parked task, then the f
 
 - Night mode runs markdown task files only: the order and the classes are read from the task files, not from network calls. Import
   other tasks with `/proofline task`; `batch-plan` says so.
-- One session works the batch. Two sessions on the same batch at once are not guarded; do not start a second one.
+- One session works a batch. `batch-next` records the session in `batch/owner`; a second live session is told `NEXT: wait (owned by pid N)`, and a dead owner is taken over. Without a findable session process there is no guard.
+- A pull request that was opened but has no merge record (the session died after the merge, or you merged by hand) is read from the platform: merged leads to `deliver-step <ID> cleanup <PR>`, which records the merge; open stays parked; an unreadable state is said in the park reason.
 
 Removed in 0.0.32 : the headless batch driver (`batch run`, the detached `batch start` and `batch stop`, process groups, the
 Codex sandbox profile, `driver.pid` and `driver.log`, the per-task timeout and runtime fallback). `proofline batch run` and

@@ -50,6 +50,7 @@ if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha" ]; then cat "$FAKE/ci/$sha"; exit 0; fi
 if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha.none" ]; then echo '[]'; exit 0; fi
 case "$*" in
   *"run list"*) echo '[{"status":"completed","conclusion":"success"}]' ;;
+  *"pr view"*"state,isDraft"*) cat "$FAKE/prview" 2>/dev/null || echo "OPEN false aaa b main o" ;;   # the pull request state read by deliver_pr_view
   *"pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;   # the merge commit of a PR (A160: the CI of that SHA gates the next task)
   *) : ;;
 esac
@@ -340,11 +341,11 @@ sc_status_from_records() {
   BB status > "$base/st4.out"; row "$base/st4.out" T-2 | grep -q 'Which cache' && die "an answered question is still shown as pending"
   row "$base/st4.out" T-2 | grep -q 'pending' || die "an answered task is not pending again: $(row "$base/st4.out" T-2)"
   # batch-next reads and never writes
-  before=$(find .agents/local/batch -type f | sort | xargs cat | tsha /dev/stdin 2>/dev/null || find .agents/local/batch -type f | sort)
+  before=$(find .agents/local/batch -type f ! -name owner | sort | xargs cat | tsha /dev/stdin 2>/dev/null || find .agents/local/batch -type f ! -name owner | sort)
   A batch-next >/dev/null; A batch-next --tsv >/dev/null
-  after=$(find .agents/local/batch -type f | sort | xargs cat | tsha /dev/stdin 2>/dev/null || find .agents/local/batch -type f | sort)
-  [ "$before" = "$after" ] || die "batch-next wrote something"
-  ok "batch status and batch-next: generated from merged.tsv, the runs' records and the lead's parks; edits to the records change the table; an answered question un-parks; batch-next is read-only"
+  after=$(find .agents/local/batch -type f ! -name owner | sort | xargs cat | tsha /dev/stdin 2>/dev/null || find .agents/local/batch -type f ! -name owner | sort)
+  [ "$before" = "$after" ] || die "batch-next wrote something besides the owner claim"
+  ok "batch status and batch-next: generated from merged.tsv, the runs' records and the lead's parks; edits to the records change the table; an answered question un-parks; batch-next changes nothing but the owner claim"
 }
 
 # --- 10. (A160) the CI that gates the next task is the one of the merge commit ---------------------------------------------------
@@ -579,6 +580,63 @@ sc_ci_required() {
   ok "batch: no pull_request workflow is a WARNING in the summary and the approved batch is valid (A180); with one there is no warning"
 }
 
+# --- 13. one session works a batch: a live owner makes the others wait, a dead one is taken over -------------------------------
+sc_owner_guard() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  sleep 60 & s1=$!; sleep 60 & s2=$!
+  PROOFLINE_SESSION_PID=$s1 A batch-next | grep -q '^NEXT: run T-1' || { kill $s1 $s2; die "the first session did not get the batch"; }
+  PROOFLINE_SESSION_PID=$s2 A batch-next > "$base/own.out"
+  grep -q "^NEXT: wait (owned by pid $s1)" "$base/own.out" || { kill $s1 $s2; die "a second live session was not told to wait: $(cat "$base/own.out")"; }
+  PROOFLINE_SESSION_PID=$s1 A batch-next | grep -q '^NEXT: run T-1' || { kill $s1 $s2; die "the owner itself is told to wait"; }
+  kill $s1; wait $s1 2>/dev/null || :
+  PROOFLINE_SESSION_PID=$s2 A batch-next | grep -q '^NEXT: run T-1' || { kill $s2; die "a dead owner was not taken over"; }
+  [ "$(cut -f1 .agents/local/batch/owner)" = "$s2" ] || { kill $s2; die "owner file: $(cat .agents/local/batch/owner)"; }
+  kill $s2; wait $s2 2>/dev/null || :
+  ok "batch-next: one session owns the batch (a live owner makes another wait with its pid), a dead owner is taken over"
+}
+
+# --- 14. the pull request is open, but merged.tsv has no record: the platform decides ----------------------------------------------
+sc_pr_recovery() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX T-1; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  printf 'await\n' > "$FAKE/behave/T-1"
+  drive
+  A batch-next --tsv | tr '\t' ' ' | grep -q '^T-1 parked awaiting merge pull request 77: its state cannot be read' || die "a PR whose state cannot be read must say so: $(A batch-next --tsv)"
+  git remote set-url origin https://github.com/acme/app.git; PROOFLINE_SELFTEST=1; export PROOFLINE_SELFTEST
+  printf 'OPEN false aaa b main o\n' > "$FAKE/prview"
+  A batch-next --tsv | tr '\t' ' ' | grep -q '^T-1 parked awaiting merge pull request 77 is open' || die "an open PR keeps the task parked: $(A batch-next --tsv)"
+  printf 'MERGED false aaa b main o\n' > "$FAKE/prview"
+  A batch-next | grep -q '^NEXT: deliver T-1 cleanup 77' || die "a merged PR without a record must lead to the cleanup step: $(A batch-next)"
+  [ ! -s .agents/local/batch/merged.tsv ] || die "batch-next recorded a merge itself"
+  ok "batch-next: a PR file without a merged.tsv record asks the platform: merged -> deliver cleanup, open -> parked, unreadable -> parked and says so"
+}
+
+# --- 15. the approved batch is continued only for tasks it knows ------------------------------------------------------------------
+sc_plan_all_subset() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask CR CRITICAL; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  BP all > "$base/same.out" 2>&1 || die "all (with a CRITICAL task left out by the plan) must continue the batch: $(cat "$base/same.out")"
+  grep -q 'continuing it' "$base/same.out" || die "no continue: $(cat "$base/same.out")"
+  mktask T-9 COMPLEX
+  expect_msg "all with a task added after the approval" "does not contain: T-9" BP all
+  expect_msg "an explicit ID the batch does not know" "does not contain: T-9" BP T-1 T-9
+  BP --replace all >/dev/null || die "--replace"; order_ids | grep -q 'T-9' || die "--replace did not include T-9"
+  ok "batch-plan: 'all' or IDs that the approved batch does not contain are refused with --replace as the way out; tasks it left out on purpose do not count"
+}
+
+# --- 16. the keys of the removed driver are ignored, not validated; the live keys still are -------------------------------------------
+sc_config_ignored_keys() {
+  bnew; binstall no
+  cfg_batch 40; cfg_extra '  task_timeout: soon' '  runtimes: nothing'
+  A config-check >/dev/null 2>"$base/cc.err" || die "an old config with batch.task_timeout and batch.runtimes is refused: $(cat "$base/cc.err")"
+  cfg_batch 40; cfg_extra '  ci_appear_minutes: 0'
+  expect_msg "batch.ci_appear_minutes: 0 stays invalid" "ci_appear_minutes must be at least 1" A config-check
+  cfg_batch 40; cfg_extra '  frobnicate: 1'
+  expect_msg "an unknown batch key" "unknown batch key" A config-check
+  ok "config: batch.task_timeout and batch.runtimes are accepted and ignored (old configs), batch.ci_appear_minutes and unknown keys are still checked"
+}
+
 run_sc sc_order_and_cycle
 run_sc sc_no_approval_no_start
 run_sc sc_cover_limits
@@ -596,4 +654,8 @@ run_sc sc_merge_commit_ci
 run_sc sc_ci_required
 run_sc sc_awake
 run_sc sc_driver_removed
+run_sc sc_owner_guard
+run_sc sc_pr_recovery
+run_sc sc_plan_all_subset
+run_sc sc_config_ignored_keys
 echo 'batch tests passed'
