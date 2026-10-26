@@ -240,7 +240,7 @@
       "locks": ["go.sum", "go.work.sum"],
       "settings": [],
       "workspace_roots": [
-        { "file": "go.work" }
+        { "file": "go.work", "members": { "single_prefix": "^use +", "block_open": "^use *[(]$", "block_close": "^[)]", "block_item_prefix": "^ +", "comment": "//", "format": "./{member}/..." } }
       ],
       "solution_files": [],
       "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
@@ -264,12 +264,15 @@
         "ci_lint": [],
         "runners": [],
         "build": [
+          { "workspace": "go build {members}", "at_workspace": "go -C {dir} build {members}" },
           { "when": { "file": "go.mod" }, "run": "go build ./...", "at": "go -C {dir} build ./..." }
         ],
         "test": [
+          { "workspace": "go test {members}", "at_workspace": "go -C {dir} test {members}" },
           { "when": { "file": "go.mod" }, "run": "go test ./...", "at": "go -C {dir} test ./..." }
         ],
         "lint": [
+          { "workspace": "go vet {members}", "at_workspace": "go -C {dir} vet {members}" },
           { "when": { "file": "go.mod" }, "run": "go vet ./...", "at": "go -C {dir} vet ./..." }
         ]
       },

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Workspace commands come from the member list, as data (A187): `workspace_roots[].members` and the `workspace` and `at_workspace` command templates in `ecosystems.json` let `discover.sh` build `go build ./svc/api/... ./svc/worker/...` from `go.work` (also without a root `go.mod`); `check-static.sh` fails when a shared shell script branches on an ecosystem name, and the three places that did (`doctor.sh`, `run-bench.sh`, a launcher label in `discover.sh`) now read the definition or are renamed.
 - Path classification follows the git worktree root (A184): the lead can write `EVIDENCE.md` in a run's worktree (`.agents/local/worktrees/<ID>/.agents/runs/<ID>/`) while run state, gates, approvals and the worktree's `.agents/local/**` stay protected; the root comes from `agent.sh worktree-root`, which answers only for a registered worktree of the project (a crafted folder or link is not one). Explorers return a claims table (with an example in the role and the assignment); a prose report goes back to the same explorer and the lead never writes `EVIDENCE.md` from prose. Rejected: a path-string allowance for `.agents/local/worktrees/**`.
 
 ## 0.0.32 — 2026-10-26

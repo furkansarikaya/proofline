@@ -790,6 +790,7 @@ db_guard_cmd() {
     # SQL client, inline code of a script interpreter, or a SQL file fed to either through `<`.
     dg_isql=no
     case " $db_clients " in *" $dg_cw "*) dg_isql=yes ;; esac
+    # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
     case "$dg_cw" in node|nodejs|deno|bun|python|python3|ruby|php|perl) case " $(printf '%s' "$dg_args" | tr '\n' ' ') " in *" -e "*|*" -c "*|*" -p "*|*" --eval "*|*" -r "*) dg_isql=yes ;; esac ;; esac
     if [ "$dg_isql" = yes ] && printf '%s\n' "$dg_args" | grep -Eiq "$dg_dsql"; then
       deny "$dg_cw would run a destructive SQL statement (drop, alter ... drop, truncate, delete from). Destructive steps run in no environment, in-memory or scratch databases included; the project's tests exercise migrations, and the user's destructive approval gates the plan, not an agent's command"
@@ -1359,8 +1360,10 @@ kg_code() {
   ! kc_g '(^|[^A-Za-z0-9_$-])fuser[^A-Za-z0-9]+-[A-Za-z]*k' || kg_no "$kc_l code runs fuser -k"
   kc_z='([+-]?0+|-[[:space:]]*0*1)'
   case "$kc_l" in
+    # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
     python) kc_re='os\.kill(pg)?\([[:space:]]*'$kc_z'[[:space:]]*[,)]|os\.killpg\([[:space:]]*os\.getpgrp\(' ;;
     node) kc_re='process\.kill\([[:space:]]*'$kc_z'[[:space:]]*[,)]' ;;
+    # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
     ruby) kc_re='Process\.kill[[:space:](][^,)]*,[[:space:]]*'$kc_z'[[:space:]]*([,)]|$)' ;;
     perl) kc_re='(^|[^A-Za-z0-9_$.>-])kill[[:space:](]*[^,;)]*,[[:space:]]*'$kc_z'[[:space:]]*([,;)]|$)' ;;
     *) kc_re='' ;;
@@ -1425,10 +1428,13 @@ kg_interp() {
         -) ki_code=yes; kg_stdin="$kg_stdin $ki_l"; continue ;;
       esac
       case "$ki_l" in
+        # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         python) case "$ki_a" in -m) ki_code=yes; ki_nx=skip; continue ;; -W|-X) ki_nx=skip; continue ;; -c|-[A-Za-z]c) ki_nx=code; continue ;; esac ;;
         node) case "$ki_a" in -e|--eval|-p|--print|-pe|-ep) ki_nx=code; continue ;; -r|--require|--import|--loader) ki_nx=skip; continue ;; esac
           [ "$ki_a" != eval ] || { ki_nx=code; continue; } ;;
+        # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         perl|ruby) case "$ki_a" in -*[!A-Za-z0-9]*|--*) case "$ki_a" in -I|-r) ki_nx=skip; continue ;; esac ;; -*[eE]) ki_nx=code; continue ;; esac ;;
+        # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         php) case "$ki_a" in -r) ki_nx=code; continue ;; -d) ki_nx=skip; continue ;; -f) ki_nx='file'; continue ;; esac ;;
         lua|osascript) case "$ki_a" in -e) ki_nx=code; continue ;; esac ;;
         awk) case "$ki_a" in -f) ki_nx='file'; continue ;; -F|-v|-e) ki_nx=skip; continue ;; esac ;;
@@ -1652,7 +1658,9 @@ KGSH
       python|python[0-9]*|pypy|pypy3) kg_interp python ;;
       node|nodejs|deno|bun) kg_interp node ;;
       perl) kg_interp perl ;;
+      # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       ruby) kg_interp ruby ;;
+      # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       php|lua|osascript) kg_interp "$kg_cw" ;;
       awk|gawk|mawk|nawk) kg_interp awk ;;
       echo|printf)   # text a later stdin-reading shell may run, or the content of a file this command writes
@@ -1686,6 +1694,7 @@ KGSH
   # a shell or interpreter that reads its program from stdin: here-documents, echo/printf text and files fed to it
   for kg_l in $kg_stdin; do
     while IFS="$KG_SEP" read -r kg_hc kg_hp kg_hb; do
+      # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       case "$kg_hc" in sh|bash|dash|zsh|ksh|ash|python*|node*|perl|ruby|php|lua|awk|cat|tee|echo|printf|osascript|deno|bun) ;; *) continue ;; esac
       kg_r=$(kg_script "$kg_l" "$(printf '%s' "$kg_hb" | tr '\002' '\n')") || { printf 'the here-document: %s\n' "$kg_r"; exit 1; }
     done < "$tmp/kgh.$KG_DEPTH"
