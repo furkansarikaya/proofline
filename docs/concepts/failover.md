@@ -26,6 +26,8 @@ runtimes are installed.
 
 This is not a silent fallback: it is allowed by config and recorded.
 
+In real use (2026-10-23 to 25) Codex implementer dispatches failed or timed out and Claude took over in three tasks, and the work was merged. Claude to Codex failover is covered only by the dispatch test.
+
 ## Capability floor
 
 Each role has a `tier_floor` (1 to 3) and each profile names a required model. If the other runtime cannot meet

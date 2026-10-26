@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.0.32 — 2026-10-26
+
+- Delivery works on GitHub, GitLab and Azure DevOps (A180): the platform comes from the exact host of `origin` (`PROOFLINE_PLATFORM` names a self-hosted one), `proofline merge` applies the same fail-closed checks through gh, glab or az, and on Bitbucket, other hosts or without the tool the branch is pushed and you merge. A pull request with no checks is merged only after build and test pass in a clean export of the exact commit, and says so; "no CI" is a warning. The hook also denies glab, az and HTTP-client merge paths. Known limit: az has no match-head option.
+- Night mode runs in the same session and the headless driver is removed (A181): the lead runs and delivers each task in order, `agent.sh batch-next` prints the state from records, one session owns a batch, a merge is recorded before cleanup and recovered from the platform, and `batch-awake` keeps a Mac awake with `caffeinate`. `batch.task_timeout` and `batch.runtimes` are accepted and ignored.
+- `design_docs.design` can hold one document per surface (A182): `agent.sh design-surface <PATH>` and `design-sync.mjs` resolve a file with the same rules; a `paths` glob allows one `**/`.
+- Codex support labels follow recorded use (A183): Codex as implementer is supported, other Codex roles are not yet verified in real use, and failover from Codex to Claude works in real use.
+
 ## 0.0.31 — 2026-10-25
 
 - The pre-commit hook asks for the commit approval with the full content fingerprint (A179): `approve delivery` binds the approval to the content including the knowledge step's documents (ADRs, wiki, IMAGES.md), but the hook looked it up with the gate fingerprint, which leaves them out, so a delivery whose knowledge step wrote documents was refused with "no user commit approval for this content" for an agent session. `githooks-test.sh` pins the binding.

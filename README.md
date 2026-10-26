@@ -12,17 +12,17 @@
 - Visual verification works on native apps with the project's own test tools.
 - UI craft: each surface gets a visitor mode (persuade, operate, read, experience); `design_docs.design` can hold one document per surface ([details](docs/concepts/design-surfaces.md)). Generated-UI looks need a written reason; persuade and experience surfaces must also bring real imagery, motion and a characterful type voice, with directions dealt reproducibly from a bundled design library and a draft visual (comp) before coding when an image tool exists. `design ui <mode> <target>` makes one focused change to one target. visual-proof measures this in a browser and lints the source ([details](docs/concepts/testing.md)).
 - **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
-- Claude Code is the primary runtime, Codex is experimental, and any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
+- Claude Code is the primary runtime, Codex is supported as implementer, and any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
 - proofline works alongside skills specific to your ecosystem; the gates verify the result regardless of which skill produced it.
 
 ## Status
 
-Version 0.0.31 is an early release.
+Version 0.0.32 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
-Codex, mixed setups and failover are experimental.
-Their integration checks passed, and the full team runs are still in progress.
+Codex as implementer is supported (real use, 2026-10-23 to 25).
+Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
 [tests/e2e/README.md](tests/e2e/README.md) lists the detailed full-team results.
 
 ## What to expect from AI behaviour
@@ -147,7 +147,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.31**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.32**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

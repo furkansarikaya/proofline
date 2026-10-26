@@ -37,7 +37,7 @@ Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` 
 - Runtime limiti dolunca diğer runtime'ı aç ve `proofline resume` çalıştır. Bkz. [failover](../../concepts/failover.md).
 - Config değiştirdikten veya yükselttikten sonra `proofline doctor` çalıştır.
 - Completion report'taki `## Unsupported Checks` ve `## Assumptions` bölümlerini oku: UNSUPPORTED bir kontrol asla geçmiş sayılmadı, doğrulanmamış bir varsayım ya kabul ettiğin ya da hâlâ taşıdığın bir risktir. Kanıt sınıfları: [evidence](../../concepts/evidence.md).
-- Neyin doğrulandığını bil: script'ler test edilmiştir ve Claude-only her senaryo bağımsız bir uçtan uca değerlendirmeden bir noktada geçmiştir (2026-10-13 ile 2026-10-17 arası; STANDARD.tr birkaç kez), ancak hiçbiri güncel sürümde yeniden doğrulanmadı; Codex ve failover yapılandırmaları yalnızca kısmen test edildi. Tarihli tablo [tests/e2e/README.md](../../../tests/e2e/README.md#current-results) içinde.
+- Neyin doğrulandığını bil: script'ler test edilmiştir ve Claude-only her senaryo bağımsız bir uçtan uca değerlendirmeden bir noktada geçmiştir (2026-10-13 ile 2026-10-17 arası; STANDARD.tr birkaç kez), ancak hiçbiri güncel sürümde yeniden doğrulanmadı; Codex implementer rolü ve Codex'ten Claude'a failover gerçek kullanımda çalıştı (2026-10-23 ile 25 arası); diğer Codex rolleri gerçek kullanımda henüz doğrulanmadı. Tarihli tablo [tests/e2e/README.md](../../../tests/e2e/README.md#current-results) içinde.
 - Ara sıra `proofline insights` çalıştır: maliyetin ve tekrar eden başarısızlıkların nerede toplandığını gösterir, hiçbir şeyi değiştirmez.
 
 Daha fazla örnek: [prompt-katalogu.md](prompt-katalogu.md). Kavramlar: [workflow](../../concepts/workflow.md), [gates](../../concepts/gates.md).

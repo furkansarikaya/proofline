@@ -111,7 +111,9 @@ error in these checks). These are integration checks, not scored scenarios, so n
 | `proofline doctor` and hook probes on Codex | PASS, 0 model calls (thinner evidence than the other rows: there was no separate run for this check, the evaluator took the doctor output from the other two checks) |
 | Lead failover Claude to Codex (`resume`) | partially tested: resume and freshness verified, a headless Claude verifier dispatched (A114 mode recorded), the A124 `wait:` line, and the A127 token with a single status file verified on `128e516`; the route printed after the VERIFY failure was only partly right (it named `## Verification commands` while the right edit was `criteria:` on the scope entries), and plan validation was a product gap (nothing enforced AC-to-scope coverage before freeze), both addressed afterwards by A127 and A129 and not re-run; the run did not reach DONE: the cheap Codex lead stopped to ask for authorization in prose, and the plan had an acceptance criterion mapped to no scope path (A129 now refuses that at freeze, not re-run) |
 | Codex-only TRIVIAL scored run (2026-10-14, `354f348`) | FAIL 26/43: the model wrote a plan scope without criteria and nothing was implemented; the unparseable scope that the first freeze accepted is fixed (A101) |
-| Codex-only STANDARD, STANDARD.tr, COMPLEX, CRITICAL; mixed STANDARD, STANDARD.tr, COMPLEX, CRITICAL; failover as a scored scenario | not tested |
+| Codex-only STANDARD, STANDARD.tr, COMPLEX, CRITICAL; mixed STANDARD, STANDARD.tr, COMPLEX, CRITICAL; failover as a scored scenario | no scored run (see "Real use" below for unscored use) |
+
+Real use (2026-10-23 to 2026-10-25, a user's project, records in `.agents/local/metrics`; its config says `proofline_version: 0.0.28`, the `main` commit was not recorded; not scored runs, no evaluator): 26 dispatch records, 17 with Codex as implementer (13 submitted, 2 failed, 2 timed out) and 9 with Claude as implementer (8 submitted, 1 timed out). Codex appears in 13 step records, all in the implementer role (9 done, 4 blocked); the other 140 step records and every lead record are Claude. Four tasks (TASK-007 to TASK-010, PRs #12 to #15) had Codex implementer work that passed the gates and was merged, TASK-008 and TASK-009 entirely by Codex dispatches. Failover from Codex to Claude happened in TASK-006, TASK-007 and TASK-010 (2 runtime failovers in the friction report); the records do not name the cause of the failures. Codex as lead, reviewer, qa, architect, designer, explorer, verifier or security reviewer does not appear in them, and Claude to Codex failover is covered only by the dispatch test.
 
 ### Harness defects found and fixed in this campaign
 
@@ -255,9 +257,9 @@ These rows moved here from the root README. Self-tests and enforcement tests cov
 | Task adapters: markdown, GitHub Issues | none | tested (GitHub through a fake `gh`) | markdown used in every run |
 | Task adapters: Jira, Linear | none | argument checks only | not tested |
 | Windows | none | not tested (use WSL or Git Bash) | not tested |
-| Codex-only team | Full | hooks, dispatch and rendered agents tested | partly: see "Codex and mixed configurations" |
-| Claude lead with Codex worker | Full | tested with fake runtimes | partly: see "Codex and mixed configurations" |
-| Lead failover (Claude to Codex `resume`) | Full | `agent.sh next` and dispatch failover tested with fake runtimes | partly: see "Codex and mixed configurations" |
+| Codex-only team | Full | hooks, dispatch and rendered agents tested | implementer role: supported in real use; other roles not yet verified in real use; no scored run |
+| Claude lead with Codex worker | Full | tested with fake runtimes | supported in real use (Codex implementer merged work); no scored run |
+| Failover | Full | `agent.sh next` and dispatch failover tested with fake runtimes | Codex to Claude: works in real use; Claude to Codex: dispatch test only |
 
 ## Capabilities the scenarios do not exercise yet (A91, updated)
 
