@@ -2,12 +2,14 @@
 # Prepares a run worktree (A185). Run by `agent.sh worktree-add`; it knows no ecosystem: what to prepare is data.
 #
 #   worktree-prep.sh <MAIN-ROOT> <WORKTREE> [COPY-GLOBS]
+#   worktree-prep.sh --deps <MAIN-ROOT> <DIR>      only step 1, into any folder (the throwaway export of build-record.sh)
 #
 # 1 Dependency folders. `worktree_deps.folders` of every ecosystem in ecosystems.json (flat form: ecosystems.tsv) names
 #   git-ignored folders a package manager fills (for example node_modules). Each one that exists in the main tree is COPIED
 #   into the worktree (copy-on-write clone where the file system has one, a plain copy otherwise), so a task that changes
 #   dependencies changes only its own worktree. A link into the main tree is never made; an old link left by an earlier
-#   version is replaced by a copy. Absolute links inside a copy that point into the main tree are re-pointed at the worktree.
+#   version is replaced by a copy. A link inside a copy (absolute, or relative and leaving the folder) that resolves into the main
+#   tree is re-pointed at the same path of the worktree, so nothing written through it reaches the main tree.
 #   A folder that git tracks, or does not ignore, is left alone (a checkout already has the tracked one).
 # 2 Local files. COPY-GLOBS (config `worktree.copy_files`, default `.env*`; `none` switches it off; globs of agent.sh: a
 #   pattern without / matches at any depth) name untracked files a checkout lacks. A match is copied only when git IGNORES it in
@@ -18,8 +20,9 @@
 # Exit 0 always for a missing source; 1 when a copy failed.
 set -u
 LC_ALL=C; export LC_ALL
+deps_only=no; [ "${1:-}" != --deps ] || { deps_only=yes; shift; }
 main=${1:-}; wt=${2:-}; globs=${3:-}
-[ -d "$main" ] && [ -d "$wt" ] || { echo "usage: worktree-prep.sh <MAIN-ROOT> <WORKTREE> [COPY-GLOBS]" >&2; exit 2; }
+[ -d "$main" ] && [ -d "$wt" ] || { echo "usage: worktree-prep.sh [--deps] <MAIN-ROOT> <WORKTREE> [COPY-GLOBS]" >&2; exit 2; }
 main=$(CDPATH='' cd "$main" && pwd -P); wt=$(CDPATH='' cd "$wt" && pwd -P)
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 tsv=$main/.agents/ecosystems.tsv; [ -s "$tsv" ] || tsv=$here/../ecosystems.tsv
@@ -60,10 +63,12 @@ if [ "$eco_ok" = yes ]; then
     if [ -L "$wt/$f" ]; then rm -f "$wt/$f"; fi                              # a link of an earlier version: never kept
     [ ! -e "$wt/$f" ] || continue
     if clone_tree "$main/$f" "$wt/$f"; then
-      # an absolute link inside the copy that points into the main tree would let the worktree write there
+      # a link inside the copy that resolves into the main tree (absolute, or relative with ..) would let the worktree write there
       find "$wt/$f" -type l 2>/dev/null | while IFS= read -r l; do
         t=$(readlink "$l" 2>/dev/null) || continue
-        case "$t" in "$main"/*) ln -sfn "$wt/${t#"$main"/}" "$l" ;; esac
+        case "$t" in /*) a=$t ;; *) a=$(CDPATH='' cd "$(dirname "$l")" 2>/dev/null && pwd -P)/$t ;; esac
+        a=$(printf '%s\n' "$a" | awk -F/ '{ n = 0; for (i = 2; i <= NF; i++) { if ($i == "" || $i == ".") continue; if ($i == "..") { if (n > 0) n--; continue } p[++n] = $i } o = ""; for (i = 1; i <= n; i++) o = o "/" p[i]; print o }')
+        case "$a" in "$wt"/*) continue ;; "$main"/*) ln -sfn "$wt/${a#"$main"/}" "$l" ;; esac
       done
     else
       rm -rf "${wt:?}/$f"; echo "worktree-prep: could not copy $f into the worktree" >&2; rc=1
@@ -72,10 +77,11 @@ if [ "$eco_ok" = yes ]; then
 fi
 
 # --- 2 local files
+[ "$deps_only" = no ] || exit "$rc"
 case "$globs" in ''|none) exit "$rc" ;; esac
 [ "$eco_lib" = yes ] || { echo "worktree-prep: ecosystems.sh is missing, so local files are not copied" >&2; exit "$rc"; }
-# without the ecosystem data the prune list is a short built-in one
-eco_prune='.git .agents .claude .codex node_modules'
+# the prune list is data (global.prune); without the data only the git and control-plane folders are skipped
+eco_prune='.git .agents'
 [ "$eco_ok" != yes ] || eco_prune=$(eco_get '*' prune | tr '\n' ' ')
 cand=$(mktemp "${TMPDIR:-/tmp}/worktree-prep.XXXXXX") || exit 1
 trap 'rm -f "$cand" "$cand.m"' EXIT

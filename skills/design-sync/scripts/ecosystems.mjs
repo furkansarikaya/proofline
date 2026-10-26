@@ -200,6 +200,8 @@ export function validate(data = loadEcosystems()) {
     need(["scripts", "tools"].includes(e.commands?.truth), `${w}: commands.truth must be scripts or tools`);
     for (const k of TEST_KEYS) need(k in (e.test_output ?? {}), `${w}: test_output.${k} missing`);
     for (const k of BENCH_KEYS) need(k in (e.benchmark ?? {}), `${w}: benchmark.${k} missing`);
+    // optional: a browser-test dependency the project declares in `manifest` and has installed under `deps_dir` (probe_visual of agent.sh)
+    if (e.browser_test !== undefined) need(typeof e.browser_test.manifest === "string" && /^[A-Za-z0-9._-]+$/.test(e.browser_test.manifest) && typeof e.browser_test.deps_dir === "string" && /^[A-Za-z0-9._-]+$/.test(e.browser_test.deps_dir) && Array.isArray(e.browser_test.names) && e.browser_test.names.length > 0, `${w}: browser_test needs manifest, deps_dir (plain names) and a non-empty names array`);
     // A185: git-ignored dependency folders a run worktree gets its own copy of (never a link into the main tree)
     need(Array.isArray(e.worktree_deps?.folders), `${w}: worktree_deps.folders must be an array`);
     for (const x of e.worktree_deps?.folders ?? []) need(/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(x) && !x.split("/").some((q) => q === "." || q === ".." || q === ".git" || q === ".agents"), `${w}: worktree_deps.folders entry ${x} must be a plain relative folder name`);

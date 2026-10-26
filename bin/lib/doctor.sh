@@ -43,6 +43,8 @@ doctor_platform() {
   if [ -z "$(g remote get-url origin 2>/dev/null || true)" ]; then
     d_warn "platform: the project has no origin remote yet, so the platform is unknown; with one, proofline detects GitHub, GitLab, Azure DevOps and Bitbucket from its address"; return 0
   fi
+  dp_lw=$(cd "$ROOT" && sh "$A" platform-warn 2>/dev/null) || dp_lw=''
+  [ -z "$dp_lw" ] || d_warn "platform: ${dp_lw#warning: }"
   case "$dp_p:$dp_c" in
     github:gh) d_pass "platform: github (source $dp_src), tool gh installed; merge rule: proofline opens and merges the pull request, every check must be green, and a pull request without checks is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
     gitlab:glab) d_pass "platform: gitlab (source $dp_src), tool glab installed; merge rule: proofline opens and merges the merge request, the pipeline must be green, and a merge request without a pipeline is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;

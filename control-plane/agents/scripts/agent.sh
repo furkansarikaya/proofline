@@ -303,7 +303,7 @@ config_check() {
     done
     # A162: risk.log_sensitive.content is matched by awk (risk_words_match), so awk is the one that must accept it
     cc_v=$(config_get risk.log_sensitive.content "$cc_file" || true)
-    [ -z "$cc_v" ] || RISK_RE=$cc_v awk 'BEGIN { "" ~ ENVIRON["RISK_RE"] }' >/dev/null 2>&1 || echo "invalid regular expression for risk.log_sensitive.content") && [ -z "$cc_out" ] && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
+    [ -z "$cc_v" ] || RISK_RE=$cc_v awk 'BEGIN { "" ~ ENVIRON["RISK_RE"] }' >/dev/null 2>&1 || echo "invalid regular expression for risk.log_sensitive.content") && [ -z "$cc_out" ] && { echo "config valid: ${cc_file#"$root"/}"; { [ "$cc_file" != "$config" ] || [ ! -f "$scripts/platform.sh" ] || sh "$scripts/platform.sh" warn -C "$root" 2>/dev/null; } >&2 || :; return 0; }
   printf '%s\n' "$cc_out" >&2; fail "config invalid: ${cc_file#"$root"/}"
 }
 
@@ -3633,9 +3633,14 @@ probe_visual() {
   for pv_a in 'Google Chrome.app/Contents/MacOS/Google Chrome' 'Chromium.app/Contents/MacOS/Chromium' 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge' 'Brave Browser.app/Contents/MacOS/Brave Browser'; do
     [ -x "$pv_root/Applications/$pv_a" ] && { printf 'browser %s\n' "$pv_root/Applications/$pv_a"; return 0; }
   done
-  [ -f "$root/package.json" ] || return 0
-  for pv_t in @playwright/test playwright playwright-core puppeteer puppeteer-core cypress webdriverio @wdio/cli selenium-webdriver; do
-    grep -Fq "\"$pv_t\"" "$root/package.json" && [ -d "$root/node_modules/$pv_t" ] && { printf 'project browser-test dependency %s (package.json, node_modules)\n' "$pv_t"; return 0; }
+  # the project's own browser-test dependency: the manifest, folder and names of every ecosystem come from ecosystems.json (browser_test)
+  [ "$eco_loaded" = 1 ] || return 0
+  for pv_e in $(eco_ids); do
+    pv_m=$(eco_first "$pv_e" browser_test.manifest); pv_dd=$(eco_first "$pv_e" browser_test.deps_dir)
+    [ -n "$pv_m" ] && [ -n "$pv_dd" ] && [ -f "$root/$pv_m" ] || continue
+    for pv_t in $(eco_get "$pv_e" browser_test.names); do
+      grep -Fq "\"$pv_t\"" "$root/$pv_m" && [ -d "$root/$pv_dd/$pv_t" ] && { printf 'project browser-test dependency %s (%s, %s)\n' "$pv_t" "$pv_m" "$pv_dd"; return 0; }
+    done
   done
   return 0
 }
@@ -7064,7 +7069,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='platform language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
+read_only_commands='platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7232,6 +7237,7 @@ case "$command" in
   verify-gates) verify_lifecycle_gates "${2:?usage: agent.sh verify-gates <ID>}"; echo "lifecycle gates verified: $2" ;;
   verify-seal) verify_seal "${2:?usage: agent.sh verify-seal <ID>}"; echo "lifecycle seal verified: $2" ;;
   platform) sh "$scripts/platform.sh" detect -C "$root"; exit $? ;;
+  platform-warn) sh "$scripts/platform.sh" warn -C "$root"; exit $? ;;
   ci-check) ci_check; exit $? ;;
   ci-task-command) ci_task_command ;;
   task-source-done) task_source_done "${2:?usage: agent.sh task-source-done <ID>}" ;;

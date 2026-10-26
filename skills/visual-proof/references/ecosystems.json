@@ -33,6 +33,7 @@
       "id": "npm",
       "name": "JavaScript / TypeScript (npm, pnpm, yarn, bun; workspaces, turbo, nx)",
       "worktree_deps": { "folders": ["node_modules"] },
+      "browser_test": { "manifest": "package.json", "deps_dir": "node_modules", "names": ["@playwright/test", "playwright", "playwright-core", "puppeteer", "puppeteer-core", "cypress", "webdriverio", "@wdio/cli", "selenium-webdriver"] },
       "prune": [".parcel-cache", ".angular", ".expo", ".docusaurus"],
       "project_files": ["package.json"],
       "manifests": ["package.json", "pnpm-workspace.yaml"],

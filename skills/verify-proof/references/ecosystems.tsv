@@ -75,6 +75,17 @@
 npm	id	npm
 npm	name	JavaScript / TypeScript (npm, pnpm, yarn, bun; workspaces, turbo, nx)
 npm	worktree_deps.folders	node_modules
+npm	browser_test.manifest	package.json
+npm	browser_test.deps_dir	node_modules
+npm	browser_test.names	@playwright/test
+npm	browser_test.names	playwright
+npm	browser_test.names	playwright-core
+npm	browser_test.names	puppeteer
+npm	browser_test.names	puppeteer-core
+npm	browser_test.names	cypress
+npm	browser_test.names	webdriverio
+npm	browser_test.names	@wdio/cli
+npm	browser_test.names	selenium-webdriver
 npm	prune	.parcel-cache
 npm	prune	.angular
 npm	prune	.expo

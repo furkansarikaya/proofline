@@ -5,7 +5,7 @@ A command that fails on the current tree may have failed before the change. Only
 ## Procedure (per failing command)
 
 1. Base revision: the run's `base_sha` (in a run), else `git merge-base HEAD <default branch>`; if none can be determined the command cannot be classified and stays a failure.
-2. Create an isolated worktree at the base (`git worktree add --detach <path> <base>`), record its path in the ledger first. Git-ignored dependency folders (for example `node_modules`) are symlinked from the project; build output folders are not linked or copied; verify every link target with `realpath` stays inside the project.
+2. Create an isolated worktree at the base (`git worktree add --detach <path> <base>`), record its path in the ledger first. Git-ignored dependency folders (for example `node_modules`) are symlinked from the project while no step installs or changes packages (then copy the folder, so nothing writes through the link into the project); build output folders are not linked or copied; verify every link target with `realpath` stays inside the project.
 3. Run the **same command**, same timeout, in the worktree. If it needs a narrower selector to be meaningful (a test file that does not exist at base), run the broader command the project uses.
 4. Record `| base_exit=<n>` on the head command line. Compare the failing items: for test runners, the same failing test names must appear at base; if only some of the head failures also fail at base, split: list the shared ones as pre-existing in `## Pre-existing failures` and keep the command failed (the new failures are a regression).
 5. Remove the worktree (its own `git worktree remove` command on the recorded literal path).

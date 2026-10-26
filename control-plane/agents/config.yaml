@@ -57,7 +57,7 @@ approval:
   phrases: approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur
 commands:
   # Optional: installs dependencies in the build record's export directory (agent.sh build-record); without it
-  # node_modules, vendor and .venv of the project root are linked into the export.
+  # the dependency folders named by worktree_deps in ecosystems.json are copied into the export.
   install:
   # build, test and lint take one command (`build: dotnet build App.slnx`) or several, one `- ` line each, for a project with more
   # than one stack (A173). agent.sh build-record and the verify gate run every one and report the one that broke on its own:

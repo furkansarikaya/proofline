@@ -5,6 +5,7 @@
 #   platform.sh field KEY [-C DIR] [--url URL] one value (the keys of detect, and org_url, project)
 #   platform.sh link BRANCH BASE [-C DIR] [--url URL]   the address that opens a pull request for BRANCH into BASE
 #   platform.sh env [-C DIR] [--url URL]      NAME=value lines the platform tool needs for a private host (GH_HOST, GITLAB_HOST)
+#   platform.sh warn [-C DIR] [--url URL]     one warning line when git.platform is set without git.platform_host for an origin that is not a known host of it
 #   platform.sh ci-failed PR SHA --cli PATH [--jq PATH] [-C DIR] [--url URL]   the failed check of a pull request's head (A186)
 # platform: github | gitlab | azure | bitbucket | other
 # source:   config | env | auto   where the platform came from: git.platform (with git.platform_host, when set) of
@@ -36,7 +37,7 @@ while [ $# -gt 0 ]; do
     *) echo "platform: unknown argument $1" >&2; exit 2 ;;
   esac
 done
-case "$op" in detect|field|link|env|ci-failed) ;; *) echo "usage: platform.sh detect|field KEY|link BRANCH BASE|env|ci-failed PR SHA --cli PATH [-C DIR] [--url URL]" >&2; exit 2 ;; esac
+case "$op" in detect|field|link|env|warn|ci-failed) ;; *) echo "usage: platform.sh detect|field KEY|link BRANCH BASE|env|warn|ci-failed PR SHA --cli PATH [-C DIR] [--url URL]" >&2; exit 2 ;; esac
 [ -n "$url" ] || url=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
 
 # hp: "HOST/PATH" of the URL, lower-case host, no scheme, user, port, .git or trailing slash
@@ -53,6 +54,7 @@ case "$host" in   # exact hosts only: a lookalike (github.com.evil.example) or a
   gitlab.com) platform=gitlab ;;
 esac
 [ -n "$host" ] && [ -n "$path" ] || platform=other
+auto_platform=$platform   # what the origin host alone says (exact known hosts), before any configuration
 
 # Config (A186): git.platform and git.platform_host of the project's .agents/config.yaml, read without the agent.sh parser
 pf_top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)
@@ -77,6 +79,10 @@ case "$cfg_platform" in
   github|gitlab|azure|bitbucket|other)
     if [ -z "$cfg_host" ] || { [ -n "$host" ] && [ "$host" = "$cfg_host" ]; }; then platform=$cfg_platform; src=config; fi ;;
 esac
+# A185 review: git.platform without git.platform_host applies to ANY origin. That is untrusted when the origin host is not an exact known host
+# of that platform (a look-alike such as github.com.evil.example): `warn` says so and `env` exports no host variable for it.
+pf_loose=no
+if [ "$src" = config ] && [ -z "$cfg_host" ] && [ "$cfg_platform" != other ] && [ "$auto_platform" != "$cfg_platform" ]; then pf_loose=yes; fi
 
 case "$platform" in
   azure)
@@ -184,7 +190,11 @@ case "$op" in
       source) printf '%s\n' "$src" ;; host) printf '%s\n' "$host" ;; org_url) printf '%s\n' "$org_url" ;; project) printf '%s\n' "$proj" ;;
       *) echo "platform: unknown field $key" >&2; exit 2 ;;
     esac ;;
+  warn)
+    [ "$pf_loose" = yes ] || exit 0
+    printf 'warning: git.platform is %s without git.platform_host, and the origin host (%s) is not a known %s host, so the setting applies to whatever the origin is; set git.platform_host to the exact host name of the origin in .agents/config.yaml (proofline then also exports no host variable for it until you do)\n' "$cfg_platform" "${host:-none}" "$cfg_platform" ;;
   env)   # a private host: the tool must talk to the origin's host, not to github.com or gitlab.com
+    [ "$pf_loose" = no ] || exit 0   # an origin the configuration did not name exactly never gets a host variable
     case "$host" in ''|*[!a-z0-9.-]*) exit 0 ;; esac
     case "$platform:$host" in
       github:github.com|github:www.github.com) ;;

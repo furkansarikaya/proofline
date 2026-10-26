@@ -24,7 +24,8 @@
 #    The ids are read from ecosystems.tsv, never hardcoded here. Excluded: platform.sh (platform adapter), ecosystems.sh (the
 #    reader of the data), the self-tests (*-test.sh, test-lib.sh, tests/) and comment lines. A line that names an interpreter or
 #    a tool and not an ecosystem (a process-group method, an interpreter whose inline code a safety hook reads) may be marked
-#    by a comment line directly above it: `# eco-ok: <why this is not ecosystem knowledge>`.
+#    by a comment line directly above it: `# eco-ok: <why this is not ecosystem knowledge>`. A line that names a plain manifest, project
+#    or lock file of an ecosystem (`package.json`, `go.mod`, `Cargo.lock`, ... read from ecosystems.tsv) is the same kind of knowledge and fails too.
 #
 # Prints PASS or FAIL per rule. Exit 0 when every rule passes, 1 on a failure, 2 on a usage error.
 FOREIGN_TAGS='ponytail'
@@ -128,6 +129,9 @@ else
   lbl="(^[[:space:]]*|;;[[:space:]]*|[[:space:]]in[[:space:]]+)[(]?([^][:space:]()|]+[|])*[\"']?($ids)[\"']?([|][^][:space:]()]+)*[)]"
   # a test: `[ "$x" = go ]`, `[ x != go ] && ...`
   cmp="[[:space:]](=|==|!=)[[:space:]]+[\"']?($ids)[\"']?([[:space:]]*([]]|;|&|[|]|[)])|[[:space:]]*\$)"
+  # a plain file name (no glob, no /) that ecosystems.json lists as a manifest, project file or lock: a word in code, not part of a longer name
+  ftoks=$(awk -F'\t' '$1 != "*" && ($2 == "manifests" || $2 == "project_files" || $2 == "locks") && $3 !~ /[*?\/]/ { print $3 }' "$etsv" | sort -u | sed 's/[.]/[.]/g' | paste -sd'|' -)
+  tok="(^|[^A-Za-z0-9_.-])($ftoks)([^A-Za-z0-9_.-]|\$)"
   if git -C "$root" rev-parse --show-toplevel >/dev/null 2>&1; then
     list=$(git -C "$root" ls-files --cached --others --exclude-standard -- bin control-plane adapters skills 2>/dev/null)
   else
@@ -140,11 +144,11 @@ else
     case $f in skills/*) case $f in skills/*/scripts/*) ;; *) continue ;; esac ;; esac
     [ -f "$root/$f" ] || continue
     case $f in *.sh) ;; *) head -n 1 "$root/$f" | grep -Eq '^#!.*(sh|bash)' || continue ;; esac
-    h=$(LBL=$lbl CMP=$cmp awk -v f="$f" '
-      BEGIN { lbl = ENVIRON["LBL"]; cmp = ENVIRON["CMP"] }
+    h=$(LBL=$lbl CMP=$cmp TOK=$tok awk -v f="$f" '
+      BEGIN { lbl = ENVIRON["LBL"]; cmp = ENVIRON["CMP"]; tok = ENVIRON["TOK"] }
       { l = $0; sub(/^[ \t]+/, "", l)
         if (l ~ /^#/) { ok = (l ~ /^# eco-ok:/); next }
-        if (!ok && ($0 ~ lbl || $0 ~ cmp)) print f ":" NR ": " $0
+        if (!ok && ($0 ~ lbl || $0 ~ cmp || $0 ~ tok)) print f ":" NR ": " $0
         ok = 0 }' "$root/$f")
     [ -z "$h" ] || hits="$hits
 $h"

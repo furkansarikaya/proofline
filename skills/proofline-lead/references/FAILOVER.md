@@ -54,7 +54,7 @@ transition. Nothing the lead remembers is state.
   on the user's go; after each run's final report, ask before starting the next one when the previous run
   ended FAILED or BLOCKED.
 - A run's own worktree (A169) is made by `agent.sh worktree-add <ID>` in the main working tree: `.agents/local/worktrees/<ID>`
-  (git-ignored), detached at the canonical tip, with links to the shared batch, approvals, metrics, friction and prompts folders;
+  (git-ignored), detached at the canonical tip, with its own copies of the dependency folders and ignored `.env*` files (never links, A185); the shared batch, approvals, metrics, friction and prompts state stays in the main working tree and is reached by path;
   `worktree-path <ID>` prints it, `worktree-remove <ID> [--force]` removes it (refused while a run is inside). Night mode makes one per task.
   The second run starts in a session whose project folder is that worktree.
 - Parallel runs only in separate git worktrees, each with its own `.agents/local/ACTIVE_RUN`, at most

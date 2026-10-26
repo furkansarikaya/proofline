@@ -74,6 +74,18 @@
 *	ci_scan.lint	 (lint|vet|clippy)( |$)|^(ruff|eslint)
 npm	id	npm
 npm	name	JavaScript / TypeScript (npm, pnpm, yarn, bun; workspaces, turbo, nx)
+npm	worktree_deps.folders	node_modules
+npm	browser_test.manifest	package.json
+npm	browser_test.deps_dir	node_modules
+npm	browser_test.names	@playwright/test
+npm	browser_test.names	playwright
+npm	browser_test.names	playwright-core
+npm	browser_test.names	puppeteer
+npm	browser_test.names	puppeteer-core
+npm	browser_test.names	cypress
+npm	browser_test.names	webdriverio
+npm	browser_test.names	@wdio/cli
+npm	browser_test.names	selenium-webdriver
 npm	prune	.parcel-cache
 npm	prune	.angular
 npm	prune	.expo
@@ -1055,6 +1067,7 @@ dotnet	test_output.exit_codes.assertion.2.source	docs
 dotnet	test_output.exit_codes.assertion.2.evidence	https://learn.microsoft.com/dotnet/core/testing/unit-testing-platform-exit-codes
 php	id	php
 php	name	PHP (Composer)
+php	worktree_deps.folders	vendor
 php	project_files	composer.json
 php	manifests	composer.json
 php	locks	composer.lock
@@ -1128,6 +1141,7 @@ php	test_output.exit_codes.assertion.0.source	docs
 php	test_output.exit_codes.assertion.0.evidence	https://github.com/sebastianbergmann/phpunit/blob/main/src/TextUI/ShellExitCodeCalculator.php
 ruby	id	ruby
 ruby	name	Ruby (Bundler)
+ruby	worktree_deps.folders	vendor/bundle
 ruby	project_files	Gemfile
 ruby	manifests	Gemfile
 ruby	manifests	*.gemspec
