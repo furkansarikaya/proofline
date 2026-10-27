@@ -87,9 +87,19 @@ if [ ! -f "$dir/done" ]; then
   mkdir -p "$root/.agents/local/builds" || exit 2
   if [ -n "$envs" ]; then   # secret-free test env files only: a visible secret rejects the record before anything runs
     [ -f "$here/secret-scan.sh" ] || { echo "build-record: secret-scan.sh is missing, so verification.env_files cannot be checked" >&2; exit 2; }
+    rr=$(CDPATH='' cd -P "$root" && pwd -P) || exit 2
+    for f in $envs; do   # a listed file must really lie inside the project: its parent directory, symbolic links followed, may not leave it or be under .git
+      if [ ! -e "$root/$f" ] && [ ! -L "$root/$f" ]; then echo "build-record: note: verification.env_files lists $f, which does not exist; skipped" >&2; continue; fi
+      pd=$(CDPATH='' cd -P "$(dirname "$root/$f")" 2>/dev/null && pwd -P) || pd=''
+      case "$pd/" in "$rr"/.git/*) pd='' ;; "$rr"/*) ;; *) pd='' ;; esac
+      case "/$f/" in */.git/*) pd='' ;; esac
+      if [ -z "$pd" ] || [ -L "$root/$f" ]; then
+        echo "build-record: rejected: verification.env_files $f is a symbolic link, or its directory resolves outside the project or into .git; nothing was built" >&2; exit 2
+      fi
+    done
     sd=$root/.agents/local/env-scan.$$; rm -rf "$sd"; mkdir -p "$sd" || exit 2; i=0; map=''; paths=''
     for f in $envs; do
-      [ -f "$root/$f" ] && [ ! -L "$root/$f" ] || continue
+      [ -f "$root/$f" ] || continue
       i=$((i + 1))
       # an unquoted KEY=value line is shown to the scanner as KEY="value", so its assignment rule sees env files as it sees code
       sed -E "s/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=([^\"'[:space:]#][^[:space:]#]*)/\\2=\"\\3\"/" "$root/$f" > "$sd/e$i.txt"

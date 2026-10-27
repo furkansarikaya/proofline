@@ -123,3 +123,9 @@ Probed in a throwaway project with a logging hook (`claude -p --setting-sources 
 
 Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's
 environment markers, not by a terminal.
+
+## What is guaranteed
+
+Scripts and hooks refuse a step that breaks the guaranteed rules (approvals, database safety, scope, evidence and cleanup). A run
+can still stop or fail before it finishes, and hook checks have documented limits (the sections above). Report wording, plan
+details and code quality are model-dependent: they vary from run to run, and both of two different runs of the same task can be valid.

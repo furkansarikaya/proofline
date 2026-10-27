@@ -135,3 +135,15 @@ setenvs "../x"; expect_msg "a path with .. is invalid" "verification.env_files" 
 setenvs "/etc/x"; expect_msg "an absolute path is invalid" "verification.env_files" sh .agents/scripts/agent.sh config-check
 setenvs "*.env"; expect_msg "a glob is invalid" "verification.env_files" sh .agents/scripts/agent.sh config-check
 ok "verification.env_files must be plain project-relative names"
+
+# a listed file whose parent directory is a symbolic link out of the project is rejected; a missing file only gets a note
+mkdir -p "$base/outside"; printf 'MODE=test\n' > "$base/outside/.env.test"; ln -s "$base/outside" linkdir; echo linkdir >> .gitignore
+setcmd build "echo hi >> $cnt"; : > "$cnt"; echo envlink >> f.txt
+setenvs "linkdir/.env.test"
+rc=0; B run > "$base/env5.out" 2> "$base/env5.err" || rc=$?
+[ "$rc" = 2 ] && grep -q 'rejected.*linkdir/.env.test' "$base/env5.err" && [ ! -s "$cnt" ] || die "a symlinked parent directory was not rejected (rc=$rc): $(cat "$base/env5.err")"
+setenvs ".git/config"; rc=0; B run > /dev/null 2> "$base/env6.err" || rc=$?
+[ "$rc" = 2 ] && grep -q 'rejected' "$base/env6.err" || die "a file under .git was not rejected (rc=$rc)"
+setenvs "missing.env"; rc=0; B run > /dev/null 2> "$base/env7.err" || rc=$?
+[ "$rc" = 0 ] && grep -q 'missing.env, which does not exist' "$base/env7.err" || die "a missing env file did not only print a note (rc=$rc): $(cat "$base/env7.err")"
+ok "a listed env file outside the project or under .git is rejected; a missing one is a note"
