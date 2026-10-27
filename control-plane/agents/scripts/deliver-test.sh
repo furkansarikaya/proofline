@@ -470,6 +470,32 @@ scenario_wt_failed_kept() {
   ok "cleanup of a BLOCKED run keeps its worktree even with a merge on record (A169)"
 }
 
+# A180 round 4: origin is a RELATIVE local path in the shared git config: a run worktree sees the same remote as the main tree, the shown commands name it
+# absolute for one command, and the config itself is never rewritten
+scenario_wt_relative_origin() {
+  wt_done_run
+  lo=$base/lo.git; rm -rf "$lo"; git init -q --bare "$lo"; lo_abs=$(cd "$lo" && pwd -P)
+  git remote set-url origin ../lo.git; git -c core.hooksPath=/dev/null push -q origin main
+  [ ! -d "$wt/../lo.git" ] && [ ! -d "$wt/lo.git" ] || die "the fixture path is also valid from the worktree"
+  W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan in the worktree: $(tail -2 "$base/plan.out")"
+  grep -q "git -c remote.origin.url=$lo_abs push -u origin proofline/LC-lc" "$base/plan.out" && grep -q "git -c remote.origin.url=$lo_abs push origin proofline/LC-lc:main" "$base/plan.out" || die "the plan shows a relative origin: $(grep -n 'push' "$base/plan.out")"
+  capture 'approve delivery'; W approve-pending LC >/dev/null
+  W deliver-step LC commit >/dev/null || die "commit step"
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
+  W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
+  grep -q "^run: git -c remote.origin.url=$lo_abs push -u origin proofline/LC-lc\$" "$base/push.out" || die "the push step shows a relative origin: $(cat "$base/push.out")"
+  # (the shown command is not run: `git -c remote.origin.url=` ADDS a second url, so git pushes to the relative one as well and fails from a worktree)
+  git -C "$wt" push -q "$lo_abs" proofline/LC-lc 2> "$base/push.err" || die "push: $(cat "$base/push.err")"; git -C "$wt" update-ref refs/remotes/origin/proofline/LC-lc HEAD
+  W deliver-step LC pr > "$base/pr.out" 2>&1 || die "pr step: $(cat "$base/pr.out")"
+  grep -q "git -c remote.origin.url=$lo_abs push origin proofline/LC-lc:main" "$base/pr.out" || die "the hand-off shows a relative origin: $(cat "$base/pr.out")"
+  expect_msg "deliver-merged --check from the worktree before the merge" 'not merged' W deliver-merged LC --check
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
+  W deliver-merged LC --check > "$base/chk.out" 2>&1 || die "deliver-merged --check from the worktree does not reach the relative origin: $(cat "$base/chk.out")"
+  grep -q '^merged: the delivered commit is on origin/main' "$base/chk.out" || die "the fast-forward merge is not proven: $(cat "$base/chk.out")"
+  [ "$(git config remote.origin.url)" = ../lo.git ] || die "the shared remote.origin.url was rewritten: $(git config remote.origin.url)"
+  ok "relative local origin: a worktree proves the merge, the shown commands name the origin absolute, remote.origin.url stays as configured (A180)"
+}
+
 run_sc scenario_normal_chain
 run_sc scenario_cleanup_crash_keeps_merged
 run_sc scenario_content_change_stops
@@ -492,4 +518,5 @@ run_sc scenario_wt_cleanup_manual
 run_sc scenario_wt_cleanup_pr
 run_sc scenario_wt_cleanup_kept
 run_sc scenario_wt_failed_kept
+run_sc scenario_wt_relative_origin
 echo 'deliver tests passed'
