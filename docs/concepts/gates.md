@@ -35,6 +35,10 @@ build-changing files of every ecosystem in `.agents/ecosystems.tsv` ([ecosystems
 Gates run in parallel except where one reads another's output: `VERIFY` waits for the `QA` visual focus when the
 run has one (`next` does not offer it earlier, `decide` and `record` refuse it). The build record is made before the
 review wave, at `handoff IMPLEMENTED`; if it is missing, `next` lists it first.
+The build record runs in a clean export that holds no git-ignored file, so no `.env*`. A project whose tests need a
+secret-free env file names it in `verification.env_files` in `.agents/config.yaml` (space-separated project-relative names,
+default none, for example `.env.test`). Each named file is scanned first; one visible secret makes the build record refuse
+with the file and line (never the value), and nothing is built. Every other `.env*` still stays out.
 
 Status per gate: `pass`, `pass_low` (a PASS with `CONFIDENCE: low` does not count; re-run with a stronger model),
 `waived`, `fail`, `stale`, `missing`. `agent.sh pipeline <ID>` prints them.

@@ -98,6 +98,11 @@ design_docs:
 # worktree_deps in ecosystems.json, never linked to the main tree.
 worktree:
   copy_files: ".env*"
+# Build record (A148). env_files: space-separated project-relative names of SECRET-FREE test env files (for example `.env.test`) that may
+# enter the clean copy of the build record, which otherwise holds no git-ignored file and so no .env*. Default: none. Each listed file is
+# scanned for secrets first; one visible secret makes `agent.sh build-record <ID> run` refuse, naming the file and the line, never the value.
+verification:
+  env_files:
 local_state: on
 metrics: on
 # Writing profile (A138) for the docs-writer skill and any skill that writes prose. profile: auto = English text

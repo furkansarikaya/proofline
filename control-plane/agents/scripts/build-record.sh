@@ -10,7 +10,7 @@
 #                                record; wait while another process runs the same key; prints the record
 #   build-record.sh show [REV]   print the record; exit 3 when there is none yet
 # KEY = <commit hash, or tree-<tree hash> of the working tree without .agents/runs and .agents/local>-<8 hex of
-# the hash of the configured commands.install|build|test strings>, so a changed command never reuses a record.
+# the hash of the configured commands.install|build|test strings (and verification.env_files, when set)>, so a changed command never reuses a record.
 # The record has a `steps` file (one `<file id><TAB><label>` line per command that ran, in run order). A key with one
 # command keeps the file ids install, build and test, so a scalar config and older records read as before.
 # Exit status of `run`/`show`: 0 every command passed, 1 a command failed (the record says which), 2 usage,
@@ -18,6 +18,9 @@
 # Dependencies (the export holds tracked and untracked files, not ignored ones): `commands.install`, when
 # configured, runs first in the export (it is part of the record); otherwise the ignored dependency folders that
 # worktree_deps names in ecosystems.json (A185) are COPIED into the export by worktree-prep.sh --deps, never linked.
+# Env files (verification.env_files, default none): secret-free test env files (for example .env.test) that MAY enter the export; every
+# other .env* stays out. Each listed file is scanned first (secret-scan.sh, the project's own scanner included); one visible secret
+# rejects the run with exit 2, naming the file and line (never the value), before anything is built.
 # shortcut: the copy is taken at run time and is not part of the key; the key covers sources and command strings, not node version or installed packages.
 # Set `commands.install` when that matters. A stale lock is reclaimed when its process is dead or after
 # BUILD_RECORD_WAIT seconds (default 1800); two waiters reclaiming at the very same moment is not guarded.
@@ -48,6 +51,8 @@ if [ "$(printf '%s\n%s\n%s\n' "$ic" "$bc" "$tc" | wc -l | tr -d ' ')" -le 3 ]; t
 else
   ckey=$( { printf '%s\n' "$ic" | sed 's/^/install:/'; printf '%s\n' "$bc" | sed 's/^/build:/'; printf '%s\n' "$tc" | sed 's/^/test:/'; } | g hash-object --stdin | cut -c1-8)
 fi
+envs=$(sh "$here/agent.sh" config-get verification.env_files 2>/dev/null | tr -s ' \t' '\n' | sed '/^$/d' || :)
+[ -z "$envs" ] || ckey=$(printf '%s\nenv_files:%s\n' "$ckey" "$envs" | g hash-object --stdin | cut -c1-8)
 key=$key-$ckey
 dir=$root/.agents/local/builds/$key
 
@@ -69,7 +74,7 @@ EOF_STEPS
     if [ -n "$failed" ]; then printf '%s' "$failed" | sed 's/^/failed: /'; else echo 'all commands passed'; fi
   fi
   # a failed record: the export is clean (tracked and untracked files only), so a test that needs a git-ignored file (.env, a local database, generated files) fails there
-  [ "$(cat "$dir/done")" = 0 ] || { echo 'note: the build export holds no git-ignored files (such as .env; secrets are never copied into it): a test that needs one must be self-contained, or commands.install must prepare it'; return 1; }
+  [ "$(cat "$dir/done")" = 0 ] || { echo 'note: the build export holds no git-ignored files (such as .env; secrets are never copied into it, a secret-free test env file may be named in verification.env_files): a test that needs one must be self-contained, or commands.install must prepare it'; return 1; }
 }
 
 if [ "$op" = show ]; then
@@ -80,6 +85,31 @@ fi
 if [ ! -f "$dir/done" ]; then
   [ -n "$bc$tc" ] || { echo "build-record: commands.build and commands.test are not configured" >&2; exit 2; }
   mkdir -p "$root/.agents/local/builds" || exit 2
+  if [ -n "$envs" ]; then   # secret-free test env files only: a visible secret rejects the record before anything runs
+    [ -f "$here/secret-scan.sh" ] || { echo "build-record: secret-scan.sh is missing, so verification.env_files cannot be checked" >&2; exit 2; }
+    sd=$root/.agents/local/env-scan.$$; rm -rf "$sd"; mkdir -p "$sd" || exit 2; i=0; map=''; paths=''
+    for f in $envs; do
+      [ -f "$root/$f" ] && [ ! -L "$root/$f" ] || continue
+      i=$((i + 1))
+      # an unquoted KEY=value line is shown to the scanner as KEY="value", so its assignment rule sees env files as it sees code
+      sed -E "s/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=([^\"'[:space:]#][^[:space:]#]*)/\\2=\"\\3\"/" "$root/$f" > "$sd/e$i.txt"
+      map="$map$i $f
+"; paths="$paths .agents/local/env-scan.$$/e$i.txt"
+    done
+    src=0; sout=''
+    # shellcheck disable=SC2086 # the paths are plain generated names
+    [ -z "$paths" ] || sout=$(sh "$here/secret-scan.sh" --root "$root" $paths 2>"$sd/err") || src=$?
+    if [ "$src" != 0 ]; then
+      if [ "$src" = 1 ]; then
+        printf '%s\n' "$sout" | while IFS=: read -r fp ln rl; do
+          [ -n "$fp" ] || continue; fi=${fp##*/e}; fi=${fi%.txt}
+          printf 'build-record: rejected: verification.env_files %s:%s holds a secret (%s); the value is not shown. Remove it, or take the file out of verification.env_files\n' "$(printf '%s' "$map" | sed -n "s/^$fi //p")" "$ln" "$rl" >&2
+        done
+      else echo "build-record: the secret scan of verification.env_files failed (exit $src)" >&2; fi
+      rm -rf "$sd"; exit 2
+    fi
+    rm -rf "$sd"
+  fi
   n=0; wait_max=${BUILD_RECORD_WAIT:-1800}; mine=no
   while [ ! -f "$dir/done" ]; do
     if mkdir "$dir.lock" 2>/dev/null; then echo $$ > "$dir.lock/pid"; mine=yes; break; fi
@@ -101,6 +131,10 @@ if [ ! -f "$dir/done" ]; then
         # install step cannot write through into the project
         sh "$here/worktree-prep.sh" --deps "$root" "$wt/src" >/dev/null 2>&1 || :
       fi
+      for f in $envs; do   # listed and scanned above; copied only when the export lacks it (a tracked file is already there)
+        [ -f "$root/$f" ] && [ ! -L "$root/$f" ] && [ ! -e "$wt/src/$f" ] || continue
+        mkdir -p "$wt/src/$(dirname "$f")" && cp -p "$root/$f" "$wt/src/$f"
+      done
       fail=0; to=''; command -v timeout >/dev/null 2>&1 && to='timeout 900'; : > "$dir/steps"
       for s in install build test; do
         case $s in install) l=$ic ;; build) l=$bc ;; *) l=$tc ;; esac

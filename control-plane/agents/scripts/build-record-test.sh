@@ -102,3 +102,36 @@ ks=$(B run | sed -n 's/^key: //p' | head -n 1)
 old=$(printf '%s\n%s\n%s\n' "$(sh .agents/scripts/agent.sh config-get commands.install)" "$(sh .agents/scripts/agent.sh config-get commands.build)" "$(sh .agents/scripts/agent.sh config-get commands.test)" | git hash-object --stdin | cut -c1-8)
 [ "$ks" = "$(git rev-parse HEAD)-$old" ] || die "scalar config no longer uses the original key form: $ks, expected $(git rev-parse HEAD)-$old"
 ok "scalar config keeps the original key, so a record made before command lists existed is still found"
+
+# --- verification.env_files: a listed, secret-free test env file enters the export; other .env* never do; a visible secret rejects ---
+setenvs() { sed -i.bak "s|^  env_files:.*|  env_files: $1|" .agents/config.yaml && rm -f .agents/config.yaml.bak; }
+new_repo; cp "$tl_agents/scripts/build-record.sh" "$tl_agents/scripts/secret-scan.sh" .agents/scripts/
+setcmd build "echo build-ok >> $cnt"; setcmd test "echo tested-line"; echo one > f.txt
+printf '.env\n.env.test\n' >> .gitignore; printf 'MODE=test\n' > .env.test; printf 'MODE=dev\n' > .env
+printf 'set -e\ntest -f .env.test\ntest ! -f .env\n' > "$base/chk-in.sh"; setcmd build "sh $base/chk-in.sh"
+git add -A; git commit -q -m envs
+sh .agents/scripts/agent.sh config-check > /dev/null || die "the shipped config is invalid"
+setenvs ".env.test"; sh .agents/scripts/agent.sh config-check > /dev/null || die "verification.env_files .env.test was refused"
+rc=0; B run > "$base/env1.out" || rc=$?
+[ "$rc" = 0 ] || die "the listed .env.test did not enter the export, or .env did: $(cat "$base/env1.out")"
+ok "a listed .env.test enters the build record's export; an unlisted .env does not"
+printf 'set -e\ntest ! -f .env.test\ntest ! -f .env\n' > "$base/chk-out.sh"; setenvs ""; setcmd build "sh $base/chk-out.sh"
+rc=0; B run > "$base/env2.out" || rc=$?
+[ "$rc" = 0 ] || die "an env file that is not listed entered the export: $(cat "$base/env2.out")"
+ok "without verification.env_files no .env* enters the export"
+# a secret in a listed file rejects the record (the token is built from fragments; its value is never printed)
+tok=$(printf '%s%s' 'ghp' '_q8Zr2Lm9Xc4Vb7Nk1Pw6Ty3Hs5Jd0FgEAb12')
+printf 'API_TOKEN=%s\n' "$tok" > .env.test
+setenvs ".env.test"; setcmd build "echo secret-build-ran >> $cnt"; : > "$cnt"; echo envsecret >> f.txt
+rc=0; B run > "$base/env3.out" 2> "$base/env3.err" || rc=$?
+[ "$rc" = 2 ] && grep -q 'rejected.*\.env\.test' "$base/env3.err" || die "a secret in a listed env file did not reject the record (rc=$rc): $(cat "$base/env3.err")"
+grep -q "$tok" "$base/env3.err" "$base/env3.out" && die "the secret value was printed"
+[ ! -s "$cnt" ] || die "the build ran although the env file held a secret"
+printf 'DB_PASSWORD=%s\n' 'Xk9q8Zr2Lm9Xc4Vb7Nk1Pw6Ty3Hs5Jd0' > .env.test
+rc=0; B run > /dev/null 2> "$base/env4.err" || rc=$?
+[ "$rc" = 2 ] || die "an unquoted KEY=secret line was not caught (rc=$rc)"
+ok "a secret in a listed env file rejects the record, names the file and prints no value"
+setenvs "../x"; expect_msg "a path with .. is invalid" "verification.env_files" sh .agents/scripts/agent.sh config-check
+setenvs "/etc/x"; expect_msg "an absolute path is invalid" "verification.env_files" sh .agents/scripts/agent.sh config-check
+setenvs "*.env"; expect_msg "a glob is invalid" "verification.env_files" sh .agents/scripts/agent.sh config-check
+ok "verification.env_files must be plain project-relative names"
