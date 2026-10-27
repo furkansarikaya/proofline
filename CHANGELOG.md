@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.0.35 — 2026-10-28
+
+- The Skill tool no longer derails a run (A193): a Skill call that targets a proofline skill is answered by the PreToolUse hook with the path of its `SKILL.md`; the entry skill, the lead and every role and generated agent file say never to use it. The Stop hook sends back a message that asks the user to run `agent.sh`, `approve`, `answer`, `--no-verify` or to edit `.agents/` by hand; `git push`, `gh auth login` and plugin updates are untouched.
+- Version skew is reported (A194): `doctor` and the SessionStart hook warn in one line when the plugin and the project's install differ, with the next step; the lead says it before a run starts.
+- Optional tools (A194): `doctor` shows `ast-grep` and `rtk`; explorers and reviewers prefer `ast-grep` for structural searches; with rtk installed, evidence commands (`agent.sh`, build record, verification, tests, review diff) run with `RTK_DISABLED=1` and the hook denies them without it.
+- `tests/real-session/smoke.sh` (A195): a real-session smoke test (run, deliver, a two-task batch) with a PASS/FAIL table; CONTRIBUTING asks for its table on pull requests that change hooks, skills, roles or the control plane.
+- A Codex implementer in a run worktree can submit (A196): the shared lock now lives in `.agents/local/locks/` and dispatch grants only that folder (approvals, prompts and batch stay read-only; an older version's lock is still honoured); `agent.sh friction-note <ID> proofline_bug` records any proofline failure the lead worked around.
+- Freeze warns about a document path in the plan scope without `tdd_exemption` (A197): one line with the fix, no stop; `verification.doc_paths` lists what counts as a document; the plan-contract skill says to give such a path an exemption or a meaningful proof.
+- Code edited without RED is bound without asking the user (A198): put the change back, record RED, restore it, record GREEN. The implementer role and tdd-proof now say it (they described a RED the recorder never accepted), and a refused GREEN names the path.
+
 ## 0.0.34 — 2026-10-27
 
 - The product skills propose, you decide (A189): "never invent" now covers facts only, so `product-discovery`, `product-assess` and `product-spec` bring candidate assumptions, risks, opportunities, competitors, edge cases and questions, marked `[proposal: <type>]`; you accept, change or reject each one (rejected ones go to `## Rejected proposals`, with your own words). The checkers count a minimum (5 pre-mortem items, 5 assumptions, 3 never-mentioned topics in the spec review) and require `estimate "<basis>"` for a number in an assumption. New: search plan, competitor profiles, 3 to 7 insights with "so what", a reasoned opportunity ranking, a ten-topic PRD completeness list, a quality rubric with examples, up to three questions per message, sourced facts in `ASSUMPTIONS.md` and a FRAME-update step. Migration: product files written before 0.0.34 fail the new checks until updated and nothing rewrites them; [docs/concepts/product.md](docs/concepts/product.md) lists what each file needs.

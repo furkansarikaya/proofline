@@ -333,6 +333,15 @@ attempt() {
         # owns.conf (PreToolUse hook) and the fingerprint check below.
         mkdir -p "$run/worker-evidence" "$run/reports" "$root/.agents/local"
         set -- "$@" --add-dir "$run" --add-dir "$root/.agents/local"
+        # A196: a run in a worktree (A185) keeps its approvals, prompts, windows, batch, metrics and friction state in the MAIN tree's
+        # .agents/local, and `agent.sh submit` takes the shared lock there: .agents/local/locks/shared.lock (a mkdir in that folder). Exactly
+        # .agents/local/locks is granted, and only for a run in a worktree. approvals/, prompts/, windows/ and batch/ stay read-only to the
+        # worker: write access to them would let it forge an approval record or a captured user message (the hole closed for the lead in 0.0.26).
+        # submit writes nothing else in the main tree (its report, result, ledger and status are in the worktree's run folder and .agents/local).
+        if [ -f "$root/.git" ]; then
+          sr_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+          case "$(cd "$root" && pwd -P)" in "$sr_m"/.agents/local/worktrees/*) mkdir -p "$sr_m/.agents/local/locks" && set -- "$@" --add-dir "$sr_m/.agents/local/locks" ;; esac
+        fi
         # Mutation and base-run evidence needs `git worktree add` (a separate worktree, D10): .git is read-only in
         # this sandbox, so the worktree administration directory is granted (verified against the real sandbox).
         cd_gitdir=$(git -C "$root" rev-parse --git-common-dir 2>/dev/null || true)

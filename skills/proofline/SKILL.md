@@ -5,13 +5,16 @@ argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.34"
+  version: "0.0.35"
 ---
 
 # proofline
 
 One rule: **this skill routes; it decides nothing.** State and gates belong to `agent.sh` and the git hooks,
 the method belongs to the proofline-lead skill. Arguments: `$ARGUMENTS` (empty means `status`).
+
+**Never call a proofline skill through the Skill tool** (A193): they are all `disable-model-invocation`, so the call fails and nothing starts.
+Read the `SKILL.md` file by path (see "Locate the tools") and continue with the same step; the runtime hook answers a Skill call for one with that path.
 
 ## Locate the tools
 

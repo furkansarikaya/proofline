@@ -6,6 +6,8 @@
 # shellcheck disable=SC2010,SC2015 # ls|grep over our own fixed-pattern file names; A && B || C on read-only pipelines
 set -eu
 LC_ALL=C; export LC_ALL
+# A194: every command this script (and build-record, verification, dispatch) starts runs uncompressed when the user has rtk (its documented switch)
+RTK_DISABLED=1; export RTK_DISABLED
 
 # A188: the folder of this script by parameter expansion (no dirname process; every hook event starts this script at least once)
 case "$0" in */*) self_dir=${0%/*}; [ -n "$self_dir" ] || self_dir=/ ;; *) self_dir=. ;; esac
@@ -64,6 +66,13 @@ release_locks() {
       rm -f "$rl_path/pid"
       rmdir "$rl_path" 2>/dev/null || :
     fi
+  done
+}
+# wait_old_lock PATH (A196): the lock of an older version's process, read-only: wait while its holder is alive, never take or remove it.
+wait_old_lock() {
+  wo_t=$(( ${PROOFLINE_LOCK_TIMEOUT:-120} * 5 )); wo_n=0
+  while [ -f "$1/pid" ] && wo_p=$(cat "$1/pid" 2>/dev/null) && case "$wo_p" in ''|*[!0-9]*) false ;; *) kill -0 "$wo_p" 2>/dev/null ;; esac && [ "$wo_n" -lt "$wo_t" ]; do
+    sleep 0.2; wo_n=$((wo_n + 1))
   done
 }
 acquire_lock() {
@@ -276,7 +285,8 @@ config_check() {
       else if (k == "worktree.copy_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[|\\]/) bad("worktree.copy_files must be project-relative globs without a leading / or .. : " v) }
       else if (top == "worktree" && k != "worktree") bad("unknown worktree key: " k " (want worktree.copy_files)")
       else if (k == "verification.env_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[*?|\\]/ || v ~ /\[|\]/) bad("verification.env_files must be project-relative file names (space-separated, no glob, no leading / or .. ): " v) }
-      else if (top == "verification" && k != "verification") bad("unknown verification key: " k " (want verification.env_files)")
+      else if (k == "verification.doc_paths") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[?|\\]/ || v ~ /\[|\]/) bad("verification.doc_paths must be project-relative entries: a directory prefix ending in /, an exact path or *.ext") }
+      else if (top == "verification" && k != "verification") bad("unknown verification key: " k " (want verification.env_files or verification.doc_paths)")
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
       else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
       else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
@@ -1757,6 +1767,17 @@ freeze() {
   verify_assumptions "$id" ask >/dev/null
   if gates_enforced "$id"; then require_mutation_budget "$id"; fi
   if gates_enforced "$id"; then verify_plan_validation "$id"; verify_qa_plan_bound "$id"; fi
+  # A197: a document path in scope (design_docs, knowledge_scope_root, verification.doc_paths) without a tdd_exemption has no RED/GREEN to show;
+  # that surfaced only after the implementer finished (amendment, refreeze, a rewritten QA plan). Freeze does not stop: one line, with the fix.
+  fz_nd=''
+  for fz_p in $(scope_mappings "$dir/PLAN.md" 2>/dev/null | cut -d '|' -f1); do
+    is_doc_path "$fz_p" || continue
+    [ -z "$(exempted_path "$dir/PLAN.md" "$fz_p")" ] || continue
+    fz_nd="$fz_nd $fz_p"
+  done
+  if [ -n "$fz_nd" ]; then
+    echo "warning: PLAN.md scope has document path(s) without tdd_exemption:$fz_nd; the implementer cannot show RED/GREEN for a document, so add 'tdd_exemption: <specific reason, 20+ characters>' to each (or a test that proves it, for example design-sync finding the drift first and then passing clean); a plan fixed later costs an amendment and a refreeze (A197)" >&2
+  fi
   if fz_i=$(plan_entries "$dir/PLAN.md" information | cut -c1-60 | tr '\n' ';') && [ -n "$fz_i" ]; then
     echo "note (information only): PLAN.md ## Contracts mentions an entry point without new input (${fz_i%;}); if one takes new or changed external input, state it in the bullet and add a ## Validation line (A162)" >&2
   fi
@@ -1948,6 +1969,19 @@ design_glob_match() { # PATH GLOBS: exit 0 when PATH matches one of the space-se
     case "$dg_g" in */) dg_g="$dg_g*" ;; esac
     ! design_glob_one "$1" "$dg_g" || return 0
   done
+}
+# is_doc_path PATH (A197): a documentation path, which has no RED/GREEN evidence: under a design document of the config, the knowledge scope,
+# or an entry of verification.doc_paths (default: docs/ and the *.md, *.mdx, *.rst and *.adoc suffixes; a directory entry ends in /).
+is_doc_path() {
+  in_knowledge_scope "$1" && return 0
+  for ip_e in $(cfg verification.doc_paths 'docs/ *.md *.mdx *.rst *.adoc'); do
+    case "$ip_e" in
+      */) case "$1" in "$ip_e"*) return 0 ;; esac ;;
+      '*.'*) case "$1" in *"${ip_e#\*}") return 0 ;; esac ;;
+      *) [ "$1" != "$ip_e" ] || return 0 ;;
+    esac
+  done
+  return 1
 }
 design_doc_paths() { # every design document of the config, one per line (the knowledge step may write all of them)
   for dp_k in architecture data_model api; do dp_v=$(cfg "design_docs.$dp_k" ""); [ -z "$dp_v" ] || printf '%s\n' "$dp_v"; done
@@ -2718,7 +2752,7 @@ record_worker_evidence() {
       if [ "$phase" = GREEN ]; then
         we_old=$(evidence_field "$we_red" scope_snapshot)
         if [ -n "$we_old" ] && ! green_after_change "$we_old" "$snapshot"; then
-          fail "GREEN evidence rejected: no implementation file changed since the RED record for $we_p; make the fix, then record GREEN"
+          fail "GREEN evidence rejected: no implementation file changed since the RED record for $we_p; make the fix, then record GREEN. Your own work: record RED before the fix next time. A change that someone else left in the tree before you started: save the file to scratch, put it back to the base content (git show <base>:<path>, or a failing stub for a new file; never delete a file), record RED, restore it, record GREEN, all in one turn (A198)"
         fi
       else
         latest_evidence "$evdir" GREEN "$we_p" >/dev/null || latest_evidence "$evdir" FIX "$we_p" >/dev/null || fail "REFACTOR evidence rejected: no GREEN evidence for $we_p yet"
@@ -5470,10 +5504,10 @@ ledger_note() {
 
 # friction-note (A171): the lead (or the Stop hook) records that the user was asked to run an internal command or a shell command.
 # That is a proofline bug, never normal flow; the ledger event counts in the friction report. KIND is a controlled word (no free
-# text, so nothing identifying reaches the report): user-command (an agent.sh/approve/answer command) | user-shell (a shell command).
+# text, so nothing identifying reaches the report): user-command (an agent.sh/approve/answer command) | user-shell (a shell command) | proofline_bug (A196: any other proofline failure the lead had to work around).
 friction_note() {
   fn_id=$1 fn_kind=${2:-}; require_run "$fn_id"; require_lead
-  case "$fn_kind" in user-command|user-shell) ;; *) fail "usage: agent.sh friction-note <ID> <user-command|user-shell>" ;; esac
+  case "$fn_kind" in user-command|user-shell|proofline_bug) ;; *) fail "usage: agent.sh friction-note <ID> <user-command|user-shell|proofline_bug>" ;; esac
   gates_enforced "$fn_id" || { echo "friction noted (not ledgered: the run has no lifecycle_gates policy): $fn_kind"; return 0; }
   verify_seal "$fn_id"
   fn_s=$(section_value "$(run_dir "$fn_id")" handoff state)
@@ -7274,8 +7308,17 @@ if [ "$lock_command" = yes ]; then
   trap 'exit 130' INT
   trap 'exit 143' TERM
   acquire_lock "$agents/local/.lock"
-  # A185: the shared state (approvals, metrics, prompts, batch) is written from every worktree, so its lock is the main tree's (the same path as above there)
-  [ "$sr_main" = "$root" ] || { [ -d "$sr_main/.agents/local" ] && acquire_lock "$sr_main/.agents/local/.lock"; }
+  # A185, A196: the shared state (approvals, metrics, prompts, batch) is written from every worktree, so one lock is shared: the main tree's
+  # .agents/local/locks/shared.lock. It lives in a folder of its own so that a Codex worker in a worktree can be granted that folder alone,
+  # never the approvals and prompts beside it. The main tree's own .agents/local/.lock is the lock older versions took for the same job: a
+  # process of the main tree still takes it (above), and a worktree process waits for a live holder of it without writing there.
+  if [ "$sr_main" = "$root" ]; then
+    mkdir -p "$agents/local/locks" 2>/dev/null || :
+    [ ! -d "$agents/local/locks" ] || acquire_lock "$agents/local/locks/shared.lock"
+  elif [ -d "$sr_main/.agents/local" ]; then
+    wait_old_lock "$sr_main/.agents/local/.lock"
+    acquire_lock "$sr_main/.agents/local/locks/shared.lock" || exit 1
+  fi
   if [ "$command" != start ] && [ -n "${2:-}" ] && valid_task_id "$2" && [ -d "$(run_dir "$2")" ]; then
     acquire_lock "$(run_dir "$2")/.lock"
   fi
@@ -7295,7 +7338,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>
   decide <ID> <ROLE> --dry|--agent-path [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>
   hook-time <ID> (runtime hooks: move the hook timings spooled in .agents/local/hook-times into the ledger) | language-check [FILE|-] (the write-time language check; exit 1 on non-English text outside a '> ' quote block)
-  friction-note <ID> <user-command|user-shell> | wait-line <ID> [WHAT] [--done]   (A171: record that the user was asked to run a command, a proofline bug; the one-line wait status)
+  friction-note <ID> <user-command|user-shell|proofline_bug> | wait-line <ID> [WHAT] [--done]   (A171: record that the user was asked to run a command, a proofline bug; the one-line wait status)
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND>... | approval-consume <ID> <KIND> [FINGERPRINT]
   waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)
@@ -7382,7 +7425,7 @@ case "$command" in
   waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
-  friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell>}" "${3:-}" ;;
+  friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell|proofline_bug>}" "${3:-}" ;;
   wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;

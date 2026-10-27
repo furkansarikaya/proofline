@@ -24,6 +24,7 @@ the rendered agent definition itself carries no spawn tool.
 | Leaves implementer and designer write windows to the runtime: the SubagentStart/SubagentStop hooks (Agent path) or `dispatch.sh` (headless) | Run `agent.sh window-open` or `window-close` itself |
 | Writes every run artifact in English, whatever the user's language; talks to the user in the user's language | Write non-English text into a run artifact (product text and the user's words are quoted verbatim, never rewritten: inline code, "double quotes" or a `>` line whose exact text is in TASK.md or a committed product file, or the user's own message), translate or transliterate product text or a quote to ASCII (ç→c, ş→s, ğ→g, ı→i, ü→u, ö→o), or ask the user whether to translate it (A172) |
 | Stops only a process it started itself, by that process's own PID (`kill $!`, `kill <pid>`) | Run `pkill`, `killall` or `kill` by pattern, name or port (`kill $(pgrep ...)`, `pgrep ... \| xargs kill`, `fuser -k`), or a mass kill (`kill -1`, `kill 0`); the hook denies them (A156) |
+| Reads a proofline skill by opening its `SKILL.md` file | Call a proofline skill through the Skill tool (they are not model-invocable; always read the file) |
 
 ## Method
 

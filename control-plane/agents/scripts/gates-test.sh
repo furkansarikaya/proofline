@@ -1196,6 +1196,8 @@ sc_decide() {
   # A171: friction-note ledgers that the user was asked to run a command; wait-line is one line
   A friction-note LC user-command >/dev/null || die "friction-note refused"
   grep -q 'event=friction-note .*detail=user-command' .agents/runs/LC/LEDGER.log || die "friction-note not in the ledger"
+  A friction-note LC proofline_bug >/dev/null || die "A196 friction-note refused proofline_bug"
+  grep -q 'event=friction-note .*detail=proofline_bug' .agents/runs/LC/LEDGER.log || die "A196 proofline_bug not in the ledger"
   expect_fail "friction-note took a free-text kind" A friction-note LC "run approve for me"
   expect_fail "a reviewer wrote a friction note" AS reviewer friction-note LC user-command
   wl=$(A wait-line LC "CI of the pull request") || die "wait-line refused"
@@ -1751,6 +1753,75 @@ sc_scratch_worktrees() {
   git worktree remove --force "$wt"
   A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the scratch worktree was removed (the run worktree RW-1 must not count): $(A handoff LC CODE_DONE 2>&1)"
   ok "scratch worktrees must be removed before CODE_DONE; the worktree of another run is not scratch (A169)"
+}
+sc_worktree_lock_folder() {
+  # A196: a command in a run worktree takes the shared lock from .agents/local/locks of the main tree; that folder alone is writable for a Codex
+  # worker, so the command must work with the rest of the main tree's .agents/local read-only, and approvals/prompts must not be writable there
+  scaffold orchestrated no STANDARD
+  rw=$(A worktree-add RW-1) || die "worktree-add: $rw"
+  rwp=$(printf '%s\n' "$rw" | grep -o '/[^ ]*worktrees/RW-1' | head -n 1); [ -d "$rwp" ] || rwp=$PWD/.agents/local/worktrees/RW-1
+  [ -d "$rwp" ] || die "A196 the run worktree was not found in: $rw"
+  mkdir -p "$rwp/.agents/runs" && cp -R .agents/runs/LC "$rwp/.agents/runs/LC"
+  mkdir -p .agents/local/locks .agents/local/approvals .agents/local/prompts
+  chmod a-w .agents/local .agents/local/approvals .agents/local/prompts
+  rc=0; out=$(cd "$rwp" && AGENT_ROLE='' sh .agents/scripts/agent.sh ledger-note LC "A196 note" 2>&1) || rc=$?
+  chmod u+w .agents/local .agents/local/approvals .agents/local/prompts
+  [ "$rc" = 0 ] || die "A196 the worktree command failed with the rest of .agents/local read-only: $out"
+  if [ "$(id -u)" != 0 ]; then
+    echo "$out" | grep -q 'cannot take the lock' && die "A196 the worktree command could not take the shared lock with the rest of .agents/local read-only: $out"
+    ( chmod a-w .agents/local .agents/local/approvals .agents/local/prompts
+      if ( : > .agents/local/approvals/forged ) 2>/dev/null || ( : > .agents/local/prompts/forged ) 2>/dev/null || ( mkdir .agents/local/windows-forged ) 2>/dev/null; then chmod u+w .agents/local .agents/local/approvals .agents/local/prompts; exit 1; fi
+      chmod u+w .agents/local .agents/local/approvals .agents/local/prompts ) || die "A196 approvals, prompts or .agents/local were writable although only locks/ is granted"
+  fi
+  ls .agents/local/locks/shared.lock >/dev/null 2>&1 && die "A196 the shared lock was left behind"
+  # an older version's lock in the main tree, held by a live process, is waited for (read-only) and never removed
+  sleep 30 & holder=$!
+  mkdir .agents/local/.lock && printf '%s\n' "$holder" > .agents/local/.lock/pid
+  t0=$(date +%s)
+  ( sleep 2; kill "$holder" 2>/dev/null ) &
+  (cd "$rwp" && AGENT_ROLE='' PROOFLINE_LOCK_TIMEOUT=20 sh .agents/scripts/agent.sh ledger-note LC "A196 after the old lock" >/dev/null 2>&1) || :
+  waited=$(( $(date +%s) - t0 ))
+  rm -rf .agents/local/.lock
+  [ "$waited" -ge 2 ] || die "A196 a worktree command did not wait for the live holder of the old main-tree lock (waited ${waited}s)"
+  ok "A196 a worktree command takes the shared lock from locks/ alone, cannot write approvals or prompts there, and waits for an older version's lock"
+}
+sc_doc_scope_warning() {
+  # A197: a document path in scope without tdd_exemption is a one-line warning at freeze, not a stop; with the exemption there is no warning
+  unfrozen STANDARD
+  awk '{ print } /^scope:$/ { print "  - path: docs/design/DESIGN.md"; print "    new: true"; print "    criteria: [AC-1]" }' .agents/runs/LC/PLAN.md > "$base/plan.tmp" && mv "$base/plan.tmp" .agents/runs/LC/PLAN.md
+  out=$(A freeze LC 2>&1) || die "A197 a document path without tdd_exemption stopped the freeze: $out"
+  printf '%s' "$out" | grep -q 'warning: PLAN.md scope has document path(s) without tdd_exemption: docs/design/DESIGN.md' || die "A197 no warning for the document path: $out"
+  printf '%s' "$out" | grep -q 'design-sync' || die "A197 the warning does not suggest the proof: $out"
+  [ "$(printf '%s\n' "$out" | grep -c 'without tdd_exemption')" = 1 ] || die "A197 the warning is not one line: $out"
+  unfrozen STANDARD
+  awk '{ print } /^scope:$/ { print "  - path: docs/design/DESIGN.md"; print "    new: true"; print "    criteria: [AC-1]"; print "    tdd_exemption: \"design document, checked by design-sync instead of a failing test\"" }' .agents/runs/LC/PLAN.md > "$base/plan.tmp" && mv "$base/plan.tmp" .agents/runs/LC/PLAN.md
+  out=$(A freeze LC 2>&1) || die "A197 the freeze failed with the exemption: $out"
+  ! printf '%s' "$out" | grep -q 'without tdd_exemption' || die "A197 a warning although the path has an exemption: $out"
+  ok "A197 freeze warns once about a document path without tdd_exemption and stays quiet with it"
+}
+sc_takeover_without_red() {
+  # A198: an earlier implementer (another runtime) edited the implementation inside its window and recorded no RED. The next implementer binds it
+  # without asking: put the change back to the base content for one run (RED fails for the right reason), restore it, record GREEN.
+  scaffold orchestrated no STANDARD
+  base_impl=$(cat impl.txt)
+  wopen; printf 'lookup returns the stored value\n' >> impl.txt; wclose           # the earlier implementer: an edit, no evidence
+  cp impl.txt "$base/impl.changed"
+  wopen                                                                          # the implementer that takes over
+  printf '%s\n' "$base_impl" > impl.txt                                          # step 1: put the change back for one run
+  wev RED fail || die "A198 RED was refused with the change put back"
+  cp "$base/impl.changed" impl.txt                                               # step 2: restore the change
+  wev GREEN pass || die "A198 GREEN was refused after the change was restored"
+  wclose
+  ls .agents/runs/LC/worker-evidence/RED-*.yaml >/dev/null && ls .agents/runs/LC/worker-evidence/GREEN-*.yaml >/dev/null || die "A198 RED and GREEN were not both recorded"
+  A handoff LC IMPLEMENTED >/dev/null 2>&1 || die "A198 the handoff was refused although RED and GREEN are recorded: $(A handoff LC IMPLEMENTED 2>&1 | tail -3)"
+  ok "A198 a change edited without RED is bound by put-back, RED, restore, GREEN; the handoff accepts it"
+  # RED recorded with the change in place leaves no change between RED and GREEN: GREEN is refused, and the refusal names the way out
+  scaffold orchestrated no STANDARD
+  wopen; printf 'lookup returns the stored value\n' >> impl.txt; wclose
+  wopen; wev RED fail
+  out=$(printf 'command: go test ./...\ntarget: impl.txt,impl_test.txt\n\n' | AGENT_ROLE=implementer sh ./.agents/scripts/agent.sh worker-evidence "$RID" GREEN pass 2>&1) && die "A198 GREEN was accepted with no change since RED"
+  printf '%s' "$out" | grep -q 'put it back to the base content' || die "A198 the refusal does not name the put-back path: $out"
+  ok "A198 GREEN with no change since RED is refused, and the refusal names the put-back path"
 }
 sc_tests_findings() {
   command -v node >/dev/null 2>&1 || { echo "skip tests_findings (node missing)"; return 0; }
@@ -2511,6 +2582,7 @@ run_sc sc_qa_plan_bound
 run_sc sc_artifact_snapshots
 run_sc sc_debug_result
 run_sc sc_scratch_worktrees
+run_sc sc_worktree_lock_folder
 run_sc sc_tests_findings
 run_sc sc_defect_scope
 run_sc sc_intent_provenance
@@ -2540,4 +2612,6 @@ run_sc sc_fix_round_missed_example
 run_sc sc_fix_round_copied_line
 run_sc sc_scan_method
 run_sc sc_classification_stable
+run_sc sc_doc_scope_warning
+run_sc sc_takeover_without_red
 echo 'gates tests passed'

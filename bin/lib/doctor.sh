@@ -204,6 +204,24 @@ doctor_ecosystems() {
   else d_warn "ecosystems: node is not available and .agents/ecosystems.json is not the shipped file, so the tsv could not be checked"; fi
 }
 
+# A194: the plugin (this CLI) and the project's install are one version; when they differ, one line and the next step.
+doctor_version() {
+  dv_i=$(cfg_val "$CFG" proofline_version '')
+  [ -n "$dv_i" ] || return 0
+  if [ "$dv_i" = "$PROOFLINE_VERSION" ]; then d_pass "version: plugin and project install are both $dv_i"; return 0; fi
+  if [ "$(printf '%s\n%s\n' "$dv_i" "$PROOFLINE_VERSION" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = "$dv_i" ]; then
+    d_warn "version: plugin $PROOFLINE_VERSION, project install $dv_i; the project is older. Next step: /proofline upgrade"
+  else d_warn "version: plugin $PROOFLINE_VERSION, project install $dv_i; the project is newer than the plugin. Next step: update the plugin"; fi
+}
+
+# A194: optional tools. proofline neither installs nor requires them; installed, ast-grep serves structural searches and
+# rtk's compression is bypassed (RTK_DISABLED=1) for every command that produces evidence. One line.
+doctor_tools() {
+  dtl_a='ast-grep not installed (rg/grep are used)'; command -v ast-grep >/dev/null 2>&1 && dtl_a="ast-grep installed ($(command -v ast-grep))"
+  dtl_r='rtk not installed'; command -v rtk >/dev/null 2>&1 && dtl_r="rtk installed ($(command -v rtk)); evidence commands run with RTK_DISABLED=1 (rtk configuration docs)"
+  d_pass "tools: $dtl_a; $dtl_r"
+}
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   CFG=$ROOT/.agents/config.yaml; A=$ROOT/.agents/scripts/agent.sh
@@ -313,6 +331,8 @@ EOF
     'ci: present'*) d_pass "$dc_ci" ;;
   esac
 
+  doctor_version
+  doctor_tools
   doctor_toolchain
   doctor_foreign
   doctor_identity

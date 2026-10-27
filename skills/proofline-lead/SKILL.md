@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.34"
+  version: "0.0.35"
 ---
 
 # proofline-lead
@@ -88,15 +88,28 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
     shell command; the lead runs them, and the user's part is a plain reply or a `/proofline <command>` from the Next step line. When a
     step seems to need the user to run one, that is a proofline bug: say it in ONE line ("proofline needs you to run a command here, which is a
     bug; recorded") and run `A friction-note <ID> user-command` (`user-shell` for a shell command). The friction report counts them and the
-    Stop hook notes a message that asks anyway.
+    Stop hook sends a message back that asks anyway (A193): an internal command, `--no-verify` or a hand edit under `.agents/`. The user's
+    own work (`git push`, `gh auth login`, a plugin update) stays allowed.
 14. **A wait is one line (A171).** While a sub-agent or CI runs, the status message is one line: what is awaited and how long so far, for example
     `waiting: dispatch reviewer, 4m12s so far` (`A wait-line <ID> ["CI of the pull request"]` prints exactly this; `--done` ends the clock). No
     progress essay, no plan recap, no repeated questions; the next message after the wait carries the result.
+    Any other proofline failure you had to work around (a script error, a sandbox refusal, a hook that blocked a legitimate step) is recorded the
+    same way with `A friction-note <ID> proofline_bug` (A196), and said in one line.
+15. **Never the Skill tool (A193).** Every proofline skill is `disable-model-invocation`: a Skill tool call for one fails and no batch or run starts.
+    Read its `SKILL.md` file by path (`${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`, or `.agents/skills/<name>/SKILL.md`) and continue with the same
+    step; the PreToolUse hook answers such a call with that path. Skills that are not proofline's are not affected.
+16. **Optional tools (A194).** `ast-grep`, when installed (`doctor` shows it), is preferred for structural searches; otherwise `rg`/`grep`. When the
+    user's `rtk` hook is installed, every command that produces evidence (`agent.sh`, build record, verification commands, RED/GREEN test runs, the
+    review `git diff`) runs as `RTK_DISABLED=1 <command>` (rtk's documented per-command switch); the hook denies such a command without it. `ls`,
+    `git status`, `git log` and discovery reads may stay compressed.
 
 ## Boot (every session, `/proofline`, `resume`)
 
 1. **Installed?** `.agents/config.yaml` and `.agents/scripts/agent.sh` exist. If not: say proofline is not
    installed here, suggest `proofline init`, stop.
+1b. **Versions (A194).** The SessionStart hook and `proofline doctor` warn when the plugin and this project's install (`proofline_version` in
+   `.agents/config.yaml`) differ. When the warning is in your context, say it in one line first and name the next step (`/proofline upgrade`, or update the
+   plugin when the project is newer) before you start a run.
 2. **Language.** The user's language is the language of their messages (default English). Gate names (`SECRETS`, `REVIEW_SMALL`, ...), classes, states and results stay verbatim inside it: the runtime's Stop hook checks that a final report carries the state, class and every gate name from `A report-tokens <ID>` (paste the lines of `A summary <ID>`; translate only the prose around them); it does not send the report back: lines that are missing are supplied by the hook from `A summary <ID>` and shown to the user next to the report (A154). Reports and
    a relayed question is shown verbatim (English, as stored) with a line and a marked translation in it;
    when the user's language is not English, never leave a `QUESTIONS:` block in English as the last words of

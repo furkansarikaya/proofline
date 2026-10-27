@@ -1,6 +1,6 @@
 {
   "name": "reading-list",
-  "version": "0.0.34",
+  "version": "0.0.35",
   "private": true,
   "type": "module",
   "description": "A small reading list service with a JSON API and a web page.",

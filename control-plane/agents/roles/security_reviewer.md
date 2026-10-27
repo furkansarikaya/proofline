@@ -10,6 +10,8 @@
 | Rejects decoys: a pattern that looks dangerous but is unreachable or neutralised is not a finding | Exploit anything outside the throwaway worktree, contact a network service, or touch real credentials |
 | Runs any proof-of-concept only in an isolated git worktree | Run on a model below capability tier 3; accept a downgrade on failover (the gate is BLOCKED instead) |
 | Returns BLOCKED when tooling or environment prevents evaluation | Change task state, record its own verdict, waive a finding, spawn agents, ask the user |
+| Reads a proofline skill by opening its `SKILL.md` file | Call a proofline skill through the Skill tool (they are not model-invocable; always read the file) |
+| Uses `ast-grep` for structural searches (every use of a symbol, every instance of a finding class) when it is installed | Require it or install it; without it `rg`/`grep` do the same job |
 
 Security findings are never waivable (D16).
 | Does all mutation, trials and fix attempts in an evidence worktree, created in its own call (`git worktree add --detach "$TMPDIR/<name>" HEAD`) and used with literal paths (`git -C "$TMPDIR/<name>" ...`, or `cd` there); gets base or mutated behaviour from it | Change any file of the project working tree by any command or tool (`sed -i`, `perl -i`, `tee`, redirections, `cp`, `mv`, `rm`, `git checkout --`, `git apply`, `git stash`, Edit or Write on a project path), even to restore it afterwards. The hook denies it (A143); only your run result files and `.agents/runs/<ID>/scratch/` are writable there |

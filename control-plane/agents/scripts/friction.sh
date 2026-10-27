@@ -54,7 +54,7 @@ report() {
       / event=hook / { hn = $0; sub(/.* detail=name=[^ ]* runs=/, "", hn); hr = hn; sub(/ .*/, "", hr); ht = hn; sub(/.*total_ms=/, "", ht); sub(/ .*/, "", ht); hm = hn; sub(/.*max_ms=/, "", hm); sub(/ .*/, "", hm)
         if (hr ~ /^[0-9]+$/) { hruns += hr; htot += ht; if (hm + 0 > hmax) hmax = hm + 0 } }
       / event=hook-timeout / { hto++ }
-      / event=friction-note / { fnd = $0; sub(/.* detail=/, "", fnd); sub(/ .*/, "", fnd); fnd = w(fnd); fnk[fnd]++; fnt++ }
+      / event=friction-note / { fnd = $0; sub(/.* detail=/, "", fnd); sub(/ .*/, "", fnd); fnd = w(fnd); fnk[fnd]++; if (fnd == "proofline_bug") fnb++; else fnt++ }
       / event=terminate / { term = $0; sub(/.* to=/, "", term); sub(/ .*/, "", term); term = w(term) }
       / event=handoff:DONE / { done = 1 }
       / event=note .*failover/ { fo++; if ($0 ~ /reason=timeout/) fot++ }
@@ -64,6 +64,7 @@ report() {
         printf "outcome: %s\nclassification: %s\n\n", (done ? "done" : (term ? tolower(term) : "open")), (cls ? cls : "unknown")
         printf "## User interruptions\n\n- questions asked: %d (answered by the user: %d, by an assumption: %d)\n- approval requests: %d\n- total times the user was asked: %d\n", ask, au, al, ar, ask + ar
         printf "- times the user was asked to run a command (a proofline bug): %d\n", fnt
+        printf "- proofline failures the lead worked around (proofline_bug): %d\n", fnb
         for (k in fnk) printf "  - %s: %d times\n", k, fnk[k]
         printf "\n"
         printf "## Blocked and failed gates\n\n- gate failures: %d\n", gft

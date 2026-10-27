@@ -39,6 +39,11 @@ grep -q 'asked to run a command (a proofline bug): 1' "$r" && grep -q 'user-comm
 cp "$base/ledger.keep" .agents/runs/RUN-001/LEDGER.log
 F report RUN-001 > /dev/null
 grep -q 'asked to run a command (a proofline bug): 0' "$r" || die "a run without notes must report 0"
+printf 'seq=9998 prev=x event=friction-note role=lead from=IMPLEMENTING to=IMPLEMENTING digest=x ts=2026-01-01T00:00:00Z epoch=1 detail=proofline_bug\n' >> .agents/runs/RUN-001/LEDGER.log
+F report RUN-001 > /dev/null
+grep -q 'worked around (proofline_bug): 1' "$r" && grep -q 'asked to run a command (a proofline bug): 0' "$r" || die "a proofline_bug note is counted as a user command or not counted: $(cat "$r")"
+cp "$base/ledger.keep" .agents/runs/RUN-001/LEDGER.log
+F report RUN-001 > /dev/null
 ok "friction report: the user asked to run a command is counted"
 
 rm -f "$r"
