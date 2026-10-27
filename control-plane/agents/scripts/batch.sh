@@ -223,7 +223,9 @@ own_state() {
     esac
   fi
   # the user merges (platform other, a local origin): the delivered commit is kept in MERGE_HEAD; git says whether it was merged (round 3)
-  if [ -s "$(rroot "$os_id")/.agents/local/deliver/$os_id/MERGE_HEAD" ]; then
+  os_dd=$(rroot "$os_id")/.agents/local/deliver/$os_id
+  # the hand-off file, or (round 5) a pushed delivery where the user merges whose pr step did not run: both wait for the user's merge
+  if [ -s "$os_dd/MERGE_HEAD" ] || { grep -qs '^merge_by: user$' "$os_dd/SUMMARY.md" && git -C "$(rroot "$os_id")" rev-parse -q --verify "refs/remotes/origin/$(sed -n 's/^branch: //p' "$os_dd/SUMMARY.md" | head -n 1)" >/dev/null 2>&1; }; then
     if sh "$agent" deliver-merged "$os_id" --check >/dev/null 2>&1; then DD="deliver merged"; return 0; fi
     DS=parked; DD="awaiting merge"; DQ="the branch of $os_id is pushed and waits for YOUR merge into origin's $(cfgv canonical_branch main) (for example: git push origin <branch>:$(cfgv canonical_branch main)); then /proofline batch continues"; return 0
   fi

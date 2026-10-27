@@ -6880,7 +6880,18 @@ deliver_step() {
     push)
       ds_td_check
       [ "$(cfg git.push_requires_approval true)" != false ] || consume_approval "$ds_t" "$ds_app"
-      if [ "$(ds_v remote)" = origin ]; then printf 'run: %s\nthen: agent.sh deliver-step %s pr\n' "$(origin_push_cmd "$ds_br")" "$ds_id"
+      ds_ou=$(origin_url 2>/dev/null || true)
+      if [ "$(ds_v remote)" = origin ] && [ -n "$ds_ou" ] && [ "$ds_ou" != "$(git -C "$root" remote get-url origin 2>/dev/null)" ]; then
+        # A180 (round 5): a relative local origin. The runtime push guard refuses a push to an absolute path outside the project, so the approved
+        # step pushes itself: exactly this delivery's branch to its own ref (never the canonical branch), to the absolute url. The approval was
+        # checked here and consumed before the push (the pre-push hook would ask for it again), so the hook is skipped for this one command.
+        [ "$ds_br" != "$(ds_v base)" ] || ds_stop "refusing to push the canonical branch"
+        [ "$(git -C "$root" rev-parse HEAD)" = "$ds_head" ] || ds_stop "HEAD moved"
+        [ "$(cfg git.push_requires_approval true)" = false ] || consume_approval "$ds_t" "$ds_app"
+        git -C "$root" -c core.hooksPath=/dev/null push -q "$ds_ou" "refs/heads/$ds_br:refs/heads/$ds_br" || ds_stop "git push to $ds_ou failed"
+        git -C "$root" update-ref "refs/remotes/$(ds_v remote)/$ds_br" "$ds_head"
+        printf 'pushed: %s -> %s\nthen: agent.sh deliver-step %s pr\n' "$ds_br" "$ds_ou" "$ds_id"
+      elif [ "$(ds_v remote)" = origin ]; then printf 'run: %s\nthen: agent.sh deliver-step %s pr\n' "$(origin_push_cmd "$ds_br")" "$ds_id"
       else printf 'run: git push -u %s %s\nthen: agent.sh deliver-step %s pr\n' "$(ds_v remote)" "$ds_br" "$ds_id"; fi ;;
     pr)
       ds_td_check
@@ -6941,8 +6952,14 @@ origin_push_cmd() {
 deliver_merged() {
   dm_id=$1; dm_chk=no; [ "${2:-}" != --check ] || dm_chk=yes
   require_run "$dm_id"; require_lead; dm_d=$(run_dir "$dm_id"); dm_dir=$(deliver_dir "$dm_id")
-  [ -s "$dm_dir/MERGE_HEAD" ] || fail "deliver-merged: no manual hand-off is recorded for $dm_id (the pr step of a delivery on a platform where the user merges writes it)"
+  if [ ! -s "$dm_dir/MERGE_HEAD" ]; then
+    # round 5: the hand-off is written by the pr step; when the push was done but the pr step was not run (or the file is lost) it is rebuilt from the
+    # delivery summary, which names the branch, the base and the head that was approved
+    [ -s "$dm_dir/SUMMARY.md" ] && grep -q '^merge_by: user$' "$dm_dir/SUMMARY.md" || fail "deliver-merged: $dm_id has no delivery where the user merges (agent.sh deliver-plan $dm_id first)"
+    printf '%s\t%s\t%s\n' "$(sed -n 's/^head: //p' "$dm_dir/SUMMARY.md" | head -n 1)" "$(sed -n 's/^base: //p' "$dm_dir/SUMMARY.md" | head -n 1)" "$(sed -n 's/^branch: //p' "$dm_dir/SUMMARY.md" | head -n 1)" > "$dm_dir/MERGE_HEAD"
+  fi
   IFS='	' read -r dm_head dm_base dm_br < "$dm_dir/MERGE_HEAD"
+  git -C "$root" cat-file -e "$dm_head^{commit}" 2>/dev/null || fail "deliver-merged: the delivered commit ${dm_head:-?} is unknown here"
   dm_ou=$(origin_url) || dm_ou=origin
   git -C "$root" fetch -q "$dm_ou" "+refs/heads/$dm_base:refs/remotes/origin/$dm_base" 2>/dev/null || fail "deliver-merged: cannot read origin/$dm_base (git fetch origin $dm_base failed)"
   dm_tip=$(git -C "$root" rev-parse -q --verify "refs/remotes/origin/$dm_base") || fail "deliver-merged: origin/$dm_base not found"

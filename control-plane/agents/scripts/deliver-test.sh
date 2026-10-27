@@ -485,9 +485,10 @@ scenario_wt_relative_origin() {
   W deliver-step LC commit >/dev/null || die "commit step"
   W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
   W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
-  grep -q "^run: git push $lo_abs proofline/LC-lc\$" "$base/push.out" || die "the push step shows a relative origin: $(cat "$base/push.out")"
-  # the shown command is RUN as printed, from the worktree (the pre-push hook consumes the push approval of the step)
-  ( cd "$wt" && eval "$(sed -n 's/^run: //p' "$base/push.out" | head -n 1) -q" ) 2> "$base/push.err" || die "the printed push failed: $(cat "$base/push.err")"; git -C "$wt" update-ref refs/remotes/origin/proofline/LC-lc HEAD
+  # round 5: the push step pushes itself (the runtime guard refuses a push to an absolute path outside the project)
+  grep -q "^pushed: proofline/LC-lc -> $lo_abs\$" "$base/push.out" || die "the push step did not push to the absolute origin: $(cat "$base/push.out")"
+  ls "$wt"/.agents/runs/LC/approvals/*-push.yaml >/dev/null 2>&1 && grep -q "^consumed: \"true\"" "$wt"/.agents/runs/LC/approvals/*-push.yaml || die "the push approval was not consumed by the step"
+  [ "$(git --git-dir="$lo" rev-parse -q --verify refs/heads/proofline/LC-lc)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the branch is not in the local origin"
   W deliver-step LC pr > "$base/pr.out" 2>&1 || die "pr step: $(cat "$base/pr.out")"
   grep -q "git push $lo_abs proofline/LC-lc:main" "$base/pr.out" || die "the hand-off shows a relative origin: $(cat "$base/pr.out")"
   expect_msg "deliver-merged --check from the worktree before the merge" 'not merged' W deliver-merged LC --check
