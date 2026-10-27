@@ -23,6 +23,7 @@ result: weakened
 - new: <pass | fail: ...>
 - unknowns: <pass | fail: ...>
 - so what: <pass | fail: ...>
+- consistency: <pass | fail: two lines that contradict, e.g. two risk responses>
 
 ## Summary
 - AS-1 weakened: <what the plan must change or test before it relies on it>

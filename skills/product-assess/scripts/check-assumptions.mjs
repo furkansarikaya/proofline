@@ -6,6 +6,9 @@
 // in its marker (`[assumption: value source agent accepted by user]`) or listed as rejected under `## Rejected proposals`
 // (rule min-proposals). A number in the statement is an estimate with a basis: `[assumption: value estimate "<basis>"]`
 // (rule unsourced-number). A `[proposal: ...]` the user has not answered is pending-proposal.
+// A sourced fact the assessment found sits in the same file as `- C-n <text> [fact: web|interview|data|ref ...]` (usually under
+// `## Facts`); every `- C-n` line must carry exactly one valid fact marker (rule fact), and other documents may cite it as
+// `[fact: ref <slug>#C-n]`.
 //   node check-assumptions.mjs <ASSUMPTIONS.md|slug> [--json] [--root DIR]    exit 0 clean, 1 findings, 2 usage
 import { MARKER, parseMarker, rejectedProposals } from "./validate-product-claims.mjs";
 import { LEVELS, cli, field, isMain, items, read, report, resolveDoc } from "./lib.mjs";
@@ -46,10 +49,19 @@ export function checkAssumptions(text, { minAgent = MIN_AGENT } = {}) {
     else if (risky === "yes" && !should) add(it, "riskiest", "riskiest: yes needs importance high and evidence low");
     else if (risky !== "yes" && should) add(it, "riskiest", "importance high and evidence low: mark `riskiest: yes`");
   }
+  const facts = items(text, "C"), factIds = new Set();
+  for (const f of facts) {
+    if (factIds.has(f.id)) findings.push({ rule: "duplicate-id", line: f.line, id: f.id, message: `${f.id} is defined twice` });
+    factIds.add(f.id);
+    const ms = [...f.head.matchAll(MARKER)];
+    const p = ms.length === 1 && ms[0][1].toLowerCase() === "fact" ? parseMarker("fact", ms[0][2]) : null;
+    if (!p) findings.push({ rule: "fact", line: f.line, id: f.id, message: `${f.id} carries exactly one [fact: web|interview|data|ref ...] marker; what nobody checked is an AS-n assumption` });
+    else for (const e of p.errors) findings.push({ rule: "fact", line: f.line, id: f.id, message: e });
+  }
   const rp = rejectedProposals(text);
   for (const e of rp.errors) findings.push({ rule: "rejected-proposal", line: e.line, message: e.message });
   if (list.length && agent + rp.items.length < minAgent) findings.push({ rule: "min-proposals", line: 0, message: `the agent proposes at least ${minAgent} assumptions the user did not state (accepted: \`source agent accepted by user\`; rejected: under \`## Rejected proposals\`); found ${agent} accepted and ${rp.items.length} rejected` });
-  return { findings, proposals: { accepted: agent, rejected: rp.items.length }, riskiest: list.filter((it) => field(it, "riskiest", KEYS)?.toLowerCase() === "yes").map((it) => it.id), count: list.length };
+  return { findings, facts: facts.length, proposals: { accepted: agent, rejected: rp.items.length }, riskiest: list.filter((it) => field(it, "riskiest", KEYS)?.toLowerCase() === "yes").map((it) => it.id), count: list.length };
 }
 
 function main(argv) {

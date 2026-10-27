@@ -12,11 +12,13 @@ The rubric every product document is held to. The author runs it on a draft befo
 | 4 | **Unknowns.** Does it say what is not known, and what would settle it? | Every line is certain. Gaps are hidden, not listed as assumptions, open questions or "searched, not found". |
 | 5 | **So what?** Does each finding change a decision, and is the decision named? | A finding ends with "interesting". No insight names the decision of the frame it affects. |
 
+**Consistency.** Read the document against itself. Responses, requirements and decisions must not contradict each other: a risk response "import photos" next to another that says "no photo import" fails. Name both lines. No script judges this; the author checks it before showing, and the reviewer and red team check it again.
+
 ## Self-critique before showing
 
 Before the user sees a document:
 
-1. Read it once as a sceptic. Write one line per question above in the conversation: `pass`, or `fail: <the line> -> <the fix>`.
+1. Read it once as a sceptic. Write one line per question above, and one for consistency, in the conversation: `pass`, or `fail: <the line> -> <the fix>`.
 2. Fix every fail. Run the checker. Show the document only when both are clean.
 3. Show the user the rubric result in one line ("5 of 5; weakest: #3, 4 of the 6 risks are mine, all proposals"). Never claim a pass the text does not earn.
 

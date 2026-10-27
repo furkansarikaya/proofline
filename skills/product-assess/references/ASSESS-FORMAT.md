@@ -18,6 +18,10 @@ Every file lives in `<product.dir>/<slug>/`. An item starts at the beginning of 
 - A number in the statement is an estimate with a basis, `[assumption: <risk> estimate "<basis>"]` (a range and why that range); without it the check says `unsourced-number`. The levels `importance` and `evidence` stay words.
 - The agent contributes: at least 5 assumptions the user did not state, each `source agent accepted by user` (or `changed by user`) in its marker, or listed as rejected under `## Rejected proposals` (`- RP-1 <assumption> rejected by user: <reason>`); rule `min-proposals`. A `[proposal: ...]` marker left in the file is `pending-proposal`.
 
+### Facts in ASSUMPTIONS.md
+
+A fact found while assessing (a web page, a data run, an interview line) is written in the same file, usually under `## Facts`: `- C-<n> <text> [fact: web <URL> accessed <YYYY-MM-DD> "<quote>"]`. The marker follows [EVIDENCE.md](../../product-spec/references/EVIDENCE.md) (web, interview, data or ref). Every `- C-n` line of the file needs exactly one valid fact marker (rule `fact`); an unchecked belief is an `AS-n`. Other documents cite it as `[fact: ref <slug>#C-n]`, and an assumption names it in its text (`because of C-1`).
+
 ## PROBES.md (`check-probes.mjs`)
 
 ```markdown

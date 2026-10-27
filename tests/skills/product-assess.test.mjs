@@ -169,3 +169,14 @@ test("outcome: --rerun does not execute a script whose hash changed", () => {
   assert.equal(existsSync(marker), false);
   rmSync(p.root, { recursive: true, force: true });
 });
+
+test("assumptions: a sourced fact may sit in the file as a C-n line; a fact without a source is rejected", () => {
+  const rest = `\n${agentAs(5)}`;
+  const facts = (line) => `- AS-1 Finance wants CSV, because of C-1. [assumption: value] importance: medium; evidence: medium${rest}\n\n## Facts\n\n${line}\n`;
+  const good = '- C-1 Finance copies the rows by hand. [fact: interview INT-1 "I copy the rows by hand"]';
+  assert.deepEqual(checkAssumptions(facts(good)).findings, []);
+  assert.equal(checkAssumptions(facts(good)).facts, 1);
+  assert.deepEqual(rules(checkAssumptions(facts("- C-1 Finance copies the rows by hand. [fact: web https://x.example/a]"))), ["fact"]);
+  assert.deepEqual(rules(checkAssumptions(facts("- C-1 Finance copies the rows by hand."))), ["fact"]);
+  assert.deepEqual(rules(checkAssumptions(facts("- C-1 Finance copies rows. [assumption: value]"))), ["fact"]);
+});
