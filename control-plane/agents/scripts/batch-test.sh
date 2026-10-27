@@ -647,6 +647,34 @@ sc_worktree_prompt_approval() {
   ok "a worktree run's pending request is approved by the main tree's prompt hook (shared approve.log, no worktree process without a request); a linked capture is refused (A185)"
 }
 
+# --- A181 round 3: a task whose branch waits for the user's merge on a local origin; git says when it was merged, then the batch moves on -----------------
+sc_manual_merge_batch() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  fake_run T-1
+  wt=$(wtp T-1)
+  # the delivered commit as the pr step of a manual platform leaves it: a branch on origin and deliver/<ID>/MERGE_HEAD
+  git -C "$wt" checkout -q -b proofline/T-1-x; echo delivered > "$wt/delivered.txt"; git -C "$wt" add delivered.txt; git -C "$wt" commit -qm 'feat: delivered'
+  git -C "$wt" push -q origin proofline/T-1-x 2> "$base/p.err" || die "push: $(cat "$base/p.err")"
+  mkdir -p "$wt/.agents/local/deliver/T-1"; printf '%s\tmain\tproofline/T-1-x\n' "$(git -C "$wt" rev-parse HEAD)" > "$wt/.agents/local/deliver/T-1/MERGE_HEAD"
+  A batch-next > "$base/bn.out" 2>&1 || die "batch-next: $(cat "$base/bn.out")"
+  grep -q 'awaiting merge' "$base/bn.out" || die "batch-next does not say the task awaits the user's merge: $(cat "$base/bn.out")"
+  grep -q 'YOUR merge into origin' "$base/bn.out" && grep -q '^NEXT: run T-2' "$base/bn.out" || die "an unmerged task blocked the batch or lacks the instruction: $(cat "$base/bn.out")"
+  [ ! -s .agents/local/batch/merged.tsv ] || die "batch-next recorded a merge nobody made"
+  # the user merges on origin (a fast-forward of main): git proves it, batch-next offers the proof step
+  git -C "$wt" push -q origin proofline/T-1-x:main 2> "$base/p.err" || die "merge on origin: $(cat "$base/p.err")"
+  A batch-next > "$base/bn.out" 2>&1 || die "batch-next after the merge: $(cat "$base/bn.out")"
+  grep -q '^NEXT: deliver T-1 merged' "$base/bn.out" || die "batch-next after the merge: $(cat "$base/bn.out")"
+  # the proof records the merge (before the cleanup); the batch then moves on to T-2
+  A deliver-merged T-1 > "$base/dm.out" 2>&1 || :
+  grep -q 'merge recorded for T-1: the delivered commit is on origin/main' "$base/dm.out" || die "deliver-merged: $(cat "$base/dm.out")"
+  grep -q "^T-1	-	" .agents/local/batch/merged.tsv || die "no merge record for T-1: $(cat .agents/local/batch/merged.tsv 2>/dev/null)"
+  A batch-next > "$base/bn.out" 2>&1
+  if grep -q '^NEXT: ci T-1' "$base/bn.out"; then A batch-ci T-1 > "$base/ci.out" 2>&1 || die "batch-ci T-1 after the manual merge: $(cat "$base/ci.out")"; A batch-next > "$base/bn.out" 2>&1; fi
+  grep -q '^NEXT: run T-2' "$base/bn.out" && ! grep -q 'T-1.*awaiting merge' "$base/bn.out" || die "the batch did not move on to T-2: $(cat "$base/bn.out")"
+  ok "batch-next: an unmerged manual-platform task is 'awaiting merge' and the batch goes on; after the user's merge it offers 'deliver T-1 merged', and the record moves the batch to the next task (A181)"
+}
+
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
 sc_adapter_refused() {
   bnew; mktask T-1 COMPLEX; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; binstall no
@@ -759,6 +787,7 @@ run_sc sc_worktree_cmds
 run_sc sc_worktree_prep
 run_sc sc_worktree_links
 run_sc sc_worktree_prompt_approval
+run_sc sc_manual_merge_batch
 run_sc sc_status_from_records
 run_sc sc_adapter_refused
 run_sc sc_merge_commit_ci
