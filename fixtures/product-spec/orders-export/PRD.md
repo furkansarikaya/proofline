@@ -31,6 +31,19 @@ Who: the finance team that closes the month. [fact: interview INT-1 "we close th
 
 - NFR-1: An export of 10000 orders completes within 5 seconds on the production server.
 
+## Completeness
+
+- error and empty states: AC-2
+- permissions and roles: not applicable to this project (every finance user already sees the orders page)
+- personal data and retention: Q-1 covers refunded orders; the file holds order totals only, no customer names
+- security: not applicable to this project
+- performance: NFR-1
+- accessibility: not applicable to this project
+- multilingual: not applicable to this project
+- analytics events: M-1
+- rollout and migration: not applicable to this project
+- dependencies: FR-1
+
 ## Success metrics
 
 - M-1: Exports per month; event: orders_export_completed; source: product analytics; baseline: 0 (no export exists) [decision: by product owner because the control does not exist yet]

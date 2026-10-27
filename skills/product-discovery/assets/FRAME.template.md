@@ -19,3 +19,7 @@
 ## Decision this discovery supports
 
 - <the decision, and who makes it>
+
+## Rejected proposals
+
+- RP-1 <assumption, risk or question the agent proposed> rejected by user: <reason>

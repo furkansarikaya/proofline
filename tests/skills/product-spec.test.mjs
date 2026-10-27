@@ -239,3 +239,66 @@ test("ids: Covers matches FR-n/NFR-n in any case and with leading zeros", () => 
   assert.deepEqual([r.gaps, r.unknown], [[], []]);
   rmSync(root, { recursive: true, force: true });
 });
+
+// ---- proposals, completeness, review minimum ----
+
+const { checkReview } = await import(join(SKILL, "scripts/check-review.mjs"));
+const REVIEW = readFileSync(join(FIX, "REVIEW.md"), "utf8");
+
+test("marker grammar: an agent proposal needs the user's answer; an estimate needs a basis; a pending proposal is an error", () => {
+  const ok = (m) => validateClaims(`## Assumptions\n\n- A-1: x ${m}\n`).errors.map((e) => e.message);
+  assert.deepEqual(ok("[assumption: value source agent accepted by user]"), []);
+  assert.deepEqual(ok("[assumption: value source agent changed by user]"), []);
+  assert.deepEqual(ok('[assumption: value estimate "from the three tickets of C-4"]'), []);
+  assert.match(ok("[assumption: value source agent]")[0], /accepted by user/);
+  assert.match(ok('[assumption: value estimate "guess"]')[0], /basis/);
+  assert.match(ok("[proposal: risk]")[0], /pending proposal/);
+  assert.match(ok("[proposal: dessert]")[0], /type/);
+  assert.equal(validateClaims("## Assumptions\n\n- A-1: x [proposal: risk]\n", { allowPending: true }).valid, true);
+  const parsed = validateClaims("## Assumptions\n\n- A-1: x [assumption: value source agent accepted by user]\n").claims[0];
+  assert.deepEqual([parsed.origin, parsed.accepted], ["agent", "accepted"]);
+});
+
+test("rejected proposals are a ledger: the line shape is checked, and the section holds no claims", () => {
+  const doc = (l) => `## Problem\n\nWho: finance. [fact: interview INT-1 "we close the books"]\n\n## Rejected proposals\n\n${l}\n`;
+  assert.equal(validateClaims(doc("- RP-1 A mobile app rejected by user: out of scope")).valid, true);
+  assert.equal(validateClaims(doc("- RP-1 A mobile app rejected by user: out of scope\n- RP-2 Dark mode rejected by user: no reason given")).unmarked.length, 0);
+  assert.equal(validateClaims(doc("- RP-1 A mobile app")).valid, false);
+  assert.equal(validateClaims(doc("- RP-1 A rejected by user: x\n- RP-1 B rejected by user: y")).valid, false);
+  assert.equal(validateClaims(doc("- none")).valid, true);
+});
+
+test("the completeness list: a missing topic, an unexplained topic and an undefined id are findings; not applicable passes", () => {
+  const rules = (t) => checkPrd(t).findings.filter((f) => f.rule === "completeness").map((f) => f.message);
+  assert.deepEqual(rules(PRD), []);
+  assert.match(rules(PRD.replace("- security: not applicable to this project\n", ""))[0], /lacks: security/);
+  assert.match(rules(PRD.replace("- performance: NFR-1", "- performance: it will be good"))[0], /performance: name the requirement/);
+  assert.match(rules(PRD.replace("- performance: NFR-1", "- performance: NFR-9"))[0], /NFR-9 is not defined/);
+  assert.equal(checkPrd(PRD.replace(/## Completeness[\s\S]*?(?=## Success)/, "")).findings.some((f) => f.rule === "missing-section"), true);
+});
+
+test("the spec review lists at least three topics the PRD never mentions and answers the completeness list", () => {
+  assert.deepEqual(checkReview(REVIEW).findings, []);
+  const fewer = REVIEW.replace(/- Orders edited after export:.*\n/, "");
+  assert.equal(checkReview(fewer).findings[0].rule, "min-never-mentioned");
+  assert.equal(checkReview(fewer.replace("- Very large months", "- Very large months: NFR-1 stops at ten thousand orders, so beyond it nothing is defined\n- Very large months")).findings.length, 0);
+  assert.equal(checkReview(REVIEW.replace("- security: not applicable\n", "")).findings[0].rule, "completeness-review");
+  assert.equal(checkReview(REVIEW.replace("verdict: ship-with-conditions", "verdict: maybe")).findings[0].rule, "verdict");
+  const { root, prd } = project();
+  assert.equal(readiness(prd).ready, true);
+  writeFileSync(join(root, "docs/product/orders-export/REVIEW.md"), fewer);
+  const r = readiness(prd);
+  assert.equal(r.ready, false);
+  assert.match(r.reasons.join("\n"), /REVIEW.md has 1 finding/);
+  const cli = spawnSync("node", [join(SKILL, "scripts/check-review.mjs"), "orders-export", "--root", root], { encoding: "utf8" });
+  assert.equal(cli.status, 1);
+  assert.match(cli.stderr, /min-never-mentioned/);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a PRD with an agent assumption the user accepted is clean; a pending proposal in it is a claim finding", () => {
+  const withA = PRD.replace("## Open questions", "- A-2: Exports may fail on a month with no orders. [assumption: feasibility source agent accepted by user]\n\n## Open questions");
+  assert.deepEqual(checkPrd(withA).findings, []);
+  const pending = checkPrd(withA.replace("source agent accepted by user]", "] [proposal: risk]"));
+  assert.ok(pending.findings.some((f) => f.rule === "claim"));
+});

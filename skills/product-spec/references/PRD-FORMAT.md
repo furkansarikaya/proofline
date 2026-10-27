@@ -15,10 +15,33 @@ Location: `<product.dir>/<slug>/PRD.md` (config `product.dir`, default `docs/pro
 | `## User stories` | one `### US-<n>: As a <role>, I want <x>, so that <y>` per story, each followed by `- AC-<n>: <criterion>` items | every story has criteria; no unmeasurable word |
 | `## Functional requirements` | `- FR-<n>: <requirement>` | every item has an id, ids unique |
 | `## Non-functional requirements` | `- NFR-<n>: <requirement with its limit>` | as above |
+| `## Completeness` | one line per topic of the list in section 1a | every topic present, each with an id of this PRD or `not applicable to this project` |
 | `## Success metrics` | `- M-<n>: <name>; event: <event>; source: <where it is recorded>; baseline: <value>` | id, `event`, `source`, `baseline`; an unknown baseline links `Q-<n>` or `A-<n>` |
-| `## Assumptions` | `- A-<n>: <assumption> [assumption: <risk>]` | the marker on every item |
+| `## Assumptions` | `- A-<n>: <assumption> [assumption: <risk>]`; one the agent proposed and the user accepted ends `[assumption: <risk> source agent accepted by user]`; a number is `estimate "<basis>"` | the marker on every item |
 | `## Open questions` | `### Blocking` and `### Non-blocking`, each a list of `- Q-<n>: <question>` or `- none` | both lists present |
+| `## Rejected proposals` | optional: `- RP-<n> <proposal> rejected by user: <reason>` | the line shape ([EVIDENCE.md](EVIDENCE.md#1a-proposals)) |
 | `## Deferred` | optional: `- FR-<n>: <reason>` for a requirement no task covers on purpose | id of this PRD, a reason |
+
+## 1a. Completeness list
+
+A plain PRD stays short, and still answers ten questions in one line each. The topic names are fixed English words; each line gives the id of this PRD that covers the topic (`FR-n`, `NFR-n`, `US-n`, `AC-n`, `Q-n`, `A-n`, `M-n`) or closes with `not applicable to this project` (a reason after it is welcome).
+
+```markdown
+## Completeness
+
+- error and empty states: AC-2
+- permissions and roles: Q-2
+- personal data and retention: not applicable to this project (the file holds totals only)
+- security: NFR-2
+- performance: NFR-1
+- accessibility: not applicable to this project
+- multilingual: not applicable to this project
+- analytics events: M-1
+- rollout and migration: FR-4
+- dependencies: A-1
+```
+
+Topics: `error and empty states`, `permissions and roles`, `personal data and retention`, `security`, `performance`, `accessibility`, `multilingual`, `analytics events`, `rollout and migration`, `dependencies`. The spec reviewer checks its "never mentioned" topics against this list.
 
 ## 2. Rules the check applies
 
@@ -32,6 +55,7 @@ Location: `<product.dir>/<slug>/PRD.md` (config `product.dir`, default `docs/pro
 | `requirement-id` | a requirement item without `FR-<n>`/`NFR-<n>`, with the wrong prefix for its section, or a repeated id |
 | `metric-id`, `metric-method` | a metric without `M-<n>`, or without `event`, `source` or `baseline` |
 | `unknown-as-fact` | outside `## Assumptions` and `## Open questions`, without an `A-<n>` or `Q-<n>` link: `TBD`, `TODO` (capitals) or `???` anywhere; `unknown`, `bilinmiyor` or `belli değil` as the whole value of a list item or a `key: value` field (`- FR-3: unknown`, `baseline: unknown`), never as a word inside a sentence ("an unknown currency") |
+| `completeness` | `## Completeness` lacks a topic, a topic names no id and is not "not applicable to this project", or an id is not defined in this PRD |
 | `assumption-marker` | an assumption without `[assumption: <risk>]` |
 | `open-questions` | `### Blocking` or `### Non-blocking` is missing |
 | `deferred` | a deferred item without an id of this PRD, or without a reason |
@@ -44,7 +68,7 @@ An unmarked claim is a warning, not a finding.
 
 ## 3. Review verdict
 
-The spec review writes `<product.dir>/<slug>/REVIEW.md` ([template](../assets/REVIEW.template.md)). The check reads one line of it:
+The spec review writes `<product.dir>/<slug>/REVIEW.md` ([template](../assets/REVIEW.template.md)). The reviewer checks the PRD against the completeness list and lists at least three topics it never mentions. `scripts/check-review.mjs` checks the file (`verdict`, `completeness-review`, `min-never-mentioned`). The readiness check reads one line of it:
 
 ```text
 verdict: ship | ship-with-conditions | do-not-ship
@@ -54,11 +78,12 @@ verdict: ship | ship-with-conditions | do-not-ship
 
 ## 4. Readiness
 
-`check-prd.mjs --ready <slug>` exits 0 only when all three hold:
+`check-prd.mjs --ready <slug>` exits 0 only when all four hold:
 
 1. the PRD check has no finding;
 2. `REVIEW.md` exists and its verdict is `ship` or `ship-with-conditions`;
-3. `### Blocking` lists no question.
+3. the review check (`check-review.mjs`) has no finding;
+4. `### Blocking` lists no question.
 
 Otherwise it exits 1 and prints one reason per failed condition. A PRD that is not ready is not split into tasks.
 

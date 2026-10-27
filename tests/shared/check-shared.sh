@@ -76,6 +76,15 @@ for f in "$root"/skills/*/scripts/validate-product-claims.mjs; do
   if cmp -s "$f" "$root/skills/product-spec/scripts/validate-product-claims.mjs"; then echo "PASS $name scripts/validate-product-claims.mjs"
   else echo "FAIL $name (scripts/validate-product-claims.mjs differs from skills/product-spec/scripts/validate-product-claims.mjs)"; status=1; fi
 done
+# Product reference copies: the quality bar is the same in the three product skills, the evidence model in the two that carry it.
+for name in product-discovery product-assess; do
+  for ref in QUALITY-BAR.md EVIDENCE.md; do
+    f="$root/skills/$name/references/$ref"
+    [ -f "$f" ] || continue
+    if cmp -s "$f" "$root/skills/product-spec/references/$ref"; then echo "PASS $name references/$ref"
+    else echo "FAIL $name (references/$ref differs from skills/product-spec/references/$ref)"; status=1; fi
+  done
+done
 # Ecosystem definition copies (A173): control-plane/agents holds the canonical ecosystems.json, ecosystems.tsv (generated),
 # ecosystems.mjs and scripts/ecosystems.sh; a skill that carries one carries the same bytes (it is installable alone).
 # The canonical flat file must also be what `node ecosystems.mjs write` produces, and the definition must pass its schema.

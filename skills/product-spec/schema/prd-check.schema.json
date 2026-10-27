@@ -10,7 +10,7 @@
       "required": ["rule", "line", "message"],
       "additionalProperties": false,
       "properties": {
-        "rule": { "enum": ["missing-section", "structure", "problem-owner", "empty-non-goals", "story", "criterion-id", "vague-word", "requirement-id", "metric-id", "metric-method", "unknown-as-fact", "assumption-marker", "open-questions", "deferred", "placeholder", "claim", "unmarked-claim"] },
+        "rule": { "enum": ["missing-section", "structure", "problem-owner", "empty-non-goals", "story", "criterion-id", "vague-word", "requirement-id", "metric-id", "metric-method", "unknown-as-fact", "completeness", "assumption-marker", "open-questions", "deferred", "placeholder", "claim", "unmarked-claim"] },
         "line": { "type": "integer", "minimum": 1 },
         "message": { "type": "string" }
       }

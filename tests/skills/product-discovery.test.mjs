@@ -15,6 +15,11 @@ const INTERVIEWS = [
   "# Interviews: orders export", "", "- INT-1 finance lead, 2026-10-01", "",
   '- C-1 Finance copies about 400 rows each month. [fact: interview INT-1 "I copy around 400 rows every month"]', "",
 ].join("\n");
+// the profile block and the implications that a competitor table needs (all values unknown is an honest profile)
+const PROFILE = "\n## Profiles\n\n### Acme\n- sells to: unknown\n- positioning: unknown\n- pricing model: unknown\n- praised: unknown\n- complained: unknown\n- switching cost: unknown\n\n## Implications for us\n\n- Acme's price page sets the number we compare with.\n";
+// RESEARCH.md around a list of claim lines: a search plan before, the gaps after
+const research = (claims, plan = "- SQ-1 What does Acme charge?; queries: \"acme pricing\" | \"acme per seat\"; sources: pricing, reviews", gaps = "- SQ-1 No second price source found.") =>
+  `# R\n\n## Search plan\n\n${plan}\n\n## Claims\n\n${claims}\n\n## Searched, not found\n\n${gaps}\n`;
 const RAW = "Interviewer: how do you export?\nFinance:   I copy around\n400 rows every month, by hand.\n";
 
 // a project with docs/product/x/INTERVIEWS.md and the raw text of INT-1 under .agents/local
@@ -64,7 +69,7 @@ test("raw interview text is not tracked by git and is ignored", () => {
 test("a competitor cell older than product.stale_days is flagged stale; a value without its source is rejected", () => {
   const head = "| Competitor | Attribute | Value | Source | Observed | Quote |\n|---|---|---|---|---|---|\n";
   const row = (date) => `| Acme | Price | 10 USD per month | https://acme.example/pricing | ${date} | "From 10 USD per month" |\n`;
-  const root = project({ "COMPETITORS.md": head + row("2026-10-01") + "| Acme | Formats | | | | |\n" });
+  const root = project({ "COMPETITORS.md": head + row("2026-10-01") + "| Acme | Formats | | | | |\n" + PROFILE });
   const fresh = json("check-competitors.mjs", ["x", "--root", root, "--today", "2026-10-20"]);
   assert.equal(fresh.status, 0);
   assert.deepEqual(fresh.out.stale, []);
@@ -76,7 +81,7 @@ test("a competitor cell older than product.stale_days is flagged stale; a value 
   mkdirSync(join(root, ".agents"), { recursive: true });
   writeFileSync(join(root, ".agents/config.yaml"), "product:\n  stale_days: 200\n");
   assert.equal(json("check-competitors.mjs", ["x", "--root", root, "--today", "2027-01-20"]).out.stale.length, 0);
-  writeFileSync(join(root, "docs/product/x/COMPETITORS.md"), head + "| Acme | Price | 10 USD per month | | | |\n");
+  writeFileSync(join(root, "docs/product/x/COMPETITORS.md"), head + "| Acme | Price | 10 USD per month | | | |\n" + PROFILE);
   const unverifiable = json("check-competitors.mjs", ["x", "--root", root, "--today", "2026-10-20"]);
   assert.equal(unverifiable.status, 1);
   assert.deepEqual(rules(unverifiable), ["unverifiable-value"]);
@@ -85,9 +90,9 @@ test("a competitor cell older than product.stale_days is flagged stale; a value 
 
 test("a number is accepted only as a sourced fact whose quote holds it", () => {
   const ok = '- C-5 The market is worth 2.4 billion USD. [fact: web https://r.example/m accessed 2026-10-01 "worth 2.4 billion USD in 2025"]';
-  const root = project({ "RESEARCH.md": `# R\n\n${ok}\n- C-2 Teams export weekly. [assumption: value]\n` });
+  const root = project({ "RESEARCH.md": research(`${ok}\n- C-2 Teams export weekly. [assumption: value]`) });
   assert.equal(run("check-research.mjs", ["x", "--root", root]).status, 0);
-  const w = (t) => { writeFileSync(join(root, "docs/product/x/RESEARCH.md"), `# R\n\n${t}\n`); return json("check-research.mjs", ["x", "--root", root]); };
+  const w = (t) => { writeFileSync(join(root, "docs/product/x/RESEARCH.md"), research(t)); return json("check-research.mjs", ["x", "--root", root]); };
   const a = w("- C-2 The market is worth 2.4 billion USD. [assumption: viability]");
   assert.equal(a.status, 1);
   assert.deepEqual(rules(a), ["unsourced-number"]);
@@ -98,7 +103,7 @@ test("a number is accepted only as a sourced fact whose quote holds it", () => {
 });
 
 test("an opportunity needs existing evidence and a place in the Mermaid tree", () => {
-  const good = "# O\n\n- OP-1 Export is manual. C-1, INT-1\n- OP-2 A summary may help. [assumption: value]\n- S-1 One-click export for OP-1.\n\n```mermaid\ngraph TD\n  G --> OP-1\n  G --> OP-2\n```\n";
+  const good = "# O\n\n- OP-1 Export is manual. C-1, INT-1\n- OP-2 A summary may help. [assumption: value]\n- S-1 One-click export for OP-1.\n\n```mermaid\ngraph TD\n  G --> OP-1\n  G --> OP-2\n```\n\n## Ranking\n\n- R-1 OP-1 evidence: strong; users: C-1; fit: removes the copying; effort: small; reason: two sources agree\n- R-2 OP-2 evidence: weak; users: estimate \"one interview and a guess\"; fit: indirect; effort: medium; reason: nobody asked for it\n";
   const root = project({ "OPPORTUNITIES.md": good });
   assert.equal(run("check-opportunities.mjs", ["x", "--root", root]).status, 0);
   const w = (t) => { writeFileSync(join(root, "docs/product/x/OPPORTUNITIES.md"), t); return json("check-opportunities.mjs", ["x", "--root", root]); };
@@ -134,4 +139,102 @@ test("a COMPETITORS.md without a table is no-table; a quote of only ellipses is 
   assert.equal(pr.status, 0);
   assert.match(pr.stdout, /nothing to check/);
   rmSync(root, { recursive: true, force: true });
+});
+
+// ---- proposals, estimates, method, profiles, ranking, insights ----
+
+test("a number in an assumption is accepted only as an estimate with a basis; a fact without a source is still rejected", () => {
+  const root = project();
+  const w = (t) => { writeFileSync(join(root, "docs/product/x/RESEARCH.md"), research(t)); return json("check-research.mjs", ["x", "--root", root]); };
+  const est = (b) => `- C-2 About 400 rows are copied each month. [assumption: value estimate "${b}"]`;
+  assert.equal(w(est("one interview says 400, the range allows a quiet month")).status, 0);
+  assert.deepEqual(rules(w(est("guess"))), ["invalid-marker", "unsourced-number"]);
+  assert.deepEqual(rules(w("- C-2 About 400 rows are copied each month. [assumption: value]")), ["unsourced-number"]);
+  assert.deepEqual(rules(w("- C-2 The market is 40 percent smaller. [fact]")), ["invalid-marker", "unsourced-number"]);
+  assert.deepEqual(rules(w('- C-2 It costs 5 USD. [decision: by owner because the budget is 5 USD]')), ["unsourced-number"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a pending proposal is rejected; an accepted agent proposal passes; a rejected one is listed under Rejected proposals", () => {
+  const root = project();
+  const w = (t, extra = "") => { writeFileSync(join(root, "docs/product/x/RESEARCH.md"), research(t).replace("## Searched, not found", `${extra}## Searched, not found`)); return json("check-research.mjs", ["x", "--root", root]); };
+  assert.deepEqual(rules(w("- C-2 Teams may export by hand. [proposal: risk]")), ["pending-proposal"]);
+  assert.equal(w("- C-2 Teams may export by hand. [assumption: value source agent accepted by user]").status, 0);
+  assert.deepEqual(rules(w("- C-2 Teams may export by hand. [assumption: value source agent]")), ["invalid-marker"]);
+  assert.equal(w("- C-2 Teams export weekly. [assumption: value]", "## Rejected proposals\n\n- RP-1 Add a mobile app rejected by user: out of scope\n\n").status, 0);
+  assert.deepEqual(rules(w("- C-2 Teams export weekly. [assumption: value]", "## Rejected proposals\n\n- RP-1 Add a mobile app\n\n")), ["rejected-proposal"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("research method: an unanswered search question, a missing plan or gap list, and a critical fact with one source are rejected", () => {
+  const root = project();
+  const claim = (id, host, extra = "") => `- C-${id} (SQ-1) ${extra}Acme charges 10 USD per seat. [fact: web https://${host}/p accessed 2026-10-01 "10 USD per seat"]`;
+  const w = (text) => { writeFileSync(join(root, "docs/product/x/RESEARCH.md"), text); return json("check-research.mjs", ["x", "--root", root, "--today", "2026-10-20"]); };
+  assert.equal(w(research(claim(3, "a.example"), undefined, "- none")).status, 0);
+  assert.deepEqual(rules(w(research("- C-3 A claim that names no query. [assumption: value]", undefined, "- none"))), ["query-unanswered"]);
+  assert.deepEqual(rules(w("# R\n\n## Claims\n\n- C-3 x. [assumption: value]\n")).sort(), ["no-not-found", "no-search-plan"]);
+  assert.deepEqual(rules(w(research(claim(3, "a.example"), "- SQ-1 Price?; queries: acme price; sources: tarot"))), ["plan-field"]);
+  const crit = (second, host2) => w(research(`${claim(3, "a.example", `(critical; second source: ${second}) `)}\n${claim(4, host2)}`, undefined, "- none"));
+  assert.equal(crit("C-4", "b.example").status, 0);
+  assert.deepEqual(rules(crit("C-4", "www.a.example")), ["not-independent"]);
+  assert.deepEqual(rules(crit("C-9", "b.example")), ["critical-needs-second-source"]);
+  crit("C-4", "b.example");
+  const stale = json("check-research.mjs", ["x", "--root", root, "--today", "2027-02-01"]);
+  assert.equal(stale.status, 0);
+  assert.equal(stale.out.stale.length, 2);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("competitor profiles: a missing profile, an unsourced review line and a missing implication are rejected", () => {
+  const head = "| Competitor | Attribute | Value | Source | Observed | Quote |\n|---|---|---|---|---|---|\n| Acme | Formats | | | | |\n";
+  const prof = (lines, impl = "- Acme's reviewers complain about manual export.") => `\n## Profiles\n\n### Acme\n${lines}\n\n## Implications for us\n\n${impl}\n`;
+  const all = (over = {}) => ["sells to", "positioning", "pricing model", "praised", "complained", "switching cost"].map((k) => `- ${k}: ${over[k] ?? "unknown"}`).join("\n");
+  const root = project();
+  const w = (t) => { writeFileSync(join(root, "docs/product/x/COMPETITORS.md"), t); return json("check-competitors.mjs", ["x", "--root", root, "--today", "2026-10-20"]); };
+  const sourced = '"set up in an afternoon" | https://r.example/acme | 2026-10-02 | "set up in an afternoon"';
+  assert.equal(w(head + prof(all({ praised: sourced, "switching cost": "one afternoon [assumption: usability]" }))).status, 0);
+  assert.deepEqual(rules(w(head)), ["no-profile", "no-implications"]);
+  assert.deepEqual(rules(w(head + prof(all({ complained: "export is slow" })))), ["unverifiable-profile"]);
+  assert.deepEqual(rules(w(head + prof(all({ positioning: "easy [assumption: value]" })))), ["unverifiable-profile"]);
+  assert.deepEqual(rules(w(head + prof(all(), "- We should be faster."))), ["implication-without-competitor"]);
+  assert.deepEqual(rules(w(head + prof(all({ "pricing model": '10 USD per seat | https://a.example/p | 2026-10-01 | "per seat"' })))), ["value-not-in-quote"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a ranking is a reasoned order: missing, a numeric score and a made-up user count are rejected", () => {
+  const base = "# O\n\n- OP-1 Export is manual. C-1, INT-1\n- OP-2 A summary may help. [assumption: value]\n\n```mermaid\ngraph TD\n  G --> OP-1\n  G --> OP-2\n```\n";
+  const row = (id, op, over = "") => `- R-${id} OP-${op} evidence: strong; users: C-1; fit: removes the copying; effort: small; reason: two sources agree${over}\n`;
+  const root = project();
+  const w = (t) => { writeFileSync(join(root, "docs/product/x/OPPORTUNITIES.md"), t); return json("check-opportunities.mjs", ["x", "--root", root]); };
+  assert.equal(w(`${base}\n## Ranking\n\n${row(1, 1)}${row(2, 2)}`).status, 0);
+  assert.deepEqual(rules(w(base)), ["ranking-missing"]);
+  assert.deepEqual(rules(w(`${base}\n## Ranking\n\n${row(1, 1)}`)), ["ranking-size"]);
+  assert.deepEqual(rules(w(`${base}\n## Ranking\n\n${row(1, 1).replace("evidence: strong", "evidence: 9")}${row(2, 2)}`)), ["ranking-level"]);
+  assert.deepEqual(rules(w(`${base}\n## Ranking\n\n${row(1, 1).replace("users: C-1", "users: about 5000")}${row(2, 2)}`)), ["ranking-users"]);
+  assert.deepEqual(rules(w(`${base}\n## Ranking\n\n${row(1, 1)}${row(2, 1)}`)).sort(), ["ranking-duplicate", "ranking-size"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a discovery set without insights is rejected; each insight needs evidence ids and an implication", () => {
+  const root = project({ "RESEARCH.md": research("- C-2 Teams export weekly. [assumption: value]") });
+  const insight = (n, over = "") => `- IN-${n} Finance copies rows by hand every month. evidence: C-1, INT-1; so what: build the export before the summary.${over}\n`;
+  const w = (t) => { writeFileSync(join(root, "docs/product/x/INTERVIEWS.md"), `${INTERVIEWS}\n## So what\n\n${t}`); writeFileSync(join(root, "docs/product/x/RESEARCH.md"), research("- C-2 Teams export weekly. [assumption: value]") + `\n## So what\n\n${insight(11)}${insight(12)}${insight(13)}`); return json("check-insights.mjs", ["x", "--root", root]); };
+  assert.equal(w(insight(1) + insight(2) + insight(3)).status, 0);
+  assert.deepEqual(rules(w("")), ["no-insights"]);
+  assert.deepEqual(rules(w(insight(1) + insight(2))), ["too-few-insights"]);
+  assert.deepEqual(rules(w([1, 2, 3, 4, 5, 6, 7, 8].map((n) => insight(n)).join(""))), ["too-many-insights"]);
+  assert.deepEqual(rules(w(insight(1) + insight(2) + "- IN-3 Finance copies rows by hand every month. so what: build the export first.\n")), ["insight-without-evidence"]);
+  assert.deepEqual(rules(w(insight(1) + insight(2) + insight(3).replace("; so what: build the export before the summary.", "; so what: noted."))), ["insight-without-implication"]);
+  assert.deepEqual(rules(w(insight(1) + insight(2) + insight(3).replace("C-1,", "C-9,"))), ["dangling-evidence"]);
+  rmSync(join(root, "docs/product/x/INTERVIEWS.md"));
+  rmSync(join(root, "docs/product/x/RESEARCH.md"));
+  assert.deepEqual(rules(json("check-insights.mjs", ["x", "--root", root])), ["no-insights"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("the examples sit in code fences, so no checker reads them as real claims", () => {
+  for (const skill of ["product-discovery", "product-assess", "product-spec"]) {
+    const text = readFileSync(join(SKILL, "..", skill, "references/EXAMPLES.md"), "utf8");
+    assert.equal(text.replace(/^```[\s\S]*?^```$/gm, "").split("\n").filter((l) => /^(- (C|OP|AS|RK|IN|R|SQ)-\d+|\|)/.test(l)).length, 0, skill);
+  }
 });

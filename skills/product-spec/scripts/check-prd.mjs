@@ -10,10 +10,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateClaims } from "./validate-product-claims.mjs";
+import { checkReview, COMPLETENESS } from "./check-review.mjs";
 
 // A172: ids (FR-n, NFR-n, US-n, AC-n) compare by key: case-insensitive, leading zeros ignored; a document keeps the spelling its author wrote.
 export const idKey = (s) => String(s).toUpperCase().replace(/-0+(?=\d)/g, "-");
-export const SECTIONS = ["Problem", "Goals", "Non-goals", "User stories", "Functional requirements", "Non-functional requirements", "Success metrics", "Assumptions", "Open questions"];
+export const SECTIONS = ["Problem", "Goals", "Non-goals", "User stories", "Functional requirements", "Non-functional requirements", "Completeness", "Success metrics", "Assumptions", "Open questions"];
+export { COMPLETENESS };
+const NOT_APPLICABLE = /^not applicable to this project\b/i;
 export const VERDICTS = ["ship", "ship-with-conditions", "do-not-ship"];
 // Words an acceptance criterion cannot be measured by. English and Turkish; extended by product.vague_words.
 export const VAGUE_WORDS = [
@@ -178,6 +181,25 @@ export function checkPrd(text, opts = {}) {
     if (["Assumptions", "Open questions", "Success metrics", "Deferred"].includes(name)) continue;
     for (const r of s.lines) if (unknownIn(r.text) && !REF.test(r.text)) add("unknown-as-fact", r.n, `unknown in ## ${name}: move it to ## Assumptions or ## Open questions, or link one (A-<n>, Q-<n>)`);
   }
+  const comp = p.secs.get("Completeness");
+  if (comp) {
+    const defined = new Set([...text.replace(/<!--[\s\S]*?-->/g, "").matchAll(/^[ \t]*(?:[-*][ \t]+|###[ \t]+)((?:NFR|FR|AC|US|Q|A|M)-\d+(?:\.\d+)?)\b/gim)].map((m) => idKey(m[1])));
+    const lines = new Map();
+    for (const it of p.items(comp.lines)) {
+      const m = /^([^:]+):\s*(.*)$/.exec(it.text);
+      if (m) lines.set(m[1].trim().toLowerCase(), { n: it.n, value: m[2].trim() });
+    }
+    const missing = COMPLETENESS.filter((t) => !lines.has(t));
+    if (missing.length) add("completeness", comp.line, `## Completeness lacks: ${missing.join(", ")} (one line each: \`- <topic>: <FR-n, NFR-n, US-n, AC-n, Q-n or A-n that covers it>\` or \`- <topic>: not applicable to this project\`)`);
+    for (const t of COMPLETENESS) {
+      const l = lines.get(t);
+      if (!l) continue;
+      if (NOT_APPLICABLE.test(l.value)) continue;
+      const ids = l.value.match(/\b(?:NFR|FR|AC|US|Q|A|M)-\d+(?:\.\d+)?\b/gi) || [];
+      if (!ids.length) add("completeness", l.n, `${t}: name the requirement, story or question that covers it, or write "not applicable to this project"`);
+      else for (const id of ids) if (!defined.has(idKey(id))) add("completeness", l.n, `${t}: ${id} is not defined in this PRD`);
+    }
+  }
   const ph = placeholders(text);
   if (ph.length) add("placeholder", 1, `unfilled template placeholder remains: ${ph.slice(0, 3).join(", ")}`);
   const claims = validateClaims(text, { sections: ["Problem", "Assumptions"], root: opts.root });
@@ -214,6 +236,10 @@ export function readiness(prdFile, opts = {}) {
   else if (!verdict) reasons.push(`${reviewFile} has no \`verdict: ${VERDICTS.join("|")}\` line`);
   else if (!VERDICTS.includes(verdict)) reasons.push(`unknown review verdict "${verdict}" (want ${VERDICTS.join("|")})`);
   else if (verdict === "do-not-ship") reasons.push("review verdict is do-not-ship");
+  if (existsSync(reviewFile)) {
+    const rf = checkReview(readFileSync(reviewFile, "utf8")).findings;
+    if (rf.length) reasons.push(`${reviewFile} has ${rf.length} finding(s): run check-review.mjs ${reviewFile}`);
+  }
   const decisionFile = join(dirname(prdFile), "DECISION.md");
   if (existsSync(decisionFile)) {
     const d = readFileSync(decisionFile, "utf8");

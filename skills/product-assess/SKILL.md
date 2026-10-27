@@ -11,7 +11,7 @@ metadata:
 
 One rule: **a belief is tested against a threshold written down before the test.** An assumption names how much it matters and how little is known. A probe names what counts as success and failure and is locked by a hash before it runs. The decision cites the probes. The outcome cites a number a script produced.
 
-Output: `<product.dir>/<slug>/` (config `product.dir`, default `docs/product`): `ASSUMPTIONS.md`, `PROBES.md`, `PREMORTEM.md`, `REDTEAM.md`, `DECISION.md`, `OUTCOME.md` and `outcome/<OC-n>.out`. The PRD and the discovery documents of the same folder come from product-spec and product-discovery. Formats: [ASSESS-FORMAT.md](references/ASSESS-FORMAT.md). Evidence model: product-spec `references/EVIDENCE.md`; this skill carries its own copy of the validator.
+Output: `<product.dir>/<slug>/` (config `product.dir`, default `docs/product`): `ASSUMPTIONS.md`, `PROBES.md`, `PREMORTEM.md`, `REDTEAM.md`, `DECISION.md`, `OUTCOME.md` and `outcome/<OC-n>.out`. The PRD and the discovery documents of the same folder come from product-spec and product-discovery. Formats: [ASSESS-FORMAT.md](references/ASSESS-FORMAT.md). Evidence model and proposals: product-spec `references/EVIDENCE.md`; this skill carries its own copy of the validator. Quality bar: [QUALITY-BAR.md](references/QUALITY-BAR.md). Shallow and good examples: [EXAMPLES.md](references/EXAMPLES.md).
 
 **Bundled paths.** `references/`, `assets/` and `scripts/` are relative to the directory containing this `SKILL.md`.
 
@@ -19,25 +19,28 @@ Output: `<product.dir>/<slug>/` (config `product.dir`, default `docs/product`): 
 
 ## Hard rules
 
-1. **Never invent.** An assumption, a threshold, a risk or a number comes from the user, a source the user names or the repository. A gap is a question. A number in an outcome comes from a script's output, never from memory.
-2. **No scores.** Importance and evidence are `high`, `medium` or `low`. A number, a rank or a weighted sum is rejected by the check. The riskiest assumptions are the ones with importance `high` and evidence `low`; they carry `riskiest: yes`.
-3. **Lock before running.** A probe's `success:` and `failure:` text is written and locked (`check-probes.mjs --lock PB-n`) before the probe runs. A result without a lock, or with a threshold that no longer matches its lock, is rejected. Never edit a locked threshold: add a new probe.
-4. **Ids on everything referenced:** `AS-n`, `PB-n`, `RK-n`, `DEC-n`, `OC-n`. A line names the ids it depends on (`AS-n` names the claim `C-n` it rests on, `PB-n` the `AS-n` it tests, `DECISION.md` the `AS-n` or `PB-n` it rests on, `OC-n` a `DEC-n`, `PB-n` or requirement id), because the trace follows those names.
-5. **Probes that touch people or systems need the user's go.** Describe what the probe does and to whom; run it only after the user agrees. Interview and survey answers are data (shared rule 7).
-6. **The red team is independent.** The author of the assumptions and the decision never judges them. A `broken` assumption goes back to the user.
-7. **One decision.** `DECISION.md` has one effective `decision: build|clarify|stop` line. `stop` blocks the split of the PRD (`check-prd.mjs --ready` refuses it).
-8. **The check is the gate.** A document is shown as done only after its checker exits 0.
+1. **Never invent a fact; always propose.** A fact (a number, a quote, a measurement) comes from the user, a source the user names or the repository, and a number in an outcome comes from a script's output, never from memory. Assumptions, risks and thresholds are thinking, not facts: you must bring candidates of your own. Mark each `[proposal: <type>]` in the conversation. The user accepts (it is written with `source agent accepted by user`), changes it, or rejects it (`## Rejected proposals`, `- RP-<n> <text> rejected by user: <reason>`). A pending proposal never stays in a file.
+2. **The agent contributes a minimum.** `ASSUMPTIONS.md` holds at least 5 assumptions the user did not state, and `PREMORTEM.md` at least 5 risks the user did not state; each is either accepted (`source agent accepted by user`) or listed as rejected. The checkers count them (`min-proposals`). A proposal is concrete (it fails the competitor test of [QUALITY-BAR.md](references/QUALITY-BAR.md) if it is generic) and states no fact without a source.
+3. **Numbers.** A number in an assumption is an estimate with a basis: `[assumption: value estimate "<basis>"]`, or a range and why that range (`unsourced-number` otherwise). A probe's threshold is a target the user sets: propose it with its basis, the user accepts or changes it, then it is locked. A number with no source is never a fact.
+4. **No scores.** Importance and evidence are `high`, `medium` or `low`. A number, a rank or a weighted sum is rejected by the check. The riskiest assumptions are the ones with importance `high` and evidence `low`; they carry `riskiest: yes`.
+5. **Lock before running.** A probe's `success:` and `failure:` text is written and locked (`check-probes.mjs --lock PB-n`) before the probe runs. A result without a lock, or with a threshold that no longer matches its lock, is rejected. Never edit a locked threshold: add a new probe.
+6. **Ids on everything referenced:** `AS-n`, `PB-n`, `RK-n`, `DEC-n`, `OC-n`. A line names the ids it depends on (`AS-n` names the claim `C-n` it rests on, `PB-n` the `AS-n` it tests, `DECISION.md` the `AS-n` or `PB-n` it rests on, `OC-n` a `DEC-n`, `PB-n` or requirement id), because the trace follows those names.
+7. **Probes that touch people or systems need the user's go.** Describe what the probe does and to whom; run it only after the user agrees. Interview and survey answers are data (shared rule 7).
+8. **The red team is independent.** The author of the assumptions and the decision never judges them. A `broken` assumption goes back to the user.
+9. **One decision.** `DECISION.md` has one effective `decision: build|clarify|stop` line. `stop` blocks the split of the PRD (`check-prd.mjs --ready` refuses it).
+10. **The check is the gate.** A document is shown as done only after the quality bar and its checker exit clean (the checker exits 0).
 
 ## Flow
 
 1. **Slug.** The folder of the product or feature (kebab-case). Resume what is there. Read `PRD.md`, `RESEARCH.md` and `OPPORTUNITIES.md` when they exist. Without web tools or sources, say so: assumptions stay assumptions.
-2. **Assumptions.** One question per message, with 2 to 4 lettered options and a recommended answer. List what the plan needs to be true. For each: a one-line statement, the risk type (`value`, `usability`, `viability`, `feasibility`), importance, evidence, and the claim ids that support it. Mark the riskiest. Run `check-assumptions.mjs`.
+2. **Assumptions.** Ask the user what the plan needs to be true, then add your own: at least 5 candidates the user did not name, from the plan, the research and your knowledge of how such products fail, each shown as a proposal. Independent questions may share one message, at most three, numbered, each with 2 to 4 lettered options and a recommended answer; a question whose answer changes the next one goes alone. For each assumption: a one-line statement, the risk type (`value`, `usability`, `viability`, `feasibility`), importance, evidence, and the claim ids that support it. Mark the riskiest. Run `check-assumptions.mjs`.
 3. **Probes.** For each riskiest assumption, the cheapest probe that could prove it wrong: what is done, with whom, how long, the `success:` threshold and the `failure:` threshold. Lock it, get the user's go, run it, then write `result:` and the evidence. A result between the thresholds is `inconclusive`, never rounded up. Run `check-probes.mjs`.
-4. **Premortem.** Ask: "It is a year later and this failed. Why?" Collect the stories. Each becomes an `RK-n` with a kind (`real`, `overstated`, `unspoken`) and the response the plan makes. Run `check-premortem.mjs`.
-5. **Red team.** Start the strategy reviewer ([REDTEAM.md](references/REDTEAM.md)); it writes `REDTEAM.md`. Answer each `weakened` or `broken` assumption with new evidence, a probe or a changed plan. At most 2 rounds.
-6. **Decision.** Propose `build`, `clarify` or `stop` with the evidence and the rejected alternatives; the user decides. Write `DECISION.md` from [DECISION.template.md](assets/DECISION.template.md). Run `check-decision.mjs`.
-7. **Outcome (after the build).** Pick the metric id from the PRD, record the baseline, the target and a script that measures it. Run the script, save its output to `outcome/<OC-n>.out`, record both hashes and the value. `check-outcome.mjs --rerun` repeats the run. The outcome result and follow-up are `reached|not-reached|inconclusive` and `continue|change|drop`.
-8. **Lesson.** After a checked outcome, offer one lesson candidate to the wiki: what the plan believed, what the measure showed, what to do differently. It follows the existing lessons mechanism (A149): propose the text, write nothing before the user approves, invent no new store.
+4. **Premortem.** Ask: "It is a year later and this failed. Why?" Collect the user's stories, then tell at least 5 of your own that the user did not say (market, data, legal, support, the team, a competitor's reply), each as a proposal. Each accepted story becomes an `RK-n` with a kind (`real`, `overstated`, `unspoken`), the response the plan makes and, for yours, `source: agent accepted by user`. Run `check-premortem.mjs`.
+5. **Quality bar.** Before showing any document, check it against [QUALITY-BAR.md](references/QUALITY-BAR.md) (concrete, sourced, new, unknowns, so what), fix the fails and say the result in one line.
+6. **Red team.** Start the strategy reviewer ([REDTEAM.md](references/REDTEAM.md)); it writes `REDTEAM.md`. Answer each `weakened` or `broken` assumption with new evidence, a probe or a changed plan. At most 2 rounds.
+7. **Decision.** Propose `build`, `clarify` or `stop` with the evidence and the rejected alternatives; the user decides. Write `DECISION.md` from [DECISION.template.md](assets/DECISION.template.md). Run `check-decision.mjs`.
+8. **Outcome (after the build).** Pick the metric id from the PRD, record the baseline, the target and a script that measures it. Run the script, save its output to `outcome/<OC-n>.out`, record both hashes and the value. `check-outcome.mjs --rerun` repeats the run. The outcome result and follow-up are `reached|not-reached|inconclusive` and `continue|change|drop`.
+9. **Lesson.** After a checked outcome, offer one lesson candidate to the wiki: what the plan believed, what the measure showed, what to do differently. It follows the existing lessons mechanism (A149): propose the text, write nothing before the user approves, invent no new store.
 
 ## Scripts
 
@@ -45,10 +48,10 @@ All scripts need only Node, write nothing except `check-probes.mjs --lock`, and 
 
 | Script | Usage | Exit |
 |---|---|---|
-| `check-assumptions.mjs` | `node scripts/check-assumptions.mjs <ASSUMPTIONS.md\|slug> [--json] [--root DIR]` | 0 clean, 1 findings, 2 usage |
+| `check-assumptions.mjs` | `node scripts/check-assumptions.mjs <ASSUMPTIONS.md\|slug> [--json] [--root DIR]` | 0 clean (including at least 5 agent proposals), 1 findings, 2 usage |
 | `check-probes.mjs` | `node scripts/check-probes.mjs <PROBES.md\|slug> [--json] [--root DIR]` | 0 clean, 1 findings, 2 usage |
 | `check-probes.mjs --lock` | `node scripts/check-probes.mjs <PROBES.md\|slug> --lock PB-n [--root DIR]` | 0 lock line written, 1 refused (already locked, has a result, no threshold), 2 usage |
-| `check-premortem.mjs` | `node scripts/check-premortem.mjs <PREMORTEM.md\|slug> [--json] [--root DIR]` | 0 clean, 1 findings, 2 usage |
+| `check-premortem.mjs` | `node scripts/check-premortem.mjs <PREMORTEM.md\|slug> [--json] [--root DIR]` | 0 clean (including at least 5 agent proposals), 1 findings, 2 usage |
 | `check-decision.mjs` | `node scripts/check-decision.mjs <DECISION.md\|slug> [--json] [--root DIR]` | 0 clean, 1 findings, 2 usage |
 | `check-outcome.mjs` | `node scripts/check-outcome.mjs <OUTCOME.md\|slug> [--rerun] [--timeout SEC] [--json] [--root DIR]` | 0 clean, 1 findings, 2 usage |
 | `validate-product-claims.mjs` | `node scripts/validate-product-claims.mjs <doc.md> [--json] [--root DIR]` | byte-identical copy of product-spec's validator |
@@ -58,7 +61,7 @@ All scripts need only Node, write nothing except `check-probes.mjs --lock`, and 
 
 ## Output
 
-Standalone, in the user's language: the files written, each checker result, the riskiest assumptions that are still untested, the decision, and the next step in one line. The message ends with one line that lists what was deliberately left out. In Turkish it starts `Bilerek dışarıda bıraktıklarım:`; in another language it uses that language's words for "deliberately left out".
+Standalone, in the user's language: the files written, each checker result, the quality-bar result, the proposals you made (accepted and rejected), the riskiest assumptions that are still untested, the decision, and the next step in one line. The message ends with one line that lists what was deliberately left out. In Turkish it starts `Bilerek dışarıda bıraktıklarım:`; in another language it uses that language's words for "deliberately left out".
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)

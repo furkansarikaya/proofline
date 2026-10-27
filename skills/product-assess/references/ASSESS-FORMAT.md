@@ -7,12 +7,16 @@ Every file lives in `<product.dir>/<slug>/`. An item starts at the beginning of 
 ```markdown
 - AS-1 Finance wants CSV instead of a spreadsheet, because of C-2. [assumption: value] importance: high; evidence: low; riskiest: yes
 - AS-2 One engineer can build the export in a sprint. [assumption: feasibility] importance: medium; evidence: medium
+- AS-3 Between 30 and 70 percent of the clerks would switch. [assumption: value estimate "one interview, so the range is wide on purpose"] importance: high; evidence: low; riskiest: yes
+- AS-4 The accounting tool imports a comma-separated file in every locale. [assumption: feasibility source agent accepted by user] importance: high; evidence: low; riskiest: yes
 ```
 
 - Exactly one `[assumption: <risk>]` marker; risk is `value`, `usability`, `viability` or `feasibility`.
 - `importance` and `evidence`: `high|medium|low`. A number, `score:`, `rank:` or `3/5` is rejected (`numeric-score`).
 - `riskiest: yes` exactly when importance is `high` and evidence is `low` (rule `riskiest`).
 - Name the claim ids (`C-n`) the assumption rests on; the trace links a requirement's `[fact: ref <slug>#C-n]` to the assumption that names `C-n`.
+- A number in the statement is an estimate with a basis, `[assumption: <risk> estimate "<basis>"]` (a range and why that range); without it the check says `unsourced-number`. The levels `importance` and `evidence` stay words.
+- The agent contributes: at least 5 assumptions the user did not state, each `source agent accepted by user` (or `changed by user`) in its marker, or listed as rejected under `## Rejected proposals` (`- RP-1 <assumption> rejected by user: <reason>`); rule `min-proposals`. A `[proposal: ...]` marker left in the file is `pending-proposal`.
 
 ## PROBES.md (`check-probes.mjs`)
 
@@ -34,9 +38,12 @@ Every file lives in `<product.dir>/<slug>/`. An item starts at the beginning of 
 
 ```markdown
 - RK-1 Finance keeps the spreadsheet because the CSV columns differ. kind: real; response: map the columns with finance before the build (PB-2)
+- RK-2 The first real month has refunds the test shop never had. kind: unspoken; response: ask finance for the refund rule (Q-1); source: agent accepted by user
 ```
 
 `kind`: `real` (named and agreed), `overstated` (named, smaller than feared), `unspoken` (nobody said it before the premortem). Every risk has a response; "accept" is a response only with the reason.
+
+`source:` is `user` (the default, may be left out), `agent accepted by user` or `agent changed by user`. The agent contributes at least 5 risks the user did not state: accepted ones carry the `source:` field, rejected ones are listed under `## Rejected proposals` (`- RP-1 <risk> rejected by user: <reason>`); rule `min-proposals`.
 
 ## REDTEAM.md
 
