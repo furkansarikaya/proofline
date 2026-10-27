@@ -6923,11 +6923,12 @@ origin_url() {
     *) ou_a=$(cd "$sr_main" 2>/dev/null && cd "$ou_u" 2>/dev/null && pwd -P) && printf '%s\n' "$ou_a" || printf '%s/%s\n' "$sr_main" "$ou_u" ;;
   esac
 }
-# origin_push_cmd BRANCH [FLAGS]: the push command to show; a relative origin is made absolute for this one command (-c), not in the config
+# origin_push_cmd BRANCH [FLAGS]: the push command to show; for a relative origin it pushes to the absolute url directly (`git push <url> <branch>`,
+# no -u: -c remote.origin.url would ADD a second url and git would push to the relative one as well), the config is not rewritten
 origin_push_cmd() {
   op_u=$(origin_url) || op_u=''
   op_f=${2--u}   # unset: -u; set (also empty): as given
-  if [ -n "$op_u" ] && [ "$op_u" != "$(git -C "$root" remote get-url origin 2>/dev/null)" ]; then printf 'git -c remote.origin.url=%s push%s origin %s' "$op_u" "${op_f:+ $op_f}" "$1"
+  if [ -n "$op_u" ] && [ "$op_u" != "$(git -C "$root" remote get-url origin 2>/dev/null)" ]; then printf 'git push %s %s' "$op_u" "$1"
   else printf 'git push%s origin %s' "${op_f:+ $op_f}" "$1"; fi
 }
 # --- A manual merge, recorded from git (A180/A181, round 3) ------------------------------------------------------------

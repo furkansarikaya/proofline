@@ -359,7 +359,9 @@ scenario_local_origin() {
     [ "$(sh "$tl_agents/scripts/platform.sh" field local -C "$PWD")" = yes ] && [ "$(sh "$tl_agents/scripts/platform.sh" field platform -C "$PWD")" = other ] || die "$u is not a local origin of platform other"
     A deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan refused the local origin $u: $(tail -2 "$base/plan.out")"
     grep -q '^steps: commit push pr$' .agents/local/deliver/LC/SUMMARY.md && grep -q '^merge_by: user$' .agents/local/deliver/LC/SUMMARY.md || die "$u: steps/merge_by: $(cat .agents/local/deliver/LC/SUMMARY.md)"
-    grep -q 'git push origin proofline/LC-lc:main' "$base/plan.out" || die "$u: no 'git push origin proofline/LC-lc:main' hand-off: $(cat "$base/plan.out")"
+    # a relative origin is shown as its absolute url (a direct push from any worktree), the others as origin
+    case "$u" in ../*) lo_w="$(cd "$base" && pwd -P)/${u#../}" ;; *) lo_w=origin ;; esac
+    grep -q "git push $lo_w proofline/LC-lc:main" "$base/plan.out" || die "$u: no 'git push $lo_w proofline/LC-lc:main' hand-off: $(cat "$base/plan.out")"
   done
   # a host-shaped address without a path is not a local repository, and no hosting-service tool is applied to a local origin
   for u in github.com.evil.example https://github.com.evil.example host.example; do
@@ -478,16 +480,16 @@ scenario_wt_relative_origin() {
   git remote set-url origin ../lo.git; git -c core.hooksPath=/dev/null push -q origin main
   [ ! -d "$wt/../lo.git" ] && [ ! -d "$wt/lo.git" ] || die "the fixture path is also valid from the worktree"
   W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan in the worktree: $(tail -2 "$base/plan.out")"
-  grep -q "git -c remote.origin.url=$lo_abs push -u origin proofline/LC-lc" "$base/plan.out" && grep -q "git -c remote.origin.url=$lo_abs push origin proofline/LC-lc:main" "$base/plan.out" || die "the plan shows a relative origin: $(grep -n 'push' "$base/plan.out")"
+  grep -q "git push $lo_abs proofline/LC-lc" "$base/plan.out" && grep -q "git push $lo_abs proofline/LC-lc:main" "$base/plan.out" || die "the plan shows a relative origin: $(grep -n 'push' "$base/plan.out")"
   capture 'approve delivery'; W approve-pending LC >/dev/null
   W deliver-step LC commit >/dev/null || die "commit step"
   W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
   W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
-  grep -q "^run: git -c remote.origin.url=$lo_abs push -u origin proofline/LC-lc\$" "$base/push.out" || die "the push step shows a relative origin: $(cat "$base/push.out")"
-  # (the shown command is not run: `git -c remote.origin.url=` ADDS a second url, so git pushes to the relative one as well and fails from a worktree)
-  git -C "$wt" push -q "$lo_abs" proofline/LC-lc 2> "$base/push.err" || die "push: $(cat "$base/push.err")"; git -C "$wt" update-ref refs/remotes/origin/proofline/LC-lc HEAD
+  grep -q "^run: git push $lo_abs proofline/LC-lc\$" "$base/push.out" || die "the push step shows a relative origin: $(cat "$base/push.out")"
+  # the shown command is RUN as printed, from the worktree (the pre-push hook consumes the push approval of the step)
+  ( cd "$wt" && eval "$(sed -n 's/^run: //p' "$base/push.out" | head -n 1) -q" ) 2> "$base/push.err" || die "the printed push failed: $(cat "$base/push.err")"; git -C "$wt" update-ref refs/remotes/origin/proofline/LC-lc HEAD
   W deliver-step LC pr > "$base/pr.out" 2>&1 || die "pr step: $(cat "$base/pr.out")"
-  grep -q "git -c remote.origin.url=$lo_abs push origin proofline/LC-lc:main" "$base/pr.out" || die "the hand-off shows a relative origin: $(cat "$base/pr.out")"
+  grep -q "git push $lo_abs proofline/LC-lc:main" "$base/pr.out" || die "the hand-off shows a relative origin: $(cat "$base/pr.out")"
   expect_msg "deliver-merged --check from the worktree before the merge" 'not merged' W deliver-merged LC --check
   git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
   W deliver-merged LC --check > "$base/chk.out" 2>&1 || die "deliver-merged --check from the worktree does not reach the relative origin: $(cat "$base/chk.out")"
