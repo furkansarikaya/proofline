@@ -23,6 +23,7 @@ if [ -f "$root/.git" ]; then   # a linked worktree has a .git file; only the one
 fi
 shared_dir() { printf '%s/.agents/local/%s\n' "$sr_main" "$1"; }
 PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
+cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
 
 # A188: the digest is the first word of the tool's line (no awk process)
@@ -964,6 +965,15 @@ tier_rank() { case "$1" in docs) echo 0 ;; small) echo 1 ;; full) echo 2 ;; *) e
 tier_max() { if [ "$(tier_rank "$1")" -ge "$(tier_rank "$2")" ]; then echo "$1"; else echo "$2"; fi; }
 # Paths the task changed against repository.base_sha (tracked, staged or not, plus untracked), minus the run
 # directory, .agents/local/, the task files directory and baseline files whose content is unchanged.
+# knowledge_doc_file PATH (round 6): only a regular, non-executable, non-symlink file with a documentation extension counts as knowledge output;
+# anything else under the knowledge scope (a script, a link, an executable) stays task output and is scanned, sized and gated.
+knowledge_doc_file() {
+  kd_f=$root/$1
+  { [ -f "$kd_f" ] && [ ! -L "$kd_f" ] && [ ! -x "$kd_f" ]; } || return 1
+  case "$1" in *.md|*.mdx|*.rst|*.adoc|*.html|*.txt|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.webp) ;; *) return 1 ;; esac
+  case "$(dirname "$kd_f")" in "$root"|"$root"/*) ;; *) return 1 ;; esac
+  [ "$(cd "$(dirname "$kd_f")" 2>/dev/null && pwd -P)" = "$(cd "$root" && pwd -P)/$(dirname "$1")" ] || return 1   # no linked folder on the way
+}
 task_changed_paths() {
   tcp_d=$(run_dir "$1"); tcp_base=$(repository_base_sha "$tcp_d"); case "$tcp_base" in ''|PENDING) tcp_base=HEAD ;; esac
   tcp_tasks=$(cfg tasks.dir .agents/tasks); tcp_maps=$(scope_mappings "$tcp_d/PLAN.md" 2>/dev/null) || tcp_maps=''
@@ -974,7 +984,7 @@ task_changed_paths() {
   { git -C "$root" diff --no-renames --name-only "$tcp_base" -- 2>/dev/null; current_untracked_paths; } | sort -u | while IFS= read -r tcp_p; do
     [ -n "$tcp_p" ] || continue
     case "$tcp_p" in .agents/runs/*|.agents/local/*|"$tcp_tasks"/*) continue ;; esac
-    if [ "$tcp_ks" = yes ] && in_knowledge_scope "$tcp_p" && ! authorized_path "$tcp_maps" "$tcp_p"; then continue; fi
+    if [ "$tcp_ks" = yes ] && in_knowledge_scope "$tcp_p" && ! authorized_path "$tcp_maps" "$tcp_p" && knowledge_doc_file "$tcp_p"; then continue; fi
     # a control-plane file the plan scope does not name is the user's edit, not a task change (verify-scope lists it)
     case "$tcp_p" in .agents/*) authorized_path "$tcp_maps" "$tcp_p" || continue ;; esac
     # A154: nor is a file `upgrade` installs (or the proofline block of AGENTS.md/CLAUDE.md): an upgrade never moves the tier
@@ -4605,7 +4615,15 @@ safe_state_file() {
   sf_d=$(dirname "$1")
   # A185: shared state (prompts, approvals of no run) lives in the main tree, which is not under a worktree's root: the walk ends at whichever
   # of the two roots holds the file, and every folder on the way is still checked
-  sf_b=$root; case "$sf_d" in "$root"|"$root"/*) ;; "$sr_main"|"$sr_main"/*) sf_b=$sr_main ;; esac
+  sf_b=$root
+  case "$sf_d" in "$root"|"$root"/*) ;; "$sr_main"|"$sr_main"/*)
+    # round 6: outside its own root a session reaches only the shared folders and the registered run worktrees, not any file of the main tree
+    sf_b=$sr_main; sf_ok=no
+    for sf_n in $rw_shared; do case "$sf_d" in "$sr_main/.agents/local/$sf_n"|"$sr_main/.agents/local/$sf_n"/*) sf_ok=yes ;; esac; done
+    case "$sf_d" in "$sr_main/.agents/local/worktrees/"*) sf_w=${sf_d#"$sr_main/.agents/local/worktrees/"}; sf_w=${sf_w%%/*}
+      git -C "$sr_main" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$sr_main/.agents/local/worktrees/$sf_w" && sf_ok=yes ;; esac
+    [ "$sf_ok" = yes ] || return 1 ;;
+  esac
   while [ "$sf_d" != "$sf_b" ]; do
     case "$sf_d" in "$sf_b"/*) ;; *) return 1 ;; esac
     [ ! -L "$sf_d" ] || return 1
@@ -4790,7 +4808,10 @@ approve_pending() {
     if [ "$ap_rc" = 0 ]; then echo "approved: ${ap_t#-} ${ap_ks# }: $ap_l"
     else case "$ap_o" in *"contain no approval phrase"*|*"none of the open requests"*) ;; *) echo "not recorded: ${ap_t#-} ${ap_ks# }: $ap_l" ;; esac; fi
   done
-  if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ]; then tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; fi
+  # the log is shared by every tree: rotate it under a lock (a rotation racing an append would lose lines); a busy lock just skips the rotation
+  if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ] && mkdir "$ap_log.lock" 2>/dev/null; then
+    tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; rmdir "$ap_log.lock" 2>/dev/null || :
+  fi
   return 0
 }
 # hook_time ID: the runtime hooks' own timings (A171). A hook appends `epoch|name|ms|result|note` to
@@ -6261,8 +6282,21 @@ cleanup_run() {
 cleanup_worktree() {
   [ "$2" = no ] && [ "$sr_main" != "$root" ] || return 0
   cw_p=$(cd "$root" && pwd -P); [ "$cw_p" = "$sr_main/.agents/local/worktrees/$1" ] || return 0
-  [ "${CLEANUP_MERGED:-}" = yes ] || grep -q "^$1	" "$(shared_dir batch)/merged.tsv" 2>/dev/null || { echo "note: the worktree $cw_p is kept: no merge of $1 is on record"; return 0; }
+  # round 6: the merge must be ON RECORD for this run (a merged.tsv row of this ID after the run began); a caller's claim (CLEANUP_MERGED) is read
+  # into a local and the environment value is never trusted
+  cw_ok=$cleanup_merged_claim; cleanup_merged_claim=''
+  cw_from=0; [ ! -s "$(deliver_dir "$1")/SUMMARY.md" ] || cw_from=$(sed -n 's/^nonce: \([0-9]*\)-.*/\1/p' "$(deliver_dir "$1")/SUMMARY.md" | head -n 1)
+  case "$cw_from" in ''|*[!0-9]*) cw_from=0 ;; esac
+  [ "$cw_ok" = yes ] || awk -F'\t' -v t="$1" -v from="$cw_from" '$1 == t && $3 + 0 >= from + 0 { f = 1 } END { exit !f }' "$(shared_dir batch)/merged.tsv" 2>/dev/null || { echo "note: the worktree $cw_p is kept: no merge of $1 is on record"; return 0; }
   for cw_r in "$cw_p"/.agents/runs/*; do [ ! -d "$cw_r" ] || { echo "note: the worktree $cw_p is kept: it still holds the run ${cw_r##*/}"; return 0; }; done
+  # untracked or ignored files outside the run state are evidence or work: refuse (the copies worktree-prep made are known and allowed)
+  cw_x=$(git -C "$cw_p" status --porcelain --ignored --untracked-files=all 2>/dev/null | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_p/.agents/local/worktree-copied" 2>/dev/null || true)
+  if [ -n "$cw_x" ] && [ -f "$scripts/ecosystems.sh" ] && [ -s "$agents/ecosystems.tsv" ]; then
+    # shellcheck source=/dev/null
+    . "$scripts/ecosystems.sh"; eco_init "$agents/ecosystems.tsv" && for cw_f in $(eco_union worktree_deps.folders); do cw_x=$(printf '%s\n' "$cw_x" | grep -v -e "^$cw_f/" -e "^$cw_f\$" || true); done
+  fi
+  if [ -n "$cw_x" ]; then echo "note: the worktree $cw_p is kept: it holds files git does not track (not removed): $(printf '%s' "$cw_x" | head -n 3 | tr '\n' ' ')"; return 0; fi
+  # the check above proved that nothing but run state (.agents/runs, .agents/local) and known copies is left, tracked changes included: only that is forced away
   git -C "$sr_main" worktree remove --force "$cw_p" >/dev/null 2>&1 && git -C "$sr_main" worktree prune && echo "worktree removed: $1" || echo "note: the worktree $cw_p could not be removed; agent.sh worktree-remove $1 in the main working tree does it"
 }
 
@@ -6485,6 +6519,7 @@ deliver_plan() {
   case " $dl_steps " in *" commit "*) dl_td=$(task_done_plan "$dl_id") ;; esac   # no commit step, no move
   {
     printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nowner: %s\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$dl_own" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
+    printf 'origin_url: %s\n' "$(origin_url 2>/dev/null || true)"
     printf 'platform: %s\ntool: %s\nmerge_by: %s\n' "$dl_pf" "$(printf '%s\n' "$dl_pl" | awk '{ print $2 }')" "$([ "$dl_pm" = cli ] && echo proofline || echo user)"
     if ci_absent; then printf 'ci: verified locally, no CI\n'; fi
     # a fresh nonce per plan: an approval or consumed step of an earlier, otherwise identical summary never counts
@@ -6887,8 +6922,9 @@ deliver_step() {
         # checked here and consumed before the push (the pre-push hook would ask for it again), so the hook is skipped for this one command.
         [ "$ds_br" != "$(ds_v base)" ] || ds_stop "refusing to push the canonical branch"
         [ "$(git -C "$root" rev-parse HEAD)" = "$ds_head" ] || ds_stop "HEAD moved"
+        [ "$(ds_v origin_url)" = "$ds_ou" ] || ds_stop "origin changed since the summary was approved (was '$(ds_v origin_url)', now '$ds_ou'): plan the delivery again"
         [ "$(cfg git.push_requires_approval true)" = false ] || consume_approval "$ds_t" "$ds_app"
-        git -C "$root" -c core.hooksPath=/dev/null push -q "$ds_ou" "refs/heads/$ds_br:refs/heads/$ds_br" || ds_stop "git push to $ds_ou failed"
+        git -C "$root" -c core.hooksPath=/dev/null push -q -- "$ds_ou" "$ds_head:refs/heads/$ds_br" || ds_stop "git push to $ds_ou failed"
         git -C "$root" update-ref "refs/remotes/$(ds_v remote)/$ds_br" "$ds_head"
         printf 'pushed: %s -> %s\nthen: agent.sh deliver-step %s pr\n' "$ds_br" "$ds_ou" "$ds_id"
       elif [ "$(ds_v remote)" = origin ]; then printf 'run: %s\nthen: agent.sh deliver-step %s pr\n' "$(origin_push_cmd "$ds_br")" "$ds_id"
@@ -6918,7 +6954,7 @@ deliver_step() {
       # A157: a batch keeps its own record of the merge. It is written BEFORE the cleanup: a crash in between must leave the task merged
       # (never run again), not a half-cleaned run that looks unmerged.
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
-      CLEANUP_MERGED=yes cleanup_run "$ds_id"
+      cleanup_merged_claim=yes; cleanup_run "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
@@ -6929,6 +6965,7 @@ deliver_step() {
 # A scheme, host or file:// url is returned as it is.
 origin_url() {
   ou_u=$(git -C "$root" remote get-url origin 2>/dev/null) || return 1
+  case "$ou_u" in -*) return 1 ;; esac   # never an option for git
   case "$ou_u" in
     ''|/*|*://*|*@*|*:*) printf '%s\n' "$ou_u" ;;
     *) ou_a=$(cd "$sr_main" 2>/dev/null && cd "$ou_u" 2>/dev/null && pwd -P) && printf '%s\n' "$ou_a" || printf '%s/%s\n' "$sr_main" "$ou_u" ;;
@@ -6967,14 +7004,18 @@ deliver_merged() {
   fi
   IFS='	' read -r dm_head dm_base dm_br < "$dm_dir/MERGE_HEAD"
   git -C "$root" cat-file -e "$dm_head^{commit}" 2>/dev/null || fail "deliver-merged: the delivered commit ${dm_head:-?} is unknown here"
-  dm_ou=$(origin_url) || dm_ou=origin
-  git -C "$root" fetch -q "$dm_ou" "+refs/heads/$dm_base:refs/remotes/origin/$dm_base" 2>/dev/null || fail "deliver-merged: cannot read origin/$dm_base (git fetch origin $dm_base failed)"
+  dm_ou=$(origin_url) || dm_ou=origin   # origin_url refuses a url that starts with -; the plain name origin is then used
+  git -C "$root" fetch -q -- "$dm_ou" "+refs/heads/$dm_base:refs/remotes/origin/$dm_base" 2>/dev/null || fail "deliver-merged: cannot read origin/$dm_base (git fetch origin $dm_base failed)"
   dm_tip=$(git -C "$root" rev-parse -q --verify "refs/remotes/origin/$dm_base") || fail "deliver-merged: origin/$dm_base not found"
+  dm_rb=$(repository_base_sha "$dm_d")
+  [ "$dm_head" != "$dm_rb" ] || fail "deliver-merged: the delivered commit is the base of the run (an empty delivery): nothing is recorded"
   if git -C "$root" merge-base --is-ancestor "$dm_head" "$dm_tip" 2>/dev/null; then dm_how="the delivered commit is on origin/$dm_base"
   else
     dm_paths=$(git -C "$root" diff --no-renames --name-only "$(repository_base_sha "$dm_d")" "$dm_head" -- 2>/dev/null | grep -v '^\.agents/\(runs\|local\)/' || true)
     dm_same=no
-    if [ -n "$dm_paths" ]; then
+    # a squash or rebase proof also needs a real commit on origin's tip that touches those paths after the run's base
+    # shellcheck disable=SC2086 # paths hold no whitespace by contract
+    if [ -n "$dm_paths" ] && [ -n "$(git -C "$root" log -n 1 --format=%H "$dm_rb..$dm_tip" -- $dm_paths 2>/dev/null)" ]; then
       dm_same=yes
       for dm_p in $dm_paths; do
         [ "$(git -C "$root" rev-parse -q --verify "$dm_head:$dm_p" 2>/dev/null || echo none)" = "$(git -C "$root" rev-parse -q --verify "$dm_tip:$dm_p" 2>/dev/null || echo none)" ] || { dm_same=no; break; }
@@ -6994,7 +7035,7 @@ deliver_merged() {
     git -C "$dm_m" merge --ff-only -q "refs/remotes/origin/$dm_base" >/dev/null 2>&1 && echo "local $dm_base fast-forwarded to origin/$dm_base" || echo "note: local $dm_base was not fast-forwarded (it has commits origin lacks): update it before the next task"
   else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
   rm -f "$dm_dir/MERGE_HEAD"
-  CLEANUP_MERGED=yes cleanup_run "$dm_id"
+  cleanup_merged_claim=yes; cleanup_run "$dm_id"
   rm -rf "$dm_dir"
 }
 # --- One worktree per run (A169) ---------------------------------------------------------------------------------

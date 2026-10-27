@@ -2198,6 +2198,17 @@ prompt)
     case " $wl " in *" $wl_d|$wl_run "*) continue ;; esac
     wl="$wl $wl_d|$wl_run"
   done
+  # round 6: one reply must not approve the unrelated requests of several runs. With more than one run waiting (the main tree's counts) only a run
+  # whose id the reply names is approved; one waiting run alone needs no name
+  if [ -n "$wl" ]; then
+    wl_n=0; for wl_e in $wl; do wl_n=$((wl_n + 1)); done
+    [ "$req" != yes ] || wl_n=$((wl_n + 1))
+    if [ "$wl_n" -gt 1 ]; then
+      wl_all=$wl; wl=''
+      for wl_e in $wl_all; do case "$pt" in *"${wl_e#*|}"*) wl="$wl $wl_e" ;; esac; done
+      [ -n "$wl" ] || msgs="${msgs:+$msgs }proofline: several runs wait for an approval ($(for wl_e in $wl_all; do printf '%s ' "${wl_e#*|}"; done)); an approval records for the run named in your reply: say which run you approve (for example \"approve scope <ID>\")."
+    fi
+  fi
   if [ -n "$wl" ] && [ "$act" != INVALID ]; then
     [ -e "$shared_local/prompts/.approving-$sess" ] || printf '%s\n' "$h" > "$shared_local/prompts/.approving-$sess"
     hk_tick; hk_a2=$hk_v; : > "$tmp/apw.all"
@@ -2205,7 +2216,8 @@ prompt)
     for wl_e in $wl; do
       wl_d=${wl_e%%|*}; wl_run=${wl_e#*|}
       wl_ok=$(sh "$agent" worktree-root "$wl_d" 2>/dev/null) || continue
-      [ "$wl_ok" = "$wl_d" ] && [ -f "$wl_d/.agents/scripts/agent.sh" ] || continue
+      # the worktree's agent.sh is a tracked file a task could have rewritten: it runs only when it is byte-identical to the main tree's own
+      [ "$wl_ok" = "$wl_d" ] && [ -f "$wl_d/.agents/scripts/agent.sh" ] && cmp -s "$wl_d/.agents/scripts/agent.sh" "$agent" || continue
       ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$wl_d/.agents/scripts/agent.sh" approve-pending "$wl_run" ) >"$tmp/apw.out" 2>&1 </dev/null &
       ap_pid=$!
       while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do

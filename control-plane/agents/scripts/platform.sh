@@ -44,9 +44,14 @@ case "$op" in detect|field|link|env|warn|ci-failed) ;; *) echo "usage: platform.
 hp=$(printf '%s' "$url" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#^[^@/]*@##' \
   -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#^\([^/:]*\):#\1/#' -e 's#/*$##' -e 's#\.git$##')
 pf_local=no
-case "$url" in /*|.*|file://*) hp=''; pf_local=yes ;; esac   # a local path has no hosting service
-# a bare name that is a folder next to the project (git accepts it as a path) is local too (A180, round 3)
-if [ -n "$url" ] && [ "$pf_local" = no ]; then case "$url" in *:*|*@*) ;; *) [ ! -d "$dir/$url" ] || { hp=''; pf_local=yes; } ;; esac; fi
+# round 6: a local path starts with / ./ or ../ (or is . or ..), a file URL with file:/// (an empty host); `.evil.example:org/repo` and file://host/path are not local
+case "$url" in /*|./*|../*|.|..|file:///*) hp=''; pf_local=yes ;; esac   # a local path has no hosting service
+# a bare name that is a folder next to the main working tree (git accepts it as a path) is local too; resolved against the same base as origin_url (A180)
+if [ -n "$url" ] && [ "$pf_local" = no ]; then
+  case "$url" in -*|*:*|*@*) ;; *)
+    pf_mb=$(git -C "$dir" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n "$pf_mb" ] || pf_mb=$dir
+    [ ! -d "$pf_mb/$url" ] || { hp=''; pf_local=yes; } ;; esac
+fi
 host=${hp%%/*}; path=${hp#*/}; [ "$hp" != "$host" ] || path=''
 host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')
 platform=other owner='' org='' org_url='' proj='' repo='' web='' src=auto
