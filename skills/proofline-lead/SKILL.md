@@ -226,6 +226,7 @@ After the user's "approve batch" (A157) you run the batch yourself, in this sess
    - `NEXT: deliver <ID>`: the whole delivery ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)); its approval is `A batch-cover <ID> delivery`, never a question to the user. Go to the next task ONLY when the pull request is merged (a record in `merged.tsv`); `batch-next` shows it.
    - `NEXT: ci <ID>`: `A batch-ci <ID>` checks the CI run of the merge commit itself. Exit 0: go on. Exit 2 or 4 (still running, no run yet): wait a minute and ask again, at most `batch.ci_wait_minutes` / `batch.ci_appear_minutes`. Exit 1 (red), 3 (unreadable) or the wait over: STOP the batch, report why, leave the rest pending.
    - `NEXT: wait (owned by pid N)`: another session works this batch: STOP, do not start a second one.
+   - `NEXT: deliver <ID> merged`: the user merged the branch on origin (platform other, a local origin): `A deliver-merged <ID>` proves it from git, records the merge and cleans up.
    - `NEXT: deliver <ID> cleanup <PR>`: the pull request is merged but not recorded: `A deliver-step <ID> cleanup <PR>` (it records the merge).
    - `NEXT: finished`: report with `A batch-status` and end with `A next-user batch`.
    - `NEXT: approve`: the summary is not approved: STOP.

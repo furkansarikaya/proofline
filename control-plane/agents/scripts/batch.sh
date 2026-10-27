@@ -222,6 +222,11 @@ own_state() {
       *) DS=parked; DD="awaiting merge"; DQ="pull request $os_pr: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself"; return 0 ;;
     esac
   fi
+  # the user merges (platform other, a local origin): the delivered commit is kept in MERGE_HEAD; git says whether it was merged (round 3)
+  if [ -s "$(rroot "$os_id")/.agents/local/deliver/$os_id/MERGE_HEAD" ]; then
+    if sh "$agent" deliver-merged "$os_id" --check >/dev/null 2>&1; then DD="deliver merged"; return 0; fi
+    DS=parked; DD="awaiting merge"; DQ="the branch of $os_id is pushed and waits for YOUR merge into origin's $(cfgv canonical_branch main) (for example: git push origin <branch>:$(cfgv canonical_branch main)); then /proofline batch continues"; return 0
+  fi
   case "$(rsec "$os_id" handoff state)" in CODE_DONE|DONE) DD=deliver ;; esac
 }
 # derive: one row per task of order.tsv, in order: ID state detail question PR merge-epoch
@@ -320,6 +325,7 @@ next_report() {
       resume) echo "NEXT: resume $nr_id   (agent.sh next $nr_id, in $(rroot "$nr_id" | sed "s|^$root/*||; s|^$|the main working tree|"))" ;;
       "cover "*) echo "NEXT: cover $nr_id ${nr_act#cover }   (agent.sh batch-cover $nr_id ${nr_act#cover })" ;;
       "deliver cleanup") nr_pr=$(printf '%s\n' "$nr_rows" | awk -F'\t' -v t="$nr_id" '$1 == t { print $4 }'); echo "NEXT: deliver $nr_id cleanup $nr_pr   (pull request $nr_pr is merged but not recorded: agent.sh deliver-step $nr_id cleanup $nr_pr records the merge and cleans up)" ;;
+      "deliver merged") echo "NEXT: deliver $nr_id merged   (the user merged it on origin: agent.sh deliver-merged $nr_id proves that from git, records the merge and cleans up the run and its worktree)" ;;
       deliver) echo "NEXT: deliver $nr_id   (the whole delivery of the lead skill; the approval is covered by batch-cover $nr_id delivery)" ;;
     esac
   else

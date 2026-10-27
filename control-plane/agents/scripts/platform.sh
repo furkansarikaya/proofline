@@ -43,7 +43,10 @@ case "$op" in detect|field|link|env|warn|ci-failed) ;; *) echo "usage: platform.
 # hp: "HOST/PATH" of the URL, lower-case host, no scheme, user, port, .git or trailing slash
 hp=$(printf '%s' "$url" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#^[^@/]*@##' \
   -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#^\([^/:]*\):#\1/#' -e 's#/*$##' -e 's#\.git$##')
-case "$url" in /*|.*|file://*) hp='' ;; esac   # a local path has no hosting service
+pf_local=no
+case "$url" in /*|.*|file://*) hp=''; pf_local=yes ;; esac   # a local path has no hosting service
+# a bare name that is a folder next to the project (git accepts it as a path) is local too (A180, round 3)
+if [ -n "$url" ] && [ "$pf_local" = no ]; then case "$url" in *:*|*@*) ;; *) [ ! -d "$dir/$url" ] || { hp=''; pf_local=yes; } ;; esac; fi
 host=${hp%%/*}; path=${hp#*/}; [ "$hp" != "$host" ] || path=''
 host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')
 platform=other owner='' org='' org_url='' proj='' repo='' web='' src=auto
@@ -187,7 +190,7 @@ case "$op" in
     case "$key" in
       platform) printf '%s\n' "$platform" ;; cli) printf '%s\n' "$cli" ;; merge) printf '%s\n' "$merge" ;;
       owner) printf '%s\n' "$owner" ;; repo_path) printf '%s\n' "$path" ;; web) printf '%s\n' "$web" ;;
-      source) printf '%s\n' "$src" ;; host) printf '%s\n' "$host" ;; org_url) printf '%s\n' "$org_url" ;; project) printf '%s\n' "$proj" ;;
+      local) printf '%s\n' "$pf_local" ;; source) printf '%s\n' "$src" ;; host) printf '%s\n' "$host" ;; org_url) printf '%s\n' "$org_url" ;; project) printf '%s\n' "$proj" ;;
       *) echo "platform: unknown field $key" >&2; exit 2 ;;
     esac ;;
   warn)

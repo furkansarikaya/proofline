@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Delivery works with a local bare origin and no CI (A180): a path or `file://` origin is platform other (commit, push, you merge), a manual merge is recorded from git by `agent.sh deliver-merged` so the batch moves on (A181), and the worktree of a merged, cleaned-up run is removed (A169).
 - Knowledge-step files no longer raise the tier after CODE_DONE (A184), and the prompt hook records the approvals of runs that live in a worktree (A185): a reply to a scope, waiver or destructive request of a night-mode task is now seen.
 ## 0.0.33 — 2026-10-26
 

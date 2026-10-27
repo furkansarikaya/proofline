@@ -6213,6 +6213,7 @@ terminate_run() {
 cleanup_run() {
   id=$1; require_run "$id"; dir=$(run_dir "$id"); require_lead
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
+  cu_term=no; case "$(run_state "$dir")" in FAILED|BLOCKED) cu_term=yes ;; esac
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
       verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
@@ -6252,6 +6253,17 @@ cleanup_run() {
   [ ! -d "$adir" ] || rm -rf "$adir" || fail "could not remove $adir; the run is kept, retry cleanup"
   rm -rf "$dir"
   echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
+  cleanup_worktree "$id" "$cu_term"
+}
+# cleanup_worktree ID TERMINAL (A169, round 3): the worktree of a run that is merged and cleaned up goes away with it. Only a delivered run (never
+# a FAILED or BLOCKED one: its evidence is the point), only when the merge is on record (batch merged.tsv, or the caller proved it:
+# deliver-step cleanup after a merged pull request, deliver-merged), only from inside that very worktree, and only when it holds no other run.
+cleanup_worktree() {
+  [ "$2" = no ] && [ "$sr_main" != "$root" ] || return 0
+  cw_p=$(cd "$root" && pwd -P); [ "$cw_p" = "$sr_main/.agents/local/worktrees/$1" ] || return 0
+  [ "${CLEANUP_MERGED:-}" = yes ] || grep -q "^$1	" "$(shared_dir batch)/merged.tsv" 2>/dev/null || { echo "note: the worktree $cw_p is kept: no merge of $1 is on record"; return 0; }
+  for cw_r in "$cw_p"/.agents/runs/*; do [ ! -d "$cw_r" ] || { echo "note: the worktree $cw_p is kept: it still holds the run ${cw_r##*/}"; return 0; }; done
+  git -C "$sr_main" worktree remove --force "$cw_p" >/dev/null 2>&1 && git -C "$sr_main" worktree prune && echo "worktree removed: $1" || echo "note: the worktree $cw_p could not be removed; agent.sh worktree-remove $1 in the main working tree does it"
 }
 
 # --- CI visibility (A163, A180): does a pull request here get any check at all? Read-only, repository files only. ----------
@@ -6403,7 +6415,10 @@ deliver_create_cmd() {
     gh) printf 'run: gh pr create --base %s --head %s --title "%s" --body-file %s\n' "$1" "$2" "$3" "$4" ;;
     glab) printf 'run: glab mr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)" --yes\n' "$1" "$2" "$3" "$4" ;;
     az) printf 'run: az repos pr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)"\n' "$1" "$2" "$3" "$4" ;;
-    *) printf 'platform %s: proofline does not open or merge a pull request here. The branch %s is pushed; open the pull request yourself: %s\n' "$(printf '%s\n' "$dc_pl" | awk '{ print $1 }')" "$2" "$(sh "$scripts/platform.sh" link "$2" "$1" -C "$root" 2>/dev/null)" ;;
+    *) if [ "$(sh "$scripts/platform.sh" field local -C "$root" 2>/dev/null || true)" = yes ]; then
+         printf 'origin is a local repository: there is no pull request. The branch %s is pushed. The user merges it into origin'"'"'s %s, for example: git push origin %s:%s\n' "$2" "$1" "$2" "$1"; return 0
+       fi
+       printf 'platform %s: proofline does not open or merge a pull request here. The branch %s is pushed; open the pull request yourself: %s\n' "$(printf '%s\n' "$dc_pl" | awk '{ print $1 }')" "$2" "$(sh "$scripts/platform.sh" link "$2" "$1" -C "$root" 2>/dev/null)" ;;
   esac
 }
 # deliver_watch_cmd PR: the command that shows the checks of the pull request until they finish (cli platforms)
@@ -6451,7 +6466,13 @@ deliver_plan() {
   # opens and merges the pull request: a supported tool does it through proofline; otherwise the branch is pushed and the USER merges.
   dl_pl=$(deliver_platform); dl_pf=${dl_pl%% *}; dl_pm=${dl_pl##* }
   dl_own=$(sh "$scripts/platform.sh" field owner -C "$root" 2>/dev/null || true)
-  [ -n "$dl_own" ] || fail "delivery blocked: the origin remote is not a hosting service address proofline can read (git remote get-url origin)"
+  dl_loc=no
+  if [ -z "$dl_own" ]; then
+    # A180 (round 3): a local repository (path or file:// URL, for example a bare remote on disk) is a valid origin on platform other: the branch is
+    # pushed to it, nothing is merged by proofline, the USER merges into its canonical branch and proofline records that merge from git.
+    [ "$(sh "$scripts/platform.sh" field local -C "$root" 2>/dev/null || true)" = yes ] && [ "$dl_pm" != cli ] && dl_loc=yes && dl_own=local
+    [ -n "$dl_own" ] || fail "delivery blocked: the origin remote is not a hosting service address proofline can read (git remote get-url origin); a local path or file:// origin works on platform other"
+  fi
   [ "$dl_pm" = cli ] || dl_steps='commit push pr'   # manual: no merge, no cleanup step; the user merges
   dl_paths=$(git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || true)
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
@@ -6479,7 +6500,11 @@ deliver_plan() {
     if [ "$dl_pm" = cli ]; then
       printf '  pr     : a pull request into %s (%s), body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a refused merge stops here (no cleanup). A pull request without any check is merged only after the project'"'"'s build and test pass in a clean copy of the commit (verified locally, no CI)\n  ci fix : a red check opens a CI-fix round without a new question, at most 2 (A169): the error is read from the failed run (GitHub only), the fix passes the gates again and is pushed to the same branch %s; the approval of this summary covers those pushes and no other push, no other branch; a third red CI stops with one question\n  cleanup: after the merge\n' "$dl_base" "$dl_pf" "$dl_br"
     else
-      printf '  pr     : the branch is pushed and the pull request address is printed (%s: %s). proofline does not open or merge a pull request on this platform: YOU open it and YOU merge it. There is no merge or cleanup step; after you merged, run agent.sh cleanup %s\n' "$dl_pf" "$(sh "$scripts/platform.sh" link "$dl_br" "$dl_base" -C "$root" 2>/dev/null)" "$dl_id"
+      if [ "$dl_loc" = yes ]; then
+        printf '  pr     : the branch is pushed to origin, a local repository (no pull request exists). proofline merges nothing: YOU merge %s into origin'"'"'s %s, for example from this project: git push origin %s:%s ; then /proofline batch (or: agent.sh deliver-merged %s) records the merge from git (the delivered commit reachable from origin/%s, or its content identical there) and cleans up. There is no merge or cleanup step here.\n' "$dl_br" "$dl_base" "$dl_br" "$dl_base" "$dl_id" "$dl_base"
+      else
+        printf '  pr     : the branch is pushed and the pull request address is printed (%s: %s). proofline does not open or merge a pull request on this platform: YOU open it and YOU merge it. There is no merge or cleanup step; after you merged, run agent.sh deliver-merged %s (it records the merge from git when the delivered commit is on origin/%s; otherwise agent.sh cleanup %s)\n' "$dl_pf" "$(sh "$scripts/platform.sh" link "$dl_br" "$dl_base" -C "$root" 2>/dev/null)" "$dl_id" "$dl_base" "$dl_id"
+      fi
     fi
     if ci_absent; then printf '  WARNING: %s\n  fix: %s\n' "$CI_WARN" "$(ci_task_command)"; fi
     [ -z "$dl_td" ] || printf '  task file: moved to done/ only inside the pull request; the task is not done on %s until the merge succeeds\n' "$dl_base"
@@ -6861,7 +6886,10 @@ deliver_step() {
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
       consume_approval "$ds_t" "$ds_app"
       deliver_create_cmd "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel/PR_BODY.md"
-      if [ "$(ds_v merge_by)" = user ]; then printf 'STOP: the user merges this pull request (proofline does not merge on platform %s). Report the address above; after the user merged: agent.sh cleanup %s\n' "$(ds_v platform)" "$ds_id"
+      if [ "$(ds_v merge_by)" = user ]; then
+        # round 3: the delivered commit, kept so the merge can be recorded from git later (deliver-merged)
+        printf '%s\t%s\t%s\n' "$ds_head" "$(ds_v base)" "$ds_br" > "$ds_dir/MERGE_HEAD"
+        printf 'STOP: the user merges this branch (proofline does not merge on platform %s). Tell the user what to do (the address or git command above); after the user merged: agent.sh deliver-merged %s records the merge from git and cleans up (a batch does it by itself at its next /proofline batch)\n' "$(ds_v platform)" "$ds_id"
       else printf 'then: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$ds_id"; fi ;;
     merge)
       deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
@@ -6878,12 +6906,53 @@ deliver_step() {
       # A157: a batch keeps its own record of the merge. It is written BEFORE the cleanup: a crash in between must leave the task merged
       # (never run again), not a half-cleaned run that looks unmerged.
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
-      cleanup_run "$ds_id"
+      CLEANUP_MERGED=yes cleanup_run "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
 }
 
+# --- A manual merge, recorded from git (A180/A181, round 3) ------------------------------------------------------------
+# Where proofline does not merge (platform other, a local bare origin, Bitbucket, a missing tool) the USER merges. The pr step keeps the delivered
+# commit in deliver/<ID>/MERGE_HEAD. `deliver-merged ID` fetches origin's canonical branch and PROVES the merge from git, never from a claim:
+# the delivered commit is an ancestor of origin/<base> (fast-forward or merge commit), or, for a squash or rebase merge, every path the delivery
+# changed has the identical content at origin's tip. Anything else is "not merged": fail closed, the user is told what is missing. Proven: the
+# merge is recorded (batch merged.tsv, PR field `-`), the local canonical branch is fast-forwarded when the main working tree sits on it and is
+# clean (so the next task's worktree starts from the merge), and the run is cleaned up with its worktree. `--check` only answers.
+deliver_merged() {
+  dm_id=$1; dm_chk=no; [ "${2:-}" != --check ] || dm_chk=yes
+  require_run "$dm_id"; require_lead; dm_d=$(run_dir "$dm_id"); dm_dir=$(deliver_dir "$dm_id")
+  [ -s "$dm_dir/MERGE_HEAD" ] || fail "deliver-merged: no manual hand-off is recorded for $dm_id (the pr step of a delivery on a platform where the user merges writes it)"
+  IFS='	' read -r dm_head dm_base dm_br < "$dm_dir/MERGE_HEAD"
+  git -C "$root" fetch -q origin "$dm_base" 2>/dev/null || fail "deliver-merged: cannot read origin/$dm_base (git fetch origin $dm_base failed)"
+  dm_tip=$(git -C "$root" rev-parse -q --verify "refs/remotes/origin/$dm_base") || fail "deliver-merged: origin/$dm_base not found"
+  if git -C "$root" merge-base --is-ancestor "$dm_head" "$dm_tip" 2>/dev/null; then dm_how="the delivered commit is on origin/$dm_base"
+  else
+    dm_paths=$(git -C "$root" diff --no-renames --name-only "$(repository_base_sha "$dm_d")" "$dm_head" -- 2>/dev/null | grep -v '^\.agents/\(runs\|local\)/' || true)
+    dm_same=no
+    if [ -n "$dm_paths" ]; then
+      dm_same=yes
+      for dm_p in $dm_paths; do
+        [ "$(git -C "$root" rev-parse -q --verify "$dm_head:$dm_p" 2>/dev/null || echo none)" = "$(git -C "$root" rev-parse -q --verify "$dm_tip:$dm_p" 2>/dev/null || echo none)" ] || { dm_same=no; break; }
+      done
+    fi
+    [ "$dm_same" = yes ] && dm_how="every delivered path has the same content at origin/$dm_base (a squash or rebase merge)" || {
+      [ "$dm_chk" = yes ] && { echo "open: $dm_br is not merged into origin/$dm_base"; return 1; }
+      fail "deliver-merged: not merged: the delivered commit ${dm_head%"${dm_head#???????}"} is not on origin/$dm_base and its content is not there either. Merge $dm_br into origin's $dm_base (git push origin $dm_br:$dm_base), then run this again."
+    }
+  fi
+  if [ "$dm_chk" = yes ]; then echo "merged: $dm_how"; return 0; fi
+  [ ! -d "$(shared_dir batch)" ] || grep -q "^$dm_id	" "$(shared_dir batch)/merged.tsv" 2>/dev/null || printf '%s\t%s\t%s\n' "$dm_id" - "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
+  echo "merge recorded for $dm_id: $dm_how"
+  # the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
+  dm_m=$sr_main
+  if [ "$(git -C "$dm_m" branch --show-current 2>/dev/null)" = "$dm_base" ] && [ -z "$(git -C "$dm_m" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    git -C "$dm_m" merge --ff-only -q "refs/remotes/origin/$dm_base" >/dev/null 2>&1 && echo "local $dm_base fast-forwarded to origin/$dm_base" || echo "note: local $dm_base was not fast-forwarded (it has commits origin lacks): update it before the next task"
+  else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
+  rm -f "$dm_dir/MERGE_HEAD"
+  CLEANUP_MERGED=yes cleanup_run "$dm_id"
+  rm -rf "$dm_dir"
+}
 # --- One worktree per run (A169) ---------------------------------------------------------------------------------
 # A run lives in the worktree it was started in: `.agents/runs`, ACTIVE_RUN, the task file move and the open-run check
 # (open_runs, the commit and push hooks) belong to that worktree. A task that waits for merge, is parked or is being fixed
@@ -7098,7 +7167,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = pr-state ] || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = pr-state ] || { [ "$command" = deliver-merged ] && [ "${3:-}" = --check ]; } || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 # deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
 # A169: ci-fix also reads the failed check and its log, ci-merge the pull request's head
@@ -7228,7 +7297,12 @@ case "$command" in
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
-  cleanup) require_lead; cleanup_run "${2:?usage: agent.sh cleanup <ID>}" ;;
+  cleanup) require_lead
+    # round 3: the run is already cleaned up but its worktree was left behind (an older version, an interrupted cleanup): from the main working tree it is removed
+    # once the merge is on record (nothing else holds the evidence any more)
+    if [ -n "${2:-}" ] && rw_valid_id "$2" && [ ! -d "$(run_dir "$2")" ] && ! wt_linked && grep -q "^$2	" "$(shared_dir batch)/merged.tsv" 2>/dev/null && rw_registered "$(rw_dir "$2")"; then worktree_remove "$2"
+    else cleanup_run "${2:?usage: agent.sh cleanup <ID>}"; fi ;;
+  deliver-merged) deliver_merged "${2:?usage: agent.sh deliver-merged <ID> [--check]}" "${3:-}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;
   worktree-path) require_lead; worktree_path "${2:-}" ;;
   worktree-remove) require_lead; worktree_remove "${2:-}" "${3:-}" ;;

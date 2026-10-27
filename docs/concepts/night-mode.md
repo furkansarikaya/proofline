@@ -108,6 +108,7 @@ merge time, park reason and the pending question of each parked task, then the f
 - Night mode runs markdown task files only: the order and the classes are read from the task files, not from network calls. Import
   other tasks with `/proofline task`; `batch-plan` says so.
 - One session works a batch. `batch-next` records the session in `batch/owner`; a second live session is told `NEXT: wait (owned by pid N)`, and a dead owner is taken over. Without a findable session process there is no guard.
+- Where you merge yourself (platform other, a local bare origin, Bitbucket, a missing tool) the task waits as `awaiting merge` after the push. Merge the branch into origin's main (for example `git push origin <branch>:main`), then `/proofline batch`: `batch-next` says `NEXT: deliver <ID> merged`, `agent.sh deliver-merged <ID>` proves the merge from git (the delivered commit is on origin/main, or every delivered file has the same content there), records it, fast-forwards a clean local main and removes the run and its worktree, and the batch goes on with the next task. A merge git cannot prove is never recorded.
 - A pull request that was opened but has no merge record (the session died after the merge, or you merged by hand) is read from the platform: merged leads to `deliver-step <ID> cleanup <PR>`, which records the merge; open stays parked; an unreadable state is said in the park reason.
 
 Removed in 0.0.32 : the headless batch driver (`batch run`, the detached `batch start` and `batch stop`, process groups, the
