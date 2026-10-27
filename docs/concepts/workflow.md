@@ -215,6 +215,8 @@ A failed command suggests the command that fixes the error instead: not installe
 
 The knowledge step always runs after CODE_DONE (and for a FAILED or BLOCKED run). It evaluates the wiki and the design documents every time and ends in `knowledge-done` with pages written under `docs/design/`, `docs/adr/`, `docs/wiki/` and the `design_docs` paths (the only paths the lead may write, and only in this step), or in `knowledge-done <ID> not_applicable "<reason>"` with one specific sentence. The script refuses the reason, naming the signal, when the task changed user-visible behaviour, a durable contract or something a design document describes. The reason is recorded and shown in the completion report.
 
+A task whose deliverable IS documentation is supported, but the pages belong in the plan scope (`new: true` for a page that does not exist yet): the implementer writes them and VERIFY proves them like any other file. The knowledge step runs after every gate has passed, so an acceptance criterion such as "the wiki pages exist" can never be proven by it; knowledge-scope files the plan does not name are knowledge output, they keep the tier and the gates unchanged (A184).
+
 With design surfaces (`design_docs.design` as a mapping) the shared document and every surface document are `design_docs` paths ([design surfaces](design-surfaces.md)).
 
 ## Shortcut debt

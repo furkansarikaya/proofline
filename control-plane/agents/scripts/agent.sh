@@ -6416,7 +6416,7 @@ deliver_create_cmd() {
     glab) printf 'run: glab mr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)" --yes\n' "$1" "$2" "$3" "$4" ;;
     az) printf 'run: az repos pr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)"\n' "$1" "$2" "$3" "$4" ;;
     *) if [ "$(sh "$scripts/platform.sh" field local -C "$root" 2>/dev/null || true)" = yes ]; then
-         printf 'origin is a local repository: there is no pull request. The branch %s is pushed. The user merges it into origin'"'"'s %s, for example: git push origin %s:%s\n' "$2" "$1" "$2" "$1"; return 0
+         printf 'origin is a local repository: there is no pull request. The branch %s is pushed. The user merges it into origin'"'"'s %s, for example: %s\n' "$2" "$1" "$(origin_push_cmd "$2:$1" '')"; return 0
        fi
        printf 'platform %s: proofline does not open or merge a pull request here. The branch %s is pushed; open the pull request yourself: %s\n' "$(printf '%s\n' "$dc_pl" | awk '{ print $1 }')" "$2" "$(sh "$scripts/platform.sh" link "$2" "$1" -C "$root" 2>/dev/null)" ;;
   esac
@@ -6496,12 +6496,12 @@ deliver_plan() {
     printf 'changed by the knowledge step:\n'; printf '%s\n' "${dl_kn:-none}" | sed 's/^/  /'
     printf '\nsteps, in order:\n'
     case " $dl_steps " in *" commit "*) printf '  commit : git commit -F .agents/local/deliver/%s/COMMIT_MSG on %s (the pre-commit hook checks the gated content)\n' "$dl_id" "$dl_br" ;; esac
-    printf '  push   : git push -u origin %s\n' "$dl_br"
+    printf '  push   : %s\n' "$(origin_push_cmd "$dl_br")"
     if [ "$dl_pm" = cli ]; then
       printf '  pr     : a pull request into %s (%s), body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a refused merge stops here (no cleanup). A pull request without any check is merged only after the project'"'"'s build and test pass in a clean copy of the commit (verified locally, no CI)\n  ci fix : a red check opens a CI-fix round without a new question, at most 2 (A169): the error is read from the failed run (GitHub only), the fix passes the gates again and is pushed to the same branch %s; the approval of this summary covers those pushes and no other push, no other branch; a third red CI stops with one question\n  cleanup: after the merge\n' "$dl_base" "$dl_pf" "$dl_br"
     else
       if [ "$dl_loc" = yes ]; then
-        printf '  pr     : the branch is pushed to origin, a local repository (no pull request exists). proofline merges nothing: YOU merge %s into origin'"'"'s %s, for example from this project: git push origin %s:%s ; then /proofline batch (or: agent.sh deliver-merged %s) records the merge from git (the delivered commit reachable from origin/%s, or its content identical there) and cleans up. There is no merge or cleanup step here.\n' "$dl_br" "$dl_base" "$dl_br" "$dl_base" "$dl_id" "$dl_base"
+        printf '  pr     : the branch is pushed to origin, a local repository (no pull request exists). proofline merges nothing: YOU merge %s into origin'"'"'s %s, for example from this project: %s ; then /proofline batch (or: agent.sh deliver-merged %s) records the merge from git (the delivered commit reachable from origin/%s, or its content identical there) and cleans up. There is no merge or cleanup step here.\n' "$dl_br" "$dl_base" "$(origin_push_cmd "$dl_br:$dl_base" '')" "$dl_id" "$dl_base"
       else
         printf '  pr     : the branch is pushed and the pull request address is printed (%s: %s). proofline does not open or merge a pull request on this platform: YOU open it and YOU merge it. There is no merge or cleanup step; after you merged, run agent.sh deliver-merged %s (it records the merge from git when the delivered commit is on origin/%s; otherwise agent.sh cleanup %s)\n' "$dl_pf" "$(sh "$scripts/platform.sh" link "$dl_br" "$dl_base" -C "$root" 2>/dev/null)" "$dl_id" "$dl_base" "$dl_id"
       fi
@@ -6880,7 +6880,8 @@ deliver_step() {
     push)
       ds_td_check
       [ "$(cfg git.push_requires_approval true)" != false ] || consume_approval "$ds_t" "$ds_app"
-      printf 'run: git push -u %s %s\nthen: agent.sh deliver-step %s pr\n' "$(ds_v remote)" "$ds_br" "$ds_id" ;;
+      if [ "$(ds_v remote)" = origin ]; then printf 'run: %s\nthen: agent.sh deliver-step %s pr\n' "$(origin_push_cmd "$ds_br")" "$ds_id"
+      else printf 'run: git push -u %s %s\nthen: agent.sh deliver-step %s pr\n' "$(ds_v remote)" "$ds_br" "$ds_id"; fi ;;
     pr)
       ds_td_check
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
@@ -6912,6 +6913,23 @@ deliver_step() {
   esac
 }
 
+# origin_url (A180, round 4): the ABSOLUTE url of origin. A relative local path (../origin.git) in the shared git config is resolved by git against the
+# working directory, so it means another folder from a run worktree than from the main working tree; it is always resolved against the MAIN tree.
+# A scheme, host or file:// url is returned as it is.
+origin_url() {
+  ou_u=$(git -C "$root" remote get-url origin 2>/dev/null) || return 1
+  case "$ou_u" in
+    ''|/*|*://*|*@*|*:*) printf '%s\n' "$ou_u" ;;
+    *) ou_a=$(cd "$sr_main" 2>/dev/null && cd "$ou_u" 2>/dev/null && pwd -P) && printf '%s\n' "$ou_a" || printf '%s/%s\n' "$sr_main" "$ou_u" ;;
+  esac
+}
+# origin_push_cmd BRANCH [FLAGS]: the push command to show; a relative origin is made absolute for this one command (-c), not in the config
+origin_push_cmd() {
+  op_u=$(origin_url) || op_u=''
+  op_f=${2--u}   # unset: -u; set (also empty): as given
+  if [ -n "$op_u" ] && [ "$op_u" != "$(git -C "$root" remote get-url origin 2>/dev/null)" ]; then printf 'git -c remote.origin.url=%s push%s origin %s' "$op_u" "${op_f:+ $op_f}" "$1"
+  else printf 'git push%s origin %s' "${op_f:+ $op_f}" "$1"; fi
+}
 # --- A manual merge, recorded from git (A180/A181, round 3) ------------------------------------------------------------
 # Where proofline does not merge (platform other, a local bare origin, Bitbucket, a missing tool) the USER merges. The pr step keeps the delivered
 # commit in deliver/<ID>/MERGE_HEAD. `deliver-merged ID` fetches origin's canonical branch and PROVES the merge from git, never from a claim:
@@ -6924,7 +6942,8 @@ deliver_merged() {
   require_run "$dm_id"; require_lead; dm_d=$(run_dir "$dm_id"); dm_dir=$(deliver_dir "$dm_id")
   [ -s "$dm_dir/MERGE_HEAD" ] || fail "deliver-merged: no manual hand-off is recorded for $dm_id (the pr step of a delivery on a platform where the user merges writes it)"
   IFS='	' read -r dm_head dm_base dm_br < "$dm_dir/MERGE_HEAD"
-  git -C "$root" fetch -q origin "$dm_base" 2>/dev/null || fail "deliver-merged: cannot read origin/$dm_base (git fetch origin $dm_base failed)"
+  dm_ou=$(origin_url) || dm_ou=origin
+  git -C "$root" fetch -q "$dm_ou" "+refs/heads/$dm_base:refs/remotes/origin/$dm_base" 2>/dev/null || fail "deliver-merged: cannot read origin/$dm_base (git fetch origin $dm_base failed)"
   dm_tip=$(git -C "$root" rev-parse -q --verify "refs/remotes/origin/$dm_base") || fail "deliver-merged: origin/$dm_base not found"
   if git -C "$root" merge-base --is-ancestor "$dm_head" "$dm_tip" 2>/dev/null; then dm_how="the delivered commit is on origin/$dm_base"
   else
