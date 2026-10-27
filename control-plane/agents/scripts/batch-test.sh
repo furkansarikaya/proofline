@@ -689,6 +689,33 @@ sc_hand_pushed_batch() {
   ok "batch-next: a hand-pushed delivery without MERGE_HEAD is parked as awaiting merge (A180)"
 }
 
+# --- round 6: the main tree's prompt hook runs only an unchanged worktree agent.sh, and a reply binds to the run it names when several wait --------------------
+sc_prompt_guards() {
+  bnew; mktask W-1 COMPLEX; mktask W-2 COMPLEX; binstall no
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; main=$(pwd -P)
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  for r in W-1 W-2; do
+    w=$(A worktree-add $r) || die "worktree-add $r"
+    ( cd "$w" && sh .agents/scripts/agent.sh start $r --task-file .agents/tasks/$r.md >/dev/null 2>&1 </dev/null ) || die "start $r"
+    printf -- '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n' > "$w/.agents/runs/$r/PLAN.md"
+    ( cd "$w" && sh .agents/scripts/agent.sh request-approval $r scope >/dev/null ) || die "request-approval $r"
+  done
+  w1=$(wtp W-1); w2=$(wtp W-2)
+  # (7) two runs wait: a reply that names none approves neither; naming W-2 approves only W-2
+  sleep 1; out=$(hp 'approve scope')
+  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml "$w2"/.agents/runs/W-2/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "an unnamed reply approved a run while two waited"
+  printf '%s' "$out" | grep -q 'say which run you approve' || die "the hook did not ask which run: $out"
+  sleep 1; out=$(hp 'i approve the scope for W-2')
+  ls "$w2"/.agents/runs/W-2/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "the reply naming W-2 did not approve W-2: $out $(tail -3 .agents/local/approve.log 2>/dev/null)"
+  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "the reply naming W-2 also approved W-1"
+  # (1) a worktree agent.sh that differs from the main one is not run: a forged approve-pending leaves its mark nowhere
+  printf '\necho forged > "%s/forged"\n' "$base" >> "$w1/.agents/scripts/agent.sh"
+  sleep 1; hp 'i approve the scope for W-1' >/dev/null
+  [ ! -e "$base/forged" ] || die "the hook ran a modified worktree agent.sh"
+  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "W-1 was approved through a modified agent.sh"
+  ok "prompt hook: a reply with two runs waiting binds to the named run or asks; a modified worktree agent.sh is never run (round 6)"
+}
+
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
 sc_adapter_refused() {
   bnew; mktask T-1 COMPLEX; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; binstall no
@@ -803,6 +830,7 @@ run_sc sc_worktree_links
 run_sc sc_worktree_prompt_approval
 run_sc sc_manual_merge_batch
 run_sc sc_hand_pushed_batch
+run_sc sc_prompt_guards
 run_sc sc_status_from_records
 run_sc sc_adapter_refused
 run_sc sc_merge_commit_ci

@@ -223,6 +223,11 @@ cfgp gitlab gitlab.company.com
 rm -f "$proj/.agents/config.yaml"
 ok "git.platform without platform_host on a look-alike origin warns and exports no GH_HOST/GITLAB_HOST; exact hosts are unaffected"
 
+# round 6: what is a local origin. Path forms are local; a host-shaped address that merely starts with a dot or says file:// with a host is not
+for u in ./x ../x /abs file:///abs; do [ "$(sh "$pfs" field local --url "$u")" = yes ] || die "$u must be a local origin"; done
+for u in .evil.example:org/repo file://host/path file://evil.example/a/b; do [ "$(sh "$pfs" field local --url "$u")" = no ] || die "$u must NOT be a local origin"; done
+ok "local origins: ./x ../x /abs file:///abs are local; .evil.example:org/repo and file://host/path are not"
+
 # --- the user merges: Bitbucket, unrecognized, missing tool ---------------------------------------------
 for u in https://bitbucket.org/acme/app.git ssh://git@git.example.com/acme/app.git; do
   git -C "$proj" remote set-url origin "$u"; reset; glabview opened false "$sha" "$green_pipe"

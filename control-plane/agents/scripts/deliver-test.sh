@@ -522,6 +522,71 @@ scenario_hand_pushed() {
   ok "hand-pushed delivery: the base is never the delivery, an unmerged push is not recorded, a merged one is (A180)"
 }
 
+# --- review round 6 guards -------------------------------------------------------------------------------------------------------------------------------------
+# (2) after CODE_DONE only plain documentation files the plan does not name stay out of the tier; a script, an executable doc, a link and a data file count
+scenario_knowledge_nondoc() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; tasks_in_tasks; hooks
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go
+  A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
+  mkdir -p docs/wiki; t() { AS reviewer tier LC; }
+  [ "$(t)" = small ] || die "the fixture is not small"
+  printf '# a\n' > docs/wiki/a.md; printf '# b\n' > docs/wiki/b.md; printf '# c\n' > docs/wiki/c.md
+  [ "$(t)" = small ] || die "plain .md pages counted toward the tier"
+  rm -f docs/wiki/*
+  printf 'echo 1\n' > docs/wiki/gen.sh; printf 'echo 2\n' > docs/wiki/gen2.sh
+  [ "$(t)" = full ] || die "unnamed scripts under docs/wiki did not count: $(t)"; rm -f docs/wiki/*
+  printf '# a\n' > docs/wiki/x1.md; printf '# b\n' > docs/wiki/x2.md; chmod +x docs/wiki/x1.md docs/wiki/x2.md
+  [ "$(t)" = full ] || die "executable docs did not count: $(t)"; rm -f docs/wiki/*
+  ln -s ../../impl.txt docs/wiki/l1.md; ln -s ../../impl_test.txt docs/wiki/l2.md
+  [ "$(t)" = full ] || die "symlinked docs did not count: $(t)"; rm -f docs/wiki/*
+  printf '{}\n' > docs/wiki/d1.json; printf '{}\n' > docs/wiki/d2.json
+  [ "$(t)" = full ] || die "non-doc extensions did not count: $(t)"; rm -f docs/wiki/*
+  ok "knowledge: after CODE_DONE .md pages stay out of the tier; a script, an executable doc, a symlink and a data file under docs/wiki count (round 6)"
+}
+# (3)(4) the worktree of a merged run goes only on this run's own merge record, with nothing untracked left in it
+scenario_wt_cleanup_guards() {
+  wt_done_run
+  CLEANUP_MERGED=yes W cleanup LC > "$base/c1.out" 2>&1 || die "cleanup: $(cat "$base/c1.out")"
+  [ -d "$wt" ] && ! grep -q 'worktree removed' "$base/c1.out" || die "CLEANUP_MERGED=yes in the environment removed the worktree: $(cat "$base/c1.out")"
+  wt_done_run
+  printf 'OTHER\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv
+  W cleanup LC > "$base/c2.out" 2>&1 || die "cleanup: $(cat "$base/c2.out")"
+  [ -d "$wt" ] && ! grep -q 'worktree removed' "$base/c2.out" || die "another run's merged row removed the worktree: $(cat "$base/c2.out")"
+  wt_done_run
+  printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv; echo evidence > "$wt/notes-by-hand.log"; [ -e "$wt/.agents/local/worktree-copied" ] || : > "$wt/.agents/local/worktree-copied";   # (without that manifest file the product's grep -f fails and the check passes: reported)
+  printf '*.log\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+  W cleanup LC > "$base/c3.out" 2>&1 || die "cleanup: $(cat "$base/c3.out")"
+  [ -f "$wt/notes-by-hand.log" ] && grep -q 'holds files git does not track' "$base/c3.out" || die "a worktree with an ignored file of its own was removed: $(cat "$base/c3.out")"
+  ok "cleanup: an environment claim and another run's merge row do not remove the worktree; an ignored file of the run keeps it (round 6)"
+}
+# (5)(6) relative local origin: the approved head is pushed, the origin is pinned, an option-like origin is refused; an empty delivery proves no merge
+scenario_wt_relative_guards() {
+  wt_done_run
+  lo=$base/lo.git; rm -rf "$lo" "$base/lo2.git"; git init -q --bare "$lo"; git init -q --bare "$base/lo2.git"
+  git remote set-url origin ../lo.git; git -c core.hooksPath=/dev/null push -q origin main
+  W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan: $(tail -2 "$base/plan.out")"
+  capture 'approve delivery'; W approve-pending LC >/dev/null
+  W deliver-step LC commit >/dev/null || die "commit step"
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
+  # the origin changes after the summary was approved: refused, nothing pushed
+  git remote set-url origin ../lo2.git
+  expect_msg "push step after the origin changed" 'origin changed since the summary was approved' W deliver-step LC push
+  [ -z "$(git --git-dir="$base/lo2.git" for-each-ref refs/heads/proofline)" ] || die "a branch reached the changed origin"
+  git config remote.origin.url -oProxyCommand=touch
+  W deliver-step LC push > "$base/opt.out" 2>&1 || :
+  ! grep -q '^pushed:' "$base/opt.out" || die "the push step pushed to an option-like origin: $(cat "$base/opt.out")"
+  [ ! -e "$wt/touch" ] && [ ! -e touch ] || die "an option-like origin was executed"
+  git remote set-url origin ../lo.git
+  W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
+  [ "$(git --git-dir="$lo" rev-parse refs/heads/proofline/LC-lc)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the approved head was not pushed"
+  W deliver-step LC pr >/dev/null 2>&1 || die "pr step"
+  # an empty delivery (the delivered commit is the run's base) proves nothing
+  printf '%s\tmain\tproofline/LC-lc\n' "$(sed -n 's/^  base_sha: *//p' "$wt/.agents/runs/LC/RUN.yaml" | tr -d '"' | head -n 1)" > "$wt/.agents/local/deliver/LC/MERGE_HEAD"
+  expect_msg "deliver-merged of an empty delivery" 'empty delivery' W deliver-merged LC
+  [ ! -s .agents/local/batch/merged.tsv ] || die "an empty delivery was recorded as merged"
+  ok "relative origin: the approved head is pushed, a changed or option-like origin is refused, an empty delivery records no merge (round 6)"
+}
+
 run_sc scenario_normal_chain
 run_sc scenario_cleanup_crash_keeps_merged
 run_sc scenario_content_change_stops
@@ -546,4 +611,7 @@ run_sc scenario_wt_cleanup_kept
 run_sc scenario_wt_failed_kept
 run_sc scenario_wt_relative_origin
 run_sc scenario_hand_pushed
+run_sc scenario_knowledge_nondoc
+run_sc scenario_wt_cleanup_guards
+run_sc scenario_wt_relative_guards
 echo 'deliver tests passed'
