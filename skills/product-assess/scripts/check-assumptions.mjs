@@ -12,8 +12,8 @@ import { LEVELS, cli, field, isMain, items, read, report, resolveDoc } from "./l
 
 const KEYS = ["importance", "evidence", "riskiest"];
 export const MIN_AGENT = 5;
-// Numbers of a statement, without ids (C-3, AS-1) and dates.
-const numbersIn = (t) => t.replace(/\d{4}-\d{2}-\d{2}/g, " ").replace(/\b[A-Za-z]{1,4}-\d+\b/g, " ").match(/\d+(?:[.,]\d+)*/g) || [];
+// Numbers of a statement, without ids (C-3, AS-1), dates and digits glued to letters (OAuth2, S3).
+const numbersIn = (t) => t.replace(/\d{4}-\d{2}-\d{2}/g, " ").replace(/\b[A-Za-z]{1,4}-\d+\b/g, " ").match(/(?<![A-Za-z\d])\d+(?:[.,]\d+)*(?![A-Za-z])/g) || [];
 export function checkAssumptions(text, { minAgent = MIN_AGENT } = {}) {
   const findings = [], seen = new Set(), list = items(text, "AS");
   let agent = 0;

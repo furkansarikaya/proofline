@@ -30,7 +30,7 @@ Risk types of an assumption:
 ## 1a. Proposals
 
 1. The agent shows its proposals in the conversation, each as `[proposal: <type>]` with one line of reasoning. A proposal is a candidate, never a fact: it carries no number, quote or feature that has no source of its own.
-2. The user answers each one. **Accepted:** it enters the document as an assumption (or a decision) with `source agent accepted by user`. **Changed:** the same, with `changed by user`, and the user's version of the text. **Rejected:** it leaves the document and is recorded under `## Rejected proposals` as `- RP-<n> <proposal> rejected by user: <reason>` (`no reason given` is a reason).
+2. The user answers each one. **Accepted:** it enters the document as an assumption (or a decision) with `source agent accepted by user`. **Changed:** the same, with `changed by user`, and the user's version of the text. **Rejected:** it leaves the document and is recorded under `## Rejected proposals` as `- RP-<n> <proposal> rejected by user: <reason>`. The reason is the user's actual answer, quoted in their words (`rejected by user: "too early for us"`); when the user gave none, write `no reason given`, never a reason of your own. Never record an answer the user did not give.
 3. A `[proposal: ...]` marker in a finished document is an error (`pending-proposal`); `--allow-pending` on the validator is for a draft only. An `agent` source without `accepted by user` or `changed by user` is an error too.
 4. The checkers count what the agent contributed. Accepted agent-sourced items and rejected proposals both count: the minimum is about the agent doing its part, and the decision stays the user's.
 

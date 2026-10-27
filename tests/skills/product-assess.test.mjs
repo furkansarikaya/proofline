@@ -66,6 +66,12 @@ test("assumptions: a number is an estimate with a basis; without the basis it is
   assert.deepEqual(rules(checkAssumptions(line("[assumption: value]"))), ["unsourced-number"]);
   assert.ok(rules(checkAssumptions(line('[assumption: value estimate "guess"]'))).includes("risk-type"));
   assert.ok(rules(checkAssumptions(line("[assumption: value estimate 40]"))).includes("risk-type"));
+  // a basis of filler words is no basis: 3 words, but no digit, id or source word
+  assert.ok(rules(checkAssumptions(line('[assumption: value estimate "we just feel it is right"]'))).includes("risk-type"));
+  // digits glued to letters are names (OAuth2, S3), not numbers
+  const named = `- AS-1 The login works with OAuth2 and the files sit in S3, because of C-2. [assumption: feasibility] importance: medium; evidence: medium${rest}`;
+  assert.deepEqual(checkAssumptions(named).findings, []);
+  assert.deepEqual(rules(checkAssumptions(named.replace("OAuth2", "OAuth2 within 5 minutes"))), ["unsourced-number"]);
   assert.equal(readFileSync(join(SKILL, "scripts/validate-product-claims.mjs"), "utf8"), readFileSync(join(SKILL, "../product-spec/scripts/validate-product-claims.mjs"), "utf8"));
 });
 

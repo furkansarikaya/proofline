@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Evidence model of the product documents: every claim is exactly one of fact, assumption, decision, written as a
 // line-based marker (references/EVIDENCE.md). No dependencies. Importable: validateClaims, parseMarker, MARKER,
-// rejectedProposals, parseOrigin.
+// rejectedProposals, parseOrigin, goodBasis.
 //   node validate-product-claims.mjs DOC.md [--json] [--sections "Problem,Assumptions"] [--strict] [--allow-pending] [--root DIR]
 // --allow-pending accepts `[proposal: ...]` markers, for a draft shown to the user; a finished document never has one.
 // Exit 0: no invalid marker (unmarked claims are reported, not counted, unless --strict). 1: invalid marker
@@ -44,6 +44,10 @@ function splitOrigin(b) {
 }
 // Sections whose list items and paragraphs are claims when the caller names none.
 export const DEFAULT_SECTIONS = ["Problem", "Context", "Background", "Evidence", "Assumptions", "Users", "Market"];
+
+// A basis is more than filler: at least 3 words and a digit, an id of the evidence, or a source or unit word.
+const BASIS_WORD = /\b(interviews?|surveys?|tickets?|reports?|data|analytics|logs?|benchmarks?|pricing|pages?|reviews?|stud(?:y|ies)|samples?|support|invoices?|records?|measured|measurement|competitors?|customers?|users?|orders?|rows?|hours?|days?|weeks?|months?|years?|minutes?|seconds?|per|percent|quarter|budget|contract|policy)\b/i;
+export const goodBasis = (b) => b.trim().split(/\s+/).length >= 3 && !/^(guess|unknown|none|n\/a|tbd)\b/i.test(b.trim()) && (/\d/.test(b) || /\b(?:C|INT|AS)-\d+\b/i.test(b) || BASIS_WORD.test(b));
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -93,7 +97,7 @@ export function parseMarker(kind, body = "") {
       const e = /^estimate\s+"([^"]+)"$/i.exec(m[2].trim());
       if (!e) return { kind, risk: r, errors: ['after the risk type only `estimate "<basis>"` may follow (a number in an assumption is an estimate with a basis)', ...errors] };
       estimate = e[1].trim();
-      if (estimate.split(/\s+/).length < 3 || /^(guess|unknown|none|n\/a|tbd)\b/i.test(estimate)) errors.push("an estimate needs a basis of at least 3 words: where the number comes from, or why this range");
+      if (!goodBasis(estimate)) errors.push("an estimate needs a real basis: at least 3 words, and a digit, an id (C-n, INT-n, AS-n) or a source or unit word (interview, ticket, survey, data, per month, ...) that says where the number comes from or why this range");
     }
     return { kind, risk: r, estimate, origin: so.origin, accepted: so.accepted, errors };
   }

@@ -252,6 +252,8 @@ test("marker grammar: an agent proposal needs the user's answer; an estimate nee
   assert.deepEqual(ok('[assumption: value estimate "from the three tickets of C-4"]'), []);
   assert.match(ok("[assumption: value source agent]")[0], /accepted by user/);
   assert.match(ok('[assumption: value estimate "guess"]')[0], /basis/);
+  assert.match(ok('[assumption: value estimate "we just feel it is right"]')[0], /real basis/);
+  assert.deepEqual(ok('[assumption: value estimate "three interview notes in INT-2"]'), []);
   assert.match(ok("[proposal: risk]")[0], /pending proposal/);
   assert.match(ok("[proposal: dessert]")[0], /type/);
   assert.equal(validateClaims("## Assumptions\n\n- A-1: x [proposal: risk]\n", { allowPending: true }).valid, true);

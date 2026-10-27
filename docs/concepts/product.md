@@ -14,6 +14,8 @@ Every claim carries one marker: a fact with its source (web page with access dat
 
 **Quality bar.** Before any document is shown, the skill checks itself against five questions (`references/QUALITY-BAR.md`, the same in the three product skills): concrete (swap the product name for a competitor's; if the sentence is still true it is generic), every fact sourced, tells you something new, states the unknowns, has a "so what?". The spec reviewer and the red team use the same rubric. `references/EXAMPLES.md` of each skill shows a shallow and a good example per document.
 
+**Migration.** Files written before 0.0.34 need updating to pass the checkers: a PRD needs `## Completeness` (ten topics), a `REVIEW.md` needs `## Completeness` and `## Never mentioned` (at least 3), `ASSUMPTIONS.md` and `PREMORTEM.md` need at least 5 agent items (accepted or rejected), `RESEARCH.md` needs `## Search plan` and `## Searched, not found`, `COMPETITORS.md` needs `## Profiles` and `## Implications for us`, `OPPORTUNITIES.md` needs `## Ranking`, and the four discovery documents need `## So what`. A number in an assumption now needs `estimate "<basis>"`. Nothing rewrites old files for you.
+
 When questions are independent, the skills ask up to three in one message, with lettered options and a recommended answer ("1A, 2C").
 
 ## PRD
