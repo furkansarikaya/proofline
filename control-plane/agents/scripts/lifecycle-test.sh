@@ -467,6 +467,25 @@ scenario_terminal() {
   ok "terminal outcomes and cleanup"
 }
 
+# A hook timing line (event=hook, event=hook-timeout) is appended to the ledger after terminate: cleanup of a BLOCKED run reads the
+# last line that is not a hook line, so it still works; a run with no terminate still refuses.
+scenario_cleanup_after_hook_lines() {
+  scaffold standalone
+  mkdir -p .agents/local; printf '1|posttool|12|ok|\n2|pretool|7|ok|\n3|stop|900|timeout|slow\n' > .agents/local/hook-times
+  A hook-time LC; grep -q ' event=hook ' .agents/runs/LC/LEDGER.log || die "setup: hook-time wrote no hook line before the terminate"
+  expect_fail "cleanup of a run with no terminate" A cleanup LC
+  printf 'reason: the verification toolchain is unavailable in this environment\nevidence: go test exited 127 because the go binary is missing\n' | A terminate LC BLOCKED >/dev/null
+  printf '4|posttool|15|ok|\n5|prompt|9|ok|\n6|stop|950|timeout|slow\n' > .agents/local/hook-times
+  A hook-time LC
+  tail -n 1 .agents/runs/LC/LEDGER.log | grep -Eq ' event=hook(-timeout)? ' || die "setup: the last ledger line is not a hook line"
+  A cleanup LC >/dev/null || die "cleanup of a BLOCKED run was refused because hook lines follow its terminate"
+  [ ! -e .agents/runs/LC ] || die "the BLOCKED run survived the cleanup"
+  scaffold standalone
+  printf '1|posttool|12|ok|\n' > .agents/local/hook-times; A hook-time LC
+  expect_fail "hook lines alone are not a terminate" A cleanup LC
+  ok "cleanup of a BLOCKED run ignores hook lines after the terminate; a run without terminate still refuses"
+}
+
 # TRIVIAL: no evidence, no QA plan, no QA gate; tier from the diff decides the review gate.
 scenario_pipeline_trivial() {
   scaffold standalone no TRIVIAL
@@ -1301,6 +1320,7 @@ run_sc scenario_plan_level_verify_fail
 run_sc scenario_fix_scope_no_criteria
 run_sc scenario_amendment_fresh_budget
 run_sc scenario_terminal
+run_sc scenario_cleanup_after_hook_lines
 run_sc scenario_pipeline_trivial
 run_sc scenario_classification_diff
 run_sc scenario_trivial_freeze_code

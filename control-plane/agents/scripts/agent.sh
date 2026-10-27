@@ -6239,7 +6239,7 @@ cleanup_run() {
   cu_term=no; case "$(run_state "$dir")" in FAILED|BLOCKED) cu_term=yes ;; esac
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
-      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
+      verify_seal "$id"; grep -Ev " event=hook(-timeout)? " "$(ledger_file "$id")" | tail -n 1 | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
     *)
       [ "$(section_value "$dir" handoff state)" = DONE ] || fail "cleanup requires handoff DONE (or a FAILED/BLOCKED run): $id"
       cu_base=$(repository_base_sha "$dir")
