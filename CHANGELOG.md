@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.34 — 2026-10-27
+
 - The product skills propose, you decide (A189): "never invent" now covers facts only, so `product-discovery`, `product-assess` and `product-spec` bring candidate assumptions, risks, opportunities, competitors, edge cases and questions, marked `[proposal: <type>]`; you accept, change or reject each one (rejected ones go to `## Rejected proposals`, with your own words). The checkers count a minimum (5 pre-mortem items, 5 assumptions, 3 never-mentioned topics in the spec review) and require `estimate "<basis>"` for a number in an assumption. New: search plan, competitor profiles, 3 to 7 insights with "so what", a reasoned opportunity ranking, a ten-topic PRD completeness list, a quality rubric with examples, up to three questions per message, sourced facts in `ASSUMPTIONS.md` and a FRAME-update step. Migration: product files written before 0.0.34 fail the new checks until updated and nothing rewrites them; [docs/concepts/product.md](docs/concepts/product.md) lists what each file needs.
 - `verification.env_files` (A190): names secret-free test env files (for example `.env.test`) that may enter the build record's clean copy; each is scanned first and one visible secret rejects the run (file and line, never the value). Default empty; other `.env*` stay out.
 - Cleanup of a BLOCKED run (A191): hook timing lines written after the terminate event no longer make `cleanup` refuse; it reads the last ledger line that is not a hook line.
