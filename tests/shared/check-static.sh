@@ -29,8 +29,8 @@
 #
 # Prints PASS or FAIL per rule. Exit 0 when every rule passes, 1 on a failure, 2 on a usage error.
 FOREIGN_TAGS='ponytail'
-README_MAX_LINES=178
-README_MAX_BYTES=12500
+README_MAX_LINES=158
+README_MAX_BYTES=12340
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 while [ $# -gt 0 ]; do

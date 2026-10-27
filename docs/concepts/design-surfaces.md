@@ -51,3 +51,10 @@ surface without `doc` or `paths`, an absolute or `..` path, a bad name and a `sh
 
 When the ui-design skill sees one surface with more than one visitor mode (for example a page that persuades and an area
 that operates), it asks one question that proposes the two modes, so each can get its own surface.
+
+## Craft by visitor mode
+
+Each surface gets a visitor mode (persuade, operate, read, experience). Generated-UI looks need a written reason. Persuade and
+experience surfaces also need real imagery, motion and a characterful type voice. The directions are dealt reproducibly from the
+bundled design library, and a draft visual (comp) is made before coding when an image tool exists. `design ui <mode> <target>`
+makes one focused change. visual-proof measures the result in a browser and lints the source ([testing](testing.md)).

@@ -286,3 +286,7 @@ The risk lists are read at read time: `agent.sh` adds the ecosystem globs to `re
 ## Worktree dependencies (A185)
 
 `worktree_deps.folders` lists the git-ignored folders a package manager fills (`node_modules`, `vendor`, `vendor/bundle`) that a run worktree gets its own copy of; an ecosystem whose folder is not relocatable (virtual environments, `.dart_tool`, `obj`) or whose cache lives outside the project lists none. `worktree-prep.sh` reads it; nothing else knows the names. See [night mode](night-mode.md).
+
+## Skills specific to your ecosystem
+
+proofline works alongside skills specific to your ecosystem. The gates verify the result regardless of which skill produced it.

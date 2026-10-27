@@ -118,3 +118,8 @@ Probed in a throwaway project with a logging hook (`claude -p --setting-sources 
 - Not verified: SubagentStart/SubagentStop payloads (no native subagent in the probe), the tool name and
   input of file edits (`apply_patch`; the hook reads `*** Add|Update|Delete File:` headers from any tool
   whose name contains `patch`), and whether SessionStart/PostToolUse `additionalContext` reaches the model.
+
+## Visual git clients
+
+Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's
+environment markers, not by a terminal.
