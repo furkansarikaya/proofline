@@ -499,6 +499,29 @@ scenario_wt_relative_origin() {
   ok "relative local origin: a worktree proves the merge, the shown commands name the origin absolute, remote.origin.url stays as configured (A180)"
 }
 
+# A180 round 5: a delivery the user pushed by hand (the pr step never ran, no MERGE_HEAD) is recovered by deliver-merged from the delivered branch's
+# CURRENT head. The summary's head is HEAD before the commit step and is already on origin's main: it must never count as the delivery.
+scenario_hand_pushed() {
+  wt_done_run
+  lo=$base/lo.git; rm -rf "$lo"; git init -q --bare "$lo"; git remote set-url origin "$lo"; git -c core.hooksPath=/dev/null push -q origin main
+  W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan: $(tail -2 "$base/plan.out")"
+  # the trap: no delivery commit yet, the branch is at the summary's head, which origin/main already holds
+  expect_msg "no delivery commit beyond the base" 'no delivery commit' W deliver-merged LC
+  [ ! -e "$wt/.agents/local/deliver/LC/MERGE_HEAD" ] || die "a hand-off was written without a delivery commit"
+  [ ! -s "$wt/.agents/local/batch/merged.tsv" ] && [ ! -s .agents/local/batch/merged.tsv ] || die "a merge was recorded without a delivery commit"
+  capture 'approve delivery'; W approve-pending LC >/dev/null
+  W deliver-step LC commit >/dev/null || die "commit step"
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
+  git -C "$wt" -c core.hooksPath=/dev/null push -q origin proofline/LC-lc 2> "$base/push.err" || die "hand push: $(cat "$base/push.err")"
+  expect_msg "pushed by hand, not merged" 'not merged' W deliver-merged LC
+  [ ! -e .agents/local/batch/merged.tsv ] || ! grep -q '^LC	' .agents/local/batch/merged.tsv || die "an unmerged hand push was recorded"
+  [ -d "$wt/.agents/runs/LC" ] || die "the run went before the merge"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
+  W deliver-merged LC > "$base/dm.out" 2>&1 || die "merged by hand, deliver-merged refused: $(cat "$base/dm.out")"
+  grep -q '^merge recorded for LC' "$base/dm.out" || die "no merge record: $(cat "$base/dm.out")"
+  ok "hand-pushed delivery: the base is never the delivery, an unmerged push is not recorded, a merged one is (A180)"
+}
+
 run_sc scenario_normal_chain
 run_sc scenario_cleanup_crash_keeps_merged
 run_sc scenario_content_change_stops
@@ -522,4 +545,5 @@ run_sc scenario_wt_cleanup_pr
 run_sc scenario_wt_cleanup_kept
 run_sc scenario_wt_failed_kept
 run_sc scenario_wt_relative_origin
+run_sc scenario_hand_pushed
 echo 'deliver tests passed'

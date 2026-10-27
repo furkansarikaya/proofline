@@ -6956,7 +6956,14 @@ deliver_merged() {
     # round 5: the hand-off is written by the pr step; when the push was done but the pr step was not run (or the file is lost) it is rebuilt from the
     # delivery summary, which names the branch, the base and the head that was approved
     [ -s "$dm_dir/SUMMARY.md" ] && grep -q '^merge_by: user$' "$dm_dir/SUMMARY.md" || fail "deliver-merged: $dm_id has no delivery where the user merges (agent.sh deliver-plan $dm_id first)"
-    printf '%s\t%s\t%s\n' "$(sed -n 's/^head: //p' "$dm_dir/SUMMARY.md" | head -n 1)" "$(sed -n 's/^base: //p' "$dm_dir/SUMMARY.md" | head -n 1)" "$(sed -n 's/^branch: //p' "$dm_dir/SUMMARY.md" | head -n 1)" > "$dm_dir/MERGE_HEAD"
+    # The summary's head is HEAD at deliver-plan time, BEFORE the commit step: that commit is already on origin's canonical branch. The delivered
+    # commit is the CURRENT head of the delivered branch, and it must descend strictly from the summary's head (a delivery commit exists), else
+    # nothing is recorded (fail closed).
+    dm_s=$(sed -n 's/^head: //p' "$dm_dir/SUMMARY.md" | head -n 1); dm_b=$(sed -n 's/^base: //p' "$dm_dir/SUMMARY.md" | head -n 1); dm_n=$(sed -n 's/^branch: //p' "$dm_dir/SUMMARY.md" | head -n 1)
+    dm_h=''; for dm_r in "refs/heads/$dm_n" "refs/remotes/origin/$dm_n"; do dm_h=$(git -C "$root" rev-parse -q --verify "$dm_r^{commit}" 2>/dev/null) && break; dm_h=''; done
+    [ -n "$dm_n" ] && [ -n "$dm_h" ] || fail "deliver-merged: the delivered branch '$dm_n' cannot be found, so nothing is recorded"
+    { [ "$dm_h" != "$dm_s" ] && git -C "$root" merge-base --is-ancestor "$dm_s" "$dm_h" 2>/dev/null; } || fail "deliver-merged: branch $dm_n has no delivery commit beyond the base of the summary, so nothing is recorded"
+    printf '%s\t%s\t%s\n' "$dm_h" "$dm_b" "$dm_n" > "$dm_dir/MERGE_HEAD"
   fi
   IFS='	' read -r dm_head dm_base dm_br < "$dm_dir/MERGE_HEAD"
   git -C "$root" cat-file -e "$dm_head^{commit}" 2>/dev/null || fail "deliver-merged: the delivered commit ${dm_head:-?} is unknown here"
