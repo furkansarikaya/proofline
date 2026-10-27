@@ -485,7 +485,10 @@ sc_probe_drift() {
   [ -f "$pd_m" ] || { ok "probe drift guard skipped (skill source not present)"; return 0; }
   pd_a=$(dirname "$0")/agent.sh
   for pd_n in $(sed -n 's/^const BROWSER_NAMES = \[\(.*\)\];$/\1/p; s/^const PROJECT_TOOLS = \[\(.*\)\];$/\1/p' "$pd_m" | tr -d '",'); do
-    sed -n '/^probe_visual()/,/^}/p' "$pd_a" | grep -Eq "(^|[ ])$pd_n( |;|$)" || die "probe_visual lacks $pd_n from measure.mjs"
+    # a browser name is listed in the probe itself; a project test tool is DATA the probe reads (ecosystems.json browser_test.names, A185)
+    sed -n '/^probe_visual()/,/^}/p' "$pd_a" | grep -Eq "(^|[ ])$pd_n( |;|$)" \
+      || awk -F'\t' -v n="$pd_n" '$2 == "browser_test.names" && $3 == n { f = 1 } END { exit !f }' "$(dirname "$0")/../ecosystems.tsv" \
+      || die "probe_visual and ecosystems.json browser_test.names lack $pd_n from measure.mjs"
   done
   ok "visual probe lists equal measure.mjs's"
 }
