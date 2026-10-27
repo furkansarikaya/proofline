@@ -6290,7 +6290,11 @@ cleanup_worktree() {
   [ "$cw_ok" = yes ] || awk -F'\t' -v t="$1" -v from="$cw_from" '$1 == t && $3 + 0 >= from + 0 { f = 1 } END { exit !f }' "$(shared_dir batch)/merged.tsv" 2>/dev/null || { echo "note: the worktree $cw_p is kept: no merge of $1 is on record"; return 0; }
   for cw_r in "$cw_p"/.agents/runs/*; do [ ! -d "$cw_r" ] || { echo "note: the worktree $cw_p is kept: it still holds the run ${cw_r##*/}"; return 0; }; done
   # untracked or ignored files outside the run state are evidence or work: refuse (the copies worktree-prep made are known and allowed)
-  cw_x=$(git -C "$cw_p" status --porcelain --ignored --untracked-files=all 2>/dev/null | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_p/.agents/local/worktree-copied" 2>/dev/null || true)
+  # a missing copied-files manifest is an empty list; any command that fails refuses (fail closed: the worktree is kept)
+  cw_list=$cw_p/.agents/local/worktree-copied; [ -f "$cw_list" ] || cw_list=/dev/null
+  cw_st=$(git -C "$cw_p" status --porcelain --ignored --untracked-files=all 2>/dev/null) || { echo "note: the worktree $cw_p is kept: git status failed"; return 0; }
+  cw_rc=0; cw_x=$(printf '%s\n' "$cw_st" | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_list") || cw_rc=$?
+  [ "$cw_rc" -le 1 ] || { echo "note: the worktree $cw_p is kept: the file check failed"; return 0; }
   if [ -n "$cw_x" ] && [ -f "$scripts/ecosystems.sh" ] && [ -s "$agents/ecosystems.tsv" ]; then
     # shellcheck source=/dev/null
     . "$scripts/ecosystems.sh"; eco_init "$agents/ecosystems.tsv" && for cw_f in $(eco_union worktree_deps.folders); do cw_x=$(printf '%s\n' "$cw_x" | grep -v -e "^$cw_f/" -e "^$cw_f\$" || true); done

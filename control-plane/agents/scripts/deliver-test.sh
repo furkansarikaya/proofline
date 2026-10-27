@@ -454,6 +454,8 @@ scenario_wt_cleanup_pr() {
 scenario_wt_cleanup_kept() {
   wt_done_run
   # the merge is on record: cleanup inside the worktree removes the run and the worktree
+  # (as after a real delivery the work is committed: uncommitted tracked changes keep the worktree)
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" -c core.hooksPath=/dev/null commit -qm 'feat: delivered' || die "commit in the worktree"
   printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv
   W cleanup LC > "$base/cl.out" 2>&1 || die "cleanup in the worktree: $(cat "$base/cl.out")"
   grep -q '^worktree removed: LC' "$base/cl.out" && wt_gone || die "the worktree survived cleanup after the merged record: $(cat "$base/cl.out")"
@@ -557,6 +559,12 @@ scenario_wt_cleanup_guards() {
   printf '*.log\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
   W cleanup LC > "$base/c3.out" 2>&1 || die "cleanup: $(cat "$base/c3.out")"
   [ -f "$wt/notes-by-hand.log" ] && grep -q 'holds files git does not track' "$base/c3.out" || die "a worktree with an ignored file of its own was removed: $(cat "$base/c3.out")"
+  # the same without a copied-files manifest (no .env was copied): a missing list is an empty list, the file still keeps the worktree
+  wt_done_run
+  printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv; echo evidence > "$wt/notes-by-hand.log"; rm -f "$wt/.agents/local/worktree-copied"
+  printf '*.log\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+  W cleanup LC > "$base/c4.out" 2>&1 || die "cleanup: $(cat "$base/c4.out")"
+  [ -f "$wt/notes-by-hand.log" ] && ! grep -q 'worktree removed' "$base/c4.out" || die "without a manifest an ignored file did not keep the worktree: $(cat "$base/c4.out")"
   ok "cleanup: an environment claim and another run's merge row do not remove the worktree; an ignored file of the run keeps it (round 6)"
 }
 # (5)(6) relative local origin: the approved head is pushed, the origin is pinned, an option-like origin is refused; an empty delivery proves no merge
