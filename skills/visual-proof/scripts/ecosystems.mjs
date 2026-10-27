@@ -16,6 +16,8 @@
 //   classifyPath(path)            [{ecosystem, role}] roles: manifest, lock, settings, project, solution, workspace, risky
 //   toRegExp(spec)                "/source/flags" -> RegExp; a bare string is a source
 //   flatten(data)                 the rows [id, path, value] of ecosystems.tsv
+// Workspace members (A187): workspace_roots[].members says how a workspace file's member list is read, commands.*[].workspace and
+// at_workspace are command templates with {members}; discover.sh (d_members, d_rule) builds the command from them.
 // CLI: node ecosystems.mjs write|sync|check|validate|get <id|*> <path>|ids|risky|dependency
 //   write     regenerates ecosystems.tsv next to ecosystems.json
 //   sync      write, then refreshes the byte-identical copies in every skills/*/ that carries one (the control plane only)
@@ -166,7 +168,25 @@ export function validate(data = loadEcosystems()) {
     need(typeof e.name === "string" && e.name !== "", `${w}: name missing`);
     for (const k of ECO_ARRAYS) need(Array.isArray(e[k]), `${w}: ${k} must be an array`);
     for (const k of ["project_files", "manifests"]) need(e[k]?.length > 0, `${w}: ${k} must not be empty`);
-    for (const x of e.workspace_roots ?? []) need(typeof x.file === "string" && /^[^/*]+$/.test(x.file), `${w}: workspace_roots.file must be one plain file name`);
+    for (const x of e.workspace_roots ?? []) {
+      need(typeof x.file === "string" && /^[^/*]+$/.test(x.file), `${w}: workspace_roots.file must be one plain file name`);
+      if (x.members === undefined) continue;
+      // members (A187): how the member list of the workspace file is read and written into a command
+      const m = x.members, mw = `${w}: workspace_roots ${x.file} members`;
+      need(m && typeof m === "object" && !Array.isArray(m), `${mw} must be an object`);
+      const known = ["single_prefix", "block_open", "block_close", "block_item_prefix", "comment", "format"];
+      for (const k of Object.keys(m ?? {})) need(known.includes(k) && typeof m[k] === "string" && m[k] !== "", `${mw}: ${k} must be one of ${known.join(", ")} and a non-empty string`);
+      need(typeof m?.format === "string" && m.format.includes("{member}"), `${mw}: format must hold {member}`);
+      need(Boolean(m?.single_prefix) || Boolean(m?.block_open && m?.block_close), `${mw}: needs single_prefix or block_open with block_close`);
+      for (const k of ["single_prefix", "block_open", "block_close", "block_item_prefix"]) if (m?.[k]) { try { new RegExp(m[k]); } catch { err.push(`${mw}: ${k} is not a regular expression`); } }
+    }
+    const canList = (e.workspace_roots ?? []).some((x) => x.members);
+    for (const kind of ["build", "test", "lint"]) for (const r of e.commands?.[kind] ?? []) {
+      if (r.workspace === undefined && r.at_workspace === undefined) continue;
+      need(canList, `${w}: commands.${kind} has a workspace template but no workspace_roots entry has members`);
+      need(typeof r.workspace === "string" && r.workspace.includes("{members}"), `${w}: commands.${kind} workspace must hold {members}`);
+      need(typeof r.at_workspace === "string" && r.at_workspace.includes("{members}"), `${w}: commands.${kind} at_workspace must hold {members}`);
+    }
     for (const x of e.version_files ?? []) need(["workflow", "line", "tool_versions", "match", "gitlab_image"].includes(x.kind), `${w}: version_files kind ${x.kind}`);
     const u = e.units ?? {};
     need(["dir", "file"].includes(u.target), `${w}: units.target must be dir or file`);
@@ -180,6 +200,11 @@ export function validate(data = loadEcosystems()) {
     need(["scripts", "tools"].includes(e.commands?.truth), `${w}: commands.truth must be scripts or tools`);
     for (const k of TEST_KEYS) need(k in (e.test_output ?? {}), `${w}: test_output.${k} missing`);
     for (const k of BENCH_KEYS) need(k in (e.benchmark ?? {}), `${w}: benchmark.${k} missing`);
+    // optional: a browser-test dependency the project declares in `manifest` and has installed under `deps_dir` (probe_visual of agent.sh)
+    if (e.browser_test !== undefined) need(typeof e.browser_test.manifest === "string" && /^[A-Za-z0-9._-]+$/.test(e.browser_test.manifest) && typeof e.browser_test.deps_dir === "string" && /^[A-Za-z0-9._-]+$/.test(e.browser_test.deps_dir) && Array.isArray(e.browser_test.names) && e.browser_test.names.length > 0, `${w}: browser_test needs manifest, deps_dir (plain names) and a non-empty names array`);
+    // A185: git-ignored dependency folders a run worktree gets its own copy of (never a link into the main tree)
+    need(Array.isArray(e.worktree_deps?.folders), `${w}: worktree_deps.folders must be an array`);
+    for (const x of e.worktree_deps?.folders ?? []) need(/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(x) && !x.split("/").some((q) => q === "." || q === ".." || q === ".git" || q === ".agents"), `${w}: worktree_deps.folders entry ${x} must be a plain relative folder name`);
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);
     for (const x of e.benchmark?.files ?? []) need(typeof x.glob === "string" && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.files entries need glob, contains and why`);

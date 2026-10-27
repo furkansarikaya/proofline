@@ -114,4 +114,11 @@ done
 rm -f "$st/approve_push"; touch "$st/approve_push"; REF=work:agent-b; hpush CLAUDECODE=1
 [ "$rc" -eq 0 ] && ok "marker present: push with approval passes" || no "marker present: push with approval passes ($(cat "$tmp/out"))"
 
+# A185: a local file proofline copied into a run worktree (listed in .agents/local/worktree-copied) never enters a commit, even with add -f
+echo 'K=1' > "$r/.env.copied"; printf '.env.copied\n' > "$r/.agents/local/worktree-copied"
+g add -f .env.copied; try commit -q -m envfile
+[ "$rc" -ne 0 ] && said worktree.copy_files && ok "copied local file: commit refused (add -f included)" || no "copied local file: commit refused ($(cat "$tmp/out"))"
+rm -f "$r/.agents/local/worktree-copied"; try commit -q -m envfile2
+[ "$rc" -eq 0 ] && ok "a file not in the copied list commits as before" || no "a file not in the copied list commits ($(cat "$tmp/out"))"
+
 [ "$fails" -eq 0 ]

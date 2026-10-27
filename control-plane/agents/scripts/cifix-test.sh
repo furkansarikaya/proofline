@@ -124,6 +124,17 @@ sc_ci_fix_normal() {
   ok "ci-fix: a red CI opens a fix round without a question, the fix is pushed to the same PR branch, other refs and other pushes are refused, the ledger ties push to fix"
 }
 
+# A186: the failed log cannot be read: the round starts from the check name and status alone, and every output says so
+sc_ci_fix_unreadable() {
+  to_pr_open
+  printf '124 completed failure build\n' > "$base/gh.runs"; : > "$base/gh.log"; gh_says "OPEN false"
+  S ci-fix 7 > "$base/un.out" 2>&1 || die "ci-fix refused when the log is unreadable: $(tail -3 "$base/un.out")"
+  grep -q '^NOTE: the log of the failed check could not be read on this platform; this round starts from the check name (build) and status (failure) only' "$base/un.out" || die "no NOTE: $(cat "$base/un.out")"
+  grep -q 'starts from the check name and status only' .agents/runs/LC/ci-fix/001.log || die "the log file does not say so: $(cat .agents/runs/LC/ci-fix/001.log)"
+  [ "$(rec_field 001 ci_run)" = 124 ] && [ "$(rec_field 001 state)" = open ] || die "record: $(cat .agents/runs/LC/ci-fix/001.yaml)"
+  ok "ci-fix: an unreadable log still opens the round from check name and status and says so (A186)"
+}
+
 # two attempts, then the third red CI stops with one question
 sc_ci_fix_limit() {
   to_pr_open
@@ -252,6 +263,7 @@ sc_read_only_roles() {
 
 run_sc sc_ci_fix_normal
 run_sc sc_ci_fix_limit
+run_sc sc_ci_fix_unreadable
 run_sc sc_ci_fix_batch
 run_sc sc_ci_fix_resume
 run_sc sc_own_commits_fresh

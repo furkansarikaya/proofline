@@ -17,6 +17,16 @@
 # 4. Captured tool output in tests/skills/fixtures/tdd-proof-output holds no personal path: /Users/, /home/<name>/... (a
 #    bare /home/user is allowed), /private/var, /var/folders, /opt/homebrew or C:\Users. Redact such a path to /work/... when a fixture is added.
 #
+# 5. No ecosystem branching in shared shell scripts (A187). proofline writes no ecosystem-specific code: what an ecosystem
+#    is and how it builds, tests, lints and lists workspace members is data in control-plane/agents/ecosystems.json. A line of
+#    bin/, control-plane/agents/ (scripts, githooks, task-integrations), adapters/ or skills/*/scripts shell scripts that
+#    branches on an ecosystem id (a case label such as `go)` or `npm|pnpm)`, or a comparison such as `[ "$x" = dotnet ]`) fails.
+#    The ids are read from ecosystems.tsv, never hardcoded here. Excluded: platform.sh (platform adapter), ecosystems.sh (the
+#    reader of the data), the self-tests (*-test.sh, test-lib.sh, tests/) and comment lines. A line that names an interpreter or
+#    a tool and not an ecosystem (a process-group method, an interpreter whose inline code a safety hook reads) may be marked
+#    by a comment line directly above it: `# eco-ok: <why this is not ecosystem knowledge>`. A line that names a plain manifest, project
+#    or lock file of an ecosystem (`package.json`, `go.mod`, `Cargo.lock`, ... read from ecosystems.tsv) is the same kind of knowledge and fails too.
+#
 # Prints PASS or FAIL per rule. Exit 0 when every rule passes, 1 on a failure, 2 on a usage error.
 FOREIGN_TAGS='ponytail'
 README_MAX_LINES=178
@@ -29,7 +39,7 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "check-static: --root needs a directory" >&2; exit 2; }
       root=$(cd "$2" 2>/dev/null && pwd) || { echo "check-static: no such directory: $2" >&2; exit 2; }
       shift 2 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "check-static: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -104,6 +114,49 @@ if [ -d "$root/$fx" ]; then
   if [ -z "$hits" ]; then echo "PASS no personal paths in $fx"
   else
     echo "FAIL personal paths in $fx: write /work/... instead of a real home directory, checkout or Homebrew path"
+    printf '%s\n' "$hits" | cut -c1-200 | sed 's/^/  /'
+    status=1
+  fi
+fi
+# 5. ecosystem branching in shared shell scripts
+etsv=$root/control-plane/agents/ecosystems.tsv
+ids=''
+[ -f "$etsv" ] && ids=$(awk -F'\t' '$1 != "*" && $2 == "id" { print $3 }' "$etsv" | paste -sd'|' -)
+if [ -z "$ids" ]; then echo "PASS ecosystem branching (no ecosystems.tsv here)"
+else
+  # bracket expressions instead of backslashes: the same regex works in every awk and grep
+  # a case arm: the line, `;;` or ` in ` starts a pattern list (no spaces inside) in which one pattern is exactly an id
+  lbl="(^[[:space:]]*|;;[[:space:]]*|[[:space:]]in[[:space:]]+)[(]?([^][:space:]()|]+[|])*[\"']?($ids)[\"']?([|][^][:space:]()]+)*[)]"
+  # a test: `[ "$x" = go ]`, `[ x != go ] && ...`
+  cmp="[[:space:]](=|==|!=)[[:space:]]+[\"']?($ids)[\"']?([[:space:]]*([]]|;|&|[|]|[)])|[[:space:]]*\$)"
+  # a plain file name (no glob, no /) that ecosystems.json lists as a manifest, project file or lock: a word in code, not part of a longer name
+  ftoks=$(awk -F'\t' '$1 != "*" && ($2 == "manifests" || $2 == "project_files" || $2 == "locks") && $3 !~ /[*?\/]/ { print $3 }' "$etsv" | sort -u | sed 's/[.]/[.]/g' | paste -sd'|' -)
+  tok="(^|[^A-Za-z0-9_.-])($ftoks)([^A-Za-z0-9_.-]|\$)"
+  if git -C "$root" rev-parse --show-toplevel >/dev/null 2>&1; then
+    list=$(git -C "$root" ls-files --cached --others --exclude-standard -- bin control-plane adapters skills 2>/dev/null)
+  else
+    list=$(cd "$root" && find bin control-plane adapters skills -type f 2>/dev/null | sed 's|^\./||')
+  fi
+  hits=''
+  for f in $list; do
+    case $f in
+      */fixtures/*|*/templates/*|*/library/*|*-test.sh|*/test-lib.sh|*/platform.sh|*/ecosystems.sh|*.md|*.json|*.toml|*.tsv|*.mjs|*.yaml|*.yml|*.conf) continue ;; esac
+    case $f in skills/*) case $f in skills/*/scripts/*) ;; *) continue ;; esac ;; esac
+    [ -f "$root/$f" ] || continue
+    case $f in *.sh) ;; *) head -n 1 "$root/$f" | grep -Eq '^#!.*(sh|bash)' || continue ;; esac
+    h=$(LBL=$lbl CMP=$cmp TOK=$tok awk -v f="$f" '
+      BEGIN { lbl = ENVIRON["LBL"]; cmp = ENVIRON["CMP"]; tok = ENVIRON["TOK"] }
+      { l = $0; sub(/^[ \t]+/, "", l)
+        if (l ~ /^#/) { ok = (l ~ /^# eco-ok:/); next }
+        if (!ok && ($0 ~ lbl || $0 ~ cmp || $0 ~ tok)) print f ":" NR ": " $0
+        ok = 0 }' "$root/$f")
+    [ -z "$h" ] || hits="$hits
+$h"
+  done
+  hits=$(printf '%s\n' "$hits" | sed '/^$/d')
+  if [ -z "$hits" ]; then echo "PASS no ecosystem branching in shared shell scripts (ids: $ids)"
+  else
+    echo "FAIL ecosystem branching in shared scripts: move the knowledge into control-plane/agents/ecosystems.json as data (A187)"
     printf '%s\n' "$hits" | cut -c1-200 | sed 's/^/  /'
     status=1
   fi

@@ -86,3 +86,22 @@ for pp_bad in '/Users/jane/x' '/home/jane/x' '/home/user/x' '/private/var/folder
 done
 echo "ok a personal path in captured tool output fails (exit 1)"
 echo "static-test: all passed"
+
+# A187: a branch on an ecosystem name appended to a COPY of a shared script breaks rule 5; an eco-ok marker above it is accepted
+repo=$(CDPATH='' cd "$here/../.." && pwd)
+if [ -f "$repo/control-plane/agents/ecosystems.tsv" ]; then
+  rm -rf "$T/eco"; mkdir -p "$T/eco/control-plane/agents" "$T/eco/bin/lib"
+  cp "$repo/control-plane/agents/ecosystems.tsv" "$T/eco/control-plane/agents/"; cp "$repo/bin/lib/doctor.sh" "$T/eco/bin/lib/doctor.sh"
+  printf '# x\n' > "$T/eco/README.md"
+  sh "$chk" --root "$T/eco" > "$T/o" 2>&1 || die "a copy of the shared script fails: $(cat "$T/o")"
+  grep -q '^PASS no ecosystem branching' "$T/o" || die "no PASS for rule 5 on a clean copy: $(cat "$T/o")"
+  for l in 'case "$x" in go) y=1 ;; esac' '[ "$eco" = dotnet ] && y=1' 'case $e in npm|pnpm) y=1 ;; esac'; do
+    cp "$repo/bin/lib/doctor.sh" "$T/eco/bin/lib/doctor.sh"; printf '%s\n' "$l" >> "$T/eco/bin/lib/doctor.sh"
+    if sh "$chk" --root "$T/eco" > "$T/o" 2>&1; then die "an ecosystem branch passed rule 5: $l"; fi
+    grep -q '^FAIL ecosystem branching' "$T/o" && grep -q 'doctor.sh' "$T/o" || die "rule 5 does not name the file: $(cat "$T/o")"
+  done
+  cp "$repo/bin/lib/doctor.sh" "$T/eco/bin/lib/doctor.sh"; printf '# eco-ok: an interpreter name, not an ecosystem\ncase "$x" in python) y=1 ;; esac\n' >> "$T/eco/bin/lib/doctor.sh"
+  sh "$chk" --root "$T/eco" > "$T/o" 2>&1 || die "an eco-ok marked line failed: $(cat "$T/o")"
+  grep -q '^PASS no ecosystem branching' "$T/o" || die "eco-ok line not accepted: $(cat "$T/o")"
+  echo "ok an ecosystem branch added to a shared script fails the static rule; eco-ok exempts a marked line"
+fi

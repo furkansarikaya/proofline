@@ -148,6 +148,86 @@ merge 7 || die "glab merge: $(cat "$base/out")"
 [ "$(cat "$FS/merge.log")" = "mr merge 7 --sha $sha --yes" ] || die "the glab merge line is exactly sha-pinned and final: $(cat "$FS/merge.log")"
 ok "glab merge call line is pinned to the verified sha, only after a final (success) pipeline"
 
+# --- A186: the failed-log reader of GitLab and Azure DevOps (fake tools only), and the unreadable-log path -------------------------------
+cx=$base/cx; mkdir -p "$cx"; export CX=$cx
+cat > "$cx/glab" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "mr view") echo '{"head_pipeline":{"id":55,"status":"failed"}}' ;;
+  "api projects/:id/pipelines/55/jobs?scope[]=failed&per_page=20") echo '[{"id":901,"name":"unit","status":"failed","allow_failure":false}]' ;;
+  "ci trace") [ -f "$CX/trace.none" ] || echo 'FAIL: TestLookup expected 1 got 2' ;;
+esac
+exit 0
+EOF
+cat > "$cx/az" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *"pr policy list"*) echo '[{"status":"rejected","context":{"buildId":77},"configuration":{"settings":{"displayName":"CI build"}}}]' ;;
+  *"devops invoke"*) [ -f "$CX/tl.none" ] || echo '{"records":[{"name":"Run tests","result":"failed","issues":[{"type":"error","message":"npm test exited 1"}]}]}' ;;
+esac
+exit 0
+EOF
+chmod +x "$cx/glab" "$cx/az"; JQ=$(command -v jq)
+cif() { sh "$pfs" ci-failed 7 "$sha" --cli "$cx/$1" --jq "$JQ" --url "$2" 2>&1; }
+o=$(cif glab https://gitlab.com/acme/app.git)
+[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t901\tunit\tfailed\tread')" ] && printf '%s\n' "$o" | grep -Fq 'TestLookup expected 1 got 2' || die "gitlab failed-log reader: $o"
+o=$(cif az https://acme@dev.azure.com/acme/Proj/_git/app)
+[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t77\tCI build\trejected\tread')" ] && printf '%s\n' "$o" | grep -Fq 'Run tests: npm test exited 1' || die "azure failed-log reader: $o"
+ok "ci-failed reads the failed job log of GitLab and the build errors of Azure DevOps through the platform tool"
+touch "$cx/trace.none" "$cx/tl.none"
+o=$(cif glab https://gitlab.com/acme/app.git)
+[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t901\tunit\tfailed\tnone')" ] && printf '%s\n' "$o" | grep -Fq 'starts from the check name and status only' || die "gitlab unreadable log: $o"
+o=$(cif az https://acme@dev.azure.com/acme/Proj/_git/app)
+[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t77\tCI build\trejected\tnone')" ] && printf '%s\n' "$o" | grep -Fq 'starts from the check name and status only' || die "azure unreadable log: $o"
+[ -z "$(cif glab https://bitbucket.org/acme/app.git)" ] || die "bitbucket must have no reader"
+ok "an unreadable log gives RED with log none and says the round starts from check name and status; Bitbucket has no reader"
+
+# --- A186: git.platform / git.platform_host from config, precedence config > env > auto, look-alike hosts ---------------------------------
+cfgp() { printf 'git:\n  protected_branches: main\n  platform: %s\n%s' "$1" "${2:+  platform_host: $2
+}" > "$proj/.agents/config.yaml"; }
+pd() { sh "$pfs" detect -C "$proj" --url "$1" | tr '\n' ' '; }   # platform: X source: Y ...
+pv() { sh "$pfs" field "$2" -C "$proj" --url "$1"; }
+cfgp gitlab gitlab.company.com
+[ "$(pv https://gitlab.company.com/a/b platform)" = gitlab ] && [ "$(pv https://gitlab.company.com/a/b source)" = config ] || die "an on-prem host from config: $(pd https://gitlab.company.com/a/b)"
+[ "$(pv git@GitLab.Company.com:a/b.git platform)" = gitlab ] || die "the host match is case-insensitive"
+for u in https://gitlab.company.com.evil.example/a/b https://evil-gitlab.company.com/a/b https://gitlab.company.com.attacker.example/a/b https://notgitlab.company.com/a/b; do
+  [ "$(pv "$u" platform)" = other ] && [ "$(pv "$u" source)" = auto ] || die "look-alike host $u took the configured platform: $(pd "$u")"
+done
+cfgp github github.company.com
+[ "$(pv https://github.company.com/a/b platform)" = github ] || die "GitHub Enterprise host from config"
+[ "$(pv https://github.com.evil.example/a/b platform)" = other ] || die "github.com.evil.example recognised"
+# precedence: config beats env beats auto
+cfgp gitlab gitlab.company.com
+[ "$(PROOFLINE_PLATFORM=azure pv https://gitlab.company.com/a/b platform)" = gitlab ] && [ "$(PROOFLINE_PLATFORM=azure pv https://gitlab.company.com/a/b source)" = config ] || die "config must beat env"
+[ "$(PROOFLINE_PLATFORM=azure pv https://elsewhere.example/a/b platform)" = azure ] && [ "$(PROOFLINE_PLATFORM=azure pv https://elsewhere.example/a/b source)" = env ] || die "env applies when the configured host differs"
+rm -f "$proj/.agents/config.yaml"
+[ "$(PROOFLINE_PLATFORM=azure pv https://github.com/a/b platform)" = azure ] && [ "$(PROOFLINE_PLATFORM=azure pv https://github.com/a/b source)" = env ] || die "env must beat auto"
+[ "$(pv https://github.com/a/b platform)" = github ] && [ "$(pv https://github.com/a/b source)" = auto ] || die "auto detection changed"
+cfgp gitlab; [ "$(pv https://git.example.com/a/b platform)" = gitlab ] || die "git.platform without a host applies to any origin"
+# the tool follows the private host
+cfgp gitlab gitlab.company.com
+[ "$(sh "$pfs" env -C "$proj" --url https://gitlab.company.com/a/b)" = GITLAB_HOST=gitlab.company.com ] || die "GITLAB_HOST for a self-hosted GitLab"
+rm -f "$proj/.agents/config.yaml"
+ok "git.platform_host recognises an on-prem address by whole-host equality; look-alikes stay other; config beats env beats auto; the tool gets the host"
+
+# git.platform without git.platform_host on a look-alike origin: platform.sh warns and exports no host variable; a known host does not warn
+cfgp gitlab
+la=https://gitlab.com.evil.example/a/b
+w=$(sh "$pfs" warn -C "$proj" --url "$la"); case "$w" in "warning: git.platform is gitlab without git.platform_host"*) ;; *) die "no warning for a look-alike origin: $w" ;; esac
+[ -z "$(sh "$pfs" env -C "$proj" --url "$la")" ] || die "a look-alike origin got a host variable: $(sh "$pfs" env -C "$proj" --url "$la")"
+[ -z "$(sh "$pfs" warn -C "$proj" --url https://gitlab.com/a/b)" ] || die "gitlab.com warned although it is a known gitlab host"
+cfgp github; [ -z "$(sh "$pfs" env -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "GH_HOST exported for github.com.evil.example"
+[ -n "$(sh "$pfs" warn -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "no warning for github.com.evil.example"
+cfgp gitlab gitlab.company.com
+[ -z "$(sh "$pfs" warn -C "$proj" --url https://gitlab.company.com.evil.example/a/b)" ] && [ "$(sh "$pfs" env -C "$proj" --url https://gitlab.company.com/a/b)" = GITLAB_HOST=gitlab.company.com ] || die "an exact platform_host must not warn and must export its host"
+rm -f "$proj/.agents/config.yaml"
+ok "git.platform without platform_host on a look-alike origin warns and exports no GH_HOST/GITLAB_HOST; exact hosts are unaffected"
+
+# round 6: what is a local origin. Path forms are local; a host-shaped address that merely starts with a dot or says file:// with a host is not
+for u in ./x ../x /abs file:///abs; do [ "$(sh "$pfs" field local --url "$u")" = yes ] || die "$u must be a local origin"; done
+for u in .evil.example:org/repo file://host/path file://evil.example/a/b; do [ "$(sh "$pfs" field local --url "$u")" = no ] || die "$u must NOT be a local origin"; done
+ok "local origins: ./x ../x /abs file:///abs are local; .evil.example:org/repo and file://host/path are not"
+
 # --- the user merges: Bitbucket, unrecognized, missing tool ---------------------------------------------
 for u in https://bitbucket.org/acme/app.git ssh://git@git.example.com/acme/app.git; do
   git -C "$proj" remote set-url origin "$u"; reset; glabview opened false "$sha" "$green_pipe"

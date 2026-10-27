@@ -303,6 +303,298 @@ scenario_cleanup_crash_keeps_merged() {
   ok "deliver: the merge is recorded in merged.tsv before the cleanup, so a crash in between leaves the task merged"
 }
 
+# A184 (round 2): the knowledge step's files (docs/wiki, not named by the plan) written from CODE_DONE on never move the tier, a gate or the delivery
+scenario_knowledge_tier() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; tasks_in_tasks; hooks
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go
+  A handoff LC IMPLEMENTED >/dev/null; [ "$(A tier LC)" = small ] || die "the fixture is not tier small: $(A tier LC)"
+  pass_all; n_gates=$(ls .agents/runs/LC/gates/*.yaml | wc -l | tr -d ' ')
+  A handoff LC CODE_DONE >/dev/null
+  mkdir -p docs/wiki; for i in 1 2 3 4; do printf '# Page %s\n\nThe lookup returns the stored value.\n' "$i" > "docs/wiki/page$i.md"; done
+  [ "$(A tier LC)" = small ] || die "four knowledge files at CODE_DONE moved the tier to $(A tier LC)"
+  A knowledge-done LC >/dev/null || die "knowledge-done refused four wiki pages: $(A knowledge-done LC 2>&1 | tail -1)"
+  [ "$(A tier LC)" = small ] && [ "$(ls .agents/runs/LC/gates/*.yaml | wc -l | tr -d ' ')" = "$n_gates" ] || die "the tier or the gate files changed after the knowledge step"
+  for g in $(pipe_val gates); do case "$(A pipeline LC | sed -n "s/^gate.$g=//p")" in *missing*|*stale*) die "gate $g became $(A pipeline LC | sed -n "s/^gate.$g=//p") after the knowledge files" ;; esac; done
+  write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
+  A deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan refused after the knowledge files: $(tail -2 "$base/plan.out")"
+  grep -q 'approve delivery' "$base/plan.out" || die "deliver-plan is not ready: $(cat "$base/plan.out")"
+  ok "knowledge: four wiki pages the plan does not name, written at CODE_DONE, leave the tier small, every gate satisfied and deliver-plan ready (A184)"
+}
+
+# the same four files BEFORE CODE_DONE still count (the plan names none of them), and a gate the effective tier needs but that cannot be recorded at CODE_DONE
+# sends `next` to amend or a new task, never to reviewers
+scenario_knowledge_tier_before_and_next() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; tasks_in_tasks; hooks
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go
+  A handoff LC IMPLEMENTED >/dev/null; [ "$(A tier LC)" = small ] || die "the fixture is not tier small: $(A tier LC)"
+  mkdir -p docs/wiki; for i in 1 2 3 4; do printf '# Page %s\n\nThe lookup returns the stored value.\n' "$i" > "docs/wiki/page$i.md"; done
+  [ "$(AS reviewer tier LC)" = full ] || die "four unnamed wiki files before CODE_DONE did not count: $(AS reviewer tier LC)"
+  rm -rf docs; [ "$(AS reviewer tier LC)" = small ] || die "the fixture is not tier small again: $(AS reviewer tier LC)"
+  pass_all; A handoff LC CODE_DONE >/dev/null
+  printf '{}\n' > package.json   # a risky path at CODE_DONE: a task change, so the effective tier is full and its gates are missing
+  out=$(A next LC)
+  printf '%s\n' "$out" | grep -q 'agent.sh amend LC' && printf '%s\n' "$out" | grep -q 'do NOT dispatch reviewers' || die "next at CODE_DONE with an unsatisfied gate: $out"
+  printf '%s\n' "$out" | grep -q 'dispatch.sh LC reviewer' && die "next still sends the lead to reviewers: $out"
+  ok "knowledge: the same files before CODE_DONE count; next at CODE_DONE with an unsatisfied tier gate says amend or new task, no reviewers (A184)"
+}
+
+# --- A180/A181 round 3: a local origin, the manual merge proven from git, the worktree that goes away with the merged run ---------------------------------
+# lo_chain: a finished run, a local bare origin that holds main, the delivery up to the pr step (the hand-off to the user); the bare repository is $lo
+lo_chain() {
+  SC_BRANCH=1 scaffold orchestrated; tasks_in_tasks; to_code_done orchestrated; hooks; finish_done
+  lo=$base/lo.git; rm -rf "$lo"; git init -q --bare "$lo"; git remote set-url origin "$lo"
+  git -c core.hooksPath=/dev/null push -q origin main
+  A deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan on a local origin refused: $(tail -2 "$base/plan.out")"
+  capture 'approve delivery'; A approve-pending LC >/dev/null
+  S commit >/dev/null; A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the approved commit was blocked"
+  S push >/dev/null || die "push step: $(S push 2>&1 | tail -1)"
+  git push -q origin proofline/LC-lc 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"
+  S pr > "$base/pr.out" 2>&1 || die "pr step: $(cat "$base/pr.out")"
+}
+scenario_local_origin() {
+  SC_BRANCH=1 scaffold orchestrated; tasks_in_tasks; to_code_done orchestrated; hooks; finish_done
+  rm -rf "$base/lo.git" "$base/rel.git"; git init -q --bare "$base/lo.git"; git init -q --bare "$base/rel.git"
+  for u in "$base/lo.git" "../rel.git" "file://$base/lo.git"; do
+    git remote set-url origin "$u"
+    [ "$(sh "$tl_agents/scripts/platform.sh" field local -C "$PWD")" = yes ] && [ "$(sh "$tl_agents/scripts/platform.sh" field platform -C "$PWD")" = other ] || die "$u is not a local origin of platform other"
+    A deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan refused the local origin $u: $(tail -2 "$base/plan.out")"
+    grep -q '^steps: commit push pr$' .agents/local/deliver/LC/SUMMARY.md && grep -q '^merge_by: user$' .agents/local/deliver/LC/SUMMARY.md || die "$u: steps/merge_by: $(cat .agents/local/deliver/LC/SUMMARY.md)"
+    # a relative origin is shown as its absolute url (a direct push from any worktree), the others as origin
+    case "$u" in ../*) lo_w="$(cd "$base" && pwd -P)/${u#../}" ;; *) lo_w=origin ;; esac
+    grep -q "git push $lo_w proofline/LC-lc:main" "$base/plan.out" || die "$u: no 'git push $lo_w proofline/LC-lc:main' hand-off: $(cat "$base/plan.out")"
+  done
+  # a host-shaped address without a path is not a local repository, and no hosting-service tool is applied to a local origin
+  for u in github.com.evil.example https://github.com.evil.example host.example; do
+    git remote set-url origin "$u"
+    expect_msg "deliver-plan on the look-alike origin $u" 'delivery blocked' A deliver-plan LC
+  done
+  git remote set-url origin "$base/lo.git"
+  printf '#!/bin/sh\nexit 0\n' > "$base/bin/glab"; chmod +x "$base/bin/glab"
+  expect_msg "a configured CLI platform on a local origin" 'delivery blocked' env PROOFLINE_PLATFORM=gitlab sh ./.agents/scripts/agent.sh deliver-plan LC
+  rm -f "$base/bin/glab"
+  ok "deliver: a local path, relative path or file:// origin is platform other (commit push pr, hand-off git push origin <branch>:main); look-alike addresses are refused; no CLI platform applies to a local origin (A180)"
+}
+scenario_manual_merge_proof() {
+  lo_chain
+  [ -s .agents/local/deliver/LC/MERGE_HEAD ] && grep -q 'deliver-merged LC' "$base/pr.out" || die "the pr step left no hand-off: $(cat "$base/pr.out")"
+  mkdir -p .agents/local/batch
+  # not merged yet: fail closed, nothing recorded, the run stays
+  expect_msg "deliver-merged before the merge" 'not merged' A deliver-merged LC
+  expect_fail "deliver-merged --check before the merge" A deliver-merged LC --check
+  [ ! -s .agents/local/batch/merged.tsv ] && [ -d .agents/runs/LC ] && [ -s .agents/local/deliver/LC/MERGE_HEAD ] || die "a refused deliver-merged recorded or removed something"
+  # a merge of other content does not prove it
+  git clone -q "$lo" "$base/c0" && ( cd "$base/c0" && git checkout -q main && echo other > other.txt && git add other.txt && git commit -qm other && git push -q origin main ) || die "other commit on origin"
+  expect_msg "deliver-merged when origin/main moved on without the delivery" 'not merged' A deliver-merged LC
+  # a squash merge: another commit, identical content on every delivered path
+  ( cd "$base/c0" && git fetch -q origin && git merge --squash -q origin/proofline/LC-lc >/dev/null 2>&1 && git commit -qm 'squash of LC' && git push -q origin main ) || die "squash merge on origin"
+  git merge-base --is-ancestor proofline/LC-lc "$(git ls-remote "$lo" refs/heads/main | cut -f1)" 2>/dev/null && die "the fixture is a fast-forward, not a squash"
+  A deliver-merged LC --check | grep -q '^merged: every delivered path has the same content' || die "check does not prove the squash: $(A deliver-merged LC --check 2>&1)"
+  A deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged refused a squash merge: $(cat "$base/dm.out")"
+  grep -q '^merge recorded for LC: every delivered path has the same content' "$base/dm.out" || die "squash output: $(cat "$base/dm.out")"
+  grep -q "^LC	-	" .agents/local/batch/merged.tsv && [ ! -e .agents/runs/LC ] && [ ! -e .agents/local/deliver/LC ] || die "squash: no record or the run survived"
+  ok "deliver-merged: a squash merge is proven by identical content on every delivered path; not merged (or other content) records nothing and keeps the run"
+}
+scenario_manual_merge_ff() {
+  lo_chain; mkdir -p .agents/local/batch
+  git --git-dir="$lo" update-ref refs/heads/main "$(git rev-parse proofline/LC-lc)"
+  A deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged refused a fast-forward merge: $(cat "$base/dm.out")"
+  grep -q '^merge recorded for LC: the delivered commit is on origin/main' "$base/dm.out" && grep -q 'not on a clean main' "$base/dm.out" || die "ff output: $(cat "$base/dm.out")"
+  grep -q "^LC	-	" .agents/local/batch/merged.tsv && [ ! -e .agents/runs/LC ] || die "ff: no record or the run survived"
+  ok "deliver-merged: a fast-forward merge is proven (ancestor of origin/main), recorded, the run is cleaned up"
+}
+# into_worktree: the finished run LC (and its uncommitted work) moves from the main working tree into its own worktree, as a night-mode run lives there.
+# Afterwards $wt is the worktree, W runs agent.sh in it and the main working tree is on main again.
+into_worktree() {
+  git diff HEAD > "$base/mv.patch"; rm -rf "$base/mv"; mkdir -p "$base/mv"
+  for f in $(git ls-files --others --exclude-standard | grep -v '^\.agents/'); do mkdir -p "$base/mv/$(dirname "$f")"; cp "$f" "$base/mv/$f"; done
+  rm -rf "$base/mv-run"; cp -R .agents/runs/LC "$base/mv-run"
+  git checkout -q -- .; git clean -fdq -e .agents; git checkout -q main; git branch -qD proofline/LC-lc
+  rm -rf .agents/runs/LC; : > .agents/local/ACTIVE_RUN
+  wt=$(A worktree-add LC) || die "worktree-add: $wt"
+  git -C "$wt" checkout -q -b proofline/LC-lc; [ ! -s "$base/mv.patch" ] || git -C "$wt" apply "$base/mv.patch" || die "the work does not apply in the worktree"
+  cp -R "$base/mv/." "$wt/"; mkdir -p "$wt/.agents/runs"; cp -R "$base/mv-run" "$wt/.agents/runs/LC"; echo LC > "$wt/.agents/local/ACTIVE_RUN"
+  mkdir -p .agents/local/batch
+}
+W() { ( cd "$wt" && sh .agents/scripts/agent.sh "$@" ); }
+wt_gone() { [ ! -e "$wt" ] && [ "$(git worktree list | wc -l | tr -d ' ')" = 1 ]; }
+wt_done_run() { SC_BRANCH=1 scaffold orchestrated; tasks_in_tasks; to_code_done orchestrated; hooks; finish_done; into_worktree; }
+# the delivery inside the worktree up to the hand-off to the user (local origin) or to the open pull request (gh)
+wt_deliver() { # local|gh
+  if [ "$1" = local ]; then lo=$base/lo.git; rm -rf "$lo"; git init -q --bare "$lo"; git remote set-url origin "$lo"; git -c core.hooksPath=/dev/null push -q origin main; fi
+  W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan in the worktree: $(tail -2 "$base/plan.out")"
+  capture 'approve delivery'; W approve-pending LC >/dev/null
+  W deliver-step LC commit >/dev/null || die "commit step in the worktree"
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "the commit in the worktree was blocked: $(cat "$base/commit.err")"
+  W deliver-step LC push >/dev/null || die "push step in the worktree"
+  if [ "$1" = local ]; then git -C "$wt" push -q origin proofline/LC-lc 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"
+  else git -C "$wt" push -q bare proofline/LC-lc 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"; git -C "$wt" update-ref refs/remotes/origin/proofline/LC-lc HEAD; fi
+  W deliver-step LC pr > "$base/pr.out" 2>&1 || die "pr step in the worktree: $(cat "$base/pr.out")"
+}
+scenario_wt_cleanup_manual() {
+  wt_done_run; wt_deliver local
+  expect_msg "deliver-merged before the merge" 'not merged' W deliver-merged LC
+  [ -d "$wt" ] || die "an unmerged run lost its worktree"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
+  W deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged in the worktree: $(cat "$base/dm.out")"
+  grep -q '^worktree removed: LC' "$base/dm.out" && wt_gone || die "the worktree survived deliver-merged: $(cat "$base/dm.out")"
+  grep -q "^LC	-	" .agents/local/batch/merged.tsv || die "no merge record"
+  [ "$(git rev-parse main)" = "$(git --git-dir="$lo" rev-parse main)" ] || die "the local main was not brought to the merge (the next task starts from it)"
+  ok "deliver-merged inside the run's worktree: merge proven from git, recorded, local main fast-forwarded, the worktree removed (A169, A181)"
+}
+scenario_wt_cleanup_pr() {
+  wt_done_run; git remote set-url origin https://github.com/acme/app.git; git init -q --bare "$base/bare.git"; git remote add bare "$base/bare.git"
+  wt_deliver gh
+  gh_says "OPEN false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lc main acme"
+  W deliver-step LC merge 7 > "$base/mg.out" 2>&1 || die "merge step in the worktree: $(cat "$base/mg.out")"
+  gh_says "MERGED false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lc main acme"
+  W deliver-step LC cleanup 7 > "$base/cl.out" 2>&1 || die "cleanup step in the worktree: $(cat "$base/cl.out")"
+  grep -q '^worktree removed: LC' "$base/cl.out" && wt_gone || die "the worktree survived deliver-step cleanup: $(cat "$base/cl.out")"
+  ok "deliver-step cleanup after a merged pull request removes the run's worktree (A169)"
+}
+scenario_wt_cleanup_kept() {
+  wt_done_run
+  # the merge is on record: cleanup inside the worktree removes the run and the worktree
+  # (as after a real delivery the work is committed: uncommitted tracked changes keep the worktree)
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" -c core.hooksPath=/dev/null commit -qm 'feat: delivered' || die "commit in the worktree"
+  printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv
+  W cleanup LC > "$base/cl.out" 2>&1 || die "cleanup in the worktree: $(cat "$base/cl.out")"
+  grep -q '^worktree removed: LC' "$base/cl.out" && wt_gone || die "the worktree survived cleanup after the merged record: $(cat "$base/cl.out")"
+  # a leftover worktree of a merged, cleaned-up run: cleanup in the main tree removes it
+  wt=$(A worktree-add LC) || die "worktree-add"; [ -d "$wt" ] || die "no leftover worktree"
+  A cleanup LC > "$base/cl2.out" 2>&1 || die "cleanup of a leftover worktree from the main tree: $(cat "$base/cl2.out")"
+  wt_gone || die "the leftover worktree survived: $(git worktree list)"
+  ok "cleanup: removes the worktree once the merge is on record, also a leftover one from the main tree (A169)"
+}
+scenario_wt_failed_kept() {
+  SC_BRANCH=1 scaffold orchestrated; tasks_in_tasks; hooks; into_worktree
+  printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv   # even with a merge on record a terminated run keeps its evidence
+  printf 'reason: the registry the build needs is unreachable from this environment\nevidence: the install command fails with a network error on every retry\n' | W terminate LC BLOCKED > "$base/tm.out" 2>&1 || die "terminate in the worktree: $(cat "$base/tm.out")"
+  W cleanup LC > "$base/cl.out" 2>&1 || die "cleanup of a BLOCKED run: $(cat "$base/cl.out")"
+  [ -d "$wt" ] && ! grep -q 'worktree removed' "$base/cl.out" || die "a BLOCKED run lost its worktree: $(cat "$base/cl.out")"
+  ok "cleanup of a BLOCKED run keeps its worktree even with a merge on record (A169)"
+}
+
+# A180 round 4: origin is a RELATIVE local path in the shared git config: a run worktree sees the same remote as the main tree, the shown commands name it
+# absolute for one command, and the config itself is never rewritten
+scenario_wt_relative_origin() {
+  wt_done_run
+  lo=$base/lo.git; rm -rf "$lo"; git init -q --bare "$lo"; lo_abs=$(cd "$lo" && pwd -P)
+  git remote set-url origin ../lo.git; git -c core.hooksPath=/dev/null push -q origin main
+  [ ! -d "$wt/../lo.git" ] && [ ! -d "$wt/lo.git" ] || die "the fixture path is also valid from the worktree"
+  W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan in the worktree: $(tail -2 "$base/plan.out")"
+  grep -q "git push $lo_abs proofline/LC-lc" "$base/plan.out" && grep -q "git push $lo_abs proofline/LC-lc:main" "$base/plan.out" || die "the plan shows a relative origin: $(grep -n 'push' "$base/plan.out")"
+  capture 'approve delivery'; W approve-pending LC >/dev/null
+  W deliver-step LC commit >/dev/null || die "commit step"
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
+  W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
+  # round 5: the push step pushes itself (the runtime guard refuses a push to an absolute path outside the project)
+  grep -q "^pushed: proofline/LC-lc -> $lo_abs\$" "$base/push.out" || die "the push step did not push to the absolute origin: $(cat "$base/push.out")"
+  ls "$wt"/.agents/runs/LC/approvals/*-push.yaml >/dev/null 2>&1 && grep -q "^consumed: \"true\"" "$wt"/.agents/runs/LC/approvals/*-push.yaml || die "the push approval was not consumed by the step"
+  [ "$(git --git-dir="$lo" rev-parse -q --verify refs/heads/proofline/LC-lc)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the branch is not in the local origin"
+  W deliver-step LC pr > "$base/pr.out" 2>&1 || die "pr step: $(cat "$base/pr.out")"
+  grep -q "git push $lo_abs proofline/LC-lc:main" "$base/pr.out" || die "the hand-off shows a relative origin: $(cat "$base/pr.out")"
+  expect_msg "deliver-merged --check from the worktree before the merge" 'not merged' W deliver-merged LC --check
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
+  W deliver-merged LC --check > "$base/chk.out" 2>&1 || die "deliver-merged --check from the worktree does not reach the relative origin: $(cat "$base/chk.out")"
+  grep -q '^merged: the delivered commit is on origin/main' "$base/chk.out" || die "the fast-forward merge is not proven: $(cat "$base/chk.out")"
+  [ "$(git config remote.origin.url)" = ../lo.git ] || die "the shared remote.origin.url was rewritten: $(git config remote.origin.url)"
+  ok "relative local origin: a worktree proves the merge, the shown commands name the origin absolute, remote.origin.url stays as configured (A180)"
+}
+
+# A180 round 5: a delivery the user pushed by hand (the pr step never ran, no MERGE_HEAD) is recovered by deliver-merged from the delivered branch's
+# CURRENT head. The summary's head is HEAD before the commit step and is already on origin's main: it must never count as the delivery.
+scenario_hand_pushed() {
+  wt_done_run
+  lo=$base/lo.git; rm -rf "$lo"; git init -q --bare "$lo"; git remote set-url origin "$lo"; git -c core.hooksPath=/dev/null push -q origin main
+  W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan: $(tail -2 "$base/plan.out")"
+  # the trap: no delivery commit yet, the branch is at the summary's head, which origin/main already holds
+  expect_msg "no delivery commit beyond the base" 'no delivery commit' W deliver-merged LC
+  [ ! -e "$wt/.agents/local/deliver/LC/MERGE_HEAD" ] || die "a hand-off was written without a delivery commit"
+  [ ! -s "$wt/.agents/local/batch/merged.tsv" ] && [ ! -s .agents/local/batch/merged.tsv ] || die "a merge was recorded without a delivery commit"
+  capture 'approve delivery'; W approve-pending LC >/dev/null
+  W deliver-step LC commit >/dev/null || die "commit step"
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
+  git -C "$wt" -c core.hooksPath=/dev/null push -q origin proofline/LC-lc 2> "$base/push.err" || die "hand push: $(cat "$base/push.err")"
+  expect_msg "pushed by hand, not merged" 'not merged' W deliver-merged LC
+  [ ! -e .agents/local/batch/merged.tsv ] || ! grep -q '^LC	' .agents/local/batch/merged.tsv || die "an unmerged hand push was recorded"
+  [ -d "$wt/.agents/runs/LC" ] || die "the run went before the merge"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
+  W deliver-merged LC > "$base/dm.out" 2>&1 || die "merged by hand, deliver-merged refused: $(cat "$base/dm.out")"
+  grep -q '^merge recorded for LC' "$base/dm.out" || die "no merge record: $(cat "$base/dm.out")"
+  ok "hand-pushed delivery: the base is never the delivery, an unmerged push is not recorded, a merged one is (A180)"
+}
+
+# --- review round 6 guards -------------------------------------------------------------------------------------------------------------------------------------
+# (2) after CODE_DONE only plain documentation files the plan does not name stay out of the tier; a script, an executable doc, a link and a data file count
+scenario_knowledge_nondoc() {
+  SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; tasks_in_tasks; hooks
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go
+  A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
+  mkdir -p docs/wiki; t() { AS reviewer tier LC; }
+  [ "$(t)" = small ] || die "the fixture is not small"
+  printf '# a\n' > docs/wiki/a.md; printf '# b\n' > docs/wiki/b.md; printf '# c\n' > docs/wiki/c.md
+  [ "$(t)" = small ] || die "plain .md pages counted toward the tier"
+  rm -f docs/wiki/*
+  printf 'echo 1\n' > docs/wiki/gen.sh; printf 'echo 2\n' > docs/wiki/gen2.sh
+  [ "$(t)" = full ] || die "unnamed scripts under docs/wiki did not count: $(t)"; rm -f docs/wiki/*
+  printf '# a\n' > docs/wiki/x1.md; printf '# b\n' > docs/wiki/x2.md; chmod +x docs/wiki/x1.md docs/wiki/x2.md
+  [ "$(t)" = full ] || die "executable docs did not count: $(t)"; rm -f docs/wiki/*
+  ln -s ../../impl.txt docs/wiki/l1.md; ln -s ../../impl_test.txt docs/wiki/l2.md
+  [ "$(t)" = full ] || die "symlinked docs did not count: $(t)"; rm -f docs/wiki/*
+  printf '{}\n' > docs/wiki/d1.json; printf '{}\n' > docs/wiki/d2.json
+  [ "$(t)" = full ] || die "non-doc extensions did not count: $(t)"; rm -f docs/wiki/*
+  ok "knowledge: after CODE_DONE .md pages stay out of the tier; a script, an executable doc, a symlink and a data file under docs/wiki count (round 6)"
+}
+# (3)(4) the worktree of a merged run goes only on this run's own merge record, with nothing untracked left in it
+scenario_wt_cleanup_guards() {
+  wt_done_run
+  CLEANUP_MERGED=yes W cleanup LC > "$base/c1.out" 2>&1 || die "cleanup: $(cat "$base/c1.out")"
+  [ -d "$wt" ] && ! grep -q 'worktree removed' "$base/c1.out" || die "CLEANUP_MERGED=yes in the environment removed the worktree: $(cat "$base/c1.out")"
+  wt_done_run
+  printf 'OTHER\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv
+  W cleanup LC > "$base/c2.out" 2>&1 || die "cleanup: $(cat "$base/c2.out")"
+  [ -d "$wt" ] && ! grep -q 'worktree removed' "$base/c2.out" || die "another run's merged row removed the worktree: $(cat "$base/c2.out")"
+  wt_done_run
+  printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv; echo evidence > "$wt/notes-by-hand.log"; [ -e "$wt/.agents/local/worktree-copied" ] || : > "$wt/.agents/local/worktree-copied";   # (without that manifest file the product's grep -f fails and the check passes: reported)
+  printf '*.log\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+  W cleanup LC > "$base/c3.out" 2>&1 || die "cleanup: $(cat "$base/c3.out")"
+  [ -f "$wt/notes-by-hand.log" ] && grep -q 'holds files git does not track' "$base/c3.out" || die "a worktree with an ignored file of its own was removed: $(cat "$base/c3.out")"
+  # the same without a copied-files manifest (no .env was copied): a missing list is an empty list, the file still keeps the worktree
+  wt_done_run
+  printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv; echo evidence > "$wt/notes-by-hand.log"; rm -f "$wt/.agents/local/worktree-copied"
+  printf '*.log\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+  W cleanup LC > "$base/c4.out" 2>&1 || die "cleanup: $(cat "$base/c4.out")"
+  [ -f "$wt/notes-by-hand.log" ] && ! grep -q 'worktree removed' "$base/c4.out" || die "without a manifest an ignored file did not keep the worktree: $(cat "$base/c4.out")"
+  ok "cleanup: an environment claim and another run's merge row do not remove the worktree; an ignored file of the run keeps it (round 6)"
+}
+# (5)(6) relative local origin: the approved head is pushed, the origin is pinned, an option-like origin is refused; an empty delivery proves no merge
+scenario_wt_relative_guards() {
+  wt_done_run
+  lo=$base/lo.git; rm -rf "$lo" "$base/lo2.git"; git init -q --bare "$lo"; git init -q --bare "$base/lo2.git"
+  git remote set-url origin ../lo.git; git -c core.hooksPath=/dev/null push -q origin main
+  W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan: $(tail -2 "$base/plan.out")"
+  capture 'approve delivery'; W approve-pending LC >/dev/null
+  W deliver-step LC commit >/dev/null || die "commit step"
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
+  # the origin changes after the summary was approved: refused, nothing pushed
+  git remote set-url origin ../lo2.git
+  expect_msg "push step after the origin changed" 'origin changed since the summary was approved' W deliver-step LC push
+  [ -z "$(git --git-dir="$base/lo2.git" for-each-ref refs/heads/proofline)" ] || die "a branch reached the changed origin"
+  git config remote.origin.url -oProxyCommand=touch
+  W deliver-step LC push > "$base/opt.out" 2>&1 || :
+  ! grep -q '^pushed:' "$base/opt.out" || die "the push step pushed to an option-like origin: $(cat "$base/opt.out")"
+  [ ! -e "$wt/touch" ] && [ ! -e touch ] || die "an option-like origin was executed"
+  git remote set-url origin ../lo.git
+  W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
+  [ "$(git --git-dir="$lo" rev-parse refs/heads/proofline/LC-lc)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the approved head was not pushed"
+  W deliver-step LC pr >/dev/null 2>&1 || die "pr step"
+  # an empty delivery (the delivered commit is the run's base) proves nothing
+  printf '%s\tmain\tproofline/LC-lc\n' "$(sed -n 's/^  base_sha: *//p' "$wt/.agents/runs/LC/RUN.yaml" | tr -d '"' | head -n 1)" > "$wt/.agents/local/deliver/LC/MERGE_HEAD"
+  expect_msg "deliver-merged of an empty delivery" 'empty delivery' W deliver-merged LC
+  [ ! -s .agents/local/batch/merged.tsv ] || die "an empty delivery was recorded as merged"
+  ok "relative origin: the approved head is pushed, a changed or option-like origin is refused, an empty delivery records no merge (round 6)"
+}
+
 run_sc scenario_normal_chain
 run_sc scenario_cleanup_crash_keeps_merged
 run_sc scenario_content_change_stops
@@ -316,4 +608,18 @@ run_sc scenario_task_done_noop
 run_sc scenario_ci_check
 run_sc scenario_one_approval_real_chain
 run_sc scenario_partial_reply_recovers
+run_sc scenario_knowledge_tier
+run_sc scenario_knowledge_tier_before_and_next
+run_sc scenario_local_origin
+run_sc scenario_manual_merge_proof
+run_sc scenario_manual_merge_ff
+run_sc scenario_wt_cleanup_manual
+run_sc scenario_wt_cleanup_pr
+run_sc scenario_wt_cleanup_kept
+run_sc scenario_wt_failed_kept
+run_sc scenario_wt_relative_origin
+run_sc scenario_hand_pushed
+run_sc scenario_knowledge_nondoc
+run_sc scenario_wt_cleanup_guards
+run_sc scenario_wt_relative_guards
 echo 'deliver tests passed'

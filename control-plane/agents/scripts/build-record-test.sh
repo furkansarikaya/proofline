@@ -72,6 +72,13 @@ echo node_modules >> .gitignore; mkdir node_modules; echo dep > node_modules/m
 setcmd build "test -f node_modules/m"
 A build-record LC run > "$base/dep.out" || die "the build did not see the ignored node_modules: $(cat "$base/dep.out")"
 ok "an ignored dependency directory is available to the build"
+# A185: the export holds a COPY (worktree_deps data), never a link into the project: a write by the build stays in the export
+printf 'test -f node_modules/m && test ! -L node_modules && echo x > node_modules/written && echo y >> node_modules/m\n' > "$base/dep-build.sh"
+setcmd build "sh $base/dep-build.sh"
+A build-record LC run > "$base/dep2.out" || die "the build saw a link or no copy of node_modules: $(cat "$base/dep2.out")"
+[ ! -e node_modules/written ] && [ "$(cat node_modules/m)" = dep ] || die "a build wrote through into the project's node_modules"
+setcmd build "test -f node_modules/m"
+ok "the dependency folder of the export is a copy: a build write does not reach the project (A185)"
 
 # --- A174: the key tells command lists apart, and keeps the original form for scalar config ---
 setlist() { # build-items test-items (items separated by |): rewrite the build and test keys as block lists

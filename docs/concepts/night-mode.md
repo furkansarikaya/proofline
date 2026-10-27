@@ -70,10 +70,25 @@ to `in-progress/` and the open-run check of the commit and push hooks all belong
 - a merged task's worktree is removed; a parked one keeps its worktree (its run evidence lives there) and the next session
   for that task resumes in it. A pull request that is open but not merged parks the task as `awaiting merge`.
 
-The `batch`, `approvals`, `metrics`, `friction` and `prompts` folders of the worktree's `.agents/local` are links to the main
-working tree's, so the session finds the batch approval and the merge record where the batch reads them, and a reply you
-give in the main session reaches `answer --captured`. Untracked runtime settings
-(`.claude/settings.json`, `.codex/hooks.json`) are copied in and a `node_modules` folder is linked. `proofline clean` leaves
+**Where state lives (A185).** The state of one run (`.agents/runs`, `ACTIVE_RUN`, the delivery folder, assignments, locks, the
+hook's windows, records and timings) lives in the worktree that owns the run. The runtime hook decides which worktree an event
+belongs to from the path the tool touches (when it is inside the project) or else from the working directory, using
+`agent.sh worktree-root`, and asks that worktree's `agent.sh`, so the hook, the session and `agent.sh` always read and write
+the same run folder. The state that belongs to no single run (`batch`, `approvals`, `metrics`, `friction`, `prompts`) lives
+only in the main working tree, and every reader reaches it by path (`shared_dir` in `agent.sh`; the hook uses the main tree
+too), never through a link, so a reply you give in the main session reaches `answer --captured` and the session finds the
+batch approval and the merge record. Untracked runtime settings (`.claude/settings.json`, `.codex/hooks.json`) are copied in.
+**Dependencies.** A worktree never shares a dependency folder with the main tree: `worktree-add` gives it its own copy (a
+copy-on-write clone where the file system has one) of every git-ignored folder that `worktree_deps.folders` names in
+`ecosystems.json` (for example `node_modules`; `proofline` knows no ecosystem itself, it reads that data), so a task that
+changes dependencies changes only its own worktree. A folder that is not relocatable (a Python virtual environment, `.dart_tool`,
+`obj`) is not listed and is not copied: the task installs its own. **Local files.** Untracked files that match
+`worktree.copy_files` in `.agents/config.yaml` (default `.env*`, `none` switches it off; a pattern without `/` matches at any
+depth) are copied in so the project runs, but only a file git IGNORES (one that is not ignored is reported and left behind). A
+copied file is listed in the worktree's `.agents/local/worktree-copied`; the pre-commit hook refuses to commit it, even with
+`git add -f`, and the secret scan is unchanged. **Windows.** Nothing needs symlinks: where Git Bash cannot create them (no
+developer mode), a link would be a stale copy, so none is made; the shared state is read from the main tree's folder by path.
+`proofline clean` leaves
 the worktrees alone; remove one with `agent.sh worktree-remove <ID>` (refused while a run is inside, `--force` overrides).
 Outside night mode `agent.sh worktree-add <ID>` gives a second run the same kind of worktree; start the session in that folder.
 
@@ -93,6 +108,7 @@ merge time, park reason and the pending question of each parked task, then the f
 - Night mode runs markdown task files only: the order and the classes are read from the task files, not from network calls. Import
   other tasks with `/proofline task`; `batch-plan` says so.
 - One session works a batch. `batch-next` records the session in `batch/owner`; a second live session is told `NEXT: wait (owned by pid N)`, and a dead owner is taken over. Without a findable session process there is no guard.
+- Where you merge yourself (platform other, a local bare origin, Bitbucket, a missing tool) the task waits as `awaiting merge` after the push. Merge the branch into origin's main (for example `git push origin <branch>:main`), then `/proofline batch`: `batch-next` says `NEXT: deliver <ID> merged`, `agent.sh deliver-merged <ID>` proves the merge from git (the delivered commit is on origin/main, or every delivered file has the same content there), records it, fast-forwards a clean local main and removes the run and its worktree, and the batch goes on with the next task. A merge git cannot prove is never recorded.
 - A pull request that was opened but has no merge record (the session died after the merge, or you merged by hand) is read from the platform: merged leads to `deliver-step <ID> cleanup <PR>`, which records the merge; open stays parked; an unreadable state is said in the park reason.
 
 Removed in 0.0.32 : the headless batch driver (`batch run`, the detached `batch start` and `batch stop`, process groups, the

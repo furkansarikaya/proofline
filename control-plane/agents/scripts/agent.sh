@@ -7,15 +7,32 @@
 set -eu
 LC_ALL=C; export LC_ALL
 
-root=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
+# A188: the folder of this script by parameter expansion (no dirname process; every hook event starts this script at least once)
+case "$0" in */*) self_dir=${0%/*}; [ -n "$self_dir" ] || self_dir=/ ;; *) self_dir=. ;; esac
+root=$(CDPATH='' cd "$self_dir/../.." && pwd)
 agents=$root/.agents
 config=$agents/config.yaml
 scripts=$agents/scripts
+# A185: shared_dir NAME is the ONE place the state that belongs to no single run (batch approvals metrics friction prompts) lives:
+# <main working tree>/.agents/local/NAME, reached by path from the main tree and from every run worktree, never through a link (a
+# link is a copy on Windows without symlink rights, and a copy would go stale). In the main tree sr_main is root, so nothing changes there.
+sr_main=$root
+if [ -f "$root/.git" ]; then   # a linked worktree has a .git file; only the ones proofline made under <main>/.agents/local/worktrees share
+  sr_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); sr_p=$(cd "$root" && pwd -P)
+  case "$sr_p" in "$sr_m"/.agents/local/worktrees/*) sr_main=$sr_m ;; esac
+fi
+shared_dir() { printf '%s/.agents/local/%s\n' "$sr_main" "$1"; }
+PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
+cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
 
-if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 | awk '{print $1}'; }
-else sha256() { sha256sum | awk '{print $1}'; }; fi
+# A188: the digest is the first word of the tool's line (no awk process)
+if command -v shasum >/dev/null 2>&1; then sha256() { sh_o=$(shasum -a 256) || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }
+else sha256() { sh_o=$(sha256sum) || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }; fi
 hash_file() { sha256 < "$1"; }
+# seq3 FILE [raw]: the first three characters of the file's name (its sequence number), leading zeros removed unless `raw` (A188: replaces
+# basename | cut -c1-3 | sed 's/^0*//', three processes per approval or request file).
+seq3() { s3_b=${1##*/}; case $s3_b in ???*) s3_b=${s3_b%"${s3_b#???}"} ;; esac; [ "${2:-}" = raw ] || s3_b=${s3_b#"${s3_b%%[!0]*}"}; printf '%s\n' "$s3_b"; }
 fail() { echo "$*" >&2; return 1; }
 now_epoch() { date +%s; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -54,7 +71,7 @@ acquire_lock() {
   case " $held_locks " in *" $al_path "*) return 0 ;; esac
   al_timeout=${PROOFLINE_LOCK_TIMEOUT:-120}
   case "$al_timeout" in ''|*[!0-9]*) fail "invalid PROOFLINE_LOCK_TIMEOUT: $al_timeout"; return 1 ;; esac
-  [ -w "$(dirname "$al_path")" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
+  [ -w "${al_path%/*}" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
   al_tries=$((al_timeout * 5)) al_n=0 al_broke=''
   while ! mkdir "$al_path" 2>/dev/null; do
     if [ -f "$al_path/pid" ]; then
@@ -155,16 +172,19 @@ config_value() { cfg "$1"; }
 #   eco_dependency_set  the signal whose check is `dependencies` += manifests, locks and package-source settings
 eco_risky_set='' eco_dependency_set='' eco_loaded=0
 eco_sh=$scripts/ecosystems.sh eco_tsv=$agents/ecosystems.tsv
-if [ ! -s "$eco_tsv" ] || [ ! -f "$eco_sh" ]; then
+# A188: the runtime hook asks these read-only questions on most tool calls; none of them reads the ecosystem sets, so the
+# definition (two processes to read) is not loaded for them.
+eco_lazy=no; case "${1:-}" in config-get|db-config|hook-config|worktree-root|in-knowledge-scope) eco_lazy=yes ;; esac
+if [ "$eco_lazy" = no ] && { [ ! -s "$eco_tsv" ] || [ ! -f "$eco_sh" ]; }; then
   # The project's copy is missing. When this script runs from another folder than the project's .agents/ (the repository layout:
   # control-plane/agents/scripts), the definition shipped beside it is used, so risk never shrinks silently. In an installed project
   # the shipped copy IS the project's copy (same folder), so nothing is substituted and the warning and `doctor` apply.
-  eco_ship=$(CDPATH='' cd "$(dirname "$0")/.." 2>/dev/null && pwd) || eco_ship=''
+  eco_ship=$(CDPATH='' cd "$self_dir/.." 2>/dev/null && pwd) || eco_ship=''
   if [ -n "$eco_ship" ] && [ "$eco_ship" != "$agents" ] && [ -s "$eco_ship/ecosystems.tsv" ] && [ -f "$eco_ship/scripts/ecosystems.sh" ]; then
     eco_sh=$eco_ship/scripts/ecosystems.sh eco_tsv=$eco_ship/ecosystems.tsv
   fi
 fi
-if [ -f "$eco_sh" ] && [ -s "$eco_tsv" ]; then
+if [ "$eco_lazy" = no ] && [ -f "$eco_sh" ] && [ -s "$eco_tsv" ]; then
   # shellcheck source=/dev/null # ecosystems.sh next to this script
   . "$eco_sh"
   if eco_init "$eco_tsv"; then
@@ -188,7 +208,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -225,6 +245,8 @@ config_check() {
       else if (k ~ /^review\.(max_fix_rounds|small_max_files|small_max_lines)$/ || k ~ /^(test_trust|budgets|performance)\./) num(k, v)
       else if (k == "git.commit_format") en(k, v, "conventional|plain")
       else if (k == "git.push_requires_approval") en(k, v, "true|false")
+      else if (k == "git.platform") en(k, v, "github|gitlab|azure|bitbucket|other")
+      else if (k == "git.platform_host") { if (v != "" && v !~ /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/) bad("git.platform_host is a bare host name such as gitlab.company.com (no scheme, port, path or spaces): " v) }
       else if (k == "tasks.adapter") en(k, v, "markdown|github|jira|linear")
       else if (top == "design_docs" && p[2] == "design" && p[3] != "") {
         # design_docs.design is a path, or a mapping: shared (a document) and surfaces.<name>.doc|paths|mode
@@ -251,18 +273,21 @@ config_check() {
       else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad(k " must be at least 30") }
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
+      else if (k == "worktree.copy_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[|\\]/) bad("worktree.copy_files must be project-relative globs without a leading / or .. : " v) }
+      else if (top == "worktree" && k != "worktree") bad("unknown worktree key: " k " (want worktree.copy_files)")
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
       else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
       else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
       else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
       else if (k == "dispatch.claude_permission_mode") en(k, v, "bypassPermissions|acceptEdits|default")
       else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad("dispatch.timeout_seconds must be at least 30") }
-      seen[k] = 1
+      seen[k] = 1; gv[k] = v
     }
     END {
       for (s in hasl) if (hasv[s]) bad("commands." s " has both a value and a list of commands; keep one")
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
+      if (seen["git.platform_host"] && gv["git.platform_host"] != "" && gv["git.platform"] == "") bad("git.platform_host needs git.platform (the platform that host runs)")
       for (s in sn) { if (!sd[s]) bad("design surface " s " has no doc (design_docs.design.surfaces." s ".doc)"); if (!sp[s]) bad("design surface " s " has no paths (design_docs.design.surfaces." s ".paths)") }
       for (s in sn) nsn++
       if (hs && !nsn) bad("design_docs.design.surfaces names no surface")
@@ -279,7 +304,7 @@ config_check() {
     done
     # A162: risk.log_sensitive.content is matched by awk (risk_words_match), so awk is the one that must accept it
     cc_v=$(config_get risk.log_sensitive.content "$cc_file" || true)
-    [ -z "$cc_v" ] || RISK_RE=$cc_v awk 'BEGIN { "" ~ ENVIRON["RISK_RE"] }' >/dev/null 2>&1 || echo "invalid regular expression for risk.log_sensitive.content") && [ -z "$cc_out" ] && { echo "config valid: ${cc_file#"$root"/}"; return 0; }
+    [ -z "$cc_v" ] || RISK_RE=$cc_v awk 'BEGIN { "" ~ ENVIRON["RISK_RE"] }' >/dev/null 2>&1 || echo "invalid regular expression for risk.log_sensitive.content") && [ -z "$cc_out" ] && { echo "config valid: ${cc_file#"$root"/}"; { [ "$cc_file" != "$config" ] || [ ! -f "$scripts/platform.sh" ] || sh "$scripts/platform.sh" warn -C "$root" 2>/dev/null; } >&2 || :; return 0; }
   printf '%s\n' "$cc_out" >&2; fail "config invalid: ${cc_file#"$root"/}"
 }
 
@@ -940,12 +965,26 @@ tier_rank() { case "$1" in docs) echo 0 ;; small) echo 1 ;; full) echo 2 ;; *) e
 tier_max() { if [ "$(tier_rank "$1")" -ge "$(tier_rank "$2")" ]; then echo "$1"; else echo "$2"; fi; }
 # Paths the task changed against repository.base_sha (tracked, staged or not, plus untracked), minus the run
 # directory, .agents/local/, the task files directory and baseline files whose content is unchanged.
+# knowledge_doc_file PATH (round 6): only a regular, non-executable, non-symlink file with a documentation extension counts as knowledge output;
+# anything else under the knowledge scope (a script, a link, an executable) stays task output and is scanned, sized and gated.
+knowledge_doc_file() {
+  kd_f=$root/$1
+  { [ -f "$kd_f" ] && [ ! -L "$kd_f" ] && [ ! -x "$kd_f" ]; } || return 1
+  case "$1" in *.md|*.mdx|*.rst|*.adoc|*.html|*.txt|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.webp) ;; *) return 1 ;; esac
+  case "$(dirname "$kd_f")" in "$root"|"$root"/*) ;; *) return 1 ;; esac
+  [ "$(cd "$(dirname "$kd_f")" 2>/dev/null && pwd -P)" = "$(cd "$root" && pwd -P)/$(dirname "$1")" ] || return 1   # no linked folder on the way
+}
 task_changed_paths() {
   tcp_d=$(run_dir "$1"); tcp_base=$(repository_base_sha "$tcp_d"); case "$tcp_base" in ''|PENDING) tcp_base=HEAD ;; esac
   tcp_tasks=$(cfg tasks.dir .agents/tasks); tcp_maps=$(scope_mappings "$tcp_d/PLAN.md" 2>/dev/null) || tcp_maps=''
+  # A184 (round 2): from CODE_DONE on, a knowledge-scope file (docs/wiki, design documents, ADR) the plan does not name is the knowledge step's
+  # output, not task output: it never moves the tier, risk signals or the gates (knowledge_owned_paths and the SECRETS rescan own it). Before
+  # CODE_DONE such a file still counts (verify-scope reports it as unauthorized).
+  tcp_ks=no; case "$(section_value "$tcp_d" handoff state 2>/dev/null)" in CODE_DONE|DONE) tcp_ks=yes ;; esac
   { git -C "$root" diff --no-renames --name-only "$tcp_base" -- 2>/dev/null; current_untracked_paths; } | sort -u | while IFS= read -r tcp_p; do
     [ -n "$tcp_p" ] || continue
     case "$tcp_p" in .agents/runs/*|.agents/local/*|"$tcp_tasks"/*) continue ;; esac
+    if [ "$tcp_ks" = yes ] && in_knowledge_scope "$tcp_p" && ! authorized_path "$tcp_maps" "$tcp_p" && knowledge_doc_file "$tcp_p"; then continue; fi
     # a control-plane file the plan scope does not name is the user's edit, not a task change (verify-scope lists it)
     case "$tcp_p" in .agents/*) authorized_path "$tcp_maps" "$tcp_p" || continue ;; esac
     # A154: nor is a file `upgrade` installs (or the proofline block of AGENTS.md/CLAUDE.md): an upgrade never moves the tier
@@ -1593,7 +1632,7 @@ verify_intent_provenance() { # ID
   vi_id=$1
   vi_f=$(run_dir "$vi_id")/design/INTENT.md
   [ -f "$vi_f" ] || vi_f=$root/$(cfg tasks.dir .agents/tasks)/$vi_id/design/INTENT.md
-  vi_h=$root/.agents/local/prompts/history
+  vi_h=$(shared_dir prompts)/history
   [ -f "$vi_f" ] || return 0
   vi_all=$(cat "$vi_h"/* 2>/dev/null | tr -s ' \t\n' ' ')
   # `id<TAB>decision` of every scope decision of the tree (A105 reads the decision).
@@ -2163,6 +2202,12 @@ db_config() { # paths | clients | migrate_commands | all
     all) printf 'paths=%s\nclients=%s\nmigrate_commands=%s\n' "$(db_config paths)" "$(db_config clients)" "$(db_config migrate_commands)" ;;
     *) fail "usage: agent.sh db-config <paths|clients|migrate_commands|all>" ;;
   esac
+}
+# hook_config (A188): every config value the runtime hook needs on a tool call, in one run: the database settings (db-config all) and
+# tasks.dir, canonical_branch and product.dir, empty when absent. The hook asks it once per event instead of one process tree per value.
+hook_config() {
+  db_config all
+  printf 'tasks_dir=%s\ncanonical_branch=%s\nproduct_dir=%s\n' "$(cfg tasks.dir '')" "$(cfg canonical_branch '')" "$(cfg product.dir '')"
 }
 db_file_meta() { stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1" 2>/dev/null || echo unknown; }
 db_snapshot() { # "path|size mtime" per database file inside the project, sorted
@@ -3352,7 +3397,7 @@ next_num() { # DIR -> next NNN over files whose name starts with three digits
   nn_max=0
   for nn_f in "$1"/[0-9][0-9][0-9]*; do
     [ -e "$nn_f" ] || continue
-    nn_v=$(basename "$nn_f" | cut -c1-3 | sed 's/^0*//'); nn_v=${nn_v:-0}
+    nn_v=$(seq3 "$nn_f"); nn_v=${nn_v:-0}
     [ "$nn_v" -le "$nn_max" ] || nn_max=$nn_v
   done
   printf '%03d\n' $((nn_max + 1))
@@ -3603,9 +3648,14 @@ probe_visual() {
   for pv_a in 'Google Chrome.app/Contents/MacOS/Google Chrome' 'Chromium.app/Contents/MacOS/Chromium' 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge' 'Brave Browser.app/Contents/MacOS/Brave Browser'; do
     [ -x "$pv_root/Applications/$pv_a" ] && { printf 'browser %s\n' "$pv_root/Applications/$pv_a"; return 0; }
   done
-  [ -f "$root/package.json" ] || return 0
-  for pv_t in @playwright/test playwright playwright-core puppeteer puppeteer-core cypress webdriverio @wdio/cli selenium-webdriver; do
-    grep -Fq "\"$pv_t\"" "$root/package.json" && [ -d "$root/node_modules/$pv_t" ] && { printf 'project browser-test dependency %s (package.json, node_modules)\n' "$pv_t"; return 0; }
+  # the project's own browser-test dependency: the manifest, folder and names of every ecosystem come from ecosystems.json (browser_test)
+  [ "$eco_loaded" = 1 ] || return 0
+  for pv_e in $(eco_ids); do
+    pv_m=$(eco_first "$pv_e" browser_test.manifest); pv_dd=$(eco_first "$pv_e" browser_test.deps_dir)
+    [ -n "$pv_m" ] && [ -n "$pv_dd" ] && [ -f "$root/$pv_m" ] || continue
+    for pv_t in $(eco_get "$pv_e" browser_test.names); do
+      grep -Fq "\"$pv_t\"" "$root/$pv_m" && [ -d "$root/$pv_dd/$pv_t" ] && { printf 'project browser-test dependency %s (%s, %s)\n' "$pv_t" "$pv_m" "$pv_dd"; return 0; }
+    done
   done
   return 0
 }
@@ -3990,7 +4040,7 @@ language_extra() {
   case "$le_run" in ''|*[!A-Za-z0-9._-]*) le_run='' ;; esac
   {
     [ -z "$le_run" ] || cat "$(run_dir "$le_run")/TASK.md" 2>/dev/null || :
-    cat "$root"/.agents/local/prompts/history/*.txt 2>/dev/null || :
+    cat "$(shared_dir prompts)"/history/*.txt 2>/dev/null || :
   } | tr -s '[:space:]' ' ' | language_mark > "$le_t"
   printf '%s\n' "$le_t"
 }
@@ -4048,7 +4098,7 @@ language_question_file() {
 }
 language_scan() {
   ls_rc=0; ls_blob=$(mktemp "${TMPDIR:-/tmp}/proofline-lang.XXXXXX"); ls_extra=''; ls_hc=''; ls_hw=''; ls_ready=no
-  cat "$root"/.agents/local/prompts/history/*.txt > "$ls_blob" 2>/dev/null || :
+  cat "$(shared_dir prompts)"/history/*.txt > "$ls_blob" 2>/dev/null || :
   for ls_f in "$@"; do
     [ -f "$ls_f" ] || continue
     case "$ls_f" in */runs/*/reviews/visual-proof/*|*/runs/*/reports/qa-evidence/*) continue ;; esac   # machine output (A172)
@@ -4283,6 +4333,11 @@ $2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent
     else [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions" > "$sb_tmp/questions.in"; fi
     sb_questions=$sb_tmp/questions.in
   fi
+  # A184: an explorer's DONE report is a claims table (evidence-map team format); prose is recorded but flagged, and the lead redoes it, never rewrites it
+  if [ "$execution_role" = explorer ] && [ "$sb_res" = DONE ] && [ -f "$sb_d/$sb_norm" ] \
+    && ! grep -Eq '^\|[[:space:]]*id[[:space:]]*\|[[:space:]]*severity[[:space:]]*\|[[:space:]]*path:line' "$sb_d/$sb_norm"; then
+    echo "NOTE: the explorer report $sb_norm has no claims table (| id | severity | path:line | finding | evidence |, evidence-map's format). The lead must not turn it into EVIDENCE.md itself: send the SAME explorer (or the same assignment again) back to redo it as that table, one verified path:symbol per row" >&2
+  fi
   if [ "$execution_role" = verifier ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
     sb_ds=$(verify_design_sync "$sb_id") || submit_fail "$sb_ds"
   fi
@@ -4488,7 +4543,7 @@ valid_approval_kind() {
   esac
 }
 kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
-approvals_dir() { if [ "$1" = - ]; then printf '%s/.agents/local/approvals\n' "$root"; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
+approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
   valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>)"
@@ -4509,8 +4564,8 @@ ab_fp=''   # the content fingerprint approve_kinds computed once for all the kin
 approval_bound() { # ID KIND
   case "$2" in
     commit|push|pr|merge|cleanup) if [ -n "$ab_fp" ]; then printf '%s\n' "$ab_fp"; else content_fingerprint; fi ;;
-    report) hash_file "$root/.agents/local/friction/latest.md" ;;
-    batch) hash_file "$root/.agents/local/batch/SUMMARY.md" ;;
+    report) hash_file "$(shared_dir friction)/latest.md" ;;
+    batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
@@ -4558,15 +4613,26 @@ safe_state_file() {
   { [ ! -L "$1" ] && [ -f "$1" ]; } || return 1
   [ -n "$(find "$1" -prune -type f -links 1 2>/dev/null)" ] || return 1
   sf_d=$(dirname "$1")
-  while [ "$sf_d" != "$root" ]; do
-    case "$sf_d" in "$root"/*) ;; *) return 1 ;; esac
+  # A185: shared state (prompts, approvals of no run) lives in the main tree, which is not under a worktree's root: the walk ends at whichever
+  # of the two roots holds the file, and every folder on the way is still checked
+  sf_b=$root
+  case "$sf_d" in "$root"|"$root"/*) ;; "$sr_main"|"$sr_main"/*)
+    # round 6: outside its own root a session reaches only the shared folders and the registered run worktrees, not any file of the main tree
+    sf_b=$sr_main; sf_ok=no
+    for sf_n in $rw_shared; do case "$sf_d" in "$sr_main/.agents/local/$sf_n"|"$sr_main/.agents/local/$sf_n"/*) sf_ok=yes ;; esac; done
+    case "$sf_d" in "$sr_main/.agents/local/worktrees/"*) sf_w=${sf_d#"$sr_main/.agents/local/worktrees/"}; sf_w=${sf_w%%/*}
+      git -C "$sr_main" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$sr_main/.agents/local/worktrees/$sf_w" && sf_ok=yes ;; esac
+    [ "$sf_ok" = yes ] || return 1 ;;
+  esac
+  while [ "$sf_d" != "$sf_b" ]; do
+    case "$sf_d" in "$sf_b"/*) ;; *) return 1 ;; esac
     [ ! -L "$sf_d" ] || return 1
     sf_d=$(dirname "$sf_d")
   done
 }
 latest_capture() { # -> the capture file with the greatest time, or exit 1; any unsafe capture file fails
   lc_best='' lc_t=-1
-  for lc_f in "$root"/.agents/local/prompts/*.json; do
+  for lc_f in "$(shared_dir prompts)"/*.json; do
     [ -e "$lc_f" ] || [ -L "$lc_f" ] || continue
     safe_state_file "$lc_f" || { fail "prompt capture ${lc_f#"$root"/} is not a regular single-link file on a symlink-free path; refusing every capture"; return 1; }
     lc_v=$(capture_field "$lc_f" time 2>/dev/null) || continue
@@ -4581,6 +4647,13 @@ latest_capture() { # -> the capture file with the greatest time, or exit 1; any 
 # `single-step`); every other byte, non-ASCII letters included, passes unchanged.
 approval_norm() {
   LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sed "s/'//g; s/’//g" | LC_ALL=C tr '!"#$%&()*+,./:;<=>?@[\\]^`{|}~' ' ' | LC_ALL=C tr -s '[:space:]' ' ' | LC_ALL=C sed 's/^ //; s/ $//'
+}
+# approval_norm_lines (A188): the same normalisation for many lines at once, one output line per input line (a line that normalises to
+# nothing stays an empty line). The runtime hook records an approval on the user's prompt, where approval_norm ran five processes for each
+# of the dozens of allowlisted sentences; here one pipeline does them all. The whitespace squeeze leaves newlines alone, so every line
+# is normalised exactly as approval_norm would normalise it alone.
+approval_norm_lines() {
+  LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sed "s/'//g; s/’//g" | LC_ALL=C tr '!"#$%&()*+,./:;<=>?@[\\]^`{|}~' ' ' | LC_ALL=C tr -s '[:blank:]\r\f\v' ' ' | LC_ALL=C sed 's/^ //; s/ $//'
 }
 # approval_phrases: the explicit approval allowlist (A108): `approval.phrases`, else the built-in English and Turkish list.
 approval_phrases() { cfg approval.phrases 'approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur'; }
@@ -4634,13 +4707,13 @@ text_has_approval() {
   case "$tha_raw" in *\?*) return 1 ;; esac
   tha_n=$(printf '%s\n' "$tha_raw" | approval_norm); [ -n "$tha_n" ] || return 1
   tha_low=" $tha_n "
-  tha_full=$(approval_sentences "$2" "${3:-}" | while IFS= read -r tha_s; do printf '%s\n' "$tha_s" | approval_norm; echo; done)
+  tha_full=$(approval_sentences "$2" "${3:-}" | approval_norm_lines)
   case "
 $tha_full
 " in *"
 $tha_n
 "*) return 0 ;; esac
-  tha_pl=$(approval_phrases | tr ',' '\n' | while IFS= read -r tha_x; do printf '%s\n' "$tha_x" | approval_norm; echo; done)
+  tha_pl=$(approval_phrases | tr ',' '\n' | approval_norm_lines)
   tha_kw=$(kind_words "$2" | approval_norm)
   tha_ok=" $(printf '%s' "$tha_pl" | tr '\n' ' ') $tha_kw $(approval_fillers | approval_norm) "
   for tha_t in $tha_n; do case "$tha_ok" in *" $tha_t "*) ;; *) return 1 ;; esac; done
@@ -4687,7 +4760,7 @@ approval_retry() {
   if ! text_has_approval "$ar_f" "$2" "${3:-}"; then rm -f "$ar_f"; return 1; fi
   rm -f "$ar_f"
   ar_o=$(sh "$scripts/agent.sh" approve "$3" "$2" 2>&1 </dev/null) && ar_rc=0 || ar_rc=$?
-  printf '%s target=%s kinds=%s rc=%s retry output: %s\n' "$(now_iso)" "$3" "$2" "$ar_rc" "$(printf '%s' "$ar_o" | tr '\n' ' ' | cut -c1-300)" >> "$root/.agents/local/approve.log" 2>/dev/null || :
+  printf '%s target=%s kinds=%s rc=%s retry output: %s\n' "$(now_iso)" "$3" "$2" "$ar_rc" "$(printf '%s' "$ar_o" | tr '\n' ' ' | cut -c1-300)" >> "$sr_main/.agents/local/approve.log" 2>/dev/null || :
   [ "$ar_rc" = 0 ]
 }
 latest_request() { # ID KIND -> request file
@@ -4697,10 +4770,10 @@ latest_request() { # ID KIND -> request file
 # that was approved (and perhaps consumed) is used up and never reused, even when its bound hash is unchanged.
 pending_request() {
   pr_r=$(latest_request "$1" "$2") || return 1
-  pr_n=$(basename "$pr_r" | cut -c1-3 | sed 's/^0*//')
+  pr_n=$(seq3 "$pr_r")
   for pr_f in "$(approvals_dir "$1")"/[0-9][0-9][0-9]-"$(kind_slug "$2")".yaml; do
     [ -e "$pr_f" ] || continue
-    [ "$(basename "$pr_f" | cut -c1-3 | sed 's/^0*//')" -lt "$pr_n" ] || return 1
+    [ "$(seq3 "$pr_f")" -lt "$pr_n" ] || return 1
   done
   printf '%s\n' "$pr_r"
 }
@@ -4709,8 +4782,8 @@ pending_request() {
 # satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
 # kind is attempted in its own process, so a refusal ("no approval phrase") changes nothing.
 approve_pending() {
-  ap_run=${1:-}; ap_log=$root/.agents/local/approve.log
-  mkdir -p "$root/.agents/local" 2>/dev/null || :
+  ap_run=${1:-}; ap_log=$sr_main/.agents/local/approve.log   # the shared log (A185): the prompt hook, the main tree and a worktree write one file
+  mkdir -p "$sr_main/.agents/local" 2>/dev/null || :
   for ap_t in $ap_run -; do
     [ -n "$ap_t" ] || continue
     [ "$ap_t" = - ] || [ -d "$(run_dir "$ap_t")" ] || continue
@@ -4735,7 +4808,10 @@ approve_pending() {
     if [ "$ap_rc" = 0 ]; then echo "approved: ${ap_t#-} ${ap_ks# }: $ap_l"
     else case "$ap_o" in *"contain no approval phrase"*|*"none of the open requests"*) ;; *) echo "not recorded: ${ap_t#-} ${ap_ks# }: $ap_l" ;; esac; fi
   done
-  if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ]; then tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; fi
+  # the log is shared by every tree: rotate it under a lock (a rotation racing an append would lose lines); a busy lock just skips the rotation
+  if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ] && mkdir "$ap_log.lock" 2>/dev/null; then
+    tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; rmdir "$ap_log.lock" 2>/dev/null || :
+  fi
   return 0
 }
 # hook_time ID: the runtime hooks' own timings (A171). A hook appends `epoch|name|ms|result|note` to
@@ -4775,7 +4851,7 @@ run_language() {
     rl_q=$(grep -E '^[[:space:]]*>' "$rl_t" 2>/dev/null || :)
     if [ "$(printf '%s\n' "$rl_q" | wc -w)" -ge 3 ]; then printf '%s\n' "$rl_q" | rl_detect; return 0; fi
   fi
-  for rl_f in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
+  for rl_f in $(ls -1 "$(shared_dir prompts)"/history/*.txt 2>/dev/null | sort); do
     [ "$(wc -w < "$rl_f")" -ge 6 ] || continue
     rl_detect < "$rl_f"; return 0
   done
@@ -4860,10 +4936,10 @@ approve() {
   ap_kind=$(canon_kind "$ap_id" "$ap_kind")
   ap_req=$(latest_request "$ap_id" "$ap_kind") || fail "no approval request for $ap_kind: run 'agent.sh request-approval $ap_id $ap_kind' and relay it to the user first"
   safe_state_file "$ap_req" || fail "approval request $(basename "$ap_req") is not a regular single-link file on a symlink-free path"
-  ap_reqn=$(basename "$ap_req" | cut -c1-3); ap_slug=$(kind_slug "$ap_kind"); ap_ad=$(approvals_dir "$ap_id")
+  ap_reqn=$(seq3 "$ap_req" raw); ap_slug=$(kind_slug "$ap_kind"); ap_ad=$(approvals_dir "$ap_id")
   for ap_f in "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml; do
     [ -e "$ap_f" ] || continue
-    [ "$(basename "$ap_f" | cut -c1-3 | sed "s/^0*//")" -lt "$(printf "%s" "$ap_reqn" | sed "s/^0*//")" ] || fail "request $(basename "$ap_req") is already approved; request again for a new approval"
+    [ "$(seq3 "$ap_f")" -lt "$(seq3 "$ap_reqn")" ] || fail "request $(basename "$ap_req") is already approved; request again for a new approval"
   done
   ap_bound=$(approval_bound "$ap_id" "$ap_kind") || return 1
   [ "$ap_bound" = "$(gate_field "$ap_req" bound)" ] || fail "the content changed since the approval request; request again"
@@ -4962,7 +5038,7 @@ approval_consume() { # ID KIND [FINGERPRINT [REF...]] — for the git hooks; exi
 
 # --- Night mode (A157): one approval of one summary stands in for the plan, delivery and mutation budget approvals of the
 # listed tasks. The plan, the digest of its state and the report are batch.sh; here are only the approval checks and the cover.
-batch_dir() { printf '%s/.agents/local/batch\n' "$root"; }
+batch_dir() { shared_dir batch; }
 # batch_approval: the batch approval file, valid only while SUMMARY.md still has the hash it is bound to; it is never consumed.
 batch_approval() {
   ba_s=$(batch_dir)/SUMMARY.md; [ -f "$ba_s" ] || return 1
@@ -5158,18 +5234,18 @@ answer() {
       an_a0=$an_pe; an_prevsrc=$(gate_field "$an_prev" source_message)
     fi
     an_pick=''
-    for an_h in $(ls -1 "$root"/.agents/local/prompts/history/*.txt 2>/dev/null | sort); do
+    for an_h in $(ls -1 "$(shared_dir prompts)"/history/*.txt 2>/dev/null | sort); do
       an_e=${an_h##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
       [ "$an_e" -ge "$an_a0" ] || continue
       grep -q '[^[:space:]]' "$an_h" && [ "$(head -c 19 "$an_h")" != '<task-notification>' ] || continue
       [ "${an_h##*/}" != "$an_prevsrc" ] || continue
       # an amend takes the newest message no answer has used (a used one belongs to another question)
-      [ "$an_amend" = no ] || ! grep -qxF "${an_h##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null || continue
+      [ "$an_amend" = no ] || ! grep -qxF "${an_h##*/}" "$(shared_dir prompts)/consumed" 2>/dev/null || continue
       an_pick=$an_h
     done
     [ -n "$an_pick" ] || { rm -f "$an_t"; if [ "$an_amend" = yes ]; then fail "no captured user message newer than the recorded answer to question $an_n: only a new message of the user corrects an answer (ask the user, wait for the reply, then run this again)"; fi; fail "no captured user prompt since question $an_n was asked: the user has not answered it (or the prompt hook is not wired)"; }
     # one message answers one question: the newest message was already used by an earlier --captured answer
-    if grep -qxF "${an_pick##*/}" "$root/.agents/local/prompts/consumed" 2>/dev/null; then rm -f "$an_t"; fail "the user's newest message since question $an_n (${an_pick##*/}) already answered another question: the user has not answered this one yet"; fi
+    if grep -qxF "${an_pick##*/}" "$(shared_dir prompts)/consumed" 2>/dev/null; then rm -f "$an_t"; fail "the user's newest message since question $an_n (${an_pick##*/}) already answered another question: the user has not answered this one yet"; fi
     cat "$an_pick" > "$an_t"; an_used=${an_pick##*/}; an_src=$an_used
   else cat > "$an_t"; fi
   grep -q '[^[:space:]]' "$an_t" || { rm -f "$an_t"; fail "empty answer"; }
@@ -5208,7 +5284,7 @@ answer() {
   { printf 'answered_by: %s\ntime: %s\nanswered_epoch: %s\n' "$an_by" "$(now_iso)" "$(now_epoch)"
     [ -z "$an_src" ] || printf 'source_message: %s\n' "$an_src"
     [ -z "$an_amends" ] || printf 'amends: %s\n' "$an_amends"
-    printf -- '---\n'; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$root/.agents/local/prompts/consumed"   # consumed only once the answer is written
+    printf -- '---\n'; cat "$an_t"; } > "${an_q%.md}.answer.md"; rm -f "$an_t"; [ -z "${an_used:-}" ] || printf '%s\n' "$an_used" >> "$(shared_dir prompts)/consumed"   # consumed only once the answer is written
   an_left=no; for an_f in "$an_d"/questions/[0-9][0-9][0-9].md; do [ -e "$an_f" ] && [ ! -e "${an_f%.md}.answer.md" ] && an_left=yes; done
   if [ "$an_left" = no ] && section_key_present "$an_d" execution awaiting_input; then set_run_value "$an_id" execution awaiting_input false; fi
   # A79: a question bound to an assumption (`ASSUMPTION: <id>@<hash>`): the answer row names it; acceptance is
@@ -5217,7 +5293,7 @@ answer() {
   an_ev=answer; [ "$an_amend" = no ] || an_ev=answer-amend
   if gates_enforced "$an_id"; then ledger_append "$an_id" "$an_ev" - - "$(basename "$an_q") answered_by=$an_by${an_src:+ source=$an_src}${an_amends:+ amends=$an_amends}$an_as"; fi
   echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by${an_amends:+ (amends $an_amends, the old record is kept)}"
-  if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$root/.agents/local/prompts/history/$an_src" | cut -c1-80)"; fi
+  if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$(shared_dir prompts)/history/$an_src" | cut -c1-80)"; fi
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
 }
 
@@ -5426,7 +5502,7 @@ wait_line() {
 # history.tsv: one flat line per step. records.jsonl: versioned records (schema in docs/concepts/metrics.md).
 metrics_line() { # TASK ROLE RUNTIME MODEL DURATION OUTCOME
   [ "$(cfg metrics on)" != off ] || return 0
-  ml_f=$root/.agents/local/metrics/history.tsv
+  ml_f=$(shared_dir metrics)/history.tsv
   mkdir -p "$(dirname "$ml_f")" 2>/dev/null || return 0
   [ -s "$ml_f" ] || printf 'time\ttask\trole\truntime\tmodel\tduration_s\toutcome\n' > "$ml_f" 2>/dev/null || return 0
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(now_iso)" "$1" "$2" "$3" "$4" "$5" "$6" >> "$ml_f" 2>/dev/null || true
@@ -5473,7 +5549,7 @@ metrics_run() { # ID OUTCOME
 #   record can never carry free text (and so never a secret). `metrics: off` writes nothing.
 metrics_json() {
   [ "$(cfg metrics on)" != off ] || return 0
-  mj_f=$root/.agents/local/metrics/records.jsonl
+  mj_f=$(shared_dir metrics)/records.jsonl
   mkdir -p "$(dirname "$mj_f")" 2>/dev/null || return 0
   mj_s() { mj_v=$(printf '%s' "$1" | tr -cd 'A-Za-z0-9._+:-'); case "$mj_v" in ''|-) printf null ;; *) printf '"%s"' "$mj_v" ;; esac; }
   mj_n() { case "$1" in ''|*[!0-9]*) printf null ;; *) printf '%s' "$1" ;; esac; }
@@ -5645,6 +5721,14 @@ next_step() {
         unsupported_next "$ns_id"; not_rerun_next "$ns_id"
         o "agent.sh handoff $ns_id CODE_DONE"; r "every required gate passes"; fi ;;
     CODE_DONE)
+      # A184 (round 2): a gate of the effective tier that is not satisfied for the task-owned patch cannot be recorded any more (gates are
+      # recorded in IMPLEMENTED only, and only `amend` leaves CODE_DONE): never send the lead to dispatch reviewers whose results are refused
+      ns_miss=''; ns_tp=$(task_patch_fingerprint "$ns_id")
+      for ns_g in $(required_gates "$ns_id" "$(tier_effective "$ns_id")"); do gate_satisfied "$(gate_status "$ns_id" "$ns_g" patch "$ns_tp")" || ns_miss="$ns_miss $ns_g"; done
+      if [ -n "$ns_miss" ]; then
+        o "agent.sh amend $ns_id (reopens the run only when every required gate passes) or a new task for the extra work; do NOT dispatch reviewers: a gate result cannot be recorded in CODE_DONE"
+        r "the effective tier is $(tier_effective "$ns_id") at CODE_DONE and these gates do not pass for the task-owned patch:$ns_miss (what raised it: agent.sh report-facts $ns_id)"; return 0
+      fi
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
           if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
@@ -6099,7 +6183,7 @@ knowledge_done() {
     case "$reason" in *'"'*|*'\'*|*'#'*) fail "the not_applicable reason must not contain a double quote, a backslash or a #" ;; esac
     [ "$(printf '%s\n' "$reason" | grep -c .)" -le 1 ] && ! printf '%s' "$reason" | grep -Eq '[.!?][[:space:]]+[^[:space:]]' || fail "the not_applicable reason must be one sentence on one line"
     kn_sig=$(knowledge_na_signal "$id" || true)
-    [ -z "$kn_sig" ] || fail "not_applicable refused: $kn_sig. Run the knowledge step instead (wiki, design documents), then 'agent.sh knowledge-done $id'"
+    [ -z "$kn_sig" ] || fail "not_applicable refused: $kn_sig. Run the knowledge step instead: a one-page note under docs/wiki/ is enough and does not change the tier or any gate (knowledge files the plan does not name are not task output); then 'agent.sh knowledge-done $id'"
   else
     [ -z "$reason" ] || fail "a reason is only for not_applicable"
   fi
@@ -6150,6 +6234,7 @@ terminate_run() {
 cleanup_run() {
   id=$1; require_run "$id"; dir=$(run_dir "$id"); require_lead
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
+  cu_term=no; case "$(run_state "$dir")" in FAILED|BLOCKED) cu_term=yes ;; esac
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
       verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
@@ -6189,6 +6274,34 @@ cleanup_run() {
   [ ! -d "$adir" ] || rm -rf "$adir" || fail "could not remove $adir; the run is kept, retry cleanup"
   rm -rf "$dir"
   echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
+  cleanup_worktree "$id" "$cu_term"
+}
+# cleanup_worktree ID TERMINAL (A169, round 3): the worktree of a run that is merged and cleaned up goes away with it. Only a delivered run (never
+# a FAILED or BLOCKED one: its evidence is the point), only when the merge is on record (batch merged.tsv, or the caller proved it:
+# deliver-step cleanup after a merged pull request, deliver-merged), only from inside that very worktree, and only when it holds no other run.
+cleanup_worktree() {
+  [ "$2" = no ] && [ "$sr_main" != "$root" ] || return 0
+  cw_p=$(cd "$root" && pwd -P); [ "$cw_p" = "$sr_main/.agents/local/worktrees/$1" ] || return 0
+  # round 6: the merge must be ON RECORD for this run (a merged.tsv row of this ID after the run began); a caller's claim (CLEANUP_MERGED) is read
+  # into a local and the environment value is never trusted
+  cw_ok=$cleanup_merged_claim; cleanup_merged_claim=''
+  cw_from=0; [ ! -s "$(deliver_dir "$1")/SUMMARY.md" ] || cw_from=$(sed -n 's/^nonce: \([0-9]*\)-.*/\1/p' "$(deliver_dir "$1")/SUMMARY.md" | head -n 1)
+  case "$cw_from" in ''|*[!0-9]*) cw_from=0 ;; esac
+  [ "$cw_ok" = yes ] || awk -F'\t' -v t="$1" -v from="$cw_from" '$1 == t && $3 + 0 >= from + 0 { f = 1 } END { exit !f }' "$(shared_dir batch)/merged.tsv" 2>/dev/null || { echo "note: the worktree $cw_p is kept: no merge of $1 is on record"; return 0; }
+  for cw_r in "$cw_p"/.agents/runs/*; do [ ! -d "$cw_r" ] || { echo "note: the worktree $cw_p is kept: it still holds the run ${cw_r##*/}"; return 0; }; done
+  # untracked or ignored files outside the run state are evidence or work: refuse (the copies worktree-prep made are known and allowed)
+  # a missing copied-files manifest is an empty list; any command that fails refuses (fail closed: the worktree is kept)
+  cw_list=$cw_p/.agents/local/worktree-copied; [ -f "$cw_list" ] || cw_list=/dev/null
+  cw_st=$(git -C "$cw_p" status --porcelain --ignored --untracked-files=all 2>/dev/null) || { echo "note: the worktree $cw_p is kept: git status failed"; return 0; }
+  cw_rc=0; cw_x=$(printf '%s\n' "$cw_st" | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_list") || cw_rc=$?
+  [ "$cw_rc" -le 1 ] || { echo "note: the worktree $cw_p is kept: the file check failed"; return 0; }
+  if [ -n "$cw_x" ] && [ -f "$scripts/ecosystems.sh" ] && [ -s "$agents/ecosystems.tsv" ]; then
+    # shellcheck source=/dev/null
+    . "$scripts/ecosystems.sh"; eco_init "$agents/ecosystems.tsv" && for cw_f in $(eco_union worktree_deps.folders); do cw_x=$(printf '%s\n' "$cw_x" | grep -v -e "^$cw_f/" -e "^$cw_f\$" || true); done
+  fi
+  if [ -n "$cw_x" ]; then echo "note: the worktree $cw_p is kept: it holds files git does not track (not removed): $(printf '%s' "$cw_x" | head -n 3 | tr '\n' ' ')"; return 0; fi
+  # the check above proved that nothing but run state (.agents/runs, .agents/local) and known copies is left, tracked changes included: only that is forced away
+  git -C "$sr_main" worktree remove --force "$cw_p" >/dev/null 2>&1 && git -C "$sr_main" worktree prune && echo "worktree removed: $1" || echo "note: the worktree $cw_p could not be removed; agent.sh worktree-remove $1 in the main working tree does it"
 }
 
 # --- CI visibility (A163, A180): does a pull request here get any check at all? Read-only, repository files only. ----------
@@ -6312,6 +6425,7 @@ deliver_cli_path() {
 deliver_pr_view() {
   dv_cli=$(sh "$scripts/platform.sh" field cli -C "$root" 2>/dev/null || echo none)
   dv_own=$(sh "$scripts/platform.sh" field owner -C "$root" 2>/dev/null || true)
+  dv_org=$(sh "$scripts/platform.sh" field org_url -C "$root" 2>/dev/null || true)   # Azure DevOps Server: the organization URL (A186)
   case "$dv_cli" in
     gh) ;;
     glab|az)
@@ -6320,7 +6434,7 @@ deliver_pr_view() {
       if [ "$dv_cli" = glab ]; then
         "$dv_g" mr view "$1" -F json 2>/dev/null </dev/null | "$dv_j" -r --arg o "$dv_own" '(if .state == "opened" then "OPEN" elif .state == "merged" then "MERGED" else ((.state // "?") | ascii_upcase) end) + " " + ((.draft // .work_in_progress // false) | tostring) + " " + .sha + " " + .source_branch + " " + .target_branch + " " + (if .source_project_id == .target_project_id then $o else "-" end)' 2>/dev/null || echo unreadable
       else
-        "$dv_g" repos pr show --id "$1" -o json 2>/dev/null </dev/null | "$dv_j" -r --arg o "$dv_own" '(if .status == "active" then "OPEN" elif .status == "completed" then "MERGED" else ((.status // "?") | ascii_upcase) end) + " " + ((.isDraft // false) | tostring) + " " + .lastMergeSourceCommit.commitId + " " + (.sourceRefName | sub("^refs/heads/"; "")) + " " + (.targetRefName | sub("^refs/heads/"; "")) + " " + (if .forkSource == null then $o else "-" end)' 2>/dev/null || echo unreadable
+        "$dv_g" repos pr show --id "$1" ${dv_org:+--org "$dv_org"} -o json 2>/dev/null </dev/null | "$dv_j" -r --arg o "$dv_own" '(if .status == "active" then "OPEN" elif .status == "completed" then "MERGED" else ((.status // "?") | ascii_upcase) end) + " " + ((.isDraft // false) | tostring) + " " + .lastMergeSourceCommit.commitId + " " + (.sourceRefName | sub("^refs/heads/"; "")) + " " + (.targetRefName | sub("^refs/heads/"; "")) + " " + (if .forkSource == null then $o else "-" end)' 2>/dev/null || echo unreadable
       fi
       return 0 ;;
     *) echo unreadable; return 0 ;;
@@ -6339,7 +6453,10 @@ deliver_create_cmd() {
     gh) printf 'run: gh pr create --base %s --head %s --title "%s" --body-file %s\n' "$1" "$2" "$3" "$4" ;;
     glab) printf 'run: glab mr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)" --yes\n' "$1" "$2" "$3" "$4" ;;
     az) printf 'run: az repos pr create --target-branch %s --source-branch %s --title "%s" --description "$(cat %s)"\n' "$1" "$2" "$3" "$4" ;;
-    *) printf 'platform %s: proofline does not open or merge a pull request here. The branch %s is pushed; open the pull request yourself: %s\n' "$(printf '%s\n' "$dc_pl" | awk '{ print $1 }')" "$2" "$(sh "$scripts/platform.sh" link "$2" "$1" -C "$root" 2>/dev/null)" ;;
+    *) if [ "$(sh "$scripts/platform.sh" field local -C "$root" 2>/dev/null || true)" = yes ]; then
+         printf 'origin is a local repository: there is no pull request. The branch %s is pushed. The user merges it into origin'"'"'s %s, for example: %s\n' "$2" "$1" "$(origin_push_cmd "$2:$1" '')"; return 0
+       fi
+       printf 'platform %s: proofline does not open or merge a pull request here. The branch %s is pushed; open the pull request yourself: %s\n' "$(printf '%s\n' "$dc_pl" | awk '{ print $1 }')" "$2" "$(sh "$scripts/platform.sh" link "$2" "$1" -C "$root" 2>/dev/null)" ;;
   esac
 }
 # deliver_watch_cmd PR: the command that shows the checks of the pull request until they finish (cli platforms)
@@ -6387,7 +6504,13 @@ deliver_plan() {
   # opens and merges the pull request: a supported tool does it through proofline; otherwise the branch is pushed and the USER merges.
   dl_pl=$(deliver_platform); dl_pf=${dl_pl%% *}; dl_pm=${dl_pl##* }
   dl_own=$(sh "$scripts/platform.sh" field owner -C "$root" 2>/dev/null || true)
-  [ -n "$dl_own" ] || fail "delivery blocked: the origin remote is not a hosting service address proofline can read (git remote get-url origin)"
+  dl_loc=no
+  if [ -z "$dl_own" ]; then
+    # A180 (round 3): a local repository (path or file:// URL, for example a bare remote on disk) is a valid origin on platform other: the branch is
+    # pushed to it, nothing is merged by proofline, the USER merges into its canonical branch and proofline records that merge from git.
+    [ "$(sh "$scripts/platform.sh" field local -C "$root" 2>/dev/null || true)" = yes ] && [ "$dl_pm" != cli ] && dl_loc=yes && dl_own=local
+    [ -n "$dl_own" ] || fail "delivery blocked: the origin remote is not a hosting service address proofline can read (git remote get-url origin); a local path or file:// origin works on platform other"
+  fi
   [ "$dl_pm" = cli ] || dl_steps='commit push pr'   # manual: no merge, no cleanup step; the user merges
   dl_paths=$(git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || true)
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
@@ -6400,6 +6523,7 @@ deliver_plan() {
   case " $dl_steps " in *" commit "*) dl_td=$(task_done_plan "$dl_id") ;; esac   # no commit step, no move
   {
     printf 'delivery: %s (%s pull request)\nrun: %s\nbranch: %s\nbase: %s\nremote: origin\nowner: %s\nhead: %s\ncontent: %s\n' "$dl_id" "$dl_kind" "$dl_state" "$dl_br" "$dl_base" "$dl_own" "$(git -C "$root" rev-parse HEAD)" "$dl_fp"
+    printf 'origin_url: %s\n' "$(origin_url 2>/dev/null || true)"
     printf 'platform: %s\ntool: %s\nmerge_by: %s\n' "$dl_pf" "$(printf '%s\n' "$dl_pl" | awk '{ print $2 }')" "$([ "$dl_pm" = cli ] && echo proofline || echo user)"
     if ci_absent; then printf 'ci: verified locally, no CI\n'; fi
     # a fresh nonce per plan: an approval or consumed step of an earlier, otherwise identical summary never counts
@@ -6411,11 +6535,15 @@ deliver_plan() {
     printf 'changed by the knowledge step:\n'; printf '%s\n' "${dl_kn:-none}" | sed 's/^/  /'
     printf '\nsteps, in order:\n'
     case " $dl_steps " in *" commit "*) printf '  commit : git commit -F .agents/local/deliver/%s/COMMIT_MSG on %s (the pre-commit hook checks the gated content)\n' "$dl_id" "$dl_br" ;; esac
-    printf '  push   : git push -u origin %s\n' "$dl_br"
+    printf '  push   : %s\n' "$(origin_push_cmd "$dl_br")"
     if [ "$dl_pm" = cli ]; then
       printf '  pr     : a pull request into %s (%s), body = the published completion report\n  merge  : only when every check is green, through proofline merge <PR>; a refused merge stops here (no cleanup). A pull request without any check is merged only after the project'"'"'s build and test pass in a clean copy of the commit (verified locally, no CI)\n  ci fix : a red check opens a CI-fix round without a new question, at most 2 (A169): the error is read from the failed run (GitHub only), the fix passes the gates again and is pushed to the same branch %s; the approval of this summary covers those pushes and no other push, no other branch; a third red CI stops with one question\n  cleanup: after the merge\n' "$dl_base" "$dl_pf" "$dl_br"
     else
-      printf '  pr     : the branch is pushed and the pull request address is printed (%s: %s). proofline does not open or merge a pull request on this platform: YOU open it and YOU merge it. There is no merge or cleanup step; after you merged, run agent.sh cleanup %s\n' "$dl_pf" "$(sh "$scripts/platform.sh" link "$dl_br" "$dl_base" -C "$root" 2>/dev/null)" "$dl_id"
+      if [ "$dl_loc" = yes ]; then
+        printf '  pr     : the branch is pushed to origin, a local repository (no pull request exists). proofline merges nothing: YOU merge %s into origin'"'"'s %s, for example from this project: %s ; then /proofline batch (or: agent.sh deliver-merged %s) records the merge from git (the delivered commit reachable from origin/%s, or its content identical there) and cleans up. There is no merge or cleanup step here.\n' "$dl_br" "$dl_base" "$(origin_push_cmd "$dl_br:$dl_base" '')" "$dl_id" "$dl_base"
+      else
+        printf '  pr     : the branch is pushed and the pull request address is printed (%s: %s). proofline does not open or merge a pull request on this platform: YOU open it and YOU merge it. There is no merge or cleanup step; after you merged, run agent.sh deliver-merged %s (it records the merge from git when the delivered commit is on origin/%s; otherwise agent.sh cleanup %s)\n' "$dl_pf" "$(sh "$scripts/platform.sh" link "$dl_br" "$dl_base" -C "$root" 2>/dev/null)" "$dl_id" "$dl_base" "$dl_id"
+      fi
     fi
     if ci_absent; then printf '  WARNING: %s\n  fix: %s\n' "$CI_WARN" "$(ci_task_command)"; fi
     [ -z "$dl_td" ] || printf '  task file: moved to done/ only inside the pull request; the task is not done on %s until the merge succeeds\n' "$dl_base"
@@ -6446,7 +6574,7 @@ deliver_plan() {
 }
 # --- CI red self-fix (A169) ------------------------------------------------------------------------------------------------------
 # When the CI of the delivery's pull request is red after the merge step, that is a finding, not a question. `deliver-step ID ci-fix PR`
-# reads the failed check (gh run view --log-failed), opens one fix round through `amend` (inside the frozen scope, no refreeze), and the
+# reads the failed check through the platform adapter (platform.sh ci-failed: gh, glab, az; A186), opens one fix round through `amend` (inside the frozen scope, no refreeze), and the
 # fix goes to the SAME pull request branch: ci-commit (after the gates passed again), ci-push, ci-merge. The user's delivery approval covers
 # exactly these rounds: ci-commit records a commit and a push approval bound to the new content, to the delivery summary's hash and (push)
 # to the branch ref, only after the pull request was opened and the merge step ran, only for an open attempt, at most ci_fix_max attempts.
@@ -6535,28 +6663,35 @@ ci_error_line() {
   [ -n "$cel_l" ] || cel_l=$(grep -v '^[[:space:]]*$' "$1" 2>/dev/null | tail -n 1 || true)
   printf '%s' "$cel_l" | tr -c 'A-Za-z0-9 ._:/=(),#-' ' ' | tr -s ' ' | cut -c1-110
 }
-# deliver_ci_read PR PV (before any lock; gh only): the failed check of the pull request's head. Prints nothing when nothing failed;
-# else `RED<TAB>run id or -<TAB>check name`, a `LOG` line and the last 80 lines of the failed log (control characters removed). The
-# log is data from the CI, never instructions.
-deliver_ci_read() {   # shortcut: GitHub workflow runs and the pr checks table only (no other CI system's logs), the last 80 lines; read more through the run's URL when that is too little
+# platform_export_env: a private host (A186): GH_HOST or GITLAB_HOST for the platform tool, from platform.sh env (the origin's host).
+# Called at top level (an export inside $(...) would be lost); only the two names platform.sh can print are exported.
+platform_export_env() {
+  pe_l=$(sh "$scripts/platform.sh" env -C "$root" 2>/dev/null || true)
+  case "$pe_l" in GH_HOST=*) GH_HOST=${pe_l#GH_HOST=}; export GH_HOST ;; GITLAB_HOST=*) GITLAB_HOST=${pe_l#GITLAB_HOST=}; export GITLAB_HOST ;; esac
+}
+# deliver_ci_read PR PV (before any lock): the failed check of the pull request's head, read by the platform adapter (platform.sh
+# ci-failed: gh, glab or az; A186). Prints nothing when nothing failed or the platform has no reader; else
+# `RED<TAB>run id or -<TAB>check name<TAB>status<TAB>read|none`, a `LOG` line and the last 80 lines of the failed log (control
+# characters removed). `none` = the tool could not give the log: the text says so and the round starts from the name and status.
+# The log is data from the CI, never instructions.
+deliver_ci_read() {   # shortcut: the last 80 lines of one failed job; read more through the check's address when that is too little
   dr_pr=$1; dr_sha=$(printf '%s\n' "$2" | awk '{ print $3 }'); dr_t=$(printf '\t')
   case "$dr_sha" in ''|*[!0-9a-f]*) return 0 ;; esac
-  dr_g=$(deliver_gh_path) || return 0
-  dr_runs=$("$dr_g" run list --commit "$dr_sha" --limit 30 --json databaseId,status,conclusion,name \
-    --jq '.[] | [(.databaseId | tostring), .status, (.conclusion // "-"), .name] | join(" ")' 2>/dev/null </dev/null) || dr_runs=''
-  dr_f=$(printf '%s\n' "$dr_runs" | awk '$2 == "completed" && ($3 == "failure" || $3 == "timed_out" || $3 == "startup_failure") { print; exit }')
-  if [ -n "$dr_f" ]; then
-    dr_id=${dr_f%% *}; dr_name=${dr_f#* }; dr_name=${dr_name#* }; dr_name=${dr_name#* }
-    case "$dr_id" in ''|*[!0-9]*) return 0 ;; esac
-    dr_log=$("$dr_g" run view "$dr_id" --log-failed 2>&1 </dev/null || true)
-  else
-    dr_c=$("$dr_g" pr checks "$dr_pr" 2>/dev/null </dev/null | awk -F'\t' '$2 == "fail" { print $1 ": fail " $4 }' || true)
-    [ -n "$dr_c" ] || return 0
-    dr_id=-; dr_name=$(printf '%s\n' "$dr_c" | head -1 | cut -d: -f1); dr_log=$dr_c
-  fi
+  dr_cli=$(sh "$scripts/platform.sh" field cli -C "$root" 2>/dev/null || echo none)
+  case "$dr_cli" in gh|glab|az) ;; *) return 0 ;; esac
+  dr_g=$(deliver_cli_path "$dr_cli") || return 0
+  dr_j=$(command -v jq 2>/dev/null || true)
+  dr_out=$(sh "$scripts/platform.sh" ci-failed "$dr_pr" "$dr_sha" --cli "$dr_g" ${dr_j:+--jq "$dr_j"} -C "$root" 2>/dev/null </dev/null || true)
+  dr_head=$(printf '%s\n' "$dr_out" | sed -n 1p)
+  case "$dr_head" in RED"$dr_t"*) ;; *) return 0 ;; esac
+  dr_id=$(printf '%s' "$dr_head" | cut -f2); dr_name=$(printf '%s' "$dr_head" | cut -f3); dr_st=$(printf '%s' "$dr_head" | cut -f4); dr_ls=$(printf '%s' "$dr_head" | cut -f5)
+  case "$dr_id" in -|[0-9]*) ;; *) dr_id=- ;; esac
+  case "$dr_id" in *[!0-9-]*) dr_id=- ;; esac
+  case "$dr_ls" in read|none) ;; *) dr_ls=none ;; esac
   dr_name=$(printf '%s' "$dr_name" | tr -c 'A-Za-z0-9 ._/=()#-' ' ' | cut -c1-80)
-  dr_log=$(printf '%s\n' "$dr_log" | sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" | tr -d '\000-\010\013\014\016-\037\177' | cut -c1-400 | tail -n 80 | head -c 8000)
-  printf 'RED%s%s%s%s\nLOG\n%s\n' "$dr_t" "$dr_id" "$dr_t" "$dr_name" "$dr_log"
+  dr_st=$(printf '%s' "$dr_st" | tr -c 'A-Za-z0-9 ._-' ' ' | cut -c1-30)
+  dr_log=$(printf '%s\n' "$dr_out" | sed '1,/^LOG$/d' | sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" | tr -d '\000-\010\013\014\016-\037\177' | cut -c1-400 | tail -n 80 | head -c 8000)
+  printf 'RED%s%s%s%s%s%s%s%s\nLOG\n%s\n' "$dr_t" "$dr_id" "$dr_t" "$dr_name" "$dr_t" "$dr_st" "$dr_t" "$dr_ls" "$dr_log"
 }
 # ci_fix_grant ID KIND FP N HASH [REF]: the user's delivery approval carried to one CI fix round: a single-use KIND approval bound to the
 # content FP, marked source delivery_ci_fix, bound in the ledger like every approval; a push one also names the branch ref
@@ -6596,9 +6731,8 @@ ci_fix_step() {
       fi
       ci_chain_ok "$cf_id" || cf_stop "HEAD is not the delivery commit (and the recorded CI-fix commits) on top of the summary's HEAD"
       [ "$cf_pvok" = yes ] || cf_stop "pull request $cf_pr is not this delivery's open, non-draft pull request at HEAD ($cf_want; gh: ${deliver_pv:-unreadable})"
-      [ "$(deliver_platform | awk '{ print $1 }')" = github ] || cf_stop "a CI-fix round reads the failed run through gh, so it works on GitHub only (this platform: $(deliver_platform | awk '{ print $1 }')); read the failing job yourself, fix it as a new task and ask the user"
       cf_red=$(printf '%s\n' "${deliver_ci:-}" | sed -n 1p)
-      case "$cf_red" in RED"$(printf '\t')"*) ;; *) cf_stop "the CI of ${cf_head} shows no failed check (gh run list --commit, gh pr checks): wait for the checks, then merge, or ask again" ;; esac
+      case "$cf_red" in RED"$(printf '\t')"*) ;; *) cf_stop "the CI of ${cf_head} shows no failed check that the platform tool can read (platform: $(deliver_platform | awk '{ print $1 }'), tool: $(deliver_platform | awk '{ print $2 }'); GitHub gh run list / gh pr checks, GitLab glab mr view, Azure az repos pr policy list): wait for the checks, then merge, or read the failing check yourself, fix it as a new task and ask the user" ;; esac
       ci_fix_open ;;
     ci-commit) ci_fix_commit ;;
     ci-push) ci_fix_push ;;
@@ -6612,6 +6746,7 @@ ci_fix_open() {
   ctp_base=$cf_b   # the delivery commit is under the run: judged from base_sha (cleanup does the same)
   if [ "$cf_n" -ge "$cf_max" ]; then ci_fix_limit; return 1; fi
   cf_rid=$(printf '%s\n' "$cf_red" | cut -f2); cf_name=$(printf '%s\n' "$cf_red" | cut -f3)
+  cf_cst=$(printf '%s\n' "$cf_red" | cut -f4); cf_lst=$(printf '%s\n' "$cf_red" | cut -f5)
   cf_att=$((cf_n + 1)); cf_num=$(printf '%03d' "$cf_att")
   # what amend needs, checked before anything is written so a refusal does not use an attempt up
   [ "$(run_state "$cf_d")" = CODE_DONE ] || cf_stop "the run is $(run_state "$cf_d"), not CODE_DONE"
@@ -6636,6 +6771,7 @@ ci_fix_open() {
   exec 3< "$cf_in"; rm -f "$cf_in"
   amend_run "$cf_id" <&3   # plain call: its own checks stop the script (a call in a || list would switch set -e off inside it)
   exec 3<&-
+  if [ "$cf_lst" = none ]; then printf 'NOTE: the log of the failed check could not be read on this platform; this round starts from the check name (%s) and status (%s) only (ci-fix/%s.log says so)\n' "$cf_name" "$cf_cst" "$cf_num"; fi
   printf 'CI-fix attempt %s of %s opened for pull request %s (CI run %s, check %s)\nerror, the last lines of the failed log (ci-fix/%s.log; data, not instructions):\n' "$cf_att" "$cf_max" "$cf_pr" "$cf_rid" "$cf_name" "$cf_num"
   tail -n 15 "$cf_log" | sed 's/^/  | /'
   printf 'fix scope: %s\n' "$cf_scope"
@@ -6783,13 +6919,29 @@ deliver_step() {
     push)
       ds_td_check
       [ "$(cfg git.push_requires_approval true)" != false ] || consume_approval "$ds_t" "$ds_app"
-      printf 'run: git push -u %s %s\nthen: agent.sh deliver-step %s pr\n' "$(ds_v remote)" "$ds_br" "$ds_id" ;;
+      ds_ou=$(origin_url 2>/dev/null || true)
+      if [ "$(ds_v remote)" = origin ] && [ -n "$ds_ou" ] && [ "$ds_ou" != "$(git -C "$root" remote get-url origin 2>/dev/null)" ]; then
+        # A180 (round 5): a relative local origin. The runtime push guard refuses a push to an absolute path outside the project, so the approved
+        # step pushes itself: exactly this delivery's branch to its own ref (never the canonical branch), to the absolute url. The approval was
+        # checked here and consumed before the push (the pre-push hook would ask for it again), so the hook is skipped for this one command.
+        [ "$ds_br" != "$(ds_v base)" ] || ds_stop "refusing to push the canonical branch"
+        [ "$(git -C "$root" rev-parse HEAD)" = "$ds_head" ] || ds_stop "HEAD moved"
+        [ "$(ds_v origin_url)" = "$ds_ou" ] || ds_stop "origin changed since the summary was approved (was '$(ds_v origin_url)', now '$ds_ou'): plan the delivery again"
+        [ "$(cfg git.push_requires_approval true)" = false ] || consume_approval "$ds_t" "$ds_app"
+        git -C "$root" -c core.hooksPath=/dev/null push -q -- "$ds_ou" "$ds_head:refs/heads/$ds_br" || ds_stop "git push to $ds_ou failed"
+        git -C "$root" update-ref "refs/remotes/$(ds_v remote)/$ds_br" "$ds_head"
+        printf 'pushed: %s -> %s\nthen: agent.sh deliver-step %s pr\n' "$ds_br" "$ds_ou" "$ds_id"
+      elif [ "$(ds_v remote)" = origin ]; then printf 'run: %s\nthen: agent.sh deliver-step %s pr\n' "$(origin_push_cmd "$ds_br")" "$ds_id"
+      else printf 'run: git push -u %s %s\nthen: agent.sh deliver-step %s pr\n' "$(ds_v remote)" "$ds_br" "$ds_id"; fi ;;
     pr)
       ds_td_check
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
       consume_approval "$ds_t" "$ds_app"
       deliver_create_cmd "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel/PR_BODY.md"
-      if [ "$(ds_v merge_by)" = user ]; then printf 'STOP: the user merges this pull request (proofline does not merge on platform %s). Report the address above; after the user merged: agent.sh cleanup %s\n' "$(ds_v platform)" "$ds_id"
+      if [ "$(ds_v merge_by)" = user ]; then
+        # round 3: the delivered commit, kept so the merge can be recorded from git later (deliver-merged)
+        printf '%s\t%s\t%s\n' "$ds_head" "$(ds_v base)" "$ds_br" > "$ds_dir/MERGE_HEAD"
+        printf 'STOP: the user merges this branch (proofline does not merge on platform %s). Tell the user what to do (the address or git command above); after the user merged: agent.sh deliver-merged %s records the merge from git and cleans up (a batch does it by itself at its next /proofline batch)\n' "$(ds_v platform)" "$ds_id"
       else printf 'then: agent.sh deliver-step %s merge <PR-NUMBER>\n' "$ds_id"; fi ;;
     merge)
       deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
@@ -6805,13 +6957,91 @@ deliver_step() {
       consume_approval "$ds_t" "$ds_app"
       # A157: a batch keeps its own record of the merge. It is written BEFORE the cleanup: a crash in between must leave the task merged
       # (never run again), not a half-cleaned run that looks unmerged.
-      [ ! -d "$root/.agents/local/batch" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$root/.agents/local/batch/merged.tsv"
-      cleanup_run "$ds_id"
+      [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
+      cleanup_merged_claim=yes; cleanup_run "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
 }
 
+# origin_url (A180, round 4): the ABSOLUTE url of origin. A relative local path (../origin.git) in the shared git config is resolved by git against the
+# working directory, so it means another folder from a run worktree than from the main working tree; it is always resolved against the MAIN tree.
+# A scheme, host or file:// url is returned as it is.
+origin_url() {
+  ou_u=$(git -C "$root" remote get-url origin 2>/dev/null) || return 1
+  case "$ou_u" in -*) return 1 ;; esac   # never an option for git
+  case "$ou_u" in
+    ''|/*|*://*|*@*|*:*) printf '%s\n' "$ou_u" ;;
+    *) ou_a=$(cd "$sr_main" 2>/dev/null && cd "$ou_u" 2>/dev/null && pwd -P) && printf '%s\n' "$ou_a" || printf '%s/%s\n' "$sr_main" "$ou_u" ;;
+  esac
+}
+# origin_push_cmd BRANCH [FLAGS]: the push command to show; for a relative origin it pushes to the absolute url directly (`git push <url> <branch>`,
+# no -u: -c remote.origin.url would ADD a second url and git would push to the relative one as well), the config is not rewritten
+origin_push_cmd() {
+  op_u=$(origin_url) || op_u=''
+  op_f=${2--u}   # unset: -u; set (also empty): as given
+  if [ -n "$op_u" ] && [ "$op_u" != "$(git -C "$root" remote get-url origin 2>/dev/null)" ]; then printf 'git push %s %s' "$op_u" "$1"
+  else printf 'git push%s origin %s' "${op_f:+ $op_f}" "$1"; fi
+}
+# --- A manual merge, recorded from git (A180/A181, round 3) ------------------------------------------------------------
+# Where proofline does not merge (platform other, a local bare origin, Bitbucket, a missing tool) the USER merges. The pr step keeps the delivered
+# commit in deliver/<ID>/MERGE_HEAD. `deliver-merged ID` fetches origin's canonical branch and PROVES the merge from git, never from a claim:
+# the delivered commit is an ancestor of origin/<base> (fast-forward or merge commit), or, for a squash or rebase merge, every path the delivery
+# changed has the identical content at origin's tip. Anything else is "not merged": fail closed, the user is told what is missing. Proven: the
+# merge is recorded (batch merged.tsv, PR field `-`), the local canonical branch is fast-forwarded when the main working tree sits on it and is
+# clean (so the next task's worktree starts from the merge), and the run is cleaned up with its worktree. `--check` only answers.
+deliver_merged() {
+  dm_id=$1; dm_chk=no; [ "${2:-}" != --check ] || dm_chk=yes
+  require_run "$dm_id"; require_lead; dm_d=$(run_dir "$dm_id"); dm_dir=$(deliver_dir "$dm_id")
+  if [ ! -s "$dm_dir/MERGE_HEAD" ]; then
+    # round 5: the hand-off is written by the pr step; when the push was done but the pr step was not run (or the file is lost) it is rebuilt from the
+    # delivery summary, which names the branch, the base and the head that was approved
+    [ -s "$dm_dir/SUMMARY.md" ] && grep -q '^merge_by: user$' "$dm_dir/SUMMARY.md" || fail "deliver-merged: $dm_id has no delivery where the user merges (agent.sh deliver-plan $dm_id first)"
+    # The summary's head is HEAD at deliver-plan time, BEFORE the commit step: that commit is already on origin's canonical branch. The delivered
+    # commit is the CURRENT head of the delivered branch, and it must descend strictly from the summary's head (a delivery commit exists), else
+    # nothing is recorded (fail closed).
+    dm_s=$(sed -n 's/^head: //p' "$dm_dir/SUMMARY.md" | head -n 1); dm_b=$(sed -n 's/^base: //p' "$dm_dir/SUMMARY.md" | head -n 1); dm_n=$(sed -n 's/^branch: //p' "$dm_dir/SUMMARY.md" | head -n 1)
+    dm_h=''; for dm_r in "refs/heads/$dm_n" "refs/remotes/origin/$dm_n"; do dm_h=$(git -C "$root" rev-parse -q --verify "$dm_r^{commit}" 2>/dev/null) && break; dm_h=''; done
+    [ -n "$dm_n" ] && [ -n "$dm_h" ] || fail "deliver-merged: the delivered branch '$dm_n' cannot be found, so nothing is recorded"
+    { [ "$dm_h" != "$dm_s" ] && git -C "$root" merge-base --is-ancestor "$dm_s" "$dm_h" 2>/dev/null; } || fail "deliver-merged: branch $dm_n has no delivery commit beyond the base of the summary, so nothing is recorded"
+    printf '%s\t%s\t%s\n' "$dm_h" "$dm_b" "$dm_n" > "$dm_dir/MERGE_HEAD"
+  fi
+  IFS='	' read -r dm_head dm_base dm_br < "$dm_dir/MERGE_HEAD"
+  git -C "$root" cat-file -e "$dm_head^{commit}" 2>/dev/null || fail "deliver-merged: the delivered commit ${dm_head:-?} is unknown here"
+  dm_ou=$(origin_url) || dm_ou=origin   # origin_url refuses a url that starts with -; the plain name origin is then used
+  git -C "$root" fetch -q -- "$dm_ou" "+refs/heads/$dm_base:refs/remotes/origin/$dm_base" 2>/dev/null || fail "deliver-merged: cannot read origin/$dm_base (git fetch origin $dm_base failed)"
+  dm_tip=$(git -C "$root" rev-parse -q --verify "refs/remotes/origin/$dm_base") || fail "deliver-merged: origin/$dm_base not found"
+  dm_rb=$(repository_base_sha "$dm_d")
+  [ "$dm_head" != "$dm_rb" ] || fail "deliver-merged: the delivered commit is the base of the run (an empty delivery): nothing is recorded"
+  if git -C "$root" merge-base --is-ancestor "$dm_head" "$dm_tip" 2>/dev/null; then dm_how="the delivered commit is on origin/$dm_base"
+  else
+    dm_paths=$(git -C "$root" diff --no-renames --name-only "$(repository_base_sha "$dm_d")" "$dm_head" -- 2>/dev/null | grep -v '^\.agents/\(runs\|local\)/' || true)
+    dm_same=no
+    # a squash or rebase proof also needs a real commit on origin's tip that touches those paths after the run's base
+    # shellcheck disable=SC2086 # paths hold no whitespace by contract
+    if [ -n "$dm_paths" ] && [ -n "$(git -C "$root" log -n 1 --format=%H "$dm_rb..$dm_tip" -- $dm_paths 2>/dev/null)" ]; then
+      dm_same=yes
+      for dm_p in $dm_paths; do
+        [ "$(git -C "$root" rev-parse -q --verify "$dm_head:$dm_p" 2>/dev/null || echo none)" = "$(git -C "$root" rev-parse -q --verify "$dm_tip:$dm_p" 2>/dev/null || echo none)" ] || { dm_same=no; break; }
+      done
+    fi
+    [ "$dm_same" = yes ] && dm_how="every delivered path has the same content at origin/$dm_base (a squash or rebase merge)" || {
+      [ "$dm_chk" = yes ] && { echo "open: $dm_br is not merged into origin/$dm_base"; return 1; }
+      fail "deliver-merged: not merged: the delivered commit ${dm_head%"${dm_head#???????}"} is not on origin/$dm_base and its content is not there either. Merge $dm_br into origin's $dm_base (git push origin $dm_br:$dm_base), then run this again."
+    }
+  fi
+  if [ "$dm_chk" = yes ]; then echo "merged: $dm_how"; return 0; fi
+  [ ! -d "$(shared_dir batch)" ] || grep -q "^$dm_id	" "$(shared_dir batch)/merged.tsv" 2>/dev/null || printf '%s\t%s\t%s\n' "$dm_id" - "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
+  echo "merge recorded for $dm_id: $dm_how"
+  # the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
+  dm_m=$sr_main
+  if [ "$(git -C "$dm_m" branch --show-current 2>/dev/null)" = "$dm_base" ] && [ -z "$(git -C "$dm_m" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    git -C "$dm_m" merge --ff-only -q "refs/remotes/origin/$dm_base" >/dev/null 2>&1 && echo "local $dm_base fast-forwarded to origin/$dm_base" || echo "note: local $dm_base was not fast-forwarded (it has commits origin lacks): update it before the next task"
+  else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
+  rm -f "$dm_dir/MERGE_HEAD"
+  cleanup_merged_claim=yes; cleanup_run "$dm_id"
+  rm -rf "$dm_dir"
+}
 # --- One worktree per run (A169) ---------------------------------------------------------------------------------
 # A run lives in the worktree it was started in: `.agents/runs`, ACTIVE_RUN, the task file move and the open-run check
 # (open_runs, the commit and push hooks) belong to that worktree. A task that waits for merge, is parked or is being fixed
@@ -6828,21 +7058,23 @@ rw_main() { (cd "$root" && pwd -P); }   # the main working tree's folder (worktr
 rw_dir() { printf '%s/.agents/local/worktrees/%s\n' "$(rw_main)" "$1"; }
 rw_valid_id() { valid_task_id "$1" && case "$1" in [!A-Za-z0-9]*|*..*) return 1 ;; esac; }
 rw_registered() { git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$1"; }
-# The state every worktree of this project shares through links, so a session in a task worktree finds the batch approval and writes
-# metrics and the merge record where the main working tree reads them. Per-worktree on purpose: runs, ACTIVE_RUN, deliver, assignments, locks.
-rw_shared='batch approvals metrics friction prompts'   # prompts: `answer --captured` finds the user's reply captured in the main working tree
-rw_prepare() { # WORKTREE: links to the shared state, the runtime config git does not track, the dependency folder
+# A185: the state that belongs to no single run (batch approvals metrics friction prompts) is NOT linked into a worktree: every reader asks
+# shared_dir, which names the main tree's folder by path. A link would be a copy where symlinks are not allowed (Git Bash without
+# developer mode), and a copy goes stale. Per-run state (runs, ACTIVE_RUN, deliver, assignments, locks, windows, records) lives in the
+# worktree that owns the run; the runtime hook resolves the same folder (adapters/claude/hooks/proofline-hook.sh, state root).
+rw_shared='batch approvals metrics friction prompts'
+rw_prepare() { # WORKTREE: the shared folders exist, the runtime config git does not track, dependency folders and local env files
   rp_w=$1; rp_m=$(rw_main); mkdir -p "$rp_w/.agents/local"
-  for rp_s in $rw_shared; do
-    mkdir -p "$rp_m/.agents/local/$rp_s"
-    [ -e "$rp_w/.agents/local/$rp_s" ] || [ -L "$rp_w/.agents/local/$rp_s" ] || ln -s "$rp_m/.agents/local/$rp_s" "$rp_w/.agents/local/$rp_s"
-  done
+  for rp_s in $rw_shared; do mkdir -p "$rp_m/.agents/local/$rp_s"; done
   # runtime hooks and settings that are ignored or untracked are not in a checkout; without them the session would run unconfined
   for rp_f in .claude/settings.json .claude/settings.local.json .codex/hooks.json .codex/config.toml; do
     if [ -f "$rp_m/$rp_f" ] && [ ! -e "$rp_w/$rp_f" ]; then mkdir -p "$rp_w/$(dirname "$rp_f")"; cp "$rp_m/$rp_f" "$rp_w/$rp_f"; fi
   done
-  # git-ignored dependency folder: linked, as for an evidence worktree (the lead skill, isolated execution)
-  if [ -d "$rp_m/node_modules" ] && [ ! -e "$rp_w/node_modules" ]; then ln -s "$rp_m/node_modules" "$rp_w/node_modules"; fi
+  # dependency folders (data: worktree_deps in ecosystems.json) become the worktree's own copies, never links into the main tree, and
+  # the untracked local files of worktree.copy_files (default .env*) are copied in; both by worktree-prep.sh (A185)
+  if [ -f "$scripts/worktree-prep.sh" ]; then
+    sh "$scripts/worktree-prep.sh" "$rp_m" "$rp_w" "$(cfg worktree.copy_files '.env*')" >&2 || echo "warning: worktree preparation reported a problem (the worktree is usable; dependencies or env files may be missing)" >&2
+  fi
 }
 # worktree_add ID: a detached worktree at the canonical branch's local tip, prepared; prints its folder. An existing one is reused.
 worktree_add() {
@@ -6862,6 +7094,29 @@ worktree_path() { # ID: the folder of a registered run worktree (exit 1 when the
   rw_valid_id "${1:-}" || fail "usage: agent.sh worktree-path <TASK-ID>"
   wp_d=$(rw_dir "$1"); rw_registered "$wp_d" && [ -d "$wp_d" ] || return 1
   printf '%s\n' "$wp_d"
+}
+# worktree_root PATH (A184): the root of the run worktree that contains PATH, the ONE definition every path classification asks (the runtime
+# hook calls `agent.sh worktree-root`; paths that agent.sh gets from git are already relative to the git worktree that contains them).
+# PATH is a physical absolute path. A folder counts only when it is exactly <main working tree>/.agents/local/worktrees/<ID>, is
+# registered by `git worktree list` of this project, is a linked worktree of the same common git-dir, and PATH is inside it; a crafted
+# folder, a link, an unregistered or pruned worktree, a nested one: no answer (exit 1) and the caller keeps the old, stricter judgement.
+worktree_root() {
+  wo_p=$1; case "$wo_p" in /*) ;; *) return 1 ;; esac
+  case "/$wo_p/" in */../*|*/./*) return 1 ;; esac
+  wo_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n "$wo_m" ] || return 1
+  wo_m=$(cd "$wo_m" 2>/dev/null && pwd -P) || return 1
+  wo_c=$(cd "$wo_m" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
+  wo_b=$wo_m/.agents/local/worktrees
+  case "$wo_p" in "$wo_b"/*) ;; *) return 1 ;; esac
+  wo_id=${wo_p#"$wo_b"/}; wo_id=${wo_id%%/*}
+  rw_valid_id "$wo_id" || return 1
+  wo_d=$wo_b/$wo_id
+  [ -d "$wo_d" ] && [ ! -L "$wo_d" ] && [ -f "$wo_d/.git" ] || return 1
+  [ "$(cd "$wo_d" 2>/dev/null && pwd -P)" = "$wo_d" ] || return 1
+  git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$wo_d" || return 1
+  wo_g=$(cd "$wo_d" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
+  [ "$wo_g" = "$wo_c" ] || return 1
+  case "$wo_p" in "$wo_d"|"$wo_d"/*) printf '%s\n' "$wo_d" ;; *) return 1 ;; esac
 }
 # worktree_remove ID [--force]: only a worktree under .agents/local/worktrees; refused while it still holds a run (its evidence), unless forced.
 worktree_remove() {
@@ -6988,7 +7243,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='platform language-check next-user in-knowledge-scope design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
+read_only_commands='platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7001,15 +7256,15 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = pr-state ] || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = pr-state ] || { [ "$command" = deliver-merged ] && [ "${3:-}" = --check ]; } || [ "$command" = batch-ci ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 # deliver-step merge|cleanup reads its pull request through gh before any lock is taken: a slow gh never holds them
 # A169: ci-fix also reads the failed check and its log, ci-merge the pull request's head
 deliver_pv='' deliver_ci=''
 if [ "$command" = deliver-step ]; then case "${3:-}:${4:-}" in
   merge:*[!0-9]*|cleanup:*[!0-9]*|ci-fix:*[!0-9]*|ci-merge:*[!0-9]*|merge:|cleanup:|ci-fix:|ci-merge:) ;;
-  merge:*|cleanup:*|ci-merge:*) deliver_pv=$(deliver_pr_view "$4") ;;
-  ci-fix:*) deliver_pv=$(deliver_pr_view "$4"); deliver_ci=$(deliver_ci_read "$4" "$deliver_pv") ;;
+  merge:*|cleanup:*|ci-merge:*) platform_export_env; deliver_pv=$(deliver_pr_view "$4") ;;
+  ci-fix:*) platform_export_env; deliver_pv=$(deliver_pr_view "$4"); deliver_ci=$(deliver_ci_read "$4" "$deliver_pv") ;;
 esac; fi
 if [ "$lock_command" = yes ]; then
   mkdir -p "$agents/local"
@@ -7017,6 +7272,8 @@ if [ "$lock_command" = yes ]; then
   trap 'exit 130' INT
   trap 'exit 143' TERM
   acquire_lock "$agents/local/.lock"
+  # A185: the shared state (approvals, metrics, prompts, batch) is written from every worktree, so its lock is the main tree's (the same path as above there)
+  [ "$sr_main" = "$root" ] || { [ -d "$sr_main/.agents/local" ] && acquire_lock "$sr_main/.agents/local/.lock"; }
   if [ "$command" != start ] && [ -n "${2:-}" ] && valid_task_id "$2" && [ -d "$(run_dir "$2")" ]; then
     acquire_lock "$(run_dir "$2")/.lock"
   fi
@@ -7057,6 +7314,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
   next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in next-user.sh, A159)
   design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)
+  worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
@@ -7088,6 +7346,7 @@ case "$command" in
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
+  worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
@@ -7127,7 +7386,12 @@ case "$command" in
   ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
-  cleanup) require_lead; cleanup_run "${2:?usage: agent.sh cleanup <ID>}" ;;
+  cleanup) require_lead
+    # round 3: the run is already cleaned up but its worktree was left behind (an older version, an interrupted cleanup): from the main working tree it is removed
+    # once the merge is on record (nothing else holds the evidence any more)
+    if [ -n "${2:-}" ] && rw_valid_id "$2" && [ ! -d "$(run_dir "$2")" ] && ! wt_linked && grep -q "^$2	" "$(shared_dir batch)/merged.tsv" 2>/dev/null && rw_registered "$(rw_dir "$2")"; then worktree_remove "$2"
+    else cleanup_run "${2:?usage: agent.sh cleanup <ID>}"; fi ;;
+  deliver-merged) deliver_merged "${2:?usage: agent.sh deliver-merged <ID> [--check]}" "${3:-}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;
   worktree-path) require_lead; worktree_path "${2:-}" ;;
   worktree-remove) require_lead; worktree_remove "${2:-}" "${3:-}" ;;
@@ -7152,6 +7416,7 @@ case "$command" in
   verify-gates) verify_lifecycle_gates "${2:?usage: agent.sh verify-gates <ID>}"; echo "lifecycle gates verified: $2" ;;
   verify-seal) verify_seal "${2:?usage: agent.sh verify-seal <ID>}"; echo "lifecycle seal verified: $2" ;;
   platform) sh "$scripts/platform.sh" detect -C "$root"; exit $? ;;
+  platform-warn) sh "$scripts/platform.sh" warn -C "$root"; exit $? ;;
   ci-check) ci_check; exit $? ;;
   ci-task-command) ci_task_command ;;
   task-source-done) task_source_done "${2:?usage: agent.sh task-source-done <ID>}" ;;
@@ -7162,6 +7427,7 @@ case "$command" in
   verify-completion-report) verify_completion_report "${2:?usage: agent.sh verify-completion-report <ID>}" ;;
   validate) validate_run "${2:?usage: agent.sh validate <ID>}" ;;
   db-config) db_config "${2:-all}" ;;
+  hook-config) hook_config ;;
   db-check) require_run "${2:?usage: agent.sh db-check <ID>}"; db_guard_check "$2"; echo "database guard: unchanged ($2)" ;;
   test) require_lead; run_suites ;;
   help) usage; exit 0 ;;

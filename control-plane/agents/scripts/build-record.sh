@@ -16,10 +16,9 @@
 # Exit status of `run`/`show`: 0 every command passed, 1 a command failed (the record says which), 2 usage,
 # nothing configured or not allowed, 3 no record.
 # Dependencies (the export holds tracked and untracked files, not ignored ones): `commands.install`, when
-# configured, runs first in the export (it is part of the record); otherwise the ignored dependency
-# directories node_modules, vendor and .venv of the project root are symlinked into the export.
-# shortcut: the symlinks are shared with the project (a build tool may write into them) and only the root-level
-# directories are linked; the key covers sources and command strings, not node version or installed packages.
+# configured, runs first in the export (it is part of the record); otherwise the ignored dependency folders that
+# worktree_deps names in ecosystems.json (A185) are COPIED into the export by worktree-prep.sh --deps, never linked.
+# shortcut: the copy is taken at run time and is not part of the key; the key covers sources and command strings, not node version or installed packages.
 # Set `commands.install` when that matters. A stale lock is reclaimed when its process is dead or after
 # BUILD_RECORD_WAIT seconds (default 1800); two waiters reclaiming at the very same moment is not guarded.
 set -u
@@ -69,7 +68,8 @@ EOF_STEPS
   if [ "$multi" = yes ]; then   # a command list: say which one broke, and that the others did not
     if [ -n "$failed" ]; then printf '%s' "$failed" | sed 's/^/failed: /'; else echo 'all commands passed'; fi
   fi
-  [ "$(cat "$dir/done")" = 0 ]
+  # a failed record: the export is clean (tracked and untracked files only), so a test that needs a git-ignored file (.env, a local database, generated files) fails there
+  [ "$(cat "$dir/done")" = 0 ] || { echo 'note: the build export holds no git-ignored files (such as .env; secrets are never copied into it): a test that needs one must be self-contained, or commands.install must prepare it'; return 1; }
 }
 
 if [ "$op" = show ]; then
@@ -96,8 +96,10 @@ if [ ! -f "$dir/done" ]; then
       wt=$(mktemp -d "${TMPDIR:-/tmp}/build-record.XXXXXX") || exit 2
       idx=$wt/index; GIT_INDEX_FILE=$idx g read-tree "$tree" && GIT_INDEX_FILE=$idx g checkout-index -a -f --prefix="$wt/src/"; rc=$?
       [ "$rc" = 0 ] || { echo "build-record: cannot export $key" >&2; exit 2; }
-      if [ -z "$ic" ]; then
-        for d in node_modules vendor .venv; do [ -d "$root/$d" ] && [ ! -e "$wt/src/$d" ] && ln -s "$root/$d" "$wt/src/$d"; done
+      if [ -z "$ic" ] && [ -f "$here/worktree-prep.sh" ]; then
+        # A185: the dependency folders named by worktree_deps in ecosystems.json are COPIED into the export, never linked, so a build or
+        # install step cannot write through into the project
+        sh "$here/worktree-prep.sh" --deps "$root" "$wt/src" >/dev/null 2>&1 || :
       fi
       fail=0; to=''; command -v timeout >/dev/null 2>&1 && to='timeout 900'; : > "$dir/steps"
       for s in install build test; do

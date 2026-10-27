@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.32" "$out" "proofline 0.0.32"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.32 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.33" "$out" "proofline 0.0.33"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.33 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.32 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.33 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -157,7 +157,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.32' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.33' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -374,6 +374,23 @@ reject "doctor leaves ecosystem skills and other events alone" "$out" "rust-lint
 reject "doctor ignores a foreign PreToolUse hook" "$out" "not-listed"
 }
 
+sc_doctor_platform_source() {
+  need_base
+  dp=$T/dp; cp -R "$base" "$dp"; git -C "$dp" remote add origin https://gitlab.company.com/acme/app.git 2>/dev/null || git -C "$dp" remote set-url origin https://gitlab.company.com/acme/app.git
+  expect "doctor: an unknown private host is auto, origin URL" "$(pl "$dp" doctor 2>&1)" "source auto: origin URL; a private host is named with git.platform"
+  sed -e 's/^  platform:.*/  platform: gitlab/' -e 's/^  platform_host:.*/  platform_host: gitlab.company.com/' "$dp/.agents/config.yaml" > "$dp/cfg.t" && mv "$dp/cfg.t" "$dp/.agents/config.yaml"
+  out=$(pl "$dp" doctor 2>&1)
+  expect "doctor shows the platform came from config (A186)" "$out" "platform: gitlab (source config: git.platform)"
+  sed -e 's/^  platform_host:.*/  platform_host:/' "$dp/.agents/config.yaml" > "$dp/cfg.t" && mv "$dp/cfg.t" "$dp/.agents/config.yaml"
+  git -C "$dp" remote set-url origin https://gitlab.com.evil.example/acme/app.git
+  expect "doctor warns about git.platform without git.platform_host on a look-alike origin" "$(pl "$dp" doctor 2>&1)" "WARN platform: git.platform is gitlab without git.platform_host"
+  cc=$(cd "$dp" && sh .agents/scripts/agent.sh config-check 2>&1 || true)
+  expect "config-check warns the same way (A185 review)" "$cc" "git.platform is gitlab without git.platform_host"
+  git -C "$dp" remote set-url origin https://gitlab.company.com/acme/app.git
+  sed -i.bak 's#^  platform_host:.*#  platform_host: other.company.com#' "$dp/.agents/config.yaml"; rm -f "$dp/.agents/config.yaml.bak"
+  expect "doctor: a configured host that is not the origin host is not applied" "$(pl "$dp" doctor 2>&1)" "source auto: origin URL; a private host is named with git.platform"
+}
+
 sc_doctor_faults() {
   need_base
 d2=$T/d2; cp -R "$base" "$d2"; git -C "$d2" config --local --unset core.hooksPath
@@ -514,7 +531,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.32" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.33" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -755,6 +772,7 @@ run_sc sc_upgrade
 run_sc sc_upgrade_logging
 run_sc sc_upgrade_block
 run_sc sc_doctor_fresh
+run_sc sc_doctor_platform_source
 run_sc sc_doctor_faults
 run_sc sc_doctor_missing
 run_sc sc_doctor_global_hookspath

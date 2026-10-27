@@ -8,16 +8,16 @@
 - Eleven **roles** (lead, task author, explorer, architect, data architect, designer, QA, implementer, reviewer, security reviewer, verifier). Only the lead dispatches; specialists never spawn agents.
 - Twenty-four method **skills** plus the `/proofline` command entry skill, each usable on its own, each producing runnable or traceable evidence.
 - Independent **gates** (secrets, reviews, security, QA, verify) judged by scripts on the exact content, never by the lead.
-- **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script. A check that cannot run is reported UNSUPPORTED and never counts as a pass. [Testing](docs/concepts/testing.md) lists what tests each check.
+- **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add focused checks inside those gates, chosen by script. A check that cannot run is reported UNSUPPORTED, never a pass. [Testing](docs/concepts/testing.md) lists what tests each check.
 - Visual verification works on native apps with the project's own test tools.
-- UI craft: each surface gets a visitor mode (persuade, operate, read, experience); `design_docs.design` can hold one document per surface ([details](docs/concepts/design-surfaces.md)). Generated-UI looks need a written reason; persuade and experience surfaces must also bring real imagery, motion and a characterful type voice, with directions dealt reproducibly from a bundled design library and a draft visual (comp) before coding when an image tool exists. `design ui <mode> <target>` makes one focused change to one target. visual-proof measures this in a browser and lints the source ([details](docs/concepts/testing.md)).
+- UI craft: each surface gets a visitor mode (persuade, operate, read, experience); `design_docs.design` can hold one document per surface ([details](docs/concepts/design-surfaces.md)). Generated-UI looks need a written reason; persuade and experience surfaces also need real imagery, motion and a characterful type voice, with directions dealt reproducibly from a bundled design library and a draft visual (comp) before coding when an image tool exists. `design ui <mode> <target>` makes one focused change. visual-proof measures this in a browser and lints the source ([details](docs/concepts/testing.md)).
 - **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
 - Claude Code is the primary runtime, Codex is supported as implementer, and any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
 - proofline works alongside skills specific to your ecosystem; the gates verify the result regardless of which skill produced it.
 
 ## Status
 
-Version 0.0.32 is an early release.
+Version 0.0.33 is an early release.
 Scripts and hooks enforce the guarantees: approvals, database safety, scope, evidence and cleanup.
 More than 900 automated tests and enforcement tests check them.
 Claude Code is the primary runtime.
@@ -57,7 +57,7 @@ cd your-project && proofline init
 npx skills add furkansarikaya/proofline --skill <name>
 ```
 
-Windows: use WSL or Git Bash (the control plane is POSIX `sh`).
+Windows: use WSL or Git Bash (the control plane is POSIX `sh`); no symlinks needed.
 
 ## Quick start (5 minutes)
 
@@ -113,25 +113,25 @@ debt                                  list the shortcut comments in the code (re
 clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
 ```
 
-**Platforms.** GitHub, GitLab, Azure DevOps; elsewhere you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
+**Platforms.** GitHub, GitLab, Azure DevOps; a private host is named by `git.platform` and `git.platform_host`; else you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
 
-**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal command. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [the next step](docs/concepts/workflow.md#the-next-step).
+**The next step.** Every command ends with one line, `Next step: ...`: the one command (or action of yours) that follows, never an internal one. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [details](docs/concepts/workflow.md#the-next-step).
 
-**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it. The same session then runs and delivers each task in dependency order, the next one only after the previous is merged, each in its own git worktree. Keep the computer awake and the session open; `/proofline batch` continues after an interruption. What the approval does not cover (a waiver, scope expansion, new dependency, reopen, destructive data change) parks that task with its question. `proofline batch status` is the morning table ([night mode](docs/concepts/night-mode.md)).
+**Night mode.** `/proofline batch <ID...|all>` shows one summary of the order and of what one approval covers; your reply "approve batch" is bound to it. The same session then runs and delivers each task in dependency order, the next one only after the previous is merged, each in its own git worktree. Keep the computer awake and the session open; `/proofline batch` continues after an interruption. What the approval does not cover (waiver, scope expansion, new dependency, reopen, destructive data change) parks that task with its question. `proofline batch status` is the morning table. A worktree gets copies of the main tree's dependency folders (`node_modules`, `vendor`, ...) and its git-ignored `.env*` files (`worktree.copy_files`), so an install in a task never changes the main tree ([night mode](docs/concepts/night-mode.md)).
 
-**Shortcut debt.** When the implementer cuts a corner on purpose, it marks the code with a comment `shortcut: <limit>, <when to improve>`. `proofline debt` lists those comments with `file:line`, limit and improvement condition ([workflow](docs/concepts/workflow.md#shortcut-debt)).
+**Shortcut debt.** A corner cut on purpose is marked `shortcut: <limit>, <when to improve>`; `proofline debt` lists those comments ([workflow](docs/concepts/workflow.md#shortcut-debt)).
 
-**Observations and unrelated changes.** The implementer lists out-of-scope issues it saw but did not touch, and a task is written only after you approve it. The plan review fails a change inside the scope that serves no acceptance criterion ([workflow](docs/concepts/workflow.md#observations-and-unrelated-changes)).
+**Observations and unrelated changes.** The implementer lists out-of-scope issues it saw but did not touch; a task is written only after you approve it. A change that serves no acceptance criterion fails plan review ([workflow](docs/concepts/workflow.md#observations-and-unrelated-changes)).
 
-**Language of run files.** Run files are English, but a project in another language quotes its own product text as it is: inline code, "double quotes", a `> ` line or a JSON string is accepted when its exact text is in the task or in a project file; agents never transliterate it to ASCII or ask you about it ([details](docs/concepts/workflow.md#language-of-run-files)).
+**Language of run files.** Run files are English; a project in another language quotes its own product text as it is (inline code, "double quotes", a `> ` line or a JSON string found in the task or a project file), never transliterated ([details](docs/concepts/workflow.md#language-of-run-files)).
 
-**Project layout.** proofline assumes no folder layout. One ecosystem definition drives `init`: it proposes one command per ecosystem, and `commands.build|test|lint` may be a list. An ambiguous ecosystem gets none and the run asks you once ([ecosystems](docs/concepts/ecosystems.md)).
+**Project layout.** No layout is assumed. One ecosystem definition drives `init`: a command per ecosystem, built from the workspace member list in the definition if there is one (`go.work`); `commands.build|test|lint` may be a list. An ambiguous one gets none; the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
 
-**Processes.** An agent stops only a process it started itself, by its own PID: the runtime hook denies `pkill`, `killall`, `kill` by pattern and mass kills. The guard is a tripwire against an honest mistake, not a sandbox against a hostile agent. What it sees and what it cannot: [process rules](docs/concepts/enforcement-layers.md#process-rules).
+**Processes.** An agent stops only a process it started itself, by its own PID: the runtime hook denies `pkill`, `killall`, `kill` by pattern and mass kills. A tripwire against an honest mistake, not a sandbox: [process rules](docs/concepts/enforcement-layers.md#process-rules).
 
 ## Real output
 
-A real end-to-end run's unedited final message (STANDARD bug fix, headless, 2026-10-09): [workflow](docs/concepts/workflow.md#real-output). All results: [tests/e2e/README.md](tests/e2e/README.md).
+An end-to-end run's final message, unedited (STANDARD bug fix, headless, 2026-10-09): [workflow](docs/concepts/workflow.md#real-output). All results: [tests/e2e/README.md](tests/e2e/README.md).
 
 ## Documentation
 
@@ -147,7 +147,7 @@ Other agents are added through small adapters. See [adapters/README.md](adapters
 
 ## Versioning and license
 
-Version **0.0.32**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.33**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

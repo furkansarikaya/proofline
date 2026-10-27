@@ -122,7 +122,7 @@ Rows common to all ecosystems: **Design-sync manifests** means `design-sync.mjs 
 
 | Touch point | Support | Checked by | Notes |
 |---|---|---|---|
-| Command discovery | supported; partial for `go.work` | code reading only | `go build ./...`, `go test ./...`, `go vet ./...`; nested `go -C <dir>`. A `go.work` root stands for its members, so a `go.work` without a root `go.mod` gives no command |
+| Command discovery | supported | code reading only | `go build ./...`, `go test ./...`, `go vet ./...`; nested `go -C <dir>`. A `go.work` that lists members (`use`) gives `go build ./svc/api/... ./svc/worker/...` from the list ([workspaces](#workspaces)); an empty or missing list gives no command without a root `go.mod` |
 | Runtime versions | supported | local version: real tool (go 1.27.1); CI-side sources: code reading only | `go` line of `go.mod` and `go.work` (a minimum), workflow, `.tool-versions`, image |
 | Risky paths | supported | code reading only | `go.mod`, `go.work`, `go.sum`, `go.work.sum` |
 | Dependency manifests | supported | code reading only | `go.mod` and `go.work` (require, replace), `go.sum`, `go.work.sum` |
@@ -244,6 +244,18 @@ Not supported or limited by design:
 - **Runtime versions:** the local version was read from the real tool only for node, Python, go, ruby and swift (`runtime-versions.sh` run on the maintainer's machine, 2026-10-25); for java and dotnet no run is recorded in the repository, and for Rust, PHP and Dart the tool was missing, so their extraction patterns are code reading only. The CI-side sources of every runtime are code reading only.
 - **Qt** desktop projects are matched in `native.mjs`, not in the definition (there is no C or C++ ecosystem).
 
+## Workspaces
+
+A workspace root stands for its members: the root is the target and the members are not run one by one. When the workspace file lists its members, the command is built from that list. Both halves are data in `ecosystems.json`: `workspace_roots[].members` says which file is read and how its lines are parsed, and a command rule with `workspace` (bare) and `at_workspace` (targeted at a nested workspace) is the template; `{members}` is the member list, each member written with `members.format`. `bin/lib/discover.sh` (`d_members`, `d_rule`) only reads this; it holds no knowledge of any ecosystem.
+
+Example, Go: `go.work` with `use (` ... `)` and `use ./tools` gives `go build ./svc/api/... ./svc/worker/... ./tools/...` (and `go test`, `go vet`); a `go.work` without a root `go.mod` therefore gives a command too. A rule with `workspace` comes before the ordinary rules, so a workspace with members wins over `go build ./...`, which would build only the root module. A member that is not a safe path (a space, a quote, `$`, a backtick or a leading dash) gives no workspace command, and the ordinary rules apply. A workspace file without a `members` definition, or with an empty list, behaves as before.
+
+The other ecosystems keep the earlier mechanism: a workspace root (`workspace_roots` without `members`) runs the ordinary bare command (npm, pnpm, yarn, Cargo, uv, Maven, Gradle, Dart); their tools already treat the root as the whole workspace, and a list of members would change the command. .NET has no workspace file: its solution file is the target.
+
+### No ecosystem code
+
+Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapters' hooks, `skills/*/scripts`) never branch on an ecosystem id. `tests/shared/check-static.sh` reads the ids from `ecosystems.tsv` and fails on a case arm or a comparison that names one; `platform.sh` and `ecosystems.sh` are excluded. A line that names an interpreter or a tool and not an ecosystem carries a comment line `# eco-ok: <why>` directly above it.
+
 ## The definition file
 
 `ecosystems.json` has `global` (prune dirs, scan limits, ecosystem-independent risky paths, the CI line patterns) and `ecosystems`, one object each. Adding an ecosystem is adding one object; regenerate the flat copy with `node control-plane/agents/ecosystems.mjs write`. Per ecosystem:
@@ -253,11 +265,11 @@ Not supported or limited by design:
 | `id`, `name` | the id other checks use (`npm`, `python`, `go`, `jvm`, `cargo`, `dotnet`, `php`, `ruby`, `swift`, `dart`) and a title |
 | `prune` | folders this ecosystem never enters, on top of `global.prune` |
 | `project_files`, `manifests`, `locks`, `settings` | globs: files that make a folder a project; every file that declares dependencies or build inputs; lock files; package-source settings (`.npmrc`, `NuGet.config`, `pip.conf`, `.cargo/config.toml`, `settings.xml`) |
-| `workspace_roots` | `{file, contains}`: a file (and an optional line pattern) that makes a folder a workspace root |
+| `workspace_roots` | `{file, contains, members}`: a file (and an optional line pattern) that makes a folder a workspace root. `members` (optional) says how the file lists its members: `single_prefix` (a line outside a block is a member once this pattern is removed), `block_open`, `block_close` and `block_item_prefix` (the lines of a block), `comment` (starts a comment) and `format` (how one member is written into a command, `{member}`); see [workspaces](#workspaces) |
 | `solution_files`, `units` | solution globs; how the target is chosen (`target` dir or file, `bare`, `stages`, `legacy` twins) |
 | `runtime`, `version_files` | the runtime name, how many version components are compared, presence globs, how the local version is read; the ordered sources of the CI-specified version |
 | `risky_paths` | extra paths that must never be reviewed as small: build-changing files (`Directory.Build.rsp`, `build.rs`, `rust-toolchain.toml`, `gradlew`, `Rakefile`, ...). The full risky set is these plus `manifests`, `locks` and `settings` plus `global.risky_paths`. Read at read time from `.agents/ecosystems.tsv` (A174); `config.yaml` adds only project-specific globs |
-| `commands` | `truth` (`scripts` or `tools`), `tools` (executables a CI or README line may start with), `ci_lint`, `runners`, and `build`, `test`, `lint` rules: `when` conditions, `run` (bare) and `at` (targeted, with `{dir}` or `{target}`) |
+| `commands` | `truth` (`scripts` or `tools`), `tools` (executables a CI or README line may start with), `ci_lint`, `runners`, and `build`, `test`, `lint` rules: `when` conditions, `run` (bare) and `at` (targeted, with `{dir}` or `{target}`); a rule with `workspace` and `at_workspace` (templates with `{members}`) applies only when the workspace file lists members |
 | `benchmark`, `native_ui` | markers of a benchmark setup (script names, directories, a file pattern with a content marker, a dependency in a manifest, a config file) and of a native UI project (`file`, `contains`, `platform`, `kind`) |
 | `test_output` | per class `no_tests`, `compile` and `assertion`, entries with `pattern`, `runner`, `source` (`captured`: a fixture in `tests/skills/fixtures/tdd-proof-output`; `docs`: the tool's documentation, with its URL as `evidence`) and an optional `unless`; `exit_codes` per class, used only as a cross-check (A175) |
 
@@ -270,3 +282,7 @@ The risk lists are read at read time: `agent.sh` adds the ecosystem globs to `re
 - **sh:** `scripts/ecosystems.sh` reads `ecosystems.tsv`, the flat copy (`<id><TAB><path><TAB><value>`), so no sh script needs node or a JSON parser. `eco_init FILE`, then `eco_ids`, `eco_get ID PATH`, `eco_first`, `eco_children`, `eco_pack`, `eco_rows`, `eco_union`, `eco_risky`, `eco_glob_match`, `eco_pruned`.
 - **node:** `ecosystems.mjs` (`loadEcosystems`, `globToRegExp`, `matchesAny`, `isPruned`, `riskyPaths`, `classifyPath`, `toRegExp`, `validate`) and the command line `node ecosystems.mjs write|check|validate|ids|risky|get`.
 - **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies (`scripts/ecosystems.sh`, `scripts/ecosystems.mjs`, `references/ecosystems.json`, `references/ecosystems.tsv`). `tests/shared/check-shared.sh` compares them with `control-plane/agents/` and checks that the flat file is what `write` produces.
+
+## Worktree dependencies (A185)
+
+`worktree_deps.folders` lists the git-ignored folders a package manager fills (`node_modules`, `vendor`, `vendor/bundle`) that a run worktree gets its own copy of; an ecosystem whose folder is not relocatable (virtual environments, `.dart_tool`, `obj`) or whose cache lives outside the project lists none. `worktree-prep.sh` reads it; nothing else knows the names. See [night mode](night-mode.md).

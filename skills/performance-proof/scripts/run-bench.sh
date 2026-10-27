@@ -82,15 +82,22 @@ env_file=$out/environment.txt
   echo "base_rev=$(rev "$base")"
   echo "change_dir=$change"
   echo "change_rev=$(rev "$change")"
-  for tv in node go rustc java dotnet python3 ruby php; do
-    command -v "$tv" >/dev/null 2>&1 || continue
-    case $tv in
-      go) v=$(go version 2>&1 | head -n 1) ;;
-      java) v=$(java -version 2>&1 | head -n 1) ;;
-      *) v=$("$tv" --version 2>&1 | head -n 1) ;;
-    esac
-    echo "tool_version.$tv=$v"
-  done
+  # runtime versions: the runtimes and the commands that print their version come from the ecosystem definition (A187)
+  here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+  # shellcheck source=/dev/null # ecosystems.sh next to this script
+  . "$here/ecosystems.sh"
+  if eco_init "$here/../references/ecosystems.tsv"; then
+    for eid in $(eco_ids); do
+      rn=$(eco_first "$eid" runtime.name); [ -n "$rn" ] || continue
+      for vc in $(eco_get "$eid" runtime.local.commands | tr ' ' '#'); do
+        vc=$(printf '%s' "$vc" | tr '#' ' ')
+        command -v "${vc%% *}" >/dev/null 2>&1 || continue
+        v=$(sh -c "$vc" 2>&1 | head -n 1)
+        echo "tool_version.$rn=$v"
+        break
+      done
+    done
+  fi
   echo "started_at=$(stamp)"
 } > "$env_file"
 

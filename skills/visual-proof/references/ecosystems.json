@@ -32,6 +32,8 @@
     {
       "id": "npm",
       "name": "JavaScript / TypeScript (npm, pnpm, yarn, bun; workspaces, turbo, nx)",
+      "worktree_deps": { "folders": ["node_modules"] },
+      "browser_test": { "manifest": "package.json", "deps_dir": "node_modules", "names": ["@playwright/test", "playwright", "playwright-core", "puppeteer", "puppeteer-core", "cypress", "webdriverio", "@wdio/cli", "selenium-webdriver"] },
       "prune": [".parcel-cache", ".angular", ".expo", ".docusaurus"],
       "project_files": ["package.json"],
       "manifests": ["package.json", "pnpm-workspace.yaml"],
@@ -144,6 +146,7 @@
     {
       "id": "python",
       "name": "Python (pip, Poetry, uv, PDM, Hatch)",
+      "worktree_deps": { "folders": [] },
       "prune": [".eggs", "site-packages", ".nox", ".hypothesis"],
       "project_files": ["pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "pytest.ini"],
       "manifests": ["requirements*.txt", "*requirements*.txt", "requirements*.in", "*requirements*.in", "**/requirements/*.txt", "**/requirements/*.in", "constraints*.txt", "pyproject.toml", "hatch.toml", "setup.py", "setup.cfg", "Pipfile", "environment.yml", "environment.yaml"],
@@ -234,13 +237,14 @@
     {
       "id": "go",
       "name": "Go (modules, go.work)",
+      "worktree_deps": { "folders": [] },
       "prune": [],
       "project_files": ["go.mod"],
       "manifests": ["go.mod", "go.work"],
       "locks": ["go.sum", "go.work.sum"],
       "settings": [],
       "workspace_roots": [
-        { "file": "go.work" }
+        { "file": "go.work", "members": { "single_prefix": "^use +", "block_open": "^use *[(]$", "block_close": "^[)]", "block_item_prefix": "^ +", "comment": "//", "format": "./{member}/..." } }
       ],
       "solution_files": [],
       "units": { "target": "dir", "bare": "root", "stages": [], "legacy": [] },
@@ -264,12 +268,15 @@
         "ci_lint": [],
         "runners": [],
         "build": [
+          { "workspace": "go build {members}", "at_workspace": "go -C {dir} build {members}" },
           { "when": { "file": "go.mod" }, "run": "go build ./...", "at": "go -C {dir} build ./..." }
         ],
         "test": [
+          { "workspace": "go test {members}", "at_workspace": "go -C {dir} test {members}" },
           { "when": { "file": "go.mod" }, "run": "go test ./...", "at": "go -C {dir} test ./..." }
         ],
         "lint": [
+          { "workspace": "go vet {members}", "at_workspace": "go -C {dir} vet {members}" },
           { "when": { "file": "go.mod" }, "run": "go vet ./...", "at": "go -C {dir} vet ./..." }
         ]
       },
@@ -316,6 +323,7 @@
     {
       "id": "jvm",
       "name": "Java / Kotlin (Maven multi-module, Gradle with a version catalog)",
+      "worktree_deps": { "folders": [] },
       "prune": [".mvn", ".settings", ".kotlin"],
       "project_files": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
       "manifests": ["pom.xml", "*.gradle", "*.gradle.kts", "*.versions.toml", "gradle.properties", "*.sbt"],
@@ -403,6 +411,7 @@
     {
       "id": "cargo",
       "name": "Rust (Cargo workspace)",
+      "worktree_deps": { "folders": [] },
       "prune": [],
       "project_files": ["Cargo.toml"],
       "manifests": ["Cargo.toml"],
@@ -483,6 +492,7 @@
     {
       "id": "dotnet",
       "name": ".NET (sln, slnx, csproj, fsproj, vbproj)",
+      "worktree_deps": { "folders": [] },
       "prune": ["packages", "TestResults", "publish"],
       "project_files": ["*.csproj", "*.fsproj", "*.vbproj"],
       "manifests": ["*.csproj", "*.fsproj", "*.vbproj", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", "*.props", "*.targets", "packages.config", "paket.dependencies", "paket.references", "global.json", "**/.config/dotnet-tools.json"],
@@ -588,6 +598,7 @@
     {
       "id": "php",
       "name": "PHP (Composer)",
+      "worktree_deps": { "folders": ["vendor"] },
       "prune": [],
       "project_files": ["composer.json"],
       "manifests": ["composer.json"],
@@ -662,6 +673,7 @@
     {
       "id": "ruby",
       "name": "Ruby (Bundler)",
+      "worktree_deps": { "folders": ["vendor/bundle"] },
       "prune": [],
       "project_files": ["Gemfile"],
       "manifests": ["Gemfile", "*.gemspec"],
@@ -744,6 +756,7 @@
     {
       "id": "swift",
       "name": "Swift (SwiftPM)",
+      "worktree_deps": { "folders": [] },
       "prune": [".swiftpm", "Carthage"],
       "project_files": ["Package.swift"],
       "manifests": ["Package.swift", "Package@swift-*.swift", "Podfile", "*.podspec", "Cartfile"],
@@ -829,6 +842,7 @@
     {
       "id": "dart",
       "name": "Dart / Flutter",
+      "worktree_deps": { "folders": [] },
       "prune": [".flutter-plugins", ".flutter-plugins-dependencies"],
       "project_files": ["pubspec.yaml"],
       "manifests": ["pubspec.yaml", "pubspec_overrides.yaml"],

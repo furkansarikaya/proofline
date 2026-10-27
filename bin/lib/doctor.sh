@@ -38,16 +38,20 @@ doctor_platform() {
   dp_o=$(cd "$ROOT" && sh "$A" platform 2>/dev/null) || dp_o=''
   dp_p=$(printf '%s\n' "$dp_o" | sed -n 's/^platform: //p'); dp_c=$(printf '%s\n' "$dp_o" | sed -n 's/^cli: //p')
   dp_w=$(printf '%s\n' "$dp_o" | sed -n 's/^web: //p')
+  dp_s=$(printf '%s\n' "$dp_o" | sed -n 's/^source: //p'); dp_src=${dp_s:-auto}
+  case "$dp_src" in config) dp_src='config: git.platform' ;; env) dp_src='env: PROOFLINE_PLATFORM' ;; *) dp_src='auto: origin URL' ;; esac
   if [ -z "$(g remote get-url origin 2>/dev/null || true)" ]; then
     d_warn "platform: the project has no origin remote yet, so the platform is unknown; with one, proofline detects GitHub, GitLab, Azure DevOps and Bitbucket from its address"; return 0
   fi
+  dp_lw=$(cd "$ROOT" && sh "$A" platform-warn 2>/dev/null) || dp_lw=''
+  [ -z "$dp_lw" ] || d_warn "platform: ${dp_lw#warning: }"
   case "$dp_p:$dp_c" in
-    github:gh) d_pass "platform: github, tool gh installed; merge rule: proofline opens and merges the pull request, every check must be green, and a pull request without checks is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
-    gitlab:glab) d_pass "platform: gitlab, tool glab installed; merge rule: proofline opens and merges the merge request, the pipeline must be green, and a merge request without a pipeline is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
-    azure:az) d_pass "platform: azure devops, tool az installed; merge rule: proofline opens and merges the pull request, every build policy must be approved, and a pull request without one is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
-    github:*|gitlab:*|azure:*) d_warn "platform: $dp_p, but its tool ($(case $dp_p in gitlab) echo glab ;; azure) echo az ;; *) echo gh ;; esac) is not installed; merge rule: manual. proofline pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
-    bitbucket:*) d_warn "platform: bitbucket; merge rule: manual. proofline has no adapter: it pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
-    *) d_warn "platform: not recognized (${dp_w:-the origin address}); merge rule: manual. proofline pushes the branch and prints the manual steps; YOU open and merge the pull request" ;;
+    github:gh) d_pass "platform: github (source $dp_src), tool gh installed; merge rule: proofline opens and merges the pull request, every check must be green, and a pull request without checks is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    gitlab:glab) d_pass "platform: gitlab (source $dp_src), tool glab installed; merge rule: proofline opens and merges the merge request, the pipeline must be green, and a merge request without a pipeline is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    azure:az) d_pass "platform: azure devops (source $dp_src), tool az installed; merge rule: proofline opens and merges the pull request, every build policy must be approved, and a pull request without one is merged only after build and test pass in a clean copy (verified locally, no CI)" ;;
+    github:*|gitlab:*|azure:*) d_warn "platform: $dp_p (source $dp_src), but its tool ($(case $dp_p in gitlab) echo glab ;; azure) echo az ;; *) echo gh ;; esac) is not installed; merge rule: manual. proofline pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
+    bitbucket:*) d_warn "platform: bitbucket (source $dp_src); merge rule: manual. proofline has no adapter: it pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
+    *) d_warn "platform: not recognized (${dp_w:-the origin address}; source $dp_src; a private host is named with git.platform and git.platform_host in .agents/config.yaml); merge rule: manual. proofline pushes the branch and prints the manual steps; YOU open and merge the pull request" ;;
   esac
 }
 
@@ -157,7 +161,7 @@ doctor_foreign() {
 }
 
 # 0.0.26: the language runtimes the project's CI specifies against the ones installed here. WARN only, never FAIL:
-# a different major version (major.minor for go, python and the runtimes the definition compares so) means a green local run may not hold in CI.
+# a different major version (major.minor for the runtimes the ecosystem definition compares so) means a green local run may not hold in CI.
 doctor_toolchain() {
   dt_s=$PL_HOME/skills/verify-proof/scripts/runtime-versions.sh
   [ -f "$dt_s" ] || return 0
@@ -166,7 +170,7 @@ doctor_toolchain() {
     [ "$dt_k" = 'runtime:' ] || continue
     [ "$dt_n" != none ] || continue # `runtime: none (...)` says no runtime was found; it is not a runtime named none
     dt_l=${dt_l#local=}; dt_c=${dt_c#ci=}; dt_f=${dt_f#source=}; dt_st=${dt_st#status=}
-    case "$dt_n" in go|python) dt_u='major.minor' ;; *) dt_u=major ;; esac
+    dt_u=major # without the definition only the major version is compared; runtime.compare says how many components (A187)
     if [ -n "$D_ECO" ]; then # the number of version components compared comes from the ecosystem definition (A173)
       dt_id=$(eco_match '^runtime\.name$' | awk -F'\t' -v n="$dt_n" '$3 == n { print $1; exit }')
       [ -z "$dt_id" ] || case "$(eco_first "$dt_id" runtime.compare)" in 1) dt_u=major ;; *) dt_u='major.minor' ;; esac

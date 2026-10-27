@@ -2,7 +2,7 @@
 
 ## 1. Reproduce
 
-1. Create the worktree from HEAD (path recorded in the ledger before creation); copy the user's uncommitted changes in when the bug involves them; symlink git-ignored dependency folders, never build output folders; check paths with `realpath`.
+1. Create the worktree from HEAD (path recorded in the ledger before creation); copy the user's uncommitted changes in when the bug involves them; symlink git-ignored dependency folders only while no step installs or changes packages (otherwise copy them, so nothing writes through the link into the project), never build output folders; check paths with `realpath`.
 2. Find the narrowest command that shows the bug: an existing failing test, a new minimal test, a script that calls the function, a CLI invocation, a request. Prefer the project's own test runner.
 3. Run it unmodified, with a timeout (3x measured duration, at least 30 seconds), at least twice. Record `command`, `runs`, `failures`, `exit_code`, and an excerpt (at most 20 lines) of the failure output.
 4. The failure must be the reported one. A different failure (for example a setup error) means the reproduction is wrong: fix the reproduction, not the code.

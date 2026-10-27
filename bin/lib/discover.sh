@@ -148,14 +148,57 @@ d_runner() {
   done
 }
 
+# d_members ID UNIT: D_MEM = the members a workspace file of the ecosystem lists, each written with the definition's
+# `members.format` (empty: no workspace file with a member list in UNIT, or an unsafe member). Which file, and how its lines
+# are read, is data (workspace_roots.N.members): a line outside a block is a member after `single_prefix` is removed; a line
+# between `block_open` and `block_close` is one after `block_item_prefix`; `comment` starts a comment; tabs count as spaces.
+d_members() {
+  D_MEM=''
+  for dmb_i in $(eco_children "$1" workspace_roots); do
+    dmb_p="workspace_roots.$dmb_i"
+    dmb_fmt=$(eco_first "$1" "$dmb_p.members.format"); [ -n "$dmb_fmt" ] || continue
+    dmb_f=$(eco_first "$1" "$dmb_p.file"); [ -f "$2/$dmb_f" ] || continue
+    dmb_c=$(eco_first "$1" "$dmb_p.contains")
+    [ -z "$dmb_c" ] || grep -Eq -- "$dmb_c" "$2/$dmb_f" 2>/dev/null || continue
+    dmb_raw=$(M_SINGLE=$(eco_first "$1" "$dmb_p.members.single_prefix") M_OPEN=$(eco_first "$1" "$dmb_p.members.block_open") \
+      M_CLOSE=$(eco_first "$1" "$dmb_p.members.block_close") M_ITEM=$(eco_first "$1" "$dmb_p.members.block_item_prefix") \
+      M_COMMENT=$(eco_first "$1" "$dmb_p.members.comment") awk '
+      function emit(t,   a) {
+        sub(/^ +/, "", t); split(t, a, " "); t = a[1]; gsub(/^["\047]|["\047]$/, "", t)
+        if (t == "" || t ~ /^[()]/) return
+        while (t ~ /^\.\//) t = substr(t, 3)
+        sub(/\/+$/, "", t); if (t == "") t = "."
+        print t }
+      BEGIN { sp = ENVIRON["M_SINGLE"]; bo = ENVIRON["M_OPEN"]; bc = ENVIRON["M_CLOSE"]; bi = ENVIRON["M_ITEM"]; cm = ENVIRON["M_COMMENT"] }
+      { l = $0; gsub(/\t/, " ", l); if (cm != "" && (k = index(l, cm))) l = substr(l, 1, k - 1)
+        if (inb) { if (bc != "" && l ~ bc) { inb = 0; next } t = l; if (bi != "") sub(bi, "", t); emit(t); next }
+        if (bo != "" && l ~ bo) { inb = 1; next }
+        if (sp != "" && l ~ sp) { t = l; sub(sp, "", t); emit(t) } }' "$2/$dmb_f")
+    [ -n "$dmb_raw" ] || continue
+    dmb_out=''
+    for dmb_m in $dmb_raw; do
+      d_safe_path "$dmb_m" || { D_MEM=''; return 0; }
+      dmb_out="$dmb_out $(d_subst "$dmb_fmt" member "$dmb_m")"
+    done
+    D_MEM=${dmb_out# }; return 0
+  done
+}
+
 # d_rule ID KIND MODE UNIT ROOT DIR TARGET: prints the command of the first rule of KIND whose `when` holds and
-# that has a template for MODE (bare: `run`, targeted: `at`); returns 1 when there is none.
+# that has a template for MODE (bare: `run`, targeted: `at`); returns 1 when there is none. A rule with a `workspace`
+# template (`at_workspace` when targeted) applies only when the unit has a workspace file that lists members, and
+# `{members}` becomes that list (d_members).
 d_rule() {
   dr_id=$1; dr_kind=$2; dr_mode=$3; dr_unit=$4; dr_root=$5; dr_dir=$6; dr_tgt=$7
   d_runner "$dr_id" "$dr_unit" "$dr_root"
+  d_members "$dr_id" "$dr_unit"
   for dr_i in $(eco_children "$dr_id" "commands.$dr_kind"); do
     d_when "$dr_unit" "$dr_root" "$dr_id" "commands.$dr_kind.$dr_i.when" || continue
-    if [ "$dr_mode" = bare ]; then dr_t=$(eco_first "$dr_id" "commands.$dr_kind.$dr_i.run"); else dr_t=$(eco_first "$dr_id" "commands.$dr_kind.$dr_i.at"); fi
+    if [ -n "$(eco_first "$dr_id" "commands.$dr_kind.$dr_i.workspace")" ]; then
+      [ -n "$D_MEM" ] || continue
+      if [ "$dr_mode" = bare ]; then dr_t=$(eco_first "$dr_id" "commands.$dr_kind.$dr_i.workspace"); else dr_t=$(eco_first "$dr_id" "commands.$dr_kind.$dr_i.at_workspace"); fi
+      dr_t=$(d_subst "$dr_t" members "$D_MEM")
+    elif [ "$dr_mode" = bare ]; then dr_t=$(eco_first "$dr_id" "commands.$dr_kind.$dr_i.run"); else dr_t=$(eco_first "$dr_id" "commands.$dr_kind.$dr_i.at"); fi
     [ -n "$dr_t" ] || continue
     for dr_n in $D_RVN; do dr_v=; eval "dr_v=\$D_RV_$dr_n"; dr_t=$(d_subst "$dr_t" "$dr_n" "$dr_v"); done
     dr_t=$(d_subst "$dr_t" dir "$dr_dir"); dr_t=$(d_subst "$dr_t" target "$dr_tgt")
@@ -421,7 +464,7 @@ pg_start() {
     perl) command -v perl >/dev/null 2>&1 || return 1
       perl -e 'use POSIX; setpgid(0, 0) or die "setpgid: $!\n"; exec @ARGV or die "exec: $!\n"' "$@" >> "$pgs_o" 2>&1 < /dev/null &
       G_PID=$! ;;
-    python) command -v python3 >/dev/null 2>&1 || return 1
+    pysetpgid) command -v python3 >/dev/null 2>&1 || return 1
       python3 -c 'import os, sys; os.setpgid(0, 0); os.execvp(sys.argv[1], sys.argv[1:])' "$@" >> "$pgs_o" 2>&1 < /dev/null &
       G_PID=$! ;;
     *) return 1 ;;
@@ -439,7 +482,7 @@ pg_probe() {
 # pg_pick: prints the first method that works on this machine (none when no method works). Under PROOFLINE_TEST=1,
 # PROOFLINE_PGMETHOD=<method> tries only that method.
 pg_pick() {
-  pk_l='setm setsid perl python'
+  pk_l='setm setsid perl pysetpgid'
   if [ "${PROOFLINE_TEST:-}" = 1 ] && [ -n "${PROOFLINE_PGMETHOD:-}" ]; then pk_l=$PROOFLINE_PGMETHOD; fi
   for pk_m in $pk_l; do if pg_probe "$pk_m"; then printf '%s\n' "$pk_m"; return 0; fi; done
   return 1

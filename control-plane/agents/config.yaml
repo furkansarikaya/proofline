@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.32
+proofline_version: 0.0.33
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -42,13 +42,22 @@ git:
   # Empty by default (D34): the team decides.
   protected_branches:
   push_requires_approval: true
+  # Hosting platform of the remote (A186), for a private host proofline cannot recognize by name: github | gitlab | azure |
+  # bitbucket | other. Precedence: this key, then the PROOFLINE_PLATFORM environment variable, then the origin URL (github.com,
+  # gitlab.com, dev.azure.com, bitbucket.org). `proofline doctor` shows the platform and which of the three decided.
+  platform:
+  # Bare host name of the origin remote that `platform` applies to, for example gitlab.company.com, github.company.com or an
+  # Azure DevOps Server host. It must EQUAL the host of the origin URL (never a prefix, suffix or part of it), so a look-alike
+  # host never gets the platform; empty means `platform` applies to whatever the origin is. GitHub Enterprise uses GH_HOST and
+  # self-hosted GitLab GITLAB_HOST (set for the tool from this host); Azure DevOps Server uses the collection URL of the origin.
+  platform_host:
   # Forbidden commit identities (glob or ERE, case-insensitive), for example *@example-corp.com
   forbidden_identities:
 approval:
   phrases: approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur
 commands:
   # Optional: installs dependencies in the build record's export directory (agent.sh build-record); without it
-  # node_modules, vendor and .venv of the project root are linked into the export.
+  # the dependency folders named by worktree_deps in ecosystems.json are copied into the export.
   install:
   # build, test and lint take one command (`build: dotnet build App.slnx`) or several, one `- ` line each, for a project with more
   # than one stack (A173). agent.sh build-record and the verify gate run every one and report the one that broke on its own:
@@ -83,6 +92,12 @@ design_docs:
   data_model: docs/design/DATA_MODEL.md
   api: docs/design/API.md
   adr_dir: docs/adr
+# Run worktrees (A185). copy_files: space-separated globs (a pattern without / matches at any depth) of untracked local files a new
+# worktree gets a copy of, so the task can run the project (default `.env*`; `none` copies nothing). Only a file git IGNORES is copied, and a
+# copied file can never be committed (the pre-commit hook refuses it); the secret scan still sees it. Dependency folders are prepared from
+# worktree_deps in ecosystems.json, never linked to the main tree.
+worktree:
+  copy_files: ".env*"
 local_state: on
 metrics: on
 # Writing profile (A138) for the docs-writer skill and any skill that writes prose. profile: auto = English text

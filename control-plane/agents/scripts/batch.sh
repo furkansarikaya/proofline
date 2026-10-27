@@ -29,7 +29,7 @@ LC_ALL=C; export LC_ALL
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
 agent=$here/agent.sh
-bd=$root/.agents/local/batch
+bd=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/batch   # A185: the main tree's folder from any worktree, by path
 wtb=$(cd "$root" && pwd -P)/.agents/local/worktrees   # A169: one worktree per task, <wtb>/<ID>
 
 die() { echo "batch: $*" >&2; exit 1; }
@@ -222,6 +222,13 @@ own_state() {
       *) DS=parked; DD="awaiting merge"; DQ="pull request $os_pr: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself"; return 0 ;;
     esac
   fi
+  # the user merges (platform other, a local origin): the delivered commit is kept in MERGE_HEAD; git says whether it was merged (round 3)
+  os_dd=$(rroot "$os_id")/.agents/local/deliver/$os_id
+  # the hand-off file, or (round 5) a pushed delivery where the user merges whose pr step did not run: both wait for the user's merge
+  if [ -s "$os_dd/MERGE_HEAD" ] || { grep -qs '^merge_by: user$' "$os_dd/SUMMARY.md" && git -C "$(rroot "$os_id")" rev-parse -q --verify "refs/remotes/origin/$(sed -n 's/^branch: //p' "$os_dd/SUMMARY.md" | head -n 1)" >/dev/null 2>&1; }; then
+    if sh "$agent" deliver-merged "$os_id" --check >/dev/null 2>&1; then DD="deliver merged"; return 0; fi
+    DS=parked; DD="awaiting merge"; DQ="the branch of $os_id is pushed and waits for YOUR merge into origin's $(cfgv canonical_branch main) (for example: git push origin <branch>:$(cfgv canonical_branch main)); then /proofline batch continues"; return 0
+  fi
   case "$(rsec "$os_id" handoff state)" in CODE_DONE|DONE) DD=deliver ;; esac
 }
 # derive: one row per task of order.tsv, in order: ID state detail question PR merge-epoch
@@ -269,7 +276,7 @@ derive_state() {
   else echo finished-clean; fi
 }
 approved_at() {
-  ap=$(grep -l "^bound: \"$(sha "$bd/SUMMARY.md")\"" "$root"/.agents/local/approvals/[0-9][0-9][0-9]-batch.yaml 2>/dev/null | sort | tail -1 || :)
+  ap=$(grep -l "^bound: \"$(sha "$bd/SUMMARY.md")\"" "${PROOFLINE_SHARED_ROOT:-$root}"/.agents/local/approvals/[0-9][0-9][0-9]-batch.yaml 2>/dev/null | sort | tail -1 || :)
   at=''; [ -z "$ap" ] || at=$(sed -n 's/^approved_at: //p' "$ap" | head -1)
   [ -z "$at" ] || fmt_ts "$at"
 }
@@ -310,7 +317,7 @@ next_report() {
   nr_ci=$(ci_pending) || nr_ci=''
   nr_open=$(printf '%s\n' "$nr_rows" | awk -F'\t' '$2 == "open" { print $1 "\t" $3; exit }')
   if [ -n "$nr_wait" ]; then
-    echo "NEXT: wait (owned by pid $nr_wait)   (another session works this batch; do not start a second one. If that session is gone, ask again: a dead owner is taken over)"
+    echo "NEXT: wait (owned by pid $nr_wait)   (pid $nr_wait is another live session; if it is yours, run the batch there or close it; do not start a second one. If that session is gone, ask again: a dead owner is taken over)"
   elif [ -n "$nr_ci" ]; then
     echo "NEXT: ci $nr_ci   (agent.sh batch-ci $nr_ci: the CI of its merge commit; red or no run in time: stop the batch)"
   elif [ -n "$nr_open" ]; then
@@ -320,6 +327,7 @@ next_report() {
       resume) echo "NEXT: resume $nr_id   (agent.sh next $nr_id, in $(rroot "$nr_id" | sed "s|^$root/*||; s|^$|the main working tree|"))" ;;
       "cover "*) echo "NEXT: cover $nr_id ${nr_act#cover }   (agent.sh batch-cover $nr_id ${nr_act#cover })" ;;
       "deliver cleanup") nr_pr=$(printf '%s\n' "$nr_rows" | awk -F'\t' -v t="$nr_id" '$1 == t { print $4 }'); echo "NEXT: deliver $nr_id cleanup $nr_pr   (pull request $nr_pr is merged but not recorded: agent.sh deliver-step $nr_id cleanup $nr_pr records the merge and cleans up)" ;;
+      "deliver merged") echo "NEXT: deliver $nr_id merged   (the user merged it on origin: agent.sh deliver-merged $nr_id proves that from git, records the merge and cleans up the run and its worktree)" ;;
       deliver) echo "NEXT: deliver $nr_id   (the whole delivery of the lead skill; the approval is covered by batch-cover $nr_id delivery)" ;;
     esac
   else
@@ -358,6 +366,8 @@ ci_cmd() { # ID
   cc_pr=$(merged_pr "$cc_id") || die "$cc_id is not merged (no record in merged.tsv)"
   if [ "$(sh "$agent" ci-check 2>/dev/null | head -1)" = 'ci: absent' ]; then ci_record "$cc_id" none; echo "ci: not applicable (no CI check runs on pull requests; the merge was verified locally)"; return 0; fi
   cc_pf=$(sh "$here/platform.sh" field platform -C "$root" 2>/dev/null || echo other)
+  cc_pe=$(sh "$here/platform.sh" env -C "$root" 2>/dev/null || true)   # a private host (A186)
+  case "$cc_pe" in GH_HOST=*) GH_HOST=${cc_pe#GH_HOST=}; export GH_HOST ;; esac
   if [ "$cc_pf" != github ] || ! command -v gh >/dev/null 2>&1; then ci_record "$cc_id" none; echo "ci: not checked here (the CI of a merge commit is read through gh on GitHub; platform $cc_pf): look at it yourself before you go on"; return 0; fi
   cc_sha=$(cd "$root" && gh pr view "$cc_pr" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null) || cc_sha=''
   [ -n "$cc_sha" ] || { echo "ci: cannot read the merge commit of PR $cc_pr ($cc_id)"; return 3; }

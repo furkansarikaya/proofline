@@ -13,7 +13,7 @@
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
-out=$root/.agents/local/friction
+out=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/friction   # A185
 repo=furkansarikaya/proofline
 gh_bin=gh
 [ "${PROOFLINE_TEST:-}" != 1 ] || gh_bin=${PROOFLINE_GH:-gh}   # test seam only: the env never picks the binary that runs after an approval
@@ -36,7 +36,7 @@ scrub() { # FILE: 0 when it is safe to share
 }
 report() {
   id=${1:-}; case "$id" in ''|*[!A-Za-z0-9_-]*) echo "usage: friction.sh report <ID>" >&2; exit 2 ;; esac
-  led=$root/.agents/runs/$id/LEDGER.log; rec=$root/.agents/local/metrics/records.jsonl
+  led=$root/.agents/runs/$id/LEDGER.log; rec=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/metrics/records.jsonl
   [ -f "$led" ] || { echo "friction: no ledger for the run" >&2; exit 1; }
   [ "$(sh "$here/agent.sh" config-get metrics 2>/dev/null || echo on)" != off ] || rec=/dev/null
   tk=$(tokens_of "$id" "$rec")
@@ -95,7 +95,7 @@ send() {
   sh "$here/agent.sh" approval-consume - report || { echo "friction: nothing sent. Ask the user: agent.sh request-approval - report (relay it verbatim)" >&2; exit 1; }
   # the command issue-cmd prints, run from the project root
   # shellcheck disable=SC2086
-  (cd "$root" && $gh_bin issue create --repo "$repo" --title "proofline friction report" --body-file .agents/local/friction/latest.md)
+  (cd "${PROOFLINE_SHARED_ROOT:-$root}" && $gh_bin issue create --repo "$repo" --title "proofline friction report" --body-file .agents/local/friction/latest.md)
 }
 calibrate() {
   bud=$(cfgv test_trust.mutation_budget 20); to=$(cfgv dispatch.timeout_seconds 1800); mfr=$(cfgv review.max_fix_rounds 2)
@@ -105,7 +105,7 @@ calibrate() {
     n=$(awk '/^## /{ i = ($0 ~ /^## Tests/); next } i && match($0, /^[ \t]*[-*][ \t]+AC-[0-9]+:/) { a = substr($0, RSTART, RLENGTH); sub(/^[^A]*/, "", a); seen[a] = 1 } END { n = 0; for (k in seen) n++; print n }' "$p")
     runs=$((runs + 1)); [ "$n" -le "$maxn" ] || maxn=$n
   done
-  rec=$root/.agents/local/metrics/records.jsonl; s=0
+  rec=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/metrics/records.jsonl; s=0
   echo "calibration suggestions (read-only; nothing was changed, edit .agents/config.yaml yourself if you agree)"
   echo "seen: $runs plans, most criteria in one plan: $maxn; test_trust.mutation_budget: $bud"
   if [ "$maxn" -gt "$bud" ]; then s=1; echo "suggest: test_trust.mutation_budget $maxn (a plan names $maxn criteria, one mutant each is the minimum; today that costs an approval per run)"

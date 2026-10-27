@@ -15,7 +15,27 @@
 # is the lead (non-proofline subagents get the lead's restrictions).
 set -u
 ev=${1:-}; rt=${2:-claude}
-kg_t0=$(date +%s)   # the kill guard's time budget (KG_BUDGET, below) covers the whole hook, so it starts here
+# A188: fewer processes. On Windows (Git Bash) every started process costs tens of milliseconds, so the hot paths use shell builtins
+# and parameter expansion where the result is byte-identical, read the hook JSON in one pass (jprefetch) and take the clock once.
+# hk_tick sets hk_v (epoch milliseconds, a millisecond clock only for the events a person waits on, else whole seconds times 1000)
+# and hk_s (epoch seconds) without a subshell; the first date that gives no nanoseconds (macOS) switches to perl once, not on every tick.
+hk_fine=no; case "$ev" in prompt|session|stop|subagent-start|subagent-stop) hk_fine=yes ;; esac
+hk_mode=nano; [ "$hk_fine" = yes ] || hk_mode=sec
+hk_tick() {
+  hk_v=''
+  if [ "$hk_mode" = nano ]; then
+    hk_v=$(date +%s%N 2>/dev/null); case "$hk_v" in ''|*[!0-9]*) hk_v=''; hk_mode=perl ;; *) hk_v=$((hk_v / 1000000)) ;; esac
+  fi
+  if [ "$hk_mode" = perl ]; then
+    hk_v=$(perl -MTime::HiRes=time -e 'printf "%d", time()*1000' 2>/dev/null || :); case "$hk_v" in ''|*[!0-9]*) hk_v=''; hk_mode=sec ;; esac
+  fi
+  case "$hk_v" in ''|*[!0-9]*) hk_v=$(( $(date +%s) * 1000 )) ;; esac
+  hk_s=$((hk_v / 1000))
+}
+hk_tick; hk_t0=$hk_v
+kg_t0=$hk_s   # the kill guard's time budget (KG_BUDGET, below) covers the whole hook, so it starts here
+NL='
+'; TAB=$(printf '\t'); CR=$(printf '\r'); SEP=$(printf '\001'); US=$(printf '\002')
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-hook.XXXXXX") || exit 0
 trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/in"
@@ -27,6 +47,8 @@ fi
 # jget [PATH...]: the first non-null value of dotted PATHs; strings raw, string arrays space-joined, other
 # values as JSON. Without PATHs it only validates the input. Exit non-zero when the input is not JSON.
 jget() {
+  # A188: a value fetched by jprefetch is answered from memory (the same bytes jq or node would print)
+  case "$JC" in *"$SEP$*$US"*) jg_v=${JC#*"$SEP$*$US"}; printf '%s' "${jg_v%%"$SEP"*}"; return 0 ;; esac
   case "$jp" in
     jq) jq -je --arg ps "$*" '. as $r | [($ps | split(" "))[] | . as $p | ($r | try getpath($p | split(".")) catch null) | select(. != null)]
           | (first // "") | if type == "string" then . elif type == "array" and all(type == "string") then join(" ") else tojson end' < "$tmp/in" 2>/dev/null ;;
@@ -36,7 +58,34 @@ jget() {
     *) return 1 ;;
   esac
 }
-jesc() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); if (NR > 1) print "\\n"; print }'; }
+# jprefetch GROUP...: one jq or node run reads every GROUP (the PATH list of one jget call, space-separated) and keeps the answers in $JC;
+# a later `jget <the same list>` is then answered without a process. Fails when the input is not JSON, like jget without PATHs. Values that
+# hold the separator characters (or a NUL) are not cached at all, so those fall back to the process.
+JC=''
+jprefetch() {
+  jf_o=''; jf_g=''; for jf_a in "$@"; do jf_g=$jf_g$jf_a$NL; done
+  case "$jp" in
+    jq) jf_o=$(jq -je --arg ps "${jf_g%"$NL"}" '. as $r | [($ps | split("\n"))[] | split(" ") as $pl | [$pl[] | . as $p | ($r | try getpath($p | split(".")) catch null) | select(. != null)]
+          | (first // "") | if type == "string" then . elif type == "array" and all(type == "string") then join(" ") else tojson end] as $vs
+          | if ($vs | any(contains("\u0001") or contains("\u0002") or contains("\u0000"))) then "0\u0001" else ("1\u0001" + ($vs | map(. + "\u0001") | join(""))) end' < "$tmp/in" 2>/dev/null) || return 1 ;;
+    node) jf_o=$(node -e 'let r; try { r = JSON.parse(require("fs").readFileSync(0, "utf8")) } catch (e) { process.exit(1) }
+          const vs = process.argv[1].split("\n").map(g => { for (const p of g.split(" ")) { let v = r; for (const k of p.split(".")) v = (v !== null && typeof v === "object") ? v[k] : undefined
+            if (v !== undefined && v !== null) return typeof v === "string" ? v : Array.isArray(v) && v.every(x => typeof x === "string") ? v.join(" ") : JSON.stringify(v) } return "" })
+          process.stdout.write(vs.some(v => /[\u0000-\u0002]/.test(v)) ? "0\u0001" : "1\u0001" + vs.map(v => v + "\u0001").join(""))' "${jf_g%"$NL"}" < "$tmp/in" 2>/dev/null) || return 1 ;;
+    *) return 1 ;;
+  esac
+  [ -n "$jf_o" ] || return 1
+  [ "${jf_o%%"$SEP"*}" = 1 ] || return 0
+  jf_o=${jf_o#*"$SEP"}
+  for jf_a in "$@"; do JC=$JC$SEP$jf_a$US${jf_o%%"$SEP"*}; jf_o=${jf_o#*"$SEP"}; done
+}
+# jesc TEXT: JSON string body. Text without a backslash, quote, tab, carriage return or newline is already one (no process).
+jesc() {
+  case $1 in
+    *\\*|*\"*|*"$TAB"*|*"$CR"*|*"$NL"*) printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); if (NR > 1) print "\\n"; print }' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
 ctx() { # EVENT TEXT: additionalContext for the model
   printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$1" "$(jesc "$2")"; exit 0
 }
@@ -44,12 +93,37 @@ deny() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(jesc "proofline: $*")"
   exit 0
 }
-if command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 "$1" | awk '{print $1}'; }; else sha() { sha256sum "$1" | awk '{print $1}'; }; fi
+# sha FILE: the SHA-256 of FILE (the digest is the first word of the tool's line; no awk)
+if command -v shasum >/dev/null 2>&1; then sha() { sh_o=$(shasum -a 256 "$1") || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }; else sha() { sh_o=$(sha256sum "$1") || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }; fi
 canon() { case "$1" in full_lifecycle) echo lead ;; implementation_worker) echo implementer ;; independent_reviewer) echo reviewer ;; independent_qa) echo qa ;; independent_verifier) echo verifier ;; *) printf '%s\n' "$1" ;; esac; }
 valid_role() { case "$1" in lead|task_author|explorer|architect|data_architect|designer|qa|implementer|reviewer|security_reviewer|verifier) return 0 ;; *) return 1 ;; esac; }
-safe() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'; }
+safe() { case $1 in *[!A-Za-z0-9_.-]*) printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_' ;; *) printf '%s' "$1" ;; esac; }   # a name that is already safe needs no process
+# dn_ P / bn_ P (A188): dirname and basename of P as parameter expansion (result in dn_r / bn_r), the same answers as the tools for the
+# paths the hook builds (absolute, any number of trailing or doubled slashes); no process.
+dn_() {
+  dn_r=$1
+  while case $dn_r in ?*/) true ;; *) false ;; esac; do dn_r=${dn_r%/}; done
+  case $dn_r in
+    */*) dn_r=${dn_r%/*}; while case $dn_r in ?*/) true ;; *) false ;; esac; do dn_r=${dn_r%/}; done; [ -n "$dn_r" ] || dn_r=/ ;;
+    *) dn_r=. ;;
+  esac
+}
+bn_() {
+  bn_r=$1
+  while case $bn_r in ?*/) true ;; *) false ;; esac; do bn_r=${bn_r%/}; done
+  case $bn_r in /) ;; *) bn_r=${bn_r##*/} ;; esac
+}
 
-parsed=yes; jget >/dev/null || parsed=no
+# A188: every value the event reads, in ONE parse (this also validates the input, as `jget` without PATHs did). The groups are exactly the
+# argument lists the hook passes to jget below; a value read through another list is fetched by its own process as before.
+parsed=yes
+case "$ev" in
+  pretool) jprefetch cwd agent_id agent_type tool_name 'tool_input.file_path tool_input.notebook_path tool_input.path' 'tool_input.command tool_input.cmd' session_id 'tool_input.file_path tool_input.path' tool_input.file_path tool_input.notebook_path tool_input.path tool_input.pattern || parsed=no ;;
+  posttool) jprefetch cwd agent_id agent_type 'tool_input.file_path tool_input.notebook_path tool_input.path' || parsed=no ;;
+  prompt) jprefetch cwd agent_id agent_type prompt session_id || parsed=no ;;
+  stop) jprefetch cwd agent_id agent_type session_id last_assistant_message transcript_path || parsed=no ;;
+  *) jprefetch cwd agent_id agent_type session_id stop_hook_active agent_transcript_path transcript_path || parsed=no ;;
+esac
 cwd=''; [ "$parsed" = no ] || cwd=$(jget cwd)
 [ -n "$cwd" ] && [ -d "$cwd" ] || cwd=$PWD
 root=${CLAUDE_PROJECT_DIR:-}
@@ -58,14 +132,47 @@ root=$(CDPATH='' cd "$root" 2>/dev/null && pwd -P) || exit 0
 agent=$root/.agents/scripts/agent.sh
 # Not installed: every event is a no-op, except the merge guard of pretool (A136), which protects any project the hook runs in.
 installed=yes; { [ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ]; } || installed=no
-local_dir=$root/.agents/local
+# A185: ONE folder per kind of state. Per-run state (ACTIVE_RUN, windows, records, submissions, baseline, hook-times, in-flight marks) lives in the
+# worktree that owns the run: sroot, the root of the run worktree the event belongs to (the path the tool touches when it is inside the
+# project, else the working directory), as decided by agent.sh worktree-root; otherwise the project root. agent.sh of that worktree is the
+# one that is asked, so it and the hook read and write the same run folder. State that belongs to no run (prompts, approvals of no run)
+# is the main working tree's, reached by path (shared_local), never through a link. Outside a run worktree sroot is root: nothing changes.
+main_root=$root
+if [ -f "$root/.git" ]; then   # root itself is a linked worktree (CLAUDE_PROJECT_DIR or git named it): its main tree holds the shared state
+  mr_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  case "$root" in "$mr_m"/.agents/local/worktrees/*) main_root=$mr_m ;; esac
+fi
+shared_local=$main_root/.agents/local
+sroot=$root
+ev_phys() { # P: the physical absolute path (existing parents resolved); nothing when it cannot be resolved
+  ep_q=$1; case "$ep_q" in /*) ;; *) ep_q=$cwd/$ep_q ;; esac
+  dn_ "$ep_q"; ep_d=$dn_r; bn_ "$ep_q"; ep_t=$bn_r
+  while [ ! -d "$ep_d" ]; do bn_ "$ep_d"; ep_t=$bn_r/$ep_t; dn_ "$ep_d"; ep_n=$dn_r; [ "$ep_n" != "$ep_d" ] || return 0; ep_d=$ep_n; done
+  ep_d=$(CDPATH='' cd "$ep_d" 2>/dev/null && pwd -P) || return 0
+  printf '%s/%s\n' "$ep_d" "$ep_t"
+}
+if [ "$installed" = yes ] && [ "$main_root" = "$root" ]; then
+  ev_p=''; [ "$parsed" = no ] || case "$ev" in pretool|posttool) ev_p=$(jget tool_input.file_path tool_input.notebook_path tool_input.path) ;; esac
+  for ev_c in "$ev_p" "$cwd"; do
+    [ -n "$ev_c" ] || continue
+    ev_c=$(ev_phys "$ev_c"); [ -n "$ev_c" ] || continue
+    case "$ev_c" in
+      "$root"/.agents/local/worktrees/*)
+        if ev_w=$(sh "$agent" worktree-root "$ev_c" 2>/dev/null) && [ -n "$ev_w" ] && [ -f "$ev_w/.agents/config.yaml" ] && [ -f "$ev_w/.agents/scripts/agent.sh" ]; then sroot=$ev_w; agent=$ev_w/.agents/scripts/agent.sh; fi
+        break ;;
+      "$root"|"$root"/*) break ;;   # a path inside the project but outside every run worktree: the main tree decides
+    esac
+  done
+fi
+local_dir=$sroot/.agents/local
 # once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
 # once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side
 # effects (prompt, session).
 once() {
-  mkdir -p "$local_dir/hooklock" 2>/dev/null || return 0
+  [ -d "$local_dir/hooklock" ] || mkdir -p "$local_dir/hooklock" 2>/dev/null || return 0
   find "$local_dir/hooklock" -type f -mmin +5 -exec rm -f {} + 2>/dev/null
-  o_k=$local_dir/hooklock/$ev.$(sha "$tmp/in" | cut -c1-16); o_n=$(date +%s)
+  o_h=$(sha "$tmp/in"); o_h=${o_h%"${o_h#????????????????}"}
+  o_k=$local_dir/hooklock/$ev.$o_h; o_n=$hk_s
   ( set -C; printf '%s\n' "$o_n" > "$o_k" ) 2>/dev/null && return 0
   o_p=$(cat "$o_k" 2>/dev/null); case "$o_p" in *[!0-9]*) o_p=0 ;; esac
   if [ -z "$o_p" ] || [ $((o_n - o_p)) -le 1 ]; then exit 0; fi   # empty: the first copy is still writing its stamp
@@ -79,7 +186,12 @@ once() {
 # Active run: the selector's single id; anything malformed counts as active (fail closed).
 act=''
 if [ -f "$local_dir/ACTIVE_RUN" ]; then
-  act=$(sed '/^[[:space:]]*$/d' "$local_dir/ACTIVE_RUN" | tr -d ' \t')
+  # A188: the lines that hold more than white space, with spaces and tabs removed, joined by newlines (read loop, no sed or tr)
+  while IFS= read -r ac_l || [ -n "$ac_l" ]; do
+    case $ac_l in *[![:space:]]*) ;; *) continue ;; esac
+    while case $ac_l in *" "*|*"$TAB"*) true ;; *) false ;; esac; do ac_l=${ac_l%%[ "$TAB"]*}${ac_l#*[ "$TAB"]}; done
+    act=${act:+$act$NL}$ac_l
+  done < "$local_dir/ACTIVE_RUN"
   case "$act" in '') ;; *[!A-Za-z0-9_-]*) act=INVALID ;; esac
 fi
 
@@ -88,36 +200,28 @@ fi
 # time limit leaves an in-flight marker instead, which the next prompt or session hook turns into a `timeout` line.
 # `agent.sh hook-time <ID>` moves the lines into the ledger of the active run (the friction report counts them).
 # Millisecond clocks exist for the events a person waits on (prompt, session, stop, subagent events); tool events use seconds.
-hk_fine=no; case "$ev" in prompt|session|stop|subagent-start|subagent-stop) hk_fine=yes ;; esac
-hk_now() {
-  hk_v=''
-  if [ "$hk_fine" = yes ]; then
-    hk_v=$(date +%s%N 2>/dev/null); case "$hk_v" in ''|*[!0-9]*) hk_v=$(perl -MTime::HiRes=time -e 'printf "%d", time()*1000' 2>/dev/null || :) ;; *) hk_v=$((hk_v / 1000000)) ;; esac
-  fi
-  case "$hk_v" in ''|*[!0-9]*) hk_v=$(( $(date +%s) * 1000 )) ;; esac
-  printf '%s' "$hk_v"
-}
-hk_t0=$(hk_now); hk_mark=''
-hk_line() { # NAME MS RESULT [NOTE]
+# (hk_fine, hk_tick and hk_t0 are set at the top of the script, A188.)
+hk_mark=''
+hk_line() { # NAME MS RESULT [NOTE]: the line's epoch is the clock of the hk_tick that just measured MS
   [ "$installed" = yes ] || return 0
-  printf '%s|%s|%s|%s|%s\n' "$(date +%s)" "$1" "$2" "$3" "${4:-}" >> "$local_dir/hook-times" 2>/dev/null || :
+  printf '%s|%s|%s|%s|%s\n' "$hk_s" "$1" "$2" "$3" "${4:-}" >> "$local_dir/hook-times" 2>/dev/null || :
 }
-hk_step() { hk_line "$ev.$1" $(( $(hk_now) - $2 )) ok; }   # STEP T0: the time of one step of this hook
+hk_step() { hk_tick; hk_line "$ev.$1" $(( hk_v - $2 )) ok; }   # STEP T0: the time of one step of this hook
 hk_finish() {
-  [ -z "$hk_mark" ] || { rm -f "$hk_mark"; hk_line "$ev" $(( $(hk_now) - hk_t0 )) ok; }
+  [ -z "$hk_mark" ] || { hk_tick; hk_line "$ev" $(( hk_v - hk_t0 )) ok; }   # the marker is removed by the EXIT trap's single rm (A188)
 }
-if [ "$installed" = yes ] && mkdir -p "$local_dir/hooks-inflight" 2>/dev/null; then
+if [ "$installed" = yes ] && { [ -d "$local_dir/hooks-inflight" ] || mkdir -p "$local_dir/hooks-inflight" 2>/dev/null; }; then
   hk_mark=$local_dir/hooks-inflight/$ev.$$; printf '%s %s\n' "$$" "$hk_t0" > "$hk_mark" 2>/dev/null || hk_mark=''
 fi
-trap 'hk_finish; rm -rf "$tmp"' EXIT
+trap 'hk_finish; rm -rf "$tmp" ${hk_mark:+"$hk_mark"}' EXIT
 hk_sweep() { # in-flight markers of hooks that are gone without finishing: the runtime killed them at its time limit
   for hk_f in "$local_dir"/hooks-inflight/*; do
     [ -f "$hk_f" ] && [ "$hk_f" != "$hk_mark" ] || continue
-    read -r hk_p hk_s < "$hk_f" || :
-    case "$hk_p:$hk_s" in *[!0-9:]*|:*|*:) rm -f "$hk_f"; continue ;; esac
+    read -r hk_p hk_st < "$hk_f" || :
+    case "$hk_p:$hk_st" in *[!0-9:]*|:*|*:) rm -f "$hk_f"; continue ;; esac
     ! kill -0 "$hk_p" 2>/dev/null || continue
     hk_n=${hk_f##*/}; hk_n=${hk_n%.*}
-    hk_line "$hk_n" $(( $(hk_now) - hk_s )) timeout "killed-before-finish"
+    hk_tick; hk_line "$hk_n" $(( hk_v - hk_st )) timeout "killed-before-finish"
     rm -f "$hk_f"
   done
 }
@@ -130,7 +234,7 @@ aid=''; atype=''; [ "$parsed" = no ] || { aid=$(jget agent_id); atype=$(jget age
 envrole=$(canon "${AGENT_ROLE:-}")
 role=lead; prole=''
 t=${atype##*:}
-case "$t" in proofline-*) r=$(canon "$(printf '%s' "${t#proofline-}" | tr - _)"); if valid_role "$r" && [ "$r" != lead ]; then prole=$r; fi ;; esac
+case "$t" in proofline-*) r=${t#proofline-}; while case $r in *-*) true ;; *) false ;; esac; do r=${r%%-*}_${r#*-}; done; r=$(canon "$r"); if valid_role "$r" && [ "$r" != lead ]; then prole=$r; fi ;; esac
 if [ -n "$aid" ] || [ -n "$atype" ]; then [ -z "$prole" ] || role=$prole
 elif [ -n "$envrole" ] && [ "$envrole" != lead ] && valid_role "$envrole"; then role=$envrole; fi
 sub=no; { [ -n "$aid" ] || [ -n "$atype" ]; } && sub=yes
@@ -147,15 +251,32 @@ tasks_dir=''
 # symlink among the parents). The last component is not followed; target_ok refuses links there.
 relpath() {
   rp=$1; case "$rp" in /*) ;; *) rp=$cwd/$rp ;; esac
-  rp_dir=$(dirname "$rp") rp_tail=$(basename "$rp")
+  dn_ "$rp"; rp_dir=$dn_r; bn_ "$rp"; rp_tail=$bn_r
   while [ ! -d "$rp_dir" ]; do
     [ ! -L "$rp_dir" ] || { echo @unknown; return; }
-    rp_tail=$(basename "$rp_dir")/$rp_tail; rp_dir=$(dirname "$rp_dir")
+    bn_ "$rp_dir"; rp_tail=$bn_r/$rp_tail; dn_ "$rp_dir"; rp_dir=$dn_r
   done
   case "/$rp_tail/" in */../*|*/./*) echo @unknown; return ;; esac
   rp_dir=$(CDPATH='' cd "$rp_dir" 2>/dev/null && pwd -P) || { echo @unknown; return; }
   rp=$rp_dir/$rp_tail
-  case "$rp" in "$root") echo . ;; "$root"/*) printf '%s\n' "${rp#"$root"/}" ;; *) echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp" ;; esac
+  # A184 (review): a session whose project root is a run worktree still protects the MAIN tree: a path inside main_root (the main working tree of
+  # the same git common dir) that is not inside the session's own worktree is judged with the main tree's rules, relative to main_root, never as
+  # "outside the project" (that would let the lead write .agents/local/approvals there). In the main tree main_root is root: nothing changes.
+  rp_b=''
+  case "$rp" in "$root"|"$root"/*) rp_b=$root ;; "$main_root"|"$main_root"/*) rp_b=$main_root ;; esac
+  [ -n "$rp_b" ] || { echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp"; return; }   # (an empty base would make "$rp_b"/* match every path)
+  case "$rp" in "$rp_b") echo . ;; "$rp_b"/*) rp_r=${rp#"$rp_b"/}
+    # A184: a path inside a run's own git worktree (.agents/local/worktrees/<ID>/...) is judged relative to THAT worktree's root, so its
+    # .agents/runs/<ID>/ obeys the rules of the main tree and its .agents/local/** stays runtime state. Whether the folder is a registered
+    # worktree of this project is decided by agent.sh worktree-root (the one definition, never inferred from the path string here); any
+    # doubt (agent.sh missing, not registered, a link, a crafted folder) keeps the project-relative path, which is denied as runtime state.
+    case "$rp_r" in .agents/local/worktrees/*/*)
+      if [ "$installed" = yes ] && rp_w=$(sh "$agent" worktree-root "$rp" 2>/dev/null) && [ -n "$rp_w" ]; then
+        case "$rp" in "$rp_w"/*) rp_r=${rp#"$rp_w"/} ;; esac
+      fi ;;
+    esac
+    printf '%s\n' "$rp_r" ;;
+  *) echo @outside; [ "${2:-}" != abs ] || printf '%s\n' "$rp" ;; esac
 }
 # outside_ok P: may a Write/Edit tool write P, which relpath put outside the project? Only inside a registered
 # worktree or the runtime's own storage (~/.claude/projects/*/memory, tool-results, ~/.claude/plans); a sibling such as <project>-x is outside (A120, C-18).
@@ -196,8 +317,8 @@ erasable() {
   case "$er_r" in .agents/runs/"$act"/scratch/*) return 0 ;; esac
   [ "$ro" = no ] || return 1   # A143: a read role leaves the project tree unchanged
   ! always_protected "$er_r" || return 1
-  [ -z "$(git -C "$root" ls-files -- "$er_r" 2>/dev/null)" ] || return 1
-  ! git -C "$root" check-ignore -q -- "$er_r" 2>/dev/null || return 1
+  [ -z "$(git -C "$sroot" ls-files -- "$er_r" 2>/dev/null)" ] || return 1
+  ! git -C "$sroot" check-ignore -q -- "$er_r" 2>/dev/null || return 1
   # not in the untracked set recorded when the run's first hook event came (the user's own work in progress is in it)
   [ -f "$local_dir/baseline/$act" ] && ! grep -qxF -- "$er_r" "$local_dir/baseline/$act"
 }
@@ -206,7 +327,7 @@ baseline() {
   [ "$installed" = yes ] && [ -n "$act" ] && [ "$act" != INVALID ] && [ ! -f "$local_dir/baseline/$act" ] || return 0
   mkdir -p "$local_dir/baseline" 2>/dev/null || return 0
   # git's own status is checked (a pipe into tr would hide its failure); a failed git writes no baseline, so erasable() refuses
-  if git -C "$root" ls-files -z --others --exclude-standard >"$local_dir/baseline/.$act.raw" 2>/dev/null &&
+  if git -C "$sroot" ls-files -z --others --exclude-standard >"$local_dir/baseline/.$act.raw" 2>/dev/null &&
      tr '\0' '\n' <"$local_dir/baseline/.$act.raw" >"$local_dir/baseline/.$act.tmp"; then
     mv "$local_dir/baseline/.$act.tmp" "$local_dir/baseline/$act"
   fi
@@ -250,7 +371,7 @@ knowledge_stage() {
 path_ok() {
   po=$1; run=.agents/runs/$act
   if [ -z "$tasks_dir" ]; then
-    tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || tasks_dir=''
+    if hcfg_load; then tasks_dir=$hc_tasks; else tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || tasks_dir=''; fi
     tasks_dir=${tasks_dir%/}; [ -n "$tasks_dir" ] || tasks_dir=.agents/tasks
   fi
   case "$po" in @outside) return 0 ;; @unknown) echo "cannot resolve the target path"; return 1 ;; esac
@@ -281,7 +402,7 @@ path_ok() {
   # implementer PRODUCT_SCOPE, task_author the run dir and tasks.dir, everyone else the run dir only.
   # Implementer and designer subagents write outside the run dir only inside their window.
   po_own=''
-  [ -f "$root/.agents/owns.conf" ] && po_own=$(awk -v r="$role" '$1 == r { $1 = ""; print; exit }' "$root/.agents/owns.conf")
+  [ -f "$sroot/.agents/owns.conf" ] && po_own=$(awk -v r="$role" '$1 == r { $1 = ""; print; exit }' "$sroot/.agents/owns.conf")
   if [ -z "$po_own" ]; then
     case "$role" in implementer) po_own=PRODUCT_SCOPE ;; task_author) po_own="@run /$tasks_dir/" ;; *) po_own=@run ;; esac
   fi
@@ -292,7 +413,7 @@ path_ok() {
       PRODUCT_SCOPE)
         case "$po" in "$run"/*) po_hit=yes ;; esac
         # shellcheck disable=SC2013 # scope paths contain no whitespace (agent.sh scope format)
-        for po_s in $(awk '/^scope:$/ { i = 1; next } i && /^---$/ { exit } i && /^  - path: / { sub(/^  - path: /, ""); gsub(/["\047]/, ""); print }' "$root/$run/PLAN.md" 2>/dev/null); do
+        for po_s in $(awk '/^scope:$/ { i = 1; next } i && /^---$/ { exit } i && /^  - path: / { sub(/^  - path: /, ""); gsub(/["\047]/, ""); print }' "$sroot/$run/PLAN.md" 2>/dev/null); do
           case "$po_s" in */) case "$po" in "$po_s"*) po_hit=yes ;; esac ;; *) [ "$po" != "$po_s" ] || po_hit=yes ;; esac
         done ;;
       /*) ! own_match "$po" "${po_t#/}" '' || po_hit=yes ;;
@@ -319,7 +440,7 @@ path_ok() {
 nr_path_ok() {
   np=$1
   if [ -z "$tasks_dir" ]; then
-    tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || tasks_dir=''
+    if hcfg_load; then tasks_dir=$hc_tasks; else tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || tasks_dir=''; fi
     tasks_dir=${tasks_dir%/}; [ -n "$tasks_dir" ] || tasks_dir=.agents/tasks
   fi
   case "$np" in @outside) return 0 ;; @unknown) echo "cannot resolve the target path"; return 1 ;; esac
@@ -334,10 +455,10 @@ nr_path_ok() {
     .agents/local|.agents/local/*) echo "$np is runtime state (approvals, prompts, windows, records); the lead writes under .agents/local/ only in scratch/, explain/, assignments/ and the standalone skill folders (product-spec, product-discovery, intent-grill, task-author)"; return 1 ;;
   esac
   case "$np" in "$tasks_dir"/*|.agents/*) return 0 ;; esac
-  ! git -C "$root" check-ignore -q -- "$np" 2>/dev/null || return 0
+  ! git -C "$sroot" check-ignore -q -- "$np" 2>/dev/null || return 0
   sh "$agent" in-knowledge-scope "$np" >/dev/null 2>&1 && return 0
   # product.dir (product-spec output) may be set to another folder than docs/product
-  np_pd=$(sh "$agent" config-get product.dir 2>/dev/null) || np_pd=''
+  if hcfg_load; then np_pd=$hc_product; else np_pd=$(sh "$agent" config-get product.dir 2>/dev/null) || np_pd=''; fi
   np_pd=${np_pd%/}
   case "$np_pd" in ''|.|/*|*..*) ;; *) case "$np" in "$np_pd"/*) return 0 ;; esac ;; esac
   echo "no run is active, and the lead never edits product files itself (D2, A169). Propose a light run (TRIVIAL or STANDARD) with '/proofline run <text>' and let the implementer make the change; the push approval then binds to that run. Without a run the lead writes only task files ($tasks_dir/), .agents/, the knowledge scope (docs/design/ docs/adr/ docs/wiki/ docs/product/) and git-ignored files"
@@ -719,14 +840,48 @@ stray_tmp_path() {
 # (`agent.sh db-config`, language-independent defaults). A heuristic like the rest: token and command-word
 # matching on the command text; a script that opens a database by itself is caught after the fact by
 # `agent.sh db-check` (size and mtime of every database file, compared at freeze and each handoff).
+# hcfg_load: ask agent.sh hook-config ONCE per event (A188) for tasks.dir, canonical_branch, product.dir and the database settings; the
+# answers are in hc_tasks hc_branch hc_product hc_paths hc_clients hc_migrate. Fails (the callers then ask for each value as before)
+# when agent.sh does not know the command or refuses it for this role (hook-config is allowed for the same roles as db-config).
+hcfg_state=''
+hcfg_load() {
+  case $hcfg_state in ok) return 0 ;; no) return 1 ;; esac
+  hcfg_state=no
+  [ "$installed" = yes ] && sh "$agent" hook-config > "$tmp/hcfg" 2>/dev/null || return 1
+  hc_tasks='' hc_branch='' hc_product='' hc_paths='' hc_clients='' hc_migrate=''
+  while IFS= read -r hc_l || [ -n "$hc_l" ]; do
+    case $hc_l in
+      tasks_dir=*) hc_tasks=${hc_l#tasks_dir=} ;; canonical_branch=*) hc_branch=${hc_l#canonical_branch=} ;; product_dir=*) hc_product=${hc_l#product_dir=} ;;
+      paths=*) hc_paths=${hc_l#paths=} ;; clients=*) hc_clients=${hc_l#clients=} ;; migrate_commands=*) hc_migrate=${hc_l#migrate_commands=} ;;
+    esac
+  done < "$tmp/hcfg"
+  hcfg_state=ok
+}
 db_loaded=no
 db_load() {
   [ "$db_loaded" = no ] || return 0
   db_loaded=yes
-  sh "$agent" db-config all > "$tmp/dbconf" 2>/dev/null || : > "$tmp/dbconf"
-  db_paths=$(sed -n 's/^paths=//p' "$tmp/dbconf" | head -n 1)
-  db_clients=$(sed -n 's/^clients=//p' "$tmp/dbconf" | head -n 1)
-  db_migrate=$(sed -n 's/^migrate_commands=//p' "$tmp/dbconf" | head -n 1)
+  # A188: one agent.sh run answers every config question of this event (hcfg_load); the three db-config lines are then read in a loop
+  # (it was db-config plus three sed and three head processes). Without hook-config the old db-config call is used.
+  if hcfg_load; then db_paths=$hc_paths db_clients=$hc_clients db_migrate=$hc_migrate
+  else
+    sh "$agent" db-config all > "$tmp/dbconf" 2>/dev/null || : > "$tmp/dbconf"
+    db_paths='' db_clients='' db_migrate='' dl_p=no dl_c=no dl_m=no
+    while IFS= read -r dl_l || [ -n "$dl_l" ]; do
+      case $dl_l in
+        paths=*) [ "$dl_p" = yes ] || { db_paths=${dl_l#paths=}; dl_p=yes; } ;;
+        clients=*) [ "$dl_c" = yes ] || { db_clients=${dl_l#clients=}; dl_c=yes; } ;;
+        migrate_commands=*) [ "$dl_m" = yes ] || { db_migrate=${dl_l#migrate_commands=}; dl_m=yes; } ;;
+      esac
+    done < "$tmp/dbconf"
+  fi
+  # the migration patterns, split at commas and trimmed once (db_guard_cmd matches every command against them)
+  db_mig_all=''; dl_r=$db_migrate
+  while [ -n "$dl_r" ]; do
+    case $dl_r in *,*) dl_i=${dl_r%%,*}; dl_r=${dl_r#*,} ;; *) dl_i=$dl_r; dl_r='' ;; esac
+    dl_i=${dl_i#"${dl_i%%[![:space:]]*}"}; dl_i=${dl_i%"${dl_i##*[![:space:]]}"}
+    [ -z "$dl_i" ] || db_mig_all=${db_mig_all:+$db_mig_all$NL}$dl_i
+  done
   [ -n "$db_paths" ] || db_paths='*.db *.sqlite *.sqlite3 *.db3'
 }
 # scratch_path P: a throwaway location (the runtime's $TMPDIR or /tmp) outside the project root; a project that
@@ -779,6 +934,7 @@ db_guard_cmd() {
     # SQL client, inline code of a script interpreter, or a SQL file fed to either through `<`.
     dg_isql=no
     case " $db_clients " in *" $dg_cw "*) dg_isql=yes ;; esac
+    # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
     case "$dg_cw" in node|nodejs|deno|bun|python|python3|ruby|php|perl) case " $(printf '%s' "$dg_args" | tr '\n' ' ') " in *" -e "*|*" -c "*|*" -p "*|*" --eval "*|*" -r "*) dg_isql=yes ;; esac ;; esac
     if [ "$dg_isql" = yes ] && printf '%s\n' "$dg_args" | grep -Eiq "$dg_dsql"; then
       deny "$dg_cw would run a destructive SQL statement (drop, alter ... drop, truncate, delete from). Destructive steps run in no environment, in-memory or scratch databases included; the project's tests exercise migrations, and the user's destructive approval gates the plan, not an agent's command"
@@ -808,16 +964,20 @@ DBARGS
       esac ;;
     esac
     dg_joined="$dg_cw $(printf '%s' "$dg_args" | tr '\n' ' ')"
-    dg_res=$(printf '%s' "$db_migrate" | tr ',' '\n')
-    while IFS= read -r dg_re; do
-      dg_re=$(printf '%s' "$dg_re" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-      [ -n "$dg_re" ] || continue
-      if printf '%s\n' "$dg_joined" | grep -Eq -- "$dg_re"; then
+    # A188: ONE grep with the whole newline-separated pattern list (any match denies, as the per-pattern loop did). Status 1 = no match;
+    # status 2 = some pattern is not a valid regular expression, and the per-pattern loop below then judges each one on its own.
+    if [ -n "$db_mig_all" ]; then
+      dg_rc=0; printf '%s\n' "$dg_joined" | grep -Eq -- "$db_mig_all" || dg_rc=$?
+      dg_re_list=''; [ "$dg_rc" -lt 2 ] || dg_re_list=$db_mig_all
+      if [ "$dg_rc" = 0 ]; then dg_hit=yes; else dg_hit=no; fi
+      while [ -n "$dg_re_list" ]; do
+        case $dg_re_list in *"$NL"*) dg_re=${dg_re_list%%"$NL"*}; dg_re_list=${dg_re_list#*"$NL"} ;; *) dg_re=$dg_re_list; dg_re_list='' ;; esac
+        if printf '%s\n' "$dg_joined" | grep -Eq -- "$dg_re"; then dg_hit=yes; break; fi
+      done
+      if [ "$dg_hit" = yes ]; then
         deny "'$dg_cw' runs a migration, seed or schema command (matches database.migrate_commands). No agent runs one in any environment: the project's test command exercises migrations on the suite's own throwaway database, and applying a destructive step is the user's decision after the destructive approval"
       fi
-    done <<DBRES
-$dg_res
-DBRES
+    fi
   done < "$tmp/scan"
   set +f
 }
@@ -1059,7 +1219,7 @@ mg_prot=''
 mg_isprot() { case " $mg_prot " in *" $1 "*) return 0 ;; esac; return 1; }
 mg_load() {
   [ -z "$mg_prot" ] || return 0
-  mg_cb=''; [ "$installed" = no ] || mg_cb=$(sh "$agent" config-get canonical_branch 2>/dev/null) || mg_cb=''
+  mg_cb=''; [ "$installed" = no ] || if hcfg_load; then mg_cb=$hc_branch; else mg_cb=$(sh "$agent" config-get canonical_branch 2>/dev/null) || mg_cb=''; fi
   mg_oh=$(git -C "$root" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^[^/]*/||') || mg_oh=''
   mg_prot="main master $mg_cb $mg_oh"
 }
@@ -1348,8 +1508,10 @@ kg_code() {
   ! kc_g '(^|[^A-Za-z0-9_$-])fuser[^A-Za-z0-9]+-[A-Za-z]*k' || kg_no "$kc_l code runs fuser -k"
   kc_z='([+-]?0+|-[[:space:]]*0*1)'
   case "$kc_l" in
+    # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
     python) kc_re='os\.kill(pg)?\([[:space:]]*'$kc_z'[[:space:]]*[,)]|os\.killpg\([[:space:]]*os\.getpgrp\(' ;;
     node) kc_re='process\.kill\([[:space:]]*'$kc_z'[[:space:]]*[,)]' ;;
+    # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
     ruby) kc_re='Process\.kill[[:space:](][^,)]*,[[:space:]]*'$kc_z'[[:space:]]*([,)]|$)' ;;
     perl) kc_re='(^|[^A-Za-z0-9_$.>-])kill[[:space:](]*[^,;)]*,[[:space:]]*'$kc_z'[[:space:]]*([,;)]|$)' ;;
     *) kc_re='' ;;
@@ -1414,10 +1576,13 @@ kg_interp() {
         -) ki_code=yes; kg_stdin="$kg_stdin $ki_l"; continue ;;
       esac
       case "$ki_l" in
+        # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         python) case "$ki_a" in -m) ki_code=yes; ki_nx=skip; continue ;; -W|-X) ki_nx=skip; continue ;; -c|-[A-Za-z]c) ki_nx=code; continue ;; esac ;;
         node) case "$ki_a" in -e|--eval|-p|--print|-pe|-ep) ki_nx=code; continue ;; -r|--require|--import|--loader) ki_nx=skip; continue ;; esac
           [ "$ki_a" != eval ] || { ki_nx=code; continue; } ;;
+        # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         perl|ruby) case "$ki_a" in -*[!A-Za-z0-9]*|--*) case "$ki_a" in -I|-r) ki_nx=skip; continue ;; esac ;; -*[eE]) ki_nx=code; continue ;; esac ;;
+        # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         php) case "$ki_a" in -r) ki_nx=code; continue ;; -d) ki_nx=skip; continue ;; -f) ki_nx='file'; continue ;; esac ;;
         lua|osascript) case "$ki_a" in -e) ki_nx=code; continue ;; esac ;;
         awk) case "$ki_a" in -f) ki_nx='file'; continue ;; -F|-v|-e) ki_nx=skip; continue ;; esac ;;
@@ -1641,7 +1806,9 @@ KGSH
       python|python[0-9]*|pypy|pypy3) kg_interp python ;;
       node|nodejs|deno|bun) kg_interp node ;;
       perl) kg_interp perl ;;
+      # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       ruby) kg_interp ruby ;;
+      # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       php|lua|osascript) kg_interp "$kg_cw" ;;
       awk|gawk|mawk|nawk) kg_interp awk ;;
       echo|printf)   # text a later stdin-reading shell may run, or the content of a file this command writes
@@ -1675,6 +1842,7 @@ KGSH
   # a shell or interpreter that reads its program from stdin: here-documents, echo/printf text and files fed to it
   for kg_l in $kg_stdin; do
     while IFS="$KG_SEP" read -r kg_hc kg_hp kg_hb; do
+      # eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       case "$kg_hc" in sh|bash|dash|zsh|ksh|ash|python*|node*|perl|ruby|php|lua|awk|cat|tee|echo|printf|osascript|deno|bun) ;; *) continue ;; esac
       kg_r=$(kg_script "$kg_l" "$(printf '%s' "$kg_hb" | tr '\002' '\n')") || { printf 'the here-document: %s\n' "$kg_r"; exit 1; }
     done < "$tmp/kgh.$KG_DEPTH"
@@ -1712,11 +1880,16 @@ pretool)
     # A171: the dispatch marker is set by dispatch.sh alone; a model never sets it to record a decision ahead of a dispatch.
     # Checked on the text as written and with quotes, backslashes and variable references removed (so a name split by quotes or
     # joined from a variable is caught too); agent.sh itself accepts only a per-dispatch nonce file, which this text never names.
-    cmd_norm=$(printf '%s' "$cmd" | sed -e "s/[\"'\\\\]//g" -e 's/\${[^}]*}//g' -e 's/\$[A-Za-z_][A-Za-z0-9_]*//g')
+    # A188: a command with no quote, backslash or dollar sign is its own normal form (no sed)
+    case "$cmd" in
+      *'"'*|*"'"*|*'\'*|*'$'*) cmd_norm=$(printf '%s' "$cmd" | sed -e "s/[\"'\\\\]//g" -e 's/\${[^}]*}//g' -e 's/\$[A-Za-z_][A-Za-z0-9_]*//g') ;;
+      *) cmd_norm=$cmd ;;
+    esac
     case "$cmd$cmd_norm" in *PROOFLINE_DISPATCH*|*DISPATCH=*|*nonce-*|*.agents/local/dispatch*) deny "PROOFLINE_DISPATCH is set by dispatch.sh alone (A171). To only read a decision run: sh .agents/scripts/agent.sh decide <ID> <role> --dry" ;; esac
     # A name built at run time (printf 'PROOFLINE_%s' DISPATCH), a glob or a find over the folders that could hold the nonce file.
-    if printf '%s' "$cmd_norm" | grep -q 'PROOFLINE' && printf '%s' "$cmd_norm" | grep -q 'DISPATCH' \
-       || printf '%s' "$cmd" | grep -Eq '\.agents/[^/[:space:]]*[*?[]|\.agents/local/[^/[:space:]]*[*?[]|find[[:space:]][^;&|]*\.agents(/local)?/?([[:space:]]|$)'; then
+    dn_hit=no; case "$cmd_norm" in *PROOFLINE*) case "$cmd_norm" in *DISPATCH*) dn_hit=yes ;; esac ;; esac
+    if [ "$dn_hit" = yes ] \
+       || { case "$cmd" in *.agents*) true ;; *) false ;; esac && printf '%s' "$cmd" | grep -Eq '\.agents/[^/[:space:]]*[*?[]|\.agents/local/[^/[:space:]]*[*?[]|find[[:space:]][^;&|]*\.agents(/local)?/?([[:space:]]|$)'; }; then
       deny "PROOFLINE_DISPATCH and the dispatch nonce are dispatch.sh's alone (A171); list .agents/local by a literal path, no glob or find over .agents or .agents/local"
     fi
     # A102: the capability probes' self-test switches are never set by a model (they would hide a browser or benchmark).
@@ -1832,7 +2005,7 @@ pretool)
   case "$tool" in
     Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|*[Pp]atch*)
       db_load; set -f
-      { cat "$tmp/targets"; for dk in tool_input.file_path tool_input.notebook_path tool_input.path tool_input.pattern; do jget "$dk"; printf '\n'; done; } > "$tmp/dbt"
+      { while IFS= read -r tg_l || [ -n "$tg_l" ]; do printf '%s\n' "$tg_l"; done < "$tmp/targets"; for dk in tool_input.file_path tool_input.notebook_path tool_input.path tool_input.pattern; do jget "$dk"; printf '\n'; done; } > "$tmp/dbt"
       while IFS= read -r tg; do [ -z "$tg" ] || db_check_token "$tg" "$tool"; done < "$tmp/dbt"
       set +f ;;
   esac
@@ -1944,26 +2117,32 @@ prompt)
   # User-prompt capture for approvals and answered_by (GATES.md "Approvals"). Never for a dispatched
   # specialist, whose prompt is the lead's.
   [ "$parsed" = yes ] && [ "$sub" = no ] && [ "$role" = lead ] || exit 0
-  jget prompt > "$tmp/text" || exit 0
+  pt=$(jget prompt; printf x) || exit 0; pt=${pt%x}   # the prompt exactly as sent (A188: kept in a variable; the x keeps trailing newlines)
+  printf '%s' "$pt" > "$tmp/text"
   # A finished background agent arrives as a "prompt" (<task-notification>): not the user's words. It must not replace
   # the user's capture (an answer recorded afterwards compared against it) and cannot approve anything.
-  case "$(head -c 19 "$tmp/text")" in "<task-notification>") exit 0 ;; esac
+  case "$pt" in "<task-notification>"*) exit 0 ;; esac
   once
   sess=$(safe "$(jget session_id)"); [ -n "$sess" ] || sess=unknown
-  mkdir -p "$local_dir/prompts" || exit 0
+  [ -d "$shared_local/prompts" ] || mkdir -p "$shared_local/prompts" || exit 0
   # A171: the order is fixed. 1. the critical records (this prompt's capture and history file: they are what an approval or an
   # answer is checked against), nothing else before them; 2. housekeeping; 3. the approval, bounded in time; 4. the ledger flush.
-  hk_c0=$(hk_now)
+  hk_tick; hk_c0=$hk_v
   h=$(sha "$tmp/text")
-  printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$(date +%s)" "$h" "$(jesc "$(cat "$tmp/text"; printf x)" | sed 's/x$//')" > "$local_dir/prompts/.$sess.tmp" &&
-    mv "$local_dir/prompts/.$sess.tmp" "$local_dir/prompts/$sess.json"
+  pj=$(jesc "${pt}x"); pj=${pj%x}
+  printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$hk_s" "$h" "$pj" > "$shared_local/prompts/.$sess.tmp" &&
+    mv "$shared_local/prompts/.$sess.tmp" "$shared_local/prompts/$sess.json"
   # Every prompt is kept (raw text) so an answer recorded as the user's can be checked against what was said (A60).
-  mkdir -p "$local_dir/prompts/history" && cp "$tmp/text" "$local_dir/prompts/history/$(date +%s)-$(printf '%.8s' "$h").txt" 2>/dev/null || :
+  { [ -d "$shared_local/prompts/history" ] || mkdir -p "$shared_local/prompts/history"; } && printf '%s' "$pt" > "$shared_local/prompts/history/$hk_s-$(printf '%.8s' "$h").txt" 2>/dev/null || :
   hk_step capture "$hk_c0"
   # The previous run of this hook did not finish (killed at the runtime's timeout): say so plainly. An .approving- marker of
   # another session that is older than two minutes is left over from a killed hook too: removed (A171), never reported here.
-  warn=''; if [ -f "$local_dir/prompts/.approving-$sess" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; rm -f "$local_dir/prompts/.approving-$sess"; fi
-  find "$local_dir/prompts" -maxdepth 1 -name '.approving-*' -mmin +2 -exec rm -f {} + 2>/dev/null || :
+  warn=''; if [ -f "$shared_local/prompts/.approving-$sess" ]; then warn="proofline: the approval hook for the user's previous message did not finish (it timed out), so an approval in that message was NOT recorded. Tell the user plainly that the approval was not recorded and ask them to repeat it."; rm -f "$shared_local/prompts/.approving-$sess"; fi
+  for ap_m in "$shared_local/prompts"/.approving-*; do   # A188: find starts only when a marker exists
+    [ -e "$ap_m" ] || continue
+    find "$shared_local/prompts" -maxdepth 1 -name '.approving-*' -mmin +2 -exec rm -f {} + 2>/dev/null || :
+    break
+  done
   hk_sweep
   [ "$(wc -l < "$local_dir/hook-times" 2>/dev/null || echo 0)" -le 5000 ] || { tail -n 2000 "$local_dir/hook-times" > "$local_dir/hook-times.t" && mv "$local_dir/hook-times.t" "$local_dir/hook-times"; } 2>/dev/null || :
   # Approvals are recorded here, by the runtime, from the user's own reply (A41): every open request this
@@ -1974,12 +2153,14 @@ prompt)
   # stopped after PROOFLINE_HOOK_APPROVE_BUDGET seconds (default 20 of the runtime's 30) and a lock is waited for at most
   # PROOFLINE_HOOK_LOCK_WAIT seconds (default 8), so the hook ends in time, writes the reason and the next `agent.sh next` retries.
   msgs=''
-  req=no; for f in "$root/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$local_dir/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
+  req=no; for f in "$sroot/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$shared_local/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
   if [ "$act" != INVALID ] && [ "$req" = yes ]; then
-    hk_a0=$(hk_now); printf '%s\n' "$h" > "$local_dir/prompts/.approving-$sess"
+    hk_tick; hk_a0=$hk_v; printf '%s\n' "$h" > "$shared_local/prompts/.approving-$sess"
     ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$agent" approve-pending "$act" ) >"$tmp/ap.out" 2>&1 </dev/null &
     ap_pid=$!; ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=0
-    while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do sleep 0.1; ap_i=$((ap_i + 1)); done
+    while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do   # A188: 0.1 s steps for the first second, then 0.5 s (a sleep is a process)
+      if [ "$ap_i" -lt 10 ]; then sleep 0.1; ap_i=$((ap_i + 1)); else sleep 0.5; ap_i=$((ap_i + 5)); fi
+    done
     if kill -0 "$ap_pid" 2>/dev/null; then
       # the step started children (agent.sh approve takes the lock in its own process): stop the whole tree, by pid
       ap_all=$ap_pid; ap_new=$ap_pid
@@ -1991,7 +2172,7 @@ prompt)
       # shellcheck disable=SC2086 # pids
       kill $ap_all 2>/dev/null || :
       { wait "$ap_pid"; } 2>/dev/null || :
-      hk_line "$ev.approve" $(( $(hk_now) - hk_a0 )) timeout "stopped-by-hook-budget"
+      hk_tick; hk_line "$ev.approve" $(( hk_v - hk_a0 )) timeout "stopped-by-hook-budget"
       printf '%s approval step stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${PROOFLINE_HOOK_APPROVE_BUDGET:-20}" >> "$local_dir/approve.log" 2>/dev/null || :
       msgs="proofline: the approval step ran out of time and was stopped, so an approval in your last message may NOT be recorded; the lead retries it at the next 'agent.sh next' (details: .agents/local/approve.log)."
     else
@@ -2003,7 +2184,70 @@ prompt)
       [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
     fi
   fi
-  rm -f "$local_dir/prompts/.approving-$sess"
+  # A185 (round 2): a prompt has no path and the session's working directory is usually the main tree, so the run of a worktree (night mode,
+  # worktree-add) is not `act` here. Its pending request (scope, waive:*, destructive, single_step, budget, reopen) is found by a glob of the main
+  # tree's worktree folder (no process when none exists, A188) and approved by THAT worktree's agent.sh, which agent.sh worktree-root must
+  # confirm as a registered worktree of this project (never the path string alone); the same budget, the log is the shared approve.log.
+  wl=''
+  for f in "$shared_local"/worktrees/*/.agents/runs/*/approvals/[0-9][0-9][0-9]-request-*.yaml; do
+    [ -f "$f" ] || continue
+    wl_r=${f#"$shared_local"/worktrees/}; wl_d=$shared_local/worktrees/${wl_r%%/*}
+    [ "$wl_d" != "$sroot" ] || continue   # the session's own worktree is the run handled above
+    wl_run=${wl_r#*/.agents/runs/}; wl_run=${wl_run%%/*}
+    case "$wl_run" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
+    case " $wl " in *" $wl_d|$wl_run "*) continue ;; esac
+    wl="$wl $wl_d|$wl_run"
+  done
+  # round 6: one reply must not approve the unrelated requests of several runs. With more than one run waiting (the main tree's counts) only a run
+  # whose id the reply names is approved; one waiting run alone needs no name
+  if [ -n "$wl" ]; then
+    wl_n=0; for wl_e in $wl; do wl_n=$((wl_n + 1)); done
+    [ "$req" != yes ] || wl_n=$((wl_n + 1))
+    if [ "$wl_n" -gt 1 ]; then
+      wl_all=$wl; wl=''
+      for wl_e in $wl_all; do case "$pt" in *"${wl_e#*|}"*) wl="$wl $wl_e" ;; esac; done
+      [ -n "$wl" ] || msgs="${msgs:+$msgs }proofline: several runs wait for an approval ($(for wl_e in $wl_all; do printf '%s ' "${wl_e#*|}"; done)); an approval records for the run named in your reply: say which run you approve (for example \"approve scope <ID>\")."
+    fi
+  fi
+  if [ -n "$wl" ] && [ "$act" != INVALID ]; then
+    [ -e "$shared_local/prompts/.approving-$sess" ] || printf '%s\n' "$h" > "$shared_local/prompts/.approving-$sess"
+    hk_tick; hk_a2=$hk_v; : > "$tmp/apw.all"
+    ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=${ap_i:-0}
+    for wl_e in $wl; do
+      wl_d=${wl_e%%|*}; wl_run=${wl_e#*|}
+      wl_ok=$(sh "$agent" worktree-root "$wl_d" 2>/dev/null) || continue
+      # the worktree's agent.sh is a tracked file a task could have rewritten: it runs only when it is byte-identical to the main tree's own
+      [ "$wl_ok" = "$wl_d" ] && [ -f "$wl_d/.agents/scripts/agent.sh" ] && cmp -s "$wl_d/.agents/scripts/agent.sh" "$agent" || continue
+      ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$wl_d/.agents/scripts/agent.sh" approve-pending "$wl_run" ) >"$tmp/apw.out" 2>&1 </dev/null &
+      ap_pid=$!
+      while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do
+        if [ "$ap_i" -lt 10 ]; then sleep 0.1; ap_i=$((ap_i + 1)); else sleep 0.5; ap_i=$((ap_i + 5)); fi
+      done
+      if kill -0 "$ap_pid" 2>/dev/null; then
+        ap_all=$ap_pid; ap_new=$ap_pid
+        while [ -n "$ap_new" ]; do
+          ap_next=''
+          for ap_c in $ap_new; do ap_next="$ap_next $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$ap_c" '$2 == p { print $1 }')"; done
+          ap_new=$(printf '%s\n' $ap_next); ap_all="$ap_all $ap_new"
+        done
+        # shellcheck disable=SC2086 # pids
+        kill $ap_all 2>/dev/null || :
+        { wait "$ap_pid"; } 2>/dev/null || :
+        hk_tick; hk_line "$ev.approve" $(( hk_v - hk_a2 )) timeout "stopped-by-hook-budget"
+        printf '%s approval step of worktree run %s stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wl_run" "${PROOFLINE_HOOK_APPROVE_BUDGET:-20}" >> "$shared_local/approve.log" 2>/dev/null || :
+        msgs="${msgs:+$msgs }proofline: the approval step of run $wl_run ran out of time and was stopped, so an approval in your last message may NOT be recorded (details: .agents/local/approve.log)."
+        break
+      fi
+      wait "$ap_pid" 2>/dev/null || :
+      cat "$tmp/apw.out" >> "$tmp/apw.all"
+    done
+    hk_step approve "$hk_a2"
+    ap_ok=$(sed -n 's/^approved: //p' "$tmp/apw.all" | head -n 3 | tr '\n' ';')
+    ap_bad=$(sed -n 's/^not recorded: //p' "$tmp/apw.all" | head -n 1)
+    [ -z "$ap_ok" ] || msgs="${msgs:+$msgs }proofline: approval recorded: ${ap_ok%;}"
+    [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
+  fi
+  [ ! -e "$shared_local/prompts/.approving-$sess" ] || rm -f "$shared_local/prompts/.approving-$sess"
   hk_flush
   [ -z "$warn" ] || msgs="$warn${msgs:+ $msgs}"
   [ -n "$msgs" ] || exit 0
@@ -2056,7 +2300,12 @@ $l" ;; esac
     fi
   fi
   # the command of the user's last prompt: "/proofline <command> [<TASK-ID>]" ("$proofline" for Codex)
-  pc=''; [ ! -f "$local_dir/prompts/$sess.json" ] || pc=$(sed -n 's/^.*"text":"\(.*\)"}$/\1/p' "$local_dir/prompts/$sess.json" | sed 's/\\n.*//' | head -n 1)
+  # A188: the first line of the capture file, its "text" value up to the first escaped newline (it was sed, sed and head)
+  pc=''
+  if [ -f "$shared_local/prompts/$sess.json" ]; then
+    IFS= read -r pc_l < "$shared_local/prompts/$sess.json" || :
+    case $pc_l in *'"text":"'*'"}') pc=${pc_l#*'"text":"'}; pc=${pc%'"}'}; pc_n='\n'; pc=${pc%%"$pc_n"*} ;; esac
+  fi
   case "$pc" in
     '/proofline '*|'$proofline '*)
       # shellcheck disable=SC2086 # the prompt's words are split on purpose
@@ -2073,11 +2322,13 @@ $l" ;; esac
   # is a proofline bug: the hook records a friction note (counted in the friction report) and says so in one line.
   # Only a request counts: the command sits on a line that asks the user to run it ("please run", "run:", an imperative line), or in a
   # code fence announced by such a line. A report of what the lead itself ran ("I ran agent.sh next") is not one.
-  fr_hit=$(printf '%s\n' "$msg" | awk -v re='agent\\.sh[[:space:]]+(approve|approve-pending|answer|request-approval|waive|next|status|handoff|freeze|refreeze|record|submit|terminate|reopen|start|branch|cleanup|deliver-[a-z]+|publish-completion-report|decide|ask|raise-budget)([[:space:]]|$|[`"\047.,;:)])' '
+  fr_hit=no   # A188: the pattern below names agent.sh, so a message without that text cannot match (no awk)
+  case "$msg" in *agent.sh*) fr_hit=$(printf '%s\n' "$msg" | awk -v re='agent\\.sh[[:space:]]+(approve|approve-pending|answer|request-approval|waive|next|status|handoff|freeze|refreeze|record|submit|terminate|reopen|start|branch|cleanup|deliver-[a-z]+|publish-completion-report|decide|ask|raise-budget)([[:space:]]|$|[`"\047.,;:)])' '
     function asks(t) { t = tolower(t); return t ~ /(please|kindly)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /you[[:space:]]+(should|can|could|must|need to|have to|may)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /(run|execute|paste|type|enter)[[:space:]]*:/ || t ~ /^[[:space:]>*-]*(run|execute|paste|type|enter)[[:space:]]/ || t ~ /(in|into) (your|a) terminal/ }
     /^[[:space:]]*```/ { fence = !fence; if (fence) fa = prev; next }
     { if (fence) { if ($0 ~ re && fa) hit = 1 } else { if ($0 ~ re && asks($0)) hit = 1; prev = asks($0) } }
-    END { print hit ? "yes" : "no" }')
+    END { print hit ? "yes" : "no" }') ;;
+  esac
   if [ "$fr_hit" = yes ]; then
     if [ -n "$act" ] && [ "$act" != INVALID ]; then (unset AGENT_ROLE; sh "$agent" friction-note "$act" user-command >/dev/null 2>&1) || :; fi
     out="${out:+$out

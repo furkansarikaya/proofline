@@ -61,6 +61,17 @@ ARTIFACT: <the report snapshot the script made from the reports/NNN-explorer.md 
 | id | severity | path:line | finding | evidence |
 |---|---|---|---|---|
 
+The report itself is this claims table, never prose: one row per verified claim, one `path:symbol` per row. A report in prose is sent back to you to redo as a table; the lead does not rewrite it into `EVIDENCE.md`. Example of a complete set of rows (the ids are written by the script when you pass `--findings`; in the report file use `-` for the id):
+
+```
+| id | severity | path:line | finding | evidence |
+|---|---|---|---|---|
+| - | info | src/checkout.js:applyDiscount | entry point: `applyDiscount` computes the order total and is called once, from `submitOrder` | grep -n "applyDiscount" src: definition, one call in src/order.js |
+| - | info | src/order.js:submitOrder | caller of `applyDiscount`; rounds the result to two decimals | opened src/order.js, read lines 40-62 |
+| - | info | tests/checkout.test.js:describe("discount") | the existing tests cover percentage discounts only, no fixed amount | opened the file, listed the `it(` titles |
+| - | blocking | src/legacy/price.js:applyDiscount | a second implementation with the same name is still imported by `src/cart.js` | grep -n "legacy/price" src: one import |
+```
+
 `--report -` writes the report from stdin (heredoc) to `--artifact`; use it instead of the Write tool, which a
 subagent runtime may refuse for report files, and `--findings -` instead of a scratch file.
 

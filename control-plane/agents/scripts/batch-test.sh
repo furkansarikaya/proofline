@@ -532,7 +532,9 @@ sc_worktree_cmds() {
   [ "$wt" = "$main/.agents/local/worktrees/W-2" ] && [ -d "$wt/.agents/scripts" ] || die "worktree-add printed '$wt'"
   [ "$(A worktree-add W-2)" = "$wt" ] || die "a second worktree-add did not reuse the worktree"
   [ "$(A worktree-path W-2)" = "$wt" ] && ! A worktree-path W-9 >/dev/null 2>&1 || die "worktree-path"
-  for d in batch approvals metrics friction prompts; do [ -L "$wt/.agents/local/$d" ] || die "no link to the shared $d folder in the worktree"; done
+  for d in batch approvals metrics friction prompts; do [ ! -L "$wt/.agents/local/$d" ] || die "A185: the worktree has a link to the shared $d folder"; done
+  [ -z "$(find "$wt/.agents/local" -type l 2>/dev/null)" ] || die "A185: the worktree holds a symlink: $(find "$wt/.agents/local" -type l)"
+  [ -d "$main/.agents/local/approvals" ] || die "A185: the shared folders live in the main tree"
   git check-ignore -q .agents/local/worktrees/W-2 || die "the worktree folder is not git-ignored"
   wbody W-2 second | ( cd "$wt" && sh .agents/scripts/agent.sh start W-2 --title second >/dev/null ) || die "start W-2 in its own worktree"
   [ "$(A open-runs)" = 'W-1 -' ] && [ "$(cd "$wt" && sh .agents/scripts/agent.sh open-runs)" = 'W-2 -' ] || die "open runs are not per worktree: main '$(A open-runs)' worktree '$(cd "$wt" && sh .agents/scripts/agent.sh open-runs)'"
@@ -547,6 +549,171 @@ sc_worktree_cmds() {
   [ ! -e "$wt" ] && [ "$(git worktree list | wc -l | tr -d ' ')" = 1 ] || die "worktree left after removal: $(git worktree list)"
   A worktree-remove W-2 | grep -q 'no worktree' || die "removing a missing worktree is not a no-op"
   ok "worktree-add|path|remove: one worktree per run, open runs counted per worktree, branch from the detached canonical tip, removal refused while a run is inside"
+}
+
+# --- A185 items 4-6: dependencies are the worktree's own copy, .env* is copied and never committed, no symlink is needed ------------------
+sc_worktree_prep() {
+  bnew; binstall no
+  main=$(pwd -P)
+  printf 'node_modules/\n.env*\n' >> .gitignore; git add .gitignore; git commit -qm ignore
+  mkdir -p node_modules/pkg; echo v1 > node_modules/pkg/index.js; printf 'SECRET=1\n' > .env; printf 'X=1\n' > .env.local
+  wt=$(A worktree-add W-1) || die "worktree-add: $wt"
+  # 4: a dependency change in the worktree leaves the main tree alone
+  [ -d "$wt/node_modules/pkg" ] && [ ! -L "$wt/node_modules" ] || die "node_modules is not a real copy in the worktree"
+  echo v2 > "$wt/node_modules/pkg/index.js"; echo new > "$wt/node_modules/added.js"; rm -rf "$wt/node_modules/pkg/gone"
+  [ "$(cat node_modules/pkg/index.js)" = v1 ] && [ ! -e node_modules/added.js ] || die "a dependency change in the worktree reached the main tree"
+  # 5: .env* is copied, listed, and refused by the pre-commit hook even when forced; evidence and status never carry it
+  [ "$(cat "$wt/.env")" = SECRET=1 ] && [ -f "$wt/.env.local" ] || die ".env* was not copied into the worktree"
+  grep -qxF .env "$wt/.agents/local/worktree-copied" || die "the copied file is not listed: $(cat "$wt/.agents/local/worktree-copied" 2>/dev/null)"
+  [ -z "$(git -C "$wt" status --porcelain | grep -F .env)" ] || die "git status shows the copied .env"
+  git -C "$wt" add -A; [ -z "$(git -C "$wt" diff --cached --name-only | grep -F .env)" ] || die "git add -A staged the copied .env"
+  cp -R "$tl_agents/githooks" "$wt/.agents/githooks" || die "no githooks to copy"
+  git -C "$wt" add -f .env
+  if git -C "$wt" -c core.hooksPath=.agents/githooks -c user.name=t -c user.email=t@example.invalid commit -qm env >"$base/pc.out" 2>&1; then die "the pre-commit hook let a copied .env into a commit"; fi
+  grep -q 'worktree.copy_files' "$base/pc.out" || die "the refusal does not say why: $(cat "$base/pc.out")"
+  # a file git does not ignore is reported, never copied
+  printf 'C=1\n' > .envrc.keep; sed 's/^\.env\*$/.env/' .gitignore > .gitignore.t && mv .gitignore.t .gitignore
+  wt2=$(A worktree-add W-2 2>"$base/w2.err") || die "worktree-add W-2: $wt2"
+  [ ! -e "$wt2/.envrc.keep" ] || die "a file git does not ignore was copied"
+  # 6: the same with symlink creation blocked
+  mkdir -p "$base/lnfail"; printf '#!/bin/sh\necho "ln: symbolic links not allowed" >&2\nexit 1\n' > "$base/lnfail/ln"; chmod +x "$base/lnfail/ln"
+  printf 'node_modules/\n.env*\n' > .gitignore
+  wt3=$(PATH=$base/lnfail:$PATH A worktree-add W-3 2>"$base/w3.err") || die "worktree-add failed with symlinks blocked: $(cat "$base/w3.err")"
+  [ -d "$wt3/node_modules/pkg" ] && [ ! -L "$wt3/node_modules" ] && [ -f "$wt3/.env" ] || die "no real copy with symlinks blocked"
+  [ -z "$(find "$wt3/.agents/local" -type l 2>/dev/null)" ] || die "a link was made with symlinks blocked"
+  echo 'rec=1' > .agents/local/metrics/probe.txt
+  [ "$(PATH=$base/lnfail:$PATH A worktree-add W-3)" = "$wt3" ] || die "reuse with symlinks blocked"
+  ok "worktree-add: dependency folder copied (a change stays in the worktree), .env* copied and refused by pre-commit, works with ln -s blocked (A185)"
+}
+
+# --- A185 review: a link inside a copied dependency folder never leads back into the main tree ---------------------------------------
+sc_worktree_links() {
+  bnew; binstall no
+  main=$(pwd -P)
+  printf 'node_modules/\n' >> .gitignore; git add .gitignore; git commit -qm ignore
+  mkdir -p node_modules/pkg node_modules/.bin shared; echo v1 > node_modules/pkg/index.js; echo tool > shared/tool.js
+  # relative, leaves the folder: from main/node_modules/.bin six levels up is above the main tree, but from the copy (main/.agents/local/worktrees/W-1/node_modules/.bin) it is the main tree
+  ln -s ../../../../../../shared/tool.js node_modules/.bin/rel
+  ln -s "$main/shared/tool.js" node_modules/abs                   # absolute, into the main tree
+  ln -s pkg/index.js node_modules/inside                          # relative, stays inside the folder
+  wt=$(A worktree-add W-1) || die "worktree-add: $wt"
+  for l in "$wt/node_modules/.bin/rel" "$wt/node_modules/abs"; do
+    [ -L "$l" ] || continue                                       # rejected (removed) is as good as re-pointed
+    case "$l" in */rel) [ "$(readlink "$l")" != ../../../../../../shared/tool.js ] || die "the relative link that reaches the main tree was copied unchanged" ;; esac
+    r=$(python3 -I -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$l")
+    case "$r" in "$wt"/*) ;; "$main"/*) die "the copied link ${l#"$wt"/} still leads into the main tree: $r" ;; esac
+  done
+  echo changed > "$wt/node_modules/.bin/rel" 2>/dev/null || :
+  [ "$(cat shared/tool.js)" = tool ] || die "a write through a copied link reached the main tree's shared/tool.js"
+  [ "$(readlink "$wt/node_modules/inside")" = pkg/index.js ] || die "a link that stays inside the folder was changed: $(readlink "$wt/node_modules/inside")"
+  ok "worktree-add: a relative or absolute link in a copied dependency folder that led into the main tree is re-pointed; an inner link is kept (A185)"
+}
+
+# --- A185 (round 2): the prompt hook of the main tree approves the pending request of a run that lives in a worktree ---------------------------------
+sc_worktree_prompt_approval() {
+  bnew; mktask W-1 COMPLEX; binstall no
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; [ -f "$hook" ] || die "no hook at $hook"
+  main=$(pwd -P)
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  wt=$(A worktree-add W-1) || die "worktree-add: $wt"
+  ( cd "$wt" && sh .agents/scripts/agent.sh start W-1 --task-file .agents/tasks/W-1.md >/dev/null 2>"$base/st.err" </dev/null ) || die "start W-1 in its worktree: $(tail -1 "$base/st.err")"
+  printf -- '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n' > "$wt/.agents/runs/W-1/PLAN.md"
+  ( cd "$wt" && sh .agents/scripts/agent.sh request-approval W-1 scope >/dev/null ) || die "request-approval scope in the worktree"
+  ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-request-scope.yaml >/dev/null 2>&1 || die "no scope request in the worktree run"
+  # the user's reply reaches the hook of the MAIN tree session; the run is in the worktree
+  sleep 1; out=$(hp 'approve scope')
+  ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "the prompt hook did not record the scope approval in the worktree run: $out"
+  printf '%s' "$out" | grep -q 'approval recorded' || die "the hook did not say it recorded the approval: $out"
+  [ ! -e .agents/runs/W-1 ] || die "the approval created a run folder in the main tree"
+  [ -s .agents/local/approve.log ] && grep -q 'W-1' .agents/local/approve.log || die "no line for W-1 in the shared approve.log of the main tree: $(cat .agents/local/approve.log 2>/dev/null)"
+  [ ! -e "$wt/.agents/local/approve.log" ] || die "the worktree kept its own approve.log"
+  # a run in another worktree with NO request: the prompt adds no work for it, its agent.sh is never started
+  mktask W-2 COMPLEX; git add -A; git commit -qm 'task W-2'
+  wt2=$(A worktree-add W-2) || die "worktree-add W-2: $wt2"
+  ( cd "$wt2" && sh .agents/scripts/agent.sh start W-2 --task-file .agents/tasks/W-2.md >/dev/null 2>"$base/st2.err" </dev/null ) || die "start W-2: $(tail -1 "$base/st2.err")"
+  mv "$wt2/.agents/scripts/agent.sh" "$wt2/.agents/scripts/agent.real.sh"
+  printf '#!/bin/sh\necho "$*" >> "%s/wtcalls"\nexec sh "$(dirname "$0")/agent.real.sh" "$@"\n' "$base" > "$wt2/.agents/scripts/agent.sh"
+  : > "$base/wtcalls"; hp 'thanks, looks good' >/dev/null
+  [ ! -s "$base/wtcalls" ] || die "a prompt without a pending request started the worktree's agent.sh: $(cat "$base/wtcalls")"
+  mv "$wt2/.agents/scripts/agent.real.sh" "$wt2/.agents/scripts/agent.sh"
+  # the capture is safe state in the main tree: a capture planted as a link is refused, as in the main tree
+  ( cd "$wt" && sh .agents/scripts/agent.sh request-approval W-1 scope >/dev/null ) || die "second scope request"; sleep 1
+  cp .agents/local/prompts/s1.json "$base/cap.real"; rm -f .agents/local/prompts/s1.json; ln -s "$base/cap.real" .agents/local/prompts/s1.json
+  ( cd "$wt" && sh .agents/scripts/agent.sh approve-pending W-1 >"$base/lnk.out" 2>&1 ) || :
+  grep -q 'not a regular single-link file' "$base/lnk.out" && [ "$(ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml | wc -l | tr -d ' ')" = 1 ] || die "a symlinked capture in the shared prompts folder was accepted from the worktree: $(cat "$base/lnk.out")"
+  rm -f .agents/local/prompts/s1.json; ln "$base/cap.real" .agents/local/prompts/s1.json
+  ( cd "$wt" && sh .agents/scripts/agent.sh approve-pending W-1 >"$base/lnk2.out" 2>&1 ) || :
+  grep -q 'not a regular single-link file' "$base/lnk2.out" && [ "$(ls "$wt"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml | wc -l | tr -d ' ')" = 1 ] || die "a hard-linked capture was accepted from the worktree: $(cat "$base/lnk2.out")"
+  ok "a worktree run's pending request is approved by the main tree's prompt hook (shared approve.log, no worktree process without a request); a linked capture is refused (A185)"
+}
+
+# --- A181 round 3: a task whose branch waits for the user's merge on a local origin; git says when it was merged, then the batch moves on -----------------
+sc_manual_merge_batch() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  fake_run T-1
+  wt=$(wtp T-1)
+  # the delivered commit as the pr step of a manual platform leaves it: a branch on origin and deliver/<ID>/MERGE_HEAD
+  git -C "$wt" checkout -q -b proofline/T-1-x; echo delivered > "$wt/delivered.txt"; git -C "$wt" add delivered.txt; git -C "$wt" commit -qm 'feat: delivered'
+  git -C "$wt" push -q origin proofline/T-1-x 2> "$base/p.err" || die "push: $(cat "$base/p.err")"
+  mkdir -p "$wt/.agents/local/deliver/T-1"; printf '%s\tmain\tproofline/T-1-x\n' "$(git -C "$wt" rev-parse HEAD)" > "$wt/.agents/local/deliver/T-1/MERGE_HEAD"
+  A batch-next > "$base/bn.out" 2>&1 || die "batch-next: $(cat "$base/bn.out")"
+  grep -q 'awaiting merge' "$base/bn.out" || die "batch-next does not say the task awaits the user's merge: $(cat "$base/bn.out")"
+  grep -q 'YOUR merge into origin' "$base/bn.out" && grep -q '^NEXT: run T-2' "$base/bn.out" || die "an unmerged task blocked the batch or lacks the instruction: $(cat "$base/bn.out")"
+  [ ! -s .agents/local/batch/merged.tsv ] || die "batch-next recorded a merge nobody made"
+  # the user merges on origin (a fast-forward of main): git proves it, batch-next offers the proof step
+  git -C "$wt" push -q origin proofline/T-1-x:main 2> "$base/p.err" || die "merge on origin: $(cat "$base/p.err")"
+  A batch-next > "$base/bn.out" 2>&1 || die "batch-next after the merge: $(cat "$base/bn.out")"
+  grep -q '^NEXT: deliver T-1 merged' "$base/bn.out" || die "batch-next after the merge: $(cat "$base/bn.out")"
+  # the proof records the merge (before the cleanup); the batch then moves on to T-2
+  A deliver-merged T-1 > "$base/dm.out" 2>&1 || :
+  grep -q 'merge recorded for T-1: the delivered commit is on origin/main' "$base/dm.out" || die "deliver-merged: $(cat "$base/dm.out")"
+  grep -q "^T-1	-	" .agents/local/batch/merged.tsv || die "no merge record for T-1: $(cat .agents/local/batch/merged.tsv 2>/dev/null)"
+  A batch-next > "$base/bn.out" 2>&1
+  if grep -q '^NEXT: ci T-1' "$base/bn.out"; then A batch-ci T-1 > "$base/ci.out" 2>&1 || die "batch-ci T-1 after the manual merge: $(cat "$base/ci.out")"; A batch-next > "$base/bn.out" 2>&1; fi
+  grep -q '^NEXT: run T-2' "$base/bn.out" && ! grep -q 'T-1.*awaiting merge' "$base/bn.out" || die "the batch did not move on to T-2: $(cat "$base/bn.out")"
+  ok "batch-next: an unmerged manual-platform task is 'awaiting merge' and the batch goes on; after the user's merge it offers 'deliver T-1 merged', and the record moves the batch to the next task (A181)"
+}
+
+# A180 round 5: a hand-pushed delivery (SUMMARY.md says the user merges, branch on origin, no MERGE_HEAD) waits for the merge and does not block the batch
+sc_hand_pushed_batch() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  fake_run T-1; wt=$(wtp T-1)
+  git -C "$wt" checkout -q -b proofline/T-1-x; echo d > "$wt/d.txt"; git -C "$wt" add d.txt; git -C "$wt" commit -qm 'feat: d'
+  git -C "$wt" push -q origin proofline/T-1-x 2> "$base/p.err" || die "push: $(cat "$base/p.err")"
+  mkdir -p "$wt/.agents/local/deliver/T-1"
+  printf 'merge_by: user\nhead: %s\nbase: main\nbranch: proofline/T-1-x\n' "$(git -C "$wt" rev-parse HEAD)" > "$wt/.agents/local/deliver/T-1/SUMMARY.md"
+  A batch-next > "$base/bn.out" 2>&1
+  grep -q 'awaiting merge' "$base/bn.out" && grep -q '^NEXT: run T-2' "$base/bn.out" || die "a hand-pushed delivery is not awaiting merge: $(cat "$base/bn.out")"
+  ok "batch-next: a hand-pushed delivery without MERGE_HEAD is parked as awaiting merge (A180)"
+}
+
+# --- round 6: the main tree's prompt hook runs only an unchanged worktree agent.sh, and a reply binds to the run it names when several wait --------------------
+sc_prompt_guards() {
+  bnew; mktask W-1 COMPLEX; mktask W-2 COMPLEX; binstall no
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; main=$(pwd -P)
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  for r in W-1 W-2; do
+    w=$(A worktree-add $r) || die "worktree-add $r"
+    ( cd "$w" && sh .agents/scripts/agent.sh start $r --task-file .agents/tasks/$r.md >/dev/null 2>&1 </dev/null ) || die "start $r"
+    printf -- '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n' > "$w/.agents/runs/$r/PLAN.md"
+    ( cd "$w" && sh .agents/scripts/agent.sh request-approval $r scope >/dev/null ) || die "request-approval $r"
+  done
+  w1=$(wtp W-1); w2=$(wtp W-2)
+  # (7) two runs wait: a reply that names none approves neither; naming W-2 approves only W-2
+  sleep 1; out=$(hp 'approve scope')
+  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml "$w2"/.agents/runs/W-2/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "an unnamed reply approved a run while two waited"
+  printf '%s' "$out" | grep -q 'say which run you approve' || die "the hook did not ask which run: $out"
+  sleep 1; out=$(hp 'i approve the scope for W-2')
+  ls "$w2"/.agents/runs/W-2/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "the reply naming W-2 did not approve W-2: $out $(tail -3 .agents/local/approve.log 2>/dev/null)"
+  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "the reply naming W-2 also approved W-1"
+  # (1) a worktree agent.sh that differs from the main one is not run: a forged approve-pending leaves its mark nowhere
+  printf '\necho forged > "%s/forged"\n' "$base" >> "$w1/.agents/scripts/agent.sh"
+  sleep 1; hp 'i approve the scope for W-1' >/dev/null
+  [ ! -e "$base/forged" ] || die "the hook ran a modified worktree agent.sh"
+  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "W-1 was approved through a modified agent.sh"
+  ok "prompt hook: a reply with two runs waiting binds to the named run or asks; a modified worktree agent.sh is never run (round 6)"
 }
 
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
@@ -658,6 +825,12 @@ run_sc sc_sequential
 run_sc sc_park_skip_continue
 run_sc sc_restart
 run_sc sc_worktree_cmds
+run_sc sc_worktree_prep
+run_sc sc_worktree_links
+run_sc sc_worktree_prompt_approval
+run_sc sc_manual_merge_batch
+run_sc sc_hand_pushed_batch
+run_sc sc_prompt_guards
 run_sc sc_status_from_records
 run_sc sc_adapter_refused
 run_sc sc_merge_commit_ci
