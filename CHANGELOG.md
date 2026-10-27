@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The product skills propose, you decide (A189): "never invent" now covers facts only, so `product-discovery`, `product-assess` and `product-spec` bring candidate assumptions, risks, opportunities, competitors, edge cases and questions, marked `[proposal: <type>]`; you accept, change or reject each one (rejected ones go to `## Rejected proposals`, with your own words). The checkers count a minimum (5 pre-mortem items, 5 assumptions, 3 never-mentioned topics in the spec review) and require `estimate "<basis>"` for a number in an assumption. New: search plan, competitor profiles, 3 to 7 insights with "so what", a reasoned opportunity ranking, a ten-topic PRD completeness list, a quality rubric with examples, up to three questions per message, sourced facts in `ASSUMPTIONS.md` and a FRAME-update step. Migration: product files written before 0.0.34 fail the new checks until updated and nothing rewrites them; [docs/concepts/product.md](docs/concepts/product.md) lists what each file needs.
+- `verification.env_files` (A190): names secret-free test env files (for example `.env.test`) that may enter the build record's clean copy; each is scanned first and one visible secret rejects the run (file and line, never the value). Default empty; other `.env*` stay out.
+- Cleanup of a BLOCKED run (A191): hook timing lines written after the terminate event no longer make `cleanup` refuse; it reads the last ledger line that is not a hook line.
+- Documentation (A192): the README is about 10 percent shorter (bounds lowered), detail moved to `docs/concepts`.
+
 ## 0.0.33 — 2026-10-26
 
 - Delivery works with a local bare origin and no CI (A180): a path or `file://` origin is platform other (commit, push, you merge), a manual merge is recorded from git by `agent.sh deliver-merged` so the batch moves on (A181), and the worktree of a merged, cleaned-up run is removed (A169).

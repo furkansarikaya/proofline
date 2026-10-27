@@ -119,6 +119,8 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **Language of run files.** Run files are English; a project in another language quotes its own product text as it is, never transliterated ([details](docs/concepts/workflow.md#language-of-run-files)).
 
+**Product skills.** `product-discovery`, `product-assess` and `product-spec` propose assumptions, risks, opportunities, edge cases and questions themselves; you accept, change or reject each one, and the checkers count a minimum (5 pre-mortem items, 5 assumptions, 3 never-mentioned topics in the review). Facts still need a source. The PRD carries a ten-topic completeness list; files from before 0.0.34 need a migration ([details](docs/concepts/product.md)).
+
 **Project layout.** No layout is assumed. One ecosystem definition drives `init`, a command per ecosystem (workspaces included); `commands.build|test|lint` may be a list. An ambiguous one gets none; the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
 
 **Processes.** An agent stops only a process it started itself, by its own PID; the runtime hook denies the kill-by-name and mass-kill forms. A tripwire, not a sandbox ([process rules](docs/concepts/enforcement-layers.md#process-rules)).
