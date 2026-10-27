@@ -675,6 +675,20 @@ sc_manual_merge_batch() {
   ok "batch-next: an unmerged manual-platform task is 'awaiting merge' and the batch goes on; after the user's merge it offers 'deliver T-1 merged', and the record moves the batch to the next task (A181)"
 }
 
+# A180 round 5: a hand-pushed delivery (SUMMARY.md says the user merges, branch on origin, no MERGE_HEAD) waits for the merge and does not block the batch
+sc_hand_pushed_batch() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; binstall
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  fake_run T-1; wt=$(wtp T-1)
+  git -C "$wt" checkout -q -b proofline/T-1-x; echo d > "$wt/d.txt"; git -C "$wt" add d.txt; git -C "$wt" commit -qm 'feat: d'
+  git -C "$wt" push -q origin proofline/T-1-x 2> "$base/p.err" || die "push: $(cat "$base/p.err")"
+  mkdir -p "$wt/.agents/local/deliver/T-1"
+  printf 'merge_by: user\nhead: %s\nbase: main\nbranch: proofline/T-1-x\n' "$(git -C "$wt" rev-parse HEAD)" > "$wt/.agents/local/deliver/T-1/SUMMARY.md"
+  A batch-next > "$base/bn.out" 2>&1
+  grep -q 'awaiting merge' "$base/bn.out" && grep -q '^NEXT: run T-2' "$base/bn.out" || die "a hand-pushed delivery is not awaiting merge: $(cat "$base/bn.out")"
+  ok "batch-next: a hand-pushed delivery without MERGE_HEAD is parked as awaiting merge (A180)"
+}
+
 # --- 9d. (A161, #140) night mode runs markdown tasks only: another adapter is refused with the next step -------------------------
 sc_adapter_refused() {
   bnew; mktask T-1 COMPLEX; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/config.tmp && mv .agents/config.tmp .agents/config.yaml; binstall no
@@ -788,6 +802,7 @@ run_sc sc_worktree_prep
 run_sc sc_worktree_links
 run_sc sc_worktree_prompt_approval
 run_sc sc_manual_merge_batch
+run_sc sc_hand_pushed_batch
 run_sc sc_status_from_records
 run_sc sc_adapter_refused
 run_sc sc_merge_commit_ci
