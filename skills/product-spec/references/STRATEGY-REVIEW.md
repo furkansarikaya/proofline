@@ -9,8 +9,10 @@ Run `scripts/check-prd.mjs <slug>` first when a PRD exists, then:
 3. **Attack.** For each assumption name the cheapest observation that would show it false, the evidence already on disk that points that way, and the nearest alternative explanation of the facts the plan cites. Open and check every claim you rely on; a claim you could not check is marked `unverified`.
 4. **Judge.** Each assumption gets one line `result: holds|weakened|broken` with the reason: `holds` when the strongest form survives and the evidence supports it; `weakened` when it survives only with a narrower scope or an untested step; `broken` when evidence on disk contradicts it. Never a numeric score.
 
+5. **Quality bar.** Hold every document you read to [QUALITY-BAR.md](QUALITY-BAR.md): concrete (swap the product name for a competitor's: still true means generic), sourced, new, unknowns stated, so what. A generic assumption or risk is a finding. Check that a proposal the agent made is marked as one, accepted by the user, and holds no unsourced fact.
+
 ## REDTEAM.md
 
-One H2 per assumption, titled with its id (`## AS-2`), holding in order: `Strongest form:`, `Attack:`, `Evidence:` and the `result:` line. A closing `## Summary` lists the ids that are `weakened` or `broken` and what the plan must change or test before it relies on them.
+One H2 per assumption, titled with its id (`## AS-2`), holding in order: `Strongest form:`, `Attack:`, `Evidence:` and the `result:` line. A `## Quality bar` section holds one line per question of the bar (`pass`, or `fail: <the line> -> <the fix>`). A closing `## Summary` lists the ids that are `weakened` or `broken` and what the plan must change or test before it relies on them.
 
 Rounds: at most 2. After the author answers (new evidence, a probe, a changed plan), review once more and mark the file `round: 2`, then stop with the results as they stand. A round 2 that still has a `broken` assumption goes back to the user to decide.

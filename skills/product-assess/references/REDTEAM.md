@@ -1,6 +1,6 @@
 # Red team
 
-The red team is the reviewer role with focus `strategy`: an independent agent that did not write the plan, the assumptions or the decision, and attacks the assumptions the plan trusts most. The procedure (most-trusted assumptions, restate each at its strongest, attack, judge) is in product-spec `references/STRATEGY-REVIEW.md`; this page says how the assessment uses it.
+The red team is the reviewer role with focus `strategy`: an independent agent that did not write the plan, the assumptions or the decision, and attacks the assumptions the plan trusts most. The procedure (most-trusted assumptions, restate each at its strongest, attack, judge) is in product-spec `references/STRATEGY-REVIEW.md`; this page says how the assessment uses it. The red team also holds the documents to the [quality bar](QUALITY-BAR.md) and writes a `## Quality bar` section with one line per question.
 
 ## Start
 
@@ -16,6 +16,14 @@ Strongest form: <the assumption as its best defender states it, with claim ids s
 Attack: <the cheapest observation that would show it false; the nearest alternative explanation>
 Evidence: <what is on disk that points that way; `unverified` for what could not be checked>
 result: weakened
+
+## Quality bar
+- concrete: <pass | fail: the line -> the fix>
+- sourced: <pass | fail: ...>
+- new: <pass | fail: ...>
+- unknowns: <pass | fail: ...>
+- so what: <pass | fail: ...>
+- consistency: <pass | fail: two lines that contradict, e.g. two risk responses>
 
 ## Summary
 - AS-1 weakened: <what the plan must change or test before it relies on it>

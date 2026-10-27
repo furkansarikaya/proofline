@@ -18,10 +18,15 @@ const rules = (r) => r.findings.map((f) => f.rule);
 const tmp = () => mkdtempSync(join(tmpdir(), "product-assess-"));
 const run = (script, ...args) => spawnSync("node", [join(SKILL, "scripts", script), ...args], { encoding: "utf8" });
 
+// n assumptions or risks the agent proposed and the user accepted
+const agentAs = (n, from = 10) => Array.from({ length: n }, (_, i) => `- AS-${from + i} The accounting tool rejects case ${"abcdefgh"[i]} of the file. [assumption: feasibility source agent accepted by user] importance: medium; evidence: medium`).join("\n");
+const agentRk = (n, from = 10) => Array.from({ length: n }, (_, i) => `- RK-${from + i} Failure story number ${i} that the user never told. kind: unspoken; response: ask finance first; source: agent accepted by user`).join("\n");
+
 test("assumptions: qualitative levels pass; a numeric score and a wrong riskiest mark are rejected", () => {
   const ok = [
     "- AS-1 Finance wants CSV. [assumption: value] importance: high; evidence: low; riskiest: yes",
     "- AS-2 We can build it in a week. [assumption: feasibility] importance: medium; evidence: medium",
+    agentAs(5),
   ].join("\n");
   const r = checkAssumptions(ok);
   assert.deepEqual(r.findings, []);
@@ -32,8 +37,42 @@ test("assumptions: qualitative levels pass; a numeric score and a wrong riskiest
 });
 
 test("premortem: each risk is real, overstated or unspoken and has a response", () => {
-  assert.deepEqual(checkPremortem("- RK-1 Nobody exports. kind: real; response: ask finance weekly\n").findings, []);
-  assert.deepEqual(rules(checkPremortem("- RK-1 Nobody exports. kind: likely; response:\n")), ["kind", "response"]);
+  const none = { minAgent: 0 }; // this test is about kind and response; the minimum has its own test
+  assert.deepEqual(checkPremortem("- RK-1 Nobody exports. kind: real; response: ask finance weekly\n", none).findings, []);
+  assert.deepEqual(rules(checkPremortem("- RK-1 Nobody exports. kind: likely; response:\n", none)), ["kind", "response"]);
+});
+
+test("the agent must contribute: fewer than 5 assumptions or risks of its own fail, 5 pass, rejected proposals count", () => {
+  const user = "- AS-1 Finance wants CSV. [assumption: value] importance: medium; evidence: medium";
+  assert.deepEqual(rules(checkAssumptions(`${user}\n${agentAs(4)}`)), ["min-proposals"]);
+  assert.deepEqual(checkAssumptions(`${user}\n${agentAs(5)}`).findings, []);
+  assert.deepEqual(checkAssumptions(`${user}\n${agentAs(4)}\n\n## Rejected proposals\n\n- RP-1 Users want dark mode rejected by user: not in scope\n`).findings, []);
+  assert.deepEqual(rules(checkAssumptions(`${user}\n${agentAs(5)}\n\n## Rejected proposals\n\n- RP-1 Users want dark mode\n`)), ["rejected-proposal"]);
+  assert.deepEqual(rules(checkAssumptions(`${user}\n${agentAs(5).replaceAll(" accepted by user", "")}`)).filter((r) => r !== "min-proposals"), Array(5).fill("risk-type"));
+  const rk = "- RK-1 Nobody exports. kind: real; response: ask finance weekly";
+  assert.deepEqual(rules(checkPremortem(`${rk}\n${agentRk(4)}`)), ["min-proposals"]);
+  assert.deepEqual(checkPremortem(`${rk}\n${agentRk(5)}`).findings, []);
+  assert.equal(checkPremortem(`${rk}\n${agentRk(5)}`).proposals.accepted, 5);
+  assert.ok(rules(checkPremortem(`${rk}\n${agentRk(5).replaceAll("accepted by user", "")}`)).includes("source"));
+  assert.ok(rules(checkPremortem(`${rk}\n${agentRk(5)}\n- RK-30 A story. [proposal: risk] kind: real; response: wait`)).includes("pending-proposal"));
+  const cli = run("check-premortem.mjs", "--root", "/nonexistent", "nope");
+  assert.equal(cli.status, 2);
+});
+
+test("assumptions: a number is an estimate with a basis; without the basis it is rejected", () => {
+  const rest = `\n${agentAs(5)}`;
+  const line = (marker) => `- AS-1 Between 30 and 70 percent of clerks would switch, because of C-2. ${marker} importance: high; evidence: low; riskiest: yes${rest}`;
+  assert.deepEqual(checkAssumptions(line('[assumption: value estimate "one interview, so the range is wide on purpose"]')).findings, []);
+  assert.deepEqual(rules(checkAssumptions(line("[assumption: value]"))), ["unsourced-number"]);
+  assert.ok(rules(checkAssumptions(line('[assumption: value estimate "guess"]'))).includes("risk-type"));
+  assert.ok(rules(checkAssumptions(line("[assumption: value estimate 40]"))).includes("risk-type"));
+  // a basis of filler words is no basis: 3 words, but no digit, id or source word
+  assert.ok(rules(checkAssumptions(line('[assumption: value estimate "we just feel it is right"]'))).includes("risk-type"));
+  // digits glued to letters are names (OAuth2, S3), not numbers
+  const named = `- AS-1 The login works with OAuth2 and the files sit in S3, because of C-2. [assumption: feasibility] importance: medium; evidence: medium${rest}`;
+  assert.deepEqual(checkAssumptions(named).findings, []);
+  assert.deepEqual(rules(checkAssumptions(named.replace("OAuth2", "OAuth2 within 5 minutes"))), ["unsourced-number"]);
+  assert.equal(readFileSync(join(SKILL, "scripts/validate-product-claims.mjs"), "utf8"), readFileSync(join(SKILL, "../product-spec/scripts/validate-product-claims.mjs"), "utf8"));
 });
 
 test("decision: ADR sections and exactly one effective decision in the enum", () => {
@@ -129,4 +168,15 @@ test("outcome: --rerun does not execute a script whose hash changed", () => {
   assert.ok(JSON.parse(r.stdout).findings.some((f) => f.rule === "script-hash"));
   assert.equal(existsSync(marker), false);
   rmSync(p.root, { recursive: true, force: true });
+});
+
+test("assumptions: a sourced fact may sit in the file as a C-n line; a fact without a source is rejected", () => {
+  const rest = `\n${agentAs(5)}`;
+  const facts = (line) => `- AS-1 Finance wants CSV, because of C-1. [assumption: value] importance: medium; evidence: medium${rest}\n\n## Facts\n\n${line}\n`;
+  const good = '- C-1 Finance copies the rows by hand. [fact: interview INT-1 "I copy the rows by hand"]';
+  assert.deepEqual(checkAssumptions(facts(good)).findings, []);
+  assert.equal(checkAssumptions(facts(good)).facts, 1);
+  assert.deepEqual(rules(checkAssumptions(facts("- C-1 Finance copies the rows by hand. [fact: web https://x.example/a]"))), ["fact"]);
+  assert.deepEqual(rules(checkAssumptions(facts("- C-1 Finance copies the rows by hand."))), ["fact"]);
+  assert.deepEqual(rules(checkAssumptions(facts("- C-1 Finance copies rows. [assumption: value]"))), ["fact"]);
 });

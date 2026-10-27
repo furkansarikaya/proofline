@@ -23,7 +23,7 @@ Inside Claude Code the same commands are `/proofline status`, `/proofline run <T
 | `proofline run <TASK>` | full workflow |
 | `proofline design system\|data\|api\|ui [--check]` | design documents; `--check` reports drift |
 | `proofline review`, `audit`, `debug` | proof-review, test-trust and debug-proof standalone |
-| `/proofline wiki ingest\|query\|lint` | persistent project wiki (llm-wiki skill; slash command only); the wiki lives in `docs/wiki/`, which is in the default `knowledge_scope_root`, so the run's Knowledge step, which always runs (see `control-plane/agents/KNOWLEDGE.md`), may update it |
+| `/proofline wiki ingest\|query\|lint` | persistent project wiki (llm-wiki skill; slash command only; there is no on/off setting, start it with `/proofline wiki ingest README.md`); the wiki lives in `docs/wiki/`, which is in the default `knowledge_scope_root`, so the run's Knowledge step, which always runs (see `control-plane/agents/KNOWLEDGE.md`), may update it |
 | `proofline knowledge <TASK>`, `reopen <TASK>` | knowledge step of a finished run (wiki, ADRs, lesson candidates, proposed tasks from the implementer's observations); take a FAILED or BLOCKED run back into the workflow with your approval |
 | `proofline debt` | list the `shortcut: <limit>, <when to improve>` comments in the code with `file:line`; read-only, needs no run |
 | `proofline deliver <TASK>` | delivery check; never commits (`/proofline deliver` in the session delivers after one `approve delivery`) |

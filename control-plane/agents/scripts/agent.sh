@@ -208,7 +208,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -275,6 +275,8 @@ config_check() {
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "worktree.copy_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[|\\]/) bad("worktree.copy_files must be project-relative globs without a leading / or .. : " v) }
       else if (top == "worktree" && k != "worktree") bad("unknown worktree key: " k " (want worktree.copy_files)")
+      else if (k == "verification.env_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[*?|\\]/ || v ~ /\[|\]/) bad("verification.env_files must be project-relative file names (space-separated, no glob, no leading / or .. ): " v) }
+      else if (top == "verification" && k != "verification") bad("unknown verification key: " k " (want verification.env_files)")
       else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
       else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
       else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
@@ -6237,7 +6239,7 @@ cleanup_run() {
   cu_term=no; case "$(run_state "$dir")" in FAILED|BLOCKED) cu_term=yes ;; esac
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
-      verify_seal "$id"; tail -n 1 "$(ledger_file "$id")" | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
+      verify_seal "$id"; grep -Ev " event=hook(-timeout)? " "$(ledger_file "$id")" | tail -n 1 | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
     *)
       [ "$(section_value "$dir" handoff state)" = DONE ] || fail "cleanup requires handoff DONE (or a FAILED/BLOCKED run): $id"
       cu_base=$(repository_base_sha "$dir")

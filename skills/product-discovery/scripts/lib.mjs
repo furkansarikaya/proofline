@@ -62,6 +62,35 @@ export function idLines(text, idPattern = "[A-Z]{1,3}-\\d+") {
   return out;
 }
 
+// Every marker of a text outside code fences and comments, with its line: [{ line, kind, ...parsed }].
+export function parseMarkers(text) {
+  const out = [];
+  let fence = false;
+  stripComments(text).split(/\r?\n/).forEach((raw, i) => {
+    if (/^\s*(```|~~~)/.test(raw)) { fence = !fence; return; }
+    if (fence) return;
+    for (const m of raw.matchAll(MARKER)) out.push({ line: i + 1, ...parseMarker(m[1], m[2]) });
+  });
+  return out;
+}
+// Lines of the `## <name>` section (case-insensitive, outside fences and comments) as [{ line, text }], or null when the
+// heading is missing. A `### ` subsection belongs to its section.
+export function section(text, name) {
+  const out = [];
+  let on = false, fence = false, found = false;
+  stripComments(text).split(/\r?\n/).forEach((raw, i) => {
+    if (/^\s*(```|~~~)/.test(raw)) { fence = !fence; if (on) out.push({ line: i + 1, text: raw }); return; }
+    const h = !fence && /^##\s+(.+?)\s*$/.exec(raw);
+    if (h) { on = h[1].toLowerCase() === name.toLowerCase(); if (on) found = true; return; }
+    if (on) out.push({ line: i + 1, text: raw });
+  });
+  return found ? out : null;
+}
+// `- <ID> text` items of a section's lines.
+export const sectionItems = (lines, idPattern) => (lines || []).map((l) => { const m = new RegExp(`^- (${idPattern})\\s+(.*)$`).exec(l.text); return m && { line: l.line, id: m[1], body: m[2] }; }).filter(Boolean);
+// Items the agent proposed and the user accepted or changed (marker suffix `source agent accepted by user`).
+export const agentSourced = (lines) => lines.filter((l) => l.markers.some((m) => m.origin === "agent" && !m.errors.length));
+
 // Prints findings (and stale cells) as text or JSON; returns the exit code.
 export function report(findings, extra, json, label) {
   if (json) console.log(JSON.stringify({ ok: findings.length === 0, findings, ...extra }, null, 2));

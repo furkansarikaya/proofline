@@ -17,3 +17,7 @@ Use it to prepare questions and to write the synthesis. The user runs the interv
 2. In `INTERVIEWS.md` add `- INT-<n> <role>, <YYYY-MM-DD>` and the claims drawn from it: `- C-<n> <paraphrase> [fact: interview INT-<n> "<exact quote>"]`. Copy quotes exactly; shorten with `...` only.
 3. Run `check-quotes.mjs <slug>` and `check-quotes.mjs <slug> --privacy`. Fix a quote, never the raw text.
 4. A theme heard once is one claim, not a pattern. Say how many interviews support it.
+
+## Asking the user
+
+When the discovery asks the user, independent questions may share one message: up to three, numbered, each with lettered options (A, B, C) and a recommended answer with its reason, so the user can answer "1A, 2C". A question whose answer changes the next question goes alone. The user may always answer with something else.
