@@ -93,12 +93,11 @@ drive() {
   eval "$dr_done"
 }
 
-skill_detour_row() { # transcripts of all steps: every Skill-tool call for a proofline skill must have been answered by the hook
+skill_detour_row() { # Claude Code rejects a Skill call for a proofline skill before any hook runs; what counts is that the lead then read the file and went on
   sd_calls=$(cat "$work"/*.jsonl 2>/dev/null | grep -o '"name":"Skill"' | wc -l | tr -d ' ')
-  sd_red=$(cat "$work"/*.jsonl 2>/dev/null | grep -o 'do not use the Skill tool' | wc -l | tr -d ' ')
   if [ "$sd_calls" -le 0 ]; then row "skill tool not used" PASS 0 "no Skill-tool call in any transcript"
-  elif [ "$sd_red" -ge 1 ]; then row "skill tool redirected" PASS 0 "$sd_calls call(s), the hook answered with the file path"
-  else row "skill tool redirected" FAIL 0 "$sd_calls Skill-tool call(s) and no redirect from the hook"; fi
+  elif [ "$sd_calls" -le 3 ] && [ "$fails" -eq 0 ]; then row "skill tool: the lead recovered" PASS 0 "$sd_calls rejected call(s); every step above still passed, so the lead read the file and went on"
+  else row "skill tool: the lead recovered" FAIL 0 "$sd_calls Skill-tool call(s) and a failed step above"; fi
 }
 
 pass() { # one full pass (setup, run, deliver, batch); NAME_PREFIX

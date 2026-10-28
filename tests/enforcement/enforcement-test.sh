@@ -563,6 +563,15 @@ skill_detour() {
   mkdir -p "$base/home/.claude/skills/tdd-proof"
   allowed "A193 a user's own skill that bears a proofline skill's name" "$(HOME=$base/home sk tdd-proof)"
   ok "A193 the Skill tool is redirected to the file for proofline skills only"
+  # Claude Code rejects the call before hooks run, so the Stop hook catches the turn that gives up on it
+  stop_msg() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"sk1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${2:-false},\"last_assistant_message\":\"$(jstr "$1")\"}"; }
+  out=$(stop_msg "The Skill tool failed: cannot be used due to disable-model-invocation. Please run /proofline:proofline-lead yourself.")
+  printf '%s' "$out" | grep -q '"decision":"block"' && printf '%s' "$out" | grep -q 'proofline-lead/SKILL.md' || die "A193 a message that gives up at the Skill error was not sent back: $out"
+  out=$(stop_msg "The Skill tool failed: disable-model-invocation." true)
+  ! printf '%s' "$out" | grep -q '"decision":"block"' || die "A193 the retry was blocked again: $out"
+  out=$(stop_msg "Reading the proofline-lead skill file now; all good.")
+  ! printf '%s' "$out" | grep -q '"decision":"block"' || die "A193 an ordinary message was blocked: $out"
+  ok "A193 a message that gives up at the Skill error is sent back once with the file to read"
 }
 
 # A159: the knowledge step needs the wiki and the design documents; the lead may write exactly those, only after

@@ -14,7 +14,7 @@ One rule: **this skill routes; it decides nothing.** State and gates belong to `
 the method belongs to the proofline-lead skill. Arguments: `$ARGUMENTS` (empty means `status`).
 
 **Never call a proofline skill through the Skill tool** (A193): they are all `disable-model-invocation`, so the call fails and nothing starts.
-Read the `SKILL.md` file by path (see "Locate the tools") and continue with the same step; the runtime hook answers a Skill call for one with that path.
+Read the `SKILL.md` file by path (see "Locate the tools") and continue with the same step. If the Skill tool fails with `disable-model-invocation`, do not ask the user to run the skill: read the file.
 
 ## Locate the tools
 

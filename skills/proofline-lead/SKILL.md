@@ -97,7 +97,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
     same way with `A friction-note <ID> proofline_bug` (A196), and said in one line.
 15. **Never the Skill tool (A193).** Every proofline skill is `disable-model-invocation`: a Skill tool call for one fails and no batch or run starts.
     Read its `SKILL.md` file by path (`${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`, or `.agents/skills/<name>/SKILL.md`) and continue with the same
-    step; the PreToolUse hook answers such a call with that path. Skills that are not proofline's are not affected.
+    step. If a Skill call was made anyway and failed, do not ask the user to run the skill: read the file. Skills that are not proofline's are not affected.
 16. **Optional tools (A194).** `ast-grep`, when installed (`doctor` shows it), is preferred for structural searches; otherwise `rg`/`grep`. When the
     user's `rtk` hook is installed, every command that produces evidence (`agent.sh`, build record, verification commands, RED/GREEN test runs, the
     review `git diff`) runs as `RTK_DISABLED=1 <command>` (rtk's documented per-command switch); the hook denies such a command without it. `ls`,

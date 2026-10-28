@@ -2352,6 +2352,16 @@ $l" ;; esac
   # is a proofline bug: the hook records a friction note (counted in the friction report) and says so in one line.
   # Only a request counts: the command sits on a line that asks the user to run it ("please run", "run:", an imperative line), or in a
   # code fence announced by such a line. A report of what the lead itself ran ("I ran agent.sh next") is not one.
+  # A193: Claude Code rejects a Skill call for a proofline skill itself (disable-model-invocation) before any hook runs, so the hook cannot answer it.
+  # What it can do is catch the turn that gives up on it: a message that quotes that error, or asks the user to run /proofline:proofline-<skill>,
+  # is sent back once with the file to read.
+  case "$msg" in *disable-model-invocation*|*'/proofline:proofline-'*)
+    if [ "$(jget stop_hook_active)" != true ]; then
+      if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then sk_rf=$CLAUDE_PLUGIN_ROOT/skills; else sk_rf=$root/.agents/skills; fi
+      printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: do not ask the user to run a proofline skill and do not stop at the Skill tool error: every proofline skill is disable-model-invocation. Read the skill file ($sk_rf/<name>/SKILL.md, for example $sk_rf/proofline-lead/SKILL.md) and continue with the same step.")"
+      exit 0
+    fi ;;
+  esac
   # A193: the request is also refused (the message is sent back once) and it covers --no-verify, the edit of a file under .agents/ and a
   # command started with "!"; a command that is the user's own work (git push, gh auth login, a plugin update) is never matched.
   fr_hit=no   # A188: the patterns below name agent.sh, --no-verify or .agents/, so a message without that text cannot match (no awk)
@@ -2398,10 +2408,10 @@ session)
     fi
   fi
   if [ -n "$sv_msg" ]; then
-    sv_c="proofline installed; you are the lead; use the proofline-lead skill ($skill); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}. $sv_msg. Tell the user this before you start a run."
+    sv_c="proofline installed; you are the lead; use the proofline-lead skill by reading $skill (never through the Skill tool: every proofline skill is disable-model-invocation and the call fails); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}. $sv_msg. Tell the user this before you start a run."
     printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(jesc "$sv_msg")" "$(jesc "$sv_c")"; exit 0
   fi
-  ctx SessionStart "proofline installed; you are the lead; use the proofline-lead skill ($skill); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}" ;;
+  ctx SessionStart "proofline installed; you are the lead; use the proofline-lead skill by reading $skill (never through the Skill tool: every proofline skill is disable-model-invocation and the call fails); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}" ;;
 
 *) echo "usage: proofline-hook.sh <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]" >&2; exit 0 ;;
 esac
