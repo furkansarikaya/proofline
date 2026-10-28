@@ -3631,7 +3631,7 @@ artifact_allowed() { # ROLE KIND FOCUS PATH
 record_visual_check() { # ID RESULT
   rvc_d=$(run_dir "$1")/reviews/visual-proof
   [ "$2" = PASS ] || return 0
-  [ -f "$rvc_d/report.json" ] || return 0   # no machine report to contradict (unchanged behavior); a report that exists is always read
+  [ -f "$rvc_d/report.json" ] || { record_reject "visual PASS needs reviews/visual-proof/report.json: an agent's statement is not evidence, and the verifier reads that report. Produce it with the visual-proof skill (its RESULT must be PASS), or submit UNSUPPORTED/BLOCKED with the reason"; return 1; }
   command -v node >/dev/null 2>&1 || { record_reject "visual PASS cannot be checked: node is not installed, so report.json cannot be read (submit UNSUPPORTED with the reason, or BLOCKED)"; return 1; }
   rvc_r=$(node -e 'try{const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(r.result||""))}catch(e){}' "$rvc_d/report.json" 2>/dev/null)
   [ "$rvc_r" = PASS ] || { record_reject "visual PASS contradicts reviews/visual-proof/report.json (RESULT: ${rvc_r:-unreadable}): a report that is FAIL or INCONCLUSIVE is never a gate PASS (submit FAIL with its blocking rows, or UNSUPPORTED for INCONCLUSIVE)"; return 1; }
