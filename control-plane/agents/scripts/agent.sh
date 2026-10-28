@@ -1776,6 +1776,13 @@ verify_scope_existence() { # ID freeze|refreeze
     fi
   done
 }
+# A200 (item 9): the expected form of a refreeze and of an amend, with an example, shown by the errors that refuse them.
+refreeze_format_hint() { # ID
+  printf 'Expected: agent.sh refreeze %s <AMENDMENT-FILE-NAME>, where the file exists at .agents/runs/%s/amendments/<NNN>.md, is new (one amendment, one refreeze) and says what changed and why. Example: write amendments/001.md ("Adds AC-4 to PLAN scope: the footer link"), edit PLAN.md to match, then: agent.sh refreeze %s 001.md' "$1" "$1" "$1"
+}
+amend_format_hint() { # ID
+  printf 'Expected: agent.sh amend %s with a form on stdin, one key per line: reason: <what is wrong, 20+ characters> / fix_scope: <comma-separated paths the fix may touch> / fix_instruction: <what to change, 20+ characters> / authorized_by: <who allowed reopening> / plan_change: yes|no (optional). Example: printf "reason: footer link points to the old URL\\nfix_scope: src/footer.html, src/footer.test.js\\nfix_instruction: point the footer link to /docs and update its test\\nauthorized_by: user message 2026-10-28\\n" | agent.sh amend %s' "$1" "$1"
+}
 freeze() {
   id=$1; require_run "$id"; db_guard_check "$id"; dir=$(run_dir "$id"); for f in TASK.md PLAN.md RUN.yaml; do [ -f "$dir/$f" ] || fail "missing $f"; done
   require_open_run "$id"
@@ -1801,9 +1808,9 @@ freeze() {
   pipeline_check "$id"
   fz_mode=freeze
   if freeze_hash_present "$dir"; then
-    [ "${2:-}" = refreeze ] && [ -n "${3:-}" ] || fail "existing freeze requires explicit amendment"
-    case "$3" in */*|*..*) fail "invalid amendment name: $3" ;; esac
-    [ -f "$dir/amendments/$3" ] || fail "existing freeze requires explicit amendment"
+    [ "${2:-}" = refreeze ] && [ -n "${3:-}" ] || fail "existing freeze requires an explicit amendment. $(refreeze_format_hint "$id")"
+    case "$3" in */*|*..*) fail "invalid amendment name: $3 (a file name inside the run's amendments/ folder, no directory part). $(refreeze_format_hint "$id")" ;; esac
+    [ -f "$dir/amendments/$3" ] || fail "amendment $3 not found at $dir/amendments/$3. $(refreeze_format_hint "$id")"
     ! grep -F "event=refreeze " "$(ledger_file "$id")" 2>/dev/null | grep -Fq "detail=amendment $3" || fail "amendment $3 was already used for a refreeze; write a new amendment"
     fz_mode=refreeze
   fi
@@ -2956,11 +2963,21 @@ gate_bound_to_contract() {
   g_bd=$(run_dir "$1")
   for g_bk in task evidence plan qa_plan; do [ "$(gate_field "$2" "${g_bk}_sha256")" = "$(section_value "$g_bd" freeze "${g_bk}_sha256")" ] || return 1; done
 }
+# A200 (item 5): a refreeze invalidates only the gates it affects. When the only frozen hash that changed is the QA plan's, a
+# `pass` record of a gate that does not read the QA plan (SECRETS, REVIEW_RULES, REVIEW_DATA, SECURITY) stays bound; every other
+# change (task, evidence, plan) and every other gate invalidates as before. The record's content fingerprint is still compared
+# by gate_focus_status, so changed code never rides on this. Safe side: anything else is not bound.
+gate_bound_after_refreeze() { # ID RECORD
+  gba_d=$(run_dir "$1")
+  for gba_k in task evidence plan; do [ "$(gate_field "$2" "${gba_k}_sha256")" = "$(section_value "$gba_d" freeze "${gba_k}_sha256")" ] || return 1; done
+  [ "$(gate_field "$2" result)" = pass ] || return 1
+  case "$(gate_field "$2" gate)" in SECRETS|SECURITY|REVIEW_RULES|REVIEW_DATA) return 0 ;; *) return 1 ;; esac
+}
 # Structural validity: task, frozen contract, policy and pipeline, manifest, author role and the bound artifact.
 valid_gate_file() {
   g_id=$1 g_f=$2 g_d=$(run_dir "$1")
   [ "$(gate_field "$g_f" task_id)" = "$g_id" ] || return 1
-  gate_bound_to_contract "$g_id" "$g_f" || return 1
+  gate_bound_to_contract "$g_id" "$g_f" || gate_bound_after_refreeze "$g_id" "$g_f" || return 1
   [ "$(gate_field "$g_f" policy_sha256)" = "$(section_value "$g_d" freeze policy_sha256)" ] || return 1
   [ "$(gate_field "$g_f" pipeline)" = "$(section_value "$g_d" freeze pipeline)" ] || return 1
   g_m=${g_f%.yaml}.manifest; [ -f "$g_m" ] || return 1
@@ -3036,6 +3053,41 @@ focus_untouched() { # ID RECORD FOCUS MODE NOW
   for fu_p in $fu_tree; do printf '%s\n' "$fu_delta" | grep -Fxq -- "$fu_p" || return 1; done
   return 0
 }
+# A200 (item 5): selective repetition of a gate's OWN focus by input. A `pass` record of REVIEW_PLAN, REVIEW_RULES, REVIEW_DATA or
+# SECURITY stays fresh in modes patch and reuse only when every path that changed since the record (its manifest delta; in reuse
+# mode also every path the trees differ in) is a TEST path and, for SECURITY, no changed test touches security behavior (identity,
+# authorization, input validation, secrets: the words in security_test_words, in the path or in a changed line). Everything else
+# runs again: SECRETS, REVIEW_SMALL (it reads tests), REVIEW_TESTS, QA and VERIFY always; any changed product code, dependency or
+# configuration path (not a test path) reruns every gate; an empty or undeterminable delta, a missing tree or a failed diff reruns.
+# Safe side = run. A fail, pass_low or unsupported record is never carried.
+test_path_globs='**/test/** **/tests/** **/__tests__/** **/spec/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'
+security_test_words='auth|login|logout|passw|credential|secret|token|session|cookie|csrf|xss|cors|permission|privilege|role|acl|rbac|admin|oauth|jwt|saml|sanitiz|escap|inject|validat|crypt|hash|signature|signing|tls|ssl|cert|owner|tenant|forbidden|unauthori|denied|allowlist|whitelist|blocklist|ssrf|traversal|redirect|upload|rate.?limit|csp|header'
+gate_inputs_unchanged() { # ID RECORD GATE MODE NOW
+  [ "$4" != strict ] || return 1
+  case "$3" in REVIEW_PLAN|REVIEW_RULES|REVIEW_DATA|SECURITY) ;; *) return 1 ;; esac
+  [ "$(gate_field "$2" result)" = pass ] || return 1
+  giu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
+  [ -n "$giu_delta" ] || return 1
+  for giu_p in $giu_delta; do path_matches "$giu_p" "$test_path_globs" || return 1; done
+  giu_rec=$(gate_field "$2" fingerprint); giu_cur=$5
+  if [ "$4" = reuse ]; then
+    giu_tree=$(git -C "$root" diff-tree -r --name-only "$giu_rec" "$giu_cur" 2>/dev/null) || return 1
+    [ -n "$giu_tree" ] || return 1
+    for giu_p in $giu_tree; do printf '%s\n' "$giu_delta" | grep -Fxq -- "$giu_p" || return 1; done
+  fi
+  [ "$3" = SECURITY ] || return 0
+  # SECURITY: a changed test that covers security behavior reruns the gate. Needs both trees; without them: run.
+  [ "$4" = reuse ] || giu_cur=$(gate_fingerprint)
+  git -C "$root" cat-file -e "$giu_rec^{tree}" 2>/dev/null && git -C "$root" cat-file -e "$giu_cur^{tree}" 2>/dev/null || return 1
+  for giu_p in $giu_delta; do
+    ! printf '%s\n' "$giu_p" | grep -Eiq "$security_test_words" || return 1
+  done
+  # shellcheck disable=SC2086 # repository paths without whitespace; a path with one is not carried (the diff fails or misses it: run)
+  giu_diff=$(git -C "$root" diff --no-color --no-ext-diff -U0 "$giu_rec" "$giu_cur" -- $giu_delta 2>/dev/null) || return 1
+  [ -n "$giu_diff" ] || return 1
+  ! printf '%s\n' "$giu_diff" | grep -E '^[+-][^+-]' | grep -Eiq "$security_test_words" || return 1
+  return 0
+}
 # gate_focus_status ID GATE FOCUS MODE NOW: the latest record of that gate and focus ('-' = the gate's own focus).
 gate_focus_status() {
   gfs_id=$1 gfs_gate=$2; gfs_key=fingerprint; [ "$4" != patch ] || gfs_key=patch_sha256
@@ -3043,7 +3095,7 @@ gate_focus_status() {
   [ -n "$gfs_last" ] || { echo missing; return 0; }
   if ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
   if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] && ! { [ "$gfs_key" = fingerprint ] && legacy_fingerprint_match "$(gate_field "$gfs_last" fingerprint)"; }; then
-    { [ "$4" != strict ] && [ "$(gate_field "$gfs_last" result)" = pass ] && focus_untouched "$gfs_id" "$gfs_last" "$3" "$4" "$5"; } || { echo stale; return 0; }
+    { [ "$4" != strict ] && [ "$(gate_field "$gfs_last" result)" = pass ] && { focus_untouched "$gfs_id" "$gfs_last" "$3" "$4" "$5" || { [ "$3" = - ] && gate_inputs_unchanged "$gfs_id" "$gfs_last" "$gfs_gate" "$4" "$5"; }; }; } || { echo stale; return 0; }
   fi
   case "$(gate_field "$gfs_last" result)" in
     pass) echo pass ;; pass_low) echo pass_low ;; unsupported) echo unsupported ;;
@@ -3071,7 +3123,7 @@ verify_required_gates() { # ID strict|patch MESSAGE
   vrg_now=''; [ "$2" = patch ] || vrg_now=$(gate_fingerprint); risk_prime "$1"
   for vrg_g in $(required_gates "$1"); do
     vrg_s=$(gate_status "$1" "$vrg_g" "$2" "$vrg_now")
-    gate_satisfied "$vrg_s" || fail "$3: required gate $vrg_g of $1 is $vrg_s for the current content (see 'agent.sh pipeline $1')"
+    gate_satisfied "$vrg_s" || fail "$3: required gate $vrg_g of $1 is $vrg_s for the current content. $(gate_fail_hint "$1" "$vrg_g" "$vrg_s") (all gates: 'agent.sh pipeline $1')"
   done
 }
 # A171: a late example of a finding class the reviewer missed does not use up a fix round. A FAIL record is free
@@ -3250,11 +3302,50 @@ finding_plan_rows() { # ID GATE_FILE
   fpr_n=0
   while IFS='|' read -r _ _ fpr_path fpr_text _; do
     case "$fpr_text" in 'UNSUPPORTED '*|'risk signal '*) continue ;; esac
+    visual_row_text "$fpr_text" && continue   # A200: a missing visual report is answered by QA's visual focus, not by the plan
     if fix_path_control "$1" "${fpr_path%%:*}"; then fpr_n=$((fpr_n + 1)); fi
   done <<EOF
 $(grep '^finding: [^|]*|blocking|' "$2" || true)
 EOF
   printf '%s\n' "$fpr_n"
+}
+# A200 (item 9): a blocking row about the visual evidence report (missing, or a criterion without it). Neither the plan nor the
+# implementer answers it: the QA visual focus produces reviews/visual-proof/report.json, then the verifier reads it.
+visual_row_text() { # TEXT
+  printf '%s\n' "$1" | grep -Eiq 'visual-proof|visual evidence|visual report|report\.json'
+}
+finding_visual_rows() { # GATE_FILE
+  fvr_n=0
+  while IFS='|' read -r _ _ _ fvr_text _; do
+    case "$fvr_text" in 'UNSUPPORTED '*|'risk signal '*) continue ;; esac
+    if visual_row_text "$fvr_text"; then fvr_n=$((fvr_n + 1)); fi
+  done <<EOF
+$(grep '^finding: [^|]*|blocking|' "$1" || true)
+EOF
+  printf '%s\n' "$fvr_n"
+}
+# A200 (item 9): the first blocking rows of a gate record as `ID path: text`, at most N, for the messages that name a failing gate.
+gate_blocking_rows() { # GATE_FILE N
+  sed -n 's/^finding: \([^|]*\)|blocking|\([^|]*\)|\([^|]*\)|.*/\1 \2: \3/p' "$1" | head -n "$2" | cut -c1-300
+}
+# gate_fail_hint ID GATE STATUS: the real finding and the real remedy for a gate that does not pass, one line.
+gate_fail_hint() {
+  gh_id=$1 gh_g=$2 gh_s=$3 gh_rows=''
+  case "$gh_s" in
+    fail)
+      for gh_fc in - $(risk_gate_focuses "$gh_id" "$gh_g"); do
+        gh_lf=$(gate_latest_file "$gh_id" "$gh_g" "$gh_fc"); [ -n "$gh_lf" ] || continue
+        [ "$(gate_field "$gh_lf" result)" = fail ] || continue
+        gh_rows="$gh_rows$(gate_blocking_rows "$gh_lf" 2 | tr '\n' ';')"
+      done
+      printf 'first blocking finding(s): %s next step: agent.sh next %s' "${gh_rows:-(none readable in the record)}" "$gh_id" ;;
+    stale|missing)
+      case "$gh_g" in
+        SECRETS) printf 'run: agent.sh secret-scan %s' "$gh_id" ;;
+        REVIEW_*) printf 'run: dispatch.sh %s reviewer --focus %s' "$gh_id" "$(gate_focus "$gh_g")" ;;
+        *) printf 'run: dispatch.sh %s %s' "$gh_id" "$(gate_owner "$gh_g")" ;;
+      esac ;;
+  esac
 }
 # `next` lines naming the allowed fix paths of an open fix round, to paste into the implementer's ALLOWED_SCOPE (A123).
 fix_paths_lines() { # ID
@@ -3530,6 +3621,34 @@ artifact_allowed() { # ROLE KIND FOCUS PATH
   done
   return 1
 }
+# A200 (item 6): the QA visual focus never records PASS against its own evidence. (a) The report.json `result` must be PASS when the
+# gate is PASS (a RESULT: FAIL or INCONCLUSIVE report is never a pass); (b) a pattern finding of lint.json that the report calls
+# justified counts only when the user approved that DESIGN.md line (rationale:<pattern-id>, bound to the line's sha256) and the
+# line in DESIGN.md is still the approved text; an agent-written rationale is refused. Nothing here lowers a finding.
+# Safe side: a report.json that exists but cannot be read, or node missing while one exists, refuses the PASS.
+record_visual_check() { # ID RESULT
+  rvc_d=$(run_dir "$1")/reviews/visual-proof
+  [ "$2" = PASS ] || return 0
+  [ -f "$rvc_d/report.json" ] || return 0   # no machine report to contradict (unchanged behavior); a report that exists is always read
+  command -v node >/dev/null 2>&1 || { record_reject "visual PASS cannot be checked: node is not installed, so report.json cannot be read (submit UNSUPPORTED with the reason, or BLOCKED)"; return 1; }
+  rvc_r=$(node -e 'try{const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(r.result||""))}catch(e){}' "$rvc_d/report.json" 2>/dev/null)
+  [ "$rvc_r" = PASS ] || { record_reject "visual PASS contradicts reviews/visual-proof/report.json (RESULT: ${rvc_r:-unreadable}): a report that is FAIL or INCONCLUSIVE is never a gate PASS (submit FAIL with its blocking rows, or UNSUPPORTED for INCONCLUSIVE)"; return 1; }
+  [ -f "$rvc_d/lint.json" ] || return 0
+  rvc_j=$(node -e 'try{const l=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const seen=new Set();for(const f of l.findings||[]){if(f.justified===true&&!seen.has(f.id)){seen.add(f.id);process.stdout.write(f.id+"\t"+String(f.reason||"")+"\t"+String(l.design_md||"")+"\n")}}}catch(e){process.stdout.write("UNREADABLE\n")}' "$rvc_d/lint.json" 2>/dev/null)
+  [ "$rvc_j" != UNREADABLE ] || { record_reject "visual PASS: reviews/visual-proof/lint.json is unreadable"; return 1; }
+  rvc_tab=$(printf '\t')
+  while IFS="$rvc_tab" read -r rvc_i rvc_x rvc_m; do
+    [ -n "$rvc_i" ] || continue
+    rvc_b=$(printf '%s' "$rvc_i: $rvc_x" | sha256)
+    find_approval "$1" "rationale:$rvc_i" "$rvc_b" >/dev/null || { record_reject "visual PASS relies on the DESIGN.md rationale for pattern $rvc_i, which the user has not approved: a rationale an agent wrote does not pass a finding. Ask: agent.sh request-approval $1 rationale:$rvc_i (relay it; the user's reply records the approval), or leave the finding blocking (FAIL)"; return 1; }
+    rvc_cur=''
+    [ -z "$rvc_m" ] || { case "$rvc_m" in /*) rvc_cur=$(rationale_line "$rvc_i" "$rvc_m") ;; *) rvc_cur=$(rationale_line "$rvc_i" "$root/$rvc_m") ;; esac; }
+    [ "$(printf '%s' "$rvc_cur" | sha256)" = "$rvc_b" ] || { record_reject "visual PASS: the DESIGN.md line for pattern $rvc_i is not the text the user approved (changed or removed since): ask for the approval again"; return 1; }
+  done <<RVC_EOF
+$rvc_j
+RVC_EOF
+  return 0
+}
 record_validate() {
   rv_id=$1 rv_t=$2; rv_d=$(run_dir "$1")
   risk_prime "$rv_id"
@@ -3681,6 +3800,7 @@ record_validate() {
     awk '/^QUESTIONS:[[:space:]]*$/ { q=1; next } q && /^BLOCKED_REASON:/ { exit } q { print }' "$rv_t/raw" > "$rv_t/questions"
     grep -q '[^[:space:]]' "$rv_t/questions" || { record_reject "NEEDS_INPUT needs a QUESTIONS: block"; return 1; }
   fi
+  if [ "$rv_kind" = gate ] && [ "$rv_role" = qa ] && [ "$rv_focus" = visual ]; then record_visual_check "$rv_id" "$rv_res" || return 1; fi
   if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ]; then gate_preconditions "$rv_id" "$rv_gate"; fi
   printf 'role=%s\nresult=%s\nkind=%s\ngate=%s\nfocus=%s\nconfidence=%s\nartifact=%s\nfingerprint=%s\ngrill=%s\n' "$rv_role" "$rv_res" "$rv_kind" "$rv_gate" "$rv_focus" "$rv_conf" "$rv_ap" "$rv_fp" "$rv_grill" > "$rv_t/meta"
   printf 'added=%s\nevidence=%s\n' "$rv_added" "$rv_ue" >> "$rv_t/meta"
@@ -3840,6 +3960,24 @@ reproduce_allowed() { # ID
   [ "$(hash_file "$ra_p")" = "$ra_f" ] || return 0
   awk '/^## Verification commands[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i' "$ra_p" | sed -n 's/^[^`]*`\([^`][^`]*\)`.*/\1/p'
 }
+# A200 (item 8): the comparison of a recorded output line with a re-run normalizes a NARROW, listed set of volatile fields, in
+# both the recorded line and every re-run line, and nothing else. The list (each rule is tested, tests/enforcement and the
+# reproduce scenarios):
+#   1. an ISO-8601 timestamp (date, T or space, clock, optional fraction and zone)      -> <TIMESTAMP>
+#   2. a wall-clock time HH:MM:SS (optional fraction)                                    -> <TIME>
+#   3. a duration right after in / took / duration / elapsed / time (number and unit s, ms, sec, secs, seconds, min, m)  -> <DURATION>
+#   4. a duration alone in parentheses, "(12ms)" or "(1.5 s)"                            -> (<DURATION>)
+#   5. the build tool's completion line "[build] Complete!" (with or without a time prefix or a trailing duration) -> [build] Complete!
+# Not in the list, so never normalized: counts, test names, versions, paths, dates without a clock, pids, hashes, ids, any word. A real
+# difference ("3 passed" against "4 passed", "Done in 3s" against "Built in 3s") stays a difference.
+repro_normalize() {
+  sed -E \
+    -e 's/[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})?/<TIMESTAMP>/g' \
+    -e 's/(^|[^0-9:])[0-9]{1,2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?/\1<TIME>/g' \
+    -e 's/((^|[^A-Za-z])([Ii]n|[Tt]ook|[Dd]uration|[Ee]lapsed|[Tt]ime)[ :=]+)[0-9]+(\.[0-9]+)? ?(ms|sec|secs|seconds|min|s|m)([^A-Za-z0-9]|$)/\1<DURATION>\6/g' \
+    -e 's/\([0-9]+(\.[0-9]+)? ?(ms|s)\)/(<DURATION>)/g' \
+    -e 's/^(<TIME> )?\[build\] Complete!.*$/[build] Complete!/'
+}
 # reproduce_recheck ID ROLE REPORT EVLINES COUNTFILE REQUIRED(yes|no): re-runs the recorded reproduced items (a
 # command, its exit status, an output line) of the verifier's VERIFY.md `## Commands` and of cited evidence files
 # that carry `command:` (`exit:`, `output:`) lines. Every command an AC row cites as proof (`command: ...`) must
@@ -3887,6 +4025,7 @@ reproduce_recheck() {
     if [ "$rr_a" != 1 ]; then [ "$rr_x" -lt 3 ] || continue; rr_x=$((rr_x + 1)); fi
     if [ "$rr_e" = - ]; then rr_pb=$((rr_pb + 1)); printf 'AC proof cites `%s` but VERIFY.md records no Commands entry with an exit status for it: nothing to compare\n' "$rr_cd"; continue; fi
     case "$rr_o" in '(no output)') rr_o='' ;; esac   # a silent command records `output: (no output)`; an absent line means the same
+    rr_o=$(printf '%s\n' "$rr_o" | repro_normalize)   # A200: the listed volatile fields only (repro_normalize)
     if [ -n "$rr_o" ] && printf '%s\n' "$rr_o" | grep -Eiq '[0-9]([[:space:]]*(ms|us|s|sec|secs|seconds|m|min|mins|minutes))([^A-Za-z]|$)|[0-9]{1,2}:[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2}|pid[ =:]*[0-9]+|0x[0-9a-f]{6,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}'; then
       rr_pb=$((rr_pb + 1)); printf 'the recorded output line of `%s` ("%s") holds a time, duration, date, pid or random value: record one stable summary line that is identical on every run (for example the pass and fail counts), or `(no output)` for a silent command\n' "$rr_cd" "$(printf '%s' "$rr_o" | tr '|' '/')"; continue
     fi
@@ -3899,7 +4038,7 @@ reproduce_recheck() {
       if grep -q '[^[:space:]]' "$rr_t/out"; then
         rr_pb=$((rr_pb + 1)); printf 're-running `%s` printed output but the report records none (`(no output)` is for a silent command; record one stable summary line)\n' "$rr_cd"
       fi
-    elif ! RR_WANT=$rr_o awk 'BEGIN { w = ENVIRON["RR_WANT"]; sub(/^[ \t]+/, "", w); sub(/[ \t\r]+$/, "", w) } { sub(/^[ \t]+/, ""); sub(/[ \t\r]+$/, ""); if ($0 == w) f = 1 } END { exit !f }' "$rr_t/out"; then
+    elif ! repro_normalize < "$rr_t/out" | RR_WANT=$rr_o awk 'BEGIN { w = ENVIRON["RR_WANT"]; sub(/^[ \t]+/, "", w); sub(/[ \t\r]+$/, "", w) } { sub(/^[ \t]+/, ""); sub(/[ \t\r]+$/, ""); if ($0 == w) f = 1 } END { exit !f }'; then
       rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s but no output line equal to the recorded "%s" (reproduced evidence does not reproduce)\n' "$rr_cd" "$rr_rc" "$(printf '%s' "$rr_o" | tr '|' '/')"
     fi
   done < "$rr_t/uniq"
@@ -4601,7 +4740,7 @@ raise_budget() {
 valid_approval_kind() {
   case "$1" in
     plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch) return 0 ;;
-    waive:*|rule:*|reopen:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
+    waive:*|rule:*|reopen:*|rationale:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -4609,7 +4748,7 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>)"
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
   if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
@@ -4623,6 +4762,52 @@ approval_target() {
 ledger_if() { if [ "$1" != - ] && gates_enforced "$1"; then ledger_append "$@"; fi; }
 # commit/push bind the content fingerprint, plan-like kinds the PLAN.md hash, waive:<F> the failing gate
 # record (name and sha256) and the finding id, so a later round's same-numbered finding never reuses it.
+# A200 (item 6): a DESIGN.md `## Pattern justifications` line `- <pattern-id>: <reason>` downgrades a visual-proof pattern finding
+# (blocking -> info) only when the USER approved that exact line: approval kind rationale:<pattern-id>, bound to the sha256 of the
+# text "<pattern-id>: <reason>". An agent can write the line; it cannot write the approval (approve reads the user's reply).
+design_md_candidates() { printf '%s\n' DESIGN.md docs/design/DESIGN.md docs/DESIGN.md design/DESIGN.md; }
+rationale_line_in() { # PATTERN-ID FILE -> "<id>: <reason>" of the first non-empty justification line (the parser lint-source.mjs uses)
+  awk -v id="$1" '
+    /^[[:space:]]?[[:space:]]?[[:space:]]?#+[[:space:]]/ { h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/[[:space:]]*#*[[:space:]]*$/, "", h); inside = (tolower(h) == "pattern justifications"); next }
+    inside && match($0, /^[[:space:]]*[-*+][[:space:]]+`?[a-z][a-z0-9-]*`?[[:space:]]*:/) {
+      l = $0; sub(/^[[:space:]]*[-*+][[:space:]]+/, "", l); k = l; sub(/[[:space:]]*:.*/, "", k); gsub(/`/, "", k)
+      v = l; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+$/, "", v)
+      if (k == id && v != "") { print id ": " v; exit } }' "$2"
+}
+rationale_line() { # PATTERN-ID [FILE] -> the line in the named file, else in the first DESIGN.md candidate that has it
+  if [ -n "${2:-}" ]; then [ ! -f "$2" ] || rationale_line_in "$1" "$2"; return 0; fi
+  for rl_c in $(design_md_candidates); do
+    [ -f "$root/$rl_c" ] || continue
+    rl_t=$(rationale_line_in "$1" "$root/$rl_c"); [ -z "$rl_t" ] || { printf '%s\n' "$rl_t"; return 0; }
+  done
+  return 0
+}
+rationale_bound() { # PATTERN-ID [FILE] -> sha256 of the justification line text, fails when there is none
+  rb_t=$(rationale_line "$@"); [ -n "$rb_t" ] || fail "DESIGN.md has no non-empty '- ${1}: <reason>' line under '## Pattern justifications': write the reason first, then ask the user"
+  printf '%s' "$rb_t" | sha256
+}
+# design-rationales ID: the justification lines of DESIGN.md and whether the user approved each (read-only). With --json: the object
+# visual-proof's lint-source takes as --approved-rationales ({"approved": {"<pattern-id>": "<sha256 of the line>"}}).
+design_rationales() { # ID [--json] [FILE]
+  dr_id=$1 dr_json=no; shift
+  [ "${1:-}" != --json ] || { dr_json=yes; shift; }
+  dr_f=${1:-}
+  if [ -z "$dr_f" ]; then for dr_c in $(design_md_candidates); do [ ! -f "$root/$dr_c" ] || { dr_f=$root/$dr_c; break; }; done; fi
+  dr_ids=''
+  [ -z "$dr_f" ] || dr_ids=$(awk '/^[[:space:]]?[[:space:]]?[[:space:]]?#+[[:space:]]/ { h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/[[:space:]]*#*[[:space:]]*$/, "", h); inside = (tolower(h) == "pattern justifications"); next }
+    inside && /^[[:space:]]*[-*+][[:space:]]+`?[a-z][a-z0-9-]*`?[[:space:]]*:/ { l = $0; sub(/^[[:space:]]*[-*+][[:space:]]+/, "", l); sub(/[[:space:]]*:.*/, "", l); gsub(/`/, "", l); print l }' "$dr_f" | sort -u)
+  dr_sep='' dr_out=''
+  for dr_i in $dr_ids; do
+    dr_t=$(rationale_line "$dr_i" "$dr_f"); [ -n "$dr_t" ] || continue
+    dr_b=$(printf '%s' "$dr_t" | sha256)
+    if find_approval "$dr_id" "rationale:$dr_i" "$dr_b" >/dev/null; then dr_s=approved; else dr_s=unapproved; fi
+    if [ "$dr_json" = yes ]; then
+      [ "$dr_s" = approved ] || continue
+      dr_out="$dr_out$dr_sep\"$dr_i\": \"$dr_b\""; dr_sep=', '
+    else printf '%s\t%s\t%s\n' "$dr_i" "$dr_s" "${dr_t#*: }"; fi
+  done
+  [ "$dr_json" != yes ] || printf '{"approved": {%s}}\n' "$dr_out"
+}
 ab_fp=''   # the content fingerprint approve_kinds computed once for all the kinds of one reply (set only there; never read from the environment)
 approval_bound() { # ID KIND
   case "$2" in
@@ -4631,6 +4816,7 @@ approval_bound() { # ID KIND
     batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
+    rationale:*) rationale_bound "${2#rationale:}" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
   esac
 }
@@ -4644,6 +4830,7 @@ kind_words() {
     pr) echo 'pr pull request' ;;
     delivery) echo 'delivery teslimat teslimatı teslimati' ;;
     rule:*) printf 'rule %s\n' "${1#rule:}" ;;
+    rationale:*) printf 'rationale %s\n' "${1#rationale:}" | tr '[:upper:]' '[:lower:]' ;;
     reopen:*) printf 'reopen %s\n' "$(printf '%s' "${1#reopen:}" | tr '[:upper:]' '[:lower:]')" ;;
     waive:*) printf '%s\n' "${1#waive:}" | tr '[:upper:]' '[:lower:]' ;;
     *) printf '%s\n' "$1" ;;
@@ -4726,7 +4913,7 @@ approval_fillers() { echo 'the, a, an, it, this, please, for, with, to, and, lü
 # variants too; Turkish case folding is ASCII only, so an upper-case non-ASCII letter does not match). A reply that
 # equals one of them after normalisation approves (with a run id also `... for <ID>` and `<ID> için ...`). The object word is the kind's own: a sentence of another kind never matches.
 approval_sentences() {
-  as_id=${1#waive:}; as_id=${as_id#rule:}; as_id=${as_id#reopen:}
+  as_id=${1#waive:}; as_id=${as_id#rule:}; as_id=${as_id#reopen:}; as_id=${as_id#rationale:}
   case "$1" in
     plan) as_en='the plan'; as_tr='planı|plani' ;;
     destructive) as_en='the destructive step|the destructive change'; as_tr='yıkıcı adımı|yikici adimi|yıkıcı değişikliği|yikici degisikligi' ;;
@@ -4743,10 +4930,11 @@ approval_sentences() {
     delivery) as_en='the delivery'; as_tr='teslimatı|teslimati' ;;
     waive:*) as_en="the waiver of $as_id"; as_tr="$as_id feragatini" ;;
     rule:*) as_en="the rule $as_id"; as_tr="$as_id kuralını" ;;
+    rationale:*) as_en="the rationale $as_id"; as_tr="$as_id gerekçesini|$as_id gerekcesini" ;;
     reopen:*) as_en="the reopen of $as_id"; as_tr="$as_id yeniden açılışını|$as_id yeniden acilisini" ;;
     *) return 0 ;;
   esac
-  case "$1:${2:--}" in waive:*|rule:*|reopen:*|*:-) as_run='' ;; *) as_run=$2 ;; esac
+  case "$1:${2:--}" in waive:*|rule:*|reopen:*|rationale:*|*:-) as_run='' ;; *) as_run=$2 ;; esac
   printf '%s\n' "$as_en" | tr '|' '\n' | while IFS= read -r as_o; do
     printf 'i approve %s\ni approved %s\n' "$as_o" "$as_o"
     [ -z "$as_run" ] || printf 'i approve %s for %s\ni approved %s for %s\n' "$as_o" "$as_run" "$as_o" "$as_run"
@@ -4949,6 +5137,7 @@ request_approval() {
     # opens a database): the user's question says how much data the step destroys.
     rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
+  case "$rq_kind" in rationale:*) rq_rows="   rationale line of DESIGN.md: $(rationale_line "${rq_kind#rationale:}")" ;; esac
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
   if [ "$rq_kind" = batch ]; then printf 'QUESTIONS:\n1. Approve the night batch shown above (batch %s)?\n' "$(printf '%s' "$rq_bound" | cut -c1-12)"
   elif [ "$rq_tr" = 1 ]; then printf 'QUESTIONS:\n1. %s için %s onaylansın mı?\n' "$rq_id" "$rq_kind"
@@ -4972,6 +5161,7 @@ approval_why() { # KIND BOUND [tr]
       cleanup) echo 'birleştirmeden sonra koşu kanıtı silinir' ;;
       reopen:*) echo 'başarısız veya engellenmiş koşu yalnızca kullanıcı onayıyla yeniden açılır; plan değişmez, geçmeyen kapılar yeniden çalışır' ;;
       rule:*) echo "kanıttan çıkan ders proje kuralı olur: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
+      rationale:*) echo 'DESIGN.md gerekçesi yalnızca sizin onayınızla bir desen bulgusunu engelleyici olmaktan çıkarır; ajanın yazdığı gerekçe bulguyu geçirmez' ;;
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
       batch) echo 'gece modu: bu tek özet, listelenen görevlerin plan, teslimat ve mutasyon bütçesi onaylarının yerine geçer; başka hiçbir şeyin yerine geçmez' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
@@ -4989,6 +5179,7 @@ approval_why() { # KIND BOUND [tr]
     cleanup) echo 'after the merge the run evidence is deleted' ;;
     reopen:*) echo 'a FAILED or BLOCKED run is reopened only with your approval: the plan stays frozen, only gates that did not pass or whose inputs changed run again, and the fix-round allowance restarts' ;;
     rule:*) echo "a lesson from run evidence becomes a project rule: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
+    rationale:*) echo 'a DESIGN.md pattern rationale downgrades a design finding from blocking to info only with your approval; a rationale an agent wrote does not pass the finding' ;;
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
     batch) echo 'night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
@@ -5749,7 +5940,7 @@ next_step() {
       if [ -n "$ns_fail" ]; then
         ns_used=$(fix_rounds_used "$ns_id")
         # A78: script findings are not fixed by the implementer: a missing flag is a plan amendment, UNSUPPORTED the user's call.
-        ns_scr=0 ns_oth=0 ns_pl=0 ns_ac=0 ns_cov=0
+        ns_scr=0 ns_oth=0 ns_pl=0 ns_ac=0 ns_cov=0 ns_vp=0
         for ns_g in $ns_fail; do
           for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
             ns_lf=$(gate_latest_file "$ns_id" "$ns_g" "$ns_fc"); [ -n "$ns_lf" ] || continue
@@ -5759,6 +5950,7 @@ next_step() {
             ns_scr=$((ns_scr + ns_b)); ns_oth=$((ns_oth + ns_a - ns_b))
             ns_pl=$((ns_pl + $(finding_plan_rows "$ns_id" "$ns_lf")))
             ns_cov=$((ns_cov + $(grep -Ec '^finding: [^|]*\|blocking\|.*(maps to no scope path|requires tdd_exemption)' "$ns_lf" || true)))
+            ns_vp=$((ns_vp + $(finding_visual_rows "$ns_lf")))
             ns_ac=$((ns_ac + $(grep -Ec '^finding: [^|]*\|blocking\|[^|]*\|(AC proof cites|re-running `|the recorded output line)' "$ns_lf" || true)))
             case "$(gate_field "$ns_lf" result | tr '[:upper:]' '[:lower:]')" in fail) [ "$ns_a" -gt 0 ] || ns_oth=$((ns_oth + 1)) ;; esac
             # shellcheck disable=SC2013 # finding ids contain no whitespace
@@ -5772,6 +5964,10 @@ next_step() {
           done
         done
         if [ "$ns_scr" -gt 0 ] && [ "$ns_oth" -eq 0 ]; then o "the implementer cannot clear these: only UNSUPPORTED or missing-flag findings fail (waive them, or amend PLAN.md and refreeze)"; o "agent.sh terminate $ns_id BLOCKED (reason and evidence on stdin), if the user declines the waiver and the plan cannot be amended"
+        elif [ "$ns_vp" -gt 0 ] && [ "$ns_oth" -le "$ns_vp" ]; then
+          # A200: the visual evidence report is missing or does not cover a criterion. The plan is fine; no PLAN.md amendment, no implementer fix round.
+          o "dispatch.sh $ns_id qa --focus visual   (measures and writes reviews/visual-proof/report.json; the verifier cites it only after it exists)"
+          o "then re-dispatch the verifier: dispatch.sh $ns_id verifier. Do not amend PLAN.md ## Verification commands for this: the finding is about the visual evidence report, not about a command"
         elif [ "$ns_pl" -gt 0 ] && [ "$ns_oth" -le "$ns_pl" ]; then
           # A127: the plan or its verification commands answer these rows, not the implementer: no fix round, no control-artifact fix_path.
           o "amend PLAN.md ## Verification commands (lead owns it; write amendments/<NNN>.md and edit PLAN.md), then agent.sh refreeze $ns_id <AMENDMENT>; a scope approval is needed only if the amendment adds scope paths"
@@ -5781,6 +5977,12 @@ next_step() {
         elif [ "$ns_used" -le "$(max_fix_rounds)" ]; then o "agent.sh handoff $ns_id IMPLEMENTING (fix round $ns_used; findings of:$ns_fail)"; o "dispatch.sh $ns_id implementer (with the findings)"; fix_paths_lines "$ns_id"
         else o "agent.sh terminate $ns_id FAILED (reason and evidence on stdin)"; fi
         [ "$ns_ac" -eq 0 ] || o "re-dispatch the verifier citing only a configured or planned command with a recorded exit status and one stable output line (A107 rows); a command missing from Verification commands needs the amendment route"
+        for ns_g in $ns_fail; do
+          for ns_fc in - $(risk_gate_focuses "$ns_id" "$ns_g"); do
+            ns_lf=$(gate_latest_file "$ns_id" "$ns_g" "$ns_fc"); [ -n "$ns_lf" ] && [ "$(gate_field "$ns_lf" result)" = fail ] || continue
+            gate_blocking_rows "$ns_lf" 3 | sed "s|^|finding=$ns_g |"   # A200: the real finding, whatever the remedy below
+          done
+        done
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
         # A171: the build record the reviewers and the verifier read comes first; it is a missing step, not a reviewer's lowered confidence
@@ -5844,10 +6046,10 @@ amend_run() {
   g_scratch=$(mktemp "${TMPDIR:-/tmp}/agent-amend.XXXXXX"); cat > "$g_scratch"
   g_reason=$(field_from "$g_scratch" reason); g_fscope=$(field_from "$g_scratch" fix_scope); g_finstr=$(field_from "$g_scratch" fix_instruction); g_auth=$(field_from "$g_scratch" authorized_by); g_pchange=$(field_from "$g_scratch" plan_change)
   rm -f "$g_scratch"
-  reject_generic_justification "$g_reason" || fail "amend requires a specific reason (>=20 chars)"
-  reject_generic_justification "$g_finstr" || fail "amend requires a specific fix_instruction (>=20 chars)"
-  [ "${#g_auth}" -ge 3 ] || fail "amend requires authorized_by (who authorized reopening a completed run)"
-  [ -n "$g_fscope" ] || fail "amend requires fix_scope (comma-separated paths the fix may touch)"
+  reject_generic_justification "$g_reason" || fail "amend requires a specific reason (>=20 chars). $(amend_format_hint "$g_id")"
+  reject_generic_justification "$g_finstr" || fail "amend requires a specific fix_instruction (>=20 chars). $(amend_format_hint "$g_id")"
+  [ "${#g_auth}" -ge 3 ] || fail "amend requires authorized_by (who authorized reopening a completed run). $(amend_format_hint "$g_id")"
+  [ -n "$g_fscope" ] || fail "amend requires fix_scope (comma-separated paths the fix may touch). $(amend_format_hint "$g_id")"
   if [ "$g_pchange" != yes ]; then
     g_maps=$(scope_mappings "$g_d/PLAN.md") || fail "invalid scope mapping"
     for g_p in $(scope_entry_paths "$g_fscope"); do authorized_path "$g_maps" "$g_p" || fail "fix_scope names a path outside the frozen scope: $g_p (add 'plan_change: yes' and follow with an amendment + refreeze if the plan itself must change)"; done
@@ -7412,6 +7614,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)
   worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
+  repro-normalize   (read-only filter: stdin to stdout, the listed volatile fields of a recorded output line normalized, A200)
+  design-rationales <ID> [--json] [PATH]   (read-only: the DESIGN.md pattern justifications and whether the user approved each; --json prints the object lint-source takes as --approved-rationales, A200)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
 USAGE
@@ -7445,6 +7649,8 @@ case "$command" in
   worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
+  repro-normalize) repro_normalize ;;
+  design-rationales) require_run "${2:?usage: agent.sh design-rationales <ID> [--json] [DESIGN-MD-PATH]}"; design_rationales "$2" "${3:-}" "${4:-}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> --dry|--agent-path [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;

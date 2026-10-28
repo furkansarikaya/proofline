@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, SEO_NOT_APPLICABLE_NOTE, SEO_SITE, requiredCells, validateReport } from "./validate-visual.mjs";
-import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, designPages } from "./design-audit.mjs";
+import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, designPages, reusableJudgments } from "./design-audit.mjs";
 // A172: the project's visual.ascii_turkish_words / visual.ascii_turkish_allow (.agents/config.yaml, the keys `cfg` reads), else the
 // defaults of design-audit.mjs. The file is looked for from the working directory and from the report folder upwards.
 export function asciiConfig(dirs) {
@@ -1150,7 +1150,14 @@ async function main(argv) {
     if (errs.length) { errs.forEach((e) => console.error(`config: ${e}`)); return 2; }
     mkdirSync(out, { recursive: true });
     const report = assemble(raw, out);
+    let prev = null; // A200: the report of the last run in this folder (or --prev-report) is the design-audit cache
+    try { prev = read(arg(argv, "--prev-report") || join(out, "report.json")); } catch { prev = null; }
     writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    if (report.design && report.design.status === "run") {
+      const cache = reusableJudgments(prev, report);
+      writeFileSync(join(out, "design-cache.json"), JSON.stringify({ schema: "visual-proof.design-cache/1", ...cache }, null, 2) + "\n");
+      console.log(`DESIGN_CACHE: ${cache.diff.unchanged.length} page(s) unchanged (their judged items are in design-cache.json), judge again: ${cache.pages_to_judge.join(", ") || "none"}`);
+    }
     const v = validateReport(report, { root: out });
     console.log(`RESULT: ${report.result}`);
     console.log(`SUMMARY: ${v.summary}`);
