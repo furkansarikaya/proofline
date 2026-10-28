@@ -128,6 +128,10 @@ lead_edits() {
   denied "A120 Write to a sibling that shares the project path as a prefix" "$(pre_edit Write "$PWD-design/DESIGN.md")" "outside the project"
   denied "A120 Edit to a sibling that shares the project path as a prefix" "$(pre_edit Edit "$PWD-design/DESIGN.md")" "outside the project"
   denied "A120 Write through <project>/../x" "$(pre_edit Write "$PWD/../x")" "outside the project"
+  # A200: a denial shows the permitted alternative in one line (it never loosens the rule: the same commands stay denied)
+  denied "A200 a variable as the command word shows the literal form" "$(pre_bash 'A=agent.sh; sh .agents/scripts/$A next')" "Instead of \$A next write: sh .agents/scripts/agent.sh next"
+  denied "A200 a git hook bypass shows how to commit" "$(pre_bash 'git commit --no-verify -m x')" "Instead commit without --no-verify"
+  denied "A200 a path outside the project keeps its scratch alternative on one line" "$(pre_edit Write "$base/elsewhere.txt")" ".agents/local/scratch"
   denied "lead Write through a ../ path" "$(pre_edit Write .agents/runs/LC/../../../impl.txt)"
   # Bash write heuristic
   denied "lead shell redirection into product code" "$(pre_bash 'echo hacked > src/x.js')"
@@ -224,7 +228,15 @@ subagent_guard() {
   [ -s .agents/local/windows/a7 ] && printf '%s' "$out" | grep -q 'AGENT_ROLE=implementer' || die "SubagentStart did not open the implementer window"; ok "SubagentStart opens the implementer window and briefs the role"
   [ -e .agents/local/submissions/a7.started ] || die "SubagentStart did not register the subagent id (A127)"
   H subagent-start "{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"transcript_path\":\"/x/s1.jsonl\"$(who proofline:proofline-explorer e9)}" >/dev/null
-  [ "$(cat .agents/local/submissions/e9.started)" = /x/s1/subagents/agent-e9.jsonl ] || die "SubagentStart did not record the subagent's session log path for its token metrics"; ok "SubagentStart records the subagent's session log path (metrics tokens)"
+  [ "$(sed -n 1p .agents/local/submissions/e9.started)" = /x/s1/subagents/agent-e9.jsonl ] || die "SubagentStart did not record the subagent's session log path for its token metrics"; ok "SubagentStart records the subagent's session log path (metrics tokens)"
+  # A200: a busy lock cannot hold a hook until the runtime stops it: every agent.sh the hook starts gives up after PROOFLINE_HOOK_LOCK_WAIT
+  sleep 40 & lk_pid=$!
+  mkdir -p .agents/local/locks/shared.lock; printf '%s\n' "$lk_pid" > .agents/local/locks/shared.lock/pid
+  lk_t0=$(date +%s); PROOFLINE_HOOK_LOCK_WAIT=2 H subagent-start "{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"s1\",\"cwd\":\"$PWD\"$(who proofline:proofline-implementer b8)}" >/dev/null; lk_t1=$(date +%s)
+  kill "$lk_pid" 2>/dev/null; wait "$lk_pid" 2>/dev/null; rm -rf .agents/local/locks/shared.lock
+  [ $((lk_t1 - lk_t0)) -lt 20 ] || die "a hook waited $((lk_t1 - lk_t0))s for a busy lock (PROOFLINE_HOOK_LOCK_WAIT=2): it would be stopped at the runtime's 30 s limit (A200)"; ok "a busy lock holds a hook for PROOFLINE_HOOK_LOCK_WAIT seconds at most (A200)"
+  rm -f .agents/local/windows/b8 .agents/local/submissions/b8.started
+  case "$(sed -n 2p .agents/local/submissions/e9.started)" in ''|*[!0-9]*) die "SubagentStart did not stamp the start time on line 2 of the marker (A200)" ;; esac; ok "SubagentStart stamps when the (re)start began (metrics duration, A200)"
   # A132: each explorer is told its own token-derived scratch report path
   out1=$(sub_start proofline:proofline-explorer e1); out2=$(sub_start proofline:proofline-explorer e2)
   printf '%s' "$out1" | grep -q 'scratch/e1-report.md' && printf '%s' "$out2" | grep -q 'scratch/e2-report.md' && ! printf '%s' "$out2" | grep -q 'scratch/e1-report.md' || die "SubagentStart did not name a per-token explorer scratch report"; ok "A132 SubagentStart names each explorer its own scratch report path"
@@ -703,6 +715,14 @@ questions() {
   printf '%s' "$out" | grep -q 'active run: LC' && printf '%s' "$out" | grep -q 'proofline-lead/SKILL.md' && printf '%s' "$out" | grep -q 'next step: ' || die "SessionStart context: $out"
   H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}" codex | grep -q '.agents/skills/proofline-lead/SKILL.md' || die "Codex SessionStart skill path"
   ok "SessionStart tells the lead its skill, the active run and the next step"
+  # A200: the session check is bounded; a slow `agent.sh next` is stopped and the lead is told to ask it itself, the hook answers in time
+  mv .agents/scripts/agent.sh .agents/scripts/agent-real.sh
+  printf '#!/bin/sh\ncase "$1" in next) sleep 25; exit 0 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n' > .agents/scripts/agent.sh
+  se_t0=$(date +%s); out=$(PROOFLINE_HOOK_NEXT_BUDGET=2 H session "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"cwd\":\"$PWD\"}"); se_t1=$(date +%s)
+  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh
+  [ $((se_t1 - se_t0)) -lt 15 ] || die "the session hook waited $((se_t1 - se_t0))s for a slow agent.sh next (A200)"
+  printf '%s' "$out" | grep -q "agent.sh next LC (the session check did not finish" || die "the session hook did not hand a timed-out next to the lead: $out"
+  ok "SessionStart bounds the next-step check (A200)"
 }
 
 # --- regression cases from review round 3 (findings H1-H4, L1, P1, P2, CLI-3, CLI-4) ---------------------

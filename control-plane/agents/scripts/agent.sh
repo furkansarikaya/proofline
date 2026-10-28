@@ -223,7 +223,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -290,6 +290,8 @@ config_check() {
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "worktree.copy_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[|\\]/) bad("worktree.copy_files must be project-relative globs without a leading / or .. : " v) }
       else if (top == "worktree" && k != "worktree") bad("unknown worktree key: " k " (want worktree.copy_files)")
+      else if (k == "archive.keep") num(k, v)
+      else if (top == "archive" && k != "archive") bad("unknown archive key: " k " (want archive.keep)")
       else if (k == "verification.env_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[*?|\\]/ || v ~ /\[|\]/) bad("verification.env_files must be project-relative file names (space-separated, no glob, no leading / or .. ): " v) }
       else if (k == "verification.doc_paths") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[?|\\]/ || v ~ /\[|\]/) bad("verification.doc_paths must be project-relative entries: a directory prefix ending in /, an exact path or *.ext") }
       else if (top == "verification" && k != "verification") bad("unknown verification key: " k " (want verification.env_files or verification.doc_paths)")
@@ -5555,6 +5557,17 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
     ms_rt=$(sed -n 's/^runtime=//p' "$ms_f" | head -1); ms_model=$(sed -n 's/^model=//p' "$ms_f" | head -1)
     ms_at=$(sed -n 's/^decided_at=//p' "$ms_f" | head -1); [ -z "$ms_at" ] || ms_dur=$(( $(now_epoch) - ms_at ))
   fi
+  # A200: the time is the work of THIS attempt, not the wall clock since the decision (a step that waited, was resumed or failed over would be inflated).
+  # A dispatch.sh worker: from the start of its attempt; a Claude subagent: from its (re)start, which the SubagentStart hook stamps on line 2 of the
+  # .started file. The runtime is the one that really ran: dispatch.sh names it (after a failover it is not the decision's).
+  ms_st=''
+  case "${PROOFLINE_DISPATCH_START:-}" in ''|*[!0-9]*) ;; *) ms_st=$PROOFLINE_DISPATCH_START ;; esac
+  case "${PROOFLINE_DISPATCH_RUNTIME:-}" in ''|*[!A-Za-z0-9._+:-]*) ;; *) ms_rt=$PROOFLINE_DISPATCH_RUNTIME ;; esac
+  if [ -z "$ms_st" ]; then
+    case "${PROOFLINE_STEP_AGENT:-}" in ''|*[!A-Za-z0-9_.-]*) ;; *) ms_st=$(sed -n 2p "$(submission_dir)/$PROOFLINE_STEP_AGENT.started" 2>/dev/null || true) ;; esac
+    case "$ms_st" in ''|*[!0-9]*) ms_st='' ;; esac
+  fi
+  [ -z "$ms_st" ] || { ms_d=$(( $(now_epoch) - ms_st )); [ "$ms_d" -ge 0 ] && ms_dur=$ms_d; }
   metrics_line "$1" "$2" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$4"
   ms_g=$(gate_of "$2" "$3" "$1" 2>/dev/null || true)
   # A Claude subagent (not a dispatch.sh worker, whose dispatch record has the tokens): read what it used from its session log
@@ -6273,6 +6286,31 @@ terminate_run() {
   metrics_run "$id" "$(printf '%s' "$outcome" | tr "[:upper:]" "[:lower:]")"
   echo "run terminated: $id $outcome"
 }
+# archive_run ID RUNDIR (A200): before cleanup or worktree-remove deletes a run's records, a compressed copy goes to
+# <main tree>/.agents/local/archive/<ID>/<ID>-<UTC time>.tar.gz (git-ignored local state; the main tree's folder, so it outlives a worktree).
+# The newest archive.keep runs are kept (default 10; 0 = no archive), older archive folders are removed. A copy that cannot be made and
+# read back refuses the deletion: the records are the evidence. Removes nothing of the run itself.
+archive_run() {
+  ar_id=$1 ar_dir=$2; ar_keep=$(cfg archive.keep 10)
+  case "$ar_keep" in ''|*[!0-9]*) ar_keep=10 ;; esac
+  [ "$ar_keep" -gt 0 ] || return 0
+  [ -d "$ar_dir" ] || return 0
+  ar_root=$(shared_dir archive)
+  for ar_p in "$(dirname "$ar_root")" "$ar_root" "$ar_root/$ar_id"; do
+    [ ! -L "$ar_p" ] || fail "refusing to archive under $ar_p: it is a symlink; the run is kept"
+  done
+  mkdir -p "$ar_root/$ar_id" || fail "could not create $ar_root/$ar_id; the run is kept"
+  ar_f=$ar_root/$ar_id/$ar_id-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
+  (umask 077; tar -czf "$ar_f" -C "$(dirname "$ar_dir")" "$(basename "$ar_dir")") 2>/dev/null && tar -tzf "$ar_f" >/dev/null 2>&1 || { rm -f "$ar_f"; fail "could not archive the records of $ar_id into $ar_root/$ar_id; the run is kept (set archive.keep: 0 to skip the archive)"; }
+  # keep the newest archive.keep run folders (by last write), whichever task they belong to
+  ar_n=0
+  for ar_d in $(ls -1t "$ar_root" 2>/dev/null); do
+    ar_n=$((ar_n + 1)); [ "$ar_n" -gt "$ar_keep" ] || continue
+    case "$ar_d" in *[!A-Za-z0-9._-]*|''|.|..) continue ;; esac
+    [ -d "$ar_root/$ar_d" ] && [ ! -L "$ar_root/$ar_d" ] && rm -rf "${ar_root:?}/$ar_d"
+  done
+  echo "evidence archived: .agents/local/archive/$ar_id/${ar_f##*/} (the newest $ar_keep runs are kept)"
+}
 cleanup_run() {
   id=$1; require_run "$id"; dir=$(run_dir "$id"); require_lead
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
@@ -6310,6 +6348,7 @@ cleanup_run() {
   if [ -e "$adir" ] || [ -L "$adir" ]; then
     [ ! -L "$adir" ] && [ -d "$adir" ] || fail "refusing to remove $adir: not a plain assignments directory"
   fi
+  archive_run "$id" "$dir"
   marker=$(active_run_file)
   if [ -f "$marker" ] && [ "$(sed '/^[[:space:]]*$/d' "$marker")" = "$id" ]; then : > "$marker"; fi
   # assignments first: if this rm fails the run still exists and cleanup can be retried
@@ -6754,7 +6793,7 @@ ci_fix_step() {
   case "$cf_pr" in ''|*[!0-9]*) fail "usage: agent.sh deliver-step $cf_id $cf_s <PR-NUMBER> (a plain number)" ;; esac
   cf_h=$(hash_file "$cf_sum"); cf_br=$(cf_v branch); cf_max=$(ci_fix_max)
   [ "$(git -C "$root" branch --show-current)" = "$cf_br" ] || cf_stop "the branch is not $cf_br"
-  [ "$(hash_file "$cf_dd/COMMIT_MSG")" = "$(cf_v message_sha256)" ] && [ "$(hash_file "$cf_dd/PR_BODY.md")" = "$(cf_v body_sha256)" ] || cf_stop "the commit message or the pull request body changed"
+  [ "$(hash_file "$cf_dd/COMMIT_MSG")" = "$(cf_v message_sha256)" ] && [ "$(hash_file "$cf_dd/PR_BODY.md")" = "$(cf_v body_sha256)" ] || cf_stop "the commit message or the pull request body changed (Instead: add a trailer through agent.sh deliver-plan $cf_id --message <text with the trailer lines> before the approval, never by editing COMMIT_MSG)"
   for cf_k in pr merge; do
     deliver_consumed "$cf_id" "$cf_k" "$cf_h" || cf_stop "the $cf_k step of this delivery has not run: the user's delivery approval covers a CI fix only after the pull request is open and the merge step ran"
   done
@@ -6932,7 +6971,7 @@ deliver_step() {
   ds_cexp=$(ds_v content); [ "$ds_ci" = 0 ] || ds_cexp=$(ci_fix_expect_content "$ds_id" "$ds_cexp")
   [ "$(content_fingerprint)" = "$ds_cexp" ] || ds_stop "the content changed since the approved summary"
   [ "$(git -C "$root" branch --show-current)" = "$ds_br" ] || ds_stop "the branch is not $ds_br"
-  [ "$(hash_file "$ds_dir/COMMIT_MSG")" = "$(ds_v message_sha256)" ] && [ "$(hash_file "$ds_dir/PR_BODY.md")" = "$(ds_v body_sha256)" ] || ds_stop "the commit message or the pull request body changed"
+  [ "$(hash_file "$ds_dir/COMMIT_MSG")" = "$(ds_v message_sha256)" ] && [ "$(hash_file "$ds_dir/PR_BODY.md")" = "$(ds_v body_sha256)" ] || ds_stop "the commit message or the pull request body changed (Instead: a trailer such as Co-Authored-By goes into the message BEFORE the approval: agent.sh deliver-plan $ds_id --message <text with the trailer lines>, then relay the new summary; COMMIT_MSG is never edited by hand)"
   ds_head=$(git -C "$root" rev-parse HEAD); ds_c=$ds_s
   case " $(ds_v steps) " in *" commit "*) ;; *) ds_c=commit ;; esac   # nothing to commit: HEAD stays where it was
   if [ "$ds_ci" = 1 ]; then
@@ -7170,6 +7209,7 @@ worktree_remove() {
   wr_runs=''
   for wr_r in "$wr_d"/.agents/runs/*; do [ -d "$wr_r" ] && wr_runs="$wr_runs ${wr_r##*/}"; done
   [ -z "$wr_runs" ] || [ "$wr_force" = yes ] || fail "the worktree of $1 still holds the run:$wr_runs (its evidence goes with it). Finish or clean up the run first, or: agent.sh worktree-remove $1 --force"
+  for wr_r in "$wr_d"/.agents/runs/*; do [ ! -d "$wr_r" ] || archive_run "${wr_r##*/}" "$wr_r"; done   # A200: the records are archived before the worktree goes
   git -C "$root" worktree remove --force "$wr_d" >/dev/null 2>&1 || fail "could not remove the worktree $wr_d"
   git -C "$root" worktree prune
   rmdir "$(dirname "$wr_d")" 2>/dev/null || :

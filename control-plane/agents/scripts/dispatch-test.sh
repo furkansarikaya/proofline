@@ -78,6 +78,7 @@ case "${FAKE_CODEX:-ok}" in
   inject) printf 'x\n' > "$o"; printf 'tokens used 999\nmore\nmore\nmore\nlast line\n'; sub --confidence high --result DONE ;;
   tokens) printf 'agent says: tokens used 5\n' > "$o"; sub --confidence high --result DONE; printf 'tokens used\n12,345\n' ;;
   trailer) printf 'Built 83 pages.\nAll tests pass.\n' > "$o"; sub --confidence high --result DONE; printf 'hook: Stop Completed\ntokens used\n285.242\nBuilt 83 pages.\nAll tests pass.\n' ;;
+  trailer3) printf 'Line one.\n\nLine three.\nLine four.' > "$o"; sub --confidence high --result DONE; printf 'hook: Stop Completed\ntokens used\n96.739\nLine one.\n\nLine three.\nLine four.\n' ;;
   limittok) echo "ERROR: You've hit your usage limit. Try again later." >&2; printf 'tokens used\n52.623\n'; exit 1 ;;
   nosubmit) printf 'ROLE: %s\nTASK: T-1\nRESULT: DONE\nheader in text only\n' "$AGENT_ROLE" > "$o" ;;
   rejected) printf 'x\n' > "$o"; sub --confidence bogus || : ;;
@@ -145,7 +146,7 @@ reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "codex path: exit 0" '[ "$rc" -eq 0 ]'
 ck "codex path: argv" 'has "$loc/codex.argv" exec && has "$loc/codex.argv" "$p" && has "$loc/codex.argv" default_permissions=\"proofline-worker\" && ! has "$loc/codex.argv" workspace-write && ! grep -qx -- --add-dir "$loc/codex.argv" && has "$loc/codex.argv" gpt-6-sol && has "$loc/codex.argv" model_reasoning_effort=high && has "$loc/codex.argv" "approval_policy=\"never\"" && has "$loc/codex.argv" -o && grep -qx -- --dangerously-bypass-hook-trust "$loc/codex.argv"'
 ck "codex path: argv carries no Claude permission mode (A114)" '! has "$loc/codex.argv" --permission-mode && ! has "$loc/codex.argv" bypassPermissions'
-ck "codex path: .git/worktrees is a writable path of the profile (evidence worktrees)" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.git/worktrees\"=\"write\""'
+ck "codex path (A200): a main tree run is granted no part of .git/worktrees" '! has "$loc/codex.argv" "/.git/worktrees"'
 ck "codex path (A199): the run folder, locks/ and submissions/ are the only writable .agents paths; windows, approvals, prompts and batch are not listed" 'has "$loc/codex.argv" "\".agents\"=\"read\"" && has "$loc/codex.argv" "\".agents/runs/T-1\"=\"write\"" && has "$loc/codex.argv" "\".agents/local/locks\"=\"write\"" && has "$loc/codex.argv" "\".agents/local/submissions\"=\"write\"" && has "$loc/codex.argv" "\".agents/runs/T-1/approvals\"=\"read\"" && ! has "$loc/codex.argv" "\".agents/local\"=\"write\"" && ! has "$loc/codex.argv" "local/windows\"=\"write" && ! has "$loc/codex.argv" "local/approvals\"=\"write" && ! has "$loc/codex.argv" "local/prompts\"=\"write" && ! has "$loc/codex.argv" "local/batch\"=\"write"'
 ck "codex path: AGENT_ROLE and stable prefix before task" '[ "$(cat "$loc/codex.role")" = implementer ] && [ "$(head -1 "$loc/codex.stdin")" = "You are the proofline implementer. STABLE-PREFIX-implementer" ] && has "$loc/codex.stdin" "TASK: T-1"'
 ck "implementer bracketed by window-open/window-close" '[ "$(order)" = "decide window-open submit AGENT_ROLE=implementer window-close metrics-dispatch " ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 0"'
@@ -323,6 +324,8 @@ reset; d FAKE_CODEX=tokens T-1 implementer
 ck "metrics: codex total comes from the runtime trailer (last occurrence), in/out stay null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|12345\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=inject T-1 implementer
 ck "metrics: a tokens-used line injected earlier in the log, no trailer, stays null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|\|\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d FAKE_CODEX=trailer3 T-1 implementer
+ck "metrics (A200): the final message has no trailing newline and is longer than two lines: the trailer in front of it is still read (96.739)" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|96739\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=trailer T-1 implementer
 ck "metrics: the codex trailer (local number format) in front of the final message is read, not skipped (site run: 285.242)" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|285242\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=limittok FAKE_CLAUDE=usage T-1 reviewer --runtime codex
@@ -354,6 +357,7 @@ mkdir -p "$loc/worktrees/T-1/.agents/runs/T-1" "$loc/worktrees/T-1/.agents/local
 wt=$(cd "$loc/worktrees/T-1" && pwd -P)
 rc=0; out=$(sh "$wt/.agents/scripts/dispatch.sh" T-1 implementer --prompt-file "$here/../roles.conf" 2>"$tmp/err") || rc=$?; err=$(cat "$tmp/err")
 ck "A196 worktree run: only the main tree's .agents/local/locks is writable there" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.agents/local/locks\"=\"write\"" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents/local\"=" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents\"="'
+ck "A200 worktree run: only this task's own folder of .git/worktrees is writable, never the whole folder" 'has "$loc/codex.argv" "/.git/worktrees/T-1\"=\"write\"" && [ "$(grep -o "[^\"]*/worktrees\"=\"write\"" "$loc/codex.argv" | wc -l | tr -d " ")" = 0 ]'
 ck "A196 worktree run: no other absolute path of the main tree is granted" '[ "$(grep -o "\"/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "locks\|/worktrees")" = 0 ]'
 reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "A196 main tree run: no main-tree locks path outside the run's own tree" '! has "$loc/codex.argv" "/worktrees/T-1/"'

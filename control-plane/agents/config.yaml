@@ -98,6 +98,10 @@ design_docs:
 # worktree_deps in ecosystems.json, never linked to the main tree.
 worktree:
   copy_files: ".env*"
+# Evidence archive (A200). `cleanup` and `worktree-remove` put a compressed copy of a run's records under .agents/local/archive/<ID>/ (git-ignored)
+# before they delete them; the newest `keep` runs are kept, older ones removed. 0 turns the archive off.
+archive:
+  keep: 10
 # Build record (A148). env_files: space-separated project-relative names of SECRET-FREE test env files (for example `.env.test`) that may
 # enter the clean copy of the build record, which otherwise holds no git-ignored file and so no .env*. Default: none. Each listed file is
 # scanned for secrets first; one visible secret makes `agent.sh build-record <ID> run` refuse, naming the file and the line, never the value.
