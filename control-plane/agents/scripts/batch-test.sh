@@ -814,6 +814,60 @@ sc_config_ignored_keys() {
   ok "config: batch.task_timeout and batch.runtimes are accepted and ignored (old configs), batch.ci_appear_minutes and unknown keys are still checked"
 }
 
+# --- A200: plan-lint. The questions a plan would raise at freeze are asked in the summary, answered in the user's own words ----------------------
+sc_preflight() {
+  bnew; mkdir -p .agents/tasks; binstall no
+  { printf '# Task: P-1 — wide task\n\n## Goal\n\nIt works.\n\n## Context\n\nChanges'; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do printf ' `src/m%s.js`' "$i"; done
+    printf ' and the pages `docs/g1.md`, `docs/g2.md`. This adds a new dependency on a library.\n\n## Acceptance criteria\n\n- AC-1: the output is better\n\n## Out of scope\n\n- Other.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n\n## Suggested class\n\nCOMPLEX because it touches many modules.\n'; } > .agents/tasks/P-1.md
+  mktask P-2 STANDARD; mktask P-3 COMPLEX; git add -A; git commit -qm tasks
+  BP P-1 P-2 P-3 > "$base/plan.out" || die "batch-plan failed: $(cat "$base/plan.out")"
+  grep -q '^## Pre-flight questions' "$summary" || die "no pre-flight section: $(cat "$summary")"
+  for k in split exempt dep ac; do grep -q "\[P-1, $k\]" "$summary" || die "no $k question for P-1: $(grep -n 'Q[0-9]' "$summary")"; done
+  grep -q '\[P-2' "$summary" && die "a plain task raised a question: $(grep 'P-2' "$summary")"
+  grep -q 'code paths (2 content or document paths are not counted)' "$summary" || die "the split question counts content paths or misses the figures: $(grep 'split' "$summary")"
+  grep -q '\[P-3, class\].*Its reason' "$summary" || die "a COMPLEX task with few paths is not asked for its class: $(grep P-3 "$summary")"
+  grep -q '^## Verification commands' "$summary" || die "no verification commands section"
+  grep -q 'no proven proposal exists' "$summary" || die "empty commands without a proposal are not said: $(sed -n '/Verification commands/,/Stop rules/p' "$summary")"
+  cut -f1,2,3,4 .agents/local/batch/lint.tsv | tr '\t' ' ' | tr '\n' ';' | grep -q 'Q1 P-1 split' || die "lint.tsv: $(cat .agents/local/batch/lint.tsv)"
+  batch_approve
+  expect_msg "batch-answer without a user message" "no captured user message since the summary" A batch-answer
+  mkdir -p .agents/local/prompts/history; now=$(( $(date +%s) + 10 ))
+  printf 'thanks, looks fine\n' > .agents/local/prompts/history/$now-aaaa1111.txt
+  expect_msg "a remark is no answer" "no captured user message since the summary" A batch-answer
+  printf 'Q1: do not split, Q2 a, Q3 b\nQ4 a.\n' > .agents/local/prompts/history/$((now + 1))-bbbb2222.txt
+  A batch-answer > "$base/ans.out" || die "batch-answer: $(cat "$base/ans.out")"
+  A batch-answers P-1 | tr '\n' ';' | grep -q 'Q1 P-1 split: option b (up to 27)' || die "split answer: $(A batch-answers P-1)"
+  A batch-answers P-1 | grep -q 'Q3 P-1 dep: option b' && A batch-answers P-1 | grep -q 'Q4 P-1 ac: option a' || die "answers: $(A batch-answers P-1)"
+  A batch-next | grep -q '^P-1 | parked | new dependency' || die "a dependency answer 'park' did not park the task: $(A batch-next)"
+  A batch-next | grep -q '^NEXT: run P-2' || die "the other task does not go on: $(A batch-next | tail -2)"
+  # the same message is used once; a later "all recommended" fills what is open and a later message corrects an answer
+  printf 'all recommended\n' > .agents/local/prompts/history/$((now + 2))-cccc3333.txt; A batch-answer >/dev/null || die "all recommended"
+  [ "$(A batch-answers P-1 | grep -c 'Q1 ')" -ge 2 ] || die "all recommended did not answer"
+  A batch-answers P-1 | grep 'Q1 ' | tail -1 | grep -q 'option a' || die "the newest answer to Q1 is not the recommended: $(A batch-answers P-1)"
+  ok "A200 plan-lint: the summary asks split, exempt, dependency, criteria and class questions per task; the answers are the user's captured words, a remark is no answer, a park answer parks, all recommended takes the safe options"
+}
+# A200: the empty-commands proposal is covered by the user's own words only
+sc_commands_check() {
+  bnew; binstall no
+  mkdir -p .agents/local/commands; pf=.agents/local/commands/PROPOSAL.tsv
+  printf '#proposed_at\t%s\ntest\tnpm test\n' "$(date +%s)" > "$pf"
+  expect_msg "commands-check without any user message" "has not answered" A commands-check
+  capture 'looks good' ; expect_msg "commands-check on a reply that is no approval" "does not approve the commands" A commands-check
+  capture 'approve commands'; A commands-check | grep -q 'approved by the user' || die "approve commands: $(A commands-check 2>&1)"
+  capture 'do not approve commands'; expect_msg "commands-check on a negated reply" "does not approve the commands" A commands-check
+  # a batch approval covers the proposal only when its summary names the proposal
+  capture 'looks good'; h=$(tsha "$pf" | cut -c1-12)
+  mktask C-1 COMPLEX; git add -A; git commit -qm c1; BP C-1 >/dev/null
+  grep -q "^commands proposal: $h\$" "$summary" || die "the summary does not name the proven proposal: $(sed -n '/Verification commands/,/Stop rules/p' "$summary")"
+  expect_msg "commands-check before the batch is approved" "does not approve the commands" A commands-check
+  batch_approve; A commands-check | grep -q 'covered by the batch approval' || die "the batch approval did not cover the named proposal: $(A commands-check 2>&1)"
+  printf '#proposed_at\t%s\ntest\tnpm test\nlint\trm -rf x\n' "$(date +%s)" > "$pf"
+  expect_msg "a changed proposal is not covered" "does not approve the commands" A commands-check
+  ok "A200: commands-check passes only on the user's own 'approve commands' or on a batch approval whose summary names this very proposal"
+}
+
+run_sc sc_preflight
+run_sc sc_commands_check
 run_sc sc_order_and_cycle
 run_sc sc_no_approval_no_start
 run_sc sc_cover_limits

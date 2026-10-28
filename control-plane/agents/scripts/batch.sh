@@ -11,6 +11,8 @@
 #   batch.sh next [--tsv]      read-only: the batch's state from records only (merged.tsv, the runs, their questions and approvals, ci.tsv,
 #                              state.tsv) and the next action: `NEXT: run|resume|cover|deliver|ci <ID> ...`, `NEXT: finished` or `NEXT: approve`.
 #                              The lead calls it before every task, so it continues at the right place after a context compaction or a restart.
+#   batch.sh answer            (A200) record the user's answers to the summary's pre-flight questions from their newest captured message
+#   batch.sh answers [ID]      (A200) the recorded answers, one per line
 #   batch.sh status            the morning table, from the same records, never from a log
 #   batch.sh ci <ID>           one check of the CI run of the merge commit of the merged task ID (exit 0 green or not applicable, 1 red,
 #                              2 still running, 3 unreadable, 4 no run yet); a green result is recorded in ci.tsv
@@ -45,6 +47,53 @@ deps_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next 
 # then verifies each commit with the project's build and test commands in a clean copy and says "verified locally, no CI".
 ci_absent() { ci_out=$(sh "$agent" ci-check 2>/dev/null) || :; [ "$(printf '%s\n' "$ci_out" | head -1)" = 'ci: absent' ]; }
 ci_warning() { printf 'WARNING: %s Every pull request of this batch is merged only after its build and test pass in a clean copy of the commit. To get real checks instead: %s\n' "$(sh "$agent" ci-check 2>/dev/null | sed -n 2p)" "$(sh "$agent" ci-task-command 2>/dev/null)"; }
+# --- plan-lint (A200): the questions a plan would raise at freeze, asked before the approval --------------------------------
+# lint_task ID FILE CLASS appends rows to $tmp/lint.raw: kind, text, options (a|b|c), recommended letter, param. Everything is read from the
+# task file alone (the plan does not exist yet), so each question is a prediction; the freeze asks again whatever turns out otherwise.
+# The recommended option is always the safe one (split, a test, no new dependency, criteria rewritten, class kept).
+lint_paths() { # FILE: the repository-looking paths a task names in backticks
+  grep -o '`[^` ]*`' "$1" 2>/dev/null | tr -d '`' | grep -E '^[A-Za-z0-9_./@-]+$' | grep -Ev '://|^-|^[.]+$' | grep -E '/|[.][A-Za-z][A-Za-z0-9]{0,4}$' | sort -u || :
+}
+lint_task() {
+  lt_id=$1; lt_f=$2; lt_c=$3
+  lt_paths=$(lint_paths "$lt_f"); lt_code=0; lt_cont=0; lt_cl=''
+  if [ -n "$lt_paths" ]; then
+    # shellcheck disable=SC2086 # paths of the safe character set above
+    lt_k=$(sh "$agent" path-kind $lt_paths 2>/dev/null) || lt_k=''
+    lt_code=$(printf '%s\n' "$lt_k" | awk -F'\t' '$1 == "code"' | wc -l | tr -d ' ')
+    lt_cont=$(printf '%s\n' "$lt_k" | awk -F'\t' '$1 == "content"' | wc -l | tr -d ' ')
+    lt_cl=$(printf '%s\n' "$lt_k" | awk -F'\t' '$1 == "content" { print $2 }' | head -4 | tr '\n' ' ' | sed 's/ $//')
+  fi
+  lt_max=$(cfgv "pipelines.$lt_c.max_scope_paths" 15)
+  if [ "$lt_code" -gt "$lt_max" ]; then
+    lt_ceil=$((lt_code + (lt_code + 1) / 2))
+    printf '%s\tsplit\tThe task names %s code paths (%s content or document paths are not counted); the %s limit is %s. Split it? Otherwise the freeze would stop and ask.\ta) split it into at least %s tasks (task-author) [recommended]|b) proceed without splitting, up to %s code paths (more than that asks again at freeze)\ta\t%s\n' "$lt_id" "$lt_code" "$lt_cont" "$lt_c" "$lt_max" "$(( (lt_code + lt_max - 1) / lt_max ))" "$lt_ceil" "$lt_ceil" >> "$tmp/lint.raw"
+  fi
+  if [ "$lt_cont" -gt 0 ]; then
+    printf '%s\texempt\tThe task names %s content or document path(s) (%s%s). A document has no RED/GREEN to show, so the plan needs a tdd_exemption for each, or a test. Which?\ta) tdd_exemption with a specific reason per path, verified by the check the task names [recommended]|b) a test for each path (the plan names it)\ta\t-\n' "$lt_id" "$lt_cont" "$lt_cl" "$([ "$lt_cont" -gt 4 ] && echo ', ...')" >> "$tmp/lint.raw"
+  fi
+  if grep -Eiq '(new|add(s|ed|ing)?|introduc(e|es|ed|ing)|install(s|ed|ing)?|upgrade|bump)[^.]{0,40}(depend(ency|encies)|librar(y|ies)|package|module|crate|gem)|npm (i|install) |pip install|go get |cargo add|yarn add|pnpm add' "$lt_f"; then
+    printf '%s\tdep\tThe task reads as if it adds or changes a dependency. A new dependency needs your own approval, which this batch does not cover. Which?\ta) no new dependency: the task uses what exists [recommended]|b) a dependency is needed: park the task until you decide it yourself\ta\t-\n' "$lt_id" >> "$tmp/lint.raw"
+  fi
+  lt_ac=$(awk '/^## Acceptance criteria[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && /^[[:space:]]*([-*]|[0-9]+[.])?[[:space:]]*AC-[0-9]+:/ { n++ } END { print n + 0 }' "$lt_f")
+  lt_vague=$(awk '/^## Acceptance criteria[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && /AC-[0-9]+:/ && tolower($0) ~ /(^|[^a-z])(better|nicer|improve[sd]?|faster|good|clean(er)?|appropriate(ly)?|as needed|user-friendly|robust|properly|etc|and so on|reasonable|intuitive|nice)([^a-z]|$)/ { sub(/^[[:space:]]*[-*0-9.]*[[:space:]]*/, ""); print substr($0, 1, 70); exit }' "$lt_f")
+  if [ "$lt_ac" -eq 0 ]; then
+    printf '%s\tac\tThe task has no acceptance criteria (AC-<n>: ...), so nothing can be tested or reviewed. Which?\ta) park the task until its criteria are written (task-author) [recommended]|b) run it anyway (the plan stops at freeze)\ta\t-\n' "$lt_id" >> "$tmp/lint.raw"
+  elif [ -n "$lt_vague" ]; then
+    printf '%s\tac\tA criterion cannot be measured as written: "%s". Which?\ta) park the task until it is rewritten with a number, a path or an observable result (task-author) [recommended]|b) run it as written (QA may block on it)\ta\t-\n' "$lt_id" "$lt_vague" >> "$tmp/lint.raw"
+  fi
+  lt_n=$((lt_code + lt_cont))
+  case "$lt_c:$([ "$lt_n" -le 6 ] && echo small)" in COMPLEX:small)
+    lt_why=$(awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && NF { print substr($0, 1, 90); exit }' "$lt_f")
+    printf '%s\tclass\tClassified COMPLEX (%s path(s) named). Its reason: "%s". COMPLEX adds an architect, a stricter review and more gates (more time). Keep it?\ta) keep COMPLEX [recommended]|b) STANDARD (you take the lighter review)|c) another class: say which in your answer\ta\t-\n' "$lt_id" "$lt_n" "${lt_why:-none written}" >> "$tmp/lint.raw" ;;
+  esac
+}
+# ans_row ID KIND: the newest recorded answer for the batch in force: letter<TAB>question number
+ans_row() {
+  [ -f "$bd/answers.tsv" ] || return 0
+  awk -F'\t' -v b="$(bid)" -v t="$1" -v k="$2" '$1 == b && $2 == t && $4 == k { r = $5 "\t" $3 } END { if (r != "") print r }' "$bd/answers.tsv"
+}
+
 plan() {
   [ "$(cfgv tasks.adapter markdown)" = markdown ] || die "night mode runs markdown task files only, but tasks.adapter is $(cfgv tasks.adapter markdown) (a design decision, A161: the order and the classes are read from the task files, not from network calls). Next step: set tasks.adapter to markdown in .agents/config.yaml, import each task with '/proofline task <issue reference>' (it writes <tasks.dir>/<ID>.md with its Suggested class and depends_on), then run '/proofline batch <ID...>' again"
   repl=no; for a in "$@"; do shift; case "$a" in --replace) repl=yes ;; --codex-danger-full-access) die "--codex-danger-full-access is gone: night mode runs in your own session (removed in 0.0.32), so the session's own permissions apply" ;; *) set -- "$@" "$a" ;; esac; done
@@ -123,11 +172,20 @@ plan() {
           if (ok) { em[u] = 1; print u, cls[u], dep[u]; left--; break } } } }' "$tmp/kept" > "$tmp/order"
   # a batch that did work goes to history; an unworked plan is simply replaced
   mkdir -p "$bd"
-  if [ -f "$bd/state.tsv" ] || [ -s "$bd/merged.tsv" ] || [ -f "$bd/ci.tsv" ]; then
+  if [ -f "$bd/state.tsv" ] || [ -s "$bd/merged.tsv" ] || [ -f "$bd/ci.tsv" ] || [ -f "$bd/answers.tsv" ]; then
     hd=$bd/history/$( [ -f "$bd/SUMMARY.md" ] && bid || echo previous ); mkdir -p "$hd"
-    for f in SUMMARY.md order.tsv state.tsv merged.tsv ci.tsv; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
+    for f in SUMMARY.md order.tsv state.tsv merged.tsv ci.tsv lint.tsv answers.tsv; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
   fi
   cap=$(cfgv batch.mutation_budget_cap 40)
+  # A200: plan-lint and the commands proposal, before the summary (the approval is bound to the summary's hash, so to both)
+  : > "$tmp/lint.raw"
+  while IFS="$(printf '\t')" read -r _k lid lcls _d _t; do
+    lf=$td/$lid.md; [ -f "$lf" ] || lf=$td/todo/$lid.md; [ -f "$lf" ] || lf=$td/backlog/$lid.md
+    lint_task "$lid" "$lf" "$lcls"
+  done < "$tmp/kept"
+  awk -F'\t' -v OFS='\t' '{ print "Q" NR, $1, $2, $3, $4, $5, $6 }' "$tmp/lint.raw" > "$tmp/lint.tsv"   # Qn id kind text options rec param
+  pf=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/commands/PROPOSAL.tsv
+  cmd_empty=''; for ck in build test lint; do [ -n "$(sh "$agent" config-get "commands.$ck" 2>/dev/null)" ] || cmd_empty="$cmd_empty $ck"; done
   {
     printf '# Night batch\n\nnonce: %s-%s\n\n' "$(date +%s)" "$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || echo $$)"
     if ci_absent; then
@@ -145,6 +203,21 @@ plan() {
     printf -- '- delivery: commit, push, pull request, merge only when CI is green and every gate passed (proofline merge), cleanup\n'
     printf -- '- CI red after the pull request is open: up to 2 CI-fix rounds, each a normal fix round that passes the gates again, pushed to the same pull request branch and nothing else; the delivery approval covers exactly those pushes, then the task is parked with the error and what was tried\n'
     printf -- '- mutation budget: a raise of test_trust.mutation_budget (now %s) up to the cap batch.mutation_budget_cap = %s\n' "$(cfgv test_trust.mutation_budget 20)" "$cap"
+    printf '\n## Pre-flight questions (plan-lint, A200)\n\n'
+    if [ -s "$tmp/lint.tsv" ]; then
+      printf 'These are the questions the plan of each task would raise at freeze, asked now so that no task parks on them overnight. Answer with the letters ("Q1 a, Q2 b"), in your own words ("Q1: do not split", "Q3 hayir"), or "all recommended". Your message is recorded as it is (agent.sh batch-answer) and applied when each plan freezes; a question you leave open is asked again at freeze, as before. An answer is never an approval of anything else.\n\n'
+      while IFS="$(printf '\t')" read -r qn qid qkind qtext qopts _qrec _qp; do
+        printf -- '- %s [%s, %s] %s\n' "$qn" "$qid" "$qkind" "$qtext"
+        printf '%s\n' "$qopts" | tr '|' '\n' | sed 's/^/    /'
+      done < "$tmp/lint.tsv"
+    else printf -- '- none: no task raises a question that can be told from its task file\n'; fi
+    printf '\n## Verification commands (A200)\n\n'
+    if [ -z "$cmd_empty" ]; then printf -- '- commands.build, commands.test and commands.lint are configured\n'
+    elif [ -s "$pf" ]; then
+      printf -- '- commands.%s are empty. Proven by one run each, proposed for .agents/config.yaml (your approval of this batch covers writing them: proofline doctor --apply-commands):\n' "$(printf '%s' "$cmd_empty" | sed 's/^ //; s/ /, commands./g')"
+      awk -F'\t' '!/^#/ { print "    commands." $1 ": " $2 }' "$pf"
+      printf 'commands proposal: %s\n' "$(sha "$pf" | cut -c1-12)"
+    else printf -- '- commands.%s are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here\n' "$(printf '%s' "$cmd_empty" | sed 's/^ //; s/ /, commands./g')"; fi
     printf '\n## Stop rules\n\n'
     printf -- '- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped\n'
     printf -- '- every task works in its own git worktree (.agents/local/worktrees/<ID>, made from the canonical branch just before the task starts): a parked task, one waiting for its merge and one in a CI-fix round keep theirs and block no task that does not depend on them; the main working tree is never touched. A task starts only when every task it depends on is merged; a merged task'"'"'s worktree is removed\n'
@@ -163,6 +236,7 @@ plan() {
   } > "$tmp/SUMMARY.md"
   mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"
   mv "$tmp/order" "$bd/order.tsv"
+  mv "$tmp/lint.tsv" "$bd/lint.tsv"
   cat "$bd/SUMMARY.md"
   printf '\nbatch id: %s\n\n' "$(bid)"
 }
@@ -201,6 +275,14 @@ fmt_ts() { [ -n "$1" ] || { echo "-"; return 0; }; date -r "$1" '+%Y-%m-%d %H:%M
 own_state() {
   os_id=$1; DS=open; DD=run; DQ=''
   if [ "$(st_get "$os_id" 2)" = parked ]; then DS=parked; DD=$(st_get "$os_id" 3); DQ=$(st_get "$os_id" 4); return 0; fi
+  # A200: a task whose pre-flight answer is "park until it is decided or written" never starts; the answer is the user's own
+  if ! has_run "$os_id"; then
+    for os_k in dep ac; do
+      os_a=$(ans_row "$os_id" "$os_k")
+      if [ "$(printf '%s' "$os_a" | cut -f1)" = b ] && [ "$os_k" = dep ]; then DS=parked; DD="new dependency"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with b: a dependency is needed and only you approve it; decide it, then agent.sh batch-park $os_id --clear"; return 0; fi
+      if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = ac ]; then DS=parked; DD="criteria to write"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the acceptance criteria are written (task-author) first; then agent.sh batch-park $os_id --clear"; return 0; fi
+    done
+  fi
   has_run "$os_id" || return 0
   DD=resume
   case "$(rsec "$os_id" execution state)" in FAILED|BLOCKED) DS=parked; DD=$(rsec "$os_id" execution state); return 0 ;; esac
@@ -335,6 +417,72 @@ next_report() {
   fi
 }
 
+# --- the user's answers to the pre-flight questions (A200) ---------------------------------------------------------------------
+# answer: the answers are the user's own message, as the prompt hook captured it: the newest captured message newer than the
+# summary and not used by another answer. The script parses it; the lead relays nothing and decides nothing. A letter after a
+# question number ("Q2 b"), a natural-language reply to a split question, or "all recommended" are understood; whatever is not
+# understood stays unanswered and is asked again at freeze. A later message corrects an earlier answer to the same question.
+prompts_dir() { printf '%s\n' "${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/prompts"; }
+neg_re='(^|[^a-z])(not|never|no|nope|n.t|dont|do not|without|degil|değil|hayir|hayır|bolme|bölme)([^a-z]|$)'
+answer_cmd() {
+  [ -f "$bd/lint.tsv" ] && [ -f "$bd/SUMMARY.md" ] || die "no batch plan to answer (agent.sh batch-plan <ID...|all>)"
+  [ -s "$bd/lint.tsv" ] || { echo "batch: the summary asks no pre-flight question"; return 0; }
+  an_h=$(prompts_dir)/history; an_b=$(bid)
+  an_from=$(stat -f %m "$bd/SUMMARY.md" 2>/dev/null || stat -c %Y "$bd/SUMMARY.md" 2>/dev/null || echo 0)
+  an_pick=''
+  for an_f in $(ls -1 "$an_h"/*.txt 2>/dev/null | sort); do
+    an_e=${an_f##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
+    [ "$an_e" -ge "$an_from" ] || continue
+    grep -q '[^[:space:]]' "$an_f" && [ "$(head -c 19 "$an_f")" != '<task-notification>' ] || continue
+    grep -qxF "${an_f##*/}" "$(prompts_dir)/consumed" 2>/dev/null && continue
+    # a message that carries no question number and no "recommended" is not an answer: it may be the approval or a remark
+    tr '[:upper:]' '[:lower:]' < "$an_f" | grep -Eq '(^|[^a-z0-9])q[0-9]+|recommended|önerilen|onerilen' || continue
+    an_pick=$an_f
+  done
+  [ -n "$an_pick" ] || die "no captured user message since the summary answers a question (the user answers Q1, Q2 ... or says 'all recommended'; then run this again)"
+  an_low=$(tr '[:upper:]' '[:lower:]' < "$an_pick" | tr '\n' ' ' | tr -s ' ')
+  an_n=0; an_rec=0
+  printf '%s' "$an_low" | grep -Eq '(all|every|hepsi|tümü|tumu)[^.]{0,20}(recommended|önerilen|onerilen)|(recommended|önerilen|onerilen)[^.]{0,12}(all|for all|hepsi|tümü|tumu)' && an_rec=1
+  while IFS="$(printf '\t')" read -r qn qid qkind _qtext qopts qrec qparam; do
+    # the segment of this question: after "qN" up to the next "qM"
+    an_seg=$(printf '%s' "$an_low" | awk -v q="$(printf '%s' "$qn" | tr '[:upper:]' '[:lower:]')" '{
+      s = $0
+      while (match(s, /(^|[^a-z0-9])q[0-9]+/)) {
+        tok = substr(s, RSTART, RLENGTH); sub(/^[^q]*/, "", tok); s = substr(s, RSTART + RLENGTH)
+        if (match(s, /(^|[^a-z0-9])q[0-9]+/)) seg = substr(s, 1, RSTART - 1); else seg = s
+        if (tok == q) { print seg; exit }
+      } }')
+    an_l=''
+    if [ -n "$an_seg" ]; then
+      an_t=$(printf '%s' "$an_seg" | sed 's/^[ :.)=,-]*//')
+      an_one=$(printf '%s' "$an_t" | sed 's/^\(option\|answer\|choose\|seçenek\|secenek\) *//; s/[ ,.;)(-]*$//')
+      case "$an_one" in [a-e]) an_l=$an_one ;; esac
+      if [ -z "$an_l" ]; then
+        case "$qkind" in
+          split)
+            if printf '%s' "$an_t" | grep -Eq 'proceed without splitting|do not split|dont split|don.t split|no split|bölme|bolme|bölmeden|bolmeden|^(no|hayır|hayir)([^a-z]|$)'; then an_l=b
+            elif printf '%s' "$an_t" | grep -Eq '(^|[^a-z])(split|böl|bol|yes|evet|recommended|önerilen|onerilen)([^a-z]|$)' && ! printf '%s' "$an_t" | grep -Eq "$neg_re"; then an_l=a; fi ;;
+          *)
+            if printf '%s' "$an_t" | grep -Eq '^(recommended|your recommendation|önerilen|onerilen|yes|evet|ok|okay|keep)([^a-z]|$)' && ! printf '%s' "$an_t" | grep -Eq "$neg_re"; then an_l=$qrec; fi ;;
+        esac
+        # question c of class: "standard" or "complex" in words
+        if [ -z "$an_l" ] && [ "$qkind" = class ]; then case "$an_t" in standard*) an_l=b ;; esac; fi
+      fi
+    elif [ "$an_rec" = 1 ]; then an_l=$qrec; fi
+    [ -n "$an_l" ] || continue
+    printf '%s' "$qopts" | grep -q "$an_l)" || continue
+    case "$qkind:$an_l" in split:b) an_p=$qparam ;; *) an_p=- ;; esac
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$an_b" "$qid" "$qn" "$qkind" "$an_l" "$an_p" "${an_pick##*/}" >> "$bd/answers.tsv"
+    an_n=$((an_n + 1)); echo "batch: $qn ($qid, $qkind): option $an_l recorded from the user's message ${an_pick##*/}"
+  done < "$bd/lint.tsv"
+  [ "$an_n" -gt 0 ] || die "the user's message ${an_pick##*/} answers no question in a form this script understands (letters after the question number, or 'all recommended'); the unanswered questions are asked again at freeze"
+  printf '%s\n' "${an_pick##*/}" >> "$(prompts_dir)/consumed"
+}
+answers_cmd() { # [ID]
+  [ -f "$bd/answers.tsv" ] || { echo "no answers recorded"; return 0; }
+  awk -F'\t' -v b="$(bid)" -v t="${1:-}" '$1 == b && (t == "" || $2 == t) { print $3 " " $2 " " $4 ": option " $5 (($6 != "-") ? " (up to " $6 ")" : "") }' "$bd/answers.tsv"
+}
+
 # --- status ----------------------------------------------------------------------------------------------------------
 status() {
   [ -f "$bd/SUMMARY.md" ] && [ -f "$bd/order.tsv" ] || { echo "no batch planned (agent.sh batch-plan <ID...|all>)"; return 0; }
@@ -433,6 +581,8 @@ case "${1:-}" in
   plan) shift; plan "$@" ;;
   next) shift; next_report "$@" ;;
   status) status ;;
+  answer) answer_cmd ;;
+  answers) answers_cmd "${2:-}" ;;
   ci) ci_cmd "${2:-}" ;;
   awake) awake ;;
   park) shift; park "$@" ;;

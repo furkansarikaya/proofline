@@ -248,6 +248,68 @@ export function parseTask(md) {
 
 const isPlaceholder = (body) => body.every((l) => /^\s*(<[^>]*>|tbd|todo|\.\.\.|-)?\s*$/i.test(l));
 
+// A200 plan-lint. The scope bound counts code paths: a content or document path is no reason to split (forty content files with the
+// same correction are one piece of work), and a path that holds code is always counted. Mirrors agent.sh path_kind / scope_code_count
+// (skills share no files; a test compares the two). The globs are the project's `review.executable_code` and `verification.doc_paths`
+// when .agents/config.yaml names them, else these defaults.
+export const EXECUTABLE_CODE = "*.go *.py *.pyw *.js *.mjs *.cjs *.jsx *.ts *.mts *.cts *.tsx *.java *.kt *.kts *.scala *.groovy *.rs *.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.cs *.fs *.vb *.rb *.php *.swift *.m *.mm *.dart *.lua *.pl *.pm *.r *.jl *.ex *.exs *.erl *.hs *.ml *.clj *.sh *.bash *.zsh *.fish *.ps1 *.bat *.cmd *.sql *.vue *.svelte *.gradle";
+export const DOC_PATHS = "docs/ *.md *.mdx *.rst *.adoc";
+export const MAX_PATHS_DEFAULT = { TRIVIAL: 2, STANDARD: 15, COMPLEX: 15, CRITICAL: 12 };
+const VAGUE = /(^|[^a-z])(better|nicer|improve[sd]?|faster|good|clean(er)?|appropriate(ly)?|as needed|user-friendly|robust|properly|etc|and so on|reasonable|intuitive|nice)([^a-z]|$)/i;
+function cfgValue(root, section, key) {
+  try {
+    const f = resolve(root || process.cwd(), ".agents/config.yaml");
+    if (!existsSync(f)) return "";
+    let inS = false;
+    for (const l of readFileSync(f, "utf8").split("\n")) {
+      if (new RegExp(`^${section}:\\s*$`).test(l)) { inS = true; continue; }
+      if (inS && /^\S/.test(l)) break;
+      const m = inS ? new RegExp(`^  ${key}:\\s*(.*)$`).exec(l) : null;
+      if (m) return m[1].replace(/\s+#.*$/, "").trim().replace(/^"(.*)"$/, "$1");
+    }
+  } catch { /* the config is optional */ }
+  return "";
+}
+function globHit(path, globs) {
+  for (const g of globs.split(/\s+/).filter(Boolean)) {
+    if (g.endsWith("/")) { if (path.startsWith(g)) return true; continue; }
+    if (g.startsWith("*.")) { if (path.endsWith(g.slice(1))) return true; continue; }
+    if (path === g) return true;
+  }
+  return false;
+}
+export function pathKinds(paths, root) {
+  const exec = cfgValue(root, "review", "executable_code") || EXECUTABLE_CODE;
+  const docs = cfgValue(root, "verification", "doc_paths") || DOC_PATHS;
+  const out = new Map();
+  for (const p of paths) out.set(p, globHit(p, exec) ? "code" : globHit(p, docs) ? "content" : "code");
+  return out;
+}
+// The questions a freeze would raise, told at plan-writing time. Warnings only: the freeze stays the authority.
+export function lint(planMd, taskMd, { root, cls } = {}) {
+  const out = [];
+  const fm = parseFrontMatter(planMd);
+  const task = parseTask(taskMd);
+  const klass = cls || task.cls;
+  const kinds = pathKinds(fm.scope.map((e) => e.path), root);
+  const code = fm.scope.filter((e) => kinds.get(e.path) === "code");
+  const content = fm.scope.filter((e) => kinds.get(e.path) === "content");
+  const max = (() => { try { const f = resolve(root || process.cwd(), ".agents/config.yaml"); if (existsSync(f)) { const m = new RegExp(`^  ${klass}:\\s*$[\\s\\S]*?^    max_scope_paths:\\s*(\\d+)`, "m").exec(readFileSync(f, "utf8")); if (m) return Number(m[1]); } } catch { /* optional */ } return MAX_PATHS_DEFAULT[klass]; })();
+  if (max && klass !== "TRIVIAL" && code.length > max) out.push(`scope: ${code.length} code paths (${content.length} content or document paths are not counted) exceed the ${klass} limit of ${max}; the freeze stops and asks to split. Split the task now, or ask the user for "proceed without splitting" (a batch pre-flight answer covers it)`);
+  const noEx = content.filter((e) => !("tdd_exemption" in e)).map((e) => e.path);
+  if (noEx.length) out.push(`scope: document or content path(s) without a tdd_exemption: ${noEx.slice(0, 5).join(", ")}${noEx.length > 5 ? ", ..." : ""}; a document has no RED/GREEN to show, so add 'tdd_exemption: <specific reason, 20+ characters>' to each, or a test that proves it (the freeze only warns, the implementer cannot finish without it)`);
+  const secs = sections(planMd.split(/\r?\n/).slice(fm.bodyStart || 0));
+  const dep = (secs.get("Dependencies") || []).filter((l) => l.trim() !== "");
+  if (dep.length && !(dep.length === 1 && /^none\b/i.test(dep[0].trim()))) out.push("Dependencies: a new dependency needs the user's own approval (a night batch does not cover it); say so in the plan before the freeze");
+  const vague = [...taskMd.matchAll(/^\s*(?:[-*]|\d+\.)?\s*(AC-\d+):\s*(.*)$/gim)].find((m) => VAGUE.test(m[2]));
+  if (vague) out.push(`TASK.md ${vague[1]}: cannot be measured as written ("${vague[2].slice(0, 60)}"); QA cannot test it. Rewrite it with a number, a path or an observable result`);
+  if (klass === "COMPLEX" && fm.scope.length <= 6) {
+    const why = (taskMd.match(/^## Suggested class\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m) || [])[1] || "";
+    if (why.replace(/\b(TRIVIAL|STANDARD|COMPLEX|CRITICAL)\b/g, "").trim().length < 20) out.push(`class: COMPLEX with ${fm.scope.length} scope path(s) and no reason in TASK.md "## Suggested class"; write why it is COMPLEX (architect, public contract, data) or classify STANDARD`);
+  }
+  return out;
+}
+
 export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
   const errors = [];
   const task = parseTask(taskMd);
@@ -266,7 +328,9 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
   const mapped = new Set();   // keys of the criteria some scope path or test covers
   const taskHas = (c) => task.criteria.some((t) => idKey(t) === idKey(c));
   if (fm.scope.length === 0 && fm.errors.length === 0) errors.push("scope: empty; a plan without scope changes nothing");
-  if (MAX_SCOPE_PATHS[klass] && fm.scope.length > MAX_SCOPE_PATHS[klass]) errors.push(`scope: ${klass} allows at most ${MAX_SCOPE_PATHS[klass]} paths, plan has ${fm.scope.length}; reclassify`);
+  const kinds = pathKinds(fm.scope.map((e) => e.path), root);
+  const codeCount = fm.scope.filter((e) => kinds.get(e.path) === "code").length;
+  if (MAX_SCOPE_PATHS[klass] && codeCount > MAX_SCOPE_PATHS[klass]) errors.push(`scope: ${klass} allows at most ${MAX_SCOPE_PATHS[klass]} paths (code paths only: content and document paths are not counted), plan has ${codeCount} code paths; reclassify`);
   for (const e of fm.scope) {
     const at = `scope ${e.path}`;
     if (/[*?[\]{}]/.test(e.path)) { errors.push(`${at}: glob patterns are not allowed; list each file`); continue; }
@@ -393,6 +457,7 @@ function main(argv) {
   let plan, task;
   try { plan = readFileSync(args[0], "utf8"); task = readFileSync(args[1], "utf8"); realpathSync(root); } catch (e) { console.error(`error: ${e.message}`); return 2; }
   const errors = validate(plan, task, { root, cls, entryWords });
+  for (const w of lint(plan, task, { root, cls })) console.log(`warning: ${w}`);
   for (const e of errors) console.log(e);
   if (errors.length === 0) console.log("valid");
   return errors.length ? 1 : 0;

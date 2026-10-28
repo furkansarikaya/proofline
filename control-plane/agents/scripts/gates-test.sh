@@ -700,6 +700,41 @@ sc_split_override() {
   grep -q 'event=split_override .*scope_paths=4 max=3 class=STANDARD answer=questions/' $d/LEDGER.log || die "the override is not in the ledger"
   ok "freeze over max_scope_paths stops with a split proposal and proceeds only on the user's recorded 'proceed without splitting'"
 }
+# A200: the scope bound counts code paths. A content or document path is no reason to split; a path that holds code is always counted.
+sc_scope_content() {
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  [ "$(A path-kind notes.md | cut -f1)" = content ] && [ "$(A path-kind tool.sh | cut -f1)" = code ] && [ "$(A path-kind docs/tool.sh | cut -f1)" = code ] && [ "$(A path-kind impl.txt | cut -f1)" = code ] || die "path-kind: $(A path-kind notes.md tool.sh docs/tool.sh impl.txt | tr '\n' ' ')"
+  A freeze LC >/dev/null 2>&1 || die "a content path counted against the scope bound: $(A freeze LC 2>&1)"
+  SC_SCOPE_NAMED=tool.sh unfrozen STANDARD; : > tool.sh
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  expect_msg "a code path over the bound froze" 'code paths (content and document paths are not counted)' A freeze LC
+  ok "A200: a content or document path is not counted against max_scope_paths, a file that holds code always is"
+}
+# A200: the answer to a batch pre-flight question (the user's own captured message, parsed by batch.sh) replaces the split question at freeze
+# up to the ceiling the user was shown, and only while the batch approval of that summary stands.
+sc_batch_split_answer() {
+  SC_SCOPE_NAMED=tool.sh unfrozen STANDARD; : > tool.sh
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  b=.agents/local/batch; mkdir -p "$b" .agents/local/approvals
+  printf '# Night batch\n\nnonce: test\n' > "$b/SUMMARY.md"; h=$(tsha "$b/SUMMARY.md"); id=$(printf '%s' "$h" | cut -c1-12)
+  printf 'kind: "batch"\nbound: "%s"\nsource: "prompt_capture"\nrequest: "x"\nanswered_by: "user"\napproved_at: 1\nconsumed: "false"\n' "$h" > .agents/local/approvals/001-batch.yaml
+  printf '%s\tLC\tQ1\tsplit\tb\t2\tmsg\n' "$id" > "$b/answers.tsv"
+  expect_msg "an answer with a ceiling below the plan froze" 'code paths' A freeze LC
+  printf '%s\tLC\tQ1\tsplit\tb\t5\tmsg\n' "$id" > "$b/answers.tsv"
+  A freeze LC >/dev/null 2>&1 || die "the batch answer did not replace the split question: $(A freeze LC 2>&1)"
+  grep -q 'event=split_override .*answer=batch:Q1' .agents/runs/LC/LEDGER.log || die "the batch answer is not in the ledger"
+  ok "A200: a recorded batch answer 'proceed without splitting' passes the split check up to its ceiling, and is ledgered"
+  SC_SCOPE_NAMED=tool.sh unfrozen STANDARD; : > tool.sh
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  b=.agents/local/batch; mkdir -p "$b" .agents/local/approvals
+  printf '# Night batch\n\nnonce: test\n' > "$b/SUMMARY.md"; h=$(tsha "$b/SUMMARY.md"); id=$(printf '%s' "$h" | cut -c1-12)
+  printf 'kind: "batch"\nbound: "%s"\nsource: "prompt_capture"\nrequest: "x"\nanswered_by: "user"\napproved_at: 1\nconsumed: "false"\n' "$h" > .agents/local/approvals/001-batch.yaml
+  printf '%s\tLC\tQ1\tsplit\tb\t5\tmsg\n' "$id" > "$b/answers.tsv"
+  printf 'changed\n' >> "$b/SUMMARY.md"
+  expect_msg "an answer of a summary that changed froze" 'code paths' A freeze LC
+  ok "A200: the answer is void when the summary it belongs to changed (no valid batch approval)"
+}
 # A79: the assumption register. Freeze checks the shape of both registers, refuses an unverified high-risk
 # assumption until the user answered its bound question with `accept`, never accepts one silently, and the
 # completion report lists every unverified or accepted-by-user assumption.
@@ -1636,12 +1671,13 @@ sc_artifact_snapshots() {
   ok "C-9: results of two rounds that wrote the same report path both cite an existing artifact with the stated sha256"
 }
 sc_debug_result() {
+  # A200: the trigger is the task type or label, never the words "fix" or "duzelt" in prose.
   SC_TASK_EXTRA='
 ## Suggested class
 
 STANDARD — behavioural bug fix in one module with tests.' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a defect named only in Suggested class needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  expect_msg "a bug named in Suggested class needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
   mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
   A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED"
   ok "a bug named in Suggested class needs reports/NNN-debug.md, which unblocks IMPLEMENTED"
@@ -1653,67 +1689,50 @@ STANDARD — the first step is additive and its own step drops nothing.' scaffol
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a defect word in Suggested class prose blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "a defect word inside Suggested class prose does not make a task a defect fix"
-  # the user's own words in a blockquote count, in English and Turkish (A67)
+  # a label or type makes it a defect task: a Labels section, a Type line
   SC_TASK_EXTRA='
-## Context
+## Labels
 
-> Kitaplarımdan bazıları kayboldu, sayfa 2 boş geliyor.' scaffold orchestrated no STANDARD
+- bug
+- backend' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a Turkish defect report in the user's quote needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
-  # "dropping the column is a follow-up" in the Goal is data removal wording, not a defect report (A53)
+  expect_msg "a bug label needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
   SC_TASK_EXTRA='
-## Goal
-
-Stop using the column; dropping the column is a separate follow-up.' scaffold orchestrated no STANDARD
+**Type:** defect' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "dropping in a Goal sentence blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
-  ok "drop/dropping are no defect words (data removal wording)"
-  # A122: no defect word in the title or Goal, but Context and Acceptance criteria speak of a bug or a fix
+  expect_msg "a defect type line needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  ok "A200: a bug or defect label or type asks for reports/NNN-debug.md"
+  # the words fix, fixes, fixed, duzelt, defect or error in the prose, the Goal, a criterion or the user's quote never ask
   SC_TASK_EXTRA='
 ## Goal
 
-Every item is reachable through paging.
+Fix the page count: the last page is cut off, an error in the page count.
 
 ## Context
 
-The last page is cut off: a defect in the page count.' scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a defect named only in Context needs a debug-proof result" 'reports/NNN-debug.md with the debug-proof skill' A handoff LC IMPLEMENTED
-  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
-  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED (Context)"
-  # A122 regression guard: ordinary actual-vs-expected RED text (tdd-proof RED.md section 4) in a feature run asks for no report
-  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
-  WEV_EF='lookup returns null instead of 5' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with actual-vs-expected text was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
-  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
-  WEV_EF='expected 3 to equal 5 in TestLookup' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with an assertion failure was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
-  ok "A122: a defect named in Context needs reports/NNN-debug.md; a feature run with an ordinary assertion RED is not asked"
-  # A126: the structure of a real COMPLEX feature task (e2e A1): Context speaks of "fixes" and Risks of the defect,
-  # the defect itself is declared in a nested `### Pre-existing defects` with decision: report -> not asked
-  feat='
-## Context
+> Sayfa sayisini duzelt. Kitaplarimdan bazilari kayboldu, hata var.
 
-Assumption: A tag is compared lowercased. (The request fixes only case-insensitivity.)
-
-### Pre-existing defects
-
-- `src/service.js:paginate`: totalPages uses Math.floor, the last items are unreachable -- decision: report
+The page count is wrong today and has a defect.
 
 ## Acceptance criteria
 
-- AC-1: the list shows the tag.
-'
-  SC_TASK_EXTRA="$feat
-## Risks
+- AC-1: the page count is fixed.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "A200: fix words in the prose asked an unlabelled task for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
+  ok "A200: fix, defect and Turkish fix words in the prose do not ask for a debug-proof result"
+  # a feature run with an ordinary assertion RED is not asked either (A122 guard)
+  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
+  WEV_EF='lookup returns null instead of 5' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with actual-vs-expected text was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
+  # a declared pre-existing defect with decision: report stays a finding
+  SC_TASK_EXTRA='
+## Context
 
-- Paging relies on paginate, which has a defect (below); real lists show the defect without a fix." scaffold orchestrated no STANDARD
+### Pre-existing defects
+
+- `src/service.js:paginate`: totalPages uses Math.floor -- decision: report' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a declared pre-existing defect (report) asked a feature task for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
-  # the same words in an acceptance criterion of the requested change still ask
-  SC_TASK_EXTRA="$feat- AC-2: the page count is wrong today; fix it." scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a defect in a criterion of the request needs a debug-proof result" 'BEFORE freeze' A handoff LC IMPLEMENTED
   # decision: fix is a requested fix
   SC_TASK_EXTRA='
 ## Context
@@ -1724,20 +1743,7 @@ Assumption: A tag is compared lowercased. (The request fixes only case-insensiti
   approve_as_user scope 'approve the scope'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   expect_msg "a declared defect with decision: fix needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
-  # no defect words and no declaration: not asked; Turkish word variant still asked
-  SC_TASK_EXTRA='
-## Context
-
-Tags are lowercased.' scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "a plain feature was asked for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
-  SC_TASK_EXTRA='
-## Context
-
-> Sayfa sayısını düzelt.' scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a Turkish fix word in a quote needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
-  ok "A126: a declared pre-existing defect (report, nested or not) does not make a feature a defect fix; decision: fix, a criterion or a Turkish word still do"
+  ok "A200: a declared decision: report is no trigger; decision: fix still is"
 }
 sc_scratch_worktrees() {
   scaffold orchestrated no STANDARD
@@ -2496,6 +2502,8 @@ run_sc sc_ask
 run_sc sc_knowledge_gates_fresh
 run_sc sc_knowledge_drift
 run_sc sc_split_override
+run_sc sc_scope_content
+run_sc sc_batch_split_answer
 run_sc sc_assumptions
 run_sc sc_questions
 run_sc sc_questions_keys
