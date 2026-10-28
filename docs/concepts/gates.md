@@ -44,6 +44,8 @@ patterns and the quoted-value rule only: the `.env` rule does not apply to these
 marker on a line skips that line. A listed file that is a symbolic link, or whose directory resolves outside the project or
 under `.git`, rejects the run; a listed file that does not exist only prints a note.
 
+**Documents and takeovers (A197, A198).** A document path in the plan scope (`verification.doc_paths`, default `docs/ *.md *.mdx *.rst *.adoc`, plus the design documents and the knowledge scope) needs a `tdd_exemption` or a meaningful proof; `agent.sh freeze` prints one warning line for one without, and does not stop. Code that was edited without RED evidence (a retry, or another runtime did it) is bound by the implementer without asking: put the change back to the base content, record RED, restore it, record GREEN. The recorder accepts GREEN only when an implementation file differs from its state at RED.
+
 Status per gate: `pass`, `pass_low` (a PASS with `CONFIDENCE: low` does not count; re-run with a stronger model),
 `waived`, `fail`, `stale`, `missing`. `agent.sh pipeline <ID>` prints them.
 

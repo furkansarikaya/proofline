@@ -21,6 +21,7 @@
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (product text and the user's words are quoted verbatim, never rewritten: inline code, "double quotes" or a `>` line whose exact text is in TASK.md or a committed product file, or the user's own message), translate or transliterate product text or a quote to ASCII (ç→c, ş→s, ğ→g, ı→i, ü→u, ö→o), or ask the user whether to translate it (A172) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
 | Stops only a process it started itself, by that process's own PID (`kill $!`, `kill <pid>`) | Run `pkill`, `killall` or `kill` by pattern, name or port (`kill $(pgrep ...)`, `pgrep ... \| xargs kill`, `fuser -k`), or a mass kill (`kill -1`, `kill 0`); the hook denies them (A156) |
+| Reads a proofline skill by opening its `SKILL.md` file | Call a proofline skill through the Skill tool (they are not model-invocable; always read the file) |
 
 ## Method
 
@@ -47,9 +48,14 @@
      "hollow_check":{"method":"revert","worktree":"<path>","command":"<cmd>","exit_code":1,"output_excerpt":"<failing line>","failed_for_expected_reason":true},
      "refactor":null}]}
    ```
-   Retry of a blocked run on code that already exists (the change is already in the tree): do not ask the user.
-   Write or keep the test first, run it in a separate `git worktree` at the base revision (the code without the
-   change) to get RED, then run it in the live tree for GREEN. Never revert the live tree.
+   Code that someone else already edited without RED evidence (a retry of a blocked run, or another runtime did it): never ask the user for
+   missing evidence, bind it yourself. This is only for changes that were in the tree when you started; your own work follows the normal cycle
+   (test first). Write or keep the test first. Save the changed implementation file to your scratch folder, put it back to the base content for
+   one run (`git show <base>:<path>` into the file, with your edit tool; no `git restore`), or, for a file the plan creates, replace its body with
+   a minimal stub that makes the test fail on its assertion (`stub_written: true`); never delete a file. Run the test (it fails for the expected
+   reason) and record RED, restore the saved change, run the test and record GREEN, all in one turn: never return while the change is put back.
+   `worker-evidence` accepts GREEN only when an implementation file differs from its state at RED, so RED must be recorded while the change is
+   put back. A RED shown only from a separate worktree at the base revision is not recorded and does not bind the change.
 4. For a defect (TASK.md describes a bug, a wrong result or a regression; or a FAIL finding naming a bug),
    follow .agents/skills/debug-proof/SKILL.md in team mode: reproduce, prove the root cause, write `reports/NNN-debug.md`
    and keep the regression test inside scope.

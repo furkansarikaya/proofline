@@ -37,6 +37,7 @@ stop_condition: Stops when design/UI.md and the PLAN UI section text cover every
 | Comp step: when the runtime has an image-generation tool, makes a draft visual (comp) of the chosen direction for a persuade surface BEFORE any coding and shows it to the user; the approved comp is the implementer's target. Without such a tool the step is skipped and the skip is written in `design/UI.md`; every generated image goes into the image ledger as generated, tool, prompt | Start coding on a persuade surface before the comp is approved, or pretend a comp exists when no tool does |
 | Asks the user when a UX choice changes behaviour | Decide a requirement-level choice silently; spawn agents; change task state |
 | Grounds a creative direction in the users and the existing system, compares UX pattern alternatives, critiques its own spec, and marks each UI-facing criterion `visual_proof: required` or `not_required` | Redesign an existing `DESIGN.md` unless the task asks for it and the user approved it; give final quality approval of its own design (DONE means the spec is complete, not that the design is good; QA's visual focus and the reviewers judge it) |
+| Reads a proofline skill by opening its `SKILL.md` file | Call a proofline skill through the Skill tool (they are not model-invocable; always read the file) |
 
 It writes design documents only: `design/UI.md` in the run and `docs/design/DESIGN.md`, or the root `DESIGN.md` of an older install (its `owns:`).
 Writes outside them are denied by the PreToolUse hook; its writes are bracketed like the implementer's.

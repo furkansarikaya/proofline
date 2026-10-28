@@ -518,7 +518,9 @@ final_report_tokens() {
   ok "A169-3 the mark belongs to one turn of the lead's own commands"
   # A171: a final message that asks the user to run an internal command is a proofline bug: noted in the ledger, one line to the user
   out=$(stop_plain "Almost done. Please run: sh .agents/scripts/agent.sh approve LC delivery")
-  printf '%s' "$out" | grep -q 'proofline bug' && ! printf '%s' "$out" | grep -q '"decision"' || die "A171 a request to run agent.sh got no friction message or was blocked: $out"
+  printf '%s' "$out" | grep -q '"decision":"block"' && printf '%s' "$out" | grep -q 'Do not make the user do this' || die "A193 a request to run agent.sh was not sent back: $out"
+  out=$(stop_plain "Almost done. Please run: sh .agents/scripts/agent.sh approve LC delivery" true)
+  printf '%s' "$out" | grep -q 'proofline bug' && ! printf '%s' "$out" | grep -q '"decision"' || die "A171 the retry of a request to run agent.sh got no friction message or was blocked again: $out"
   grep -q 'event=friction-note .*detail=user-command' .agents/runs/LC/LEDGER.log || die "A171 the request to run agent.sh was not ledgered as a friction note"
   # a mere mention of agent.sh (a report of what the lead did) is not a request to the user
   n0=$(grep -c 'event=friction-note' .agents/runs/LC/LEDGER.log)
@@ -529,10 +531,47 @@ final_report_tokens() {
 \`\`\`
 sh .agents/scripts/agent.sh next LC
 \`\`\`")
-  printf '%s' "$out" | grep -q 'proofline bug' || die "A171 a fenced command the user is asked to run got no friction message: $out"
+  printf '%s' "$out" | grep -q 'Do not make the user do this' || die "A171 a fenced command the user is asked to run got no friction message: $out"
   out=$(stop_plain "Almost done. Next step: reply approve delivery, or run /proofline status LC")
   [ -z "$out" ] || die "A171 a user command (/proofline ...) got a friction message: $out"
   ok "A171 asking the user to run an internal command is noted as friction; a user command is not"
+  # A193: --no-verify, a hand edit under .agents/ and a "!" command are sent back too; the user's own work is left alone
+  for m in "Please run: git commit --no-verify -m wip" "You need to edit .agents/config.yaml and change git.protected_branches yourself." "Type this: ! sh .agents/scripts/agent.sh next LC" "To approve it yourself, type: answer LC Q1 nil in your terminal, then run sh .agents/scripts/agent.sh answer LC"; do
+    out=$(stop_plain "$m")
+    printf '%s' "$out" | grep -q '"decision":"block"' || die "A193 not sent back: $m -> $out"
+  done
+  for m in "Please run: git push origin proofline/LC-lookup" "Please run: gh auth login, then tell me when done." "Update the plugin from /plugin, then restart." "I read .agents/config.yaml and it looks fine."; do
+    out=$(stop_plain "$m")
+    [ -z "$out" ] || die "A193 the user's own work was sent back: $m -> $out"
+  done
+  ok "A193 the Stop hook sends back a request for an internal command, --no-verify or an .agents/ edit and leaves git push, gh auth login and plugin updates alone"
+}
+
+# A193: the Skill tool cannot start a proofline skill (disable-model-invocation); the hook points to the file, others are untouched
+skill_detour() {
+  fixture
+  mkdir -p "$base/plug/skills/proofline-lead" "$base/plug/skills/tdd-proof" .agents/skills/qa-plan; : > "$base/plug/skills/proofline-lead/SKILL.md"; : > "$base/plug/skills/tdd-proof/SKILL.md"; : > .agents/skills/qa-plan/SKILL.md
+  sk() { # SKILL [AGENT_TYPE] [AGENT_ID]: a Skill tool call, with CLAUDE_PLUGIN_ROOT set
+    CLAUDE_PLUGIN_ROOT=$base/plug H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Skill\",\"tool_input\":{\"skill\":\"$1\"}$(who "${2:-}" "${3:-}")}"
+  }
+  denied "A193 the lead's Skill call of proofline:proofline-lead" "$(sk proofline:proofline-lead)" "read $base/plug/skills/proofline-lead/SKILL.md and continue"
+  denied "A193 an unprefixed proofline skill name" "$(sk tdd-proof)" "do not use the Skill tool"
+  denied "A193 a subagent's call is redirected too" "$(sk proofline:tdd-proof proofline-implementer a1)" "tdd-proof/SKILL.md"
+  denied "A193 a project-installed skill (.agents/skills)" "$(sk qa-plan)" "$PWD/.agents/skills/qa-plan/SKILL.md"
+  allowed "A193 a skill that is not proofline's" "$(sk superpowers:brainstorming)"
+  allowed "A193 a plugin skill named like none of ours" "$(sk some-plugin:tdd)"
+  mkdir -p "$base/home/.claude/skills/tdd-proof"
+  allowed "A193 a user's own skill that bears a proofline skill's name" "$(HOME=$base/home sk tdd-proof)"
+  ok "A193 the Skill tool is redirected to the file for proofline skills only"
+  # Claude Code rejects the call before hooks run, so the Stop hook catches the turn that gives up on it
+  stop_msg() { H stop "{\"hook_event_name\":\"Stop\",\"session_id\":\"sk1\",\"cwd\":\"$PWD\",\"stop_hook_active\":${2:-false},\"last_assistant_message\":\"$(jstr "$1")\"}"; }
+  out=$(stop_msg "The Skill tool failed: cannot be used due to disable-model-invocation. Please run /proofline:proofline-lead yourself.")
+  printf '%s' "$out" | grep -q '"decision":"block"' && printf '%s' "$out" | grep -q 'proofline-lead/SKILL.md' || die "A193 a message that gives up at the Skill error was not sent back: $out"
+  out=$(stop_msg "The Skill tool failed: disable-model-invocation." true)
+  ! printf '%s' "$out" | grep -q '"decision":"block"' || die "A193 the retry was blocked again: $out"
+  out=$(stop_msg "Reading the proofline-lead skill file now; all good.")
+  ! printf '%s' "$out" | grep -q '"decision":"block"' || die "A193 an ordinary message was blocked: $out"
+  ok "A193 a message that gives up at the Skill error is sent back once with the file to read"
 }
 
 # A159: the knowledge step needs the wiki and the design documents; the lead may write exactly those, only after
@@ -1059,7 +1098,7 @@ EOF")"
   denied "DB-32 an implementer subagent is bound too" "$(pre_bash 'cat data/app.db' proofline-implementer a1)" "database file"
   denied "DB-33 a Codex apply_patch on a database file" "$(H pretool "{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD\",\"tool_name\":\"apply_patch\",\"tool_input\":{\"input\":\"*** Begin Patch\\n*** Update File: data/app.db\\n*** End Patch\"}}" codex)" "database file"
   for wf in adapters/claude/settings.fragment.json adapters/claude/hooks/hooks.json; do
-    grep -q '"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob"' "$ENF_REPO/$wf" || die "DB-33b the PreToolUse matcher of $wf does not reach Read, Grep and Glob"
+    grep -q '"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill"' "$ENF_REPO/$wf" || die "DB-33b the PreToolUse matcher of $wf does not reach Read, Grep, Glob and Skill"
   done
   ok "DB-33b the Claude PreToolUse matchers include Read, Grep and Glob"
   # A50: not run-scoped: a task author or an explorer works before any run exists
@@ -1240,8 +1279,45 @@ explorer_prose_note() {
   ok "A184 an explorer prose report gets the NOTE to ask the explorer for the table; a table does not"
 }
 
+# A194: the SessionStart hook says in one line when the plugin and the project's install are different versions
+version_skew() {
+  fixture
+  mkdir -p "$base/plug/.claude-plugin"
+  sess() { CLAUDE_PLUGIN_ROOT=$base/plug H session "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"vs$1\",\"cwd\":\"$PWD\"}"; }
+  inst=$(sed -n 's/^proofline_version:[[:space:]]*\([0-9.]*\).*/\1/p' .agents/config.yaml)
+  [ -n "$inst" ] || die "A194 the fixture has no proofline_version"
+  printf '{ "name": "proofline", "version": "%s" }\n' "$inst" > "$base/plug/.claude-plugin/plugin.json"
+  out=$(sess 1)
+  ! printf '%s' "$out" | grep -q 'version mismatch' || die "A194 equal versions got a mismatch line: $out"
+  printf '{ "name": "proofline", "version": "99.9.9" }\n' > "$base/plug/.claude-plugin/plugin.json"
+  out=$(sess 2)
+  printf '%s' "$out" | grep -q 'plugin 99.9.9, this project.s install '"$inst" && printf '%s' "$out" | grep -q '/proofline upgrade' && printf '%s' "$out" | grep -q '"systemMessage"' \
+    && printf '%s' "$out" | grep -q 'Tell the user this before you start a run' || die "A194 a different plugin version got no mismatch line: $out"
+  ok "A194 the SessionStart hook warns about a plugin and project version mismatch once, in one line, and tells the lead to say it first"
+}
+
+# A194: with rtk and its hook there, a command that produces evidence needs the documented bypass (RTK_DISABLED=1); other commands do not
+rtk_bypass() {
+  fixture
+  mkdir -p "$base/fakebin" "$base/rtkhome/.claude"; printf '#!/bin/sh\nexit 0\n' > "$base/fakebin/rtk"; chmod +x "$base/fakebin/rtk"
+  printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"rtk hook claude"}]}]}}\n' > "$base/rtkhome/.claude/settings.json"
+  rb() { PATH="$base/fakebin:$PATH" HOME=$base/rtkhome pre_bash "$@"; }
+  denied "A194 rtk present: a test run without the bypass" "$(rb 'npm test')" "RTK_DISABLED=1"
+  denied "A194 rtk present: the build record without the bypass" "$(rb 'sh .agents/scripts/agent.sh build-record LC run')" "RTK_DISABLED=1"
+  denied "A194 rtk present: a reviewer's git diff without the bypass" "$(rb 'git diff main...HEAD' proofline-reviewer r1)" "RTK_DISABLED=1"
+  allowed "A194 rtk present: a test run with the bypass" "$(rb 'RTK_DISABLED=1 npm test')"
+  allowed "A194 rtk present: the build record with the bypass" "$(rb 'RTK_DISABLED=1 sh .agents/scripts/agent.sh build-record LC run')"
+  allowed "A194 rtk present: a reviewer's git diff with the bypass" "$(rb 'RTK_DISABLED=1 git diff main...HEAD' proofline-reviewer r1)"
+  allowed "A194 rtk present: git status, git log and ls stay free" "$(rb 'git status && git log --oneline -3 && ls')"
+  allowed "A194 rtk present: the lead's git diff is not evidence" "$(rb 'git diff main...HEAD')"
+  allowed "A194 no rtk: a test run needs no bypass" "$(pre_bash 'npm test')"
+  rm -f "$base/rtkhome/.claude/settings.json"
+  allowed "A194 rtk installed but its hook is not wired: no bypass demanded" "$(rb 'npm test')"
+  ok "A194 evidence commands run with the rtk bypass when rtk is there"
+}
+
 fails=0
-scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage knowledge_surfaces stop_next_step not_installed live_claude read_roles_tree worktree_state explorer_prose_note'
+scenarios='lead_edits lead_no_run subagent_guard link_writes git_bypass agent_sh_forms owned_paths hook_wiring verdicts git_hooks out_of_scope waivers runtime_approvals hook_transparency questions database_guard final_report_tokens knowledge_stage knowledge_surfaces stop_next_step not_installed live_claude read_roles_tree worktree_state explorer_prose_note skill_detour version_skew rtk_bypass'
 for sc in $scenarios; do
   run_sc "$sc" || { fails=$((fails + 1)); echo "FAIL scenario $sc"; }
 done

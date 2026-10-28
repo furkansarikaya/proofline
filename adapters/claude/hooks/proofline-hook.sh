@@ -121,7 +121,7 @@ case "$ev" in
   pretool) jprefetch cwd agent_id agent_type tool_name 'tool_input.file_path tool_input.notebook_path tool_input.path' 'tool_input.command tool_input.cmd' session_id 'tool_input.file_path tool_input.path' tool_input.file_path tool_input.notebook_path tool_input.path tool_input.pattern || parsed=no ;;
   posttool) jprefetch cwd agent_id agent_type 'tool_input.file_path tool_input.notebook_path tool_input.path' || parsed=no ;;
   prompt) jprefetch cwd agent_id agent_type prompt session_id || parsed=no ;;
-  stop) jprefetch cwd agent_id agent_type session_id last_assistant_message transcript_path || parsed=no ;;
+  stop) jprefetch cwd agent_id agent_type session_id last_assistant_message transcript_path stop_hook_active || parsed=no ;;
   *) jprefetch cwd agent_id agent_type session_id stop_hook_active agent_transcript_path transcript_path || parsed=no ;;
 esac
 cwd=''; [ "$parsed" = no ] || cwd=$(jget cwd)
@@ -1869,6 +1869,22 @@ pretool)
   [ "$act" != INVALID ] || deny ".agents/local/ACTIVE_RUN is malformed; fix it with agent.sh before editing"
   baseline
   tool=$(jget tool_name)
+  # A193: every proofline skill is disable-model-invocation, so the Skill tool cannot start one. A call that targets a proofline skill (the
+  # lead's or a subagent's) is redirected in one line to reading the file; a skill that is not proofline's is not touched.
+  if [ "$tool" = Skill ] && [ "$installed" = yes ]; then
+    sk_n=$(jget tool_input.skill tool_input.name)
+    sk_pre=no; case "$sk_n" in proofline:*) sk_pre=yes; sk_n=${sk_n#proofline:} ;; esac
+    case "$sk_n" in ''|*[!A-Za-z0-9_-]*) sk_n='' ;; esac
+    if [ -n "$sk_n" ]; then
+      sk_f=''
+      if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/$sk_n/SKILL.md" ]; then sk_f=$CLAUDE_PLUGIN_ROOT/skills/$sk_n/SKILL.md
+      elif [ -f "$root/.agents/skills/$sk_n/SKILL.md" ]; then sk_f=$root/.agents/skills/$sk_n/SKILL.md; fi
+      # without the proofline: prefix the name counts only when no skill of the user's own bears it
+      if [ "$sk_pre" = no ] && { [ -d "$root/.claude/skills/$sk_n" ] || [ -d "${HOME:-/nonexistent}/.claude/skills/$sk_n" ]; }; then sk_f=''; fi
+      [ -z "$sk_f" ] || deny "do not use the Skill tool; read $sk_f and continue with the same step"
+    fi
+    exit 0
+  fi
   cmd=''
   case "$tool" in Bash|shell|local_shell|exec_command|unified_exec) cmd=$(jget tool_input.command tool_input.cmd) ;; esac
   TAB=$(printf '\t')
@@ -1905,6 +1921,20 @@ pretool)
     # Scratch space is $TMPDIR (the runtime's private temp dir), never /tmp directly: files outside the project
     # and $TMPDIR are what a run must not leave behind. A project that itself lives under /tmp is not scratch.
     printf '%s\n' "$cmd" | scan_cmd > "$tmp/scan"
+    # A194: a command that produces evidence never runs through the user's rtk hook, which compresses output. rtk documents
+    # `RTK_DISABLED=1 <command>` (docs/guide/getting-started/configuration.md); the prefix is demanded only when rtk and its hook are there.
+    ev_re='agent[.]sh[[:space:]]+(build-record|verify-[a-z-]+)|(^|[;&|(]|[[:space:]])((npm|pnpm|yarn|bun)[[:space:]]+(run[[:space:]]+)?(test|build|lint)|pytest|go[[:space:]]+(test|build|vet)|cargo[[:space:]]+(test|build|clippy)|dotnet[[:space:]]+(test|build)|mvn|gradle|jest|vitest|make[[:space:]]+(test|build|check)|node[[:space:]]+--test|sh[[:space:]]+tests/)([[:space:]]|$)'
+    rtk_need=no
+    if printf '%s' "$cmd" | grep -Eq "$ev_re"; then rtk_need=yes
+    else case "$role" in reviewer|security_reviewer|verifier) printf '%s' "$cmd" | grep -Eq '(^|[;&|(]|[[:space:]])git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?(diff|show)([[:space:]]|$)' && rtk_need=yes ;; esac; fi
+    if [ "$rtk_need" = yes ]; then
+      case "$cmd" in
+        *RTK_DISABLED=1*|*'rtk bypass'*) ;;
+        *) if [ "${PROOFLINE_RTK:-}" != no ] && command -v rtk >/dev/null 2>&1 && grep -qs rtk "${HOME:-/nonexistent}/.claude/settings.json" "$root/.claude/settings.json" "$root/.claude/settings.local.json"; then
+             deny "rtk is installed and its hook compresses command output, but this command produces evidence (agent.sh, build record, verification, tests, review diff) and must run uncompressed: prefix it with RTK_DISABLED=1, for example RTK_DISABLED=1 <command> (rtk configuration docs)"
+           fi ;;
+      esac
+    fi
     if [ -n "$act" ] && { [ "$sub" = yes ] || [ "$role" != lead ]; } && ! tmp_is_scratch_root; then
       stray=$(stray_tmp_path "$cmd")
       # shellcheck disable=SC2016 # literal $TMPDIR in the message
@@ -2322,15 +2352,34 @@ $l" ;; esac
   # is a proofline bug: the hook records a friction note (counted in the friction report) and says so in one line.
   # Only a request counts: the command sits on a line that asks the user to run it ("please run", "run:", an imperative line), or in a
   # code fence announced by such a line. A report of what the lead itself ran ("I ran agent.sh next") is not one.
-  fr_hit=no   # A188: the pattern below names agent.sh, so a message without that text cannot match (no awk)
-  case "$msg" in *agent.sh*) fr_hit=$(printf '%s\n' "$msg" | awk -v re='agent\\.sh[[:space:]]+(approve|approve-pending|answer|request-approval|waive|next|status|handoff|freeze|refreeze|record|submit|terminate|reopen|start|branch|cleanup|deliver-[a-z]+|publish-completion-report|decide|ask|raise-budget)([[:space:]]|$|[`"\047.,;:)])' '
-    function asks(t) { t = tolower(t); return t ~ /(please|kindly)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /you[[:space:]]+(should|can|could|must|need to|have to|may)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /(run|execute|paste|type|enter)[[:space:]]*:/ || t ~ /^[[:space:]>*-]*(run|execute|paste|type|enter)[[:space:]]/ || t ~ /(in|into) (your|a) terminal/ }
+  # A193: Claude Code rejects a Skill call for a proofline skill itself (disable-model-invocation) before any hook runs, so the hook cannot answer it.
+  # What it can do is catch the turn that gives up on it: a message that quotes that error, or asks the user to run /proofline:proofline-<skill>,
+  # is sent back once with the file to read.
+  case "$msg" in *disable-model-invocation*|*'/proofline:proofline-'*)
+    if [ "$(jget stop_hook_active)" != true ]; then
+      if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then sk_rf=$CLAUDE_PLUGIN_ROOT/skills; else sk_rf=$root/.agents/skills; fi
+      printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: do not ask the user to run a proofline skill and do not stop at the Skill tool error: every proofline skill is disable-model-invocation. Read the skill file ($sk_rf/<name>/SKILL.md, for example $sk_rf/proofline-lead/SKILL.md) and continue with the same step.")"
+      exit 0
+    fi ;;
+  esac
+  # A193: the request is also refused (the message is sent back once) and it covers --no-verify, the edit of a file under .agents/ and a
+  # command started with "!"; a command that is the user's own work (git push, gh auth login, a plugin update) is never matched.
+  fr_hit=no   # A188: the patterns below name agent.sh, --no-verify or .agents/, so a message without that text cannot match (no awk)
+  case "$msg" in *agent.sh*|*--no-verify*|*.agents/*) fr_hit=$(printf '%s\n' "$msg" | awk -v re='agent\\.sh[[:space:]]+[a-z]|--no-verify' -v mut='(edit|modify|change|append|overwrite|delete|remove|rm|mv|cp|sed|tee|touch|vim|nano|echo|printf|cat)[[:space:]]|>' '
+    function asks(t) { t = tolower(t); return t ~ /(please|kindly)[[:space:]]+(run|execute|paste|type|enter|edit|modify|change)/ || t ~ /you[[:space:]]+(should|can|could|must|need to|have to|may)[[:space:]]+(run|execute|paste|type|enter|edit|modify|change)/ || t ~ /(run|execute|paste|type|enter)[[:space:]]*:/ || t ~ /^[[:space:]>*-]*(run|execute|paste|type|enter|edit|modify|change)[[:space:]]/ || t ~ /(in|into) (your|a) terminal/ || t ~ /^[[:space:]>*-]*!/ }
+    function named(t) { return t ~ re || (t ~ /[.]agents\// && tolower(t) ~ mut) }
     /^[[:space:]]*```/ { fence = !fence; if (fence) fa = prev; next }
-    { if (fence) { if ($0 ~ re && fa) hit = 1 } else { if ($0 ~ re && asks($0)) hit = 1; prev = asks($0) } }
+    { if (fence) { if (named($0) && fa) hit = 1 } else { if (named($0) && asks($0)) hit = 1; prev = asks($0) } }
     END { print hit ? "yes" : "no" }') ;;
   esac
   if [ "$fr_hit" = yes ]; then
-    if [ -n "$act" ] && [ "$act" != INVALID ]; then (unset AGENT_ROLE; sh "$agent" friction-note "$act" user-command >/dev/null 2>&1) || :; fi
+    sh_again=$(jget stop_hook_active)
+    if [ "$sh_again" != true ] && [ -n "$act" ] && [ "$act" != INVALID ]; then (unset AGENT_ROLE; sh "$agent" friction-note "$act" user-command >/dev/null 2>&1) || :; fi
+    fr_msg="Do not make the user do this: this message asks the user to run an internal command (agent.sh, approve, answer, --no-verify) or to edit a file under .agents/ by hand. Either do it yourself through the right path, or report it in one line as a proofline bug and write it to the friction report (A171, A193). The user's own work (git push, gh auth login, a plugin update) may stay in the message."
+    if [ "$sh_again" != true ]; then   # sent back once; the runtime sets stop_hook_active on the retry, which then ends the turn
+      printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: $fr_msg")"
+      exit 0
+    fi
     out="${out:+$out
 }proofline: this message asks the user to run an internal command (agent.sh ...). That is a proofline bug (A171), noted in the friction report. The lead runs internal commands itself and tells the user only the one-line state and a /proofline next step."
   fi
@@ -2349,7 +2398,20 @@ session)
   if [ -n "$act" ] && [ "$act" != INVALID ]; then
     nxt=$(sh "$agent" next "$act" 2>&1 | sed -n 's/^next=//p' | awk 'BEGIN { ORS = "" } { if (NR > 1) print "; "; print }')
   else nxt="no active run: start one with the proofline-lead skill"; fi
-  ctx SessionStart "proofline installed; you are the lead; use the proofline-lead skill ($skill); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}" ;;
+  # A194: the plugin and the project's install are different versions: one line, and the lead says so before it starts a run
+  sv_msg=''
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json" ]; then
+    sv_p=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json" | head -n 1)
+    sv_i=$(sed -n 's/^proofline_version:[[:space:]]*"\{0,1\}\([0-9][0-9.]*\).*/\1/p' "$root/.agents/config.yaml" | head -n 1)
+    if [ -n "$sv_p" ] && [ -n "$sv_i" ] && [ "$sv_p" != "$sv_i" ]; then
+      sv_msg="proofline version mismatch: plugin $sv_p, this project's install $sv_i; run /proofline upgrade (or update the plugin if the project is the newer one)"
+    fi
+  fi
+  if [ -n "$sv_msg" ]; then
+    sv_c="proofline installed; you are the lead; use the proofline-lead skill ($skill) by reading that file (never through the Skill tool: every proofline skill is disable-model-invocation and the call fails); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}. $sv_msg. Tell the user this before you start a run."
+    printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(jesc "$sv_msg")" "$(jesc "$sv_c")"; exit 0
+  fi
+  ctx SessionStart "proofline installed; you are the lead; use the proofline-lead skill ($skill) by reading that file (never through the Skill tool: every proofline skill is disable-model-invocation and the call fails); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}" ;;
 
 *) echo "usage: proofline-hook.sh <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]" >&2; exit 0 ;;
 esac

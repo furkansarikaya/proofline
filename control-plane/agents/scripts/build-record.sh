@@ -25,6 +25,7 @@
 # Set `commands.install` when that matters. A stale lock is reclaimed when its process is dead or after
 # BUILD_RECORD_WAIT seconds (default 1800); two waiters reclaiming at the very same moment is not guarded.
 set -u
+RTK_DISABLED=1; export RTK_DISABLED   # A194: the build record is evidence; the user's rtk hook never compresses it
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
 op=${1:-}; rev=${2:-}

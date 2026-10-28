@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.34" "$out" "proofline 0.0.34"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.34 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.35" "$out" "proofline 0.0.35"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.35 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.34 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.35 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -157,7 +157,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.34' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.35' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -334,6 +334,17 @@ expect "doctor FAILs when .agents/ecosystems.tsv is missing" "$out" "FAIL ecosys
 [ "$rc" != 0 ] && ok "doctor exits non-zero without the ecosystem definition" || die "doctor passed without .agents/ecosystems.tsv"
 dec2=$T/dec2; cp -R "$base" "$dec2"; printf 'npm\tmanifests\tstale.lock\n' >> "$dec2/.agents/ecosystems.tsv"
 expect "doctor FAILs when .agents/ecosystems.tsv is not what ecosystems.json generates" "$(pl "$dec2" doctor 2>&1)" "FAIL ecosystems:"
+# A194: a project install of another version than the plugin is one WARN line with the next step; equal versions pass; optional tools are one line
+expect "doctor says the plugin and the install are the same version" "$(pl "$d1" doctor 2>&1)" "PASS version: plugin and project install are both"
+dvs=$T/dvs; cp -R "$base" "$dvs"; sed 's/^proofline_version:.*/proofline_version: 0.0.1/' "$dvs/.agents/config.yaml" > "$dvs/cfg.tmp" && mv "$dvs/cfg.tmp" "$dvs/.agents/config.yaml"
+out=$(pl "$dvs" doctor 2>&1)
+expect "doctor warns when the project install is older than the plugin" "$out" "WARN version: plugin "
+expect "doctor names the next step for an older install" "$out" "the project is older. Next step: /proofline upgrade"
+sed 's/^proofline_version:.*/proofline_version: 99.0.0/' "$dvs/.agents/config.yaml" > "$dvs/cfg.tmp" && mv "$dvs/cfg.tmp" "$dvs/.agents/config.yaml"
+expect "doctor names the plugin update for a newer install" "$(pl "$dvs" doctor 2>&1)" "the project is newer than the plugin. Next step: update the plugin"
+expect "doctor shows ast-grep and rtk on one line" "$(pl "$d1" doctor 2>&1)" "PASS tools: ast-grep "
+mkdir -p "$T/rtkbin"; printf '#!/bin/sh\nexit 0\n' > "$T/rtkbin/rtk"; chmod +x "$T/rtkbin/rtk"
+expect "doctor shows an installed rtk and its bypass" "$(PATH="$T/rtkbin:$PATH" pl "$d1" doctor 2>&1)" "rtk installed ("
 # A163: a GitHub project without a pull_request workflow gets a WARN with the exact fix line; with one it passes
 dci=$T/dci; cp -R "$base" "$dci"; git -C "$dci" remote add origin https://github.com/acme/app.git 2>/dev/null || git -C "$dci" remote set-url origin https://github.com/acme/app.git
 out=$(pl "$dci" doctor 2>&1)
@@ -531,7 +542,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.34" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.35" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1

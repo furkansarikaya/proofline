@@ -4,7 +4,7 @@ description: Implements a change test-first with recorded proof. For every non-e
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.34"
+  version: "0.0.35"
 ---
 
 # tdd-proof
@@ -24,6 +24,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
 3. **One behaviour per cycle.** Each cycle names the scope path, the test (file and name), and the acceptance criterion it proves. Run only that test for RED/GREEN, then the wider suite for "nothing else broke".
 4. **GREEN = the same test, the same command.** The command that failed in RED passes unchanged in GREEN; then the project's suite (or the plan's `## Verification commands`) passes. A GREEN reached by editing the test after RED is invalid: if the test was wrong, restart the cycle from RED.
 5. **Hollow-test check before GREEN is accepted.** In a separate `git worktree`, revert the production change for this cycle (or mutate it to break the behaviour), run the same test command, and confirm it fails again with an assertion failure. A test that still passes is hollow: strengthen it and restart the cycle ([HOLLOW.md](references/HOLLOW.md)).
+5a. **Code someone else already edited without RED (A198).** Only for changes that were in the tree when you started; your own work follows the cycle. Never ask the user for missing evidence. Keep or write the test, save the changed implementation file to scratch, put it back to the base content for one run (`git show <base>:<path>` into the file with your edit tool; for a file the plan creates, a minimal stub that fails the test on its assertion; never delete a file), run the test and record RED (it must fail for the expected reason), restore the saved change, run the same command and record GREEN, all in one turn. The recorder accepts GREEN only when an implementation file differs from its state at RED, so RED is recorded while the change is put back; a RED shown only in a separate worktree is not recorded.
 6. **Refactor only with tests green**, only inside scope, with no behaviour change and no unrelated cleanup; re-run the suite after each step and record REFACTOR evidence. REFACTOR is optional and never substitutes for RED/GREEN.
 7. **Exemptions are the plan's, not yours.** A path with `tdd_exemption` in the plan needs no cycle; never invent one. Standalone: an exemption is the user's explicit statement, recorded verbatim.
 8. **Never weaken a check** (skip, delete, loosen an assertion, widen a tolerance) to reach GREEN. Never touch the evidence files by hand; they are written only through the recorder.

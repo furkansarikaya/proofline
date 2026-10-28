@@ -343,4 +343,19 @@ for pid in $pids; do wait "$pid"; done
 ck "A113 parallel dispatches: exactly four distinct dispatch logs d001..d004" '[ "$(cd "$a/runs/T-1/dispatch" && ls ???-reviewer-claude.log | tr "\n" " ")" = "001-reviewer-claude.log 002-reviewer-claude.log 003-reviewer-claude.log 004-reviewer-claude.log " ]'
 ck "A113 parallel dispatches: exactly four distinct submission tokens d001..d004" '[ "$(cd "$loc/submissions" && ls | sed "s/.status$//" | tr "\n" " ")" = "d001-reviewer-claude d002-reviewer-claude d003-reviewer-claude d004-reviewer-claude " ]'
 
+# A196: a run in a worktree gets the MAIN tree's .agents/local as one more writable root (the lock submit takes); a run in the main tree does not
+reset; mkcfg auto
+git -C "$p" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m init
+mkdir -p "$loc/worktrees"
+git -C "$p" worktree add -q --detach "$loc/worktrees/T-1" HEAD
+mkdir -p "$loc/worktrees/T-1/.agents"
+for e in scripts roles roles.conf config.yaml; do cp -R "$a/$e" "$loc/worktrees/T-1/.agents/$e"; done
+mkdir -p "$loc/worktrees/T-1/.agents/runs/T-1" "$loc/worktrees/T-1/.agents/local"
+wt=$(cd "$loc/worktrees/T-1" && pwd -P)
+rc=0; out=$(sh "$wt/.agents/scripts/dispatch.sh" T-1 implementer --prompt-file "$here/../roles.conf" 2>"$tmp/err") || rc=$?; err=$(cat "$tmp/err")
+ck "A196 worktree run: only the main tree's .agents/local/locks is a writable root there" 'grep -qx -- "$(cd "$p" && pwd -P)/.agents/local/locks" "$loc/codex.argv" && grep -qx -- "$wt/.agents/local" "$loc/codex.argv" && ! grep -qx -- "$(cd "$p" && pwd -P)/.agents/local" "$loc/codex.argv"'
+ck "A196 worktree run: no other part of the main tree is granted" '! grep -qx -- "$p/.agents" "$loc/codex.argv" && ! grep -qx -- "$p" "$loc/codex.argv"'
+reset; d T-1 implementer --prompt-file "$here/../roles.conf"
+ck "A196 main tree run: .agents/local is granted once and no worktree root exists" '[ "$(grep -cx -- "$a/local" "$loc/codex.argv")" = 1 ]'
+
 [ "$fails" -eq 0 ]
