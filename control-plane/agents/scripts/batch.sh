@@ -174,7 +174,7 @@ plan() {
   mkdir -p "$bd"
   if [ -f "$bd/state.tsv" ] || [ -s "$bd/merged.tsv" ] || [ -f "$bd/ci.tsv" ] || [ -f "$bd/answers.tsv" ]; then
     hd=$bd/history/$( [ -f "$bd/SUMMARY.md" ] && bid || echo previous ); mkdir -p "$hd"
-    for f in SUMMARY.md order.tsv state.tsv merged.tsv ci.tsv lint.tsv answers.tsv; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
+    for f in SUMMARY.md order.tsv state.tsv merged.tsv ci.tsv lint.tsv answers.tsv paths.tsv; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
   fi
   cap=$(cfgv batch.mutation_budget_cap 40)
   # A200: plan-lint and the commands proposal, before the summary (the approval is bound to the summary's hash, so to both)
@@ -182,6 +182,14 @@ plan() {
   while IFS="$(printf '\t')" read -r _k lid lcls _d _t; do
     lf=$td/$lid.md; [ -f "$lf" ] || lf=$td/todo/$lid.md; [ -f "$lf" ] || lf=$td/backlog/$lid.md
     lint_task "$lid" "$lf" "$lcls"
+  done < "$tmp/kept"
+  # A200: the code paths each task names (content and document paths are left out): a task that shares one with an earlier task that is not merged waits for it
+  : > "$tmp/paths.tsv"
+  while IFS="$(printf '\t')" read -r _k lid _c _d _t; do
+    lf=$td/$lid.md; [ -f "$lf" ] || lf=$td/todo/$lid.md; [ -f "$lf" ] || lf=$td/backlog/$lid.md
+    lp=$(lint_paths "$lf")
+    # shellcheck disable=SC2086 # paths of the safe character set of lint_paths
+    [ -z "$lp" ] || sh "$agent" path-kind $lp 2>/dev/null | awk -F'\t' -v t="$lid" '$1 == "code" { print t "\t" $2 }' >> "$tmp/paths.tsv" || :
   done < "$tmp/kept"
   awk -F'\t' -v OFS='\t' '{ print "Q" NR, $1, $2, $3, $4, $5, $6 }' "$tmp/lint.raw" > "$tmp/lint.tsv"   # Qn id kind text options rec param
   pf=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/commands/PROPOSAL.tsv
@@ -237,6 +245,7 @@ plan() {
   mv "$tmp/SUMMARY.md" "$bd/SUMMARY.md"
   mv "$tmp/order" "$bd/order.tsv"
   mv "$tmp/lint.tsv" "$bd/lint.tsv"
+  mv "$tmp/paths.tsv" "$bd/paths.tsv"
   cat "$bd/SUMMARY.md"
   printf '\nbatch id: %s\n\n' "$(bid)"
 }
@@ -334,6 +343,26 @@ derive() {
           *) dr_s=waiting; dr_d="depends on $dep (not merged yet)"; break ;;
         esac
       done
+      # A200: a task that names a code path an earlier task of the batch names too waits until that task is merged (the same file in two
+      # open branches is a conflict at merge); a dependency that is not earlier in the order is not "done before this batch" either
+      if [ -z "$dr_s" ]; then
+        for dep in $(awk -F'\t' -v t="$dr_id" '$1 == t { gsub(/,/, " ", $3); print $3 }' "$bd/order.tsv"); do
+          case "$dep" in -|'') continue ;; esac
+          if merged_pr "$dep" >/dev/null; then continue; fi
+          awk -F'\t' -v t="$dep" '$1 == t { f = 1 } END { exit !f }' "$bd/order.tsv" || continue
+          awk -F'\t' -v t="$dep" '$1 == t { f = 1 } END { exit !f }' "$dv" || { dr_s=waiting; dr_d="depends on $dep (later in the order, not merged yet)"; break; }
+        done
+      fi
+      if [ -z "$dr_s" ] && [ -s "$bd/paths.tsv" ]; then
+        dr_o=$(awk -F'\t' -v t="$dr_id" 'NR == FNR { if ($1 == t) mine[$2] = 1; next } ($1 != t) && ($2 in mine) { print $1 "\t" $2 }' "$bd/paths.tsv" "$bd/paths.tsv" | while IFS="$(printf '\t')" read -r dr_x dr_y; do
+            # only a task that comes EARLIER in the order and is not merged
+            if awk -F'\t' -v t="$dr_x" -v me="$dr_id" '$1 == me { exit } $1 == t { f = 1 } END { exit !f }' "$bd/order.tsv" && ! merged_pr "$dr_x" >/dev/null; then printf '%s\t%s\n' "$dr_x" "$dr_y"; break; fi
+          done)
+        if [ -n "$dr_o" ]; then
+          dr_x=${dr_o%%	*}; dr_ds=$(awk -F'\t' -v t="$dr_x" '$1 == t { print $2; exit }' "$dv")
+          case "$dr_ds" in parked|skipped) dr_s=skipped; dr_d="shares ${dr_o#*	} with $dr_x ($dr_ds)" ;; *) dr_s=waiting; dr_d="shares ${dr_o#*	} with $dr_x (not merged yet)" ;; esac
+        fi
+      fi
       if [ -z "$dr_s" ]; then own_state "$dr_id"; dr_s=$DS; dr_d=$DD; dr_q=$DQ; fi
     fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$dr_id" "$dr_s" "$(tsv "$dr_d")" "$(tsv "$dr_q")" "$dr_p" "$dr_t" >> "$dv"

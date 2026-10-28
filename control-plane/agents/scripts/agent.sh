@@ -300,6 +300,8 @@ config_check() {
       else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
       else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
       else if (k == "dispatch.claude_permission_mode") en(k, v, "bypassPermissions|acceptEdits|default")
+      else if (k == "dispatch.network_retries") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 > 6) bad("dispatch.network_retries is at most 6") }
+      else if (k == "dispatch.network_backoff_seconds") num(k, v)
       else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad("dispatch.timeout_seconds must be at least 30") }
       seen[k] = 1; gv[k] = v
     }
@@ -5302,6 +5304,11 @@ batch_approval() {
   [ "$(gate_field "$ba_f" answered_by)" = user ] || return 1
   case "$(gate_field "$ba_f" source)" in prompt_capture|tty) printf '%s\n' "$ba_f" ;; *) return 1 ;; esac
 }
+# batch_member ID: 0 when ID is a task of the approved batch (A200: the lead then goes on by itself after CODE_DONE and DONE)
+batch_member() { batch_approval >/dev/null 2>&1 && awk -F'\t' -v t="$1" '$1 == t { f = 1 } END { exit !f }' "$(batch_dir)/order.tsv" 2>/dev/null; }
+batch_continue_note() { # ID: one line for next_step
+  ! batch_member "$1" || printf 'note=BATCH (A200): %s belongs to the approved batch. Do NOT stop at this state and do NOT hand the user a "Next step"; write ONE status line ("%s: <state>, <what runs now>, next: <task>") and go on: finish the knowledge step, the report and DONE, then agent.sh batch-next (its NEXT: deliver covers the delivery with batch-cover, never a question). During a wait of a minute or more (a CI run, a dispatch) write one status line, then wait.\n' "$1" "$1"
+}
 batch_check() { batch_approval >/dev/null || fail "no valid batch approval for the current summary (agent.sh batch-plan, then the user's reply \"approve batch\")"; hash_file "$(batch_dir)/SUMMARY.md"; }
 # A200: commands-check: 0 when the user agreed to the commands proposal (`proofline doctor --commands`) in their OWN words: either
 # a batch approval whose summary names this very proposal, or the newest captured prompt, newer than the proposal, which is an
@@ -5710,6 +5717,12 @@ decide() {
   dc_rc=0
   dc_res=$(sh "$scripts/exec-policy.sh" "$@") || dc_rc=$?
   if [ "$dc_rc" != 0 ]; then [ "$dc_rc" != 1 ] || dc_rc=4; echo "decision refused by exec-policy.sh (exit $dc_rc)" >&2; return "$dc_rc"; fi
+  # A200: the Agent path runs a Claude Code subagent. A role the configuration gives to another runtime (Codex, a command template) is
+  # dispatched with dispatch.sh; recording an Agent-path decision for it would run the role on the wrong runtime without a word.
+  if [ "$dc_ap" = yes ]; then
+    dc_rt=$(printf '%s\n' "$dc_res" | sed -n 's/^runtime=//p' | head -n 1)
+    case "$dc_rt" in ''|claude) ;; *) fail "decide --agent-path refused (A200): the role $dc_role is configured for the runtime $dc_rt, not Claude Code, so it has no Agent path. Dispatch it instead: dispatch.sh $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --prompt-file <assignment file> (it decides itself). To run this role on Claude Code instead, the user changes runtime.roles.$dc_role (or the group key) in .agents/config.yaml" ;; esac
+  fi
   dc_body=$(printf '%s\nrole=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_res" "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)")
   [ "$dc_ap" != yes ] || dc_body="$dc_body
 via=agent-path
@@ -6015,9 +6028,10 @@ next_step() {
         done
         r "gates not passing:$ns_todo"
       else
-        unsupported_next "$ns_id"; not_rerun_next "$ns_id"
+        unsupported_next "$ns_id"; not_rerun_next "$ns_id"; friction_reminder "$ns_id"
         o "agent.sh handoff $ns_id CODE_DONE"; r "every required gate passes"; fi ;;
     CODE_DONE)
+      batch_continue_note "$ns_id"
       # A184 (round 2): a gate of the effective tier that is not satisfied for the task-owned patch cannot be recorded any more (gates are
       # recorded in IMPLEMENTED only, and only `amend` leaves CODE_DONE): never send the lead to dispatch reviewers whose results are refused
       ns_miss=''; ns_tp=$(task_patch_fingerprint "$ns_id")
@@ -6028,6 +6042,7 @@ next_step() {
       fi
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
+          [ "$(section_value "$ns_d" completion_report published)" = true ] || friction_reminder "$ns_id"
           if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
         *) ns_kd=$(knowledge_drift "$ns_id" | head -n 5 | tr '\n' ';')
@@ -6035,11 +6050,13 @@ next_step() {
            o "agent.sh knowledge-done $ns_id [not_applicable \"<reason>\"]"; r "knowledge transaction not recorded" ;;
       esac ;;
     DONE)
+      batch_continue_note "$ns_id"
       # A169: once the merge step ran (a pull request is open) CI decides: merge and clean up, or a CI-fix round; resume continues from here
       if [ -f "$(deliver_dir "$ns_id")/PR" ]; then
         ci_progress "$ns_id" | while IFS= read -r ns_cl; do o "$ns_cl"; done
         r "the pull request is open (the merge step ran); its CI decides the next step (A169)"; return 0
       fi
+      if batch_member "$ns_id"; then o "agent.sh batch-next (the delivery of $ns_id is covered by the batch approval: agent.sh batch-cover $ns_id delivery)"; r "run DONE, in the approved batch"; return 0; fi
       o "agent.sh request-approval $ns_id commit (delivery needs the user's approval)"; o "agent.sh cleanup $ns_id (after delivery)"; o "optional: agent.sh friction show; send it as a GitHub issue only if the user wants it: agent.sh request-approval - report, then agent.sh friction send"; r "run DONE" ;;
   esac
 }
@@ -6293,6 +6310,12 @@ evidence_run_counts() { # ID -> "<records> <passed>": the worker-evidence record
   done
   echo "$ec_n $ec_p"
 }
+# friction_count ID KIND (A200): the friction-note events of one kind recorded in the run's ledger
+friction_count() { grep -c "event=friction-note .*detail=$2\$" "$(ledger_file "$1")" 2>/dev/null || true; }
+# friction_reminder ID (A200): one line for next: a proofline limit worked around by a hand step is a proofline_bug note, said now
+friction_reminder() {
+  printf 'note=FRICTION (A200): if you got past a proofline limit in this run with a workaround (a script error, a refusal that was wrong for a legitimate step, a gate or hook you had to route around, a hand edit), record it now: agent.sh friction-note %s proofline_bug (proofline_bug notes so far: %s). The completion report lists the count; a workaround without a note is lost to the friction report.\n' "$1" "$(friction_count "$1" proofline_bug)"
+}
 report_facts() {
   rf_id=$1; require_run "$rf_id"; risk_prime "$rf_id"
   rf_fp=$(gate_fingerprint); rf_gl=$(required_gates "$rf_id")
@@ -6309,6 +6332,7 @@ report_facts() {
     done
   done
   rf_ks=$(section_value "$(run_dir "$rf_id")" execution knowledge_state); rf_kr=$(section_value "$(run_dir "$rf_id")" execution knowledge_reason)
+  printf -- '- Friction notes recorded (A200): proofline_bug %s, user-command %s, user-shell %s\n' "$(friction_count "$rf_id" proofline_bug)" "$(friction_count "$rf_id" user-command)" "$(friction_count "$rf_id" user-shell)"
   printf -- '- Knowledge step: %s%s\n' "${rf_ks:-not_started}" "${rf_kr:+; not_applicable reason: $rf_kr}"
   printf -- '- Fix rounds: %s of %s\n- Refreezes: %s\n- Files changed (task-owned paths): %s\n' "$(fix_rounds_done "$rf_id")" "$(max_fix_rounds)" \
     "$(grep -c 'event=refreeze ' "$(ledger_file "$rf_id")" 2>/dev/null || true)" "$(task_owned_paths "$rf_id" 2>/dev/null | grep -c . || true)"
@@ -6468,6 +6492,23 @@ require_no_knowledge_drift() { # ID WHAT
   rnk=$(knowledge_drift "$1" | head -n 5 | tr '\n' ';')
   [ -z "$rnk" ] || fail "$2: design-sync drift in knowledge-scope documents is still there (${rnk%;}); the knowledge step must fix it (update the document or the code claim), then 'agent.sh knowledge-done $1'. No waiver or scope change applies to these documents"
 }
+# wiki_lint_run ID PATHS (A200): the llm-wiki lint of every wiki folder the knowledge step changed. Fails on a lint error; a project
+# that has no node or no installed llm-wiki script cannot be linted, which is said and does not block.
+wiki_lint_run() {
+  wl_x=$root/.agents/skills/llm-wiki/scripts/validate-wiki.mjs
+  wl_dirs=$(printf '%s\n' "$2" | sed -n 's|^\(\(.*/\)\{0,1\}wiki\)/.*|\1|p' | sort -u)
+  [ -n "$wl_dirs" ] || return 0
+  if [ ! -f "$wl_x" ] || ! command -v node >/dev/null 2>&1; then echo "note: the wiki lint was not run (node or .agents/skills/llm-wiki/scripts/validate-wiki.mjs is missing); run the llm-wiki lint yourself"; return 0; fi
+  for wl_d in $wl_dirs; do
+    [ -d "$root/$wl_d" ] || continue
+    wl_rc=0; wl_o=$(cd "$root" && node .agents/skills/llm-wiki/scripts/validate-wiki.mjs "$wl_d" --root . 2>&1) || wl_rc=$?
+    case "$wl_rc" in
+      0) ;;
+      1) printf '%s\n' "$wl_o" | head -n 12 | sed 's/^/  /' >&2; fail "knowledge-done blocked (A200): the wiki lint of $wl_d found errors (listed above; $wl_d/lint-report.md has them all). Fix the pages, then run knowledge-done again" ;;
+      *) fail "knowledge-done blocked (A200): the wiki lint of $wl_d could not run (exit $wl_rc): $(printf '%s' "$wl_o" | head -n 2 | tr '\n' ' ')" ;;
+    esac
+  done
+}
 knowledge_done() {
   id=$1 state=${2:-KNOWLEDGE_DONE} reason=${3:-}; require_run "$id"; dir=$(run_dir "$id"); require_lead
   case "$state" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "invalid knowledge state: $state" ;; esac
@@ -6486,6 +6527,15 @@ knowledge_done() {
   fi
   verify_seal "$id"
   require_no_knowledge_drift "$id" "knowledge-done blocked"
+  # A200: the checks handoff DONE used to be the first to make run here, where the lead can still act: the page is written (KNOWLEDGE_DONE
+  # with no knowledge-scope change is refused, as DONE did), the secret scan of those files passes, and the wiki lint ran on the wiki the
+  # step changed (the script runs it itself; an agent's word that it ran is no evidence) and found no error.
+  if [ "$term" = 0 ] && [ "$state" = KNOWLEDGE_DONE ]; then
+    kd_own=$(knowledge_owned_paths "$id")
+    [ -n "$kd_own" ] || fail "knowledge-done blocked (A200): no knowledge page was written. KNOWLEDGE_DONE records pages: write the wiki page, the ADR or the design document change the step is for (under $(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/ docs/product/')), run the wiki lint, then run knowledge-done again; or, when the task needs no knowledge, agent.sh knowledge-done $id not_applicable \"<one specific sentence>\" (refused with the signal when the task changed behaviour or a contract)"
+    scan_knowledge_secrets "$id"
+    wiki_lint_run "$id" "$kd_own"
+  fi
   [ "$term" = 1 ] || ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
   [ ! -f "$scripts/lessons.sh" ] || sh "$scripts/lessons.sh" validate >/dev/null || fail "knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)"
   set_run_value "$id" execution knowledge_state "$state"

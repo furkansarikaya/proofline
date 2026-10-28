@@ -85,6 +85,10 @@ case "${FAKE_CODEX:-ok}" in
   late) printf 'x\n' > "$o"; n=$(cat "$loc/attempts" 2>/dev/null || echo 0); echo $((n + 1)) > "$loc/attempts"; [ "$n" -lt 1 ] || sub --confidence high --result DONE ;;
   limit) echo "ERROR: You've hit your usage limit. Try again later." >&2; exit 1 ;;
   network) echo 'workspace routing discovery failed: error sending request' >&2; exit 1 ;;
+  flaky) n=$(cat "$loc/attempts" 2>/dev/null || echo 0); echo $((n + 1)) > "$loc/attempts"
+      if [ "$n" -lt 2 ]; then echo 'error: SSL_ERROR_SYSCALL: connection reset by peer' >&2; exit 1; fi
+      printf 'x\n' > "$o"; sub --confidence high --result DONE ;;
+  ssl) echo 'error sending request: SSL handshake failed (connection reset by peer)' >&2; exit 1 ;;
   fail) echo "error: tests failed in src/x" >&2; exit 1 ;;
   sleep) exec sleep 20 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
@@ -230,6 +234,15 @@ ck "task failure: exit 1, no failover, no record" '[ "$rc" -eq 1 ] && ! has "$lo
 
 reset; d FAKE_CODEX=network T-1 implementer
 ck "network failure: BLOCKED with runtime_unavailable:network guidance" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q "runtime_unavailable:network" && printf "%s" "$out" | grep -q "enable network access" && [ ! -f "$loc/claude.argv" ] && ! has "$loc/calls.log" submit'
+
+# A200: a dropped connection / SSL error is retried on the same runtime, resuming, a bounded number of times with a growing wait
+reset; d FAKE_CODEX=flaky PROOFLINE_DISPATCH_NET_BACKOFF=1 T-1 implementer
+ck "A200: two dropped connections are retried and the third attempt submits (same runtime, no failover)" '[ "$rc" -eq 0 ] && [ "$(cat "$loc/attempts")" = 3 ] && [ ! -f "$loc/claude.argv" ] && printf "%s" "$out" | grep -q "^submitted: T-1 implementer DONE"'
+ck "A200: the waits grow and are ledgered; the retry prompt carries the RESUME note" 'has "$loc/ledger.log" "dispatch network retry 1/3" && has "$loc/ledger.log" "wait=1s" && has "$loc/ledger.log" "dispatch network retry 2/3" && has "$loc/ledger.log" "wait=2s" && has "$loc/codex.stdin" "RESUME:" && has "$loc/codex.stdin" "network error after attempt"'
+reset; d FAKE_CODEX=ssl PROOFLINE_DISPATCH_NET_BACKOFF=0 T-1 implementer
+ck "A200: a connection that never comes back stops after the bounded retries (3), BLOCKED with the network guidance" '[ "$rc" -eq 6 ] && has "$loc/ledger.log" "dispatch network retry 3/3" && ! has "$loc/ledger.log" "retry 4/" && printf "%s" "$out" | grep -q "after 3 automatic retries" && [ ! -f "$loc/claude.argv" ]'
+reset; d FAKE_CODEX=fail PROOFLINE_DISPATCH_NET_BACKOFF=0 T-1 implementer
+ck "A200: a task failure is never retried as a network error" '[ "$rc" -eq 1 ] && ! has "$loc/ledger.log" "network retry"'
 
 mkcfg ask
 reset; d FAKE_CLAUDE=limit T-1 reviewer
