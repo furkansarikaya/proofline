@@ -5784,7 +5784,7 @@ next_step() {
         r "failing gates:$ns_fail"
       elif [ -n "$ns_todo" ]; then
         # A171: the build record the reviewers and the verifier read comes first; it is a missing step, not a reviewer's lowered confidence
-        case "$ns_todo" in *REVIEW_*|*VERIFY*) if ns_bu=$(build_record_unmakeable "$ns_id"); then o "$(build_record_step_text "$ns_id")   (MISSING STEP for the lead before the review gates: $ns_bu)"; fi ;; esac
+        case "$ns_todo" in *REVIEW_*|*VERIFY*) if ns_bu=$(build_record_unmakeable "$ns_id"); then printf 'missing_step=lead, before the review gates: %s. Do: %s\n' "$ns_bu" "$(build_record_step_text "$ns_id")"; fi ;; esac
         case "$ns_todo" in *REVIEW_*|*VERIFY*) ! build_record_missing "$ns_id" || o "agent.sh build-record $ns_id run   (the build record is missing for this tree: make it before the review gates; reviewers and the verifier read it)" ;; esac
         for ns_x in $ns_todo; do
           ns_g=${ns_x%%:*}
