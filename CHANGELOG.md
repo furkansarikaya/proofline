@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.36 — 2026-10-28
+
+- A Codex worker's write access is narrowed to a list (A199): a permission profile gives it the run's own folder, `.agents/local/locks` and `submissions` (and the main tree's `locks` in a worktree); `windows`, `approvals`, `prompts` and `batch` are read-only in the main tree and in a worktree. The locks moved to `.agents/local/locks/`; the old lock is still honoured. `tests/real-session/codex-sandbox.sh` checks it in a real Codex sandbox without a model, and the smoke test has a Codex-only mode (`SMOKE_ONLY=codex`).
+
 ## 0.0.35 — 2026-10-28
 
 - The Skill tool no longer derails a run (A193): Claude Code rejects a Skill call for a proofline skill before any hook runs, so the session context, the entry skill, the lead and every role say to read the `SKILL.md` file instead, and the Stop hook sends back a message that gives up at that error; a PreToolUse redirect stays for runtimes that run hooks first. The entry skill, the lead and every role and generated agent file say never to use it. The Stop hook sends back a message that asks the user to run `agent.sh`, `approve`, `answer`, `--no-verify` or to edit `.agents/` by hand; `git push`, `gh auth login` and plugin updates are untouched.

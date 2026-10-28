@@ -10,7 +10,7 @@
 #   (key=value lines incl. runtime, model, effort, context_bytes). Nothing here re-decides them.
 # 2 prompt: stable prefix = the role's instructions (role_instructions), then the task-specific suffix
 #   (header + --prompt-file), which must fit the decision's context_bytes (never truncated).
-# 3 run: codex `exec` (`-s workspace-write`, `--add-dir` the run folder and .agents/local), claude `-p` running the
+# 3 run: codex `exec` (a permission profile that lists the writable paths one by one, A199), claude `-p` running the
 #   generated agent (`--agent proofline-<role>` from .claude/agents/, else `--agents` JSON built from
 #   .agents/roles/<role>.md and .agents/tools.conf; never the Agent/Task tools), or config
 #   dispatch.command_template.<runtime> (D8), with a timeout (config dispatch.timeout_seconds, default 1800,
@@ -49,6 +49,39 @@ agent=$here/agent.sh
 usage() { echo "usage: $0 <TASK-ID> <role> [--focus F] [--prompt-file F] [--model M] [--effort E] [--runtime RT]" >&2; exit 2; }
 die() { echo "dispatch: $*" >&2; exit 2; }
 tok() { case "$2" in ''|*[!A-Za-z0-9._+:-]*|-*) die "invalid value for $1: '$2'" ;; esac; }
+
+# codex_profile_args ID (A199): the `-c` arguments, one per line, that give a Codex worker the narrowest write access `agent.sh submit` and the
+# evidence recorder need. They define the permission profile `proofline-worker` (Codex, :workspace plus these rules) and select it; paths are
+# relative to the run's own tree (the main tree, or its worktree), `codex -C` being that tree. Everything not listed is read-only or not writable:
+#   .agents                              read-only, so windows/, approvals/, prompts/ and batch/ of .agents/local cannot be written (a worker that
+#                                        could write them could forge a write window, an approval or a captured user message)
+#   .agents/runs/<ID>                    its report, the recorded result, the gate record, worker-evidence, ledger (submit and the recorder write them)
+#   .agents/runs/<ID>/approvals, waivers read-only again: a worker never writes an approval or a waiver
+#   .agents/local/locks                  the lock folder (submit takes locks/tree.lock and, in a worktree, the main tree's locks/shared.lock)
+#   .agents/local/submissions            the submission status dispatch.sh reads
+#   <main>/.agents/local/locks           (a run in a worktree only) the main tree's shared lock, nothing else of the main tree
+#   <git dir>/worktrees                  `git worktree add` for mutation evidence in a separate worktree (D10)
+# The profile replaces `-s workspace-write`: Codex refuses a mix of default_permissions and a sandbox mode.
+codex_profile_args() {
+  cp_id=$1; cp_root=$2
+  cp_rules='".agents"="read",".agents/runs/'$cp_id'"="write",".agents/runs/'$cp_id'/approvals"="read",".agents/runs/'$cp_id'/waivers"="read",".agents/local/locks"="write",".agents/local/submissions"="write"'
+  cp_abs=''
+  if [ -f "$cp_root/.git" ]; then
+    cp_m=$(git -C "$cp_root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+    case "$(cd "$cp_root" && pwd -P)" in "$cp_m"/.agents/local/worktrees/*) mkdir -p "$cp_m/.agents/local/locks"; cp_abs="$cp_abs,\"$cp_m/.agents/local/locks\"=\"write\"" ;; esac
+  fi
+  cp_g=$(git -C "$cp_root" rev-parse --git-common-dir 2>/dev/null || true)
+  case "$cp_g" in '') ;; /*) ;; *) cp_g=$cp_root/$cp_g ;; esac
+  if [ -n "$cp_g" ] && mkdir -p "$cp_g/worktrees" 2>/dev/null; then cp_abs="$cp_abs,\"$(cd "$cp_g/worktrees" && pwd -P)\"=\"write\""; fi
+  case "$cp_rules$cp_abs" in *\\*) die "a path with a backslash cannot be placed in the Codex permission profile" ;; esac
+  printf '%s\n' -c 'default_permissions="proofline-worker"' -c 'permissions.proofline-worker.extends=":workspace"' \
+    -c "permissions.proofline-worker.filesystem={\":workspace_roots\"={$cp_rules}$cp_abs}"
+}
+
+if [ "${1:-}" = codex-profile ] && [ $# -eq 2 ]; then   # for the real-sandbox check (tests/real-session/codex-sandbox.sh)
+  [ -d "$root/.agents/runs/$2" ] || die "no such run: $2"
+  codex_profile_args "$2" "$root"; exit 0
+fi
 
 [ $# -ge 2 ] || usage
 id=$1 role=$2; shift 2
@@ -326,27 +359,13 @@ attempt() {
   else
     case "$rt" in
       codex)
-        set -- "${PROOFLINE_CODEX_BIN:-codex}" exec -C "$root" -s workspace-write -m "$model" -c "model_reasoning_effort=$effort" -c 'approval_policy="never"' --dangerously-bypass-hook-trust -o "$out"
-        # The specialist runs `agent.sh submit` itself, which writes its report, the recorded result, the gate
-        # record and ledger (the run folder) and its status and locks (.agents/local). Codex's workspace-write
-        # sandbox keeps .agents read-only, so both are granted explicitly; what a role may write stays decided by
-        # owns.conf (PreToolUse hook) and the fingerprint check below.
-        mkdir -p "$run/worker-evidence" "$run/reports" "$root/.agents/local"
-        set -- "$@" --add-dir "$run" --add-dir "$root/.agents/local"
-        # A196: a run in a worktree (A185) keeps its approvals, prompts, windows, batch, metrics and friction state in the MAIN tree's
-        # .agents/local, and `agent.sh submit` takes the shared lock there: .agents/local/locks/shared.lock (a mkdir in that folder). Exactly
-        # .agents/local/locks is granted, and only for a run in a worktree. approvals/, prompts/, windows/ and batch/ stay read-only to the
-        # worker: write access to them would let it forge an approval record or a captured user message (the hole closed for the lead in 0.0.26).
-        # submit writes nothing else in the main tree (its report, result, ledger and status are in the worktree's run folder and .agents/local).
-        if [ -f "$root/.git" ]; then
-          sr_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
-          case "$(cd "$root" && pwd -P)" in "$sr_m"/.agents/local/worktrees/*) mkdir -p "$sr_m/.agents/local/locks" && set -- "$@" --add-dir "$sr_m/.agents/local/locks" ;; esac
-        fi
-        # Mutation and base-run evidence needs `git worktree add` (a separate worktree, D10): .git is read-only in
-        # this sandbox, so the worktree administration directory is granted (verified against the real sandbox).
-        cd_gitdir=$(git -C "$root" rev-parse --git-common-dir 2>/dev/null || true)
-        case "$cd_gitdir" in '') ;; /*) ;; *) cd_gitdir=$root/$cd_gitdir ;; esac
-        if [ -n "$cd_gitdir" ] && mkdir -p "$cd_gitdir/worktrees" 2>/dev/null; then set -- "$@" --add-dir "$cd_gitdir/worktrees"; fi
+        set -- "${PROOFLINE_CODEX_BIN:-codex}" exec -C "$root" -m "$model" -c "model_reasoning_effort=$effort" -c 'approval_policy="never"' --dangerously-bypass-hook-trust -o "$out"
+        # The specialist runs `agent.sh submit` itself. Its write access is the profile of codex_profile_args above (A199), which lists every path
+        # one by one; what a role may write inside the product tree stays decided by owns.conf (PreToolUse hook) and the fingerprint check below.
+        mkdir -p "$run/worker-evidence" "$run/reports" "$run/approvals" "$run/waivers" "$root/.agents/local/locks" "$root/.agents/local/submissions"
+        while IFS= read -r cp_a; do set -- "$@" "$cp_a"; done <<EOF_CP
+$(codex_profile_args "$id" "$root")
+EOF_CP
         set -- "$@" - ;;
       claude)
         an=$(agent_name "$role"); af=$root/.claude/agents/$an.md

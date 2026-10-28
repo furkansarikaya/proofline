@@ -143,10 +143,10 @@ order() { awk '{ print $1 }' "$loc/calls.log" | tr '\n' ' '; }
 mkcfg auto
 reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "codex path: exit 0" '[ "$rc" -eq 0 ]'
-ck "codex path: argv" 'has "$loc/codex.argv" exec && has "$loc/codex.argv" "$p" && has "$loc/codex.argv" workspace-write && has "$loc/codex.argv" gpt-6-sol && has "$loc/codex.argv" model_reasoning_effort=high && has "$loc/codex.argv" "approval_policy=\"never\"" && has "$loc/codex.argv" -o && grep -qx -- --dangerously-bypass-hook-trust "$loc/codex.argv"'
+ck "codex path: argv" 'has "$loc/codex.argv" exec && has "$loc/codex.argv" "$p" && has "$loc/codex.argv" default_permissions=\"proofline-worker\" && ! has "$loc/codex.argv" workspace-write && ! grep -qx -- --add-dir "$loc/codex.argv" && has "$loc/codex.argv" gpt-6-sol && has "$loc/codex.argv" model_reasoning_effort=high && has "$loc/codex.argv" "approval_policy=\"never\"" && has "$loc/codex.argv" -o && grep -qx -- --dangerously-bypass-hook-trust "$loc/codex.argv"'
 ck "codex path: argv carries no Claude permission mode (A114)" '! has "$loc/codex.argv" --permission-mode && ! has "$loc/codex.argv" bypassPermissions'
-ck "codex path: .git/worktrees is a writable root (evidence worktrees)" 'grep -qx -- "$p/.git/worktrees" "$loc/codex.argv"'
-ck "codex path: the run folder and .agents/local are writable roots (submit records inside the sandbox)" 'grep -qx -- "$a/runs/T-1" "$loc/codex.argv" && grep -qx -- "$a/local" "$loc/codex.argv"'
+ck "codex path: .git/worktrees is a writable path of the profile (evidence worktrees)" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.git/worktrees\"=\"write\""'
+ck "codex path (A199): the run folder, locks/ and submissions/ are the only writable .agents paths; windows, approvals, prompts and batch are not listed" 'has "$loc/codex.argv" "\".agents\"=\"read\"" && has "$loc/codex.argv" "\".agents/runs/T-1\"=\"write\"" && has "$loc/codex.argv" "\".agents/local/locks\"=\"write\"" && has "$loc/codex.argv" "\".agents/local/submissions\"=\"write\"" && has "$loc/codex.argv" "\".agents/runs/T-1/approvals\"=\"read\"" && ! has "$loc/codex.argv" "\".agents/local\"=\"write\"" && ! has "$loc/codex.argv" "local/windows\"=\"write" && ! has "$loc/codex.argv" "local/approvals\"=\"write" && ! has "$loc/codex.argv" "local/prompts\"=\"write" && ! has "$loc/codex.argv" "local/batch\"=\"write"'
 ck "codex path: AGENT_ROLE and stable prefix before task" '[ "$(cat "$loc/codex.role")" = implementer ] && [ "$(head -1 "$loc/codex.stdin")" = "You are the proofline implementer. STABLE-PREFIX-implementer" ] && has "$loc/codex.stdin" "TASK: T-1"'
 ck "implementer bracketed by window-open/window-close" '[ "$(order)" = "decide window-open submit AGENT_ROLE=implementer window-close metrics-dispatch " ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 0"'
 ck "the specialist's own submit is the record; the final message is only a log under dispatch/" 'has "$loc/recorded.md" "role=implementer result=DONE" && has "$loc/recorded.md" "token=d001-implementer-codex" && printf "%s" "$out" | grep -q "^submitted: T-1 implementer DONE" && ls "$a/runs/T-1/dispatch/" | grep -q "^001-implementer-codex.md$" && ! ls "$a/runs/T-1/results/" | grep -q "^dispatch-"'
@@ -353,9 +353,9 @@ for e in scripts roles roles.conf config.yaml; do cp -R "$a/$e" "$loc/worktrees/
 mkdir -p "$loc/worktrees/T-1/.agents/runs/T-1" "$loc/worktrees/T-1/.agents/local"
 wt=$(cd "$loc/worktrees/T-1" && pwd -P)
 rc=0; out=$(sh "$wt/.agents/scripts/dispatch.sh" T-1 implementer --prompt-file "$here/../roles.conf" 2>"$tmp/err") || rc=$?; err=$(cat "$tmp/err")
-ck "A196 worktree run: only the main tree's .agents/local/locks is a writable root there" 'grep -qx -- "$(cd "$p" && pwd -P)/.agents/local/locks" "$loc/codex.argv" && grep -qx -- "$wt/.agents/local" "$loc/codex.argv" && ! grep -qx -- "$(cd "$p" && pwd -P)/.agents/local" "$loc/codex.argv"'
-ck "A196 worktree run: no other part of the main tree is granted" '! grep -qx -- "$p/.agents" "$loc/codex.argv" && ! grep -qx -- "$p" "$loc/codex.argv"'
+ck "A196 worktree run: only the main tree's .agents/local/locks is writable there" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.agents/local/locks\"=\"write\"" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents/local\"=" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents\"="'
+ck "A196 worktree run: no other absolute path of the main tree is granted" '[ "$(grep -o "\"/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "locks\|/worktrees")" = 0 ]'
 reset; d T-1 implementer --prompt-file "$here/../roles.conf"
-ck "A196 main tree run: .agents/local is granted once and no worktree root exists" '[ "$(grep -cx -- "$a/local" "$loc/codex.argv")" = 1 ]'
+ck "A196 main tree run: no main-tree locks path outside the run's own tree" '! has "$loc/codex.argv" "/worktrees/T-1/"'
 
 [ "$fails" -eq 0 ]
