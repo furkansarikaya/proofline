@@ -1349,6 +1349,24 @@ mg_git() {
         || deny "git merge in a command that switches to a protected branch: $MG_MSG" ;;
     update-ref)
       for mg_a in "$@"; do case "$mg_a" in refs/heads/*) ! mg_ref "$mg_a" || deny "git update-ref of a protected branch: $MG_MSG" ;; esac; done ;;
+    # A200: the other ways to put a task branch onto a protected branch (branch -f, fetch . task:main, reset/cherry-pick/rebase/pull . on it)
+    branch)
+      mg_f=no
+      for mg_a in "$@"; do case "$mg_a" in -f|--force|-M|-C) mg_f=yes ;; esac; done
+      [ "$mg_f" = no ] || for mg_a in "$@"; do case "$mg_a" in -*) ;; *) ! mg_ref "$mg_a" || deny "git branch -f/-M/-C on the protected branch $mg_a moves it without proofline merge: $MG_MSG" ;; esac; done ;;
+    fetch)
+      for mg_a in "$@"; do case "$mg_a" in -*) ;; *:*) ! mg_ref "${mg_a#*:}" || deny "git fetch into the protected branch ($mg_a) moves it without proofline merge: $MG_MSG" ;; esac; done ;;
+    reset|cherry-pick|rebase|am|revert)
+      for mg_a in "$@"; do case "$mg_a" in --abort|--quit|--continue|--skip) return 0 ;; esac; done
+      if [ "$mg_sub" = reset ]; then   # only a reset that moves the branch to another commit; an unstage or a reset to HEAD~N stays
+        mg_mv=no; mg_fl=no
+        for mg_a in "$@"; do case "$mg_a" in --hard|--soft|--keep|--merge) mg_fl=yes ;; -*) ;; HEAD|HEAD~*|HEAD^*|@|@~*) ;; *) mg_mv=yes ;; esac; done
+        [ "$mg_fl$mg_mv" = yesyes ] || return 0
+      fi
+      [ "$mg_dir" != @unknown ] || deny "git $mg_sub whose directory cannot be read from the command text may move a protected branch: $MG_MSG"
+      ! mg_isprot "$mg_cur" || deny "git $mg_sub while the protected branch $mg_cur is checked out advances it without proofline merge: $MG_MSG" ;;
+    pull)
+      for mg_a in "$@"; do case "$mg_a" in .|./|..|../*|/*) ! mg_isprot "$mg_cur" || deny "git pull from a local path onto the protected branch $mg_cur merges a task branch without proofline merge: $MG_MSG" ;; esac; done ;;
   esac
   return 0
 }

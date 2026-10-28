@@ -212,6 +212,18 @@ sc_batch_parked() {
   ok "batch status with a parked task names its full id and the question, or the fixing command"
 }
 
+sc_batch_task_code_done() {
+  new_repo
+  state_run codedone
+  [ "$(NU resume LC)" = 'Next step: /proofline deliver LC' ] || die "no batch: $(NU resume LC)"
+  ! A next LC | grep -q '^note=BATCH' || die "a run outside a batch got the batch note"
+  batch_plan_fixture LC; batch_approve_fixture
+  [ "$(NU resume LC)" = 'Next step: run /proofline batch to continue the batch (it delivers LC and goes on)' ] || die "A200: a CODE_DONE task of the approved batch is delivered by the batch, not by a user command: $(NU resume LC)"
+  [ "$(NU deliver LC)" = 'Next step: reply "approve delivery" in this session to deliver LC' ] || die "the explicit deliver command is unchanged: $(NU deliver LC)"
+  A next LC | grep -q '^note=BATCH (A200): LC belongs to the approved batch. Do NOT stop' || die "A200: next at CODE_DONE of a batch task does not tell the lead to go on: $(A next LC)"
+  ok "A200: a CODE_DONE task of an approved batch ends in 'continue the batch', not a delivery command for the user"
+}
+
 sc_batch_every_state() {
   new_repo; rm -rf .agents/tasks
   batch_plan_fixture; batch_approve_fixture
@@ -238,5 +250,6 @@ run_sc sc_deliver_records
 run_sc sc_delivery_finished
 run_sc sc_batch_rows
 run_sc sc_batch_parked
+run_sc sc_batch_task_code_done
 run_sc sc_batch_every_state
 echo 'next-user tests passed'

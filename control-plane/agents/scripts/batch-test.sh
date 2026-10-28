@@ -866,8 +866,25 @@ sc_commands_check() {
   ok "A200: commands-check passes only on the user's own 'approve commands' or on a batch approval whose summary names this very proposal"
 }
 
+# --- A200: a task that names a code path an earlier task names waits for that task's merge -----------------------------------
+sc_same_files_wait() {
+  bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX; binstall
+  printf '\n## Scope\n\n- `src/shared.js`\n- `docs/notes.md`\n' >> .agents/tasks/T-1.md
+  printf '\n## Scope\n\n- `src/shared.js`\n' >> .agents/tasks/T-2.md
+  printf '\n## Scope\n\n- `src/other.js`\n- `docs/notes.md`\n' >> .agents/tasks/T-3.md
+  BP all >/dev/null || die "batch-plan failed"; batch_approve
+  [ -s .agents/local/batch/paths.tsv ] || die "no paths.tsv was written at plan time"
+  tsv=$(A batch-next --tsv | tr '\t' ' ')
+  printf '%s\n' "$tsv" | grep -q '^T-2 waiting shares src/shared.js with T-1 (not merged yet)' || die "T-2 must wait for T-1, which names the same code file: $tsv"
+  printf '%s\n' "$tsv" | grep -q '^T-3 open' || die "a shared DOCUMENT path must not make T-3 wait: $tsv"
+  printf 'question\n' > "$FAKE/behave/T-1"; drive
+  A batch-next --tsv | tr '\t' ' ' | grep -q '^T-2 skipped shares src/shared.js with T-1 (parked)' || die "T-2 must be skipped while T-1 is parked: $(A batch-next --tsv)"
+  ok "A200: batch-next does not start a task that shares a code file with an earlier unmerged task; document paths do not count"
+}
+
 run_sc sc_preflight
 run_sc sc_commands_check
+run_sc sc_same_files_wait
 run_sc sc_order_and_cycle
 run_sc sc_no_approval_no_start
 run_sc sc_cover_limits

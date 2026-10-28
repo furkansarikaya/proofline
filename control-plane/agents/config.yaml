@@ -370,6 +370,10 @@ batch:
 dispatch:
   # Timeout of one specialist run in seconds (minimum 30).
   timeout_seconds: 1800
+  # A dropped connection or an SSL/TLS error is retried on the same runtime, resuming (A200): at most network_retries times (0 turns it off, at
+  # most 6), waiting network_backoff_seconds first and twice as long each time (at most 300 s).
+  network_retries: 3
+  network_backoff_seconds: 15
   # Permission mode of a headless Claude worker started by dispatch.sh (A114): bypassPermissions | acceptEdits | default.
   # A headless worker cannot be prompted, so a narrower mode usually leaves it unable to submit; the PreToolUse hook
   # confines it either way. bypassPermissions is refused while that hook is not wired in .claude/settings.json.

@@ -1180,11 +1180,13 @@ sc_decide() {
   grep -q -- '--role reviewer --class COMPLEX --tier small --escalations-used 0' "$STUB_ARGS" || die "decide args: $(cat "$STUB_ARGS")"
   ! grep -q -- '--runtime\|--profile' "$STUB_ARGS" || die "decide passed runtime/profile without an override"
   grep -q 'event=decide .*model=sonnet' .agents/runs/LC/LEDGER.log
-  A decide LC implementer --agent-path --runtime codex >/dev/null
+  # A200: the Agent path is Claude Code's; a role on another runtime is refused there and sent to dispatch.sh. --dry still reads the decision.
+  expect_msg "A200: --agent-path accepted a role configured for Codex" 'has no Agent path' A decide LC implementer --agent-path --runtime codex
   tail -1 "$STUB_ARGS" | grep -q -- '--runtime codex' || die "--runtime override not passed"
-  grep -q '^runtime=codex' .agents/runs/LC/decisions/002-implementer.decision
+  [ ! -e .agents/runs/LC/decisions/002-implementer.decision ] || die "A200: the refused Agent-path decision was persisted"
+  A decide LC implementer --dry --runtime codex | grep -q '^runtime=codex' || die "decide --dry --runtime codex does not read the codex decision"
   expect_fail "an invalid override was accepted" A decide LC reviewer --agent-path --model bogus
-  [ ! -e .agents/runs/LC/decisions/003-reviewer.decision ] || die "a refused decision was persisted"
+  [ ! -e .agents/runs/LC/decisions/002-reviewer.decision ] || die "a refused decision was persisted"
   expect_fail "an unknown decide flag was accepted" A decide LC reviewer --agent-path --turbo yes
   expect_fail "a reviewer called decide" AS reviewer decide LC reviewer
   # A171: decide is not called ahead of a dispatch; --dry reads without writing; the output starts with a one-line summary
@@ -1515,7 +1517,9 @@ sc_open_runs() {
 sc_knowledge_secrets() {
   scaffold orchestrated; to_code_done orchestrated
   mkdir -p docs/design; printf 'token: PLANTED_SECRET\n' > docs/design/DESIGN.md
-  A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null
+  expect_msg "A200: knowledge-done over a secret in a knowledge file" 'found secrets' A knowledge-done LC
+  printf 'design notes\n' > docs/design/DESIGN.md; A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null
+  printf 'token: PLANTED_SECRET\n' > docs/design/DESIGN.md   # written after the knowledge step: DONE and delivery still scan
   expect_msg "delivery-check over a secret in a knowledge file" 'found secrets' A delivery-check LC
   expect_msg "DONE over a secret in a knowledge file" 'found secrets' A handoff LC DONE
   printf 'design notes\n' > docs/design/DESIGN.md
@@ -1529,12 +1533,31 @@ sc_wiki_knowledge_scope() {
   A config-get knowledge_scope_root | grep -Fq 'docs/wiki/' || die "docs/wiki/ is not in the default knowledge_scope_root"
   A config-get knowledge_scope_root | grep -Fq 'docs/product/' || die "docs/product/ is not in the default knowledge_scope_root"
   mkdir -p notes; printf 'not a wiki page\n' > notes/outside.txt
-  A knowledge-done LC >/dev/null
-  expect_msg "a path outside the root counted as knowledge" 'no knowledge-scope changes' A verify-knowledge-scope LC
+  expect_msg "a path outside the root counted as knowledge" 'no knowledge page was written' A knowledge-done LC
   rm -r notes
   mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: docs/design/DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  A knowledge-done LC >/dev/null
   A verify-knowledge-scope LC >/dev/null
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
+}
+
+# A200: knowledge-done is not accepted before the page is written and the wiki lint ran and passed
+sc_knowledge_done_needs_page_and_lint() {
+  scaffold orchestrated; to_code_done orchestrated
+  expect_msg "A200: knowledge-done with no page written" 'no knowledge page was written' A knowledge-done LC
+  mkdir -p .agents/skills/llm-wiki/scripts docs/wiki
+  cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/
+  printf -- '---\ntitle: bad page\nstatus: current\n---\n\n# No source\n' > docs/wiki/bad.md
+  expect_msg "A200: knowledge-done over a wiki page the lint rejects" 'wiki lint of docs/wiki found errors' A knowledge-done LC
+  ! grep -q 'knowledge_state: "\{0,1\}KNOWLEDGE_DONE' .agents/runs/LC/RUN.yaml || die "a refused knowledge-done recorded the state"
+  printf -- '---\ntitle: good page\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Good\n' > docs/wiki/bad.md
+  A knowledge-done LC >/dev/null || die "knowledge-done refused a wiki page that passes the lint: $(A knowledge-done LC 2>&1 | tail -3)"
+  # A200: the proofline_bug friction note is reminded by next (report step) and counted in the report's Facts
+  A next LC | grep -q '^note=FRICTION (A200): .*proofline_bug notes so far: 0)' || die "next does not remind of the friction note: $(A next LC)"
+  A friction-note LC proofline_bug >/dev/null
+  A next LC | grep -q 'proofline_bug notes so far: 1)' || die "next does not count the note: $(A next LC)"
+  A report-facts LC | grep -Fq 'Friction notes recorded (A200): proofline_bug 1, user-command 0, user-shell 0' || die "the Facts block does not count the friction notes: $(A report-facts LC)"
+  ok "A200: knowledge-done needs a written page and a wiki lint it ran itself without errors"
 }
 
 # A171: the files the knowledge step writes (knowledge_scope_root, design_docs) are not part of the content fingerprint
@@ -2564,6 +2587,7 @@ run_sc sc_capture_integrity
 run_sc sc_approval_retry
 run_sc sc_ask
 run_sc sc_knowledge_gates_fresh
+run_sc sc_knowledge_done_needs_page_and_lint
 run_sc sc_knowledge_drift
 run_sc sc_split_override
 run_sc sc_scope_content

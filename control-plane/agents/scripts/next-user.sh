@@ -32,6 +32,7 @@ version|*|/proofline doctor
 task|*|{NEW}
 design|*|{WORK}
 status,resume,queue,run|question|reply in this session to the open question: {Q}
+status,resume,queue,run|batchtask|run /proofline batch to continue the batch (it delivers <ID> and goes on)
 status,resume,queue,run|codedone,finished|/proofline deliver <ID>
 status,resume,queue,run|failed|/proofline reopen <ID>
 status,resume,queue,run|active|/proofline resume
@@ -222,6 +223,10 @@ if [ "$installed" = yes ]; then
         [ "$id" != none ] || id=''
       fi
       run_state "$id"
+      # A200: a task of the approved batch is delivered by the batch itself, not by a user command
+      case "$cmd:$state" in status:codedone|status:finished|resume:codedone|resume:finished|queue:codedone|queue:finished|run:codedone|run:finished)
+        if [ "$(batch_state)" = approved ] && batch_rows | awk -F'\t' -v t="$id" '$1 == t && $2 == "open" { f = 1 } END { exit !f }'; then state=batchtask; fi ;;
+      esac
       if [ "$err" = no ] && [ "$cmd" = deliver ] && { [ "$state" = codedone ] || [ "$state" = finished ]; }; then
         # the delivery's own records (no gh): a consumed cleanup approval means it is delivered; deliver/<ID>/PR is written
         # when the merge step started, so a run that still exists then stopped at the merge (a check is red, or it was refused)
