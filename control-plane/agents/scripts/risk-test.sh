@@ -919,6 +919,11 @@ sc_gate_deps() {
   printf '%s\n' "$nx" | grep -Fq 'VERIFY waits for QA:visual' || die "next does not say why VERIFY waits: $nx"
   expect_msg "VERIFY decided before QA visual" 'VERIFY needs QA:visual first' A decide LC verifier --agent-path
   expect_msg "VERIFY recorded before QA visual" 'VERIFY needs QA:visual first' gpass VERIFY
+  gd_rf=$(RF_FOCUS=visual result_for QA PASS); gd_rj=".agents/runs/$RID/reviews/visual-proof/report.json"
+  rm -f "$gd_rj"
+  expect_msg "a visual PASS without report.json" 'visual PASS needs reviews/visual-proof/report.json' env AGENT_ROLE=qa sh ./.agents/scripts/agent.sh record "$RID" --file "$gd_rf"
+  printf '{"schema":"visual-proof/1","result":"FAIL"}\n' > "$gd_rj"
+  expect_msg "a visual PASS against a FAIL report.json" 'contradicts reviews/visual-proof/report.json' env AGENT_ROLE=qa sh ./.agents/scripts/agent.sh record "$RID" --file "$gd_rf"
   RF_FOCUS=visual gpass QA
   mkdir -p docs/design; printf '# design notes\n' > docs/design/a.md   # a knowledge-scope document must not make the dependency look unmet
   A decide LC verifier --agent-path >/dev/null || die "VERIFY is refused after QA visual passed, with a knowledge-scope document present"
