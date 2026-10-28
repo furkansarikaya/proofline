@@ -1755,17 +1755,17 @@ sc_scratch_worktrees() {
   ok "scratch worktrees must be removed before CODE_DONE; the worktree of another run is not scratch (A169)"
 }
 sc_worktree_lock_folder() {
-  # A196: a command in a run worktree takes the shared lock from .agents/local/locks of the main tree; that folder alone is writable for a Codex
-  # worker, so the command must work with the rest of the main tree's .agents/local read-only, and approvals/prompts must not be writable there
+  # A196, A199: a command in a run worktree takes its locks from .agents/local/locks (its own and the main tree's); those folders alone are writable for a
+  # Codex worker, so the command must work with the rest of both .agents/local folders read-only
   scaffold orchestrated no STANDARD
   rw=$(A worktree-add RW-1) || die "worktree-add: $rw"
   rwp=$(printf '%s\n' "$rw" | grep -o '/[^ ]*worktrees/RW-1' | head -n 1); [ -d "$rwp" ] || rwp=$PWD/.agents/local/worktrees/RW-1
   [ -d "$rwp" ] || die "A196 the run worktree was not found in: $rw"
   mkdir -p "$rwp/.agents/runs" && cp -R .agents/runs/LC "$rwp/.agents/runs/LC"
-  mkdir -p .agents/local/locks .agents/local/approvals .agents/local/prompts
-  chmod a-w .agents/local .agents/local/approvals .agents/local/prompts
+  mkdir -p .agents/local/locks .agents/local/approvals .agents/local/prompts "$rwp/.agents/local/locks"
+  chmod a-w .agents/local .agents/local/approvals .agents/local/prompts "$rwp/.agents/local"
   rc=0; out=$(cd "$rwp" && AGENT_ROLE='' sh .agents/scripts/agent.sh ledger-note LC "A196 note" 2>&1) || rc=$?
-  chmod u+w .agents/local .agents/local/approvals .agents/local/prompts
+  chmod u+w .agents/local .agents/local/approvals .agents/local/prompts "$rwp/.agents/local"
   [ "$rc" = 0 ] || die "A196 the worktree command failed with the rest of .agents/local read-only: $out"
   if [ "$(id -u)" != 0 ]; then
     echo "$out" | grep -q 'cannot take the lock' && die "A196 the worktree command could not take the shared lock with the rest of .agents/local read-only: $out"

@@ -34,7 +34,7 @@ and `adapters/` counts as code. Pushes to `main` and pull requests run Linux onl
 A pull request that changes hooks, skills, roles or the control plane also runs the real-session smoke test (A195) and pastes its table:
 `sh tests/real-session/smoke.sh` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
 `batch` in a throwaway repository and prints a PASS/FAIL table (a few minutes of model time; it is not part of CI). Do not merge on a table
-that is not all PASS.
+that is not all PASS. A change to the Codex sandbox profile also runs `sh tests/real-session/codex-sandbox.sh` (no model; needs the Codex CLI) and `SMOKE_ONLY=codex sh tests/real-session/smoke.sh`.
 End-to-end team runs are described in
 [tests/e2e/README.md](tests/e2e/README.md); they use real agents and are not required for a pull request.
 The benchmark report (`node tests/benchmark/benchmark.mjs`, see [tests/benchmark/README.md](tests/benchmark/README.md))

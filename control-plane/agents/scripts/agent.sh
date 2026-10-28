@@ -68,12 +68,18 @@ release_locks() {
     fi
   done
 }
-# wait_old_lock PATH (A196): the lock of an older version's process, read-only: wait while its holder is alive, never take or remove it.
-wait_old_lock() {
-  wo_t=$(( ${PROOFLINE_LOCK_TIMEOUT:-120} * 5 )); wo_n=0
-  while [ -f "$1/pid" ] && wo_p=$(cat "$1/pid" 2>/dev/null) && case "$wo_p" in ''|*[!0-9]*) false ;; *) kill -0 "$wo_p" 2>/dev/null ;; esac && [ "$wo_n" -lt "$wo_t" ]; do
-    sleep 0.2; wo_n=$((wo_n + 1))
+# take_old_lock PATH (A199): the lock older versions took. Taken when the folder is writable; otherwise (a sandbox) only a live holder is waited for.
+take_old_lock() {
+  to_t=$(( ${PROOFLINE_LOCK_TIMEOUT:-120} * 5 )); to_n=0
+  while [ "$to_n" -lt "$to_t" ]; do
+    if mkdir "$1" 2>/dev/null; then rmdir "$1" 2>/dev/null || :; acquire_lock "$1"; return $?; fi
+    [ -d "$1" ] || return 0   # not there and not creatable: the folder is read-only here
+    wo_p=$(cat "$1/pid" 2>/dev/null || :)
+    case "$wo_p" in ''|*[!0-9]*) acquire_lock "$1"; return $? ;; esac
+    kill -0 "$wo_p" 2>/dev/null || { acquire_lock "$1"; return $?; }
+    sleep 0.2; to_n=$((to_n + 1))
   done
+  acquire_lock "$1"
 }
 acquire_lock() {
   al_path=$1
@@ -7307,17 +7313,20 @@ if [ "$lock_command" = yes ]; then
   trap 'release_locks' 0
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  acquire_lock "$agents/local/.lock"
-  # A185, A196: the shared state (approvals, metrics, prompts, batch) is written from every worktree, so one lock is shared: the main tree's
-  # .agents/local/locks/shared.lock. It lives in a folder of its own so that a Codex worker in a worktree can be granted that folder alone,
-  # never the approvals and prompts beside it. The main tree's own .agents/local/.lock is the lock older versions took for the same job: a
-  # process of the main tree still takes it (above), and a worktree process waits for a live holder of it without writing there.
+  # A185, A196, A199: the locks live in .agents/local/locks/, a folder of their own, so that a Codex worker can be granted that folder alone and
+  # .agents/local stays read-only to it (windows, approvals, prompts, batch). The shared lock is the main tree's locks/shared.lock; a worktree
+  # also takes its own locks/tree.lock. Older versions took .agents/local/.lock for the same jobs: a process that can write there still takes it
+  # (so it excludes an older process), one that cannot waits, read-only, for a live holder of it.
+  mkdir -p "$agents/local/locks" 2>/dev/null || :
+  take_old_lock "$agents/local/.lock"
   if [ "$sr_main" = "$root" ]; then
-    mkdir -p "$agents/local/locks" 2>/dev/null || :
-    [ ! -d "$agents/local/locks" ] || acquire_lock "$agents/local/locks/shared.lock"
-  elif [ -d "$sr_main/.agents/local" ]; then
-    wait_old_lock "$sr_main/.agents/local/.lock"
-    acquire_lock "$sr_main/.agents/local/locks/shared.lock" || exit 1
+    [ ! -d "$agents/local/locks" ] || acquire_lock "$agents/local/locks/shared.lock" || exit 1
+  else
+    [ ! -d "$agents/local/locks" ] || acquire_lock "$agents/local/locks/tree.lock" || exit 1
+    if [ -d "$sr_main/.agents/local" ]; then
+      take_old_lock "$sr_main/.agents/local/.lock"
+      acquire_lock "$sr_main/.agents/local/locks/shared.lock" || exit 1
+    fi
   fi
   if [ "$command" != start ] && [ -n "${2:-}" ] && valid_task_id "$2" && [ -d "$(run_dir "$2")" ]; then
     acquire_lock "$(run_dir "$2")/.lock"
