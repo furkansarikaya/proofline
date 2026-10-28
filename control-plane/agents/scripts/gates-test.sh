@@ -1799,6 +1799,62 @@ sc_doc_scope_warning() {
   ! printf '%s' "$out" | grep -q 'without tdd_exemption' || die "A197 a warning although the path has an exemption: $out"
   ok "A197 freeze warns once about a document path without tdd_exemption and stays quiet with it"
 }
+# A200 (item 5): after a fix round only the gates whose inputs changed run again. A test-only fix keeps REVIEW_PLAN, REVIEW_RULES and
+# SECURITY; a changed test that covers security behavior, or any product-code change, runs them again; SECRETS and VERIFY always run.
+sc_selective_rerun() {
+  for variant in tests_only security_test; do
+    scaffold orchestrated no CRITICAL
+    worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+    A handoff LC IMPLEMENTED >/dev/null
+    [ "$(gates_of | tr ' ' '\n' | grep -c .)" -ge 6 ] || die "A200 the run is not full tier: $(gates_of)"
+    pass_all
+    rec REVIEW_TESTS FAIL high "REVIEW_TESTS-1|blocking|impl_test.txt:1|the test asserts nothing about the empty key|traced: empty key -> nil"
+    A handoff LC IMPLEMENTING >/dev/null
+    case "$variant" in
+      tests_only) worker FIX pass impl_test.txt 'test: lookup of a missing key is nil' ;;
+      security_test) worker FIX pass impl_test.txt 'test: an expired token is rejected' ;;
+      product_code) worker FIX pass impl.txt 'impl: lookup of a missing key is nil' ;;
+    esac
+    A handoff LC IMPLEMENTED >/dev/null
+    for g in REVIEW_PLAN REVIEW_RULES SECURITY; do
+      st=$(gate_st "$g")
+      case "$variant:$g" in
+        tests_only:*) [ "$st" = pass ] || die "A200 $variant: $g is $st, a test-only fix must keep it" ;;
+        security_test:SECURITY|product_code:*) [ "$st" != pass ] || die "A200 $variant: $g still pass although its inputs changed" ;;
+        security_test:*) [ "$st" = pass ] || die "A200 $variant: $g is $st" ;;
+      esac
+    done
+    for g in SECRETS REVIEW_TESTS VERIFY; do
+      [ "$(gate_st "$g")" != pass ] || die "A200 $variant: $g carried over; it always runs"
+    done
+  done
+  ok "A200 a test-only fix keeps REVIEW_PLAN/RULES/SECURITY; security tests and product code rerun them; SECRETS, REVIEW_TESTS and VERIFY always run"
+}
+
+# A200 (items 6, 8, 9): the normalizer's narrow list, the expected-format errors of refreeze and amend, the rationale approval kind.
+sc_a200_misc() {
+  scaffold orchestrated
+  n() { printf '%s\n' "$1" | A repro-normalize; }
+  [ "$(n '12:34:56 [build] Complete!')" = '[build] Complete!' ] || die "A200 the [build] Complete! line is not normalized"
+  [ "$(n '[build] Complete! in 1.5s')" = '[build] Complete!' ] || die "A200 the Complete! line with a duration"
+  [ "$(n 'done 2026-10-28T10:11:12.5Z ok')" = 'done <TIMESTAMP> ok' ] || die "A200 timestamp: $(n 'done 2026-10-28T10:11:12.5Z ok')"
+  [ "$(n 'Done in 3.2s')" = "$(n 'Done in 41ms')" ] || die "A200 durations after 'in' differ"
+  [ "$(n '42 passed (12ms)')" = "$(n '42 passed (3 s)')" ] || die "A200 parenthesized duration"
+  [ "$(n '42 passed')" != "$(n '43 passed')" ] || die "A200 a real count difference was normalized away"
+  [ "$(n 'Done in 3s')" != "$(n 'Built in 3s')" ] || die "A200 different words were normalized together"
+  [ "$(n 'pid 4242 on 2026-10-28')" = 'pid 4242 on 2026-10-28' ] || die "A200 a pid or a bare date was normalized"
+  [ "$(n '3 tests failed')" != "$(n '3 tests passed')" ] || die "A200 pass and fail were normalized together"
+  expect_msg "A200 refreeze without an amendment shows the format" 'Example: write amendments/001.md' A freeze LC
+  expect_msg "A200 refreeze with a missing file shows the format" 'agent.sh refreeze LC 001.md' A refreeze LC nope.md
+  # item 6: a rationale approval needs a written line, and the kind is accepted
+  expect_msg "A200 rationale approval without a DESIGN.md line" "no non-empty '- mono-labels: <reason>' line" A request-approval LC rationale:mono-labels
+  mkdir -p docs/design; printf '# D\n\n## Pattern justifications\n- mono-labels: file names are the product here\n' > docs/design/DESIGN.md
+  A request-approval LC rationale:mono-labels | grep -q 'rationale line of DESIGN.md: mono-labels: file names are the product here' || die "A200 the request does not show the line"
+  [ "$(A design-rationales LC | cut -f1,2)" = "$(printf 'mono-labels\tunapproved')" ] || die "A200 an unapproved rationale is listed as approved"
+  [ "$(A design-rationales LC --json)" = '{"approved": {}}' ] || die "A200 the approved object is not empty: $(A design-rationales LC --json)"
+  ok "A200 normalizer list, expected-format errors, rationale approval needs the user"
+}
+
 sc_takeover_without_red() {
   # A198: an earlier implementer (another runtime) edited the implementation inside its window and recorded no RED. The next implementer binds it
   # without asking: put the change back to the base content for one run (RED fails for the right reason), restore it, record GREEN.
@@ -2614,4 +2670,6 @@ run_sc sc_scan_method
 run_sc sc_classification_stable
 run_sc sc_doc_scope_warning
 run_sc sc_takeover_without_red
+run_sc sc_a200_misc
+run_sc sc_selective_rerun
 echo 'gates tests passed'
