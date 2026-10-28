@@ -196,11 +196,35 @@ jobs:
           path: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
           if-no-files-found: error
 
+  # Core invariants (CONTRIBUTING.md): the invariant tests run on EVERY pull request, documentation-only ones included, and on every push
+  # to main. A pull request that changes tests/invariants/ must carry an `Invariant-test-change:` line in its description. The
+  # description is read live (a re-run sees an edited description), falling back to the event payload.
+  invariants:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: invariant tests
+        run: |
+          sh tests/invariants/check-changed-test.sh
+          sh tests/invariants/invariants-test.sh
+      - name: invariant tests changed only with a reason
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""' 2>/dev/null) && export PR_BODY="$body"
+          git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" | sh tests/invariants/check-changed.sh
+
   # One stable check name for branch protection: skipped jobs (documentation-only pull request) count as
   # passed, a failed or cancelled job fails it.
   checks:
     if: always()
-    needs: [changes, static, fixtures, visual-browser, selftest]
+    needs: [changes, static, fixtures, visual-browser, selftest, invariants]
     runs-on: ubuntu-latest
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
