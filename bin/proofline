@@ -34,6 +34,8 @@ else sha256() { sha256sum "$1" | awk '{print $1}'; }; fi
 . "$LIB/discover.sh"
 # shellcheck source=lib/install.sh
 . "$LIB/install.sh"
+# shellcheck source=lib/commands.sh
+. "$LIB/commands.sh"
 # shellcheck source=lib/doctor.sh
 . "$LIB/doctor.sh"
 # shellcheck source=lib/insights.sh
@@ -60,6 +62,8 @@ setup
                             --role ROLE=RUNTIME (repeatable)  run one role on another runtime
   upgrade [--dry-run]     update unmodified control-plane files; keep yours and report conflicts
   doctor                  verify hooks, runtimes, config, commit identity and every enforced rule (live probes)
+                            --commands  find, prove by one run and propose the empty commands.build|test|lint (one question)
+                            --apply-commands  write the proven proposal after your yes
   version
 
 state (works without an agent session)
@@ -330,7 +334,7 @@ dispatch() {
   case "$cmd" in
     init) cmd_init "$@" ;;
     upgrade) cmd_upgrade "$@" ;;
-    doctor) cmd_doctor ;;
+    doctor) cmd_doctor "$@" ;;
     status) cmd_status ;;
     resume) cmd_resume ;;
     queue) cmd_queue ;;

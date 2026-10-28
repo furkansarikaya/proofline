@@ -403,6 +403,10 @@ cmd_init() {
     [ "$VERIFY" != 1 ] || { say "verifying commands (trial runs)..."; verify_commands "$ROOT"; }
   fi
   install_run
+  if [ "$DRY" != 1 ] && [ -f "$ROOT/.agents/config.yaml" ] && [ -n "$(cm_empty)" ]; then
+    say ""
+    say "commands.$(cm_empty | sed 's/ /, commands./g') still empty: no build record can be made and the verify gate has nothing to run for them. proofline doctor --commands finds the commands, proves each by one run and asks you once (A200)"
+  fi
   if [ "$DRY" != 1 ]; then
     say ""
     say "next: proofline doctor    (verifies hooks, runtimes and every enforced rule)"

@@ -224,6 +224,12 @@ doctor_tools() {
 
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
+  case "${1:-}" in
+    --commands) require_installed; cm_propose; return 0 ;;
+    --apply-commands) require_installed; cm_apply; return 0 ;;
+    '') ;;
+    *) die "doctor: unknown argument: $1" ;;
+  esac
   CFG=$ROOT/.agents/config.yaml; A=$ROOT/.agents/scripts/agent.sh
   if [ ! -f "$CFG" ] || [ ! -f "$A" ]; then
     d_fail "installed: .agents/config.yaml or .agents/scripts/agent.sh missing in $ROOT (run: proofline init)"
@@ -318,7 +324,7 @@ EOF
 
   dc_empty=''
   for dc_k in build test lint; do [ -n "$(cfg_cmds "$CFG" "commands.$dc_k")" ] || dc_empty="$dc_empty $dc_k"; done
-  [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them; proofline proposes the ones proven in a run when it ends)"
+  [ -z "$dc_empty" ] || d_warn "commands: empty in .agents/config.yaml:$dc_empty (the verify gate has nothing to run for them and no build record can be made). Fix: proofline doctor --commands finds the commands, proves each by one run and asks you once (A200)"
 
   # A180: which hosting platform the origin remote is, which tool is installed for it, and so which merge rule applies.
   doctor_platform
