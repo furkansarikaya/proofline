@@ -38,6 +38,7 @@ measure() { # NAME EVENT JSON: median of REPEAT runs
   [ -z "${HP_TRACE:-}" ] || { echo "--- $m_n" >&2; cat "$log" >&2; }
   top=$(sort "$log" | uniq -c | sort -rn | head -n 6 | awk '{ printf "%s%s=%s", (NR > 1 ? " " : ""), $2, $1 }')
   printf '%-22s execs=%-4s ms=%-6s %s\n' "$m_n" "$c" "$t" "$top"
+  printf '%s %s\n' "$t" "$m_n" >> "$base/slowest"
 }
 j() { printf '{"hook_event_name":"%s","session_id":"s1","cwd":"%s"%s}' "$1" "$PWD" "$2"; }
 sub=',"agent_type":"proofline-implementer","agent_id":"a1"'
@@ -54,3 +55,7 @@ measure stop stop "$(j Stop ',"stop_hook_active":false,"last_assistant_message":
 measure session session "$(j SessionStart '')"
 measure subagent-start subagent-start "$(j SubagentStart "$sub")"
 measure subagent-stop subagent-stop "$(j SubagentStop ",\"stop_hook_active\":false$sub,\"last_assistant_message\":\"done\"")"
+# A200: the runtime stops a hook at 30 s. The slowest path is named; HP_LIMIT_MS=<ms> makes the script fail when a path is slower (a gate for a
+# quiet machine, not for CI: a loaded runner is slower than the project's own hook).
+sort -rn "$base/slowest" | head -n 1 | awk '{ printf "slowest: %s %s ms (runtime limit 30000)\n", $2, $1 }'
+if [ -n "${HP_LIMIT_MS:-}" ]; then sort -rn "$base/slowest" | head -n 1 | awk -v l="$HP_LIMIT_MS" '{ exit !($1 + 0 > l + 0) }' && { echo "slower than HP_LIMIT_MS=$HP_LIMIT_MS" >&2; exit 1; }; fi

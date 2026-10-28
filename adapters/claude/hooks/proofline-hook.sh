@@ -89,7 +89,60 @@ jesc() {
 ctx() { # EVENT TEXT: additionalContext for the model
   printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$1" "$(jesc "$2")"; exit 0
 }
+# alt_hint MESSAGE (A200): the one-line permitted alternative for a denial that names none (result in alt_r, empty when the message already
+# says what to do). It only SHOWS the allowed way; no rule is decided here, deny stays a deny.
+alt_hint() {
+  alt_r=''
+  case "$1" in *nstead*|*Allowed*|*"run: "*|*"Write the file"*|*"wait for the user"*|*"proofline merge"*|*"Scratch files go under"*) return 0 ;; esac
+  case "$1" in
+    *"is not literal"*|*"is not allowed while run"*) alt_r='Instead of $A next write: sh .agents/scripts/agent.sh next (the command word, AGENT_ROLE and the subcommand are literal)' ;;
+    *PROOFLINE_DISPATCH*) alt_r='Instead list by a literal path: ls .agents/local/windows (no glob or find over .agents/local)' ;;
+    *"outside the project"*|*"under \$TMPDIR"*) alt_r='Instead: mkdir -p .agents/local/scratch && write there (in a run: .agents/runs/<ID>/scratch/); /tmp is only for git worktrees' ;;
+    *"git hook bypass"*|*"wires the git hooks"*) alt_r='Instead commit without --no-verify or a hooksPath change; fix what the hook names, or ask the user' ;;
+    *"does not match the caller"*) alt_r='Instead: prefix your own role, AGENT_ROLE=<your role> sh .agents/scripts/agent.sh ...' ;;
+    *"never as a nested runtime"*) alt_r='Instead: sh .agents/scripts/dispatch.sh <ID> <role>' ;;
+    *"links into or out of .agents"*) alt_r='Instead: cp the file to the project path you need, or read it where it is' ;;
+    *"never submits a specialist result"*|*"verdicts enter a run only"*|*"opened and closed only by"*) alt_r='Instead: dispatch the specialist (sh .agents/scripts/dispatch.sh <ID> <role>); it submits, you read the result with agent.sh next' ;;
+    *"a subagent never approves"*) alt_r='Instead: put the question to the lead; the user answers and the runtime records it from the reply' ;;
+    *"read-only agent.sh"*|*"runs only agent.sh worker-evidence"*) alt_r='Instead: submit your result with AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> ...' ;;
+    *"cannot be resolved"*|*"cannot be read from the command text"*) alt_r='Instead: write the path literally, or use the Write tool on an allowed path (.agents/local/scratch/ for scratch files)' ;;
+    *"destructive SQL"*|*"database client"*|*"migration, seed or schema"*|*"names the database file"*) alt_r='Instead: run the project test command (it builds its own throwaway database) and record what you could not check as an open point' ;;
+    *"lead writes only"*|*"lead never edits"*|*"no run is active"*) alt_r='Instead: /proofline run <text>, or dispatch the implementer (sh .agents/scripts/dispatch.sh <ID> implementer) for a product change' ;;
+    *"is outside the paths role"*) alt_r='Instead: write only inside the paths your role owns (.agents/owns.conf and the PLAN.md scope)' ;;
+    *"parsed"*) alt_r='Instead: install jq or node, then retry' ;;
+    *"ACTIVE_RUN is malformed"*) alt_r='Instead: sh .agents/scripts/agent.sh status shows the active run' ;;
+    *"read-only in the project"*|*"changes the project working tree"*) alt_r='Instead: git worktree add --detach "$TMPDIR/<name>" HEAD in its own call, then git -C "$TMPDIR/<name>" ...' ;;
+  esac
+}
+# hk_budget SECS OUTFILE CMD...: runs CMD with its output in OUTFILE and waits at most SECS seconds, then stops CMD and every process it started
+# (by pid); status 124 on expiry, else CMD's own status. The runtime stops a hook at 30 s, so a step whose cost grows with the project (the
+# session hook's `agent.sh next` took 26 s on a loaded machine, A200) is given a budget and the hook still answers in time. A188: 0.1 s
+# steps for the first second, then 0.5 s (a sleep is a process).
+hk_budget() {
+  hb_s=$1 hb_o=$2; shift 2
+  ( "$@" ) >"$hb_o" 2>&1 </dev/null &
+  hb_pid=$!; hb_lim=$((hb_s * 10)); hb_i=0
+  while kill -0 "$hb_pid" 2>/dev/null && [ "$hb_i" -lt "$hb_lim" ]; do
+    if [ "$hb_i" -lt 10 ]; then sleep 0.1; hb_i=$((hb_i + 1)); else sleep 0.5; hb_i=$((hb_i + 5)); fi
+  done
+  if kill -0 "$hb_pid" 2>/dev/null; then
+    hb_all=$hb_pid; hb_new=$hb_pid
+    while [ -n "$hb_new" ]; do
+      hb_next=''
+      for hb_c in $hb_new; do hb_next="$hb_next $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$hb_c" '$2 == p { print $1 }')"; done
+      hb_new=$(printf '%s\n' $hb_next); hb_all="$hb_all $hb_new"
+    done
+    # shellcheck disable=SC2086 # pids
+    kill $hb_all 2>/dev/null || :
+    { wait "$hb_pid"; } 2>/dev/null || :
+    return 124
+  fi
+  hb_rc=0; wait "$hb_pid" 2>/dev/null || hb_rc=$?
+  return "$hb_rc"
+}
 deny() {
+  alt_hint "$*"
+  [ -z "$alt_r" ] || set -- "$* | $alt_r"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(jesc "proofline: $*")"
   exit 0
 }
@@ -165,6 +218,10 @@ if [ "$installed" = yes ] && [ "$main_root" = "$root" ]; then
   done
 fi
 local_dir=$sroot/.agents/local
+# A200: the runtime stops a hook at 30 s, and agent.sh waits for a lock up to PROOFLINE_LOCK_TIMEOUT (default 120 s): one busy lock (a long build
+# record, a dispatch) held a prompt, stop or subagent hook for the whole 30 s. Every agent.sh this hook starts now gives up on a lock after
+# PROOFLINE_HOOK_LOCK_WAIT seconds (default 8), long before the limit; the step reports the refusal and the next `agent.sh next` retries it.
+PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT
 # once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
 # once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side
 # effects (prompt, session).
@@ -2086,7 +2143,7 @@ subagent-start)
   # A127: submit trusts a typed --agent over PROOFLINE_AGENT only for a registered subagent. The file holds the path of the
   # subagent's session log, where agent.sh reads the tokens it used (metrics_step); the path is the runtime's own, never typed.
   stp=$(jget agent_transcript_path); if [ -z "$stp" ]; then stp=$(jget transcript_path); [ -z "$stp" ] || stp=${stp%.jsonl}/subagents/agent-$aid.jsonl; fi
-  printf '%s\n' "$stp" > "$local_dir/submissions/$aidf.started"
+  printf '%s\n%s\n' "$stp" "$(date +%s)" > "$local_dir/submissions/$aidf.started"   # line 2: when this (re)start began; metrics_step times the step from it (A200)
   if [ "$prole" = implementer ] || [ "$prole" = designer ]; then
     if before=$(unset AGENT_ROLE; sh "$agent" window-open "$act" "$prole" 2>"$tmp/err"); then printf '%s\n' "$before" > "$local_dir/windows/$aidf"
     else printf 'proofline: window-open refused for proofline-%s (%s): %s\n' "$prole" "$aidf" "$(tr '\n' ' ' < "$tmp/err")" >> "$local_dir/records/$aidf.txt"; fi
@@ -2396,7 +2453,10 @@ session)
     *) if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then skill=$CLAUDE_PLUGIN_ROOT/skills/proofline-lead/SKILL.md; else skill=.agents/skills/proofline-lead/SKILL.md; fi ;;
   esac
   if [ -n "$act" ] && [ "$act" != INVALID ]; then
-    nxt=$(sh "$agent" next "$act" 2>&1 | sed -n 's/^next=//p' | awk 'BEGIN { ORS = "" } { if (NR > 1) print "; "; print }')
+    # A200: bounded (PROOFLINE_HOOK_NEXT_BUDGET seconds, default 10 of the runtime's 30): the session starts at once and the lead asks `agent.sh next` itself
+    hb_rc=0; hk_budget "${PROOFLINE_HOOK_NEXT_BUDGET:-10}" "$tmp/next.out" sh "$agent" next "$act" || hb_rc=$?
+    nxt=$(sed -n 's/^next=//p' "$tmp/next.out" | awk 'BEGIN { ORS = "" } { if (NR > 1) print "; "; print }')
+    [ "$hb_rc" != 124 ] || nxt="run sh .agents/scripts/agent.sh next $act (the session check did not finish within the hook's time budget)"
   else nxt="no active run: start one with the proofline-lead skill"; fi
   # A194: the plugin and the project's install are different versions: one line, and the lead says so before it starts a run
   sv_msg=''

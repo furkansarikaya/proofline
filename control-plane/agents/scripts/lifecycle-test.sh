@@ -198,6 +198,9 @@ scenario_orchestrated_loop() {
   A cleanup LC >/dev/null
   [ ! -e .agents/local/assignments/LC ] && [ -f .agents/local/assignments/OTHER/b.md ] || die "cleanup did not remove only the run's assignments directory (A116)"
   rm -rf .agents/local/assignments/OTHER
+  # A200: the records went to a compressed archive (readable, holds the ledger) before the run folder was deleted; the newest archive.keep runs stay
+  ls .agents/local/archive/LC/LC-*.tar.gz >/dev/null 2>&1 || die "cleanup left no evidence archive under .agents/local/archive/LC (A200)"
+  tar -tzf .agents/local/archive/LC/LC-*.tar.gz | grep -q 'LC/LEDGER.log' || die "the evidence archive does not hold the run's ledger (A200)"
   [ ! -e .agents/runs/LC ] && [ -z "$(sed '/^[[:space:]]*$/d' .agents/local/ACTIVE_RUN)" ]
   A status | grep -Fxq 'active_task=none'
   ok "orchestrated loop, reopen, ledger and cleanup"
@@ -463,7 +466,11 @@ scenario_terminal() {
   printf 'reason: the verification toolchain is unavailable in this environment\nevidence: go test exited 127 because the go binary is missing\n' | A terminate LC BLOCKED >/dev/null
   expect_state execution state BLOCKED
   mkdir -p .agents/local/assignments/LC; : > .agents/local/assignments/LC/a.md
+  grep -q '^  keep: 10' .agents/config.yaml && sed 's/^  keep: 10/  keep: 1/' .agents/config.yaml > "$base/cfg.keep" && cp "$base/cfg.keep" .agents/config.yaml || die "the config has no archive.keep (A200)"
+  mkdir -p .agents/local/archive/OLD-1; : > .agents/local/archive/OLD-1/x; touch -t 202001010000 .agents/local/archive/OLD-1
   A cleanup LC >/dev/null; [ ! -e .agents/runs/LC ] && [ ! -e .agents/local/assignments/LC ] || die "a BLOCKED cleanup left the run or its assignments directory (A116)"
+  ls .agents/local/archive/LC/LC-*.tar.gz >/dev/null 2>&1 || die "a BLOCKED run left no evidence archive (A200)"
+  [ ! -e .agents/local/archive/OLD-1 ] || die "archive.keep: 1 kept an older run's archive (A200)"
   ok "terminal outcomes and cleanup"
 }
 

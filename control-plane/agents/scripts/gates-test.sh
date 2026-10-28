@@ -1257,6 +1257,14 @@ sc_decide() {
   mkdir -p .agents/local/submissions; printf '%s\n' "$tr" > .agents/local/submissions/t9.started
   export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'; unset PROOFLINE_STEP_AGENT
   tail -1 "$mj" | grep -q '"kind":"step".*"tokens_in":103,"tokens_out":50,"tokens_total":153,' || die "step record without the subagent's session-log tokens: $(tail -1 "$mj")"
+  # A200: a step is timed from the start of ITS attempt (marker line 2), not from the decision; a resumed subagent is not inflated
+  printf '%s\n%s\n' "$tr" "$(( $(date +%s) - 40 ))" > .agents/local/submissions/t9.started
+  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-3|blocking|impl.txt:3|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'; unset PROOFLINE_STEP_AGENT
+  ms_d=$(tail -1 "$mj" | sed -n 's/.*"duration_s":\([0-9]*\),.*/\1/p'); [ "${ms_d:-0}" -ge 40 ] && [ "${ms_d:-0}" -le 100 ] || die "step duration is not the time since the marker's start stamp (A200): $(tail -1 "$mj")"
+  # the runtime of the record is the one dispatch.sh says really ran the step (after a failover it is not the decision's)
+  PROOFLINE_DISPATCH_RUNTIME=codex PROOFLINE_DISPATCH_START=$(( $(date +%s) - 7 )) rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-4|blocking|impl.txt:4|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'
+  tail -1 "$mj" | grep -q '"kind":"step".*"runtime":"codex".*"duration_s":\(7\|[12][0-9]\),' || die "step record does not carry the runtime that really ran the step and its attempt's time (A200): $(tail -1 "$mj")"
+  grep -q "$(printf '\tLC\treviewer\tcodex\t')" .agents/local/metrics/history.tsv || die "history line does not carry the real runtime (A200)"
   # dispatch record: numbers kept, strings sanitized (no free text, so no secret), non-lead refused
   A metrics-dispatch LC reviewer rules claude 'sonnet"; sk-LIVE secret' 12 100 50 150 3 1 submitted >/dev/null
   tail -1 "$mj" | grep -q '"kind":"dispatch","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules","gate":"REVIEW_RULES","runtime":"claude","model":"sonnetsk-LIVEsecret","duration_s":12,"tokens_in":100,"tokens_out":50,"tokens_total":150,"turns":3,"retries":1,"delegations":null,"fix_rounds":null,"result":"submitted"' || die "dispatch record shape: $(tail -1 "$mj")"
