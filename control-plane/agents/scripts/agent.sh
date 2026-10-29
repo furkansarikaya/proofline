@@ -1647,6 +1647,87 @@ require_ac_coverage() { # ID
 }
 authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 
+# A202: optional task sections the user writes into TASK.md: `Allowed scope`, `Forbidden scope`, `Existing pattern references`
+# and `Completion response`. A section is a `##` (or an imported `###`) heading; HTML comments inside it are dropped. The run's
+# copy of TASK.md is sealed, so an agent cannot edit a boundary after the freeze. An entry is a bullet with a path (the first
+# backticked token, else the first word): a file, a folder (a parent of the plan path) or a glob.
+task_section_lines() { # FILE HEADING -> the section's lines without HTML comments; nothing when it is absent
+  [ -f "$1" ] || return 0
+  awk -v h="$2" '
+    function strip(s,   o, p) { o = ""
+      while (1) {
+        if (inc) { p = index(s, "-->"); if (!p) return o; s = substr(s, p + 3); inc = 0 }
+        else { p = index(s, "<!--"); if (!p) return o s; o = o substr(s, 1, p - 1); s = substr(s, p + 4); inc = 1 } } }
+    BEGIN { want = tolower(h) }
+    { s = strip($0)
+      if (s ~ /^#+[ \t]/) { t = s; sub(/^#+[ \t]+/, "", t); sub(/[ \t\r]+$/, "", t); on = (s ~ /^###?[ \t]/ && tolower(t) == want); next }
+      if (on) print s }' "$1"
+}
+task_scope_entries() { # FILE HEADING -> one path, folder or glob per line
+  task_section_lines "$1" "$2" | awk '
+    /^[ \t]*([-*]|[0-9]+[.)])[ \t]+/ { l = $0; sub(/^[ \t]*([-*]|[0-9]+[.)])[ \t]+/, "", l)
+      if (match(l, /`[^`]+`/)) e = substr(l, RSTART + 1, RLENGTH - 2); else { e = l; sub(/[ \t].*$/, "", e) }
+      sub(/^\.\//, "", e); sub(/^\//, "", e); sub(/[,;]+$/, "", e)
+      if (e != "" && tolower(e) != "none") print e }'
+}
+scope_entry_covers() { # ENTRY PATH: the entry is the path, a folder above it, or a glob that matches it
+  sc_e=$1 sc_p=${2#./}
+  # shellcheck disable=SC2254 # the glob is the point: the entry is a pattern the user wrote
+  case "$sc_e" in *'*'*|*'?'*|*'['*) case "$sc_p" in $sc_e) return 0 ;; esac; return 1 ;; esac
+  sc_e=${sc_e%/}
+  [ "$sc_p" != "$sc_e" ] || return 0
+  case "$sc_p" in "$sc_e"/*) return 0 ;; esac
+  return 1
+}
+scope_path_listed() { # PATH ENTRIES (newline separated)
+  while IFS= read -r slp_e; do
+    [ -n "$slp_e" ] || continue
+    scope_entry_covers "$slp_e" "$1" && return 0
+  done <<EOF
+$2
+EOF
+  return 1
+}
+# A202: the freeze (and every refreeze) checks the plan against the task's own boundaries. Forbidden scope is a hard refusal with
+# no waiver path: only the user's edit of the task lifts it. Allowed scope, when given, is a boundary the user either widens in the
+# task or answers at the batch pre-flight (kind scope, option b). Existing pattern references must exist and be named in the plan.
+require_task_boundaries() { # ID
+  rtb_d=$(run_dir "$1"); rtb_t=$rtb_d/TASK.md; [ -f "$rtb_t" ] || return 0
+  rtb_paths=$(scope_mappings "$rtb_d/PLAN.md" 2>/dev/null | cut -d '|' -f1)
+  rtb_forb=$(task_scope_entries "$rtb_t" 'Forbidden scope')
+  if [ -n "$rtb_forb" ]; then
+    for rtb_p in $rtb_paths; do
+      if scope_path_listed "$rtb_p" "$rtb_forb"; then
+        fail "plan scope path $rtb_p is inside the task's Forbidden scope: the freeze is refused and nothing waives it (an agent cannot lift a boundary the user wrote). Remove the path from the plan, or the user changes the task's Forbidden scope himself (A202)"
+      fi
+    done
+  fi
+  rtb_allow=$(task_scope_entries "$rtb_t" 'Allowed scope')
+  if [ -n "$rtb_allow" ]; then
+    rtb_out=''
+    for rtb_p in $rtb_paths; do scope_path_listed "$rtb_p" "$rtb_allow" || rtb_out="$rtb_out $rtb_p"; done
+    if [ -n "$rtb_out" ]; then
+      rtb_ba=$(batch_answer_row "$1" scope)
+      if [ "$(printf '%s' "$rtb_ba" | cut -f1)" = b ]; then
+        echo "note: plan paths outside the task's Allowed scope:$rtb_out; freezing on the user's batch answer $(printf '%s' "$rtb_ba" | cut -f3) (A202)" >&2
+      else
+        fail "plan scope path(s) outside the task's Allowed scope:$rtb_out. Plan inside it, or ask the user: they widen the Allowed scope in the task, or answer the batch pre-flight question about it with the option that allows the paths (A202)"
+      fi
+    fi
+  fi
+  rtb_refs=$(task_scope_entries "$rtb_t" 'Existing pattern references')
+  if [ -n "$rtb_refs" ]; then
+    while IFS= read -r rtb_r; do
+      [ -n "$rtb_r" ] || continue
+      case "$rtb_r" in *'*'*|*'?'*|*'['*) continue ;; esac
+      [ -e "$root/${rtb_r%/}" ] || fail "the task's Existing pattern references name $rtb_r, which does not exist in the repository: the user corrects the reference (A202)"
+      grep -Fq -- "$rtb_r" "$rtb_d/PLAN.md" || fail "PLAN.md does not mention the task's Existing pattern reference $rtb_r: name it where the plan follows that pattern (or says why it cannot), in the architecture, scope or tests text, and freeze again (A202)"
+    done <<EOF
+$rtb_refs
+EOF
+  fi
+}
+
 # Approvals a freeze needs (D3): plan (supervised),
 # scope (a refreeze that adds scope paths). Prints the approval files to consume, one per line.
 # A60: a task that lists a pre-existing defect with `decision: fix` changes behaviour nobody asked for: the freeze
@@ -1795,6 +1876,7 @@ freeze() {
   verify_seal "$id"
   verify_task_source_status "$id"
   require_scope_mapping "$id"
+  require_task_boundaries "$id"   # A202
   require_ac_coverage "$id"
   # A112: QA's visual focus runs for every non-TRIVIAL plan with a UI part; its same-origin-write allowance is declared
   # in the plan, now, not found missing at QA time (INCONCLUSIVE, then an amendment and a second approval).
@@ -5484,7 +5566,7 @@ waive() {
   wv_follow=none
   if [ "$(cfg review.waiver_followup none)" = task ]; then
     wv_fu=$wv_d/waivers/$wv_n-$wv_fid.followup.md
-    { printf '# Follow-up: waived finding %s of %s\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\n' "$wv_fid" "$wv_id"
+    { printf '# Follow-up: waived finding %s of %s\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\nOrigin: %s (waived finding %s)\n\n' "$wv_fid" "$wv_id" "$wv_id" "$wv_fid"
       grep "^finding: $wv_fid|" "$wv_rec" | sed 's/^finding: //'; printf '\nWaiver reason: %s\n' "$wv_reason"; } > "$wv_fu"
     wv_ad=$agents/task-integrations/$(cfg tasks.adapter markdown).sh
     if [ -f "$wv_ad" ]; then wv_follow=$(sh "$wv_ad" followup "$wv_id" "$wv_fu") || fail "follow-up task creation failed via $wv_ad"; else wv_follow=pending; fi
@@ -6309,6 +6391,8 @@ required_report_headings() {
   if ls "$dir"/waivers/*.yaml >/dev/null 2>&1; then printf '## Waivers\n'; fi
   if [ -n "$(decision_files "$id")" ]; then printf '## Execution\n'; fi
   if [ -n "$(risk_unsupported "$id")" ]; then printf '## Unsupported Checks\n'; fi
+  # A202: the user asked for a final summary format in the task; the report carries the lead's last message in that format
+  if [ -n "$(task_section_lines "$dir/TASK.md" 'Completion response' | grep '[^[:space:]]')" ]; then printf '## Requested Response\n'; fi
   return 0
 }
 validate_completion_report_structure() {
@@ -6319,6 +6403,10 @@ validate_completion_report_structure() {
     vc_h=$(printf '## %s' "$vc_h" | tr '_' ' ')
     grep -Fq "$vc_h" "$report" || fail "completion report missing required section: $vc_h"
   done
+  # A202: a task with a `Completion response` section needs the requested summary written in the report, not left out
+  if [ -n "$(task_section_lines "$dir/TASK.md" 'Completion response' | grep '[^[:space:]]')" ]; then
+    awk '/^## Requested Response[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report" | grep -q '[^[:space:]]' || fail "completion report: the '## Requested Response' section is empty (the task's Completion response asks for a final summary in its own format: write it there, and end your last message with the same text)"
+  fi
   # A79: every assumption that is not verified is listed in `## Assumptions` (an accepted-by-user one with the
   # answer file that accepted it); a run with none writes "none".
   vc_sec=$(awk '/^## Assumptions[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
@@ -7692,7 +7780,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind test-path batch-answers commands-check'
+read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind task-scope-entries scope-covers test-path batch-answers commands-check'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7762,6 +7850,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)
   path-kind <path>...   (A200: content or code, for the scope bound)
+  task-scope-entries <task-file> <heading> | scope-covers <entry> <path>   (A202: read a task's scope sections; does an entry cover a path)
   test-path <path>...   (A200: `test` or `product` per path: whether selective repetition may treat it as a test)
   batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one "approve delivery", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)
@@ -7871,6 +7960,8 @@ case "$command" in
   batch-answer) require_lead; sh "$scripts/batch.sh" answer ;;
   batch-answers) sh "$scripts/batch.sh" answers "${2:-}" ;;
   test-path) shift; [ $# -gt 0 ] || fail "usage: agent.sh test-path <path>..."; for tp_p in "$@"; do if test_code_path "$tp_p"; then printf 'test\t%s\n' "$tp_p"; else printf 'product\t%s\n' "$tp_p"; fi; done ;;
+  task-scope-entries) [ $# -eq 3 ] || fail "usage: agent.sh task-scope-entries <task-file> <heading>"; task_scope_entries "$2" "$3" ;;
+  scope-covers) [ $# -eq 3 ] || fail "usage: agent.sh scope-covers <entry> <path>"; scope_entry_covers "$2" "$3" ;;
   path-kind) shift; [ $# -gt 0 ] || fail "usage: agent.sh path-kind <path>..."; for pk_p in "$@"; do printf '%s\t%s\n' "$(path_kind "$pk_p")" "$pk_p"; done ;;
   # pr-state only reads the platform (deliver_pr_view): read-only and role-agnostic by design
   pr-state) printf '%s\n' "$(deliver_pr_view "${2:?usage: agent.sh pr-state <PR>}" | awk 'NR == 1 { print $1 }')" ;;

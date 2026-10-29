@@ -144,12 +144,13 @@ case "$op" in
     rel=$tdir/backlog/$nid.md
     mkdir -p "$root/$tdir/backlog"
     {
-      printf '# Task: %s — %s\n\n**Status:** backlog\n\n' "$nid" "$title"
+      printf '# Task: %s — %s\n\n**Status:** backlog\n\n---\norigin: %s\n\n---\n\n' "$nid" "$title" "$id"   # A202: the source is written, not remembered
       awk '!d && /^# / { d=1; next } { print }' "$wf"
       for h in 'Acceptance criteria' 'Out of scope' 'Constraints' 'Risks' 'Suggested class' 'Verification commands'; do
         grep -Fxq "## $h" "$wf" || printf '\n## %s\n\nTBD (task-author completes this follow-up)\n' "$h"
       done
     } > "$root/$rel"
+    pl_link "$root/$tdir/links.tsv" "$id" "$nid" followup   # A202: the back link (the source task file stays untouched, its hash too)
     printf '%s\n' "$rel"
     ;;
   status)

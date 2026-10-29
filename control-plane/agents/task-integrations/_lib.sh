@@ -20,6 +20,14 @@ pl_cfg() {
   if [ -n "$pl_v" ]; then printf '%s\n' "$pl_v"; else printf '%s\n' "$3"; fi
 }
 
+# pl_link FILE SOURCE NEW KIND (A202): one row `source<TAB>new<TAB>kind` in the tasks folder's links.tsv, once. The new task names its source in
+# its own `origin:` front matter; this file is the way back from the source. The source task file is not edited (that would change its hash).
+pl_link() {
+  mkdir -p "$(dirname "$1")"
+  pl_row=$(printf '%s\t%s\t%s' "$2" "$3" "$4")
+  grep -Fxq -- "$pl_row" "$1" 2>/dev/null || printf '%s\n' "$pl_row" >> "$1"
+}
+
 # pl_template TARGET: the project copy (.agents/templates/tasks/, user-editable) is the sibling of this directory.
 pl_template() {
   pl_t="$here/../templates/tasks/$1.md"

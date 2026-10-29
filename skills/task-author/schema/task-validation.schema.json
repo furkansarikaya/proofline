@@ -24,7 +24,9 @@
             "sprint": { "type": "string" },
             "assignee": { "type": "string" },
             "depends_on": { "type": "string" },
-            "prd": { "type": "string", "description": "slug of the PRD the Covers ids refer to (product-spec)" }
+            "prd": { "type": "string", "description": "slug of the PRD the Covers ids refer to (product-spec)" },
+            "priority": { "enum": ["high", "medium", "low"], "description": "orders a night batch among tasks without dependencies (A202)" },
+            "origin": { "type": "string", "description": "the source task id, or prd:<slug> (A202)" }
           }
         },
         "covers": {

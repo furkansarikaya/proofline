@@ -148,6 +148,7 @@ export function validate(full, opts = {}) {
     }
   }
   const t = parseTask(text);
+  validateOptionalFields(meta, t, errors, warnings, opts);   // A202
   if (!t.id) errors.push("H1 must be `# Task: <ID> — <title>`");
   for (const name of REQUIRED) {
     const body = t.secs.get(name);
@@ -171,6 +172,7 @@ export function validate(full, opts = {}) {
       if (!OBSERVABLE.test(text)) errors.push(`AC-${ac.n} names no observable behaviour (no verb such as returns, shows, rejects, persists)`);
       const v = VAGUE.exec(text);
       if (v) errors.push(`AC-${ac.n} is not testable: vague term "${v[0]}"`);
+      else if (!meta.prd) { const w = ambiguousRegex(opts.vagueWords).exec(text); if (w) errors.push(`AC-${ac.n} cannot be measured: ambiguous word "${w[0]}" (a number, a path or an observable result instead; A202)`); }
       if (IMPL.test(text)) warnings.push(`AC-${ac.n} may dictate implementation; keep only if the user stated it as a constraint`);
     }
   });
@@ -183,6 +185,39 @@ export function validate(full, opts = {}) {
   errors.push(...defectErrors(text));
   if (defectEntries(text).some((e) => /decision:\s*fix\b/i.test(e))) warnings.push("a pre-existing defect with `decision: fix` needs the user's own `scope` approval at freeze; an answer such as \"use your recommended option\" is not one");
   return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, ...(Object.keys(meta).length ? { meta } : {}), ...(Object.keys(covers).length ? { covers } : {}) } };
+}
+
+// ---- A202 optional task fields: priority, origin, Allowed/Forbidden scope, Existing pattern references, Completion response ----
+export const PRIORITIES = ["high", "medium", "low"];
+export const SCOPE_SECTIONS = ["Allowed scope", "Forbidden scope", "Existing pattern references"];
+// Words an acceptance criterion cannot be measured by. Kept in step with product-spec's check-prd.mjs VAGUE_WORDS (a test compares them);
+// a skill is installable alone, so the list is copied, not imported. Extended by config product.vague_words.
+export const AMBIGUOUS_WORDS = [
+  "robust", "seamless", "seamlessly", "etc.", "etc", "and so on", "user-friendly", "user friendly", "fast", "faster", "quick", "quickly",
+  "intuitive", "easy", "easily", "simple", "simply", "scalable", "flexible", "efficient", "efficiently", "modern", "powerful", "smooth",
+  "smoothly", "properly", "appropriate", "appropriately", "as needed", "optimal", "reasonable",
+  "kullanıcı dostu", "hızlı", "hızlıca", "çabuk", "sağlam", "kolay", "kolayca", "sezgisel", "basit", "esnek", "ölçeklenebilir",
+  "verimli", "sorunsuz", "kusursuz", "güçlü", "uygun", "makul", "vb.", "vs.", "gibi şeyler",
+];
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const ambiguousRegex = (extra = []) => new RegExp(`(?<![\\p{L}\\p{N}])(${[...new Set([...AMBIGUOUS_WORDS, ...extra])].sort((a, b) => b.length - a.length).map(escRe).join("|")})(?![\\p{L}\\p{N}])`, "iu");
+export const scopeEntries = (lines) => (lines || []).map((l) => /^\s*(?:[-*]|\d+[.)])\s+(.*?)\s*$/.exec(l)).filter(Boolean)
+  .map((m) => { const b = /`([^`]+)`/.exec(m[1]); return (b ? b[1] : m[1].split(/\s+/)[0]).replace(/^\.?\//, "").replace(/[,;]+$/, ""); }).filter((e) => e && e.toLowerCase() !== "none");
+export function validateOptionalFields(meta, t, errors, warnings, opts = {}) {
+  if ("priority" in meta && !PRIORITIES.includes(meta.priority)) errors.push(`front matter priority must be one of ${PRIORITIES.join("|")}`);
+  if ("origin" in meta) {
+    if (!/^(prd:[a-z0-9][a-z0-9-]*|[A-Za-z0-9][A-Za-z0-9._-]*)$/.test(meta.origin)) errors.push("front matter origin must be the source task's id or `prd:<slug>`");
+    else if (!meta.origin.startsWith("prd:") && opts.tasksDirs?.length) {
+      if (!knownIds(opts.tasksDirs).has2(meta.origin)) errors.push(`origin "${meta.origin}" matches no task in ${opts.tasksDirs.join(", ")}`);
+      else if (!opts.tasksDirs.some((d) => { try { return readFileSync(join(d, "links.tsv"), "utf8").split("\n").some((r) => r.split("\t")[0] === meta.origin && r.split("\t")[1] === t.id); } catch { return false; } }))
+        warnings.push(`origin ${meta.origin} has no back link to ${t.id} in links.tsv (link-origin.mjs writes both directions)`);
+    }
+  }
+  for (const name of SCOPE_SECTIONS) {
+    const body = t.secs.get(name);
+    if (body && body.some((l) => l.trim()) && scopeEntries(body).length === 0) errors.push(`section "## ${name}" lists no path (one bullet per file, folder or glob, or remove the section)`);
+  }
+  if (t.secs.get("Completion response") && !t.secs.get("Completion response").some((l) => l.trim())) errors.push('section "## Completion response" is empty (describe the final summary you want, or remove the section)');
 }
 
 // ---- templates (D25) ----
@@ -250,6 +285,22 @@ export function resolveTemplate(target, root) {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "templates", `${target}.md`);
 }
 
+// product.vague_words from the nearest .agents/config.yaml above the task (the same key product-spec reads).
+function configVagueWords(from) {
+  for (let d = dirname(from), i = 0; i < 8; d = dirname(d), i++) {
+    const c = join(d, ".agents", "config.yaml");
+    if (!existsSync(c)) continue;
+    let inBlock = false;
+    for (const l of readFileSync(c, "utf8").split(/\r?\n/)) {
+      if (/^\S/.test(l)) { inBlock = /^product:\s*(#.*)?$/.test(l); continue; }
+      const m = inBlock && /^  vague_words:\s*(.*?)\s*$/.exec(l);
+      if (m) return m[1].replace(/\s+#.*$/, "").replace(/^"(.*)"$/, "$1").split(",").map((w) => w.trim()).filter(Boolean);
+    }
+    return [];
+  }
+  return [];
+}
+
 function main(argv) {
   const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
@@ -275,7 +326,7 @@ function main(argv) {
   const td = opt("--tasks-dir");
   const own = dirname(resolve(file));
   const tasksDirs = td ? [resolve(td)] : [own, dirname(own)];
-  const r = validate(read(file), { tasksDirs });
+  const r = validate(read(file), { tasksDirs, vagueWords: configVagueWords(resolve(file)) });
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
   else { r.errors.forEach((e) => console.error(`error: ${e}`)); r.warnings.forEach((w) => console.error(`warning: ${w}`)); }
   return r.valid ? 0 : 1;
