@@ -840,6 +840,11 @@ sc_preflight() {
   A batch-answers P-1 | grep -q 'Q3 P-1 dep: option b' && A batch-answers P-1 | grep -q 'Q4 P-1 ac: option a' || die "answers: $(A batch-answers P-1)"
   A batch-next | grep -q '^P-1 | parked | new dependency' || die "a dependency answer 'park' did not park the task: $(A batch-next)"
   A batch-next | grep -q '^NEXT: run P-2' || die "the other task does not go on: $(A batch-next | tail -2)"
+  # a leading "no" that also says to split is ambiguous: Q1 stays unanswered, never read as option b (proceed without splitting)
+  q1_before=$(A batch-answers P-1 | grep -c 'Q1 ')
+  printf 'Q1 no problem, split it\nQ2 a\n' > .agents/local/prompts/history/$((now + 1))-bbbb9999.txt
+  A batch-answer >/dev/null || die "batch-answer on the ambiguous Q1 message: $(A batch-answer 2>&1)"
+  [ "$(A batch-answers P-1 | grep -c 'Q1 ')" = "$q1_before" ] || die "'Q1 no problem, split it' was read as an answer to Q1: $(A batch-answers P-1)"
   # the same message is used once; a later "all recommended" fills what is open and a later message corrects an answer
   printf 'all recommended\n' > .agents/local/prompts/history/$((now + 2))-cccc3333.txt; A batch-answer >/dev/null || die "all recommended"
   [ "$(A batch-answers P-1 | grep -c 'Q1 ')" -ge 2 ] || die "all recommended did not answer"
@@ -850,20 +855,38 @@ sc_preflight() {
 sc_commands_check() {
   bnew; binstall no
   mkdir -p .agents/local/commands; pf=.agents/local/commands/PROPOSAL.tsv
-  printf '#proposed_at\t%s\ntest\tnpm test\n' "$(date +%s)" > "$pf"
-  expect_msg "commands-check without any user message" "has not answered" A commands-check
-  capture 'looks good' ; expect_msg "commands-check on a reply that is no approval" "does not approve the commands" A commands-check
-  capture 'approve commands'; A commands-check | grep -q 'approved by the user' || die "approve commands: $(A commands-check 2>&1)"
-  capture 'do not approve commands'; expect_msg "commands-check on a negated reply" "does not approve the commands" A commands-check
+  printf 'test\tnpm test\n' > "$pf"
+  ct=$(( $(date +%s) + 7200 ))
+  cap_apply() { ct=$((ct + 1)); capture "$1" "$ct"; A approve-pending >/dev/null 2>&1 || :; }
+  expect_msg "commands-check without any approval" "does not approve the commands" A commands-check
+  # an approval in the user's words that was said before any request is no answer (the capture is older than the request)
+  A request-approval - commands | grep -q 'commands.test: npm test' || die "the request does not show the proposed commands"
+  capture 'approve commands' 1000; A approve-pending >/dev/null 2>&1 || :
+  expect_msg "a reply older than the request" "does not approve the commands" A commands-check
+  cap_apply 'looks good'; expect_msg "commands-check on a reply that is no approval" "does not approve the commands" A commands-check
+  cap_apply 'do not approve commands'; expect_msg "commands-check on a negated reply" "does not approve the commands" A commands-check
+  cap_apply 'approve commands'; A commands-check | grep -q 'approved by the user' || die "approve commands: $(A commands-check 2>&1)"
+  ls .agents/local/approvals | grep -q -- '-commands.yaml' || die "no approval of the kind commands was recorded"
+  # a proposal changed after the approval (forged or replayed with other commands) has no approval bound to it
+  cp "$pf" "$base/proposal.keep"; printf 'test\tnpm test\nlint\trm -rf x\n' > "$pf"
+  expect_msg "a forged proposal is not covered by the approval of another" "does not approve the commands" A commands-check
+  cp "$base/proposal.keep" "$pf"; A commands-check | grep -q 'approved by the user' || die "the approved proposal is not accepted again before it is applied"
+  # a file time inside the proposal means nothing
+  printf '#proposed_at\t0\ntest\tnpm test\n' > "$pf"
+  expect_msg "a proposal that claims a time is another proposal" "does not approve the commands" A commands-check
+  cp "$base/proposal.keep" "$pf"
+  # applied once: the approval is consumed, so the same proposal replayed is refused until asked and answered again
+  A approval-consume - commands >/dev/null || die "the commands approval was not consumed"
+  expect_msg "a replayed proposal after the apply" "does not approve the commands" A commands-check
   # a batch approval covers the proposal only when its summary names the proposal
   capture 'looks good'; h=$(tsha "$pf" | cut -c1-12)
   mktask C-1 COMPLEX; git add -A; git commit -qm c1; BP C-1 >/dev/null
   grep -q "^commands proposal: $h\$" "$summary" || die "the summary does not name the proven proposal: $(sed -n '/Verification commands/,/Stop rules/p' "$summary")"
   expect_msg "commands-check before the batch is approved" "does not approve the commands" A commands-check
   batch_approve; A commands-check | grep -q 'covered by the batch approval' || die "the batch approval did not cover the named proposal: $(A commands-check 2>&1)"
-  printf '#proposed_at\t%s\ntest\tnpm test\nlint\trm -rf x\n' "$(date +%s)" > "$pf"
+  printf 'test\tnpm test\nlint\trm -rf x\n' > "$pf"
   expect_msg "a changed proposal is not covered" "does not approve the commands" A commands-check
-  ok "A200: commands-check passes only on the user's own 'approve commands' or on a batch approval whose summary names this very proposal"
+  ok "A200: commands-check passes only on a commands approval bound to this proposal's sha256 (consumed on apply, no time read from the file) or on a batch approval whose summary names it"
 }
 
 # --- A200: a task that names a code path an earlier task names waits for that task's merge -----------------------------------

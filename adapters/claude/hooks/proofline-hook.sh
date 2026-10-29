@@ -1352,8 +1352,30 @@ mg_git() {
     # A200: the other ways to put a task branch onto a protected branch (branch -f, fetch . task:main, reset/cherry-pick/rebase/pull . on it)
     branch)
       mg_f=no
-      for mg_a in "$@"; do case "$mg_a" in -f|--force|-M|-C) mg_f=yes ;; esac; done
+      for mg_a in "$@"; do case "$mg_a" in --force|--move|--copy) mg_f=yes ;; --*) ;; -*[fMC]*) mg_f=yes ;; esac; done   # a short-flag cluster (-fq, -Mf) forces too
       [ "$mg_f" = no ] || for mg_a in "$@"; do case "$mg_a" in -*) ;; *) ! mg_ref "$mg_a" || deny "git branch -f/-M/-C on the protected branch $mg_a moves it without proofline merge: $MG_MSG" ;; esac; done ;;
+    # A200 review: checkout -B / switch -C create-or-reset a branch at a start point: `git checkout -B main <task>` moves main
+    checkout|switch)
+      mg_take=no
+      for mg_a in "$@"; do
+        if [ "$mg_take" = yes ]; then
+          case "$mg_a" in -*) ;; *) ! mg_ref "$mg_a" || deny "git $mg_sub -B/-C on the protected branch $mg_a resets it without proofline merge: $MG_MSG"; mg_take=no ;; esac
+          continue
+        fi
+        case "$mg_a" in
+          --force-create) mg_take=yes ;;
+          --force-create=*) ! mg_ref "${mg_a#*=}" || deny "git $mg_sub --force-create on the protected branch resets it without proofline merge: $MG_MSG" ;;
+          --*) ;;
+          -*)
+            mg_cl=${mg_a#-}; mg_fc=B; [ "$mg_sub" != switch ] || mg_fc=C
+            case "$mg_cl" in
+              *"$mg_fc"*)
+                mg_val=${mg_cl#*"$mg_fc"}
+                if [ -n "$mg_val" ]; then ! mg_ref "$mg_val" || deny "git $mg_sub -$mg_fc on the protected branch $mg_val resets it without proofline merge: $MG_MSG"
+                else mg_take=yes; fi ;;
+            esac ;;
+        esac
+      done ;;
     fetch)
       for mg_a in "$@"; do case "$mg_a" in -*) ;; *:*) ! mg_ref "${mg_a#*:}" || deny "git fetch into the protected branch ($mg_a) moves it without proofline merge: $MG_MSG" ;; esac; done ;;
     reset|cherry-pick|rebase|am|revert)

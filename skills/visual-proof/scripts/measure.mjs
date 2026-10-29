@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, accessSync, constants } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, SEO_NOT_APPLICABLE_NOTE, SEO_SITE, requiredCells, validateReport } from "./validate-visual.mjs";
 import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, designPages, reusableJudgments } from "./design-audit.mjs";
@@ -1152,6 +1152,7 @@ async function main(argv) {
     const report = assemble(raw, out);
     let prev = null; // A200: the report of the last run in this folder (or --prev-report) is the design-audit cache
     try { prev = read(arg(argv, "--prev-report") || join(out, "report.json")); } catch { prev = null; }
+    if (report.design && report.design.status === "run") report.design.inputs = designCacheInputs(repo);
     writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2) + "\n");
     if (report.design && report.design.status === "run") {
       const cache = reusableJudgments(prev, report);
@@ -1164,6 +1165,13 @@ async function main(argv) {
     if (!v.valid) v.errors.forEach((e) => console.error(`note: ${e}`));
     return 0;
   } catch (e) { console.error(`measure: ${e.message}`); return 2; }
+}
+
+// A200 review: what the design judgment was made against. The design-audit cache key includes both (design-audit.mjs pageContentKeys).
+export function designCacheInputs(repoDir) {
+  const sha = (f) => { try { return createHash("sha256").update(readFileSync(f)).digest("hex"); } catch { return "none"; } };
+  const md = ["DESIGN.md", "docs/design/DESIGN.md", "docs/DESIGN.md", "design/DESIGN.md"].map((x) => join(resolve(repoDir || "."), x)).find((x) => existsSync(x));
+  return { design_md_sha256: md ? sha(md) : "none", ux_rules_sha256: sha(join(dirname(fileURLToPath(import.meta.url)), "..", "ux-rules.json")) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2)).then((c) => process.exit(c));

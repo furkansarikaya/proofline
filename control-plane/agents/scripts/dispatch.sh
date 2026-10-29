@@ -416,7 +416,7 @@ EOF_CP
   # A124: .md and .log stay empty until the worker exits, so a reader cannot tell a running dispatch from a dead one.
   printf 'pid=%s\nrole=%s\ntimeout=%s\ndispatch in flight: %s %s on %s, started %s.\nThis dispatch.sh command has not returned: the .md and .log of this step stay empty until it does.\nWait for the command to return; do not re-dispatch this step or read these files as a result.\n' "$$" "$role" "$timeout_s" "$id" "$role" "$rt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$running"
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
-  else (cd "$root" && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" PROOFLINE_DISPATCH_RUNTIME="$rt" PROOFLINE_DISPATCH_START="$(date +%s)" &&
+  else (cd "$root" && PROOFLINE_DISPATCH_START=$(date +%s) && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" PROOFLINE_DISPATCH_RUNTIME="$rt" PROOFLINE_DISPATCH_START &&
     if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
       HOME=$PROOFLINE_CODEX_HOME_DIR CODEX_HOME=$PROOFLINE_CODEX_HOME_DIR/.codex \
         run_timed "$timeout_s" "$log" "$input" "$@"

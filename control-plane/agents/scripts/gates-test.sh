@@ -1877,6 +1877,20 @@ sc_selective_rerun() {
   ok "A200 a test-only fix keeps REVIEW_PLAN/RULES/SECURITY; security tests and product code rerun them; SECRETS, REVIEW_TESTS and VERIFY always run"
 }
 
+# A200 review: a blocking row is "about the visual evidence report" only when it names the reviews/visual-proof/ path; any other
+# text that merely says report.json is an ordinary row for the implementer.
+sc_visual_row_match() {
+  scaffold orchestrated no CRITICAL
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  pass_all
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:1|the build's report.json is stale and the visual evidence is not mentioned|traced: build output"
+  A next LC | grep -q 'qa --focus visual' && die "A200 a row that only says report.json sent the lead to the QA visual focus: $(A next LC)"
+  rec VERIFY FAIL high "VERIFY-2|blocking|impl.txt:1|reviews/visual-proof/report.json is missing|traced: no such file"
+  A next LC | grep -q 'qa --focus visual' || die "A200 a row naming reviews/visual-proof/ did not send the lead to the QA visual focus: $(A next LC)"
+  ok "A200 a visual-evidence row is recognized by its reviews/visual-proof/ path, not by the word report.json"
+}
+
 # A200 (items 6, 8, 9): the normalizer's narrow list, the expected-format errors of refreeze and amend, the rationale approval kind.
 sc_a200_misc() {
   scaffold orchestrated
@@ -2725,4 +2739,5 @@ run_sc sc_doc_scope_warning
 run_sc sc_takeover_without_red
 run_sc sc_a200_misc
 run_sc sc_selective_rerun
+run_sc sc_visual_row_match
 echo 'gates tests passed'

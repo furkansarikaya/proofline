@@ -924,6 +924,15 @@ sc_gate_deps() {
   expect_msg "a visual PASS without report.json" 'visual PASS needs reviews/visual-proof/report.json' env AGENT_ROLE=qa sh ./.agents/scripts/agent.sh record "$RID" --file "$gd_rf"
   printf '{"schema":"visual-proof/1","result":"FAIL"}\n' > "$gd_rj"
   expect_msg "a visual PASS against a FAIL report.json" 'contradicts reviews/visual-proof/report.json' env AGENT_ROLE=qa sh ./.agents/scripts/agent.sh record "$RID" --file "$gd_rf"
+  # A200 review: the record reruns the source lint itself; the agent-written lint.json (or none) decides nothing
+  printf '{"schema":"visual-proof/1","result":"PASS"}\n' > "$gd_rj"
+  expect_msg "a visual PASS with the lint script missing" 'lint-source.mjs is missing' env AGENT_ROLE=qa sh ./.agents/scripts/agent.sh record "$RID" --file "$gd_rf"
+  mkdir -p .agents/skills; cp -R "$tl_agents/../../skills/visual-proof" .agents/skills/visual-proof; printf '.agents/skills/\n' >> .git/info/exclude
+  mkdir -p web; printf '<style>.eyebrow{font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:.1em}\n.box{border:1px solid #ccc;padding:12px}\n.panel{border:1px solid #ddd;padding:12px}\n.tile{border:1px solid #ddd;padding:12px}</style>\n' > web/lint-bait.html
+  gd_rf=$(RF_FOCUS=visual result_for QA PASS)   # the files above changed the content fingerprint
+  printf '{"findings":[]}\n' > "$(dirname "$gd_rj")/lint.json"   # the QA agent's own lint.json claims nothing is wrong
+  expect_msg "a visual PASS with a blocking source finding the agent's lint.json hides" 'blocking finding' env AGENT_ROLE=qa sh ./.agents/scripts/agent.sh record "$RID" --file "$gd_rf"
+  rm -f web/lint-bait.html "$(dirname "$gd_rj")/lint.json"
   RF_FOCUS=visual gpass QA
   mkdir -p docs/design; printf '# design notes\n' > docs/design/a.md   # a knowledge-scope document must not make the dependency look unmet
   A decide LC verifier --agent-path >/dev/null || die "VERIFY is refused after QA visual passed, with a knowledge-scope document present"
