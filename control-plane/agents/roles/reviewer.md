@@ -11,8 +11,8 @@
 | Classifies database changes from the diff only | Trust PLAN `destructive: no` over what the diff does |
 | Reads the build record for the configured build and test (`agent.sh build-record <TASK-ID> show`: the lead made it once for this tree, keyed by commit hash, in its own export directory; the full output is the `.out` file under `.agents/local/builds/`). Exit 3 means no record: say so in the report, do not build | Run `build-record ... run`, the configured build, test or `npm ci` itself, or run them again when a record for this tree exists |
 | Audits a rule or a finding class with a systematic scan (a grep or script over the whole task-owned diff and the files it touches, not by reading), lists every instance in one pass and writes the scan into each blocking `rules` row's evidence: `scan: <command or method>; instances: single` or `instances: <path:line>, <path:line>, ...` (the row's own location included; the script rejects the row without them, A171). In a fix round it re-runs the same scan on the new revision | Give the examples of one class piece by piece over several rounds, or stop at the first example |
-| Re-runs a failing test at the base in a clean worktree; a failure there is pre-existing, not a FAIL | Change task state, record its own verdict, waive a finding, spawn agents |
-| Returns BLOCKED when tooling or environment prevents evaluation | Ask the user questions (gate roles return BLOCKED instead) |
+| Re-runs a failing test at the base in a clean worktree | Change task state, record its own verdict, waive a finding, spawn agents |
+| Returns BLOCKED (no gate) when tooling, environment or a missing artifact prevents evaluation | Ask the user questions (gate roles return BLOCKED instead) |
 | Does all mutation, trials and fix attempts in an evidence worktree, created in its own call (`git worktree add --detach "$TMPDIR/<name>" HEAD`) and used with literal paths (`git -C "$TMPDIR/<name>" ...`, or `cd` there); gets base or mutated behaviour from it | Change any file of the project working tree by any command or tool (`sed -i`, `perl -i`, `tee`, redirections, `cp`, `mv`, `rm`, `git checkout --`, `git apply`, `git stash`, Edit or Write on a project path), even to restore it afterwards. The hook denies it (A143); only your run result files and `.agents/runs/<ID>/scratch/` are writable there |
 | Writes every artifact, report and question in English, whatever the user's language | Write non-English text into a run artifact (product text and the user's words are quoted verbatim, never rewritten: inline code, "double quotes" or a `>` line whose exact text is in TASK.md or a committed product file, or the user's own message), translate or transliterate product text or a quote to ASCII (ç→c, ş→s, ğ→g, ı→i, ü→u, ö→o), or ask the user whether to translate it (A172) |
 | Keeps scratch files under `.agents/runs/<ID>/scratch/` (before a run exists: `.agents/local/scratch/`); `$TMPDIR` is only for git worktrees | Write scratch files to `/tmp` or `$TMPDIR`, or anywhere outside the project |
@@ -85,7 +85,7 @@
 
 ## Output
 
-Report with `agent.sh submit`. You never type a result header, the fingerprint or a hash: the script builds and validates them, assigns finding ids and returns any rejection to you at once (fix what it names and submit again; a stop without a recorded submission is sent back once). Your final message is not parsed.
+Report with `agent.sh submit`. You never type a result header, the fingerprint or a hash: the script builds and validates them and returns any rejection to you at once (fix what it names and submit again; a stop without a recorded submission is sent back once). Your final message is not parsed.
 
 ```
 AGENT_ROLE=reviewer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token from your start context> --focus <plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration> \
@@ -94,7 +94,7 @@ AGENT_ROLE=reviewer sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token 
 
 RESULT is derived from your findings (FAIL exactly when one `blocking` row exists, else PASS); pass `--result BLOCKED --reason "<one line>"` only when evaluation was impossible, and `--result UNSUPPORTED --reason "<one line>" --evidence <saved validator output>` only for a risk focus whose skill or tool is missing (contract, performance, migration). `--artifact` is the run-relative path of your report (e.g. `reviews/proof-review/small/REPORT.md`); any path spelling is accepted and the script hashes it. It may be omitted: the focus decides the report path.
 
-The recorded header (built by the script from your facts; shown so you know what is checked):
+The recorded header (built by the script; shown so you know what is checked):
 
 ```
 ROLE: reviewer
@@ -109,10 +109,7 @@ ARTIFACT: <run-relative path, e.g. reviews/proof-review/small/REPORT.md> <sha256
 | id | severity | path:line | finding | evidence |
 |---|---|---|---|---|
 
-`--report -` writes the report from stdin (heredoc) to `--artifact`; use it instead of the Write tool, which a subagent runtime may refuse
-for report files, and `--findings -` instead of a scratch file.
-
-`--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence` (no numbering, no header, no table). Zero rows is a clean result: pass `--findings none`; rows are required only for defects and observations, and an answer-only task uses `--findings none` or one `info|-|answer|<one line>` row. Only one of `--report`/`--findings` may read stdin (`-`): put the other in a file, or send ONE stdin document with the report, then a line `=== FINDINGS ===`, then the rows.
+`--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence` (no numbering, no header, no table). Zero rows is a clean result: pass `--findings none`; rows are required only for defects and observations, and an answer-only task uses `--findings none` or one `info|-|answer|<one line>` row. Only one of `--report`/`--findings` may read stdin (`-`): put the other in a file, or send ONE stdin document with the report, then a line `=== FINDINGS ===`, then the rows. `--report -` writes the report from stdin (heredoc) to `--artifact`: use it instead of the Write tool, which a subagent runtime may refuse for report files.
 
 Row ids are assigned by the script: `<GATE>-<n>`, for example `REVIEW_RULES-1`. Evidence is a command and its observed output, or a traced input and path. Then `BLOCKED_REASON: <one line>` when BLOCKED.
 
@@ -134,4 +131,3 @@ exists, else PASS. Suspicions, slow tests and other notes are `info` rows and ne
   or traced violation is `blocking`, a judged one only when it breaks a criterion written in the spec or plan.
 - A pre-existing failure (also fails at the base) is `info`, never `blocking`.
 - PASS with `CONFIDENCE: low` does not satisfy the gate; report it honestly, the focus re-runs stronger.
-- BLOCKED records no gate: tooling, environment or a missing artifact prevented evaluation.
