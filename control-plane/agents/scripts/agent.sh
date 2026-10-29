@@ -6493,12 +6493,13 @@ require_no_knowledge_drift() { # ID WHAT
   [ -z "$rnk" ] || fail "$2: design-sync drift in knowledge-scope documents is still there (${rnk%;}); the knowledge step must fix it (update the document or the code claim), then 'agent.sh knowledge-done $1'. No waiver or scope change applies to these documents"
 }
 # wiki_lint_run ID PATHS (A200): the llm-wiki lint of every wiki folder the knowledge step changed. Fails on a lint error; a project
-# that has no node or no installed llm-wiki script cannot be linted, which is said and does not block.
+# that has no node or no installed llm-wiki script cannot be linted, and then knowledge-done is refused (ambiguity -> safe side).
 wiki_lint_run() {
   wl_x=$root/.agents/skills/llm-wiki/scripts/validate-wiki.mjs
   wl_dirs=$(printf '%s\n' "$2" | sed -n 's|^\(\(.*/\)\{0,1\}wiki\)/.*|\1|p' | sort -u)
   [ -n "$wl_dirs" ] || return 0
-  if [ ! -f "$wl_x" ] || ! command -v node >/dev/null 2>&1; then echo "note: the wiki lint was not run (node or .agents/skills/llm-wiki/scripts/validate-wiki.mjs is missing); run the llm-wiki lint yourself"; return 0; fi
+  if ! command -v node >/dev/null 2>&1; then fail "knowledge-done blocked (A200): the wiki lint cannot run because node is missing. Install node (https://nodejs.org), then run knowledge-done again"; fi
+  if [ ! -f "$wl_x" ]; then fail "knowledge-done blocked (A200): the wiki lint cannot run because .agents/skills/llm-wiki/scripts/validate-wiki.mjs is missing. Install the llm-wiki skill into .agents/skills/llm-wiki/ (its scripts/validate-wiki.mjs), then run knowledge-done again"; fi
   for wl_d in $wl_dirs; do
     [ -d "$root/$wl_d" ] || continue
     wl_rc=0; wl_o=$(cd "$root" && node .agents/skills/llm-wiki/scripts/validate-wiki.mjs "$wl_d" --root . 2>&1) || wl_rc=$?

@@ -1535,7 +1535,8 @@ sc_wiki_knowledge_scope() {
   mkdir -p notes; printf 'not a wiki page\n' > notes/outside.txt
   expect_msg "a path outside the root counted as knowledge" 'no knowledge page was written' A knowledge-done LC
   rm -r notes
-  mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: docs/design/DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/   # the lint must be installed or knowledge-done refuses
   A knowledge-done LC >/dev/null
   A verify-knowledge-scope LC >/dev/null
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
@@ -1545,7 +1546,11 @@ sc_wiki_knowledge_scope() {
 sc_knowledge_done_needs_page_and_lint() {
   scaffold orchestrated; to_code_done orchestrated
   expect_msg "A200: knowledge-done with no page written" 'no knowledge page was written' A knowledge-done LC
-  mkdir -p .agents/skills/llm-wiki/scripts docs/wiki
+  mkdir -p docs/wiki
+  printf -- '---\ntitle: good page\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Good\n' > docs/wiki/good.md
+  expect_msg "A200: knowledge-done with the llm-wiki lint script missing refuses" 'validate-wiki.mjs is missing' A knowledge-done LC
+  rm -f docs/wiki/good.md
+  mkdir -p .agents/skills/llm-wiki/scripts
   cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/
   printf -- '---\ntitle: bad page\nstatus: current\n---\n\n# No source\n' > docs/wiki/bad.md
   expect_msg "A200: knowledge-done over a wiki page the lint rejects" 'wiki lint of docs/wiki found errors' A knowledge-done LC
@@ -1566,7 +1571,8 @@ sc_knowledge_gates_fresh() {
   scaffold orchestrated; to_code_done orchestrated
   before=$(A pipeline LC | grep '^gate\.')
   printf '%s\n' "$before" | grep -q 'gate\.[A-Z_]*=\(stale\|missing\|fail\)' && die "gates are not fresh before the knowledge step: $before"
-  mkdir -p docs/wiki/concepts docs/design docs/adr docs/product; printf '# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p docs/wiki/concepts docs/design docs/adr docs/product; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: docs/design/DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/   # the lint must be installed or knowledge-done refuses
   printf '# Design\n' > docs/design/DESIGN.md; printf '# ADR 1\n' > docs/adr/0001-x.md; printf '# PRD\n' > docs/product/PRD.md
   A knowledge-done LC >/dev/null
   after=$(A pipeline LC | grep '^gate\.')
@@ -1630,6 +1636,9 @@ sc_knowledge_na() {
   # a design document changed by the task
   SC_SCOPE_NAMED=docs/design/DESIGN.md scaffold standalone; printf 'new section\n' >> docs/design/DESIGN.md; to_code_done standalone
   expect_msg "not_applicable accepted for a task that changed a design document" 'documentation path' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  # the step must write a page (A200) and the lint must be installed; the design document the task changed is plan scope, not a knowledge page
+  mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/
+  printf -- '---\ntitle: lookup\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Lookup\n' > docs/wiki/lookup.md
   A knowledge-done LC >/dev/null; expect_state execution knowledge_state KNOWLEDGE_DONE
   ok "not_applicable is refused for AC words, a contract and a design-document change; the real knowledge step still records"
   # a run from before 0.0.17 has no execution.knowledge_reason key: not_applicable is refused and nothing is recorded
