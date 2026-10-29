@@ -17,7 +17,7 @@
 
 ## Status
 
-Version 0.0.36 is an early release.
+Version 0.0.37 is an early release.
 Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
 Codex as implementer is supported (real use, 2026-10-23 to 25).
 Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
@@ -118,6 +118,8 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 **Project layout.** No layout is assumed: one ecosystem definition drives `init` (a command per ecosystem, workspaces included); `commands.build|test|lint` may be a list; an ambiguous one gets none and the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
 
+**Faster, not looser (A200).** Gates re-run when their inputs changed, batch questions are asked before the approval, empty `commands.*` are proposed by `proofline doctor --commands` and written only after your yes, and a design rationale counts only when you approved it. Six core invariants ([CONTRIBUTING](CONTRIBUTING.md#core-invariants)) bound every change and are tested in CI ([gates](docs/concepts/gates.md#repeating-gates-after-a-fix-round-a200)).
+
 **Processes.** An agent stops only a process it started, by its PID; the hook denies kill-by-name and mass kills (a tripwire, not a sandbox: [process rules](docs/concepts/enforcement-layers.md#process-rules)).
 
 ## Documentation
@@ -130,7 +132,7 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 ## Versioning and license
 
-Version **0.0.36**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.37**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

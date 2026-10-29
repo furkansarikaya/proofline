@@ -5,7 +5,7 @@ argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.36"
+  version: "0.0.37"
 ---
 
 # proofline
@@ -41,7 +41,7 @@ with "proofline is not installed here".
 | (empty), `status` | Run the CLI `status`; show the active run and its state in one short block. |
 | `init` | Ask the user (one message, defaults in brackets): runtimes [the installed ones], lead / worker / reviewer runtime [claude], model profile [balanced], task adapter [markdown], protected branches [none], push needs approval [true], forbidden commit identities [none]. Then run the CLI `init --yes` with the matching flags (`--runtimes`, `--lead`, `--worker`, `--reviewers`, `--profile`, `--task-adapter`, `--protected-branches`, `--push-approval`, `--forbidden-identity`, repeatable). Run `init --dry-run` first when the project already has `AGENTS.md`, `CLAUDE.md` or `.claude/settings.json`, show the plan, and continue on the user's yes. Finish with `doctor`. |
 | `upgrade` | CLI `upgrade --dry-run`, show it, then `upgrade` on the user's yes. Report every conflict (a file you modified, with its `.proofline-new` copy) and stop; merging is the user's call. |
-| `doctor` | CLI `doctor`; relay PASS / WARN / FAIL lines unchanged and name the fix for each FAIL. `doctor` also shows the hosting platform of `origin`, the installed tool (gh, glab, az) and which merge rule applies. A WARN that no CI check runs on pull requests stays visible: `proofline merge` then verifies the commit locally ("verified locally, no CI"); a batch is not refused. |
+| `doctor` | CLI `doctor`; relay PASS / WARN / FAIL lines unchanged and name the fix for each FAIL. `doctor --commands` finds the empty `commands.build|test|lint`, proves each by one run and proposes them in one question; after the user's "approve commands" run `doctor --apply-commands` (unproven commands are never written; A200). `doctor` also shows the hosting platform of `origin`, the installed tool (gh, glab, az) and which merge rule applies. A WARN that no CI check runs on pull requests stays visible: `proofline merge` then verifies the commit locally ("verified locally, no CI"); a batch is not refused. |
 | `queue` | CLI `queue`. |
 | `clean` | CLI `clean` lists what goes; remove only after the user's yes (`clean --yes`). |
 | `version` | CLI `version`. |

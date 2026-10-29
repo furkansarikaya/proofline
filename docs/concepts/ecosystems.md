@@ -4,7 +4,7 @@ proofline never assumes or imposes a folder layout (A173). A solution at the roo
 
 ## What proofline does with it
 
-- **Command discovery** (`proofline init`, `proofline doctor`): fills `commands.build`, `commands.test` and `commands.lint` in `.agents/config.yaml` from the project's own files; a key may hold several commands (A176).
+- **Command discovery** (`proofline init`, `proofline doctor`): fills `commands.build`, `commands.test` and `commands.lint` in `.agents/config.yaml` from the project's own files; a key may hold several commands (A176). When a key is still empty, `proofline doctor --commands` proves each discovered command by one run and proposes them in one question; `--apply-commands` writes the proven ones after your yes, and a command that did not pass is never written (A200).
 - **Runtime versions** (`proofline doctor`, the verify-proof `## Runtime` lines): the local runtime next to the version the project's CI specifies.
 - **Risky paths and dependency manifests** (A174): `review.risky_paths` and the `dependencies` risk signal add the manifests, locks, package-source settings and build-changing files of every ecosystem at read time; the exploit-proof manifest diff classifies and reads them. `config.yaml` keeps only what is specific to the project.
 - **Design drift, benchmark detection and native UI** (A174): design-sync lists the manifests and project directories, `probe_performance` and visual-proof's native detection read the `benchmark` and `native_ui` markers.

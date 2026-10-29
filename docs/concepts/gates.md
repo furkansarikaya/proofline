@@ -175,4 +175,20 @@ prompt your runtime captured after the request. Approvals are single-use and led
 Commit and push need both a gate pass for the current content and your approval in the current message;
 `push_requires_approval` is `true` by default.
 
+Further kinds (A200): `rationale:<pattern-id>` approves one design rationale and is bound to the sha256 of the exact `DESIGN.md` line; it is
+recorded only from your reply. Only such an approved rationale can downgrade a visual finding; an agent-written one never does. A visual PASS also needs an
+independent `reviews/visual-proof/report.json` that says PASS, and a FAIL or INCONCLUSIVE report never counts as PASS.
+
+## Repeating gates after a fix round (A200)
+
+After a fix round or an amendment a gate re-runs when the fingerprint of its inputs changed. A `pass` REVIEW_PLAN, RULES, DATA or SECURITY record is
+carried over only when every changed path is a test path; SECURITY also runs when a changed test touches security behaviour (identity, authorization,
+input validation, secrets). SECRETS, REVIEW_SMALL, REVIEW_TESTS, QA and VERIFY always run, and any product, dependency or configuration change, or a
+change that cannot be determined, runs everything. `refreeze` invalidates only the gates whose input changed. The judged design audit is reused only for pages
+whose screenshots are byte-identical (measurement is always recomputed). The verifier's re-run ignores a short tested list of volatile fields (ISO
+timestamps, `HH:MM:SS`, durations, the trailing duration of the `[build] Complete!` line); counts, names and exit status stay exact (`agent.sh repro-normalize`).
+A debug-proof is required by the task type or label (`bug`, `defect`) and `decision: fix`, not by the word "fix" in the text; a reviewer may still ask for it.
+`agent.sh design-rationales <ID>` lists the rationales and whether each is approved. `knowledge-done` checks the page, the secret scan and the wiki lint
+before DONE and refuses when the lint cannot run. The invariants these speed-ups must keep are the six "Core invariants" of CONTRIBUTING.md, tested in `tests/invariants/`.
+
 Related: [workflow](workflow.md), [enforcement layers](enforcement-layers.md).
