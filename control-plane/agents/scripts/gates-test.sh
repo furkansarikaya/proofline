@@ -1877,6 +1877,20 @@ sc_selective_rerun() {
   ok "A200 a test-only fix keeps REVIEW_PLAN/RULES/SECURITY; security tests and product code rerun them; SECRETS, REVIEW_TESTS and VERIFY always run"
 }
 
+# A200 review: which paths selective repetition may treat as tests. A file under a test directory that is a manifest, lockfile, env, config,
+# build or contract file is product input; so is every path when the ecosystem data is not loaded.
+sc_test_path_kind() {
+  scaffold orchestrated
+  tp() { A test-path "$1" | cut -f1; }
+  for p in tests/Package.swift tests/setup.py tests/Package.json tests/.env.local tests/Dockerfile tests/go.mod tests/package.json test/.env api/spec/openapi.yaml test/setup/requirements.txt tests/docker-compose.yml; do
+    [ "$(tp "$p")" = product ] || die "A200 $p counted as a test"
+  done
+  for p in tests/foo_test.go test/unit/a.test.ts src/__tests__/b.js tests/test_x.py; do
+    [ "$(tp "$p")" = test ] || die "A200 $p is not counted as a test"
+  done
+  ok "A200 test-path: manifests, lockfiles, env, build and contract files under test directories are product input"
+}
+
 # A200 review: a blocking row is "about the visual evidence report" only when it names the reviews/visual-proof/ path; any other
 # text that merely says report.json is an ordinary row for the implementer.
 sc_visual_row_match() {
@@ -2740,4 +2754,5 @@ run_sc sc_takeover_without_red
 run_sc sc_a200_misc
 run_sc sc_selective_rerun
 run_sc sc_visual_row_match
+run_sc sc_test_path_kind
 echo 'gates tests passed'

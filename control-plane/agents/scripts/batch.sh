@@ -489,7 +489,7 @@ answer_cmd() {
       if [ -z "$an_l" ]; then
         case "$qkind" in
           split)
-            if printf '%s' "$an_t" | grep -Eq 'proceed without splitting|do not split|dont split|don.t split|no split|bölme|bolme|bölmeden|bolmeden'; then an_l=b
+            if printf '%s' "$an_t" | grep -Eq 'proceed without splitting|do not split|dont split|don.t split|no split|(^|[^a-z])(bölme|bolme)([^a-z]|$)|bölmeden|bolmeden'; then an_l=b
             elif printf '%s' "$an_t" | grep -Eq '^(no|hayır|hayir)([^a-z]|$)'; then
               # a leading "no" that also says to split ("no problem, split it") is ambiguous: left unanswered, asked again at freeze
               if printf '%s' "$an_t" | grep -Eq '(^|[^a-z])(split|böl|bol)'; then an_l=''; else an_l=b; fi

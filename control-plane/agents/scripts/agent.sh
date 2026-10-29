@@ -2968,7 +2968,7 @@ gate_bound_to_contract() {
   for g_bk in task evidence plan qa_plan; do [ "$(gate_field "$2" "${g_bk}_sha256")" = "$(section_value "$g_bd" freeze "${g_bk}_sha256")" ] || return 1; done
 }
 # A200 (item 5): a refreeze invalidates only the gates it affects. When the only frozen hash that changed is the QA plan's, a
-# `pass` record of a gate that does not read the QA plan (SECRETS, REVIEW_RULES, REVIEW_DATA, SECURITY) stays bound; every other
+# `pass` record of a gate that does not read the QA plan (SECRETS and SECURITY only: roles/security_reviewer.md reads TASK PLAN EVIDENCE; the reviewer role reads QA_PLAN.md, so every REVIEW_* gate reruns) stays bound; every other
 # change (task, evidence, plan) and every other gate invalidates as before. The record's content fingerprint is still compared
 # by gate_focus_status, so changed code never rides on this. Safe side: anything else is not bound.
 gate_bound_after_refreeze() { # ID RECORD
@@ -3072,7 +3072,8 @@ test_code_path() { # PATH
   path_matches "$1" "$test_path_globs" || return 1
   # the ecosystem data (manifests, locks, settings, risky paths) and the project's own risky_paths decide what is a dependency or build input
   # shellcheck disable=SC2086 # globs without whitespace
-  ! path_matches "$1" "$eco_risky_set $(cfg review.risky_paths '')" || return 1
+  [ "$eco_loaded" = 1 ] || return 1   # without the ecosystem data the manifests are unknown: nothing counts as a test (safe side)
+  ! path_matches "$1" "$eco_risky_set $eco_dependency_set $(cfg review.risky_paths '')" || return 1
   case "$tcp_b" in
     *lock*|.env*|*.env|Dockerfile*|docker-compose*|compose.*|Makefile|*config*|*.conf|*.cfg|*.ini|*.toml|*require*|*constrain*|*depend*|openapi*|swagger*|*.proto|*.graphql|*.gql|*.sql|*.json|*.yaml|*.yml|*.xml|*.properties|.*rc) return 1 ;;
   esac
@@ -7651,7 +7652,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind batch-answers commands-check'
+read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind test-path batch-answers commands-check'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7721,6 +7722,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)
   path-kind <path>...   (A200: content or code, for the scope bound)
+  test-path <path>...   (A200: `test` or `product` per path: whether selective repetition may treat it as a test)
   batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one "approve delivery", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH> | task-source-done <ID>
@@ -7828,6 +7830,7 @@ case "$command" in
   commands-check) commands_check ;;
   batch-answer) require_lead; sh "$scripts/batch.sh" answer ;;
   batch-answers) sh "$scripts/batch.sh" answers "${2:-}" ;;
+  test-path) shift; [ $# -gt 0 ] || fail "usage: agent.sh test-path <path>..."; for tp_p in "$@"; do if test_code_path "$tp_p"; then printf 'test\t%s\n' "$tp_p"; else printf 'product\t%s\n' "$tp_p"; fi; done ;;
   path-kind) shift; [ $# -gt 0 ] || fail "usage: agent.sh path-kind <path>..."; for pk_p in "$@"; do printf '%s\t%s\n' "$(path_kind "$pk_p")" "$pk_p"; done ;;
   # pr-state only reads the platform (deliver_pr_view): read-only and role-agnostic by design
   pr-state) printf '%s\n' "$(deliver_pr_view "${2:?usage: agent.sh pr-state <PR>}" | awk 'NR == 1 { print $1 }')" ;;

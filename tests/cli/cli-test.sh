@@ -796,6 +796,7 @@ sc_commands() {
   out=$(pl "$cm" doctor --apply-commands 2>&1) || { LAST=$out; die "apply after the user's reply: $out"; }
   [ "$(cfgv "$cm" commands.test)" = "npm test" ] && ok "doctor --apply-commands writes the proven command after the user's own 'approve commands'" || die "commands.test: $(cfgv "$cm" commands.test)"
   [ -z "$(cfgv "$cm" commands.build)" ] && ok "...and leaves the keys nothing was proven for empty" || die "commands.build written"
+  ls "$cm/.agents/local/approvals"/[0-9][0-9][0-9]-commands.yaml >/dev/null 2>&1 && ! grep -L '^consumed: "true"' "$cm/.agents/local/approvals"/[0-9][0-9][0-9]-commands.yaml | grep -q . && ok "...and the commands approval reads consumed" || die "the commands approval is not consumed after the apply"
   nocheck "the proposal is used up" pl "$cm" doctor --apply-commands
 }
 
