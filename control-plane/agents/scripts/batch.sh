@@ -616,8 +616,8 @@ ci_cmd() { # ID
   case "$cc_rc" in
     0) ci_record "$cc_id" "$cc_sha"; echo "ci: green (run of $cc_s7)" ;;
     1) echo "ci: RED (run of $cc_s7): stop the batch" ;;
-    2) echo "ci: still running (run of $cc_s7): ask again in a minute, give up after $(cfgv batch.ci_wait_minutes 30) minutes" ;;
-    4) echo "ci: no run for $cc_s7 yet: ask again in a minute, give up after $(cfgv batch.ci_appear_minutes 10) minutes" ;;
+    2) echo "ci: still running (run of $cc_s7): ask again in a minute, give up after $(sh "$agent" tm-scaled "$(cfgv batch.ci_wait_minutes 30)" 1 720) minutes" ;;
+    4) echo "ci: no run for $cc_s7 yet: ask again in a minute, give up after $(sh "$agent" tm-scaled "$(cfgv batch.ci_appear_minutes 10)" 1 240) minutes" ;;
     *) echo "ci: cannot be read (gh run list failed)" ;;
   esac
   return "$cc_rc"
