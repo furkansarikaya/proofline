@@ -877,6 +877,23 @@ sc_task_names() {
   ok "A202: queued tasks are renamed to <ID>-<slug>.md only after the user's approval; started, reported and in-progress files never; the batch finds <ID>-<slug>.md"
 }
 
+# --- A202 item 27: the pre-flight asks about recorded findings that no run covered and that are not on the known-issues list ------------
+sc_known_issues_preflight() {
+  bnew; mkdir -p .agents/tasks/todo docs; binstall no
+  printf '# Task: T-1 — Plain\n\n## Goal\n\nIt works.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nSTANDARD\n' > .agents/tasks/todo/T-1.md
+  printf 'old\n' > docs/old.md; git add -A; git commit -qm files
+  # an earlier run of this machine that recorded a blocking finding in a file its frozen scope did not cover; and one that did cover it
+  for r in R-1 R-2; do mkdir -p ".agents/runs/$r/gates"; done
+  printf 'freeze:\n  scope_paths: "src/a.txt"\n' > .agents/runs/R-1/RUN.yaml
+  printf 'freeze:\n  scope_paths: "docs/old.md"\n' > .agents/runs/R-2/RUN.yaml
+  for r in R-1 R-2; do printf 'task_id: "%s"\ngate: "QA"\nresult: "fail"\nfocus: "-"\nfinding: QA-1|blocking|docs/old.md:3|the old page drops a section|traced\n' "$r" > ".agents/runs/$r/gates/001-QA.yaml"; done
+  BP T-1 > "$base/plan.out" 2>&1 || die "batch-plan: $(cat "$base/plan.out")"
+  grep -q '\[R-1, known\].*QA-1.*docs/old.md:3' "$summary" || die "the finding of a run that did not cover the place raised no question: $(grep -n 'known\|Pre-flight' "$summary")"
+  grep -q '\[R-2, known\]' "$summary" && die "a run whose scope covered the place raised a question (the finding is its own change)"
+  grep -q 'approve known issue' "$summary" || die "the question does not say that listing needs the user's own approval"
+  ok "A202: the batch pre-flight asks about recorded findings no run covered and that are not listed; a run's own scope finding is not asked; no scanner is claimed"
+}
+
 # --- 16. the keys of the removed driver are ignored, not validated; the live keys still are -------------------------------------------
 sc_config_ignored_keys() {
   bnew; binstall no
@@ -1044,4 +1061,5 @@ run_sc sc_plan_all_subset
 run_sc sc_config_ignored_keys
 run_sc sc_done_reports_unread
 run_sc sc_task_names
+run_sc sc_known_issues_preflight
 echo 'batch tests passed'

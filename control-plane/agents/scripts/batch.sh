@@ -141,6 +141,17 @@ EOF
     printf '%s\tclass\tClassified COMPLEX (%s path(s) named). Its reason: "%s". COMPLEX adds an architect, a stricter review and more gates (more time). Keep it?\ta) keep COMPLEX [recommended]|b) STANDARD (you take the lighter review)|c) another class: say which in your answer\ta\t-\n' "$lt_id" "$lt_n" "${lt_why:-none written}" >> "$tmp/lint.raw" ;;
   esac
 }
+# lint_known (A202, item 27): blocking findings that runs on this machine recorded, whose run did not touch the place (its frozen scope
+# does not cover the file) and that are not on the user's known-issues list. They may already be on main and would stop every task that
+# meets them, so they are asked now. What this can see: gate records of runs still on disk. What it cannot: a finding that no run recorded
+# (a failing build, test or lint on main is not a finding record), or a run that was cleaned up. It is no scanner. The answer is a
+# question's answer, never an approval: listing needs `agent.sh known-issue-propose` and the user's own "approve known issue".
+lint_known() {
+  sh "$agent" known-issue-candidates 2>/dev/null | head -n 8 | while IFS="$(printf '\t')" read -r kr kfid kg kp kt; do
+    [ -n "$kr" ] || continue
+    printf '%s\tknown\tRun %s recorded the blocking finding %s (%s) at %s: "%s". Its run did not touch that file, so it may already be on main, and it is not on the known-issues list: it will stop every task that meets it. Which?\ta) leave it blocking [recommended]|b) list it as a known issue: name its follow-up task (an existing open task) in your answer; I then propose the record and you approve it separately with "approve known issue"\ta\t-\n' "$kr" "$kr" "$kfid" "$kg" "$kp" "$(printf '%s' "$kt" | cut -c1-100)" >> "$tmp/lint.raw"
+  done
+}
 # ans_row ID KIND: the newest recorded answer for the batch in force: letter<TAB>question number
 ans_row() {
   [ -f "$bd/answers.tsv" ] || return 0
@@ -237,6 +248,7 @@ plan() {
     lf=$(tfile "$lid")
     lint_task "$lid" "$lf" "$lcls"
   done < "$tmp/kept"
+  lint_known
   # A200: the code paths each task names (content and document paths are left out): a task that shares one with an earlier task that is not merged waits for it
   : > "$tmp/paths.tsv"
   while IFS="$(printf '\t')" read -r _k lid _c _d _t; do

@@ -3130,6 +3130,7 @@ finding_ids() { sed -n 's/^finding: \([^|]*\)|.*/\1/p' "$1"; }
 finding_waived() { # ID GATE-RECORD-FILE FINDING-ID
   fw_d=$(run_dir "$1"); fw_g=$(basename "$2")
   case "$(gate_field "$2" gate)" in SECRETS|SECURITY) return 1 ;; esac
+  finding_known_issue "$1" "$2" "$3" >/dev/null && return 0   # A202 item 27: a listed, untouched, already-existing finding
   fw_all=$(ls -1 "$fw_d/waivers" 2>/dev/null | grep -E '^[0-9]{3}-.*\.yaml$' || true); [ -n "$fw_all" ] || return 1
   fw_rs=$(hash_file "$2")
   # shellcheck disable=SC2086
@@ -3287,7 +3288,8 @@ gate_unsupported_focuses() { # ID GATE MODE NOW -> comma list
   printf '%s' "$guf"
 }
 gate_label() { # ID GATE MODE NOW
-  gl_s=$(gate_status "$@"); gl_u=$(gate_unsupported_focuses "$@")
+  gl_s=$(gate_status "$@"); gl_u=$(gate_unsupported_focuses "$@"); gl_k=$(ki_gate_facts "$1" "$2" | tr '\n' ' ' | sed 's/ $//')
+  [ -z "$gl_k" ] || gl_s="$gl_s (known issue: $gl_k)"
   if [ -n "$gl_u" ]; then printf '%s (unsupported: %s)\n' "$gl_s" "$gl_u"; else printf '%s\n' "$gl_s"; fi
 }
 gate_satisfied() { case "$1" in pass|waived|unsupported) return 0 ;; *) return 1 ;; esac; }
@@ -4924,7 +4926,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue) return 0 ;;
     waive:*|rule:*|reopen:*|rationale:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -4933,8 +4935,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands|rename) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
   case "$2" in
@@ -5000,6 +5002,7 @@ approval_bound() { # ID KIND
     report) hash_file "$(shared_dir friction)/latest.md" ;;
     batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
     commands) hash_file "$(shared_dir commands)/PROPOSAL.tsv" ;;
+    known-issue) hash_file "$(shared_dir known-issues)/PROPOSAL.tsv" ;;   # A202 item 27: the one proposed record
     rename) hash_file "$(shared_dir rename)/PROPOSAL.tsv" ;;   # A202: the proposal's own sha256   # A200 review: the proposal's own sha256
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
@@ -5020,6 +5023,7 @@ kind_words() {
     rationale:*) printf 'rationale %s\n' "${1#rationale:}" | tr '[:upper:]' '[:lower:]' ;;
     reopen:*) printf 'reopen %s\n' "$(printf '%s' "${1#reopen:}" | tr '[:upper:]' '[:lower:]')" ;;
     waive:*) printf '%s\n' "${1#waive:}" | tr '[:upper:]' '[:lower:]' ;;
+    known-issue) echo 'known issue known issues known-issue bilinen sorun' ;;
     *) printf '%s\n' "$1" ;;
   esac
 }
@@ -5110,6 +5114,7 @@ approval_sentences() {
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
     cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
     commands) as_en='the commands'; as_tr='komutları|komutlari' ;;
+    known-issue) as_en='the known issue|the known issues'; as_tr='bilinen sorunu|bilinen sorunları|bilinen sorunlari' ;;
     rename) as_en='the renames|the rename'; as_tr='yeniden adlandırmayı|yeniden adlandirmayi' ;;
     report) as_en='the friction report'; as_tr='sürtünme raporunu|surtunme raporunu' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
@@ -5327,6 +5332,7 @@ request_approval() {
     rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
   [ "$rq_kind" != commands ] || rq_rows=$(awk -F'\t' '!/^#/ { print "   commands." $1 ": " $2 }' "$(shared_dir commands)/PROPOSAL.tsv" 2>/dev/null)
+  [ "$rq_kind" != known-issue ] || rq_rows=$(awk -F'\t' '{ print "   known issue: " $1 " " $2 ": " $3 " (follow-up task " $4 ")" }' "$(shared_dir known-issues)/PROPOSAL.tsv" 2>/dev/null)
   [ "$rq_kind" != rename ] || rq_rows=$(awk -F'\t' '{ print "   rename: " $1 " -> " $2 }' "$(shared_dir rename)/PROPOSAL.tsv" 2>/dev/null)
   case "$rq_kind" in rationale:*) rq_rows="   rationale line of DESIGN.md: $(rationale_line "${rq_kind#rationale:}")" ;; esac
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
@@ -5354,6 +5360,7 @@ approval_why() { # KIND BOUND [tr]
       rule:*) echo "kanıttan çıkan ders proje kuralı olur: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
       rationale:*) echo 'DESIGN.md gerekçesi yalnızca sizin onayınızla bir desen bulgusunu engelleyici olmaktan çıkarır; ajanın yazdığı gerekçe bulguyu geçirmez' ;;
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
+      known-issue) echo 'bu bulgu, görevin dokunmadığı bir yerde zaten var ve bir takip görevi var: onayınızla bilinen sorun olur ve görevi durdurmaz; yeni bir bulgu ya da dokunulan yer yine engeller; SECRETS ve SECURITY hiçbir zaman listelenmez' ;;
       rename) echo 'sıradaki görev dosyaları yalnızca sizin onayınızla <ID>-<slug>.md adına taşınır; başlamış ya da raporu yayınlanmış görevlere dokunulmaz' ;;
       commands) echo 'boş commands.build|test|lint anahtarları için önerilen komutlar yalnızca sizin onayınızla .agents/config.yaml dosyasına yazılır' ;;
       batch) echo 'gece modu: bu tek özet, listelenen görevlerin plan, teslimat ve mutasyon bütçesi onaylarının yerine geçer; başka hiçbir şeyin yerine geçmez' ;;
@@ -5374,6 +5381,7 @@ approval_why() { # KIND BOUND [tr]
     rule:*) echo "a lesson from run evidence becomes a project rule: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
     rationale:*) echo 'a DESIGN.md pattern rationale downgrades a design finding from blocking to info only with your approval; a rationale an agent wrote does not pass the finding' ;;
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
+    known-issue) echo 'this finding already exists where the task does not touch, and a follow-up task owns it: with your approval it becomes a known issue and stops no task; a new finding or a touched place still blocks; SECRETS and SECURITY are never listed' ;;
     rename) echo 'queued task files are renamed to <ID>-<slug>.md only with your approval; a started task or one with a published report is never touched' ;;
     commands) echo 'the proposed commands.build|test|lint are written into .agents/config.yaml only with your approval' ;;
     batch) echo 'night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else' ;;
@@ -5564,6 +5572,82 @@ task_rename_apply() {
     echo "renamed: $tra_o -> $tra_n"
   done < "$tra_pf"
   rm -f "$tra_pf"
+}
+# --- A202 (item 27): the user-approved known-issues list ------------------------------------------------------------------
+# A finding that was already there and that a task does not touch need not stop that task, but only the USER decides which ones:
+# a record (gate, place, finding text, follow-up task) exists only after the user's own `approve known issue` (kind known-issue,
+# bound to the sha256 of the one proposed record). known-issues.sh holds the data rules; here are the commands and the single place
+# where a listed finding stops being blocking (finding_waived). Matching is exact; the task must not touch the place (frozen scope and
+# the actual diff, both computed here); SECRETS/SECURITY, a place that is not a tracked file, an undeterminable scope, a missing or
+# closed follow-up, a new finding: the finding stays blocking. The gate record keeps the finding; the Facts block and the status
+# block name it as a known issue with the record id and the follow-up task.
+ki() { KI_DIR=$(shared_dir known-issues) KI_APPROVALS=$(approvals_dir -) KI_TASKS=$sr_main/$(cfg tasks.dir .agents/tasks) KI_ADAPTER=$(cfg tasks.adapter markdown) KI_MAIN=$sr_main \
+  KI_RUNS="$sr_main/.agents/runs $(ls -d "$sr_main"/.agents/local/worktrees/*/.agents/runs 2>/dev/null | tr '\n' ' ')" sh "$scripts/known-issues.sh" "$@"; }
+# ki_untouched ID PLACE-PATH: 0 only when the run's frozen scope does not cover the place and the diff since the run's base does not hold it
+ki_untouched() {
+  kiu_d=$(run_dir "$1"); [ -f "$kiu_d/RUN.yaml" ] || return 1
+  kiu_s=$(section_value "$kiu_d" freeze scope_paths); [ -n "$kiu_s" ] || return 1
+  for kiu_e in $(printf '%s' "$kiu_s" | tr ',' ' '); do scope_entry_covers "$kiu_e" "$2" && return 1; done
+  kiu_b=$(repository_base_sha "$kiu_d" 2>/dev/null) || return 1; [ -n "$kiu_b" ] || return 1
+  kiu_all=$( { git -C "$root" diff --no-renames --name-only "$kiu_b" 2>/dev/null || echo __FAILED__; current_tracked_paths; current_untracked_paths; } ) || return 1
+  case "$kiu_all" in *__FAILED__*) return 1 ;; esac
+  ! printf '%s\n' "$kiu_all" | grep -Fxq -- "$2"
+}
+# finding_known_issue ID GATE-RECORD FINDING-ID: prints "KI-<n><TAB><follow-up>" when the blocking finding is an active record, untouched
+finding_known_issue() {
+  [ -s "$(shared_dir known-issues)/LIST.tsv" ] || return 1
+  case "$(gate_field "$2" gate)" in SECRETS|SECURITY) return 1 ;; esac
+  fki_c=$(ki canon "$2" "$3" 2>/dev/null) || return 1
+  fki_g=$(printf '%s' "$fki_c" | cut -f1); fki_p=$(printf '%s' "$fki_c" | cut -f2); fki_t=$(printf '%s' "$fki_c" | cut -f3-)
+  fki_m=$(ki lookup "$fki_g" "$fki_p" "$fki_t" 2>/dev/null) || return 1
+  [ "$(printf '%s' "$fki_m" | cut -f2)" != "$1" ] || return 1   # the task that is the follow-up fixes it: it is not a known issue for that task
+  ki_untouched "$1" "${fki_p%%:*}" || return 1
+  printf '%s\n' "$fki_m"
+}
+# ki_gate_facts ID GATE: "KI-n:FINDING:follow-up" words for the gate's current blocking findings that are listed known issues
+ki_gate_facts() {
+  [ -s "$(shared_dir known-issues)/LIST.tsv" ] || return 0
+  for kg_fc in - $(risk_gate_focuses "$1" "$2"); do
+    kg_f=$(gate_latest_file "$1" "$2" "$kg_fc"); [ -n "$kg_f" ] && [ "$(gate_field "$kg_f" result)" = fail ] || continue
+    for kg_x in $(blocking_finding_ids "$kg_f"); do
+      kg_m=$(finding_known_issue "$1" "$kg_f" "$kg_x") || continue
+      printf '%s:%s:%s\n' "$(printf '%s' "$kg_m" | cut -f1)" "$kg_x" "$(printf '%s' "$kg_m" | cut -f2)"
+    done
+  done
+}
+ki_run_dir() { # RUN-ID -> the run's folder in this tree or in its task worktree
+  [ -d "$(run_dir "$1")" ] && { run_dir "$1"; return 0; }
+  [ -d "$sr_main/.agents/local/worktrees/$1/.agents/runs/$1" ] && { printf '%s\n' "$sr_main/.agents/local/worktrees/$1/.agents/runs/$1"; return 0; }
+  return 1
+}
+# known-issue-propose RUN FINDING-ID --followup TASK: writes the one proposed record and asks the user (kind known-issue)
+known_issue_propose() {
+  require_lead; kp_run=${1:-}; kp_fid=${2:-}; kp_fu=''; [ $# -ge 2 ] || fail "usage: agent.sh known-issue-propose <RUN-ID> <FINDING-ID> --followup <TASK-ID>"; shift 2
+  while [ $# -gt 0 ]; do case "$1" in --followup) kp_fu=${2:-}; shift 2 || shift ;; *) fail "unknown argument: $1" ;; esac; done
+  [ -n "$kp_fu" ] || fail "a known issue needs a follow-up task (--followup <TASK-ID>): a record without one is not valid"
+  valid_task_id "$kp_fu" || fail "invalid follow-up task id: $kp_fu"
+  kp_rd=$(ki_run_dir "$kp_run") || fail "no run $kp_run on this machine"
+  kp_rec=''
+  for kp_f in $(ls -1 "$kp_rd"/gates/[0-9][0-9][0-9]-*.yaml 2>/dev/null | sort); do ki canon "$kp_f" "$kp_fid" >/dev/null 2>&1 && kp_rec=$kp_f; done
+  [ -n "$kp_rec" ] || fail "no blocking finding $kp_fid in a gate record of run $kp_run"
+  kp_c=$(ki canon "$kp_rec" "$kp_fid"); kp_g=$(printf '%s' "$kp_c" | cut -f1); kp_p=$(printf '%s' "$kp_c" | cut -f2); kp_t=$(printf '%s' "$kp_c" | cut -f3-)
+  ki listable "$kp_g" "$kp_p" || fail "this finding cannot be listed"
+  case "$(ki followup-state "$kp_fu")" in backlog|todo|in-progress) ;; done) fail "the follow-up task $kp_fu is already done" ;; *) fail "the follow-up task $kp_fu is not an open markdown task file of the project (create it first; known issues need the markdown task adapter)" ;; esac
+  kp_pf=$(shared_dir known-issues)/PROPOSAL.tsv; mkdir -p "$(dirname "$kp_pf")"
+  printf '%s\t%s\t%s\t%s\n' "$kp_g" "$kp_p" "$kp_t" "$kp_fu" > "$kp_pf"
+  cat "$kp_pf"
+  request_approval - known-issue
+}
+# known-issue-apply: writes the record only with the user's recorded approval of exactly the proposal
+known_issue_apply() {
+  require_lead; kpa_pf=$(shared_dir known-issues)/PROPOSAL.tsv; [ -s "$kpa_pf" ] || fail "no known-issue proposal (agent.sh known-issue-propose)"
+  kpa_app=$(find_approval - known-issue "$(hash_file "$kpa_pf")") || fail "a known issue needs the user's approval: 'agent.sh request-approval - known-issue' (known-issue-propose does it), relay it; the reply \"approve known issue\" records the approval"
+  [ "$(gate_field "$kpa_app" answered_by)" = user ] || fail "the approval is not the user's"
+  kpa_g=$(cut -f1 "$kpa_pf"); kpa_p=$(cut -f2 "$kpa_pf"); kpa_t=$(cut -f3 "$kpa_pf"); kpa_f=$(cut -f4 "$kpa_pf")
+  consume_approval - "$kpa_app"
+  kpa_id=$(ki append "$kpa_g" "$kpa_p" "$kpa_t" "$kpa_f" "$(basename "$kpa_app")") || fail "the record was not written"
+  rm -f "$kpa_pf"
+  echo "known issue recorded: $kpa_id ($kpa_g $kpa_p, follow-up $kpa_f)"
 }
 batch_plan() {
   require_lead; mkdir -p "$agents/local"
@@ -6583,6 +6667,9 @@ report_facts() {
       printf -- '  - Focus %s:%s: %s; findings: %s\n' "$rf_g" "$rf_fc" "$(gate_focus_status "$rf_id" "$rf_g" "$rf_fc" reuse "$rf_fp")" "${rf_i:-none}"
     done
   done
+  for rf_g in $rf_gl; do   # A202 item 27: a listed finding is shown, never hidden (its gate record keeps it)
+    for rf_k in $(ki_gate_facts "$rf_id" "$rf_g"); do printf -- '- Known issue (not blocking, the gate record keeps the finding): %s in gate %s, record %s, follow-up task %s\n' "$(printf '%s' "$rf_k" | cut -d: -f2)" "$rf_g" "$(printf '%s' "$rf_k" | cut -d: -f1)" "$(printf '%s' "$rf_k" | cut -d: -f3)"; done
+  done
   rf_ks=$(section_value "$(run_dir "$rf_id")" execution knowledge_state); rf_kr=$(section_value "$(run_dir "$rf_id")" execution knowledge_reason)
   printf -- '- Friction notes recorded (A200): proofline_bug %s, user-command %s, user-shell %s\n' "$(friction_count "$rf_id" proofline_bug)" "$(friction_count "$rf_id" user-command)" "$(friction_count "$rf_id" user-shell)"
   printf -- '- Knowledge step: %s%s\n' "${rf_ks:-not_started}" "${rf_kr:+; not_applicable reason: $rf_kr}"
@@ -6777,6 +6864,10 @@ status_block_body() {
     done
     sbb_kv question "${sbb_qn:+#$sbb_qn }${sbb_q:-pending}"
     sbb_kv answer "reply to the lead in the session; it records your message with: agent.sh answer $sbb_id ${sbb_qn:-N} --captured"
+  fi
+  if [ "$sbb_has" = yes ] && [ -s "$(shared_dir known-issues)/LIST.tsv" ]; then   # A202 item 27: record ids and task ids only, from the script's own match
+    sbb_ki=$(for sbb_g in $(required_gates "$sbb_id" 2>/dev/null); do ki_gate_facts "$sbb_id" "$sbb_g"; done | awk -F: '{ print $1 " (" $2 ", follow-up " $3 ")" }' | tr '\n' ',' | sed 's/,$//; s/,/, /g' | tr -cd 'A-Za-z0-9 ._(),-')
+    [ -z "$sbb_ki" ] || sbb_kv known_issues "$sbb_ki"
   fi
   [ -z "$sbb_park" ] || sbb_kv park "$(printf '%s' "$sbb_park" | sb_scrub)"
   case "$sbb_state" in
@@ -8034,7 +8125,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind task-scope-entries scope-covers test-path batch-answers commands-check task-type'
+read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -8107,6 +8198,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   path-kind <path>...   (A200: content or code, for the scope bound)
   task-scope-entries <task-file> <heading> | scope-covers <entry> <path>   (A202: read a task's scope sections; does an entry cover a path)
   task-type <TASK.md>   (A202: the task type; a task without one is a feature)
+  known-issue-propose <RUN> <FINDING-ID> --followup <TASK> | known-issue-apply | known-issue-list | known-issue-candidates   (A202: the user-approved known-issues list; apply only after the user's 'approve known issue')
   task-rename-plan | task-rename-apply   (A202: <ID>-<slug>.md names for queued tasks; apply only after the user's 'approve rename')
   test-path <path>...   (A200: `test` or `product` per path: whether selective repetition may treat it as a test)
   batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
@@ -8224,6 +8316,10 @@ case "$command" in
   scope-covers) [ $# -eq 3 ] || fail "usage: agent.sh scope-covers <entry> <path>"; scope_entry_covers "$2" "$3" ;;
   task-rename-plan) task_rename_plan ;;
   task-rename-apply) task_rename_apply ;;
+  known-issue-propose) shift; known_issue_propose "$@" ;;
+  known-issue-apply) known_issue_apply ;;
+  known-issue-list) ki list ;;
+  known-issue-candidates) ki candidates ;;
   task-type) [ $# -eq 2 ] || fail "usage: agent.sh task-type <TASK.md>"; task_type "$2" ;;
   path-kind) shift; [ $# -gt 0 ] || fail "usage: agent.sh path-kind <path>..."; for pk_p in "$@"; do printf '%s\t%s\n' "$(path_kind "$pk_p")" "$pk_p"; done ;;
   # pr-state only reads the platform (deliver_pr_view): read-only and role-agnostic by design
