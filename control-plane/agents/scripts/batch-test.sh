@@ -202,7 +202,7 @@ sc_priority_and_allowed() {
   mkdir -p .agents/local/prompts/history; now=$(( $(date +%s) + 10 ))
   printf 'Q1 a\n' > .agents/local/prompts/history/$now-dddd1111.txt
   A batch-answer >/dev/null || die "batch-answer"
-  A batch-next | grep -q '^S-1 | parked | allowed scope' || die "an Allowed scope answer 'park' did not park the task: $(A batch-next)"
+  A batch-next | grep -q '^S-1 | PARKED | allowed scope' || die "an Allowed scope answer 'park' did not park the task: $(A batch-next)"
   A batch-next | grep -q '^NEXT: run S-2' || die "the other task does not go on: $(A batch-next | tail -2)"
   ok "A202 batch: priority orders free tasks (ties keep the listed order, dependencies first); an Allowed scope violation is a pre-flight question and a park answer parks"
 }
