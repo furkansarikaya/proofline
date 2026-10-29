@@ -1710,6 +1710,32 @@ sc_artifact_snapshots() {
   A verify-scope LC >/dev/null 2>&1 || die "verify-scope refuses the snapshots: $(A verify-scope LC 2>&1)"
   ok "C-9: results of two rounds that wrote the same report path both cite an existing artifact with the stated sha256"
 }
+# A202: the task type is an input of the gates: a bug needs the debug-proof result without any label and is never TRIVIAL; a typeless task is a
+# feature; a content or docs task has the test-first exemption by default, with the reason written in the plan, but never for a path that holds code.
+sc_task_types() {
+  SC_TASK_FM='type: bug' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  [ "$(A task-type .agents/runs/LC/TASK.md)" = bug ] || die "task-type did not read type: bug"
+  expect_msg "type: bug needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  expect_msg "a bug was classified TRIVIAL" 'TRIVIAL covers text and configuration only' A classify LC TRIVIAL
+  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
+  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock a bug task"
+  SC_TASK_FM='type: feature' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a feature needed a debug-proof result: $(A handoff LC IMPLEMENTED 2>&1)"
+  scaffold orchestrated no STANDARD
+  [ "$(A task-type .agents/runs/LC/TASK.md)" = feature ] || die "a typeless task is not a feature"
+  ok "A202: type bug asks for the debug-proof result and refuses TRIVIAL; a feature and a typeless task do not"
+  # content: a document path with its reason freezes; the same task type never exempts a path that holds code
+  SC_TASK_FM='type: content' SC_SCOPE_NAMED=docs/guide.md scaffold orchestrated no STANDARD
+  SC_TASK_FM='type: docs' SC_SCOPE_NAMED=src/app.js scaffold orchestrated no STANDARD supervised
+  expect_msg "a docs task exempted a path that holds code" 'holds code and is never exempt' A freeze LC
+  SC_TASK_FM='type: content' SC_SCOPE_NAMED=docs/guide.md scaffold orchestrated no STANDARD supervised
+  sed -i.bak '/tdd_exemption/d' .agents/runs/LC/PLAN.md
+  expect_msg "a content task froze a document path without the reason in the plan" 'exempts document paths from test-first by default' A freeze LC
+  SC_TASK_FM='type: feature' SC_SCOPE_NAMED=src/app.js scaffold orchestrated no STANDARD
+  ok "A202: content and docs exempt document paths with the reason in the plan, never a path that holds code"
+}
 sc_debug_result() {
   # A200: the trigger is the task type or label, never the words "fix" or "duzelt" in prose.
   SC_TASK_EXTRA='
@@ -2513,7 +2539,7 @@ sc_evidence_gap_files_gate() {
 }
 sc_start() {
   new_repo; RID=ST-1
-  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" .agents/task-integrations/
   git add -A; git commit -qm base
   A next | grep -Fq 'next=agent.sh start <ID>' || die 'next did not guide intake'
   expect_msg 'invalid task ID accepted' 'invalid task id' A start '../bad' --title bad
@@ -2584,7 +2610,7 @@ Check the task.
 PLAN
   A freeze ST-1 >/dev/null || die 'start to freeze failed'
   [ "$(rv task_source revision)" != PENDING ] || die 'freeze left task source revision pending'
-  new_repo; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  new_repo; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" .agents/task-integrations/
   git add -A; git commit -qm base
   sed '/## Risks/,$d' "$base/start-body.md" > "$base/incomplete.md"
   rc=0; A start ST-3 --title incomplete < "$base/incomplete.md" > "$base/out" 2>&1 || rc=$?
@@ -2759,6 +2785,7 @@ run_sc sc_start
 run_sc sc_qa_plan_bound
 run_sc sc_artifact_snapshots
 run_sc sc_debug_result
+run_sc sc_task_types
 run_sc sc_scratch_worktrees
 run_sc sc_worktree_lock_folder
 run_sc sc_tests_findings

@@ -16,10 +16,12 @@
         "title": { "type": ["string", "null"] },
         "acs": { "type": "integer", "minimum": 0 },
         "class": { "enum": ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL", null] },
+        "type": { "enum": ["feature", "bug", "refactor", "content", "docs", "chore"], "description": "the task type; a task without a type is a feature" },
         "meta": {
           "type": "object",
           "description": "optional front matter, present only when the task has one",
           "properties": {
+            "type": { "type": "string", "description": "task type: feature, bug, refactor, content, docs or chore (A202)" },
             "size": { "enum": ["S", "M", "L"] },
             "sprint": { "type": "string" },
             "assignee": { "type": "string" },

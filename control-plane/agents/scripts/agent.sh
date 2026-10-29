@@ -1558,6 +1558,8 @@ classify() {
   if [ -n "$cl_sug" ] && [ "$(class_rank "$class")" -lt "$(class_rank "$cl_sug")" ]; then
     fail "classification refused: TASK.md suggests $cl_sug and $class is lower. Classify at least $cl_sug, or change the task's '## Suggested class' with the reason (a task change before freeze)"
   fi
+  # A202: a bug or a refactor changes behaviour or code: TRIVIAL (text and configuration only) is refused for both
+  case "$(task_type "$dir/TASK.md")" in bug|refactor) [ "$class" != TRIVIAL ] || fail "classification refused: the task is typed $(task_type "$dir/TASK.md") and TRIVIAL covers text and configuration only; classify STANDARD or higher, or ask the user to change the task type" ;; esac
   # CLASSIFY precedes BRANCH (WORKFLOW.md): the branch is enforced once it is established.
   case "$(section_value "$dir" repository task_branch)" in ''|PENDING) ;; *) enforce_task_branch "$id" ;; esac
   verify_seal "$id"
@@ -1826,6 +1828,7 @@ freeze() {
   if gates_enforced "$id"; then verify_plan_validation "$id"; verify_qa_plan_bound "$id"; fi
   # A197: a document path in scope (design_docs, knowledge_scope_root, verification.doc_paths) without a tdd_exemption has no RED/GREEN to show;
   # that surfaced only after the implementer finished (amendment, refreeze, a rewritten QA plan). Freeze does not stop: one line, with the fix.
+  check_type_exemptions "$dir"   # A202
   fz_nd=''
   for fz_p in $(scope_mappings "$dir/PLAN.md" 2>/dev/null | cut -d '|' -f1); do
     is_doc_path "$fz_p" || continue
@@ -2536,6 +2539,14 @@ verify_no_scratch_worktrees() {
 # `## Suggested class`) or a declared `decision: fix` entry. The words "fix" or "duzelt" in prose no longer ask for
 # the report: a feature that mentions a fix lost a debug report round for nothing. A task that is not labelled but
 # fixes a bug is still asked for the root-cause proof by its reviewer (roles/reviewer.md), who may FAIL the gate.
+# A202: the task type is the front matter `type:` line (feature|bug|refactor|content|docs|chore); a task without one is a feature,
+# an unknown value is `invalid` (the validator refuses it; here it gets no exemption and no lighter path). The type is part of the task
+# contract that the freeze hashes, so changing it after the freeze makes the run stale: an agent cannot relabel a bug to skip its gates.
+task_type() { # TASK.md -> the type
+  tt_v=$(awk '/^##/ { exit } !fm && $0 == "---" { fm = 1; next } fm && $0 == "---" { exit }
+    fm && tolower($0) ~ /^type[[:space:]]*:/ { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); gsub(/["'"'"'[:space:]]/, "", v); print tolower(v); exit }' "$1" 2>/dev/null)
+  case "$tt_v" in ''|feature) echo feature ;; defect) echo bug ;; bug|refactor|content|docs|chore) echo "$tt_v" ;; *) echo invalid ;; esac
+}
 defect_words_default='bug defect regression'
 task_defect_label() { # TASK.md -> the first type or label word that makes the task a defect task, else nothing
   awk -v words="$(cfg review.defect_words "$defect_words_default")" '
@@ -2554,9 +2565,11 @@ task_defect_label() { # TASK.md -> the first type or label word that makes the t
 verify_debug_result() { # ID
   vd_id=$1; vd_d=$(run_dir "$vd_id")
   gates_enforced "$vd_id" && pipeline_class_valid "$(pipeline_class "$vd_id")" || return 0
-  [ "$(pipeline_class "$vd_id")" != TRIVIAL ] || return 0
   [ -f "$vd_d/TASK.md" ] || return 0
-  vd_hit=$(task_defect_label "$vd_d/TASK.md")
+  # A202: type bug is the trigger; a bug is never lighter because it was classified TRIVIAL (classify refuses that too)
+  vd_hit=''; [ "$(task_type "$vd_d/TASK.md")" != bug ] || vd_hit='type: bug'
+  [ "$(pipeline_class "$vd_id")" != TRIVIAL ] || [ -n "$vd_hit" ] || return 0
+  [ -n "$vd_hit" ] || vd_hit=$(task_defect_label "$vd_d/TASK.md")
   if [ -z "$vd_hit" ] && [ -n "$(task_defect_fixes "$vd_d/TASK.md")" ]; then vd_hit='decision: fix'; fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
@@ -2837,8 +2850,22 @@ parse_tdd_exemptions() {
   ' "$1"
 }
 exempted_path() { parse_tdd_exemptions "$1" | grep -F -- "$2|" | head -1 | cut -d '|' -f2-; }
+# A202: a content or docs task has the test-first exemption by default, but the plan must carry its reason for each document path, and a
+# path that holds code (review.executable_code) is never exempt, whatever the task type says: it keeps its RED and GREEN evidence.
+check_type_exemptions() { # RUN-DIR
+  ct_ty=$(task_type "$1/TASK.md"); case "$ct_ty" in content|docs) ;; *) return 0 ;; esac
+  for ct_p in $(scope_mappings "$1/PLAN.md" 2>/dev/null | cut -d '|' -f1); do
+    ct_r=$(exempted_path "$1/PLAN.md" "$ct_p")
+    if [ -n "$(printf '%s\n' "$ct_p" | paths_executable)" ]; then
+      [ -z "$ct_r" ] || fail "the $ct_ty task type exempts document paths only; $ct_p holds code and is never exempt from test-first: remove its tdd_exemption and show RED and GREEN (or ask the user to change the task type)"
+    elif is_doc_path "$ct_p" && [ -z "$ct_r" ]; then
+      fail "the $ct_ty task type exempts document paths from test-first by default, with the reason written in the plan: add 'tdd_exemption: <specific reason, 20+ characters>' to $ct_p in PLAN.md scope"
+    fi
+  done
+}
 validate_tdd_exemptions() {
   mappings=$(scope_mappings "$1/PLAN.md") || fail "invalid scope mapping"
+  check_type_exemptions "$1"
   for vt_p in $(printf '%s\n' "$mappings" | cut -d '|' -f1); do
     reason=$(exempted_path "$1/PLAN.md" "$vt_p"); [ -n "$reason" ] || continue
     reject_generic_justification "$reason" || fail "invalid TDD exemption for $vt_p: reason is missing or too generic"
@@ -4796,7 +4823,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename) return 0 ;;
     waive:*|rule:*|reopen:*|rationale:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -4805,8 +4832,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands|rename) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
   case "$2" in
@@ -4871,7 +4898,8 @@ approval_bound() { # ID KIND
     commit|push|pr|merge|cleanup) if [ -n "$ab_fp" ]; then printf '%s\n' "$ab_fp"; else content_fingerprint; fi ;;
     report) hash_file "$(shared_dir friction)/latest.md" ;;
     batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
-    commands) hash_file "$(shared_dir commands)/PROPOSAL.tsv" ;;   # A200 review: the proposal's own sha256
+    commands) hash_file "$(shared_dir commands)/PROPOSAL.tsv" ;;
+    rename) hash_file "$(shared_dir rename)/PROPOSAL.tsv" ;;   # A202: the proposal's own sha256   # A200 review: the proposal's own sha256
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     rationale:*) rationale_bound "${2#rationale:}" ;;
@@ -4981,6 +5009,7 @@ approval_sentences() {
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
     cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
     commands) as_en='the commands'; as_tr='komutları|komutlari' ;;
+    rename) as_en='the renames|the rename'; as_tr='yeniden adlandırmayı|yeniden adlandirmayi' ;;
     report) as_en='the friction report'; as_tr='sürtünme raporunu|surtunme raporunu' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
     push) as_en='the push'; as_tr="push'u" ;;
@@ -5197,6 +5226,7 @@ request_approval() {
     rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
   [ "$rq_kind" != commands ] || rq_rows=$(awk -F'\t' '!/^#/ { print "   commands." $1 ": " $2 }' "$(shared_dir commands)/PROPOSAL.tsv" 2>/dev/null)
+  [ "$rq_kind" != rename ] || rq_rows=$(awk -F'\t' '{ print "   rename: " $1 " -> " $2 }' "$(shared_dir rename)/PROPOSAL.tsv" 2>/dev/null)
   case "$rq_kind" in rationale:*) rq_rows="   rationale line of DESIGN.md: $(rationale_line "${rq_kind#rationale:}")" ;; esac
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
   if [ "$rq_kind" = batch ]; then printf 'QUESTIONS:\n1. Approve the night batch shown above (batch %s)?\n' "$(printf '%s' "$rq_bound" | cut -c1-12)"
@@ -5223,6 +5253,7 @@ approval_why() { # KIND BOUND [tr]
       rule:*) echo "kanıttan çıkan ders proje kuralı olur: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
       rationale:*) echo 'DESIGN.md gerekçesi yalnızca sizin onayınızla bir desen bulgusunu engelleyici olmaktan çıkarır; ajanın yazdığı gerekçe bulguyu geçirmez' ;;
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
+      rename) echo 'sıradaki görev dosyaları yalnızca sizin onayınızla <ID>-<slug>.md adına taşınır; başlamış ya da raporu yayınlanmış görevlere dokunulmaz' ;;
       commands) echo 'boş commands.build|test|lint anahtarları için önerilen komutlar yalnızca sizin onayınızla .agents/config.yaml dosyasına yazılır' ;;
       batch) echo 'gece modu: bu tek özet, listelenen görevlerin plan, teslimat ve mutasyon bütçesi onaylarının yerine geçer; başka hiçbir şeyin yerine geçmez' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
@@ -5242,6 +5273,7 @@ approval_why() { # KIND BOUND [tr]
     rule:*) echo "a lesson from run evidence becomes a project rule: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
     rationale:*) echo 'a DESIGN.md pattern rationale downgrades a design finding from blocking to info only with your approval; a rationale an agent wrote does not pass the finding' ;;
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
+    rename) echo 'queued task files are renamed to <ID>-<slug>.md only with your approval; a started task or one with a published report is never touched' ;;
     commands) echo 'the proposed commands.build|test|lint are written into .agents/config.yaml only with your approval' ;;
     batch) echo 'night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
@@ -5381,6 +5413,56 @@ commands_check() {
   # Nothing here reads the proposal's own text for a time: the request's requested_at is the ledger time.
   find_approval - commands "$(hash_file "$cc_f")" >/dev/null || fail "the user's newest message does not approve the commands: no unconsumed commands approval is bound to this proposal (ask: agent.sh request-approval - commands, relay it; the reply \"approve commands\" records the approval)"
   echo "commands $cc_h: approved by the user"
+}
+# --- A202: consistent task file names: <ID>-<slug>.md ----------------------------------------------
+# task-rename-plan lists the queued markdown task files (backlog/, todo/ and the top level of tasks.dir) that are named only by their ID or
+# only by a slug and proposes <ID>-<slug-of-the-title>.md; it asks the user's approval (kind `rename`, bound to the proposal's sha256).
+# task-rename-apply renames only after that approval, and re-checks every row first. A task that has a run or a worktree, one whose file
+# holds a published completion report, and every file in in-progress/ or done/ is never proposed and never renamed.
+rename_candidate() { # ABS-FILE -> ABS-NEW-NAME on stdout when the file is a queued, non-conforming task file
+  rc_f=$1; rc_b=$(basename "$rc_f" .md)
+  rc_id=$(sed -n '1s/^# Task: *\([^ ]*\).*/\1/p' "$rc_f" 2>/dev/null | head -1)
+  { [ -n "$rc_id" ] && valid_task_id "$rc_id"; } || return 1
+  case "$rc_b" in "$rc_id"-FU[0-9]*) return 1 ;; esac
+  { [ ! -e "$root/.agents/runs/$rc_id" ] && [ ! -e "$(shared_dir worktrees)/$rc_id" ]; } || return 1
+  ! grep -q "COMPLETION-REPORT:BEGIN" "$rc_f" 2>/dev/null || return 1
+  rc_idl=$(sh "$agents/task-integrations/slug.sh" "$rc_id")
+  case "$rc_b" in "$rc_id"-?*)
+    rc_sl=${rc_b#"$rc_id"-}
+    if [ "$rc_sl" = "$(sh "$agents/task-integrations/slug.sh" "$rc_sl")" ] && [ "$rc_sl" != "$rc_idl" ]; then return 1; fi ;;
+  esac
+  rc_sl=$(sh "$agents/task-integrations/slug.sh" "$(task_title_of "$rc_f")")
+  { [ -n "$rc_sl" ] && [ "$rc_sl" != "$rc_idl" ]; } || return 1
+  rc_new=$(dirname "$rc_f")/$rc_id-$rc_sl.md
+  [ ! -e "$rc_new" ] || return 1
+  printf '%s\n' "$rc_new"
+}
+task_rename_files() { # the queued task files
+  trf_td=$root/$(cfg tasks.dir .agents/tasks)
+  for trf_f in "$trf_td"/backlog/*.md "$trf_td"/todo/*.md "$trf_td"/*.md; do [ -f "$trf_f" ] && [ ! -L "$trf_f" ] && printf '%s\n' "$trf_f"; done
+}
+task_rename_plan() {
+  require_lead; trp_pf=$(shared_dir rename)/PROPOSAL.tsv; mkdir -p "$(dirname "$trp_pf")"; trp_t=$trp_pf.tmp; : > "$trp_t"
+  task_rename_files | while IFS= read -r trp_f; do
+    trp_n=$(rename_candidate "$trp_f") || continue
+    printf '%s\t%s\n' "${trp_f#"$root"/}" "${trp_n#"$root"/}"
+  done > "$trp_t"
+  if [ ! -s "$trp_t" ]; then rm -f "$trp_t" "$trp_pf"; echo "task-rename: every queued task file is already named <ID>-<slug>.md"; return 0; fi
+  mv "$trp_t" "$trp_pf"; cat "$trp_pf"
+  request_approval - rename
+}
+task_rename_apply() {
+  require_lead; tra_pf=$(shared_dir rename)/PROPOSAL.tsv; [ -s "$tra_pf" ] || fail "no rename proposal (agent.sh task-rename-plan)"
+  tra_app=$(find_approval - rename "$(hash_file "$tra_pf")") || fail "renaming task files needs the user's approval: 'agent.sh request-approval - rename' (task-rename-plan does it), relay it; the reply \"approve rename\" records the approval"
+  while IFS="$(printf '\t')" read -r tra_o tra_n; do
+    [ "$(rename_candidate "$root/$tra_o" 2>/dev/null)" = "$root/$tra_n" ] || fail "$tra_o is no longer a queued task file that needs this rename (started, reported, renamed or changed since the proposal); run task-rename-plan again"
+  done < "$tra_pf"
+  consume_approval - "$tra_app"
+  while IFS="$(printf '\t')" read -r tra_o tra_n; do
+    if git -C "$root" ls-files --error-unmatch -- "$tra_o" >/dev/null 2>&1; then git -C "$root" mv -- "$tra_o" "$tra_n"; else mv -- "$root/$tra_o" "$root/$tra_n"; fi
+    echo "renamed: $tra_o -> $tra_n"
+  done < "$tra_pf"
+  rm -f "$tra_pf"
 }
 batch_plan() {
   require_lead; mkdir -p "$agents/local"
@@ -7584,15 +7666,20 @@ worktree_remove() {
 }
 
 # --- Branch: <git.branch_prefix><TASK-ID>-<slug> from the canonical branch's exact tip --------
+# A202: the slug comes from the file name after `<ID>-`; a file named only by its ID (or whose slug repeats the ID) takes it from the
+# task's title instead, so the branch is never <ID>-<id lowercase>. Turkish and other Latin letters become ASCII first (slug.sh).
+task_title_of() { sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$1" 2>/dev/null | head -1; } # TASK.md -> the H1 title
 derive_task_slug() {
-  dir=$1; id=$(basename "$1"); type=$(section_value "$1" task_source type)
+  dir=$1; id=$(basename "$1"); type=$(section_value "$1" task_source type); slug=''
   case "$type" in
-    local_markdown) base=$(basename "$(section_value "$dir" task_source path)" .md); case "$base" in "$id"-*) slug=${base#"$id"-} ;; *) slug=$base ;; esac ;;
+    local_markdown) base=$(basename "$(section_value "$dir" task_source path)" .md); case "$base" in "$id"-*) slug=${base#"$id"-} ;; "$id") slug='' ;; *) slug=$base ;; esac ;;
     none) slug=run ;;
-    *) slug=$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$dir/TASK.md" 2>/dev/null); [ -n "$slug" ] || slug=run ;;
   esac
-  slug=$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-48 | sed 's/-$//')
-  [ -n "$slug" ] || fail "derived task slug is empty for $id"
+  slug=$(sh "$agents/task-integrations/slug.sh" "$slug")
+  id_low=$(sh "$agents/task-integrations/slug.sh" "$id")
+  if [ -z "$slug" ] || [ "$slug" = "$id_low" ]; then slug=$(sh "$agents/task-integrations/slug.sh" "$(task_title_of "$dir/TASK.md")"); fi
+  if [ "$slug" = "$id_low" ]; then slug=''; fi
+  [ -n "$slug" ] || slug=task
   printf '%s\n' "$slug"
 }
 branch_setup() {
@@ -7692,7 +7779,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind test-path batch-answers commands-check'
+read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind test-path batch-answers commands-check task-type'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7762,6 +7849,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)
   path-kind <path>...   (A200: content or code, for the scope bound)
+  task-type <TASK.md>   (A202: the task type; a task without one is a feature)
+  task-rename-plan | task-rename-apply   (A202: <ID>-<slug>.md names for queued tasks; apply only after the user's 'approve rename')
   test-path <path>...   (A200: `test` or `product` per path: whether selective repetition may treat it as a test)
   batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one "approve delivery", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)
@@ -7871,6 +7960,9 @@ case "$command" in
   batch-answer) require_lead; sh "$scripts/batch.sh" answer ;;
   batch-answers) sh "$scripts/batch.sh" answers "${2:-}" ;;
   test-path) shift; [ $# -gt 0 ] || fail "usage: agent.sh test-path <path>..."; for tp_p in "$@"; do if test_code_path "$tp_p"; then printf 'test\t%s\n' "$tp_p"; else printf 'product\t%s\n' "$tp_p"; fi; done ;;
+  task-rename-plan) task_rename_plan ;;
+  task-rename-apply) task_rename_apply ;;
+  task-type) [ $# -eq 2 ] || fail "usage: agent.sh task-type <TASK.md>"; task_type "$2" ;;
   path-kind) shift; [ $# -gt 0 ] || fail "usage: agent.sh path-kind <path>..."; for pk_p in "$@"; do printf '%s\t%s\n' "$(path_kind "$pk_p")" "$pk_p"; done ;;
   # pr-state only reads the platform (deliver_pr_view): read-only and role-agnostic by design
   pr-state) printf '%s\n' "$(deliver_pr_view "${2:?usage: agent.sh pr-state <PR>}" | awk 'NR == 1 { print $1 }')" ;;

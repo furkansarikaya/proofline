@@ -87,6 +87,31 @@ export function defectErrors(text) {
 }
 
 export const SIZES = ["S", "M", "L"];
+// A202: the task type (front matter `type:`); a task without one is a feature. Proposed by the task author, changed only by the user.
+export const TYPES = ["feature", "bug", "refactor", "content", "docs", "chore"];
+// required sections per type (a bug without reproduction steps, expected and actual behaviour and environment is not a bug report)
+export const TYPE_SECTIONS = {
+  bug: ["Reproduction steps", "Expected and actual behaviour", "Environment"],
+  refactor: ["Behaviour unchanged"],
+};
+const EXISTING_TESTS_PASS = /\bexisting\s+tests?\b[^\n]*\b(pass|passes|passing|stay|stays|remain|remains|green)\b|\b(pass|passes|passing|green)\b[^\n]*\bexisting\s+tests?\b/i;
+
+// ASCII slug of a title, the same rules as control-plane/agents/task-integrations/slug.sh (Turkish and other Latin letters first, max 48)
+const SPECIAL = { "ı": "i", "İ": "i", "ß": "ss", "æ": "ae", "Æ": "ae", "œ": "oe", "Œ": "oe", "ø": "o", "Ø": "o", "đ": "d", "Đ": "d", "ł": "l", "Ł": "l" };
+export function slugify(title) {
+  const ascii = String(title).replace(/[ıİßæÆœŒøØđĐłŁ]/g, (c) => SPECIAL[c]).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return ascii.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-$/, "");
+}
+// A task file is named <ID>-<slug>.md. Returns a warning (with the proposed name) for a file named only by its ID or only by a slug.
+export function fileNameWarning(id, title, fileName) {
+  if (!id || !fileName || !fileName.endsWith(".md") || fileName === "TASK.md") return null;
+  const stem = fileName.slice(0, -3);
+  if (new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-FU\\d+$`).test(stem)) return null;
+  const slug = stem.startsWith(`${id}-`) ? stem.slice(id.length + 1) : null;
+  if (slug && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) && slug !== slugify(id)) return null;
+  const want = slugify(title);
+  return `file name "${fileName}" is not <ID>-<slug>.md${want ? ` (propose "${id}-${want}.md"; a queued task is renamed only on the user's approval, a started or reported task never)` : ""}`;
+}
 // Optional link from a criterion to the PRD requirements it satisfies (product-spec): the criterion ends with
 // `Covers: FR-1, NFR-2` (usually on its own indented line under it); the task names the PRD with front matter `prd: <slug>`.
 export const COVERS = /\bCovers:\s*(.*?)\s*\.?\s*$/;
@@ -139,6 +164,9 @@ export function validate(full, opts = {}) {
   if ("size" in meta && !SIZES.includes(meta.size)) errors.push(`front matter size must be one of ${SIZES.join("|")}`);
   if ("sprint" in meta && !meta.sprint) errors.push("front matter sprint is empty (positive integer or label)");
   if ("assignee" in meta && !meta.assignee) errors.push("front matter assignee is empty");
+  let type = String(meta.type ?? "feature").toLowerCase();
+  if (type === "defect") { warnings.push("front matter type `defect` is the old spelling of `bug`; use `type: bug`"); type = "feature"; }   // still triggers debug-proof in agent.sh, but has no new sections
+  else if ("type" in meta && !TYPES.includes(type)) errors.push(`front matter type must be one of ${TYPES.join("|")}`);
   if ("prd" in meta && !/^[a-z0-9][a-z0-9-]*$/.test(meta.prd)) errors.push("front matter prd must be the PRD's slug (lowercase letters, digits, -)");
   if ("depends_on" in meta) {
     const deps = meta.depends_on.split(/[\s,]+/).filter(Boolean);
@@ -154,6 +182,12 @@ export function validate(full, opts = {}) {
     if (!body) errors.push(`missing section "## ${name}"`);
     else if (!body.some((l) => l.trim())) errors.push(`section "## ${name}" is empty`);
   }
+  for (const name of TYPE_SECTIONS[type] || []) {
+    const body = t.secs.get(name);
+    if (!body) errors.push(`a ${type} task needs the section "## ${name}"`);
+    else if (!body.some((l) => l.trim())) errors.push(`section "## ${name}" is empty`);
+  }
+  if (type === "refactor" && !t.acs.some((ac) => EXISTING_TESTS_PASS.test(ac.text))) errors.push("a refactor task needs an acceptance criterion that the existing tests pass unchanged (the safety net), for example `AC-2: the existing tests pass without changes`");
   if (t.acs.length === 0 && (t.secs.get("Acceptance criteria") || []).some((l) => l.trim())) errors.push("no acceptance criteria in the form `AC-<n>: <text>`");
   const covers = {};
   t.acs.forEach((ac, i) => {
@@ -182,7 +216,9 @@ export function validate(full, opts = {}) {
   if (PLACEHOLDER.test(stripComments(text).replace(/^# Task:.*$/m, ""))) errors.push("unfilled placeholder (<...>, TBD, TODO or ???) remains");
   errors.push(...defectErrors(text));
   if (defectEntries(text).some((e) => /decision:\s*fix\b/i.test(e))) warnings.push("a pre-existing defect with `decision: fix` needs the user's own `scope` approval at freeze; an answer such as \"use your recommended option\" is not one");
-  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, ...(Object.keys(meta).length ? { meta } : {}), ...(Object.keys(covers).length ? { covers } : {}) } };
+  const nameWarn = fileNameWarning(t.id, t.title, opts.fileName);
+  if (nameWarn) warnings.push(nameWarn);
+  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, type: TYPES.includes(type) ? type : "feature", ...(Object.keys(meta).length ? { meta } : {}), ...(Object.keys(covers).length ? { covers } : {}) } };
 }
 
 // ---- templates (D25) ----
@@ -275,7 +311,7 @@ function main(argv) {
   const td = opt("--tasks-dir");
   const own = dirname(resolve(file));
   const tasksDirs = td ? [resolve(td)] : [own, dirname(own)];
-  const r = validate(read(file), { tasksDirs });
+  const r = validate(read(file), { tasksDirs, fileName: basename(file) });
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
   else { r.errors.forEach((e) => console.error(`error: ${e}`)); r.warnings.forEach((w) => console.error(`warning: ${w}`)); }
   return r.valid ? 0 : 1;

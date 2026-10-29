@@ -109,6 +109,7 @@ case "$op" in
   *) exit 2 ;;
 esac
 STUB
+  cp "$tl_agents/task-integrations/slug.sh" "$1/.agents/task-integrations/slug.sh"   # A202: agent.sh derives the branch slug with it
   chmod +x "$1/.agents/scripts/"*.sh "$1/.agents/task-integrations/markdown.sh"
 }
 # The fixture repository is built once per content hash of the control plane and the stubs above, shared by every
@@ -236,7 +237,9 @@ scaffold() {
   tpath=tasks/LC.md; [ "$layout" = yes ] && tpath=tasks/in-progress/LC.md
   new_repo; RID=LC; d=.agents/runs/LC; mkdir -p "$d" tasks
   printf 'LC\n' > .agents/local/ACTIVE_RUN
-  printf '# Task: LC — lookup\n\n## Acceptance criteria\n\n- AC-1: lookup behavior\n' > "$d/TASK.md"
+  printf '# Task: LC — lookup\n\n' > "$d/TASK.md"
+  [ -z "${SC_TASK_FM:-}" ] || printf -- '---\n%s\n---\n\n' "$SC_TASK_FM" >> "$d/TASK.md"   # A202: front matter (type: ...) right after the H1
+  printf '## Acceptance criteria\n\n- AC-1: lookup behavior\n' >> "$d/TASK.md"
   [ -z "${SC_TASK_EXTRA:-}" ] || printf '%s\n' "$SC_TASK_EXTRA" >> "$d/TASK.md"
   case "$class" in TRIVIAL) ;; *) printf '%s\n' '# Evidence' '' '## Assumptions' 'none' '' '## Claims' > "$d/EVIDENCE.md"; printf '# QA plan\n\n- QA-1 (AC-1): lookup returns the stored value\n' > "$d/QA_PLAN.md"; [ "${SC_TEST_CRIT:-${SC_SCOPE_OTHER:-AC-1}}" = AC-1 ] || printf -- '- QA-2 (%s): second behavior\n' "${SC_TEST_CRIT:-$SC_SCOPE_OTHER}" >> "$d/QA_PLAN.md"; [ -z "${SC_QA_EXTRA:-}" ] || printf '%s\n' "$SC_QA_EXTRA" >> "$d/QA_PLAN.md" ;; esac
   printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} '  - path: impl_test.txt' "    criteria: [${SC_TEST_CRIT:-AC-1}]" ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_EXTRA:+'  - path: other.txt' "    criteria: [$SC_SCOPE_EXTRA]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_OTHER:+'  - path: far.txt' "    criteria: [$SC_SCOPE_OTHER]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_AGENTS:+'  - path: .agents/impl.txt' '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_NAMED:+"  - path: $SC_SCOPE_NAMED" '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'one storage map; no new module' > "$d/PLAN.md"

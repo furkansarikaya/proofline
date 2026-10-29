@@ -88,7 +88,7 @@ install_scripts() { # DIR: the control-plane scripts a fixture lacks (batch.sh, 
     case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
     cp "$is_s" "$1/"
   done
-  mkdir -p "$1/../task-integrations"; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$1/../task-integrations/"   # A169: sessions run the real `agent.sh start`
+  mkdir -p "$1/../task-integrations"; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" "$1/../task-integrations/"   # A169: sessions run the real `agent.sh start`
 }
 # bnew: a fresh fixture without task files (the shared template may carry some, see tpl_tasks)
 bnew() { new_repo; rm -rf .agents/tasks; }
@@ -808,6 +808,46 @@ sc_plan_all_subset() {
   ok "batch-plan: 'all' or IDs that the approved batch does not contain are refused with --replace as the way out; tasks it left out on purpose do not count"
 }
 
+# --- A202: file names <ID>-<slug>.md, renamed only on the user's approval; the task type in the pre-flight --------------------------------
+sc_task_names() {
+  bnew; mkdir -p .agents/tasks/todo .agents/tasks/in-progress .agents/tasks/backlog; binstall no
+  mk() { printf '# Task: %s — %s\n\n## Goal\n\nIt works.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nSTANDARD\n' "$2" "$3" > ".agents/tasks/$1/$4.md"; }
+  mk todo T-1 'Türkçe başlık ışığı' T-1          # ID only: proposed
+  mk backlog T-2 'Slug only' slug-only           # slug only: proposed
+  mk todo T-3 'Already named' T-3-already-named  # conforming: left alone
+  mk todo T-4 'Started task' T-4; mkdir -p .agents/runs/T-4   # has a run: never touched
+  mk in-progress T-5 'In progress' T-5           # not queued: never touched
+  mk todo T-6 'Reported task' T-6; printf '<!-- COMPLETION-REPORT:BEGIN:T-6 -->\n' >> .agents/tasks/todo/T-6.md   # report published: never touched
+  mk todo T-7 'Echo' T-7-t-7                     # slug repeats the ID: proposed
+  git add -A; git commit -qm tasks
+  A task-rename-plan > "$base/rn.out" || die "task-rename-plan: $(cat "$base/rn.out")"
+  for want in 'T-1.md	.agents/tasks/todo/T-1-turkce-baslik-isigi.md' 'slug-only.md	.agents/tasks/backlog/T-2-slug-only.md' 'T-7-t-7.md	.agents/tasks/todo/T-7-echo.md'; do
+    grep -Fq -- "$want" "$base/rn.out" || { printf '%s\n' "$(cat "$base/rn.out")" | sed 's/^/    /'; die "rename proposal lacks: $want"; }
+  done
+  for no in T-3 T-4 T-5 T-6; do ! grep -Fq "$no" .agents/local/rename/PROPOSAL.tsv || die "$no was proposed for a rename"; done
+  expect_msg "rename applied without the user's approval" "needs the user's approval" A task-rename-apply
+  capture 'approve rename' "$(( $(date +%s) + 7200 ))"; A approve-pending >/dev/null 2>&1 || :
+  # a task that started after the proposal is no longer renamed
+  mkdir -p .agents/runs/T-7
+  expect_msg "a task that started after the proposal was renamed" "no longer a queued task file" A task-rename-apply
+  [ -f .agents/tasks/todo/T-1.md ] || die "a refused rename moved a file"
+  rmdir .agents/runs/T-7
+  A task-rename-apply >/dev/null || die "task-rename-apply after the approval"
+  [ -f .agents/tasks/todo/T-1-turkce-baslik-isigi.md ] && [ -f .agents/tasks/backlog/T-2-slug-only.md ] && [ -f .agents/tasks/todo/T-7-echo.md ] || die "the approved renames did not happen"
+  for keep in todo/T-3-already-named todo/T-4 in-progress/T-5 todo/T-6; do [ -f ".agents/tasks/$keep.md" ] || die "$keep was renamed"; done
+  expect_msg "the approval is single-use" "no rename proposal" A task-rename-apply
+  # the batch finds a task by ID whatever its file name is
+  mk todo T-8 'Plain' T-8-plain; git add -A; git commit -qm more
+  BP T-1 T-8 > "$base/plan.out" 2>&1 || die "batch-plan does not find <ID>-<slug>.md files: $(cat "$base/plan.out")"
+  # the task type is an input of the pre-flight: a bug without its reproduction steps is asked about, a typeless task is a feature
+  printf '# Task: B-1 — Crash\n\n---\ntype: bug\n---\n\n## Goal\n\nIt works.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nSTANDARD\n' > .agents/tasks/todo/B-1-crash.md
+  git add -A; git commit -qm bug
+  BP T-8 B-1 > "$base/plan.out" 2>&1 || die "batch-plan with a bug task: $(cat "$base/plan.out")"
+  grep -q '\[B-1, type\].*Reproduction steps' .agents/local/batch/SUMMARY.md || die "a bug without reproduction steps raised no type question: $(grep 'B-1' .agents/local/batch/SUMMARY.md)"
+  grep -q '\[T-8' .agents/local/batch/SUMMARY.md && die "a typeless task raised a question"
+  ok "A202: queued tasks are renamed to <ID>-<slug>.md only after the user's approval; started, reported and in-progress files never; the batch finds <ID>-<slug>.md"
+}
+
 # --- 16. the keys of the removed driver are ignored, not validated; the live keys still are -------------------------------------------
 sc_config_ignored_keys() {
   bnew; binstall no
@@ -952,4 +992,5 @@ run_sc sc_owner_guard
 run_sc sc_pr_recovery
 run_sc sc_plan_all_subset
 run_sc sc_config_ignored_keys
+run_sc sc_task_names
 echo 'batch tests passed'

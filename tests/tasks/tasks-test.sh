@@ -46,6 +46,15 @@ hasnt "$base/t1.md" '**Status:**'
 sh $MD import .agents/tasks/todo/T-1-lookup-default.md "$base/t1b.md" || die "markdown import by path failed"
 ok "markdown import (id and path)"
 
+# A202: one slug rule for the file name (markdown adapter), the branch (agent.sh) and the validator: Turkish and other Latin letters become ASCII first
+[ "$(sh $CP/task-integrations/slug.sh 'Türkçe Başlık: Çalışma ışığı İyi Ösü ğ')" = turkce-baslik-calisma-isigi-iyi-osu-g ] || die "slug.sh: Turkish title"
+[ "$(sh $CP/task-integrations/slug.sh 'Straße façade')" = strasse-facade ] || die "slug.sh: other Latin letters"
+long_slug=$(sh $CP/task-integrations/slug.sh "$(printf 'a%.0s' $(seq 80))"); [ "${#long_slug}" -le 48 ] || die "slug.sh: longer than 48"
+printf '%s\n' '# Task: T-9 — Çalışma ışığı' '' '## Goal' 'g' '## Acceptance criteria' '- AC-1: returns x' '## Out of scope' 'none' '## Constraints' 'none' '## Risks' 'none' > "$base/t9.md"
+out=$(sh $MD create T-9 'Çalışma ışığı' "$base/t9.md") || die "markdown create with a Turkish title failed"
+[ "$out" = .agents/tasks/in-progress/T-9-calisma-isigi.md ] || die "markdown create named the file: $out"
+ok "A202: slug.sh and markdown create transliterate to ASCII (<ID>-<slug>.md)"
+
 # import: bullets without AC- prefix are numbered; checkboxes and numbered lists tolerated
 printf '%s\n' '# Task: T-2 — Numbering' '' '## Goal' 'g' '## Acceptance criteria' '- [ ] first thing' '1. second thing' '   continued line' '## Out of scope' 'none' '## Constraints' 'none' '## Risks' 'none' > .agents/tasks/T-2.md
 sh $MD import T-2 "$base/t2.md" || die "numbering import failed"
