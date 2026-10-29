@@ -310,7 +310,8 @@ scenario_knowledge_tier() {
   A handoff LC IMPLEMENTED >/dev/null; [ "$(A tier LC)" = small ] || die "the fixture is not tier small: $(A tier LC)"
   pass_all; n_gates=$(ls .agents/runs/LC/gates/*.yaml | wc -l | tr -d ' ')
   A handoff LC CODE_DONE >/dev/null
-  mkdir -p docs/wiki; for i in 1 2 3 4; do printf '# Page %s\n\nThe lookup returns the stored value.\n' "$i" > "docs/wiki/page$i.md"; done
+  mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/   # knowledge-done (A200) needs the lint installed and a page that passes it
+  for i in 1 2 3 4; do printf -- '---\ntitle: page %s\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Page %s\n\nThe lookup returns the stored value.\n' "$i" "$i" > "docs/wiki/page$i.md"; done
   [ "$(A tier LC)" = small ] || die "four knowledge files at CODE_DONE moved the tier to $(A tier LC)"
   A knowledge-done LC >/dev/null || die "knowledge-done refused four wiki pages: $(A knowledge-done LC 2>&1 | tail -1)"
   [ "$(A tier LC)" = small ] && [ "$(ls .agents/runs/LC/gates/*.yaml | wc -l | tr -d ' ')" = "$n_gates" ] || die "the tier or the gate files changed after the knowledge step"

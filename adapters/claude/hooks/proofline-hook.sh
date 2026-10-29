@@ -1288,11 +1288,17 @@ mg_ref() {
 }
 # mg_chain_switch WHAT: the command text also checks out / switches to a protected branch (`git checkout main && git reset ...`):
 # mg_cur is read once before the chain, so the branch the chain moves to is looked for in the text (as the merge arm does).
-mg_chain_switch() {
+mg_switches_prot() {
   mg_alt=$(printf '%s' "$mg_prot" | tr -s ' ' '|' | sed 's/^|//; s/|$//')
-  [ -n "$mg_alt" ] || return 0
-  ! printf '%s' "$cmd" | grep -Eq "(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?($mg_alt)([[:space:]]|;|&|\\||\$)" \
-    || deny "$1 in a command that switches to a protected branch advances it without proofline merge: $MG_MSG"
+  [ -n "$mg_alt" ] || return 1
+  # ONE normalized text: quotes dropped, ( ) { } are command separators; refs/heads/ before the branch counts; a $ or backtick word after checkout/switch cannot be read
+  mg_norm=$(printf '%s' "$cmd" | tr -d "\"'" | tr '(){}' ';;;;')
+  printf '%s' "$mg_norm" | grep -Eq "(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?(refs/heads/)?($mg_alt)([[:space:]]|;|&|\\||\$)" && return 0
+  printf '%s' "$mg_norm" | grep -Eq '(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?[$`]' && return 0
+  return 1
+}
+mg_chain_switch() {
+  ! mg_switches_prot || deny "$1 in a command that switches to a protected branch advances it without proofline merge: $MG_MSG"
 }
 # mg_git ARGS: the arguments of one git command, one per line. State from merge_guard: mg_cd (directory after
 # `cd`), mg_envu (an env/sudo -C, GIT_DIR, GIT_WORK_TREE made the directory unreadable).
@@ -1352,8 +1358,7 @@ mg_git() {
       for mg_a in "$@"; do case "$mg_a" in --abort|--quit|--continue) return 0 ;; esac; done
       [ "$mg_dir" != @unknown ] || deny "git merge whose directory cannot be read from the command text may merge into a protected branch: $MG_MSG"
       ! mg_isprot "$mg_cur" || deny "git merge on the protected branch $mg_cur: $MG_MSG"
-      mg_alt=$(printf '%s' "$mg_prot" | tr -s ' ' '|' | sed 's/^|//; s/|$//')
-      ! printf '%s' "$cmd" | grep -Eq "(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?($mg_alt)([[:space:]]|;|&|\\||\$)" \
+      ! mg_switches_prot \
         || deny "git merge in a command that switches to a protected branch: $MG_MSG" ;;
     update-ref)
       for mg_a in "$@"; do case "$mg_a" in refs/heads/*) ! mg_ref "$mg_a" || deny "git update-ref of a protected branch: $MG_MSG" ;; esac; done ;;

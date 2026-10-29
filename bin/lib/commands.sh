@@ -58,7 +58,7 @@ cm_apply() {
   [ -s "$cm_d/PROPOSAL.tsv" ] || die "doctor --apply-commands: no commands proposal (run: proofline doctor --commands)"
   cm_chk=$(sh "$ROOT/.agents/scripts/agent.sh" commands-check) || die "doctor --apply-commands: the user has not agreed to this proposal yet; ask the one question and wait for the reply"
   # the approval is used up before anything is written: a replay of the same proposal needs a new request and a new reply. A user approval
-  # that cannot be consumed refuses the apply; a batch-covered proposal has no commands approval to consume.
+  # that cannot be consumed refuses the apply; a batch-covered proposal has no commands approval to consume (it can be regenerated and re-applied; harmless, the batch approval covered that exact content).
   case "$cm_chk" in
     *'approved by the user'*) sh "$ROOT/.agents/scripts/agent.sh" approval-consume - commands >/dev/null || die "doctor --apply-commands: the commands approval could not be consumed, so nothing was written" ;;
   esac
