@@ -460,7 +460,8 @@ answer_cmd() {
   [ -f "$bd/lint.tsv" ] && [ -f "$bd/SUMMARY.md" ] || die "no batch plan to answer (agent.sh batch-plan <ID...|all>)"
   [ -s "$bd/lint.tsv" ] || { echo "batch: the summary asks no pre-flight question"; return 0; }
   an_h=$(prompts_dir)/history; an_b=$(bid)
-  an_from=$(stat -f %m "$bd/SUMMARY.md" 2>/dev/null || stat -c %Y "$bd/SUMMARY.md" 2>/dev/null || echo 0)
+  an_from=$(stat -c %Y "$bd/SUMMARY.md" 2>/dev/null || stat -f %m "$bd/SUMMARY.md" 2>/dev/null)
+  case "$an_from" in ''|*[!0-9]*) an_from=$(date +%s) ;; esac
   an_pick=''
   for an_f in $(ls -1 "$an_h"/*.txt 2>/dev/null | sort); do
     an_e=${an_f##*/}; an_e=${an_e%%-*}; case "$an_e" in ''|*[!0-9]*) continue ;; esac
