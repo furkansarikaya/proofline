@@ -32,7 +32,7 @@ The project wiki (A139, skill `llm-wiki`) lives under `docs/wiki/`, which is in 
 a path under that prefix is knowledge work, any other path is implementation scope. Transaction A reads it
 only on demand and read-only: `index`, then the entity, decision, lesson, concept and finally the source page,
 frozen as references in EVIDENCE, with no filing back, no index or log change. The knowledge step ingests warranted,
-sourced knowledge, updates only the relevant pages and `log.md`, runs the wiki lint, resolves its errors, then
+sourced knowledge, first checks whether an existing page can be updated before opening a new one (`validate-wiki.mjs <wiki> --similar "<title>"`), updates only the relevant pages and `log.md` (older entries move to `log-archive.md` with `--archive-log`, never deleted), runs the wiki lint (it proposes merging near-duplicate pages; a proposal is not an error), resolves its errors, then
 runs `knowledge-done`. Wiki decisions rank below design documents and above lessons; current tests beat a stale
 lesson. A project that keeps no wiki simply never writes under `docs/wiki/`.
 

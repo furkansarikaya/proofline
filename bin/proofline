@@ -182,6 +182,16 @@ cmd_queue() {
   done
   for f in "$td"/*.md; do [ -f "$f" ] || continue; say "  $(basename "$f")"; found=1; done
   [ "$found" = 1 ] || say "  (none)"
+  # A203: finished tasks show their title and status only (the first lines of the file); the completion report stays in the file as evidence and is never read here.
+  dn=0
+  for f in "$td"/done/*.md; do
+    [ -f "$f" ] || continue
+    dn=$((dn + 1)); [ "$dn" -le 20 ] || continue
+    [ "$dn" -gt 1 ] || say "done (title and status only):"
+    dh=$(head -n 12 "$f"); dt=$(printf '%s\n' "$dh" | sed -n '1s/^# *//p'); ds=$(printf '%s\n' "$dh" | sed -n 's/^\*\*Status:\*\* *//p' | head -n 1)
+    say "  done/$(basename "$f"): ${dt:-(no title)} [${ds:--}]"
+  done
+  [ "$dn" -le 20 ] || say "  ... and $((dn - 20)) more finished task(s)"
   act=$(active_id); say "runs (.agents/runs):"
   found=0
   for r in "$ROOT"/.agents/runs/*/ "$ROOT"/.agents/local/worktrees/*/.agents/runs/*/; do

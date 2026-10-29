@@ -89,3 +89,47 @@ test("an unlinked page is a warning, not an error; raw/ and non-pages are exempt
   assert.equal(r.warnings.length, 1);
   assert.ok(existsSync(join(root, "docs/wiki/raw/sessions/2026-01-05-job-1.md")));
 });
+
+test("log archiving moves the oldest entries to log-archive.md and loses no content", async () => {
+  const { archiveLog } = await import(script);
+  const root = build(), wiki = join(root, "docs/wiki");
+  const entries = Array.from({ length: 25 }, (_, i) => `- 2026-01-${String(i + 1).padStart(2, "0")} - op ${i} ... Source: [[retry-policy]].`);
+  const before = "# Log\n\nintro line\n\n" + entries.join("\n") + "\n";
+  writeFileSync(join(wiki, "log.md"), before);
+  assert.equal(archiveLog(wiki, 10), 15);
+  const logNow = readFileSync(join(wiki, "log.md"), "utf8"), arch = readFileSync(join(wiki, "log-archive.md"), "utf8");
+  assert.deepEqual(logNow.split("\n").filter((l) => l.startsWith("- ")), entries.slice(15));
+  assert.deepEqual(arch.split("\n").filter((l) => l.startsWith("- ")), entries.slice(0, 15));
+  assert.ok(logNow.startsWith("# Log\n\nintro line"));
+  // every original line is in log.md or the archive; nothing deleted, nothing duplicated
+  assert.deepEqual([...logNow.split("\n"), ...arch.split("\n")].filter((l) => l.startsWith("- ")).sort(), [...entries].sort());
+  assert.equal(archiveLog(wiki, 10), 0);
+  // a second round appends in order to the same archive
+  writeFileSync(join(wiki, "log.md"), logNow + "- 2026-02-01 - later ... Source: [[retry-policy]].\n");
+  assert.equal(archiveLog(wiki, 10), 1);
+  assert.deepEqual(readFileSync(join(wiki, "log-archive.md"), "utf8").split("\n").filter((l) => l.startsWith("- ")), [...entries.slice(0, 15), entries[15]]);
+  assert.deepEqual(run(root).errors, []);
+  const r = spawnSync("node", [script, wiki, "--archive-log", "--keep", "5", "--root", root], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /archived 5 log entries/);
+});
+test("a log over the limit and near-duplicate pages are proposals (warnings), not errors", () => {
+  const root = build(), wiki = join(root, "docs/wiki");
+  writeFileSync(join(wiki, "log.md"), "# Log\n\n" + Array.from({ length: 201 }, (_, i) => `- op ${i}`).join("\n") + "\n");
+  let r = run(root);
+  has(r.warnings, "log.md has 201 entries");
+  assert.deepEqual(r.errors, []);
+  const src = readFileSync(join(wiki, "concepts/retry-policy.md"), "utf8");
+  writeFileSync(join(wiki, "concepts/retry-policy-copy.md"), src.replace(/^title: .*$/m, "title: Retry policy copy"));
+  r = run(root);
+  has(r.warnings, "merge proposal: docs/wiki/concepts/retry-policy-copy.md and docs/wiki/concepts/retry-policy.md");
+  assert.deepEqual(r.errors, []);
+  assert.equal(spawnSync("node", [script, wiki, "--root", root]).status, 0);
+});
+test("--similar lists the closest existing pages for a new title", () => {
+  const root = build(), wiki = join(root, "docs/wiki");
+  const r = spawnSync("node", [script, wiki, "--similar", "Retry policy", "--root", root], { encoding: "utf8" });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /concepts\/retry-policy\.md/);
+  assert.match(spawnSync("node", [script, wiki, "--similar", "Zebra quokka", "--root", root], { encoding: "utf8" }).stdout, /no similar page/);
+});

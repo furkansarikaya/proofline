@@ -922,6 +922,22 @@ sc_same_files_wait() {
   ok "A200: batch-next does not start a task that shares a code file with an earlier unmerged task; document paths do not count"
 }
 
+# --- 17. A203: batch planning never reads a finished task's completion report ----------------------------------------------------------
+sc_done_reports_unread() {
+  bnew; mktask T-1 COMPLEX; mktask T-3 COMPLEX T-9; mktask T-9 COMPLEX '' 'done'
+  printf '\n## Completion Report\n\nREPORT-SENTINEL-203\n' >> .agents/tasks/done/T-9.md
+  binstall no
+  # the planner may list the done/ folder (names) but must not open the file: unreadable, the plan still works
+  chmod 000 .agents/tasks/done/T-9.md
+  if [ -r .agents/tasks/done/T-9.md ]; then chmod 600 .agents/tasks/done/T-9.md; ok "A203: (skipped the unreadable-file proof: this user can read any file)"; return 0; fi
+  BP T-3 > "$base/plan.out" 2>&1 || { chmod 600 .agents/tasks/done/T-9.md; die "batch-plan opened a finished task or refused a dependency on it: $(cat "$base/plan.out")"; }
+  chmod 600 .agents/tasks/done/T-9.md
+  [ "$(order_ids)" = "T-3" ] || die "T-3 (depends on done/T-9) is not planned: $(order_ids)"
+  ! grep -rq 'REPORT-SENTINEL-203' "$base/plan.out" .agents/local/batch || die "a finished task's report reached the batch output or records"
+  ok "A203: batch-plan takes a finished task's ID from its file name; the completion report is never opened or copied"
+}
+
+
 run_sc sc_preflight
 run_sc sc_commands_check
 run_sc sc_same_files_wait
@@ -952,4 +968,5 @@ run_sc sc_owner_guard
 run_sc sc_pr_recovery
 run_sc sc_plan_all_subset
 run_sc sc_config_ignored_keys
+run_sc sc_done_reports_unread
 echo 'batch tests passed'

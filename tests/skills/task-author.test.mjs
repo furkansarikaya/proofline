@@ -261,3 +261,16 @@ test("Covers: a criterion links PRD requirements; a task without it stays valid;
   assert.match(validate(linked.replace("Covers: FR-1, NFR-2", "Covers: login")).errors.join("\n"), /Covers must list requirement ids/);
   assert.match(validate(GOOD.replace("returns HTTP 429.", "returns HTTP 429. Covers: FR-1")).warnings.join("\n"), /names no PRD/);
 });
+
+test("A203: a finished task is identified by its title only; its completion report is never read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rep-"));
+  mkdirSync(join(dir, "done"));
+  // the report (far below the title) holds a sentinel that looks like a task title; it must not register an id
+  writeFileSync(join(dir, "done", "T-1-a.md"), GOOD + "\n" + "x\n".repeat(2000) + "\n## Completion Report\n\n# Task: SENTINEL-9 - from a report\n");
+  const f = join(dir, "y.md.txt");
+  const run = (dep) => { writeFileSync(f, GOOD.replace(/^(# Task:.*\n)/, `$1\n---\ndepends_on: [${dep}]\n---\n`).replace("T-1", "T-2")); return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" }); };
+  assert.equal(run("T-1").status, 0);
+  const r = run("SENTINEL-9");
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout + r.stderr, /depends_on id "SENTINEL-9" matches no task/);
+});

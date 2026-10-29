@@ -72,6 +72,7 @@ Standalone: show the draft task(s) and ask for approval (this is the one approva
 ## Split, size, sprint, team
 
 - **Split.** When the work holds several independent deliverables, propose splitting it into tasks: each deliverable alone, with its dependencies and acceptance criteria. If the user asks for one task, keep one.
+- **Finished tasks are read by title and status only (A203).** For duplicate and dependency checks read the file name, the `# Task:` title line and the `**Status:**` line of a task in `done/`, never its `## Completion Report`. The report stays in the task file as evidence; open it only when the user asks for it or a check cannot be answered without it, and say why.
 - **Split code from user decisions (A200).** Propose separate tasks for the code changes and for the work that needs the user's decision (design rationales, copy or text approvals, a wording sign-off). The code task is then not parked on a question that only the user can answer, and the decision task carries the questions and records the user's answers. When the user wants one task, keep one.
 - **Type.** A task that fixes a defect gets `type: bug` (or `defect`) in the front matter block, or the label `bug` under `## Labels`; the run then requires a debug-proof result (`reports/NNN-debug.md`). Words such as "fix" in the text do not trigger it (A200), so label every defect task.
 - **Size.** Every task gets `S`, `M` or `L` and a one-sentence reason.
