@@ -25,3 +25,10 @@ fixtures/visual-proof-design/* visual-proof-design.test.mjs
 tests/invariants/check-changed.sh check-changed-test
 tests/invariants/check-changed-test.sh check-changed-test
 tests/invariants/invariants-test.sh invariants-test
+tests/context/check-budget-changed.sh check-budget-changed-test
+tests/context/check-budget-changed-test.sh check-budget-changed-test
+tests/context/context-budget-test.sh context-budget-test
+tests/context/budget.tsv context-budget-test
+tests/context/rule-map.tsv context-budget-test
+bin/lib/context-size.sh context-budget-test cli-test
+control-plane/agents/scripts/rules.sh rules-test

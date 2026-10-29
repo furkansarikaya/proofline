@@ -42,3 +42,10 @@ documentation; their summary goes into the completion report.
 Lesson candidates (`agent.sh lessons`) are derived from the run's gate and finding records and live as rows of one wiki page, `docs/wiki/lessons/observations.md`; a row needs a source that resolves to a gate record or finding, or `knowledge-done` fails. A row becomes a project rule in `AGENTS.md` only through `lessons promote`, which needs the user's recorded `rule:<ID>` approval. Promotion is proposed once the same kind of finding appears in a second run (`repeats=1`). Nothing else writes a rule.
 
 Shortcut debt (A153): `shortcut: <limit>, <when to improve>` comments in code are collected by `agent.sh debt` (grep, read-only). In transaction B, `agent.sh debt page` rewrites the one wiki page `docs/wiki/concepts/shortcut-debt.md` from them; a removed shortcut drops off the page. Observations in an implementer report (`## Observations`) are proposed to the user as new tasks and written to `tasks.dir` by the task author only after the user approves.
+
+## Project rules budget (A202)
+
+The `## Project rules` section of `AGENTS.md` (the user's rules and promoted lessons) has a size budget (`rules.budget_bytes`). `agent.sh rules report`,
+`proofline doctor` and `proofline insights` propose merging rules that repeat each other, ask which of two contradicting rules holds, and propose
+removing rules that no review cited. They only propose: the lead puts each proposal to the user and edits `AGENTS.md` only after the user's own
+message approves that exact change; no agent merges, answers a contradiction or removes a rule on its own.

@@ -384,3 +384,8 @@ dispatch:
   # A runtime used this way also needs execution_policy.providers.<runtime> and capabilities.<runtime>.
   # A template set for claude or codex replaces the built-in invocation.
   command_template:
+# Project rules (A202): the budget for the "## Project rules" section of AGENTS.md, and how many reviewed runs must pass before a rule that
+# no review cited is proposed for removal. Over the budget, `proofline doctor` proposes merging, asking about and removing rules; it changes none.
+rules:
+  budget_bytes: 4000
+  unused_after_reviews: 10

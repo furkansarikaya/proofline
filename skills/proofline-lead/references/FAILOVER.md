@@ -10,7 +10,7 @@ transition. Nothing the lead remembers is state.
 `resume` (`/proofline resume`, `proofline resume`, or a new session of either runtime):
 
 1. Boot ([SKILL.md](../SKILL.md#boot-every-session-proofline-resume)); `A status`.
-2. `A freshness <ID>` and `A verify-handoff <ID>`. A failure is reported verbatim; the run is not
+2. `A freshness <ID>` and `A verify-handoff <ID>`: trust persisted work only after `freshness` and `verify-handoff` pass. A failure is reported verbatim; the run is not
    continued until it is resolved (an amendment, or `terminate BLOCKED`).
 3. `A next <ID>` and continue in the Flow table. The interrupted step restarts from its beginning, never
    from the middle:
