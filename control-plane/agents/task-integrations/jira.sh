@@ -7,6 +7,7 @@
 #   jira.sh verify   <KEY-N> <receipt>       exit 0 iff the comment carrying that hash is still on the issue
 #   jira.sh followup <KEY-N> <waiver-file>   creates a Task in the same project; prints the new key
 #   jira.sh status   <KEY-N> <backlog|todo|in-progress|done>   runs the workflow transition with the matching name
+#   jira.sh statusblock <KEY-N> <block-file>   creates or edits in place the ONE proofline status comment (found by its marker)
 #
 # shellcheck disable=SC1003 # the backslash in a case pattern is intended
 # Environment: JIRA_BASE_URL (https://<site>.atlassian.net), JIRA_EMAIL, JIRA_API_TOKEN. Requires curl and jq.
@@ -21,7 +22,7 @@ pl_name='jira adapter'
 . "$here/_lib.sh"
 
 op=${1:-}
-case "$op" in import|publish|verify|followup|status) ;; *) pl_usage 'jira.sh <import|publish|verify|followup|status> ...' ;; esac
+case "$op" in import|publish|verify|followup|status|statusblock) ;; *) pl_usage 'jira.sh <import|publish|verify|followup|status|statusblock> ...' ;; esac
 
 key_ok() { pl_id "$1"; case "$1" in [A-Z]*-[0-9]*) ;; *) pl_die "not a Jira issue key (expected PROJ-123): $1" ;; esac; }
 jira_ready() {
@@ -35,9 +36,9 @@ jira_ready() {
 jira_api() {
   ja_m=$1 ja_p=$2 ja_f=${3:-}
   if [ -n "$ja_f" ]; then
-    printf 'user = "%s:%s"\n' "$JIRA_EMAIL" "$JIRA_API_TOKEN" | curl -sS --fail-with-body -K - -X "$ja_m" -H 'Accept: application/json' -H 'Content-Type: application/json' --data-binary "@$ja_f" "${JIRA_BASE_URL%/}$ja_p"
+    printf 'user = "%s:%s"\n' "$JIRA_EMAIL" "$JIRA_API_TOKEN" | curl -sS --max-time 30 --fail-with-body -K - -X "$ja_m" -H 'Accept: application/json' -H 'Content-Type: application/json' --data-binary "@$ja_f" "${JIRA_BASE_URL%/}$ja_p"
   else
-    printf 'user = "%s:%s"\n' "$JIRA_EMAIL" "$JIRA_API_TOKEN" | curl -sS --fail-with-body -K - -X "$ja_m" -H 'Accept: application/json' "${JIRA_BASE_URL%/}$ja_p"
+    printf 'user = "%s:%s"\n' "$JIRA_EMAIL" "$JIRA_API_TOKEN" | curl -sS --max-time 30 --fail-with-body -K - -X "$ja_m" -H 'Accept: application/json' "${JIRA_BASE_URL%/}$ja_p"
   fi
 }
 adf() { jq -Rs '{type:"doc",version:1,content:(split("\n")|map(select(length>0)|{type:"paragraph",content:[{type:"text",text:.}]}))}'; }
@@ -91,6 +92,18 @@ case "$op" in
     new=$(jira_api POST /rest/api/3/issue "$tf" | jq -r '.key // empty') || { rm -f "$tf"; pl_die "could not create the follow-up issue"; }
     rm -f "$tf"; [ -n "$new" ] || pl_die "Jira returned no issue key"
     printf '%s\n' "$new"
+    ;;
+  statusblock)
+    [ $# -eq 3 ] || pl_usage 'jira.sh statusblock <KEY-N> <block-file>'
+    key_ok "$2"; pl_status_check "$2" "$3"; jira_ready
+    tf=$(mktemp "${TMPDIR:-/tmp}/jira.XXXXXX")
+    pl_status_comment "$2" "$3" | adf | jq '{body:.}' > "$tf"
+    # the marker text opens our comment: the newest comment whose body starts with it is edited in place (PUT); a new one only when there is none
+    cid=$(jira_api GET "/rest/api/3/issue/$2/comment?maxResults=1000" | jq -r --arg m "<!-- proofline:status:$2 -->" '[.comments[]? | select((.body.content[0].content[0].text // "") | startswith($m))] | last | .id // empty') || cid=''
+    case "$cid" in *[!0-9]*) cid='' ;; esac
+    if [ -n "$cid" ]; then jira_api PUT "/rest/api/3/issue/$2/comment/$cid" "$tf" >/dev/null || { rm -f "$tf"; pl_die "could not update the status comment on $2"; }
+    else jira_api POST "/rest/api/3/issue/$2/comment" "$tf" >/dev/null || { rm -f "$tf"; pl_die "could not comment on $2"; }; fi
+    rm -f "$tf"
     ;;
   status)
     [ $# -eq 3 ] || pl_usage 'jira.sh status <KEY-N> <backlog|todo|in-progress|done>'

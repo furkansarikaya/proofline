@@ -298,3 +298,4 @@
 1 static-test
 1 weights-test
 1 batch-test sc_driver_removed
+150 status-block-test

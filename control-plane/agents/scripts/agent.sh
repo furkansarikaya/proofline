@@ -415,6 +415,7 @@ start_run() { # ID [--title TITLE] [--task-file PATH]; otherwise read the task b
   printf '%s\n' "$sr_id" > "$(active_run_file)"
   ledger_append "$sr_id" start - PLANNED "task=$sr_path adapter=$sr_adapter"
   db_guard_baseline "$sr_id"
+  status_block_update "$sr_id" run-start
   echo "run started: $sr_id task=$sr_path"
 }
 
@@ -1956,8 +1957,24 @@ task_source_contract_hash() {
     { line[NR] = $0 }
     END {
       begin = "<!-- COMPLETION-REPORT:BEGIN:" id " -->"; endm = "<!-- COMPLETION-REPORT:END:" id " -->"
-      n = 0; stripped = 0
+      # A202: the status block (the live status the control plane regenerates wholesale at each update) is excluded the same way, but only
+      # while every line inside it is a `- <allowed key>: value` line or blank; any other line (free text, a heading, a criterion) stays hashed,
+      # so nothing can be smuggled into the contract through the marked block.
+      sbegin = "<!-- PROOFLINE-STATUS:BEGIN:" id " -->"; send = "<!-- PROOFLINE-STATUS:END:" id " -->"
+      skeys = "^- (run|type|class|stage|event|updated|branch|start_commit|runtime|session|question|answer|park|failure|pr|ci|delivered_commit|estimate|duration|tokens): "
+      n = 0; stripped = 0; sstripped = 0
       for (i = 1; i <= NR; i++) {
+        if (!sstripped && line[i] == "## Proofline Status") {
+          j = i + 1
+          while (j <= NR && line[j] ~ /^[[:space:]]*$/) j++
+          if (j <= NR && line[j] == sbegin) {
+            for (k = j + 1; k <= NR && line[k] != send; k++) { }
+            if (k <= NR) {
+              for (m = j + 1; m < k; m++) if (line[m] !~ /^[[:space:]]*$/ && line[m] !~ skeys) kept[++n] = line[m]
+              i = k; sstripped = 1; continue
+            }
+          }
+        }
         if (!stripped && line[i] == "## Completion Report") {
           j = i + 1
           while (j <= NR && line[j] ~ /^[[:space:]]*$/) j++
@@ -2711,6 +2728,7 @@ record_handoff() {
     case "$phase" in IMPLEMENTED|CODE_DONE) tier_record "$id" >/dev/null ;; esac
   fi
   [ "$phase" != DONE ] || [ "$current" = DONE ] || metrics_run "$id" "done"
+  [ "$phase" != CODE_DONE ] || status_block_update "$id" code-done
   echo "handoff recorded: $id $phase${hd_detail:+ ($hd_detail)}"
 }
 verify_handoff() {
@@ -5602,6 +5620,7 @@ ask_question() {
   { printf 'from: %s\nasked_at: %s\n---\n' "$execution_role" "$(now_epoch)"; cat "$aq_t"; } > "$aq_d/questions/$aq_n.md"; rm -f "$aq_t"
   if section_key_present "$aq_d" execution awaiting_input; then set_run_value "$aq_id" execution awaiting_input true; fi
   if gates_enforced "$aq_id"; then ledger_append "$aq_id" ask - - "$(ledger_token "questions/$aq_n.md" "$aq_id")"; fi
+  status_block_update "$aq_id" ask
   echo "question recorded: $aq_id $aq_n (relay it verbatim with 'agent.sh questions $aq_id')"
 }
 # assumption_prompt_accepts PROMPT ID: the user's captured prompt accepts assumption ID (A79) only when it STARTS with
@@ -5709,6 +5728,7 @@ answer() {
   an_as=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/ assumption=\1/p' "$an_q" | head -1)
   an_ev=answer; [ "$an_amend" = no ] || an_ev=answer-amend
   if gates_enforced "$an_id"; then ledger_append "$an_id" "$an_ev" - - "$(basename "$an_q") answered_by=$an_by${an_src:+ source=$an_src}${an_amends:+ amends=$an_amends}$an_as"; fi
+  status_block_update "$an_id" answer
   echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by${an_amends:+ (amends $an_amends, the old record is kept)}"
   if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$(shared_dir prompts)/history/$an_src" | cut -c1-80)"; fi
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
@@ -6593,6 +6613,146 @@ verify_completion_report() {
   sh "$script" verify "$id" "$receipt" || fail "completion report publication could not be verified: $id"
   echo "completion report publication verified: $id"
 }
+# --- Status block (A202): the one live status of a task, updated in place --------------------------------------------------
+# The content is written by the control plane from RECORDED state only (RUN.yaml, the ledger, the questions, the delivery records, the
+# metrics records, the batch state): no agent text is copied in except the three recorded reasons (a question, a park, a failure), and
+# those go through sb_scrub (an allowlist: no path, address, key or token survives, one line, 160 characters). The adapter op
+# `statusblock` places it (markdown: a marked section; GitHub, Jira, Linear: one comment found by its marker and edited). The update
+# is best effort: it is bounded in time and never fails a run or a gate; an unreachable tracker is a logged note.
+# sb_scrub: stdin -> one safe line. A word with a slash, a backslash, a leading ~, a drive letter, an @, an = , a known key prefix or
+# 24+ letters-and-digits is replaced; a word naming a credential redacts the word after it.
+sb_scrub() {
+  tr -c '[:print:]' ' ' | tr '<>`|' '    ' | awk '{
+    n = split($0, w, " "); out = ""; nx = 0
+    for (i = 1; i <= n; i++) {
+      t = w[i]
+      if (nx) { nx = 0; t = "[redacted]" }
+      else if (t ~ /[\/\\]/ || t ~ /^~/ || t ~ /^[A-Za-z]:/) t = "[path]"
+      else if (t ~ /@/ || t ~ /=/) t = "[redacted]"
+      else if (t ~ /^(ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|sk-|AKIA|xox|AIza|eyJ)/ || t ~ /BEGIN/) t = "[redacted]"
+      else if (length(t) >= 24 && t ~ /[0-9]/ && t ~ /[A-Za-z]/) t = "[redacted]"
+      else if (tolower(t) ~ /^(password|passwd|secret|token|apikey|api_key|bearer|authorization|credential|credentials)s?:?$/) { sub(/:$/, "", t); nx = 1 }
+      out = out (out == "" ? "" : " ") t
+    }
+    print substr(out, 1, 160)
+  }'
+}
+# sb_pr_link N: the pull request address, only for a github.com origin (credentials and every other form give "")
+sb_pr_link() {
+  sbl_u=$(git -C "$root" remote get-url origin 2>/dev/null) || return 0
+  case "$sbl_u" in
+    https://github.com/*/*) sbl_p=${sbl_u#https://github.com/} ;;
+    git@github.com:*/*) sbl_p=${sbl_u#git@github.com:} ;;
+    ssh://git@github.com/*/*) sbl_p=${sbl_u#ssh://git@github.com/} ;;
+    *) return 0 ;;
+  esac
+  sbl_p=${sbl_p%.git}
+  printf '%s' "$sbl_p" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || return 0
+  printf 'https://github.com/%s/pull/%s\n' "$sbl_p" "$1"
+}
+# status_block_body ID EVENT [PR]: the block lines (`- key: value`), on stdout
+status_block_body() {
+  sbb_id=$1 sbb_ev=$2 sbb_pr=${3:-}; sbb_d=$(run_dir "$sbb_id"); sbb_has=no; [ -f "$sbb_d/RUN.yaml" ] && sbb_has=yes
+  case "$sbb_ev" in run-start|ask|answer|parked|unparked|code-done|pr-opened|merged|failed) ;; *) sbb_ev=update ;; esac
+  sbb_kv() { printf -- '- %s: %s\n' "$1" "$2"; }
+  sbb_kv run "$sbb_id"
+  sbb_type=''
+  if [ "$sbb_has" = yes ]; then
+    sbb_type=$(awk 'NR == 1 && $0 != "---" && /^# / { next } /^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^type:/ { sub(/^type:[ \t]*/, ""); gsub(/["\047]/, ""); print tolower($0); exit } /^\*\*Type:\*\*/ { sub(/^\*\*Type:\*\*[ \t]*/, ""); print tolower($0); exit }' "$sbb_d/TASK.md" 2>/dev/null | tr -d ' \r')
+    case "$sbb_type" in feature|bug|refactor|content|docs|chore) sbb_kv type "$sbb_type" ;; esac
+    sbb_c=$(section_value "$sbb_d" pipeline classification); case "$sbb_c" in TRIVIAL|STANDARD|COMPLEX|CRITICAL) sbb_kv class "$sbb_c" ;; esac
+  fi
+  # stage, and the park / failure / question lines: a parked task never reads like a running one
+  sbb_park=$(awk -F'\t' -v t="$sbb_id" '$1 == t && $2 == "parked" { print $3; exit }' "$(shared_dir batch)/state.tsv" 2>/dev/null || true)
+  sbb_state=PLANNING sbb_hs=PLANNED sbb_wait=no
+  if [ "$sbb_has" = yes ]; then
+    sbb_state=$(run_state "$sbb_d"); sbb_hs=$(section_value "$sbb_d" handoff state)
+    [ "$(section_value "$sbb_d" execution awaiting_input)" != true ] || sbb_wait=yes
+  fi
+  case "$sbb_ev:$sbb_state" in
+    failed:*|*:FAILED|*:BLOCKED) sbb_stage="PARKED ($sbb_state)" ;;
+    pr-opened:*) sbb_stage='PR OPEN (waiting for the merge)' ;;
+    merged:*) sbb_stage=MERGED ;;
+    *) if [ "$sbb_wait" = yes ]; then sbb_stage='PARKED (waiting for your answer)'
+       elif [ -n "$sbb_park" ]; then sbb_stage='PARKED (by the lead)'
+       elif [ "$sbb_has" = no ]; then sbb_stage='NOT STARTED'
+       elif [ "$sbb_hs" = CODE_DONE ] || [ "$sbb_hs" = DONE ]; then sbb_stage="CODE_DONE (delivery next)"
+       else sbb_stage="RUNNING ($sbb_state, handoff $sbb_hs)"; fi ;;
+  esac
+  sbb_kv stage "$sbb_stage"; sbb_kv event "$sbb_ev"; sbb_kv updated "$(now_iso)"
+  if [ "$sbb_has" = yes ]; then
+    sbb_b=$(section_value "$sbb_d" repository task_branch | tr -cd 'A-Za-z0-9._/-' | cut -c1-120); case "$sbb_b" in ''|PENDING) ;; *) sbb_kv branch "$sbb_b" ;; esac
+    sbb_s=$(repository_base_sha "$sbb_d" | tr -cd '0-9a-f' | cut -c1-12); [ "${#sbb_s}" -ge 7 ] && sbb_kv start_commit "$sbb_s"
+    sbb_kv runtime "$(cfg runtime.lead claude | tr -cd 'A-Za-z0-9._-' | cut -c1-32)"
+    sbb_sess=$(printf '%s' "${CLAUDE_CODE_SESSION_ID:-${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}}" | tr -cd 'A-Za-z0-9_-' | cut -c1-64); [ -z "$sbb_sess" ] || sbb_kv session "$sbb_sess"
+  fi
+  if [ "$sbb_wait" = yes ]; then
+    sbb_q=''; sbb_qn=''
+    for sbb_f in "$sbb_d"/questions/[0-9][0-9][0-9].md; do
+      [ -f "$sbb_f" ] && [ ! -e "${sbb_f%.md}.answer.md" ] || continue
+      sbb_qn=${sbb_f##*/}; sbb_qn=${sbb_qn%.md}; sbb_q=$(grep -m1 -E '^[0-9]+\. [^[:space:]]' "$sbb_f" | sb_scrub)
+    done
+    sbb_kv question "${sbb_qn:+#$sbb_qn }${sbb_q:-pending}"
+    sbb_kv answer "reply to the lead in the session; it records your message with: agent.sh answer $sbb_id ${sbb_qn:-N} --captured"
+  fi
+  [ -z "$sbb_park" ] || sbb_kv park "$(printf '%s' "$sbb_park" | sb_scrub)"
+  case "$sbb_state" in
+    FAILED|BLOCKED) sbb_fr=$(grep -F ' event=terminate ' "$(ledger_file "$sbb_id")" 2>/dev/null | tail -n 1 | sed -n 's/.* detail=reason: \(.*\); evidence: .*/\1/p' | sb_scrub)
+      sbb_kv failure "$sbb_state${sbb_fr:+: $sbb_fr}" ;;
+  esac
+  # after delivery: the pull request, its CI result and the merge commit
+  sbb_dd=$(deliver_dir "$sbb_id"); [ -n "$sbb_pr" ] || sbb_pr=$(cat "$sbb_dd/PR" 2>/dev/null || true)
+  case "$sbb_pr" in ''|*[!0-9]*) sbb_pr='' ;; esac
+  case "$sbb_ev" in pr-opened|merged)
+    if [ -n "$sbb_pr" ]; then sbb_lk=$(sb_pr_link "$sbb_pr" || true); sbb_kv pr "#$sbb_pr${sbb_lk:+ $sbb_lk}"; fi
+    sbb_ci=$(sed -n 's/^ci: //p' "$sbb_dd/SUMMARY.md" 2>/dev/null | head -n 1 | sb_scrub); [ -z "$sbb_ci" ] || sbb_kv ci "$sbb_ci" ;;
+  esac
+  if [ "$sbb_ev" = merged ]; then   # the commit that was merged, read from git (no platform call: a squash merge makes its own commit, the platform shows it)
+    sbb_mc=$(git -C "$root" rev-parse -q --verify HEAD 2>/dev/null | tr -cd '0-9a-f' | cut -c1-12) || sbb_mc=''
+    [ "${#sbb_mc}" -lt 7 ] || sbb_kv delivered_commit "$sbb_mc"
+  fi
+  if [ "$sbb_has" = yes ]; then
+    sbb_sz=$(awk '/^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^size:/ { sub(/^size:[ \t]*/, ""); print; exit }' "$sbb_d/TASK.md" 2>/dev/null | tr -cd 'A-Za-z0-9 ._-' | cut -c1-16)
+    [ -z "$sbb_sz" ] || sbb_kv estimate "size $sbb_sz"
+    sbb_t0=$(head -n 1 "$(ledger_file "$sbb_id")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p')
+    if [ -n "$sbb_t0" ]; then sbb_s=$(( $(now_epoch) - sbb_t0 )); [ "$sbb_s" -ge 0 ] && sbb_kv duration "$((sbb_s / 60)) min"; fi
+    sbb_tk=$(awk -v t="\"task\":\"$sbb_id\"" 'index($0, t) && match($0, /"tokens_total":[0-9]+/) { v = substr($0, RSTART + 15, RLENGTH - 15) + 0; if (index($0, "\"kind\":\"step\"")) s += v; else if (index($0, "\"kind\":\"dispatch\"")) d += v }
+      END { if (s > 0) print s; else if (d > 0) print d }' "$(shared_dir metrics)/records.jsonl" 2>/dev/null || true)
+    [ -z "$sbb_tk" ] || sbb_kv tokens "$sbb_tk"
+  fi
+  return 0
+}
+# status_block_run ID EVENT [PR]: build the block and hand it to the configured adapter
+status_block_run() {
+  sbr_id=$1; valid_task_id "$sbr_id" || { echo "invalid task id" >&2; return 1; }
+  sbr_adapter=$(cfg tasks.adapter markdown); sbr_script=$(adapter_script "$sbr_adapter") || return 1
+  sbr_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-block.XXXXXX") || return 1
+  status_block_body "$sbr_id" "$2" "${3:-}" > "$sbr_f" || { rm -f "$sbr_f"; return 1; }
+  sbr_rc=0; sh "$sbr_script" statusblock "$sbr_id" "$sbr_f" >/dev/null || sbr_rc=$?
+  rm -f "$sbr_f"; return "$sbr_rc"
+}
+# status_block_update ID EVENT [PR]: the lifecycle hook. Best effort in every way: a subshell (the run never sees a failure), bounded
+# in time (an unreachable tracker cannot hold a run or a gate; tasks.status_block_seconds, default 20), a note in
+# .agents/local/status-block.log. `tasks.status_block: off` switches it off.
+status_block_update() {
+  [ "$(cfg tasks.status_block on)" != off ] || return 0
+  sbu_log=$(shared_dir status-block.log); sbu_err=$(mktemp "${TMPDIR:-/tmp}/agent-status-err.XXXXXX") || return 0
+  sbu_max=$(cfg tasks.status_block_seconds 20); case "$sbu_max" in ''|*[!0-9]*) sbu_max=20 ;; esac
+  ( status_block_run "$@" ) >/dev/null 2>"$sbu_err" &
+  sbu_pid=$!; sbu_n=0
+  while kill -0 "$sbu_pid" 2>/dev/null; do
+    sbu_n=$((sbu_n + 1))
+    if [ "$sbu_n" -gt $((sbu_max * 5)) ]; then kill "$sbu_pid" 2>/dev/null || :; echo "timed out after ${sbu_max}s" > "$sbu_err"; wait "$sbu_pid" 2>/dev/null || :; sbu_pid=''; break; fi
+    sleep 0.2
+  done
+  sbu_rc=0; [ -z "$sbu_pid" ] && sbu_rc=1 || wait "$sbu_pid" 2>/dev/null || sbu_rc=$?
+  if [ "$sbu_rc" -ne 0 ]; then
+    sbu_msg=$(head -n 3 "$sbu_err" | tr '\n' ' ' | sb_scrub)
+    echo "note: the status block of $1 was not updated ($2): ${sbu_msg:-the adapter failed}; the run goes on" >&2
+    mkdir -p "$(dirname "$sbu_log")" 2>/dev/null && printf '%s %s %s %s\n' "$(now_iso)" "$1" "$2" "${sbu_msg:-failed}" >> "$sbu_log" 2>/dev/null || :
+  fi
+  rm -f "$sbu_err"; return 0
+}
 # A159: `not_applicable` is a claim the script checks. It needs one specific sentence and is refused, with the signal named,
 # when the task changed something the wiki or the design documents describe: a documentation path in the diff, a contract,
 # data or design-document mention in the frozen plan, or user-visible words in the acceptance criteria. Any signal refuses.
@@ -6726,6 +6886,7 @@ terminate_run() {
   set_run_value "$id" execution state "$outcome"
   ledger_append "$id" terminate "$prev" "$outcome" "reason: $reason; evidence: $evidence"
   metrics_run "$id" "$(printf '%s' "$outcome" | tr "[:upper:]" "[:lower:]")"
+  status_block_update "$id" failed
   echo "run terminated: $id $outcome"
 }
 # archive_run ID RUNDIR (A200): before cleanup or worktree-remove deletes a run's records, a compressed copy goes to
@@ -7461,6 +7622,7 @@ deliver_step() {
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
       consume_approval "$ds_t" "$ds_app"
       deliver_create_cmd "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel/PR_BODY.md"
+      status_block_update "$ds_id" pr-opened
       if [ "$(ds_v merge_by)" = user ]; then
         # round 3: the delivered commit, kept so the merge can be recorded from git later (deliver-merged)
         printf '%s\t%s\t%s\n' "$ds_head" "$(ds_v base)" "$ds_br" > "$ds_dir/MERGE_HEAD"
@@ -7470,6 +7632,7 @@ deliver_step() {
       deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
       [ "$ds_pv" = "OPEN false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open, non-draft pull request ($ds_want; gh: $ds_pv)"
       consume_approval "$ds_t" "$ds_app"; printf '%s\n' "$ds_pr" > "$ds_dir/PR"
+      status_block_update "$ds_id" pr-opened "$ds_pr"
       if [ "$(ds_v ci)" = 'verified locally, no CI' ]; then printf 'no CI here: nothing to watch\n'; else printf 'run: %s\n' "$(deliver_watch_cmd "$ds_pr")"; fi
       printf 'run: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\n' "$ds_pr"
       [ -z "$(ds_v task_done)" ] || printf 'on that STOP also report: the task file was moved to done/ only in the unmerged pull request branch, so the task is still not done on %s\n' "$(ds_v base)"
@@ -7481,6 +7644,7 @@ deliver_step() {
       # A157: a batch keeps its own record of the merge. It is written BEFORE the cleanup: a crash in between must leave the task merged
       # (never run again), not a half-cleaned run that looks unmerged.
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
+      status_block_update "$ds_id" merged "$ds_pr"
       cleanup_merged_claim=yes; cleanup_run "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
@@ -7556,6 +7720,7 @@ deliver_merged() {
   if [ "$dm_chk" = yes ]; then echo "merged: $dm_how"; return 0; fi
   [ ! -d "$(shared_dir batch)" ] || grep -q "^$dm_id	" "$(shared_dir batch)/merged.tsv" 2>/dev/null || printf '%s\t%s\t%s\n' "$dm_id" - "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
   echo "merge recorded for $dm_id: $dm_how"
+  status_block_update "$dm_id" merged
   # the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
   dm_m=$sr_main
   # A200: the commands the user approved were written into the main tree's config.yaml (uncommitted) and carried into the delivered commit; once origin has
@@ -7836,6 +8001,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
+  status-block <ID> [EVENT [PR]]   (lead, A202: rebuild the task's one status block from the records and place it through the task adapter; best effort, never fails a run)
   worktree-add <ID> | worktree-path <ID> | worktree-remove <ID> [--force]   (A169, lead, main working tree: one worktree per run under .agents/local/worktrees/<ID>; night mode uses it for every task)
   open-runs | discard-stray <ID> <FILE-NAME>   (lead: remove one stray, non-artifact top-level regular file of the run directory)
   submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
@@ -7949,6 +8115,7 @@ case "$command" in
     if [ -n "${2:-}" ] && rw_valid_id "$2" && [ ! -d "$(run_dir "$2")" ] && ! wt_linked && grep -q "^$2	" "$(shared_dir batch)/merged.tsv" 2>/dev/null && rw_registered "$(rw_dir "$2")"; then worktree_remove "$2"
     else cleanup_run "${2:?usage: agent.sh cleanup <ID>}"; fi ;;
   deliver-merged) deliver_merged "${2:?usage: agent.sh deliver-merged <ID> [--check]}" "${3:-}" ;;
+  status-block) require_lead; valid_task_id "${2:-}" || fail "usage: agent.sh status-block <ID> [EVENT]"; status_block_update "$2" "${3:-update}" "${4:-}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;
   worktree-path) require_lead; worktree_path "${2:-}" ;;
   worktree-remove) require_lead; worktree_remove "${2:-}" "${3:-}" ;;

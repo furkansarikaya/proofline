@@ -7,6 +7,7 @@
 #   linear.sh verify   <TEAM-N> <receipt>       exit 0 iff the comment carrying that hash is still on the issue
 #   linear.sh followup <TEAM-N> <waiver-file>   issueCreate in the same team; prints the new identifier
 #   linear.sh status   <TEAM-N> <backlog|todo|in-progress|done>   issueUpdate to the first workflow state of the matching type
+#   linear.sh statusblock <TEAM-N> <block-file>   creates or edits in place the ONE proofline status comment (found by its marker)
 #
 # shellcheck disable=SC1003,SC2016 # backslash in a case pattern; GraphQL variables ($id) are not shell expansions
 # Environment: LINEAR_API_KEY. Requires curl and jq (GraphQL at https://api.linear.app/graphql). The key is
@@ -21,7 +22,7 @@ pl_name='linear adapter'
 . "$here/_lib.sh"
 
 op=${1:-}
-case "$op" in import|publish|verify|followup|status) ;; *) pl_usage 'linear.sh <import|publish|verify|followup|status> ...' ;; esac
+case "$op" in import|publish|verify|followup|status|statusblock) ;; *) pl_usage 'linear.sh <import|publish|verify|followup|status|statusblock> ...' ;; esac
 
 key_ok() { pl_id "$1"; case "$1" in [A-Za-z]*-[0-9]*) ;; *) pl_die "not a Linear issue identifier (expected TEAM-123): $1" ;; esac; }
 lin_ready() {
@@ -35,7 +36,7 @@ lin_ready() {
 lin_gql() {
   lg_f=$(mktemp "${TMPDIR:-/tmp}/linear.XXXXXX")
   jq -n --arg q "$1" --argjson v "$2" '{query:$q,variables:$v}' > "$lg_f"
-  if lg_out=$(printf 'header = "Authorization: %s"\n' "$LINEAR_API_KEY" | curl -sS --fail-with-body -K - -X POST -H 'Content-Type: application/json' --data-binary "@$lg_f" "${LINEAR_API_URL:-https://api.linear.app/graphql}") \
+  if lg_out=$(printf 'header = "Authorization: %s"\n' "$LINEAR_API_KEY" | curl -sS --max-time 30 --fail-with-body -K - -X POST -H 'Content-Type: application/json' --data-binary "@$lg_f" "${LINEAR_API_URL:-https://api.linear.app/graphql}") \
      && printf '%s' "$lg_out" | jq -e '.errors == null' >/dev/null; then rm -f "$lg_f"; printf '%s\n' "$lg_out"; else rm -f "$lg_f"; return 1; fi
 }
 set_state() {   # ID STATE
@@ -90,6 +91,19 @@ case "$op" in
       "$(jq -n --arg t "$team" --arg s "$title" --rawfile d "$3" '{t:$t,s:$s,d:$d}')" | jq -r '.data.issueCreate.issue.identifier // empty') || pl_die "could not create the follow-up issue"
     [ -n "$new" ] || pl_die "Linear returned no identifier"
     printf '%s\n' "$new"
+    ;;
+  statusblock)
+    [ $# -eq 3 ] || pl_usage 'linear.sh statusblock <TEAM-N> <block-file>'
+    key_ok "$2"; pl_status_check "$2" "$3"; lin_ready
+    body=$(pl_status_comment "$2" "$3")
+    # the marker is the first line of our comment: the newest comment that starts with it is edited in place (commentUpdate); a new one only when there is none
+    cid=$(lin_gql 'query($id:String!){issue(id:$id){comments(first:250){nodes{id body}}}}' "$(jq -n --arg id "$2" '{id:$id}')" \
+      | jq -r --arg m "<!-- proofline:status:$2 -->" '[.data.issue.comments.nodes[]? | select(.body | startswith($m))] | last | .id // empty') || cid=''
+    if [ -n "$cid" ]; then
+      lin_gql 'mutation($i:String!,$b:String!){commentUpdate(id:$i,input:{body:$b}){success}}' "$(jq -n --arg i "$cid" --arg b "$body" '{i:$i,b:$b}')" >/dev/null || pl_die "could not update the status comment on $2"
+    else
+      lin_gql 'mutation($i:String!,$b:String!){commentCreate(input:{issueId:$i,body:$b}){success}}' "$(jq -n --arg i "$2" --arg b "$body" '{i:$i,b:$b}')" >/dev/null || pl_die "could not comment on $2"
+    fi
     ;;
   status)
     [ $# -eq 3 ] || pl_usage 'linear.sh status <TEAM-N> <backlog|todo|in-progress|done>'

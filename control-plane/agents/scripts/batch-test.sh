@@ -354,7 +354,7 @@ sc_status_from_records() {
   BB status > "$base/st1.out" || die "batch.sh status failed"
   row() { grep "$2" "$1" | head -1; }
   row "$base/st1.out" T-1 | grep -q 'merged' && row "$base/st1.out" T-1 | grep -q '101' || die "T-1 row: $(cat "$base/st1.out")"
-  row "$base/st1.out" T-2 | grep -q 'parked' && row "$base/st1.out" T-2 | grep -q 'Which cache' || die "T-2 row: $(cat "$base/st1.out")"
+  row "$base/st1.out" T-2 | grep -q 'PARKED' && row "$base/st1.out" T-2 | grep -q 'Which cache' || die "T-2 row: $(cat "$base/st1.out")"
   row "$base/st1.out" T-3 | grep -q 'skipped' || die "T-3 row: $(cat "$base/st1.out")"
   grep -qi 'no friction report' "$base/st1.out" || die "no 'no friction report' line"
   grep -qi 'driver' "$base/st1.out" && die "status still has a driver line: $(grep -i driver "$base/st1.out")"
@@ -364,7 +364,7 @@ sc_status_from_records() {
   awk -F'\t' -v OFS='\t' '$1 == "T-1" { $2 = 777 } { print }' .agents/local/batch/merged.tsv > "$base/m.tsv"
   cp "$base/m.tsv" .agents/local/batch/merged.tsv
   BB status > "$base/st2.out"; row "$base/st2.out" T-1 | grep -q '777' && ! row "$base/st2.out" T-1 | grep -q '101' || die "merged.tsv edit not reflected: $(row "$base/st2.out" T-1)"
-  BB status > "$base/st3.out"; row "$base/st3.out" T-4 | grep -q 'parked' && row "$base/st3.out" T-4 | grep -q 'reason-xyz-from-the-lead' || die "state.tsv park not reflected: $(row "$base/st3.out" T-4)"
+  BB status > "$base/st3.out"; row "$base/st3.out" T-4 | grep -q 'PARKED' && row "$base/st3.out" T-4 | grep -q 'reason-xyz-from-the-lead' || die "state.tsv park not reflected: $(row "$base/st3.out" T-4)"
   A batch-park T-4 --clear >/dev/null; BB status | grep T-4 | grep -q 'pending' || die "a cleared park is still shown"
   printf '1\n' > .agents/local/worktrees/T-2/.agents/runs/T-2/questions/001.answer.md   # the user answered (the parked run lives in its task's worktree, A169): the pending question is gone
   BB status > "$base/st4.out"; row "$base/st4.out" T-2 | grep -q 'Which cache' && die "an answered question is still shown as pending"
@@ -873,7 +873,11 @@ sc_preflight() {
   A batch-answer > "$base/ans.out" || die "batch-answer: $(cat "$base/ans.out")"
   A batch-answers P-1 | tr '\n' ';' | grep -q 'Q1 P-1 split: option b (up to 27)' || die "split answer: $(A batch-answers P-1)"
   A batch-answers P-1 | grep -q 'Q3 P-1 dep: option b' && A batch-answers P-1 | grep -q 'Q4 P-1 ac: option a' || die "answers: $(A batch-answers P-1)"
-  A batch-next | grep -q '^P-1 | parked | new dependency' || die "a dependency answer 'park' did not park the task: $(A batch-next)"
+  A batch-next | grep -q '^P-1 | PARKED | new dependency' || die "a dependency answer 'park' did not park the task: $(A batch-next)"
+  # A202: a parked task reads PARKED (with its reason) in both views, never like a running or pending one
+  A batch-status | grep -q '^P-1 | PARKED | ' && A batch-status | grep -q '^P-1 | PARKED | .*new dependency' || die "batch-status does not show P-1 as PARKED with its reason: $(A batch-status)"
+  A batch-status | grep -q '^P-2 | pending | ' || die "the running-to-be task is not told apart from the parked one: $(A batch-status)"
+  if A batch-next | grep -q '^P-1 | parked'; then die "batch-next still writes a parked task like an ordinary state"; fi
   A batch-next | grep -q '^NEXT: run P-2' || die "the other task does not go on: $(A batch-next | tail -2)"
   # a leading "no" that also says to split is ambiguous: Q1 stays unanswered, never read as option b (proceed without splitting)
   q1_before=$(A batch-answers P-1 | grep -c 'Q1 ')
