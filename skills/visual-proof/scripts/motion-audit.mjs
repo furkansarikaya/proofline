@@ -180,6 +180,10 @@ function helpersSource() {
         y = Math.min(max(), y + step);
       }
       await sleep(900);
+      // A transition or animation is only as far along as the browser has drawn frames; a runner that draws few (a macOS VM, headless,
+      // no GPU) leaves a revealing block at opacity 0 and the normal-motion baseline misses it. Jump every finite clock-driven
+      // animation to its end state so the sample is the settled page, not a frame count.
+      try { for (const a of document.getAnimations()) { if (a.timeline instanceof DocumentTimeline && isFinite(a.effect?.getComputedTiming().endTime)) a.finish(); } } catch (err) { /* an animation that cannot finish is sampled as it is */ }
       return true;
     },
     // the scene's scroll geometry: a sticky scene is measured by its container
