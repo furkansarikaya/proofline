@@ -1848,7 +1848,7 @@ sc_doc_scope_warning() {
 # A200 (item 5): after a fix round only the gates whose inputs changed run again. A test-only fix keeps REVIEW_PLAN, REVIEW_RULES and
 # SECURITY; a changed test that covers security behavior, or any product-code change, runs them again; SECRETS and VERIFY always run.
 sc_selective_rerun() {
-  for variant in tests_only security_test; do
+  for variant in tests_only security_test product_code; do
     scaffold orchestrated no CRITICAL
     worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
     A handoff LC IMPLEMENTED >/dev/null
@@ -1889,6 +1889,10 @@ sc_a200_misc() {
   [ "$(n '42 passed')" != "$(n '43 passed')" ] || die "A200 a real count difference was normalized away"
   [ "$(n 'Done in 3s')" != "$(n 'Built in 3s')" ] || die "A200 different words were normalized together"
   [ "$(n 'pid 4242 on 2026-10-28')" = 'pid 4242 on 2026-10-28' ] || die "A200 a pid or a bare date was normalized"
+  [ "$(n '2026-10-28T10:11:12Z 42 passed')" != "$(n '2026-10-28T10:11:12Z 43 passed')" ] || die "A200 a count next to a timestamp was normalized away"
+  [ "$(n '10:11:12 [build] Complete! 3 errors')" != "$(n '10:11:12 [build] Complete! 4 errors')" ] || die "A200 a count next to the Complete! line was normalized away"
+  [ "$(n '2026-10-28T10:11:12Z failed: a.js')" != "$(n '2026-10-28T10:11:12Z failed: b.js')" ] || die "A200 a name next to a timestamp was normalized away"
+  [ "$(n 'Done in 3s: 5 files')" != "$(n 'Done in 3s: 6 files')" ] || die "A200 a count after a duration was normalized away"
   [ "$(n '3 tests failed')" != "$(n '3 tests passed')" ] || die "A200 pass and fail were normalized together"
   expect_msg "A200 refreeze without an amendment shows the format" 'Example: write amendments/001.md' A freeze LC
   expect_msg "A200 refreeze with a missing file shows the format" 'agent.sh refreeze LC 001.md' A refreeze LC nope.md

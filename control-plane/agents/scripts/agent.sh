@@ -3980,7 +3980,7 @@ repro_normalize() {
     -e 's/(^|[^0-9:])[0-9]{1,2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?/\1<TIME>/g' \
     -e 's/((^|[^A-Za-z])([Ii]n|[Tt]ook|[Dd]uration|[Ee]lapsed|[Tt]ime)[ :=]+)[0-9]+(\.[0-9]+)? ?(ms|sec|secs|seconds|min|s|m)([^A-Za-z0-9]|$)/\1<DURATION>\6/g' \
     -e 's/\([0-9]+(\.[0-9]+)? ?(ms|s)\)/(<DURATION>)/g' \
-    -e 's/^(<TIME> )?\[build\] Complete!.*$/[build] Complete!/'
+    -e 's/^(<TIME> )?\[build\] Complete!( in <DURATION>| \(<DURATION>\))?$/[build] Complete!/'
 }
 # reproduce_recheck ID ROLE REPORT EVLINES COUNTFILE REQUIRED(yes|no): re-runs the recorded reproduced items (a
 # command, its exit status, an output line) of the verifier's VERIFY.md `## Commands` and of cited evidence files
