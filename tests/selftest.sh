@@ -5,6 +5,8 @@
 # A suite that lists its scenarios (`run_sc NAME` lines, or a `scenarios='...'` line) is split into one unit per
 # scenario; every unit is an independent process with its own log. Units run in parallel on all cores
 # (SELFTEST_JOBS overrides the count), so the wall time is the total work divided by the cores (A76).
+# Run locally (CI unset) it uses half the cores (min 1) and runs every unit under `nice -n 10` (when nice exists),
+# so the machine stays usable; with CI set (GitHub Actions) the count is all cores and nothing is niced, as before.
 #   SELFTEST_ONLY=<name>   runs the suite with that name (e.g. gates-test); a value matching no name exactly
 #                          selects every suite whose name contains it.
 #   SELFTEST_SHARD=I/N     runs only shard I of N (CI splits the work over N jobs); units are spread by the
@@ -39,7 +41,14 @@ logs=$(mktemp -d "${TMPDIR:-/tmp}/proofline-selftest.XXXXXX") || { echo "selftes
 trap 'rm -rf "$logs"' EXIT
 # One installed-template cache for every unit of this run (tests/shared/fixture-lib.sh); gone with the logs.
 if [ -z "${SELFTEST_TEMPLATE_DIR:-}" ]; then SELFTEST_TEMPLATE_DIR=$logs/templates; export SELFTEST_TEMPLATE_DIR; fi
-jobs=${SELFTEST_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}
+cores=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+case "$cores" in ''|*[!0-9]*|0) cores=4 ;; esac
+nice_cmd=''
+if [ -z "${CI:-}" ]; then   # local run: half the cores, low priority; CI keeps every core and normal priority
+  cores=$(( (cores + 1) / 2 )); [ "$cores" -ge 1 ] || cores=1
+  ! command -v nice >/dev/null 2>&1 || nice_cmd='nice -n 10'
+fi
+jobs=${SELFTEST_JOBS:-$cores}
 case "$jobs" in ''|*[!0-9]*|0) jobs=4 ;; esac
 only=${SELFTEST_ONLY:-}
 lc_only=${LC_ONLY:-}
@@ -110,7 +119,8 @@ if [ -n "${SELFTEST_LIST:-}" ]; then   # print this shard's units (suite|scenari
 fi
 
 wall_start=$(date +%s)
-[ ! -s "$logs/mine" ] || xargs -n 1 -P "$jobs" sh "$self" --unit "$logs" < "$logs/mine"
+# shellcheck disable=SC2086 # nice_cmd is "nice -n 10" or empty on purpose
+[ ! -s "$logs/mine" ] || xargs -n 1 -P "$jobs" $nice_cmd sh "$self" --unit "$logs" < "$logs/mine"
 wall=$(( $(date +%s) - wall_start ))
 
 pass=0 total=0
@@ -145,4 +155,5 @@ if [ -n "${SELFTEST_TIMES_FILE:-}" ]; then   # the measured seconds of this shar
   done >> "$SELFTEST_TIMES_FILE"
 fi
 printf 'selftest: %s/%s suites passed (%s units, %s jobs, shard %s, %ss)\n' "$pass" "$total" "$(wc -l < "$logs/mine" | tr -d ' ')" "$jobs" "$shard" "$wall"
+[ -z "$nice_cmd" ] || echo "selftest: local run, units niced (SELFTEST_JOBS overrides the job count; CI=1 disables the limits)"
 [ "$pass" = "$total" ]
