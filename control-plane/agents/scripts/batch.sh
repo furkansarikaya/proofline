@@ -429,6 +429,9 @@ next_report() {
   nr_open=$(printf '%s\n' "$nr_rows" | awk -F'\t' '$2 == "open" { print $1 "\t" $3; exit }')
   if [ -n "$nr_wait" ]; then
     echo "NEXT: wait (owned by pid $nr_wait)   (pid $nr_wait is another live session; if it is yours, run the batch there or close it; do not start a second one. If that session is gone, ask again: a dead owner is taken over)"
+  elif nr_cm=$(sh "$agent" commands-check 2>/dev/null); then
+    # A200: the approved summary named a proven commands proposal that is not written yet: writing it comes first, before any task starts
+    echo "NEXT: commands   (proofline doctor --apply-commands: $nr_cm; the batch approval covers writing exactly this proposal, and it must be written before the first task so every run gates on the project's own build, test and lint)"
   elif [ -n "$nr_ci" ]; then
     echo "NEXT: ci $nr_ci   (agent.sh batch-ci $nr_ci: the CI of its merge commit; red or no run in time: stop the batch)"
   elif [ -n "$nr_open" ]; then

@@ -18,6 +18,8 @@ here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 repo=$(CDPATH='' cd "$here/../.." && pwd)
 model=${SMOKE_MODEL:-haiku}
 step_timeout=${SMOKE_STEP_TIMEOUT:-900}
+# one call of the A200 scenarios may carry a whole task (explorer, QA, implementer, five gates, delivery) because the lead is told not to stop at CODE_DONE
+[ "${SMOKE_ONLY:-}" != a200 ] || step_timeout=${SMOKE_STEP_TIMEOUT:-2400}
 max_replies=${SMOKE_MAX_REPLIES:-6}
 command -v claude >/dev/null 2>&1 || { echo 'smoke: claude is not installed' >&2; exit 127; }
 command -v node >/dev/null 2>&1 || { echo 'smoke: node is not installed' >&2; exit 127; }
@@ -299,13 +301,14 @@ gcount() { # ID GATE: the gate records of a run
 }
 batch_row() { A batch-next --tsv 2>/dev/null | awk -F'\t' -v t="$1" '$1 == t { print $2 "\t" $3 }'; }   # ID: state<TAB>detail, from the batch records
 ab_say() { claude_call "$P" "$ab_out" "$1" "$ab_sess" >/dev/null; ab_msgs=$((ab_msgs + 1)); }
+ab_pending() { for ab_pb in $(git --git-dir="$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/ | grep '^proofline/'); do git --git-dir="$ORIGIN" merge-base --is-ancestor "$ab_pb" main 2>/dev/null || return 0; done; return 1; }
 ab_done() { git --git-dir="$ORIGIN" show main:src/join.js >/dev/null 2>&1 && git --git-dir="$ORIGIN" show main:src/pad.js >/dev/null 2>&1; }
 
 # scenarios (a), (b), (d): one batch of two tasks. B-1 names four code paths under a TRIVIAL class (plan-lint asks the split question before the approval);
 # commands.build|test|lint are empty and the project has scripts for all three (the summary proposes them)
 # shellcheck disable=SC2016 # the backticks in the task texts are literal
 a200_batch() {
-  ab_n='a200 batch'; ab_out="$work/a200-batch.jsonl"; : > "$ab_out"; ab_msgs=0
+  ab_n='a200 batch'; ab_out="$work/a200-batch.jsonl"; : > "$ab_out"; ab_msgs=0; ab_max=${SMOKE_A200_REPLIES:-14}
   mk_fixture a200b || return 0
   printf '{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test", "build": "node --check src/greet.js", "lint": "node --check tests/greet.test.js" } }\n' > "$P/package.json"
   sed 's/^  test:[[:space:]]*[^[:space:]#].*$/  test:/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"
@@ -338,11 +341,13 @@ a200_batch() {
   # checkpoint: after the approval message alone, nothing else said
   ab_row=$(batch_row B-1)
   ab_pushed=$(git --git-dir="$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/ | grep -c '^proofline/' || :)
+  # after the checkpoint the user only merges what was delivered, and says so only when there was something to merge; otherwise a neutral
+  # "Continue." (a headless call ends when the lead waits for a background agent, so a night of work needs more calls than a human would send).
+  # A false "I merged it" made the lead check origin, find nothing and spend the whole reply budget refusing to record a merge (A200 smoke run 2).
   ab_i=0
-  while ! ab_done && [ "$ab_i" -lt "$max_replies" ]; do
-    user_merges
-    ab_done && break
-    ab_i=$((ab_i + 1)); ab_say "I merged it on the origin."
+  while ! ab_done && [ "$ab_i" -lt "$ab_max" ]; do
+    ab_i=$((ab_i + 1))
+    if ab_pending; then user_merges; ab_say "I merged it on the origin."; else ab_say "Continue."; fi
   done
   user_merges
   ab_note=$(grep -o 'note=BATCH (A200)' "$ab_out" | wc -l | tr -d ' ')
@@ -392,7 +397,10 @@ a200_fix() {
   fx_tier=$(A pipeline F-1 2>/dev/null | sed -n 's/^tier=//p')
   fx_sec1=$(gcount F-1 SECURITY); fx_ver1=$(gcount F-1 VERIFY); fx_h1=$(fx_hash)
   if [ "$fx_tier" != full ] || [ "$fx_sec1" -lt 1 ]; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "scenario invalid: tier=$fx_tier, $fx_sec1 SECURITY record(s) before the fix round"; return 0; fi
-  drive a200-fix-round "Fix round for F-1: tests/total.test.js needs one more case (formatTotal([]) returns \"0.00\"). Change ONLY that test file, no product code, reopen F-1 if you must, and run the gates again." 'fx_fixed' "I approve the reopen of F-1" >/dev/null 2>&1 || :
+  # a test-only change that adds no behaviour (a tidy of the existing case): no new RED exists to record and none is owed (tdd-proof rule 6: REFACTOR/FIX evidence with the
+  # plan unchanged). A NEW case for behaviour the code already has cannot show a RED without touching product code, and a plan amendment voids every path's evidence
+  # (run 3 of the A200 smoke: the lead stopped on exactly that), so the scenario asks for the kind of test-only fix that has no such gap.
+  drive a200-fix-round "Fix round for F-1: tidy tests/total.test.js only. Rename the existing test to \"formatTotal formats the sum with two decimals\" and compare with assert.strictEqual. No new case, no behaviour change, no product code, and no plan change. Reopen F-1 (amend), have the implementer make the change with its REFACTOR evidence, and run the gates again." 'fx_fixed' "Go on: only that test file changes, the plan stays frozen. Run the gates again." >/dev/null 2>&1 || :
   fx_sec2=$(gcount F-1 SECURITY); fx_ver2=$(gcount F-1 VERIFY); fx_h2=$(fx_hash)
   fx_gate=$(A pipeline F-1 2>/dev/null | sed -n 's/^gate\.SECURITY=//p' | head -n 1)
   if [ "$fx_ver2" -le "$fx_ver1" ]; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "the fix round never ran the gates again (VERIFY records $fx_ver1 -> $fx_ver2)"

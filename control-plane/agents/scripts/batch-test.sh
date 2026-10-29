@@ -531,6 +531,12 @@ sc_worktree_cmds() {
   wt=$(A worktree-add W-2) || die "worktree-add: $wt"
   [ "$wt" = "$main/.agents/local/worktrees/W-2" ] && [ -d "$wt/.agents/scripts" ] || die "worktree-add printed '$wt'"
   [ "$(A worktree-add W-2)" = "$wt" ] || die "a second worktree-add did not reuse the worktree"
+  # A200: commands written in the main tree after the user's yes (uncommitted) reach a worktree made from the committed branch, only when they are the sole config difference
+  [ -z "$(cd "$wt" && sh .agents/scripts/agent.sh config-get commands.test)" ] || die "the fixture already has commands.test"
+  sed 's/^  test:[[:space:]]*$/  test: npm test/' .agents/config.yaml > "$base/cfg.new"; grep -q '^  test: npm test' "$base/cfg.new" || die "fixture config has no empty commands.test line"
+  cp .agents/config.yaml "$base/cfg.keep"; cp "$base/cfg.new" .agents/config.yaml
+  A worktree-add W-2 >/dev/null; [ "$(cd "$wt" && sh .agents/scripts/agent.sh config-get commands.test)" = 'npm test' ] || die "A200: the worktree did not get the approved commands"
+  cp "$base/cfg.keep" .agents/config.yaml; ( cd "$wt" && git checkout -q -- .agents/config.yaml )
   [ "$(A worktree-path W-2)" = "$wt" ] && ! A worktree-path W-9 >/dev/null 2>&1 || die "worktree-path"
   for d in batch approvals metrics friction prompts; do [ ! -L "$wt/.agents/local/$d" ] || die "A185: the worktree has a link to the shared $d folder"; done
   [ -z "$(find "$wt/.agents/local" -type l 2>/dev/null)" ] || die "A185: the worktree holds a symlink: $(find "$wt/.agents/local" -type l)"
@@ -892,6 +898,9 @@ sc_commands_check() {
   grep -q "^commands proposal: $h\$" "$summary" || die "the summary does not name the proven proposal: $(sed -n '/Verification commands/,/Stop rules/p' "$summary")"
   expect_msg "commands-check before the batch is approved" "does not approve the commands" A commands-check
   batch_approve; A commands-check | grep -q 'covered by the batch approval' || die "the batch approval did not cover the named proposal: $(A commands-check 2>&1)"
+  # the digest orders the write before any task (a lead that is not told stops at "approve commands" and never writes it)
+  A batch-next | grep -q '^NEXT: commands ' || die "batch-next does not put the covered commands proposal first: $(A batch-next 2>&1 | tail -n 2)"
+  mv "$pf" "$base/proposal.moved"; ! A batch-next | grep -q '^NEXT: commands' || die "batch-next still asks for the commands after the proposal was applied"; mv "$base/proposal.moved" "$pf"
   printf 'test\tnpm test\nlint\trm -rf x\n' > "$pf"
   expect_msg "a changed proposal is not covered" "does not approve the commands" A commands-check
   ok "A200: commands-check passes only on a commands approval bound to this proposal's sha256 (consumed on apply, no time read from the file) or on a batch approval whose summary names it"

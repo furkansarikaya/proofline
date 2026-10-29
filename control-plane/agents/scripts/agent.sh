@@ -5993,7 +5993,12 @@ next_step() {
         done
       fi
       [ -n "$ns_ask" ] || { o "agent.sh handoff $ns_id IMPLEMENTING"; r "plan frozen"; } ;;
-    IMPLEMENTING) o "dispatch.sh $ns_id implementer"; o "agent.sh handoff $ns_id IMPLEMENTED"; fix_paths_lines "$ns_id"; r "implementation in progress" ;;
+    IMPLEMENTING)
+      # A200: an implementer DONE recorded after the last IMPLEMENTING handoff means the work is delivered: the only step is the handoff
+      # (two next= lines made a lead read "dispatch the implementer again" or "wait for it to settle" and stop)
+      if awk '/event=handoff:IMPLEMENTING/ { d = 0 } /event=record:implementer:DONE/ { d = 1 } END { exit !d }' "$ns_d/LEDGER.log" 2>/dev/null; then
+        o "agent.sh handoff $ns_id IMPLEMENTED"; r "the implementer's DONE result is recorded: record IMPLEMENTED now, do not wait and do not dispatch it again"
+      else o "dispatch.sh $ns_id implementer"; o "agent.sh handoff $ns_id IMPLEMENTED"; fix_paths_lines "$ns_id"; r "implementation in progress"; fi ;;
     IMPLEMENTED)
       ns_fp=$(gate_fingerprint); ns_fail='' ns_todo=''
       for ns_g in $(required_gates "$ns_id"); do
@@ -7481,6 +7486,13 @@ rw_prepare() { # WORKTREE: the shared folders exist, the runtime config git does
   for rp_f in .claude/settings.json .claude/settings.local.json .codex/hooks.json .codex/config.toml; do
     if [ -f "$rp_m/$rp_f" ] && [ ! -e "$rp_w/$rp_f" ]; then mkdir -p "$rp_w/$(dirname "$rp_f")"; cp "$rp_m/$rp_f" "$rp_w/$rp_f"; fi
   done
+  # A200: commands.build|test|lint written into the main tree (doctor --apply-commands, after the user's yes) are an uncommitted change a worktree made from
+  # the committed branch does not have; carried over only when the commands block is the ONLY difference between the two configs
+  rp_mc=$rp_m/.agents/config.yaml; rp_wc=$rp_w/.agents/config.yaml
+  if [ -f "$rp_mc" ] && [ -f "$rp_wc" ] && ! cmp -s "$rp_mc" "$rp_wc"; then
+    rp_a=$(awk '/^commands:/ { k = 1; next } k && /^[^ #]/ { k = 0 } !k' "$rp_mc" | sha256); rp_b=$(awk '/^commands:/ { k = 1; next } k && /^[^ #]/ { k = 0 } !k' "$rp_wc" | sha256)
+    [ "$rp_a" != "$rp_b" ] || cp "$rp_mc" "$rp_wc"
+  fi
   # dependency folders (data: worktree_deps in ecosystems.json) become the worktree's own copies, never links into the main tree, and
   # the untracked local files of worktree.copy_files (default .env*) are copied in; both by worktree-prep.sh (A185)
   if [ -f "$scripts/worktree-prep.sh" ]; then
