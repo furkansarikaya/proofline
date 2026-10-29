@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.38 — 2026-10-29
+
+- The motion audit's baseline no longer depends on the host's reduced-motion setting (A201): it emulates `no-preference` explicitly, reports "not measured" if the baseline or the reduced emulation does not take effect, and writes `motion-diagnostics.json`; two broken motion fixtures and an OS-level reduced-motion test keep its power. Aimed at the nightly macOS `static` failure (runner setting inferred; the next nightly confirms).
+
 ## 0.0.37 — 2026-10-29
 
 - Retro of three tasks, less proofline-caused rework and no core invariant loosened (A200). CONTRIBUTING names six **Core invariants**; `tests/invariants/` tests each against the real `agent.sh` and runs on every pull request, and a change to it needs an `Invariant-test-change:` line in the description.
