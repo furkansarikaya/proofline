@@ -871,6 +871,69 @@ scenario_approval_fail_closed() {
   ok "approval detection is fail-closed (A108)"
 }
 
+# A202 item 31: several approvals in one message. The single-approval grammar is unchanged; a message it does not accept whole is split on
+# commas and line breaks and each segment is parsed alone. This scenario ATTEMPTS the forbidden: a hedged, negated, conditional or
+# question segment, quoted and fenced text, more segments than the cap, a waiver of a SECURITY finding. Only the exact ones are recorded.
+scenario_approval_multi() {
+  scaffold standalone no TRIVIAL supervised
+  ad=.agents/runs/LC/approvals
+  capture_ml() { mkdir -p .agents/local/prompts; printf '%s' "$1" > "$base/cap.txt"; cp_text=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{ printf "%s%s", (NR > 1 ? "\\n" : ""), $0 }')
+    printf '{"session":"s1","time":%s,"sha256":"%s","text":"%s"}\n' "$(( $(date +%s) + 3600 + ${cm_n:=0} ))" "$(tsha "$base/cap.txt")" "$cp_text" > .agents/local/prompts/s1.json; cm_n=$((cm_n + 1)); }
+  has() { ls "$ad"/[0-9][0-9][0-9]-"$1".yaml >/dev/null 2>&1; }
+  clear_approvals() { for k in "$@"; do rm -f "$ad"/[0-9][0-9][0-9]-"$k".yaml; done; }
+  only() { # recorded exactly these kinds (of plan scope budget destructive)
+    for k in plan scope budget destructive; do
+      case " $* " in *" $k "*) has "$k" || die "multi: $k was not recorded ($_msg)" ;; *) ! has "$k" || die "multi: $k was recorded but must not be ($_msg)" ;; esac
+    done; }
+  for k in plan scope budget destructive; do A request-approval LC "$k" >/dev/null; done
+  # the question of a run with several open requests shows the one message that answers all of them
+  qo=$(A request-approval LC plan); printf '%s' "$qo" | grep -Fq 'approve budget, approve destructive, approve plan, approve scope' || die "the question does not show the phrases for several open requests: $qo"
+  # 1. four approvals in one message: four records, every record bound to the same user prompt
+  _msg='approve plan, approve scope, approve budget, approve destructive'; capture_ml "$_msg"
+  out=$(A approve-pending LC); only plan scope budget destructive
+  printf '%s\n' "$out" | grep -Fq 'multi: 4 of 4 segments read as approvals, 4 approval record(s) written' || die "no confirmation line: $out"
+  [ "$(for k in plan scope budget destructive; do cat "$ad"/[0-9][0-9][0-9]-"$k".yaml; done | sed -n 's/^capture_id: //p' | sort -u | wc -l | tr -d ' ')" = 1 ] || die "the records are not bound to one user prompt"
+  # 2. lines instead of commas
+  clear_approvals plan scope budget destructive; _msg='approve plan
+approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only plan scope
+  # 3. negated, conditional, question and unclear segments are rejected alone, each named on one line; the exact ones are recorded
+  clear_approvals plan scope budget destructive; _msg='approve plan, do not approve scope, approve budget if CI is green, approve destructive?, approve the thing'; capture_ml "$_msg"
+  out=$(A approve-pending LC); only plan
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: do not approve scope: negated, conditional or hedged' || die "negated segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve budget if CI is green: negated, conditional or hedged' || die "conditional segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve destructive?: a question is not an approval' || die "question segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve the thing: not one exact approval' || die "unclear segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq '1 of 5 segments read as approvals, 1 approval record(s) written' || die "no count line: $out"
+  # 4. one ambiguous segment is rejected alone, the others are recorded
+  clear_approvals plan scope budget destructive; _msg='approve plan, approve budget, approve scope maybe'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only plan budget
+  # 5. a lone approval with a hedge stays refused as a whole (no guessing); so does a hedge that is no attempt at an approval
+  clear_approvals plan scope budget destructive
+  for _msg in 'approve the plan, but wait' 'approve plan, hmm' 'approve plan, thanks!'; do capture_ml "$_msg"; out=$(A approve-pending LC); only; printf '%s\n' "$out" | grep -Fq 'multi:' && die "multi mode on for a lone approval with a hedge: $_msg"; done
+  # 6. quoted and pasted text is never an approval: a blockquote line, a fenced block, a quote that is the whole message
+  _msg='approve plan
+> approve scope, approve budget'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: > approve scope, approve budget: quoted or pasted text' || die "quote not named: $out"
+  clear_approvals plan; _msg='approve plan
+```
+approve scope
+approve budget
+```'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan; printf '%s\n' "$out" | grep -Fq 'quoted or pasted text' || die "fence not named: $out"
+  clear_approvals plan; _msg='> approve plan, approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only
+  # 7. a question: the question segment is not an approval, the other one is
+  _msg='should I approve plan?, approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only scope
+  # 8. more than the cap: the extras are rejected with one line, the ninth segment records nothing
+  clear_approvals scope; _msg='approve plan, approve plan, approve plan, approve plan, approve plan, approve plan, approve plan, approve plan, approve scope'; capture_ml "$_msg"
+  out=$(A approve-pending LC); only plan; printf '%s\n' "$out" | grep -Fq 'more than 8 approvals in one message (limit 8)' || die "cap not reported: $out"
+  # 9. a waiver of a SECURITY finding is no approval kind that can be open: refused, the others are recorded
+  clear_approvals plan; expect_fail "a SECURITY waiver request was created" A request-approval LC waive:SECURITY-1
+  _msg='approve plan, approve waive SECURITY-1, approve scope'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan scope
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve waive SECURITY-1' || die "waiver segment not named: $out"
+  for f in "$ad"/*waive*; do [ ! -e "$f" ] || die "a waiver record exists"; done
+  # 10. a single approval behaves as before: no multi line, one record
+  clear_approvals plan scope; _msg='approve the plan'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan; printf '%s\n' "$out" | grep -Fq 'multi:' && die "multi line for a single approval"
+  ok "several approvals in one message are parsed one by one (A202)"
+}
+
 # Delivery then cleanup: the commit moves HEAD past base_sha; cleanup must still succeed (base_sha an ancestor,
 # task-owned patch = the CODE_DONE patch and committed), and afterwards the git hooks see no open run.
 scenario_cleanup_after_delivery() {
@@ -1359,6 +1422,7 @@ scenario_completion_response() {
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
+run_sc scenario_approval_multi
 run_sc scenario_evidence_order
 run_sc scenario_independence
 run_sc scenario_orchestrated_loop

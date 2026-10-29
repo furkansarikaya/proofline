@@ -5315,6 +5315,152 @@ pending_request() {
   done
   printf '%s\n' "$pr_r"
 }
+# --- Several approvals in one message (A202 item 31). The single-approval grammar (text_has_approval) is NOT changed. A message that
+# the grammar does not accept as a whole is split ONLY on commas and line breaks; each segment is tried alone with that same grammar
+# against the open requests. A segment that is not exactly one approval of an open request is rejected alone and named; the others are
+# recorded by `approve`, each as its own record bound to the same user prompt (capture id, hash, single-use per kind). Text that is a
+# question, negated or conditional, quoted (a `>` line, a fenced block) or over the cap (approval.max_per_message, default 8) is never
+# read as an approval. The mode is on only when at least two segments approve, or one approves and every other segment at least
+# tried to ("approve the plan, but wait" stays refused as a whole). A new approval kind needs no change here: the open requests and
+# valid_approval_kind are the table.
+# approval_pending_pairs [RUNID]: "TARGET KIND" for every open request of the run and of the no-run scope.
+approval_pending_pairs() {
+  for pq_t in ${1:-} -; do
+    [ -n "$pq_t" ] || continue
+    [ "$pq_t" = - ] || [ -d "$(run_dir "$pq_t")" ] || continue
+    pq_d=$(approvals_dir "$pq_t"); [ -d "$pq_d" ] || continue
+    for pq_f in "$pq_d"/[0-9][0-9][0-9]-request-*.yaml; do
+      [ -f "$pq_f" ] || continue
+      pq_k=$(gate_field "$pq_f" kind)
+      valid_approval_kind "$pq_k" || continue
+      pending_request "$pq_t" "$pq_k" >/dev/null || continue   # A171: an answered request is used up; no process is started for it
+      printf '%s %s\n' "$pq_t" "$pq_k"
+    done
+  done
+}
+# approval_words TARGET KIND: the words the open request is answered with (a delivery step: delivery; a joint reopen: reopen:<ID>).
+approval_words() {
+  aw_r=$(latest_request "$1" "$2") || { printf '%s\n' "$2"; return 0; }
+  aw_w=$2; [ -z "$(gate_field "$aw_r" delivery)" ] || aw_w=delivery
+  aw_j=$(gate_field "$aw_r" joint); [ -z "$aw_j" ] || aw_w=$aw_j
+  printf '%s\n' "$aw_w"
+}
+# approval_say TARGET KIND: the exact phrase to type for that open request.
+approval_say() {
+  sy_w=$(approval_words "$1" "$2")
+  case "$sy_w" in rule:*|reopen:*|rationale:*) printf 'approve %s\n' "$(kind_words "$sy_w")" ;; *) printf 'approve %s\n' "$(kind_words "$sy_w" | cut -d' ' -f1)" ;; esac
+}
+# approval_multi_scan TEXTFILE RUNID SHA: one line per segment, tab separated: `S ok "T|KIND T|KIND" SEGMENT` or `S no REASON SEGMENT`,
+# then `M yes|no SHA`.
+approval_multi_scan() {
+  ms_tab=$(printf '\t')
+  ms_max=$(cfg approval.max_per_message 8); case "$ms_max" in ''|*[!0-9]*) ms_max=8 ;; esac; { [ "$ms_max" -ge 1 ] && [ "$ms_max" -le 16 ]; } || ms_max=8
+  # constant size: the first 8 KB and 64 lines only (what is beyond is never read as an approval)
+  ms_seg=$(head -c 8192 "$1" | head -n 64 | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C awk '
+    function trim(s) { gsub(/^ +| +$/, "", s); return s }
+    { t = trim($0)
+      if (t ~ /^(```|~~~)/) { if (!f) { f = 1; print "Q\t" substr(t, 1, 40) } else f = 0; next }
+      if (f) next
+      if (t ~ /^>/) { print "Q\t" substr(t, 1, 40); next }
+      n = split($0, p, ",")
+      for (i = 1; i <= n; i++) { s = trim(p[i]); if (s == "") continue; print (split(s, w, " ") > 16 ? "L" : "T") "\t" substr(s, 1, 200) } }')
+  ms_nt=$(printf '%s\n' "$ms_seg" | grep -c '^[TLQ]' || :)
+  if [ "${ms_nt:-0}" -lt 2 ]; then printf 'M\tno\t%s\n' "$3"; return 0; fi
+  ms_pg=''
+  while read -r ms_t ms_k; do
+    [ -n "$ms_k" ] || continue
+    ms_pg="$ms_pg$ms_t|$(approval_words "$ms_t" "$ms_k")|$ms_k
+"
+  done <<EOF2
+$(approval_pending_pairs "$2" | sort -u)
+EOF2
+  [ -n "$ms_pg" ] || { printf 'M\tno\t%s\n' "$3"; return 0; }
+  ms_ex=$(printf '%s' "$ms_pg" | sed -n 1p); ms_ex=$(approval_say "${ms_ex%%|*}" "${ms_ex##*|}")
+  ms_pl=$(approval_phrases | tr ',' '\n' | approval_norm_lines)
+  ms_f=$(mktemp "${TMPDIR:-/tmp}/proofline-multi.XXXXXX")
+  ms_i=0 ms_nok=0 ms_nnop=0 ms_over=0 ms_out=''
+  while IFS="$ms_tab" read -r ms_ty ms_s; do
+    case "$ms_ty" in
+      Q) ms_out="${ms_out}S${ms_tab}no${ms_tab}quoted or pasted text is never an approval${ms_tab}$ms_s
+"; continue ;;
+      T|L) ;;
+      *) continue ;;
+    esac
+    ms_i=$((ms_i + 1))
+    if [ "$ms_i" -gt "$ms_max" ]; then ms_over=$((ms_over + 1)); continue; fi
+    ms_hit='' ms_c=''
+    if [ "$ms_ty" = T ]; then
+      printf '%s\n' "$ms_s" > "$ms_f"
+      while IFS= read -r ms_p; do
+        [ -n "$ms_p" ] || continue
+        ms_pt=${ms_p%%|*}; ms_pr=${ms_p#*|}; ms_pw=${ms_pr%%|*}; ms_pk=${ms_pr#*|}; ms_key="$ms_pt|$ms_pw"
+        case "$ms_c" in
+          *";$ms_key=y;"*) ms_r=y ;;
+          *";$ms_key=n;"*) ms_r=n ;;
+          *) if text_has_approval "$ms_f" "$ms_pw" "$ms_pt"; then ms_r=y; else ms_r=n; fi; ms_c="$ms_c;$ms_key=$ms_r;" ;;
+        esac
+        [ "$ms_r" != y ] || ms_hit="$ms_hit $ms_pt|$ms_pk"
+      done <<EOF2
+$ms_pg
+EOF2
+    fi
+    if [ -n "$ms_hit" ]; then
+      ms_nok=$((ms_nok + 1)); ms_out="${ms_out}S${ms_tab}ok${ms_tab}${ms_hit# }${ms_tab}$ms_s
+"; continue
+    fi
+    ms_n=$(printf '%s\n' "$ms_s" | approval_norm); ms_neg='' ms_has=''
+    ms_hedge=' not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin '   # reasons only: acceptance never reads this
+    for ms_w in $ms_n; do case "$ms_hedge" in *" $ms_w "*) ms_neg=y ;; esac; done
+    ms_low=" $ms_n "
+    while IFS= read -r ms_w; do [ -z "$ms_w" ] || case "$ms_low" in *" $ms_w "*) ms_has=y; break ;; esac; done <<EOF2
+$ms_pl
+EOF2
+    [ -n "$ms_has" ] || ms_nnop=$((ms_nnop + 1))
+    if [ "$ms_ty" = L ]; then ms_why='too long to be one approval'
+    else case "$ms_s" in *\?*) ms_why='a question is not an approval' ;; *)
+      if [ -n "$ms_neg" ]; then ms_why='negated, conditional or hedged'
+      elif [ -n "$ms_has" ]; then ms_why="not one exact approval of an open request (type e.g. \"$ms_ex\")"
+      else ms_why='no approval phrase in it'; fi ;; esac; fi
+    ms_out="${ms_out}S${ms_tab}no${ms_tab}${ms_why}${ms_tab}$ms_s
+"
+  done <<EOF2
+$ms_seg
+EOF2
+  rm -f "$ms_f"
+  [ "$ms_over" -eq 0 ] || ms_out="${ms_out}S${ms_tab}no${ms_tab}more than $ms_max approvals in one message (limit $ms_max)${ms_tab}$ms_over extra segment(s)
+"
+  ms_mode=no ms_quiet=''
+  if [ "$ms_nok" -ge 2 ] || { [ "$ms_nok" -ge 1 ] && [ "$ms_nnop" -eq 0 ]; }; then ms_mode=yes; fi
+  # one approval with a filler clause ("plan approved, go ahead") is a single approval: accepted whole, nothing to report
+  if [ "$ms_mode" = yes ] && [ "$ms_nok" -le 1 ]; then
+    while IFS= read -r ms_p; do
+      [ -n "$ms_p" ] || continue
+      ms_pr=${ms_p#*|}; text_has_approval "$1" "${ms_pr%%|*}" "${ms_p%%|*}" && { ms_quiet=quiet; break; }
+    done <<EOF2
+$ms_pg
+EOF2
+  fi
+  printf '%sM\t%s\t%s\t%s\n' "$ms_out" "$ms_mode" "$3" "$ms_quiet"
+}
+# approval_scan_latest [RUNID]: the scan of the newest user prompt capture (its text checked against its hash, as `approve` does).
+approval_scan_latest() {
+  sl_cap=$(latest_capture 2>/dev/null) || return 1
+  sl_f=$(mktemp "${TMPDIR:-/tmp}/proofline-multi.XXXXXX")
+  capture_field "$sl_cap" text > "$sl_f" 2>/dev/null || { rm -f "$sl_f"; return 1; }
+  sl_h=$(hash_file "$sl_f")
+  [ "$sl_h" = "$(capture_field "$sl_cap" sha256 2>/dev/null || true)" ] || { rm -f "$sl_f"; return 1; }
+  approval_multi_scan "$sl_f" "${1:-}" "$sl_h" || :
+  rm -f "$sl_f"
+}
+# approval_scan_report SCAN NRECORDED: the user-facing lines of a multi-approval message (nothing for any other message).
+approval_scan_report() {
+  sr_tab=$(printf '\t')
+  case "$1" in *"M${sr_tab}yes${sr_tab}"*) ;; *) return 0 ;; esac
+  case "$1" in *"${sr_tab}quiet"*) return 0 ;; esac
+  printf '%s\n' "$1" | awk -F'\t' -v n="${2:-0}" '
+    $1 == "S" { t++; if ($2 == "ok") k++; else { m[++r] = "multi: not recorded: " substr($4, 1, 60) ": " $3 } }
+    END { printf "multi: %d of %d segments read as approvals, %d approval record(s) written\n", k, t, n; for (i = 1; i <= r && i <= 10; i++) print m[i] }'
+}
 # approve_pending [ID]: run by the runtime's prompt hook right after it stored the user's prompt capture
 # (A41). Every open approval request of the run (and of the no-run scope: commit, push) that this prompt
 # satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
@@ -5322,18 +5468,9 @@ pending_request() {
 approve_pending() {
   ap_run=${1:-}; ap_log=$sr_main/.agents/local/approve.log   # the shared log (A185): the prompt hook, the main tree and a worktree write one file
   mkdir -p "$sr_main/.agents/local" 2>/dev/null || :
-  for ap_t in $ap_run -; do
-    [ -n "$ap_t" ] || continue
-    [ "$ap_t" = - ] || [ -d "$(run_dir "$ap_t")" ] || continue
-    ap_dir=$(approvals_dir "$ap_t"); [ -d "$ap_dir" ] || continue
-    for ap_rf in "$ap_dir"/[0-9][0-9][0-9]-request-*.yaml; do
-      [ -f "$ap_rf" ] || continue
-      ap_k=$(gate_field "$ap_rf" kind)
-      valid_approval_kind "$ap_k" || continue
-      pending_request "$ap_t" "$ap_k" >/dev/null || continue   # A171: an answered request is used up; no process is started for it
-      printf '%s %s\n' "$ap_t" "$ap_k"
-    done
-  done | sort -u | awk '{ r = 0; if ($2 == "commit") r = 1; else if ($2 == "push") r = 2; else if ($2 == "pr") r = 3; else if ($2 == "merge") r = 4; else if ($2 == "cleanup") r = 5; print $1, r, $2 }' |
+  ap_scan=$(approval_scan_latest "$ap_run" 2>/dev/null) || ap_scan=''   # A202 item 31: read before the approvals use the requests up
+  ap_resf=$(mktemp "${TMPDIR:-/tmp}/proofline-approvals.XXXXXX")
+  approval_pending_pairs "$ap_run" | sort -u | awk '{ r = 0; if ($2 == "commit") r = 1; else if ($2 == "push") r = 2; else if ($2 == "pr") r = 3; else if ($2 == "merge") r = 4; else if ($2 == "cleanup") r = 5; print $1, r, $2 }' |
     sort -k1,1 -k2,2n -k3,3 | awk '{ if ($1 != t) { if (t != "") print t k; t = $1; k = "" } k = k " " $3 } END { if (t != "") print t k }' |
   while read -r ap_t ap_ks; do
     # one process per target, the delivery steps in their order (A169): a cut-off by the hook's time limit leaves a usable prefix
@@ -5343,9 +5480,17 @@ approve_pending() {
     ap_o=$(sh "$scripts/agent.sh" approve "$ap_t" $ap_ks 2>&1 </dev/null) && ap_rc=0 || ap_rc=$?
     ap_l=$(printf '%s' "$ap_o" | tr '\n' ' ' | tr -s ' ' | cut -c1-300)
     printf '%s target=%s kinds=%s rc=%s output: %s\n' "$(now_iso)" "$ap_t" "${ap_ks# }" "$ap_rc" "$ap_l" >> "$ap_log" 2>/dev/null || :
+    printf 'recorded-count: %s\n' "$(printf '%s\n' "$ap_o" | grep -c '^approval recorded' || :)"   # A202 item 31: counted before the line is cut
     if [ "$ap_rc" = 0 ]; then echo "approved: ${ap_t#-} ${ap_ks# }: $ap_l"
     else case "$ap_o" in *"contain no approval phrase"*|*"none of the open requests"*) ;; *) echo "not recorded: ${ap_t#-} ${ap_ks# }: $ap_l" ;; esac; fi
-  done
+  done > "$ap_resf"
+  ap_res=$(cat "$ap_resf"); rm -f "$ap_resf"
+  ap_nrec=$(printf '%s\n' "$ap_res" | awk '/^recorded-count: / { n += $2 } END { print n + 0 }')
+  ap_res=$(printf '%s\n' "$ap_res" | grep -v '^recorded-count: ' || :)
+  [ -z "$ap_res" ] || printf '%s\n' "$ap_res"
+  # A202 item 31: a message that held several approvals (commas or lines): one line says how many were recorded, one line per segment that was not
+  ap_rep=$(approval_scan_report "$ap_scan" "$ap_nrec")
+  if [ -n "$ap_rep" ]; then printf '%s\n' "$ap_rep"; printf '%s\n' "$ap_rep" | sed "s/^/$(now_iso) /" >> "$ap_log" 2>/dev/null || :; fi
   # A202 item 28: the hook's raw copies of the user's prompts (prompts/intake) are a safety net; those older than two days go
   [ ! -d "$sr_main/.agents/local/prompts/intake" ] || find "$sr_main/.agents/local/prompts/intake" -type f -mtime +2 -exec rm -f {} + 2>/dev/null || :
   # the log is shared by every tree: rotate it under a lock (a rotation racing an append would lose lines); a busy lock just skips the rotation
@@ -5438,6 +5583,9 @@ request_approval() {
   if [ "$rq_tr" = 1 ]; then
     printf '   seçenekler: approve | reject (onay için "approve %s" yazın, vazgeçmek için "reject")\n   kabul edilen onay sözcükleri: %s (tür sözcüğüyle birlikte, örn. "approve %s"; bunlardan başka yalnızca şu sözcükler: %s); ya da yanıtın tamamı tek bir tam cümle: %s; başka herhangi bir sözcük yanıtı belirsiz yapar: onay sayılmaz ve soru yeniden sorulur\n   önerilen: yok (karar kullanıcıya ait)\n   neden: %s\n' "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_example "$rq_kind")" "$(approval_why "$rq_kind" "$rq_bound" tr)"
   else printf '   options: approve | reject\n   accepted answers: %s (with the kind word, for example "approve %s"; besides those only the words: %s); or the whole reply as one full sentence: %s; any other word makes the reply ambiguous: it is not an approval and the question is asked again\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_example "$rq_kind")" "$(approval_why "$rq_kind" "$rq_bound")"; fi
+  # A202 item 31: several open requests are answered by one message, one exact phrase per comma or line
+  rq_sy=$(approval_pending_pairs "$rq_id" | sort -u | while read -r rq_t rq_k; do approval_say "$rq_t" "$rq_k"; done | awk '!s[$0]++' | head -n 8 | paste -s -d, - | sed 's/,/, /g')
+  case "$rq_sy" in *,*) printf '   several open requests: one message answers them, one phrase per comma or line: %s\n' "$rq_sy" ;; esac
 }
 approval_why() { # KIND BOUND [tr]
   if [ "${3:-}" = tr ]; then
@@ -5517,7 +5665,7 @@ approve() {
   ap_csha=$(hash_file "$ap_txt")
   # A106: single-use is per capture event (session + time + hash), never per text: the same words answer a later request.
   ap_cid="$ap_session:$ap_time:$ap_csha"
-  text_has_approval "$ap_txt" "$ap_words" "$ap_id" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_words (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_words")', and no other word; the question stays pending)"; }
+  text_has_approval "$ap_txt" "$ap_words" "$ap_id" || approval_multi_accepts "$ap_csha" "$ap_id" "$ap_kind" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_words (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_words")', and no other word; the question stays pending)"; }
   if [ "$ap_src" = prompt_capture ] && grep -l "^capture_id: \"$ap_cid\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
   ap_n=$(next_num "$ap_ad")
   printf 'kind: "%s"\nbound: "%s"\nsource: "%s"\nsession: "%s"\ncapture_sha256: "%s"\ncapture_id: "%s"\ncapture_time: %s\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\n' \
@@ -5535,8 +5683,22 @@ approve() {
 # the order given; a kind that is refused (no phrase for it, already approved, content changed) changes nothing and does not stop
 # the next. The runtime hook that calls this has a time limit (30 s in a Claude Code UserPromptSubmit hook): five processes that
 # each took the locks and walked the tree were cut off after the fourth step in a real project, and the last step had no approval.
+approval_multi_accepts() { # CAPTURE-SHA TARGET KIND: this exact prompt held several approvals and one segment of it approves this request
+  [ "${ap_multi_sha:-}" = "$1" ] || return 1
+  case " ${ap_multi_ok:-} " in *" $2|$3 "*) return 0 ;; esac
+  return 1
+}
 approve_kinds() {
   ak_id=$1; shift
+  # A202 item 31: scan the newest prompt once for several approvals (commas, lines); `approve` consults the result only after the whole-text grammar refused
+  ap_multi_ok='' ap_multi_sha=''; ak_tab=$(printf '\t')
+  if ! { [ -t 0 ] && [ -t 1 ]; }; then
+    ak_scan=$(approval_scan_latest "$ak_id" 2>/dev/null) || ak_scan=''
+    case "$ak_scan" in *"M${ak_tab}yes${ak_tab}"*)
+      ap_multi_sha=$(printf '%s\n' "$ak_scan" | awk -F'\t' '$1 == "M" { print $3 }')
+      ap_multi_ok=$(printf '%s\n' "$ak_scan" | awk -F'\t' '$1 == "S" && $2 == "ok" { print $3 }' | tr '\n' ' ') ;;
+    esac
+  fi
   if [ $# -eq 1 ]; then approve "$ak_id" "$1"; return; fi
   ak_need=''
   for ak_k in "$@"; do case "$ak_k" in commit|push|pr|merge|cleanup) ak_need=1 ;; esac; done

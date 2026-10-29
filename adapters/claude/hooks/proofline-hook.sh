@@ -2364,6 +2364,8 @@ prompt)
       ap_bad=$(sed -n 's/^not recorded: //p' "$tmp/ap.out" | head -n 1)
       [ -z "$ap_ok" ] || msgs="proofline: approval recorded: ${ap_ok%;}"
       [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
+      ap_mu=$(sed -n 's/^multi: //p' "$tmp/ap.out" | head -n 11 | cut -c1-200 | tr '\n' ';')   # A202 item 31: several approvals in one message, one line each
+      [ -z "$ap_mu" ] || msgs="${msgs:+$msgs }proofline: several approvals in one message: ${ap_mu%;}"
     fi
   fi
   # A185 (round 2): a prompt has no path and the session's working directory is usually the main tree, so the run of a worktree (night mode,
@@ -2428,6 +2430,8 @@ prompt)
     ap_bad=$(sed -n 's/^not recorded: //p' "$tmp/apw.all" | head -n 1)
     [ -z "$ap_ok" ] || msgs="${msgs:+$msgs }proofline: approval recorded: ${ap_ok%;}"
     [ -z "$ap_bad" ] || msgs="${msgs:+$msgs }proofline: approval NOT recorded: $(printf '%s' "$ap_bad" | cut -c1-240) (the lead retries at the next 'agent.sh next'; log: .agents/local/approve.log). No command is needed from you."
+    ap_mu=$(sed -n 's/^multi: //p' "$tmp/apw.all" | head -n 11 | cut -c1-200 | tr '\n' ';')   # A202 item 31: several approvals in one message, one line each
+    [ -z "$ap_mu" ] || msgs="${msgs:+$msgs }proofline: several approvals in one message: ${ap_mu%;}"
   fi
   [ ! -e "$shared_local/prompts/.approving-$sess" ] || rm -f "$shared_local/prompts/.approving-$sess"
   hk_flush
