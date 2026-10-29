@@ -2522,10 +2522,10 @@ session)
     fi
   fi
   if [ -n "$sv_msg" ]; then
-    sv_c="proofline installed; you are the lead; use the proofline-lead skill ($skill) by reading that file (never through the Skill tool: every proofline skill is disable-model-invocation and the call fails); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}. $sv_msg. Tell the user this before you start a run."
+    sv_c="proofline installed; you are the lead; use the proofline-lead skill ($skill) (never through the Skill tool: proofline skills are not model-invocable); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}. $sv_msg. Tell the user this before you start a run."
     printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(jesc "$sv_msg")" "$(jesc "$sv_c")"; exit 0
   fi
-  ctx SessionStart "proofline installed; you are the lead; use the proofline-lead skill ($skill) by reading that file (never through the Skill tool: every proofline skill is disable-model-invocation and the call fails); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}" ;;
+  ctx SessionStart "proofline installed; you are the lead; use the proofline-lead skill ($skill) (never through the Skill tool: proofline skills are not model-invocable); active run: ${act:-none}; next step: ${nxt:-agent.sh next ${act} failed}" ;;
 
 *) echo "usage: proofline-hook.sh <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]" >&2; exit 0 ;;
 esac

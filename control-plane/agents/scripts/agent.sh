@@ -223,7 +223,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual|rules)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -238,6 +238,7 @@ config_check() {
       }
       if (k == "risk.unsupported") en(k, v, "block|report")
       if (top == "validation" && k != "validation" && k !~ /^validation\.(entry_words|entry_candidates|entry_input|entry_new|entry_output|entry_skip|code_patterns)$/) bad("unknown validation key: " k " (want validation.entry_words, entry_candidates, entry_input, entry_new, entry_output, entry_skip or code_patterns)")
+      if (top == "rules" && k != "rules") { if (k !~ /^rules\.(budget_bytes|unused_after_reviews)$/) bad("unknown rules key: " k " (want rules.budget_bytes or rules.unused_after_reviews)"); else num(k, v) }
       if (top == "visual" && k != "visual") { if (k !~ /^visual\.(ascii_turkish_words|ascii_turkish_allow)$/) bad("unknown visual key: " k " (want visual.ascii_turkish_words or visual.ascii_turkish_allow)"); else if (v !~ /^[A-Za-z]*([ ,]+[A-Za-z]+)*[ ,]*$/) bad(k " must be ASCII words separated by spaces: " v) }
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
       if (top == "commands" && p[2] != "") {
@@ -6669,6 +6670,7 @@ cleanup_run() {
   id=$1; require_run "$id"; dir=$(run_dir "$id"); require_lead
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
   cu_term=no; case "$(run_state "$dir")" in FAILED|BLOCKED) cu_term=yes ;; esac
+  [ ! -f "$scripts/rules.sh" ] || sh "$scripts/rules.sh" tally >/dev/null 2>&1 || :   # A202: the rule-use counter keeps the review counts after the run documents go
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
       verify_seal "$id"; grep -Ev " event=hook(-timeout)? " "$(ledger_file "$id")" | tail -n 1 | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
@@ -7692,7 +7694,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind test-path batch-answers commands-check'
+read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind test-path batch-answers commands-check'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7771,6 +7773,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   entry-tier <BULLET TEXT>   (read-only: mandatory, information or none for one PLAN.md ## Contracts bullet, A162)
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
+  rules list|report|tally   (A202: the Project rules budget and proposals to merge, ask about or remove rules; it never edits a rule; `tally` is lead only)
   lessons derive|write|validate|count|bound|text|promote   (lesson candidates from run evidence, repeat count, promotion to AGENTS.md only with a rule:<ID> approval; `write` and `promote` are lead-only)
   friction <report ID|show|issue-cmd|send>   (A149: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)
   calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)
@@ -7810,6 +7813,7 @@ case "$command" in
   debt) case "${2:-}" in page) require_lead ;; esac; sh "$scripts/debt.sh" "${2:-list}" ;;
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
+  rules) case "${2:-}" in tally) require_lead ;; esac; shift; sh "$scripts/rules.sh" "$@" ;;   # A202: project rules budget; proposes, never edits
   next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
   worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;

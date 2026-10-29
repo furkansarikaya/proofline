@@ -1,0 +1,28 @@
+# Context budget (A202): the most bytes each item of bin/lib/context-size.sh may have. A patch above a line breaks CI.
+# Changing this file needs a `Context-budget-change: <reason>` line in the PR description (tests/context/check-budget-changed.sh).
+# name<TAB>max bytes. Lines are the measured size rounded up to the next 50.
+agents_md	2700
+claude_md	450
+session_start	250
+entry_skill	15850
+role.lead.skill	45150
+role.architect.agent	7850
+role.architect.skill	12700
+role.data_architect.agent	8000
+role.data_architect.skill	18100
+role.designer.agent	8650
+role.designer.skill	17050
+role.explorer.agent	8900
+role.explorer.skill	14100
+role.implementer.agent	12500
+role.implementer.skill	13750
+role.qa.agent	12100
+role.qa.skill	16100
+role.reviewer.agent	17200
+role.reviewer.skill	37400
+role.security_reviewer.agent	9200
+role.security_reviewer.skill	18400
+role.task_author.agent	8650
+role.task_author.skill	19300
+role.verifier.agent	8900
+role.verifier.skill	18000

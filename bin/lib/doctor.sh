@@ -55,6 +55,22 @@ doctor_platform() {
   esac
 }
 
+# doctor_context (A202): the size of the text loaded into every session and every role (one script, bin/lib/context-size.sh).
+doctor_context() {
+  dx_o=$(sh "$PL_HOME/bin/lib/context-size.sh" project "$ROOT" report 2>/dev/null) || dx_o=''
+  [ -n "$dx_o" ] || { d_warn "context: the size of the text loaded into every session could not be measured"; return 0; }
+  d_pass "$(printf '%s\n' "$dx_o" | sed 's/^/    /;1s/^ *//')"
+}
+
+# doctor_rules (A202): the Project rules budget and the proposals (merge, ask, remove); it only reports, a rule changes on the user's approval.
+doctor_rules() {
+  [ -f "$ROOT/.agents/scripts/rules.sh" ] || return 0
+  dr_o=$(cd "$ROOT" && sh "$A" rules report 2>/dev/null) || return 0
+  case "$dr_o" in 'project rules: none') return 0 ;; esac
+  if printf '%s\n' "$dr_o" | grep -Eq '\(OVER\)|^  (merge|ask the user|remove):'; then d_warn "$(printf '%s\n' "$dr_o" | sed 's/^/    /;1s/^ *//')"
+  else d_pass "$(printf '%s\n' "$dr_o" | head -n 1)"; fi
+}
+
 doctor_identity() {
   di_ae=$(email_of GIT_AUTHOR_IDENT); di_ce=$(email_of GIT_COMMITTER_IDENT)
   if [ -z "$di_ae" ] || [ -z "$di_ce" ]; then
@@ -337,6 +353,8 @@ EOF
     'ci: present'*) d_pass "$dc_ci" ;;
   esac
 
+  doctor_context
+  doctor_rules
   doctor_version
   doctor_tools
   doctor_toolchain

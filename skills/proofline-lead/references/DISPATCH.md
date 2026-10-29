@@ -109,3 +109,10 @@ Exactly one per run at a time, and only in this worktree.
 - Whether it counted: `A pipeline <ID>` (gate status) or `A next <ID>`; never the result's own words.
 - check-result exit 1 (malformed): the record was rejected too; re-dispatch once with the messages in
   `FINDINGS`-free form ("your last result was rejected: <messages>"); a second failure is BLOCKED.
+
+## 5. Codex lead
+
+A Codex lead needs `.git` write access to create the task branch. In interactive use, approve the git
+commands; in headless use, run the lead with `danger-full-access`. Dispatched workers retain
+`workspace-write` plus access to the run directory. Product-code ownership is still enforced by the
+proofline hooks and gates.

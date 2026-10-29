@@ -220,6 +220,8 @@ exists (receipt recorded; `pending` otherwise).
 
 ## Approvals (D3)
 
+Approvals are recorded with `agent.sh request-approval`; the runtime's prompt hook records the approval from the user's own reply (a terminal user may run `approve` themselves); no model runs `approve`, nothing is approved on the user's behalf.
+
 Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the PLAN.md sha256), `commit`, `push`,
 `pr`, `merge`, `cleanup` (bound to the content fingerprint), `reopen:<ID>` (bound to the PLAN.md sha256), `batch` (no run: `agent.sh batch-plan` requests it; bound to the sha256 of `.agents/local/batch/SUMMARY.md`; never consumed; `agent.sh batch-cover` answers a pending `plan`, `delivery` or `mutation_budget` request as the user's while it is valid, A157), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).
 
