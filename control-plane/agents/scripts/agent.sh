@@ -6070,17 +6070,24 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
   fi
   metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$ms_in" "$ms_out" "$ms_tot" - - - - "$4"
 }
+# task_size_of ID: the task-author's size estimate (front matter `size:`) from the run's frozen TASK.md; empty when none
+# (the status block and the metrics run record read the same source)
+task_size_of() {
+  awk '/^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^size:/ { sub(/^size:[ \t]*/, ""); print; exit }' "$(run_dir "$1")/TASK.md" 2>/dev/null | tr -cd 'A-Za-z0-9 ._-' | cut -c1-16
+}
 metrics_run() { # ID OUTCOME
   mr_first=$(head -1 "$(ledger_file "$1")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p'); mr_dur=-
   [ -z "$mr_first" ] || mr_dur=$(( $(now_epoch) - mr_first ))
   metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
   mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
-  metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2"
+  # A202: the estimate (task size) and the frozen scope path count, from the task and RUN.yaml, never from agent text
+  mr_sz=$(task_size_of "$1" | tr -d ' ' | tr '[:lower:]' '[:upper:]'); mr_sp=$(section_value "$(run_dir "$1")" freeze scope_paths 2>/dev/null | tr ',' '\n' | grep -c . || true)
+  metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2" "$mr_sz" "$mr_sp"
   hook_time "$1" 2>/dev/null || :   # A171: the hooks' timings spooled so far reach the ledger (this process holds the locks) before the report counts them
   sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A149: the friction report is built at run end, never sent unasked
 }
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
-#   DELEGATIONS FIX_ROUNDS RESULT -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
+#   DELEGATIONS FIX_ROUNDS RESULT [SIZE SCOPE_PATHS] -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
 #   by the control plane from its own state and the runtime's structured output; no model-written text is copied in.
 #   Empty or "-" is null; a number field that is not digits is null; strings are cut to [A-Za-z0-9._+:-], so a
 #   record can never carry free text (and so never a secret). `metrics: off` writes nothing.
@@ -6090,9 +6097,9 @@ metrics_json() {
   mkdir -p "$(dirname "$mj_f")" 2>/dev/null || return 0
   mj_s() { mj_v=$(printf '%s' "$1" | tr -cd 'A-Za-z0-9._+:-'); case "$mj_v" in ''|-) printf null ;; *) printf '"%s"' "$mj_v" ;; esac; }
   mj_n() { case "$1" in ''|*[!0-9]*) printf null ;; *) printf '%s' "$1" ;; esac; }
-  printf '{"schema":"proofline.metrics/1","kind":%s,"time":"%s","task":%s,"role":%s,"focus":%s,"gate":%s,"runtime":%s,"model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":%s,"turns":%s,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s}\n' \
+  printf '{"schema":"proofline.metrics/1","kind":%s,"time":"%s","task":%s,"role":%s,"focus":%s,"gate":%s,"runtime":%s,"model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":%s,"turns":%s,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s,"size":%s,"scope_paths":%s}\n' \
     "$(mj_s "$1")" "$(now_iso)" "$(mj_s "$2")" "$(mj_s "$3")" "$(mj_s "$4")" "$(mj_s "$5")" "$(mj_s "$6")" "$(mj_s "$7")" \
-    "$(mj_n "$8")" "$(mj_n "$9")" "$(mj_n "${10}")" "$(mj_n "${11}")" "$(mj_n "${12}")" "$(mj_n "${13}")" "$(mj_n "${14}")" "$(mj_n "${15}")" "$(mj_s "${16}")" >> "$mj_f" 2>/dev/null || true
+    "$(mj_n "$8")" "$(mj_n "$9")" "$(mj_n "${10}")" "$(mj_n "${11}")" "$(mj_n "${12}")" "$(mj_n "${13}")" "$(mj_n "${14}")" "$(mj_n "${15}")" "$(mj_s "${16}")" "$(mj_s "${17:-}")" "$(mj_n "${18:-}")" >> "$mj_f" 2>/dev/null || true
 }
 # metrics-dispatch (called by dispatch.sh, lead only): one record per specialist dispatch.
 metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURNS RETRIES RESULT
@@ -6795,7 +6802,7 @@ status_block_body() {
     [ "${#sbb_mc}" -lt 7 ] || sbb_kv delivered_commit "$sbb_mc"
   fi
   if [ "$sbb_has" = yes ]; then
-    sbb_sz=$(awk '/^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^size:/ { sub(/^size:[ \t]*/, ""); print; exit }' "$sbb_d/TASK.md" 2>/dev/null | tr -cd 'A-Za-z0-9 ._-' | cut -c1-16)
+    sbb_sz=$(task_size_of "$sbb_id")
     [ -z "$sbb_sz" ] || sbb_kv estimate "size $sbb_sz"
     sbb_t0=$(head -n 1 "$(ledger_file "$sbb_id")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p')
     if [ -n "$sbb_t0" ]; then sbb_s=$(( $(now_epoch) - sbb_t0 )); [ "$sbb_s" -ge 0 ] && sbb_kv duration "$((sbb_s / 60)) min"; fi

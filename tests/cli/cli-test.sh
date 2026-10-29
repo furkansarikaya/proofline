@@ -598,6 +598,19 @@ out=$(pl "$ins" insights --json 2>&1); LAST=$out
 printf '%s' "$out" | jq -e '.schema == "proofline.insights/1"' >/dev/null 2>&1 && ok "insights --json is valid JSON" || die "insights --json is not valid JSON"
 printf '%s' "$out" | jq -e '(.runs[] | select(.run == "RUN-C") | .tokens_in) == null and .totals.tokens_in == 8000 and .totals.tokens_in_reported == 3 and .totals.tokens_total == 13300 and .totals.tokens_total_reported == 4 and .metrics.duplicate_run_records == 1 and .metrics.skipped_non_json == 1 and ([.patterns[] | select(.kind == "repeated-finding")] | length == 1)' >/dev/null 2>&1 \
   && ok "insights --json: null tokens stay null, totals and one repeated-finding pattern" || die "insights --json content"
+# A202: estimated size against actual duration, tokens and scope paths: a suggestion line from planted records, no file changes
+cal=$T/cal; mkdir -p "$cal"; sh "$repo/fixtures/insights/setup.sh" "$cal/p" >/dev/null 2>&1 || die "calibration fixture"
+cf=$cal/p/.agents/local/metrics/records.jsonl
+for r in 1:S:1200:3000:2 2:S:1800:5000:4 3:S:2400:9000:3 4:M:600:20000:5 5:M:900:30000:6 6:M:1200:40000:7; do
+  oldifs=$IFS; IFS=:; set -- $r; IFS=$oldifs
+  printf '{"schema":"proofline.metrics/1","kind":"dispatch","time":"t","task":"CAL-%s","role":"implementer","model":"m","duration_s":1,"tokens_total":%s}\n' "$1" "$4" >> "$cf"
+  printf '{"schema":"proofline.metrics/1","kind":"run","time":"t","task":"CAL-%s","role":"lead","duration_s":%s,"result":"done","size":"%s","scope_paths":%s}\n' "$1" "$3" "$2" "$5" >> "$cf"
+done
+before=$(sig "$cal/p"); out=$(pl "$cal/p" insights 2>&1) || { LAST=$out; die "insights calibration run"; }
+expect "insights: calibration median for S tasks from the planted records" "$out" "S tasks (3): median 30 min / 5000 tokens / 3 paths"
+expect "insights: calibration suggests raising the estimate when smaller tasks took longer" "$out" "S tasks took longer or touched more paths than M tasks; consider estimating tasks like the S ones one size up."
+pl "$cal/p" insights --json 2>/dev/null | jq -e '.calibration[0].size == "S" and .calibration[0].median_min == 30' >/dev/null 2>&1 && ok "insights --json carries the calibration" || die "insights --json calibration"
+[ "$before" = "$(sig "$cal/p")" ] && ok "insights calibration changes no file" || die "insights calibration changed a file"
 out=$(pl "$ins" insights --run RUN-B 2>&1)
 expect "insights --run limits the report to one run" "$out" "RUN-B"
 reject "insights --run: other runs are not listed" "$out" "RUN-A"
