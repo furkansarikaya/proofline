@@ -381,3 +381,25 @@ test("A200: the CLI prints warnings as 'warning:' lines and still exits 0", () =
   assert.match(r.stdout, /^warning: scope: document or content path\(s\) without a tdd_exemption: docs\/setup\.md/m);
   assert.match(r.stdout, /valid\s*$/);
 });
+
+// A202 (items 14, 15): the kind column is a claim the script does not trust; COMPLEX and CRITICAL plans carry a rollback note in Risk.
+test("A202: a scope kind must be one of code|test|content|doc, and a mislabelled code file is told and still counted as code", () => {
+  const sc = (kind) => SCOPE.map((l) => l === "  - path: src/receipt.js" ? [l, `    kind: ${kind}`] : [l]).flat();
+  assert.ok(SCOPE_KEYS.includes("kind"));
+  assert.deepEqual(errs(plan({ scope: sc("code") })), []);
+  has(errs(plan({ scope: sc("banana") })), "kind must be one of code|test|content|doc");
+  const w = lint(plan({ scope: sc("content") }), TASK, { root: repo, cls: "STANDARD" });
+  has(w, "src/receipt.js (claimed content, derived code)");
+  assert.ok(!lint(plan({ scope: sc("code") }), TASK, { root: repo, cls: "STANDARD" }).some((x) => x.includes("kind differs")));
+  // the bound is derived: forty code files labelled content are forty code paths
+  const many = Array.from({ length: 18 }, (_, i) => ["  - path: src/gen" + i + ".js", "    new: true", "    kind: content", "    criteria: [AC-1]"]).flat();
+  has(lint(plan({ scope: [...SCOPE, ...many] }), TASK, { root: repo, cls: "STANDARD" }), "exceed the STANDARD limit of 15");
+  assert.equal(SCHEMA.properties.scope.items.properties.kind.enum.length, 4);
+});
+test("A202: a COMPLEX or CRITICAL plan without a rollback note in Risk is warned, TRIVIAL and STANDARD are not asked", () => {
+  const body = { Architecture: ["- one module"], ...BODY };
+  for (const cls of ["COMPLEX", "CRITICAL"]) has(lint(plan({ body }), TASK, { root: repo, cls }), "needs a rollback note");
+  for (const cls of ["TRIVIAL", "STANDARD"]) assert.ok(!lint(plan({ body }), TASK, { root: repo, cls }).some((x) => x.includes("rollback")));
+  const withNote = { ...body, Risk: ["contract_change: no", "rollback: ship behind the shipping flag; first step if production breaks: switch the flag off"] };
+  assert.ok(!lint(plan({ body: withNote }), TASK, { root: repo, cls: "COMPLEX" }).some((x) => x.includes("rollback")));
+});

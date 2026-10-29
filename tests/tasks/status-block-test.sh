@@ -129,6 +129,18 @@ A verify-completion-report LC >/dev/null || die "the report no longer verifies n
 plant_check $TF
 ok "code-done / pr-opened / merged: one block next to the completion report, contract intact"
 
+# A202 (item 17): what the user should look at is QA_REPORT.md's own list, copied into the block by script (once each, scrubbed)
+new_repo; scaffold standalone yes
+RF_EXTRA='## Human checks
+
+- The error text reads naturally in Turkish
+- The empty state looks balanced, see '"$PLANT_PATH" to_code_done standalone
+has $TF '- look_at: The error text reads naturally in Turkish'
+[ "$(count $TF '- look_at:')" = 2 ] || die "the Human checks list is not in the block exactly once: $(grep look_at $TF)"
+plant_check $TF
+A status-block LC update >/dev/null; [ "$(count $TF '- look_at:')" = 2 ] || die "an update doubled the look_at lines"
+ok "the QA report's Human checks list reaches the status block by script, once, scrubbed"
+
 # FAILED / BLOCKED event
 new_repo; scaffold standalone yes
 printf 'reason: the build keeps failing on %s with %s attempts\nevidence: the failing gate records and the failing command output (long enough)\n' "$PLANT_PATH" "$PLANT_KEY" | A terminate LC BLOCKED >/dev/null

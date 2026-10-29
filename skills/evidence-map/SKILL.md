@@ -45,7 +45,7 @@ Same role, same read-only rules; used when the assignment (or the user) asks wha
 ## Flow
 
 1. **Assignment** ([ASSIGNMENT.md](references/ASSIGNMENT.md)). Copy [explorer-evidence.template.md](assets/explorer-evidence.template.md) to the output path; fill `## Assignment` (objective, allowed scope, expected output, stop condition) verbatim from the lead or derived from the user's question.
-2. **Locate.** `git ls-files` within the scope; grep for the objective's nouns and every same-named or similar symbol. List candidates in the working notes, not the document.
+2. **Locate.** First read the wiki and the ADRs that touch the objective (`knowledge_scope_root`, `adr_dir`; a grep of the objective's nouns), then `git ls-files` within the scope and grep for the objective's nouns and every same-named or similar symbol. A decision that still holds is a `constraint` row citing its ADR or wiki page, a pattern to follow a `pattern` row (A202). List candidates in the working notes, not the document.
 3. **Classify** ([VERIFY.md](references/VERIFY.md)). For each candidate: live or dead (reference chain), callers (one hop), tests that import it, patterns and constraints. Write each verified claim as a row immediately (the document is the ledger).
 4. **Coverage.** Each category (`code`, `test`, `pattern`, `dependency`, `constraint`, `affected`, `risk`, `conflict`) has at least one row or a `- <category>: none — <reason>` line under `## Not found`, the reason naming what was searched.
 5. **Stop.** Write `## Stop` (`objective met`, `stop condition reached`, or `scope exhausted`) and what was not covered.

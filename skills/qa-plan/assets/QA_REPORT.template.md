@@ -7,6 +7,10 @@ Plan sha256: <output of validate-qa.mjs hash QA_PLAN.md>
 
 - QA-1: <PASS | FAIL | BLOCKED | PRE-EXISTING | not-run (manual)> - <observed behaviour> (<command>, exit <n>)
 
+## Human checks
+
+None.
+
 ## Failures
 
 None.
