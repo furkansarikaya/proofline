@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Motion fixture: scripted entrance, never revealed under reduced motion</title>
+<style>
+body{font:18px/1.5 system-ui;margin:0;padding:48px}
+.rv{opacity:0;transform:translateY(24px);transition:opacity .6s,transform .6s}
+.rv.on{opacity:1;transform:none}
+</style></head><body><main><h1>Entrance by script</h1>
+<p class="rv" id="late">This paragraph is revealed by an observer callback; the reduced-motion branch never reveals it.</p></main>
+<script>
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) e.target.classList.add("on"); }));
+  document.querySelectorAll(".rv").forEach((el) => io.observe(el));
+}
+</script></body></html>

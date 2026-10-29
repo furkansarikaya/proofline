@@ -1,0 +1,6 @@
+{ "class": "STANDARD", "base_url": "@SITE@",
+  "viewports": [{"name":"desktop","width":1280,"height":800},{"name":"phone","width":390,"height":844}],
+  "screens": [{"id":"css-bad","path":"css-bad.html","states":[{"name":"default","ready":"main"}]},
+              {"id":"js-bad","path":"js-bad.html","states":[{"name":"default","ready":"main"}]},
+              {"id":"ok","path":"ok.html","states":[{"name":"default","ready":"main"}]}],
+  "design": { "visitor_mode": "persuade", "screens": ["css-bad.html", "js-bad.html", "ok.html"] } }

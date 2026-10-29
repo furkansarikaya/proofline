@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Motion fixture: entrances that stay visible under reduced motion</title>
+<style>
+body{font:18px/1.5 system-ui;margin:0;padding:48px}
+@keyframes in{from{opacity:0}to{opacity:1}}
+.a{opacity:0;animation:in .6s .1s forwards}
+.rv{opacity:0;transition:opacity .6s}
+.rv.on{opacity:1}
+@media (prefers-reduced-motion:reduce){.a{opacity:1;animation:none}.rv{opacity:1;transition:none}}
+</style></head><body><main><h1>Entrances with a reduced-motion fallback</h1>
+<p class="a" id="css">Revealed by a CSS animation; shown immediately under reduced motion.</p>
+<p class="rv" id="js">Revealed by an observer callback; shown immediately under reduced motion.</p></main>
+<script>
+const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) e.target.classList.add("on"); }));
+document.querySelectorAll(".rv").forEach((el) => io.observe(el));
+</script></body></html>
