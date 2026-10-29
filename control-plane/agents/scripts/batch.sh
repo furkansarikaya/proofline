@@ -40,6 +40,20 @@ cfgv() { v=$(sh "$agent" config-get "$1" 2>/dev/null) || v=''; [ -n "$v" ] || v=
 tsv() { printf '%s' "$*" | tr '\t\n' '  '; }
 bid() { sha "$bd/SUMMARY.md" | cut -c1-12; }
 PLUG_LINE='Keep the computer awake (plugged in, lid open) and this session open.'   # one place so other texts can reuse it
+# A202: a task file is <ID>.md or <ID>-<slug>.md (the consistent form); the ID is the one in the H1, the file name only when there is none.
+tid() { t_b=$(basename "$1" .md); t_id=$(sed -n '1s/^# Task: *\([^ ]*\).*/\1/p' "$1" 2>/dev/null | head -1); case "$t_b" in "$t_id"|"$t_id"-?*) [ -z "$t_id" ] || { printf '%s\n' "$t_id"; return 0; } ;; esac; printf '%s\n' "$t_b"; }
+tfile() { # ID -> the path of its queued task file (top level, todo/, backlog/), nothing when none
+  for t_d in "$td" "$td/todo" "$td/backlog"; do
+    [ -f "$t_d/$1.md" ] && { printf '%s\n' "$t_d/$1.md"; return 0; }
+    for t_f in "$t_d/$1"-*.md; do
+      [ -f "$t_f" ] || continue
+      case "$(basename "$t_f" .md)" in "$1"-FU[0-9]*) continue ;; esac
+      [ "$(tid "$t_f")" = "$1" ] || continue
+      printf '%s\n' "$t_f"; return 0
+    done
+  done
+  return 1
+}
 # --- plan ------------------------------------------------------------------------------------------------------------
 cls_of() { awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$1"; }
 deps_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^depends_on:/ { sub(/^depends_on:[[:space:]]*/, ""); gsub(/["\[\]]/, ""); gsub(/[,[:space:]]+/, ","); sub(/^,/, ""); sub(/,$/, ""); print; exit }' "$1"; }
@@ -106,6 +120,21 @@ EOF
       printf '%s\tscope\tThe task has an Allowed scope but names path(s) outside it:%s. The plan would need them and the freeze refuses a path outside the Allowed scope. Which?\ta) park the task until its Allowed scope is widened or the path is dropped (you edit the task) [recommended]|b) the plan may use paths outside the Allowed scope for this task\ta\t-\n' "$lt_id" "$lt_out" >> "$tmp/lint.raw"
     fi
   fi
+  # A202: the task type is an input of the pre-flight: a bug without its reproduction steps or a refactor without its behaviour statement
+  # would be refused by the validator, and a bug or refactor classified TRIVIAL would be refused by `classify`.
+  lt_ty=$(sh "$agent" task-type "$lt_f" 2>/dev/null) || lt_ty=feature
+  lt_miss=''
+  case "$lt_ty" in
+    bug) for lt_s in "Reproduction steps" "Expected and actual behaviour" "Environment"; do
+           awk -v s="$lt_s" '/^## / { g = (substr($0, 4) == s); next } g && NF { f = 1 } END { exit !f }' "$lt_f" || lt_miss="$lt_miss, $lt_s"; done ;;
+    refactor) awk '/^## / { g = (substr($0, 4) == "Behaviour unchanged"); next } g && NF { f = 1 } END { exit !f }' "$lt_f" || lt_miss=", Behaviour unchanged" ;;
+  esac
+  if [ -n "$lt_miss" ]; then
+    printf '%s\ttype\tThe task is typed %s but these sections are empty or missing: %s. The validator refuses such a task. Which?\ta) park the task until they are written (task-author) [recommended]|b) run it anyway (the freeze or the review stops on it)\ta\t-\n' "$lt_id" "$lt_ty" "${lt_miss#, }" >> "$tmp/lint.raw"
+  fi
+  case "$lt_ty:$lt_c" in bug:TRIVIAL|refactor:TRIVIAL)
+    printf '%s\ttype\tThe task is typed %s but classified TRIVIAL; a %s changes behaviour or code, so `classify` refuses TRIVIAL. Which?\ta) park the task until it is classified STANDARD or higher (task-author) [recommended]|b) run it anyway (the classification stops at freeze)\ta\t-\n' "$lt_id" "$lt_ty" "$lt_ty" >> "$tmp/lint.raw" ;;
+  esac
   lt_n=$((lt_code + lt_cont))
   case "$lt_c:$([ "$lt_n" -le 6 ] && echo small)" in COMPLEX:small)
     lt_why=$(awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && NF { print substr($0, 1, 90); exit }' "$lt_f")
@@ -124,7 +153,7 @@ plan() {
   td=$root/$(cfgv tasks.dir .agents/tasks)
   # the same approved batch, not finished: continue it instead of planning a new one (a new plan has a new summary and needs a new approval)
   if [ "$repl" = no ] && [ -f "$bd/order.tsv" ] && sh "$agent" batch-check >/dev/null 2>&1 && [ "$(derive_state)" = approved ]; then
-    rs_sel="$*"; [ "$rs_sel" != all ] || rs_sel=$(for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && basename "$f" .md; done | sort -u | tr '\n' ' ')
+    rs_sel="$*"; [ "$rs_sel" != all ] || rs_sel=$(for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && tid "$f"; done | sort -u | tr '\n' ' ')
     rs_out=''; for a in $rs_sel; do grep -q "^$a	" "$bd/order.tsv" || grep -q "^- $a:" "$bd/SUMMARY.md" || rs_out="$rs_out $a"; done
     if [ -n "$rs_out" ]; then
       die "batch $(bid) is approved and not finished, and it does not contain:$rs_out. Continue it with /proofline batch (no task IDs), or plan a new batch that includes them with agent.sh batch-plan --replace <ID...|all> (a new summary and a new approval)"
@@ -138,19 +167,19 @@ plan() {
   : > "$tmp/sel"
   if [ "$1" = all ]; then
     [ $# -eq 1 ] || die "'all' stands alone"
-    for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && basename "$f" .md; done | sort -u > "$tmp/sel" || :
+    for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && tid "$f"; done | sort -u > "$tmp/sel" || :
   else
     for id in "$@"; do
       case "$id" in run|status|all|'') die "'$id' is a reserved word, not a task ID" ;; *[!A-Za-z0-9_-]*) die "invalid task ID: $id" ;; esac
-      [ -f "$td/$id.md" ] || [ -f "$td/todo/$id.md" ] || [ -f "$td/backlog/$id.md" ] || die "task $id not found in $td (top level, todo/ or backlog/)"
+      [ -n "$(tfile "$id")" ] || die "task $id not found in $td (top level, todo/ or backlog/)"
       grep -Fxq "$id" "$tmp/sel" || printf '%s\n' "$id" >> "$tmp/sel"
     done
   fi
   [ -s "$tmp/sel" ] || die "no task to batch in $td"
-  for f in "$td"/done/*.md; do [ -f "$f" ] && basename "$f" .md; done > "$tmp/done" || :
+  for f in "$td"/done/*.md; do [ -f "$f" ] && tid "$f"; done > "$tmp/done" || :
   : > "$tmp/info"
   while IFS= read -r id; do
-    f=$td/$id.md; [ -f "$f" ] || f=$td/todo/$id.md; [ -f "$f" ] || f=$td/backlog/$id.md
+    f=$(tfile "$id")
     c=$(cls_of "$f"); d=$(deps_of "$f")
     printf '%s\t%s\t%s\t%s\t%s\n' "$id" "${c:--}" "${d:--}" "$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$f" | tr '\t' ' ')" "$(prio_of "$f")" >> "$tmp/info"
   done < "$tmp/sel"
@@ -205,13 +234,13 @@ plan() {
   # A200: plan-lint and the commands proposal, before the summary (the approval is bound to the summary's hash, so to both)
   : > "$tmp/lint.raw"
   while IFS="$(printf '\t')" read -r _k lid lcls _d _t; do
-    lf=$td/$lid.md; [ -f "$lf" ] || lf=$td/todo/$lid.md; [ -f "$lf" ] || lf=$td/backlog/$lid.md
+    lf=$(tfile "$lid")
     lint_task "$lid" "$lf" "$lcls"
   done < "$tmp/kept"
   # A200: the code paths each task names (content and document paths are left out): a task that shares one with an earlier task that is not merged waits for it
   : > "$tmp/paths.tsv"
   while IFS="$(printf '\t')" read -r _k lid _c _d _t; do
-    lf=$td/$lid.md; [ -f "$lf" ] || lf=$td/todo/$lid.md; [ -f "$lf" ] || lf=$td/backlog/$lid.md
+    lf=$(tfile "$lid")
     lp=$(lint_paths "$lf")
     # shellcheck disable=SC2086 # paths of the safe character set of lint_paths
     [ -z "$lp" ] || sh "$agent" path-kind $lp 2>/dev/null | awk -F'\t' -v t="$lid" '$1 == "code" { print t "\t" $2 }' >> "$tmp/paths.tsv" || :
@@ -311,10 +340,11 @@ own_state() {
   if [ "$(st_get "$os_id" 2)" = parked ]; then DS=parked; DD=$(st_get "$os_id" 3); DQ=$(st_get "$os_id" 4); return 0; fi
   # A200: a task whose pre-flight answer is "park until it is decided or written" never starts; the answer is the user's own
   if ! has_run "$os_id"; then
-    for os_k in dep ac scope; do
+    for os_k in dep ac scope type; do
       os_a=$(ans_row "$os_id" "$os_k")
       if [ "$(printf '%s' "$os_a" | cut -f1)" = b ] && [ "$os_k" = dep ]; then DS=parked; DD="new dependency"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with b: a dependency is needed and only you approve it; decide it, then agent.sh batch-park $os_id --clear"; return 0; fi
       if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = scope ]; then DS=parked; DD="allowed scope"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the task's Allowed scope is widened (or the path dropped) by you first; then agent.sh batch-park $os_id --clear"; return 0; fi
+      if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = type ]; then DS=parked; DD="type sections to write"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the sections the task type needs are written (task-author) first; then agent.sh batch-park $os_id --clear"; return 0; fi
       if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = ac ]; then DS=parked; DD="criteria to write"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the acceptance criteria are written (task-author) first; then agent.sh batch-park $os_id --clear"; return 0; fi
     done
   fi

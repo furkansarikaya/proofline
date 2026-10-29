@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { validate, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS } from "../../skills/task-author/scripts/validate-task.mjs";
+import { validate, slugify, fileNameWarning, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS } from "../../skills/task-author/scripts/validate-task.mjs";
 import { linkOrigin } from "../../skills/task-author/scripts/link-origin.mjs";
 import { VAGUE_WORDS } from "../../skills/product-spec/scripts/check-prd.mjs";
 
@@ -314,4 +314,52 @@ test("A203: a finished task is identified by its title only; its completion repo
   const r = run("SENTINEL-9");
   assert.notEqual(r.status, 0);
   assert.match(r.stdout + r.stderr, /depends_on id "SENTINEL-9" matches no task/);
+});
+
+// ---- A202: task types and file names ----
+const withType = (type, extra = "") => GOOD.replace("# Task: T-1 — Rate limit login\n", `# Task: T-1 — Rate limit login\n\n---\ntype: ${type}\n---\n`).replace("## Out of scope", `${extra}## Out of scope`);
+
+test("a task without a type is a feature and needs no type sections", () => {
+  const r = validate(GOOD);
+  assert.equal(r.valid, true, r.errors.join("; "));
+  assert.equal(r.task.type, "feature");
+  assert.equal(validate(withType("chore")).task.type, "chore");
+  assert.ok(validate(withType("epic")).errors.some((e) => /type must be one of/.test(e)));
+});
+
+test("a bug without reproduction steps, expected and actual behaviour and environment is rejected", () => {
+  const r = validate(withType("bug"));
+  assert.equal(r.valid, false);
+  for (const sec of ["Reproduction steps", "Expected and actual behaviour", "Environment"]) assert.ok(r.errors.some((e) => e.includes(sec)), sec);
+  const ok = validate(withType("bug", "## Reproduction steps\n1. Fail login six times.\n\n## Expected and actual behaviour\nExpected 429, got 200.\n\n## Environment\nNode 22, staging.\n\n"));
+  assert.equal(ok.valid, true, ok.errors.join("; "));
+});
+
+test("a refactor needs the behaviour-unchanged statement and an existing-tests criterion", () => {
+  const r = validate(withType("refactor"));
+  assert.ok(r.errors.some((e) => e.includes("Behaviour unchanged")));
+  assert.ok(r.errors.some((e) => /existing tests/.test(e)));
+  const ok = withType("refactor", "## Behaviour unchanged\nNo observable change.\n\n").replace("- AC-2: A successful login resets the failure counter to zero.", "- AC-2: The existing tests pass without changes.");
+  assert.equal(validate(ok).valid, true, validate(ok).errors.join("; "));
+});
+
+test("content and docs tasks need no extra sections", () => {
+  assert.equal(validate(withType("content")).valid, true);
+  assert.equal(validate(withType("docs")).valid, true);
+});
+
+test("the slug of a Turkish title is ASCII, at most 48 characters", () => {
+  assert.equal(slugify("Türkçe Başlık: Çalışma ışığı İyi Ösü ğ"), "turkce-baslik-calisma-isigi-iyi-osu-g");
+  assert.equal(slugify("Straße façade"), "strasse-facade");
+  assert.ok(slugify("a".repeat(80)).length <= 48);
+});
+
+test("a file named only by its ID is flagged with the proposed <ID>-<slug>.md name", () => {
+  const w = fileNameWarning("T-1", "Rate limit login", "T-1.md");
+  assert.match(w, /propose "T-1-rate-limit-login\.md"/);
+  assert.equal(fileNameWarning("T-1", "Rate limit login", "T-1-rate-limit-login.md"), null);
+  assert.equal(fileNameWarning("T-1", "Rate limit login", "T-1-FU1.md"), null);
+  assert.equal(fileNameWarning("T-1", "Rate limit login", "TASK.md"), null);
+  assert.ok(fileNameWarning("T-1", "Rate limit login", "T-1-t-1.md"));
+  assert.ok(validate(GOOD, { fileName: "T-1.md" }).warnings.some((x) => /not <ID>-<slug>\.md/.test(x)));
 });

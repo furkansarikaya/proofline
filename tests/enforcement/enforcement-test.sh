@@ -1141,7 +1141,7 @@ EOF")"
   # control plane: a changed, new or removed database file blocks the next handoff
   new_repo
   mkdir -p data .agents/task-integrations; printf 'x' > data/app.db; printf 'data/\n' >> .gitignore
-  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" .agents/task-integrations/
   git add -A; git commit -qm base
   printf '%s\n' '# Task: DB-1 — Guard' '' '## Goal' '' 'Demonstrate the database guard.' '' '## Acceptance criteria' '' '- AC-1: nothing changes.' '' \
     '## Out of scope' '' '- Other changes.' '' '## Constraints' '' '- POSIX sh.' '' '## Risks' '' '- None.' '' '## Suggested class' '' 'TRIVIAL — documentation only.' '' \

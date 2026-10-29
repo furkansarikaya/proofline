@@ -57,7 +57,7 @@ case "$op" in
     id=$2 title=$3 body=$4; pl_id "$id"
     [ -f "$body" ] || pl_die "task body missing: $body"
     [ -n "$title" ] || pl_die 'task title is required'
-    slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-48 | sed 's/-$//')
+    slug=$(sh "$here/slug.sh" "$title")   # A202: ASCII transliteration first, always <ID>-<slug>.md
     [ -n "$slug" ] || pl_die 'task title needs a usable slug'
     if find_task "$id" >/dev/null 2>&1; then pl_die "task file already exists for $id"; fi
     rel=$tdir/in-progress/$id-$slug.md

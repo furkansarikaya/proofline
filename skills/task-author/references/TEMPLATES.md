@@ -39,6 +39,20 @@ Planning fields (`size`, `sprint`, `assignee`, `depends_on`): `markdown` carries
 
 Optional fields (A202, all absent in older tasks): `## Allowed scope`, `## Forbidden scope` and `## Existing pattern references` take one bullet per file, folder (`src/x/`) or glob (`src/**/*.sql`), the path in backticks; `## Completion response` is free text describing the final summary the user wants; front matter `priority: high|medium|low` orders a night batch among tasks without dependencies (ties keep the listed order); front matter `origin: <TASK-ID>` or `origin: prd:<slug>` is written by `scripts/link-origin.mjs` (and by the markdown adapter's follow-up), which also appends `source<TAB>task<TAB>kind` to `links.tsv` in the tasks folder, the way back from the source. In `github`, `jira` and `linear` an imported heading with these names lands in `### <heading>` under Context, where the freeze reads it as well. The validator rejects a scope section with no path, an empty `Completion response`, an unknown priority and an `origin` that names no task.
 
+## Task types
+
+The front matter key `type` (`feature` | `bug` | `refactor` | `content` | `docs` | `chore`) selects the extra sections the validator requires; a task without `type` is a `feature`. The task author proposes the type and the user may change it. The type and its sections are written by the task author into the markdown `TASK.md`; an import from a tracker has no type unless the task author adds it, so it counts as a feature.
+
+| Type | Required beyond the canonical sections | Gates and bounds |
+|---|---|---|
+| `feature` | nothing | as before |
+| `bug` | `## Reproduction steps`, `## Expected and actual behaviour`, `## Environment` | debug-proof result required; never TRIVIAL |
+| `refactor` | `## Behaviour unchanged`, and a criterion that the existing tests pass without changes | never TRIVIAL |
+| `content`, `docs` | nothing | test-first exempt by default for document paths, reason written in the plan; those paths are not counted as code in the scope bound; a path that holds code is never exempt |
+| `chore` | nothing | as before |
+
+File names: `<ID>-<slug>.md`, the slug being the title in ASCII (Turkish and other Latin letters transliterated, at most 48 characters). The validator warns about a file named only by its ID or only by a slug and proposes the name; `agent.sh task-rename-plan` lists the renames of queued tasks and `agent.sh task-rename-apply` performs them only after the user's `approve rename`. A task with a run, a published report, or a file under `in-progress/` or `done/` is never renamed.
+
 ## Export
 
 Fill each section's placeholder from `TASK.md` (acceptance criteria keep their `AC-n:` prefix; lists stay lists). A field the template requires and the task lacks (labels, components, a custom field) is a question (NEEDS_INPUT), never guessed. Verify with `validate-task.mjs --check-export <file> --template <template>`: exit 0 means every section is filled.
