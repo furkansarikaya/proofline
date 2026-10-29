@@ -84,7 +84,7 @@ take_old_lock() {
 acquire_lock() {
   al_path=$1
   case " $held_locks " in *" $al_path "*) return 0 ;; esac
-  al_timeout=${PROOFLINE_LOCK_TIMEOUT:-120}
+  al_timeout=${PROOFLINE_LOCK_TIMEOUT:-$(tm_scaled 120 1 3600)}
   case "$al_timeout" in ''|*[!0-9]*) fail "invalid PROOFLINE_LOCK_TIMEOUT: $al_timeout"; return 1 ;; esac
   [ -w "${al_path%/*}" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
   al_tries=$((al_timeout * 5)) al_n=0 al_broke=''
@@ -179,6 +179,78 @@ cfg_cmds() {
 }
 config_value() { cfg "$1"; }
 
+# --- Timeouts (A202 item 29): one multiplier for every duration ------------------------------------------------------------
+# tm_scale: timeouts.scale (0.5 to 10, default 1); a missing, non-numeric or out-of-range value is 1, so no value can switch a timeout off or
+# stretch it past the bound. tm_scaled N [MIN [MAX]]: N seconds times the scale, rounded up, kept between MIN (default 1) and MAX (default 28800).
+# The approval fast-path budget (hook.approve_budget_seconds) is never passed through here: hook_knob keeps its own tight bound (trap z).
+tm_milli=''   # timeouts.scale times 1000, read once per process (no process is started to scale a number: locks call tm_scaled)
+tm_scale_milli() {
+  [ -z "$tm_milli" ] || { printf '%s\n' "$tm_milli"; return 0; }
+  tm_v=$(cfg timeouts.scale 1); tm_ip=${tm_v%%.*}; tm_fp=0
+  case "$tm_v" in *.*) tm_fp=${tm_v#*.} ;; esac
+  case "$tm_ip$tm_fp" in ''|*[!0-9]*) tm_milli=1000; printf '1000\n'; return 0 ;; esac
+  [ -n "$tm_ip" ] || tm_ip=0; [ -n "$tm_fp" ] || tm_fp=0
+  tm_fp="${tm_fp}000"; tm_fp=${tm_fp%"${tm_fp#???}"}
+  while :; do case "$tm_ip" in 0?*) tm_ip=${tm_ip#0} ;; *) break ;; esac; done   # no octal reading of 010
+  while :; do case "$tm_fp" in 0?*) tm_fp=${tm_fp#0} ;; *) break ;; esac; done
+  tm_milli=$((tm_ip * 1000 + tm_fp))
+  { [ "$tm_milli" -ge 500 ] && [ "$tm_milli" -le 10000 ]; } || tm_milli=1000
+  printf '%s\n' "$tm_milli"
+}
+tm_scale() { tm_m=$(tm_scale_milli); awk -v m="$tm_m" 'BEGIN { print m / 1000 }'; }
+tm_scaled() {
+  ts_m=$(tm_scale_milli); ts_x=$((($1 * ts_m + 999) / 1000)); ts_lo=${2:-1}; ts_hi=${3:-28800}
+  [ "$ts_x" -ge "$ts_lo" ] || ts_x=$ts_lo; [ "$ts_x" -le "$ts_hi" ] || ts_x=$ts_hi; printf '%s\n' "$ts_x"
+}
+# tm_warn_percent: how much of a step's time may pass before the lead is told (timeouts.warn_percent, 50 to 95, default 80)
+tm_warn_percent() { tw_v=$(cfg timeouts.warn_percent 80); case "$tw_v" in ''|*[!0-9]*) tw_v=80 ;; esac; [ "$tw_v" -ge 50 ] || tw_v=50; [ "$tw_v" -le 95 ] || tw_v=95; printf '%s\n' "$tw_v"; }
+# verify_command_timeout: the limit of one build, test or install command of the build record and of one re-run of reproduced evidence (60 to 28800 before scaling)
+verify_command_timeout() {
+  vt_v=$(cfg verification.command_timeout_seconds 1800); case "$vt_v" in ''|*[!0-9]*) vt_v=1800 ;; esac
+  [ "$vt_v" -ge 60 ] || vt_v=60; [ "$vt_v" -le 28800 ] || vt_v=28800; tm_scaled "$vt_v" 60 28800
+}
+# hook_timeouts: the runtime's own time limit per hook event, one `event=seconds` line each (config hook.<event>_timeout_seconds, 10 to 600, times
+# timeouts.scale), as init and upgrade write them into .claude/settings.json. hook.approve_budget_seconds is not scaled here or anywhere (trap z):
+# a longer hook limit lets the runtime wait longer for the hook, it does not slow the approval step, which stops at its own budget. The prompt
+# limit is kept at least that budget + 5, so the hook can always say that an approval was not recorded.
+hook_timeouts() {
+  ht_ab=$(hook_knob approve_budget_seconds 20 5 25)
+  for ht_e in session:session:30 prompt:prompt:30 pretool:pretool:30 posttool:posttool:30 subagent-start:subagent_start:60 subagent-stop:subagent_stop:120 stop:stop:30; do
+    ht_k=${ht_e#*:}; ht_d=${ht_k#*:}; ht_k=${ht_k%%:*}; ht_n=${ht_e%%:*}
+    ht_v=$(cfg "hook.${ht_k}_timeout_seconds" "$ht_d"); case "$ht_v" in ''|*[!0-9]*) ht_v=$ht_d ;; esac
+    [ "$ht_v" -ge 10 ] || ht_v=10; [ "$ht_v" -le 600 ] || ht_v=600
+    ht_v=$(tm_scaled "$ht_v" 10 600)
+    if [ "$ht_n" = prompt ] && [ "$ht_v" -lt $((ht_ab + 5)) ]; then ht_v=$((ht_ab + 5)); fi
+    printf '%s=%s\n' "$ht_n" "$ht_v"
+  done
+}
+# timeouts_info: every duration this install uses, as `name=seconds`, scaled and bounded as the code uses it (docs/concepts/timeouts.md)
+timeouts_info() {
+  printf 'scale=%s\nwarn_percent=%s\n' "$(tm_scale)" "$(tm_warn_percent)"
+  printf 'dispatch.default=%s\n' "$(tm_dispatch_seconds '')"
+  for ti_c in TRIVIAL STANDARD COMPLEX CRITICAL; do printf 'dispatch.%s=%s\n' "$ti_c" "$(tm_dispatch_seconds "$ti_c")"; done
+  printf 'verification.command=%s\nlock=%s\nstatus_block=%s\n' "$(verify_command_timeout)" "$(tm_scaled 120 1 3600)" "$(tm_scaled "$(cfg tasks.status_block_seconds 20)" 1 900)"
+  printf 'batch.ci_wait_minutes=%s\nbatch.ci_appear_minutes=%s\n' "$(batch_minutes batch.ci_wait_minutes 30)" "$(batch_minutes batch.ci_appear_minutes 10)"
+  printf 'hook.approve_budget=%s (never scaled)\nhook.next_budget=%s\nhook.lock_wait=%s\n' "$(hook_knob approve_budget_seconds 20 5 25)" "$(hook_knob next_budget_seconds 10 2 20)" "$(hook_knob lock_wait_seconds 8 1 20)"
+  hook_timeouts | sed 's/^/hook.timeout./'
+}
+batch_minutes() { # KEY DEFAULT: the CI wait in minutes, times the scale
+  bm_v=$(cfg "$1" "$2"); case "$bm_v" in ''|*[!0-9]*) bm_v=$2 ;; esac; tm_scaled "$bm_v" 1 720
+}
+# scale_check (A202 item 29): 0 when the user's own message approved the proposed timeouts.scale (kind `scale`, bound to the sha256 of the proposal
+# that `proofline doctor --scale` wrote after measuring this machine); an agent cannot write or answer for it.
+scale_check() {
+  sc_f=$(shared_dir scale)/PROPOSAL.tsv; [ -s "$sc_f" ] || fail "no scale proposal (proofline doctor --scale)"
+  find_approval - scale "$(hash_file "$sc_f")" >/dev/null || fail "the user's newest message does not approve the scale: no unconsumed scale approval is bound to this proposal (ask: agent.sh request-approval - scale, relay it; the reply \"approve scale\" records the approval)"
+  echo "scale $(hash_file "$sc_f" | cut -c1-12): approved by the user"
+}
+# tm_dispatch_seconds [CLASS]: the timeout of one dispatched step: the class value, else dispatch.timeout_seconds, times the scale (30 to 28800)
+tm_dispatch_seconds() {
+  td_t=$(cfg dispatch.timeout_seconds 5400); case "$td_t" in ''|*[!0-9]*) td_t=5400 ;; esac
+  case "${1:-}" in TRIVIAL|STANDARD|COMPLEX|CRITICAL) td_c=$(cfg "pipelines.$1.dispatch_timeout_seconds" ''); case "$td_c" in ''|*[!0-9]*) ;; *) td_t=$td_c ;; esac ;; esac
+  tm_scaled "$td_t" 30 28800
+}
+
 # --- Ecosystem facts (A173): .agents/ecosystems.tsv (generated from ecosystems.json) is the one source of what each language
 # calls a manifest, lock, package-source setting or build-changing file. config.yaml keeps the project's own globs; these two
 # sets are added to them at read time, so a new ecosystem or file kind reaches every project on upgrade without editing its
@@ -223,7 +295,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -286,7 +358,7 @@ config_check() {
       else if (k ~ /^pipelines\.[A-Z]+\.(evidence|qa|architect)$/) en(k, v, "yes|no")
       else if (k ~ /^pipelines\.[A-Z]+\.review$/) en(k, v, "yes|no|optional")
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)
-      else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad(k " must be at least 30") }
+      else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 30 || v + 0 > 28800)) bad(k " must be 30 to 28800") }
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "worktree.copy_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[|\\]/) bad("worktree.copy_files must be project-relative globs without a leading / or .. : " v) }
@@ -295,9 +367,10 @@ config_check() {
       else if (top == "archive" && k != "archive") bad("unknown archive key: " k " (want archive.keep)")
       else if (k == "verification.env_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[*?|\\]/ || v ~ /\[|\]/) bad("verification.env_files must be project-relative file names (space-separated, no glob, no leading / or .. ): " v) }
       else if (k == "verification.doc_paths") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[?|\\]/ || v ~ /\[|\]/) bad("verification.doc_paths must be project-relative entries: a directory prefix ending in /, an exact path or *.ext") }
-      else if (top == "verification" && k != "verification") bad("unknown verification key: " k " (want verification.env_files or verification.doc_paths)")
-      else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
-      else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
+      else if (top == "verification" && k != "verification" && k != "verification.command_timeout_seconds") bad("unknown verification key: " k " (want verification.env_files or verification.doc_paths)")
+      else if (k == "batch.mutation_budget_cap") num(k, v)
+      else if (k == "batch.ci_wait_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1"); else if (v ~ /^[0-9]+$/ && v + 0 > 720) bad(k " must be at most 720") }
+      else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1"); else if (v ~ /^[0-9]+$/ && v + 0 > 240) bad(k " must be at most 240") }
       else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
       else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
       else if (k == "dispatch.claude_permission_mode") en(k, v, "bypassPermissions|acceptEdits|default")
@@ -305,15 +378,23 @@ config_check() {
       else if (k == "hook.approve_budget_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 5 || v + 0 > 25)) bad(k " must be 5 to 25 (the runtime stops a hook at 30 s)") }
       else if (k == "hook.next_budget_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 2 || v + 0 > 20)) bad(k " must be 2 to 20") }
       else if (k == "hook.lock_wait_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 1 || v + 0 > 20)) bad(k " must be 1 to 20") }
-      else if (top == "hook" && k != "hook") bad("unknown hook key: " k " (want hook.approve_budget_seconds, hook.next_budget_seconds or hook.lock_wait_seconds)")
+      else if (top == "hook" && k != "hook" && k !~ /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/) bad("unknown hook key: " k " (want hook.approve_budget_seconds, hook.next_budget_seconds, hook.lock_wait_seconds or hook.<event>_timeout_seconds)")
+      else if (k == "timeouts.scale") { if (v != "" && (v !~ /^[0-9]+(\.[0-9]+)?$/ || v + 0 < 0.5 || v + 0 > 10)) bad("timeouts.scale must be a number from 0.5 to 10: " v) }
+      else if (k == "timeouts.warn_percent") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 50 || v + 0 > 95)) bad(k " must be 50 to 95") }
+      else if (top == "timeouts" && k != "timeouts") bad("unknown timeouts key: " k " (want timeouts.scale or timeouts.warn_percent)")
+      else if (k ~ /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 10 || v + 0 > 600)) bad(k " must be 10 to 600") }
+      else if (k == "verification.command_timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 60 || v + 0 > 28800)) bad(k " must be 60 to 28800") }
+      else if (k == "tasks.status_block_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 1 || v + 0 > 300)) bad(k " must be 1 to 300") }
       else if (k == "fingerprint.cache_min_bytes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 65536) bad(k " must be at least 65536") }
       else if (top == "fingerprint" && k != "fingerprint") bad("unknown fingerprint key: " k)
       else if (k == "dispatch.network_backoff_seconds") num(k, v)
-      else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad("dispatch.timeout_seconds must be at least 30") }
+      else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 30 || v + 0 > 28800)) bad("dispatch.timeout_seconds must be 30 to 28800") }
       seen[k] = 1; gv[k] = v
     }
     END {
       for (s in hasl) if (hasv[s]) bad("commands." s " has both a value and a list of commands; keep one")
+      ha = (gv["hook.approve_budget_seconds"] ~ /^[0-9]+$/) ? gv["hook.approve_budget_seconds"] + 0 : 20; hp = (gv["hook.prompt_timeout_seconds"] ~ /^[0-9]+$/) ? gv["hook.prompt_timeout_seconds"] + 0 : 30
+      if (hp < ha + 5) bad("hook.prompt_timeout_seconds (" hp ") must be at least hook.approve_budget_seconds + 5 (" ha + 5 ")")
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
       if (seen["git.platform_host"] && gv["git.platform_host"] != "" && gv["git.platform"] == "") bad("git.platform_host needs git.platform (the platform that host runs)")
@@ -4292,7 +4373,7 @@ reproduce_recheck() {
     return 0
   fi
   reproduce_allowed "$1" > "$rr_t/allowed"
-  rr_n=0; rr_x=0; rr_pb=0; rr_to=''; command -v timeout >/dev/null 2>&1 && rr_to='timeout 900'
+  rr_n=0; rr_x=0; rr_pb=0; rr_to=''; command -v timeout >/dev/null 2>&1 && rr_to="timeout $(verify_command_timeout)"
   sort -u "$rr_t/items" > "$rr_t/uniq"
   while IFS="$rr_tab" read -r rr_c rr_e rr_o rr_a; do
     rr_cd=$(printf '%s' "$rr_c" | tr '|' '/')
@@ -4311,7 +4392,7 @@ reproduce_recheck() {
     # shellcheck disable=SC2086
     ( cd "$root" && $rr_to sh -c "$rr_c" ) > "$rr_t/out" 2>&1 < /dev/null || rr_rc=$?
     if [ "$rr_rc" != "$rr_e" ]; then
-      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s, the report records exit=%s (reproduced evidence does not reproduce)\n' "$rr_cd" "$rr_rc" "$rr_e"
+      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s, the report records exit=%s (reproduced evidence does not reproduce)%s\n' "$rr_cd" "$rr_rc" "$rr_e" "$([ "$rr_rc" != 124 ] || printf '; it hit the time limit of %s s (verification.command_timeout_seconds times timeouts.scale), which is a failure, never a pass: raise the limit or run proofline doctor --scale' "$(verify_command_timeout)")"
     elif [ -z "$rr_o" ]; then
       if grep -q '[^[:space:]]' "$rr_t/out"; then
         rr_pb=$((rr_pb + 1)); printf 're-running `%s` printed output but the report records none (`(no output)` is for a silent command; record one stable summary line)\n' "$rr_cd"
@@ -5024,7 +5105,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale) return 0 ;;
     waive:*|rule:*|reopen:*|rationale:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -5033,8 +5114,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
   case "$2" in
@@ -5101,6 +5182,7 @@ approval_bound() { # ID KIND
     batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
     commands) hash_file "$(shared_dir commands)/PROPOSAL.tsv" ;;
     known-issue) hash_file "$(shared_dir known-issues)/PROPOSAL.tsv" ;;   # A202 item 27: the one proposed record
+    scale) hash_file "$(shared_dir scale)/PROPOSAL.tsv" ;;   # A202 item 29
     rename) hash_file "$(shared_dir rename)/PROPOSAL.tsv" ;;   # A202: the proposal's own sha256   # A200 review: the proposal's own sha256
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
@@ -5214,6 +5296,7 @@ approval_sentences() {
     commands) as_en='the commands'; as_tr='komutları|komutlari' ;;
     known-issue) as_en='the known issue|the known issues'; as_tr='bilinen sorunu|bilinen sorunları|bilinen sorunlari' ;;
     rename) as_en='the renames|the rename'; as_tr='yeniden adlandırmayı|yeniden adlandirmayi' ;;
+    scale) as_en='the scale|the timeout scale'; as_tr='ölçeği|olcegi' ;;
     report) as_en='the friction report'; as_tr='sürtünme raporunu|surtunme raporunu' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
     push) as_en='the push'; as_tr="push'u" ;;
@@ -5433,6 +5516,7 @@ request_approval() {
   fi
   [ "$rq_kind" != commands ] || rq_rows=$(awk -F'\t' '!/^#/ { print "   commands." $1 ": " $2 }' "$(shared_dir commands)/PROPOSAL.tsv" 2>/dev/null)
   [ "$rq_kind" != known-issue ] || rq_rows=$(awk -F'\t' '{ print "   known issue: " $1 " " $2 ": " $3 " (follow-up task " $4 ")" }' "$(shared_dir known-issues)/PROPOSAL.tsv" 2>/dev/null)
+  [ "$rq_kind" != scale ] || rq_rows=$(awk -F'\t' '{ print "   timeouts." $1 ": " $2 }' "$(shared_dir scale)/PROPOSAL.tsv" 2>/dev/null)
   [ "$rq_kind" != rename ] || rq_rows=$(awk -F'\t' '{ print "   rename: " $1 " -> " $2 }' "$(shared_dir rename)/PROPOSAL.tsv" 2>/dev/null)
   case "$rq_kind" in rationale:*) rq_rows="   rationale line of DESIGN.md: $(rationale_line "${rq_kind#rationale:}")" ;; esac
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
@@ -5462,6 +5546,7 @@ approval_why() { # KIND BOUND [tr]
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
       known-issue) echo 'bu bulgu, görevin dokunmadığı bir yerde zaten var ve bir takip görevi var: onayınızla bilinen sorun olur ve görevi durdurmaz; yeni bir bulgu ya da dokunulan yer yine engeller; SECRETS ve SECURITY hiçbir zaman listelenmez' ;;
       rename) echo 'sıradaki görev dosyaları yalnızca sizin onayınızla <ID>-<slug>.md adına taşınır; başlamış ya da raporu yayınlanmış görevlere dokunulmaz' ;;
+      scale) echo 'bu makine için önerilen timeouts.scale değeri yalnızca sizin onayınızla .agents/config.yaml dosyasına yazılır; bütün süreler birlikte uzar, hiçbir denetim kapanmaz' ;;
       commands) echo 'boş commands.build|test|lint anahtarları için önerilen komutlar yalnızca sizin onayınızla .agents/config.yaml dosyasına yazılır' ;;
       batch) echo 'gece modu: bu tek özet, listelenen görevlerin plan, teslimat ve mutasyon bütçesi onaylarının yerine geçer; başka hiçbir şeyin yerine geçmez' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
@@ -5483,6 +5568,7 @@ approval_why() { # KIND BOUND [tr]
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
     known-issue) echo 'this finding already exists where the task does not touch, and a follow-up task owns it: with your approval it becomes a known issue and stops no task; a new finding or a touched place still blocks; SECRETS and SECURITY are never listed' ;;
     rename) echo 'queued task files are renamed to <ID>-<slug>.md only with your approval; a started task or one with a published report is never touched' ;;
+    scale) echo 'the proposed timeouts.scale for this machine is written into .agents/config.yaml only with your approval; every duration grows together, no check is switched off' ;;
     commands) echo 'the proposed commands.build|test|lint are written into .agents/config.yaml only with your approval' ;;
     batch) echo 'night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
@@ -6205,7 +6291,8 @@ wait_line() {
   [ -s "$wl_f" ] || now_epoch > "$wl_f" 2>/dev/null || true
   wl_s=$(cat "$wl_f" 2>/dev/null); case "$wl_s" in ''|*[!0-9]*) wl_s=$(now_epoch) ;; esac
   wl_e=$(( $(now_epoch) - wl_s ))
-  printf 'waiting: %s, %dm%02ds so far\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60))
+  wl_t=$(budget_usage "$wl_id" | head -n 1)
+  printf 'waiting: %s, %dm%02ds so far%s\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60)) "$([ -z "$wl_t" ] || { set -- $wl_t; printf ' (TIME: %d%% of its %dm limit)' $(($2 * 100 / $3)) $(($3 / 60)); })"
 }
 
 # --- Metrics (D5, A80): .agents/local/metrics/, best effort, `metrics: off` disables ALL of it ---
@@ -6300,7 +6387,7 @@ metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURN
 inflight_pid_alive() {
   case "$1" in ''|*[!0-9]*|0) return 1 ;; esac
   kill -0 "$1" 2>/dev/null || return 1
-  ipa_t=$(cfg dispatch.timeout_seconds 1800); case "$ipa_t" in ''|*[!0-9]*) ipa_t=1800 ;; esac
+  ipa_t=$(tm_dispatch_seconds '')
   # A171: the marker names the timeout of its own attempt (a class may run longer than the global one)
   ipa_m=$(sed -n 's/^timeout=//p' "$2" 2>/dev/null | head -n 1); case "$ipa_m" in ''|*[!0-9]*) ;; *) [ "$ipa_m" -le "$ipa_t" ] || ipa_t=$ipa_m ;; esac
   [ -z "$(find "$2" -mmin "+$(( (ipa_t + 119) / 60 ))" 2>/dev/null)" ]
@@ -6321,6 +6408,28 @@ inflight_dispatch() { # ID
   return 1
 }
 
+# budget_usage ID: for every dispatched step of the run in flight that has used timeouts.warn_percent (default 80) of its time, one line
+# `ROLE ELAPSED-S TIMEOUT-S` (A202 item 29). The time-out is last resort: the lead is told once per call, in `next` and `wait-line`,
+# non-blocking; the marker holds the attempt's own start and limit (dispatch.sh), so a run without them says nothing.
+budget_usage() {
+  bu_pct=$(tm_warn_percent); bu_now=$(now_epoch)
+  for bu_f in "$(run_dir "$1")"/dispatch/*.running; do
+    [ -f "$bu_f" ] || continue
+    inflight_pid_alive "$(sed -n 's/^pid=//p' "$bu_f" | head -n 1)" "$bu_f" || continue
+    bu_t=$(sed -n 's/^timeout=//p' "$bu_f" | head -n 1); bu_s=$(sed -n 's/^started_epoch=//p' "$bu_f" | head -n 1)
+    case "$bu_t$bu_s" in ''|*[!0-9]*) continue ;; esac
+    [ -n "$bu_t" ] && [ -n "$bu_s" ] && [ "$bu_t" -gt 0 ] || continue
+    bu_e=$((bu_now - bu_s))
+    [ $((bu_e * 100)) -ge $((bu_t * bu_pct)) ] || continue
+    printf '%s %s %s\n' "$(sed -n 's/^role=//p' "$bu_f" | head -n 1)" "$bu_e" "$bu_t"
+  done
+}
+budget_note() { # ID: the one line for `next`
+  budget_usage "$1" | while read -r bn_r bn_e bn_t; do
+    printf 'note=TIME: dispatch %s has used %dm of its %dm limit (%d%%); at the limit it fails (never a pass) and the next dispatch of the step resumes from dispatch/RESUME-*.md. Do not stop it; tell the user in one line that this step is slow (proofline doctor --scale proposes a longer limit)\n' "${bn_r:-specialist}" $((bn_e / 60)) $((bn_t / 60)) $((bn_e * 100 / bn_t))
+  done
+}
+
 next_step() {
   ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id"); risk_prime "$ns_id"
   ns_st=$(run_state "$ns_d"); ns_hs=$(section_value "$ns_d" handoff state)
@@ -6331,7 +6440,7 @@ next_step() {
   if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> --captured"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_stale=$(inflight_sweep "$ns_id")
   if ns_if=$(inflight_dispatch "$ns_id"); then
-    o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; return 0
+    o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; budget_note "$ns_id"; return 0
   fi
   [ -z "$ns_stale" ] || printf 'note=stale dispatch marker removed: %s\n' "${ns_stale% }"
   ns_class=$(pipeline_class "$ns_id")
@@ -7064,7 +7173,7 @@ status_block_run() {
 status_block_update() {
   [ "$(cfg tasks.status_block on)" != off ] || return 0
   sbu_log=$(shared_dir status-block.log); sbu_err=$(mktemp "${TMPDIR:-/tmp}/agent-status-err.XXXXXX") || return 0
-  sbu_max=$(cfg tasks.status_block_seconds 20); case "$sbu_max" in ''|*[!0-9]*) sbu_max=20 ;; esac
+  sbu_max=$(cfg tasks.status_block_seconds 20); case "$sbu_max" in ''|*[!0-9]*) sbu_max=20 ;; esac; [ "$sbu_max" -ge 1 ] || sbu_max=1; [ "$sbu_max" -le 300 ] || sbu_max=300; sbu_max=$(tm_scaled "$sbu_max" 1 900)
   ( status_block_run "$@" ) >/dev/null 2>"$sbu_err" &
   sbu_pid=$!; sbu_n=0
   while kill -0 "$sbu_pid" 2>/dev/null; do
@@ -8288,7 +8397,7 @@ case "$command" in next|digest|summary|status-block|next-user|status|friction|ba
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
+read_only_commands='timeouts hook-timeouts verify-timeout tm-scaled scale-check human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -8474,6 +8583,11 @@ case "$command" in
   batch-status) sh "$scripts/batch.sh" status ;;
   batch-check) batch_check ;;
   commands-check) commands_check ;;
+  scale-check) scale_check ;;
+  timeouts) timeouts_info ;;
+  hook-timeouts) hook_timeouts ;;
+  verify-timeout) verify_command_timeout ;;
+  tm-scaled) tm_scaled "${2:?usage: agent.sh tm-scaled <seconds> [min] [max]}" "${3:-1}" "${4:-28800}" ;;
   batch-answer) require_lead; sh "$scripts/batch.sh" answer ;;
   batch-answers) sh "$scripts/batch.sh" answers "${2:-}" ;;
   test-path) shift; [ $# -gt 0 ] || fail "usage: agent.sh test-path <path>..."; for tp_p in "$@"; do if test_code_path "$tp_p"; then printf 'test\t%s\n' "$tp_p"; else printf 'product\t%s\n' "$tp_p"; fi; done ;;

@@ -160,6 +160,43 @@ json_merge() { # REL SRC
   esac
 }
 
+# hook_timeouts_apply REL (A202 item 29): sets the `timeout` of every proofline hook in REL (.claude/settings.json, .codex/hooks.json) to the value the
+# project's config gives (`agent.sh hook-timeouts`: hook.<event>_timeout_seconds times timeouts.scale, bounded). Only the `timeout` of a hook whose command
+# names proofline-hook.sh is touched; every other key, hook and setting stays byte for byte as it was. Idempotent: a file that already holds the values
+# is not rewritten. The config is the one place to change a hook limit; a limit edited by hand in the settings file is put back to it on the next upgrade.
+hook_timeouts_apply() {
+  [ -f "$ROOT/$1" ] || return 0
+  if [ "$DRY" = 1 ]; then plog same "$1 (hook timeouts are set from the config when it is written)"; return 0; fi
+  [ -f "$ROOT/.agents/scripts/agent.sh" ] || return 0
+  ht_tab=$(cd "$ROOT" && sh .agents/scripts/agent.sh hook-timeouts 2>/dev/null) || ht_tab=''
+  if [ -z "$ht_tab" ]; then plog warn "$1: hook timeouts not set (this install's agent.sh does not know hook-timeouts)"; return 0; fi
+  ht_out=$STAGE/hook-timeouts.json; rm -f "$ht_out"
+  ht_map=$(printf '%s\n' "$ht_tab" | awk -F= 'BEGIN { m["session"]="SessionStart"; m["prompt"]="UserPromptSubmit"; m["pretool"]="PreToolUse"; m["posttool"]="PostToolUse"; m["subagent-start"]="SubagentStart"; m["subagent-stop"]="SubagentStop"; m["stop"]="Stop" }
+    $1 in m && $2 ~ /^[0-9]+$/ { printf "%s\"%s\":%s", (n++ ? "," : ""), m[$1], $2 } END { if (n) print "" }')
+  [ -n "$ht_map" ] || return 0
+  ht_rc=1
+  if command -v jq >/dev/null 2>&1; then
+    jq --argjson t "{$ht_map}" '
+      if (.hooks | type) == "object" then
+        .hooks |= with_entries(.key as $ev | .value |= (if type == "array" then map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | contains("proofline-hook.sh")) and ($t[$ev] != null) then .timeout = $t[$ev] else . end) else . end) else . end))
+      else . end' "$ROOT/$1" > "$ht_out" 2>/dev/null && ht_rc=0
+  elif command -v node >/dev/null 2>&1; then
+    node -e '
+      const fs = require("fs"); const [src, out, map] = process.argv.slice(1);
+      let j; try { j = JSON.parse(fs.readFileSync(src, "utf8")); } catch (e) { process.exit(1); }
+      const t = JSON.parse("{" + map + "}");
+      if (j && typeof j.hooks === "object" && j.hooks) for (const [ev, groups] of Object.entries(j.hooks)) {
+        if (!Array.isArray(groups) || t[ev] == null) continue;
+        for (const g of groups) if (g && Array.isArray(g.hooks)) for (const h of g.hooks) if (h && String(h.command || "").includes("proofline-hook.sh")) h.timeout = t[ev];
+      }
+      fs.writeFileSync(out, JSON.stringify(j, null, 2) + "\n");' "$ROOT/$1" "$ht_out" "$ht_map" && ht_rc=0
+  fi
+  if [ "$ht_rc" != 0 ]; then plog warn "$1: hook timeouts not set (invalid JSON, or neither jq nor node is installed)"; return 0; fi
+  if [ "$(jq -S -c . "$ROOT/$1" 2>/dev/null || node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))))' "$ROOT/$1")" = "$(jq -S -c . "$ht_out" 2>/dev/null || node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))))' "$ht_out")" ]; then plog same "$1 (hook timeouts)"; return 0; fi
+  plog merged "$1 (hook timeouts from the config; other settings kept)"
+  cat "$ht_out" > "$ROOT/$1"
+}
+
 # merge_block REL SRC: a marked block inside a user-owned markdown file. The sha256 of the block as installed is
 # kept in the manifest header (`# block-REL:`); a block whose current hash differs from it was edited by the
 # user: it is kept, the merged result is written beside it as REL.proofline-new, and a conflict is reported.
@@ -203,6 +240,15 @@ do_config() {
   if [ -f "$dc_cur" ]; then dc_new=no; cp "$dc_cur" "$dc_w"; else dc_new=yes; cp "$PL_HOME/control-plane/agents/config.yaml" "$dc_w"; fi
   if [ "$MODE" = upgrade ]; then
     cfg_merge_new "$dc_cur" "$PL_HOME/control-plane/agents/config.yaml" > "$dc_w"
+    # A202 item 29: the shipped time limits grew (measured durations plus a wide margin, docs/concepts/timeouts.md). From a project older than 0.0.39 a
+    # limit that still holds the earlier shipped value moves to the new one; a value you changed is never touched, and so is none of the other keys.
+    dc_old=$(cfg_val "$dc_cur" proofline_version 0.0.0)
+    if [ "$(printf '%s\n0.0.39\n' "$dc_old" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = "$dc_old" ] && [ "$dc_old" != 0.0.39 ]; then
+      for dc_m in dispatch.timeout_seconds:1800:5400 pipelines.TRIVIAL.dispatch_timeout_seconds:900:1800 pipelines.STANDARD.dispatch_timeout_seconds:1800:5400 pipelines.COMPLEX.dispatch_timeout_seconds:3600:7200 pipelines.CRITICAL.dispatch_timeout_seconds:3600:7200; do
+        dc_mk=${dc_m%%:*}; dc_mr=${dc_m#*:}
+        [ "$(cfg_val "$dc_w" "$dc_mk" '')" = "${dc_mr%%:*}" ] && cfg_set "$dc_w" "$dc_mk" "${dc_mr#*:}"
+      done
+    fi
   fi
   cfg_set_if "$dc_w" proofline_version "$PROOFLINE_VERSION"
   if [ "$MODE" = init ]; then
@@ -317,8 +363,8 @@ install_run() { # MODE set by the caller
   stage_build
   place_all
   do_config
-  if rt_has claude; then json_merge .claude/settings.json "$PL_HOME/adapters/claude/settings.fragment.json"; fi
-  if rt_has codex; then json_merge .codex/hooks.json "$PL_HOME/adapters/codex/hooks.json"; codex_network_config; fi
+  if rt_has claude; then json_merge .claude/settings.json "$PL_HOME/adapters/claude/settings.fragment.json"; hook_timeouts_apply .claude/settings.json; fi
+  if rt_has codex; then json_merge .codex/hooks.json "$PL_HOME/adapters/codex/hooks.json"; hook_timeouts_apply .codex/hooks.json; codex_network_config; fi
   merge_block AGENTS.md "$PL_HOME/control-plane/AGENTS.md"
   if rt_has claude; then merge_block CLAUDE.md "$PL_HOME/control-plane/CLAUDE.md"; fi
   ensure_line .gitignore .agents/local/

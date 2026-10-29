@@ -296,6 +296,7 @@ w=0; while [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ] && [ "$w"
 # shellcheck disable=SC2034 # m is read by the ck condition below
 m=$(cat "$a"/runs/T-1/dispatch/*.running 2>/dev/null); touch "$loc/release"; wait
 ck "a running dispatch leaves a marker (in flight, do not re-dispatch); it is removed when the step ends" 'printf "%s" "$m" | grep -q "dispatch in flight: T-1 reviewer on claude" && printf "%s" "$m" | grep -q "do not re-dispatch" && [ "$(cat "$tmp/hold.rc")" -eq 0 ] && [ -z "$(ls "$a"/runs/T-1/dispatch/*.running 2>/dev/null)" ]'
+ck "A202-29 the marker names the limit and the start of the attempt (the lead's TIME line reads them)" 'printf "%s" "$m" | grep -q "^timeout=[0-9][0-9]*$" && printf "%s" "$m" | grep -q "^started_epoch=[0-9][0-9]*$"'
 
 TIMEOUT=1 mkcfg auto
 reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
@@ -314,6 +315,22 @@ rm -f "$p/partial-work.txt"
 printf 'pipeline:\n  classification: STANDARD\n' > "$a/runs/T-1/RUN.yaml"
 reset; d FAKE_CODEX=ok PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
 ck "A171 a class with a longer limit does not time out a normal step" '[ "$rc" -eq 0 ] && ! has "$loc/ledger.log" "dispatch timeout"'
+# A202 item 29: timeouts.scale multiplies the step's limit (rounded up, ceiling 28800), a bad scale is read as 1, and the marker names the limit and the start
+printf 'pipeline:\n  classification: COMPLEX\n' > "$a/runs/T-1/RUN.yaml"
+for sc in 2 1.5 0.5 99 0 abc; do
+  TIMEOUT=60 mkcfg auto; printf 'pipelines:\n  COMPLEX:\n    dispatch_timeout_seconds: 2\ntimeouts:\n  scale: %s\n' "$sc" >> "$a/config.yaml"
+  case "$sc" in 2) want=4 ;; 1.5) want=3 ;; 0.5) want=1 ;; *) want=2 ;; esac
+  reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 implementer
+  ck "A202-29 timeouts.scale $sc: the COMPLEX limit of 2 s becomes $want s and the step still fails at it (124, never a pass)" '[ "$rc" -eq 124 ] && has "$loc/ledger.log" "after=${want}s" && ! has "$loc/calls.log" submit'
+done
+# A202 item 29: two explorers (two assignments) that both time out keep two resume notes; the same assignment finds its own
+TIMEOUT=1 mkcfg auto; printf 'assignment one\n' > "$tmp/as1.md"; printf 'assignment two\n' > "$tmp/as2.md"
+reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 explorer --runtime codex --prompt-file "$tmp/as1.md"; rc1=$rc
+d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 explorer --runtime codex --prompt-file "$tmp/as2.md"
+ck "A202-29 two explorers that time out keep two resume notes" '[ "$rc1" -eq 124 ] && [ "$rc" -eq 124 ] && [ "$(ls "$a"/runs/T-1/dispatch/RESUME-explorer-*.md | wc -l | tr -d " ")" -eq 2 ]'
+TIMEOUT=60 mkcfg auto
+d FAKE_CODEX=ok T-1 explorer --runtime codex --prompt-file "$tmp/as1.md"
+ck "A202-29 the resumed explorer gets its own note and spends only that one" '[ "$rc" -eq 0 ] && has "$loc/codex.stdin" "RESUME: an earlier dispatch" && [ "$(ls "$a"/runs/T-1/dispatch/RESUME-explorer-*.md | wc -l | tr -d " ")" -eq 1 ]'
 rm -f "$a/runs/T-1/RUN.yaml"
 mkcfg auto
 reset; d FAKE_CLAUDE=limit FAKE_CODEX=edit T-1 reviewer

@@ -99,7 +99,7 @@ send() {
   (cd "${PROOFLINE_SHARED_ROOT:-$root}" && $gh_bin issue create --repo "$repo" --title "proofline friction report" --body-file .agents/local/friction/latest.md)
 }
 calibrate() {
-  bud=$(cfgv test_trust.mutation_budget 20); to=$(cfgv dispatch.timeout_seconds 1800); mfr=$(cfgv review.max_fix_rounds 2)
+  bud=$(cfgv test_trust.mutation_budget 20); to=$(cfgv dispatch.timeout_seconds 5400); mfr=$(cfgv review.max_fix_rounds 2)
   runs=0 maxn=0
   for p in "$root"/.agents/runs/*/PLAN.md; do
     [ -f "$p" ] || continue
@@ -114,7 +114,7 @@ calibrate() {
   if [ -f "$rec" ]; then
     mx=$(awk 'function jv(s, k,   p, i, r) { p = "\"" k "\":"; i = index(s, p); if (!i) return ""; r = substr(s, i + length(p)); sub(/[,}].*/, "", r); return r }
       /"kind":"dispatch"/ { d = jv($0, "duration_s") + 0; if (d > m) m = d; if (jv($0, "result") == "\"timeout\"") t++ } END { print m + 0, t + 0 }' "$rec")
-    if [ "${mx% *}" -ge $((to * 8 / 10)) ] || [ "${mx#* }" -gt 0 ]; then s=1; echo "suggest: dispatch.timeout_seconds $((to * 2)) (slowest dispatch ${mx% *}s of ${to}s, timeouts ${mx#* })"; fi
+    if [ "${mx% *}" -ge $((to * 8 / 10)) ] || [ "${mx#* }" -gt 0 ]; then s=1; echo "suggest: dispatch.timeout_seconds $((to * 2)) (slowest dispatch ${mx% *}s of ${to}s, timeouts ${mx#* }); or one multiplier for every limit: proofline doctor --scale"; fi
     ex=$(awk 'function jv(s, k,   p, i, r) { p = "\"" k "\":"; i = index(s, p); if (!i) return ""; r = substr(s, i + length(p)); sub(/[,}].*/, "", r); return r }
       /"kind":"run"/ && jv($0, "fix_rounds") + 0 >= m { c++ } END { print c + 0 }' m="$mfr" "$rec")
     if [ "$ex" -ge 2 ]; then s=1; echo "suggest: review.max_fix_rounds is reached by $ex runs; read their repeated findings (proofline insights) before raising $mfr"; fi

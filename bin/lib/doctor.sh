@@ -259,11 +259,21 @@ doctor_tools() {
   d_pass "tools: $dtl_a; $dtl_r"
 }
 
+# A202 item 29: the time limits in force (the scale and the largest dispatch limit), one line; the user is pointed at the measured proposal.
+doctor_timeouts() {
+  dt_sc=$(cfg_val "$CFG" timeouts.scale 1.0)
+  dt_info=$(cd "$ROOT" && sh "$A" timeouts 2>/dev/null) || dt_info=''
+  dt_mx=$(printf '%s\n' "$dt_info" | sed -n 's/^dispatch\.CRITICAL=//p')
+  d_pass "time limits: timeouts.scale $dt_sc, a dispatched step may take up to ${dt_mx:-?} s (CRITICAL); the approval budget is never scaled. This machine's speed: proofline doctor --scale"
+}
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   case "${1:-}" in
     --commands) require_installed; cm_propose; return 0 ;;
     --apply-commands) require_installed; cm_apply; return 0 ;;
+    --scale) require_installed; ts_propose; return 0 ;;
+    --apply-scale) require_installed; ts_apply; return 0 ;;
     '') ;;
     *) die "doctor: unknown argument: $1" ;;
   esac
@@ -325,6 +335,8 @@ EOF
       d_warn "approval path: $da_ms ms on this machine, $((da_b * 1000)) ms hook budget (hook.approve_budget_seconds); close to or over half of it. A slow machine can raise hook.approve_budget_seconds in .agents/config.yaml (5 to 25); the cause is usually a large unignored folder or a loaded machine"
     else d_pass "approval path: $da_ms ms (hook budget $((da_b * 1000)) ms)"; fi
   fi
+
+  doctor_timeouts
 
   doctor_ecosystems
 
