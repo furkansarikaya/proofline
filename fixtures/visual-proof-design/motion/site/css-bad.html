@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Motion fixture: CSS entrance, never revealed under reduced motion</title>
+<style>
+body{font:18px/1.5 system-ui;margin:0;padding:48px}
+@keyframes in{from{opacity:0}to{opacity:1}}
+.rv{opacity:0;animation:in .6s .1s forwards}
+@media (prefers-reduced-motion:reduce){.rv{animation:none}}
+</style></head><body><main><h1>Entrance by CSS animation</h1>
+<p class="rv" id="late">This paragraph appears only through a CSS animation; with reduced motion the animation is removed and it stays at opacity 0.</p></main></body></html>

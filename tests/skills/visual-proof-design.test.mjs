@@ -166,16 +166,19 @@ test("validator: critique and ux_review need reasons and have no numeric score (
 // ---- the one browser test --------------------------------------------------------------------------------------
 const BROWSER = detect({ repo: tmpdir() }).kind === "headless-browser";
 const skip = !BROWSER && "no browser installed (measure.mjs --detect)";
-async function measureSite(kind) {
+async function measureSite(kind, browserArgs = []) {
   const out = mktmp();
   const cfg = readFileSync(join(FIX, kind, "visual.json"), "utf8").replace("@SITE@", `file://${join(FIX, kind, "site")}/`);
   writeFileSync(join(out, "visual.json"), cfg);
-  const args = [MEASURE, "--config", join(out, "visual.json"), "--out", out, "--repo", join(FIX, kind), ...(process.env.CI ? ["--no-sandbox"] : [])];
+  const args = [MEASURE, "--config", join(out, "visual.json"), "--out", out, "--repo", join(FIX, kind), ...browserArgs, ...(process.env.CI ? ["--no-sandbox"] : [])];
   const r = await new Promise((ok) => { const c = spawn(process.execPath, args); let se = ""; c.stderr.on("data", (d) => { se += d; }); c.on("close", (code) => ok({ code, se })); });
-  assert.equal(r.code, 0, r.se);
+  assert.equal(r.code, 0, `measure.mjs exited ${r.code} for the ${kind} fixture; ${diagnostics(out)}\nstderr: ${r.se}`);
   return { out, report: JSON.parse(readFileSync(join(out, "report.json"), "utf8")) };
 }
 const item = (report, check, screen) => report.design.items.filter((i) => i.check === check && (!screen || i.screen === screen));
+// What motion-audit measured (browser user agent, frames drawn in 500 ms, the matchMedia value and visible-element counts per mode), for an assertion message.
+const diagnostics = (out) => { try { return readFileSync(join(out, "motion-diagnostics.json"), "utf8"); } catch { return "(no motion-diagnostics.json)"; } };
+const why = (m, check = "design_reduced_motion", screen) => `${check} items: ${JSON.stringify(item(m.report, check, screen).map((i) => [i.screen, i.viewport, i.status, i.value, i.note]))}\nnot_measured: ${JSON.stringify(m.report.design.not_measured || [])}\nmotion diagnostics: ${diagnostics(m.out)}`;
 
 test("browser: the bad site fails with its planted design findings, the good site passes overall; lint drops with a justification", { skip, timeout: 240000 }, async () => {
   const [b, g] = await Promise.all([measureSite("bad"), measureSite("good")]);
@@ -185,11 +188,11 @@ test("browser: the bad site fails with its planted design findings, the good sit
   assert.ok(item(b.report, "design_untitled_section").some((i) => i.status === "fail"), "untitled section");
   assert.ok(item(b.report, "design_untranslated", "tr.html").some((i) => i.status === "fail"), "untranslated English on the tr page");
   assert.ok(item(b.report, "design_image_ledger").some((i) => i.status === "fail"), "image missing from the ledger is blocking");
-  assert.ok(item(b.report, "design_reduced_motion").some((i) => i.status === "fail"), "hidden under reduced motion");
+  assert.ok(item(b.report, "design_reduced_motion").some((i) => i.status === "fail"), `hidden under reduced motion\n${why(b)}`);
   assert.equal(b.report.result, "FAIL");
   assert.equal(g.report.result, "PASS", JSON.stringify(g.report.design.items.filter((i) => i.status === "fail")));
   assert.deepEqual(g.report.design.items.filter((i) => i.status === "fail"), []);
-  assert.ok(item(g.report, "design_reduced_motion").length > 0 && item(g.report, "design_reduced_motion").every((i) => i.status === "pass"));
+  assert.ok(item(g.report, "design_reduced_motion").length > 0 && item(g.report, "design_reduced_motion").every((i) => i.status === "pass"), `good site under reduced motion\n${why(g)}`);
   assert.ok(item(g.report, "design_image_ledger").length > 0 && item(g.report, "design_image_ledger").every((i) => i.status === "pass"));
   // lint of the bad site: blocking, then info with a DESIGN.md justification
   const root = join(FIX, "bad/site"), md = join(FIX, "bad/DESIGN.md");
@@ -202,6 +205,24 @@ test("browser: the bad site fails with its planted design findings, the good sit
   assert.ok(lintProject({ root, designMd: join(tmp, "DESIGN.md") }).findings.every((f) => f.severity === "blocking"), "written but not approved: still blocking (A200)");
   const info = lintProject({ root, designMd: join(tmp, "DESIGN.md"), approved }).findings;
   assert.ok(info.length > 0 && info.every((f) => f.severity === "info" && f.justified));
+});
+
+test("browser: a CSS-animated and a script-triggered entrance that reduced motion never reveals fail design_reduced_motion; a page with a fallback passes", { skip, timeout: 240000 }, async () => {
+  const m = await measureSite("motion");
+  for (const screen of ["css-bad.html", "js-bad.html"]) {
+    const sc = screen.replace(".html", "");
+    const rows = item(m.report, "design_reduced_motion", sc);
+    assert.ok(rows.some((i) => i.status === "fail" && /#late/.test(i.note)), `${screen}: the entrance that stays hidden under reduced motion must be reported\n${why(m, "design_reduced_motion", sc)}`);
+  }
+  const ok = item(m.report, "design_reduced_motion", "ok");
+  assert.ok(ok.length > 0 && ok.every((i) => i.status === "pass"), `ok.html: visible under reduced motion\n${why(m, "design_reduced_motion", "ok")}`);
+});
+
+test("browser: an OS that already prefers reduced motion does not hide a failing page (the normal-motion baseline is emulated, not inherited)", { skip: skip || process.platform === "win32" && "needs a shell wrapper", timeout: 240000 }, async () => {
+  const wrapper = join(mktmp(), "chrome-os-reduce.sh");
+  writeFileSync(wrapper, `#!/bin/sh\nexec "${detect({ repo: tmpdir() }).path}" --force-prefers-reduced-motion "$@"\n`, { mode: 0o755 });
+  const m = await measureSite("motion", ["--browser", wrapper]);
+  for (const sc of ["css-bad", "js-bad"]) assert.ok(item(m.report, "design_reduced_motion", sc).some((i) => i.status === "fail"), `${sc} must still fail when the OS prefers reduced motion\n${why(m, "design_reduced_motion", sc)}`);
 });
 
 test("A200: only a rationale the user approved (bound to the exact line) downgrades a lint finding", () => {

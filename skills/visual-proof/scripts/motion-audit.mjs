@@ -213,6 +213,9 @@ const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 const defaultShotName = (...parts) => `screenshots/${parts.join("-").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const REDUCE = { features: [{ name: "prefers-reduced-motion", value: "reduce" }] };
+// "Normal motion" is emulated explicitly, never left to the host: an empty feature list falls back to the OS setting, and a runner whose
+// OS has reduce-motion on would then take the baseline under reduced motion, so a page that hides content there passed (a false negative).
+const NO_PREFERENCE = { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] };
 const first = (list, n = 5) => list.slice(0, n).map((x) => x.s || x.sel || x).join(", ");
 
 export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
@@ -228,8 +231,10 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
   const miss = (check, screen, viewport, reason) => not_measured.push({ check, screen, viewport, reason });
 
   let recorderId = null;
+  const diag = { userAgent: null, frames_per_500ms: null, samples: [] }; // written to <outDir>/motion-diagnostics.json for CI logs
+  const media = { reduce: null }; // matchMedia("(prefers-reduced-motion: reduce)") of the page opened last
   const reducedOn = () => p.s("Emulation.setEmulatedMedia", REDUCE);
-  const reducedOff = () => p.s("Emulation.setEmulatedMedia", { features: [] }).catch(() => {});
+  const reducedOff = () => p.s("Emulation.setEmulatedMedia", NO_PREFERENCE).catch(() => {});
   const scriptsOn = () => p.s("Emulation.setScriptExecutionDisabled", { value: false }).catch(() => {});
 
   // open under the current emulation; the helpers are evaluated into the loaded page. Returns { rendered } or throws.
@@ -238,6 +243,11 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
     const type = await p.ev("document.contentType");
     if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) throw new Error(`not an HTML response (${type})`);
     await p.ev(HELPERS);
+    media.reduce = await p.ev('matchMedia("(prefers-reduced-motion: reduce)").matches');
+    if (diag.userAgent === null) {
+      diag.userAgent = await p.ev("navigator.userAgent");
+      diag.frames_per_500ms = await p.ev("new Promise((r) => { let n = 0; const end = performance.now() + 500; const f = () => { n++; performance.now() < end ? requestAnimationFrame(f) : r(n); }; requestAnimationFrame(f); })", true);
+    }
     return { rendered };
   };
 
@@ -259,6 +269,7 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
           const { rendered } = await open(path, vp, st);
           ready = rendered;
           if (!rendered) throw new Error(`ready selector not visible in state ${st?.name || "default"}`);
+          if (media.reduce) throw new Error("the browser still reports prefers-reduced-motion: reduce in normal-motion mode, so no baseline exists");
           await p.ev("new Promise((r) => setTimeout(r, Math.max(0, 2100 - performance.now())))", true);
           const loadRun = await p.ev("window.__vpm ? window.__vpm.summary() : null");
           if (!loadRun) throw new Error("motion recorder did not start");
@@ -267,6 +278,7 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
           await p.ev("window.__vph.scrollThrough()", true);
           const scrollRun = await p.ev("window.__vpm.summary()");
           shown = await p.ev("window.__vph.content()");
+          diag.samples.push({ screen, viewport: vp.name, mode: "normal", matches_reduce: media.reduce, visible: shown.length, scroll_height: await p.ev("document.documentElement.scrollHeight"), running: scrollRun.length });
           if (vp.name === "wide") {
             if (!motionApplicable(mode)) items.push({ check: "design_motion_count", ...base, selector: "html", value: "not applicable", threshold: `>= ${min.load}`, status: "not_applicable", note: MOTION_NOT_APPLICABLE_NOTE, screenshot: shot });
             else for (const d of decideMotionCount({ load: loadRun.length, scroll: scrollRun.length }, min)) {
@@ -289,10 +301,12 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
           await p.ev("window.__vph.scrollThrough()", true);
           const running = await p.ev("window.__vpm.summary()");
           const after = await p.ev("window.__vph.content()");
+          if (!media.reduce) throw new Error("the reduced-motion emulation did not take effect (matchMedia reports no reduce)");
           await p.ev("scrollTo({ top: 0, behavior: 'instant' })");
           await sleep(200);
           const shot = await viewportShot("design-reduced", screen, vp.name);
           const d = decideReducedMotion({ shown, shownReduced: after, running });
+          diag.samples.push({ screen, viewport: vp.name, mode: "reduced", matches_reduce: media.reduce, visible: after.length, hidden: d.hidden.map((x) => x.s), running: running.length });
           items.push({ check: "design_reduced_motion", ...base, selector: d.hidden[0]?.s || "body", value: d.value, threshold: "== 0", status: d.status,
             note: d.value ? `${d.value} element(s) visible without emulation are not visible with reduced motion: ${first(d.hidden)}` : "every element visible without emulation stays visible", screenshot: shot });
           items.push({ check: "design_reduced_motion", ...base, selector: d.running[0]?.sel || "body", value: d.running.length, threshold: "== 0", status: d.running.length ? "fail" : "pass",
@@ -378,6 +392,7 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
   } finally {
     await reducedOff();
     await scriptsOn();
+    try { writeFileSync(join(outDir, "motion-diagnostics.json"), JSON.stringify(diag, null, 1)); } catch (err) { /* diagnostics only */ }
     if (recorderId) await p.s("Page.removeScriptToEvaluateOnNewDocument", { identifier: recorderId }).catch(() => {});
   }
   return { items, scenes, not_measured };
