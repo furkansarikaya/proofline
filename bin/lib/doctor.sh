@@ -3,6 +3,7 @@
 # probes in a throwaway repository (the project's own installed hooks and scripts are copied there).
 # Prints PASS / WARN / FAIL lines, exits non-zero on any FAIL. Sourced by bin/proofline.
 
+doctor_ms() { dm_v=$(date +%s%N 2>/dev/null); case "$dm_v" in ''|*[!0-9]*) perl -MTime::HiRes=time -e 'printf "%d", time()*1000' 2>/dev/null || echo $(( $(date +%s) * 1000 )) ;; *) echo $((dm_v / 1000000)) ;; esac; }
 d_pass() { printf 'PASS %s\n' "$*"; }
 d_warn() { printf 'WARN %s\n' "$*"; D_WARNS=$((D_WARNS + 1)); }
 d_fail() { printf 'FAIL %s\n' "$*"; D_FAILS=$((D_FAILS + 1)); }
@@ -292,6 +293,18 @@ EOF
 
   if out=$(cd "$ROOT" && sh "$A" config-check 2>&1); then d_pass "config: $(printf '%s' "$out" | head -1)"
   else d_fail "config: agent.sh config-check failed: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"; fi
+
+  # A202 item 28: how long the approval path takes on THIS machine (the content fingerprint every approval binds, then the approval step with
+  # nothing to approve: the cost the prompt hook pays before it can write an approval), against the hook's approval budget.
+  if [ -f "$A" ]; then
+    da_b=$(cfg_val "$CFG" hook.approve_budget_seconds 20); case "$da_b" in ''|*[!0-9]*) da_b=20 ;; esac
+    [ "$da_b" -ge 5 ] || da_b=5; [ "$da_b" -le 25 ] || da_b=25
+    da_t0=$(doctor_ms); (cd "$ROOT" && sh "$A" fingerprint >/dev/null 2>&1 </dev/null); (cd "$ROOT" && sh "$A" approve-pending - >/dev/null 2>&1 </dev/null); da_t1=$(doctor_ms)
+    da_ms=$((da_t1 - da_t0))
+    if [ "$da_ms" -ge $((da_b * 500)) ]; then
+      d_warn "approval path: $da_ms ms on this machine, $((da_b * 1000)) ms hook budget (hook.approve_budget_seconds); close to or over half of it. A slow machine can raise hook.approve_budget_seconds in .agents/config.yaml (5 to 25); the cause is usually a large unignored folder or a loaded machine"
+    else d_pass "approval path: $da_ms ms (hook budget $((da_b * 1000)) ms)"; fi
+  fi
 
   doctor_ecosystems
 
