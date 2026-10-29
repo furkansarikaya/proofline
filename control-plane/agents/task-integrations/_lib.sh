@@ -86,9 +86,12 @@ FNR == NR {
 }
 {
   if ($0 ~ /^[ \t]*(```|~~~)/) fence = !fence
+  # A202: the marked status block is the control plane'"'"'s, never task text: dropped whole, whatever its lines look like
+  if (!fence && inblk) { if ($0 ~ /^<!-- PROOFLINE-STATUS:END:/) inblk = 0; next }
+  if (!fence && $0 ~ /^<!-- PROOFLINE-STATUS:BEGIN:/) { inblk = 1; next }
   if (!fence && heading($0)) {
     k = norm(H); skip = 0; cur_field = ""
-    if (k == "completion report") { skip = 1; next }
+    if (k == "completion report" || k == "proofline status") { skip = 1; next }
     if (k in known) { cur_field = known[k]; if (canonical(cur_field) || cur_field == "title") nknown++ }
     else { nu++; uh[nu] = H; cur_field = "u" nu }
     next
@@ -127,3 +130,20 @@ END {
   fi
   mv "$pl_tmp" "$3"
 }
+
+# --- Status block (one per task, updated in place; A202) -------------------------------------------------------------
+# `statusblock <ID> <block-file>` is the one adapter op that keeps the live status of a run on the task: a marked section of the
+# task file (markdown) or ONE comment found by its marker and edited in place (GitHub, Jira, Linear), never a new comment per
+# event. The block file is written by the control plane from recorded state only (agent.sh status_block_body); an adapter only
+# places it. Defence in depth: a block that holds a local path, a secret-looking token or an e-mail address is refused here too.
+# The op is best effort: agent.sh calls it bounded in time and a failure is a logged note, never a failed run or gate.
+pl_status_marker() { printf '<!-- proofline:status:%s -->\n' "$1"; }
+pl_status_check() {   # ID BLOCK-FILE: valid id, readable file, nothing local or secret in it
+  pl_id "$1"; [ -f "$2" ] || pl_die "status block file missing: $2"
+  [ "$(wc -c < "$2" | tr -d ' ')" -le 6000 ] || pl_die "status block is too large"
+  if grep -Eiq '(^|[^A-Za-z0-9_.-])(/Users/|/home/|/tmp/|/var/|/private/|/etc/|/root/|/opt/|/mnt/|~/|[A-Za-z]:[\\/])|-----BEGIN|(ghp|gho|ghs|ghu|ghr|github_pat)_[A-Za-z0-9_]{10,}|sk-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{12,}|xox[abprs]-[A-Za-z0-9-]{6,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{15,}\.|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(password|passwd|secret|token|api[_-]?key|bearer|authorization)[[:space:]]*[:=]|://[^/[:space:]]*:[^/[:space:]]*@' "$2"; then
+    pl_die "status block refused: it holds a local path, a secret or a personal address"
+  fi
+}
+# pl_status_comment ID BLOCK-FILE: the text of the tracker comment (marker first, so it can be found again)
+pl_status_comment() { pl_status_marker "$1"; printf '**Proofline status**\n\n'; cat "$2"; }

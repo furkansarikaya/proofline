@@ -6,6 +6,7 @@
 #   github.sh verify   <GH-N> <receipt>       exit 0 iff the comment carrying that hash is still on the issue
 #   github.sh followup <GH-N> <waiver-file>   gh issue create; prints the new issue URL
 #   github.sh status   <GH-N> <backlog|todo|in-progress|done>   swaps the proofline:<state> label
+#   github.sh statusblock <GH-N> <block-file>  creates or edits in place the ONE proofline status comment (found by its marker)
 #
 # Only the `gh` CLI is used (gh issue view --json, comment, edit --add-label/--remove-label, create). No token is
 # read, stored or logged here: authentication is gh's own. The task ID of a run is GH-<issue number>; the
@@ -19,7 +20,7 @@ pl_name='github adapter'
 . "$here/_lib.sh"
 
 op=${1:-}
-case "$op" in import|publish|verify|followup|status) ;; *) pl_usage 'github.sh <import|publish|verify|followup|status> ...' ;; esac
+case "$op" in import|publish|verify|followup|status|statusblock) ;; *) pl_usage 'github.sh <import|publish|verify|followup|status|statusblock> ...' ;; esac
 
 gh_ready() {
   command -v gh >/dev/null 2>&1 || pl_die "the gh CLI is not installed (https://cli.github.com); nothing was changed"
@@ -107,6 +108,20 @@ case "$op" in
     gh_ready
     title=$(sed -n 's/^# //p' "$wf" | head -1); [ -n "$title" ] || title="Follow-up of $2"
     ghr issue create --title "$title" --body-file "$wf" || pl_die "could not create the follow-up issue"
+    ;;
+  statusblock)
+    [ $# -eq 3 ] || pl_usage 'github.sh statusblock <GH-N> <block-file>'
+    gh_id "$2"; n=$gn; pl_status_check "$2" "$3"
+    gh_ready
+    body=$(mktemp "${TMPDIR:-/tmp}/gh-status.XXXXXX"); pl_status_comment "$2" "$3" > "$body"
+    # the marker is the first line of our comment: the newest comment that starts with it is edited in place; comment anew only when there is none
+    prev=$(ghr issue view "$n" --json comments --jq "[.comments[] | select(.body | startswith(\"<!-- proofline:status:$2 -->\"))] | last | .url // empty" 2>/dev/null || true)
+    cid=${prev##*#issuecomment-}
+    case "$cid" in ''|*[!0-9]*) cid='' ;; esac
+    slug=${gh_repo:-'{owner}/{repo}'}
+    if [ -n "$cid" ] && gh api -X PATCH "repos/$slug/issues/comments/$cid" -F "body=@$body" >/dev/null 2>&1; then :
+    elif ! ghr issue comment "$n" --body-file "$body" >/dev/null; then rm -f "$body"; pl_die "could not comment on issue $n"; fi
+    rm -f "$body"
     ;;
   status)
     [ $# -eq 3 ] || pl_usage 'github.sh status <GH-N> <backlog|todo|in-progress|done>'

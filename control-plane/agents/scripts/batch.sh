@@ -424,7 +424,8 @@ next_report() {
   awake_line
   nr_wait=''; nr_wait=$(claim_owner) || :
   printf '%s | %s | %s | %s\n' task state detail 'pending question'
-  printf '%s\n' "$nr_rows" | awk -F'\t' '{ printf "%s | %s | %s | %s\n", $1, $2, ($3 == "" ? "-" : $3), ($4 == "" ? "-" : $4) }'
+  # A202: a parked task is written PARKED (not "parked", not a running state) and the reason leads its detail; the pending question stays last
+  printf '%s\n' "$nr_rows" | awk -F'\t' '{ printf "%s | %s | %s | %s\n", $1, ($2 == "parked" ? "PARKED" : $2), ($3 == "" ? "-" : $3), ($4 == "" ? "-" : $4) }'
   nr_ci=$(ci_pending) || nr_ci=''
   nr_open=$(printf '%s\n' "$nr_rows" | awk -F'\t' '$2 == "open" { print $1 "\t" $3; exit }')
   if [ -n "$nr_wait" ]; then
@@ -526,7 +527,7 @@ status() {
   awake_line
   printf '\n%s | %s | %s | %s | %s | %s\n' task result PR merge 'park reason' 'pending question'
   derive | while IFS="$(printf '\t')" read -r st_id st_s st_d st_q st_p st_t; do
-    case "$st_s" in open|waiting) st_s=pending; st_d='' ;; esac
+    case "$st_s" in open|waiting) st_s=pending; st_d='' ;; parked) st_s=PARKED ;; esac   # A202: a parked task never reads like a running or pending one
     [ -z "$st_t" ] || st_t=$(fmt_ts "$st_t")
     printf '%s | %s | %s | %s | %s | %s\n' "$st_id" "$st_s" "${st_p:--}" "${st_t:--}" "${st_d:--}" "${st_q:--}"
   done
@@ -611,6 +612,9 @@ park() { # ID REASON | ID --clear
   { if [ -f "$bd/state.tsv" ]; then awk -F'\t' -v t="$pk_id" '$1 != t' "$bd/state.tsv"; fi
     [ "$pk_r" = --clear ] || printf '%s\tparked\t%s\t\n' "$pk_id" "$(tsv "$pk_r")"; } > "$bd/state.tsv.tmp" && mv "$bd/state.tsv.tmp" "$bd/state.tsv"
   if [ "$pk_r" = --clear ]; then echo "batch: $pk_id is no longer parked by the lead"; else echo "batch: $pk_id parked: $pk_r"; fi
+  # A202: the task's one status block shows the park (or its end); best effort, the park itself is already recorded
+  if [ "$pk_r" = --clear ]; then pk_ev=unparked; else pk_ev=parked; fi
+  sh "$agent" status-block "$pk_id" "$pk_ev" >/dev/null 2>&1 || echo "batch: note: the status block of $pk_id was not updated" >&2
 }
 
 case "${1:-}" in
