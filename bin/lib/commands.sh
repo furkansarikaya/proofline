@@ -56,7 +56,12 @@ cm_propose() {
 cm_apply() {
   cm_d=$(cm_dir)
   [ -s "$cm_d/PROPOSAL.tsv" ] || die "doctor --apply-commands: no commands proposal (run: proofline doctor --commands)"
-  sh "$ROOT/.agents/scripts/agent.sh" commands-check || die "doctor --apply-commands: the user has not agreed to this proposal yet; ask the one question and wait for the reply"
+  cm_chk=$(sh "$ROOT/.agents/scripts/agent.sh" commands-check) || die "doctor --apply-commands: the user has not agreed to this proposal yet; ask the one question and wait for the reply"
+  # the approval is used up before anything is written: a replay of the same proposal needs a new request and a new reply. A user approval
+  # that cannot be consumed refuses the apply; a batch-covered proposal has no commands approval to consume.
+  case "$cm_chk" in
+    *'approved by the user'*) sh "$ROOT/.agents/scripts/agent.sh" approval-consume - commands >/dev/null || die "doctor --apply-commands: the commands approval could not be consumed, so nothing was written" ;;
+  esac
   for cm_k in build test lint; do
     cm_v=$(awk -F'\t' -v k="$cm_k" '!/^#/ && $1 == k { print $2 }' "$cm_d/PROPOSAL.tsv")
     [ -n "$cm_v" ] || continue
@@ -64,8 +69,6 @@ cm_apply() {
     cfg_set "$ROOT/.agents/config.yaml" "commands.$cm_k" "$cm_v" || die "config key not set: commands.$cm_k"
     say "wrote commands.$cm_k: $(printf '%s' "$cm_v" | tr '\n' ';')"
   done
-  # the approval is used up here: a replay of the same proposal needs a new request and a new reply (a batch-covered proposal has none to consume)
-  sh "$ROOT/.agents/scripts/agent.sh" approval-consume - commands >/dev/null 2>&1 || :
   mv "$cm_d/PROPOSAL.tsv" "$cm_d/applied-$(date +%s).tsv"
   (cd "$ROOT" && sh .agents/scripts/agent.sh config-check) || die "the written commands do not pass agent.sh config-check; fix .agents/config.yaml"
 }

@@ -1286,6 +1286,14 @@ mg_ref() {
   case "$mr" in *'$'*|*'`'*) return 0 ;; esac
   mg_isprot "$mr"
 }
+# mg_chain_switch WHAT: the command text also checks out / switches to a protected branch (`git checkout main && git reset ...`):
+# mg_cur is read once before the chain, so the branch the chain moves to is looked for in the text (as the merge arm does).
+mg_chain_switch() {
+  mg_alt=$(printf '%s' "$mg_prot" | tr -s ' ' '|' | sed 's/^|//; s/|$//')
+  [ -n "$mg_alt" ] || return 0
+  ! printf '%s' "$cmd" | grep -Eq "(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?($mg_alt)([[:space:]]|;|&|\\||\$)" \
+    || deny "$1 in a command that switches to a protected branch advances it without proofline merge: $MG_MSG"
+}
 # mg_git ARGS: the arguments of one git command, one per line. State from merge_guard: mg_cd (directory after
 # `cd`), mg_envu (an env/sudo -C, GIT_DIR, GIT_WORK_TREE made the directory unreadable).
 mg_git() {
@@ -1386,9 +1394,10 @@ mg_git() {
         [ "$mg_fl$mg_mv" = yesyes ] || return 0
       fi
       [ "$mg_dir" != @unknown ] || deny "git $mg_sub whose directory cannot be read from the command text may move a protected branch: $MG_MSG"
-      ! mg_isprot "$mg_cur" || deny "git $mg_sub while the protected branch $mg_cur is checked out advances it without proofline merge: $MG_MSG" ;;
+      ! mg_isprot "$mg_cur" || deny "git $mg_sub while the protected branch $mg_cur is checked out advances it without proofline merge: $MG_MSG"
+      mg_chain_switch "git $mg_sub" ;;
     pull)
-      for mg_a in "$@"; do case "$mg_a" in .|./|..|../*|/*) ! mg_isprot "$mg_cur" || deny "git pull from a local path onto the protected branch $mg_cur merges a task branch without proofline merge: $MG_MSG" ;; esac; done ;;
+      for mg_a in "$@"; do case "$mg_a" in .|./|..|../*|/*) ! mg_isprot "$mg_cur" || deny "git pull from a local path onto the protected branch $mg_cur merges a task branch without proofline merge: $MG_MSG"; mg_chain_switch "git pull from a local path" ;; esac; done ;;
   esac
   return 0
 }

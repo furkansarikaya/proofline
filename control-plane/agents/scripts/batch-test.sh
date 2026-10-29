@@ -845,6 +845,14 @@ sc_preflight() {
   printf 'Q1 no problem, split it\nQ2 a\n' > .agents/local/prompts/history/$((now + 1))-bbbb9999.txt
   A batch-answer >/dev/null || die "batch-answer on the ambiguous Q1 message: $(A batch-answer 2>&1)"
   [ "$(A batch-answers P-1 | grep -c 'Q1 ')" = "$q1_before" ] || die "'Q1 no problem, split it' was read as an answer to Q1: $(A batch-answers P-1)"
+  # "bölmek" / "bölmeli" say to split: never option b (do not split); only the bare imperative "bölme" does
+  q1_before=$(A batch-answers P-1 | grep -c 'Q1 ')
+  printf 'Q1 bölmeli\nQ2 a\n' > .agents/local/prompts/history/$((now + 1))-bbbb9998.txt
+  A batch-answer >/dev/null || die "batch-answer on the bölmeli message: $(A batch-answer 2>&1)"
+  [ "$(A batch-answers P-1 | grep -c 'Q1 ')" = "$q1_before" ] || die "'Q1 bölmeli' was read as an answer to Q1: $(A batch-answers P-1)"
+  printf 'Q1 bölmek lazım\nQ2 a\n' > .agents/local/prompts/history/$((now + 1))-bbbb9997.txt
+  A batch-answer >/dev/null || die "batch-answer on the bölmek message"
+  [ "$(A batch-answers P-1 | grep -c 'Q1 ')" = "$q1_before" ] || die "'Q1 bölmek lazım' was read as an answer to Q1: $(A batch-answers P-1)"
   # the same message is used once; a later "all recommended" fills what is open and a later message corrects an answer
   printf 'all recommended\n' > .agents/local/prompts/history/$((now + 2))-cccc3333.txt; A batch-answer >/dev/null || die "all recommended"
   [ "$(A batch-answers P-1 | grep -c 'Q1 ')" -ge 2 ] || die "all recommended did not answer"
