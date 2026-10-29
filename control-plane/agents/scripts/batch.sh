@@ -489,7 +489,10 @@ answer_cmd() {
       if [ -z "$an_l" ]; then
         case "$qkind" in
           split)
-            if printf '%s' "$an_t" | grep -Eq 'proceed without splitting|do not split|dont split|don.t split|no split|bölme|bolme|bölmeden|bolmeden|^(no|hayır|hayir)([^a-z]|$)'; then an_l=b
+            if printf '%s' "$an_t" | grep -Eq 'proceed without splitting|do not split|dont split|don.t split|no split|bölme|bolme|bölmeden|bolmeden'; then an_l=b
+            elif printf '%s' "$an_t" | grep -Eq '^(no|hayır|hayir)([^a-z]|$)'; then
+              # a leading "no" that also says to split ("no problem, split it") is ambiguous: left unanswered, asked again at freeze
+              if printf '%s' "$an_t" | grep -Eq '(^|[^a-z])(split|böl|bol)'; then an_l=''; else an_l=b; fi
             elif printf '%s' "$an_t" | grep -Eq '(^|[^a-z])(split|böl|bol|yes|evet|recommended|önerilen|onerilen)([^a-z]|$)' && ! printf '%s' "$an_t" | grep -Eq "$neg_re"; then an_l=a; fi ;;
           *)
             if printf '%s' "$an_t" | grep -Eq '^(recommended|your recommendation|önerilen|onerilen|yes|evet|ok|okay|keep)([^a-z]|$)' && ! printf '%s' "$an_t" | grep -Eq "$neg_re"; then an_l=$qrec; fi ;;

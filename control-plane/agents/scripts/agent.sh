@@ -2975,7 +2975,7 @@ gate_bound_after_refreeze() { # ID RECORD
   gba_d=$(run_dir "$1")
   for gba_k in task evidence plan; do [ "$(gate_field "$2" "${gba_k}_sha256")" = "$(section_value "$gba_d" freeze "${gba_k}_sha256")" ] || return 1; done
   [ "$(gate_field "$2" result)" = pass ] || return 1
-  case "$(gate_field "$2" gate)" in SECRETS|SECURITY|REVIEW_RULES|REVIEW_DATA) return 0 ;; *) return 1 ;; esac
+  case "$(gate_field "$2" gate)" in SECRETS|SECURITY) return 0 ;; *) return 1 ;; esac
 }
 # Structural validity: task, frozen contract, policy and pipeline, manifest, author role and the bound artifact.
 valid_gate_file() {
@@ -3064,7 +3064,24 @@ focus_untouched() { # ID RECORD FOCUS MODE NOW
 # runs again: SECRETS, REVIEW_SMALL (it reads tests), REVIEW_TESTS, QA and VERIFY always; any changed product code, dependency or
 # configuration path (not a test path) reruns every gate; an empty or undeterminable delta, a missing tree or a failed diff reruns.
 # Safe side = run. A fail, pass_low or unsupported record is never carried.
-test_path_globs='**/test/** **/tests/** **/__tests__/** **/spec/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'
+test_path_globs='**/test/** **/tests/** **/__tests__/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'
+# A path counts as a test only when it matches a test glob, has a code extension and is not a manifest, lockfile, env file,
+# configuration or contract file (a file under tests/ that configures the build or the runtime is product input). Unknown -> no.
+test_code_path() { # PATH
+  tcp_b=${1##*/}
+  path_matches "$1" "$test_path_globs" || return 1
+  # the ecosystem data (manifests, locks, settings, risky paths) and the project's own risky_paths decide what is a dependency or build input
+  # shellcheck disable=SC2086 # globs without whitespace
+  ! path_matches "$1" "$eco_risky_set $(cfg review.risky_paths '')" || return 1
+  case "$tcp_b" in
+    *lock*|.env*|*.env|Dockerfile*|docker-compose*|compose.*|Makefile|*config*|*.conf|*.cfg|*.ini|*.toml|*require*|*constrain*|*depend*|openapi*|swagger*|*.proto|*.graphql|*.gql|*.sql|*.json|*.yaml|*.yml|*.xml|*.properties|.*rc) return 1 ;;
+  esac
+  case "$tcp_b" in
+    *.js|*.jsx|*.mjs|*.cjs|*.ts|*.tsx|*.py|*.go|*.rs|*.java|*.kt|*.rb|*.php|*.cs|*.swift|*.sh|*.scala|*.ex|*.exs) return 0 ;;
+    *_test.*|*.test.*|*.spec.*|test_*.*|*Test.*|*Tests.*) return 0 ;;   # a test by its own name (not a config/contract name: denied above)
+  esac
+  return 1
+}
 security_test_words='auth|login|logout|passw|credential|secret|token|session|cookie|csrf|xss|cors|permission|privilege|role|acl|rbac|admin|oauth|jwt|saml|sanitiz|escap|inject|validat|crypt|hash|signature|signing|tls|ssl|cert|owner|tenant|forbidden|unauthori|denied|allowlist|whitelist|blocklist|ssrf|traversal|redirect|upload|rate.?limit|csp|header'
 gate_inputs_unchanged() { # ID RECORD GATE MODE NOW
   [ "$4" != strict ] || return 1
@@ -3072,7 +3089,7 @@ gate_inputs_unchanged() { # ID RECORD GATE MODE NOW
   [ "$(gate_field "$2" result)" = pass ] || return 1
   giu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
   [ -n "$giu_delta" ] || return 1
-  for giu_p in $giu_delta; do path_matches "$giu_p" "$test_path_globs" || return 1; done
+  for giu_p in $giu_delta; do test_code_path "$giu_p" || return 1; done
   giu_rec=$(gate_field "$2" fingerprint); giu_cur=$5
   if [ "$4" = reuse ]; then
     giu_tree=$(git -C "$root" diff-tree -r --name-only "$giu_rec" "$giu_cur" 2>/dev/null) || return 1
@@ -3316,7 +3333,7 @@ EOF
 # A200 (item 9): a blocking row about the visual evidence report (missing, or a criterion without it). Neither the plan nor the
 # implementer answers it: the QA visual focus produces reviews/visual-proof/report.json, then the verifier reads it.
 visual_row_text() { # TEXT
-  printf '%s\n' "$1" | grep -Eiq 'visual-proof|visual evidence|visual report|report\.json'
+  printf '%s\n' "$1" | grep -Fiq 'reviews/visual-proof/'
 }
 finding_visual_rows() { # GATE_FILE
   fvr_n=0
@@ -3637,7 +3654,20 @@ record_visual_check() { # ID RESULT
   command -v node >/dev/null 2>&1 || { record_reject "visual PASS cannot be checked: node is not installed, so report.json cannot be read (submit UNSUPPORTED with the reason, or BLOCKED)"; return 1; }
   rvc_r=$(node -e 'try{const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(r.result||""))}catch(e){}' "$rvc_d/report.json" 2>/dev/null)
   [ "$rvc_r" = PASS ] || { record_reject "visual PASS contradicts reviews/visual-proof/report.json (RESULT: ${rvc_r:-unreadable}): a report that is FAIL or INCONCLUSIVE is never a gate PASS (submit FAIL with its blocking rows, or UNSUPPORTED for INCONCLUSIVE)"; return 1; }
-  [ -f "$rvc_d/lint.json" ] || return 0
+  # A200 review: lint.json is written by the QA agent, so the record reruns the lint itself (the same call the QA step makes, with the
+  # approved rationales) and refuses the PASS on a blocking finding. A missing lint script or node refuses; the fresh lint replaces the file.
+  rvc_s=$root/.agents/skills/visual-proof/scripts/lint-source.mjs
+  [ -f "$rvc_s" ] || { record_reject "visual PASS cannot be checked: .agents/skills/visual-proof/scripts/lint-source.mjs is missing, so the source lint cannot be rerun (install the visual-proof skill, or submit UNSUPPORTED with the reason)"; return 1; }
+  rvc_o=$(mktemp -d "${TMPDIR:-/tmp}/proofline-lint.XXXXXX"); rvc_ap=$rvc_o/approved.json
+  design_rationales "$1" --json > "$rvc_ap" 2>/dev/null || printf '{"approved": {}}\n' > "$rvc_ap"
+  if ! (cd "$root" && node "$rvc_s" --root "$root" --approved-rationales "$rvc_ap" --out "$rvc_o") >"$rvc_o/run.log" 2>&1 || [ ! -f "$rvc_o/lint.json" ]; then
+    rvc_e=$(head -c 300 "$rvc_o/run.log" | tr '\n' ' '); rm -rf "$rvc_o"; record_reject "visual PASS: lint-source.mjs could not run on the project, so the PASS cannot be checked ($rvc_e); fix the cause, or submit UNSUPPORTED/BLOCKED with the reason"; return 1
+  fi
+  rvc_nb=$(node -e 'try{const l=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String((l.findings||[]).filter(f=>f.severity==="blocking").length))}catch(e){process.stdout.write("UNREADABLE")}' "$rvc_o/lint.json" 2>/dev/null)
+  case "$rvc_nb" in ''|*[!0-9]*) rm -rf "$rvc_o"; record_reject "visual PASS: the source lint result is unreadable"; return 1 ;; esac
+  if [ "$rvc_nb" -gt 0 ]; then rm -rf "$rvc_o"; record_reject "visual PASS refused: the source lint (lint-source.mjs, rerun by this record) has $rvc_nb blocking finding(s); fix them or leave the gate FAIL (a justified pattern needs the user's rationale approval)"; return 1; fi
+  cp "$rvc_o/lint.json" "$rvc_d/lint.json" 2>/dev/null || :
+  rm -rf "$rvc_o"
   rvc_j=$(node -e 'try{const l=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const seen=new Set();for(const f of l.findings||[]){if(f.justified===true&&!seen.has(f.id)){seen.add(f.id);process.stdout.write(f.id+"\t"+String(f.reason||"")+"\t"+String(l.design_md||"")+"\n")}}}catch(e){process.stdout.write("UNREADABLE\n")}' "$rvc_d/lint.json" 2>/dev/null)
   [ "$rvc_j" != UNREADABLE ] || { record_reject "visual PASS: reviews/visual-proof/lint.json is unreadable"; return 1; }
   rvc_tab=$(printf '\t')
@@ -4743,7 +4773,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands) return 0 ;;
     waive:*|rule:*|reopen:*|rationale:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -4752,8 +4782,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
   case "$2" in
@@ -4818,6 +4848,7 @@ approval_bound() { # ID KIND
     commit|push|pr|merge|cleanup) if [ -n "$ab_fp" ]; then printf '%s\n' "$ab_fp"; else content_fingerprint; fi ;;
     report) hash_file "$(shared_dir friction)/latest.md" ;;
     batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
+    commands) hash_file "$(shared_dir commands)/PROPOSAL.tsv" ;;   # A200 review: the proposal's own sha256
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     rationale:*) rationale_bound "${2#rationale:}" ;;
@@ -4926,6 +4957,7 @@ approval_sentences() {
     mutation_budget) as_en='the mutation budget'; as_tr='mutasyon bütçesini|mutasyon butcesini' ;;
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
     cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
+    commands) as_en='the commands'; as_tr='komutları|komutlari' ;;
     report) as_en='the friction report'; as_tr='sürtünme raporunu|surtunme raporunu' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
     push) as_en='the push'; as_tr="push'u" ;;
@@ -5141,6 +5173,7 @@ request_approval() {
     # opens a database): the user's question says how much data the step destroys.
     rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
+  [ "$rq_kind" != commands ] || rq_rows=$(awk -F'\t' '!/^#/ { print "   commands." $1 ": " $2 }' "$(shared_dir commands)/PROPOSAL.tsv" 2>/dev/null)
   case "$rq_kind" in rationale:*) rq_rows="   rationale line of DESIGN.md: $(rationale_line "${rq_kind#rationale:}")" ;; esac
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
   if [ "$rq_kind" = batch ]; then printf 'QUESTIONS:\n1. Approve the night batch shown above (batch %s)?\n' "$(printf '%s' "$rq_bound" | cut -c1-12)"
@@ -5167,6 +5200,7 @@ approval_why() { # KIND BOUND [tr]
       rule:*) echo "kanıttan çıkan ders proje kuralı olur: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
       rationale:*) echo 'DESIGN.md gerekçesi yalnızca sizin onayınızla bir desen bulgusunu engelleyici olmaktan çıkarır; ajanın yazdığı gerekçe bulguyu geçirmez' ;;
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
+      commands) echo 'boş commands.build|test|lint anahtarları için önerilen komutlar yalnızca sizin onayınızla .agents/config.yaml dosyasına yazılır' ;;
       batch) echo 'gece modu: bu tek özet, listelenen görevlerin plan, teslimat ve mutasyon bütçesi onaylarının yerine geçer; başka hiçbir şeyin yerine geçmez' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
     esac
@@ -5185,6 +5219,7 @@ approval_why() { # KIND BOUND [tr]
     rule:*) echo "a lesson from run evidence becomes a project rule: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
     rationale:*) echo 'a DESIGN.md pattern rationale downgrades a design finding from blocking to info only with your approval; a rationale an agent wrote does not pass the finding' ;;
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
+    commands) echo 'the proposed commands.build|test|lint are written into .agents/config.yaml only with your approval' ;;
     batch) echo 'night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
   esac
@@ -5318,13 +5353,11 @@ commands_check() {
   cc_f=$(shared_dir commands)/PROPOSAL.tsv; [ -s "$cc_f" ] || fail "no commands proposal (proofline doctor --commands)"
   cc_h=$(hash_file "$cc_f" | cut -c1-12)
   if batch_approval >/dev/null 2>&1 && grep -qx "commands proposal: $cc_h" "$(batch_dir)/SUMMARY.md" 2>/dev/null; then echo "commands $cc_h: covered by the batch approval"; return 0; fi
-  cc_at=$(sed -n 's/^#proposed_at[[:space:]]*//p' "$cc_f" | head -1)
-  cc_c=$(latest_capture 2>/dev/null) || fail "the user has not answered the commands question"
-  cc_t=$(capture_field "$cc_c" time 2>/dev/null) || fail "the user has not answered the commands question"
-  [ "$cc_t" -ge "${cc_at:-0}" ] 2>/dev/null || fail "the user's newest message is older than the proposal"
-  cc_x=$(mktemp "${TMPDIR:-/tmp}/proofline-commands.XXXXXX"); capture_field "$cc_c" text > "$cc_x" 2>/dev/null || :
-  if [ "$(hash_file "$cc_x")" = "$(capture_field "$cc_c" sha256 2>/dev/null || true)" ] && text_has_approval "$cc_x" commands; then rm -f "$cc_x"; echo "commands $cc_h: approved by the user"; return 0; fi
-  rm -f "$cc_x"; fail "the user's newest message does not approve the commands (the reply is \"approve commands\")"
+  # A normal approval of the kind `commands`, bound to the sha256 of this proposal (a changed, replayed or forged proposal has no
+  # approval), recorded by `approve` on the user's own prompt after the request, and consumed on apply (agent.sh approval-consume - commands).
+  # Nothing here reads the proposal's own text for a time: the request's requested_at is the ledger time.
+  find_approval - commands "$(hash_file "$cc_f")" >/dev/null || fail "the user's newest message does not approve the commands: no unconsumed commands approval is bound to this proposal (ask: agent.sh request-approval - commands, relay it; the reply \"approve commands\" records the approval)"
+  echo "commands $cc_h: approved by the user"
 }
 batch_plan() {
   require_lead; mkdir -p "$agents/local"
@@ -6597,10 +6630,10 @@ archive_run() {
   (umask 077; tar -czf "$ar_f" -C "$(dirname "$ar_dir")" "$(basename "$ar_dir")") 2>/dev/null && tar -tzf "$ar_f" >/dev/null 2>&1 || { rm -f "$ar_f"; fail "could not archive the records of $ar_id into $ar_root/$ar_id; the run is kept (set archive.keep: 0 to skip the archive)"; }
   # keep the newest archive.keep run folders (by last write), whichever task they belong to
   ar_n=0
-  for ar_d in $(ls -1t "$ar_root" 2>/dev/null); do
+  ls -1t "$ar_root" 2>/dev/null | while IFS= read -r ar_d; do
     ar_n=$((ar_n + 1)); [ "$ar_n" -gt "$ar_keep" ] || continue
     case "$ar_d" in *[!A-Za-z0-9._-]*|''|.|..) continue ;; esac
-    [ -d "$ar_root/$ar_d" ] && [ ! -L "$ar_root/$ar_d" ] && rm -rf "${ar_root:?}/$ar_d"
+    if [ -d "$ar_root/$ar_d" ] && [ ! -L "$ar_root/$ar_d" ]; then rm -rf "${ar_root:?}/$ar_d"; fi
   done
   echo "evidence archived: .agents/local/archive/$ar_id/${ar_f##*/} (the newest $ar_keep runs are kept)"
 }

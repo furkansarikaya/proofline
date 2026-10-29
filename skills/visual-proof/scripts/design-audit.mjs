@@ -590,6 +590,10 @@ export const DESIGN_PROBE = `(${designProbeSource.toString()})`;
 // (critique[], ux_review[]) of the screenshots. A page whose content did not change since the last report keeps its judged
 // items; a changed, new or unmeasured page is judged again. Page content = the sha256 of every screenshot of the page (all its
 // viewports) plus the visitor mode: a different pixel, viewport set or mode is a different key, and the safe side is "changed".
+// The judgment also depends on what it was judged against: the sha256 of the project's DESIGN.md and of the ux-rules.json registry
+// (design.inputs {design_md_sha256, ux_rules_sha256}, written by measure.mjs: this file has no imports). A different DESIGN.md or registry is a different key for every page; a report without
+// inputs keys differently from one with them (the safe side: judged again).
+const inputsKey = (design) => (design?.inputs ? `${design.inputs.design_md_sha256}/${design.inputs.ux_rules_sha256}` : "no-inputs");
 export function pageContentKeys(design) {
   const keys = {};
   if (!design || design.status !== "run") return keys;
@@ -604,7 +608,7 @@ export function pageContentKeys(design) {
     const parts = (by[pg.screen] || []).sort();
     const want = pg.static ? DESIGN_VIEWPORTS.length : 1;
     if (parts.length !== want) continue; // a page missing a viewport has no key: it is judged again
-    keys[pg.screen] = `${design.mode}|${parts.join(",")}`;
+    keys[pg.screen] = `${design.mode}|${inputsKey(design)}|${parts.join(",")}`;
   }
   return keys;
 }

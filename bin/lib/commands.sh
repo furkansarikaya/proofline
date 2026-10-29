@@ -34,9 +34,9 @@ cm_propose() {
   say "proving the discovered commands, one run each..."
   verify_commands "$ROOT"
   cm_t=$(mktemp "${TMPDIR:-/tmp}/proofline-commands.XXXXXX")
-  printf '#proposed_at\t%s\n' "$(date +%s)" > "$cm_t"
+  : > "$cm_t"   # no time is written into the proposal: freshness is the approval request's own requested_at (A200 review)
   for cm_k in $cm_e; do printf '%s\n' "$(d_cur "$cm_k")" | sed '/^$/d' | while IFS= read -r cm_c; do printf '%s\t%s\n' "$cm_k" "$cm_c"; done; done >> "$cm_t"
-  if [ "$(wc -l < "$cm_t" | tr -d ' ')" -le 1 ]; then
+  if [ "$(wc -l < "$cm_t" | tr -d ' ')" -eq 0 ]; then
     rm -f "$cm_t" "$cm_d/PROPOSAL.tsv"
     say "commands: none of the discovered commands could be proven (a failed trial run is not written): fix the project's build, or set commands.* by hand"
     return 0
@@ -47,6 +47,8 @@ cm_propose() {
   say "commands proposal $cm_h (each command ran once and passed):"
   awk -F'\t' '!/^#/ { print "  commands." $1 ": " $2 }' "$cm_d/PROPOSAL.tsv" | while IFS= read -r cm_l; do say "$cm_l"; done
   say "QUESTION (one): write these into .agents/config.yaml? Reply \"approve commands\". Nothing is written without your reply."
+  # the question is also a normal approval request of the kind `commands`, bound to the sha256 of this file; the user's reply records it
+  sh "$ROOT/.agents/scripts/agent.sh" request-approval - commands || say "(the approval request could not be recorded: run agent.sh request-approval - commands)"
   say "  in a night batch the summary names this proposal and your batch approval covers it (A200); then: proofline doctor --apply-commands"
 }
 
@@ -62,6 +64,8 @@ cm_apply() {
     cfg_set "$ROOT/.agents/config.yaml" "commands.$cm_k" "$cm_v" || die "config key not set: commands.$cm_k"
     say "wrote commands.$cm_k: $(printf '%s' "$cm_v" | tr '\n' ';')"
   done
+  # the approval is used up here: a replay of the same proposal needs a new request and a new reply (a batch-covered proposal has none to consume)
+  sh "$ROOT/.agents/scripts/agent.sh" approval-consume - commands >/dev/null 2>&1 || :
   mv "$cm_d/PROPOSAL.tsv" "$cm_d/applied-$(date +%s).tsv"
   (cd "$ROOT" && sh .agents/scripts/agent.sh config-check) || die "the written commands do not pass agent.sh config-check; fix .agents/config.yaml"
 }

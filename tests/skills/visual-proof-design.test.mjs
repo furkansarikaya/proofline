@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { validateReport, CORE, loadUxRules } from "../../skills/visual-proof/scripts/validate-visual.mjs";
-import { assemble, detect, asciiConfig } from "../../skills/visual-proof/scripts/measure.mjs";
+import { assemble, detect, asciiConfig, designCacheInputs } from "../../skills/visual-proof/scripts/measure.mjs";
 import { evaluateStatic, asciiTurkishWords, untranslatedBlocks, vacuumOf, designHolds, designThresholdError, CRITIQUE_IDS } from "../../skills/visual-proof/scripts/design-audit.mjs";
 import { decideMotionCount, decideReducedMotion, decideNoScript, decideSceneStarted, sceneRange } from "../../skills/visual-proof/scripts/motion-audit.mjs";
 import { parseLedger, ledgerItems } from "../../skills/visual-proof/scripts/ledger.mjs";
@@ -244,4 +244,16 @@ test("A200: the design-audit cache reuses judged items only for pages whose scre
   assert.deepEqual(r.pages_to_judge, ["about"]);
   assert.deepEqual(reusableJudgments(null, cur).critique, [], "no previous report: nothing reused");
   assert.deepEqual(reusableJudgments({ ...prev, design: { ...prev.design, mode: "read" } }, cur).critique, [], "another mode: nothing reused");
+});
+
+test("A200 review: the design-audit cache key includes the DESIGN.md hash and the ux-rules registry hash", () => {
+  const shots = (screen, h) => ["wide", "tablet", "phone390"].map((viewport) => ({ screen, viewport, screenshot: { path: `screenshots/${screen}-${viewport}.png`, sha256: `${h}${viewport}` } }));
+  const design = (inputs) => ({ status: "run", mode: "persuade", inputs, pages: [{ screen: "home", status: "measured", static: true }], screenshots: shots("home", "a") });
+  const base = { design_md_sha256: "d1", ux_rules_sha256: "u1" };
+  const report = (inputs) => ({ design: design(inputs), critique: [{ id: "squint", status: "ok", reason: "r", screenshot: { path: "old/home.png", sha256: "awide" } }] });
+  assert.deepEqual(reusableJudgments(report(base), report(base)).critique.map((c) => c.id), ["squint"], "same pixels, same inputs: reused");
+  assert.deepEqual(reusableJudgments(report(base), report({ ...base, design_md_sha256: "d2" })).critique, [], "another DESIGN.md: judged again");
+  assert.deepEqual(reusableJudgments(report(base), report({ ...base, ux_rules_sha256: "u2" })).critique, [], "another ux-rules registry: judged again");
+  assert.deepEqual(reusableJudgments(report(undefined), report(base)).critique, [], "a previous report without inputs is never reused");
+  assert.match(designCacheInputs(process.cwd()).ux_rules_sha256, /^[0-9a-f]{64}$/);
 });
