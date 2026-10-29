@@ -39,6 +39,16 @@ NL='
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-hook.XXXXXX") || exit 0
 trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/in"
+# A202 item 28: the user's prompt is on disk FIRST, as one small file written by one `cp`, before any parse, git call, lock or scan. A hook that
+# is stopped later (load, a slow scan, the runtime's time limit) has still kept the message; the capture below and the approval step read it again.
+hk_intake=''
+hk_intake_write() { # DIR: one cp of the raw event into DIR/.agents/local/prompts/intake (only for a prompt, only once)
+  [ "$ev" = prompt ] && [ -z "$hk_intake" ] && [ -d "$1/.agents/local" ] || return 0
+  hk_intake_d=$1/.agents/local/prompts/intake
+  { [ -d "$hk_intake_d" ] || mkdir -p "$hk_intake_d"; } 2>/dev/null && cp "$tmp/in" "$hk_intake_d/$hk_v-$$.json" 2>/dev/null && hk_intake=$hk_intake_d/$hk_v-$$.json
+  return 0
+}
+[ -z "${CLAUDE_PROJECT_DIR:-}" ] || hk_intake_write "$CLAUDE_PROJECT_DIR"
 
 jp=${PROOFLINE_JSON:-}
 if [ -z "$jp" ]; then
@@ -183,6 +193,7 @@ root=${CLAUDE_PROJECT_DIR:-}
 [ -n "$root" ] || root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || root=$cwd
 root=$(CDPATH='' cd "$root" 2>/dev/null && pwd -P) || exit 0
 agent=$root/.agents/scripts/agent.sh
+hk_intake_write "$root"   # no CLAUDE_PROJECT_DIR: the project root is known now (one git call), still before any lock or scan
 # Not installed: every event is a no-op, except the merge guard of pretool (A136), which protects any project the hook runs in.
 installed=yes; { [ -f "$root/.agents/config.yaml" ] && [ -f "$agent" ]; } || installed=no
 # A185: ONE folder per kind of state. Per-run state (ACTIVE_RUN, windows, records, submissions, baseline, hook-times, in-flight marks) lives in the
@@ -221,7 +232,25 @@ local_dir=$sroot/.agents/local
 # A200: the runtime stops a hook at 30 s, and agent.sh waits for a lock up to PROOFLINE_LOCK_TIMEOUT (default 120 s): one busy lock (a long build
 # record, a dispatch) held a prompt, stop or subagent hook for the whole 30 s. Every agent.sh this hook starts now gives up on a lock after
 # PROOFLINE_HOOK_LOCK_WAIT seconds (default 8), long before the limit; the step reports the refusal and the next `agent.sh next` retries it.
-PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT
+# A202 item 28: the three time knobs are config values (`hook.approve_budget_seconds`, `hook.next_budget_seconds`, `hook.lock_wait_seconds` in
+# .agents/config.yaml, read here without a process); the environment variables of A200 remain an undocumented override. A value outside the
+# bounds is moved to the nearest bound, a value that is not a number is the default: no setting can switch the budget off (config-check refuses it too).
+hk_cfgnum() { # KEY DEFAULT MIN MAX -> hk_cv
+  hk_cv=$2; hk_cin=no
+  [ -f "$root/.agents/config.yaml" ] || return 0
+  while IFS= read -r hk_cl || [ -n "$hk_cl" ]; do
+    case $hk_cl in 'hook:'*) hk_cin=yes; continue ;; [!\ \#]*) hk_cin=no ;; esac
+    [ "$hk_cin" = yes ] || continue
+    case $hk_cl in "  $1:"*)
+      hk_cv=${hk_cl#*:}; hk_cv=${hk_cv%%#*}; hk_cv=$(printf '%s' "$hk_cv" | tr -d ' \t"')
+      case $hk_cv in ''|*[!0-9]*) hk_cv=$2 ;; *) [ "$hk_cv" -ge "$3" ] || hk_cv=$3; [ "$hk_cv" -le "$4" ] || hk_cv=$4 ;; esac ;;
+    esac
+  done < "$root/.agents/config.yaml"
+}
+hk_cfgnum lock_wait_seconds 8 1 20; hk_lock_wait=${PROOFLINE_HOOK_LOCK_WAIT:-$hk_cv}
+hk_cfgnum approve_budget_seconds 20 5 25; hk_approve_budget=${PROOFLINE_HOOK_APPROVE_BUDGET:-$hk_cv}
+hk_cfgnum next_budget_seconds 10 2 20; hk_next_budget=${PROOFLINE_HOOK_NEXT_BUDGET:-$hk_cv}
+PROOFLINE_LOCK_TIMEOUT=$hk_lock_wait; export PROOFLINE_LOCK_TIMEOUT
 # once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
 # once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side
 # effects (prompt, session).
@@ -252,6 +281,18 @@ if [ -f "$local_dir/ACTIVE_RUN" ]; then
   case "$act" in '') ;; *[!A-Za-z0-9_-]*) act=INVALID ;; esac
 fi
 
+# hk_timeout_msg RUN [TREE]: what to tell the user when the approval step was stopped by the time budget (A202 item 28, 0.0.28 asked for it).
+# It looks for an approval record written from THIS very message (capture id = session:time:sha, the id `agent.sh approve` stores): found, the
+# approval IS recorded and the message says so; not found, it says in one line that it was not recorded and to send it again. The user's message
+# itself is kept (prompts/intake and the capture), so nothing the user said is lost; only the approval record needs the user's repeat.
+hk_timeout_msg() {
+  tm_t=${2:-$sroot}
+  if grep -rlF "capture_id: \"$sess:$hk_s:$h\"" "$tm_t/.agents/runs/$1/approvals" "$shared_local/approvals" >/dev/null 2>&1; then
+    printf '%s' "proofline: your approval was recorded (the approval step ran past the hook's time budget but finished writing it)."
+  else
+    printf '%s' "proofline: your approval could not be recorded, send it again (the approval step ran out of time)."
+  fi
+}
 # --- hook timings (A171) ----------------------------------------------------------------------
 # Every run leaves a line `epoch|name|ms|result|note` in .agents/local/hook-times (a plain append); a hook the runtime killed at its
 # time limit leaves an in-flight marker instead, which the next prompt or session hook turns into a `timeout` line.
@@ -2297,8 +2338,8 @@ prompt)
   req=no; for f in "$sroot/.agents/runs/$act/approvals/"[0-9][0-9][0-9]-request-*.yaml "$shared_local/approvals/"[0-9][0-9][0-9]-request-*.yaml; do [ ! -f "$f" ] || req=yes; done
   if [ "$act" != INVALID ] && [ "$req" = yes ]; then
     hk_tick; hk_a0=$hk_v; printf '%s\n' "$h" > "$shared_local/prompts/.approving-$sess"
-    ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$agent" approve-pending "$act" ) >"$tmp/ap.out" 2>&1 </dev/null &
-    ap_pid=$!; ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=0
+    ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=$hk_lock_wait; export PROOFLINE_LOCK_TIMEOUT; exec sh "$agent" approve-pending "$act" ) >"$tmp/ap.out" 2>&1 </dev/null &
+    ap_pid=$!; ap_lim=$(( $hk_approve_budget * 10 )); ap_i=0
     while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do   # A188: 0.1 s steps for the first second, then 0.5 s (a sleep is a process)
       if [ "$ap_i" -lt 10 ]; then sleep 0.1; ap_i=$((ap_i + 1)); else sleep 0.5; ap_i=$((ap_i + 5)); fi
     done
@@ -2314,8 +2355,8 @@ prompt)
       kill $ap_all 2>/dev/null || :
       { wait "$ap_pid"; } 2>/dev/null || :
       hk_tick; hk_line "$ev.approve" $(( hk_v - hk_a0 )) timeout "stopped-by-hook-budget"
-      printf '%s approval step stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${PROOFLINE_HOOK_APPROVE_BUDGET:-20}" >> "$local_dir/approve.log" 2>/dev/null || :
-      msgs="proofline: the approval step ran out of time and was stopped, so an approval in your last message may NOT be recorded; the lead retries it at the next 'agent.sh next' (details: .agents/local/approve.log)."
+      printf '%s approval step stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$hk_approve_budget" >> "$local_dir/approve.log" 2>/dev/null || :
+      msgs=$(hk_timeout_msg "$act")
     else
       wait "$ap_pid" 2>/dev/null || :
       hk_step approve "$hk_a0"
@@ -2353,13 +2394,13 @@ prompt)
   if [ -n "$wl" ] && [ "$act" != INVALID ]; then
     [ -e "$shared_local/prompts/.approving-$sess" ] || printf '%s\n' "$h" > "$shared_local/prompts/.approving-$sess"
     hk_tick; hk_a2=$hk_v; : > "$tmp/apw.all"
-    ap_lim=$(( ${PROOFLINE_HOOK_APPROVE_BUDGET:-20} * 10 )); ap_i=${ap_i:-0}
+    ap_lim=$(( $hk_approve_budget * 10 )); ap_i=${ap_i:-0}
     for wl_e in $wl; do
       wl_d=${wl_e%%|*}; wl_run=${wl_e#*|}
       wl_ok=$(sh "$agent" worktree-root "$wl_d" 2>/dev/null) || continue
       # the worktree's agent.sh is a tracked file a task could have rewritten: it runs only when it is byte-identical to the main tree's own
       [ "$wl_ok" = "$wl_d" ] && [ -f "$wl_d/.agents/scripts/agent.sh" ] && cmp -s "$wl_d/.agents/scripts/agent.sh" "$agent" || continue
-      ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT; exec sh "$wl_d/.agents/scripts/agent.sh" approve-pending "$wl_run" ) >"$tmp/apw.out" 2>&1 </dev/null &
+      ( unset AGENT_ROLE; PROOFLINE_LOCK_TIMEOUT=$hk_lock_wait; export PROOFLINE_LOCK_TIMEOUT; exec sh "$wl_d/.agents/scripts/agent.sh" approve-pending "$wl_run" ) >"$tmp/apw.out" 2>&1 </dev/null &
       ap_pid=$!
       while kill -0 "$ap_pid" 2>/dev/null && [ "$ap_i" -lt "$ap_lim" ]; do
         if [ "$ap_i" -lt 10 ]; then sleep 0.1; ap_i=$((ap_i + 1)); else sleep 0.5; ap_i=$((ap_i + 5)); fi
@@ -2375,8 +2416,8 @@ prompt)
         kill $ap_all 2>/dev/null || :
         { wait "$ap_pid"; } 2>/dev/null || :
         hk_tick; hk_line "$ev.approve" $(( hk_v - hk_a2 )) timeout "stopped-by-hook-budget"
-        printf '%s approval step of worktree run %s stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wl_run" "${PROOFLINE_HOOK_APPROVE_BUDGET:-20}" >> "$shared_local/approve.log" 2>/dev/null || :
-        msgs="${msgs:+$msgs }proofline: the approval step of run $wl_run ran out of time and was stopped, so an approval in your last message may NOT be recorded (details: .agents/local/approve.log)."
+        printf '%s approval step of worktree run %s stopped after %ss (prompt hook budget)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wl_run" "$hk_approve_budget" >> "$shared_local/approve.log" 2>/dev/null || :
+        msgs="${msgs:+$msgs }$(hk_timeout_msg "$wl_run" "$wl_d")"
         break
       fi
       wait "$ap_pid" 2>/dev/null || :
@@ -2508,7 +2549,7 @@ session)
   esac
   if [ -n "$act" ] && [ "$act" != INVALID ]; then
     # A200: bounded (PROOFLINE_HOOK_NEXT_BUDGET seconds, default 10 of the runtime's 30): the session starts at once and the lead asks `agent.sh next` itself
-    hb_rc=0; hk_budget "${PROOFLINE_HOOK_NEXT_BUDGET:-10}" "$tmp/next.out" sh "$agent" next "$act" || hb_rc=$?
+    hb_rc=0; hk_budget "$hk_next_budget" "$tmp/next.out" sh "$agent" next "$act" || hb_rc=$?
     nxt=$(sed -n 's/^next=//p' "$tmp/next.out" | awk 'BEGIN { ORS = "" } { if (NR > 1) print "; "; print }')
     [ "$hb_rc" != 124 ] || nxt="run sh .agents/scripts/agent.sh next $act (the session check did not finish within the hook's time budget)"
   else nxt="no active run: start one with the proofline-lead skill"; fi

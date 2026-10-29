@@ -367,6 +367,18 @@ batch:
   mutation_budget_cap: 40
   ci_wait_minutes: 30
   ci_appear_minutes: 10
+# Time limits of the runtime hooks (A202 item 28), for a slow machine only: they never replace the fast path, and a value outside the bounds is
+# moved to the nearest bound, so none of them can switch a check off. The runtime stops a hook at 30 s.
+#   approve_budget_seconds: how long the prompt hook waits for the approval step (5 to 25), then it says the approval was not recorded.
+#   next_budget_seconds: how long the session hook waits for `agent.sh next` (2 to 20).
+#   lock_wait_seconds: how long a hook waits for a busy lock (1 to 20). `proofline doctor` measures the approval path and warns near the budget.
+hook:
+  approve_budget_seconds: 20
+  next_budget_seconds: 10
+  lock_wait_seconds: 8
+# Files of at least this many bytes (65536 or more) are hashed once and remembered by the read-only commands (next, digest, summary).
+fingerprint:
+  cache_min_bytes: 262144
 dispatch:
   # Timeout of one specialist run in seconds (minimum 30).
   timeout_seconds: 1800

@@ -223,7 +223,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual|rules)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -302,6 +302,12 @@ config_check() {
       else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
       else if (k == "dispatch.claude_permission_mode") en(k, v, "bypassPermissions|acceptEdits|default")
       else if (k == "dispatch.network_retries") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 > 6) bad("dispatch.network_retries is at most 6") }
+      else if (k == "hook.approve_budget_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 5 || v + 0 > 25)) bad(k " must be 5 to 25 (the runtime stops a hook at 30 s)") }
+      else if (k == "hook.next_budget_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 2 || v + 0 > 20)) bad(k " must be 2 to 20") }
+      else if (k == "hook.lock_wait_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 1 || v + 0 > 20)) bad(k " must be 1 to 20") }
+      else if (top == "hook" && k != "hook") bad("unknown hook key: " k " (want hook.approve_budget_seconds, hook.next_budget_seconds or hook.lock_wait_seconds)")
+      else if (k == "fingerprint.cache_min_bytes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 65536) bad(k " must be at least 65536") }
+      else if (top == "fingerprint" && k != "fingerprint") bad("unknown fingerprint key: " k)
       else if (k == "dispatch.network_backoff_seconds") num(k, v)
       else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad("dispatch.timeout_seconds must be at least 30") }
       seen[k] = 1; gv[k] = v
@@ -504,9 +510,39 @@ fingerprint_path() {
     esac
     fail "cannot baseline symlink: $path"
   fi
-  if [ -f "$target" ]; then hash_file "$target"; return 0; fi
+  if [ -f "$target" ]; then
+    # A202 item 28: a big file is hashed once and remembered for the READ-ONLY commands (fp_fast=yes: next, digest, summary, status-block, ...).
+    # The key is path, size, mtime (ns), inode and ctime (ns); any difference is a rehash, and a platform whose stat lacks one of them hashes
+    # every time. Every command that seals or checks evidence (gate record, handoff, freeze, verify-*, delivery, approval) runs with fp_fast=no:
+    # it never reads the cache and refreshes it. The cache is a speed-up of display and hooks only, never an integrity input.
+    if [ "$fp_fast" = yes ] || [ "$fp_fast" = refresh ]; then
+      fpc_k=$(fp_cache_key "$target" "$path") || fpc_k=''
+      if [ -n "$fpc_k" ]; then
+        if [ "$fp_fast" = yes ]; then fpc_h=$(fp_cache_get "$fpc_k") || fpc_h=''; [ -z "$fpc_h" ] || { printf '%s\n' "$fpc_h"; return 0; }; fi
+        fpc_h=$(hash_file "$target"); fp_cache_put "$fpc_k" "$fpc_h"; printf '%s\n' "$fpc_h"; return 0
+      fi
+    fi
+    hash_file "$target"; return 0
+  fi
   [ ! -e "$target" ] && { printf '%s\n' missing; return 0; }
   fail "cannot baseline non-regular file: $path"
+}
+# fp_fast: no (default: always hash), yes (read-only commands: use the cache), refresh (sealing commands: hash, then store). Set by the CLI below.
+fp_fast=no
+fp_cache_file() { printf '%s/fp-cache\n' "$sr_main/.agents/local"; }
+# fp_cache_key FILE PATH: "path|size|mtime_ns|inode|ctime_ns" of a file of at least fingerprint.cache_min_bytes (config, default 262144), else nothing
+fp_cache_key() {
+  fk_min=$(cfg fingerprint.cache_min_bytes 262144); case "$fk_min" in ''|*[!0-9]*) fk_min=262144 ;; esac
+  fk_m=$(stat -c '%s|%.9Y|%i|%.9Z' "$1" 2>/dev/null) || fk_m=$(stat -f '%z|%Fm|%i|%Fc' "$1" 2>/dev/null) || return 1
+  case "$fk_m" in *[!0-9.\|]*|'') return 1 ;; esac
+  [ "${fk_m%%|*}" -ge "$fk_min" ] 2>/dev/null || return 1
+  printf '%s|%s\n' "$2" "$fk_m"
+}
+fp_cache_get() { [ -f "$(fp_cache_file)" ] || return 1; awk -F'\t' -v k="$1" '$1 == k { h = $2 } END { if (h ~ /^[0-9a-f]{64}$/) print h; else exit 1 }' "$(fp_cache_file)"; }
+fp_cache_put() {
+  mkdir -p "$sr_main/.agents/local" 2>/dev/null || return 0
+  if [ -f "$(fp_cache_file)" ] && [ "$(wc -l < "$(fp_cache_file)")" -gt 4000 ]; then tail -n 1000 "$(fp_cache_file)" > "$(fp_cache_file).t" 2>/dev/null && mv "$(fp_cache_file).t" "$(fp_cache_file)" 2>/dev/null || :; fi
+  printf '%s\t%s\n' "$1" "$2" >> "$(fp_cache_file)" 2>/dev/null || :
 }
 # A154: files `proofline init/upgrade` installs outside .agents/ are control plane, not product: the files the manifest
 # lists (agent definitions, the entry skill) and, by pattern, the agent files of both runtimes, plus the proofline block
@@ -699,7 +735,9 @@ content_fingerprint() {
       GIT_INDEX_FILE=$cf_tmp/index; export GIT_INDEX_FILE
       if [ -n "$1" ]; then GIT_OBJECT_DIRECTORY=$1; GIT_ALTERNATE_OBJECT_DIRECTORIES=$cf_objs; export GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; fi
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
-      git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
+      # A202 item 28: .agents/ is removed from this tree just below (a path a plan scope names is put back with add -f), so it is not read at all:
+      # a run folder that is not git-ignored (26 MB of screenshots in a real project) cost a hash and a zlib pass of every file, on every call
+      git -C "$root" add -A -- . ':(exclude).agents' >/dev/null 2>&1 || exit 1
       git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$cf_td" >/dev/null 2>&1
       # A171: the knowledge step writes these after the gates ran; they are documentation, so a gate does not bind them
       # (mode gate). A path a plan scope names stays in whole (put back below); approvals bind the full tree (no mode).
@@ -2409,6 +2447,12 @@ db_config() { # paths | clients | migrate_commands | all
 hook_config() {
   db_config all
   printf 'tasks_dir=%s\ncanonical_branch=%s\nproduct_dir=%s\n' "$(cfg tasks.dir '')" "$(cfg canonical_branch '')" "$(cfg product.dir '')"
+  printf 'approve_budget_seconds=%s\nnext_budget_seconds=%s\nlock_wait_seconds=%s\n' "$(hook_knob approve_budget_seconds 20 5 25)" "$(hook_knob next_budget_seconds 10 2 20)" "$(hook_knob lock_wait_seconds 8 1 20)"
+}
+# hook_knob KEY DEFAULT MIN MAX: the configured number moved into its bounds (a non-number is the default); no value can switch a budget off
+hook_knob() {
+  hn_v=$(cfg "hook.$1" "$2"); case "$hn_v" in ''|*[!0-9]*) hn_v=$2 ;; esac
+  [ "$hn_v" -ge "$3" ] || hn_v=$3; [ "$hn_v" -le "$4" ] || hn_v=$4; printf '%s\n' "$hn_v"
 }
 db_file_meta() { stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1" 2>/dev/null || echo unknown; }
 db_snapshot() { # "path|size mtime" per database file inside the project, sorted
@@ -5248,6 +5292,8 @@ approve_pending() {
     if [ "$ap_rc" = 0 ]; then echo "approved: ${ap_t#-} ${ap_ks# }: $ap_l"
     else case "$ap_o" in *"contain no approval phrase"*|*"none of the open requests"*) ;; *) echo "not recorded: ${ap_t#-} ${ap_ks# }: $ap_l" ;; esac; fi
   done
+  # A202 item 28: the hook's raw copies of the user's prompts (prompts/intake) are a safety net; those older than two days go
+  [ ! -d "$sr_main/.agents/local/prompts/intake" ] || find "$sr_main/.agents/local/prompts/intake" -type f -mtime +2 -exec rm -f {} + 2>/dev/null || :
   # the log is shared by every tree: rotate it under a lock (a rotation racing an append would lose lines); a busy lock just skips the rotation
   if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ] && mkdir "$ap_log.lock" 2>/dev/null; then
     tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; rmdir "$ap_log.lock" 2>/dev/null || :
@@ -8029,6 +8075,9 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
+# A202 item 28: read-only commands may use the big-file fingerprint cache (fp_cache_key); everything else hashes and refreshes it, so no
+# integrity check (gate record, handoff, freeze, verify-*, delivery, approval, window) ever trusts a remembered hash.
+case "$command" in next|digest|summary|status-block|next-user|status|friction|batch-status|batch-next|insights) fp_fast=yes ;; *) fp_fast=refresh ;; esac
 # A169: a run that lives in its own worktree (night mode, worktree-add) is served by that worktree's agent.sh, so `answer`, `questions`,
 # `next`, `reopen` and the rest work for it from the main working tree too (the working directory becomes the worktree; use absolute paths).
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
