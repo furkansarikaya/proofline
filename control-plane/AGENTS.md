@@ -2,8 +2,7 @@
 
 This project runs the proofline workflow: a lead classifies each task, freezes what the class requires,
 dispatches bounded specialist roles, passes the change through independent, evidence-based gates and stops
-before delivery. No evidence, no claim. This file is the boot protocol for any agent; the workflow is
-`.agents/WORKFLOW.md`. Do not restate it elsewhere.
+before delivery. No evidence, no claim. This file is the boot protocol; the workflow is `.agents/WORKFLOW.md`.
 
 ## Boot protocol
 
@@ -33,7 +32,8 @@ before delivery. No evidence, no claim. This file is the boot protocol for any a
 - Never install anything into the project. Never touch global git configuration. Stop only a process you
   started yourself, by its own PID; never `pkill`, `killall` or kill by pattern or port.
 - Run artifacts are English; product text and the user's words are quoted, never translated.
+- Before proposing or building a feature, read `.out-of-scope/README.md`: a Rejected match is not built and the
+  user is told the entry; Deferred is never a side effect. Changing one needs a user decision in
+  `docs/decisions.md`.
 
-Details, read only when they apply: other skills during a run (`.agents/WORKFLOW.md` "Sources of truth"),
-the language and quoting rule and the full process rule (lead skill, hard rules and "Language"), the Codex lead
-(`.agents/skills/proofline-lead/references/DISPATCH.md` section 5).
+Details: `.agents/WORKFLOW.md` "Sources of truth", the lead skill, its `DISPATCH.md` section 5.

@@ -50,6 +50,7 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
 - **Every new user-visible command, option or rule updates the documentation before merge** (A153): `proofline help` (`bin/proofline`), the entry skill (`skills/proofline/SKILL.md`: argument-hint and routing), the lead Commands table (`skills/proofline-lead/SKILL.md`), the README (command list, and a short explanation of a new rule) and the relevant `docs/concepts` page. The README says what proofline is and how to use it; detail goes to `docs/concepts` (`tests/shared/check-static.sh` bounds the README size). The CLI test compares `proofline help` with the entry skill, the lead table and the README command list.
 - **EXPECTED files are never loosened to fit a result.** If an expectation contradicts the design, say so in the
   pull request and let the maintainer decide; fix the product, not the answer key.
+- **Read `.out-of-scope/README.md` before proposing or implementing a feature.** A request that matches a Rejected entry is not implemented and the user is told which entry it matches; a Deferred entry is not built as a side effect of other work. Changing an entry needs a user decision recorded in [docs/decisions.md](docs/decisions.md).
 - **No file sharing between skills.** A skill is installable alone; shared rules are copied into each skill
   and checked by `tests/shared/check-shared.sh`.
 - **No organisation-specific names, rules or paths** anywhere in the repository, and no third-party project
