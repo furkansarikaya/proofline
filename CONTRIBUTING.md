@@ -8,6 +8,8 @@ on whether it keeps that property.
 Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer for the skill tests. Nothing is installed into
 the project; there is no build step.
 
+Run locally (the `CI` variable unset), `tests/selftest.sh` and `tests/affected.sh` use half of the cores (at least one) and run under `nice`, so the machine stays usable; `SELFTEST_JOBS=N` sets the job count. With `CI` set (GitHub Actions does) they use every core at normal priority.
+
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 cd proofline

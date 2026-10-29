@@ -5,7 +5,7 @@
 # users of that path (scripts under control-plane/agents/scripts are copied into many suites: not listed).
 # A changed test file always selects itself without a line here.
 tests/ci/classify.sh classify-test affected-test
-tests/affected.sh affected-test
+tests/affected.sh affected-test load-limits-test
 tests/affected-map.txt affected-test
 tests/ci/bump-version.sh bump-version-test
 tests/ci/sync-design-library.sh sync-design-library-test

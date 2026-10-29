@@ -221,6 +221,26 @@ doctor_ecosystems() {
   else d_warn "ecosystems: node is not available and .agents/ecosystems.json is not the shipped file, so the tsv could not be checked"; fi
 }
 
+# Item 30: machine load above the core count is one WARN line with the load and the executable that started the
+# most processes (name only, never arguments). Best effort; silent when the load is fine or cannot be read.
+# PROOFLINE_DOCTOR_LOAD / PROOFLINE_DOCTOR_CORES override the readings (tests).
+doctor_load() {
+  dl_l=${PROOFLINE_DOCTOR_LOAD:-}
+  if [ -z "$dl_l" ]; then
+    dl_l=$(awk '{ print $1; exit }' /proc/loadavg 2>/dev/null) || dl_l=''
+    [ -n "$dl_l" ] || dl_l=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{ print $1 }') || dl_l=''
+    [ -n "$dl_l" ] || dl_l=$(uptime 2>/dev/null | sed 's/.*load averages*: *//' | tr -d ',' | awk '{ print $1 }') || dl_l=''
+  fi
+  dl_c=${PROOFLINE_DOCTOR_CORES:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo '')}
+  case "$dl_c" in ''|*[!0-9]*|0) return 0 ;; esac
+  dl_l=$(printf '%s' "$dl_l" | tr ',' '.')
+  case "$dl_l" in ''|*[!0-9.]*) return 0 ;; esac
+  awk -v l="$dl_l" -v c="$dl_c" 'BEGIN { exit !(l + 0 > c + 0) }' || return 0
+  dl_t=$(ps -A -o comm= 2>/dev/null | awk '{ n = split($0, a, "/"); c[a[n]]++ } END { for (k in c) print c[k], k }' | sort -rn | head -n 1 | awk '{ print $2 }') || dl_t=''
+  d_warn "load: machine load $dl_l is above its $dl_c cores${dl_t:+; the executable with the most processes: $dl_t}. Hooks and tests slow down until it settles"
+  return 0
+}
+
 # A194: the plugin (this CLI) and the project's install are one version; when they differ, one line and the next step.
 doctor_version() {
   dv_i=$(cfg_val "$CFG" proofline_version '')
@@ -369,6 +389,7 @@ EOF
   doctor_context
   doctor_rules
   doctor_version
+  doctor_load
   doctor_tools
   doctor_toolchain
   doctor_foreign
