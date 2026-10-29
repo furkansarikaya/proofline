@@ -3113,10 +3113,29 @@ gate_inputs_unchanged() { # ID RECORD GATE MODE NOW
   ! printf '%s\n' "$giu_diff" | grep -E '^[+-][^+-]' | grep -Eiq "$security_test_words" || return 1
   return 0
 }
+# gate_amend_carry ID GATE MODE NOW: the latest record from before the last `amend` that the same input rules keep (gate_inputs_unchanged:
+# REVIEW_PLAN, REVIEW_RULES, REVIEW_DATA and SECURITY, a pass, only test-path changes since the record, nothing security-related in them) and
+# that is still bound to the frozen contract (a changed plan, task or evidence hash makes it stale in valid_gate_file). Nothing else is
+# carried: SECRETS, REVIEW_SMALL, REVIEW_TESTS, QA and VERIFY run again. No answer = not carried.
+gate_amend_carry() {
+  gac_re=$(last_reopen_seq "$1"); [ "$gac_re" -gt 0 ] || return 0
+  case "$2" in REVIEW_PLAN|REVIEW_RULES|REVIEW_DATA|SECURITY) ;; *) return 0 ;; esac
+  gac_fc=$(gate_focus "$2"); gac_last=''
+  for gac_n in $(gate_names "$1"); do
+    gac_f=$(gates_dir "$1")/$gac_n
+    [ "$(gate_field "$gac_f" gate)" = "$2" ] && [ "$(gate_field "$gac_f" seq)" -lt "$gac_re" ] && [ "$(gate_field "$gac_f" focus)" = "$gac_fc" ] || continue
+    gac_last=$gac_f
+  done
+  [ -n "$gac_last" ] || return 0
+  valid_gate_file "$1" "$gac_last" && gate_inputs_unchanged "$1" "$gac_last" "$2" "$3" "$4" || return 0
+  printf '%s\n' "$gac_last"
+}
 # gate_focus_status ID GATE FOCUS MODE NOW: the latest record of that gate and focus ('-' = the gate's own focus).
 gate_focus_status() {
   gfs_id=$1 gfs_gate=$2; gfs_key=fingerprint; [ "$4" != patch ] || gfs_key=patch_sha256
   gfs_last=$(gate_latest_file "$gfs_id" "$gfs_gate" "$3")
+  # A200 (item 5): an `amend` discards the records before it, except a pass of a gate whose inputs did not change (same rules as in a fix round)
+  if [ -z "$gfs_last" ] && [ "$3" = - ] && [ "$4" != strict ]; then gfs_last=$(gate_amend_carry "$gfs_id" "$gfs_gate" "$4" "$5"); fi
   [ -n "$gfs_last" ] || { echo missing; return 0; }
   if ! valid_gate_file "$gfs_id" "$gfs_last"; then echo stale; return 0; fi
   if [ "$(gate_field "$gfs_last" "$gfs_key")" != "$5" ] && ! { [ "$gfs_key" = fingerprint ] && legacy_fingerprint_match "$(gate_field "$gfs_last" fingerprint)"; }; then
@@ -7451,6 +7470,12 @@ deliver_merged() {
   echo "merge recorded for $dm_id: $dm_how"
   # the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
   dm_m=$sr_main
+  # A200: the commands the user approved were written into the main tree's config.yaml (uncommitted) and carried into the delivered commit; once origin has
+  # that very content the local edit is redundant, and it is the only thing that would stop the fast-forward: it is dropped, nothing else is touched
+  if [ "$(git -C "$dm_m" status --porcelain --untracked-files=no 2>/dev/null)" = " M .agents/config.yaml" ] \
+     && [ "$(git -C "$dm_m" hash-object .agents/config.yaml 2>/dev/null)" = "$(git -C "$dm_m" rev-parse -q --verify "refs/remotes/origin/$dm_base:.agents/config.yaml" 2>/dev/null)" ]; then
+    git -C "$dm_m" checkout -q -- .agents/config.yaml && echo "the approved commands are on origin/$dm_base: the local .agents/config.yaml edit was dropped"
+  fi
   if [ "$(git -C "$dm_m" branch --show-current 2>/dev/null)" = "$dm_base" ] && [ -z "$(git -C "$dm_m" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
     git -C "$dm_m" merge --ff-only -q "refs/remotes/origin/$dm_base" >/dev/null 2>&1 && echo "local $dm_base fast-forwarded to origin/$dm_base" || echo "note: local $dm_base was not fast-forwarded (it has commits origin lacks): update it before the next task"
   else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi

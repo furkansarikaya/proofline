@@ -1877,6 +1877,47 @@ sc_selective_rerun() {
   ok "A200 a test-only fix keeps REVIEW_PLAN/RULES/SECURITY; security tests and product code rerun them; SECRETS, REVIEW_TESTS and VERIFY always run"
 }
 
+# A200 (item 5): an `amend` carries the passes of REVIEW_PLAN, REVIEW_RULES and SECURITY under the same input rules as a fix round; a plan change,
+# product code and a security-related test rerun them; SECRETS, REVIEW_TESTS and VERIFY always run.
+sc_amend_carry() {
+  for variant in tests_only security_test product_code plan_change; do
+    scaffold orchestrated no CRITICAL
+    worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+    A handoff LC IMPLEMENTED >/dev/null
+    [ "$(gates_of | tr ' ' '\n' | grep -c .)" -ge 6 ] || die "A200 amend: the run is not full tier: $(gates_of)"
+    pass_all
+    A handoff LC CODE_DONE >/dev/null || die "A200 amend $variant: no CODE_DONE"
+    fs=impl_test.txt; [ "$variant" != product_code ] || fs=impl.txt
+    pc=''; [ "$variant" != plan_change ] || pc='plan_change: yes'
+    printf 'reason: %s\nfix_scope: %s\nfix_instruction: %s\nauthorized_by: the user\n%s\n' "the user asked for one more test after CODE_DONE ($variant)" "$fs" "change $fs only as the user asked, nothing else" "$pc" | A amend LC >/dev/null || die "A200 amend $variant: amend refused"
+    if [ "$variant" = plan_change ]; then
+      mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: the architecture note changes\n' > .agents/runs/LC/amendments/001.md
+      printf '\nAmended: the lookup note changed.\n' >> .agents/runs/LC/PLAN.md
+      A refreeze LC 001.md >/dev/null || die "A200 amend plan_change: refreeze refused"
+      worker RED fail impl_test.txt 'test: lookup again returns the stored value'; worker GREEN pass impl.txt 'impl: lookup again returns the stored value'
+    else
+      case "$variant" in
+        tests_only) worker FIX pass impl_test.txt 'test: lookup of a missing key is nil' ;;
+        security_test) worker FIX pass impl_test.txt 'test: an expired token is rejected' ;;
+        product_code) worker FIX pass impl.txt 'impl: lookup of a missing key is nil' ;;
+      esac
+    fi
+    A handoff LC IMPLEMENTED >/dev/null || die "A200 amend $variant: no IMPLEMENTED"
+    for g in REVIEW_PLAN REVIEW_RULES SECURITY; do
+      st=$(gate_st "$g")
+      case "$variant:$g" in
+        tests_only:*) [ "$st" = pass ] || die "A200 amend $variant: $g is $st, a test-only amendment must keep it" ;;
+        security_test:SECURITY|product_code:*|plan_change:*) [ "$st" != pass ] || die "A200 amend $variant: $g still pass although its inputs changed" ;;
+        security_test:*) [ "$st" = pass ] || die "A200 amend $variant: $g is $st" ;;
+      esac
+    done
+    for g in SECRETS REVIEW_TESTS VERIFY; do
+      [ "$(gate_st "$g")" != pass ] || die "A200 amend $variant: $g carried over; it always runs"
+    done
+  done
+  ok "A200 an amend carries REVIEW_PLAN/RULES/SECURITY only for an unrelated test change; plan, product code and security tests rerun them; SECRETS, REVIEW_TESTS and VERIFY always run"
+}
+
 # A200 review: which paths selective repetition may treat as tests. A file under a test directory that is a manifest, lockfile, env, config,
 # build or contract file is product input; so is every path when the ecosystem data is not loaded.
 sc_test_path_kind() {
@@ -2753,6 +2794,7 @@ run_sc sc_doc_scope_warning
 run_sc sc_takeover_without_red
 run_sc sc_a200_misc
 run_sc sc_selective_rerun
+run_sc sc_amend_carry
 run_sc sc_visual_row_match
 run_sc sc_test_path_kind
 echo 'gates tests passed'

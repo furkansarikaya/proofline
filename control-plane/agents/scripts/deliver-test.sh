@@ -403,6 +403,16 @@ scenario_manual_merge_ff() {
   grep -q "^LC	-	" .agents/local/batch/merged.tsv && [ ! -e .agents/runs/LC ] || die "ff: no record or the run survived"
   ok "deliver-merged: a fast-forward merge is proven (ancestor of origin/main), recorded, the run is cleaned up"
 }
+scenario_manual_merge_config_edit() {
+  wt_done_run; wt_deliver local
+  # origin's main carries the approved commands (the delivered commit plus the config), the main working tree holds the same edit uncommitted
+  git clone -q "$lo" "$base/c9" && ( cd "$base/c9" && git checkout -q proofline/LC-lc && printf '# approved commands\n' >> .agents/config.yaml && git add .agents/config.yaml && git -c user.email=a@b.c -c user.name=a commit -qm cfg && git push -q origin HEAD:main ) || die "config commit on origin"
+  cp "$base/c9/.agents/config.yaml" .agents/config.yaml
+  W deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged: $(cat "$base/dm.out")"
+  grep -q 'local .agents/config.yaml edit was dropped' "$base/dm.out" && grep -q '^local main fast-forwarded' "$base/dm.out" || die "config edit output: $(cat "$base/dm.out")"
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the main working tree is not clean"
+  ok "deliver-merged: the approved commands' uncommitted config edit is dropped once origin has that content, so main fast-forwards"
+}
 # into_worktree: the finished run LC (and its uncommitted work) moves from the main working tree into its own worktree, as a night-mode run lives there.
 # Afterwards $wt is the worktree, W runs agent.sh in it and the main working tree is on main again.
 into_worktree() {
@@ -614,6 +624,7 @@ run_sc scenario_knowledge_tier_before_and_next
 run_sc scenario_local_origin
 run_sc scenario_manual_merge_proof
 run_sc scenario_manual_merge_ff
+run_sc scenario_manual_merge_config_edit
 run_sc scenario_wt_cleanup_manual
 run_sc scenario_wt_cleanup_pr
 run_sc scenario_wt_cleanup_kept
