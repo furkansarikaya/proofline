@@ -158,6 +158,11 @@ result_for() {
   if [ -n "${RF_FOCUS:-}" ]; then rf_art=$(risk_report "$RF_FOCUS"); rf_fc=$RF_FOCUS; fi
   mkdir -p ".agents/runs/$RID/$(dirname "$rf_art")"
   printf '# %s report\n\nVerdict: %s\n\nJudged the whole current tree.\n' "$rf_g" "$rf_r" > ".agents/runs/$RID/$rf_art"
+  # A200: a visual PASS is accepted only with the independent machine report (reviews/visual-proof/report.json) saying PASS
+  if [ "$rf_fc" = visual ] && [ "$rf_r" = PASS ]; then printf '{"schema":"visual-proof/1","result":"%s","cells":[]}\n' "$rf_r" > ".agents/runs/$RID/reviews/visual-proof/report.json"
+    # the record reruns the source lint (A200 review): the skill is installed in the fixture, outside git
+    [ -d .agents/skills/visual-proof ] || { mkdir -p .agents/skills; cp -R "$tl_agents/../../skills/visual-proof" .agents/skills/visual-proof; grep -qx '.agents/skills/' .git/info/exclude 2>/dev/null || printf '.agents/skills/\n' >> .git/info/exclude; }
+  fi
   rf_f=$base/result.$$.md
   {
     printf 'ROLE: %s\nTASK: %s\n' "$(gate_owner "$rf_g")" "$RID"

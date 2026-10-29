@@ -13,6 +13,15 @@ that the computer must stay awake and the session open. Your one reply "approve 
 stands in for the plan approval, the delivery approval (commit, push, pull request, merge only when CI is green and every gate
 passed, cleanup) and a mutation budget raise up to `batch.mutation_budget_cap`, for the tasks in the table and nothing else.
 
+Pre-flight (A200). Before the approval the summary asks, task by task and with lettered options, the questions a plan would otherwise raise at freeze, where
+they parked tasks overnight: the path-limit split (content and document paths do not count, a file with code does), `tdd_exemption` for document paths, new
+dependencies, criteria that cannot be measured, the reason for a class. Answer in your own words ("Q1 a, Q2 b", "do not split", "all recommended"); the runtime
+records the answers from your captured message (`agent.sh batch-answer`, read back with `batch-answers`) and they are applied when each plan freezes. A split
+answer is capped at the ceiling the summary showed, new dependencies stay unapproved (the task parks), an exemption or class answer only adds a freeze note. When
+`commands.build` or `commands.test` is empty the summary proposes the commands that `proofline doctor --commands` proved, and approving the batch covers writing
+them (`doctor --apply-commands`); nothing unproven is written. A task waits for every task it depends on and for an earlier unmerged task that names the same
+code path, and the lead delivers each task itself and goes on to the next one (it does not stop at CODE_DONE).
+
 A project with no CI check on pull requests can still run a batch (A180). The summary carries a WARNING with the ready
 `/proofline task Add a GitHub Actions workflow ...` line, and each pull request is merged only after the project's build and test
 commands pass in a clean copy of its commit; the pull request then says "verified locally, no CI". The batch needs a platform

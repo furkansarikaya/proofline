@@ -94,6 +94,13 @@ once per measurement. The approval step (recording an approval from your reply) 
 pipeline per phrase. Behaviour is unchanged; `tests/bench/hook-procs.sh` (not run by CI) counts external processes per event with a PATH shim, and
 the numbers are in decision A188.
 
+A200 bounds the time: the SessionStart `next` runs for at most `PROOFLINE_HOOK_NEXT_BUDGET` seconds (default 10 of the runtime's 30) and a hook waits for a
+lock at most `PROOFLINE_HOOK_LOCK_WAIT` seconds (default 8). When the budget is spent the next-step line is left out and the lead asks `agent.sh next` itself;
+no gate is skipped, because the checks stay in `agent.sh`. A denial message shows the allowed alternative in one line. A Codex worker in a run worktree can
+write only that worktree's own git folder. Transient network errors of a dispatch are retried on the same runtime (`dispatch.network_retries`, default 3,
+`dispatch.network_backoff_seconds`, default 15, doubling); a task failure is never retried. `agent.sh path-kind <path>` prints how the plan limits count a path
+and `agent.sh commands-check` reports empty `commands.*`.
+
 ## Verified platform behaviour (Claude Code 2.1.295)
 
 Probed in a throwaway project with a logging hook (`claude -p --setting-sources project,local

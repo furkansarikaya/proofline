@@ -46,7 +46,7 @@ Allowed only where a failing-then-passing test cannot exist for that file: data 
 `validate-plan.mjs <PLAN.md> <TASK.md> [--class C] [--repo DIR]` exits 1 on any of:
 
 - front matter missing, not closed, not canonical, an unknown key, a key twice;
-- empty scope; more than 2 paths for TRIVIAL;
+- empty scope; more than 2 code paths for TRIVIAL (content and document paths are not counted, A200);
 - a glob, absolute, `./` or `..` path; a path under `.agents/runs/` or `.agents/local/`; a duplicate; a directory; a path resolving outside the repository;
 - a path that does not exist and is not `new: true`; a path that exists and is `new: true`;
 - a path with no criterion, or with a criterion TASK.md does not define;
@@ -59,5 +59,7 @@ Allowed only where a failing-then-passing test cannot exist for that file: data 
 - `## Dependencies` or `## Contracts` that is neither `none` nor a `- ` list;
 - `## Assumptions` that is neither `none` nor the 7-column table (`id | assumption | source | risk | verification | status | decisions`); an id not `AS-<n>` or repeated; a risk outside `low|medium|high`; a status outside `verified|unverified`; a `verified` row, or a `high` row, without a verification method; an empty text, source or decisions cell;
 - `## Verification commands` without a command in backticks or a code block.
+
+Warnings (A200, printed as `warning: ...` lines, exit code unchanged): the freeze asks these questions first, so the validator tells them while the plan is written. More code paths than the class limit (`pipelines.<CLASS>.max_scope_paths`; a content or document path, by `verification.doc_paths`, is not counted and a path that holds code, by `review.executable_code`, always is: forty content files with the same correction are no reason to split); a document or content path without `tdd_exemption`; a non-empty `## Dependencies` (a new dependency needs the user's own approval); an acceptance criterion that cannot be measured as written; COMPLEX with six or fewer paths and no reason in `## Suggested class`. In a night batch the user has answered the same questions before the approval (`/proofline batch` summary, "Pre-flight questions"), and the answers are applied at freeze.
 
 The validator does not check the class against the paths: `agent.sh freeze` and `refreeze` refuse a TRIVIAL plan whose scope holds executable code, tests included (A115). Classify STANDARD first when the plan changes code or adds tests.

@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.36
+proofline_version: 0.0.37
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -98,6 +98,10 @@ design_docs:
 # worktree_deps in ecosystems.json, never linked to the main tree.
 worktree:
   copy_files: ".env*"
+# Evidence archive (A200). `cleanup` and `worktree-remove` put a compressed copy of a run's records under .agents/local/archive/<ID>/ (git-ignored)
+# before they delete them; the newest `keep` runs are kept, older ones removed. 0 turns the archive off.
+archive:
+  keep: 10
 # Build record (A148). env_files: space-separated project-relative names of SECRET-FREE test env files (for example `.env.test`) that may
 # enter the clean copy of the build record, which otherwise holds no git-ignored file and so no .env*. Default: none. Each listed file is
 # scanned for secrets first; one visible secret makes `agent.sh build-record <ID> run` refuse, naming the file and the line, never the value.
@@ -366,6 +370,10 @@ batch:
 dispatch:
   # Timeout of one specialist run in seconds (minimum 30).
   timeout_seconds: 1800
+  # A dropped connection or an SSL/TLS error is retried on the same runtime, resuming (A200): at most network_retries times (0 turns it off, at
+  # most 6), waiting network_backoff_seconds first and twice as long each time (at most 300 s).
+  network_retries: 3
+  network_backoff_seconds: 15
   # Permission mode of a headless Claude worker started by dispatch.sh (A114): bypassPermissions | acceptEdits | default.
   # A headless worker cannot be prompted, so a narrower mode usually leaves it unable to submit; the PreToolUse hook
   # confines it either way. bypassPermissions is refused while that hook is not wired in .claude/settings.json.

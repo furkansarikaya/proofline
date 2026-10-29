@@ -4,10 +4,14 @@
 //
 //   node lint-source.mjs --root <repo> [--design-md <path>] [--paths a,b] --out <dir>
 //
-// A finding is `blocking` unless DESIGN.md has a line `- <pattern-id>: <reason>` under `## Pattern justifications`; then it is `info`
+// A finding is `blocking` unless DESIGN.md has a line `- <pattern-id>: <reason>` under `## Pattern justifications` AND the user approved
+// that exact line (A200): `--approved-rationales <file>`, the output of `agent.sh design-rationales <ID> --json` ({"approved":
+// {"<pattern-id>": "<sha256 of '<pattern-id>: <reason>'>"}}). A line nobody approved, or one edited after the approval, leaves the
+// finding blocking and is listed in `unapproved_justifications`. Without the option no justification applies. Then it is `info`
 // (justified: true, the reason copied). Ids without a detector are listed in `judged_only` (decided from the screenshots).
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JUDGED_ONLY_IDS, PATTERN_IDS, REGISTRY, REGISTRY_DATE, SOURCE_EXTENSIONS } from "./patterns.mjs";
@@ -29,6 +33,17 @@ export function parseJustifications(md) {
     if (m && m[2] && !(m[1] in out)) out[m[1]] = m[2];
   }
   return out;
+}
+
+// Pure: { id: reason } and { id: sha256 } approvals -> the justifications whose exact line was approved, plus the ids that were not.
+export const rationaleHash = (id, reason) => createHash("sha256").update(`${id}: ${reason}`).digest("hex");
+export function approvedJustifications(justifications, approved) {
+  const ok = {}, unapproved = [];
+  for (const [id, reason] of Object.entries(justifications)) {
+    if (approved && typeof approved[id] === "string" && approved[id] === rationaleHash(id, reason)) ok[id] = reason;
+    else unapproved.push(id);
+  }
+  return { approved: ok, unapproved };
 }
 
 // Pure: one file's text -> raw findings [{ id, file, line, excerpt }] for every detectable registry id.
@@ -86,12 +101,13 @@ export function sourceFiles(root, paths) {
 
 // { root, designMd, paths } -> the lint.json object. designMd: a path (absolute or relative to root), null for none, undefined to look
 // in the usual places. A named DESIGN.md that does not exist is reported as design_md null (no justification then applies).
-export function lintProject({ root, designMd, paths } = {}) {
+export function lintProject({ root, designMd, paths, approved } = {}) {
   const base = resolve(root || ".");
   let mdPath = null;
   if (designMd === undefined) { const c = DESIGN_MD_CANDIDATES.map((x) => join(base, x)).find((x) => existsSync(x)); if (c) mdPath = c; }
   else if (designMd && existsSync(isAbsolute(designMd) ? designMd : resolve(base, designMd))) mdPath = isAbsolute(designMd) ? designMd : resolve(base, designMd);
-  const justifications = mdPath ? parseJustifications(readFileSync(mdPath, "utf8")) : {};
+  const written = mdPath ? parseJustifications(readFileSync(mdPath, "utf8")) : {};
+  const { approved: justifications, unapproved } = approvedJustifications(written, approved);
   const raw = [];
   for (const f of sourceFiles(base, paths)) {
     let text;
@@ -103,6 +119,7 @@ export function lintProject({ root, designMd, paths } = {}) {
     registry_date: REGISTRY_DATE,
     findings: applyJustifications(raw, justifications),
     judged_only: [...JUDGED_ONLY_IDS],
+    unapproved_justifications: unapproved,
     design_md: mdPath ? (relative(base, mdPath).startsWith("..") ? mdPath : relative(base, mdPath).split("\\").join("/")) : null,
   };
 }
@@ -141,17 +158,24 @@ export const blockingFindings = (json) => (json?.findings || []).filter((f) => f
 function arg(argv, name) { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; }
 
 function main(argv) {
-  const usage = "usage: lint-source.mjs --root <repo> [--design-md <path>] [--paths a,b] --out <dir>";
+  const usage = "usage: lint-source.mjs --root <repo> [--design-md <path>] [--approved-rationales <file>] [--paths a,b] --out <dir>";
   const root = arg(argv, "--root"), out = arg(argv, "--out");
   if (!root || !out) { console.error(usage); return 2; }
   if (!existsSync(root) || !statSync(root).isDirectory()) { console.error(`lint-source: --root is not a directory: ${root}`); return 2; }
   const paths = arg(argv, "--paths");
-  const lint = lintProject({ root, designMd: arg(argv, "--design-md"), paths: paths ? paths.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
+  let approved;
+  if (arg(argv, "--approved-rationales")) {
+    try { approved = JSON.parse(readFileSync(arg(argv, "--approved-rationales"), "utf8")).approved; }
+    catch (e) { console.error(`lint-source: cannot read --approved-rationales: ${e.message}`); return 2; }
+  }
+  const lint = lintProject({ root, designMd: arg(argv, "--design-md"), approved, paths: paths ? paths.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   try { mkdirSync(out, { recursive: true }); writeFileSync(join(out, "lint.json"), JSON.stringify(lint, null, 2) + "\n"); }
   catch (e) { console.error(`lint-source: cannot write ${out}/lint.json: ${e.message}`); return 2; }
   const blocking = blockingFindings(lint).length;
-  console.log(`LINT: ${lint.findings.length} findings (${blocking} blocking, ${lint.findings.length - blocking} justified), ${lint.judged_only.length} judged-only id(s), registry ${lint.registry_date}`);
+  console.log(`LINT: ${lint.findings.length} findings (${blocking} blocking, ${lint.findings.length - blocking} justified, ${lint.unapproved_justifications.length} unapproved rationale(s)), ${lint.judged_only.length} judged-only id(s), registry ${lint.registry_date}`);
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(main(process.argv.slice(2)));
+// realpath on both sides: a project under a symlinked directory (macOS /var -> /private/var) must still run main, not exit silently
+const isMain = (() => { try { return !!process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })();
+if (isMain) process.exit(main(process.argv.slice(2)));

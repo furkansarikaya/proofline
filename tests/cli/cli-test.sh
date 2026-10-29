@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.36" "$out" "proofline 0.0.36"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.36 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.37" "$out" "proofline 0.0.37"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.37 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.36 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.37 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -157,7 +157,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.36' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.37' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -542,7 +542,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.36" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.37" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -774,6 +774,33 @@ if command -v shellcheck >/dev/null 2>&1; then
 else ok "shellcheck skipped (not installed): not tested"; fi
 }
 
+# A200: empty commands.* are discovered, proven by one run, proposed with one question; only the user's own yes writes, only proven commands
+sc_commands() {
+  cm=$(mkrepo cmds)
+  out=$(pl "$cm" init --yes --runtimes claude 2>&1) || { LAST=$out; die "init in a project without commands"; }
+  expect "init says empty commands are proposed, not waited for" "$out" "proofline doctor --commands"
+  printf '{"scripts":{"test":"jest"}}' > "$cm/package.json"
+  mkdir -p "$T/stubok" "$T/stubbad"; printf '#!/bin/sh\nexit 0\n' > "$T/stubok/npm"; printf '#!/bin/sh\nexit 1\n' > "$T/stubbad/npm"; chmod +x "$T/stubok/npm" "$T/stubbad/npm"
+  out=$(PATH="$T/stubbad:$PATH" pl "$cm" doctor --commands 2>&1) || { LAST=$out; die "doctor --commands"; }
+  expect "a command whose run failed is not proven" "$out" "trial failed"
+  [ ! -e "$cm/.agents/local/commands/PROPOSAL.tsv" ] && ok "...and no proposal is written for it" || die "an unproven command was proposed"
+  out=$(PATH="$T/stubok:$PATH" pl "$cm" doctor --commands 2>&1) || { LAST=$out; die "doctor --commands (proven)"; }
+  expect "a proven command is proposed with one question" "$out" "QUESTION (one): write these into .agents/config.yaml?"
+  expect "...naming the command" "$out" "commands.test: npm test"
+  [ -z "$(cfgv "$cm" commands.test)" ] && ok "...and nothing is written before the user answers" || die "commands.test written without an answer"
+  nocheck "doctor --apply-commands without the user's reply fails" pl "$cm" doctor --apply-commands
+  [ -z "$(cfgv "$cm" commands.test)" ] || die "apply wrote without a reply"
+  mkdir -p "$cm/.agents/local/prompts"; printf 'approve commands' > "$T/cap.txt"
+  printf '{"session":"s1","time":%s,"sha256":"%s","text":"approve commands"}\n' "$(( $(date +%s) + 3600 ))" "$(shasum -a 256 "$T/cap.txt" | awk '{print $1}')" > "$cm/.agents/local/prompts/s1.json"
+  (cd "$cm" && sh .agents/scripts/agent.sh approve-pending >/dev/null 2>&1) || :   # the prompt hook records the reply as an approval of the request doctor --commands made
+  out=$(pl "$cm" doctor --apply-commands 2>&1) || { LAST=$out; die "apply after the user's reply: $out"; }
+  [ "$(cfgv "$cm" commands.test)" = "npm test" ] && ok "doctor --apply-commands writes the proven command after the user's own 'approve commands'" || die "commands.test: $(cfgv "$cm" commands.test)"
+  [ -z "$(cfgv "$cm" commands.build)" ] && ok "...and leaves the keys nothing was proven for empty" || die "commands.build written"
+  ls "$cm/.agents/local/approvals"/[0-9][0-9][0-9]-commands.yaml >/dev/null 2>&1 && ! grep -L '^consumed: "true"' "$cm/.agents/local/approvals"/[0-9][0-9][0-9]-commands.yaml | grep -q . && ok "...and the commands approval reads consumed" || die "the commands approval is not consumed after the apply"
+  nocheck "the proposal is used up" pl "$cm" doctor --apply-commands
+}
+
+run_sc sc_commands
 run_sc sc_basics
 run_sc sc_init
 run_sc sc_init_idempotent

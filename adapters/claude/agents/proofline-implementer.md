@@ -63,7 +63,7 @@ effort: high
    reason) and record RED, restore the saved change, run the test and record GREEN, all in one turn: never return while the change is put back.
    `worker-evidence` accepts GREEN only when an implementation file differs from its state at RED, so RED must be recorded while the change is
    put back. A RED shown only from a separate worktree at the base revision is not recorded and does not bind the change.
-4. For a defect (TASK.md describes a bug, a wrong result or a regression; or a FAIL finding naming a bug),
+4. For a defect (TASK.md is typed or labelled bug or defect, or describes a bug, a wrong result or a regression; or a FAIL finding naming a bug),
    follow ${CLAUDE_PLUGIN_ROOT}/skills/debug-proof/SKILL.md in team mode: reproduce, prove the root cause, write `reports/NNN-debug.md`
    and keep the regression test inside scope.
 5. Run the plan's `## Verification commands` that apply to the changed paths. Report pre-existing failures,

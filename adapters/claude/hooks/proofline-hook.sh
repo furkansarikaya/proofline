@@ -89,7 +89,60 @@ jesc() {
 ctx() { # EVENT TEXT: additionalContext for the model
   printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$1" "$(jesc "$2")"; exit 0
 }
+# alt_hint MESSAGE (A200): the one-line permitted alternative for a denial that names none (result in alt_r, empty when the message already
+# says what to do). It only SHOWS the allowed way; no rule is decided here, deny stays a deny.
+alt_hint() {
+  alt_r=''
+  case "$1" in *nstead*|*Allowed*|*"run: "*|*"Write the file"*|*"wait for the user"*|*"proofline merge"*|*"Scratch files go under"*) return 0 ;; esac
+  case "$1" in
+    *"is not literal"*|*"is not allowed while run"*) alt_r='Instead of $A next write: sh .agents/scripts/agent.sh next (the command word, AGENT_ROLE and the subcommand are literal)' ;;
+    *PROOFLINE_DISPATCH*) alt_r='Instead list by a literal path: ls .agents/local/windows (no glob or find over .agents/local)' ;;
+    *"outside the project"*|*"under \$TMPDIR"*) alt_r='Instead: mkdir -p .agents/local/scratch && write there (in a run: .agents/runs/<ID>/scratch/); /tmp is only for git worktrees' ;;
+    *"git hook bypass"*|*"wires the git hooks"*) alt_r='Instead commit without --no-verify or a hooksPath change; fix what the hook names, or ask the user' ;;
+    *"does not match the caller"*) alt_r='Instead: prefix your own role, AGENT_ROLE=<your role> sh .agents/scripts/agent.sh ...' ;;
+    *"never as a nested runtime"*) alt_r='Instead: sh .agents/scripts/dispatch.sh <ID> <role>' ;;
+    *"links into or out of .agents"*) alt_r='Instead: cp the file to the project path you need, or read it where it is' ;;
+    *"never submits a specialist result"*|*"verdicts enter a run only"*|*"opened and closed only by"*) alt_r='Instead: dispatch the specialist (sh .agents/scripts/dispatch.sh <ID> <role>); it submits, you read the result with agent.sh next' ;;
+    *"a subagent never approves"*) alt_r='Instead: put the question to the lead; the user answers and the runtime records it from the reply' ;;
+    *"read-only agent.sh"*|*"runs only agent.sh worker-evidence"*) alt_r='Instead: submit your result with AGENT_ROLE=<role> sh .agents/scripts/agent.sh submit <ID> --agent <token> ...' ;;
+    *"cannot be resolved"*|*"cannot be read from the command text"*) alt_r='Instead: write the path literally, or use the Write tool on an allowed path (.agents/local/scratch/ for scratch files)' ;;
+    *"destructive SQL"*|*"database client"*|*"migration, seed or schema"*|*"names the database file"*) alt_r='Instead: run the project test command (it builds its own throwaway database) and record what you could not check as an open point' ;;
+    *"lead writes only"*|*"lead never edits"*|*"no run is active"*) alt_r='Instead: /proofline run <text>, or dispatch the implementer (sh .agents/scripts/dispatch.sh <ID> implementer) for a product change' ;;
+    *"is outside the paths role"*) alt_r='Instead: write only inside the paths your role owns (.agents/owns.conf and the PLAN.md scope)' ;;
+    *"parsed"*) alt_r='Instead: install jq or node, then retry' ;;
+    *"ACTIVE_RUN is malformed"*) alt_r='Instead: sh .agents/scripts/agent.sh status shows the active run' ;;
+    *"read-only in the project"*|*"changes the project working tree"*) alt_r='Instead: git worktree add --detach "$TMPDIR/<name>" HEAD in its own call, then git -C "$TMPDIR/<name>" ...' ;;
+  esac
+}
+# hk_budget SECS OUTFILE CMD...: runs CMD with its output in OUTFILE and waits at most SECS seconds, then stops CMD and every process it started
+# (by pid); status 124 on expiry, else CMD's own status. The runtime stops a hook at 30 s, so a step whose cost grows with the project (the
+# session hook's `agent.sh next` took 26 s on a loaded machine, A200) is given a budget and the hook still answers in time. A188: 0.1 s
+# steps for the first second, then 0.5 s (a sleep is a process).
+hk_budget() {
+  hb_s=$1 hb_o=$2; shift 2
+  ( "$@" ) >"$hb_o" 2>&1 </dev/null &
+  hb_pid=$!; hb_lim=$((hb_s * 10)); hb_i=0
+  while kill -0 "$hb_pid" 2>/dev/null && [ "$hb_i" -lt "$hb_lim" ]; do
+    if [ "$hb_i" -lt 10 ]; then sleep 0.1; hb_i=$((hb_i + 1)); else sleep 0.5; hb_i=$((hb_i + 5)); fi
+  done
+  if kill -0 "$hb_pid" 2>/dev/null; then
+    hb_all=$hb_pid; hb_new=$hb_pid
+    while [ -n "$hb_new" ]; do
+      hb_next=''
+      for hb_c in $hb_new; do hb_next="$hb_next $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$hb_c" '$2 == p { print $1 }')"; done
+      hb_new=$(printf '%s\n' $hb_next); hb_all="$hb_all $hb_new"
+    done
+    # shellcheck disable=SC2086 # pids
+    kill $hb_all 2>/dev/null || :
+    { wait "$hb_pid"; } 2>/dev/null || :
+    return 124
+  fi
+  hb_rc=0; wait "$hb_pid" 2>/dev/null || hb_rc=$?
+  return "$hb_rc"
+}
 deny() {
+  alt_hint "$*"
+  [ -z "$alt_r" ] || set -- "$* | $alt_r"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(jesc "proofline: $*")"
   exit 0
 }
@@ -165,6 +218,10 @@ if [ "$installed" = yes ] && [ "$main_root" = "$root" ]; then
   done
 fi
 local_dir=$sroot/.agents/local
+# A200: the runtime stops a hook at 30 s, and agent.sh waits for a lock up to PROOFLINE_LOCK_TIMEOUT (default 120 s): one busy lock (a long build
+# record, a dispatch) held a prompt, stop or subagent hook for the whole 30 s. Every agent.sh this hook starts now gives up on a lock after
+# PROOFLINE_HOOK_LOCK_WAIT seconds (default 8), long before the limit; the step reports the refusal and the next `agent.sh next` retries it.
+PROOFLINE_LOCK_TIMEOUT=${PROOFLINE_HOOK_LOCK_WAIT:-8}; export PROOFLINE_LOCK_TIMEOUT
 # once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
 # once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side
 # effects (prompt, session).
@@ -1229,6 +1286,20 @@ mg_ref() {
   case "$mr" in *'$'*|*'`'*) return 0 ;; esac
   mg_isprot "$mr"
 }
+# mg_chain_switch WHAT: the command text also checks out / switches to a protected branch (`git checkout main && git reset ...`):
+# mg_cur is read once before the chain, so the branch the chain moves to is looked for in the text (as the merge arm does).
+mg_switches_prot() {
+  mg_alt=$(printf '%s' "$mg_prot" | tr -s ' ' '|' | sed 's/^|//; s/|$//')
+  [ -n "$mg_alt" ] || return 1
+  # ONE normalized text: quotes dropped, ( ) { } are command separators; refs/heads/ before the branch counts; a $ or backtick word after checkout/switch cannot be read
+  mg_norm=$(printf '%s' "$cmd" | tr -d "\"'" | tr '(){}' ';;;;')
+  printf '%s' "$mg_norm" | grep -Eq "(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?(refs/heads/)?($mg_alt)([[:space:]]|;|&|\\||\$)" && return 0
+  printf '%s' "$mg_norm" | grep -Eq '(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?[$`]' && return 0
+  return 1
+}
+mg_chain_switch() {
+  ! mg_switches_prot || deny "$1 in a command that switches to a protected branch advances it without proofline merge: $MG_MSG"
+}
 # mg_git ARGS: the arguments of one git command, one per line. State from merge_guard: mg_cd (directory after
 # `cd`), mg_envu (an env/sudo -C, GIT_DIR, GIT_WORK_TREE made the directory unreadable).
 mg_git() {
@@ -1287,11 +1358,51 @@ mg_git() {
       for mg_a in "$@"; do case "$mg_a" in --abort|--quit|--continue) return 0 ;; esac; done
       [ "$mg_dir" != @unknown ] || deny "git merge whose directory cannot be read from the command text may merge into a protected branch: $MG_MSG"
       ! mg_isprot "$mg_cur" || deny "git merge on the protected branch $mg_cur: $MG_MSG"
-      mg_alt=$(printf '%s' "$mg_prot" | tr -s ' ' '|' | sed 's/^|//; s/|$//')
-      ! printf '%s' "$cmd" | grep -Eq "(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?($mg_alt)([[:space:]]|;|&|\\||\$)" \
+      ! mg_switches_prot \
         || deny "git merge in a command that switches to a protected branch: $MG_MSG" ;;
     update-ref)
       for mg_a in "$@"; do case "$mg_a" in refs/heads/*) ! mg_ref "$mg_a" || deny "git update-ref of a protected branch: $MG_MSG" ;; esac; done ;;
+    # A200: the other ways to put a task branch onto a protected branch (branch -f, fetch . task:main, reset/cherry-pick/rebase/pull . on it)
+    branch)
+      mg_f=no
+      for mg_a in "$@"; do case "$mg_a" in --force|--move|--copy) mg_f=yes ;; --*) ;; -*[fMC]*) mg_f=yes ;; esac; done   # a short-flag cluster (-fq, -Mf) forces too
+      [ "$mg_f" = no ] || for mg_a in "$@"; do case "$mg_a" in -*) ;; *) ! mg_ref "$mg_a" || deny "git branch -f/-M/-C on the protected branch $mg_a moves it without proofline merge: $MG_MSG" ;; esac; done ;;
+    # A200 review: checkout -B / switch -C create-or-reset a branch at a start point: `git checkout -B main <task>` moves main
+    checkout|switch)
+      mg_take=no
+      for mg_a in "$@"; do
+        if [ "$mg_take" = yes ]; then
+          case "$mg_a" in -*) ;; *) ! mg_ref "$mg_a" || deny "git $mg_sub -B/-C on the protected branch $mg_a resets it without proofline merge: $MG_MSG"; mg_take=no ;; esac
+          continue
+        fi
+        case "$mg_a" in
+          --force-create) mg_take=yes ;;
+          --force-create=*) ! mg_ref "${mg_a#*=}" || deny "git $mg_sub --force-create on the protected branch resets it without proofline merge: $MG_MSG" ;;
+          --*) ;;
+          -*)
+            mg_cl=${mg_a#-}; mg_fc=B; [ "$mg_sub" != switch ] || mg_fc=C
+            case "$mg_cl" in
+              *"$mg_fc"*)
+                mg_val=${mg_cl#*"$mg_fc"}
+                if [ -n "$mg_val" ]; then ! mg_ref "$mg_val" || deny "git $mg_sub -$mg_fc on the protected branch $mg_val resets it without proofline merge: $MG_MSG"
+                else mg_take=yes; fi ;;
+            esac ;;
+        esac
+      done ;;
+    fetch)
+      for mg_a in "$@"; do case "$mg_a" in -*) ;; *:*) ! mg_ref "${mg_a#*:}" || deny "git fetch into the protected branch ($mg_a) moves it without proofline merge: $MG_MSG" ;; esac; done ;;
+    reset|cherry-pick|rebase|am|revert)
+      for mg_a in "$@"; do case "$mg_a" in --abort|--quit|--continue|--skip) return 0 ;; esac; done
+      if [ "$mg_sub" = reset ]; then   # only a reset that moves the branch to another commit; an unstage or a reset to HEAD~N stays
+        mg_mv=no; mg_fl=no
+        for mg_a in "$@"; do case "$mg_a" in --hard|--soft|--keep|--merge) mg_fl=yes ;; -*) ;; HEAD|HEAD~*|HEAD^*|@|@~*) ;; *) mg_mv=yes ;; esac; done
+        [ "$mg_fl$mg_mv" = yesyes ] || return 0
+      fi
+      [ "$mg_dir" != @unknown ] || deny "git $mg_sub whose directory cannot be read from the command text may move a protected branch: $MG_MSG"
+      ! mg_isprot "$mg_cur" || deny "git $mg_sub while the protected branch $mg_cur is checked out advances it without proofline merge: $MG_MSG"
+      mg_chain_switch "git $mg_sub" ;;
+    pull)
+      for mg_a in "$@"; do case "$mg_a" in .|./|..|../*|/*) ! mg_isprot "$mg_cur" || deny "git pull from a local path onto the protected branch $mg_cur merges a task branch without proofline merge: $MG_MSG"; mg_chain_switch "git pull from a local path" ;; esac; done ;;
   esac
   return 0
 }
@@ -2086,7 +2197,7 @@ subagent-start)
   # A127: submit trusts a typed --agent over PROOFLINE_AGENT only for a registered subagent. The file holds the path of the
   # subagent's session log, where agent.sh reads the tokens it used (metrics_step); the path is the runtime's own, never typed.
   stp=$(jget agent_transcript_path); if [ -z "$stp" ]; then stp=$(jget transcript_path); [ -z "$stp" ] || stp=${stp%.jsonl}/subagents/agent-$aid.jsonl; fi
-  printf '%s\n' "$stp" > "$local_dir/submissions/$aidf.started"
+  printf '%s\n%s\n' "$stp" "$(date +%s)" > "$local_dir/submissions/$aidf.started"   # line 2: when this (re)start began; metrics_step times the step from it (A200)
   if [ "$prole" = implementer ] || [ "$prole" = designer ]; then
     if before=$(unset AGENT_ROLE; sh "$agent" window-open "$act" "$prole" 2>"$tmp/err"); then printf '%s\n' "$before" > "$local_dir/windows/$aidf"
     else printf 'proofline: window-open refused for proofline-%s (%s): %s\n' "$prole" "$aidf" "$(tr '\n' ' ' < "$tmp/err")" >> "$local_dir/records/$aidf.txt"; fi
@@ -2396,7 +2507,10 @@ session)
     *) if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then skill=$CLAUDE_PLUGIN_ROOT/skills/proofline-lead/SKILL.md; else skill=.agents/skills/proofline-lead/SKILL.md; fi ;;
   esac
   if [ -n "$act" ] && [ "$act" != INVALID ]; then
-    nxt=$(sh "$agent" next "$act" 2>&1 | sed -n 's/^next=//p' | awk 'BEGIN { ORS = "" } { if (NR > 1) print "; "; print }')
+    # A200: bounded (PROOFLINE_HOOK_NEXT_BUDGET seconds, default 10 of the runtime's 30): the session starts at once and the lead asks `agent.sh next` itself
+    hb_rc=0; hk_budget "${PROOFLINE_HOOK_NEXT_BUDGET:-10}" "$tmp/next.out" sh "$agent" next "$act" || hb_rc=$?
+    nxt=$(sed -n 's/^next=//p' "$tmp/next.out" | awk 'BEGIN { ORS = "" } { if (NR > 1) print "; "; print }')
+    [ "$hb_rc" != 124 ] || nxt="run sh .agents/scripts/agent.sh next $act (the session check did not finish within the hook's time budget)"
   else nxt="no active run: start one with the proofline-lead skill"; fi
   # A194: the plugin and the project's install are different versions: one line, and the lead says so before it starts a run
   sv_msg=''

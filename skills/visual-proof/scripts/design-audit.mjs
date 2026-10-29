@@ -584,3 +584,61 @@ export function designProbeSource() {
     bodySize, paragraphs, fonts, fontFaces, edge, edgeText, blocks, sections, hero, surfaces, textBlocks, ux };
 }
 export const DESIGN_PROBE = `(${designProbeSource.toString()})`;
+
+// --- design-audit cache (A200, item 7) -------------------------------------------------------------------------------
+// The measured items are recomputed on every run (cheap, deterministic). The expensive part is the judged review
+// (critique[], ux_review[]) of the screenshots. A page whose content did not change since the last report keeps its judged
+// items; a changed, new or unmeasured page is judged again. Page content = the sha256 of every screenshot of the page (all its
+// viewports) plus the visitor mode: a different pixel, viewport set or mode is a different key, and the safe side is "changed".
+// The judgment also depends on what it was judged against: the sha256 of the project's DESIGN.md and of the ux-rules.json registry
+// (design.inputs {design_md_sha256, ux_rules_sha256}, written by measure.mjs: this file has no imports). A different DESIGN.md or registry is a different key for every page; a report without
+// inputs keys differently from one with them (the safe side: judged again).
+const inputsKey = (design) => (design?.inputs ? `${design.inputs.design_md_sha256}/${design.inputs.ux_rules_sha256}` : "no-inputs");
+export function pageContentKeys(design) {
+  const keys = {};
+  if (!design || design.status !== "run") return keys;
+  const by = {};
+  for (const s of design.screenshots || []) {
+    const h = s?.screenshot?.sha256;
+    if (!s?.screen || typeof h !== "string") continue;
+    (by[s.screen] ||= []).push(`${s.viewport}:${h}`);
+  }
+  for (const pg of design.pages || []) {
+    if (pg.status !== "measured") continue;
+    const parts = (by[pg.screen] || []).sort();
+    const want = pg.static ? DESIGN_VIEWPORTS.length : 1;
+    if (parts.length !== want) continue; // a page missing a viewport has no key: it is judged again
+    keys[pg.screen] = `${design.mode}|${inputsKey(design)}|${parts.join(",")}`;
+  }
+  return keys;
+}
+// { unchanged, changed, added, removed } screens between two key maps.
+export function designCacheDiff(prevKeys, curKeys) {
+  const out = { unchanged: [], changed: [], added: [], removed: [] };
+  for (const [screen, key] of Object.entries(curKeys || {})) {
+    if (!(screen in (prevKeys || {}))) out.added.push(screen);
+    else if (prevKeys[screen] === key) out.unchanged.push(screen);
+    else out.changed.push(screen);
+  }
+  for (const screen of Object.keys(prevKeys || {})) if (!(screen in (curKeys || {}))) out.removed.push(screen);
+  return out;
+}
+// The judged items of the previous report whose cited screenshot belongs to an unchanged page, with the screenshot re-pointed
+// at the same bytes in the current report (same sha256). Everything else is listed in `rejudge` (item ids). A judged item that
+// cites no screenshot, or one that is not a page screenshot of the current report, is never reused.
+export function reusableJudgments(prevReport, curReport) {
+  const diff = designCacheDiff(pageContentKeys(prevReport?.design), pageContentKeys(curReport?.design));
+  const same = new Set(diff.unchanged);
+  const cur = new Map();
+  for (const s of curReport?.design?.screenshots || []) if (same.has(s.screen)) cur.set(s.screenshot.sha256, s.screenshot);
+  const take = (items, idOf) => {
+    const reuse = [], rejudge = [];
+    for (const it of Array.isArray(items) ? items : []) {
+      const shot = cur.get(it?.screenshot?.sha256);
+      if (shot && it.status !== "not_applicable") reuse.push({ ...it, screenshot: { ...shot } }); else rejudge.push(idOf(it));
+    }
+    return { reuse, rejudge };
+  };
+  const c = take(prevReport?.critique, (x) => x?.id), u = take(prevReport?.ux_review, (x) => x?.rule);
+  return { diff, critique: c.reuse, ux_review: u.reuse, rejudge: { critique: c.rejudge, ux_review: u.rejudge }, pages_to_judge: [...diff.changed, ...diff.added] };
+}

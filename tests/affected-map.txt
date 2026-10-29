@@ -22,3 +22,6 @@ skills/visual-proof/scripts/patterns.mjs visual-proof.test.mjs visual-proof-seo.
 skills/visual-proof/scripts/build-ux-rules.mjs design-library.test.mjs
 skills/visual-proof/ux-rules.json visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
 fixtures/visual-proof-design/* visual-proof-design.test.mjs
+tests/invariants/check-changed.sh check-changed-test
+tests/invariants/check-changed-test.sh check-changed-test
+tests/invariants/invariants-test.sh invariants-test

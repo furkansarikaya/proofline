@@ -207,7 +207,8 @@ sc_ci_fix_resume() {
 # the run's own delivery commit and its task file / knowledge documents do not make the plan stale; other product changes still do
 sc_own_commits_fresh() {
   SC_BRANCH=1 scaffold orchestrated yes; tasks_in_tasks; to_code_done orchestrated
-  mkdir -p docs/wiki; printf '# Lookup\n\nThe lookup returns the stored value.\n' > docs/wiki/lookup.md
+  mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/   # knowledge-done (A200) needs the lint installed and a page that passes it
+  printf -- '---\ntitle: lookup\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Lookup\n\nThe lookup returns the stored value.\n' > docs/wiki/lookup.md
   A knowledge-done LC >/dev/null
   write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
   A task-source-done LC >/dev/null
@@ -237,7 +238,8 @@ sc_delivery_commit_fresh() {
 # someone else's docs commit is not the run's own: the plan is stale as before; so is a changed knowledge file or an unrecorded task file move
 sc_own_commits_foreign() {
   SC_BRANCH=1 scaffold orchestrated yes; tasks_in_tasks; to_code_done orchestrated
-  mkdir -p docs/wiki; printf '# Lookup\n\nThe lookup returns the stored value.\n' > docs/wiki/lookup.md
+  mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/   # knowledge-done (A200) needs the lint installed and a page that passes it
+  printf -- '---\ntitle: lookup\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Lookup\n\nThe lookup returns the stored value.\n' > docs/wiki/lookup.md
   A knowledge-done LC >/dev/null
   write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null
   printf '# Other\n\nsomeone else wrote this page\n' > docs/wiki/other.md

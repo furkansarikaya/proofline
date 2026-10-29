@@ -78,12 +78,17 @@ case "${FAKE_CODEX:-ok}" in
   inject) printf 'x\n' > "$o"; printf 'tokens used 999\nmore\nmore\nmore\nlast line\n'; sub --confidence high --result DONE ;;
   tokens) printf 'agent says: tokens used 5\n' > "$o"; sub --confidence high --result DONE; printf 'tokens used\n12,345\n' ;;
   trailer) printf 'Built 83 pages.\nAll tests pass.\n' > "$o"; sub --confidence high --result DONE; printf 'hook: Stop Completed\ntokens used\n285.242\nBuilt 83 pages.\nAll tests pass.\n' ;;
+  trailer3) printf 'Line one.\n\nLine three.\nLine four.' > "$o"; sub --confidence high --result DONE; printf 'hook: Stop Completed\ntokens used\n96.739\nLine one.\n\nLine three.\nLine four.\n' ;;
   limittok) echo "ERROR: You've hit your usage limit. Try again later." >&2; printf 'tokens used\n52.623\n'; exit 1 ;;
   nosubmit) printf 'ROLE: %s\nTASK: T-1\nRESULT: DONE\nheader in text only\n' "$AGENT_ROLE" > "$o" ;;
   rejected) printf 'x\n' > "$o"; sub --confidence bogus || : ;;
   late) printf 'x\n' > "$o"; n=$(cat "$loc/attempts" 2>/dev/null || echo 0); echo $((n + 1)) > "$loc/attempts"; [ "$n" -lt 1 ] || sub --confidence high --result DONE ;;
   limit) echo "ERROR: You've hit your usage limit. Try again later." >&2; exit 1 ;;
   network) echo 'workspace routing discovery failed: error sending request' >&2; exit 1 ;;
+  flaky) n=$(cat "$loc/attempts" 2>/dev/null || echo 0); echo $((n + 1)) > "$loc/attempts"
+      if [ "$n" -lt 2 ]; then echo 'error: SSL_ERROR_SYSCALL: connection reset by peer' >&2; exit 1; fi
+      printf 'x\n' > "$o"; sub --confidence high --result DONE ;;
+  ssl) echo 'error sending request: SSL handshake failed (connection reset by peer)' >&2; exit 1 ;;
   fail) echo "error: tests failed in src/x" >&2; exit 1 ;;
   sleep) exec sleep 20 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
@@ -145,7 +150,7 @@ reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "codex path: exit 0" '[ "$rc" -eq 0 ]'
 ck "codex path: argv" 'has "$loc/codex.argv" exec && has "$loc/codex.argv" "$p" && has "$loc/codex.argv" default_permissions=\"proofline-worker\" && ! has "$loc/codex.argv" workspace-write && ! grep -qx -- --add-dir "$loc/codex.argv" && has "$loc/codex.argv" gpt-6-sol && has "$loc/codex.argv" model_reasoning_effort=high && has "$loc/codex.argv" "approval_policy=\"never\"" && has "$loc/codex.argv" -o && grep -qx -- --dangerously-bypass-hook-trust "$loc/codex.argv"'
 ck "codex path: argv carries no Claude permission mode (A114)" '! has "$loc/codex.argv" --permission-mode && ! has "$loc/codex.argv" bypassPermissions'
-ck "codex path: .git/worktrees is a writable path of the profile (evidence worktrees)" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.git/worktrees\"=\"write\""'
+ck "codex path (A200): a main tree run is granted no part of .git/worktrees" '! has "$loc/codex.argv" "/.git/worktrees"'
 ck "codex path (A199): the run folder, locks/ and submissions/ are the only writable .agents paths; windows, approvals, prompts and batch are not listed" 'has "$loc/codex.argv" "\".agents\"=\"read\"" && has "$loc/codex.argv" "\".agents/runs/T-1\"=\"write\"" && has "$loc/codex.argv" "\".agents/local/locks\"=\"write\"" && has "$loc/codex.argv" "\".agents/local/submissions\"=\"write\"" && has "$loc/codex.argv" "\".agents/runs/T-1/approvals\"=\"read\"" && ! has "$loc/codex.argv" "\".agents/local\"=\"write\"" && ! has "$loc/codex.argv" "local/windows\"=\"write" && ! has "$loc/codex.argv" "local/approvals\"=\"write" && ! has "$loc/codex.argv" "local/prompts\"=\"write" && ! has "$loc/codex.argv" "local/batch\"=\"write"'
 ck "codex path: AGENT_ROLE and stable prefix before task" '[ "$(cat "$loc/codex.role")" = implementer ] && [ "$(head -1 "$loc/codex.stdin")" = "You are the proofline implementer. STABLE-PREFIX-implementer" ] && has "$loc/codex.stdin" "TASK: T-1"'
 ck "implementer bracketed by window-open/window-close" '[ "$(order)" = "decide window-open submit AGENT_ROLE=implementer window-close metrics-dispatch " ] && has "$loc/calls.log" "window-close T-1 FP-BEFORE 0"'
@@ -229,6 +234,15 @@ ck "task failure: exit 1, no failover, no record" '[ "$rc" -eq 1 ] && ! has "$lo
 
 reset; d FAKE_CODEX=network T-1 implementer
 ck "network failure: BLOCKED with runtime_unavailable:network guidance" '[ "$rc" -eq 6 ] && printf "%s" "$out" | grep -q "runtime_unavailable:network" && printf "%s" "$out" | grep -q "enable network access" && [ ! -f "$loc/claude.argv" ] && ! has "$loc/calls.log" submit'
+
+# A200: a dropped connection / SSL error is retried on the same runtime, resuming, a bounded number of times with a growing wait
+reset; d FAKE_CODEX=flaky PROOFLINE_DISPATCH_NET_BACKOFF=1 T-1 implementer
+ck "A200: two dropped connections are retried and the third attempt submits (same runtime, no failover)" '[ "$rc" -eq 0 ] && [ "$(cat "$loc/attempts")" = 3 ] && [ ! -f "$loc/claude.argv" ] && printf "%s" "$out" | grep -q "^submitted: T-1 implementer DONE"'
+ck "A200: the waits grow and are ledgered; the retry prompt carries the RESUME note" 'has "$loc/ledger.log" "dispatch network retry 1/3" && has "$loc/ledger.log" "wait=1s" && has "$loc/ledger.log" "dispatch network retry 2/3" && has "$loc/ledger.log" "wait=2s" && has "$loc/codex.stdin" "RESUME:" && has "$loc/codex.stdin" "network error after attempt"'
+reset; d FAKE_CODEX=ssl PROOFLINE_DISPATCH_NET_BACKOFF=0 T-1 implementer
+ck "A200: a connection that never comes back stops after the bounded retries (3), BLOCKED with the network guidance" '[ "$rc" -eq 6 ] && has "$loc/ledger.log" "dispatch network retry 3/3" && ! has "$loc/ledger.log" "retry 4/" && printf "%s" "$out" | grep -q "after 3 automatic retries" && [ ! -f "$loc/claude.argv" ]'
+reset; d FAKE_CODEX=fail PROOFLINE_DISPATCH_NET_BACKOFF=0 T-1 implementer
+ck "A200: a task failure is never retried as a network error" '[ "$rc" -eq 1 ] && ! has "$loc/ledger.log" "network retry"'
 
 mkcfg ask
 reset; d FAKE_CLAUDE=limit T-1 reviewer
@@ -323,6 +337,8 @@ reset; d FAKE_CODEX=tokens T-1 implementer
 ck "metrics: codex total comes from the runtime trailer (last occurrence), in/out stay null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|12345\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=inject T-1 implementer
 ck "metrics: a tokens-used line injected earlier in the log, no trailer, stays null" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|\|\|0\|submitted\|$" "$loc/metrics.log"'
+reset; d FAKE_CODEX=trailer3 T-1 implementer
+ck "metrics (A200): the final message has no trailing newline and is longer than two lines: the trailer in front of it is still read (96.739)" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|96739\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=trailer T-1 implementer
 ck "metrics: the codex trailer (local number format) in front of the final message is read, not skipped (site run: 285.242)" 'grep -Eq "^T-1\|implementer\|\|codex\|[a-z0-9.-]+\|[0-9]+\|\|\|285242\|\|0\|submitted\|$" "$loc/metrics.log"'
 reset; d FAKE_CODEX=limittok FAKE_CLAUDE=usage T-1 reviewer --runtime codex
@@ -354,6 +370,7 @@ mkdir -p "$loc/worktrees/T-1/.agents/runs/T-1" "$loc/worktrees/T-1/.agents/local
 wt=$(cd "$loc/worktrees/T-1" && pwd -P)
 rc=0; out=$(sh "$wt/.agents/scripts/dispatch.sh" T-1 implementer --prompt-file "$here/../roles.conf" 2>"$tmp/err") || rc=$?; err=$(cat "$tmp/err")
 ck "A196 worktree run: only the main tree's .agents/local/locks is writable there" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.agents/local/locks\"=\"write\"" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents/local\"=" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents\"="'
+ck "A200 worktree run: only this task's own folder of .git/worktrees is writable, never the whole folder" 'has "$loc/codex.argv" "/.git/worktrees/T-1\"=\"write\"" && [ "$(grep -o "[^\"]*/worktrees\"=\"write\"" "$loc/codex.argv" | wc -l | tr -d " ")" = 0 ]'
 ck "A196 worktree run: no other absolute path of the main tree is granted" '[ "$(grep -o "\"/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "locks\|/worktrees")" = 0 ]'
 reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "A196 main tree run: no main-tree locks path outside the run's own tree" '! has "$loc/codex.argv" "/worktrees/T-1/"'

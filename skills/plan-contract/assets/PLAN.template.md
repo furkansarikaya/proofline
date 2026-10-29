@@ -2,6 +2,10 @@
 scope:
   - path: <repo-relative file>
     criteria: [AC-1]
+  # A document or content path has no RED/GREEN to show: give it a specific reason (20+ characters) instead of a test (A200):
+  # - path: docs/guides/setup.md
+  #   criteria: [AC-2]
+  #   tdd_exemption: "documentation page, verified by the docs link check; there is no executable behavior to test first"
 ---
 
 # Plan: <TASK-ID>

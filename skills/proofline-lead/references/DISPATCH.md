@@ -12,7 +12,7 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
 
 | Lead | Role runtime | Path |
 |---|---|---|
-| Claude Code | `claude` | **Agent path**: `A decide <ID> <role> [--focus F] --agent-path` exactly once (a bare `decide` is refused, A171; `--dry` reads the decision and writes nothing); take `model=` (and `effort=`) from its output; call the Agent tool with `subagent_type` = `proofline-<role>` with `_` written as `-` (`proofline-security-reviewer`; plugin install: `proofline:proofline-security-reviewer`; use the name the Agent tool lists), `model` = the decided model, `prompt` = the assignment. |
+| Claude Code | `claude` | **Agent path**: `A decide <ID> <role> [--focus F] --agent-path` exactly once (a bare `decide` is refused, A171; `--dry` reads the decision and writes nothing); take `model=` (and `effort=`) from its output (A200: `decide --agent-path` is refused for a role the configuration gives to another runtime; the error names the `D` command to use instead); call the Agent tool with `subagent_type` = `proofline-<role>` with `_` written as `-` (`proofline-security-reviewer`; plugin install: `proofline:proofline-security-reviewer`; use the name the Agent tool lists), `model` = the decided model, `prompt` = the assignment. |
 | Claude Code | `codex` or a command-template runtime | **dispatch path**: `D <ID> <role> [--focus F] --prompt-file <assignment file>`. |
 | Codex, terminal agent | any | **dispatch path**. |
 
@@ -21,6 +21,7 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   paths for one step.
 - Recording: Agent path -> the SubagentStop hook pipes the subagent's last message to `A record` with
   `AGENT_ROLE` from the subagent type. dispatch path -> dispatch.sh records. The lead records nothing.
+- A dropped connection or an SSL/TLS error is retried by `D` itself (A200): the same step on the same runtime, resuming from the state the worker left (a RESUME note goes into its prompt), at most `dispatch.network_retries` times (default 3, at most 6) after a growing wait (`dispatch.network_backoff_seconds`, default 15, doubling). Do not re-dispatch by hand meanwhile; when the retries are spent `D` exits 6 with the network guidance. A sandbox that blocks the network is not retried.
 - Exit codes of `D`: 0 recorded, 1 task failure or record rejected, 2 usage/config, 5 NEEDS_INPUT, 6
   BLOCKED, 124 timeout. 5 -> the question is already pending (`A ask` by dispatch.sh or the specialist's
   NEEDS_INPUT): [HANDOFF.md](HANDOFF.md); 6 -> read `BLOCKED_REASON` from check-result, or from `D`'s own stdout when

@@ -10,12 +10,16 @@
 #   SMOKE_MAX_REPLIES=6       replies per step after the first prompt (default 6)
 #   SMOKE_RTK=auto|no         auto (default): when rtk is installed, run a second pass with the user's settings (so the rtk hook) loaded
 #   SMOKE_ONLY=codex          only the Codex step (A199): setup, the sandbox probe and a two-task batch with a Codex implementer in worktrees
+#   SMOKE_ONLY=a200           only the A200 scenarios (not in the default run): a question of the batch pre-flight answered with the approval, empty commands.* proposed and
+#                             filled, a test-only fix round without SECURITY, the lead continuing after CODE_DONE; every assertion reads agent.sh state and the gate records
 #   SMOKE_KEEP=1              keep the fixture and transcripts (their path is printed)
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 repo=$(CDPATH='' cd "$here/../.." && pwd)
 model=${SMOKE_MODEL:-haiku}
 step_timeout=${SMOKE_STEP_TIMEOUT:-900}
+# one call of the A200 scenarios may carry a whole task (explorer, QA, implementer, five gates, delivery) because the lead is told not to stop at CODE_DONE
+[ "${SMOKE_ONLY:-}" != a200 ] || step_timeout=${SMOKE_STEP_TIMEOUT:-2400}
 max_replies=${SMOKE_MAX_REPLIES:-6}
 command -v claude >/dev/null 2>&1 || { echo 'smoke: claude is not installed' >&2; exit 127; }
 command -v node >/dev/null 2>&1 || { echo 'smoke: node is not installed' >&2; exit 127; }
@@ -31,6 +35,10 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
+# the `proofline` command of every session is THIS checkout's CLI: the plugin cache on the machine may hold an older release whose doctor knows no --commands,
+# and a session that ran it would see no proposal (a stale CLI is not what the A200 rows test)
+mkdir -p "$work/bin"
+printf '#!/bin/sh\nexec "%s/bin/proofline" "$@"\n' "$repo" > "$work/bin/proofline"; chmod +x "$work/bin/proofline"
 rows="$work/rows.tsv"; : > "$rows"
 fails=0
 
@@ -45,9 +53,9 @@ claude_call() {
   cc_proj=$1; cc_out=$2; cc_prompt=$3; cc_sess=${4:-}
   cc_src=project,local; [ "${smoke_user_settings:-no}" = no ] || cc_src=user,project,local
   if [ -n "$cc_sess" ]; then
-    (cd "$cc_proj" && exec env CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --resume "$cc_sess" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
+    (cd "$cc_proj" && exec env PATH="$work/bin:$PATH" CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --resume "$cc_sess" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
   else
-    (cd "$cc_proj" && exec env CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
+    (cd "$cc_proj" && exec env PATH="$work/bin:$PATH" CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
   fi
   cc_pid=$!; pids="$pids $cc_pid"; cc_t=0
   while kill -0 "$cc_pid" 2>/dev/null && [ "$cc_t" -lt "$step_timeout" ]; do sleep 1; cc_t=$((cc_t + 1)); done
@@ -127,7 +135,7 @@ skill_detour_row() { # Claude Code rejects a Skill call for a proofline skill be
   else row "skill tool: the lead recovered" FAIL 0 "$sd_calls Skill-tool call(s) and a failed step above"; fi
 }
 
-pass() { # one full pass (setup, run, deliver, batch); NAME_PREFIX
+mk_fixture() { # NAME_PREFIX: the fixture repository, a local bare origin and proofline installed; sets P and ORIGIN; returns 1 when setup failed
   pr_pre=$1
   P="$work/$pr_pre/project"; ORIGIN="$work/$pr_pre/origin.git"
   mkdir -p "$P/src" "$P/tests" "$P/.agents/tasks"
@@ -147,7 +155,13 @@ EOF
   if (cd "$P" && "$repo/bin/proofline" init --yes --runtimes "$rts" --lead claude --worker claude --reviewers claude --profile economy --task-adapter markdown) > "$work/$pr_pre-init.txt" 2>&1 \
      && git -C "$P" add -A && git -C "$P" commit -q -m 'chore: install proofline' && git -C "$P" push -q origin main; then
     row "$pr_pre setup: init, local bare origin" PASS "$(secs "$t0")" "installed proofline $(cd "$P" && "$repo/bin/proofline" version)"
-  else row "$pr_pre setup: init, local bare origin" FAIL "$(secs "$t0")" "see $work/$pr_pre-init.txt"; return 0; fi
+  else row "$pr_pre setup: init, local bare origin" FAIL "$(secs "$t0")" "see $work/$pr_pre-init.txt"; return 1; fi
+  return 0
+}
+
+pass() { # one full pass (setup, run, deliver, batch); NAME_PREFIX
+  pr_pre=$1
+  mk_fixture "$pr_pre" || return 0
   t0=$(date +%s)
   if (cd "$P" && "$repo/bin/proofline" doctor) > "$work/$pr_pre-doctor.txt" 2>&1; then row "$pr_pre doctor" PASS "$(secs "$t0")" "$(tail -n 1 "$work/$pr_pre-doctor.txt")"
   else row "$pr_pre doctor" FAIL "$(secs "$t0")" "$(grep '^FAIL' "$work/$pr_pre-doctor.txt" | head -n 1)"; fi
@@ -236,12 +250,177 @@ EOF
   else row "$pr_pre batch: Codex implementer in a worktree" SKIP 0 "codex is not installed"; fi
 }
 
+# --- A200 scenarios (SMOKE_ONLY=a200 only): what a night batch and a fix round must do, read from the control plane, never from the model's text ---
+
+# a200_task FILE ID CLASS TITLE GOAL AC1 AC2: a task file in the shape the other fixture tasks have; the paths are named in backticks (plan-lint reads them)
+a200_task() {
+  cat > "$1" <<EOF
+# Task: $2 — $4
+
+## Goal
+
+$5
+
+## Context
+
+Fixture task of the proofline real-session smoke test (A200 scenarios).
+
+## Acceptance criteria
+
+- AC-1: $6
+- AC-2: $7
+
+## Out of scope
+
+- Any change to src/greet.js.
+
+## Constraints
+
+- No dependencies.
+
+## Risks
+
+- None.
+
+## Pre-existing defects
+
+none
+
+## Suggested class
+
+$3
+
+## Verification commands
+
+- \`npm test\`
+EOF
+}
+cfg_get() { (cd "$P" && sh .agents/scripts/agent.sh config-get "$1" 2>/dev/null) || :; }
+gcount() { # ID GATE: the gate records of a run
+  gc_n=0; for gc_f in "$P/.agents/runs/$1/gates"/*-"$2".yaml; do [ -f "$gc_f" ] && gc_n=$((gc_n + 1)); done; echo "$gc_n"
+}
+batch_row() { A batch-next --tsv 2>/dev/null | awk -F'\t' -v t="$1" '$1 == t { print $2 "\t" $3 }'; }   # ID: state<TAB>detail, from the batch records
+ab_say() { claude_call "$P" "$ab_out" "$1" "$ab_sess" >/dev/null; ab_msgs=$((ab_msgs + 1)); }
+ab_pending() { for ab_pb in $(git --git-dir="$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/ | grep '^proofline/'); do git --git-dir="$ORIGIN" merge-base --is-ancestor "$ab_pb" main 2>/dev/null || return 0; done; return 1; }
+ab_done() { git --git-dir="$ORIGIN" show main:src/join.js >/dev/null 2>&1 && git --git-dir="$ORIGIN" show main:src/pad.js >/dev/null 2>&1; }
+
+# scenarios (a), (b), (d): one batch of two tasks. B-1 names four code paths under a TRIVIAL class (plan-lint asks the split question before the approval);
+# commands.build|test|lint are empty and the project has scripts for all three (the summary proposes them)
+# shellcheck disable=SC2016 # the backticks in the task texts are literal
+a200_batch() {
+  ab_n='a200 batch'; ab_out="$work/a200-batch.jsonl"; : > "$ab_out"; ab_msgs=0; ab_max=${SMOKE_A200_REPLIES:-14}
+  mk_fixture a200b || return 0
+  printf '{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test", "build": "node --check src/greet.js", "lint": "node --check tests/greet.test.js" } }\n' > "$P/package.json"
+  sed 's/^  test:[[:space:]]*[^[:space:]#].*$/  test:/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"
+  a200_task "$P/.agents/tasks/B-1.md" B-1 'TRIVIAL — one function in three small modules.' 'join two words' \
+    'Add `src/join.js`, `src/join-parts.js` and `src/join-sep.js` and a test `tests/join.test.js`: joinWords(a, b) (exported from src/join.js) uses the helpers.' \
+    'joinWords(a, b) returns a and b separated by one space.' 'tests/join.test.js tests it with node:test and `npm test` passes.'
+  a200_task "$P/.agents/tasks/B-2.md" B-2 'TRIVIAL — one new file and its test.' 'pad a word' \
+    'Add `src/pad.js` exporting padWord(text) with a test in `tests/pad.test.js`.' \
+    'padWord(text) returns the text with one space on each side.' 'tests/pad.test.js tests it with node:test and `npm test` passes.'
+  git -C "$P" add -A; git -C "$P" commit -q -m 'chore: a200 tasks'; git -C "$P" push -q origin main
+  t0=$(date +%s)
+  ab_sess=$(claude_call "$P" "$ab_out" "/proofline batch B-1 B-2")
+  if [ -z "$ab_sess" ]; then
+    for ab_r in "(a) pre-flight answer: the batch does not park at freeze" "(b) empty commands proposed in the summary, filled after approval" "(d) the lead continues after CODE_DONE and to the next task"; do
+      row "$ab_n $ab_r" FAIL "$(secs "$t0")" "no session id in $ab_out"; done
+    return 0
+  fi
+  ab_sum="$P/.agents/local/batch/SUMMARY.md"
+  [ -f "$ab_sum" ] || ab_say "Plan the batch of B-1 and B-2 now and show me the summary with its questions."
+  cp "$ab_sum" "$work/a200-SUMMARY.md" 2>/dev/null || : > "$work/a200-SUMMARY.md"
+  ab_q=$(awk -F'\t' '$2 == "B-1" && $3 == "split" { print $1; exit }' "$P/.agents/local/batch/lint.tsv" 2>/dev/null)
+  ab_sec=$(grep -c '^## Verification commands' "$work/a200-SUMMARY.md" || :)
+  ab_prop=$(sed -n 's/^commands proposal: //p' "$work/a200-SUMMARY.md" | head -n 1)
+  # the user answers the question in their own words, then approves the batch (two messages: an answer is never an approval)
+  [ -z "$ab_q" ] || ab_say "$ab_q: do not split it, proceed without splitting"
+  ab_ans=$(A batch-answers B-1 2>/dev/null)
+  ab_i=0
+  while [ "$ab_i" -lt 3 ] && [ "$(A batch-next --tsv 2>/dev/null | sed -n 1p)" != "state$(printf '\t')approved" ]; do ab_i=$((ab_i + 1)); ab_say "approve batch"; done
+  ab_at=$ab_msgs
+  # checkpoint: after the approval message alone, nothing else said
+  ab_row=$(batch_row B-1)
+  ab_pushed=$(git --git-dir="$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/ | grep -c '^proofline/' || :)
+  # after the checkpoint the user only merges what was delivered, and says so only when there was something to merge; otherwise a neutral
+  # "Continue." (a headless call ends when the lead waits for a background agent, so a night of work needs more calls than a human would send).
+  # A false "I merged it" made the lead check origin, find nothing and spend the whole reply budget refusing to record a merge (A200 smoke run 2).
+  ab_i=0
+  while ! ab_done && [ "$ab_i" -lt "$ab_max" ]; do
+    ab_i=$((ab_i + 1))
+    if ab_pending; then user_merges; ab_say "I merged it on the origin."; else ab_say "Continue."; fi
+  done
+  user_merges
+  ab_note=$(grep -o 'note=BATCH (A200)' "$ab_out" | wc -l | tr -d ' ')
+  ab_secs=$(secs "$t0")
+
+  # (a) the question asked by the pre-flight and answered with the approval: recorded as the user's, and B-1 was not parked at freeze
+  ab_state=$(printf '%s' "$ab_row" | cut -f1); ab_det=$(printf '%s' "$ab_row" | cut -f2)
+  if [ -z "$ab_q" ]; then row "$ab_n (a) pre-flight answer: the batch does not park at freeze" FAIL "$ab_secs" "the summary asked no split question for B-1 (lint.tsv)"
+  elif ! printf '%s\n' "$ab_ans" | grep -q 'split: option b'; then row "$ab_n (a) pre-flight answer: the batch does not park at freeze" FAIL "$ab_secs" "agent.sh batch-answers B-1 recorded no 'split: option b': $ab_ans"
+  elif [ "$ab_state" = parked ] && [ "$ab_det" != 'awaiting merge' ]; then row "$ab_n (a) pre-flight answer: the batch does not park at freeze" FAIL "$ab_secs" "B-1 is parked after the approval: $ab_det"
+  elif ! git --git-dir="$ORIGIN" show main:src/join.js >/dev/null 2>&1; then row "$ab_n (a) pre-flight answer: the batch does not park at freeze" FAIL "$ab_secs" "B-1 never reached origin main (batch-next: $ab_state $ab_det)"
+  else row "$ab_n (a) pre-flight answer: the batch does not park at freeze" PASS "$ab_secs" "answer recorded ($ab_q: $(printf '%s' "$ab_ans" | tr '\n' ' ')); B-1 state after the approval: $ab_state/$ab_det"; fi
+
+  # (b) the summary proposes the empty commands; after the approval exactly the proven ones are in the configuration
+  ab_bad=''
+  for ab_k in build test lint; do
+    ab_v=$(cfg_get "commands.$ab_k")
+    [ -n "$ab_v" ] || { ab_bad="$ab_bad commands.$ab_k is still empty;"; continue; }
+    grep -qF "commands.$ab_k: $ab_v" "$work/a200-SUMMARY.md" || ab_bad="$ab_bad commands.$ab_k=$ab_v was not in the summary's proposal;"
+  done
+  if [ "$ab_sec" -le 0 ] || [ -z "$ab_prop" ]; then row "$ab_n (b) empty commands proposed in the summary, filled after approval" FAIL "$ab_secs" "the summary has no 'Verification commands' proposal (a proven proposal needs proofline doctor --commands before batch-plan)"
+  elif [ -n "$ab_bad" ]; then row "$ab_n (b) empty commands proposed in the summary, filled after approval" FAIL "$ab_secs" "$ab_bad"
+  else row "$ab_n (b) empty commands proposed in the summary, filled after approval" PASS "$ab_secs" "proposal $ab_prop; build=$(cfg_get commands.build) test=$(cfg_get commands.test) lint=$(cfg_get commands.lint)"; fi
+
+  # (d) after the approval message alone the lead carried B-1 past CODE_DONE to a pushed branch, and went on to B-2 without being told
+  if [ "$ab_pushed" -le 0 ]; then row "$ab_n (d) the lead continues after CODE_DONE and to the next task" FAIL "$ab_secs" "no proofline/* branch on the origin after the approval message ($ab_at user messages): the lead stopped before delivery (B-1 $ab_state/$ab_det)"
+  elif ! ab_done; then row "$ab_n (d) the lead continues after CODE_DONE and to the next task" FAIL "$ab_secs" "B-1 was delivered by the lead, but B-2 never reached origin main"
+  elif [ "$ab_note" -le 0 ]; then row "$ab_n (d) the lead continues after CODE_DONE and to the next task" FAIL "$ab_secs" "no note=BATCH (A200) line in any agent.sh next output of the transcript"
+  else row "$ab_n (d) the lead continues after CODE_DONE and to the next task" PASS "$ab_secs" "delivered with $ab_at user messages (none after the approval); note=BATCH seen $ab_note time(s); $((ab_msgs - ab_at)) 'I merged it' message(s) later, none naming B-2"; fi
+}
+
+# scenario (c): a fix round that changes only a test file does not run SECURITY again. F-1 touches three files (tier full: SECURITY is required);
+# after CODE_DONE the user asks for one more test case. The evidence is the gate records of the run and the hashes of the files.
+fx_hash() { for fx_p in src/total.js src/total-format.js tests/total.test.js; do printf '%s ' "$(git hash-object "$P/$fx_p" 2>/dev/null || echo missing)"; done; }
+fx_codedone() { A digest F-1 2>/dev/null | grep -q 'CODE_DONE'; }
+fx_fixed() { [ "$(gcount F-1 VERIFY)" -ge 2 ] && fx_codedone; }
+# shellcheck disable=SC2016
+a200_fix() {
+  fx_n='a200 fix round'
+  mk_fixture a200f || return 0
+  a200_task "$P/.agents/tasks/F-1.md" F-1 'STANDARD — three files, so the full review tier.' 'format a total' \
+    'Add `src/total.js` exporting sumList(list), `src/total-format.js` exporting formatTotal(list) (it uses sumList and returns the sum with two decimals) and a test `tests/total.test.js`.' \
+    'formatTotal([1, 2]) returns "3.00".' 'tests/total.test.js tests it with node:test and `npm test` passes.'
+  git -C "$P" add -A; git -C "$P" commit -q -m 'chore: a200 task'; git -C "$P" push -q origin main
+  t0=$(date +%s)
+  if ! drive a200-fix-run "/proofline run F-1" 'fx_codedone' "approve plan"; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "F-1 did not reach CODE_DONE: $(A next F-1 2>/dev/null | head -n 1)"; return 0; fi
+  fx_tier=$(A pipeline F-1 2>/dev/null | sed -n 's/^tier=//p')
+  fx_sec1=$(gcount F-1 SECURITY); fx_ver1=$(gcount F-1 VERIFY); fx_h1=$(fx_hash)
+  if [ "$fx_tier" != full ] || [ "$fx_sec1" -lt 1 ]; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "scenario invalid: tier=$fx_tier, $fx_sec1 SECURITY record(s) before the fix round"; return 0; fi
+  # a test-only change that adds no behaviour (a tidy of the existing case): no new RED exists to record and none is owed (tdd-proof rule 6: REFACTOR/FIX evidence with the
+  # plan unchanged). A NEW case for behaviour the code already has cannot show a RED without touching product code, and a plan amendment voids every path's evidence
+  # (run 3 of the A200 smoke: the lead stopped on exactly that), so the scenario asks for the kind of test-only fix that has no such gap.
+  drive a200-fix-round "Fix round for F-1: tidy tests/total.test.js only. Rename the existing test to \"formatTotal formats the sum with two decimals\" and compare with assert.strictEqual. No new case, no behaviour change, no product code, and no plan change. Reopen F-1 (amend), have the implementer make the change with its REFACTOR evidence, and run the gates again." 'fx_fixed' "Go on: only that test file changes, the plan stays frozen. Run the gates again." >/dev/null 2>&1 || :
+  fx_sec2=$(gcount F-1 SECURITY); fx_ver2=$(gcount F-1 VERIFY); fx_h2=$(fx_hash)
+  fx_gate=$(A pipeline F-1 2>/dev/null | sed -n 's/^gate\.SECURITY=//p' | head -n 1)
+  if [ "$fx_ver2" -le "$fx_ver1" ]; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "the fix round never ran the gates again (VERIFY records $fx_ver1 -> $fx_ver2)"
+  elif [ "$(echo "$fx_h1" | cut -d' ' -f1-2)" != "$(echo "$fx_h2" | cut -d' ' -f1-2)" ] || [ "$(echo "$fx_h1" | cut -d' ' -f3)" = "$(echo "$fx_h2" | cut -d' ' -f3)" ]; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "scenario invalid: the fix did not change exactly the test file (hashes $fx_h1 -> $fx_h2)"
+  elif [ "$fx_sec2" -ne "$fx_sec1" ]; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "SECURITY ran again after a test-only fix ($fx_sec1 -> $fx_sec2 records)"
+  elif [ "$fx_gate" != pass ]; then row "$fx_n (c) test-only fix: SECURITY not re-run" FAIL "$(secs "$t0")" "gate.SECURITY is '$fx_gate' after the fix round, not the carried pass"
+  else row "$fx_n (c) test-only fix: SECURITY not re-run" PASS "$(secs "$t0")" "SECURITY records $fx_sec1 -> $fx_sec2 (gate.SECURITY=$fx_gate), VERIFY $fx_ver1 -> $fx_ver2, only the test file changed"; fi
+}
+
+a200_pass() { a200_batch; a200_fix; }
+
 smoke_user_settings=no
+if [ "${SMOKE_ONLY:-}" = a200 ]; then a200_pass   # not in the default run: three more real-model flows (a batch of two tasks and a run with a fix round) double its time
+else
 pass hermetic
 if [ "${SMOKE_RTK:-auto}" != no ] && command -v rtk >/dev/null 2>&1; then
   smoke_user_settings=yes
   pass rtk
 else row "rtk pass" SKIP 0 "rtk is not installed here; the pass with the user's settings is skipped"; fi
+fi
 skill_detour_row
 
 printf '\nproofline real-session smoke (model %s, proofline %s)\n' "$model" "$(cat "$repo/.claude-plugin/plugin.json" | sed -n 's/.*"version": "\([^"]*\)".*/\1/p' | head -n 1)"

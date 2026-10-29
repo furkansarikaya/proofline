@@ -8,11 +8,12 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { validateReport, CORE, loadUxRules } from "../../skills/visual-proof/scripts/validate-visual.mjs";
-import { assemble, detect, asciiConfig } from "../../skills/visual-proof/scripts/measure.mjs";
+import { assemble, detect, asciiConfig, designCacheInputs } from "../../skills/visual-proof/scripts/measure.mjs";
 import { evaluateStatic, asciiTurkishWords, untranslatedBlocks, vacuumOf, designHolds, designThresholdError, CRITIQUE_IDS } from "../../skills/visual-proof/scripts/design-audit.mjs";
 import { decideMotionCount, decideReducedMotion, decideNoScript, decideSceneStarted, sceneRange } from "../../skills/visual-proof/scripts/motion-audit.mjs";
 import { parseLedger, ledgerItems } from "../../skills/visual-proof/scripts/ledger.mjs";
-import { lintText, applyJustifications, parseJustifications, lintProject, validateLint } from "../../skills/visual-proof/scripts/lint-source.mjs";
+import { pageContentKeys, designCacheDiff, reusableJudgments } from "../../skills/visual-proof/scripts/design-audit.mjs";
+import { lintText, applyJustifications, parseJustifications, lintProject, validateLint, approvedJustifications, rationaleHash } from "../../skills/visual-proof/scripts/lint-source.mjs";
 
 const FIX = fileURLToPath(new URL("../../fixtures/visual-proof-design/", import.meta.url));
 const MEASURE = fileURLToPath(new URL("../../skills/visual-proof/scripts/measure.mjs", import.meta.url));
@@ -196,8 +197,26 @@ test("browser: the bad site fails with its planted design findings, the good sit
   for (const id of ["mono-labels", "hairline-newspaper"]) assert.ok(blocking.some((f) => f.id === id && f.severity === "blocking"), id);
   const tmp = mktmp();
   writeFileSync(join(tmp, "DESIGN.md"), `${readFileSync(md, "utf8")}\n- mono-labels: kept on purpose\n- hairline-newspaper: kept on purpose\n- eyebrow-label: kept on purpose\n`);
-  const info = lintProject({ root, designMd: join(tmp, "DESIGN.md") }).findings;
+  const written = parseJustifications(readFileSync(join(tmp, "DESIGN.md"), "utf8"));
+  const approved = Object.fromEntries(Object.entries(written).map(([id, r]) => [id, rationaleHash(id, r)]));
+  assert.ok(lintProject({ root, designMd: join(tmp, "DESIGN.md") }).findings.every((f) => f.severity === "blocking"), "written but not approved: still blocking (A200)");
+  const info = lintProject({ root, designMd: join(tmp, "DESIGN.md"), approved }).findings;
   assert.ok(info.length > 0 && info.every((f) => f.severity === "info" && f.justified));
+});
+
+test("A200: only a rationale the user approved (bound to the exact line) downgrades a lint finding", () => {
+  const md = "## Pattern justifications\n- mono-labels: file names are the product here\n- eyebrow-label: the brand voice\n";
+  const written = parseJustifications(md);
+  const ok = approvedJustifications(written, { "mono-labels": rationaleHash("mono-labels", written["mono-labels"]) });
+  assert.deepEqual(Object.keys(ok.approved), ["mono-labels"]);
+  assert.deepEqual(ok.unapproved, ["eyebrow-label"]);
+  // an approval of an earlier wording does not cover an edited line
+  const edited = approvedJustifications({ "mono-labels": "something else" }, { "mono-labels": rationaleHash("mono-labels", "file names are the product here") });
+  assert.deepEqual(edited.approved, {});
+  assert.deepEqual(approvedJustifications(written, undefined).approved, {}, "no approvals file: nothing is justified");
+  const raw = [{ id: "mono-labels", file: "a.html", line: 1, excerpt: "x" }];
+  assert.equal(applyJustifications(raw, ok.approved)[0].severity, "info");
+  assert.equal(applyJustifications(raw, approvedJustifications(written, {}).approved)[0].severity, "blocking");
 });
 
 test("ascii-ized Turkish: listed words are counted, an allowed word and correct Turkish are not; the config keys are read", () => {
@@ -209,4 +228,32 @@ test("ascii-ized Turkish: listed words are counted, an allowed word and correct 
   const d = mktmp(); mkdirSync(join(d, ".agents"));
   writeFileSync(join(d, ".agents/config.yaml"), 'visual:\n  ascii_turkish_words: "degil kapi"\n  ascii_turkish_allow: "degil"\n');
   assert.deepEqual(asciiConfig([d]), { words: "degil kapi", allow: "degil" });
+});
+
+test("A200: the design-audit cache reuses judged items only for pages whose screenshots are byte-identical", () => {
+  const shots = (screen, h) => ["wide", "tablet", "phone390"].map((viewport) => ({ screen, viewport, screenshot: { path: `screenshots/${screen}-${viewport}.png`, sha256: `${h}${viewport}` } }));
+  const design = (a, b) => ({ status: "run", mode: "persuade", pages: [{ screen: "home", status: "measured", static: true }, { screen: "about", status: "measured", static: true }], screenshots: [...shots("home", a), ...shots("about", b)] });
+  const prev = { design: design("a", "b"), critique: [{ id: "squint", status: "ok", reason: "r", screenshot: { path: "old/home.png", sha256: "awide" } }, { id: "logo_off", status: "concern", reason: "r", screenshot: { path: "old/about.png", sha256: "bwide" } }], ux_review: [] };
+  const cur = { design: design("a", "B") };
+  const keys = pageContentKeys(cur.design);
+  assert.deepEqual(designCacheDiff(pageContentKeys(prev.design), keys), { unchanged: ["home"], changed: ["about"], added: [], removed: [] });
+  const r = reusableJudgments(prev, cur);
+  assert.deepEqual(r.critique.map((c) => c.id), ["squint"]);
+  assert.equal(r.critique[0].screenshot.path, "screenshots/home-wide.png");
+  assert.deepEqual(r.rejudge.critique, ["logo_off"]);
+  assert.deepEqual(r.pages_to_judge, ["about"]);
+  assert.deepEqual(reusableJudgments(null, cur).critique, [], "no previous report: nothing reused");
+  assert.deepEqual(reusableJudgments({ ...prev, design: { ...prev.design, mode: "read" } }, cur).critique, [], "another mode: nothing reused");
+});
+
+test("A200 review: the design-audit cache key includes the DESIGN.md hash and the ux-rules registry hash", () => {
+  const shots = (screen, h) => ["wide", "tablet", "phone390"].map((viewport) => ({ screen, viewport, screenshot: { path: `screenshots/${screen}-${viewport}.png`, sha256: `${h}${viewport}` } }));
+  const design = (inputs) => ({ status: "run", mode: "persuade", inputs, pages: [{ screen: "home", status: "measured", static: true }], screenshots: shots("home", "a") });
+  const base = { design_md_sha256: "d1", ux_rules_sha256: "u1" };
+  const report = (inputs) => ({ design: design(inputs), critique: [{ id: "squint", status: "ok", reason: "r", screenshot: { path: "old/home.png", sha256: "awide" } }] });
+  assert.deepEqual(reusableJudgments(report(base), report(base)).critique.map((c) => c.id), ["squint"], "same pixels, same inputs: reused");
+  assert.deepEqual(reusableJudgments(report(base), report({ ...base, design_md_sha256: "d2" })).critique, [], "another DESIGN.md: judged again");
+  assert.deepEqual(reusableJudgments(report(base), report({ ...base, ux_rules_sha256: "u2" })).critique, [], "another ux-rules registry: judged again");
+  assert.deepEqual(reusableJudgments(report(undefined), report(base)).critique, [], "a previous report without inputs is never reused");
+  assert.match(designCacheInputs(process.cwd()).ux_rules_sha256, /^[0-9a-f]{64}$/);
 });

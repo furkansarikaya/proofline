@@ -60,7 +60,9 @@ tok() { case "$2" in ''|*[!A-Za-z0-9._+:-]*|-*) die "invalid value for $1: '$2'"
 #   .agents/local/locks                  the lock folder (submit takes locks/tree.lock and, in a worktree, the main tree's locks/shared.lock)
 #   .agents/local/submissions            the submission status dispatch.sh reads
 #   <main>/.agents/local/locks           (a run in a worktree only) the main tree's shared lock, nothing else of the main tree
-#   <git dir>/worktrees                  `git worktree add` for mutation evidence in a separate worktree (D10)
+#   <git dir>/worktrees/<name>           (a run in a worktree only) that worktree's own git folder (index, HEAD) and nothing else under
+#                                        <git dir>/worktrees, so a worker cannot touch another task's worktree metadata (A200). A worker can
+#                                        therefore not `git worktree add` an evidence worktree: that needs the whole folder (D10)
 # The profile replaces `-s workspace-write`: Codex refuses a mix of default_permissions and a sandbox mode.
 codex_profile_args() {
   cp_id=$1; cp_root=$2
@@ -70,9 +72,12 @@ codex_profile_args() {
     cp_m=$(git -C "$cp_root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
     case "$(cd "$cp_root" && pwd -P)" in "$cp_m"/.agents/local/worktrees/*) mkdir -p "$cp_m/.agents/local/locks"; cp_abs="$cp_abs,\"$cp_m/.agents/local/locks\"=\"write\"" ;; esac
   fi
-  cp_g=$(git -C "$cp_root" rev-parse --git-common-dir 2>/dev/null || true)
+  cp_g=$(git -C "$cp_root" rev-parse --git-dir 2>/dev/null || true)   # a linked worktree: <common>/worktrees/<name>
   case "$cp_g" in '') ;; /*) ;; *) cp_g=$cp_root/$cp_g ;; esac
-  if [ -n "$cp_g" ] && mkdir -p "$cp_g/worktrees" 2>/dev/null; then cp_abs="$cp_abs,\"$(cd "$cp_g/worktrees" && pwd -P)\"=\"write\""; fi
+  if [ -f "$cp_root/.git" ] && [ -d "$cp_g" ]; then
+    cp_g=$(cd "$cp_g" && pwd -P)
+    case "$cp_g" in */worktrees/*) cp_abs="$cp_abs,\"$cp_g\"=\"write\"" ;; esac
+  fi
   case "$cp_rules$cp_abs" in *\\*) die "a path with a backslash cannot be placed in the Codex permission profile" ;; esac
   printf '%s\n' -c 'default_permissions="proofline-worker"' -c 'permissions.proofline-worker.extends=":workspace"' \
     -c "permissions.proofline-worker.filesystem={\":workspace_roots\"={$cp_rules}$cp_abs}"
@@ -249,7 +254,9 @@ cl_n() { printf '%s' "$1" | grep -o "\"$2\":[0-9][0-9]*" | head -n 1 | tr -cd '0
 # The trailer sits right before the final message, which is also in $out: when the log ends with that message it is
 # dropped first, then the last three non-empty lines are read (a "tokens used" line earlier in the log is model text).
 codex_total() {
-  { [ -s "$out" ] && cat "$out"; printf '\001\n'; cat "$log"; } 2>/dev/null | awk '
+  # codex -o writes the final message WITHOUT a trailing newline: the separator gets its own line, or it is glued to the message's last line,
+  # is never found, and a log that ends with a message of more than two lines reports no tokens (A200)
+  { [ -s "$out" ] && cat "$out"; printf '\n\001\n'; cat "$log"; } 2>/dev/null | awk '
     !sep && $0 == "\001" { sep = 1; next }
     !sep { sub(/[[:space:]]+$/, ""); b[++n] = $0; next }
     { sub(/[[:space:]]+$/, ""); a[++m] = $0 }
@@ -338,7 +345,7 @@ attempt() {
     [ -n "$prompt_file" ] || printf 'ASSIGNMENT: none was given. Do your role'"'"'s default step on this task from .agents/runs/%s/ (TASK.md, PLAN.md and their scope); never report BLOCKED for a missing assignment file.\n' "$id"
     [ -z "$retry_note" ] || printf '\n%s\n' "$retry_note"
     # A171: an earlier dispatch of this step timed out; its recorded partial state is handed to this one.
-    [ ! -s "$resume_file" ] || { printf '\nRESUME: an earlier dispatch of this step timed out before it submitted. Continue from where it stopped; do not redo finished work. Recorded state:\n'; cat "$resume_file"; }
+    [ ! -s "$resume_file" ] || { printf '\nRESUME: an earlier dispatch of this step timed out (or lost its connection) before it submitted. Continue from where it stopped; do not redo finished work. Recorded state:\n'; cat "$resume_file"; }
     [ -z "$prompt_file" ] || { printf '\n'; cat "$prompt_file"; }
   } > "$work/suffix"
   sb=$(wc -c < "$work/suffix" | tr -d ' ')
@@ -398,7 +405,9 @@ EOF_CP
   if [ "$writes_code" = no ]; then
     fp_before=$("$agent" fingerprint "$id" full) && [ -n "$fp_before" ] || { echo "dispatch: no product-tree fingerprint; $role not started" >&2; exit 1; }
     # One build and test run per tree: the first reviewer or verifier dispatch makes the record, later ones reuse it. Its result never stops a dispatch.
-    case "$role" in reviewer|verifier) "$agent" build-record "$id" run > "$work/build-record.txt" 2>&1 || : ;; esac
+    case "$role" in reviewer|verifier)
+      "$agent" build-record "$id" run > "$work/build-record.txt" 2>&1 || echo "dispatch: MISSING STEP for the lead: no build record was made for this tree ($(tail -n 1 "$work/build-record.txt" 2>/dev/null | cut -c1-200)); the $role starts without one. With empty commands.build and commands.test: proofline doctor --commands (A200)" >&2 ;;
+    esac
   else
     before=$("$agent" window-open "$id" "$role") || { echo "dispatch: window-open refused; $role not started" >&2; exit 1; }
   fi
@@ -407,7 +416,7 @@ EOF_CP
   # A124: .md and .log stay empty until the worker exits, so a reader cannot tell a running dispatch from a dead one.
   printf 'pid=%s\nrole=%s\ntimeout=%s\ndispatch in flight: %s %s on %s, started %s.\nThis dispatch.sh command has not returned: the .md and .log of this step stay empty until it does.\nWait for the command to return; do not re-dispatch this step or read these files as a result.\n' "$$" "$role" "$timeout_s" "$id" "$role" "$rt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$running"
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
-  else (cd "$root" && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" &&
+  else (cd "$root" && PROOFLINE_DISPATCH_START=$(date +%s) && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" PROOFLINE_DISPATCH_RUNTIME="$rt" PROOFLINE_DISPATCH_START &&
     if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
       HOME=$PROOFLINE_CODEX_HOME_DIR CODEX_HOME=$PROOFLINE_CODEX_HOME_DIR/.codex \
         run_timed "$timeout_s" "$log" "$input" "$@"
@@ -450,11 +459,47 @@ EOF_CP
   return 0
 }
 
+# A171: a timeout leaves the step half done (A200: so does a dropped connection). Record what the worker left (the tail of its log, the product-tree paths
+# that differ from HEAD, the run artifacts it wrote) so the next dispatch of the same role and focus continues from it.
+write_resume() { # [WHY]: timeout (default) or network
+  {
+    case "${1:-timeout}" in network) printf 'interrupted_at: %s (network error after attempt %s, runtime %s: the connection dropped; no timeout)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$attempts" "$rt" ;; *) printf 'timed_out_at: %s (after %ss, attempt %s, runtime %s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$timeout_s" "$attempts" "$rt" ;; esac
+    printf 'log: %s\n' "${log#"$root"/}"
+    printf 'product_tree_changes (git status --short):\n'
+    git -C "$root" status --short --untracked-files=all 2>/dev/null | grep -v ' \.agents/\(runs\|local\)/' | head -n 60 | sed 's/^/  /'
+    printf 'run_artifacts_present:\n'
+    ( cd "$run" 2>/dev/null && ls -1 reports results worker-evidence scratch 2>/dev/null | head -n 40 | sed 's/^/  /' )
+    printf 'last_output_of_the_worker:\n'
+    tail -n 25 "$log" 2>/dev/null | cut -c1-300 | sed 's/^/  | /'
+  } > "$resume_file" 2>/dev/null || true
+  note "dispatch resume note written role=$role file=${resume_file#"$root"/}" || true
+}
+# A200: a transient network error (a dropped connection, an SSL/TLS failure) is not a task failure and not a reason to fail over: the same step is
+# run again on the same runtime, resuming from the state the worker left (the RESUME note of write_resume goes into the next prompt), a bounded
+# number of times (dispatch.network_retries, default 3, at most 6) after a growing wait (dispatch.network_backoff_seconds, default 15, doubling,
+# at most 300 s). A sandbox that blocks the network (workspace routing discovery failed) is not transient: it stays BLOCKED at once.
+transient_network() { # LOG
+  tn_t=$(tail -n 60 "$1" 2>/dev/null) || return 1
+  ! printf '%s\n' "$tn_t" | grep -Eiq 'workspace routing discovery failed' || return 1
+  printf '%s\n' "$tn_t" | grep -Eiq '(^|[^a-z])(ssl|tls)([^a-z]|$)|certificate verify|connection (was )?(reset|closed|aborted|lost|dropped)|reset by peer|econnreset|econnaborted|etimedout|epipe|socket hang up|stream (disconnected|closed)|unexpected eof|broken pipe|temporary failure in name resolution|network is unreachable|error sending request|Reconnecting\.\.\.'
+}
 a_runtime=$o_runtime
 attempt
+net_max=$(cfg dispatch network_retries); case "$net_max" in ''|*[!0-9]*) net_max=3 ;; esac; [ "$net_max" -le 6 ] || net_max=6
+net_base=${PROOFLINE_DISPATCH_NET_BACKOFF:-$(cfg dispatch network_backoff_seconds)}; case "$net_base" in ''|*[!0-9]*) net_base=15 ;; esac
+net_try=0; net_wait=$net_base
+while [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$status" -ne 127 ] && [ "$net_try" -lt "$net_max" ] && [ ! -f "$subdir/$token.status" ] && transient_network "$log"; do
+  net_try=$((net_try + 1)); [ "$net_wait" -le 300 ] || net_wait=300
+  note "dispatch network retry $net_try/$net_max role=$role runtime=$rt wait=${net_wait}s (the connection dropped; the step resumes from the state it left)" || true
+  echo "dispatch: $role on $rt lost its connection (attempt $net_try of $net_max); resuming in ${net_wait}s; log: ${log#"$root"/}" >&2
+  write_resume network
+  sleep "$net_wait"; net_wait=$((net_wait * 2))
+  a_runtime=$rt; o_model=''
+  attempt
+done
 if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
   reason=$(runtime_failure_reason "$log"); [ "$status" -eq 127 ] && reason=missing_binary
-  [ "$reason" != runtime_unavailable:network ] || blocked "runtime_unavailable:network: $rt worker could not reach its API; enable network access for the lead workspace-write sandbox and retry this step"
+  [ "$reason" != runtime_unavailable:network ] || blocked "runtime_unavailable:network: $rt worker could not reach its API${net_try:+ (after $net_try automatic retries)}; enable network access for the lead workspace-write sandbox and retry this step"
   if [ "$reason" != none ]; then
     case "$rt" in claude) other=codex ;; codex) other=claude ;; *) other='' ;; esac
     mode=$(cfg failover); [ -n "$mode" ] || mode=auto
@@ -488,21 +533,6 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
     fi
   fi
 fi
-# A171: a timeout leaves the step half done. Record what the worker left (the tail of its log, the product-tree paths
-# that differ from HEAD, the run artifacts it wrote) so the next dispatch of the same role and focus continues from it.
-write_resume() {
-  {
-    printf 'timed_out_at: %s (after %ss, attempt %s, runtime %s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$timeout_s" "$attempts" "$rt"
-    printf 'log: %s\n' "${log#"$root"/}"
-    printf 'product_tree_changes (git status --short):\n'
-    git -C "$root" status --short --untracked-files=all 2>/dev/null | grep -v ' \.agents/\(runs\|local\)/' | head -n 60 | sed 's/^/  /'
-    printf 'run_artifacts_present:\n'
-    ( cd "$run" 2>/dev/null && ls -1 reports results worker-evidence scratch 2>/dev/null | head -n 40 | sed 's/^/  /' )
-    printf 'last_output_of_the_worker:\n'
-    tail -n 25 "$log" 2>/dev/null | cut -c1-300 | sed 's/^/  | /'
-  } > "$resume_file" 2>/dev/null || true
-  note "dispatch resume note written role=$role file=${resume_file#"$root"/}" || true
-}
 submissions=0
 while :; do
   if [ "$status" -eq 124 ]; then

@@ -137,7 +137,21 @@ ok "direct merge paths are denied, whatever the spelling ($c)"
 git -C "$proj" checkout -q main
 for c in 'git push' 'git push origin' 'git push -u origin' 'git push origin HEAD' 'git merge feat/x' 'git merge --no-ff feat/x' 'git -C . merge x' 'cd . && git merge x'; do denies "$c"; done
 ok "a bare push, a push of HEAD and a merge are denied while the protected branch is checked out"
+for c in 'git reset --hard feat/x' 'git cherry-pick abc' 'git rebase feat/x' 'git pull . feat/x' 'git pull ../other feat/x'; do denies "$c"; done
+for c in 'git reset HEAD f' 'git reset --hard HEAD~1' 'git pull --ff-only origin main' 'git rebase --abort'; do allows "$c"; done
+ok "A200: advancing the protected branch with reset, cherry-pick, rebase or a local pull is denied (an unstage and a pull from origin stay)"
 git -C "$proj" checkout -q feat/x
+for c in 'git branch -f main feat/x' 'git branch -M feat/x main' 'git fetch . feat/x:main' 'git fetch origin +feat/x:refs/heads/main'; do denies "$c"; done
+for c in 'git branch -f feat/y HEAD' 'git branch -d feat/y' 'git fetch origin main' 'git fetch . main:feat/z'; do allows "$c"; done
+ok "A200: branch -f and fetch into the protected branch are denied (other branches stay)"
+for c in 'git checkout -B main feat/x' 'git switch -C main feat/x' 'git checkout -fB main feat/x' 'git checkout -Bmain feat/x' 'git switch -fC main feat/x' 'git switch --force-create main feat/x' 'git branch -fq main feat/x' 'git branch -Mf feat/x main' 'git branch -qf main feat/x'; do denies "$c"; done
+for c in 'git checkout feat/x' 'git checkout -b feat/z' 'git checkout -B feat/z main' 'git switch feat/x' 'git switch -c feat/z' 'git switch -C feat/z main' 'git branch -fq feat/y HEAD' 'git branch -dq feat/y'; do allows "$c"; done
+for c in 'git checkout main && git reset --hard feat/x' 'git switch main; git reset --hard feat/x' 'git checkout main && git cherry-pick abc' 'git switch main && git rebase feat/x' 'git checkout main && git am p.patch' 'git switch main; git revert abc' 'git checkout main && git pull . feat/x' 'git switch main && git pull ../other feat/x'; do denies "$c"; done
+for c in 'git checkout main' 'git switch main' 'git checkout feat/x && git reset --hard feat/y' 'git checkout feat/x && git cherry-pick abc'; do allows "$c"; done
+for c in '(git checkout main) && git reset --hard x' 'git checkout "main" && git reset --hard x' "git checkout 'main' && git reset --hard x" 'git checkout refs/heads/main && git reset --hard x' 'git checkout $B && git reset --hard x' 'B=main; git checkout $B && git reset --hard x' 'git switch `echo main` && git reset --hard x' '{ git checkout main; } && git cherry-pick abc' 'git checkout main && git merge feat/x' '(git checkout main) && git merge feat/x'; do denies "$c"; done
+for c in 'git checkout feat/main-menu && git reset --hard x' 'git checkout main2 && git reset --hard x' 'git checkout origin/main && git reset --hard x' 'git checkout main' 'git checkout feat/x && git cherry-pick abc'; do allows "$c"; done
+ok "A200 review: a reset, cherry-pick, rebase, am, revert or local pull chained after a checkout/switch to the protected branch is denied (the plain checkout stays)"
+ok "A200 review: checkout -B / switch -C of the protected branch and clustered branch flags are denied (plain checkout and switch stay)"
 for c in 'proofline merge 7' 'sh bin/proofline merge 7 --squash' 'git push -n origin main' 'git push --dry-run' 'git push -u origin feat/x' 'git push origin feat/x' 'git push' 'git merge main' 'git merge --abort' 'git status' 'git push -n -o -n origin main' 'git push -o ci.skip origin feat/x' 'git push origin feat/x -o x' 'git push --push-option=x origin feat/x' \
   'gh pr create --title t --body "$(cat f)"' 'gh pr view $N --json state' 'gh api repos/o/r/pulls/7/comments' 'curl -s https://example.com' 'curl -s https://api.github.com/repos/o/r/pulls/7' \
   'gh api repos/$O/$R/pulls/7' 'cd . && git push origin feat/x' 'echo hello | sh' 'python3 -c "print(1)"' 'PATH=/usr/bin ls' 'export FOO=1' \

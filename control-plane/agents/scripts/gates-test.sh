@@ -700,6 +700,41 @@ sc_split_override() {
   grep -q 'event=split_override .*scope_paths=4 max=3 class=STANDARD answer=questions/' $d/LEDGER.log || die "the override is not in the ledger"
   ok "freeze over max_scope_paths stops with a split proposal and proceeds only on the user's recorded 'proceed without splitting'"
 }
+# A200: the scope bound counts code paths. A content or document path is no reason to split; a path that holds code is always counted.
+sc_scope_content() {
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  [ "$(A path-kind notes.md | cut -f1)" = content ] && [ "$(A path-kind tool.sh | cut -f1)" = code ] && [ "$(A path-kind docs/tool.sh | cut -f1)" = code ] && [ "$(A path-kind impl.txt | cut -f1)" = code ] || die "path-kind: $(A path-kind notes.md tool.sh docs/tool.sh impl.txt | tr '\n' ' ')"
+  A freeze LC >/dev/null 2>&1 || die "a content path counted against the scope bound: $(A freeze LC 2>&1)"
+  SC_SCOPE_NAMED=tool.sh unfrozen STANDARD; : > tool.sh
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  expect_msg "a code path over the bound froze" 'code paths (content and document paths are not counted)' A freeze LC
+  ok "A200: a content or document path is not counted against max_scope_paths, a file that holds code always is"
+}
+# A200: the answer to a batch pre-flight question (the user's own captured message, parsed by batch.sh) replaces the split question at freeze
+# up to the ceiling the user was shown, and only while the batch approval of that summary stands.
+sc_batch_split_answer() {
+  SC_SCOPE_NAMED=tool.sh unfrozen STANDARD; : > tool.sh
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  b=.agents/local/batch; mkdir -p "$b" .agents/local/approvals
+  printf '# Night batch\n\nnonce: test\n' > "$b/SUMMARY.md"; h=$(tsha "$b/SUMMARY.md"); id=$(printf '%s' "$h" | cut -c1-12)
+  printf 'kind: "batch"\nbound: "%s"\nsource: "prompt_capture"\nrequest: "x"\nanswered_by: "user"\napproved_at: 1\nconsumed: "false"\n' "$h" > .agents/local/approvals/001-batch.yaml
+  printf '%s\tLC\tQ1\tsplit\tb\t2\tmsg\n' "$id" > "$b/answers.tsv"
+  expect_msg "an answer with a ceiling below the plan froze" 'code paths' A freeze LC
+  printf '%s\tLC\tQ1\tsplit\tb\t5\tmsg\n' "$id" > "$b/answers.tsv"
+  A freeze LC >/dev/null 2>&1 || die "the batch answer did not replace the split question: $(A freeze LC 2>&1)"
+  grep -q 'event=split_override .*answer=batch:Q1' .agents/runs/LC/LEDGER.log || die "the batch answer is not in the ledger"
+  ok "A200: a recorded batch answer 'proceed without splitting' passes the split check up to its ceiling, and is ledgered"
+  SC_SCOPE_NAMED=tool.sh unfrozen STANDARD; : > tool.sh
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "2"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  b=.agents/local/batch; mkdir -p "$b" .agents/local/approvals
+  printf '# Night batch\n\nnonce: test\n' > "$b/SUMMARY.md"; h=$(tsha "$b/SUMMARY.md"); id=$(printf '%s' "$h" | cut -c1-12)
+  printf 'kind: "batch"\nbound: "%s"\nsource: "prompt_capture"\nrequest: "x"\nanswered_by: "user"\napproved_at: 1\nconsumed: "false"\n' "$h" > .agents/local/approvals/001-batch.yaml
+  printf '%s\tLC\tQ1\tsplit\tb\t5\tmsg\n' "$id" > "$b/answers.tsv"
+  printf 'changed\n' >> "$b/SUMMARY.md"
+  expect_msg "an answer of a summary that changed froze" 'code paths' A freeze LC
+  ok "A200: the answer is void when the summary it belongs to changed (no valid batch approval)"
+}
 # A79: the assumption register. Freeze checks the shape of both registers, refuses an unverified high-risk
 # assumption until the user answered its bound question with `accept`, never accepts one silently, and the
 # completion report lists every unverified or accepted-by-user assumption.
@@ -1145,11 +1180,13 @@ sc_decide() {
   grep -q -- '--role reviewer --class COMPLEX --tier small --escalations-used 0' "$STUB_ARGS" || die "decide args: $(cat "$STUB_ARGS")"
   ! grep -q -- '--runtime\|--profile' "$STUB_ARGS" || die "decide passed runtime/profile without an override"
   grep -q 'event=decide .*model=sonnet' .agents/runs/LC/LEDGER.log
-  A decide LC implementer --agent-path --runtime codex >/dev/null
+  # A200: the Agent path is Claude Code's; a role on another runtime is refused there and sent to dispatch.sh. --dry still reads the decision.
+  expect_msg "A200: --agent-path accepted a role configured for Codex" 'has no Agent path' A decide LC implementer --agent-path --runtime codex
   tail -1 "$STUB_ARGS" | grep -q -- '--runtime codex' || die "--runtime override not passed"
-  grep -q '^runtime=codex' .agents/runs/LC/decisions/002-implementer.decision
+  [ ! -e .agents/runs/LC/decisions/002-implementer.decision ] || die "A200: the refused Agent-path decision was persisted"
+  A decide LC implementer --dry --runtime codex | grep -q '^runtime=codex' || die "decide --dry --runtime codex does not read the codex decision"
   expect_fail "an invalid override was accepted" A decide LC reviewer --agent-path --model bogus
-  [ ! -e .agents/runs/LC/decisions/003-reviewer.decision ] || die "a refused decision was persisted"
+  [ ! -e .agents/runs/LC/decisions/002-reviewer.decision ] || die "a refused decision was persisted"
   expect_fail "an unknown decide flag was accepted" A decide LC reviewer --agent-path --turbo yes
   expect_fail "a reviewer called decide" AS reviewer decide LC reviewer
   # A171: decide is not called ahead of a dispatch; --dry reads without writing; the output starts with a one-line summary
@@ -1222,6 +1259,14 @@ sc_decide() {
   mkdir -p .agents/local/submissions; printf '%s\n' "$tr" > .agents/local/submissions/t9.started
   export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-2|blocking|impl.txt:2|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'; unset PROOFLINE_STEP_AGENT
   tail -1 "$mj" | grep -q '"kind":"step".*"tokens_in":103,"tokens_out":50,"tokens_total":153,' || die "step record without the subagent's session-log tokens: $(tail -1 "$mj")"
+  # A200: a step is timed from the start of ITS attempt (marker line 2), not from the decision; a resumed subagent is not inflated
+  printf '%s\n%s\n' "$tr" "$(( $(date +%s) - 40 ))" > .agents/local/submissions/t9.started
+  export PROOFLINE_STEP_AGENT=t9; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-3|blocking|impl.txt:3|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'; unset PROOFLINE_STEP_AGENT
+  ms_d=$(tail -1 "$mj" | sed -n 's/.*"duration_s":\([0-9]*\),.*/\1/p'); [ "${ms_d:-0}" -ge 40 ] && [ "${ms_d:-0}" -le 100 ] || die "step duration is not the time since the marker's start stamp (A200): $(tail -1 "$mj")"
+  # the runtime of the record is the one dispatch.sh says really ran the step (after a failover it is not the decision's)
+  PROOFLINE_DISPATCH_RUNTIME=codex PROOFLINE_DISPATCH_START=$(( $(date +%s) - 7 )) rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-4|blocking|impl.txt:4|wrong default|traced; scan: grep -n lookup impl.txt; instances: single'
+  tail -1 "$mj" | grep -q '"kind":"step".*"runtime":"codex".*"duration_s":\(7\|[12][0-9]\),' || die "step record does not carry the runtime that really ran the step and its attempt's time (A200): $(tail -1 "$mj")"
+  grep -q "$(printf '\tLC\treviewer\tcodex\t')" .agents/local/metrics/history.tsv || die "history line does not carry the real runtime (A200)"
   # dispatch record: numbers kept, strings sanitized (no free text, so no secret), non-lead refused
   A metrics-dispatch LC reviewer rules claude 'sonnet"; sk-LIVE secret' 12 100 50 150 3 1 submitted >/dev/null
   tail -1 "$mj" | grep -q '"kind":"dispatch","time":"[0-9T:Z-]*","task":"LC","role":"reviewer","focus":"rules","gate":"REVIEW_RULES","runtime":"claude","model":"sonnetsk-LIVEsecret","duration_s":12,"tokens_in":100,"tokens_out":50,"tokens_total":150,"turns":3,"retries":1,"delegations":null,"fix_rounds":null,"result":"submitted"' || die "dispatch record shape: $(tail -1 "$mj")"
@@ -1472,7 +1517,9 @@ sc_open_runs() {
 sc_knowledge_secrets() {
   scaffold orchestrated; to_code_done orchestrated
   mkdir -p docs/design; printf 'token: PLANTED_SECRET\n' > docs/design/DESIGN.md
-  A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null
+  expect_msg "A200: knowledge-done over a secret in a knowledge file" 'found secrets' A knowledge-done LC
+  printf 'design notes\n' > docs/design/DESIGN.md; A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null
+  printf 'token: PLANTED_SECRET\n' > docs/design/DESIGN.md   # written after the knowledge step: DONE and delivery still scan
   expect_msg "delivery-check over a secret in a knowledge file" 'found secrets' A delivery-check LC
   expect_msg "DONE over a secret in a knowledge file" 'found secrets' A handoff LC DONE
   printf 'design notes\n' > docs/design/DESIGN.md
@@ -1486,12 +1533,36 @@ sc_wiki_knowledge_scope() {
   A config-get knowledge_scope_root | grep -Fq 'docs/wiki/' || die "docs/wiki/ is not in the default knowledge_scope_root"
   A config-get knowledge_scope_root | grep -Fq 'docs/product/' || die "docs/product/ is not in the default knowledge_scope_root"
   mkdir -p notes; printf 'not a wiki page\n' > notes/outside.txt
-  A knowledge-done LC >/dev/null
-  expect_msg "a path outside the root counted as knowledge" 'no knowledge-scope changes' A verify-knowledge-scope LC
+  expect_msg "a path outside the root counted as knowledge" 'no knowledge page was written' A knowledge-done LC
   rm -r notes
-  mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: docs/design/DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p docs/wiki/concepts; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/   # the lint must be installed or knowledge-done refuses
+  A knowledge-done LC >/dev/null
   A verify-knowledge-scope LC >/dev/null
   ok "a path under docs/wiki/ is knowledge scope; a path outside stays implementation scope"
+}
+
+# A200: knowledge-done is not accepted before the page is written and the wiki lint ran and passed
+sc_knowledge_done_needs_page_and_lint() {
+  scaffold orchestrated; to_code_done orchestrated
+  expect_msg "A200: knowledge-done with no page written" 'no knowledge page was written' A knowledge-done LC
+  mkdir -p docs/wiki
+  printf -- '---\ntitle: good page\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Good\n' > docs/wiki/good.md
+  expect_msg "A200: knowledge-done with the llm-wiki lint script missing refuses" 'validate-wiki.mjs is missing' A knowledge-done LC
+  rm -f docs/wiki/good.md
+  mkdir -p .agents/skills/llm-wiki/scripts
+  cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/
+  printf -- '---\ntitle: bad page\nstatus: current\n---\n\n# No source\n' > docs/wiki/bad.md
+  expect_msg "A200: knowledge-done over a wiki page the lint rejects" 'wiki lint of docs/wiki found errors' A knowledge-done LC
+  ! grep -q 'knowledge_state: "\{0,1\}KNOWLEDGE_DONE' .agents/runs/LC/RUN.yaml || die "a refused knowledge-done recorded the state"
+  printf -- '---\ntitle: good page\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Good\n' > docs/wiki/bad.md
+  A knowledge-done LC >/dev/null || die "knowledge-done refused a wiki page that passes the lint: $(A knowledge-done LC 2>&1 | tail -3)"
+  # A200: the proofline_bug friction note is reminded by next (report step) and counted in the report's Facts
+  A next LC | grep -q '^note=FRICTION (A200): .*proofline_bug notes so far: 0)' || die "next does not remind of the friction note: $(A next LC)"
+  A friction-note LC proofline_bug >/dev/null
+  A next LC | grep -q 'proofline_bug notes so far: 1)' || die "next does not count the note: $(A next LC)"
+  A report-facts LC | grep -Fq 'Friction notes recorded (A200): proofline_bug 1, user-command 0, user-shell 0' || die "the Facts block does not count the friction notes: $(A report-facts LC)"
+  ok "A200: knowledge-done needs a written page and a wiki lint it ran itself without errors"
 }
 
 # A171: the files the knowledge step writes (knowledge_scope_root, design_docs) are not part of the content fingerprint
@@ -1500,7 +1571,8 @@ sc_knowledge_gates_fresh() {
   scaffold orchestrated; to_code_done orchestrated
   before=$(A pipeline LC | grep '^gate\.')
   printf '%s\n' "$before" | grep -q 'gate\.[A-Z_]*=\(stale\|missing\|fail\)' && die "gates are not fresh before the knowledge step: $before"
-  mkdir -p docs/wiki/concepts docs/design docs/adr docs/product; printf '# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p docs/wiki/concepts docs/design docs/adr docs/product; printf -- '---\ntitle: retry-policy\nstatus: current\nsource: docs/design/DESIGN.md\n---\n\n# Retry policy\n' > docs/wiki/concepts/retry-policy.md
+  mkdir -p .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/   # the lint must be installed or knowledge-done refuses
   printf '# Design\n' > docs/design/DESIGN.md; printf '# ADR 1\n' > docs/adr/0001-x.md; printf '# PRD\n' > docs/product/PRD.md
   A knowledge-done LC >/dev/null
   after=$(A pipeline LC | grep '^gate\.')
@@ -1564,6 +1636,9 @@ sc_knowledge_na() {
   # a design document changed by the task
   SC_SCOPE_NAMED=docs/design/DESIGN.md scaffold standalone; printf 'new section\n' >> docs/design/DESIGN.md; to_code_done standalone
   expect_msg "not_applicable accepted for a task that changed a design document" 'documentation path' A knowledge-done LC not_applicable "only an internal lookup fixture changed, no wiki page or design document describes it"
+  # the step must write a page (A200) and the lint must be installed; the design document the task changed is plan scope, not a knowledge page
+  mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/
+  printf -- '---\ntitle: lookup\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Lookup\n' > docs/wiki/lookup.md
   A knowledge-done LC >/dev/null; expect_state execution knowledge_state KNOWLEDGE_DONE
   ok "not_applicable is refused for AC words, a contract and a design-document change; the real knowledge step still records"
   # a run from before 0.0.17 has no execution.knowledge_reason key: not_applicable is refused and nothing is recorded
@@ -1636,12 +1711,13 @@ sc_artifact_snapshots() {
   ok "C-9: results of two rounds that wrote the same report path both cite an existing artifact with the stated sha256"
 }
 sc_debug_result() {
+  # A200: the trigger is the task type or label, never the words "fix" or "duzelt" in prose.
   SC_TASK_EXTRA='
 ## Suggested class
 
 STANDARD — behavioural bug fix in one module with tests.' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a defect named only in Suggested class needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  expect_msg "a bug named in Suggested class needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
   mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
   A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED"
   ok "a bug named in Suggested class needs reports/NNN-debug.md, which unblocks IMPLEMENTED"
@@ -1653,67 +1729,50 @@ STANDARD — the first step is additive and its own step drops nothing.' scaffol
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a defect word in Suggested class prose blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
   ok "a defect word inside Suggested class prose does not make a task a defect fix"
-  # the user's own words in a blockquote count, in English and Turkish (A67)
+  # a label or type makes it a defect task: a Labels section, a Type line
   SC_TASK_EXTRA='
-## Context
+## Labels
 
-> Kitaplarımdan bazıları kayboldu, sayfa 2 boş geliyor.' scaffold orchestrated no STANDARD
+- bug
+- backend' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a Turkish defect report in the user's quote needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
-  # "dropping the column is a follow-up" in the Goal is data removal wording, not a defect report (A53)
+  expect_msg "a bug label needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
   SC_TASK_EXTRA='
-## Goal
-
-Stop using the column; dropping the column is a separate follow-up.' scaffold orchestrated no STANDARD
+**Type:** defect' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "dropping in a Goal sentence blocked a task that is not a defect fix: $(A handoff LC IMPLEMENTED 2>&1)"
-  ok "drop/dropping are no defect words (data removal wording)"
-  # A122: no defect word in the title or Goal, but Context and Acceptance criteria speak of a bug or a fix
+  expect_msg "a defect type line needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  ok "A200: a bug or defect label or type asks for reports/NNN-debug.md"
+  # the words fix, fixes, fixed, duzelt, defect or error in the prose, the Goal, a criterion or the user's quote never ask
   SC_TASK_EXTRA='
 ## Goal
 
-Every item is reachable through paging.
+Fix the page count: the last page is cut off, an error in the page count.
 
 ## Context
 
-The last page is cut off: a defect in the page count.' scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a defect named only in Context needs a debug-proof result" 'reports/NNN-debug.md with the debug-proof skill' A handoff LC IMPLEMENTED
-  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
-  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock IMPLEMENTED (Context)"
-  # A122 regression guard: ordinary actual-vs-expected RED text (tdd-proof RED.md section 4) in a feature run asks for no report
-  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
-  WEV_EF='lookup returns null instead of 5' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with actual-vs-expected text was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
-  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
-  WEV_EF='expected 3 to equal 5 in TestLookup' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with an assertion failure was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
-  ok "A122: a defect named in Context needs reports/NNN-debug.md; a feature run with an ordinary assertion RED is not asked"
-  # A126: the structure of a real COMPLEX feature task (e2e A1): Context speaks of "fixes" and Risks of the defect,
-  # the defect itself is declared in a nested `### Pre-existing defects` with decision: report -> not asked
-  feat='
-## Context
+> Sayfa sayisini duzelt. Kitaplarimdan bazilari kayboldu, hata var.
 
-Assumption: A tag is compared lowercased. (The request fixes only case-insensitivity.)
-
-### Pre-existing defects
-
-- `src/service.js:paginate`: totalPages uses Math.floor, the last items are unreachable -- decision: report
+The page count is wrong today and has a defect.
 
 ## Acceptance criteria
 
-- AC-1: the list shows the tag.
-'
-  SC_TASK_EXTRA="$feat
-## Risks
+- AC-1: the page count is fixed.' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "A200: fix words in the prose asked an unlabelled task for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
+  ok "A200: fix, defect and Turkish fix words in the prose do not ask for a debug-proof result"
+  # a feature run with an ordinary assertion RED is not asked either (A122 guard)
+  SC_TASK_EXTRA='' scaffold orchestrated no STANDARD
+  WEV_EF='lookup returns null instead of 5' worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a feature RED with actual-vs-expected text was blocked: $(A handoff LC IMPLEMENTED 2>&1)"
+  # a declared pre-existing defect with decision: report stays a finding
+  SC_TASK_EXTRA='
+## Context
 
-- Paging relies on paginate, which has a defect (below); real lists show the defect without a fix." scaffold orchestrated no STANDARD
+### Pre-existing defects
+
+- `src/service.js:paginate`: totalPages uses Math.floor -- decision: report' scaffold orchestrated no STANDARD
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   A handoff LC IMPLEMENTED >/dev/null || die "a declared pre-existing defect (report) asked a feature task for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
-  # the same words in an acceptance criterion of the requested change still ask
-  SC_TASK_EXTRA="$feat- AC-2: the page count is wrong today; fix it." scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a defect in a criterion of the request needs a debug-proof result" 'BEFORE freeze' A handoff LC IMPLEMENTED
   # decision: fix is a requested fix
   SC_TASK_EXTRA='
 ## Context
@@ -1724,20 +1783,7 @@ Assumption: A tag is compared lowercased. (The request fixes only case-insensiti
   approve_as_user scope 'approve the scope'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
   expect_msg "a declared defect with decision: fix needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
-  # no defect words and no declaration: not asked; Turkish word variant still asked
-  SC_TASK_EXTRA='
-## Context
-
-Tags are lowercased.' scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null || die "a plain feature was asked for a debug report: $(A handoff LC IMPLEMENTED 2>&1)"
-  SC_TASK_EXTRA='
-## Context
-
-> Sayfa sayısını düzelt.' scaffold orchestrated no STANDARD
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  expect_msg "a Turkish fix word in a quote needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
-  ok "A126: a declared pre-existing defect (report, nested or not) does not make a feature a defect fix; decision: fix, a criterion or a Turkish word still do"
+  ok "A200: a declared decision: report is no trigger; decision: fix still is"
 }
 sc_scratch_worktrees() {
   scaffold orchestrated no STANDARD
@@ -1799,6 +1845,135 @@ sc_doc_scope_warning() {
   ! printf '%s' "$out" | grep -q 'without tdd_exemption' || die "A197 a warning although the path has an exemption: $out"
   ok "A197 freeze warns once about a document path without tdd_exemption and stays quiet with it"
 }
+# A200 (item 5): after a fix round only the gates whose inputs changed run again. A test-only fix keeps REVIEW_PLAN, REVIEW_RULES and
+# SECURITY; a changed test that covers security behavior, or any product-code change, runs them again; SECRETS and VERIFY always run.
+sc_selective_rerun() {
+  for variant in tests_only security_test product_code; do
+    scaffold orchestrated no CRITICAL
+    worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+    A handoff LC IMPLEMENTED >/dev/null
+    [ "$(gates_of | tr ' ' '\n' | grep -c .)" -ge 6 ] || die "A200 the run is not full tier: $(gates_of)"
+    pass_all
+    rec REVIEW_TESTS FAIL high "REVIEW_TESTS-1|blocking|impl_test.txt:1|the test asserts nothing about the empty key|traced: empty key -> nil"
+    A handoff LC IMPLEMENTING >/dev/null
+    case "$variant" in
+      tests_only) worker FIX pass impl_test.txt 'test: lookup of a missing key is nil' ;;
+      security_test) worker FIX pass impl_test.txt 'test: an expired token is rejected' ;;
+      product_code) worker FIX pass impl.txt 'impl: lookup of a missing key is nil' ;;
+    esac
+    A handoff LC IMPLEMENTED >/dev/null
+    for g in REVIEW_PLAN REVIEW_RULES SECURITY; do
+      st=$(gate_st "$g")
+      case "$variant:$g" in
+        tests_only:*) [ "$st" = pass ] || die "A200 $variant: $g is $st, a test-only fix must keep it" ;;
+        security_test:SECURITY|product_code:*) [ "$st" != pass ] || die "A200 $variant: $g still pass although its inputs changed" ;;
+        security_test:*) [ "$st" = pass ] || die "A200 $variant: $g is $st" ;;
+      esac
+    done
+    for g in SECRETS REVIEW_TESTS VERIFY; do
+      [ "$(gate_st "$g")" != pass ] || die "A200 $variant: $g carried over; it always runs"
+    done
+  done
+  ok "A200 a test-only fix keeps REVIEW_PLAN/RULES/SECURITY; security tests and product code rerun them; SECRETS, REVIEW_TESTS and VERIFY always run"
+}
+
+# A200 (item 5): an `amend` carries the passes of REVIEW_PLAN, REVIEW_RULES and SECURITY under the same input rules as a fix round; a plan change,
+# product code and a security-related test rerun them; SECRETS, REVIEW_TESTS and VERIFY always run.
+sc_amend_carry() {
+  for variant in tests_only security_test product_code plan_change; do
+    scaffold orchestrated no CRITICAL
+    worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+    A handoff LC IMPLEMENTED >/dev/null
+    [ "$(gates_of | tr ' ' '\n' | grep -c .)" -ge 6 ] || die "A200 amend: the run is not full tier: $(gates_of)"
+    pass_all
+    A handoff LC CODE_DONE >/dev/null || die "A200 amend $variant: no CODE_DONE"
+    fs=impl_test.txt; [ "$variant" != product_code ] || fs=impl.txt
+    pc=''; [ "$variant" != plan_change ] || pc='plan_change: yes'
+    printf 'reason: %s\nfix_scope: %s\nfix_instruction: %s\nauthorized_by: the user\n%s\n' "the user asked for one more test after CODE_DONE ($variant)" "$fs" "change $fs only as the user asked, nothing else" "$pc" | A amend LC >/dev/null || die "A200 amend $variant: amend refused"
+    if [ "$variant" = plan_change ]; then
+      mkdir -p .agents/runs/LC/amendments; printf '# amendment 001: the architecture note changes\n' > .agents/runs/LC/amendments/001.md
+      printf '\nAmended: the lookup note changed.\n' >> .agents/runs/LC/PLAN.md
+      A refreeze LC 001.md >/dev/null || die "A200 amend plan_change: refreeze refused"
+      worker RED fail impl_test.txt 'test: lookup again returns the stored value'; worker GREEN pass impl.txt 'impl: lookup again returns the stored value'
+    else
+      case "$variant" in
+        tests_only) worker FIX pass impl_test.txt 'test: lookup of a missing key is nil' ;;
+        security_test) worker FIX pass impl_test.txt 'test: an expired token is rejected' ;;
+        product_code) worker FIX pass impl.txt 'impl: lookup of a missing key is nil' ;;
+      esac
+    fi
+    A handoff LC IMPLEMENTED >/dev/null || die "A200 amend $variant: no IMPLEMENTED"
+    for g in REVIEW_PLAN REVIEW_RULES SECURITY; do
+      st=$(gate_st "$g")
+      case "$variant:$g" in
+        tests_only:*) [ "$st" = pass ] || die "A200 amend $variant: $g is $st, a test-only amendment must keep it" ;;
+        security_test:SECURITY|product_code:*|plan_change:*) [ "$st" != pass ] || die "A200 amend $variant: $g still pass although its inputs changed" ;;
+        security_test:*) [ "$st" = pass ] || die "A200 amend $variant: $g is $st" ;;
+      esac
+    done
+    for g in SECRETS REVIEW_TESTS VERIFY; do
+      [ "$(gate_st "$g")" != pass ] || die "A200 amend $variant: $g carried over; it always runs"
+    done
+  done
+  ok "A200 an amend carries REVIEW_PLAN/RULES/SECURITY only for an unrelated test change; plan, product code and security tests rerun them; SECRETS, REVIEW_TESTS and VERIFY always run"
+}
+
+# A200 review: which paths selective repetition may treat as tests. A file under a test directory that is a manifest, lockfile, env, config,
+# build or contract file is product input; so is every path when the ecosystem data is not loaded.
+sc_test_path_kind() {
+  scaffold orchestrated
+  tp() { A test-path "$1" | cut -f1; }
+  for p in tests/Package.swift tests/setup.py tests/Package.json tests/.env.local tests/Dockerfile tests/go.mod tests/package.json test/.env api/spec/openapi.yaml test/setup/requirements.txt tests/docker-compose.yml; do
+    [ "$(tp "$p")" = product ] || die "A200 $p counted as a test"
+  done
+  for p in tests/foo_test.go test/unit/a.test.ts src/__tests__/b.js tests/test_x.py; do
+    [ "$(tp "$p")" = test ] || die "A200 $p is not counted as a test"
+  done
+  ok "A200 test-path: manifests, lockfiles, env, build and contract files under test directories are product input"
+}
+
+# A200 review: a blocking row is "about the visual evidence report" only when it names the reviews/visual-proof/ path; any other
+# text that merely says report.json is an ordinary row for the implementer.
+sc_visual_row_match() {
+  scaffold orchestrated no CRITICAL
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  pass_all
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:1|the build's report.json is stale and the visual evidence is not mentioned|traced: build output"
+  A next LC | grep -q 'qa --focus visual' && die "A200 a row that only says report.json sent the lead to the QA visual focus: $(A next LC)"
+  rec VERIFY FAIL high "VERIFY-2|blocking|impl.txt:1|reviews/visual-proof/report.json is missing|traced: no such file"
+  A next LC | grep -q 'qa --focus visual' || die "A200 a row naming reviews/visual-proof/ did not send the lead to the QA visual focus: $(A next LC)"
+  ok "A200 a visual-evidence row is recognized by its reviews/visual-proof/ path, not by the word report.json"
+}
+
+# A200 (items 6, 8, 9): the normalizer's narrow list, the expected-format errors of refreeze and amend, the rationale approval kind.
+sc_a200_misc() {
+  scaffold orchestrated
+  n() { printf '%s\n' "$1" | A repro-normalize; }
+  [ "$(n '12:34:56 [build] Complete!')" = '[build] Complete!' ] || die "A200 the [build] Complete! line is not normalized"
+  [ "$(n '[build] Complete! in 1.5s')" = '[build] Complete!' ] || die "A200 the Complete! line with a duration"
+  [ "$(n 'done 2026-10-28T10:11:12.5Z ok')" = 'done <TIMESTAMP> ok' ] || die "A200 timestamp: $(n 'done 2026-10-28T10:11:12.5Z ok')"
+  [ "$(n 'Done in 3.2s')" = "$(n 'Done in 41ms')" ] || die "A200 durations after 'in' differ"
+  [ "$(n '42 passed (12ms)')" = "$(n '42 passed (3 s)')" ] || die "A200 parenthesized duration"
+  [ "$(n '42 passed')" != "$(n '43 passed')" ] || die "A200 a real count difference was normalized away"
+  [ "$(n 'Done in 3s')" != "$(n 'Built in 3s')" ] || die "A200 different words were normalized together"
+  [ "$(n 'pid 4242 on 2026-10-28')" = 'pid 4242 on 2026-10-28' ] || die "A200 a pid or a bare date was normalized"
+  [ "$(n '2026-10-28T10:11:12Z 42 passed')" != "$(n '2026-10-28T10:11:12Z 43 passed')" ] || die "A200 a count next to a timestamp was normalized away"
+  [ "$(n '10:11:12 [build] Complete! 3 errors')" != "$(n '10:11:12 [build] Complete! 4 errors')" ] || die "A200 a count next to the Complete! line was normalized away"
+  [ "$(n '2026-10-28T10:11:12Z failed: a.js')" != "$(n '2026-10-28T10:11:12Z failed: b.js')" ] || die "A200 a name next to a timestamp was normalized away"
+  [ "$(n 'Done in 3s: 5 files')" != "$(n 'Done in 3s: 6 files')" ] || die "A200 a count after a duration was normalized away"
+  [ "$(n '3 tests failed')" != "$(n '3 tests passed')" ] || die "A200 pass and fail were normalized together"
+  expect_msg "A200 refreeze without an amendment shows the format" 'Example: write amendments/001.md' A freeze LC
+  expect_msg "A200 refreeze with a missing file shows the format" 'agent.sh refreeze LC 001.md' A refreeze LC nope.md
+  # item 6: a rationale approval needs a written line, and the kind is accepted
+  expect_msg "A200 rationale approval without a DESIGN.md line" "no non-empty '- mono-labels: <reason>' line" A request-approval LC rationale:mono-labels
+  mkdir -p docs/design; printf '# D\n\n## Pattern justifications\n- mono-labels: file names are the product here\n' > docs/design/DESIGN.md
+  A request-approval LC rationale:mono-labels | grep -q 'rationale line of DESIGN.md: mono-labels: file names are the product here' || die "A200 the request does not show the line"
+  [ "$(A design-rationales LC | cut -f1,2)" = "$(printf 'mono-labels\tunapproved')" ] || die "A200 an unapproved rationale is listed as approved"
+  [ "$(A design-rationales LC --json)" = '{"approved": {}}' ] || die "A200 the approved object is not empty: $(A design-rationales LC --json)"
+  ok "A200 normalizer list, expected-format errors, rationale approval needs the user"
+}
+
 sc_takeover_without_red() {
   # A198: an earlier implementer (another runtime) edited the implementation inside its window and recorded no RED. The next implementer binds it
   # without asking: put the change back to the base content for one run (RED fails for the right reason), restore it, record GREEN.
@@ -2494,8 +2669,11 @@ run_sc sc_capture_integrity
 run_sc sc_approval_retry
 run_sc sc_ask
 run_sc sc_knowledge_gates_fresh
+run_sc sc_knowledge_done_needs_page_and_lint
 run_sc sc_knowledge_drift
 run_sc sc_split_override
+run_sc sc_scope_content
+run_sc sc_batch_split_answer
 run_sc sc_assumptions
 run_sc sc_questions
 run_sc sc_questions_keys
@@ -2614,4 +2792,9 @@ run_sc sc_scan_method
 run_sc sc_classification_stable
 run_sc sc_doc_scope_warning
 run_sc sc_takeover_without_red
+run_sc sc_a200_misc
+run_sc sc_selective_rerun
+run_sc sc_amend_carry
+run_sc sc_visual_row_match
+run_sc sc_test_path_kind
 echo 'gates tests passed'

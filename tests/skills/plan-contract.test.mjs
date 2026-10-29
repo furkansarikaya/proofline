@@ -10,7 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const skill = join(here, "../../skills/plan-contract");
 const fixture = join(here, "../../fixtures/plan-contract");
 const script = join(skill, "scripts/validate-plan.mjs");
-const { validate, exemptionProblem, CLASSES, SCOPE_KEYS } = await import(script);
+const { validate, lint, pathKinds, exemptionProblem, CLASSES, SCOPE_KEYS } = await import(script);
 const SCHEMA = JSON.parse(readFileSync(join(skill, "schema/plan.schema.json"), "utf8"));
 const TASK = readFileSync(join(fixture, "TASK.md"), "utf8");
 
@@ -345,4 +345,39 @@ test("entryConfig reads validation.* from the first config and the override wins
   assert.equal(m.entryConfig([d], "x+").words, "x+");
   assert.equal(m.entryTier("job accepts a payload", c), "mandatory");
   assert.notEqual(m.entryTier("POST /orders accepts a body", c), "mandatory"); // only a candidate now
+});
+
+// A200: plan-lint. The validator tells at plan-writing time what the freeze would ask; the content/code scope bound mirrors agent.sh.
+test("A200: a content or document path is not counted against the bound, a file that holds code always is", () => {
+  const k = pathKinds(["docs/guide.md", "docs/tool.sh", "src/a.js", "notes.md", "content/page.html"], repo);
+  assert.equal(k.get("docs/guide.md"), "content"); assert.equal(k.get("notes.md"), "content");
+  assert.equal(k.get("docs/tool.sh"), "code"); assert.equal(k.get("src/a.js"), "code"); assert.equal(k.get("content/page.html"), "code");
+  const docs = Array.from({ length: 40 }, (_, i) => [`  - path: docs/p${i}.md`, "    new: true", "    criteria: [AC-1, AC-2, AC-3, AC-4]", `    tdd_exemption: "page ${i} is documentation, verified by the docs link check"`]).flat();
+  const w = lint(plan({ scope: [...SCOPE, ...docs] }), TASK, { root: repo, cls: "STANDARD" });
+  assert.ok(!w.some((x) => x.includes("exceed the STANDARD limit")), JSON.stringify(w));
+  const code = Array.from({ length: 12 }, (_, i) => [`  - path: src/m${i}.js`, "    new: true", "    criteria: [AC-1]"]).flat();
+  has(lint(plan({ scope: [...SCOPE, ...code] }), TASK, { root: repo, cls: "STANDARD" }), "exceed the STANDARD limit of 15");
+  // TRIVIAL's bound of 2 counts code only
+  const e = validate(plan({ scope: docs.slice(0, 12) }), TASK, { root: repo, cls: "TRIVIAL" });
+  assert.ok(!e.some((x) => x.includes("allows at most")), JSON.stringify(e));
+});
+test("A200: lint warns about a document path without tdd_exemption, a dependency, an unmeasurable criterion and a bare COMPLEX", () => {
+  const sc = ["  - path: docs/setup.md", "    new: true", "    criteria: [AC-1, AC-2, AC-3, AC-4]"];
+  has(lint(plan({ scope: sc }), TASK, { root: repo, cls: "STANDARD" }), "without a tdd_exemption: docs/setup.md");
+  const ok = ["  - path: docs/setup.md", "    new: true", "    criteria: [AC-1, AC-2, AC-3, AC-4]", '    tdd_exemption: "documentation page, verified by the docs link check"'];
+  assert.ok(!lint(plan({ scope: ok }), TASK, { root: repo, cls: "STANDARD" }).some((x) => x.includes("tdd_exemption")));
+  has(lint(plan({ body: { ...BODY, Dependencies: ["- left-pad 1.3.0"] } }), TASK, { root: repo, cls: "STANDARD" }), "new dependency needs the user's own approval");
+  has(lint(plan(), TASK.replace("- AC-4: The receipt", "- AC-4: Make the receipt better and the output cleaner. The receipt"), { root: repo, cls: "STANDARD" }), "cannot be measured as written");
+  has(lint(plan(), TASK.replace(/STANDARD \(.*\)/, "COMPLEX"), { root: repo, cls: "COMPLEX" }), "COMPLEX with 5 scope path(s) and no reason");
+  assert.ok(!lint(plan(), TASK, { root: repo, cls: "COMPLEX" }).some((x) => x.includes("no reason")), "a written reason is accepted");
+  // warnings never change the exit code or the error list
+  assert.deepEqual(errs(plan({ scope: sc })).filter((x) => x.includes("tdd")), []);
+});
+test("A200: the CLI prints warnings as 'warning:' lines and still exits 0", () => {
+  const f = join(base, "PLAN-w.md");
+  writeFileSync(f, plan({ scope: [...SCOPE, "  - path: docs/setup.md", "    new: true", "    criteria: [AC-1]"] }));
+  const r = spawnSync(process.execPath, [script, f, join(repo, "TASK.md"), "--class", "STANDARD", "--repo", repo], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /^warning: scope: document or content path\(s\) without a tdd_exemption: docs\/setup\.md/m);
+  assert.match(r.stdout, /valid\s*$/);
 });
