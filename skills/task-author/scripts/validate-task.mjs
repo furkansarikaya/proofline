@@ -6,7 +6,7 @@
 //   node validate-task.mjs --import ISSUE.md --template T.md       (JSON: fields, custom, missing)
 //   node validate-task.mjs --check-export ISSUE.md --template T.md (every template section filled)
 
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -116,7 +116,8 @@ export function frontMatter(text) {
 function knownIds(dirs) {
   const ids = new Set(), names = [];
   ids.has2 = (d) => ids.has(d) || names.some((c) => c.startsWith(`${d}-`));
-  const h1 = (f) => { try { const m = /^# Task: (\S+)/m.exec(readFileSync(f, "utf8")); if (m) ids.add(m[1]); } catch {} };
+  // A203: only the first line (the title) of a sibling task is read, never its body: a finished task's completion report is not loaded.
+  const h1 = (f) => { try { const fd = openSync(f, "r"); const b = Buffer.alloc(1024); const n = readSync(fd, b, 0, 1024, 0); closeSync(fd); const m = /^# Task: (\S+)/m.exec(b.toString("utf8", 0, n).split(/\n## /)[0]); if (m) ids.add(m[1]); } catch {} };
   for (const d of dirs) {
     let entries = [];
     try { entries = readdirSync(d); } catch { continue; }

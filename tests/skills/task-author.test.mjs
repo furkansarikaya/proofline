@@ -303,3 +303,15 @@ test("A202 link-origin writes the origin and the way back, once, and leaves the 
   assert.match(readFileSync(join(d, "links.tsv"), "utf8"), /prd:login-limits\tT-2\tprd/);
   assert.equal(validate(readFileSync(g, "utf8")).valid, true);
 });
+test("A203: a finished task is identified by its title only; its completion report is never read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rep-"));
+  mkdirSync(join(dir, "done"));
+  // the report (far below the title) holds a sentinel that looks like a task title; it must not register an id
+  writeFileSync(join(dir, "done", "T-1-a.md"), GOOD + "\n" + "x\n".repeat(2000) + "\n## Completion Report\n\n# Task: SENTINEL-9 - from a report\n");
+  const f = join(dir, "y.md.txt");
+  const run = (dep) => { writeFileSync(f, GOOD.replace(/^(# Task:.*\n)/, `$1\n---\ndepends_on: [${dep}]\n---\n`).replace("T-1", "T-2")); return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" }); };
+  assert.equal(run("T-1").status, 0);
+  const r = run("SENTINEL-9");
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout + r.stderr, /depends_on id "SENTINEL-9" matches no task/);
+});

@@ -108,6 +108,7 @@ How work is split between agents in this repository.
 - Models: lead Opus; implementer, test and review Sonnet; Opus advises on hard design decisions.
   Sub-agents return a compact result only: findings and file paths.
 - Agents work in their own worktrees, never in the main checkout.
+- Leads and sub-agents never read `docs/decisions.md` end to end (it is over 500 KB): `grep -n "^## A<n>\|<keyword>" docs/decisions.md` for the relevant `A` entries and read only those.
 - A review FAIL returns its findings to the same implementer, at most 2 rounds. Then that job stops, is
   reported, and other jobs continue.
 - One branch and one pull request per job. Merge when CI is green; no direct push to `main`. Green is checked by

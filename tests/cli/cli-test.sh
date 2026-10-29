@@ -466,6 +466,11 @@ out=$(pl "$st" 2>&1); expect "no command means status" "$out" "active_task=T-1";
 out=$(pl "$st" resume 2>&1); expect "resume ends with the user's next step (A159)" "$out" "Next step: /proofline resume"; expect "resume prints the state" "$out" "state=PLANNING"
 expect "resume checks freshness" "$out" "freshness:"; expect "resume tells Claude users what to say" "$out" "/proofline resume"
 out=$(pl "$st" queue 2>&1); expect "queue lists task files" "$out" "todo/T-9.md"; expect "queue lists runs and marks the active one" "$out" "* T-1"
+# A203: a finished task shows title and status only; the completion report in the file is never printed
+mkdir -p "$st/.agents/tasks/done"; printf '# Task: T-4 - finished one\n\n**Status:** done\n\n## Goal\nx\n\n## Completion Report\n\nREPORT-SENTINEL-203\n' > "$st/.agents/tasks/done/T-4-finished.md"
+out=$(pl "$st" queue 2>&1); expect "queue shows a finished task's title and status" "$out" "done/T-4-finished.md: Task: T-4 - finished one [done]"
+reject "queue never prints a finished task's completion report" "$out" "REPORT-SENTINEL-203"
+rm -rf "$st/.agents/tasks/done"
 out=$(pl "$st" run T-2 2>&1); expect "run prints the Claude instruction" "$out" "/proofline run T-2"; expect "run warns about the active run" "$out" "run T-1 is active"
 out=$(pl "$st" task --grill "add a lookup" 2>&1); expect "task --grill prints the instruction" "$out" "/proofline task --grill add a lookup"
 out=$(pl "$st" design api --check 2>&1); expect "design api --check prints the instruction" "$out" "/proofline design api --check"
