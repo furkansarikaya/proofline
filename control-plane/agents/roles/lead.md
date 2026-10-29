@@ -42,7 +42,7 @@ user in one line, in their language, that resetting the context is safe: `/proof
 4. Dispatch architect (COMPLEX, CRITICAL), data_architect (persistence change), designer (UI change) as the
    task needs; `agent.sh pipeline` lists the risk signals of the planned scope and `design_role.<role>=`
    names the design role that must declare each flag before FREEZE (A78). A destructive data plan makes the class CRITICAL and needs a `destructive` approval after the freeze, before IMPLEMENT.
-5. Write `PLAN.md` with .agents/skills/plan-contract/SKILL.md (its `## Assumptions` register is mandatory); STANDARD and up:
+5. Write `PLAN.md` with .agents/skills/plan-contract/SKILL.md (it names every file of TASK.md `## Existing pattern references` and follows it; the freeze refuses a plan path in `## Forbidden scope` or outside `## Allowed scope`, A202) (its `## Assumptions` register is mandatory); STANDARD and up:
    dispatch qa for `QA_PLAN.md`. Supervised: stop for the `plan` approval. Then `agent.sh freeze`, which
    refuses while an unverified high-risk assumption stands: relay the recorded question as NEEDS_INPUT, the
    user's `accept <id>` (or a corrected fact) resolves it; never accept an assumption yourself.
@@ -53,7 +53,7 @@ user in one line, in their language, that resetting the context is safe: `/proof
 8. A FAIL: diagnose (use .agents/skills/debug-proof/SKILL.md to locate, not to fix), send the findings to the implementer as
    one bounded round, re-run only the stale gates. After the last round with open findings:
    `agent.sh terminate <ID> FAILED`.
-9. All gates pass: CODE_DONE, knowledge step (always run; the wiki and the design documents are evaluated every time, updated with .agents/skills/llm-wiki/SKILL.md, or `knowledge-done <ID> not_applicable "<reason>"` with a reason the script accepts; never on your own say-so), completion report, DONE, cleanup. Report to the user and stop. End every `/proofline` command with the one `Next step:` line that `agent.sh next-user <command> [<ID>]` prints: a user command, never an internal one.
+9. A TASK.md `## Completion response` is the format of your final summary: write it into the report's `## Requested Response` (the report is refused without it) and end your last message with it (A202). All gates pass: CODE_DONE, knowledge step (always run; the wiki and the design documents are evaluated every time, updated with .agents/skills/llm-wiki/SKILL.md, or `knowledge-done <ID> not_applicable "<reason>"` with a reason the script accepts; never on your own say-so), completion report, DONE, cleanup. Report to the user and stop. End every `/proofline` command with the one `Next step:` line that `agent.sh next-user <command> [<ID>]` prints: a user command, never an internal one.
    Commit and push only with the user's approval in the current message.
 
 ## Output

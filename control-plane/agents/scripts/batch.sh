@@ -43,6 +43,8 @@ PLUG_LINE='Keep the computer awake (plugged in, lid open) and this session open.
 # --- plan ------------------------------------------------------------------------------------------------------------
 cls_of() { awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$1"; }
 deps_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^depends_on:/ { sub(/^depends_on:[[:space:]]*/, ""); gsub(/["\[\]]/, ""); gsub(/[,[:space:]]+/, ","); sub(/^,/, ""); sub(/,$/, ""); print; exit }' "$1"; }
+# # prio_of FILE (A202): front matter `priority: high|medium|low` as a rank (1 high, 2 medium, 3 low); medium when absent or unreadable.
+prio_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^priority:/ { v = tolower($2); gsub(/["\047]/, "", v); r = (v == "high") ? 1 : (v == "low") ? 3 : 2; print r; found = 1; exit } END { if (!found) print 2 }' "$1"; }
 # ci_absent (A163, A180): true when the project has no pull_request workflow. That is a WARNING, no longer a blocker: proofline merge
 # then verifies each commit with the project's build and test commands in a clean copy and says "verified locally, no CI".
 ci_absent() { ci_out=$(sh "$agent" ci-check 2>/dev/null) || :; [ "$(printf '%s\n' "$ci_out" | head -1)" = 'ci: absent' ]; }
@@ -81,6 +83,28 @@ lint_task() {
     printf '%s\tac\tThe task has no acceptance criteria (AC-<n>: ...), so nothing can be tested or reviewed. Which?\ta) park the task until its criteria are written (task-author) [recommended]|b) run it anyway (the plan stops at freeze)\ta\t-\n' "$lt_id" >> "$tmp/lint.raw"
   elif [ -n "$lt_vague" ]; then
     printf '%s\tac\tA criterion cannot be measured as written: "%s". Which?\ta) park the task until it is rewritten with a number, a path or an observable result (task-author) [recommended]|b) run it as written (QA may block on it)\ta\t-\n' "$lt_id" "$lt_vague" >> "$tmp/lint.raw"
+  fi
+  # A202: a task with an Allowed scope that names a path outside it (in its Context, criteria or constraints) will get that path in its plan;
+  # the freeze refuses it, so the question is asked now. Forbidden scope is never a question: the freeze refuses it and only the task's edit lifts it.
+  lt_allow=$(sh "$agent" task-scope-entries "$lt_f" 'Allowed scope' 2>/dev/null) || lt_allow=''
+  if [ -n "$lt_allow" ] && [ -n "$lt_paths" ]; then
+    lt_out=''
+    lt_skip=$(for lt_h in 'Forbidden scope' 'Existing pattern references'; do sh "$agent" task-scope-entries "$lt_f" "$lt_h" 2>/dev/null; done)
+    for lt_p in $lt_paths; do
+      printf '%s\n' "$lt_skip" | grep -Fxq -- "$lt_p" && continue
+      lt_in=no
+      while IFS= read -r lt_e; do
+        [ -n "$lt_e" ] || continue
+        sh "$agent" scope-covers "$lt_e" "$lt_p" 2>/dev/null && { lt_in=yes; break; }
+      done <<EOF
+$lt_allow
+EOF
+      [ "$lt_in" = yes ] || lt_out="$lt_out $lt_p"
+    done
+    lt_out=$(printf '%s\n' "$lt_out" | cut -c1-120)
+    if [ -n "${lt_out# }" ]; then
+      printf '%s\tscope\tThe task has an Allowed scope but names path(s) outside it:%s. The plan would need them and the freeze refuses a path outside the Allowed scope. Which?\ta) park the task until its Allowed scope is widened or the path is dropped (you edit the task) [recommended]|b) the plan may use paths outside the Allowed scope for this task\ta\t-\n' "$lt_id" "$lt_out" >> "$tmp/lint.raw"
+    fi
   fi
   lt_n=$((lt_code + lt_cont))
   case "$lt_c:$([ "$lt_n" -le 6 ] && echo small)" in COMPLEX:small)
@@ -128,7 +152,7 @@ plan() {
   while IFS= read -r id; do
     f=$td/$id.md; [ -f "$f" ] || f=$td/todo/$id.md; [ -f "$f" ] || f=$td/backlog/$id.md
     c=$(cls_of "$f"); d=$(deps_of "$f")
-    printf '%s\t%s\t%s\t%s\n' "$id" "${c:--}" "${d:--}" "$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$f" | tr '\t' ' ')" >> "$tmp/info"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$id" "${c:--}" "${d:--}" "$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$f" | tr '\t' ' ')" "$(prio_of "$f")" >> "$tmp/info"
   done < "$tmp/sel"
   # a dependency cycle among the selected tasks refuses the whole batch
   awk -F'\t' '
@@ -145,7 +169,7 @@ plan() {
   # what a batch never runs: CRITICAL, class unknown, and whatever depends on an excluded task or on a task nobody finishes
   awk -F'\t' -v OFS='\t' '
     FILENAME == ARGV[1] { done[$1] = 1; next }
-    { n++; id[n] = $1; cls[$1] = $2; dep[$1] = $3; title[$1] = $4; sel[$1] = 1 }
+    { n++; id[n] = $1; cls[$1] = $2; dep[$1] = $3; title[$1] = $4; pri[$1] = $5; sel[$1] = 1 }
     END {
       for (i = 1; i <= n; i++) { u = id[i]
         if (cls[u] == "CRITICAL") ex[u] = "class CRITICAL (keeps its per-task approvals)"
@@ -157,19 +181,20 @@ plan() {
             if (v in ex) { ex[u] = "depends on " v ", which is not in this batch"; ch = 1; break }
             if (!(v in sel) && !(v in done)) { ex[u] = "dependency " v " is neither in this batch nor done"; ch = 1; break } } }
       } while (ch)
-      for (i = 1; i <= n; i++) { u = id[i]; if (u in ex) print "X", u, ex[u]; else print "K", u, cls[u], dep[u], title[u] }
+      for (i = 1; i <= n; i++) { u = id[i]; if (u in ex) print "X", u, ex[u]; else print "K", u, cls[u], dep[u], title[u], pri[u] }
     }' "$tmp/done" "$tmp/info" > "$tmp/split"
   awk -F'\t' '$1 == "K"' "$tmp/split" > "$tmp/kept"
   [ -s "$tmp/kept" ] || { awk -F'\t' '$1 == "X" { print "  " $2 ": " $3 }' "$tmp/split" >&2; die "no task can be batched; nothing was written"; }
-  # topological order; ties keep the listed order
+  # topological order; among the tasks that are ready, the higher priority (A202: front matter priority, high before medium before low) goes first, and ties keep the listed order
   awk -F'\t' -v OFS='\t' '
-    { n++; id[n] = $2; cls[$2] = $3; dep[$2] = $4; kept[$2] = 1 }
+    { n++; id[n] = $2; cls[$2] = $3; dep[$2] = $4; pri[$2] = ($6 == "" ? 2 : $6); kept[$2] = 1 }
     END { left = n
-      while (left > 0) {
+      while (left > 0) { best = 0
         for (i = 1; i <= n; i++) { u = id[i]; if (u in em) continue
           m = split(dep[u], a, ","); ok = 1
           for (j = 1; j <= m; j++) if ((a[j] in kept) && !(a[j] in em)) ok = 0
-          if (ok) { em[u] = 1; print u, cls[u], dep[u]; left--; break } } } }' "$tmp/kept" > "$tmp/order"
+          if (ok && (best == 0 || pri[u] < pri[id[best]])) best = i }
+        u = id[best]; em[u] = 1; print u, cls[u], dep[u]; left-- } }' "$tmp/kept" > "$tmp/order"
   # a batch that did work goes to history; an unworked plan is simply replaced
   mkdir -p "$bd"
   if [ -f "$bd/state.tsv" ] || [ -s "$bd/merged.tsv" ] || [ -f "$bd/ci.tsv" ] || [ -f "$bd/answers.tsv" ]; then
@@ -286,9 +311,10 @@ own_state() {
   if [ "$(st_get "$os_id" 2)" = parked ]; then DS=parked; DD=$(st_get "$os_id" 3); DQ=$(st_get "$os_id" 4); return 0; fi
   # A200: a task whose pre-flight answer is "park until it is decided or written" never starts; the answer is the user's own
   if ! has_run "$os_id"; then
-    for os_k in dep ac; do
+    for os_k in dep ac scope; do
       os_a=$(ans_row "$os_id" "$os_k")
       if [ "$(printf '%s' "$os_a" | cut -f1)" = b ] && [ "$os_k" = dep ]; then DS=parked; DD="new dependency"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with b: a dependency is needed and only you approve it; decide it, then agent.sh batch-park $os_id --clear"; return 0; fi
+      if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = scope ]; then DS=parked; DD="allowed scope"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the task's Allowed scope is widened (or the path dropped) by you first; then agent.sh batch-park $os_id --clear"; return 0; fi
       if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = ac ]; then DS=parked; DD="criteria to write"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the acceptance criteria are written (task-author) first; then agent.sh batch-park $os_id --clear"; return 0; fi
     done
   fi

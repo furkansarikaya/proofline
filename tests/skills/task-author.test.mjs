@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { validate, parseTemplate, importIssue, checkExport, resolveTemplate } from "../../skills/task-author/scripts/validate-task.mjs";
+import { validate, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS } from "../../skills/task-author/scripts/validate-task.mjs";
+import { linkOrigin } from "../../skills/task-author/scripts/link-origin.mjs";
+import { VAGUE_WORDS } from "../../skills/product-spec/scripts/check-prd.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../skills/task-author/scripts/validate-task.mjs", import.meta.url));
 const TPL = (t) => readFileSync(fileURLToPath(new URL(`../../skills/task-author/assets/templates/${t}.md`, import.meta.url)), "utf8");
@@ -260,4 +262,44 @@ test("Covers: a criterion links PRD requirements; a task without it stays valid;
   assert.equal(validate(GOOD).task.covers, undefined);
   assert.match(validate(linked.replace("Covers: FR-1, NFR-2", "Covers: login")).errors.join("\n"), /Covers must list requirement ids/);
   assert.match(validate(GOOD.replace("returns HTTP 429.", "returns HTTP 429. Covers: FR-1")).warnings.join("\n"), /names no PRD/);
+});
+
+// ---- A202: optional fields ----
+const withFm = (kv, t = GOOD) => t.replace("\n## Goal", `\n---\n${kv}\n\n---\n\n## Goal`);
+test("A202 the ambiguous-word list is product-spec's list", () => {
+  assert.deepEqual([...AMBIGUOUS_WORDS].sort(), [...VAGUE_WORDS].sort());
+});
+test("A202 a task that names no PRD gets the product-spec ambiguous-word check", () => {
+  const t = GOOD.replace("returns HTTP 429.", "returns HTTP 429 quickly.");
+  assert.match(errs(t), /AC-1 .*quickly/);
+  assert.equal(validate(withFm("prd: login-limits", t)).errors.some((e) => /ambiguous word/.test(e)), false);
+  assert.match(validate(GOOD.replace("zero.", "zero, easily."), { vagueWords: [] }).errors.join(), /easily/);
+  assert.match(validate(GOOD.replace("zero.", "zero without fuss."), { vagueWords: ["without fuss"] }).errors.join(), /without fuss/);
+  assert.equal(validate(GOOD).valid, true);
+});
+test("A202 priority, origin and the scope sections are checked, absent fields change nothing", () => {
+  assert.equal(validate(withFm("priority: high")).valid, true);
+  assert.match(errs(withFm("priority: urgent")), /priority must be one of/);
+  assert.equal(validate(withFm("origin: prd:login-limits")).valid, true);
+  assert.match(errs(withFm("origin: not a task")), /origin must be/);
+  const scoped = GOOD + "\n## Allowed scope\n\n- `src/auth/`\n\n## Forbidden scope\n\n- `src/billing/**`\n\n## Existing pattern references\n\n- `src/orders/list.ts`\n\n## Completion response\n\nThree bullets.\n";
+  assert.equal(validate(scoped).valid, true, errs(scoped));
+  assert.match(errs(GOOD + "\n## Forbidden scope\n\nnothing here\n"), /Forbidden scope" lists no path/);
+  assert.match(errs(GOOD + "\n## Completion response\n\n"), /Completion response" is empty/);
+});
+test("A202 link-origin writes the origin and the way back, once, and leaves the source alone", () => {
+  const d = mkdtempSync(join(tmpdir(), "origin-"));
+  const src = GOOD, srcPath = join(d, "T-1.md"); writeFileSync(srcPath, src);
+  const f = join(d, "T-1-FU1.md"); writeFileSync(f, GOOD.replace("T-1 —", "T-1-FU1 —"));
+  linkOrigin(f, { from: "T-1", tasksDir: d }); linkOrigin(f, { from: "T-1", tasksDir: d });
+  assert.equal(readFileSync(srcPath, "utf8"), src);
+  assert.equal(readFileSync(join(d, "links.tsv"), "utf8"), "T-1\tT-1-FU1\tfollowup\n");
+  const r = validate(readFileSync(f, "utf8"), { tasksDirs: [d] });
+  assert.equal(r.valid, true, r.errors.join()); assert.equal(r.task.meta.origin, "T-1"); assert.deepEqual(r.warnings, []);
+  assert.match(validate(withFm("origin: T-404"), { tasksDirs: [d] }).errors.join(), /matches no task/);
+  const g = join(d, "T-2.md"); writeFileSync(g, GOOD.replace("T-1 —", "T-2 —"));
+  linkOrigin(g, { prd: "login-limits", tasksDir: d });
+  assert.match(readFileSync(g, "utf8"), /origin: prd:login-limits/);
+  assert.match(readFileSync(join(d, "links.tsv"), "utf8"), /prd:login-limits\tT-2\tprd/);
+  assert.equal(validate(readFileSync(g, "utf8")).valid, true);
 });

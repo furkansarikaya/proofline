@@ -125,6 +125,8 @@ r2=$(sh $MD followup T-1 "$base/waiver.md")
 has "$r1" '# Task: T-1-FU1 — Follow-up: waived finding RULES-1 of T-1'; has "$r1" '**Status:** backlog'; has "$r1" 'Waiver reason: later'
 rc=0; sh $MD import T-1-FU1 "$base/fu.md" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || die "an unfinished follow-up imported as complete (rc=$rc)"
+has "$r1" 'origin: T-1'; [ "$(grep -c '^T-1	T-1-FU[12]	followup$' .agents/tasks/links.tsv)" = 2 ] || die "A202: the two-way link of the follow-ups is not in links.tsv: $(cat .agents/tasks/links.tsv 2>&1)"
+sh $MD followup T-1 "$base/waiver.md" >/dev/null; [ "$(grep -c '^T-1	' .agents/tasks/links.tsv)" = 3 ] || die "A202: links.tsv rows"
 ok "markdown followup"
 
 # status: moves between lifecycle folders and rewrites the Status line; refuses bad input and bound runs

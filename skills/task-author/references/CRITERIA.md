@@ -60,3 +60,4 @@ Run each item; any "no" is fixed before returning.
 7. No placeholder (`<...>`, TBD, TODO, `QUESTION-n`) remains.
 8. Open questions were asked in one round, or there are none.
 9. The validator exits 0.
+10. Two-engineer test (A202, every source, not only a PRD): would two engineers who never spoke build the same thing from each criterion? A place where they would not is rewritten with a number, a path or an observable result, or asked as a question. The validator already refuses the ambiguous words of product-spec's list in a task that names no PRD.

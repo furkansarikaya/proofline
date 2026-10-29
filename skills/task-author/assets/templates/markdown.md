@@ -32,3 +32,10 @@ required: goal acceptance_criteria out_of_scope constraints risks
 
 ## Verification commands
 {{verification_commands}}
+
+<!-- Optional (A202); delete what you do not use. Sections, each with one bullet per entry:
+## Allowed scope            - `src/billing/` (files, folders or globs the plan may touch; a plan path outside is asked in the batch pre-flight)
+## Forbidden scope          - `src/auth/` (the plan may not contain these; the freeze refuses it and nothing waives it)
+## Existing pattern references   - `src/orders/list.ts` (do it like this file; explorer reads it first, plan and review check conformity)
+## Completion response      the final summary format you want; the lead's last message follows it
+Front matter keys (after the Task line): priority: high|medium|low (batch order among tasks without dependencies); origin is written by the tool. -->

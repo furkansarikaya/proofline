@@ -178,6 +178,35 @@ drive() {
     [ "$dr_max" -eq 0 ] || [ "$dr_n" -lt "$dr_max" ] || return 0
   done
 }
+# --- A202: priority orders the tasks that are free to run; an Allowed scope is asked in the pre-flight -----------------------------------------
+# mkprio ID PRIORITY [DEPS]: a task with front matter priority (and depends_on)
+mkprio() {
+  mktask "$1" STANDARD; mp_f=.agents/tasks/$1.md
+  { sed -n 1p "$mp_f"; printf '\n---\npriority: %s\n' "$2"; [ -z "${3:-}" ] || printf 'depends_on: %s\n' "$3"; printf '\n---\n'; sed '1d' "$mp_f"; } > "$mp_f.new"; mv "$mp_f.new" "$mp_f"
+}
+sc_priority_and_allowed() {
+  bnew; mktask T-1 STANDARD; mkprio T-2 low; mkprio T-3 high; mkprio T-4 high T-2; mkprio T-5 medium; binstall no
+  BP T-1 T-2 T-3 T-4 T-5 > "$base/plan.out" || die "batch-plan refused a priority batch: $(cat "$base/plan.out")"
+  [ "$(order_ids)" = "T-3 T-1 T-5 T-2 T-4" ] || die "priority order: high first, ties in the listed order, a dependency before its dependant (T-4 is high but waits for T-2): $(order_ids)"
+  BP T-2 T-1 > "$base/plan.out" || die "batch-plan"
+  [ "$(order_ids)" = "T-1 T-2" ] || die "a plain task goes before a low one: $(order_ids)"
+  mktask T-1 STANDARD; BP T-1 T-2 >/dev/null; [ "$(order_ids)" = "T-1 T-2" ] || die "tasks without priority keep the listed order: $(order_ids)"
+  # Allowed scope: a path the task names outside it is a pre-flight question; the answer "park" parks the task, the other task goes on
+  { printf '# Task: S-1 — scoped\n\n## Goal\n\nIt works.\n\n## Context\n\nChanges `src/a.js` and `lib/x.js`.\n\n## Acceptance criteria\n\n- AC-1: the output lists three rows\n\n## Out of scope\n\n- Other.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n\n## Suggested class\n\nSTANDARD because it is small.\n\n## Allowed scope\n\n- `src/`\n\n## Forbidden scope\n\n- `lib/y.js`\n'; } > .agents/tasks/S-1.md
+  mktask S-2 STANDARD; git add -A; git commit -qm tasks
+  BP S-1 S-2 > "$base/plan.out" || die "batch-plan: $(cat "$base/plan.out")"
+  grep -q '\[S-1, scope\].*lib/x.js' "$summary" || die "no Allowed scope question naming lib/x.js: $(grep -n 'Q[0-9]' "$summary")"
+  grep '\[S-1, scope\]' "$summary" | grep -q 'src/a.js' && die "a path inside the Allowed scope was asked about: $(grep 'S-1, scope' "$summary")"
+  grep '\[S-1, scope\]' "$summary" | grep -q 'lib/y.js' && die "the Forbidden scope path was asked about instead of refused at freeze"
+  batch_approve
+  mkdir -p .agents/local/prompts/history; now=$(( $(date +%s) + 10 ))
+  printf 'Q1 a\n' > .agents/local/prompts/history/$now-dddd1111.txt
+  A batch-answer >/dev/null || die "batch-answer"
+  A batch-next | grep -q '^S-1 | parked | allowed scope' || die "an Allowed scope answer 'park' did not park the task: $(A batch-next)"
+  A batch-next | grep -q '^NEXT: run S-2' || die "the other task does not go on: $(A batch-next | tail -2)"
+  ok "A202 batch: priority orders free tasks (ties keep the listed order, dependencies first); an Allowed scope violation is a pre-flight question and a park answer parks"
+}
+
 # --- 1. depends_on order and cycle rejection ---------------------------------------------------------------------------
 sc_order_and_cycle() {
   bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX T-1; mktask T-5 COMPLEX T-9
@@ -923,6 +952,7 @@ sc_same_files_wait() {
 }
 
 run_sc sc_preflight
+run_sc sc_priority_and_allowed
 run_sc sc_commands_check
 run_sc sc_same_files_wait
 run_sc sc_order_and_cycle

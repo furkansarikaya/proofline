@@ -1317,6 +1317,45 @@ scenario_uncommitted_block_file() {
   ok "an uncommitted block-only AGENTS.md/CLAUDE.md is control plane (verify-scope, reopen); extra text, a second pair, a lone marker, no markers and a symlink are product changes with the hint"
 }
 
+# A202: the task's own boundaries are checked at every freeze. Forbidden scope is refused with no waiver path, Allowed scope refuses a
+# path outside it, an Existing pattern reference must exist and be named in the plan. A task without the sections freezes as before.
+scenario_task_boundaries() {
+  scaffold standalone no TRIVIAL manual
+  t=.agents/runs/LC/TASK.md; cp "$t" "$base/task.orig"; before=$(cat .agents/runs/LC/RUN.yaml)
+  printf '\n## Forbidden scope\n\n<!-- a comment with - `ignored.txt` in it -->\n- `impl.txt` (the user keeps this file out)\n' >> "$t"
+  expect_msg "a plan path in Forbidden scope froze" "Forbidden scope" A freeze LC
+  [ "$before" = "$(cat .agents/runs/LC/RUN.yaml)" ] || die "a refused freeze changed RUN.yaml"
+  printf '\n## Completion response\n\nTried to waive it.\n' >> "$t"   # no agent text or waiver lifts it: a waiver needs a gate finding and the user's approval
+  expect_msg "the Forbidden scope was lifted by editing around it" "Forbidden scope" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Forbidden scope\n\n- `imp*`\n' >> "$t"
+  expect_msg "a glob in Forbidden scope froze" "Forbidden scope" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Allowed scope\n\n- `src/`\n' >> "$t"
+  expect_msg "a plan path outside the Allowed scope froze" "outside the task's Allowed scope" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Allowed scope\n\n- `impl.txt`\n' >> "$t"
+  expect_msg "impl_test.txt is outside an Allowed scope of impl.txt" "outside the task's Allowed scope: impl_test.txt" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Existing pattern references\n\n- `no/such/file.go`\n' >> "$t"
+  expect_msg "a pattern reference that does not exist froze" "does not exist" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Existing pattern references\n\n- `tasks/LC.md`\n' >> "$t"
+  expect_msg "a plan that never names the pattern reference froze" "does not mention the task's Existing pattern reference tasks/LC.md" A freeze LC
+  printf '\nFollows tasks/LC.md in structure.\n' >> .agents/runs/LC/PLAN.md
+  cp "$base/task.orig" "$t"; printf '\n## Allowed scope\n\n- `impl*`\n- `docs/`\n\n## Forbidden scope\n\n- `vendor/`\n\n## Existing pattern references\n\n- `tasks/LC.md`\n' >> "$t"
+  A freeze LC >/dev/null || die "a plan inside its Allowed scope, outside Forbidden scope and naming its pattern reference was refused"
+  ok "task boundaries: Forbidden scope (path, glob) is refused at freeze without a waiver path; Allowed scope and pattern references are checked; a plan inside them freezes"
+}
+# A202: a task that asks for a final summary format cannot publish a report without it.
+scenario_completion_response() {
+  SC_TASK_EXTRA="$(printf '\n## Completion response\n\nThree bullets: what changed, how it was verified, what is left.')"; export SC_TASK_EXTRA; scaffold standalone no TRIVIAL; unset SC_TASK_EXTRA
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
+  r=.agents/runs/LC/COMPLETION_REPORT.md
+  printf '%s\n' '# Completion Report: LC' '' '## Implementation Summary' 'impl.txt and impl_test.txt changed under the TRIVIAL pipeline.' '' '## TDD Evidence' 'RED then GREEN recorded by the lead.' '' '## Verification' 'The VERIFY gate passed on the final tree.' '' '## Assumptions' 'none' '' '## Review Result' 'REVIEW_SMALL passed.' '' '## Known Limitations / Follow-up' 'None.' > "$r"
+  expect_msg "a report without the requested response was published" "Requested Response" A publish-completion-report LC markdown
+  printf '\n## Requested Response\n\n- changed: lookup default\n- verified: VERIFY gate\n- left: nothing\n' >> "$r"
+  A publish-completion-report LC markdown >/dev/null || die "a report with the requested response was refused"
+  ok "completion response: the report needs its Requested Response section"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
@@ -1352,6 +1391,8 @@ run_sc scenario_task_contract_projection
 run_sc scenario_task_source_status
 run_sc scenario_cleanup_after_delivery
 run_sc scenario_freeze_scope_mapping
+run_sc scenario_task_boundaries
+run_sc scenario_completion_response
 run_sc scenario_freeze_ac_coverage
 run_sc scenario_window_open_no_plan
 run_sc scenario_digest_resume
