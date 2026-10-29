@@ -1097,8 +1097,12 @@ plan_flag() { # PLAN FLAG -> yes|no
     *) awk -v f="$2" '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ ("^" f ":[[:space:]]*yes([[:space:]]|$)")) y = 1 } END { print (y ? "yes" : "no") }' "$1" ;;
   esac
 }
-plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]`
-  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
+plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]` or the rollback note (A202: `rollback: <text>` and its indented continuation lines)
+  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); rb = 0; next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ /^rollback:[[:space:]]*[^[:space:]]/) { rb = 1; next } if (rb && $0 ~ /^[[:space:]]+[^[:space:]]/) next; rb = 0; if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
+}
+# A202: a COMPLEX or CRITICAL plan carries a short rollback note inside its Risk section; its absence is a warning, never a stop (TRIVIAL and STANDARD are never asked)
+plan_rollback_present() { # PLAN
+  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ /^rollback:[[:space:]]*[^[:space:]]/) y = 1 } END { exit !y }' "$1"
 }
 # The block the freeze binds: the risk mapping, the performance thresholds (A87), every non-empty security.* key
 # (A88: license policy, audit command) and every non-empty contract.* key (A83: contract.paths / contract.ignore
@@ -1463,6 +1467,38 @@ scope_code_count() { # PLAN.md -> the number of scope paths that are not content
   scc_n=0
   for scc_p in $(scope_mappings "$1" 2>/dev/null | cut -d '|' -f1); do [ "$(path_kind "$scc_p")" = code ] && scc_n=$((scc_n + 1)); done
   echo "$scc_n"
+}
+
+# A202: the scope table's optional `kind:` column (code | test | content | doc) is a claim, never an input. The script derives the kind of
+# every path itself (a test path by test_code_path, a content or document path by path_kind, everything else code) and a claim that
+# differs from it, or that is not one of the four words, is ignored: the path counts as code in the scope bound and in the selective
+# gate re-run. Only a claim that makes the path stricter (code where it derived test) is honoured. A PLAN without the column is derived.
+plan_kind_claims() { # PLAN -> "path|kind" for each scope entry that has a `kind:` line
+  awk '
+    /^scope:$/ { inside=1; next } inside && /^---$/ { exit }
+    inside && /^  - path: / { path=$0; sub(/^  - path: /, "", path); next }
+    inside && /^    kind: / { k=$0; sub(/^    kind: /, "", k); gsub(/["\047 ]/, "", k); print path "|" k }
+  ' "$1"
+}
+derived_kind() { # PATH -> code | test | content
+  if test_code_path "$1"; then echo test; else path_kind "$1"; fi
+}
+effective_kind() { # PATH CLAIM -> code | test | content: the derived kind when the claim is absent or equal to it (doc = content), else code
+  ek_d=$(derived_kind "$1"); ek_c=$2
+  [ "$ek_c" != doc ] || ek_c=content
+  if [ -z "$ek_c" ] || [ "$ek_c" = "$ek_d" ]; then echo "$ek_d"; else echo code; fi
+}
+scope_kind_rows() { # PLAN -> path<TAB>claimed<TAB>derived<TAB>effective<TAB>exempt(yes|no) per scope path
+  skr_cl=$(plan_kind_claims "$1")
+  for skr_p in $(scope_mappings "$1" 2>/dev/null | cut -d '|' -f1); do
+    skr_c=$(printf '%s\n' "$skr_cl" | grep -F -- "$skr_p|" | head -1 | cut -d '|' -f2)
+    skr_x=no; [ -z "$(exempted_path "$1" "$skr_p")" ] || skr_x=yes
+    printf '%s\t%s\t%s\t%s\t%s\n' "$skr_p" "${skr_c:--}" "$(derived_kind "$skr_p")" "$(effective_kind "$skr_p" "$skr_c")" "$skr_x"
+  done
+}
+# the claimed kind of one path in the run's PLAN, empty when none
+plan_path_claim() { # ID PATH
+  plan_kind_claims "$(run_dir "$1")/PLAN.md" 2>/dev/null | grep -F -- "$2|" | head -1 | cut -d '|' -f2
 }
 
 # Freeze-time artifact contract: required artifacts exist, unrequired ones do not, class plan rules hold.
@@ -1923,6 +1959,14 @@ freeze() {
     echo "warning: PLAN.md scope has document path(s) without tdd_exemption:$fz_nd; the implementer cannot show RED/GREEN for a document, so add 'tdd_exemption: <specific reason, 20+ characters>' to each (or a test that proves it, for example design-sync finding the drift first and then passing clean); a plan fixed later costs an amendment and a refreeze (A197)" >&2
     fz_ba=$(batch_answer_row "$id" exempt)
     [ -z "$fz_ba" ] || echo "note: the user answered the batch pre-flight question $(printf '%s' "$fz_ba" | cut -f3) for $id with option $(printf '%s' "$fz_ba" | cut -f1) (a: document paths take a tdd_exemption with a specific reason; b: each needs a test); the plan follows it (A200)" >&2
+  fi
+  case "$(pipeline_class "$id")" in COMPLEX|CRITICAL)
+    plan_rollback_present "$dir/PLAN.md" || echo "warning: PLAN.md '## Risk' has no rollback note; a $(pipeline_class "$id") plan carries 'rollback: <feature flag, how a migration is reversed, the first step if production breaks>' there, a few lines at most (A202)" >&2 ;;
+  esac
+  # A202: a `kind:` the script does not agree with is told, and the path is treated as code (the claim never lowers a gate or the bound).
+  fz_kd=$(scope_kind_rows "$dir/PLAN.md" | awk -F'\t' '$2 != "-" && $2 != $3 && !($2 == "doc" && $3 == "content") { printf " %s (claimed %s, derived %s)", $1, $2, $3 }')
+  if [ -n "$fz_kd" ]; then
+    echo "warning: PLAN.md scope kind differs from the script's own:$fz_kd; the path is treated as code in the scope bound and in the gate re-run (a plan's kind is a claim; correct it or drop it)" >&2
   fi
   if fz_i=$(plan_entries "$dir/PLAN.md" information | cut -c1-60 | tr '\n' ';') && [ -n "$fz_i" ]; then
     echo "note (information only): PLAN.md ## Contracts mentions an entry point without new input (${fz_i%;}); if one takes new or changed external input, state it in the bullet and add a ## Validation line (A162)" >&2
@@ -3221,7 +3265,10 @@ gate_inputs_unchanged() { # ID RECORD GATE MODE NOW
   [ "$(gate_field "$2" result)" = pass ] || return 1
   giu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
   [ -n "$giu_delta" ] || return 1
-  for giu_p in $giu_delta; do test_code_path "$giu_p" || return 1; done
+  for giu_p in $giu_delta; do
+    test_code_path "$giu_p" || return 1
+    giu_k=$(plan_path_claim "$1" "$giu_p"); [ -z "$giu_k" ] || [ "$giu_k" = test ] || return 1   # A202: the plan's own kind column says the path is not a test: run (a claim can only make the re-run stricter)
+  done
   giu_rec=$(gate_field "$2" fingerprint); giu_cur=$5
   if [ "$4" = reuse ]; then
     giu_tree=$(git -C "$root" diff-tree -r --name-only "$giu_rec" "$giu_cur" 2>/dev/null) || return 1
@@ -4494,13 +4541,20 @@ language_scan() {
     # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history) or product text
     # (A172, above), so a model cannot hide its own non-English text behind '> ' or a fence.
     ls_own=no; case "$ls_f" in */questions/*.answer.md|*/questions/*.answer.amended-*.md|*/approvals/*|*/runs/*/TASK.md) ls_own=yes ;; esac
-    ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "")
+    # A202: the summary block at the top of COMPLETION_REPORT.md (at most five lines, checked at publish) is written in the user's language;
+    # its lines are blanked (line numbers kept) for the scan. Everything else in the report stays English.
+    ls_scan=$ls_f
+    case "$ls_f:${LANG_HINT:-}" in */COMPLETION_REPORT.md:*|*:*COMPLETION_REPORT.md)
+      ls_scan=$(mktemp "${TMPDIR:-/tmp}/proofline-lang-sum.XXXXXX") && report_blank_summary "$ls_f" > "$ls_scan" || ls_scan=$ls_f ;;
+    esac
+    ls_hit=$(language_awk "$ls_scan" "$ls_own" "$ls_blob" scan "")
     if [ -n "$ls_hit" ]; then
       if [ "$ls_ready" = no ]; then language_head; ls_extra=$(language_extra "$ls_f"); ls_ready=yes; fi
-      ls_ok=$(language_ok_pieces "$ls_f" "$ls_own" "$ls_blob" "$ls_extra")
-      ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "$ls_ok")
+      ls_ok=$(language_ok_pieces "$ls_scan" "$ls_own" "$ls_blob" "$ls_extra")
+      ls_hit=$(language_awk "$ls_scan" "$ls_own" "$ls_blob" scan "$ls_ok")
       rm -f "$ls_ok"
     fi
+    [ "$ls_scan" = "$ls_f" ] || rm -f "$ls_scan"
     if [ -n "$ls_hit" ]; then printf '%s:%s\n' "${ls_f#"$root"/}" "$ls_hit"; ls_rc=1; fi
   done
   rm -f "$ls_blob" "$ls_extra"
@@ -6296,7 +6350,7 @@ next_step() {
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
           [ "$(section_value "$ns_d" completion_report published)" = true ] || friction_reminder "$ns_id"
-          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
+          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (top: the summary block of the template in the user's language, no Look-at lines, publish copies QA_REPORT.md Human checks; no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
         *) ns_kd=$(knowledge_drift "$ns_id" | head -n 5 | tr '\n' ';')
            [ -z "$ns_kd" ] || printf 'note=design-sync drift in knowledge-scope documents (information for the knowledge step, which must fix it before knowledge-done): %s\n' "${ns_kd%;}"
@@ -6505,10 +6559,53 @@ required_report_headings() {
   if [ -n "$(task_section_lines "$dir/TASK.md" 'Completion response' | grep '[^[:space:]]')" ]; then printf '## Requested Response\n'; fi
   return 0
 }
+# A202: the summary block. The first lines of COMPLETION_REPORT.md, between these markers, are a short note to the user in the user's
+# language: what changed, what to look at, one command to verify. It is not evidence: the evidence checks read the report without it,
+# the language scan blanks it, and the `Look at:` lines are never typed by the model (publish copies them from QA_REPORT.md).
+REPORT_SUMMARY_BEGIN='<!-- proofline:summary:begin -->'
+REPORT_SUMMARY_END='<!-- proofline:summary:end -->'
+report_blank_summary() { # FILE -> the file with the summary block's lines blanked (line numbers kept)
+  awk -v b="$REPORT_SUMMARY_BEGIN" -v e="$REPORT_SUMMARY_END" '$0 == b && !done { skip = 1; print ""; next } skip { if ($0 == e) { skip = 0; done = 1 } print ""; next } { print }' "$1"
+}
+# human_checks ID: the items of QA_REPORT.md `## Human checks` (what a machine measures badly: text naturalness, visual impression), at most three
+human_checks() {
+  hc_f=$(run_dir "$1")/QA_REPORT.md; [ -f "$hc_f" ] || return 0
+  awk '/^## Human checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i && /^[-*][ \t]+[^ \t]/ { sub(/^[-*][ \t]+/, ""); sub(/[ \t]+$/, ""); if (n < 3) print; n++ }' "$hc_f"
+}
+# report_summary_apply ID: validates the summary block and rewrites it with the script-copied `Look at:` lines (once, before `Verify:`)
+report_summary_apply() {
+  rsa_f=$(run_dir "$1")/COMPLETION_REPORT.md
+  rsa_b=$(grep -nFx -- "$REPORT_SUMMARY_BEGIN" "$rsa_f" | head -n 1 | cut -d: -f1)
+  if [ -z "$rsa_b" ]; then echo "note: COMPLETION_REPORT.md has no summary block at the top; the user reads it first (what changed, what to look at, one command to verify): see the template" >&2; return 0; fi
+  [ "$rsa_b" -le 4 ] || fail "completion report: the summary block must open within the first lines of the report, right after the title"
+  rsa_e=$(awk -v b="$rsa_b" -v e="$REPORT_SUMMARY_END" 'NR > b && $0 == e { print NR; exit }' "$rsa_f")
+  [ -n "$rsa_e" ] || fail "completion report: the summary block has no closing marker $REPORT_SUMMARY_END"
+  rsa_body=$(sed -n "$((rsa_b + 1)),$((rsa_e - 1))p" "$rsa_f" | grep -v '^Look at:' | grep '[^[:space:]]' || true)
+  rsa_items=$(human_checks "$1")
+  rsa_v=$(printf '%s\n' "$rsa_body" | grep -c '^Verify:' || true)
+  { [ "$rsa_v" = 1 ] && printf '%s\n' "$rsa_body" | grep '^Verify:' | grep -q '`[^`][^`]*`'; } || fail "completion report: the summary block needs exactly one line 'Verify: \`<one command the user runs on their own machine>\`'"
+  rsa_main=$(printf '%s\n' "$rsa_body" | grep -v '^Verify:' || true)
+  while IFS= read -r rsa_i; do
+    [ -n "$rsa_i" ] || continue
+    ! printf '%s\n' "$rsa_main" | grep -iqF -- "$rsa_i" || fail "completion report: the summary block repeats a QA_REPORT.md 'Human checks' item ('$rsa_i'); the script copies that list as 'Look at:' lines, remove your copy"
+  done <<EOF
+$rsa_items
+EOF
+  rsa_n=$(( $(printf '%s\n' "$rsa_body" | grep -c . || true) + $(printf '%s\n' "$rsa_items" | grep -c . || true) ))
+  [ "$rsa_n" -le 5 ] || fail "completion report: the summary block is $rsa_n lines with the 'Look at:' lines the script adds; at most five (what changed, what to look at, one command to verify)"
+  rsa_t=$(mktemp "${TMPDIR:-/tmp}/agent-summary.XXXXXX") || fail "cannot create a temporary file"
+  { sed -n "1,${rsa_b}p" "$rsa_f"
+    [ -z "$rsa_main" ] || printf '%s\n' "$rsa_main"
+    printf '%s\n' "$rsa_items" | sed '/^$/d; s/^/Look at: /'
+    printf '%s\n' "$rsa_body" | grep '^Verify:'
+    sed -n "${rsa_e},\$p" "$rsa_f"; } > "$rsa_t" && cp "$rsa_t" "$rsa_f"; rm -f "$rsa_t"
+}
 validate_completion_report_structure() {
   id=$1 dir=$(run_dir "$1"); report="$dir/COMPLETION_REPORT.md"
   [ -f "$report" ] || fail "completion report missing: $report"
   size=$(wc -c < "$report" | tr -d ' '); [ "$size" -ge 200 ] || fail "completion report is too short to be meaningful"
+  # A202: the evidence checks below read the report without its summary block (the summary is a note to the user, not evidence)
+  mkdir -p "$dir/scratch"; report_blank_summary "$report" > "$dir/scratch/COMPLETION_REPORT.evidence.md"; report="$dir/scratch/COMPLETION_REPORT.evidence.md"
   for vc_h in $(required_report_headings "$dir" | sed 's/^## //; s/ /_/g'); do
     vc_h=$(printf '## %s' "$vc_h" | tr '_' ' ')
     grep -Fq "$vc_h" "$report" || fail "completion report missing required section: $vc_h"
@@ -6666,6 +6763,7 @@ publish_completion_report() {
   # A143: the Facts block of an earlier publish is removed first so it never satisfies a check, the text is checked
   # against the records, and a fresh block generated from them is appended verbatim.
   report_strip_facts "$dir/COMPLETION_REPORT.md"
+  report_summary_apply "$id"
   validate_completion_report_structure "$id"
   report_claims_check "$id" "$dir/COMPLETION_REPORT.md"
   { printf '\n'; report_facts "$id"; } >> "$dir/COMPLETION_REPORT.md"
@@ -6809,6 +6907,8 @@ status_block_body() {
     sbb_tk=$(awk -v t="\"task\":\"$sbb_id\"" 'index($0, t) && match($0, /"tokens_total":[0-9]+/) { v = substr($0, RSTART + 15, RLENGTH - 15) + 0; if (index($0, "\"kind\":\"step\"")) s += v; else if (index($0, "\"kind\":\"dispatch\"")) d += v }
       END { if (s > 0) print s; else if (d > 0) print d }' "$(shared_dir metrics)/records.jsonl" 2>/dev/null || true)
     [ -z "$sbb_tk" ] || sbb_kv tokens "$sbb_tk"
+    # A202: what the user should look at is QA_REPORT.md's own list, copied here (scrubbed like every status line), never retyped
+    human_checks "$sbb_id" | while IFS= read -r sbb_hc; do [ -z "$sbb_hc" ] || sbb_kv look_at "$(printf '%s' "$sbb_hc" | sb_scrub)"; done
   fi
   return 0
 }
@@ -8026,6 +8126,13 @@ digest_run() {
   for dg_f in "$dg_d"/questions/[0-9][0-9][0-9].md; do if [ -e "$dg_f" ] && [ ! -e "${dg_f%.md}.answer.md" ]; then dg_q=$((dg_q + 1)); fi; done
   summary_run "$dg_id"
   printf 'OPEN QUESTIONS: %s\n' "$dg_q"
+  # A202: the scope by derived kind, computed here and not written in any document; a claimed kind the script does not share is named
+  if [ -f "$dg_d/PLAN.md" ]; then
+    dg_k=$(scope_kind_rows "$dg_d/PLAN.md" 2>/dev/null) || dg_k=''
+    if [ -n "$dg_k" ]; then
+      printf '%s\n' "$dg_k" | awk -F'\t' '{ n[$4]++; if ($2 != "-" && $2 != $3 && !($2 == "doc" && $3 == "content")) bad = bad " " $1 } END { printf "SCOPE: code=%d test=%d content=%d", n["code"], n["test"], n["content"]; if (bad != "") printf " (kind claimed wrongly, counted as code:%s)", bad; printf "\n" }'
+    fi
+  fi
   next_step "$dg_id" | sed -n 's/^next=/NEXT: /p;s/^reason=/WHY: /p'
 }
 
@@ -8041,7 +8148,7 @@ command=${1:-}
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind task-scope-entries scope-covers test-path batch-answers commands-check task-type'
+read_only_commands='human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -8112,6 +8219,8 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)
   path-kind <path>...   (A200: content or code, for the scope bound)
+  human-checks <ID>   (A202: QA_REPORT.md's list of what the user should look at, as the summary and the status block copy it)
+  scope-kinds <ID>   (A202: per scope path: claimed kind, derived kind, effective kind, exemption; a claim never lowers the derived one)
   task-scope-entries <task-file> <heading> | scope-covers <entry> <path>   (A202: read a task's scope sections; does an entry cover a path)
   task-type <TASK.md>   (A202: the task type; a task without one is a feature)
   task-rename-plan | task-rename-apply   (A202: <ID>-<slug>.md names for queued tasks; apply only after the user's 'approve rename')
@@ -8232,6 +8341,8 @@ case "$command" in
   task-rename-plan) task_rename_plan ;;
   task-rename-apply) task_rename_apply ;;
   task-type) [ $# -eq 2 ] || fail "usage: agent.sh task-type <TASK.md>"; task_type "$2" ;;
+  human-checks) human_checks "${2:?usage: agent.sh human-checks <ID>}" ;;
+  scope-kinds) scope_kind_rows "$(run_dir "${2:?usage: agent.sh scope-kinds <ID>}")/PLAN.md" ;;
   path-kind) shift; [ $# -gt 0 ] || fail "usage: agent.sh path-kind <path>..."; for pk_p in "$@"; do printf '%s\t%s\n' "$(path_kind "$pk_p")" "$pk_p"; done ;;
   # pr-state only reads the platform (deliver_pr_view): read-only and role-agnostic by design
   pr-state) printf '%s\n' "$(deliver_pr_view "${2:?usage: agent.sh pr-state <PR>}" | awk 'NR == 1 { print $1 }')" ;;

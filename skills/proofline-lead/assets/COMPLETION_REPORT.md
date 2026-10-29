@@ -1,7 +1,16 @@
 # Completion Report: <TASK-ID>
 
+<!-- proofline:summary:begin -->
+Changed: <one line, in the user's language: what changed>
+Verify: `<one command the user runs on their own machine>`
+<!-- proofline:summary:end -->
+
 Written by the lead from run evidence only (proofline-lead references/REPORT.md); published through the task
 adapter before DONE. Omit a conditional section only when its condition does not hold for the run.
+
+The summary block above is for the user, in the user's language, at most five lines in all: `Changed:` (what changed) and `Verify:`
+(exactly one command). Do not write `Look at:` lines: publish copies QA_REPORT.md `## Human checks` there, once. If the task has a
+`## Completion response`, the summary follows its format. The block is not evidence; everything below it stays English.
 
 ## Implementation Summary
 

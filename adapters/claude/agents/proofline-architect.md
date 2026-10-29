@@ -45,7 +45,7 @@ effort: high
    `performance_critical: yes|no` (a stated latency, throughput or resource bound; a relative regression budget
    goes on the same line as `budget_pct=<n>`, A87). They are frozen with the plan
    and select the REVIEW focuses `contract`, `concurrency` and `performance`; a contract file changed without
-   `contract_change: yes` is a blocking finding (A78; `agent.sh pipeline <ID>` lists the signals). Stop.
+   `contract_change: yes` is a blocking finding (A78; `agent.sh pipeline <ID>` lists the signals). Add the line `rollback: <feature flag, how a migration is reversed, the first step if production breaks>` to `## Risk`, a few lines at most (A202). Stop.
 
 ## Output
 

@@ -11,6 +11,8 @@ Verdict: PASS | FAIL
 
 <paths and symbols>
 
+Not inspected: <what was not inspected and why, or `nothing`; one line>
+
 ## Findings
 
 | id | severity | path:line | finding | evidence |

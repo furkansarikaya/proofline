@@ -1958,6 +1958,102 @@ sc_test_path_kind() {
   ok "A200 test-path: manifests, lockfiles, env, build and contract files under test directories are product input"
 }
 
+# A202 (item 14): the scope table's `kind:` column is a claim. The script derives every kind; a path a plan mislabels (code as content or
+# doc, a code file as test) is still counted as code in the scope bound, shown as code in the digest, and a gate re-run does not skip it.
+kind_claim() { # PLAN PATH KIND: add `    kind: KIND` under the scope entry of PATH
+  awk -v p="$2" -v k="$3" '{ print } $0 == "  - path: " p { print "    kind: " k }' "$1" > "$base/kind.tmp" && cp "$base/kind.tmp" "$1"
+}
+sc_scope_kind_column() {
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md
+  kind_claim .agents/runs/LC/PLAN.md impl.txt content; kind_claim .agents/runs/LC/PLAN.md notes.md doc; kind_claim .agents/runs/LC/PLAN.md impl_test.txt code
+  rows=$(A scope-kinds LC)
+  printf '%s\n' "$rows" | grep -q "^impl.txt	content	code	code	no$" || die "A202 a code file labelled content is not code: $rows"
+  printf '%s\n' "$rows" | grep -q "^notes.md	doc	content	content	yes$" || die "A202 a true doc label was not accepted: $rows"
+  printf '%s\n' "$rows" | grep -q "^impl_test.txt	code	test	code	no$" || die "A202 a stricter claim (code for a test) was not honoured: $rows"
+  A digest LC | grep -q '^SCOPE: code=2 test=0 content=1 (kind claimed wrongly, counted as code: impl.txt impl_test.txt)' || die "A202 digest scope line: $(A digest LC | grep SCOPE)"
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "1"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  expect_msg "a code file labelled content lowered the scope bound" 'code paths (content and document paths are not counted)' A freeze LC
+  # a plan without the column is derived; an unknown word is treated as code
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md; kind_claim .agents/runs/LC/PLAN.md notes.md banana
+  A scope-kinds LC | grep -q "^notes.md	banana	content	code	yes$" || die "A202 an unknown kind was not treated as code: $(A scope-kinds LC)"
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md
+  A scope-kinds LC | grep -q "^notes.md	-	content	content	yes$" || die "A202 a plan without the column is not derived: $(A scope-kinds LC)"
+  ok "A202 the scope kind column is a claim: a mislabelled code file stays code in the bound and the digest, an unknown kind is code, no column is derived"
+}
+sc_scope_kind_gate_rerun() {
+  for variant in honest mislabelled; do
+    if [ "$variant" = honest ]; then scaffold orchestrated no CRITICAL; else SC_KIND_CLAIM=impl_test.txt=code scaffold orchestrated no CRITICAL; fi
+    worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+    A handoff LC IMPLEMENTED >/dev/null
+    pass_all
+    rec REVIEW_TESTS FAIL high "REVIEW_TESTS-1|blocking|impl_test.txt:1|the test asserts nothing about the empty key|traced: empty key -> nil"
+    A handoff LC IMPLEMENTING >/dev/null
+    worker FIX pass impl_test.txt 'test: lookup of a missing key is nil'
+    A handoff LC IMPLEMENTED >/dev/null
+    st=$(gate_st REVIEW_PLAN)
+    case "$variant" in
+      honest) [ "$st" = pass ] || die "A202 honest test-only fix: REVIEW_PLAN is $st" ;;
+      mislabelled) [ "$st" != pass ] || die "A202 the plan's own kind column says the path is code, yet REVIEW_PLAN carried over" ;;
+    esac
+  done
+  ok "A202 a plan whose kind column says a path is code never lets a gate carry over for it"
+}
+sc_rollback_note() {
+  unfrozen COMPLEX
+  out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "no rollback note" || die "A202 no warning for a COMPLEX plan without rollback: $out"
+  SC_PLAN_EXTRA='## Risk
+
+rollback: ship behind the lookup flag; if production breaks, switch the flag off first
+  then revert the commit
+concurrency: no
+
+## Dependencies
+
+none' unfrozen COMPLEX
+  out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "Risk' holds only" && die "A202 the rollback note was refused inside Risk: $out"
+  printf '%s' "$out" | grep -q "no rollback note" && die "A202 warned although the rollback note is there: $out"
+  unfrozen STANDARD; out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "rollback" && die "A202 STANDARD was asked for a rollback note: $out"
+  unfrozen TRIVIAL; out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "rollback" && die "A202 TRIVIAL was asked for a rollback note: $out"
+  ok "A202 a COMPLEX or CRITICAL plan without a rollback note in ## Risk is warned, never TRIVIAL or STANDARD, and the note is accepted inside Risk"
+}
+# A202 (items 17, 19): the QA report's Human checks list is copied by script into the completion report summary (once) and the status block.
+sc_summary_human_checks() {
+  scaffold standalone
+  RF_EXTRA='## Human checks
+
+- The error text reads naturally in Turkish
+- The empty state looks balanced on a phone' to_code_done standalone
+  [ "$(A human-checks LC | wc -l | tr -d ' ')" = 2 ] || die "A202 human-checks: $(A human-checks LC)"
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
+  mk() { # the model's summary lines (quoted arguments), then the usual body
+    write_report; cat .agents/runs/LC/COMPLETION_REPORT.md > "$base/body.md"
+    { printf '%s\n' '# Completion Report: LC' '' '<!-- proofline:summary:begin -->'; printf '%s\n' "$@"; printf '%s\n' '<!-- proofline:summary:end -->'; sed 1d "$base/body.md"; } > .agents/runs/LC/COMPLETION_REPORT.md
+  }
+  mk 'Changed: arama artik bos anahtar icin varsayilani donduruyor' 'Verify: `sh test.sh`'
+  mk 'Changed: ok' 'The empty state looks balanced on a phone' 'Verify: `sh test.sh`'
+  expect_msg "a retyped Human checks item was published" 'repeats a QA_REPORT.md' A publish-completion-report LC markdown
+  mk 'Changed: one' 'Changed: two' 'Changed: three' 'Verify: `sh test.sh`'
+  expect_msg "a six-line summary was published" 'at most five' A publish-completion-report LC markdown
+  mk 'Changed: the lookup returns the default for an empty key'
+  expect_msg "a summary without a Verify command was published" "needs exactly one line 'Verify:" A publish-completion-report LC markdown
+  mk 'Changed: arama artik bos anahtar icin varsayilani donduruyor, çünkü şunu istediniz' 'Verify: `sh test.sh`'
+  A publish-completion-report LC markdown >/dev/null || die "A202 a summary in the user's language was refused: $(A publish-completion-report LC markdown 2>&1)"
+  r=.agents/runs/LC/COMPLETION_REPORT.md
+  [ "$(grep -c '^Look at: ' $r)" = 2 ] || die "A202 the Look at lines are not there exactly once each: $(head -12 $r)"
+  [ "$(grep '^Look at: ' $r | sed 's/^Look at: //')" = "$(A human-checks LC)" ] || die "A202 the summary list differs from the QA_REPORT.md list"
+  [ "$(grep -c 'balanced on a phone' $r)" = 1 ] || die "A202 the list is written twice in the report"
+  [ "$(sed -n 3p $r)" = '<!-- proofline:summary:begin -->' ] && grep -q '^<!-- proofline:facts:begin -->' $r || die "A202 summary not at the top or Facts block missing"
+  A publish-completion-report LC markdown >/dev/null || die "A202 republish refused"
+  [ "$(grep -c '^Look at: ' $r)" = 2 ] || die "A202 a republish doubled the list"
+  A handoff LC DONE >/dev/null || die "A202 DONE refused for a report with a summary in the user's language: $(A handoff LC DONE 2>&1)"
+  A status-block LC code-done >/dev/null 2>&1 || :
+  [ "$(A human-checks LC | wc -l | tr -d ' ')" = 2 ] && ok "A202 the Human checks list is copied by script into the report summary once, equal to the QA report list; the summary is user-language and not evidence"
+}
+
 # A200 review: a blocking row is "about the visual evidence report" only when it names the reviews/visual-proof/ path; any other
 # text that merely says report.json is an ordinary row for the implementer.
 sc_visual_row_match() {
@@ -2824,4 +2920,8 @@ run_sc sc_selective_rerun
 run_sc sc_amend_carry
 run_sc sc_visual_row_match
 run_sc sc_test_path_kind
+run_sc sc_scope_kind_column
+run_sc sc_scope_kind_gate_rerun
+run_sc sc_rollback_note
+run_sc sc_summary_human_checks
 echo 'gates tests passed'

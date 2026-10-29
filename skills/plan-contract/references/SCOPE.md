@@ -25,6 +25,7 @@ scope:
 | `criteria` | yes | flow list of `AC-<n>` ids from TASK.md, at least one |
 | `new` | no | `true` when the plan creates the file; omitted or `false` otherwise |
 | `tdd_exemption` | no | quoted reason why RED/GREEN evidence does not apply to this path |
+| `kind` | no | `code`, `test`, `content` or `doc` (A202). A claim: the script derives the kind of every path (`agent.sh scope-kinds <ID>`) and counts a path whose claim differs, or is not one of the four, as code in the scope bound and the gate re-run. Omit it and the script derives |
 
 No other keys, no other top-level keys, no comments inside entries.
 

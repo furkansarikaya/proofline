@@ -208,6 +208,15 @@ export function validateReport(text, planText) {
   if (!cited) errors.push("missing `Plan sha256: <64 hex>` line (hash of the frozen QA_PLAN.md)");
   if (!secs.has("Scenarios")) errors.push('missing section "## Scenarios"');
   if (!secs.has("Failures")) errors.push('missing section "## Failures"');
+  // A202: the one place for what a machine measures badly (text naturalness, visual impression): at most three short items or `None.`;
+  // the completion report summary and the status block copy this list by script.
+  const hc = secs.get("Human checks");
+  if (hc) {
+    const items = hc.filter((l) => /^[-*]\s+\S/.test(l));
+    if (items.length === 0 && !hc.some((l) => /^none\.?\s*$/i.test(l.trim()))) errors.push('"## Human checks" lists "- <what the user should look at>" items (at most 3) or says None.');
+    if (items.length > 3) errors.push(`"## Human checks" has ${items.length} items; at most 3`);
+    for (const l of items) if (l.length > 160) errors.push(`"## Human checks" item is over 160 characters: "${l.slice(0, 40)}..."`);
+  }
   const res = new Map();
   for (const line of secs.get("Scenarios") || []) {
     const m = /^- ([Qq][Aa]-\d+): (PASS|FAIL|BLOCKED|PRE-EXISTING|not-run \(manual\))(?:\s+(?:—|--|-)\s*(.*))?$/.exec(line);

@@ -2,6 +2,7 @@
 scope:
   - path: <repo-relative file>
     criteria: [AC-1]
+  # Optional `kind: code|test|content|doc` after criteria: a claim only; the script derives the kind and treats a different or unknown one as code.
   # A document or content path has no RED/GREEN to show: give it a specific reason (20+ characters) instead of a test (A200):
   # - path: docs/guides/setup.md
   #   criteria: [AC-2]
@@ -48,7 +49,7 @@ none
 
 ## Risk
 
-<Only the flags the design implies, one line each (the architect's text, A78): `contract_change: yes|no`, `concurrency: yes|no`, `performance_critical: yes|no`. Delete the section when no flag applies.>
+<Only the flags the design implies, one line each (the architect's text, A78): `contract_change: yes|no`, `concurrency: yes|no`, `performance_critical: yes|no`. COMPLEX and CRITICAL also write `rollback: <feature flag, migration reversal, first step if production breaks>` here, a few lines at most (the validator and the freeze warn when it is missing). Delete the section when nothing applies.>
 
 ## Assumptions
 

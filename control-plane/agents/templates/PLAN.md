@@ -4,6 +4,8 @@ scope:
     criteria: [AC-1]
   - path: path/to/new/file
     criteria: [AC-2]
+    # kind: code|test|content|doc — optional, one column. A claim: agent.sh derives the kind itself and treats a different or unknown
+    # kind as code (the scope bound and the gate re-run never trust it). Omit it and the script derives.
     # new: true — the path does not exist at freeze (freeze FAILS if it exists; a path without it must exist).
     new: true
     # Optional, only when RED/GREEN evidence does not apply (docs, metadata, configuration). Specific:
@@ -65,7 +67,9 @@ a plan with an entry point and no such line, and the QA plan then needs an `[inv
 Flags the design implies (architect, A78), one line each and nothing else: `contract_change: yes|no`,
 `concurrency: yes|no`, `performance_critical: yes|no` (optionally `budget_pct=<n>` on that line: the relative
 regression budget performance-proof uses, A87). They are frozen with the plan and select REVIEW focuses.
-Delete the section when no flag applies.
+COMPLEX and CRITICAL plans add `rollback: <feature flag, how a migration is reversed, the first step if production breaks>`
+here, a few lines at most (no new section; the freeze warns when it is missing, TRIVIAL and STANDARD are never asked).
+Delete the section when no flag applies and the class is TRIVIAL or STANDARD.
 
 ## Assumptions
 

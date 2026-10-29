@@ -1,8 +1,17 @@
 # Completion Report: <TASK-ID>
 
+<!-- proofline:summary:begin -->
+Changed: <one line, in the user's language: what changed>
+Verify: `<one command the user runs on their own machine>`
+<!-- proofline:summary:end -->
+
 Owner: lead. Derived from run evidence only; published through the task adapter before DONE. agent.sh
 requires the sections that apply to the run; a missing one FAILS `publish-completion-report`. Do not count tests, gates,
 fix rounds or refreezes yourself: publish appends the generated Facts block and refuses other numbers (A143).
+
+The summary block above is for the user, in the user's language, at most five lines in all: `Changed:` (what changed) and `Verify:`
+(exactly one command). Do not write `Look at:` lines: publish copies QA_REPORT.md `## Human checks` there, once. If the task has a
+`## Completion response`, the summary follows its format. The block is not evidence; everything below it stays English.
 
 ## Implementation Summary
 

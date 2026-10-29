@@ -18,7 +18,8 @@
           "path": { "type": "string", "pattern": "^(?!/)(?!\\./)(?!.*(^|/)\\.\\.(/|$))[^*?\\[\\]{}]+$" },
           "criteria": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^AC-\\d+$" } },
           "new": { "type": "boolean" },
-          "tdd_exemption": { "type": "string", "minLength": 20 }
+          "tdd_exemption": { "type": "string", "minLength": 20 },
+          "kind": { "enum": ["code", "test", "content", "doc"] }
         }
       }
     }

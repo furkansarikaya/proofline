@@ -94,7 +94,8 @@ export function validationMissing(contractLines, validationLines, words = ENTRY)
   const lines = (validationLines || []).filter((l) => /^\s*[-*]\s/.test(l));
   return entryPoints(contractLines, words).filter((n) => !lines.some((l) => l.includes(n) && /accepts/i.test(l) && /limits/i.test(l) && /rejected at/i.test(l)));
 }
-export const SCOPE_KEYS = ["path", "criteria", "new", "tdd_exemption"];
+export const SCOPE_KEYS = ["path", "criteria", "new", "tdd_exemption", "kind"];
+export const SCOPE_KINDS = ["code", "test", "content", "doc"];   // A202: the optional kind column; a claim, the script derives the kind itself
 // Paths that mean persistence or UI changed; the plan then needs `## Data` / `## UI`.
 export const DATA_PATH = /(^|\/)(migrations?|schema|db|database|prisma|sql)(\/|\.|$)|\.sql$/i;
 export const UI_PATH = /\.(html?|css|scss|less|jsx|tsx|vue|svelte)$|(^|\/)(ui|views|components|pages|templates)\//i;
@@ -213,6 +214,10 @@ export function parseFrontMatter(md) {
       } else if (key === "new") {
         if (!["true", "false"].includes(raw.trim())) { errors.push(`${at}: new must be true or false`); continue; }
         entry.new = raw.trim() === "true";
+      } else if (key === "kind") {
+        const v = unquote(raw.trim());
+        if (!SCOPE_KINDS.includes(v)) { errors.push(`${at}: kind must be one of ${SCOPE_KINDS.join("|")}`); continue; }
+        entry.kind = v;
       } else entry.tdd_exemption = unquote(raw.trim());
       continue;
     }
@@ -285,6 +290,7 @@ export function pathKinds(paths, root) {
   for (const p of paths) out.set(p, globHit(p, exec) ? "code" : globHit(p, docs) ? "content" : "code");
   return out;
 }
+const sec2 = (planMd, fm) => sections(planMd.split(/\r?\n/).slice(fm.bodyStart || 0));
 // The questions a freeze would raise, told at plan-writing time. Warnings only: the freeze stays the authority.
 export function lint(planMd, taskMd, { root, cls } = {}) {
   const out = [];
@@ -296,6 +302,10 @@ export function lint(planMd, taskMd, { root, cls } = {}) {
   const content = fm.scope.filter((e) => kinds.get(e.path) === "content");
   const max = (() => { try { const f = resolve(root || process.cwd(), ".agents/config.yaml"); if (existsSync(f)) { const m = new RegExp(`^  ${klass}:\\s*$[\\s\\S]*?^    max_scope_paths:\\s*(\\d+)`, "m").exec(readFileSync(f, "utf8")); if (m) return Number(m[1]); } } catch { /* optional */ } return MAX_PATHS_DEFAULT[klass]; })();
   if (max && klass !== "TRIVIAL" && code.length > max) out.push(`scope: ${code.length} code paths (${content.length} content or document paths are not counted) exceed the ${klass} limit of ${max}; the freeze stops and asks to split. Split the task now, or ask the user for "proceed without splitting" (a batch pre-flight answer covers it)`);
+  // A202: the kind column is a claim; the script derives the kind (pathKinds, and agent.sh test_code_path for a test) and a path it does
+  // not agree on counts as code, so a mislabelled path neither lowers the bound nor skips a gate.
+  const wrong = fm.scope.filter((e) => e.kind && e.kind !== "code" && e.kind !== "test" && kinds.get(e.path) !== "content").map((e) => `${e.path} (claimed ${e.kind}, derived code)`);
+  if (wrong.length) out.push(`scope: kind differs from the derived one: ${wrong.slice(0, 5).join(", ")}${wrong.length > 5 ? ", ..." : ""}; the path is counted as code and its gates run (correct the kind or drop it)`);
   const noEx = content.filter((e) => !("tdd_exemption" in e)).map((e) => e.path);
   if (noEx.length) out.push(`scope: document or content path(s) without a tdd_exemption: ${noEx.slice(0, 5).join(", ")}${noEx.length > 5 ? ", ..." : ""}; a document has no RED/GREEN to show, so add 'tdd_exemption: <specific reason, 20+ characters>' to each, or a test that proves it (the freeze only warns, the implementer cannot finish without it)`);
   const secs = sections(planMd.split(/\r?\n/).slice(fm.bodyStart || 0));
@@ -303,6 +313,11 @@ export function lint(planMd, taskMd, { root, cls } = {}) {
   if (dep.length && !(dep.length === 1 && /^none\b/i.test(dep[0].trim()))) out.push("Dependencies: a new dependency needs the user's own approval (a night batch does not cover it); say so in the plan before the freeze");
   const vague = [...taskMd.matchAll(/^\s*(?:[-*]|\d+\.)?\s*(AC-\d+):\s*(.*)$/gim)].find((m) => VAGUE.test(m[2]));
   if (vague) out.push(`TASK.md ${vague[1]}: cannot be measured as written ("${vague[2].slice(0, 60)}"); QA cannot test it. Rewrite it with a number, a path or an observable result`);
+  // A202: COMPLEX and CRITICAL plans carry a short rollback note inside ## Risk (a feature flag, how a migration is reversed, the first step if production breaks).
+  if (klass === "COMPLEX" || klass === "CRITICAL") {
+    const risk = sec2(planMd, fm).get("Risk") || [];
+    if (!risk.some((l) => /^\s*(?:[-*]\s*)?rollback:\s*\S/i.test(l))) out.push(`Risk: a ${klass} plan needs a rollback note inside "## Risk" ("rollback: <feature flag, migration reversal, first step if production breaks>", a few lines at most); the freeze warns until it is there`);
+  }
   if (klass === "COMPLEX" && fm.scope.length <= 6) {
     const why = (taskMd.match(/^## Suggested class\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m) || [])[1] || "";
     if (why.replace(/\b(TRIVIAL|STANDARD|COMPLEX|CRITICAL)\b/g, "").trim().length < 20) out.push(`class: COMPLEX with ${fm.scope.length} scope path(s) and no reason in TASK.md "## Suggested class"; write why it is COMPLEX (architect, public contract, data) or classify STANDARD`);

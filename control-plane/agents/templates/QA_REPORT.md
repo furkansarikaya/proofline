@@ -9,6 +9,10 @@ Verdict: PASS | FAIL
 
 - QA-1: PASS | FAIL — <observed behaviour and the command or evidence>
 
+## Human checks
+
+None.
+
 ## Findings
 
 | id | severity | path:line | finding | evidence |
