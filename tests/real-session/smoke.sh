@@ -33,6 +33,10 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
+# the `proofline` command of every session is THIS checkout's CLI: the plugin cache on the machine may hold an older release whose doctor knows no --commands,
+# and a session that ran it would see no proposal (a stale CLI is not what the A200 rows test)
+mkdir -p "$work/bin"
+printf '#!/bin/sh\nexec "%s/bin/proofline" "$@"\n' "$repo" > "$work/bin/proofline"; chmod +x "$work/bin/proofline"
 rows="$work/rows.tsv"; : > "$rows"
 fails=0
 
@@ -47,9 +51,9 @@ claude_call() {
   cc_proj=$1; cc_out=$2; cc_prompt=$3; cc_sess=${4:-}
   cc_src=project,local; [ "${smoke_user_settings:-no}" = no ] || cc_src=user,project,local
   if [ -n "$cc_sess" ]; then
-    (cd "$cc_proj" && exec env CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --resume "$cc_sess" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
+    (cd "$cc_proj" && exec env PATH="$work/bin:$PATH" CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --resume "$cc_sess" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
   else
-    (cd "$cc_proj" && exec env CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
+    (cd "$cc_proj" && exec env PATH="$work/bin:$PATH" CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "$cc_prompt" --setting-sources "$cc_src" --permission-mode bypassPermissions --model "$model" --output-format stream-json --verbose --max-turns 150) >> "$cc_out" 2>&1 < /dev/null &
   fi
   cc_pid=$!; pids="$pids $cc_pid"; cc_t=0
   while kill -0 "$cc_pid" 2>/dev/null && [ "$cc_t" -lt "$step_timeout" ]; do sleep 1; cc_t=$((cc_t + 1)); done

@@ -2114,6 +2114,9 @@ task_patch_fingerprint() {
 }
 verify_scope() {
   id=$1 allow_knowledge=${2:-0}; require_run "$id"; dir=$(run_dir "$id"); enforce_task_branch "$id"; require_scope_mapping "$id"; mappings=$(scope_mappings "$dir/PLAN.md")
+  # A200: a run reopened by amend/reopen has been through its knowledge step already; the pages that step wrote under the knowledge scope are
+  # not task changes outside the fix scope, so the fix round's handoff and gates do not trip on them (any other path outside the scope still does)
+  if [ "$allow_knowledge" = 0 ]; then for vs_f in "$(gates_dir "$id")"/*-REOPEN.yaml; do [ -f "$vs_f" ] && allow_knowledge=1; done; fi
   status=$(baseline_status "$dir"); [ "$status" = captured ] || fail "baseline required before scope verification: $id"
   validate_control_artifacts "$id"
   tmp=$(mktemp "${TMPDIR:-/tmp}/agent-scope.XXXXXX"); tmpcp=$tmp.cp

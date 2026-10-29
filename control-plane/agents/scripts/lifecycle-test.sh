@@ -176,7 +176,12 @@ scenario_orchestrated_loop() {
   expect_fail "lead hot-fix reached IMPLEMENTED after reopen" A handoff LC IMPLEMENTED
   cp "$base/impl.final" impl.txt
   worker FIX pass impl.txt 'impl: trim the key before lookup'
+  # A200: the pages the first run's knowledge step wrote are not task changes outside the fix scope; a stray product file still is
+  mkdir -p docs/wiki; printf '# page\n' > docs/wiki/kpage.md; printf 'stray\n' > stray-product.txt
+  expect_fail "a stray product file passed the fix round's IMPLEMENTED" A handoff LC IMPLEMENTED
+  rm -f stray-product.txt
   A handoff LC IMPLEMENTED >/dev/null
+  rm -rf docs
   pass_all; A handoff LC CODE_DONE >/dev/null
   A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null; write_report
   expect_fail "report without Reopen History accepted for a reopened run" A publish-completion-report LC markdown
