@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.39" "$out" "proofline 0.0.39"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.39 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.40" "$out" "proofline 0.0.40"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.40 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.39 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.40 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -151,13 +151,30 @@ done
 grep -qx '<!-- proofline:begin -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:end -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:begin -->' "$base/CLAUDE.md" && ok "AGENTS.md and CLAUDE.md carry the marked proofline block" || die "marked blocks missing"
 grep -qxF .agents/local/ "$base/.gitignore" && grep -qxF .agents/runs/ "$base/.gitignore" && ok ".gitignore ignores .agents/local/ and .agents/runs/" || die ".gitignore lines missing"
 ! grep -Eq '^/?\.claude(/|$)' "$base/.gitignore" && ok ".gitignore of an installed project has no .claude line (A117)" || die "init added a .claude line to .gitignore"
+# .out-of-scope/ belongs to the proofline repository: a user project gets only the conditional line and no folder
+blk=$(awk '/^<!-- proofline:begin -->$/ { on = 1 } on { print } /^<!-- proofline:end -->$/ { on = 0 }' "$base/AGENTS.md")
+bmax=$(awk -F'	' '$1 == "agents_md" { print $2 }' "$repo/tests/context/budget.tsv")
+bflat=$(printf '%s' "$blk" | tr '\n' ' ' | tr -s ' ')
+oos_ok=yes
+printf '%s' "$bflat" | grep -qF 'If the project has `.out-of-scope/`, read its README before proposing a feature' || oos_ok=no   # conditional on the project having the folder
+printf '%s' "$bflat" | grep -qF 'if not, do nothing (no folder, no question)' || oos_ok=no   # absent: nothing, no folder, no question
+printf '%s' "$bflat" | grep -qF 'a Rejected match is not built and the user is told; Deferred is never a side effect' || oos_ok=no
+! printf '%s' "$bflat" | grep -qF 'read `.out-of-scope/README.md`' || oos_ok=no   # no unconditional read
+[ "$(printf '%s\n' "$blk" | wc -c)" -le "$bmax" ] || oos_ok=no
+[ "$oos_ok" = yes ] && ok "installed AGENTS.md block: conditional .out-of-scope line, no unconditional read, within budget" || die "installed AGENTS.md block out-of-scope rule"
+own=''
+for oe in "$repo"/.out-of-scope/*.md; do oe=${oe##*/}; [ "$oe" = README.md ] || own="$own $oe"; done
+[ -n "$own" ] || die "no proofline .out-of-scope entries found to compare against"
+bad=$(find "$base" -path "$base/.git" -prune -o -name .out-of-scope -print | head -1)
+for e in $own; do [ -z "$(find "$base" -path "$base/.git" -prune -o -name "$e" -print | head -1)" ] || bad="$bad $e"; done
+[ ! -e "$base/.out-of-scope" ] && [ -z "$bad" ] && ok "init creates no .out-of-scope folder and installs none of proofline's own entries" || die ".out-of-scope reached the installed project: $bad"
 [ "$(git -C "$base" config --local --get core.hooksPath)" = .agents/githooks ] && ok "core.hooksPath is set locally" || die "core.hooksPath not set locally"
 [ -z "$(git config --global --get core.hooksPath 2>/dev/null || true)" ] && [ "$(shasum -a 256 "$GIT_CONFIG_GLOBAL" | awk '{print $1}')" = "$global_sha" ] && ok "global git configuration is untouched" || die "global git config changed"
 bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.39' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.40' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -547,7 +564,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.39" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.40" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1

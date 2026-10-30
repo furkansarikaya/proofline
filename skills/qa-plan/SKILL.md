@@ -4,23 +4,23 @@ description: Independent QA in two phases. Before implementation, writes QA_PLAN
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.39"
+  version: "0.0.40"
 ---
 
 # qa-plan
 
 One rule: **the plan is written before the code is seen, and the report executes exactly that plan.**
 
-Phase 1 (`plan`) turns acceptance criteria into scenarios nobody can bend later. Phase 2 (`report`) runs them against the implementation and records what happened. QA never edits product code and never edits the plan after freeze.
+Phase 1 (`plan`) turns acceptance criteria into scenarios nobody can bend later. Phase 2 (`report`) runs them against the implementation and records the result. QA never edits product code, nor the plan after freeze.
 
 **Bundled paths.** `references/`, `assets/`, `schema/` and `scripts/` are relative to the directory containing this `SKILL.md`.
 
 ## Hard rules
 
-1. **Plan before code, from the final plan.** Inside a run the QA plan is derived from the final `PLAN.md` (the one that will be frozen) and cites its hash on a `Plan sha256: <64 hex>` line (`validate-qa.mjs hash PLAN.md`); a plan or contract change after that means the QA plan is re-derived, never patched by hand. Phase 1 reads only the task, the frozen plan/evidence it is given, and the pre-change repository. It must not read the implementation diff. If a diff already exists, say so in the ledger and read only the base revision (`git show <base>:<path>`).
+1. **Plan before code, from the final plan.** Inside a run the QA plan is derived from the final `PLAN.md` and cites its hash on a `Plan sha256: <64 hex>` line (`validate-qa.mjs hash PLAN.md`); a later plan or contract change means re-deriving it, never patching by hand. Phase 1 reads only the task, the frozen plan/evidence it is given, and the pre-change repository. It must not read the implementation diff. If a diff already exists, say so in the ledger and read only the base revision (`git show <base>:<path>`).
 2. **Every acceptance criterion has at least one acceptance scenario** with concrete input and concrete expected observable output (a value, a status, a message, a stored row). "Works" is not an expectation.
 3. **Adversarial scenarios only where a category applies**, tied to a criterion, except one rule that is mandatory (A162): every entry point that takes external input and that PLAN `## Contracts` lists (HTTP endpoint, form handler, CLI argument, queue consumer, webhook) has at least one `[invalid-input]` scenario that names it in its title, input, expected or run line and feeds it an input the server must reject. `agent.sh freeze` and `validate-qa.mjs plan --plan` refuse a plan without it. Categories: `boundaries`, `invalid-input`, `concurrency`, `idempotency`, `permissions`, `persistence`, `ui-states`, `error-paths` ([SCENARIOS.md](references/SCENARIOS.md)). A category that does not apply is not padded; if none applies, write `None applicable: <reason>`.
-4. **Every scenario states how it is executed** (`run:`) and declares `execution: auto | manual`. `auto` = runnable with tools available in the repo or on the machine (a command, a test selector, a script you will write); prefer a headless check (run the server and assert on HTML/JS output with node, or call the API) over a browser. `manual` only when no automated way exists; it must carry `reason:` (why) and `human-check:` (what a human observes). Nothing is silently dropped.
+4. **Every scenario states how it is executed** (`run:`) and declares `execution: auto | manual`. `auto` = runnable with tools in the repo or on the machine (a command, a test selector, a script you write); prefer a headless check (node on the server's HTML/JS output, or the API) to a browser, except a visual criterion (layout, overflow, wrapping, spacing): measure it in a browser (`visual-proof`), never with a test that counts characters. `manual` only when no automated way exists; it needs `reason:` and `human-check:`. Nothing is dropped silently.
 5. **Phase 2 executes, it does not read.** A scenario passes only on an observed result. Reading the code and concluding it would pass is not evidence (shared rule 1).
 6. **Never weaken after seeing the code.** The report cites the sha256 of the frozen plan (`validate-qa.mjs hash`). Changing an expectation, dropping a scenario or relaxing an input after seeing the implementation is forbidden; a plan that was wrong is reported as a finding in the report, and the user or lead amends the plan through the normal amendment path, after which the whole plan is re-executed.
 7. **Probing code changes happen in an isolated worktree** (shared rule 4); the user's tree is never modified. Scenarios that need only the existing build and CLI run in place without a worktree.

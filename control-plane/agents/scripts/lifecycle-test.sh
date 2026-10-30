@@ -228,6 +228,47 @@ scenario_attribution() {
   ok "orchestrated attribution"
 }
 
+# Recovery: a change in the tree that no worker window recorded does not cost the run. The user inspects it and accepts exactly that tree
+# (kind tree); the gates then run again on the new content. An agent cannot accept it, and a hand-written window does not count.
+scenario_tree_recovery() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  pass_all
+  printf 'a change from outside every window\n' >> impl.txt
+  expect_fail "CODE_DONE over a change outside every window" A handoff LC CODE_DONE
+  A tree-inspect LC > "$base/inspect.out" || die "tree-inspect failed"
+  grep -q 'attested tree' "$base/inspect.out" && grep -q 'impl.txt' "$base/inspect.out" || die "tree-inspect does not show the tree: $(cat "$base/inspect.out")"
+  expect_msg "tree-accept without the user's approval" "needs your approval" A tree-accept LC
+  expect_fail "a reviewer accepted the tree" AS reviewer tree-accept LC
+  expect_fail "tree-accept ran on an approval of nothing" A tree-accept LC
+  approve_as_user tree 'approve the tree'
+  printf 'one more late change\n' >> impl.txt
+  expect_msg "an approval of an older tree covered a newer one" "needs your approval" A tree-accept LC
+  A request-approval LC tree >/dev/null; capture 'I approve the tree.'; A approve LC tree >/dev/null || die "the tree approval sentence was refused"
+  A tree-accept LC > "$base/accept.out" 2>&1 || die "tree-accept failed with the user's approval: $(cat "$base/accept.out")"
+  grep -q '^  state: "IMPLEMENTING"' .agents/runs/LC/RUN.yaml || die "the handoff did not go back to IMPLEMENTING: $(cat "$base/accept.out") $(grep -n 'state' .agents/runs/LC/RUN.yaml | tr '\n' ' ')"
+  for g in $(required); do
+    case "$(A pipeline LC | sed -n "s/^gate.$g=//p")" in pass*) die "gate $g stayed green on the stale content after the tree was accepted" ;; esac
+  done
+  A verify-handoff LC >/dev/null 2>&1 || :
+  expect_fail "a second accept of the same tree" A tree-accept LC
+  A handoff LC IMPLEMENTED >/dev/null || die "IMPLEMENTED refused after the accepted tree: $(A handoff LC IMPLEMENTED 2>&1)"
+  pass_all
+  A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the gates ran again on the accepted tree"
+  ok "tree recovery: the user's approval of the inspected tree keeps the run, every gate runs again, no agent accepts it"
+}
+scenario_tree_forged() {
+  scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  b=$(A patch-fingerprint LC); printf 'forged\n' >> impl.txt; a=$(A patch-fingerprint LC)
+  w=.agents/runs/LC/worker-evidence; n=$(ls "$w"/WINDOW-*.yaml | wc -l | tr -d ' '); n=$((n + 1))
+  printf 'task_id: "LC"\nseq: %s\nrole: "user"\ntopology: "orchestrated"\nbefore_sha256: "%s"\nafter_sha256: "%s"\nexit_status: "0"\n' "$n" "$b" "$a" > "$w/WINDOW-$n.yaml"
+  expect_fail "a hand-written user window attested a change" A handoff LC CODE_DONE
+  ok "tree recovery: a hand-written window of role user, not bound in the ledger by tree-accept, attests nothing"
+}
+
 # Fix loop: a fix stays inside its findings' fix_scope, at most review.max_fix_rounds rounds per frozen
 # contract, and an amendment + refreeze returns the run to IMPLEMENTING with a fresh budget.
 scenario_bounded_fix() {
@@ -479,17 +520,17 @@ scenario_terminal() {
   ok "terminal outcomes and cleanup"
 }
 
-# A hook timing line (event=hook, event=hook-timeout) is appended to the ledger after terminate: cleanup of a BLOCKED run reads the
+# A hook timing line (event=hook, event=hook-timeout) goes to HOOKS.log after terminate (A203; it used to enter the ledger): cleanup of a BLOCKED run reads the
 # last line that is not a hook line, so it still works; a run with no terminate still refuses.
 scenario_cleanup_after_hook_lines() {
   scaffold standalone
   mkdir -p .agents/local; printf '1|posttool|12|ok|\n2|pretool|7|ok|\n3|stop|900|timeout|slow\n' > .agents/local/hook-times
-  A hook-time LC; grep -q ' event=hook ' .agents/runs/LC/LEDGER.log || die "setup: hook-time wrote no hook line before the terminate"
+  A hook-time LC; grep -q ' event=hook ' .agents/runs/LC/HOOKS.log || die "setup: hook-time wrote no hook line before the terminate"; ! grep -q ' event=hook' .agents/runs/LC/LEDGER.log || die "A203: a hook line is in the ledger"
   expect_fail "cleanup of a run with no terminate" A cleanup LC
   printf 'reason: the verification toolchain is unavailable in this environment\nevidence: go test exited 127 because the go binary is missing\n' | A terminate LC BLOCKED >/dev/null
   printf '4|posttool|15|ok|\n5|prompt|9|ok|\n6|stop|950|timeout|slow\n' > .agents/local/hook-times
   A hook-time LC
-  tail -n 1 .agents/runs/LC/LEDGER.log | grep -Eq ' event=hook(-timeout)? ' || die "setup: the last ledger line is not a hook line"
+  ! tail -n 1 .agents/runs/LC/LEDGER.log | grep -Eq ' event=hook(-timeout)? ' || die "A203: the last ledger line is a hook line"
   A cleanup LC >/dev/null || die "cleanup of a BLOCKED run was refused because hook lines follow its terminate"
   [ ! -e .agents/runs/LC ] || die "the BLOCKED run survived the cleanup"
   scaffold standalone
@@ -1441,6 +1482,8 @@ run_sc scenario_evidence_order
 run_sc scenario_independence
 run_sc scenario_orchestrated_loop
 run_sc scenario_attribution
+run_sc scenario_tree_recovery
+run_sc scenario_tree_forged
 run_sc scenario_bounded_fix
 run_sc scenario_fix_scope_format
 run_sc scenario_fix_scope_symbol

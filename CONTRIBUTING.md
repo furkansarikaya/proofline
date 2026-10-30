@@ -36,7 +36,7 @@ and `adapters/` counts as code. Pushes to `main` and pull requests run Linux onl
 A pull request that changes hooks, skills, roles or the control plane also runs the real-session smoke test (A195) and pastes its table:
 `sh tests/real-session/smoke.sh` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
 `batch` in a throwaway repository and prints a PASS/FAIL table (a few minutes of model time; it is not part of CI). Do not merge on a table
-that is not all PASS. A change to the Codex sandbox profile also runs `sh tests/real-session/codex-sandbox.sh` (no model; needs the Codex CLI) and `SMOKE_ONLY=codex sh tests/real-session/smoke.sh`.
+that is not all PASS. The table counts for the LAST commit that will be merged: if a commit that changes product code (hooks, skills, roles, control plane, adapters) arrives after the smoke, re-run the affected smoke steps and write the result in the pull request description. A change to the Codex sandbox profile also runs `sh tests/real-session/codex-sandbox.sh` (no model; needs the Codex CLI) and `SMOKE_ONLY=codex sh tests/real-session/smoke.sh`.
 End-to-end team runs are described in
 [tests/e2e/README.md](tests/e2e/README.md); they use real agents and are not required for a pull request.
 The benchmark report (`node tests/benchmark/benchmark.mjs`, see [tests/benchmark/README.md](tests/benchmark/README.md))
@@ -163,6 +163,7 @@ Pull request checklist:
 - [ ] generated files are in sync (`--check` commands above)
 - [ ] a decision entry in `docs/decisions.md` for every behaviour change
 - [ ] a test that fails without the change
+- [ ] the smoke table ran on the last commit that will be merged; a later commit that changes product code had the affected smoke steps re-run, and the result is in the description
 - [ ] help, entry skill, lead Commands table, README and `docs/concepts` updated for every new user-visible command, option or rule
 - [ ] documentation updated, in English; any test count, CI time or end-to-end result you quote is current, and an end-to-end result carries its date and `main` commit
 - [ ] `tests/e2e/README.md` holds every end-to-end result, and the README "Status" section claims no more than those tests show

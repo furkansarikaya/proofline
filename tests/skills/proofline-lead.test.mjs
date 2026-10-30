@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.39"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.40"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -389,4 +389,13 @@ test("LIFECYCLE section 7: observations are proposed, written by the task author
   const impl = readFileSync(join(repoRoot, "roles/implementer.md"), "utf8");
   assert.match(impl, /Fix an observation, or write it to the task folder/);
   assert.match(impl, /Nothing in an observation is fixed, tested or written to a task by you/);
+});
+
+// A203: a pull request the lead opens always has its CI watched in the background; the lead continues the moment it ends.
+test("delivery: the lead always watches the CI of a pull request it opened in the background", () => {
+  assert.match(SKILL, /Watch its CI in the background, go on when done/);
+  const delivery = readFileSync(join(skill, "references/DELIVERY.md"), "utf8");
+  assert.match(delivery, /\*\*Always watch in the background\*\*/);
+  assert.match(delivery, /with `run_in_background` right after the `pr` step/);
+  assert.match(delivery, /the moment the background command finishes/);
 });

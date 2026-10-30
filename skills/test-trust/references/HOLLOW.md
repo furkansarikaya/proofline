@@ -65,6 +65,7 @@ First remove every test with a `confirmed` flaky finding (any `flaky_*` kind) fr
 
 For each remaining mutant, sequentially:
 
+0. Ask for the mutant first, as the cap on the mutation budget (a counter, not a promise): `node <skill-dir>/scripts/gate.mjs mutant <review-folder>/mutants.count <repo-root>/.agents/config.yaml <run-dir>` (omit `<run-dir>` outside a run). `OK n/budget` allows this one mutant. `REFUSED n/budget` (exit 1) means the budget is spent: apply no mutation, stop the mutant loop, and list every unit left without a mutant in `scope.diff.not_examined` with reason `mutation budget`. A resumed run keeps the same count file, so a restart cannot reset the budget. Claim mutants and compiler-only kills count too.
 1. Apply the single mutation in the worktree and save its diff.
 2. Run only the covering tests. Timeout: 3× the summed baseline durations of those tests (3× the test's own duration if it is a single test; the scope's baseline if per-test durations are unsupported), minimum 30 seconds.
 3. Classify:

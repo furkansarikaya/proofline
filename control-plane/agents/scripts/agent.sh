@@ -1231,7 +1231,10 @@ plan_rollback_present() { # PLAN
 # that does not set them hashes as before.
 # A173: the ecosystem set that joins the signal whose check is `dependencies` is bound too (one synthetic line), so a changed
 # definition cannot silently change a frozen run's signal.
+rk_set=''
 risk_config() {
+  # A203: the config is read once per process; risk_prime keeps the block (subshells inherit it) instead of a grep per question
+  if [ "$rk_set" = yes ]; then [ -z "$rk_val" ] || printf '%s\n' "$rk_val"; return 0; fi
   { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true
     [ -z "$eco_dependency_set" ] || printf 'risk.ecosystems.dependencies=%s\n' "$eco_dependency_set"; }
 }
@@ -1301,12 +1304,14 @@ risk_compute() {
   rc_d=$(run_dir "$1"); rc_base=$(repository_base_sha "$rc_d"); case "$rc_base" in ''|PENDING) rc_base=HEAD ;; esac
   rc_changed=$(task_changed_paths "$1" | grep -v -E '\.(md|mdx|rst|adoc)$|^\.agents/' || true)
   rc_scope=$(scope_mappings "$rc_d/PLAN.md" 2>/dev/null | cut -d'|' -f1 | grep -v -E '\.(md|mdx|rst|adoc)$' || true)
+  # A203: the "diff <path>" / "scope <path>" lines every path signal is matched against, built once (not two sed processes per signal)
+  rc_tagged=$({ [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; })
   rc_legacy=no; ! risk_legacy_frozen "$1" || rc_legacy=yes
   for rc_n in $(risk_names); do
     [ "$rc_n:$rc_legacy" != log_sensitive:yes ] || continue   # a run frozen before the signal keeps its focus set
     rc_g=$(risk_paths "$1" "$rc_n")
     if [ -n "$rc_g" ]; then
-      { [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; } |
+      { [ -z "$rc_tagged" ] || printf '%s\n' "$rc_tagged"; } |
         awk -v n="$rc_n" -v pats="$rc_g" "$g2re_awk"'
           { src = $1; p = substr($0, length(src) + 2); c = split(pats, a, " ")
             for (j = 1; j <= c; j++) if (a[j] != "" && p ~ g2re(a[j])) { print n "|" src "|" p "|" a[j]; break } }'
@@ -1342,7 +1347,7 @@ risk_compute() {
 }
 # risk_signals ID: risk_compute, cached for the process after risk_prime (subshells inherit the cache).
 # The cache also holds the computed tier: within one command the tree does not change.
-risk_prime() { rs_cache_id=''; rs_tier=$(tier_compute "$1"); rs_cache=$(risk_compute "$1"); rs_focuses=$(risk_focuses_of "$1"); rs_cache_id=$1; }
+risk_prime() { rs_cache_id=''; rk_set=''; rk_val=$(risk_config); rk_set=yes; rs_tier=$(tier_compute "$1"); rs_cache=$(risk_compute "$1"); rs_focuses=$(risk_focuses_of "$1"); rs_cache_id=$1; }
 risk_signals() { if [ "${rs_cache_id:-}" = "$1" ]; then [ -z "$rs_cache" ] || printf '%s\n' "$rs_cache"; else risk_compute "$1"; fi; }
 risk_focuses_of() { risk_signals "$1" | cut -d'|' -f1 | sort -u | while IFS= read -r rfo_n; do cfg "risk.$rfo_n.check"; done | sed '/^$/d' | sort -u; }
 risk_gate_focuses() { # ID GATE -> the risk focuses the gate carries for this run
@@ -2534,7 +2539,7 @@ known_control_artifact() {
   esac
   kc_rel=${path#.agents/runs/"$id"/}
   case "$kc_rel" in
-    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md|mutation_budget|.lock/pid) return 0 ;;
+    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|HOOKS.log|VERIFY.md|mutation_budget|.lock/pid) return 0 ;;
     amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|reports/*|questions/*|approvals/*|waivers/*|security/*|ci-fix/*) return 0 ;;   # ci-fix: A169
     scratch/*) return 0 ;;
     reviews/proof-review/plan/*|reviews/proof-review/rules/*|reviews/proof-review/small/*|reviews/test-trust/tests/*|reviews/test-trust/qa/*|reviews/data-design/*) return 0 ;;
@@ -3050,7 +3055,23 @@ next_evidence_seq() {
   done
   printf '%d\n' $((n + 1))
 }
-evidence_field() { awk -v k="$2" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^ */, "", v); gsub(/"/, "", v); print v; exit }' "$1"; }
+# A203: a gate or evidence record has some twenty `key: value` lines and a status check reads many of them: a shell read loop, no process per
+# field (an awk per field was most of the processes of `next` and `digest`). The first line that starts with `key:` wins; leading spaces and
+# every double quote of the value are dropped, as before. An unreadable file keeps the old awk path (same message, same status).
+evidence_field() {
+  if [ ! -r "$1" ]; then awk -v k="$2" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^ */, "", v); gsub(/"/, "", v); print v; exit }' "$1"; return; fi
+  ef_pre="$2:"
+  while IFS= read -r ef_l || [ -n "$ef_l" ]; do
+    case "$ef_l" in
+      "$ef_pre"*)
+        ef_v=${ef_l#"$ef_pre"}
+        while :; do case "$ef_v" in " "*) ef_v=${ef_v# } ;; *) break ;; esac; done
+        while :; do case "$ef_v" in *'"'*) ef_v=${ef_v%%'"'*}${ef_v#*'"'} ;; *) break ;; esac; done
+        printf '%s\n' "$ef_v"; return 0 ;;
+    esac
+  done < "$1"
+  return 0
+}
 evidence_targets() { sed -n 's/^target: *//p' "$1" | head -1 | tr ',' '\n'; }
 evidence_covers_path() { evidence_targets "$1" | grep -Fxq -- "$2"; }
 # scope_snapshot MAPPINGS: "path=sha256;..." of every frozen scope path now ("missing" for a path not there yet).
@@ -3276,7 +3297,12 @@ gate_field() { evidence_field "$1" "$2"; }
 gate_names_all() { ls -1 "$(gates_dir "$1")" 2>/dev/null | grep -E '^[0-9]{3}-(SECRETS|REVIEW_SMALL|REVIEW_PLAN|REVIEW_RULES|REVIEW_TESTS|REVIEW_DATA|SECURITY|QA|VERIFY|REOPEN)\.yaml$' | sort || true; }
 # Only records bound in the ledger chain by the command that wrote them count; a hand-written or edited
 # file is ignored by every evaluation (and reported by `validate`).
+# A203: `next` and `digest` read the gate records dozens of times in one process and write none: gate_names_prime lists them once (every
+# subshell inherits the list). Only those two commands call it, so a command that records a gate always reads the folder.
+gn_memo_id=''
+gate_names_prime() { gn_memo_id=''; gn_memo_val=$(gate_names "$1"); gn_memo_id=$1; }
 gate_names() {
+  if [ "$gn_memo_id" = "$1" ]; then [ -z "$gn_memo_val" ] || printf '%s\n' "$gn_memo_val"; return 0; fi
   gn_all=$(gate_names_all "$1"); [ -n "$gn_all" ] || return 0
   # shellcheck disable=SC2086 # file names without whitespace
   bound_names "$(run_dir "$1")" gates '(gate:|REOPEN$)' $gn_all | sort
@@ -3360,14 +3386,40 @@ finding_waived() { # ID GATE-RECORD-FILE FINDING-ID
   fw_d=$(run_dir "$1"); fw_g=$(basename "$2")
   case "$(gate_field "$2" gate)" in SECRETS|SECURITY) return 1 ;; esac
   finding_known_issue "$1" "$2" "$3" >/dev/null && return 0   # A202 item 27: a listed, untouched, already-existing finding
+  finding_batch_accepted "$1" "$2" "$3" && return 0   # the user accepted this listed finding for the approved batch with one answer
   fw_all=$(ls -1 "$fw_d/waivers" 2>/dev/null | grep -E '^[0-9]{3}-.*\.yaml$' || true); [ -n "$fw_all" ] || return 1
-  fw_rs=$(hash_file "$2")
+  fw_rs=$(hash_file "$2"); fw_ck=''
   # shellcheck disable=SC2086
   for fw_n in $(bound_names "$fw_d" waivers 'waive$' $fw_all); do
     fw_f=$fw_d/waivers/$fw_n
     [ "$(gate_field "$fw_f" gate_record)" = "$fw_g" ] && [ "$(gate_field "$fw_f" gate_record_sha256)" = "$fw_rs" ] && [ "$(gate_field "$fw_f" finding)" = "$3" ] && return 0
+    # the same finding on a later record of the same gate (a re-run): the waiver carries the finding's persistent key
+    fw_wk=$(gate_field "$fw_f" finding_key)
+    if [ -n "$fw_wk" ] && [ "$(gate_field "$fw_f" gate)" = "$(gate_field "$2" gate)" ]; then
+      [ -n "$fw_ck" ] || fw_ck=$(finding_waiver_key "$2" "$3")
+      [ -n "$fw_ck" ] && [ "$fw_ck" = "$fw_wk" ] && return 0
+    fi
   done
   return 1
+}
+# The persistent identity of a finding, so that a waiver follows the finding and not the gate record. The key is a hash of
+# gate and focus, the finding_key (path and the cited line's text, so a moved line is the same finding), the number of identical
+# lines above it (the same text at a NEW place in a file is another finding) and the normalised finding text. The finding id is not
+# part of it (a re-run may number its rows differently). No row of that id: empty (the waiver then binds the record only, the safe side).
+finding_waiver_key() { # GATE-RECORD-FILE FINDING-ID
+  fwk_row=$(awk -v want="$2" '/^finding: / { r = $0; sub(/^finding: /, "", r); split(r, p, "|"); if (p[1] == want) { print r; exit } }' "$1")
+  [ -n "$fwk_row" ] || return 0
+  fwk_loc=$(printf '%s' "$fwk_row" | cut -d'|' -f3 | tr -d ' '); fwk_txt=$(printf '%s' "$fwk_row" | cut -d'|' -f4)
+  fwk_fp=$(gate_field "$1" fingerprint); fwk_fc=$(gate_field "$1" focus); fwk_k=$(finding_key "$fwk_fp" "$fwk_loc" "$fwk_txt"); fwk_ord=0
+  fwk_n=${fwk_loc##*:}; fwk_n=${fwk_n%%-*}
+  # No line number, or a cited line that no longer resolves: no order can be told, so no key (the waiver binds the record only).
+  case "$fwk_n" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$fwk_loc" != "$fwk_n" ] || return 0
+  fwk_lt=$(tree_line "$fwk_fp" "$fwk_loc"); [ -n "$fwk_lt" ] || return 0
+  if [ "$fwk_n" -gt 1 ]; then
+    fwk_ord=$(git -C "$root" cat-file -p "$fwk_fp:${fwk_loc%:*}" 2>/dev/null | fwk_t=$fwk_lt awk -v n="$fwk_n" 'NR < n && $0 == ENVIRON["fwk_t"] { c++ } END { print c + 0 }')
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(gate_field "$1" gate)" "${fwk_fc:--}" "$fwk_k" "$fwk_ord" "$(printf '%s' "$fwk_txt" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' ' ' | sed 's/^ //;s/ $//')" | git hash-object --stdin
 }
 fail_fully_waived() { # ID GATE-RECORD-FILE
   fwf_any=no
@@ -3834,12 +3886,15 @@ verify_mutation_ownership() {
   case "$g_hs" in IMPLEMENTED|CODE_DONE|DONE) ;; *) [ "$g_force" = 1 ] || return 0 ;; esac
   g_prev_after=$(pristine_tree); g_ev=$(worker_evidence_dir "$g_id")
   for g_w in $(window_files "$g_id"); do
-    case "$(canon_role "$(evidence_field "$g_ev/$g_w" role)")" in implementer|designer) ;; *) fail "worker window ${g_w%.yaml} was not attested for the implementer or designer" ;; esac
+    case "$(canon_role "$(evidence_field "$g_ev/$g_w" role)")" in implementer|designer) ;;
+      # a window the USER accepted with `tree-accept` (recovery): only when the ledger binds this very file to that command
+      user) [ -n "$(bound_names "$g_d" worker-evidence 'tree-accept$' "$g_w")" ] || fail "worker window ${g_w%.yaml} claims the user's acceptance but no tree-accept command bound it in the ledger" ;;
+      *) fail "worker window ${g_w%.yaml} was not attested for the implementer or designer" ;; esac
     [ "$(evidence_field "$g_ev/$g_w" before_sha256)" = "$g_prev_after" ] || fail "unattributed application/test mutation before ${g_w%.yaml}: the tree changed between worker windows outside the implementer"
     g_prev_after=$(evidence_field "$g_ev/$g_w" after_sha256)
   done
   g_tree=$(task_patch_fingerprint "$g_id")
-  [ "$g_tree" = "$g_prev_after" ] || fail "application/test tree ($g_tree) is not the last implementer-attested tree ($g_prev_after): a mutation was made outside the implementer under orchestrated topology; undo it and route the change through the implementer (dispatch.sh)"
+  [ "$g_tree" = "$g_prev_after" ] || fail "application/test tree ($g_tree) is not the last implementer-attested tree ($g_prev_after): a mutation was made outside the implementer under orchestrated topology; undo it and route the change through the implementer (dispatch.sh), or keep the run: agent.sh tree-inspect '$g_id' shows the change and agent.sh tree-accept '$g_id' asks the user to accept it (every gate then runs again)"
 }
 window_role() { case "${1:-implementer}" in implementer|designer) printf '%s\n' "${1:-implementer}" ;; *) fail "worker windows bracket the implementer or the designer, not $1" ;; esac; }
 window_open() { # ID [ROLE]
@@ -3866,6 +3921,57 @@ window_close() { # ID BEFORE [EXIT-STATUS] [ROLE]
     printf 'timestamp: "%s"\n' "$(now_iso)"
   } > "$g_ev/WINDOW-$g_n.yaml" || fail "could not write worker window record"
   echo "worker window recorded: $g_id WINDOW-$g_n"
+}
+# Recovery (tree-inspect, tree-accept). Under orchestrated topology a change that entered the working tree outside every worker window
+# (a failover worker that was never stopped, an editor, another process) makes verify_mutation_ownership refuse the run, and the only way
+# out used to be to undo it by hand or to start again (a run of 2.5 hours was lost that way). The user can now look at the tree and
+# keep the run: tree-inspect shows what differs, tree-accept (lead, with the user's approval of exactly this tree, kind `tree`) records a
+# window of role `user` that attests the current tree, bound in the ledger by this command, and sends the handoff back to IMPLEMENTING.
+# Nothing stays green: the tree fingerprint changed, so every gate record is stale and every gate, SECRETS and SECURITY included, runs again.
+tree_inspect() { # ID
+  ti_id=$1; require_run "$ti_id"; ti_d=$(run_dir "$ti_id")
+  ti_att=$(last_attested_tree "$ti_id"); ti_cur=$(task_patch_fingerprint "$ti_id")
+  printf 'attested tree (last worker window): %s\ncurrent task-owned tree:             %s\n' "$ti_att" "$ti_cur"
+  if [ "$ti_att" = "$ti_cur" ]; then echo "the tree is the attested one: nothing to accept"; return 0; fi
+  ti_b=$(repository_base_sha "$ti_d" 2>/dev/null) || ti_b=''
+  echo "task-owned paths that differ from the run's base (${ti_b:-no base recorded}); a path the worker windows already attested is among them, the full diff is 'git diff ${ti_b:-<base>}':"
+  task_owned_paths "$ti_id" | while IFS= read -r ti_p; do
+    [ -n "$ti_p" ] || continue
+    if [ -n "$ti_b" ]; then git -C "$root" diff --no-color --stat "$ti_b" -- "$ti_p" 2>/dev/null; fi
+    git -C "$root" status --short -- "$ti_p" 2>/dev/null | grep '^??' || :
+  done
+  echo "to keep the run: agent.sh tree-accept $ti_id (asks for your approval of this tree; every gate then runs again)"
+}
+tree_accept() { # ID
+  require_lead; ta_id=${1:?usage: agent.sh tree-accept <ID>}; require_run "$ta_id"; require_open_run "$ta_id"; gates_enforced "$ta_id" || fail "run $ta_id has no lifecycle_gates policy: nothing to accept"
+  ta_d=$(run_dir "$ta_id"); [ "$(resolve_topology "$ta_d")" = orchestrated ] || fail "tree-accept is for the orchestrated topology (worker windows); $ta_id is not"
+  ta_hs=$(section_value "$ta_d" handoff state)
+  case "$ta_hs" in IMPLEMENTING|IMPLEMENTED|CODE_DONE) ;; *) fail "tree-accept applies to a run at IMPLEMENTING, IMPLEMENTED or CODE_DONE; $ta_id is at $ta_hs" ;; esac
+  ta_att=$(last_attested_tree "$ta_id"); ta_cur=$(task_patch_fingerprint "$ta_id")
+  [ "$ta_att" != "$ta_cur" ] || fail "the tree is the last attested one: there is nothing to accept"
+  if ! ta_app=$(find_approval "$ta_id" tree "$ta_cur"); then
+    tree_inspect "$ta_id"
+    request_approval "$ta_id" tree
+    fail "accepting the tree needs your approval: relay the question above verbatim; your reply (for example \"approve the tree\") records it, then run agent.sh tree-accept $ta_id again"
+  fi
+  [ "$(gate_field "$ta_app" answered_by)" = user ] || fail "the approval is not the user's"
+  ta_ev=$(worker_evidence_dir "$ta_id"); mkdir -p "$ta_ev" || fail "cannot create $ta_ev"
+  ta_n=$(next_evidence_seq "$ta_ev" WINDOW)
+  {
+    printf 'task_id: "%s"\nseq: %s\nrole: "user"\ntopology: "orchestrated"\n' "$ta_id" "$ta_n"
+    printf 'before_sha256: "%s"\nafter_sha256: "%s"\nexit_status: "0"\napproval: "%s"\n' "$ta_att" "$ta_cur" "$(basename "$ta_app")"
+    printf 'timestamp: "%s"\n' "$(now_iso)"
+  } > "$ta_ev/WINDOW-$ta_n.yaml" || fail "could not write the window record"
+  ledger_append "$ta_id" tree-accept - - "$(ledger_token "worker-evidence/WINDOW-$ta_n.yaml" "$ta_id") approval=$(basename "$ta_app") tree=$ta_cur"
+  consume_approval "$ta_id" "$ta_app"
+  # back to IMPLEMENTING: the implemented/code-done patch hashes no longer match the tree, so no gate may be recorded and no record is current
+  case "$ta_hs" in IMPLEMENTED|CODE_DONE)
+    set_run_value "$ta_id" handoff state IMPLEMENTING
+    set_run_value "$ta_id" handoff implemented_patch_sha256 PENDING
+    set_run_value "$ta_id" handoff code_done_patch_sha256 PENDING
+    ledger_append "$ta_id" "handoff:IMPLEMENTING" "$ta_hs" IMPLEMENTING "tree accepted by the user: every gate runs again" ;;
+  esac
+  echo "tree accepted: $ta_id WINDOW-$ta_n attests $ta_cur; handoff $ta_hs -> IMPLEMENTING; next: agent.sh handoff $ta_id IMPLEMENTED, then every gate again (agent.sh next $ta_id)"
 }
 verify_lifecycle_gates() {
   g_id=$1; gates_enforced "$g_id" || return 0
@@ -5165,7 +5271,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|tree|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale) return 0 ;;
     waive:*|rule:*|reopen:*|rationale:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -5174,7 +5280,7 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|tree|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
   if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
@@ -5245,6 +5351,7 @@ approval_bound() { # ID KIND
     scale) hash_file "$(shared_dir scale)/PROPOSAL.tsv" ;;   # A202 item 29
     rename) hash_file "$(shared_dir rename)/PROPOSAL.tsv" ;;   # A202: the proposal's own sha256   # A200 review: the proposal's own sha256
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
+    tree) task_patch_fingerprint "$1" ;;   # the working tree the user inspected: another tree is another question
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     rationale:*) rationale_bound "${2#rationale:}" ;;
     waive:*) ab_f=$(waive_target "$1" "${2#waive:}") || return 1; printf '%s@%s#%s\n' "$(basename "$ab_f")" "$(hash_file "$ab_f")" "${2#waive:}" ;;
@@ -5351,6 +5458,7 @@ approval_sentences() {
     single_step) as_en='the single step'; as_tr='tek adımı|tek adimi' ;;
     scope) as_en='the scope'; as_tr='kapsamı|kapsami' ;;
     mutation_budget) as_en='the mutation budget'; as_tr='mutasyon bütçesini|mutasyon butcesini' ;;
+    tree) as_en='the tree|the working tree|the change in the tree'; as_tr='çalışma ağacını|calisma agacini|ağacı|agaci' ;;
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
     cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
     commands) as_en='the commands'; as_tr='komutları|komutlari' ;;
@@ -5666,8 +5774,8 @@ approve_pending() {
 }
 # hook_time ID: the runtime hooks' own timings (A171). A hook appends `epoch|name|ms|result|note` to
 # .agents/local/hook-times (a plain append, no lock, so a slow or killed hook still leaves its line; a killed one is found by the
-# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's ledger
-# under the locks: one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
+# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's HOOKS.log
+# (A203; never the ledger) under the locks: one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
 # event per timeout (`name=<event> ms=<n> note=...`). The friction report counts both. A run without lifecycle gates takes none.
 hook_time() {
   ht_id=${1:-}; require_lead; ht_f=$root/.agents/local/hook-times
@@ -5680,7 +5788,9 @@ hook_time() {
         n[$2]++; t[$2] += $3; if ($3 + 0 > m[$2]) m[$2] = $3 + 0 }
       END { for (k in n) print "hook\tname=" k " runs=" n[k] " total_ms=" t[k] " max_ms=" m[k] }' "$ht_w" | sort |
     while IFS="$(printf '\t')" read -r ht_ev ht_detail; do
-      ledger_append "$ht_id" "$ht_ev" - - "$(printf '%s' "$ht_detail" | tr -c 'A-Za-z0-9_.=,: -' '_')"
+      # A203: a hook timing is not a lifecycle transition: it goes to HOOKS.log of the run (same line shape, no sequence and no chain),
+      # never into the hash-chained ledger (60 percent of a real ledger was hook lines)
+      printf 'ts=%s epoch=%s event=%s role=%s detail=%s\n' "$(now_iso)" "$(now_epoch)" "$ht_ev" "$execution_role" "$(printf '%s' "$ht_detail" | tr -c 'A-Za-z0-9_.=,: -' '_')" >> "$(run_dir "$ht_id")/HOOKS.log"
     done
   fi
   rm -f "$ht_w"
@@ -5741,6 +5851,13 @@ request_approval() {
   [ "$rq_kind" != scale ] || rq_rows=$(awk -F'\t' '{ print "   timeouts." $1 ": " $2 }' "$(shared_dir scale)/PROPOSAL.tsv" 2>/dev/null)
   [ "$rq_kind" != rename ] || rq_rows=$(awk -F'\t' '{ print "   rename: " $1 " -> " $2 }' "$(shared_dir rename)/PROPOSAL.tsv" 2>/dev/null)
   case "$rq_kind" in rationale:*) rq_rows="   rationale line of DESIGN.md: $(rationale_line "${rq_kind#rationale:}")" ;; esac
+  case "$rq_kind" in waive:*)
+    # findings of the same rule are ONE decision: the count and the first ids here, the detail stays in the gate record and the report
+    if [ "$rq_id" != - ] && rq_wr=$(waive_target "$rq_id" "${rq_kind#waive:}" 2>/dev/null); then
+      rq_wg=$(waive_group_ids "$rq_wr" "${rq_kind#waive:}"); rq_wn=$(printf '%s\n' "$rq_wg" | wc -l | tr -d ' ')
+      if [ "$rq_wn" -gt 1 ]; then rq_rows="   this one decision covers $rq_wn findings of the same rule in $(basename "$rq_wr"): $(printf '%s\n' "$rq_wg" | head -n 3 | tr '\n' ' ')... (detail: that gate record and the report); the lead records it with: agent.sh waive $rq_id ${rq_kind#waive:} --group --reason TEXT"; fi
+    fi ;;
+  esac
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
   if [ "$rq_kind" = batch ]; then printf 'QUESTIONS:\n1. Approve the night batch shown above (batch %s)?\n' "$(printf '%s' "$rq_bound" | cut -c1-12)"
   elif [ "$rq_tr" = 1 ]; then printf 'QUESTIONS:\n1. %s için %s onaylansın mı?\n' "$rq_id" "$rq_kind"
@@ -5763,6 +5880,7 @@ approval_why() { # KIND BOUND [tr]
       scope) echo 'değişiklik kapsama yol ekliyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor' ;;
       budget) echo 'düzeltme turları bitti: yeniden dondurma yeni bir düzeltme bütçesi başlatır' ;;
       mutation_budget) echo 'test_trust.mutation_budget planın ## Tests ölçütlerinden az: ölçüt başına bir mutant gerekir; bütçe yalnızca bu koşuda artar' ;;
+      tree) echo 'çalışma ağacına bu koşunun hiçbir işçi penceresinin kaydetmediği bir değişiklik girdi: onaylarsanız koşu korunur ama bütün kapılar yeni içerik üzerinde yeniden çalışır' ;;
       commit|push|pr|merge) echo "içerik $2 için teslim açık onay gerektirir" ;;
       cleanup) echo 'birleştirmeden sonra koşu kanıtı silinir' ;;
       reopen:*) echo 'başarısız veya engellenmiş koşu yalnızca kullanıcı onayıyla yeniden açılır; plan değişmez, geçmeyen kapılar yeniden çalışır' ;;
@@ -5785,6 +5903,7 @@ approval_why() { # KIND BOUND [tr]
     scope) echo 'the amendment adds scope paths, or the task fixes a pre-existing defect nobody asked about' ;;
     budget) echo 'the fix rounds are exhausted: a refreeze would start a fresh fix budget' ;;
     mutation_budget) echo 'test_trust.mutation_budget is below the criteria of PLAN ## Tests (one mutant each is the minimum): the budget is raised for this run only, .agents/config.yaml is not edited' ;;
+    tree) echo 'a change entered the working tree that no worker window of this run recorded (a failover worker, an editor, another process): you inspect it (agent.sh tree-inspect); accepting it keeps the run, but every gate runs again on the new content; declining leaves the run as it is' ;;
     commit|push|pr|merge) echo "delivery of content $2 needs explicit approval" ;;
     cleanup) echo 'after the merge the run evidence is deleted' ;;
     reopen:*) echo 'a FAILED or BLOCKED run is reopened only with your approval: the plan stays frozen, only gates that did not pass or whose inputs changed run again, and the fix-round allowance restarts' ;;
@@ -6031,7 +6150,29 @@ finding_known_issue() {
   ki_untouched "$1" "${fki_p%%:*}" || return 1
   printf '%s\n' "$fki_m"
 }
-# ki_gate_facts ID GATE: "KI-n:FINDING:follow-up" words for the gate's current blocking findings that are listed known issues
+# batch_accept_given: 0 when the batch approval of the CURRENT summary stands and the newest answer to its accept question (id batch,
+# kind accept) is b, recorded from a user message the prompt hook captured (batch.sh answer). "all recommended" never gives b.
+batch_accept_given() {
+  batch_approval >/dev/null 2>&1 || return 1
+  [ "$(batch_answer_row batch accept | cut -f1)" = b ] || return 1
+  bag_m=$(awk -F'\t' -v b="$(hash_file "$(batch_dir)/SUMMARY.md" | cut -c1-12)" '$1 == b && $2 == "batch" && $4 == "accept" { m = $7 } END { print m }' "$(batch_dir)/answers.tsv")
+  [ -n "$bag_m" ] && [ -f "$(shared_dir prompts)/history/$bag_m" ]
+}
+# finding_batch_accepted ID GATE-RECORD FINDING-ID: the blocking finding is on the approved summary's accepted list (a line `- accept K <gate>
+# <place>: <text>` of the summary the user approved), the task belongs to the batch and does not touch the place. SECRETS and SECURITY are
+# never accepted this way, whatever the summary or the answer say.
+finding_batch_accepted() {
+  case "$(gate_field "$2" gate)" in SECRETS|SECURITY) return 1 ;; esac
+  case "$(gate_field "$2" focus | tr '[:upper:]' '[:lower:]')" in *secret*|*secur*) return 1 ;; esac
+  batch_member "$1" && batch_accept_given || return 1
+  fba_c=$(ki canon "$2" "$3" 2>/dev/null) || return 1
+  fba_g=$(printf '%s' "$fba_c" | cut -f1); fba_p=$(printf '%s' "$fba_c" | cut -f2); fba_t=$(printf '%s' "$fba_c" | cut -f3-)
+  printf '%s' "$fba_g" | tr '[:upper:]' '[:lower:]' | grep -Eq 'secret|secur' && return 1
+  ki listable "$fba_g" "$fba_p" >/dev/null 2>&1 || return 1
+  grep -Fxq -- "- accept K $fba_g $fba_p: $fba_t" "$(batch_dir)/SUMMARY.md" || return 1
+  ki_untouched "$1" "${fba_p%%:*}"
+}
+# ki_gate_facts ID GATE:"KI-n:FINDING:follow-up" words for the gate's current blocking findings that are listed known issues
 ki_gate_facts() {
   [ -s "$(shared_dir known-issues)/LIST.tsv" ] || return 0
   for kg_fc in - $(risk_gate_focuses "$1" "$2"); do
@@ -6097,7 +6238,13 @@ batch_record() {
 # batch_cover ID KIND: records the approval of a plan, a delivery or a mutation budget as the user's, only while every check holds.
 batch_cover() {
   bc_id=$1 bc_k=$2; require_lead
-  case "$bc_k" in plan|delivery|mutation_budget) ;; *) fail "$bc_k is not covered by the batch approval (only plan, delivery, mutation_budget)" ;; esac
+  case "$bc_k" in plan|delivery|mutation_budget) ;;
+    rationale:*)
+      # a DESIGN.md pattern justification the user accepted for this batch with the one accept answer; the line must be exactly the one the approved summary lists
+      batch_accept_given || fail "no accepted list in the approved batch: the user has not answered the accept question of the summary with b"
+      bc_rl=$(rationale_line "${bc_k#rationale:}"); [ -n "$bc_rl" ] || fail "DESIGN.md has no justification line for ${bc_k#rationale:}"
+      grep -Fxq -- "- accept R $bc_rl" "$(batch_dir)/SUMMARY.md" || fail "the DESIGN.md line for ${bc_k#rationale:} is not the one the approved batch summary lists (changed or never listed): the user approves it on its own" ;;
+    *) fail "$bc_k is not covered by the batch approval (only plan, delivery, mutation_budget, rationale:<pattern> accepted in the summary)" ;; esac
   batch_approval >/dev/null || fail "no valid batch approval for the current summary"
   bc_h=$(hash_file "$(batch_dir)/SUMMARY.md")
   awk -F'\t' -v t="$bc_id" '$1 == t { f = 1 } END { exit !f }' "$(batch_dir)/order.tsv" 2>/dev/null || fail "$bc_id is not in the batch (excluded or never planned)"
@@ -6166,14 +6313,18 @@ canon_kind() { # ID KIND -> the approval kind with a waive:<id> in the recorded 
   case "$2" in waive:*) if [ "$1" = - ]; then printf '%s\n' "$2"; else printf 'waive:%s\n' "$(waive_canon "$1" "${2#waive:}")"; fi ;; *) printf '%s\n' "$2" ;; esac
 }
 waive() {
-  wv_id=$1 wv_fid=$2; shift 2; wv_reason=''
-  while [ $# -gt 0 ]; do case "$1" in --reason) wv_reason=${2:-}; shift 2 || shift ;; *) fail "unknown waive argument: $1" ;; esac; done
+  wv_id=$1 wv_fid=$2; shift 2; wv_reason=''; wv_grp=no
+  while [ $# -gt 0 ]; do case "$1" in --reason) wv_reason=${2:-}; shift 2 || shift ;; --group) wv_grp=yes; shift ;; *) fail "unknown waive argument: $1" ;; esac; done
   require_run "$wv_id"; require_lead; require_open_run "$wv_id"; wv_d=$(run_dir "$wv_id")
   reject_generic_justification "$wv_reason" || fail "waive requires a specific --reason (>=20 chars)"
   wv_fid=$(waive_canon "$wv_id" "$wv_fid")
   wv_now=$(gate_fingerprint); wv_rec=$(waive_target "$wv_id" "$wv_fid" "$wv_now") || return 1
   wv_gate=$(gate_field "$wv_rec" gate); wv_rsha=$(hash_file "$wv_rec")
   wv_app=$(find_approval "$wv_id" "waive:$wv_fid" "$(basename "$wv_rec")@$wv_rsha#$wv_fid") || fail "waiving $wv_fid needs the user's approval naming it: 'agent.sh request-approval $wv_id waive:$wv_fid', relay, then 'agent.sh approve $wv_id waive:$wv_fid'"
+  # --group: ONE approval (of the named finding) waives every open blocking finding of the same gate record and the same rule; the group is a
+  # function of the record the approval is bound to, so it cannot change between the request and this call
+  wv_rep=$wv_fid; wv_list=$wv_fid; [ "$wv_grp" != yes ] || wv_list=$(waive_group_ids "$wv_rec" "$wv_fid")
+  for wv_fid in $wv_list; do
   mkdir -p "$wv_d/waivers"; wv_n=$(next_num "$wv_d/waivers"); wv_out=$wv_d/waivers/$wv_n-$wv_fid.yaml
   wv_follow=none
   if [ "$(cfg review.waiver_followup none)" = task ]; then
@@ -6183,11 +6334,27 @@ waive() {
     wv_ad=$agents/task-integrations/$(cfg tasks.adapter markdown).sh
     if [ -f "$wv_ad" ]; then wv_follow=$(sh "$wv_ad" followup "$wv_id" "$wv_fu") || fail "follow-up task creation failed via $wv_ad"; else wv_follow=pending; fi
   fi
-  printf 'finding: "%s"\ngate: "%s"\ngate_record: "%s"\ngate_record_sha256: "%s"\nfingerprint: "%s"\nreason: %s\napproval: "%s"\nanswered_by: "user"\nfollowup: "%s"\ntimestamp: "%s"\n' \
-    "$wv_fid" "$wv_gate" "$(basename "$wv_rec")" "$wv_rsha" "$wv_now" "$(one_line "$wv_reason")" "$(basename "$wv_app")" "$wv_follow" "$(now_iso)" > "$wv_out"
-  consume_approval "$wv_id" "$wv_app"
+  printf 'finding: "%s"\ngate: "%s"\ngate_record: "%s"\ngate_record_sha256: "%s"\nfinding_key: "%s"\nfingerprint: "%s"\nreason: %s\napproval: "%s"\nanswered_by: "user"\nfollowup: "%s"\ntimestamp: "%s"\n' \
+    "$wv_fid" "$wv_gate" "$(basename "$wv_rec")" "$wv_rsha" "$(finding_waiver_key "$wv_rec" "$wv_fid")" "$wv_now" "$(one_line "$wv_reason")" "$(basename "$wv_app")" "$wv_follow" "$(now_iso)" > "$wv_out"
   if gates_enforced "$wv_id"; then ledger_append "$wv_id" waive - - "$(ledger_token "waivers/$wv_n-$wv_fid.yaml" "$wv_id") $wv_fid gate=$wv_gate reason=$wv_reason"; fi
-  echo "waiver recorded: $wv_id $wv_fid ($wv_gate)"
+  [ "$wv_grp" = yes ] || echo "waiver recorded: $wv_id $wv_fid ($wv_gate)"
+  done
+  consume_approval "$wv_id" "$wv_app"
+  [ "$wv_grp" != yes ] || echo "group waiver recorded: $wv_id $wv_rep and $(printf '%s\n' "$wv_list" | wc -l | tr -d ' ') finding(s) of the same rule ($wv_gate): $(printf '%s' "$wv_list" | tr '\n' ' ')"
+}
+# finding_rule_key RECORD FINDING-ID: the rule of a finding, for grouping: its text without numbers and colours, lower case.
+finding_rule_key() {
+  awk -v want="$2" '/^finding: / { r = $0; sub(/^finding: /, "", r); n = split(r, p, "|"); if (p[1] == want) { print tolower(p[4]); exit } }' "$1" | sed 's/#[0-9a-f]\{3,8\}//g; s/[0-9][0-9]*//g' | tr -cs 'a-z' ' ' | sed 's/^ //;s/ $//'
+}
+# waive_group_ids RECORD FINDING-ID: the open blocking findings of that gate record with the rule of FINDING-ID (FINDING-ID first), one per line.
+waive_group_ids() {
+  wg_k=$(finding_rule_key "$1" "$2"); printf '%s\n' "$2"
+  [ -n "$wg_k" ] || return 0
+  for wg_x in $(blocking_finding_ids "$1"); do
+    [ "$wg_x" != "$2" ] || continue
+    [ "$(finding_rule_key "$1" "$wg_x")" = "$wg_k" ] && printf '%s\n' "$wg_x"
+  done
+  return 0
 }
 
 # --- Questions (D13) -----------------------------------------------------------------------
@@ -6395,7 +6562,7 @@ decide() {
       --redecide) dc_redo=yes; dc_ap=yes; shift ;;
       --ui-mode) dc_uimode=${2:?--ui-mode needs a value}; shift 2 ;;
       --focus) dc_focus=${2:?--focus needs a value}; shift 2 ;;
-      --model|--effort|--context-bytes|--runtime) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;
+      --model|--effort|--context-bytes|--runtime|--runtime-reason) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;   # --runtime-reason: only dispatch.sh, for an automatic failover (A203)
       *) fail "unknown decide argument: $1" ;;
     esac
   done
@@ -6422,6 +6589,7 @@ decide() {
         fi ;; esac
       [ "$dc_nok" != yes ] || [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || rm -f "$dc_nf"
     fi ;; esac
+  case "$dc_over " in *" --runtime-reason "*) [ "$dc_nok" = yes ] || fail "decide --runtime-reason is dispatch.sh's alone (an automatic failover): the lead does not label its own choice" ;; esac
   [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "$dc_nok" = yes ] ||
     fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
   [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
@@ -6672,7 +6840,11 @@ budget_note() { # ID: the one line for `next`
 }
 
 next_step() {
-  ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id"); risk_prime "$ns_id"
+  ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id")
+  # A203: `digest` has primed the risk signals and the gate list already (nothing changed since); `next` primes them here
+  # (sv_load: RUN.yaml is parsed once here, so the subshells that read a value inherit the parsed copy instead of parsing it again)
+  sv_load "$ns_d"
+  [ "${dg_primed:-}" = "$ns_id" ] || { risk_prime "$ns_id"; case "$command" in next|digest) gate_names_prime "$ns_id" ;; esac; }
   ns_st=$(run_state "$ns_d"); ns_hs=$(section_value "$ns_d" handoff state)
   printf 'task=%s\nstate=%s\nhandoff=%s\n' "$ns_id" "$ns_st" "$ns_hs"
   o() { printf 'next=%s\n' "$*"; }
@@ -7185,6 +7357,46 @@ report_strip_facts() { # FILE: remove an earlier Facts block
   rs_t=$(mktemp "${TMPDIR:-/tmp}/agent-report.XXXXXX") || fail "cannot create a temporary file"
   awk -v b="$REPORT_FACTS_BEGIN" -v e="$REPORT_FACTS_END" '$0 == b { skip = 1; next } skip && $0 == e { skip = 0; next } !skip' "$1" > "$rs_t" && cp "$rs_t" "$1"; rm -f "$rs_t"
 }
+# report_execution ID (A203): the `## Execution` section of the completion report, generated from the decision records (decisions/NNN-*.decision),
+# one row per dispatch decision in order. The lead's own table was copied by hand and drifted from the records (a failover, an escalation or a
+# model left out); publish replaces whatever the lead wrote under that heading with this text. Nothing is printed when no decision exists.
+report_execution() {
+  rx_id=$1; require_run "$rx_id"
+  [ -n "$(decision_files "$rx_id")" ] || return 0
+  printf '## Execution\n\nGenerated from the decision records by `agent.sh report-execution %s` when the report is published; never edited by hand.\n\n| role | focus | runtime | model | effort | signals | note |\n|---|---|---|---|---|---|---|\n' "$rx_id"
+  (cd "$(run_dir "$rx_id")/decisions" && for rx_f in $(decision_files "$rx_id"); do cat "$rx_f"; printf '@@END@@\n'; done) | awk -F= '
+    function c(s) { gsub(/\|/, "/", s); return s }
+    function flush(   n) {
+      if (role == "") return
+      n = ""
+      if (rr ~ /AUTOMATIC_FAILOVER/) n = n "failover (automatic) to " rt "; "
+      else if (rr ~ /OPERATOR_OVERRIDE/) n = n "runtime set by the operator; "
+      if (esc == "yes") n = n "escalated (" xr "); "
+      if (via == "agent-path") n = n "agent path; "
+      sub(/; $/, "", n)
+      printf "| %s | %s | %s | %s | %s | %s | %s |\n", c(role), (focus == "" ? "-" : c(focus)), c(rt), c(model), c(effort), (sig == "" ? "none" : c(sig)), (n == "" ? "-" : c(n))
+      role = focus = rt = model = effort = sig = rr = esc = xr = via = ""
+    }
+    $0 == "@@END@@" { flush(); next }
+    { v = substr($0, length($1) + 2) }
+    $1 == "role" { role = v } $1 == "focus" { focus = v } $1 == "runtime" { rt = v } $1 == "model" { model = v } $1 == "effort" { effort = v }
+    $1 == "signals" { sig = v } $1 == "runtime_reason" { rr = v } $1 == "escalated" { esc = v } $1 == "escalation_reason" { xr = v } $1 == "via" { via = v }'
+}
+# report_execution_apply ID: the generated section replaces the lead's `## Execution` section (or goes before `## Known Limitations`, or last).
+report_execution_apply() {
+  rx_id=$1; rx_f=$(run_dir "$rx_id")/COMPLETION_REPORT.md
+  [ -n "$(decision_files "$rx_id")" ] && [ -f "$rx_f" ] || return 0
+  rx_g=$(mktemp "${TMPDIR:-/tmp}/agent-exec.XXXXXX") || fail "cannot create a temporary file"; rx_t=$rx_g.new
+  report_execution "$rx_id" > "$rx_g"
+  awk -v g="$rx_g" '
+    function emit(   l) { while ((getline l < g) > 0) print l; close(g); print ""; done = 1 }
+    /^## Execution[ \t]*$/ && !done { skip = 1; emit(); next }
+    skip && /^## / { skip = 0 }
+    skip { next }
+    /^## Known Limitations/ && !done { emit() }
+    { print }
+    END { if (!done) { print ""; emit() } }' "$rx_f" > "$rx_t" && cp "$rx_t" "$rx_f"; rm -f "$rx_g" "$rx_t"
+}
 # report_claims_check ID FILE: a number next to the words tests, gates, fix rounds or refreezes must be a recorded
 # value. Narrow on purpose: digits only, directly beside the word (before it, or after it with `:`/`=`), fenced code skipped.
 report_claims_check() {
@@ -7246,6 +7458,7 @@ publish_completion_report() {
   # A143: the Facts block of an earlier publish is removed first so it never satisfies a check, the text is checked
   # against the records, and a fresh block generated from them is appended verbatim.
   report_strip_facts "$dir/COMPLETION_REPORT.md"
+  report_execution_apply "$id"   # A203: the Execution table is generated from the decision records, whatever the lead wrote there
   report_summary_apply "$id"
   validate_completion_report_structure "$id"
   report_claims_check "$id" "$dir/COMPLETION_REPORT.md"
@@ -8680,6 +8893,8 @@ plan_section() {
 # instead of large outputs, and a fresh process rebuilds it after a context reset.
 digest_run() {
   dg_id=$1; require_run "$dg_id"; dg_d=$(run_dir "$dg_id"); dg_q=0
+  # A203: the risk signals and the gate list are computed once for the whole digest (the summary and the next step read them; nothing is written)
+  sv_load "$dg_d"; risk_prime "$dg_id"; gate_names_prime "$dg_id"; dg_primed=$dg_id
   for dg_f in "$dg_d"/questions/[0-9][0-9][0-9].md; do if [ -e "$dg_f" ] && [ ! -e "${dg_f%.md}.answer.md" ]; then dg_q=$((dg_q + 1)); fi; done
   summary_run "$dg_id"
   printf 'OPEN QUESTIONS: %s\n' "$dg_q"
@@ -8708,7 +8923,7 @@ case "$command" in next|digest|summary|status-block|next-user|status|friction|ba
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='timeouts hook-timeouts verify-timeout tm-scaled scale-check human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
+read_only_commands='report-execution tree-inspect timeouts hook-timeouts verify-timeout tm-scaled scale-check human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -8763,6 +8978,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID] | digest <ID> | plan-section <ID> <section>
   branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
+  tree-inspect <ID> | tree-accept <ID>   (recovery: a change entered the working tree outside every worker window; tree-inspect shows it read-only, tree-accept (lead) asks for the user's approval of exactly that tree (kind tree), attests it, sends the handoff back to IMPLEMENTING and so makes every gate run again; the run is not discarded)
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
   status-block <ID> [EVENT [PR]]   (lead, A202: rebuild the task's one status block from the records and place it through the task adapter; best effort, never fails a run)
   worktree-add <ID> | worktree-path <ID> | worktree-remove <ID> [--force]   (A169, lead, main working tree: one worktree per run under .agents/local/worktrees/<ID>; night mode uses it for every task)
@@ -8774,7 +8990,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   friction-note <ID> <user-command|user-shell|proofline_bug> | wait-line <ID> [WHAT] [--done]   (A171: record that the user was asked to run a command, a proofline bug; the one-line wait status)
   metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)
   request-approval <ID> <KIND> | approve <ID> <KIND>... | approval-consume <ID> <KIND> [FINGERPRINT]
-  waive <ID> <FINDING-ID> --reason TEXT | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)
+  waive <ID> <FINDING-ID> --reason TEXT [--group] (--group: the one approval of FINDING-ID waives every open blocking finding of the same gate record with the same rule, e.g. 93 lines of one visual rule; a waiver follows the finding across gate re-runs) | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)
   terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable "<reason>"]
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)
@@ -8786,7 +9002,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   known-issue-propose <RUN> <FINDING-ID> --followup <TASK> | known-issue-apply | known-issue-list | known-issue-candidates   (A202: the user-approved known-issues list; apply only after the user's 'approve known issue')
   task-rename-plan | task-rename-apply   (A202: <ID>-<slug>.md names for queued tasks; apply only after the user's 'approve rename')
   test-path <path>...   (A200: `test` or `product` per path: whether selective repetition may treat it as a test)
-  batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
+  batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget|rationale:PATTERN> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one "approve delivery", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)
   task-source-status <ID> | task-source-relocate <ID> <NEW-PATH> | task-source-done <ID>
   platform   (A180: the hosting platform of the origin remote, the installed tool and who merges: platform, cli, merge, owner, web)
@@ -8806,6 +9022,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
   repro-normalize   (read-only filter: stdin to stdout, the listed volatile fields of a recorded output line normalized, A200)
   design-rationales <ID> [--json] [PATH]   (read-only: the DESIGN.md pattern justifications and whether the user approved each; --json prints the object lint-source takes as --approved-rationales, A200)
+  report-execution <ID>   (read-only: the `## Execution` table publish-completion-report writes into the report, from the decision records)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
 USAGE
@@ -8840,8 +9057,9 @@ case "$command" in
   worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
+  report-execution) report_execution "${2:?usage: agent.sh report-execution <ID>}" ;;
   repro-normalize) repro_normalize ;;
-  design-rationales) require_run "${2:?usage: agent.sh design-rationales <ID> [--json] [DESIGN-MD-PATH]}"; design_rationales "$2" "${3:-}" "${4:-}" ;;
+  design-rationales) [ "${2:-}" = - ] || require_run "${2:?usage: agent.sh design-rationales <ID|-> [--json] [DESIGN-MD-PATH]}"; design_rationales "$2" "${3:-}" "${4:-}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> --dry|--agent-path [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;
@@ -8870,7 +9088,7 @@ case "$command" in
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) [ $# -ge 3 ] || fail "usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT [REF...]]"; shift; approval_consume "$@" ;;
   raise-budget) raise_budget "${2:?usage: agent.sh raise-budget <ID> <N>}" "${3:?usage: agent.sh raise-budget <ID> <N>}" ;;
-  waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;
+  waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;   # [--group]
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
   friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell|proofline_bug>}" "${3:-}" ;;
@@ -8890,7 +9108,7 @@ case "$command" in
   worktree-path) require_lead; worktree_path "${2:-}" ;;
   worktree-remove) require_lead; worktree_remove "${2:-}" "${3:-}" ;;
   batch-plan) shift; batch_plan "$@" ;;
-  batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget>}" ;;
+  batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget|rationale:PATTERN>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget|rationale:PATTERN>}" ;;
   batch-status) sh "$scripts/batch.sh" status ;;
   batch-check) batch_check ;;
   commands-check) commands_check ;;
@@ -8927,6 +9145,8 @@ case "$command" in
   reopen) require_lead; reopen_run "${2:?usage: agent.sh reopen <ID>   (reason: on stdin; needs the approval reopen:<ID>)}" ;;
   patch-fingerprint) require_run "${2:?usage: agent.sh patch-fingerprint <ID>}"; task_patch_fingerprint "$2" ;;
   window-open) require_lead; window_open "${2:?usage: agent.sh window-open <ID> [implementer|designer]}" "${3:-}" ;;
+  tree-inspect) tree_inspect "${2:?usage: agent.sh tree-inspect <ID>}" ;;
+  tree-accept) tree_accept "${2:-}" ;;
   window-close) require_lead; window_close "${2:?usage: agent.sh window-close <ID> <BEFORE> [EXIT-STATUS] [implementer|designer]}" "${3:-}" "${4:-0}" "${5:-}" ;;
   verify-gates) verify_lifecycle_gates "${2:?usage: agent.sh verify-gates <ID>}"; echo "lifecycle gates verified: $2" ;;
   verify-seal) verify_seal "${2:?usage: agent.sh verify-seal <ID>}"; echo "lifecycle seal verified: $2" ;;

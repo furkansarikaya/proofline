@@ -36,7 +36,7 @@ scrub() { # FILE: 0 when it is safe to share
 }
 report() {
   id=${1:-}; case "$id" in ''|*[!A-Za-z0-9_-]*) echo "usage: friction.sh report <ID>" >&2; exit 2 ;; esac
-  led=$root/.agents/runs/$id/LEDGER.log; rec=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/metrics/records.jsonl
+  led=$root/.agents/runs/$id/LEDGER.log; hk=$root/.agents/runs/$id/HOOKS.log; [ -f "$hk" ] || hk=""; rec=${PROOFLINE_SHARED_ROOT:-$root}/.agents/local/metrics/records.jsonl
   [ -f "$led" ] || { echo "friction: no ledger for the run" >&2; exit 1; }
   [ "$(sh "$here/agent.sh" config-get metrics 2>/dev/null || echo on)" != off ] || rec=/dev/null
   tk=$(tokens_of "$id" "$rec")
@@ -73,7 +73,7 @@ report() {
         for (k in bl) printf "  - role %s blocked %d times\n", k, bl[k]
         printf "\n## Timeouts\n\n- runtime failovers: %d (of them by timeout: %d)\n", fo, fot
         printf "- hook timeouts: %d (of %d recorded hook runs; total hook time %d ms, slowest %d ms)\n", hto, hruns, htot, hmax
-      }' "$led"
+      }' "$led" $hk   # A203: the hook timings live in HOOKS.log (not in the ledger); an older run's hook lines are still in the ledger
     awk -v id="$id" '
       function jv(s, k,   p, i, r) { p = "\"" k "\":"; i = index(s, p); if (!i) return ""; r = substr(s, i + length(p)); sub(/[,}].*/, "", r); gsub(/"/, "", r); return r }
       index($0, "\"task\":\"" id "\"") { k = jv($0, "kind"); r = jv($0, "result")
@@ -83,7 +83,9 @@ report() {
     printf '%s\n' "$tk" | awk -F'|' '{ printf "- tokens in: %s\n- tokens out: %s\n- tokens total: %s\n", $1, $2, $3 }'
   } > "$tmp" || { rm -f "$tmp"; exit 1; }
   scrub "$tmp" || { rm -f "$tmp"; exit 1; }
-  mv "$tmp" "$out/latest.md" && echo "friction report: .agents/local/friction/latest.md (review it; sending needs your approval)"
+  # A203: one file per run (a later run no longer replaces an earlier run's report); latest.md stays the one `show`, `send` and the approval use
+  [ "$id" != latest ] || { rm -f "$tmp"; echo "friction: a run cannot be called latest" >&2; exit 1; }
+  cp "$tmp" "$out/$id.md" && mv "$tmp" "$out/latest.md" && echo "friction report: .agents/local/friction/latest.md and .agents/local/friction/$id.md (review it; sending needs your approval)"
 }
 issue_cmd() {
   [ -f "$out/latest.md" ] || { echo "friction: no report yet" >&2; exit 1; }
@@ -123,9 +125,10 @@ calibrate() {
 }
 case "${1:-}" in
   report) report "${2:-}" ;;
-  show) cat "$out/latest.md" 2>/dev/null || { echo "friction: no report yet" >&2; exit 1; } ;;
+  show) case "${2:-}" in ''|latest) sf=latest ;; *[!A-Za-z0-9_-]*) echo "usage: friction.sh show [ID]" >&2; exit 2 ;; *) sf=$2 ;; esac
+    cat "$out/$sf.md" 2>/dev/null || { echo "friction: no report yet" >&2; exit 1; } ;;
   issue-cmd) issue_cmd ;;
   send) send ;;
   calibrate) calibrate ;;
-  *) echo "usage: friction.sh <report ID|show|issue-cmd|send|calibrate>" >&2; exit 2 ;;
+  *) echo "usage: friction.sh <report ID|show [ID]|issue-cmd|send|calibrate>" >&2; exit 2 ;;
 esac

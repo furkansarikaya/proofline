@@ -152,6 +152,27 @@ lint_known() {
     printf '%s\tknown\tRun %s recorded the blocking finding %s (%s) at %s: "%s". Its run did not touch that file, so it may already be on main, and it is not on the known-issues list: it will stop every task that meets it. Which?\ta) leave it blocking [recommended]|b) list it as a known issue: name its follow-up task (an existing open task) in your answer; I then propose the record and you approve it separately with "approve known issue"\ta\t-\n' "$kr" "$kr" "$kfid" "$kg" "$kp" "$(printf '%s' "$kt" | cut -c1-100)" >> "$tmp/lint.raw"
   done
 }
+# lint_accept: the findings and DESIGN.md rationales this batch expects, offered as ONE decision (kind accept, id batch). Items are written to
+# $tmp/accept.tsv: K<TAB>gate<TAB>place<TAB>text (a blocking finding that runs on this machine recorded and that is not on main's known-issues
+# list; SECRETS and SECURITY are never offered) and R<TAB>pattern<TAB>sha256 of the line<TAB>line (a DESIGN.md pattern justification the user
+# has not approved). The answer is the user's own message; "all recommended" never accepts (the recommended option is "no"). agent.sh checks
+# the accepted rows again against the approved SUMMARY.md and never lets an accepted item cover a SECRETS or SECURITY finding.
+# The summary prints each item as one line, `- accept K <gate> <place>: <text>` or `- accept R <pattern>: <line>`; agent.sh reads those lines of the
+# approved summary (the user approved that exact file) and nothing else.
+lint_accept() {
+  : > "$tmp/accept.tsv"
+  sh "$agent" known-issue-candidates 2>/dev/null | head -n 8 | while IFS="$(printf '\t')" read -r _kr _kf kg kp kt; do
+    [ -n "$kg" ] && [ -n "$kp" ] || continue
+    printf 'K\t%s\t%s\t%s\n' "$kg" "$kp" "$kt" >> "$tmp/accept.tsv"
+  done
+  sh "$agent" design-rationales - 2>/dev/null | while IFS="$(printf '\t')" read -r rp rs rl; do
+    [ -n "$rp" ] && [ "$rs" = unapproved ] && [ -n "$rl" ] || continue
+    printf 'R\t%s\t-\t%s\n' "$rp" "$rl" >> "$tmp/accept.tsv"
+  done
+  [ -s "$tmp/accept.tsv" ] || return 0
+  acn_n=$(awk 'END { print NR }' "$tmp/accept.tsv")
+  printf 'batch\taccept\tAccept for THIS batch only the %s expected finding(s) and DESIGN.md rationale(s) listed under "Expected known issues and rationales"? A listed finding then stops no task of the batch that does not touch its file, and a listed rationale is approved when its run asks for it. SECRETS and SECURITY findings are never accepted this way, and anything not listed still asks. One decision for the whole list.\ta) no: each stays blocking and is asked when it appears [recommended]|b) yes: accept the whole list for this batch\ta\t-\n' "$acn_n" >> "$tmp/lint.raw"
+}
 # ans_row ID KIND: the newest recorded answer for the batch in force: letter<TAB>question number
 ans_row() {
   [ -f "$bd/answers.tsv" ] || return 0
@@ -239,7 +260,7 @@ plan() {
   mkdir -p "$bd"
   if [ -f "$bd/state.tsv" ] || [ -s "$bd/merged.tsv" ] || [ -f "$bd/ci.tsv" ] || [ -f "$bd/answers.tsv" ]; then
     hd=$bd/history/$( [ -f "$bd/SUMMARY.md" ] && bid || echo previous ); mkdir -p "$hd"
-    for f in SUMMARY.md order.tsv state.tsv merged.tsv ci.tsv lint.tsv answers.tsv paths.tsv; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
+    for f in SUMMARY.md order.tsv state.tsv merged.tsv ci.tsv lint.tsv answers.tsv paths.tsv accept.tsv; do [ ! -e "$bd/$f" ] || mv "$bd/$f" "$hd/"; done
   fi
   cap=$(cfgv batch.mutation_budget_cap 40)
   # A200: plan-lint and the commands proposal, before the summary (the approval is bound to the summary's hash, so to both)
@@ -249,6 +270,7 @@ plan() {
     lint_task "$lid" "$lf" "$lcls"
   done < "$tmp/kept"
   lint_known
+  lint_accept
   # A200: the code paths each task names (content and document paths are left out): a task that shares one with an earlier task that is not merged waits for it
   : > "$tmp/paths.tsv"
   while IFS="$(printf '\t')" read -r _k lid _c _d _t; do
@@ -277,6 +299,12 @@ plan() {
     printf -- '- delivery: commit, push, pull request, merge only when CI is green and every gate passed (proofline merge), cleanup\n'
     printf -- '- CI red after the pull request is open: up to 2 CI-fix rounds, each a normal fix round that passes the gates again, pushed to the same pull request branch and nothing else; the delivery approval covers exactly those pushes, then the task is parked with the error and what was tried\n'
     printf -- '- mutation budget: a raise of test_trust.mutation_budget (now %s) up to the cap batch.mutation_budget_cap = %s\n' "$(cfgv test_trust.mutation_budget 20)" "$cap"
+    printf '\n## Expected known issues and rationales (accept for this batch)\n\n'
+    if [ -s "$tmp/accept.tsv" ]; then
+      printf 'Findings that runs on this machine already recorded outside the tasks of this batch (they may be on main) and DESIGN.md pattern justifications nobody approved yet. One answer to the accept question below ("Q<n> b") accepts the whole list for THIS batch only; "all recommended" does not. SECRETS and SECURITY findings are never listed and never accepted this way.\n\n'
+      awk -F'\t' '$1 == "K" { printf "- accept K %s %s: %s\n", $2, $3, $4 } $1 == "R" { printf "- accept R %s: %s\n", $2, $4 }' "$tmp/accept.tsv"
+    else printf -- '- none\n'; fi
+    sh "$agent" known-issue-list 2>/dev/null | grep -v '^known issues: none' | sed 's/^/- already on the known-issues list: /' || :
     printf '\n## Pre-flight questions (plan-lint, A200)\n\n'
     if [ -s "$tmp/lint.tsv" ]; then
       printf 'These are the questions the plan of each task would raise at freeze, asked now so that no task parks on them overnight. Answer with the letters ("Q1 a, Q2 b"), in your own words ("Q1: do not split", "Q3 hayir"), or "all recommended". Your message is recorded as it is (agent.sh batch-answer) and applied when each plan freezes; a question you leave open is asked again at freeze, as before. An answer is never an approval of anything else.\n\n'
@@ -312,6 +340,7 @@ plan() {
   mv "$tmp/order" "$bd/order.tsv"
   mv "$tmp/lint.tsv" "$bd/lint.tsv"
   mv "$tmp/paths.tsv" "$bd/paths.tsv"
+  mv "$tmp/accept.tsv" "$bd/accept.tsv"
   cat "$bd/SUMMARY.md"
   printf '\nbatch id: %s\n\n' "$(bid)"
 }

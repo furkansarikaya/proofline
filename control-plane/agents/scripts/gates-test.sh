@@ -1189,6 +1189,8 @@ sc_decide() {
   [ ! -e .agents/runs/LC/decisions/002-reviewer.decision ] || die "a refused decision was persisted"
   expect_fail "an unknown decide flag was accepted" A decide LC reviewer --agent-path --turbo yes
   expect_fail "a reviewer called decide" AS reviewer decide LC reviewer
+  expect_msg "the lead labelled its own choice an automatic failover" "dispatch.sh's alone" A decide LC reviewer --agent-path --runtime codex --runtime-reason AUTOMATIC_FAILOVER
+  expect_msg "the lead labelled a dry decision an automatic failover" "dispatch.sh's alone" A decide LC reviewer --dry --runtime codex --runtime-reason AUTOMATIC_FAILOVER
   # A171: decide is not called ahead of a dispatch; --dry reads without writing; the output starts with a one-line summary
   nd=$(($(ls .agents/runs/LC/decisions | wc -l))); nl=$(($(wc -l < .agents/runs/LC/LEDGER.log)))
   expect_msg "a bare decide (ahead of a dispatch) was accepted" 'not called ahead of one' A decide LC reviewer --focus rules+tests
@@ -1424,6 +1426,70 @@ sc_waiver_rebind() {
   rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:2|different problem: data loss on concurrent write|traced'
   expect_msg "a round-1 approval waived round 2's VERIFY-1" "needs the user's approval" A waive LC VERIFY-1 --reason 'the user approved waiving VERIFY-1 earlier on'
   ok "waiver approvals bind the failing gate record and finding; a later round never reuses them"
+}
+
+# A waiver follows the finding (its rule, place and line), not the gate record: a re-run of the gate, even on changed content,
+# does not ask for the waiver again; the same text at a NEW place, or a changed finding, asks again.
+sc_waiver_persists() {
+  scaffold orchestrated no STANDARD; implemented orchestrated
+  f='VERIFY-1|blocking|impl.txt:1|cache never invalidated on write|traced'; g='VERIFY-2|blocking|impl.txt:1|an unrelated problem|traced'
+  rec VERIFY FAIL high "$f" "$g"
+  approve_as_user waive:VERIFY-1 'approve VERIFY-1'
+  A waive LC VERIFY-1 --reason 'the user accepted the cache gap for this task' >/dev/null
+  [ "$(gate_st VERIFY)" = fail ] || die "the second finding no longer blocks: $(gate_st VERIFY)"
+  rec VERIFY FAIL high "$f"
+  [ "$(gate_st VERIFY)" = waived ] || die "a gate re-run on the same content asked for the waiver again: $(gate_st VERIFY)"
+  rec VERIFY FAIL high "$f" "$g"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: unrelated fix'; A handoff LC IMPLEMENTED >/dev/null
+  rec VERIFY FAIL high "$f"
+  [ "$(gate_st VERIFY)" = waived ] || die "a re-run on changed content (the cited line untouched) lost the waiver: $(gate_st VERIFY)"
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:2|cache never invalidated on write|traced'
+  [ "$(gate_st VERIFY)" = fail ] || die "the same rule at a NEW place was waived: $(gate_st VERIFY)"
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:1|cache never invalidated on delete|traced'
+  [ "$(gate_st VERIFY)" = fail ] || die "a changed finding kept the waiver: $(gate_st VERIFY)"
+  ok "a waiver follows the finding across gate re-runs; a new place or a changed finding asks again"
+}
+
+# A waiver that cannot tell WHICH copy it covers (no line number, or a cited line that no longer resolves) binds its gate record
+# only; and a cited line holding a backslash still counts its earlier copies (no escape processing), so a waiver for one copy of
+# a duplicated line never covers the other.
+sc_waiver_key_edges() {
+  scaffold orchestrated no STANDARD; implemented orchestrated
+  for loc in impl.txt impl.txt:99; do
+    rec VERIFY FAIL high "VERIFY-1|blocking|$loc|cache never invalidated on write|traced"
+    approve_as_user waive:VERIFY-1 'approve VERIFY-1'
+    A waive LC VERIFY-1 --reason 'the user accepted the cache gap for this task' >/dev/null
+    [ "$(gate_st VERIFY)" = waived ] || die "the waiver did not apply to its own record ($loc)"
+    rec VERIFY FAIL high "VERIFY-1|blocking|$loc|cache never invalidated on write|traced"
+    [ "$(gate_st VERIFY)" = fail ] || die "a waiver without a resolvable line covered a later record ($loc): $(gate_st VERIFY)"
+  done
+  A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'same\nline'; worker FIX pass impl.txt 'other'; worker FIX pass impl.txt 'same\nline'; A handoff LC IMPLEMENTED >/dev/null
+  n2=$(wc -l < impl.txt | tr -d ' '); n1=$((n2 - 2))
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:$n2|cache never invalidated on write|traced"
+  approve_as_user waive:VERIFY-1 'approve VERIFY-1'
+  A waive LC VERIFY-1 --reason 'the user accepted the second copy for this task' >/dev/null
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:$n2|cache never invalidated on write|traced"
+  [ "$(gate_st VERIFY)" = waived ] || die "the waiver lost its own copy: $(gate_st VERIFY)"
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:$n1|cache never invalidated on write|traced"
+  [ "$(gate_st VERIFY)" = fail ] || die "a waiver for one copy of a line with a backslash covered the other: $(gate_st VERIFY)"
+  ok "a waiver without a resolvable line binds its record only; a backslash line keeps its copies apart"
+}
+
+# N findings of one rule are ONE decision: one request names the count, one approval and one `waive --group` waive all of them; a
+# finding of another rule stays blocking.
+sc_waiver_group() {
+  scaffold orchestrated no STANDARD; implemented orchestrated
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:1|hard-coded spacing 13px on line 4|traced' 'VERIFY-2|blocking|impl.txt:1|hard-coded spacing 17px on line 9|traced' \
+    'VERIFY-3|blocking|impl.txt:1|hard-coded spacing 21px on line 12|traced' 'VERIFY-4|blocking|impl.txt:1|focus ring removed|traced'
+  A request-approval LC waive:VERIFY-1 > "$base/rq.out"; grep -q 'covers 3 findings of the same rule' "$base/rq.out" || die "the request did not present the 3 same-rule findings as one decision"
+  capture 'I approve the waiver of VERIFY-1.'; A approve LC waive:VERIFY-1 >/dev/null || die "the waiver sentence was refused"
+  expect_msg "a group waiver by a reviewer" 'command denied' AS reviewer waive LC VERIFY-1 --group --reason 'the user accepted the spacing rule for this task'
+  A waive LC VERIFY-1 --group --reason 'the user accepted the spacing rule for this task' >/dev/null
+  [ "$(ls .agents/runs/LC/waivers/*.yaml | wc -l | tr -d ' ')" = 3 ] || die "the group waiver wrote $(ls .agents/runs/LC/waivers/*.yaml | wc -l) waivers, want 3"
+  [ "$(gate_st VERIFY)" = fail ] || die "the finding of another rule was waived with the group: $(gate_st VERIFY)"
+  expect_msg "a second finding waived with the consumed approval" "needs the user's approval" A waive LC VERIFY-4 --reason 'the user accepted the focus ring for this task'
+  ok "same-rule findings are one request, one approval and one waive --group; another rule stays blocking"
 }
 
 # A130: the report names the finding ids of every required gate (info rows included); 'none' only for a gate with no rows.
@@ -2767,6 +2833,26 @@ sc_control_plane_edit() {
   ok "control-plane edits under .agents/ are listed apart, not counted as task changes"
 }
 
+# A203: the `## Execution` table of the completion report is generated by the script from the decision records; what the lead wrote there is replaced.
+sc_report_execution() {
+  scaffold orchestrated; to_code_done orchestrated
+  mkdir -p .agents/runs/LC/decisions
+  printf 'role=implementer\nfocus=\nruntime=claude\nruntime_reason=CONFIG_RUNTIME_GROUP\nmodel=sonnet\neffort=medium\nescalated=no\nsignals=\n' > .agents/runs/LC/decisions/001-implementer.decision
+  printf 'role=reviewer\nfocus=rules+tests\nruntime=codex\nruntime_reason=AUTOMATIC_FAILOVER\nmodel=gpt-6-sol\neffort=high\nescalated=yes\nescalation_reason=ESCALATED_MODEL\nsignals=low_confidence_pass\n' > .agents/runs/LC/decisions/002-reviewer-rules-tests.decision
+  A report-execution LC > "$base/exec.md" || die "report-execution failed"
+  grep -Fq '| implementer | - | claude | sonnet | medium | none | - |' "$base/exec.md" || die "implementer row missing: $(cat "$base/exec.md")"
+  grep -Fq '| reviewer | rules+tests | codex | gpt-6-sol | high | low_confidence_pass | failover (automatic) to codex; escalated (ESCALATED_MODEL) |' "$base/exec.md" || die "failover row missing or wrong: $(cat "$base/exec.md")"
+  ! grep -Fq OPERATOR_OVERRIDE "$base/exec.md" || die "an automatic failover is shown as an operator override"
+  write_report   # the lead's own '## Execution' text says 'Not applicable in fixtures.'
+  A publish-completion-report LC markdown >/dev/null || die "publish failed"
+  r=.agents/runs/LC/COMPLETION_REPORT.md
+  grep -Fq '| reviewer | rules+tests | codex | gpt-6-sol | high |' "$r" || die "the published report has no generated Execution row"
+  ! grep -Fq 'Not applicable in fixtures' "$r" || die "the lead's hand-written Execution text survived publish"
+  [ "$(grep -c '^## Execution' "$r")" = 1 ] || die "the Execution heading is not unique"
+  ok "A203 the Execution table is generated from the decision records and replaces the lead's text"
+}
+
+run_sc sc_report_execution
 run_sc sc_tier
 run_sc sc_control_plane_edit
 run_sc sc_report_focus_lines
@@ -2869,6 +2955,9 @@ sc_build_record_auto() {
 run_sc sc_secret_scan
 run_sc sc_provenance
 run_sc sc_waiver_rebind
+run_sc sc_waiver_persists
+run_sc sc_waiver_key_edges
+run_sc sc_waiver_group
 run_sc sc_open_runs
 run_sc sc_report_finding_ids
 run_sc sc_report_facts

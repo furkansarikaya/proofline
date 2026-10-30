@@ -91,6 +91,7 @@ case "${FAKE_CODEX:-ok}" in
   ssl) echo 'error sending request: SSL handshake failed (connection reset by peer)' >&2; exit 1 ;;
   fail) echo "error: tests failed in src/x" >&2; exit 1 ;;
   sleep) exec sleep 20 ;;
+  hang) echo $$ > "$loc/codex.pid"; exec sleep 30 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
   hooks) git -C "$FAKE_ROOT" config core.hooksPath /dev/null; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
   head) git -C "$FAKE_ROOT" symbolic-ref HEAD refs/heads/elsewhere; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
@@ -225,6 +226,18 @@ reset; d FAKE_CLAUDE=limit T-1 reviewer
 ck "limit error fails over to codex (auto)" '[ "$rc" -eq 0 ] && has "$loc/recorded.md" "role=reviewer result=DONE" && [ "$(cat "$loc/codex.role")" = reviewer ] && has "$loc/codex.argv" "$a/runs/T-1" && ! has "$loc/codex.argv" worker-evidence'
 ck "failover ledgered with reason" 'has "$loc/ledger.log" "failover from=claude to=codex reason=limit role=reviewer"'
 ck "failover re-decides on the other runtime" 'grep -q "^decide T-1 reviewer --runtime codex" "$loc/calls.log"'
+ck "A203: the failover decision carries its own reason (AUTOMATIC_FAILOVER), the first decision none" 'grep -q "^decide T-1 reviewer --runtime codex --runtime-reason AUTOMATIC_FAILOVER" "$loc/calls.log" && [ "$(grep -c "runtime-reason" "$loc/calls.log")" = 1 ]'
+
+# Stopping a dispatch stops its worker, the failover worker included (it used to leave the worker running, writing into the tree)
+reset; env FAKE_CLAUDE=limit FAKE_CODEX=hang sh "$a/scripts/dispatch.sh" T-1 reviewer >/dev/null 2>&1 &
+sd_pid=$!; sd_n=0
+while [ ! -s "$loc/codex.pid" ] && [ "$sd_n" -lt 100 ]; do sleep 0.1; sd_n=$((sd_n + 1)); done
+sd_w=$(cat "$loc/codex.pid" 2>/dev/null || echo 0)
+ck "the failover worker is running before the dispatch is stopped" 'kill -0 "$sd_w" 2>/dev/null && has "$loc/ledger.log" "failover from=claude to=codex"'
+kill -TERM "$sd_pid" 2>/dev/null; wait "$sd_pid" 2>/dev/null || :
+sd_n=0; while kill -0 "$sd_w" 2>/dev/null && [ "$sd_n" -lt 50 ]; do sleep 0.1; sd_n=$((sd_n + 1)); done
+ck "stopping a dispatch also stops its failover worker" '! kill -0 "$sd_w" 2>/dev/null'
+kill -KILL "$sd_w" 2>/dev/null || :
 
 reset; d PROOFLINE_CLAUDE_BIN="$tmp/bin/nope" T-1 reviewer
 ck "missing binary fails over" '[ "$rc" -eq 0 ] && has "$loc/ledger.log" "reason=missing_binary"'
@@ -390,7 +403,8 @@ wt=$(cd "$loc/worktrees/T-1" && pwd -P)
 rc=0; out=$(sh "$wt/.agents/scripts/dispatch.sh" T-1 implementer --prompt-file "$here/../roles.conf" 2>"$tmp/err") || rc=$?; err=$(cat "$tmp/err")
 ck "A196 worktree run: only the main tree's .agents/local/locks is writable there" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.agents/local/locks\"=\"write\"" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents/local\"=" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents\"="'
 ck "A200 worktree run: only this task's own folder of .git/worktrees is writable, never the whole folder" 'has "$loc/codex.argv" "/.git/worktrees/T-1\"=\"write\"" && [ "$(grep -o "[^\"]*/worktrees\"=\"write\"" "$loc/codex.argv" | wc -l | tr -d " ")" = 0 ]'
-ck "A196 worktree run: no other absolute path of the main tree is granted" '[ "$(grep -o "\"/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "locks\|/worktrees")" = 0 ]'
+ck "A203 worktree run: the common objects folder is writable (git add, git commit), and no ref, log, packed-refs or config path" 'has "$loc/codex.argv" "/.git/objects\"=\"write\"" && [ "$(grep -o "[^\"]*/\.git/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "/\.git/objects\"\|/\.git/worktrees/T-1\"")" = 0 ]'
+ck "A196 worktree run: no other absolute path of the main tree is granted" '[ "$(grep -o "\"/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "locks\|/worktrees\|/\.git/objects")" = 0 ]'
 reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "A196 main tree run: no main-tree locks path outside the run's own tree" '! has "$loc/codex.argv" "/worktrees/T-1/"'
 

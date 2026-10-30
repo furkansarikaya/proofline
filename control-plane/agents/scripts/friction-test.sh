@@ -31,6 +31,25 @@ grep -q '^- hook timeouts: 1 (of 14 recorded hook runs; total hook time 2700 ms,
 cp "$base/ledger.keep" .agents/runs/RUN-001/LEDGER.log
 ok "friction report counts hook runs, their time and hook timeouts (A171)"
 
+# A203: the hook timings of a run live in its HOOKS.log (not in the ledger); the report counts them there
+printf 'ts=t epoch=1 event=hook role=lead detail=name=prompt runs=4 total_ms=2400 max_ms=900\nts=t epoch=1 event=hook-timeout role=lead detail=name=stop ms=900 note=slow\n' > .agents/runs/RUN-001/HOOKS.log
+F report RUN-001 > /dev/null
+grep -q '^- hook timeouts: 1 (of 4 recorded hook runs; total hook time 2400 ms, slowest 900 ms)' "$r" || die "HOOKS.log not counted: $(grep hook "$r")"
+rm -f .agents/runs/RUN-001/HOOKS.log
+ok "A203 friction report counts the hook timings of HOOKS.log"
+
+# A203: one report file per run, not only the latest run's
+mkdir -p .agents/runs/RUN-002; cp "$fixd/LEDGER.log" .agents/runs/RUN-002/
+F report RUN-001 > /dev/null; F report RUN-002 > /dev/null
+[ -s .agents/local/friction/RUN-001.md ] && [ -s .agents/local/friction/RUN-002.md ] || die "A203 a report file per run is missing: $(ls .agents/local/friction)"
+cmp -s .agents/local/friction/RUN-002.md "$r" || die "A203 latest.md is not the newest report"
+grep -q 'RUN-00' .agents/local/friction/RUN-001.md && die "the run id leaked into a per-run report"
+[ "$(F show RUN-001)" = "$(cat .agents/local/friction/RUN-001.md)" ] || die "A203 show <ID> does not print that run's report"
+expect_fail "a run called latest would replace the latest.md alias" sh ./.agents/scripts/friction.sh report latest
+rm -rf .agents/runs/RUN-002 .agents/local/friction/RUN-00?.md
+F report RUN-001 > /dev/null
+ok "A203 friction report: one file per run, latest.md stays the newest"
+
 # A171: asking the user to run an internal command is counted (controlled kind words only)
 cp .agents/runs/RUN-001/LEDGER.log "$base/ledger.keep"
 printf 'seq=9999 prev=x event=friction-note role=lead from=IMPLEMENTING to=IMPLEMENTING digest=x ts=2026-01-01T00:00:00Z epoch=1 detail=user-command\n' >> .agents/runs/RUN-001/LEDGER.log

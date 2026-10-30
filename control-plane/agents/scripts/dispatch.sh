@@ -63,6 +63,11 @@ tok() { case "$2" in ''|*[!A-Za-z0-9._+:-]*|-*) die "invalid value for $1: '$2'"
 #   <git dir>/worktrees/<name>           (a run in a worktree only) that worktree's own git folder (index, HEAD) and nothing else under
 #                                        <git dir>/worktrees, so a worker cannot touch another task's worktree metadata (A200). A worker can
 #                                        therefore not `git worktree add` an evidence worktree: that needs the whole folder (D10)
+#   <common git dir>/objects             (a run in a worktree only, A203) `git add` and `git commit` write loose objects there (a worktree is
+#                                        detached, so HEAD and its log are in the own folder above and no ref is written). objects/ cannot be
+#                                        narrower: git creates the fan-out folders (objects/ab) on demand. Content-addressed, so it cannot forge a
+#                                        ref. NOT opened: refs/, logs/, packed-refs, the common index, config, hooks and any other worktrees/ folder.
+#                                        A run in the main tree keeps the whole .git read-only: its worker cannot add or commit (the lead does)
 # The profile replaces `-s workspace-write`: Codex refuses a mix of default_permissions and a sandbox mode.
 codex_profile_args() {
   cp_id=$1; cp_root=$2
@@ -76,7 +81,11 @@ codex_profile_args() {
   case "$cp_g" in '') ;; /*) ;; *) cp_g=$cp_root/$cp_g ;; esac
   if [ -f "$cp_root/.git" ] && [ -d "$cp_g" ]; then
     cp_g=$(cd "$cp_g" && pwd -P)
-    case "$cp_g" in */worktrees/*) cp_abs="$cp_abs,\"$cp_g\"=\"write\"" ;; esac
+    case "$cp_g" in */worktrees/*)
+      cp_abs="$cp_abs,\"$cp_g\"=\"write\""
+      cp_o=$(git -C "$cp_root" rev-parse --git-common-dir 2>/dev/null || true); case "$cp_o" in /*) ;; *) cp_o=$cp_root/$cp_o ;; esac
+      [ ! -d "$cp_o/objects" ] || cp_abs="$cp_abs,\"$(cd "$cp_o/objects" && pwd -P)\"=\"write\"" ;;
+    esac
   fi
   case "$cp_rules$cp_abs" in *\\*) die "a path with a backslash cannot be placed in the Codex permission profile" ;; esac
   printf '%s\n' -c 'default_permissions="proofline-worker"' -c 'permissions.proofline-worker.extends=":workspace"' \
@@ -191,6 +200,7 @@ run_timed() {
   rt_wd=$!
   rt_rc=0; wait "$rt_pid" || rt_rc=$?
   kill -TERM "$rt_wd" 2>/dev/null || true; wait "$rt_wd" 2>/dev/null || true
+  rt_pid='' rt_wd=''   # reaped: finish must never signal a pid the system may have reused
   if [ -f "$rt_mark" ]; then rm -f "$rt_mark"; return 124; fi
   return "$rt_rc"
 }
@@ -298,8 +308,27 @@ harvest() { # after one attempt: add what the runtime reported
     codex) m_tot=$(add_n "$(codex_total)" "$m_tot") ;;
   esac
 }
+# stop_worker: a dispatch that is stopped (TERM, INT, HUP, or any early exit) takes the worker it started with it, the failover worker
+# included (the failover attempt is the same run_timed call again, so rt_pid is whichever worker is running), and the worker's own
+# children. A worker that already exited was reaped and rt_pid cleared, so nothing else is ever signalled.
+stop_worker() {
+  [ -z "${rt_wd:-}" ] || kill -TERM "$rt_wd" 2>/dev/null || :
+  [ -n "${rt_pid:-}" ] || return 0
+  sw_all=$rt_pid; sw_q=$rt_pid
+  while [ -n "$sw_q" ]; do
+    sw_n=''
+    for sw_p in $sw_q; do sw_n="$sw_n $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$sw_p" '$2 == p { print $1 }' | tr '\n' ' ')"; done
+    sw_q=$(printf '%s' "$sw_n" | tr -s ' ' | sed 's/^ //;s/ $//'); sw_all="$sw_all $sw_q"
+  done
+  # shellcheck disable=SC2086 # pids
+  kill -TERM $sw_all 2>/dev/null || :
+  # shellcheck disable=SC2086
+  (sleep 5; kill -KILL $sw_all) >/dev/null 2>&1 &
+  rt_pid='' rt_wd=''
+}
 finish() {
   fin_rc=$?
+  stop_worker
   if [ "$attempts" -gt 0 ]; then
     case "$fin_rc" in 0) fin_res=submitted ;; 124) fin_res=timeout ;; 5) fin_res=needs_input ;; 6) fin_res=blocked ;; *) fin_res=failed ;; esac
     # the claude runtime reports input and output; the total is their sum only when both were reported
@@ -325,6 +354,7 @@ attempt() {
   [ -n "$o_model" ] && set -- "$@" --model "$o_model"
   [ -n "$o_effort" ] && set -- "$@" --effort "$o_effort"
   [ -n "$a_runtime" ] && set -- "$@" --runtime "$a_runtime"
+  [ -z "$a_rtreason" ] || set -- "$@" --runtime-reason "$a_rtreason"   # A203: an automatic failover has its own reason, not OPERATOR_OVERRIDE
   # A171: the decide exemption is a one-use nonce file holding this script's pid; decide checks the pid is alive and its ancestor and
   # removes the file on acceptance. A killed dispatch leaves none behind (trap) and stale ones are swept (older than a minute).
   mkdir -p "$root/.agents/local/dispatch"
@@ -495,7 +525,7 @@ transient_network() { # LOG
   ! printf '%s\n' "$tn_t" | grep -Eiq 'workspace routing discovery failed' || return 1
   printf '%s\n' "$tn_t" | grep -Eiq '(^|[^a-z])(ssl|tls)([^a-z]|$)|certificate verify|connection (was )?(reset|closed|aborted|lost|dropped)|reset by peer|econnreset|econnaborted|etimedout|epipe|socket hang up|stream (disconnected|closed)|unexpected eof|broken pipe|temporary failure in name resolution|network is unreachable|error sending request|Reconnecting\.\.\.'
 }
-a_runtime=$o_runtime
+a_runtime=$o_runtime a_rtreason=
 attempt
 net_max=$(cfg dispatch network_retries); case "$net_max" in ''|*[!0-9]*) net_max=3 ;; esac; [ "$net_max" -le 6 ] || net_max=6
 net_base=${PROOFLINE_DISPATCH_NET_BACKOFF:-$(cfg dispatch network_backoff_seconds)}; case "$net_base" in ''|*[!0-9]*) net_base=15 ;; esac
@@ -538,7 +568,7 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
     sh "$here/runtime-detect.sh" has "$other" || blocked "runtime $rt failed ($reason); $other is not installed"
     from=$rt; o_model=''   # model ids are runtime-specific; the policy picks the other runtime's model
     note "failover from=$from to=$other reason=$reason role=$role" || blocked "runtime $rt failed ($reason); failover could not be ledgered"
-    a_runtime=$other
+    a_runtime=$other a_rtreason=AUTOMATIC_FAILOVER
     attempt
     if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$(runtime_failure_reason "$log")" != none ]; then
       blocked "runtime $from failed ($reason) and failover runtime $rt failed too"
@@ -565,7 +595,11 @@ while :; do
   err=$(sed -n 's/^error=//p' "$st" 2>/dev/null | head -n 1)
   submissions=$((submissions + 1))
   if [ "$submissions" -ge 2 ]; then
-    blocked "no valid submission from $role after one retry${err:+ (last rejection: $err)}; nothing recorded"
+    sandbox_hint=''
+    if [ "$rt" = codex ] && tail -n 200 "$log" 2>/dev/null | grep -Eiq 'worktrees?[^[:space:]]*.*(not permitted|read-only|denied)|(not permitted|read-only|denied).*worktrees?'; then
+      sandbox_hint="; the Codex sandbox refused a git worktree or git metadata write (A203: a Codex worker writes only its own worktree folder and the common objects folder, so it cannot create an evidence worktree): run this role with --runtime claude"
+    fi
+    blocked "no valid submission from $role after one retry${err:+ (last rejection: $err)}$sandbox_hint; nothing recorded"
   fi
   # A127: name what was looked for and what exists, so a missing status file (a submit under another token) shows in the ledger
   seen=$(ls "$subdir" 2>/dev/null | tr '\n' ',')

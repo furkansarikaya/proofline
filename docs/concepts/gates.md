@@ -159,7 +159,7 @@ Three rules keep the loop fair (A171). A rules review scans for the whole class 
 the scan and every instance, so the examples are fixed together. A failing record whose every blocking row cites a
 line that was already in the previously reviewed revision (and was not cited before) is a missed example and does not
 use up a round. Blocking or info follows a written rule (`GATES.md`), and the same observation keeps its
-classification from round to round. A mutation budget overrun in the tests review (21 of 20) is a warning, not a block.
+classification from round to round. A mutation budget overrun in the tests review (21 of 20) is a warning, not a block. The cap is enforced while the mutants run: `gate.mjs mutant <review-folder>/mutants.count ...` refuses a mutant past the budget, and the validator fails a finding that records more executed mutants than the budget (A203).
 
 ## Waivers
 
@@ -167,9 +167,15 @@ Security and secret findings can never be waived. Another blocking finding is wa
 message, finding by finding, with a specific reason (at least 20 characters). The waiver is ledgered and listed
 in the completion report; `review.waiver_followup: task` also creates a follow-up task per waiver.
 
+A waiver follows the **finding**, not the gate record: it carries the finding's persistent key (gate and focus, the cited line's text, how many identical lines
+precede it, and the finding text). When the gate runs again and finds the same finding, even on changed content, it is still waived and nothing is asked again;
+the same rule at a new place, or a changed finding, is another finding and asks again. Findings of one rule (for example 93 lines of one visual rule) are one
+decision: the request names the count and the first ids, and `agent.sh waive <ID> <FINDING-ID> --group --reason TEXT` records the waiver of every open blocking
+finding of the same record and rule on your one approval. The detail stays in the gate record and the report.
+
 ## Approvals
 
-Kinds: `plan`, `destructive`, `scope`, `budget`, `commit`, `push`, `waive:<FINDING-ID>`. The lead requests an
+Kinds: `plan`, `destructive`, `scope`, `budget`, `tree`, `commit`, `push`, `waive:<FINDING-ID>`. The lead requests an
 approval with `agent.sh request-approval`; the answer counts only if it comes from a terminal you typed in or from a
 prompt your runtime captured after the request. Approvals are single-use and ledgered as `answered_by: user`.
 Commit and push need both a gate pass for the current content and your approval in the current message;
@@ -184,6 +190,14 @@ each segment goes through the same strict check; every approved segment is its o
 `approval.max_per_message`, 8). A rejected segment prints `not recorded: <segment>: <reason>`; a negated, hedged or retracting segment
 vetoes the whole message. Recording comes first: the hook copies your message to `.agents/local/prompts/intake/` before any parse, git or
 scan, so the size of a run cannot lose an approval (`hook.approve_budget_seconds`, `doctor` times it). Limits: [timeouts](timeouts.md).
+
+## Recovering a tree that changed outside the run
+
+Under the orchestrated topology only the implementer's recorded worker windows may change the product tree. A change that entered it any other way (a failover
+worker that was never stopped, an editor, another process) makes the run refuse to go on, and it used to cost the run. Now `agent.sh tree-inspect <ID>` (read-only)
+shows what differs, and `agent.sh tree-accept <ID>` (lead) asks you to approve exactly that tree (kind `tree`: "approve the tree"). The accepted change is
+attested by a window of role `user` that the ledger binds to that command (a hand-written one counts for nothing), the handoff goes back to IMPLEMENTING, and
+because the tree fingerprint changed every gate, SECRETS and SECURITY included, runs again. Stopping a dispatch also stops its worker, a failover worker included.
 
 ## Known issues (A202)
 
