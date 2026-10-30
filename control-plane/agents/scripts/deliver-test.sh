@@ -469,15 +469,32 @@ scenario_wt_merged_block() {
   grep -q "^- delivered_commit: $(printf '%s' "$sb_head" | cut -c1-12)\$" "$sb_m" || die "$sb_m: no delivered commit $sb_head: $(tail -n 14 "$sb_m")"
   ok "deliver-merged: the status block of the task file in the main working tree says MERGED with the delivered commit, one section, after the worktree is gone (A202)"
 }
+# A202: a worktree whose task file differs by MORE than the task's own status block is work: it is kept (a second marked block)
+scenario_wt_block_smuggle() {
+  wt_done_run
+  cp "$tl_agents"/task-integrations/markdown.sh "$tl_agents"/task-integrations/_lib.sh "$wt/.agents/task-integrations/"
+  wt_deliver local
+  sm_f=$(find "$wt/tasks" -name 'LC*.md' | head -n 1)
+  # a second marked block of ANOTHER id (the adapter rewrites only this task's own block): it is not the task's status, so it is work and is kept
+  { cat "$sm_f"; printf '\n## Proofline Status\n\n<!-- PROOFLINE-STATUS:BEGIN:OTHER-1 -->\n- run: OTHER-1\n<!-- PROOFLINE-STATUS:END:OTHER-1 -->\n'; } > "$base/sm.md"; cat "$base/sm.md" > "$sm_f"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
+  W deliver-merged LC > "$base/dm.out" 2>&1 || :   # cleanup itself may refuse (task-owned change not committed) or keep the worktree: both keep it
+  [ -d "$wt" ] || die "a second marked block did not keep the worktree: $(cat "$base/dm.out")"
+  ok "cleanup: a task file changed by more than the task's own status block keeps the worktree (A202)"
+}
 scenario_wt_cleanup_pr() {
   wt_done_run; git remote set-url origin https://github.com/acme/app.git; git init -q --bare "$base/bare.git"; git remote add bare "$base/bare.git"
+  cp "$tl_agents"/task-integrations/markdown.sh "$tl_agents"/task-integrations/_lib.sh "$wt/.agents/task-integrations/"   # the real adapter: a status block is written
   wt_deliver gh
   gh_says "OPEN false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lookup main acme"
   W deliver-step LC merge 7 > "$base/mg.out" 2>&1 || die "merge step in the worktree: $(cat "$base/mg.out")"
   gh_says "MERGED false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lookup main acme"
   W deliver-step LC cleanup 7 > "$base/cl.out" 2>&1 || die "cleanup step in the worktree: $(cat "$base/cl.out")"
   grep -q '^worktree removed: LC' "$base/cl.out" && wt_gone || die "the worktree survived deliver-step cleanup: $(cat "$base/cl.out")"
-  ok "deliver-step cleanup after a merged pull request removes the run's worktree (A169)"
+  # A202: the delivery moved the task to done/ in the pull request branch only; the main tree still holds it at the old path, and the user's next
+  # `git pull --ff-only` must not abort on a block written there
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the main working tree is dirty after deliver-step cleanup (a status block at the old task path): $(git status --porcelain --untracked-files=no)"
+  ok "deliver-step cleanup after a merged pull request removes the run's worktree and leaves the main tree clean (A169, A202)"
 }
 scenario_wt_cleanup_kept() {
   wt_done_run
@@ -644,6 +661,7 @@ run_sc scenario_manual_merge_ff
 run_sc scenario_manual_merge_config_edit
 run_sc scenario_wt_cleanup_manual
 run_sc scenario_wt_merged_block
+run_sc scenario_wt_block_smuggle
 run_sc scenario_wt_cleanup_pr
 run_sc scenario_wt_cleanup_kept
 run_sc scenario_wt_failed_kept

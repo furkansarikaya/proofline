@@ -299,7 +299,10 @@ EOF
   # the drive above ends the moment the user's merge lands on the origin; the control plane records a merge only when the lead is told (deliver-merged), so the
   # block can honestly say PR OPEN until then. The user says so once more, as in the real flow, and the rows are read after the lead recorded both merges.
   user_merges
-  drive "$pr_pre-batch-merged" "I merged T-2 and T-3 on the origin. Record the merges and finish the batch." 'a202_both_merged' "I merged them on the origin; record the merges (deliver-merged) and clean up." >/dev/null 2>&1 || :
+  # said only when both really are on the origin's main (a false "I merged it" makes the lead check and refuse, A200 smoke run 2)
+  if git --git-dir="$ORIGIN" show main:src/whisper.js >/dev/null 2>&1 && git --git-dir="$ORIGIN" show main:src/repeat.js >/dev/null 2>&1 && ! ab_pending; then
+    drive "$pr_pre-batch-merged" "I merged T-2 and T-3 on the origin. Record the merges and finish the batch." 'a202_both_merged' "I merged them on the origin; record the merges (deliver-merged) and clean up." >/dev/null 2>&1 || :
+  fi
   a202_rows "$pr_pre"   # A202: the status block and the slug in the branch name, read from files and agent.sh state
   if [ "${SMOKE_ONLY:-}" = a202 ]; then :
   elif command -v codex >/dev/null 2>&1; then

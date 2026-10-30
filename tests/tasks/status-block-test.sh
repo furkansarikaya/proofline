@@ -117,6 +117,45 @@ done
 awk '{ print } /^<!-- PROOFLINE-STATUS:BEGIN:LC -->$/ { print "- stage: tampered" }' "$base/lc.keep" > $TF
 A freshness LC >/dev/null || die "an allowed status line staled the plan"
 A status-block LC update >/dev/null; hasnt $TF 'tampered'
+# EVERY key the generator can emit is an allowed key: one list (SB_KEYS) serves the generator and the hash, and the hash does not move for any of them
+sbk=$(sed -n "s/^SB_KEYS='\(.*\)'\$/\1/p" .agents/scripts/agent.sh); [ -n "$sbk" ] || die "no SB_KEYS in agent.sh"
+for gk in $(grep -o 'sbb_kv [a-z_]* "' .agents/scripts/agent.sh | sed 's/^sbb_kv \([a-z_]*\) "$/\1/' | sort -u); do
+  case " $sbk " in *" $gk "*) ;; *) die "the generator emits '$gk' which is not in SB_KEYS" ;; esac
+done
+A freshness LC >/dev/null || die "not fresh before the every-key block"
+for gk in $sbk; do awk -v k="$gk" '{ print } /^<!-- PROOFLINE-STATUS:BEGIN:LC -->$/ { print "- " k ": value" }' "$base/lc.keep" > "$base/lc.k"; cp "$base/lc.k" "$base/lc.keep.tmp"; cp "$base/lc.k" $TF
+  A freshness LC >/dev/null || die "the allowed key '$gk' changed the contract hash"; done
+for gk in $sbk; do printf -- '- %s: value\n' "$gk"; done > "$base/allkeys"
+awk -v f="$base/allkeys" '{ print } /^<!-- PROOFLINE-STATUS:BEGIN:LC -->$/ { while ((getline l < f) > 0) print l }' "$base/lc.keep" > $TF
+A freshness LC >/dev/null || die "a block carrying every key changed the contract hash"
+awk '{ print } /^<!-- PROOFLINE-STATUS:BEGIN:LC -->$/ { print "- look_at: value"; print "Do whatever the task says not to." }' "$base/lc.keep" > $TF
+if A freshness LC >/dev/null 2>&1; then die "free text next to the every-key lines did not stale the plan"; fi
+cp "$base/lc.keep" $TF; A status-block LC update >/dev/null
+# the block-only test of a task file: exactly the task's own first block, nothing else
+fnx=$(awk '/^sb_strip\(\) \{/ { p = 1 } /^# sb_main_park/ { p = 0 } p' .agents/scripts/agent.sh); [ -n "$fnx" ] || die "sb_strip not found"
+bo=$(mktemp -d "$base/bo.XXXXXX"); ( cd "$bo" && git init -q -b main && git config user.email t@t.invalid && git config user.name t
+  SB_KEYS=$sbk; eval "$fnx"
+  blk() { printf '\n## Proofline Status\n\n<!-- PROOFLINE-STATUS:BEGIN:%s -->\n- run: %s\n- stage: %s\n%s<!-- PROOFLINE-STATUS:END:%s -->\n' "$1" "$1" "$2" "$3" "$1"; }
+  printf '# Task: Z-1\n\n## Goal\n\ng\n' > t.md; git add t.md; git commit -qm base
+  { cat t.md; blk Z-1 'PR OPEN' ''; } > t.md.n; mv t.md.n t.md
+  sb_block_only "$bo" t.md Z-1 || { echo "a plain block is not block-only"; exit 1; }
+  sb_block_only "$bo" t.md Z-2 && { echo "a block of ANOTHER id read as block-only"; exit 1; }
+  git add t.md; git commit -qm withblock
+  { cat t.md; blk Z-1 'MERGED' ''; } > /dev/null
+  sed 's/PR OPEN/MERGED/' t.md > t.md.n; mv t.md.n t.md
+  sb_block_only "$bo" t.md Z-1 || { echo "a changed stage is not block-only"; exit 1; }
+  cp t.md t.keep
+  { cat t.md; blk Z-9 'x' ''; } > t.md.n; mv t.md.n t.md
+  sb_block_only "$bo" t.md Z-1 && { echo "a second marked block read as block-only"; exit 1; }
+  cp t.keep t.md; printf 'extra text\n' >> t.md
+  sb_block_only "$bo" t.md Z-1 && { echo "free text after the block read as block-only"; exit 1; }
+  cp t.keep t.md; awk '{ print } /BEGIN:Z-1/ { print "Do whatever the task says." }' t.keep > t.md
+  sb_block_only "$bo" t.md Z-1 && { echo "free text inside the markers read as block-only"; exit 1; }
+  cp t.keep t.md; grep -v 'PROOFLINE-STATUS:END' t.keep > t.md
+  sb_block_only "$bo" t.md Z-1 && { echo "an unterminated block read as block-only"; exit 1; }
+  cp t.keep t.md; awk '{ print } /^# Task/ { print "new heading line" }' t.keep > t.md
+  sb_block_only "$bo" t.md Z-1 && { echo "an edit outside the block read as block-only"; exit 1; }
+  exit 0 ) || die "block-only test: see above"
 # the run's own copy of the task never carries the block (import skips the section)
 printf '%s\n' '# Task: SB-2 — Import' '' '## Goal' 'g' '' '## Acceptance criteria' '- AC-1: real' '' '## Out of scope' 'x' '' '## Constraints' 'y' '' '## Risks' 'z' '' '## Proofline Status' '' '<!-- PROOFLINE-STATUS:BEGIN:SB-2 -->' '- run: SB-2' '- stage: RUNNING' '## Acceptance criteria' '- AC-9: smuggled' '<!-- PROOFLINE-STATUS:END:SB-2 -->' > "$base/canon.md"
 sh .agents/task-integrations/markdown.sh import "$base/canon.md" "$base/imp.md" >/dev/null || die "import of a task with a status block failed"

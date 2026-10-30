@@ -2172,8 +2172,11 @@ freeze() {
 
 # --- Task-source contract (projection hash; see WORKFLOW.md "Task-source contract") --
 local_task_source_run() { [ "$(section_value "$(run_dir "$1")" task_source type)" = local_markdown ]; }
+# The keys of the status block (A202): ONE list, used by the block generator (sbb_kv refuses any other key), by the contract-hash exclusion and by the
+# block-only test of a task file (sb_strip), so they cannot drift apart.
+SB_KEYS='run type class stage event updated branch start_commit runtime session question answer park failure pr ci delivered_commit estimate duration tokens look_at known_issues'
 task_source_contract_hash() {
-  awk -v id="$1" '
+  awk -v id="$1" -v keys="$SB_KEYS" '
     { line[NR] = $0 }
     END {
       begin = "<!-- COMPLETION-REPORT:BEGIN:" id " -->"; endm = "<!-- COMPLETION-REPORT:END:" id " -->"
@@ -2181,7 +2184,7 @@ task_source_contract_hash() {
       # while every line inside it is a `- <allowed key>: value` line or blank; any other line (free text, a heading, a criterion) stays hashed,
       # so nothing can be smuggled into the contract through the marked block.
       sbegin = "<!-- PROOFLINE-STATUS:BEGIN:" id " -->"; send = "<!-- PROOFLINE-STATUS:END:" id " -->"
-      skeys = "^- (run|type|class|stage|event|updated|branch|start_commit|runtime|session|question|answer|park|failure|pr|ci|delivered_commit|estimate|duration|tokens): "
+      alt = keys; gsub(/ /, "|", alt); skeys = "^- (" alt "): "
       n = 0; stripped = 0; sstripped = 0
       for (i = 1; i <= NR; i++) {
         if (!sstripped && line[i] == "## Proofline Status") {
@@ -7327,7 +7330,7 @@ sb_pr_link() {
 status_block_body() {
   sbb_id=$1 sbb_ev=$2 sbb_pr=${3:-}; sbb_d=$(run_dir "$sbb_id"); sbb_has=no; [ -f "$sbb_d/RUN.yaml" ] && sbb_has=yes
   case "$sbb_ev" in run-start|ask|answer|parked|unparked|code-done|pr-opened|merged|failed) ;; *) sbb_ev=update ;; esac
-  sbb_kv() { printf -- '- %s: %s\n' "$1" "$2"; }
+  sbb_kv() { case " $SB_KEYS " in *" $1 "*) printf -- '- %s: %s\n' "$1" "$2" ;; *) echo "status block: key '$1' is not in SB_KEYS" >&2; return 1 ;; esac; }
   sbb_kv run "$sbb_id"
   sbb_type=''
   if [ "$sbb_has" = yes ]; then
@@ -7437,32 +7440,38 @@ status_block_update() {
 # with it, so the merge is also written into the task file of the MAIN working tree, the one the user reads. That edit is a tracked-file change made by the
 # control plane alone: sb_strip drops the marked block from a task file, a change that is only the block is "block-only", it never blocks the worktree
 # cleanup or the fast-forward of the main tree (parked before, put back after, by the adapter, so the block stays the control plane's text).
+# sb_strip ID: stdin without the FIRST status section whose marker id is ID, and only when its lines are blank or `- <SB_KEYS key>: ...` and its END marker
+# exists; anything else (a second block, other id, free text inside the markers, no END) is left in the text, so it shows as a difference
 sb_strip() {
-  awk '{ line[NR] = $0 } END {
+  awk -v id="$1" -v keys="$SB_KEYS" '{ line[NR] = $0 } END {
+    alt = keys; gsub(/ /, "|", alt); skeys = "^- (" alt "): "
+    bg = "<!-- PROOFLINE-STATUS:BEGIN:" id " -->"; en = "<!-- PROOFLINE-STATUS:END:" id " -->"; done = 0
     for (i = 1; i <= NR; i++) {
-      if (line[i] == "## Proofline Status") {
+      if (!done && line[i] == "## Proofline Status") {
         j = i + 1; while (j <= NR && line[j] ~ /^[[:space:]]*$/) j++
-        if (j <= NR && line[j] ~ /^<!-- PROOFLINE-STATUS:BEGIN:[A-Za-z0-9._-]+ -->$/) {
-          for (k = j + 1; k <= NR && line[k] !~ /^<!-- PROOFLINE-STATUS:END:[A-Za-z0-9._-]+ -->$/; k++) { }
-          if (k <= NR) { i = k; continue }
+        if (j <= NR && line[j] == bg) {
+          for (k = j + 1; k <= NR && line[k] != en; k++) { }
+          ok = (k <= NR)
+          for (m = j + 1; ok && m < k; m++) if (line[m] !~ /^[[:space:]]*$/ && line[m] !~ skeys) ok = 0
+          if (ok) { i = k; done = 1; continue }
         }
       }
       print line[i]
     }
   }'
 }
-# sb_block_only TREE PATH: the tracked file differs from HEAD only by its marked status block
+# sb_block_only TREE PATH ID: the tracked file differs from HEAD only by task ID's own status block
 sb_block_only() {
   git -C "$1" ls-files --error-unmatch -- "$2" >/dev/null 2>&1 || return 1
   [ -f "$1/$2" ] || return 1
-  [ "$(sb_strip < "$1/$2")" = "$(git -C "$1" show "HEAD:$2" 2>/dev/null | sb_strip)" ]
+  [ "$(sb_strip "$3" < "$1/$2")" = "$(git -C "$1" show "HEAD:$2" 2>/dev/null | sb_strip "$3")" ]
 }
 # sb_main_park TREE DIR: every block-only modified task file of TREE: its block body is kept in DIR (<n>.blk, first line the task id) and the file reset
 sb_main_park() {
   smp_n=0
   git -C "$1" status --porcelain --untracked-files=no 2>/dev/null | sed -n 's/^ M //p' | while IFS= read -r smp_p; do
-    sb_block_only "$1" "$smp_p" || continue
     smp_id=$(sed -n 's/^<!-- PROOFLINE-STATUS:BEGIN:\(.*\) -->$/\1/p' "$1/$smp_p" | head -n 1); [ -n "$smp_id" ] || continue
+    sb_block_only "$1" "$smp_p" "$smp_id" || continue
     smp_n=$((smp_n + 1))
     { printf '%s\n' "$smp_id"; awk -v b="<!-- PROOFLINE-STATUS:BEGIN:$smp_id -->" -v e="<!-- PROOFLINE-STATUS:END:$smp_id -->" '$0 == b { on = 1; next } $0 == e { on = 0 } on' "$1/$smp_p"; } > "$2/$smp_n.blk"
     git -C "$1" checkout -q -- "$smp_p" 2>/dev/null || :
@@ -7477,9 +7486,9 @@ sb_main_put() {
 # sb_main_restore DIR: put the parked blocks back
 sb_main_restore() { for smr_f in "$1"/*.blk; do [ -f "$smr_f" ] || continue; sed 1d "$smr_f" > "$smr_f.body"; sb_main_put "$(sed -n 1p "$smr_f")" "$smr_f.body"; done; }
 # sb_final_prepare ID [PR]: the MERGED block body, built from the run's records BEFORE the run and its worktree go
-sb_final_prepare() { sfp_a=$(cfg tasks.adapter markdown); [ "$(cfg tasks.status_block on)" != off ] || { sfp_f=''; return 0; }; sfp_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-final.XXXXXX") || { sfp_f=''; return 0; }; status_block_body "$1" merged "${2:-}" > "$sfp_f" 2>/dev/null || { rm -f "$sfp_f"; sfp_f=''; }; }
+sb_final_prepare() { sfp_p=$(awk '/^task_source:$/ { i = 1; next } i && /^[^[:space:]]/ { exit } i && /^[[:space:]]*path:/ { sub(/^[^:]*:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$(run_dir "$1")/RUN.yaml" 2>/dev/null); sfp_a=$(cfg tasks.adapter markdown); [ "$(cfg tasks.status_block on)" != off ] || { sfp_f=''; return 0; }; sfp_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-final.XXXXXX") || { sfp_f=''; return 0; }; status_block_body "$1" merged "${2:-}" > "$sfp_f" 2>/dev/null || { rm -f "$sfp_f"; sfp_f=''; }; }
 # sb_final_put ID: after the run is gone, the final block into the main working tree's task file (only when the run lived in a worktree)
-sb_final_put() { [ -n "${sfp_f:-}" ] || return 0; [ "$sr_main" = "$root" ] || sb_main_put "$1" "$sfp_f"; rm -f "$sfp_f"; sfp_f=''; sfp_a=''; }
+sb_final_put() { [ -n "${sfp_f:-}" ] || return 0; [ "$sr_main" = "$root" ] || [ -z "${sfp_p:-}" ] || [ ! -f "$sr_main/$sfp_p" ] || sb_main_put "$1" "$sfp_f"; rm -f "$sfp_f"; sfp_f=''; sfp_a=''; }
 # A159: `not_applicable` is a claim the script checks. It needs one specific sentence and is refused, with the signal named,
 # when the task changed something the wiki or the design documents describe: a documentation path in the diff, a contract,
 # data or design-document mention in the frozen plan, or user-visible words in the acceptance criteria. Any signal refuses.
@@ -7708,7 +7717,7 @@ cleanup_worktree() {
   cw_rc=0; cw_x=$(printf '%s\n' "$cw_st" | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_list") || cw_rc=$?
   [ "$cw_rc" -le 1 ] || { echo "note: the worktree $cw_p is kept: the file check failed"; return 0; }
   if [ -n "$cw_x" ]; then   # A202: a task file changed only by its status block is the control plane's own edit, not work
-    cw_y=''; for cw_q in $cw_x; do sb_block_only "$cw_p" "$cw_q" || cw_y="$cw_y$cw_q
+    cw_y=''; for cw_q in $cw_x; do sb_block_only "$cw_p" "$cw_q" "$1" || cw_y="$cw_y$cw_q
 "; done
     cw_x=$(printf '%s' "$cw_y")
   fi
