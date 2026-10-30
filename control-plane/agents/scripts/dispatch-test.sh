@@ -325,7 +325,9 @@ for sc in 2 1.5 0.5 99 0 abc; do
 done
 # A202 item 29: two explorers (two assignments) that both time out keep two resume notes; the same assignment finds its own
 TIMEOUT=1 mkcfg auto; printf 'assignment one\n' > "$tmp/as1.md"; printf 'assignment two\n' > "$tmp/as2.md"
-reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 explorer --runtime codex --prompt-file "$tmp/as1.md"; rc1=$rc
+reset; d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 explorer --runtime codex --prompt-file "$tmp/as1.md"
+# shellcheck disable=SC2034 # rc1 is read by the ck expression below
+rc1=$rc
 d FAKE_CODEX=sleep PROOFLINE_DISPATCH_MIN_TIMEOUT=1 T-1 explorer --runtime codex --prompt-file "$tmp/as2.md"
 ck "A202-29 two explorers that time out keep two resume notes" '[ "$rc1" -eq 124 ] && [ "$rc" -eq 124 ] && [ "$(ls "$a"/runs/T-1/dispatch/RESUME-explorer-*.md | wc -l | tr -d " ")" -eq 2 ]'
 TIMEOUT=60 mkcfg auto

@@ -27,6 +27,7 @@ mkdir -p "$T/bin"
 printf '#!/bin/sh\nprintf "%%s\\n" /usr/bin/busyproc /usr/bin/busyproc /bin/other\n' > "$T/bin/ps"; chmod +x "$T/bin/ps"
 # shellcheck disable=SC1091
 . "$here/bin/lib/doctor.sh"
+# shellcheck disable=SC2034 # read by doctor_load from the sourced doctor.sh
 D_WARNS=0 D_FAILS=0
 out=$(PATH="$T/bin:$PATH" PROOFLINE_DOCTOR_LOAD=120.5 PROOFLINE_DOCTOR_CORES=8 doctor_load)
 case "$out" in WARN\ load:*120.5*8\ cores*busyproc*) ;; *) no "high load line: $out" ;; esac

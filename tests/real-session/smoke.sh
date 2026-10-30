@@ -169,7 +169,13 @@ a202_task_files() {
   done
 }
 # a202_both_merged: the control plane's own block of both tasks says MERGED (in any copy of the task file)
-a202_both_merged() { for ab_t in T-2 T-3; do grep -qs '^- stage: MERGED$' $(a202_task_files "$ab_t") || return 1; done; }
+a202_both_merged() {
+  for ab_t in T-2 T-3; do
+    ab_ok=no
+    for ab_f in $(a202_task_files "$ab_t"); do grep -qs '^- stage: MERGED$' "$ab_f" && ab_ok=yes; done
+    [ "$ab_ok" = yes ] || return 1
+  done
+}
 # a202_status_row PREFIX ID: the status block, read from the task file the control plane wrote (never from the model's text)
 a202_status_row() {
   as_n="$1 batch status block ($2): one section, updated in place, MERGED, no local path"; as_t=$(date +%s); as_best=''; as_why=''
