@@ -299,3 +299,4 @@
 1 weights-test
 1 batch-test sc_driver_removed
 150 status-block-test
+2 smoke-fixture-test

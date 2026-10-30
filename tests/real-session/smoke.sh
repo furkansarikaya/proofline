@@ -137,6 +137,12 @@ skill_detour_row() { # Claude Code rejects a Skill call for a proofline skill be
   else row "skill tool: the lead recovered" FAIL 0 "$sd_calls Skill-tool call(s) and a failed step above"; fi
 }
 
+# fixture_commands: the project has build, test and lint commands, so the batch pre-flight (A200) finds nothing empty; a model that meets empty ones stops at
+# the first NEXT line of the batch and waits for the user (A202 smoke run 3), which is the right behaviour but not what the scenarios here measure
+fixture_commands() {
+  fc_c="$P/.agents/config.yaml"
+  sed -e 's|^  build:.*$|  build: npm run build|' -e 's|^  test:.*$|  test: npm test|' -e 's|^  lint:.*$|  lint: npm run lint|' "$fc_c" > "$fc_c.new" && mv "$fc_c.new" "$fc_c" && chmod 644 "$fc_c"
+}
 mk_fixture() { # NAME_PREFIX: the fixture repository, a local bare origin and proofline installed; sets P and ORIGIN; returns 1 when setup failed
   pr_pre=$1
   P="$work/$pr_pre/project"; ORIGIN="$work/$pr_pre/origin.git"
@@ -144,7 +150,7 @@ mk_fixture() { # NAME_PREFIX: the fixture repository, a local bare origin and pr
   t0=$(date +%s)
   git init -q --bare -b main "$ORIGIN"
   cat > "$P/package.json" <<'EOF'
-{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test" } }
+{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test", "build": "node --check src/greet.js", "lint": "node --check tests/greet.test.js" } }
 EOF
   printf 'export function greet(name) {\n  return `Hello, ${name}`;\n}\n' > "$P/src/greet.js"
   printf 'import test from "node:test";\nimport assert from "node:assert/strict";\nimport { greet } from "../src/greet.js";\ntest("greet", () => assert.equal(greet("a"), "Hello, a"));\n' > "$P/tests/greet.test.js"
@@ -155,6 +161,7 @@ EOF
   git -C "$P" remote add origin "$ORIGIN"; git -C "$P" push -q origin main
   rts=claude; command -v codex >/dev/null 2>&1 && rts=claude,codex
   if (cd "$P" && "$repo/bin/proofline" init --yes --runtimes "$rts" --lead claude --worker claude --reviewers claude --profile economy --task-adapter markdown) > "$work/$pr_pre-init.txt" 2>&1 \
+     && fixture_commands \
      && git -C "$P" add -A && git -C "$P" commit -q -m 'chore: install proofline' && git -C "$P" push -q origin main; then
     row "$pr_pre setup: init, local bare origin" PASS "$(secs "$t0")" "installed proofline $(cd "$P" && "$repo/bin/proofline" version)"
   else row "$pr_pre setup: init, local bare origin" FAIL "$(secs "$t0")" "see $work/$pr_pre-init.txt"; return 1; fi
