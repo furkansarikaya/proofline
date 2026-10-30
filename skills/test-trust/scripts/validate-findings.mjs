@@ -115,6 +115,10 @@ export function checkConsistency(doc) {
     errors.push(`gate.failing must list exactly the confirmed flaky and hollow findings: ${g.failing.join(", ") || "none"}`);
   }
   if (!d) return errors;
+  // the mutation budget is a cap (gate.mjs mutant enforces it while mutants run): a record of more executed mutants than the budget is INVALID
+  if (d.mutants_run > d.thresholds?.mutation_budget) {
+    errors.push(`scope.diff.mutants_run ${d.mutants_run} exceeds mutation_budget ${d.thresholds.mutation_budget}: the budget is a cap, not a warning. Ask \`gate.mjs mutant <count-file>\` before every mutant; findings that record more executed mutants than the budget are refused`);
+  }
   for (const f of doc.findings ?? []) {
     if (f.kind === "hollow" && f.observed?.unit && !d.changed_units?.includes(f.observed.unit)) {
       errors.push(`${f.id}: hollow finding on ${f.observed.unit}, which is not a changed unit (diff mode mutates changed units only)`);
@@ -127,13 +131,8 @@ export function checkConsistency(doc) {
   return errors;
 }
 
-// A171: running more mutants than the budget is a warning, never an error: the gate is decided from the results inside
-// the budget and the overrun is reported (a reviewer at 21/20 must not block the gate).
-export function checkWarnings(doc) {
-  const d = doc.mode === "diff" ? doc.scope?.diff : undefined;
-  if (d && d.mutants_run > d.thresholds?.mutation_budget) {
-    return [`scope.diff.mutants_run ${d.mutants_run} exceeds mutation_budget ${d.thresholds.mutation_budget}: the gate is decided from the results within the budget; the overrun is a warning (CONFIDENCE at most medium)`];
-  }
+// No warnings remain: a mutant overrun is an error of checkConsistency (the budget is a cap).
+export function checkWarnings() {
   return [];
 }
 

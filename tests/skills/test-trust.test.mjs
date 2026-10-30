@@ -143,11 +143,12 @@ test("diff mode requires gate, fingerprint and scope.diff; full mode forbids gat
 
 test("diff mode: hollow only on changed units, mutants within budget, slow above slow_ratio", () => {
   assert.match(diffErrors(diffDoc({ result: "FAIL", failing: ["F001"] }, hollow())), /not a changed unit/);
-  const over = diffDoc({ result: "PASS", failing: [] }); over.scope.diff.mutants_run = 21;
-  // A171: an overrun (21/20) is a warning, not an error
-  assert.equal(diffErrors(over), "");
-  assert.match(checkWarnings(over).join("\n"), /exceeds mutation_budget 20/);
-  assert.deepEqual(checkWarnings(diffDoc({ result: "PASS", failing: [] })), []);
+  for (const n of [21, 22, 59]) {
+    const over = diffDoc({ result: "PASS", failing: [] }); over.scope.diff.mutants_run = n;
+    assert.match(diffErrors(over), new RegExp(`mutants_run ${n} exceeds mutation_budget 20`));
+  }
+  const at = diffDoc({ result: "PASS", failing: [] }); at.scope.diff.mutants_run = 20;
+  assert.equal(diffErrors(at), "", "exactly the budget passes");
   assert.match(diffErrors(diffDoc({ result: "PASS", failing: [] }, slow(2))), /does not exceed slow_ratio 3/);
 });
 
