@@ -1826,22 +1826,30 @@ task_scope_entries() { # FILE HEADING -> one path, folder or glob per line
   task_section_lines "$1" "$2" | awk '
     /^[ \t]*([-*]|[0-9]+[.)])[ \t]+/ { l = $0; sub(/^[ \t]*([-*]|[0-9]+[.)])[ \t]+/, "", l)
       if (match(l, /`[^`]+`/)) e = substr(l, RSTART + 1, RLENGTH - 2); else { e = l; sub(/[ \t].*$/, "", e) }
-      sub(/^\.\//, "", e); sub(/^\//, "", e); sub(/[,;]+$/, "", e)
+      gsub(/^[ \t]+|[ \t]+$/, "", e); sub(/^\.\//, "", e); sub(/^\//, "", e); sub(/[,;]+$/, "", e)
       if (e != "" && tolower(e) != "none") print e }'
 }
-scope_entry_covers() { # ENTRY PATH: the entry is the path, a folder above it, or a glob that matches it
-  sc_e=$1 sc_p=${2#./}
+norm_rel_path() { # PATH -> the path without ./ segments, doubled or leading or trailing slashes, and with .. resolved lexically
+  printf '%s\n' "$1" | awk '{ n = split($0, a, "/"); m = 0
+    for (i = 1; i <= n; i++) { if (a[i] == "" || a[i] == ".") continue; if (a[i] == "..") { if (m > 0) m--; continue }; s[++m] = a[i] }
+    o = ""; for (i = 1; i <= m; i++) o = o (i > 1 ? "/" : "") s[i]; print o }'
+}
+scope_entry_covers() { # ENTRY PATH [fold]: the entry is the path, a folder above it, or a glob that matches it; both are normalised
+  # (./, //, .. and a trailing slash cannot walk around an entry); `fold` also ignores case (Forbidden scope and known issues: a case-insensitive
+  # file system must not let IMPL.TXT slip past impl.txt; refusing more is the safe side there)
+  sc_e=$(norm_rel_path "$1") sc_p=$(norm_rel_path "$2")
+  if [ "${3:-}" = fold ]; then sc_e=$(printf '%s' "$sc_e" | tr '[:upper:]' '[:lower:]'); sc_p=$(printf '%s' "$sc_p" | tr '[:upper:]' '[:lower:]'); fi
+  [ -n "$sc_e" ] || return 1
   # shellcheck disable=SC2254 # the glob is the point: the entry is a pattern the user wrote
   case "$sc_e" in *'*'*|*'?'*|*'['*) case "$sc_p" in $sc_e) return 0 ;; esac; return 1 ;; esac
-  sc_e=${sc_e%/}
   [ "$sc_p" != "$sc_e" ] || return 0
   case "$sc_p" in "$sc_e"/*) return 0 ;; esac
   return 1
 }
-scope_path_listed() { # PATH ENTRIES (newline separated)
+scope_path_listed() { # PATH ENTRIES (newline separated) [fold]
   while IFS= read -r slp_e; do
     [ -n "$slp_e" ] || continue
-    scope_entry_covers "$slp_e" "$1" && return 0
+    scope_entry_covers "$slp_e" "$1" "${3:-}" && return 0
   done <<EOF
 $2
 EOF
@@ -1856,7 +1864,7 @@ require_task_boundaries() { # ID
   rtb_forb=$(task_scope_entries "$rtb_t" 'Forbidden scope')
   if [ -n "$rtb_forb" ]; then
     for rtb_p in $rtb_paths; do
-      if scope_path_listed "$rtb_p" "$rtb_forb"; then
+      if scope_path_listed "$rtb_p" "$rtb_forb" fold; then
         fail "plan scope path $rtb_p is inside the task's Forbidden scope: the freeze is refused and nothing waives it (an agent cannot lift a boundary the user wrote). Remove the path from the plan, or the user changes the task's Forbidden scope himself (A202)"
       fi
     done
@@ -5935,11 +5943,13 @@ ki() { KI_DIR=$(shared_dir known-issues) KI_APPROVALS=$(approvals_dir -) KI_TASK
 ki_untouched() {
   kiu_d=$(run_dir "$1"); [ -f "$kiu_d/RUN.yaml" ] || return 1
   kiu_s=$(section_value "$kiu_d" freeze scope_paths); [ -n "$kiu_s" ] || return 1
-  for kiu_e in $(printf '%s' "$kiu_s" | tr ',' ' '); do scope_entry_covers "$kiu_e" "$2" && return 1; done
+  for kiu_e in $(printf '%s' "$kiu_s" | tr ',' ' '); do scope_entry_covers "$kiu_e" "$2" fold && return 1; done
   kiu_b=$(repository_base_sha "$kiu_d" 2>/dev/null) || return 1; [ -n "$kiu_b" ] || return 1
   kiu_all=$( { git -C "$root" diff --no-renames --name-only "$kiu_b" 2>/dev/null || echo __FAILED__; current_tracked_paths; current_untracked_paths; } ) || return 1
   case "$kiu_all" in *__FAILED__*) return 1 ;; esac
-  ! printf '%s\n' "$kiu_all" | grep -Fxq -- "$2"
+  kiu_pl=$(norm_rel_path "$2" | tr '[:upper:]' '[:lower:]')
+  [ -n "$kiu_pl" ] || return 1
+  ! printf '%s\n' "$kiu_all" | tr '[:upper:]' '[:lower:]' | sed 's|^\./||' | grep -Fxq -- "$kiu_pl"
 }
 # finding_known_issue ID GATE-RECORD FINDING-ID: prints "KI-<n><TAB><follow-up>" when the blocking finding is an active record, untouched
 finding_known_issue() {
@@ -7214,7 +7224,7 @@ verify_completion_report() {
 # sb_scrub: stdin -> one safe line. A word with a slash, a backslash, a leading ~, a drive letter, an @, an = , a known key prefix or
 # 24+ letters-and-digits is replaced; a word naming a credential redacts the word after it.
 sb_scrub() {
-  tr -c '[:print:]' ' ' | tr '<>`|' '    ' | awk '{
+  tr -c '[:print:]' ' ' | tr '<>`|()[]{}"'"'"',;:' ' ' | awk '{
     n = split($0, w, " "); out = ""; nx = 0
     for (i = 1; i <= n; i++) {
       t = w[i]
