@@ -1231,7 +1231,10 @@ plan_rollback_present() { # PLAN
 # that does not set them hashes as before.
 # A173: the ecosystem set that joins the signal whose check is `dependencies` is bound too (one synthetic line), so a changed
 # definition cannot silently change a frozen run's signal.
+rk_set=''
 risk_config() {
+  # A203: the config is read once per process; risk_prime keeps the block (subshells inherit it) instead of a grep per question
+  if [ "$rk_set" = yes ]; then [ -z "$rk_val" ] || printf '%s\n' "$rk_val"; return 0; fi
   { printf '%s' "$cfg_cache" | grep -E '^(risk\.|performance\.|security\..*=.|contract\..*=.)' || true
     [ -z "$eco_dependency_set" ] || printf 'risk.ecosystems.dependencies=%s\n' "$eco_dependency_set"; }
 }
@@ -1301,12 +1304,14 @@ risk_compute() {
   rc_d=$(run_dir "$1"); rc_base=$(repository_base_sha "$rc_d"); case "$rc_base" in ''|PENDING) rc_base=HEAD ;; esac
   rc_changed=$(task_changed_paths "$1" | grep -v -E '\.(md|mdx|rst|adoc)$|^\.agents/' || true)
   rc_scope=$(scope_mappings "$rc_d/PLAN.md" 2>/dev/null | cut -d'|' -f1 | grep -v -E '\.(md|mdx|rst|adoc)$' || true)
+  # A203: the "diff <path>" / "scope <path>" lines every path signal is matched against, built once (not two sed processes per signal)
+  rc_tagged=$({ [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; })
   rc_legacy=no; ! risk_legacy_frozen "$1" || rc_legacy=yes
   for rc_n in $(risk_names); do
     [ "$rc_n:$rc_legacy" != log_sensitive:yes ] || continue   # a run frozen before the signal keeps its focus set
     rc_g=$(risk_paths "$1" "$rc_n")
     if [ -n "$rc_g" ]; then
-      { [ -z "$rc_changed" ] || printf '%s\n' "$rc_changed" | sed 's/^/diff /'; [ -z "$rc_scope" ] || printf '%s\n' "$rc_scope" | sed 's/^/scope /'; } |
+      { [ -z "$rc_tagged" ] || printf '%s\n' "$rc_tagged"; } |
         awk -v n="$rc_n" -v pats="$rc_g" "$g2re_awk"'
           { src = $1; p = substr($0, length(src) + 2); c = split(pats, a, " ")
             for (j = 1; j <= c; j++) if (a[j] != "" && p ~ g2re(a[j])) { print n "|" src "|" p "|" a[j]; break } }'
@@ -1342,7 +1347,7 @@ risk_compute() {
 }
 # risk_signals ID: risk_compute, cached for the process after risk_prime (subshells inherit the cache).
 # The cache also holds the computed tier: within one command the tree does not change.
-risk_prime() { rs_cache_id=''; rs_tier=$(tier_compute "$1"); rs_cache=$(risk_compute "$1"); rs_focuses=$(risk_focuses_of "$1"); rs_cache_id=$1; }
+risk_prime() { rs_cache_id=''; rk_set=''; rk_val=$(risk_config); rk_set=yes; rs_tier=$(tier_compute "$1"); rs_cache=$(risk_compute "$1"); rs_focuses=$(risk_focuses_of "$1"); rs_cache_id=$1; }
 risk_signals() { if [ "${rs_cache_id:-}" = "$1" ]; then [ -z "$rs_cache" ] || printf '%s\n' "$rs_cache"; else risk_compute "$1"; fi; }
 risk_focuses_of() { risk_signals "$1" | cut -d'|' -f1 | sort -u | while IFS= read -r rfo_n; do cfg "risk.$rfo_n.check"; done | sed '/^$/d' | sort -u; }
 risk_gate_focuses() { # ID GATE -> the risk focuses the gate carries for this run
@@ -2534,7 +2539,7 @@ known_control_artifact() {
   esac
   kc_rel=${path#.agents/runs/"$id"/}
   case "$kc_rel" in
-    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|VERIFY.md|mutation_budget|.lock/pid) return 0 ;;
+    TASK.md|PLAN.md|RUN.yaml|COMPLETION_REPORT.md|LEDGER.log|HOOKS.log|VERIFY.md|mutation_budget|.lock/pid) return 0 ;;
     amendments/*|dispatch/*|worker-evidence/*|decisions/*|gates/*|results/*|reports/*|questions/*|approvals/*|waivers/*|security/*|ci-fix/*) return 0 ;;   # ci-fix: A169
     scratch/*) return 0 ;;
     reviews/proof-review/plan/*|reviews/proof-review/rules/*|reviews/proof-review/small/*|reviews/test-trust/tests/*|reviews/test-trust/qa/*|reviews/data-design/*) return 0 ;;
@@ -3050,7 +3055,23 @@ next_evidence_seq() {
   done
   printf '%d\n' $((n + 1))
 }
-evidence_field() { awk -v k="$2" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^ */, "", v); gsub(/"/, "", v); print v; exit }' "$1"; }
+# A203: a gate or evidence record has some twenty `key: value` lines and a status check reads many of them: a shell read loop, no process per
+# field (an awk per field was most of the processes of `next` and `digest`). The first line that starts with `key:` wins; leading spaces and
+# every double quote of the value are dropped, as before. An unreadable file keeps the old awk path (same message, same status).
+evidence_field() {
+  if [ ! -r "$1" ]; then awk -v k="$2" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^ */, "", v); gsub(/"/, "", v); print v; exit }' "$1"; return; fi
+  ef_pre="$2:"
+  while IFS= read -r ef_l || [ -n "$ef_l" ]; do
+    case "$ef_l" in
+      "$ef_pre"*)
+        ef_v=${ef_l#"$ef_pre"}
+        while :; do case "$ef_v" in " "*) ef_v=${ef_v# } ;; *) break ;; esac; done
+        while :; do case "$ef_v" in *'"'*) ef_v=${ef_v%%'"'*}${ef_v#*'"'} ;; *) break ;; esac; done
+        printf '%s\n' "$ef_v"; return 0 ;;
+    esac
+  done < "$1"
+  return 0
+}
 evidence_targets() { sed -n 's/^target: *//p' "$1" | head -1 | tr ',' '\n'; }
 evidence_covers_path() { evidence_targets "$1" | grep -Fxq -- "$2"; }
 # scope_snapshot MAPPINGS: "path=sha256;..." of every frozen scope path now ("missing" for a path not there yet).
@@ -3276,7 +3297,12 @@ gate_field() { evidence_field "$1" "$2"; }
 gate_names_all() { ls -1 "$(gates_dir "$1")" 2>/dev/null | grep -E '^[0-9]{3}-(SECRETS|REVIEW_SMALL|REVIEW_PLAN|REVIEW_RULES|REVIEW_TESTS|REVIEW_DATA|SECURITY|QA|VERIFY|REOPEN)\.yaml$' | sort || true; }
 # Only records bound in the ledger chain by the command that wrote them count; a hand-written or edited
 # file is ignored by every evaluation (and reported by `validate`).
+# A203: `next` and `digest` read the gate records dozens of times in one process and write none: gate_names_prime lists them once (every
+# subshell inherits the list). Only those two commands call it, so a command that records a gate always reads the folder.
+gn_memo_id=''
+gate_names_prime() { gn_memo_id=''; gn_memo_val=$(gate_names "$1"); gn_memo_id=$1; }
 gate_names() {
+  if [ "$gn_memo_id" = "$1" ]; then [ -z "$gn_memo_val" ] || printf '%s\n' "$gn_memo_val"; return 0; fi
   gn_all=$(gate_names_all "$1"); [ -n "$gn_all" ] || return 0
   # shellcheck disable=SC2086 # file names without whitespace
   bound_names "$(run_dir "$1")" gates '(gate:|REOPEN$)' $gn_all | sort
@@ -5746,8 +5772,8 @@ approve_pending() {
 }
 # hook_time ID: the runtime hooks' own timings (A171). A hook appends `epoch|name|ms|result|note` to
 # .agents/local/hook-times (a plain append, no lock, so a slow or killed hook still leaves its line; a killed one is found by the
-# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's ledger
-# under the locks: one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
+# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's HOOKS.log (A203; never the ledger)
+# under the locks into the run's HOOKS.log (A203; not into the ledger): one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
 # event per timeout (`name=<event> ms=<n> note=...`). The friction report counts both. A run without lifecycle gates takes none.
 hook_time() {
   ht_id=${1:-}; require_lead; ht_f=$root/.agents/local/hook-times
@@ -5760,7 +5786,9 @@ hook_time() {
         n[$2]++; t[$2] += $3; if ($3 + 0 > m[$2]) m[$2] = $3 + 0 }
       END { for (k in n) print "hook\tname=" k " runs=" n[k] " total_ms=" t[k] " max_ms=" m[k] }' "$ht_w" | sort |
     while IFS="$(printf '\t')" read -r ht_ev ht_detail; do
-      ledger_append "$ht_id" "$ht_ev" - - "$(printf '%s' "$ht_detail" | tr -c 'A-Za-z0-9_.=,: -' '_')"
+      # A203: a hook timing is not a lifecycle transition: it goes to HOOKS.log of the run (same line shape, no sequence and no chain),
+      # never into the hash-chained ledger (60 percent of a real ledger was hook lines)
+      printf 'ts=%s epoch=%s event=%s role=%s detail=%s\n' "$(now_iso)" "$(now_epoch)" "$ht_ev" "$execution_role" "$(printf '%s' "$ht_detail" | tr -c 'A-Za-z0-9_.=,: -' '_')" >> "$(run_dir "$ht_id")/HOOKS.log"
     done
   fi
   rm -f "$ht_w"
@@ -6532,7 +6560,7 @@ decide() {
       --redecide) dc_redo=yes; dc_ap=yes; shift ;;
       --ui-mode) dc_uimode=${2:?--ui-mode needs a value}; shift 2 ;;
       --focus) dc_focus=${2:?--focus needs a value}; shift 2 ;;
-      --model|--effort|--context-bytes|--runtime) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;
+      --model|--effort|--context-bytes|--runtime|--runtime-reason) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;   # --runtime-reason: only dispatch.sh, for an automatic failover (A203)
       *) fail "unknown decide argument: $1" ;;
     esac
   done
@@ -6809,7 +6837,11 @@ budget_note() { # ID: the one line for `next`
 }
 
 next_step() {
-  ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id"); risk_prime "$ns_id"
+  ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id")
+  # A203: `digest` has primed the risk signals and the gate list already (nothing changed since); `next` primes them here
+  # (sv_load: RUN.yaml is parsed once here, so the subshells that read a value inherit the parsed copy instead of parsing it again)
+  sv_load "$ns_d"
+  [ "${dg_primed:-}" = "$ns_id" ] || { risk_prime "$ns_id"; case "$command" in next|digest) gate_names_prime "$ns_id" ;; esac; }
   ns_st=$(run_state "$ns_d"); ns_hs=$(section_value "$ns_d" handoff state)
   printf 'task=%s\nstate=%s\nhandoff=%s\n' "$ns_id" "$ns_st" "$ns_hs"
   o() { printf 'next=%s\n' "$*"; }
@@ -7322,6 +7354,46 @@ report_strip_facts() { # FILE: remove an earlier Facts block
   rs_t=$(mktemp "${TMPDIR:-/tmp}/agent-report.XXXXXX") || fail "cannot create a temporary file"
   awk -v b="$REPORT_FACTS_BEGIN" -v e="$REPORT_FACTS_END" '$0 == b { skip = 1; next } skip && $0 == e { skip = 0; next } !skip' "$1" > "$rs_t" && cp "$rs_t" "$1"; rm -f "$rs_t"
 }
+# report_execution ID (A203): the `## Execution` section of the completion report, generated from the decision records (decisions/NNN-*.decision),
+# one row per dispatch decision in order. The lead's own table was copied by hand and drifted from the records (a failover, an escalation or a
+# model left out); publish replaces whatever the lead wrote under that heading with this text. Nothing is printed when no decision exists.
+report_execution() {
+  rx_id=$1; require_run "$rx_id"
+  [ -n "$(decision_files "$rx_id")" ] || return 0
+  printf '## Execution\n\nGenerated from the decision records by `agent.sh report-execution %s` when the report is published; never edited by hand.\n\n| role | focus | runtime | model | effort | signals | note |\n|---|---|---|---|---|---|---|\n' "$rx_id"
+  (cd "$(run_dir "$rx_id")/decisions" && for rx_f in $(decision_files "$rx_id"); do cat "$rx_f"; printf '@@END@@\n'; done) | awk -F= '
+    function c(s) { gsub(/\|/, "/", s); return s }
+    function flush(   n) {
+      if (role == "") return
+      n = ""
+      if (rr ~ /AUTOMATIC_FAILOVER/) n = n "failover (automatic) to " rt "; "
+      else if (rr ~ /OPERATOR_OVERRIDE/) n = n "runtime set by the operator; "
+      if (esc == "yes") n = n "escalated (" xr "); "
+      if (via == "agent-path") n = n "agent path; "
+      sub(/; $/, "", n)
+      printf "| %s | %s | %s | %s | %s | %s | %s |\n", c(role), (focus == "" ? "-" : c(focus)), c(rt), c(model), c(effort), (sig == "" ? "none" : c(sig)), (n == "" ? "-" : c(n))
+      role = focus = rt = model = effort = sig = rr = esc = xr = via = ""
+    }
+    $0 == "@@END@@" { flush(); next }
+    { v = substr($0, length($1) + 2) }
+    $1 == "role" { role = v } $1 == "focus" { focus = v } $1 == "runtime" { rt = v } $1 == "model" { model = v } $1 == "effort" { effort = v }
+    $1 == "signals" { sig = v } $1 == "runtime_reason" { rr = v } $1 == "escalated" { esc = v } $1 == "escalation_reason" { xr = v } $1 == "via" { via = v }'
+}
+# report_execution_apply ID: the generated section replaces the lead's `## Execution` section (or goes before `## Known Limitations`, or last).
+report_execution_apply() {
+  rx_id=$1; rx_f=$(run_dir "$rx_id")/COMPLETION_REPORT.md
+  [ -n "$(decision_files "$rx_id")" ] && [ -f "$rx_f" ] || return 0
+  rx_g=$(mktemp "${TMPDIR:-/tmp}/agent-exec.XXXXXX") || fail "cannot create a temporary file"; rx_t=$rx_g.new
+  report_execution "$rx_id" > "$rx_g"
+  awk -v g="$rx_g" '
+    function emit(   l) { while ((getline l < g) > 0) print l; close(g); print ""; done = 1 }
+    /^## Execution[ \t]*$/ && !done { skip = 1; emit(); next }
+    skip && /^## / { skip = 0 }
+    skip { next }
+    /^## Known Limitations/ && !done { emit() }
+    { print }
+    END { if (!done) { print ""; emit() } }' "$rx_f" > "$rx_t" && cp "$rx_t" "$rx_f"; rm -f "$rx_g" "$rx_t"
+}
 # report_claims_check ID FILE: a number next to the words tests, gates, fix rounds or refreezes must be a recorded
 # value. Narrow on purpose: digits only, directly beside the word (before it, or after it with `:`/`=`), fenced code skipped.
 report_claims_check() {
@@ -7383,6 +7455,7 @@ publish_completion_report() {
   # A143: the Facts block of an earlier publish is removed first so it never satisfies a check, the text is checked
   # against the records, and a fresh block generated from them is appended verbatim.
   report_strip_facts "$dir/COMPLETION_REPORT.md"
+  report_execution_apply "$id"   # A203: the Execution table is generated from the decision records, whatever the lead wrote there
   report_summary_apply "$id"
   validate_completion_report_structure "$id"
   report_claims_check "$id" "$dir/COMPLETION_REPORT.md"
@@ -8817,6 +8890,8 @@ plan_section() {
 # instead of large outputs, and a fresh process rebuilds it after a context reset.
 digest_run() {
   dg_id=$1; require_run "$dg_id"; dg_d=$(run_dir "$dg_id"); dg_q=0
+  # A203: the risk signals and the gate list are computed once for the whole digest (the summary and the next step read them; nothing is written)
+  sv_load "$dg_d"; risk_prime "$dg_id"; gate_names_prime "$dg_id"; dg_primed=$dg_id
   for dg_f in "$dg_d"/questions/[0-9][0-9][0-9].md; do if [ -e "$dg_f" ] && [ ! -e "${dg_f%.md}.answer.md" ]; then dg_q=$((dg_q + 1)); fi; done
   summary_run "$dg_id"
   printf 'OPEN QUESTIONS: %s\n' "$dg_q"
@@ -8845,7 +8920,7 @@ case "$command" in next|digest|summary|status-block|next-user|status|friction|ba
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='tree-inspect timeouts hook-timeouts verify-timeout tm-scaled scale-check human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
+read_only_commands='report-execution tree-inspect timeouts hook-timeouts verify-timeout tm-scaled scale-check human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -8944,6 +9019,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
   repro-normalize   (read-only filter: stdin to stdout, the listed volatile fields of a recorded output line normalized, A200)
   design-rationales <ID> [--json] [PATH]   (read-only: the DESIGN.md pattern justifications and whether the user approved each; --json prints the object lint-source takes as --approved-rationales, A200)
+  report-execution <ID>   (read-only: the `## Execution` table publish-completion-report writes into the report, from the decision records)
   report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)
   test
 USAGE
@@ -8978,6 +9054,7 @@ case "$command" in
   worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
+  report-execution) report_execution "${2:?usage: agent.sh report-execution <ID>}" ;;
   repro-normalize) repro_normalize ;;
   design-rationales) [ "${2:-}" = - ] || require_run "${2:?usage: agent.sh design-rationales <ID|-> [--json] [DESIGN-MD-PATH]}"; design_rationales "$2" "${3:-}" "${4:-}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;

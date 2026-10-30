@@ -354,6 +354,7 @@ attempt() {
   [ -n "$o_model" ] && set -- "$@" --model "$o_model"
   [ -n "$o_effort" ] && set -- "$@" --effort "$o_effort"
   [ -n "$a_runtime" ] && set -- "$@" --runtime "$a_runtime"
+  [ -z "$a_rtreason" ] || set -- "$@" --runtime-reason "$a_rtreason"   # A203: an automatic failover has its own reason, not OPERATOR_OVERRIDE
   # A171: the decide exemption is a one-use nonce file holding this script's pid; decide checks the pid is alive and its ancestor and
   # removes the file on acceptance. A killed dispatch leaves none behind (trap) and stale ones are swept (older than a minute).
   mkdir -p "$root/.agents/local/dispatch"
@@ -524,7 +525,7 @@ transient_network() { # LOG
   ! printf '%s\n' "$tn_t" | grep -Eiq 'workspace routing discovery failed' || return 1
   printf '%s\n' "$tn_t" | grep -Eiq '(^|[^a-z])(ssl|tls)([^a-z]|$)|certificate verify|connection (was )?(reset|closed|aborted|lost|dropped)|reset by peer|econnreset|econnaborted|etimedout|epipe|socket hang up|stream (disconnected|closed)|unexpected eof|broken pipe|temporary failure in name resolution|network is unreachable|error sending request|Reconnecting\.\.\.'
 }
-a_runtime=$o_runtime
+a_runtime=$o_runtime a_rtreason=
 attempt
 net_max=$(cfg dispatch network_retries); case "$net_max" in ''|*[!0-9]*) net_max=3 ;; esac; [ "$net_max" -le 6 ] || net_max=6
 net_base=${PROOFLINE_DISPATCH_NET_BACKOFF:-$(cfg dispatch network_backoff_seconds)}; case "$net_base" in ''|*[!0-9]*) net_base=15 ;; esac
@@ -567,7 +568,7 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
     sh "$here/runtime-detect.sh" has "$other" || blocked "runtime $rt failed ($reason); $other is not installed"
     from=$rt; o_model=''   # model ids are runtime-specific; the policy picks the other runtime's model
     note "failover from=$from to=$other reason=$reason role=$role" || blocked "runtime $rt failed ($reason); failover could not be ledgered"
-    a_runtime=$other
+    a_runtime=$other a_rtreason=AUTOMATIC_FAILOVER
     attempt
     if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$(runtime_failure_reason "$log")" != none ]; then
       blocked "runtime $from failed ($reason) and failover runtime $rt failed too"

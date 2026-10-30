@@ -390,3 +390,12 @@ test("LIFECYCLE section 7: observations are proposed, written by the task author
   assert.match(impl, /Fix an observation, or write it to the task folder/);
   assert.match(impl, /Nothing in an observation is fixed, tested or written to a task by you/);
 });
+
+// A203: a pull request the lead opens always has its CI watched in the background; the lead continues the moment it ends.
+test("delivery: the lead always watches the CI of a pull request it opened in the background", () => {
+  assert.match(SKILL, /Watch its CI in the background, go on when done/);
+  const delivery = readFileSync(join(skill, "references/DELIVERY.md"), "utf8");
+  assert.match(delivery, /\*\*Always watch in the background\*\*/);
+  assert.match(delivery, /with `run_in_background` right after the `pr` step/);
+  assert.match(delivery, /the moment the background command finishes/);
+});

@@ -520,17 +520,17 @@ scenario_terminal() {
   ok "terminal outcomes and cleanup"
 }
 
-# A hook timing line (event=hook, event=hook-timeout) is appended to the ledger after terminate: cleanup of a BLOCKED run reads the
+# A hook timing line (event=hook, event=hook-timeout) goes to HOOKS.log after terminate (A203; it used to enter the ledger): cleanup of a BLOCKED run reads the
 # last line that is not a hook line, so it still works; a run with no terminate still refuses.
 scenario_cleanup_after_hook_lines() {
   scaffold standalone
   mkdir -p .agents/local; printf '1|posttool|12|ok|\n2|pretool|7|ok|\n3|stop|900|timeout|slow\n' > .agents/local/hook-times
-  A hook-time LC; grep -q ' event=hook ' .agents/runs/LC/LEDGER.log || die "setup: hook-time wrote no hook line before the terminate"
+  A hook-time LC; grep -q ' event=hook ' .agents/runs/LC/HOOKS.log || die "setup: hook-time wrote no hook line before the terminate"; ! grep -q ' event=hook' .agents/runs/LC/LEDGER.log || die "A203: a hook line is in the ledger"
   expect_fail "cleanup of a run with no terminate" A cleanup LC
   printf 'reason: the verification toolchain is unavailable in this environment\nevidence: go test exited 127 because the go binary is missing\n' | A terminate LC BLOCKED >/dev/null
   printf '4|posttool|15|ok|\n5|prompt|9|ok|\n6|stop|950|timeout|slow\n' > .agents/local/hook-times
   A hook-time LC
-  tail -n 1 .agents/runs/LC/LEDGER.log | grep -Eq ' event=hook(-timeout)? ' || die "setup: the last ledger line is not a hook line"
+  ! tail -n 1 .agents/runs/LC/LEDGER.log | grep -Eq ' event=hook(-timeout)? ' || die "A203: the last ledger line is a hook line"
   A cleanup LC >/dev/null || die "cleanup of a BLOCKED run was refused because hook lines follow its terminate"
   [ ! -e .agents/runs/LC ] || die "the BLOCKED run survived the cleanup"
   scaffold standalone

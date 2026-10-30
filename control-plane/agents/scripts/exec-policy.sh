@@ -4,7 +4,7 @@
 # no model call, no run state. `agent.sh decide` gathers the inputs from a run and ledgers the result.
 #
 #   exec-policy.sh resolve --role R --class C --tier T [--profile P] [--runtime RT] [--signal S]...
-#       [--escalations-used N] [--model M] [--effort E] [--context-bytes N]
+#       [--escalations-used N] [--model M] [--effort E] [--context-bytes N] [--runtime-reason AUTOMATIC_FAILOVER]
 #   exec-policy.sh explain < decision          reason codes -> text
 #   exec-policy.sh check-capabilities          codex ladder vs the local Codex model cache (needs jq)
 #   exec-policy.sh check-lead --runtime RT [--model M]   a lead must run on the base model or stronger (A135)
@@ -79,12 +79,12 @@ model_at_tier() {
 }
 
 resolve() {
-  role='' class='' tier='' profile='' rt='' signals='' used=0 o_model='' o_effort='' o_ctx=''
+  role='' class='' tier='' profile='' rt='' signals='' used=0 o_model='' o_effort='' o_ctx='' o_rreason=''
   while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || die "missing value for $1"
     case "$1" in
       --role) role=$(canon_role "$2") ;; --class) class=$2 ;; --tier) tier=$2 ;; --profile) profile=$2 ;;
-      --runtime) rt=$2 ;; --signal) signals="$signals $2" ;; --escalations-used) used=$2 ;;
+      --runtime) rt=$2 ;; --runtime-reason) o_rreason=$2 ;; --signal) signals="$signals $2" ;; --escalations-used) used=$2 ;;
       --model) o_model=$2 ;; --effort) o_effort=$2 ;; --context-bytes) o_ctx=$2 ;;
       *) die "unknown option: $1" ;;
     esac
@@ -109,6 +109,8 @@ resolve() {
   [ -n "$profile" ] || { profile=balanced; preason=DEFAULT_PROFILE; }
   case "$profile" in max|balanced|economy) ;; *) [ "$preason" = OPERATOR_OVERRIDE ] && reject INVALID_PROFILE "$profile (want max|balanced|economy)"; die "invalid profile in config: $profile" ;; esac
   rreason=OPERATOR_OVERRIDE
+  # A203: the dispatch label of an automatic failover (dispatch.sh passes it with the runtime it fails over to): its own reason, never an operator's
+  case "$o_rreason" in '') ;; AUTOMATIC_FAILOVER) [ -z "$rt" ] || rreason=AUTOMATIC_FAILOVER ;; *) reject INVALID_RUNTIME_REASON "$o_rreason (want AUTOMATIC_FAILOVER)" ;; esac
   if [ -z "$rt" ]; then rt=$(cfg runtime roles "$role"); rreason=CONFIG_RUNTIME_ROLE; fi
   if [ -z "$rt" ]; then rt=$(cfg runtime "$(role_group "$role")"); rreason=CONFIG_RUNTIME_GROUP; fi   # = role_runtime
   [ -n "$rt" ] || { rt=claude; rreason=DEFAULT_RUNTIME; }
@@ -225,7 +227,7 @@ explain() {
     case "$k" in *_reason) ;; *) continue ;; esac
     for c in $(printf '%s' "$v" | tr ',' ' '); do
       case "$c" in
-        OPERATOR_OVERRIDE) t="explicit operator override" ;; CONFIG_PROFILE) t="profile from config" ;;
+        OPERATOR_OVERRIDE) t="explicit operator override" ;; AUTOMATIC_FAILOVER) t="runtime chosen by an automatic failover (config failover: auto), not by an operator" ;; CONFIG_PROFILE) t="profile from config" ;;
         DEFAULT_PROFILE) t="no profile configured: balanced" ;; CONFIG_RUNTIME_ROLE) t="runtime from config runtime.roles.<role>" ;;
         CONFIG_RUNTIME_GROUP) t="runtime from config runtime.lead|worker|reviewers" ;; DEFAULT_RUNTIME) t="no runtime configured: claude" ;;
         ROLE_PROFILE) t="the role's model/effort for this profile (roles.conf)" ;; ROLE_TIER_MAPPED) t="no roles.conf line for this runtime: another runtime's line mapped by capability tier" ;;

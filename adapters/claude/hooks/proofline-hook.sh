@@ -492,7 +492,7 @@ path_ok() {
   case "$po" in
     .claude/settings.json|.claude/settings.local.json|.codex/hooks.json|.codex/config.toml|.agents/hooks|.agents/hooks/*)
       echo "$po holds the runtime hooks; it is never edited during a run"; return 1 ;;
-    "$run"/RUN.yaml|"$run"/LEDGER.log|"$run"/mutation_budget|"$run"/gates/*|"$run"/approvals/*|"$run"/waivers/*|"$run"/questions/*|"$run"/decisions/*|"$run"/dispatch/*|"$run"/worker-evidence/*|"$run"/ci-fix/*|"$run"/results/*.result.md|"$run"/results/dispatch-*|.agents/local|.agents/local/*)
+    "$run"/RUN.yaml|"$run"/LEDGER.log|"$run"/HOOKS.log|"$run"/mutation_budget|"$run"/gates/*|"$run"/approvals/*|"$run"/waivers/*|"$run"/questions/*|"$run"/decisions/*|"$run"/dispatch/*|"$run"/worker-evidence/*|"$run"/ci-fix/*|"$run"/results/*.result.md|"$run"/results/dispatch-*|.agents/local|.agents/local/*)
       echo "$po is written only by agent.sh and the runtime hooks"; return 1 ;;
   esac
   case "$role" in
@@ -556,7 +556,7 @@ nr_path_ok() {
   # State only agent.sh and the runtime hooks write (the in-run set of path_ok, for every run), the runtime hooks, and
   # .agents/local/ except the lead's own working folders: a hand-written approval or ledger line must never exist.
   case "$np" in
-    .agents/runs/*/RUN.yaml|.agents/runs/*/LEDGER.log|.agents/runs/*/mutation_budget|.agents/runs/*/gates/*|.agents/runs/*/approvals/*|.agents/runs/*/waivers/*|.agents/runs/*/questions/*|.agents/runs/*/decisions/*|.agents/runs/*/dispatch/*|.agents/runs/*/worker-evidence/*|.agents/runs/*/ci-fix/*|.agents/runs/*/results/*.result.md|.agents/runs/*/results/dispatch-*|.agents/hooks|.agents/hooks/*)
+    .agents/runs/*/RUN.yaml|.agents/runs/*/LEDGER.log|.agents/runs/*/HOOKS.log|.agents/runs/*/mutation_budget|.agents/runs/*/gates/*|.agents/runs/*/approvals/*|.agents/runs/*/waivers/*|.agents/runs/*/questions/*|.agents/runs/*/decisions/*|.agents/runs/*/dispatch/*|.agents/runs/*/worker-evidence/*|.agents/runs/*/ci-fix/*|.agents/runs/*/results/*.result.md|.agents/runs/*/results/dispatch-*|.agents/hooks|.agents/hooks/*)
       echo "$np is written only by agent.sh and the runtime hooks"; return 1 ;;
     .claude/settings*|.codex/*|.agents/scripts/*|.agents/config.yaml|.agents/ecosystems.json|.agents/ecosystems.tsv|.agents/ecosystems.mjs)
       echo "$np holds the runtime hooks, the control-plane scripts, the configuration or the ecosystem definition (the risky-path and dependency sets, A174); the lead never edits it itself (A169)"; return 1 ;;
@@ -2228,7 +2228,7 @@ pretool)
       # target_ok denies every other writer first, so this line is a consistency guard, not a reachable path.)
       case "$lp" in .agents/runs/*/*) lq=${lp#.agents/runs/}; lq=${lq#*/}; case "$lq" in questions/[0-9][0-9][0-9].md) exit 0 ;; esac ;; esac
       case "$lp" in
-        .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log) ;;
+        .agents/runs/*/dispatch/*|.agents/runs/*/scratch/*|.agents/runs/*/gates/*|.agents/runs/*/LEDGER.log|.agents/runs/*/HOOKS.log) ;;
         .agents/runs/*/reviews/visual-proof/*|.agents/runs/*/reports/qa-evidence/*) ;;   # A172: machine output of the skills
         .agents/runs/*/*.md|.agents/runs/*/*.yaml|.agents/runs/*/*.json)
           if [ "$tool" = MultiEdit ]; then   # the new_string of every edit, as text (a JSON array would hide the line starts)
@@ -2540,6 +2540,27 @@ $l" ;; esac
     { if (fence) { if (named($0) && fa) hit = 1 } else { if (named($0) && asks($0)) hit = 1; prev = asks($0) } }
     END { print hit ? "yes" : "no" }') ;;
   esac
+  # A203: the lead also never asks the user to run a command it can run itself: a read-only look at the machine or the repository (uptime, ps, df,
+  # git status, gh pr view ...). Same rule of a request as above (a line that asks, or a fence announced by one); a mention of what the lead ran is
+  # not one, and the user's own work (git push, gh auth login, a plugin update) is not in the list.
+  sc_hit=no
+  case "$msg" in *[Rr]un*|*[Ee]xecute*|*terminal*) sc_hit=$(printf '%s\n' "$msg" | awk '
+    function asks(t) { t = tolower(t); return t ~ /(please|kindly)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /you[[:space:]]+(should|can|could|must|need to|have to|may)[[:space:]]+(run|execute|paste|type|enter)/ || t ~ /(run|execute|paste|type|enter)[[:space:]]*:/ || t ~ /^[[:space:]>*-]*(run|execute|paste|type|enter)[[:space:]]/ || t ~ /(in|into) (your|a) terminal/ || t ~ /^[[:space:]>*-]*!/ }
+    function named(t) { t = tolower(t); return t ~ /(^|[`:!$]|[[:space:]](run|execute))[[:space:]]*(uptime|ps|top|df|free|du|lsof|pgrep|vmstat|whoami|hostname|uname|nproc|pwd|which|printenv|git (status|log|diff|branch|remote|rev-parse)|gh (pr|run) (view|list|checks|status))([[:space:]`]|$)/ }
+    /^[[:space:]]*```/ { fence = !fence; if (fence) fa = prev; next }
+    { if (fence) { if (named($0) && fa) hit = 1 } else { if (named($0) && asks($0)) hit = 1; prev = asks($0) } }
+    END { print hit ? "yes" : "no" }') ;;
+  esac
+  if [ "$sc_hit" = yes ] && [ "$fr_hit" != yes ]; then
+    sc_again=$(jget stop_hook_active)
+    if [ "$sc_again" != true ] && [ -n "$act" ] && [ "$act" != INVALID ]; then (unset AGENT_ROLE; sh "$agent" friction-note "$act" user-shell >/dev/null 2>&1) || :; fi
+    if [ "$sc_again" != true ]; then
+      printf '{"decision":"block","reason":"%s"}\n' "$(jesc "proofline: do not make the user run a command you can run yourself (uptime, ps, df, git status, gh pr view ...): run it with your own Bash tool and use its output. Only the user's own work is theirs (git push, gh auth login, a plugin update, a login). A171, A203.")"
+      exit 0
+    fi
+    out="${out:+$out
+}proofline: this message asks the user to run a command the lead can run itself. That is friction (A203), noted in the friction report."
+  fi
   if [ "$fr_hit" = yes ]; then
     sh_again=$(jget stop_hook_active)
     if [ "$sh_again" != true ] && [ -n "$act" ] && [ "$act" != INVALID ]; then (unset AGENT_ROLE; sh "$agent" friction-note "$act" user-command >/dev/null 2>&1) || :; fi

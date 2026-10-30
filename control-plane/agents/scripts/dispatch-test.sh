@@ -226,6 +226,7 @@ reset; d FAKE_CLAUDE=limit T-1 reviewer
 ck "limit error fails over to codex (auto)" '[ "$rc" -eq 0 ] && has "$loc/recorded.md" "role=reviewer result=DONE" && [ "$(cat "$loc/codex.role")" = reviewer ] && has "$loc/codex.argv" "$a/runs/T-1" && ! has "$loc/codex.argv" worker-evidence'
 ck "failover ledgered with reason" 'has "$loc/ledger.log" "failover from=claude to=codex reason=limit role=reviewer"'
 ck "failover re-decides on the other runtime" 'grep -q "^decide T-1 reviewer --runtime codex" "$loc/calls.log"'
+ck "A203: the failover decision carries its own reason (AUTOMATIC_FAILOVER), the first decision none" 'grep -q "^decide T-1 reviewer --runtime codex --runtime-reason AUTOMATIC_FAILOVER" "$loc/calls.log" && [ "$(grep -c "runtime-reason" "$loc/calls.log")" = 1 ]'
 
 # Stopping a dispatch stops its worker, the failover worker included (it used to leave the worker running, writing into the tree)
 reset; env FAKE_CLAUDE=limit FAKE_CODEX=hang sh "$a/scripts/dispatch.sh" T-1 reviewer >/dev/null 2>&1 &

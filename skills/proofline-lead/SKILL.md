@@ -70,7 +70,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    with the user's explicit approval in the current message and every required gate passing for the
    current content. `deliver` asks once: `A deliver-plan` shows one summary, the user's `approve delivery`
    records one approval per step, and `A deliver-step` checks it before each step. Merge only there, through
-   `proofline merge`; never tag, force-push, or touch a protected branch. A red CI after the pull request is open is
+   `proofline merge`; never tag, force-push, or touch a protected branch. Watch its CI in the background, go on when done. A red CI after the pull request is open is
    a finding, not a question: the CI-fix round ([DELIVERY.md](references/DELIVERY.md#6-a-red-ci-is-a-finding-the-ci-fix-round-a169))
    fixes and pushes to the same branch, at most twice, and only then stops with one question.
 9. **Context hygiene.** Read only result headers, findings tables and `A next`/`pipeline`/`status`
@@ -92,9 +92,9 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
     bug; recorded") and run `A friction-note <ID> user-command` (`user-shell` for a shell command). The friction report counts them and the
     Stop hook sends a message back that asks anyway (A193): an internal command, `--no-verify` or a hand edit under `.agents/`. The user's
     own work (`git push`, `gh auth login`, a plugin update) stays allowed.
-14. **A wait is one line (A171).** While a sub-agent or CI runs, the status message is one line: what is awaited and how long so far, for example
+14. **A wait is one line (A171).** While a sub-agent or CI runs, the status message is one line: what is awaited and how long so far, e.g.
     `waiting: dispatch reviewer, 4m12s so far` (`A wait-line <ID> ["CI of the pull request"]` prints exactly this; `--done` ends the clock). No
-    progress essay, no plan recap, no repeated questions; the next message after the wait carries the result.
+    progress essay, plan recap or repeated question; the next message carries the result.
     Any other proofline failure you had to work around (a script error, a sandbox refusal, a hook that blocked a legitimate step) is recorded the
     same way with `A friction-note <ID> proofline_bug` (A196), and said in one line. Record it when you work around it, not at the end (A200):
     `A next` repeats the reminder at the last gate step and at the completion report, and the report's Facts block counts the notes.

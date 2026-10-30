@@ -557,6 +557,22 @@ sh .agents/scripts/agent.sh next LC
     [ -z "$out" ] || die "A193 the user's own work was sent back: $m -> $out"
   done
   ok "A193 the Stop hook sends back a request for an internal command, --no-verify or an .agents/ edit and leaves git push, gh auth login and plugin updates alone"
+  # A203: a command the lead can run itself (uptime, ps, df, git status ...) is not the user's to run
+  for m in "Please run: uptime and tell me the load average." "Could you run \`ps aux | grep node\` in your terminal and paste the output?" "You can run git status and send me the result." "To check the disk, please run:
+\`\`\`
+df -h
+\`\`\`"; do
+    out=$(stop_plain "$m")
+    printf '%s' "$out" | grep -q '"decision":"block"' && printf '%s' "$out" | grep -q 'run yourself' || die "A203 a request to run a command the lead can run itself was not sent back: $m -> $out"
+  done
+  out=$(stop_plain "Please run: uptime and tell me the load average." true)
+  ! printf '%s' "$out" | grep -q '"decision"' || die "A203 the retry of a request to run uptime was blocked again: $out"
+  grep -q 'event=friction-note .*detail=user-shell' .agents/runs/LC/LEDGER.log || die "A203 the request to run uptime was not ledgered as a user-shell friction note"
+  for m in "I ran uptime and ps: the load is low." "The load average from uptime is 0.4; ps shows no stuck process." "Please run: git push origin proofline/LC-lookup" "Please run: gh auth login, then tell me when done."; do
+    out=$(stop_plain "$m")
+    [ -z "$out" ] || die "A203 a report of what the lead ran, or the user's own work, was sent back: $m -> $out"
+  done
+  ok "A203 the Stop hook sends back a request to run uptime, ps, df or git status, and leaves a report of what the lead ran and the user's own work alone"
 }
 
 # A193: the Skill tool cannot start a proofline skill (disable-model-invocation); the hook points to the file, others are untouched
@@ -1049,16 +1065,16 @@ hook_transparency() {
   [ ! -e .agents/local/hooks-inflight/prompt.99999999 ] || die "A171-6 the in-flight marker was not removed"
   # durations and timeouts reach the ledger of the run; the friction report counts them
   A hook-time LC
-  grep -q 'event=hook .*detail=name=prompt runs=[0-9]* total_ms=[0-9]* max_ms=[0-9]*' .agents/runs/LC/LEDGER.log || die "A171-6 hook duration is not in the ledger: $(tail -5 .agents/runs/LC/LEDGER.log)"
-  grep -q 'event=hook .*detail=name=prompt.capture ' .agents/runs/LC/LEDGER.log || die "A171-6 the capture step is not timed in the ledger"
-  [ "$(grep -c 'event=hook-timeout ' .agents/runs/LC/LEDGER.log)" -ge 2 ] || die "A171-6 hook timeouts are not in the ledger"
-  grep -q 'event=hook-timeout .*detail=name=prompt ms=[0-9]* note=killed-before-finish' .agents/runs/LC/LEDGER.log || die "A171-6 a killed hook (in-flight marker) is not a timeout in the ledger"
+  grep -q 'event=hook .*detail=name=prompt runs=[0-9]* total_ms=[0-9]* max_ms=[0-9]*' .agents/runs/LC/HOOKS.log || die "A171-6 hook duration is not in HOOKS.log: $(tail -5 .agents/runs/LC/HOOKS.log)"; ! grep -q ' event=hook' .agents/runs/LC/LEDGER.log || die "A203 a hook event is in the ledger"
+  grep -q 'event=hook .*detail=name=prompt.capture ' .agents/runs/LC/HOOKS.log || die "A171-6 the capture step is not timed in the ledger"
+  [ "$(grep -c 'event=hook-timeout ' .agents/runs/LC/HOOKS.log)" -ge 2 ] || die "A171-6 hook timeouts are not in the ledger"
+  grep -q 'event=hook-timeout .*detail=name=prompt ms=[0-9]* note=killed-before-finish' .agents/runs/LC/HOOKS.log || die "A171-6 a killed hook (in-flight marker) is not a timeout in the ledger"
   [ ! -s .agents/local/hook-times ] || die "A171-6 the spool was not emptied"
   sh .agents/scripts/agent.sh verify-seal LC >/dev/null 2>&1 || A verify-seal LC >/dev/null || die "A171-6 the ledger chain broke after hook events"
   cp "$tl_agents/scripts/friction.sh" .agents/scripts/
   mkdir -p .agents/local/metrics; : > .agents/local/metrics/records.jsonl; A friction report LC >/dev/null
   grep -Eq '^- hook timeouts: [2-9] \(of [0-9]+ recorded hook runs; total hook time [0-9]+ ms, slowest [0-9]+ ms\)' .agents/local/friction/latest.md || die "A171-6 the friction report does not count hook timeouts: $(grep -i hook .agents/local/friction/latest.md)"
-  ok "A171-6 hook durations and timeouts are written to the ledger and counted in the friction report"
+  ok "A171-6 hook durations and timeouts are written to HOOKS.log (A203, not the ledger) and counted in the friction report"
   # language at write time (the write hook), quote blocks exempt
   tr_text='Bence şu şekilde olsun: ığüşöç çok güzel'
   w() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\".agents/runs/LC/PLAN.md\",\"content\":\"$(jstr "$1")\"}}"; }
