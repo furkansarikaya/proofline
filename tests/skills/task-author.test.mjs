@@ -291,6 +291,9 @@ test("A202 priority, origin and the scope sections are checked, absent fields ch
   assert.match(errs(GOOD + "\n## Forbidden scope\n\n- Do not modify the billing module\n"), /not a path or glob: "Do"/);
   assert.match(errs(GOOD + "\n## forbidden scope (do not touch)\n\n- src/a.js and the billing module\n"), /not a path or glob: "and"/);
   assert.match(errs(GOOD + "\n## Allowed scope\n\n- `src/ok/`\n\nkeep it small please\n"), /not a path or glob: "keep it small please"/);
+  assert.match(errs(GOOD + "\n## Forbidden scope\n\n- `src/{a,b}.js`\n"), /not a path or glob: "src\/\{a"/);
+  assert.deepEqual(scopeParse(["- `src/foo.js:`", "- src/bar.js:"]).entries, ["src/foo.js", "src/bar.js"]);
+  assert.match(errs(withFm("type: bug\ntype: chore")), /type must be one of/);
   assert.equal(validate(GOOD + "\n## Forbidden scope (do not touch)\n\n- `src/a.js`, `src/b.js`\n").valid, true);
 });
 test("A202 link-origin writes the origin and the way back, once, and leaves the source alone", () => {

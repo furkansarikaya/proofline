@@ -252,12 +252,13 @@ hk_cfgnum lock_wait_seconds 8 1 20; hk_lock_wait=${PROOFLINE_HOOK_LOCK_WAIT:-$hk
 hk_cfgnum approve_budget_seconds 20 5 25; hk_approve_budget=${PROOFLINE_HOOK_APPROVE_BUDGET:-$hk_cv}
 hk_cfgnum next_budget_seconds 10 2 20; hk_next_budget=${PROOFLINE_HOOK_NEXT_BUDGET:-$hk_cv}
 # the environment overrides feed shell arithmetic too: leading zeros stripped, anything that is not a short number falls back to the config value
-for hk_ov in hk_lock_wait hk_approve_budget hk_next_budget; do
-  eval "hk_ovv=\$$hk_ov"
+hk_ovfix() { # VAR KEY DEFAULT MIN MAX: the override is a short number without leading zeros, else the knob's own config value
+  hk_cfgnum "$2" "$3" "$4" "$5"; eval "hk_ovv=\$$1"
   while :; do case $hk_ovv in 0?*) hk_ovv=${hk_ovv#0} ;; *) break ;; esac; done
   case $hk_ovv in ''|*[!0-9]*|??????*) hk_ovv=$hk_cv ;; esac
-  eval "$hk_ov=\$hk_ovv"
-done
+  eval "$1=\$hk_ovv"
+}
+hk_ovfix hk_lock_wait lock_wait_seconds 8 1 20; hk_ovfix hk_approve_budget approve_budget_seconds 20 5 25; hk_ovfix hk_next_budget next_budget_seconds 10 2 20
 PROOFLINE_LOCK_TIMEOUT=$hk_lock_wait; export PROOFLINE_LOCK_TIMEOUT
 # once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
 # once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side

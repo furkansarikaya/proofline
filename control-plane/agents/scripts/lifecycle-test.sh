@@ -935,6 +935,12 @@ approve budget
 I don't approve it" "approve the plan, unless the tests fail then I don't approve" "approve plan, yes I'm not sure" "approve plan, approve scope, I don't approve any of it" 'approve plan, approve scope, did I approve?'; do
     capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
   done
+  # round 2: retraction words veto too; the valid multi-approvals keep working
+  for _msg in 'approve plan, ok cancel' 'approve plan, ok undo' 'approve plan, ok stop' 'approve plan, ok ignore the above' 'approve plan, ok nope' 'approve plan, ok nah' 'approve plan, ok cannot' "approve plan, ok isn't" 'approve plan, approve scope, cancel' 'approve plan, approve scope, revoke' 'approve plan, approve scope, reject' 'approve plan, approve scope, nope' 'approve plan, approve scope, hmm'; do
+    capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
+  done
+  _msg='approve plan, approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only plan scope
+  clear_approvals plan scope
   # a negated segment that names a different open kind is still reported alone (case 3), but one that names an accepted kind vetoes
   _msg="approve plan, I don't approve plan"; capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
   # 10. a single approval behaves as before: no multi line, one record

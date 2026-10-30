@@ -51,6 +51,10 @@ sc_scope_tokens() {
       expect_msg "[$sec: $bad] was read as an entry" "is not a path or glob" A freeze LC
     done
   done
+  cp "$base/task.orig" "$t"; printf '\n## Forbidden scope\n\n- `src/{a,b}.js`\n' >> "$t"
+  expect_msg "a brace group was read as one path" '"src/{a"' A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Forbidden scope\n\n- `src/foo.js:`\n- src/bar.js:\n' >> "$t"
+  [ "$(A task-scope-entries "$t" 'Forbidden scope' | tr '\n' ' ')" = 'src/foo.js src/bar.js ' ] || die "a trailing colon was not stripped: $(A task-scope-entries "$t" 'Forbidden scope')"
   cp "$base/task.orig" "$t"; printf '\n## Forbidden scope\n\n- Do not modify the billing module\n' >> "$t"
   A freeze LC 2>&1 | grep -F '"Do"' >/dev/null || die "the refusal does not name the token Do"
   [ "$(A task-scope-entries "$t" 'Forbidden scope')" = "" ] || die "a prose bullet produced entries"
@@ -67,6 +71,9 @@ sc_type_unreadable() {
     expect_msg "classify accepted type: $ty" "cannot be read" A classify LC TRIVIAL
     expect_msg "freeze accepted type: $ty" "cannot be read" A freeze LC
   done
+  awk 'NR == 2 { print "---"; print "type: bug"; print "type: chore"; print "---" } { print }' "$base/task.orig" > "$t"
+  [ "$(A task-type "$t")" = invalid ] || die "a duplicate type: line was not invalid"
+  expect_msg "classify accepted two type: lines" "cannot be read" A classify LC TRIVIAL
   awk 'NR == 2 { print "---"; print "type: bug # a note"; print "---" } { print }' "$base/task.orig" > "$t"
   [ "$(A task-type "$t")" = bug ] || die "type: bug # note was not read as bug"
   expect_msg "TRIVIAL accepted for type: bug # note" "typed bug" A classify LC TRIVIAL

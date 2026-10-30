@@ -1832,11 +1832,11 @@ task_section_lines() { # FILE HEADING [prefix] -> the section's lines without HT
 task_scope_parse() {
   task_section_lines "$2" "$3" prefix | awk -v mode="$1" '
     function emit(t, ticked) {
-      gsub(/^[ \t]+|[ \t]+$/, "", t); sub(/[,;]+$/, "", t)
+      gsub(/^[ \t]+|[ \t]+$/, "", t); sub(/[,;:]+$/, "", t)
       if (t == "") return
       if (t ~ badre || t ~ /^[.\/]+$/ || (!ticked && t !~ pathre)) { if (mode == "bad") print t; return }
       sub(/^\.\//, "", t); sub(/^\//, "", t); if (mode == "ok") print t }
-    BEGIN { badre = "[ \t()<>|;\"\047$&\\\\]"; pathre = "[][/*?]|\\.[A-Za-z0-9]" }
+    BEGIN { badre = "[ \t()<>|;{}\"\047$&\\\\]"; pathre = "[][/*?]|\\.[A-Za-z0-9]" }
     { gsub(/\r/, "") }
     /^[ \t]*$/ { next }
     /^[ \t]*([-*]|[0-9]+[.)])[ \t]+/ { l = $0; sub(/^[ \t]*([-*]|[0-9]+[.)])[ \t]+/, "", l)
@@ -2866,7 +2866,8 @@ verify_no_scratch_worktrees() {
 # contract that the freeze hashes, so changing it after the freeze makes the run stale: an agent cannot relabel a bug to skip its gates.
 task_type() { # TASK.md -> the type
   tt_v=$(awk '{ sub(/\r$/, "") } /^##/ { exit } !fm && $0 == "---" { fm = 1; next } fm && $0 == "---" { exit }
-    fm && tolower($0) ~ /^type[[:space:]]*:/ { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/["'"'"'[:space:]]/, "", v); print (v == "" ? "?" : tolower(v)); exit }' "$1" 2>/dev/null)
+    fm && tolower($0) ~ /^type[[:space:]]*:/ { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/["'"'"'[:space:]]/, "", v); n++; r = (v == "" ? "?" : tolower(v)) }
+    END { if (n > 1) print "?"; else if (n == 1) print r }' "$1" 2>/dev/null)
   case "$tt_v" in ''|feature) echo feature ;; defect) echo bug ;; bug|refactor|content|docs|chore) echo "$tt_v" ;; *) echo invalid ;; esac
 }
 task_type_refusal() { # TASK.md: why an unreadable type stops the run
@@ -5553,7 +5554,7 @@ EOF2
 "; continue
     fi
     ms_n=$(printf '%s\n' "$ms_s" | approval_norm); ms_neg='' ms_has=''
-    ms_hedge=' not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin '   # reasons only: acceptance never reads this
+    ms_hedge=' not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin cancel undo stop ignore nope nah revoke reject withdraw abort halt disregard cannot isnt shouldnt negative refuse deny denied oppose jk iptal vazgectim hmm '   # negation, hedge and retraction words: they give a rejected segment its reason and, when the segment names no other open kind, veto the whole message; an accepted segment never reads this
     for ms_w in $ms_n; do case "$ms_hedge" in *" $ms_w "*) ms_neg=y ;; esac; done
     ms_low=" $ms_n "
     while IFS= read -r ms_w; do [ -z "$ms_w" ] || case "$ms_low" in *" $ms_w "*) ms_has=y; break ;; esac; done <<EOF2
@@ -7291,7 +7292,7 @@ verify_completion_report() {
 # word naming a credential redacts the word after it; the characters that remain are letters, digits and . _ % + - ! ? & # only (the rest is
 # dropped from each word, so no other symbol and no non-ASCII text survives); 160 characters at most.
 sb_scrub() {
-  tr -c '[:print:]' ' ' | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/REDACTEDX/g; s/([0-9A-Fa-f]{0,4}:){3,}[0-9A-Fa-f]{0,4}/REDACTEDX/g' | tr '<>`|()[]{}"'"'"',;:' ' ' | awk '{
+  tr -c '[:print:]' ' ' | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/REDACTEDX/g; s/([0-9A-Fa-f]{0,4}:){3,}[0-9A-Fa-f]{0,4}/REDACTEDX/g; s/[Ff][Ee]80::[0-9A-Fa-f:]*/REDACTEDX/g' | tr '<>`|()[]{}"'"'"',;:' ' ' | awk '{
     n = split($0, w, " "); out = ""; nx = 0
     for (i = 1; i <= n; i++) {
       t = w[i]

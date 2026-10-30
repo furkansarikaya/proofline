@@ -127,13 +127,14 @@ export function frontMatter(text) {
     m = [h[0], h[2]]; pre = h[1];
   }
   const meta = {};
-  let key = null;
+  let key = null, types = 0;
   for (const l of m[1].split(/\r?\n/)) {
     const item = /^\s+-\s+(.*?)\s*$/.exec(l);
     if (item && key) { meta[key] = [meta[key], item[1]].filter(Boolean).join(","); continue; }
     const kv = /^([A-Za-z_]+):\s*(.*?)\s*$/.exec(l);
-    if (kv) { key = kv[1]; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
+    if (kv) { key = kv[1]; if (key === "type") types++; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
   }
+  if (types > 1) meta.type = "duplicate";   // two `type:` lines: never guess which one counts (the freeze reads it the same way)
   return { meta, body: pre + text.slice(m[0].length) };
 }
 
@@ -240,11 +241,11 @@ const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const ambiguousRegex = (extra = []) => new RegExp(`(?<![\\p{L}\\p{N}])(${[...new Set([...AMBIGUOUS_WORDS, ...extra])].sort((a, b) => b.length - a.length).map(escRe).join("|")})(?![\\p{L}\\p{N}])`, "iu");
 // scopeParse: every entry of a scope section (the shell freeze reads it the same way). A bullet with backticks gives each backticked token (commas split),
 // without backticks every word; each word must look like a path or glob. What cannot be read is returned in `bad` (never dropped silently).
-const TOKEN_BAD = /[\s()<>|;"'$&\\]/, PATH_LIKE = /[\]\[/*?]|\.[A-Za-z0-9]/;
+const TOKEN_BAD = /[\s()<>|;{}"'$&\\]/, PATH_LIKE = /[\]\[/*?]|\.[A-Za-z0-9]/;
 export function scopeParse(lines) {
   const entries = [], bad = [], prose = [];
   const emit = (t0, ticked) => {
-    const t = t0.trim().replace(/[,;]+$/, "");
+    const t = t0.trim().replace(/[,;:]+$/, "");
     if (!t) return;
     if (TOKEN_BAD.test(t) || /^[./]+$/.test(t) || (!ticked && !PATH_LIKE.test(t))) { bad.push(t); return; }
     entries.push(t.replace(/^\.\//, "").replace(/^\//, ""));
