@@ -183,6 +183,8 @@ config_value() { cfg "$1"; }
 # tm_scale: timeouts.scale (0.5 to 10, default 1); a missing, non-numeric or out-of-range value is 1, so no value can switch a timeout off or
 # stretch it past the bound. tm_scaled N [MIN [MAX]]: N seconds times the scale, rounded up, kept between MIN (default 1) and MAX (default 28800).
 # The approval fast-path budget (hook.approve_budget_seconds) is never passed through here: hook_knob keeps its own tight bound (trap z).
+# dec0 N: N without leading zeros (08 is the number 8; a shell reads it as an octal error inside $(( ))). Every config number that feeds arithmetic passes here.
+dec0() { d0_v=$1; while :; do case "$d0_v" in 0?*) d0_v=${d0_v#0} ;; *) break ;; esac; done; printf '%s\n' "$d0_v"; }
 tm_milli=''   # timeouts.scale times 1000, read once per process (no process is started to scale a number: locks call tm_scaled)
 tm_scale_milli() {
   [ -z "$tm_milli" ] || { printf '%s\n' "$tm_milli"; return 0; }
@@ -199,14 +201,14 @@ tm_scale_milli() {
 }
 tm_scale() { tm_m=$(tm_scale_milli); awk -v m="$tm_m" 'BEGIN { print m / 1000 }'; }
 tm_scaled() {
-  ts_m=$(tm_scale_milli); ts_x=$((($1 * ts_m + 999) / 1000)); ts_lo=${2:-1}; ts_hi=${3:-28800}
+  ts_m=$(tm_scale_milli); ts_n=$(dec0 "$1"); ts_x=$(((ts_n * ts_m + 999) / 1000)); ts_lo=${2:-1}; ts_hi=${3:-28800}
   [ "$ts_x" -ge "$ts_lo" ] || ts_x=$ts_lo; [ "$ts_x" -le "$ts_hi" ] || ts_x=$ts_hi; printf '%s\n' "$ts_x"
 }
 # tm_warn_percent: how much of a step's time may pass before the lead is told (timeouts.warn_percent, 50 to 95, default 80)
-tm_warn_percent() { tw_v=$(cfg timeouts.warn_percent 80); case "$tw_v" in ''|*[!0-9]*) tw_v=80 ;; esac; [ "$tw_v" -ge 50 ] || tw_v=50; [ "$tw_v" -le 95 ] || tw_v=95; printf '%s\n' "$tw_v"; }
+tm_warn_percent() { tw_v=$(dec0 "$(cfg timeouts.warn_percent 80)"); case "$tw_v" in ''|*[!0-9]*) tw_v=80 ;; esac; [ "$tw_v" -ge 50 ] || tw_v=50; [ "$tw_v" -le 95 ] || tw_v=95; printf '%s\n' "$tw_v"; }
 # verify_command_timeout: the limit of one build, test or install command of the build record and of one re-run of reproduced evidence (60 to 28800 before scaling)
 verify_command_timeout() {
-  vt_v=$(cfg verification.command_timeout_seconds 1800); case "$vt_v" in ''|*[!0-9]*) vt_v=1800 ;; esac
+  vt_v=$(dec0 "$(cfg verification.command_timeout_seconds 1800)"); case "$vt_v" in ''|*[!0-9]*) vt_v=1800 ;; esac
   [ "$vt_v" -ge 60 ] || vt_v=60; [ "$vt_v" -le 28800 ] || vt_v=28800; tm_scaled "$vt_v" 60 28800
 }
 # hook_timeouts: the runtime's own time limit per hook event, one `event=seconds` line each (config hook.<event>_timeout_seconds, 10 to 600, times
@@ -217,7 +219,7 @@ hook_timeouts() {
   ht_ab=$(hook_knob approve_budget_seconds 20 5 25)
   for ht_e in session:session:30 prompt:prompt:30 pretool:pretool:30 posttool:posttool:30 subagent-start:subagent_start:60 subagent-stop:subagent_stop:120 stop:stop:30; do
     ht_k=${ht_e#*:}; ht_d=${ht_k#*:}; ht_k=${ht_k%%:*}; ht_n=${ht_e%%:*}
-    ht_v=$(cfg "hook.${ht_k}_timeout_seconds" "$ht_d"); case "$ht_v" in ''|*[!0-9]*) ht_v=$ht_d ;; esac
+    ht_v=$(dec0 "$(cfg "hook.${ht_k}_timeout_seconds" "$ht_d")"); case "$ht_v" in ''|*[!0-9]*) ht_v=$ht_d ;; esac
     [ "$ht_v" -ge 10 ] || ht_v=10; [ "$ht_v" -le 600 ] || ht_v=600
     ht_v=$(tm_scaled "$ht_v" 10 600)
     if [ "$ht_n" = prompt ] && [ "$ht_v" -lt $((ht_ab + 5)) ]; then ht_v=$((ht_ab + 5)); fi
@@ -2576,7 +2578,7 @@ hook_config() {
 }
 # hook_knob KEY DEFAULT MIN MAX: the configured number moved into its bounds (a non-number is the default); no value can switch a budget off
 hook_knob() {
-  hn_v=$(cfg "hook.$1" "$2"); case "$hn_v" in ''|*[!0-9]*) hn_v=$2 ;; esac
+  hn_v=$(dec0 "$(cfg "hook.$1" "$2")"); case "$hn_v" in ''|*[!0-9]*) hn_v=$2 ;; esac
   [ "$hn_v" -ge "$3" ] || hn_v=$3; [ "$hn_v" -le "$4" ] || hn_v=$4; printf '%s\n' "$hn_v"
 }
 db_file_meta() { stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1" 2>/dev/null || echo unknown; }
@@ -5466,7 +5468,7 @@ EOF2
   ms_ex=$(printf '%s' "$ms_pg" | sed -n 1p); ms_ex=$(approval_say "${ms_ex%%|*}" "${ms_ex##*|}")
   ms_pl=$(approval_phrases | tr ',' '\n' | approval_norm_lines)
   ms_f=$(mktemp "${TMPDIR:-/tmp}/proofline-multi.XXXXXX")
-  ms_i=0 ms_nok=0 ms_nnop=0 ms_over=0 ms_out=''
+  ms_i=0 ms_nok=0 ms_nnop=0 ms_over=0 ms_out='' ms_acc='' ms_rj='' ms_veto=''
   while IFS="$ms_tab" read -r ms_ty ms_s; do
     case "$ms_ty" in
       Q) ms_out="${ms_out}S${ms_tab}no${ms_tab}quoted or pasted text is never an approval${ms_tab}$ms_s
@@ -5493,7 +5495,7 @@ $ms_pg
 EOF2
     fi
     if [ -n "$ms_hit" ]; then
-      ms_nok=$((ms_nok + 1)); ms_out="${ms_out}S${ms_tab}ok${ms_tab}${ms_hit# }${ms_tab}$ms_s
+      ms_nok=$((ms_nok + 1)); ms_acc="$ms_acc $ms_hit"; ms_out="${ms_out}S${ms_tab}ok${ms_tab}${ms_hit# }${ms_tab}$ms_s
 "; continue
     fi
     ms_n=$(printf '%s\n' "$ms_s" | approval_norm); ms_neg='' ms_has=''
@@ -5504,6 +5506,19 @@ EOF2
 $ms_pl
 EOF2
     [ -n "$ms_has" ] || ms_nnop=$((ms_nnop + 1))
+    # a negated, hedged or questioning segment vetoes the message unless it names an open kind of its own (checked after the scan against the accepted kinds)
+    if [ "$ms_ty" = T ] && { [ -n "$ms_neg" ] || case "$ms_s" in *\?*) true ;; *) false ;; esac; }; then
+      ms_nm=''
+      while IFS= read -r ms_p; do
+        [ -n "$ms_p" ] || continue
+        ms_pt=${ms_p%%|*}; ms_pr=${ms_p#*|}; ms_pw=${ms_pr%%|*}; ms_pk=${ms_pr#*|}
+        for ms_w in $(kind_words "$ms_pw"); do case "$ms_low" in *" $ms_w "*) ms_nm="$ms_nm $ms_pt|$ms_pk"; break ;; esac; done
+      done <<EOF2
+$ms_pg
+EOF2
+      if [ -z "$ms_nm" ]; then ms_veto=y; else ms_rj="$ms_rj$ms_nm
+"; fi
+    fi
     if [ "$ms_ty" = L ]; then ms_why='too long to be one approval'
     else case "$ms_s" in *\?*) ms_why='a question is not an approval' ;; *)
       if [ -n "$ms_neg" ]; then ms_why='negated, conditional or hedged'
@@ -5518,7 +5533,11 @@ EOF2
   [ "$ms_over" -eq 0 ] || ms_out="${ms_out}S${ms_tab}no${ms_tab}more than $ms_max approvals in one message (limit $ms_max)${ms_tab}$ms_over extra segment(s)
 "
   ms_mode=no ms_quiet=''
-  if [ "$ms_nok" -ge 2 ] || { [ "$ms_nok" -ge 1 ] && [ "$ms_nnop" -eq 0 ]; }; then ms_mode=yes; fi
+  for ms_a in $ms_acc; do case "
+$ms_rj" in *" $ms_a"*|*"
+$ms_a"*) ms_veto=y ;; esac; done
+  if [ -n "$ms_veto" ]; then :
+  elif [ "$ms_nok" -ge 2 ] || { [ "$ms_nok" -ge 1 ] && [ "$ms_nnop" -eq 0 ]; }; then ms_mode=yes; fi
   # one approval with a filler clause ("plan approved, go ahead") is a single approval: accepted whole, nothing to report
   if [ "$ms_mode" = yes ] && [ "$ms_nok" -le 1 ]; then
     while IFS= read -r ms_p; do

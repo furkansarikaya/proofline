@@ -74,6 +74,11 @@ hook_config_knobs() {
   [ "$(A hook-config | sed -n 's/^approve_budget_seconds=//p')" = 5 ] || die "a zero budget was not raised to the minimum"
   sed 's/lock_wait_seconds: 8/lock_wait_seconds: 500/' "$base/cfg.bak" > "$c"
   [ "$(A hook-config | sed -n 's/^lock_wait_seconds=//p')" = 20 ] || die "a huge lock wait was not cut to the maximum"
+  # review A3: a leading zero is a number, never an octal arithmetic error in the hook or agent.sh
+  sed 's/approve_budget_seconds: 20/approve_budget_seconds: 08/; s/lock_wait_seconds: 8/lock_wait_seconds: 09/' "$base/cfg.bak" > "$c"
+  [ "$(A hook-config | sed -n 's/^approve_budget_seconds=//p')" = 8 ] || die "approve_budget_seconds 08 is not read as 8: $(A hook-config 2>&1)"
+  [ "$(A hook-config | sed -n 's/^lock_wait_seconds=//p')" = 9 ] || die "lock_wait_seconds 09 is not read as 9"
+  A hook-timeouts 2>&1 | grep -q '^prompt=' || die "hook-timeouts failed with a leading zero"
   # upgrade: the user's value is kept, an old config without the block gets the defaults
   # shellcheck disable=SC1091
   . "$AL_REPO/bin/lib/config.sh"
@@ -119,6 +124,19 @@ timeout_message() {
   sleep 1; A request-approval LC plan >/dev/null 2>&1 || :; sleep 1
   out=$(prompt 'plan approved, go ahead')
   printf '%s' "$out" | grep -q 'approval recorded' || die "a normal approval was not recorded: $out"
+  # review A2: the approval is written, then the process runs past the budget: the message says it IS recorded
+  rm -f .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml; sleep 1; A request-approval LC plan >/dev/null 2>&1 || :; sleep 1
+  mkdir -p "$base/shim2"; rm -f "$base/slept"
+  printf '#!/bin/sh\nif ls "%s"/.agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 && [ ! -e "%s/slept" ]; then : > "%s/slept"; sleep 8; fi\nexec %s "$@"\n' "$PWD" "$base" "$base" "$(command -v date)" > "$base/shim2/date"; chmod +x "$base/shim2/date"
+  out=$(PATH="$base/shim2:$PATH" PROOFLINE_HOOK_APPROVE_BUDGET=2 prompt 'plan approved, go ahead')
+  printf '%s' "$out" | grep -q 'your approval was recorded' || { printf '%s' "$out" | grep -q 'approval recorded' && ls "$base/slept" >/dev/null 2>&1 && die "approval written then slow: no timeout path was taken: $out"; die "the recorded-then-timed-out case did not say recorded: $out"; }
+  printf '%s' "$out" | grep -q 'could not be recorded' && die "a written approval was reported as lost: $out"
+  # review A3 at the hook: a budget written with a leading zero does not break the hook's arithmetic, the approval is still recorded
+  rm -f .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml; sleep 1; A request-approval LC plan >/dev/null 2>&1 || :; sleep 1
+  sed 's/approve_budget_seconds: 20/approve_budget_seconds: 08/' .agents/config.yaml > "$base/cfg0" && cp "$base/cfg0" .agents/config.yaml
+  grep -q 'approve_budget_seconds: 08' .agents/config.yaml || die "test setup: the zero-padded budget was not written"
+  out=$(prompt 'plan approved, go ahead')
+  ls .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 || die "a budget of 08 broke the approval step: $out"
   ok "A202-28 a forced hook timeout keeps the message and says in one line that the approval was not recorded"
 }
 

@@ -929,6 +929,14 @@ approve budget
   _msg='approve plan, approve waive SECURITY-1, approve scope'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan scope
   printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve waive SECURITY-1' || die "waiver segment not named: $out"
   for f in "$ad"/*waive*; do [ ! -e "$f" ] || die "a waiver record exists"; done
+  # 11. review A1: a negated, hedged or questioning sibling that names no other open kind vetoes the whole message
+  clear_approvals plan scope budget destructive
+  for _msg in 'approve plan, not ok' "approve the plan, on second thought I don't approve" "approve plan
+I don't approve it" "approve the plan, unless the tests fail then I don't approve" "approve plan, yes I'm not sure" "approve plan, approve scope, I don't approve any of it" 'approve plan, approve scope, did I approve?'; do
+    capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
+  done
+  # a negated segment that names a different open kind is still reported alone (case 3), but one that names an accepted kind vetoes
+  _msg="approve plan, I don't approve plan"; capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
   # 10. a single approval behaves as before: no multi line, one record
   clear_approvals plan scope; _msg='approve the plan'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan; printf '%s\n' "$out" | grep -Fq 'multi:' && die "multi line for a single approval"
   ok "several approvals in one message are parsed one by one (A202)"

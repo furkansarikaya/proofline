@@ -243,13 +243,21 @@ hk_cfgnum() { # KEY DEFAULT MIN MAX -> hk_cv
     [ "$hk_cin" = yes ] || continue
     case $hk_cl in "  $1:"*)
       hk_cv=${hk_cl#*:}; hk_cv=${hk_cv%%#*}; hk_cv=$(printf '%s' "$hk_cv" | tr -d ' \t"')
-      case $hk_cv in ''|*[!0-9]*) hk_cv=$2 ;; *) [ "$hk_cv" -ge "$3" ] || hk_cv=$3; [ "$hk_cv" -le "$4" ] || hk_cv=$4 ;; esac ;;
+      while :; do case $hk_cv in 0?*) hk_cv=${hk_cv#0} ;; *) break ;; esac; done   # 08 is a number, not an octal error in $(( ))
+      case $hk_cv in ''|*[!0-9]*) hk_cv=$2 ;; ??????*) hk_cv=$4 ;; *) [ "$hk_cv" -ge "$3" ] || hk_cv=$3; [ "$hk_cv" -le "$4" ] || hk_cv=$4 ;; esac ;;
     esac
   done < "$root/.agents/config.yaml"
 }
 hk_cfgnum lock_wait_seconds 8 1 20; hk_lock_wait=${PROOFLINE_HOOK_LOCK_WAIT:-$hk_cv}
 hk_cfgnum approve_budget_seconds 20 5 25; hk_approve_budget=${PROOFLINE_HOOK_APPROVE_BUDGET:-$hk_cv}
 hk_cfgnum next_budget_seconds 10 2 20; hk_next_budget=${PROOFLINE_HOOK_NEXT_BUDGET:-$hk_cv}
+# the environment overrides feed shell arithmetic too: leading zeros stripped, anything that is not a short number falls back to the config value
+for hk_ov in hk_lock_wait hk_approve_budget hk_next_budget; do
+  eval "hk_ovv=\$$hk_ov"
+  while :; do case $hk_ovv in 0?*) hk_ovv=${hk_ovv#0} ;; *) break ;; esac; done
+  case $hk_ovv in ''|*[!0-9]*|??????*) hk_ovv=$hk_cv ;; esac
+  eval "$hk_ov=\$hk_ovv"
+done
 PROOFLINE_LOCK_TIMEOUT=$hk_lock_wait; export PROOFLINE_LOCK_TIMEOUT
 # once: the same hook registered from several places (plugin, project, user; Codex runs it up to three times) runs
 # once per identical event; a copy that starts less than two seconds after the first exits. Only for events with side
@@ -287,7 +295,9 @@ fi
 # itself is kept (prompts/intake and the capture), so nothing the user said is lost; only the approval record needs the user's repeat.
 hk_timeout_msg() {
   tm_t=${2:-$sroot}
-  if grep -rlF "capture_id: \"$sess:$hk_s:$h\"" "$tm_t/.agents/runs/$1/approvals" "$shared_local/approvals" >/dev/null 2>&1; then
+  # the output is tested, not the exit status: BSD grep exits 2 when one of the two folders does not exist, even with a match in the other
+  tm_hit=$(grep -rlF "capture_id: \"$sess:${hk_cap_s:-$hk_s}:$h\"" "$tm_t/.agents/runs/$1/approvals" "$shared_local/approvals" 2>/dev/null || :)
+  if [ -n "$tm_hit" ]; then
     printf '%s' "proofline: your approval was recorded (the approval step ran past the hook's time budget but finished writing it)."
   else
     printf '%s' "proofline: your approval could not be recorded, send it again (the approval step ran out of time)."
@@ -2314,6 +2324,7 @@ prompt)
   pj=$(jesc "${pt}x"); pj=${pj%x}
   printf '{"session":"%s","time":%s,"sha256":"%s","text":"%s"}\n' "$sess" "$hk_s" "$h" "$pj" > "$shared_local/prompts/.$sess.tmp" &&
     mv "$shared_local/prompts/.$sess.tmp" "$shared_local/prompts/$sess.json"
+  hk_cap_s=$hk_s   # the capture id of THIS message keeps this second; hk_tick moves hk_s on (the timeout message looks the record up by it)
   # Every prompt is kept (raw text) so an answer recorded as the user's can be checked against what was said (A60).
   { [ -d "$shared_local/prompts/history" ] || mkdir -p "$shared_local/prompts/history"; } && printf '%s' "$pt" > "$shared_local/prompts/history/$hk_s-$(printf '%.8s' "$h").txt" 2>/dev/null || :
   hk_step capture "$hk_c0"
