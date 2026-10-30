@@ -95,15 +95,16 @@ warn_line() {
     mkdir -p .agents/runs/LC/dispatch
     printf 'pid=%s\nrole=reviewer\ntimeout=%s\nstarted_epoch=%s\ndispatch in flight: LC reviewer on claude, started now.\n' "$pid" "$2" "$(( $(date +%s) - $1 ))" > .agents/runs/LC/dispatch/001-reviewer-claude.running
   }
-  mk 100 1000; out=$(A next LC)
+  # a 10000 s limit: a slow machine that takes seconds between mk and the check still reads the same whole percent (85% holds for 8500 to 8599 s)
+  mk 1000 10000; out=$(A next LC)
   printf '%s\n' "$out" | grep -q '^note=TIME' && die "a step at 10% of its time was reported: $out"
   printf '%s\n' "$out" | grep -q '^next=wait: dispatch.sh LC reviewer in flight' || die "next does not say a dispatch is in flight: $out"
-  mk 850 1000; out=$(A next LC)
+  mk 8500 10000; out=$(A next LC)
   [ "$(printf '%s\n' "$out" | grep -c '^note=TIME')" = 1 ] || die "a step at 85% of its time is not reported with exactly one line: $out"
-  printf '%s\n' "$out" | grep '^note=TIME' | grep -q 'has used 14m of its 16m limit (85%)' || die "the line does not name the use: $(printf '%s\n' "$out" | grep '^note=TIME')"
+  printf '%s\n' "$out" | grep '^note=TIME' | grep -q 'has used 141m of its 166m limit (85%)' || die "the line does not name the use: $(printf '%s\n' "$out" | grep '^note=TIME')"
   printf '%s\n' "$out" | grep -q '^next=wait: dispatch.sh LC reviewer in flight' || die "the warning replaced the wait instruction: $out"
   printf '%s\n' "$out" | grep '^note=TIME' | grep -qi 'never a pass' || die "the line does not say a timeout is not a pass"
-  wl=$(A wait-line LC); printf '%s\n' "$wl" | grep -q 'TIME: 85% of its 16m limit' || die "wait-line does not carry the warning: $wl"
+  wl=$(A wait-line LC); printf '%s\n' "$wl" | grep -q 'TIME: 85% of its 166m limit' || die "wait-line does not carry the warning: $wl"
   [ "$(printf '%s\n' "$wl" | wc -l | tr -d ' ')" = 1 ] || die "wait-line is more than one line"
   # the threshold is config: 90 is not reached at 85%
   setcfg timeouts warn_percent 90; out=$(A next LC); printf '%s\n' "$out" | grep -q '^note=TIME' && die "warn_percent 90 still warned at 85%"
@@ -117,6 +118,7 @@ warn_line() {
 build_timeout() {
   fixture
   command -v timeout >/dev/null 2>&1 || { ok "A202-29 build timeout (no timeout command here: skipped)"; return 0; }
+  cp "$tl_agents/scripts/build-record.sh" .agents/scripts/   # a fixture does not install it; on Linux (GNU timeout) this scenario runs
   setcfg verification command_timeout_seconds 60
   # the shipped bound is 60 s; a test cannot wait that long, so the stop is forced with a stub that exits 124 like timeout(1) does
   mkdir -p "$base/shim"; printf '#!/bin/sh\nshift\nexit 124\n' > "$base/shim/timeout"; chmod +x "$base/shim/timeout"

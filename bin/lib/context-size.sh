@@ -53,7 +53,7 @@ rows() {
   for cs_f in "$d_roles"/*.md; do
     [ -f "$cs_f" ] || continue
     cs_r=$(basename "$cs_f" .md)
-    [ "$cs_r" != lead ] && [ "$cs_r" != README ] || continue
+    case $cs_r in lead|README) continue ;; esac
     cs_a=$d_ag/proofline-$(printf '%s' "$cs_r" | tr _ -).md
     [ ! -f "$cs_a" ] || row "role.$cs_r.agent" "$(bytes "$cs_a")" "$cs_a"
     cs_s=$(first_skill "$cs_f")

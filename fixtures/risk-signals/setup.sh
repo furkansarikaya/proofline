@@ -18,10 +18,11 @@ ID=RS-1 D=.agents/runs/RS-1
 A() { sh ./.agents/scripts/agent.sh "$@"; }
 
 # --- installed project ------------------------------------------------------------------------
-mkdir -p .agents/scripts .agents/local .agents/tasks api db/migrations web src docs
+mkdir -p .agents/scripts .agents/local .agents/tasks .agents/task-integrations api db/migrations web src docs
 cp "$CP/agents/config.yaml" .agents/
 cp -R "$CP/agents/modes" "$CP/agents/templates" .agents/
 cp "$CP/agents/scripts/agent.sh" .agents/scripts/
+cp "$CP/agents/task-integrations/slug.sh" .agents/task-integrations/   # branch slug (A202), as `proofline init` installs it
 cp "$CP/agents/ecosystems.tsv" .agents/; cp "$CP/agents/scripts/ecosystems.sh" .agents/scripts/   # as `proofline init` installs them (A174): the manifests of the languages come from the definition
 printf '.agents/runs/\n.agents/local/\n' > .gitignore
 printf '{ "name": "settings-fixture", "private": true, "dependencies": {} }\n' > package.json

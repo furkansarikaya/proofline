@@ -146,7 +146,7 @@ if [ ! -f "$dir/done" ]; then
         [ -f "$root/$f" ] && [ ! -L "$root/$f" ] && [ ! -e "$wt/src/$f" ] || continue
         mkdir -p "$wt/src/$(dirname "$f")" && cp -p "$root/$f" "$wt/src/$f"
       done
-      fail=0; to=''; vto=$(sh "$here/agent.sh" verify-timeout 2>/dev/null || echo 1800); command -v timeout >/dev/null 2>&1 && to="timeout $vto"; timedout=''; : > "$dir/steps"
+      fail=0; to=''; vto=$(sh "$here/agent.sh" verify-timeout 2>/dev/null || :); case $vto in ''|*[!0-9]*) vto=1800 ;; esac; command -v timeout >/dev/null 2>&1 && to="timeout $vto"; timedout=''; : > "$dir/steps"
       for s in install build test; do
         case $s in install) l=$ic ;; build) l=$bc ;; *) l=$tc ;; esac
         [ -n "$l" ] || continue
