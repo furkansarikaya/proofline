@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Retro of four tasks, less waiting for you and no core invariant loosened (A203). The batch spent 51 percent of its time waiting for an approval (87 percent in one task) and 32 percent productive.
+- A Codex worker in a run worktree can `git add` and `git commit`: its profile opens only the common git folder's `objects`; refs, windows, approvals, prompts and batch stay unwritable, and `git worktree add` is still refused.
+- Waivers follow the finding: a waiver is bound to rule and location, so a finding in a new place or a changed finding asks again; findings of one rule are one decision (`waive --group`).
+- The batch approval can accept known issues and DESIGN.md rationales in one decision from your own message (an `accept` question); SECRETS and SECURITY are never accepted.
+- A run stopped with a dirty tree is recoverable: `approve the tree`, `tree-inspect` and `tree-accept` re-run the gates on the new fingerprint instead of discarding the run; `dispatch stop` also stops the failover worker.
+- The mutation budget is a cap: `gate.mjs mutant` refuses past it and the validator fails a finding that records more executed mutants. Visual acceptance criteria are measured in a browser (visual-proof), not by tests that count characters.
+- Records: hook timings go to `HOOKS.log` instead of the ledger, `friction show [ID]` prints a per-run report, an automatic failover has its own reason (`AUTOMATIC_FAILOVER`), the completion report's Execution table is generated (`report-execution`), CI is watched in the background, and the Stop hook catches a lead asking you to run a command it can run itself.
+- Faster control plane: on one fixture (a frozen COMPLEX run, 120 extra ledger lines, 30 result files) `next` went from 355 to 165 processes and 8 s to 4-5 s, `digest` from 1116 to 231 processes and 19 s to 5 s, with identical output; a larger run likely gains more (not measured). `perf-test.sh` bounds it.
+- Smoke runs are taken on the last merged commit; the `.out-of-scope` rule in the installed AGENTS.md block is conditional and the block shrank from 2700 to 2609 bytes.
+
 ## 0.0.39 — 2026-10-30
 
 - The task model (A202). Names: the slug comes from the title (Turkish letters to ASCII, 48 characters), files are `<ID>-<slug>.md`, branches `proofline/<ID>-<slug>`; queued files are renamed only after `approve rename`. Types: `feature|bug|refactor|content|docs|chore` (none is feature), each with its required fields; a test-first exemption for `content` and `docs` never covers a path with code.
