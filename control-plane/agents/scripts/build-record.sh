@@ -23,7 +23,7 @@
 # rejects the run with exit 2, naming the file and line (never the value), before anything is built.
 # shortcut: the copy is taken at run time and is not part of the key; the key covers sources and command strings, not node version or installed packages.
 # Set `commands.install` when that matters. A stale lock is reclaimed when its process is dead or after
-# BUILD_RECORD_WAIT seconds (default 1800); two waiters reclaiming at the very same moment is not guarded.
+# BUILD_RECORD_WAIT seconds (default 1800 times timeouts.scale). Every command stops after verification.command_timeout_seconds (times the scale); a stopped command leaves no sealed record (A202); two waiters reclaiming at the very same moment is not guarded.
 set -u
 RTK_DISABLED=1; export RTK_DISABLED   # A194: the build record is evidence; the user's rtk hook never compresses it
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
@@ -121,7 +121,7 @@ if [ ! -f "$dir/done" ]; then
     fi
     rm -rf "$sd"
   fi
-  n=0; wait_max=${BUILD_RECORD_WAIT:-1800}; mine=no
+  n=0; wait_max=${BUILD_RECORD_WAIT:-$(sh "$here/agent.sh" tm-scaled 1800 60 28800 2>/dev/null || echo 1800)}; mine=no
   while [ ! -f "$dir/done" ]; do
     if mkdir "$dir.lock" 2>/dev/null; then echo $$ > "$dir.lock/pid"; mine=yes; break; fi
     p=$(cat "$dir.lock/pid" 2>/dev/null || :)
@@ -146,7 +146,7 @@ if [ ! -f "$dir/done" ]; then
         [ -f "$root/$f" ] && [ ! -L "$root/$f" ] && [ ! -e "$wt/src/$f" ] || continue
         mkdir -p "$wt/src/$(dirname "$f")" && cp -p "$root/$f" "$wt/src/$f"
       done
-      fail=0; to=''; command -v timeout >/dev/null 2>&1 && to='timeout 900'; : > "$dir/steps"
+      fail=0; to=''; vto=$(sh "$here/agent.sh" verify-timeout 2>/dev/null || :); case $vto in ''|*[!0-9]*) vto=1800 ;; esac; command -v timeout >/dev/null 2>&1 && to="timeout $vto"; timedout=''; : > "$dir/steps"
       for s in install build test; do
         case $s in install) l=$ic ;; build) l=$bc ;; *) l=$tc ;; esac
         [ -n "$l" ] || continue
@@ -158,12 +158,19 @@ if [ ! -f "$dir/done" ]; then
           printf '%s\n' "$c" > "$dir/$id.cmd"
           (cd "$wt/src" && $to sh -c "$c" < /dev/null) > "$dir/$id.out" 2>&1; e=$?
           printf '%s\n' "$e" > "$dir/$id.exit"; printf '%s\t%s\n' "$id" "$label" >> "$dir/steps"
+          [ "$e" != 124 ] || timedout="$timedout$label "
           [ "$e" = 0 ] || kfail=1   # the rest of the same list still runs: every command reports on its own
         done <<EOF_CMDS
 $l
 EOF_CMDS
         [ "$kfail" = 0 ] || { fail=1; break; }   # nothing after a failed key (a failed build is not tested)
       done
+      # A202 item 29: a command stopped by the time limit (exit 124) is a failure, never a pass, and it is not a result about the code: the record is not
+      # sealed (no `done`), so the next run starts again instead of reusing a verdict that only says the machine was slow. The outputs stay for reading.
+      if [ -n "$timedout" ]; then
+        echo "build-record: $timedout stopped after ${vto}s (verification.command_timeout_seconds times timeouts.scale); this is a failure, not a pass, and no record is kept: run it again, or raise the limit (proofline doctor --scale)" >&2
+        echo "$timedout" > "$dir/timed-out"; exit 1
+      fi
       echo "$fail" > "$dir/done"
     fi
   fi

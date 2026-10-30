@@ -1710,6 +1710,32 @@ sc_artifact_snapshots() {
   A verify-scope LC >/dev/null 2>&1 || die "verify-scope refuses the snapshots: $(A verify-scope LC 2>&1)"
   ok "C-9: results of two rounds that wrote the same report path both cite an existing artifact with the stated sha256"
 }
+# A202: the task type is an input of the gates: a bug needs the debug-proof result without any label and is never TRIVIAL; a typeless task is a
+# feature; a content or docs task has the test-first exemption by default, with the reason written in the plan, but never for a path that holds code.
+sc_task_types() {
+  SC_TASK_FM='type: bug' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  [ "$(A task-type .agents/runs/LC/TASK.md)" = bug ] || die "task-type did not read type: bug"
+  expect_msg "type: bug needs a debug-proof result" 'no debug-proof result' A handoff LC IMPLEMENTED
+  expect_msg "a bug was classified TRIVIAL" 'TRIVIAL covers text and configuration only' A classify LC TRIVIAL
+  mkdir -p .agents/runs/LC/reports; printf '# debug\n\nreproduction, root cause, regression test\n' > .agents/runs/LC/reports/001-debug.md
+  A handoff LC IMPLEMENTED >/dev/null || die "a debug-proof result did not unblock a bug task"
+  SC_TASK_FM='type: feature' scaffold orchestrated no STANDARD
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null || die "a feature needed a debug-proof result: $(A handoff LC IMPLEMENTED 2>&1)"
+  scaffold orchestrated no STANDARD
+  [ "$(A task-type .agents/runs/LC/TASK.md)" = feature ] || die "a typeless task is not a feature"
+  ok "A202: type bug asks for the debug-proof result and refuses TRIVIAL; a feature and a typeless task do not"
+  # content: a document path with its reason freezes; the same task type never exempts a path that holds code
+  SC_TASK_FM='type: content' SC_SCOPE_NAMED=docs/guide.md scaffold orchestrated no STANDARD
+  SC_TASK_FM='type: docs' SC_SCOPE_NAMED=src/app.js scaffold orchestrated no STANDARD supervised
+  expect_msg "a docs task exempted a path that holds code" 'holds code and is never exempt' A freeze LC
+  SC_TASK_FM='type: content' SC_SCOPE_NAMED=docs/guide.md scaffold orchestrated no STANDARD supervised
+  sed -i.bak '/tdd_exemption/d' .agents/runs/LC/PLAN.md
+  expect_msg "a content task froze a document path without the reason in the plan" 'exempts document paths from test-first by default' A freeze LC
+  SC_TASK_FM='type: feature' SC_SCOPE_NAMED=src/app.js scaffold orchestrated no STANDARD
+  ok "A202: content and docs exempt document paths with the reason in the plan, never a path that holds code"
+}
 sc_debug_result() {
   # A200: the trigger is the task type or label, never the words "fix" or "duzelt" in prose.
   SC_TASK_EXTRA='
@@ -1930,6 +1956,102 @@ sc_test_path_kind() {
     [ "$(tp "$p")" = test ] || die "A200 $p is not counted as a test"
   done
   ok "A200 test-path: manifests, lockfiles, env, build and contract files under test directories are product input"
+}
+
+# A202 (item 14): the scope table's `kind:` column is a claim. The script derives every kind; a path a plan mislabels (code as content or
+# doc, a code file as test) is still counted as code in the scope bound, shown as code in the digest, and a gate re-run does not skip it.
+kind_claim() { # PLAN PATH KIND: add `    kind: KIND` under the scope entry of PATH
+  awk -v p="$2" -v k="$3" '{ print } $0 == "  - path: " p { print "    kind: " k }' "$1" > "$base/kind.tmp" && cp "$base/kind.tmp" "$1"
+}
+sc_scope_kind_column() {
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md
+  kind_claim .agents/runs/LC/PLAN.md impl.txt content; kind_claim .agents/runs/LC/PLAN.md notes.md doc; kind_claim .agents/runs/LC/PLAN.md impl_test.txt code
+  rows=$(A scope-kinds LC)
+  printf '%s\n' "$rows" | grep -q "^impl.txt	content	code	code	no$" || die "A202 a code file labelled content is not code: $rows"
+  printf '%s\n' "$rows" | grep -q "^notes.md	doc	content	content	yes$" || die "A202 a true doc label was not accepted: $rows"
+  printf '%s\n' "$rows" | grep -q "^impl_test.txt	code	test	code	no$" || die "A202 a stricter claim (code for a test) was not honoured: $rows"
+  A digest LC | grep -q '^SCOPE: code=2 test=0 content=1 (kind claimed wrongly, counted as code: impl.txt impl_test.txt)' || die "A202 digest scope line: $(A digest LC | grep SCOPE)"
+  awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "1"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml
+  expect_msg "a code file labelled content lowered the scope bound" 'code paths (content and document paths are not counted)' A freeze LC
+  # a plan without the column is derived; an unknown word is treated as code
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md; kind_claim .agents/runs/LC/PLAN.md notes.md banana
+  A scope-kinds LC | grep -q "^notes.md	banana	content	code	yes$" || die "A202 an unknown kind was not treated as code: $(A scope-kinds LC)"
+  SC_SCOPE_NAMED=notes.md unfrozen STANDARD; : > notes.md
+  A scope-kinds LC | grep -q "^notes.md	-	content	content	yes$" || die "A202 a plan without the column is not derived: $(A scope-kinds LC)"
+  ok "A202 the scope kind column is a claim: a mislabelled code file stays code in the bound and the digest, an unknown kind is code, no column is derived"
+}
+sc_scope_kind_gate_rerun() {
+  for variant in honest mislabelled; do
+    if [ "$variant" = honest ]; then scaffold orchestrated no CRITICAL; else SC_KIND_CLAIM=impl_test.txt=code scaffold orchestrated no CRITICAL; fi
+    worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
+    A handoff LC IMPLEMENTED >/dev/null
+    pass_all
+    rec REVIEW_TESTS FAIL high "REVIEW_TESTS-1|blocking|impl_test.txt:1|the test asserts nothing about the empty key|traced: empty key -> nil"
+    A handoff LC IMPLEMENTING >/dev/null
+    worker FIX pass impl_test.txt 'test: lookup of a missing key is nil'
+    A handoff LC IMPLEMENTED >/dev/null
+    st=$(gate_st REVIEW_PLAN)
+    case "$variant" in
+      honest) [ "$st" = pass ] || die "A202 honest test-only fix: REVIEW_PLAN is $st" ;;
+      mislabelled) [ "$st" != pass ] || die "A202 the plan's own kind column says the path is code, yet REVIEW_PLAN carried over" ;;
+    esac
+  done
+  ok "A202 a plan whose kind column says a path is code never lets a gate carry over for it"
+}
+sc_rollback_note() {
+  unfrozen COMPLEX
+  out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "no rollback note" || die "A202 no warning for a COMPLEX plan without rollback: $out"
+  SC_PLAN_EXTRA='## Risk
+
+rollback: ship behind the lookup flag; if production breaks, switch the flag off first
+  then revert the commit
+concurrency: no
+
+## Dependencies
+
+none' unfrozen COMPLEX
+  out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "Risk' holds only" && die "A202 the rollback note was refused inside Risk: $out"
+  printf '%s' "$out" | grep -q "no rollback note" && die "A202 warned although the rollback note is there: $out"
+  unfrozen STANDARD; out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "rollback" && die "A202 STANDARD was asked for a rollback note: $out"
+  unfrozen TRIVIAL; out=$(A freeze LC 2>&1 || true)
+  printf '%s' "$out" | grep -q "rollback" && die "A202 TRIVIAL was asked for a rollback note: $out"
+  ok "A202 a COMPLEX or CRITICAL plan without a rollback note in ## Risk is warned, never TRIVIAL or STANDARD, and the note is accepted inside Risk"
+}
+# A202 (items 17, 19): the QA report's Human checks list is copied by script into the completion report summary (once) and the status block.
+sc_summary_human_checks() {
+  scaffold standalone
+  RF_EXTRA='## Human checks
+
+- The error text reads naturally in Turkish
+- The empty state looks balanced on a phone' to_code_done standalone
+  [ "$(A human-checks LC | wc -l | tr -d ' ')" = 2 ] || die "A202 human-checks: $(A human-checks LC)"
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
+  mk() { # the model's summary lines (quoted arguments), then the usual body
+    write_report; cat .agents/runs/LC/COMPLETION_REPORT.md > "$base/body.md"
+    { printf '%s\n' '# Completion Report: LC' '' '<!-- proofline:summary:begin -->'; printf '%s\n' "$@"; printf '%s\n' '<!-- proofline:summary:end -->'; sed 1d "$base/body.md"; } > .agents/runs/LC/COMPLETION_REPORT.md
+  }
+  mk 'Changed: arama artik bos anahtar icin varsayilani donduruyor' 'Verify: `sh test.sh`'
+  mk 'Changed: ok' 'The empty state looks balanced on a phone' 'Verify: `sh test.sh`'
+  expect_msg "a retyped Human checks item was published" 'repeats a QA_REPORT.md' A publish-completion-report LC markdown
+  mk 'Changed: one' 'Changed: two' 'Changed: three' 'Verify: `sh test.sh`'
+  expect_msg "a six-line summary was published" 'at most five' A publish-completion-report LC markdown
+  mk 'Changed: the lookup returns the default for an empty key'
+  expect_msg "a summary without a Verify command was published" "needs exactly one line 'Verify:" A publish-completion-report LC markdown
+  mk 'Changed: arama artik bos anahtar icin varsayilani donduruyor, çünkü şunu istediniz' 'Verify: `sh test.sh`'
+  A publish-completion-report LC markdown >/dev/null || die "A202 a summary in the user's language was refused: $(A publish-completion-report LC markdown 2>&1)"
+  r=.agents/runs/LC/COMPLETION_REPORT.md
+  [ "$(grep -c '^Look at: ' $r)" = 2 ] || die "A202 the Look at lines are not there exactly once each: $(head -12 $r)"
+  [ "$(grep '^Look at: ' $r | sed 's/^Look at: //')" = "$(A human-checks LC)" ] || die "A202 the summary list differs from the QA_REPORT.md list"
+  [ "$(grep -c 'balanced on a phone' $r)" = 1 ] || die "A202 the list is written twice in the report"
+  [ "$(sed -n 3p $r)" = '<!-- proofline:summary:begin -->' ] && grep -q '^<!-- proofline:facts:begin -->' $r || die "A202 summary not at the top or Facts block missing"
+  A publish-completion-report LC markdown >/dev/null || die "A202 republish refused"
+  [ "$(grep -c '^Look at: ' $r)" = 2 ] || die "A202 a republish doubled the list"
+  A handoff LC DONE >/dev/null || die "A202 DONE refused for a report with a summary in the user's language: $(A handoff LC DONE 2>&1)"
+  A status-block LC code-done >/dev/null 2>&1 || :
+  [ "$(A human-checks LC | wc -l | tr -d ' ')" = 2 ] && ok "A202 the Human checks list is copied by script into the report summary once, equal to the QA report list; the summary is user-language and not evidence"
 }
 
 # A200 review: a blocking row is "about the visual evidence report" only when it names the reviews/visual-proof/ path; any other
@@ -2513,7 +2635,7 @@ sc_evidence_gap_files_gate() {
 }
 sc_start() {
   new_repo; RID=ST-1
-  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" .agents/task-integrations/
   git add -A; git commit -qm base
   A next | grep -Fq 'next=agent.sh start <ID>' || die 'next did not guide intake'
   expect_msg 'invalid task ID accepted' 'invalid task id' A start '../bad' --title bad
@@ -2584,7 +2706,7 @@ Check the task.
 PLAN
   A freeze ST-1 >/dev/null || die 'start to freeze failed'
   [ "$(rv task_source revision)" != PENDING ] || die 'freeze left task source revision pending'
-  new_repo; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" .agents/task-integrations/
+  new_repo; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" .agents/task-integrations/
   git add -A; git commit -qm base
   sed '/## Risks/,$d' "$base/start-body.md" > "$base/incomplete.md"
   rc=0; A start ST-3 --title incomplete < "$base/incomplete.md" > "$base/out" 2>&1 || rc=$?
@@ -2759,6 +2881,7 @@ run_sc sc_start
 run_sc sc_qa_plan_bound
 run_sc sc_artifact_snapshots
 run_sc sc_debug_result
+run_sc sc_task_types
 run_sc sc_scratch_worktrees
 run_sc sc_worktree_lock_folder
 run_sc sc_tests_findings
@@ -2797,4 +2920,8 @@ run_sc sc_selective_rerun
 run_sc sc_amend_carry
 run_sc sc_visual_row_match
 run_sc sc_test_path_kind
+run_sc sc_scope_kind_column
+run_sc sc_scope_kind_gate_rerun
+run_sc sc_rollback_note
+run_sc sc_summary_human_checks
 echo 'gates tests passed'

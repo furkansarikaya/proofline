@@ -12,6 +12,8 @@
 #   SMOKE_ONLY=codex          only the Codex step (A199): setup, the sandbox probe and a two-task batch with a Codex implementer in worktrees
 #   SMOKE_ONLY=a200           only the A200 scenarios (not in the default run): a question of the batch pre-flight answered with the approval, empty commands.* proposed and
 #                             filled, a test-only fix round without SECURITY, the lead continuing after CODE_DONE; every assertion reads agent.sh state and the gate records
+#   SMOKE_ONLY=a202           only the batch step with the A202 checks (no model call beyond the batch itself): the task status block is one section updated in place and
+#                             ends MERGED without a local path, and the branch of each batch task is proofline/<ID>-<slug> with a slug taken from the title (the same two rows also run in the default pass)
 #   SMOKE_KEEP=1              keep the fixture and transcripts (their path is printed)
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
@@ -135,6 +137,12 @@ skill_detour_row() { # Claude Code rejects a Skill call for a proofline skill be
   else row "skill tool: the lead recovered" FAIL 0 "$sd_calls Skill-tool call(s) and a failed step above"; fi
 }
 
+# fixture_commands: the project has build, test and lint commands, so the batch pre-flight (A200) finds nothing empty; a model that meets empty ones stops at
+# the first NEXT line of the batch and waits for the user (A202 smoke run 3), which is the right behaviour but not what the scenarios here measure
+fixture_commands() {
+  fc_c="$P/.agents/config.yaml"
+  sed -e 's|^  build:.*$|  build: npm run build|' -e 's|^  test:.*$|  test: npm test|' -e 's|^  lint:.*$|  lint: npm run lint|' "$fc_c" > "$fc_c.new" && mv "$fc_c.new" "$fc_c" && chmod 644 "$fc_c"
+}
 mk_fixture() { # NAME_PREFIX: the fixture repository, a local bare origin and proofline installed; sets P and ORIGIN; returns 1 when setup failed
   pr_pre=$1
   P="$work/$pr_pre/project"; ORIGIN="$work/$pr_pre/origin.git"
@@ -142,7 +150,7 @@ mk_fixture() { # NAME_PREFIX: the fixture repository, a local bare origin and pr
   t0=$(date +%s)
   git init -q --bare -b main "$ORIGIN"
   cat > "$P/package.json" <<'EOF'
-{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test" } }
+{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test", "build": "node --check src/greet.js", "lint": "node --check tests/greet.test.js" } }
 EOF
   printf 'export function greet(name) {\n  return `Hello, ${name}`;\n}\n' > "$P/src/greet.js"
   printf 'import test from "node:test";\nimport assert from "node:assert/strict";\nimport { greet } from "../src/greet.js";\ntest("greet", () => assert.equal(greet("a"), "Hello, a"));\n' > "$P/tests/greet.test.js"
@@ -153,11 +161,63 @@ EOF
   git -C "$P" remote add origin "$ORIGIN"; git -C "$P" push -q origin main
   rts=claude; command -v codex >/dev/null 2>&1 && rts=claude,codex
   if (cd "$P" && "$repo/bin/proofline" init --yes --runtimes "$rts" --lead claude --worker claude --reviewers claude --profile economy --task-adapter markdown) > "$work/$pr_pre-init.txt" 2>&1 \
+     && fixture_commands \
      && git -C "$P" add -A && git -C "$P" commit -q -m 'chore: install proofline' && git -C "$P" push -q origin main; then
     row "$pr_pre setup: init, local bare origin" PASS "$(secs "$t0")" "installed proofline $(cd "$P" && "$repo/bin/proofline" version)"
   else row "$pr_pre setup: init, local bare origin" FAIL "$(secs "$t0")" "see $work/$pr_pre-init.txt"; return 1; fi
   return 0
 }
+
+# a202_task_files ID: every copy of the task file the control plane may have written the status block to (main tree and run worktree, any lifecycle folder)
+a202_task_files() {
+  for a2_f in "$P"/.agents/tasks/"$1".md "$P"/.agents/tasks/*/"$1".md "$P"/.agents/tasks/"$1"-*.md "$P"/.agents/tasks/*/"$1"-*.md \
+              "$P"/.agents/local/worktrees/"$1"/.agents/tasks/"$1".md "$P"/.agents/local/worktrees/"$1"/.agents/tasks/*/"$1".md; do
+    [ -f "$a2_f" ] && printf '%s\n' "$a2_f"
+  done
+}
+# a202_both_merged: the control plane's own block of both tasks says MERGED (in any copy of the task file)
+a202_both_merged() {
+  for ab_t in T-2 T-3; do
+    ab_ok=no
+    for ab_f in $(a202_task_files "$ab_t"); do grep -qs '^- stage: MERGED$' "$ab_f" && ab_ok=yes; done
+    [ "$ab_ok" = yes ] || return 1
+  done
+}
+# a202_status_row PREFIX ID: the status block, read from the task file the control plane wrote (never from the model's text)
+a202_status_row() {
+  as_n="$1 batch status block ($2): one section, updated in place, MERGED, no local path"; as_t=$(date +%s); as_best=''; as_why=''
+  for as_f in $(a202_task_files "$2"); do
+    as_c=$(grep -c '^## Proofline Status[[:space:]]*$' "$as_f" || true); as_b=$(grep -c "^<!-- PROOFLINE-STATUS:BEGIN:$2 -->\$" "$as_f" || true)
+    if [ "$as_c" -gt 1 ] || [ "$as_b" -gt 1 ]; then as_why="$as_f has $as_c status sections and $as_b blocks"; break; fi
+    [ "$as_c" -eq 1 ] && [ "$as_b" -eq 1 ] && as_best=$as_f
+  done
+  if [ -n "$as_why" ]; then row "$as_n" FAIL "$(secs "$as_t")" "$as_why"; return 0; fi
+  if [ -z "$as_best" ]; then row "$as_n" FAIL "$(secs "$as_t")" "no task file of $2 holds a status block"; return 0; fi
+  as_blk=$(awk -v b="<!-- PROOFLINE-STATUS:BEGIN:$2 -->" -v e="<!-- PROOFLINE-STATUS:END:$2 -->" '$0 == b { on = 1; next } $0 == e { on = 0 } on' "$as_best")
+  as_stage=$(printf '%s\n' "$as_blk" | sed -n 's/^- stage: //p' | head -n 1)
+  if [ -z "$as_blk" ] || ! printf '%s\n' "$as_blk" | grep -q "^- run: $2\$"; then row "$as_n" FAIL "$(secs "$as_t")" "the block of $2 is empty or names another run"
+  elif [ "$as_stage" != MERGED ]; then row "$as_n" FAIL "$(secs "$as_t")" "stage is '$as_stage', not MERGED (agent.sh state: $(batch_row "$2" | tr '\t' ' '))"
+  elif as_lp=$(for as_x in /Users/ /home/ /private/ /var/folders /tmp/ .agents/local "$work" "$P"; do printf '%s\n' "$as_blk" | grep -F -- "$as_x" | head -n 1; done | head -n 1) && [ -n "$as_lp" ]; then
+    row "$as_n" FAIL "$(secs "$as_t")" "the block holds a local path: $(printf '%s' "$as_lp" | cut -c1-120)"
+  else row "$as_n" PASS "$(secs "$as_t")" "stage $as_stage in $(basename "$as_best"), $(printf '%s\n' "$as_blk" | grep -c .) lines"; fi
+}
+# a202_branch_row PREFIX ID WORD: the task branch is proofline/<ID>-<slug>, the slug comes from the title (WORD is a word of it), never <id lowercase>
+a202_branch_row() {
+  ar_n="$1 batch branch name ($2): proofline/<ID>-<slug>, slug from the title"; ar_t=$(date +%s); ar_id=$2; ar_src=origin
+  ar_b=$(git --git-dir="$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/ | grep "^proofline/$ar_id-" | head -n 1)
+  if [ -z "$ar_b" ]; then   # merged and deleted on the origin: the name the control plane recorded
+    ar_src=recorded
+    ar_b=$(sed -n 's/^branch: //p' "$P/.agents/local/deliver/$ar_id/SUMMARY.md" 2>/dev/null | head -n 1)
+    [ -n "$ar_b" ] || ar_b=$(cat "$P"/.agents/runs/"$ar_id"/RUN.yaml "$P"/.agents/local/worktrees/"$ar_id"/.agents/runs/"$ar_id"/RUN.yaml 2>/dev/null | sed -n 's/^[[:space:]]*task_branch:[[:space:]]*//p' | tr -d '"' | head -n 1)
+  fi
+  ar_low=$(printf '%s' "$ar_id" | tr '[:upper:]' '[:lower:]'); ar_slug=${ar_b#proofline/"$ar_id"-}
+  if [ -z "$ar_b" ]; then row "$ar_n" FAIL "$(secs "$ar_t")" "no proofline/$ar_id-* branch on the origin and none recorded"
+  elif [ "$ar_slug" = "$ar_b" ] || [ -z "$ar_slug" ] || ! printf '%s' "$ar_slug" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$'; then row "$ar_n" FAIL "$(secs "$ar_t")" "branch '$ar_b' is not proofline/$ar_id-<slug>"
+  elif [ "$ar_slug" = "$ar_low" ]; then row "$ar_n" FAIL "$(secs "$ar_t")" "branch '$ar_b' repeats the id as its slug"
+  elif ! printf '%s' "$ar_slug" | grep -q "$3"; then row "$ar_n" FAIL "$(secs "$ar_t")" "slug '$ar_slug' does not come from the task title (no '$3')"
+  else row "$ar_n" PASS "$(secs "$ar_t")" "$ar_b ($ar_src)"; fi
+}
+a202_rows() { a202_status_row "$1" T-2; a202_status_row "$1" T-3; a202_branch_row "$1" T-2 whisper; a202_branch_row "$1" T-3 repeat; }
 
 pass() { # one full pass (setup, run, deliver, batch); NAME_PREFIX
   pr_pre=$1
@@ -215,7 +275,7 @@ EOF
   done
   git -C "$P" add -A; git -C "$P" commit -q -m 'chore: tasks'; git -C "$P" push -q origin main
 
-  if [ "${SMOKE_ONLY:-}" != codex ]; then
+  if [ "${SMOKE_ONLY:-}" != codex ] && [ "${SMOKE_ONLY:-}" != a202 ]; then
   # 1. run: the implementer writes the file
   t0=$(date +%s)
   if drive "$pr_pre-run" "/proofline run T-1" 'A digest T-1 2>/dev/null | grep -q "CODE_DONE"' "approve plan"; then
@@ -236,14 +296,23 @@ EOF
   drive "$pr_pre-merged" "I merged the branch of T-1 on the origin. Finish T-1." 'codex_config_commit' "I merged it on the origin; please finish T-1 (deliver-merged and cleanup)." >/dev/null 2>&1 || :
   else codex_config_commit; fi
 
-  codex_sandbox_row
+  [ "${SMOKE_ONLY:-}" = a202 ] || codex_sandbox_row
 
   # 3. batch of two tasks; with Codex installed the implementer is Codex, so every batch task runs a Codex implementer in a run worktree (A196)
   t0=$(date +%s)
   if drive "$pr_pre-batch" "/proofline batch T-2 T-3" 'git --git-dir="$ORIGIN" show main:src/whisper.js >/dev/null 2>&1 && git --git-dir="$ORIGIN" show main:src/repeat.js >/dev/null 2>&1' "approve batch"; then
     row "$pr_pre /proofline batch T-2 T-3 (both reach origin main)" PASS "$(secs "$t0")" "$(A batch-status 2>/dev/null | head -n 1)"
   else row "$pr_pre /proofline batch T-2 T-3 (both reach origin main)" FAIL "$(secs "$t0")" "$(A batch-next 2>/dev/null | tail -n 1)"; fi
-  if command -v codex >/dev/null 2>&1; then
+  # the drive above ends the moment the user's merge lands on the origin; the control plane records a merge only when the lead is told (deliver-merged), so the
+  # block can honestly say PR OPEN until then. The user says so once more, as in the real flow, and the rows are read after the lead recorded both merges.
+  user_merges
+  # said only when both really are on the origin's main (a false "I merged it" makes the lead check and refuse, A200 smoke run 2)
+  if git --git-dir="$ORIGIN" show main:src/whisper.js >/dev/null 2>&1 && git --git-dir="$ORIGIN" show main:src/repeat.js >/dev/null 2>&1 && ! ab_pending; then
+    drive "$pr_pre-batch-merged" "I merged T-2 and T-3 on the origin. Record the merges and finish the batch." 'a202_both_merged' "I merged them on the origin; record the merges (deliver-merged) and clean up." >/dev/null 2>&1 || :
+  fi
+  a202_rows "$pr_pre"   # A202: the status block and the slug in the branch name, read from files and agent.sh state
+  if [ "${SMOKE_ONLY:-}" = a202 ]; then :
+  elif command -v codex >/dev/null 2>&1; then
     if grep -rqs 'implementer-codex\|implementer.*codex' "$P/.agents/local" "$work/$pr_pre-batch.jsonl" 2>/dev/null && ! grep -qs 'cannot take the lock' "$work/$pr_pre-batch.jsonl" "$P"/.agents/local/worktrees/*/.agents/runs/*/dispatch/*codex*.log 2>/dev/null; then
       row "$pr_pre batch: a Codex implementer in a worktree, submit included" PASS 0 "no lock failure in the transcript or dispatch logs"
     else row "$pr_pre batch: a Codex implementer in a worktree, submit included" FAIL 0 "no Codex dispatch seen, or a lock failure"; fi
@@ -416,7 +485,8 @@ smoke_user_settings=no
 if [ "${SMOKE_ONLY:-}" = a200 ]; then a200_pass   # not in the default run: three more real-model flows (a batch of two tasks and a run with a fix round) double its time
 else
 pass hermetic
-if [ "${SMOKE_RTK:-auto}" != no ] && command -v rtk >/dev/null 2>&1; then
+if [ "${SMOKE_ONLY:-}" = a202 ]; then :   # only the hermetic batch step
+elif [ "${SMOKE_RTK:-auto}" != no ] && command -v rtk >/dev/null 2>&1; then
   smoke_user_settings=yes
   pass rtk
 else row "rtk pass" SKIP 0 "rtk is not installed here; the pass with the user's settings is skipped"; fi

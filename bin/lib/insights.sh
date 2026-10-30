@@ -79,6 +79,37 @@ cmd_insights() {
     }
     function isort(a, n,   i, j, t) { for (i = 2; i <= n; i++) { t = a[i]; for (j = i - 1; j >= 1 && a[j] > t; j--) a[j + 1] = a[j]; a[j + 1] = t } }
     function addset(nm, key, v) { if (!((nm, key, v) in SET)) { SET[nm, key, v] = 1; LST[nm, key] = LST[nm, key] (LST[nm, key] == "" ? "" : ",") v } }
+    # median of v[1..n] (numbers), "n/a" when n == 0
+    function med(v, n,   a, i, m) {
+      if (n == 0) return "n/a"
+      for (i = 1; i <= n; i++) a[i] = v[i] + 0
+      isort(a, n); m = int((n + 1) / 2)
+      return (n % 2) ? a[m] "" : int((a[m] + a[m + 1]) / 2) ""
+    }
+    # A202: the task-author size estimate (S, M, L) against what the runs actually took. Only finished run records that carry a size count.
+    function calib(   t, z, i, k, nz, md, mt, mp, a, b, why, prev) {
+      for (t in hasrun) if (rsz[t] ~ /^[SML]$/ && isnum(rdur[t])) {
+        z = rsz[t]; k = ++CN[z]; CD[z, k] = rdur[t] / 60
+        if (N["run", t, 5] + 0 > 0) { CT[z, ++CNT[z]] = S["run", t, 5] }
+        if (isnum(rsp[t]) && rsp[t] + 0 > 0) { CP[z, ++CNP[z]] = rsp[t] }
+      }
+      ncal = 0
+      for (i = 1; i <= 3; i++) { z = substr("SML", i, 1); if (CN[z] == 0) continue
+        for (k = 1; k <= CN[z]; k++) tmpd[k] = CD[z, k]
+        for (k = 1; k <= CNT[z]; k++) tmpt[k] = CT[z, k]
+        for (k = 1; k <= CNP[z]; k++) tmpp[k] = CP[z, k]
+        ncal++; cz[ncal] = z; cn[ncal] = CN[z]; cmd[ncal] = med(tmpd, CN[z]); cmt[ncal] = med(tmpt, CNT[z]); cmp[ncal] = med(tmpp, CNP[z])
+        why = ""
+        if (prev != "") {
+          b = ncal - 1
+          if (cn[ncal] < 3 || cn[b] < 3) why = "too few finished tasks (3 or more of each size are needed) to compare " cz[b] " with " cz[ncal] "."
+          else if ((cmd[b] + 0) > (cmd[ncal] + 0) || (cmp[b] != "n/a" && cmp[ncal] != "n/a" && (cmp[b] + 0) > (cmp[ncal] + 0)))
+            why = cz[b] " tasks took longer or touched more paths than " cz[ncal] " tasks; consider estimating tasks like the " cz[b] " ones one size up."
+          else why = cz[b] " to " cz[ncal] ": the estimates follow the actuals; no change suggested."
+        }
+        csg[ncal] = why; prev = z
+      }
+    }
     function norm(s) { gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
     function addpat(kind, subj, cnt, runs, sugg) {
       np++; pk[np] = kind; ps[np] = subj; pc[np] = cnt; pr[np] = runs; pg[np] = sugg
@@ -107,6 +138,7 @@ cmd_insights() {
         if (t in hasrun) { dupruns++; next }   # one run record per run: the first counts
         hasrun[t] = 1; rres[t] = jv(j, "result"); rdur[t] = jv(j, "duration_s"); rdel[t] = jv(j, "delegations"); rfix[t] = jv(j, "fix_rounds")
         add("runrec", "all", rdur[t], rdel[t], rfix[t], "", "")
+        rsz[t] = jv(j, "size"); rsp[t] = jv(j, "scope_paths")   # A202: absent in older records
       }
       next
     }
@@ -196,6 +228,9 @@ cmd_insights() {
         printf "],\n \"totals\":{\"dispatches\":%d,\"dispatch_duration_s\":%s,\"tokens_in\":%s,\"tokens_in_reported\":%d,\"tokens_out\":%s,\"tokens_out_reported\":%d,\"tokens_total\":%s,\"tokens_total_reported\":%d,\"retries\":%s,\"run_duration_s\":%s,\"run_records\":%d,\"delegations\":%s,\"fix_rounds\":%s},\n",
           C["all", "all"] + 0, jcell("all", "all", 1), jcell("all", "all", 2), N["all", "all", 2] + 0, jcell("all", "all", 3), N["all", "all", 3] + 0, jcell("all", "all", 5), N["all", "all", 5] + 0, jcell("all", "all", 4),
           jcell("runrec", "all", 1), C["runrec", "all"] + 0, jcell("runrec", "all", 2), jcell("runrec", "all", 3)
+        calib(); printf " \"calibration\":["
+        for (i = 1; i <= ncal; i++) printf "%s{\"size\":\"%s\",\"tasks\":%d,\"median_min\":%s,\"median_tokens\":%s,\"median_paths\":%s,\"suggestion\":\"%s\"}", (i > 1 ? "," : ""), cz[i], cn[i], (cmd[i] == "n/a" ? "null" : cmd[i]), (cmt[i] == "n/a" ? "null" : cmt[i]), (cmp[i] == "n/a" ? "null" : cmp[i]), jesc(csg[i])
+        printf "],\n"
         printf " \"patterns\":["
         for (i = 1; i <= po; i++) { x = pord[ordk[i]]
           printf "%s{\"kind\":\"%s\",\"subject\":\"%s\",\"count\":%d,\"runs\":[", (i > 1 ? "," : ""), jesc(pk[x]), jesc(ps[x]), pc[x]
@@ -237,6 +272,14 @@ cmd_insights() {
         printf "  total over %d dispatch(es): duration %s, tokens in %s, tokens out %s, tokens total %s, retries %s\n", C["all", "all"], d, cell("all", "all", 2), cell("all", "all", 3), cell("all", "all", 5), cell("all", "all", 4)
         printf "  total over %d finished run(s): duration %s, delegations %s, fix rounds %s\n", C["runrec", "all"] + 0, rd, cell("runrec", "all", 2), cell("runrec", "all", 3)
       }
+      calib()
+      print ""
+      print "CALIBRATION (task-author size estimate against the actual run; a suggestion only, nothing is changed)"
+      if (ncal == 0) print "  no finished run record carries a size estimate yet"
+      for (i = 1; i <= ncal; i++) {
+        printf "  %s tasks (%d): median %s min / %s tokens / %s paths\n", cz[i], cn[i], cmd[i], cmt[i], cmp[i]
+        if (csg[i] != "") printf "     suggestion: %s\n", csg[i]
+      }
       print ""
       print "RECURRING FAILURES (2 or more occurrences; suggestions are not applied)"
       if (po == 0) print "  none found"
@@ -247,4 +290,9 @@ cmd_insights() {
       print "(a blocked scope check, a refused approval phrase) leave no record, so only what a ledger or finding states is counted."
     }
   '
+  # A202: the size of the text loaded into every session, from the same script doctor and the budget test use
+  if [ "$in_json" = 0 ] && [ -z "$in_run" ]; then
+    printf '\n'; sh "$PL_HOME/bin/lib/context-size.sh" project "$ROOT" report || :
+    if [ -f "$ROOT/.agents/scripts/rules.sh" ]; then printf '\n'; (cd "$ROOT" && sh "$A" rules report) || :; fi
+  fi
 }

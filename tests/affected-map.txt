@@ -5,7 +5,7 @@
 # users of that path (scripts under control-plane/agents/scripts are copied into many suites: not listed).
 # A changed test file always selects itself without a line here.
 tests/ci/classify.sh classify-test affected-test
-tests/affected.sh affected-test
+tests/affected.sh affected-test load-limits-test
 tests/affected-map.txt affected-test
 tests/ci/bump-version.sh bump-version-test
 tests/ci/sync-design-library.sh sync-design-library-test
@@ -25,3 +25,12 @@ fixtures/visual-proof-design/* visual-proof-design.test.mjs
 tests/invariants/check-changed.sh check-changed-test
 tests/invariants/check-changed-test.sh check-changed-test
 tests/invariants/invariants-test.sh invariants-test
+tests/context/check-budget-changed.sh check-budget-changed-test
+tests/context/check-budget-changed-test.sh check-budget-changed-test
+tests/context/context-budget-test.sh context-budget-test
+tests/context/budget.tsv context-budget-test
+tests/context/rule-map.tsv context-budget-test
+bin/lib/context-size.sh context-budget-test cli-test
+control-plane/agents/scripts/rules.sh rules-test
+tests/enforcement/approval-load-test.sh approval-load-test
+tests/bench/big-run.sh approval-load-test

@@ -218,7 +218,22 @@ in the completion report `## Waivers`. With `review.waiver_followup: task` a fol
 next to it and passed to `.agents/task-integrations/<tasks.adapter>.sh followup <ID> <file>` when the adapter
 exists (receipt recorded; `pending` otherwise).
 
+## Known issues (A202)
+
+A blocking finding that was already there and that the task does not touch is `waived` through the user's known-issues list, never through
+an agent's claim. `agent.sh known-issue-propose <RUN> <FINDING-ID> --followup <TASK>` (lead) writes one proposed record (gate, place,
+text, follow-up) and asks `known-issue` (no run; bound to the proposal's sha256); the reply "approve known issue" and then
+`agent.sh known-issue-apply` write `.agents/local/known-issues/LIST.tsv` (read only by scripts and the user; never in a context). A record
+counts only while its approval file is the user's for exactly its content, its follow-up is an open markdown task, the gate is not
+SECRETS or SECURITY, gate, place (`path[:line]` of a tracked file) and text match exactly, and the frozen scope and the actual diff of the
+run do not contain the place. Anything else, a new finding included, stays blocking. A listed finding stays in the gate record and is
+named in the Facts block, the gate label and the status block with its record id and follow-up task; a done follow-up closes the record
+(`CLOSED.tsv`). `agent.sh known-issue-list` shows the records and `known-issue-candidates` the recorded findings of earlier runs that no
+run covered (what the batch pre-flight asks about; findings no run recorded are not detected).
+
 ## Approvals (D3)
+
+Approvals are recorded with `agent.sh request-approval`; the runtime's prompt hook records the approval from the user's own reply (a terminal user may run `approve` themselves); no model runs `approve`, nothing is approved on the user's behalf.
 
 Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the PLAN.md sha256), `commit`, `push`,
 `pr`, `merge`, `cleanup` (bound to the content fingerprint), `reopen:<ID>` (bound to the PLAN.md sha256), `batch` (no run: `agent.sh batch-plan` requests it; bound to the sha256 of `.agents/local/batch/SUMMARY.md`; never consumed; `agent.sh batch-cover` answers a pending `plan`, `delivery` or `mutation_budget` request as the user's while it is valid, A157), `report` (no run: `request-approval - report`; bound to the sha256 of `.agents/local/friction/latest.md`; consumed by `agent.sh friction send`, which files the anonymous friction report as a GitHub issue; see docs/concepts/metrics.md), `waive:<FINDING-ID>` (bound to `<gate record>@<sha256>#<FINDING-ID>`).

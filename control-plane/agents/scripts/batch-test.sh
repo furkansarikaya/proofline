@@ -88,7 +88,7 @@ install_scripts() { # DIR: the control-plane scripts a fixture lacks (batch.sh, 
     case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
     cp "$is_s" "$1/"
   done
-  mkdir -p "$1/../task-integrations"; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$1/../task-integrations/"   # A169: sessions run the real `agent.sh start`
+  mkdir -p "$1/../task-integrations"; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" "$1/../task-integrations/"   # A169: sessions run the real `agent.sh start`
 }
 # bnew: a fresh fixture without task files (the shared template may carry some, see tpl_tasks)
 bnew() { new_repo; rm -rf .agents/tasks; }
@@ -178,6 +178,35 @@ drive() {
     [ "$dr_max" -eq 0 ] || [ "$dr_n" -lt "$dr_max" ] || return 0
   done
 }
+# --- A202: priority orders the tasks that are free to run; an Allowed scope is asked in the pre-flight -----------------------------------------
+# mkprio ID PRIORITY [DEPS]: a task with front matter priority (and depends_on)
+mkprio() {
+  mktask "$1" STANDARD; mp_f=.agents/tasks/$1.md
+  { sed -n 1p "$mp_f"; printf '\n---\npriority: %s\n' "$2"; [ -z "${3:-}" ] || printf 'depends_on: %s\n' "$3"; printf '\n---\n'; sed '1d' "$mp_f"; } > "$mp_f.new"; mv "$mp_f.new" "$mp_f"
+}
+sc_priority_and_allowed() {
+  bnew; mktask T-1 STANDARD; mkprio T-2 low; mkprio T-3 high; mkprio T-4 high T-2; mkprio T-5 medium; binstall no
+  BP T-1 T-2 T-3 T-4 T-5 > "$base/plan.out" || die "batch-plan refused a priority batch: $(cat "$base/plan.out")"
+  [ "$(order_ids)" = "T-3 T-1 T-5 T-2 T-4" ] || die "priority order: high first, ties in the listed order, a dependency before its dependant (T-4 is high but waits for T-2): $(order_ids)"
+  BP T-2 T-1 > "$base/plan.out" || die "batch-plan"
+  [ "$(order_ids)" = "T-1 T-2" ] || die "a plain task goes before a low one: $(order_ids)"
+  mktask T-1 STANDARD; BP T-1 T-2 >/dev/null; [ "$(order_ids)" = "T-1 T-2" ] || die "tasks without priority keep the listed order: $(order_ids)"
+  # Allowed scope: a path the task names outside it is a pre-flight question; the answer "park" parks the task, the other task goes on
+  { printf '# Task: S-1 — scoped\n\n## Goal\n\nIt works.\n\n## Context\n\nChanges `src/a.js` and `lib/x.js`.\n\n## Acceptance criteria\n\n- AC-1: the output lists three rows\n\n## Out of scope\n\n- Other.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n\n## Suggested class\n\nSTANDARD because it is small.\n\n## Allowed scope\n\n- `src/`\n\n## Forbidden scope\n\n- `lib/y.js`\n'; } > .agents/tasks/S-1.md
+  mktask S-2 STANDARD; git add -A; git commit -qm tasks
+  BP S-1 S-2 > "$base/plan.out" || die "batch-plan: $(cat "$base/plan.out")"
+  grep -q '\[S-1, scope\].*lib/x.js' "$summary" || die "no Allowed scope question naming lib/x.js: $(grep -n 'Q[0-9]' "$summary")"
+  grep '\[S-1, scope\]' "$summary" | grep -q 'src/a.js' && die "a path inside the Allowed scope was asked about: $(grep 'S-1, scope' "$summary")"
+  grep '\[S-1, scope\]' "$summary" | grep -q 'lib/y.js' && die "the Forbidden scope path was asked about instead of refused at freeze"
+  batch_approve
+  mkdir -p .agents/local/prompts/history; now=$(( $(date +%s) + 10 ))
+  printf 'Q1 a\n' > .agents/local/prompts/history/$now-dddd1111.txt
+  A batch-answer >/dev/null || die "batch-answer"
+  A batch-next | grep -q '^S-1 | PARKED | allowed scope' || die "an Allowed scope answer 'park' did not park the task: $(A batch-next)"
+  A batch-next | grep -q '^NEXT: run S-2' || die "the other task does not go on: $(A batch-next | tail -2)"
+  ok "A202 batch: priority orders free tasks (ties keep the listed order, dependencies first); an Allowed scope violation is a pre-flight question and a park answer parks"
+}
+
 # --- 1. depends_on order and cycle rejection ---------------------------------------------------------------------------
 sc_order_and_cycle() {
   bnew; mktask T-1 COMPLEX; mktask T-2 COMPLEX; mktask T-3 COMPLEX T-1; mktask T-5 COMPLEX T-9
@@ -325,7 +354,7 @@ sc_status_from_records() {
   BB status > "$base/st1.out" || die "batch.sh status failed"
   row() { grep "$2" "$1" | head -1; }
   row "$base/st1.out" T-1 | grep -q 'merged' && row "$base/st1.out" T-1 | grep -q '101' || die "T-1 row: $(cat "$base/st1.out")"
-  row "$base/st1.out" T-2 | grep -q 'parked' && row "$base/st1.out" T-2 | grep -q 'Which cache' || die "T-2 row: $(cat "$base/st1.out")"
+  row "$base/st1.out" T-2 | grep -q 'PARKED' && row "$base/st1.out" T-2 | grep -q 'Which cache' || die "T-2 row: $(cat "$base/st1.out")"
   row "$base/st1.out" T-3 | grep -q 'skipped' || die "T-3 row: $(cat "$base/st1.out")"
   grep -qi 'no friction report' "$base/st1.out" || die "no 'no friction report' line"
   grep -qi 'driver' "$base/st1.out" && die "status still has a driver line: $(grep -i driver "$base/st1.out")"
@@ -335,7 +364,7 @@ sc_status_from_records() {
   awk -F'\t' -v OFS='\t' '$1 == "T-1" { $2 = 777 } { print }' .agents/local/batch/merged.tsv > "$base/m.tsv"
   cp "$base/m.tsv" .agents/local/batch/merged.tsv
   BB status > "$base/st2.out"; row "$base/st2.out" T-1 | grep -q '777' && ! row "$base/st2.out" T-1 | grep -q '101' || die "merged.tsv edit not reflected: $(row "$base/st2.out" T-1)"
-  BB status > "$base/st3.out"; row "$base/st3.out" T-4 | grep -q 'parked' && row "$base/st3.out" T-4 | grep -q 'reason-xyz-from-the-lead' || die "state.tsv park not reflected: $(row "$base/st3.out" T-4)"
+  BB status > "$base/st3.out"; row "$base/st3.out" T-4 | grep -q 'PARKED' && row "$base/st3.out" T-4 | grep -q 'reason-xyz-from-the-lead' || die "state.tsv park not reflected: $(row "$base/st3.out" T-4)"
   A batch-park T-4 --clear >/dev/null; BB status | grep T-4 | grep -q 'pending' || die "a cleared park is still shown"
   printf '1\n' > .agents/local/worktrees/T-2/.agents/runs/T-2/questions/001.answer.md   # the user answered (the parked run lives in its task's worktree, A169): the pending question is gone
   BB status > "$base/st4.out"; row "$base/st4.out" T-2 | grep -q 'Which cache' && die "an answered question is still shown as pending"
@@ -808,6 +837,63 @@ sc_plan_all_subset() {
   ok "batch-plan: 'all' or IDs that the approved batch does not contain are refused with --replace as the way out; tasks it left out on purpose do not count"
 }
 
+# --- A202: file names <ID>-<slug>.md, renamed only on the user's approval; the task type in the pre-flight --------------------------------
+sc_task_names() {
+  bnew; mkdir -p .agents/tasks/todo .agents/tasks/in-progress .agents/tasks/backlog; binstall no
+  mk() { printf '# Task: %s — %s\n\n## Goal\n\nIt works.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nSTANDARD\n' "$2" "$3" > ".agents/tasks/$1/$4.md"; }
+  mk todo T-1 'Türkçe başlık ışığı' T-1          # ID only: proposed
+  mk backlog T-2 'Slug only' slug-only           # slug only: proposed
+  mk todo T-3 'Already named' T-3-already-named  # conforming: left alone
+  mk todo T-4 'Started task' T-4; mkdir -p .agents/runs/T-4   # has a run: never touched
+  mk in-progress T-5 'In progress' T-5           # not queued: never touched
+  mk todo T-6 'Reported task' T-6; printf '<!-- COMPLETION-REPORT:BEGIN:T-6 -->\n' >> .agents/tasks/todo/T-6.md   # report published: never touched
+  mk todo T-7 'Echo' T-7-t-7                     # slug repeats the ID: proposed
+  git add -A; git commit -qm tasks
+  A task-rename-plan > "$base/rn.out" || die "task-rename-plan: $(cat "$base/rn.out")"
+  for want in 'T-1.md	.agents/tasks/todo/T-1-turkce-baslik-isigi.md' 'slug-only.md	.agents/tasks/backlog/T-2-slug-only.md' 'T-7-t-7.md	.agents/tasks/todo/T-7-echo.md'; do
+    grep -Fq -- "$want" "$base/rn.out" || { printf '%s\n' "$(cat "$base/rn.out")" | sed 's/^/    /'; die "rename proposal lacks: $want"; }
+  done
+  for no in T-3 T-4 T-5 T-6; do ! grep -Fq "$no" .agents/local/rename/PROPOSAL.tsv || die "$no was proposed for a rename"; done
+  expect_msg "rename applied without the user's approval" "needs the user's approval" A task-rename-apply
+  capture 'approve rename' "$(( $(date +%s) + 7200 ))"; A approve-pending >/dev/null 2>&1 || :
+  # a task that started after the proposal is no longer renamed
+  mkdir -p .agents/runs/T-7
+  expect_msg "a task that started after the proposal was renamed" "no longer a queued task file" A task-rename-apply
+  [ -f .agents/tasks/todo/T-1.md ] || die "a refused rename moved a file"
+  rmdir .agents/runs/T-7
+  A task-rename-apply >/dev/null || die "task-rename-apply after the approval"
+  [ -f .agents/tasks/todo/T-1-turkce-baslik-isigi.md ] && [ -f .agents/tasks/backlog/T-2-slug-only.md ] && [ -f .agents/tasks/todo/T-7-echo.md ] || die "the approved renames did not happen"
+  for keep in todo/T-3-already-named todo/T-4 in-progress/T-5 todo/T-6; do [ -f ".agents/tasks/$keep.md" ] || die "$keep was renamed"; done
+  expect_msg "the approval is single-use" "no rename proposal" A task-rename-apply
+  # the batch finds a task by ID whatever its file name is
+  mk todo T-8 'Plain' T-8-plain; git add -A; git commit -qm more
+  BP T-1 T-8 > "$base/plan.out" 2>&1 || die "batch-plan does not find <ID>-<slug>.md files: $(cat "$base/plan.out")"
+  # the task type is an input of the pre-flight: a bug without its reproduction steps is asked about, a typeless task is a feature
+  printf '# Task: B-1 — Crash\n\n---\ntype: bug\n---\n\n## Goal\n\nIt works.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nSTANDARD\n' > .agents/tasks/todo/B-1-crash.md
+  git add -A; git commit -qm bug
+  BP T-8 B-1 > "$base/plan.out" 2>&1 || die "batch-plan with a bug task: $(cat "$base/plan.out")"
+  grep -q '\[B-1, type\].*Reproduction steps' .agents/local/batch/SUMMARY.md || die "a bug without reproduction steps raised no type question: $(grep 'B-1' .agents/local/batch/SUMMARY.md)"
+  grep -q '\[T-8' .agents/local/batch/SUMMARY.md && die "a typeless task raised a question"
+  ok "A202: queued tasks are renamed to <ID>-<slug>.md only after the user's approval; started, reported and in-progress files never; the batch finds <ID>-<slug>.md"
+}
+
+# --- A202 item 27: the pre-flight asks about recorded findings that no run covered and that are not on the known-issues list ------------
+sc_known_issues_preflight() {
+  bnew; mkdir -p .agents/tasks/todo docs; binstall no
+  printf '# Task: T-1 — Plain\n\n## Goal\n\nIt works.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nSTANDARD\n' > .agents/tasks/todo/T-1.md
+  printf 'old\n' > docs/old.md; git add -A; git commit -qm files
+  # an earlier run of this machine that recorded a blocking finding in a file its frozen scope did not cover; and one that did cover it
+  for r in R-1 R-2; do mkdir -p ".agents/runs/$r/gates"; done
+  printf 'freeze:\n  scope_paths: "src/a.txt"\n' > .agents/runs/R-1/RUN.yaml
+  printf 'freeze:\n  scope_paths: "docs/old.md"\n' > .agents/runs/R-2/RUN.yaml
+  for r in R-1 R-2; do printf 'task_id: "%s"\ngate: "QA"\nresult: "fail"\nfocus: "-"\nfinding: QA-1|blocking|docs/old.md:3|the old page drops a section|traced\n' "$r" > ".agents/runs/$r/gates/001-QA.yaml"; done
+  BP T-1 > "$base/plan.out" 2>&1 || die "batch-plan: $(cat "$base/plan.out")"
+  grep -q '\[R-1, known\].*QA-1.*docs/old.md:3' "$summary" || die "the finding of a run that did not cover the place raised no question: $(grep -n 'known\|Pre-flight' "$summary")"
+  grep -q '\[R-2, known\]' "$summary" && die "a run whose scope covered the place raised a question (the finding is its own change)"
+  grep -q 'approve known issue' "$summary" || die "the question does not say that listing needs the user's own approval"
+  ok "A202: the batch pre-flight asks about recorded findings no run covered and that are not listed; a run's own scope finding is not asked; no scanner is claimed"
+}
+
 # --- 16. the keys of the removed driver are ignored, not validated; the live keys still are -------------------------------------------
 sc_config_ignored_keys() {
   bnew; binstall no
@@ -844,7 +930,11 @@ sc_preflight() {
   A batch-answer > "$base/ans.out" || die "batch-answer: $(cat "$base/ans.out")"
   A batch-answers P-1 | tr '\n' ';' | grep -q 'Q1 P-1 split: option b (up to 27)' || die "split answer: $(A batch-answers P-1)"
   A batch-answers P-1 | grep -q 'Q3 P-1 dep: option b' && A batch-answers P-1 | grep -q 'Q4 P-1 ac: option a' || die "answers: $(A batch-answers P-1)"
-  A batch-next | grep -q '^P-1 | parked | new dependency' || die "a dependency answer 'park' did not park the task: $(A batch-next)"
+  A batch-next | grep -q '^P-1 | PARKED | new dependency' || die "a dependency answer 'park' did not park the task: $(A batch-next)"
+  # A202: a parked task reads PARKED (with its reason) in both views, never like a running or pending one
+  A batch-status | grep -q '^P-1 | PARKED | ' && A batch-status | grep -q '^P-1 | PARKED | .*new dependency' || die "batch-status does not show P-1 as PARKED with its reason: $(A batch-status)"
+  A batch-status | grep -q '^P-2 | pending | ' || die "the running-to-be task is not told apart from the parked one: $(A batch-status)"
+  if A batch-next | grep -q '^P-1 | parked'; then die "batch-next still writes a parked task like an ordinary state"; fi
   A batch-next | grep -q '^NEXT: run P-2' || die "the other task does not go on: $(A batch-next | tail -2)"
   # a leading "no" that also says to split is ambiguous: Q1 stays unanswered, never read as option b (proceed without splitting)
   q1_before=$(A batch-answers P-1 | grep -c 'Q1 ')
@@ -922,7 +1012,24 @@ sc_same_files_wait() {
   ok "A200: batch-next does not start a task that shares a code file with an earlier unmerged task; document paths do not count"
 }
 
+# --- 17. A202: batch planning never reads a finished task's completion report ----------------------------------------------------------
+sc_done_reports_unread() {
+  bnew; mktask T-1 COMPLEX; mktask T-3 COMPLEX T-9; mktask T-9 COMPLEX '' 'done'
+  printf '\n## Completion Report\n\nREPORT-SENTINEL-203\n' >> .agents/tasks/done/T-9.md
+  binstall no
+  # the planner may list the done/ folder (names) but must not open the file: unreadable, the plan still works
+  chmod 000 .agents/tasks/done/T-9.md
+  if [ -r .agents/tasks/done/T-9.md ]; then chmod 600 .agents/tasks/done/T-9.md; ok "A202: (skipped the unreadable-file proof: this user can read any file)"; return 0; fi
+  BP T-3 > "$base/plan.out" 2>&1 || { chmod 600 .agents/tasks/done/T-9.md; die "batch-plan opened a finished task or refused a dependency on it: $(cat "$base/plan.out")"; }
+  chmod 600 .agents/tasks/done/T-9.md
+  [ "$(order_ids)" = "T-3" ] || die "T-3 (depends on done/T-9) is not planned: $(order_ids)"
+  ! grep -rq 'REPORT-SENTINEL-203' "$base/plan.out" .agents/local/batch || die "a finished task's report reached the batch output or records"
+  ok "A202: batch-plan takes a finished task's ID from its file name; the completion report is never opened or copied"
+}
+
+
 run_sc sc_preflight
+run_sc sc_priority_and_allowed
 run_sc sc_commands_check
 run_sc sc_same_files_wait
 run_sc sc_order_and_cycle
@@ -952,4 +1059,7 @@ run_sc sc_owner_guard
 run_sc sc_pr_recovery
 run_sc sc_plan_all_subset
 run_sc sc_config_ignored_keys
+run_sc sc_done_reports_unread
+run_sc sc_task_names
+run_sc sc_known_issues_preflight
 echo 'batch tests passed'

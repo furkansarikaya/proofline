@@ -84,7 +84,7 @@ take_old_lock() {
 acquire_lock() {
   al_path=$1
   case " $held_locks " in *" $al_path "*) return 0 ;; esac
-  al_timeout=${PROOFLINE_LOCK_TIMEOUT:-120}
+  al_timeout=${PROOFLINE_LOCK_TIMEOUT:-$(tm_scaled 120 1 3600)}
   case "$al_timeout" in ''|*[!0-9]*) fail "invalid PROOFLINE_LOCK_TIMEOUT: $al_timeout"; return 1 ;; esac
   [ -w "${al_path%/*}" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
   al_tries=$((al_timeout * 5)) al_n=0 al_broke=''
@@ -179,6 +179,80 @@ cfg_cmds() {
 }
 config_value() { cfg "$1"; }
 
+# --- Timeouts (A202 item 29): one multiplier for every duration ------------------------------------------------------------
+# tm_scale: timeouts.scale (0.5 to 10, default 1); a missing, non-numeric or out-of-range value is 1, so no value can switch a timeout off or
+# stretch it past the bound. tm_scaled N [MIN [MAX]]: N seconds times the scale, rounded up, kept between MIN (default 1) and MAX (default 28800).
+# The approval fast-path budget (hook.approve_budget_seconds) is never passed through here: hook_knob keeps its own tight bound (trap z).
+# dec0 N: N without leading zeros (08 is the number 8; a shell reads it as an octal error inside $(( ))). Every config number that feeds arithmetic passes here.
+dec0() { d0_v=$1; while :; do case "$d0_v" in 0?*) d0_v=${d0_v#0} ;; *) break ;; esac; done; printf '%s\n' "$d0_v"; }
+tm_milli=''   # timeouts.scale times 1000, read once per process (no process is started to scale a number: locks call tm_scaled)
+tm_scale_milli() {
+  [ -z "$tm_milli" ] || { printf '%s\n' "$tm_milli"; return 0; }
+  tm_v=$(cfg timeouts.scale 1); tm_ip=${tm_v%%.*}; tm_fp=0
+  case "$tm_v" in *.*) tm_fp=${tm_v#*.} ;; esac
+  case "$tm_ip$tm_fp" in ''|*[!0-9]*) tm_milli=1000; printf '1000\n'; return 0 ;; esac
+  [ -n "$tm_ip" ] || tm_ip=0; [ -n "$tm_fp" ] || tm_fp=0
+  tm_fp="${tm_fp}000"; tm_fp=${tm_fp%"${tm_fp#???}"}
+  while :; do case "$tm_ip" in 0?*) tm_ip=${tm_ip#0} ;; *) break ;; esac; done   # no octal reading of 010
+  while :; do case "$tm_fp" in 0?*) tm_fp=${tm_fp#0} ;; *) break ;; esac; done
+  tm_milli=$((tm_ip * 1000 + tm_fp))
+  { [ "$tm_milli" -ge 500 ] && [ "$tm_milli" -le 10000 ]; } || tm_milli=1000
+  printf '%s\n' "$tm_milli"
+}
+tm_scale() { tm_m=$(tm_scale_milli); awk -v m="$tm_m" 'BEGIN { print m / 1000 }'; }
+tm_scaled() {
+  ts_m=$(tm_scale_milli); ts_n=$(dec0 "$1"); ts_x=$(((ts_n * ts_m + 999) / 1000)); ts_lo=${2:-1}; ts_hi=${3:-28800}
+  [ "$ts_x" -ge "$ts_lo" ] || ts_x=$ts_lo; [ "$ts_x" -le "$ts_hi" ] || ts_x=$ts_hi; printf '%s\n' "$ts_x"
+}
+# tm_warn_percent: how much of a step's time may pass before the lead is told (timeouts.warn_percent, 50 to 95, default 80)
+tm_warn_percent() { tw_v=$(dec0 "$(cfg timeouts.warn_percent 80)"); case "$tw_v" in ''|*[!0-9]*) tw_v=80 ;; esac; [ "$tw_v" -ge 50 ] || tw_v=50; [ "$tw_v" -le 95 ] || tw_v=95; printf '%s\n' "$tw_v"; }
+# verify_command_timeout: the limit of one build, test or install command of the build record and of one re-run of reproduced evidence (60 to 28800 before scaling)
+verify_command_timeout() {
+  vt_v=$(dec0 "$(cfg verification.command_timeout_seconds 1800)"); case "$vt_v" in ''|*[!0-9]*) vt_v=1800 ;; esac
+  [ "$vt_v" -ge 60 ] || vt_v=60; [ "$vt_v" -le 28800 ] || vt_v=28800; tm_scaled "$vt_v" 60 28800
+}
+# hook_timeouts: the runtime's own time limit per hook event, one `event=seconds` line each (config hook.<event>_timeout_seconds, 10 to 600, times
+# timeouts.scale), as init and upgrade write them into .claude/settings.json. hook.approve_budget_seconds is not scaled here or anywhere (trap z):
+# a longer hook limit lets the runtime wait longer for the hook, it does not slow the approval step, which stops at its own budget. The prompt
+# limit is kept at least that budget + 5, so the hook can always say that an approval was not recorded.
+hook_timeouts() {
+  ht_ab=$(hook_knob approve_budget_seconds 20 5 25)
+  for ht_e in session:session:30 prompt:prompt:30 pretool:pretool:30 posttool:posttool:30 subagent-start:subagent_start:60 subagent-stop:subagent_stop:120 stop:stop:30; do
+    ht_k=${ht_e#*:}; ht_d=${ht_k#*:}; ht_k=${ht_k%%:*}; ht_n=${ht_e%%:*}
+    ht_v=$(dec0 "$(cfg "hook.${ht_k}_timeout_seconds" "$ht_d")"); case "$ht_v" in ''|*[!0-9]*) ht_v=$ht_d ;; esac
+    [ "$ht_v" -ge 10 ] || ht_v=10; [ "$ht_v" -le 600 ] || ht_v=600
+    ht_v=$(tm_scaled "$ht_v" 10 600)
+    if [ "$ht_n" = prompt ] && [ "$ht_v" -lt $((ht_ab + 5)) ]; then ht_v=$((ht_ab + 5)); fi
+    printf '%s=%s\n' "$ht_n" "$ht_v"
+  done
+}
+# timeouts_info: every duration this install uses, as `name=seconds`, scaled and bounded as the code uses it (docs/concepts/timeouts.md)
+timeouts_info() {
+  printf 'scale=%s\nwarn_percent=%s\n' "$(tm_scale)" "$(tm_warn_percent)"
+  printf 'dispatch.default=%s\n' "$(tm_dispatch_seconds '')"
+  for ti_c in TRIVIAL STANDARD COMPLEX CRITICAL; do printf 'dispatch.%s=%s\n' "$ti_c" "$(tm_dispatch_seconds "$ti_c")"; done
+  printf 'verification.command=%s\nlock=%s\nstatus_block=%s\n' "$(verify_command_timeout)" "$(tm_scaled 120 1 3600)" "$(tm_scaled "$(cfg tasks.status_block_seconds 20)" 1 900)"
+  printf 'batch.ci_wait_minutes=%s\nbatch.ci_appear_minutes=%s\n' "$(batch_minutes batch.ci_wait_minutes 30)" "$(batch_minutes batch.ci_appear_minutes 10)"
+  printf 'hook.approve_budget=%s (never scaled)\nhook.next_budget=%s\nhook.lock_wait=%s\n' "$(hook_knob approve_budget_seconds 20 5 25)" "$(hook_knob next_budget_seconds 10 2 20)" "$(hook_knob lock_wait_seconds 8 1 20)"
+  hook_timeouts | sed 's/^/hook.timeout./'
+}
+batch_minutes() { # KEY DEFAULT: the CI wait in minutes, times the scale
+  bm_v=$(cfg "$1" "$2"); case "$bm_v" in ''|*[!0-9]*) bm_v=$2 ;; esac; tm_scaled "$bm_v" 1 720
+}
+# scale_check (A202 item 29): 0 when the user's own message approved the proposed timeouts.scale (kind `scale`, bound to the sha256 of the proposal
+# that `proofline doctor --scale` wrote after measuring this machine); an agent cannot write or answer for it.
+scale_check() {
+  sc_f=$(shared_dir scale)/PROPOSAL.tsv; [ -s "$sc_f" ] || fail "no scale proposal (proofline doctor --scale)"
+  find_approval - scale "$(hash_file "$sc_f")" >/dev/null || fail "the user's newest message does not approve the scale: no unconsumed scale approval is bound to this proposal (ask: agent.sh request-approval - scale, relay it; the reply \"approve scale\" records the approval)"
+  echo "scale $(hash_file "$sc_f" | cut -c1-12): approved by the user"
+}
+# tm_dispatch_seconds [CLASS]: the timeout of one dispatched step: the class value, else dispatch.timeout_seconds, times the scale (30 to 28800)
+tm_dispatch_seconds() {
+  td_t=$(cfg dispatch.timeout_seconds 5400); case "$td_t" in ''|*[!0-9]*) td_t=5400 ;; esac
+  case "${1:-}" in TRIVIAL|STANDARD|COMPLEX|CRITICAL) td_c=$(cfg "pipelines.$1.dispatch_timeout_seconds" ''); case "$td_c" in ''|*[!0-9]*) ;; *) td_t=$td_c ;; esac ;; esac
+  tm_scaled "$td_t" 30 28800
+}
+
 # --- Ecosystem facts (A173): .agents/ecosystems.tsv (generated from ecosystems.json) is the one source of what each language
 # calls a manifest, lock, package-source setting or build-changing file. config.yaml keeps the project's own globs; these two
 # sets are added to them at read time, so a new ecosystem or file kind reaches every project on upgrade without editing its
@@ -223,7 +297,7 @@ config_check() {
     function num(k, v) { if (v != "" && v !~ /^[0-9]+$/) bad("invalid number for " k ": " v) }
     {
       k = $1; v = substr($0, length(k) + 2); split(k, p, "."); top = p[1]
-      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|risk|security|contract|batch|validation|visual)$/) { bad("unknown top-level key: " top); next }
+      if (top !~ /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts)$/) { bad("unknown top-level key: " top); next }
       if (top == "risk" && p[3] != "") {
         if (p[2] !~ /^[a-z_]+$/) bad("invalid risk signal name: " p[2])
         else if (p[3] == "check") en(k, v, "contract|concurrency|performance|config|migration|visual|dependencies|logging")
@@ -238,6 +312,7 @@ config_check() {
       }
       if (k == "risk.unsupported") en(k, v, "block|report")
       if (top == "validation" && k != "validation" && k !~ /^validation\.(entry_words|entry_candidates|entry_input|entry_new|entry_output|entry_skip|code_patterns)$/) bad("unknown validation key: " k " (want validation.entry_words, entry_candidates, entry_input, entry_new, entry_output, entry_skip or code_patterns)")
+      if (top == "rules" && k != "rules") { if (k !~ /^rules\.(budget_bytes|unused_after_reviews)$/) bad("unknown rules key: " k " (want rules.budget_bytes or rules.unused_after_reviews)"); else num(k, v) }
       if (top == "visual" && k != "visual") { if (k !~ /^visual\.(ascii_turkish_words|ascii_turkish_allow)$/) bad("unknown visual key: " k " (want visual.ascii_turkish_words or visual.ascii_turkish_allow)"); else if (v !~ /^[A-Za-z]*([ ,]+[A-Za-z]+)*[ ,]*$/) bad(k " must be ASCII words separated by spaces: " v) }
       if (top == "contract" && k != "contract" && k !~ /^contract\.(paths|ignore)$/) bad("unknown contract key: " k " (want contract.paths or contract.ignore)")
       if (top == "commands" && p[2] != "") {
@@ -285,7 +360,7 @@ config_check() {
       else if (k ~ /^pipelines\.[A-Z]+\.(evidence|qa|architect)$/) en(k, v, "yes|no")
       else if (k ~ /^pipelines\.[A-Z]+\.review$/) en(k, v, "yes|no|optional")
       else if (k ~ /^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/) num(k, v)
-      else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad(k " must be at least 30") }
+      else if (k ~ /^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 30 || v + 0 > 28800)) bad(k " must be 30 to 28800") }
       else if (k ~ /^capabilities\.[^.]+\.[^.]+$/) en(k, v, "1|2|3")
       else if (k == "execution_policy.max_context_bytes" || k == "execution_policy.revision") num(k, v)
       else if (k == "worktree.copy_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[|\\]/) bad("worktree.copy_files must be project-relative globs without a leading / or .. : " v) }
@@ -294,19 +369,34 @@ config_check() {
       else if (top == "archive" && k != "archive") bad("unknown archive key: " k " (want archive.keep)")
       else if (k == "verification.env_files") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[*?|\\]/ || v ~ /\[|\]/) bad("verification.env_files must be project-relative file names (space-separated, no glob, no leading / or .. ): " v) }
       else if (k == "verification.doc_paths") { if (v ~ /(^| )\// || v ~ /(^|[ \/])\.\.([ \/]|$)/ || v ~ /[?|\\]/ || v ~ /\[|\]/) bad("verification.doc_paths must be project-relative entries: a directory prefix ending in /, an exact path or *.ext") }
-      else if (top == "verification" && k != "verification") bad("unknown verification key: " k " (want verification.env_files or verification.doc_paths)")
-      else if (k == "batch.mutation_budget_cap" || k == "batch.ci_wait_minutes") num(k, v)
-      else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1") }
+      else if (top == "verification" && k != "verification" && k != "verification.command_timeout_seconds") bad("unknown verification key: " k " (want verification.env_files or verification.doc_paths)")
+      else if (k == "batch.mutation_budget_cap") num(k, v)
+      else if (k == "batch.ci_wait_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1"); else if (v ~ /^[0-9]+$/ && v + 0 > 720) bad(k " must be at most 720") }
+      else if (k == "batch.ci_appear_minutes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 1) bad(k " must be at least 1"); else if (v ~ /^[0-9]+$/ && v + 0 > 240) bad(k " must be at most 240") }
       else if (k == "batch.task_timeout" || k == "batch.runtimes") { }   # belonged to the removed headless driver (0.0.32): accepted for old configs, not validated, ignored
       else if (top == "batch" && k != "batch") bad("unknown batch key: " k)
       else if (k == "dispatch.claude_permission_mode") en(k, v, "bypassPermissions|acceptEdits|default")
       else if (k == "dispatch.network_retries") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 > 6) bad("dispatch.network_retries is at most 6") }
+      else if (k == "hook.approve_budget_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 5 || v + 0 > 25)) bad(k " must be 5 to 25 (the runtime stops a hook at 30 s)") }
+      else if (k == "hook.next_budget_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 2 || v + 0 > 20)) bad(k " must be 2 to 20") }
+      else if (k == "hook.lock_wait_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 1 || v + 0 > 20)) bad(k " must be 1 to 20") }
+      else if (top == "hook" && k != "hook" && k !~ /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/) bad("unknown hook key: " k " (want hook.approve_budget_seconds, hook.next_budget_seconds, hook.lock_wait_seconds or hook.<event>_timeout_seconds)")
+      else if (k == "timeouts.scale") { if (v != "" && (v !~ /^[0-9]+(\.[0-9]+)?$/ || v + 0 < 0.5 || v + 0 > 10)) bad("timeouts.scale must be a number from 0.5 to 10: " v) }
+      else if (k == "timeouts.warn_percent") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 50 || v + 0 > 95)) bad(k " must be 50 to 95") }
+      else if (top == "timeouts" && k != "timeouts") bad("unknown timeouts key: " k " (want timeouts.scale or timeouts.warn_percent)")
+      else if (k ~ /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/) { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 10 || v + 0 > 600)) bad(k " must be 10 to 600") }
+      else if (k == "verification.command_timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 60 || v + 0 > 28800)) bad(k " must be 60 to 28800") }
+      else if (k == "tasks.status_block_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 1 || v + 0 > 300)) bad(k " must be 1 to 300") }
+      else if (k == "fingerprint.cache_min_bytes") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 65536) bad(k " must be at least 65536") }
+      else if (top == "fingerprint" && k != "fingerprint") bad("unknown fingerprint key: " k)
       else if (k == "dispatch.network_backoff_seconds") num(k, v)
-      else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && v + 0 < 30) bad("dispatch.timeout_seconds must be at least 30") }
+      else if (k == "dispatch.timeout_seconds") { num(k, v); if (v ~ /^[0-9]+$/ && (v + 0 < 30 || v + 0 > 28800)) bad("dispatch.timeout_seconds must be 30 to 28800") }
       seen[k] = 1; gv[k] = v
     }
     END {
       for (s in hasl) if (hasv[s]) bad("commands." s " has both a value and a list of commands; keep one")
+      ha = (gv["hook.approve_budget_seconds"] ~ /^[0-9]+$/) ? gv["hook.approve_budget_seconds"] + 0 : 20; hp = (gv["hook.prompt_timeout_seconds"] ~ /^[0-9]+$/) ? gv["hook.prompt_timeout_seconds"] + 0 : 30
+      if (hp < ha + 5) bad("hook.prompt_timeout_seconds (" hp ") must be at least hook.approve_budget_seconds + 5 (" ha + 5 ")")
       if (!seen["canonical_branch"]) bad("missing key: canonical_branch")
       if (!seen["git.branch_prefix"]) bad("missing key: git.branch_prefix")
       if (seen["git.platform_host"] && gv["git.platform_host"] != "" && gv["git.platform"] == "") bad("git.platform_host needs git.platform (the platform that host runs)")
@@ -415,6 +505,7 @@ start_run() { # ID [--title TITLE] [--task-file PATH]; otherwise read the task b
   printf '%s\n' "$sr_id" > "$(active_run_file)"
   ledger_append "$sr_id" start - PLANNED "task=$sr_path adapter=$sr_adapter"
   db_guard_baseline "$sr_id"
+  status_block_update "$sr_id" run-start
   echo "run started: $sr_id task=$sr_path"
 }
 
@@ -502,9 +593,39 @@ fingerprint_path() {
     esac
     fail "cannot baseline symlink: $path"
   fi
-  if [ -f "$target" ]; then hash_file "$target"; return 0; fi
+  if [ -f "$target" ]; then
+    # A202 item 28: a big file is hashed once and remembered for the READ-ONLY commands (fp_fast=yes: next, digest, summary, status-block, ...).
+    # The key is path, size, mtime (ns), inode and ctime (ns); any difference is a rehash, and a platform whose stat lacks one of them hashes
+    # every time. Every command that seals or checks evidence (gate record, handoff, freeze, verify-*, delivery, approval) runs with fp_fast=no:
+    # it never reads the cache and refreshes it. The cache is a speed-up of display and hooks only, never an integrity input.
+    if [ "$fp_fast" = yes ] || [ "$fp_fast" = refresh ]; then
+      fpc_k=$(fp_cache_key "$target" "$path") || fpc_k=''
+      if [ -n "$fpc_k" ]; then
+        if [ "$fp_fast" = yes ]; then fpc_h=$(fp_cache_get "$fpc_k") || fpc_h=''; [ -z "$fpc_h" ] || { printf '%s\n' "$fpc_h"; return 0; }; fi
+        fpc_h=$(hash_file "$target"); fp_cache_put "$fpc_k" "$fpc_h"; printf '%s\n' "$fpc_h"; return 0
+      fi
+    fi
+    hash_file "$target"; return 0
+  fi
   [ ! -e "$target" ] && { printf '%s\n' missing; return 0; }
   fail "cannot baseline non-regular file: $path"
+}
+# fp_fast: no (default: always hash), yes (read-only commands: use the cache), refresh (sealing commands: hash, then store). Set by the CLI below.
+fp_fast=no
+fp_cache_file() { printf '%s/fp-cache\n' "$sr_main/.agents/local"; }
+# fp_cache_key FILE PATH: "path|size|mtime_ns|inode|ctime_ns" of a file of at least fingerprint.cache_min_bytes (config, default 262144), else nothing
+fp_cache_key() {
+  fk_min=$(cfg fingerprint.cache_min_bytes 262144); case "$fk_min" in ''|*[!0-9]*) fk_min=262144 ;; esac
+  fk_m=$(stat -c '%s|%.9Y|%i|%.9Z' "$1" 2>/dev/null) || fk_m=$(stat -f '%z|%Fm|%i|%Fc' "$1" 2>/dev/null) || return 1
+  case "$fk_m" in *[!0-9.\|]*|'') return 1 ;; esac
+  [ "${fk_m%%|*}" -ge "$fk_min" ] 2>/dev/null || return 1
+  printf '%s|%s\n' "$2" "$fk_m"
+}
+fp_cache_get() { [ -f "$(fp_cache_file)" ] || return 1; awk -F'\t' -v k="$1" '$1 == k { h = $2 } END { if (h ~ /^[0-9a-f]{64}$/) print h; else exit 1 }' "$(fp_cache_file)"; }
+fp_cache_put() {
+  mkdir -p "$sr_main/.agents/local" 2>/dev/null || return 0
+  if [ -f "$(fp_cache_file)" ] && [ "$(wc -l < "$(fp_cache_file)")" -gt 4000 ]; then tail -n 1000 "$(fp_cache_file)" > "$(fp_cache_file).t" 2>/dev/null && mv "$(fp_cache_file).t" "$(fp_cache_file)" 2>/dev/null || :; fi
+  printf '%s\t%s\n' "$1" "$2" >> "$(fp_cache_file)" 2>/dev/null || :
 }
 # A154: files `proofline init/upgrade` installs outside .agents/ are control plane, not product: the files the manifest
 # lists (agent definitions, the entry skill) and, by pattern, the agent files of both runtimes, plus the proofline block
@@ -697,7 +818,9 @@ content_fingerprint() {
       GIT_INDEX_FILE=$cf_tmp/index; export GIT_INDEX_FILE
       if [ -n "$1" ]; then GIT_OBJECT_DIRECTORY=$1; GIT_ALTERNATE_OBJECT_DIRECTORIES=$cf_objs; export GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; fi
       [ -f "$cf_tmp/index" ] || git -C "$root" read-tree HEAD >/dev/null 2>&1 || true
-      git -C "$root" add -A -- . >/dev/null 2>&1 || exit 1
+      # A202 item 28: .agents/ is removed from this tree just below (a path a plan scope names is put back with add -f), so it is not read at all:
+      # a run folder that is not git-ignored (26 MB of screenshots in a real project) cost a hash and a zlib pass of every file, on every call
+      git -C "$root" add -A -- . ':(exclude).agents' >/dev/null 2>&1 || exit 1
       git -C "$root" rm -r -q --cached --ignore-unmatch -- .agents "$cf_td" >/dev/null 2>&1
       # A171: the knowledge step writes these after the gates ran; they are documentation, so a gate does not bind them
       # (mode gate). A path a plan scope names stays in whole (put back below); approvals bind the full tree (no mode).
@@ -1095,8 +1218,12 @@ plan_flag() { # PLAN FLAG -> yes|no
     *) awk -v f="$2" '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ ("^" f ":[[:space:]]*yes([[:space:]]|$)")) y = 1 } END { print (y ? "yes" : "no") }' "$1" ;;
   esac
 }
-plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]`
-  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
+plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]` or the rollback note (A202: `rollback: <text>` and its indented continuation lines)
+  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); rb = 0; next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ /^rollback:[[:space:]]*[^[:space:]]/) { rb = 1; next } if (rb && $0 ~ /^[[:space:]]+[^[:space:]]/) next; rb = 0; if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
+}
+# A202: a COMPLEX or CRITICAL plan carries a short rollback note inside its Risk section; its absence is a warning, never a stop (TRIVIAL and STANDARD are never asked)
+plan_rollback_present() { # PLAN
+  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ /^rollback:[[:space:]]*[^[:space:]]/) y = 1 } END { exit !y }' "$1"
 }
 # The block the freeze binds: the risk mapping, the performance thresholds (A87), every non-empty security.* key
 # (A88: license policy, audit command) and every non-empty contract.* key (A83: contract.paths / contract.ignore
@@ -1463,6 +1590,38 @@ scope_code_count() { # PLAN.md -> the number of scope paths that are not content
   echo "$scc_n"
 }
 
+# A202: the scope table's optional `kind:` column (code | test | content | doc) is a claim, never an input. The script derives the kind of
+# every path itself (a test path by test_code_path, a content or document path by path_kind, everything else code) and a claim that
+# differs from it, or that is not one of the four words, is ignored: the path counts as code in the scope bound and in the selective
+# gate re-run. Only a claim that makes the path stricter (code where it derived test) is honoured. A PLAN without the column is derived.
+plan_kind_claims() { # PLAN -> "path|kind" for each scope entry that has a `kind:` line
+  awk '
+    /^scope:$/ { inside=1; next } inside && /^---$/ { exit }
+    inside && /^  - path: / { path=$0; sub(/^  - path: /, "", path); next }
+    inside && /^    kind: / { k=$0; sub(/^    kind: /, "", k); gsub(/["\047 ]/, "", k); print path "|" k }
+  ' "$1"
+}
+derived_kind() { # PATH -> code | test | content
+  if test_code_path "$1"; then echo test; else path_kind "$1"; fi
+}
+effective_kind() { # PATH CLAIM -> code | test | content: the derived kind when the claim is absent or equal to it (doc = content), else code
+  ek_d=$(derived_kind "$1"); ek_c=$2
+  [ "$ek_c" != doc ] || ek_c=content
+  if [ -z "$ek_c" ] || [ "$ek_c" = "$ek_d" ]; then echo "$ek_d"; else echo code; fi
+}
+scope_kind_rows() { # PLAN -> path<TAB>claimed<TAB>derived<TAB>effective<TAB>exempt(yes|no) per scope path
+  skr_cl=$(plan_kind_claims "$1")
+  for skr_p in $(scope_mappings "$1" 2>/dev/null | cut -d '|' -f1); do
+    skr_c=$(printf '%s\n' "$skr_cl" | grep -F -- "$skr_p|" | head -1 | cut -d '|' -f2)
+    skr_x=no; [ -z "$(exempted_path "$1" "$skr_p")" ] || skr_x=yes
+    printf '%s\t%s\t%s\t%s\t%s\n' "$skr_p" "${skr_c:--}" "$(derived_kind "$skr_p")" "$(effective_kind "$skr_p" "$skr_c")" "$skr_x"
+  done
+}
+# the claimed kind of one path in the run's PLAN, empty when none
+plan_path_claim() { # ID PATH
+  plan_kind_claims "$(run_dir "$1")/PLAN.md" 2>/dev/null | grep -F -- "$2|" | head -1 | cut -d '|' -f2
+}
+
 # Freeze-time artifact contract: required artifacts exist, unrequired ones do not, class plan rules hold.
 pipeline_check() {
   id=$1; dir=$(run_dir "$id")
@@ -1558,6 +1717,9 @@ classify() {
   if [ -n "$cl_sug" ] && [ "$(class_rank "$class")" -lt "$(class_rank "$cl_sug")" ]; then
     fail "classification refused: TASK.md suggests $cl_sug and $class is lower. Classify at least $cl_sug, or change the task's '## Suggested class' with the reason (a task change before freeze)"
   fi
+  # A202: a bug or a refactor changes behaviour or code: TRIVIAL (text and configuration only) is refused for both
+  [ "$(task_type "$dir/TASK.md")" != invalid ] || fail "classification refused: $(task_type_refusal "$dir/TASK.md")"
+  case "$(task_type "$dir/TASK.md")" in bug|refactor) [ "$class" != TRIVIAL ] || fail "classification refused: the task is typed $(task_type "$dir/TASK.md") and TRIVIAL covers text and configuration only; classify STANDARD or higher, or ask the user to change the task type" ;; esac
   # CLASSIFY precedes BRANCH (WORKFLOW.md): the branch is enforced once it is established.
   case "$(section_value "$dir" repository task_branch)" in ''|PENDING) ;; *) enforce_task_branch "$id" ;; esac
   verify_seal "$id"
@@ -1646,6 +1808,135 @@ require_ac_coverage() { # ID
   [ -z "$rac_o" ] || fail "plan defect: ${rac_o%;} -- add AC-n to \`criteria:\` of the PLAN.md scope entries (front matter) that implement it, or name an explicit test for it in \`## Tests\`; freeze again (A129)"
 }
 authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
+
+# A202: optional task sections the user writes into TASK.md: `Allowed scope`, `Forbidden scope`, `Existing pattern references`
+# and `Completion response`. A section is a `##` (or an imported `###`) heading; HTML comments inside it are dropped. The run's
+# copy of TASK.md is sealed at the freeze (and compared with the task file before it), so an agent cannot edit a boundary. An entry is a bullet of paths (every
+# backticked token, else every word; commas split): a file, a folder (a parent of the plan path) or a glob. What cannot be read as one refuses the freeze.
+task_section_lines() { # FILE HEADING [prefix] -> the section's lines without HTML comments; nothing when it is absent. `prefix`: a heading with trailing text ("Forbidden scope (do not touch)") is the section too
+  [ -f "$1" ] || return 0
+  awk -v h="$2" -v pre="${3:-}" '
+    function strip(s,   o, p) { o = ""
+      while (1) {
+        if (inc) { p = index(s, "-->"); if (!p) return o; s = substr(s, p + 3); inc = 0 }
+        else { p = index(s, "<!--"); if (!p) return o s; o = o substr(s, 1, p - 1); s = substr(s, p + 4); inc = 1 } } }
+    BEGIN { want = tolower(h) }
+    { s = strip($0)
+      if (s ~ /^#+[ \t]/) { t = s; sub(/^#+[ \t]+/, "", t); sub(/[ \t\r]+$/, "", t); lt = tolower(t); on = (s ~ /^###?[ \t]/ && (lt == want || (pre != "" && index(lt, want) == 1 && substr(lt, length(want) + 1, 1) !~ /[a-z0-9]/))); next }
+      if (on) print s }' "$1"
+}
+# task_scope_parse MODE FILE HEADING: every entry of a scope section, one per line. MODE ok: the entries; MODE bad: what could not be read
+# as an entry (a token that is no path or glob, or a line that is no bullet), so the freeze can refuse instead of dropping it. A bullet with
+# backticks gives each backticked token (commas split), without backticks every word (commas and spaces split) and each word must look
+# like a path: it has a / or a glob character or a dotted name. `none` is no entry.
+task_scope_parse() {
+  task_section_lines "$2" "$3" prefix | awk -v mode="$1" '
+    function emit(t, ticked) {
+      gsub(/^[ \t]+|[ \t]+$/, "", t); sub(/[,;:]+$/, "", t)
+      if (t == "") return
+      if (t ~ badre || t ~ /^[.\/]+$/ || (!ticked && t !~ pathre)) { if (mode == "bad") print t; return }
+      sub(/^\.\//, "", t); sub(/^\//, "", t); if (mode == "ok") print t }
+    BEGIN { badre = "[ \t()<>|;{}\"\047$&\\\\]"; pathre = "[][/*?]|\\.[A-Za-z0-9]" }
+    { gsub(/\r/, "") }
+    /^[ \t]*$/ { next }
+    /^[ \t]*([-*]|[0-9]+[.)])[ \t]+/ { l = $0; sub(/^[ \t]*([-*]|[0-9]+[.)])[ \t]+/, "", l)
+      low = tolower(l); gsub(/^[ \t]+|[ \t]+$/, "", low); if (low == "none") next
+      if (index(l, "`")) { rest = l
+        while (match(rest, /`[^`]*`/)) { tk = substr(rest, RSTART + 1, RLENGTH - 2); rest = substr(rest, RSTART + RLENGTH); n = split(tk, P, ","); for (i = 1; i <= n; i++) emit(P[i], 1) } }
+      else { n = split(l, P, /[ \t,]+/); for (i = 1; i <= n; i++) emit(P[i], 0) }
+      next }
+    { low = tolower($0); gsub(/^[ \t]+|[ \t]+$/, "", low); if (low == "none") next; if (mode == "bad") print substr($0, 1, 60) }'
+}
+task_scope_entries() { # FILE HEADING -> one path, folder or glob per line
+  task_scope_parse ok "$1" "$2"
+}
+task_scope_bad() { # FILE HEADING -> what is in the section but not a readable entry, one per line
+  task_scope_parse bad "$1" "$2"
+}
+norm_rel_path() { # PATH -> the path without ./ segments, doubled or leading or trailing slashes, and with .. resolved lexically
+  printf '%s\n' "$1" | awk '{ n = split($0, a, "/"); m = 0
+    for (i = 1; i <= n; i++) { if (a[i] == "" || a[i] == ".") continue; if (a[i] == "..") { if (m > 0) m--; continue }; s[++m] = a[i] }
+    o = ""; for (i = 1; i <= m; i++) o = o (i > 1 ? "/" : "") s[i]; print o }'
+}
+scope_entry_covers() { # ENTRY PATH [fold]: the entry is the path, a folder above it, or a glob that matches it; both are normalised
+  # (./, //, .. and a trailing slash cannot walk around an entry); `fold` also ignores case (Forbidden scope and known issues: a case-insensitive
+  # file system must not let IMPL.TXT slip past impl.txt; refusing more is the safe side there)
+  sc_e=$(norm_rel_path "$1") sc_p=$(norm_rel_path "$2")
+  if [ "${3:-}" = fold ]; then sc_e=$(printf '%s' "$sc_e" | tr '[:upper:]' '[:lower:]'); sc_p=$(printf '%s' "$sc_p" | tr '[:upper:]' '[:lower:]'); fi
+  [ -n "$sc_e" ] || return 1
+  # shellcheck disable=SC2254 # the glob is the point: the entry is a pattern the user wrote
+  case "$sc_e" in *'*'*|*'?'*|*'['*) case "$sc_p" in $sc_e) return 0 ;; esac; return 1 ;; esac
+  [ "$sc_p" != "$sc_e" ] || return 0
+  case "$sc_p" in "$sc_e"/*) return 0 ;; esac
+  return 1
+}
+scope_path_listed() { # PATH ENTRIES (newline separated) [fold]
+  while IFS= read -r slp_e; do
+    [ -n "$slp_e" ] || continue
+    scope_entry_covers "$slp_e" "$1" "${3:-}" && return 0
+  done <<EOF
+$2
+EOF
+  return 1
+}
+# A202: the freeze (and every refreeze) checks the plan against the task's own boundaries. Forbidden scope is a hard refusal with
+# no waiver path: only the user's edit of the task lifts it. Allowed scope, when given, is a boundary the user either widens in the
+# task or answers at the batch pre-flight (kind scope, option b). Existing pattern references must exist and be named in the plan.
+# require_task_copy_matches_source ID: before the FIRST freeze the run's TASK.md must carry what the task file says about the task type and the
+# three boundary sections (Allowed scope, Forbidden scope, Existing pattern references): the lead cannot retype a bug or drop a Forbidden scope in
+# the run copy and then freeze it. Compared only for a run whose task file is a task document of this id (first line `# Task: <ID> `), which is every
+# run started from a task file; a run whose task source is some other document (a scaffolded test run, an untracked note) has nothing to compare with.
+require_task_copy_matches_source() { # ID
+  rcs_d=$(run_dir "$1"); local_task_source_run "$1" || return 0
+  rcs_p=$(section_value "$rcs_d" task_source path); [ -n "$rcs_p" ] && [ -f "$root/$rcs_p" ] && [ ! -L "$root/$rcs_p" ] || return 0
+  case "$(sed -n 1p "$root/$rcs_p" | tr -d '\r')" in "# Task: $1 "*) ;; *) return 0 ;; esac
+  rcs_a=$(task_type "$root/$rcs_p"); rcs_b=$(task_type "$rcs_d/TASK.md")
+  [ "$rcs_a" = "$rcs_b" ] || fail "the run's TASK.md says type $rcs_b but the task file $rcs_p says $rcs_a: the type is the user's, an agent cannot change it before the freeze. Restore the run copy from the task file (A202)"
+  for rcs_h in 'Allowed scope' 'Forbidden scope' 'Existing pattern references'; do
+    rcs_x=$(task_section_lines "$root/$rcs_p" "$rcs_h" prefix | tr -d '\r' | sed 's/[[:space:]]*$//'); rcs_y=$(task_section_lines "$rcs_d/TASK.md" "$rcs_h" prefix | tr -d '\r' | sed 's/[[:space:]]*$//')
+    [ "$rcs_x" = "$rcs_y" ] || fail "the run's TASK.md differs from the task file $rcs_p in '## $rcs_h' (- task file, + run copy): $(printf '%s\n' "$rcs_x" | sed 's/^/- /' | head -n 3 | tr '\n' ' ')/ $(printf '%s\n' "$rcs_y" | sed 's/^/+ /' | head -n 3 | tr '\n' ' '). A boundary is the user's; restore the run copy from the task file (A202)"
+  done
+}
+require_task_boundaries() { # ID
+  rtb_d=$(run_dir "$1"); rtb_t=$rtb_d/TASK.md; [ -f "$rtb_t" ] || return 0
+  rtb_paths=$(scope_mappings "$rtb_d/PLAN.md" 2>/dev/null | cut -d '|' -f1)
+  for rtb_h in 'Forbidden scope' 'Allowed scope' 'Existing pattern references'; do
+    rtb_bad=$(task_scope_bad "$rtb_t" "$rtb_h" | head -n 1)
+    [ -z "$rtb_bad" ] || fail "the task section '## $rtb_h' has an entry that is not a path or glob: \"$rtb_bad\". Write one path, folder or glob per bullet, each in backticks, e.g. - \`src/billing/\` or - \`**/*.sql\`, several per bullet allowed (a sentence is not a boundary and is never guessed at, so the freeze is refused until the user fixes the task) (A202)"
+  done
+  rtb_forb=$(task_scope_entries "$rtb_t" 'Forbidden scope')
+  if [ -n "$rtb_forb" ]; then
+    for rtb_p in $rtb_paths; do
+      if scope_path_listed "$rtb_p" "$rtb_forb" fold; then
+        fail "plan scope path $rtb_p is inside the task's Forbidden scope: the freeze is refused and nothing waives it (an agent cannot lift a boundary the user wrote). Remove the path from the plan, or the user changes the task's Forbidden scope himself (A202)"
+      fi
+    done
+  fi
+  rtb_allow=$(task_scope_entries "$rtb_t" 'Allowed scope')
+  if [ -n "$rtb_allow" ]; then
+    rtb_out=''
+    for rtb_p in $rtb_paths; do scope_path_listed "$rtb_p" "$rtb_allow" || rtb_out="$rtb_out $rtb_p"; done
+    if [ -n "$rtb_out" ]; then
+      rtb_ba=$(batch_answer_row "$1" scope)
+      if [ "$(printf '%s' "$rtb_ba" | cut -f1)" = b ]; then
+        echo "note: plan paths outside the task's Allowed scope:$rtb_out; freezing on the user's batch answer $(printf '%s' "$rtb_ba" | cut -f3) (A202)" >&2
+      else
+        fail "plan scope path(s) outside the task's Allowed scope:$rtb_out. Plan inside it, or ask the user: they widen the Allowed scope in the task, or answer the batch pre-flight question about it with the option that allows the paths (A202)"
+      fi
+    fi
+  fi
+  rtb_refs=$(task_scope_entries "$rtb_t" 'Existing pattern references')
+  if [ -n "$rtb_refs" ]; then
+    while IFS= read -r rtb_r; do
+      [ -n "$rtb_r" ] || continue
+      case "$rtb_r" in *'*'*|*'?'*|*'['*) continue ;; esac
+      [ -e "$root/${rtb_r%/}" ] || fail "the task's Existing pattern references name $rtb_r, which does not exist in the repository: the user corrects the reference (A202)"
+      grep -Fq -- "$rtb_r" "$rtb_d/PLAN.md" || fail "PLAN.md does not mention the task's Existing pattern reference $rtb_r: name it where the plan follows that pattern (or says why it cannot), in the architecture, scope or tests text, and freeze again (A202)"
+    done <<EOF
+$rtb_refs
+EOF
+  fi
+}
 
 # Approvals a freeze needs (D3): plan (supervised),
 # scope (a refreeze that adds scope paths). Prints the approval files to consume, one per line.
@@ -1795,6 +2086,9 @@ freeze() {
   verify_seal "$id"
   verify_task_source_status "$id"
   require_scope_mapping "$id"
+  [ "$(task_type "$dir/TASK.md")" != invalid ] || fail "$(task_type_refusal "$dir/TASK.md")"
+  freeze_hash_present "$dir" || require_task_copy_matches_source "$id"
+  require_task_boundaries "$id"   # A202
   require_ac_coverage "$id"
   # A112: QA's visual focus runs for every non-TRIVIAL plan with a UI part; its same-origin-write allowance is declared
   # in the plan, now, not found missing at QA time (INCONCLUSIVE, then an amendment and a second approval).
@@ -1826,6 +2120,7 @@ freeze() {
   if gates_enforced "$id"; then verify_plan_validation "$id"; verify_qa_plan_bound "$id"; fi
   # A197: a document path in scope (design_docs, knowledge_scope_root, verification.doc_paths) without a tdd_exemption has no RED/GREEN to show;
   # that surfaced only after the implementer finished (amendment, refreeze, a rewritten QA plan). Freeze does not stop: one line, with the fix.
+  check_type_exemptions "$dir"   # A202
   fz_nd=''
   for fz_p in $(scope_mappings "$dir/PLAN.md" 2>/dev/null | cut -d '|' -f1); do
     is_doc_path "$fz_p" || continue
@@ -1836,6 +2131,14 @@ freeze() {
     echo "warning: PLAN.md scope has document path(s) without tdd_exemption:$fz_nd; the implementer cannot show RED/GREEN for a document, so add 'tdd_exemption: <specific reason, 20+ characters>' to each (or a test that proves it, for example design-sync finding the drift first and then passing clean); a plan fixed later costs an amendment and a refreeze (A197)" >&2
     fz_ba=$(batch_answer_row "$id" exempt)
     [ -z "$fz_ba" ] || echo "note: the user answered the batch pre-flight question $(printf '%s' "$fz_ba" | cut -f3) for $id with option $(printf '%s' "$fz_ba" | cut -f1) (a: document paths take a tdd_exemption with a specific reason; b: each needs a test); the plan follows it (A200)" >&2
+  fi
+  case "$(pipeline_class "$id")" in COMPLEX|CRITICAL)
+    plan_rollback_present "$dir/PLAN.md" || echo "warning: PLAN.md '## Risk' has no rollback note; a $(pipeline_class "$id") plan carries 'rollback: <feature flag, how a migration is reversed, the first step if production breaks>' there, a few lines at most (A202)" >&2 ;;
+  esac
+  # A202: a `kind:` the script does not agree with is told, and the path is treated as code (the claim never lowers a gate or the bound).
+  fz_kd=$(scope_kind_rows "$dir/PLAN.md" | awk -F'\t' '$2 != "-" && $2 != $3 && !($2 == "doc" && $3 == "content") { printf " %s (claimed %s, derived %s)", $1, $2, $3 }')
+  if [ -n "$fz_kd" ]; then
+    echo "warning: PLAN.md scope kind differs from the script's own:$fz_kd; the path is treated as code in the scope bound and in the gate re-run (a plan's kind is a claim; correct it or drop it)" >&2
   fi
   if fz_i=$(plan_entries "$dir/PLAN.md" information | cut -c1-60 | tr '\n' ';') && [ -n "$fz_i" ]; then
     echo "note (information only): PLAN.md ## Contracts mentions an entry point without new input (${fz_i%;}); if one takes new or changed external input, state it in the bullet and add a ## Validation line (A162)" >&2
@@ -1869,13 +2172,32 @@ freeze() {
 
 # --- Task-source contract (projection hash; see WORKFLOW.md "Task-source contract") --
 local_task_source_run() { [ "$(section_value "$(run_dir "$1")" task_source type)" = local_markdown ]; }
+# The keys of the status block (A202): ONE list, used by the block generator (sbb_kv refuses any other key), by the contract-hash exclusion and by the
+# block-only test of a task file (sb_strip), so they cannot drift apart.
+SB_KEYS='run type class stage event updated branch start_commit runtime session question answer park failure pr ci delivered_commit estimate duration tokens look_at known_issues'
 task_source_contract_hash() {
-  awk -v id="$1" '
+  awk -v id="$1" -v keys="$SB_KEYS" '
     { line[NR] = $0 }
     END {
       begin = "<!-- COMPLETION-REPORT:BEGIN:" id " -->"; endm = "<!-- COMPLETION-REPORT:END:" id " -->"
-      n = 0; stripped = 0
+      # A202: the status block (the live status the control plane regenerates wholesale at each update) is excluded the same way, but only
+      # while every line inside it is a `- <allowed key>: value` line or blank; any other line (free text, a heading, a criterion) stays hashed,
+      # so nothing can be smuggled into the contract through the marked block.
+      sbegin = "<!-- PROOFLINE-STATUS:BEGIN:" id " -->"; send = "<!-- PROOFLINE-STATUS:END:" id " -->"
+      alt = keys; gsub(/ /, "|", alt); skeys = "^- (" alt "): "
+      n = 0; stripped = 0; sstripped = 0
       for (i = 1; i <= NR; i++) {
+        if (!sstripped && line[i] == "## Proofline Status") {
+          j = i + 1
+          while (j <= NR && line[j] ~ /^[[:space:]]*$/) j++
+          if (j <= NR && line[j] == sbegin) {
+            for (k = j + 1; k <= NR && line[k] != send; k++) { }
+            if (k <= NR) {
+              for (m = j + 1; m < k; m++) if (line[m] !~ /^[[:space:]]*$/ && line[m] !~ skeys) kept[++n] = line[m]
+              i = k; sstripped = 1; continue
+            }
+          }
+        }
         if (!stripped && line[i] == "## Completion Report") {
           j = i + 1
           while (j <= NR && line[j] ~ /^[[:space:]]*$/) j++
@@ -2306,6 +2628,12 @@ db_config() { # paths | clients | migrate_commands | all
 hook_config() {
   db_config all
   printf 'tasks_dir=%s\ncanonical_branch=%s\nproduct_dir=%s\n' "$(cfg tasks.dir '')" "$(cfg canonical_branch '')" "$(cfg product.dir '')"
+  printf 'approve_budget_seconds=%s\nnext_budget_seconds=%s\nlock_wait_seconds=%s\n' "$(hook_knob approve_budget_seconds 20 5 25)" "$(hook_knob next_budget_seconds 10 2 20)" "$(hook_knob lock_wait_seconds 8 1 20)"
+}
+# hook_knob KEY DEFAULT MIN MAX: the configured number moved into its bounds (a non-number is the default); no value can switch a budget off
+hook_knob() {
+  hn_v=$(dec0 "$(cfg "hook.$1" "$2")"); case "$hn_v" in ''|*[!0-9]*) hn_v=$2 ;; esac
+  [ "$hn_v" -ge "$3" ] || hn_v=$3; [ "$hn_v" -le "$4" ] || hn_v=$4; printf '%s\n' "$hn_v"
 }
 db_file_meta() { stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1" 2>/dev/null || echo unknown; }
 db_snapshot() { # "path|size mtime" per database file inside the project, sorted
@@ -2536,6 +2864,18 @@ verify_no_scratch_worktrees() {
 # `## Suggested class`) or a declared `decision: fix` entry. The words "fix" or "duzelt" in prose no longer ask for
 # the report: a feature that mentions a fix lost a debug report round for nothing. A task that is not labelled but
 # fixes a bug is still asked for the root-cause proof by its reviewer (roles/reviewer.md), who may FAIL the gate.
+# A202: the task type is the front matter `type:` line (feature|bug|refactor|content|docs|chore); a task without one is a feature,
+# an unknown value is `invalid` (the validator refuses it; here it gets no exemption and no lighter path). The type is part of the task
+# contract that the freeze hashes, so changing it after the freeze makes the run stale: an agent cannot relabel a bug to skip its gates.
+task_type() { # TASK.md -> the type
+  tt_v=$(awk '{ sub(/\r$/, "") } /^##/ { exit } !fm && $0 == "---" { fm = 1; next } fm && $0 == "---" { exit }
+    fm && tolower($0) ~ /^type[[:space:]]*:/ { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/["'"'"'[:space:]]/, "", v); n++; r = (v == "" ? "?" : tolower(v)) }
+    END { if (n > 1) print "?"; else if (n == 1) print r }' "$1" 2>/dev/null)
+  case "$tt_v" in ''|feature) echo feature ;; defect) echo bug ;; bug|refactor|content|docs|chore) echo "$tt_v" ;; *) echo invalid ;; esac
+}
+task_type_refusal() { # TASK.md: why an unreadable type stops the run
+  printf 'the task type in %s cannot be read (front matter `type:` must be one of feature, bug, refactor, content, docs, chore, optionally followed by a # comment); an unreadable type gets no exemption and no lighter path, so the user corrects it (A202)' "$1"
+}
 defect_words_default='bug defect regression'
 task_defect_label() { # TASK.md -> the first type or label word that makes the task a defect task, else nothing
   awk -v words="$(cfg review.defect_words "$defect_words_default")" '
@@ -2554,9 +2894,11 @@ task_defect_label() { # TASK.md -> the first type or label word that makes the t
 verify_debug_result() { # ID
   vd_id=$1; vd_d=$(run_dir "$vd_id")
   gates_enforced "$vd_id" && pipeline_class_valid "$(pipeline_class "$vd_id")" || return 0
-  [ "$(pipeline_class "$vd_id")" != TRIVIAL ] || return 0
   [ -f "$vd_d/TASK.md" ] || return 0
-  vd_hit=$(task_defect_label "$vd_d/TASK.md")
+  # A202: type bug is the trigger; a bug is never lighter because it was classified TRIVIAL (classify refuses that too)
+  vd_hit=''; [ "$(task_type "$vd_d/TASK.md")" != bug ] || vd_hit='type: bug'
+  [ "$(pipeline_class "$vd_id")" != TRIVIAL ] || [ -n "$vd_hit" ] || return 0
+  [ -n "$vd_hit" ] || vd_hit=$(task_defect_label "$vd_d/TASK.md")
   if [ -z "$vd_hit" ] && [ -n "$(task_defect_fixes "$vd_d/TASK.md")" ]; then vd_hit='decision: fix'; fi
   [ -n "$vd_hit" ] || return 0
   ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
@@ -2629,6 +2971,7 @@ record_handoff() {
     case "$phase" in IMPLEMENTED|CODE_DONE) tier_record "$id" >/dev/null ;; esac
   fi
   [ "$phase" != DONE ] || [ "$current" = DONE ] || metrics_run "$id" "done"
+  [ "$phase" != CODE_DONE ] || status_block_update "$id" code-done
   echo "handoff recorded: $id $phase${hd_detail:+ ($hd_detail)}"
 }
 verify_handoff() {
@@ -2837,8 +3180,22 @@ parse_tdd_exemptions() {
   ' "$1"
 }
 exempted_path() { parse_tdd_exemptions "$1" | grep -F -- "$2|" | head -1 | cut -d '|' -f2-; }
+# A202: a content or docs task has the test-first exemption by default, but the plan must carry its reason for each document path, and a
+# path that holds code (review.executable_code) is never exempt, whatever the task type says: it keeps its RED and GREEN evidence.
+check_type_exemptions() { # RUN-DIR
+  ct_ty=$(task_type "$1/TASK.md"); case "$ct_ty" in content|docs) ;; *) return 0 ;; esac
+  for ct_p in $(scope_mappings "$1/PLAN.md" 2>/dev/null | cut -d '|' -f1); do
+    ct_r=$(exempted_path "$1/PLAN.md" "$ct_p")
+    if [ -n "$(printf '%s\n' "$ct_p" | paths_executable)" ]; then
+      [ -z "$ct_r" ] || fail "the $ct_ty task type exempts document paths only; $ct_p holds code and is never exempt from test-first: remove its tdd_exemption and show RED and GREEN (or ask the user to change the task type)"
+    elif is_doc_path "$ct_p" && [ -z "$ct_r" ]; then
+      fail "the $ct_ty task type exempts document paths from test-first by default, with the reason written in the plan: add 'tdd_exemption: <specific reason, 20+ characters>' to $ct_p in PLAN.md scope"
+    fi
+  done
+}
 validate_tdd_exemptions() {
   mappings=$(scope_mappings "$1/PLAN.md") || fail "invalid scope mapping"
+  check_type_exemptions "$1"
   for vt_p in $(printf '%s\n' "$mappings" | cut -d '|' -f1); do
     reason=$(exempted_path "$1/PLAN.md" "$vt_p"); [ -n "$reason" ] || continue
     reject_generic_justification "$reason" || fail "invalid TDD exemption for $vt_p: reason is missing or too generic"
@@ -3002,6 +3359,7 @@ finding_ids() { sed -n 's/^finding: \([^|]*\)|.*/\1/p' "$1"; }
 finding_waived() { # ID GATE-RECORD-FILE FINDING-ID
   fw_d=$(run_dir "$1"); fw_g=$(basename "$2")
   case "$(gate_field "$2" gate)" in SECRETS|SECURITY) return 1 ;; esac
+  finding_known_issue "$1" "$2" "$3" >/dev/null && return 0   # A202 item 27: a listed, untouched, already-existing finding
   fw_all=$(ls -1 "$fw_d/waivers" 2>/dev/null | grep -E '^[0-9]{3}-.*\.yaml$' || true); [ -n "$fw_all" ] || return 1
   fw_rs=$(hash_file "$2")
   # shellcheck disable=SC2086
@@ -3093,7 +3451,10 @@ gate_inputs_unchanged() { # ID RECORD GATE MODE NOW
   [ "$(gate_field "$2" result)" = pass ] || return 1
   giu_delta=$( { cat "${2%.yaml}.manifest"; patch_manifest "$1"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u ) || return 1
   [ -n "$giu_delta" ] || return 1
-  for giu_p in $giu_delta; do test_code_path "$giu_p" || return 1; done
+  for giu_p in $giu_delta; do
+    test_code_path "$giu_p" || return 1
+    giu_k=$(plan_path_claim "$1" "$giu_p"); [ -z "$giu_k" ] || [ "$giu_k" = test ] || return 1   # A202: the plan's own kind column says the path is not a test: run (a claim can only make the re-run stricter)
+  done
   giu_rec=$(gate_field "$2" fingerprint); giu_cur=$5
   if [ "$4" = reuse ]; then
     giu_tree=$(git -C "$root" diff-tree -r --name-only "$giu_rec" "$giu_cur" 2>/dev/null) || return 1
@@ -3159,7 +3520,8 @@ gate_unsupported_focuses() { # ID GATE MODE NOW -> comma list
   printf '%s' "$guf"
 }
 gate_label() { # ID GATE MODE NOW
-  gl_s=$(gate_status "$@"); gl_u=$(gate_unsupported_focuses "$@")
+  gl_s=$(gate_status "$@"); gl_u=$(gate_unsupported_focuses "$@"); gl_k=$(ki_gate_facts "$1" "$2" | tr '\n' ' ' | sed 's/ $//')
+  [ -z "$gl_k" ] || gl_s="$gl_s (known issue: $gl_k)"
   if [ -n "$gl_u" ]; then printf '%s (unsupported: %s)\n' "$gl_s" "$gl_u"; else printf '%s\n' "$gl_s"; fi
 }
 gate_satisfied() { case "$1" in pass|waived|unsupported) return 0 ;; *) return 1 ;; esac; }
@@ -4071,7 +4433,7 @@ reproduce_recheck() {
     return 0
   fi
   reproduce_allowed "$1" > "$rr_t/allowed"
-  rr_n=0; rr_x=0; rr_pb=0; rr_to=''; command -v timeout >/dev/null 2>&1 && rr_to='timeout 900'
+  rr_n=0; rr_x=0; rr_pb=0; rr_to=''; command -v timeout >/dev/null 2>&1 && rr_to="timeout $(verify_command_timeout)"
   sort -u "$rr_t/items" > "$rr_t/uniq"
   while IFS="$rr_tab" read -r rr_c rr_e rr_o rr_a; do
     rr_cd=$(printf '%s' "$rr_c" | tr '|' '/')
@@ -4090,7 +4452,7 @@ reproduce_recheck() {
     # shellcheck disable=SC2086
     ( cd "$root" && $rr_to sh -c "$rr_c" ) > "$rr_t/out" 2>&1 < /dev/null || rr_rc=$?
     if [ "$rr_rc" != "$rr_e" ]; then
-      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s, the report records exit=%s (reproduced evidence does not reproduce)\n' "$rr_cd" "$rr_rc" "$rr_e"
+      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s, the report records exit=%s (reproduced evidence does not reproduce)%s\n' "$rr_cd" "$rr_rc" "$rr_e" "$([ "$rr_rc" != 124 ] || printf '; it hit the time limit of %s s (verification.command_timeout_seconds times timeouts.scale), which is a failure, never a pass: raise the limit or run proofline doctor --scale' "$(verify_command_timeout)")"
     elif [ -z "$rr_o" ]; then
       if grep -q '[^[:space:]]' "$rr_t/out"; then
         rr_pb=$((rr_pb + 1)); printf 're-running `%s` printed output but the report records none (`(no output)` is for a silent command; record one stable summary line)\n' "$rr_cd"
@@ -4366,13 +4728,20 @@ language_scan() {
     # line or a fenced line is exempt only when its text is a line of a captured user prompt (prompts/history) or product text
     # (A172, above), so a model cannot hide its own non-English text behind '> ' or a fence.
     ls_own=no; case "$ls_f" in */questions/*.answer.md|*/questions/*.answer.amended-*.md|*/approvals/*|*/runs/*/TASK.md) ls_own=yes ;; esac
-    ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "")
+    # A202: the summary block at the top of COMPLETION_REPORT.md (at most five lines, checked at publish) is written in the user's language;
+    # its lines are blanked (line numbers kept) for the scan. Everything else in the report stays English.
+    ls_scan=$ls_f
+    case "$ls_f:${LANG_HINT:-}" in */COMPLETION_REPORT.md:*|*:*COMPLETION_REPORT.md)
+      ls_scan=$(mktemp "${TMPDIR:-/tmp}/proofline-lang-sum.XXXXXX") && report_blank_summary "$ls_f" > "$ls_scan" || ls_scan=$ls_f ;;
+    esac
+    ls_hit=$(language_awk "$ls_scan" "$ls_own" "$ls_blob" scan "")
     if [ -n "$ls_hit" ]; then
       if [ "$ls_ready" = no ]; then language_head; ls_extra=$(language_extra "$ls_f"); ls_ready=yes; fi
-      ls_ok=$(language_ok_pieces "$ls_f" "$ls_own" "$ls_blob" "$ls_extra")
-      ls_hit=$(language_awk "$ls_f" "$ls_own" "$ls_blob" scan "$ls_ok")
+      ls_ok=$(language_ok_pieces "$ls_scan" "$ls_own" "$ls_blob" "$ls_extra")
+      ls_hit=$(language_awk "$ls_scan" "$ls_own" "$ls_blob" scan "$ls_ok")
       rm -f "$ls_ok"
     fi
+    [ "$ls_scan" = "$ls_f" ] || rm -f "$ls_scan"
     if [ -n "$ls_hit" ]; then printf '%s:%s\n' "${ls_f#"$root"/}" "$ls_hit"; ls_rc=1; fi
   done
   rm -f "$ls_blob" "$ls_extra"
@@ -4796,7 +5165,7 @@ raise_budget() {
 #   {"session":"<id>","time":<epoch seconds>,"sha256":"<sha256 of text>","text":"<the user's prompt>"}
 valid_approval_kind() {
   case "$1" in
-    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands) return 0 ;;
+    plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale) return 0 ;;
     waive:*|rule:*|reopen:*|rationale:*) case "${1#*:}" in ''|*[!A-Za-z0-9_.+-]*) return 1 ;; esac; return 0 ;;
     *) return 1 ;;
   esac
@@ -4805,8 +5174,8 @@ kind_slug() { printf '%s\n' "$1" | tr ':' '-'; }
 approvals_dir() { if [ "$1" = - ]; then shared_dir approvals; else printf '%s/approvals\n' "$(run_dir "$1")"; fi; }
 # approval_target ID KIND: a run, or `-` (no active run; commit and push approvals only, kept in .agents/local/).
 approval_target() {
-  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
-  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
+  valid_approval_kind "$2" || fail "invalid approval kind: $2 (want plan|destructive|single_step|scope|budget|mutation_budget|commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale|waive:<FINDING-ID>|rule:<LESSON-ID>|reopen:<ID>|rationale:<PATTERN-ID>)"
+  if [ "$1" = - ]; then case "$2" in commit|push|pr|merge|cleanup|report|batch|commands|rename|known-issue|scale) return 0 ;; *) fail "approval kind $2 needs a run" ;; esac; fi
   require_run "$1"
   # A152: a FAILED or BLOCKED run takes the approvals of its reopen (the reopen itself and the budget decision asked first)
   case "$2" in
@@ -4871,7 +5240,10 @@ approval_bound() { # ID KIND
     commit|push|pr|merge|cleanup) if [ -n "$ab_fp" ]; then printf '%s\n' "$ab_fp"; else content_fingerprint; fi ;;
     report) hash_file "$(shared_dir friction)/latest.md" ;;
     batch) hash_file "$(shared_dir batch)/SUMMARY.md" ;;
-    commands) hash_file "$(shared_dir commands)/PROPOSAL.tsv" ;;   # A200 review: the proposal's own sha256
+    commands) hash_file "$(shared_dir commands)/PROPOSAL.tsv" ;;
+    known-issue) hash_file "$(shared_dir known-issues)/PROPOSAL.tsv" ;;   # A202 item 27: the one proposed record
+    scale) hash_file "$(shared_dir scale)/PROPOSAL.tsv" ;;   # A202 item 29
+    rename) hash_file "$(shared_dir rename)/PROPOSAL.tsv" ;;   # A202: the proposal's own sha256   # A200 review: the proposal's own sha256
     plan|destructive|single_step|scope|budget|mutation_budget|reopen:*) hash_file "$(run_dir "$1")/PLAN.md" ;;
     rule:*) sh "$scripts/lessons.sh" bound "$1" "${2#rule:}" ;;
     rationale:*) rationale_bound "${2#rationale:}" ;;
@@ -4891,6 +5263,7 @@ kind_words() {
     rationale:*) printf 'rationale %s\n' "${1#rationale:}" | tr '[:upper:]' '[:lower:]' ;;
     reopen:*) printf 'reopen %s\n' "$(printf '%s' "${1#reopen:}" | tr '[:upper:]' '[:lower:]')" ;;
     waive:*) printf '%s\n' "${1#waive:}" | tr '[:upper:]' '[:lower:]' ;;
+    known-issue) echo 'known issue known issues known-issue bilinen sorun' ;;
     *) printf '%s\n' "$1" ;;
   esac
 }
@@ -4981,6 +5354,9 @@ approval_sentences() {
     budget) as_en='the budget|another round'; as_tr='bütçeyi|butceyi|bir round daha' ;;
     cleanup) as_en='the cleanup'; as_tr='temizliği|temizligi' ;;
     commands) as_en='the commands'; as_tr='komutları|komutlari' ;;
+    known-issue) as_en='the known issue|the known issues'; as_tr='bilinen sorunu|bilinen sorunları|bilinen sorunlari' ;;
+    rename) as_en='the renames|the rename'; as_tr='yeniden adlandırmayı|yeniden adlandirmayi' ;;
+    scale) as_en='the scale|the timeout scale'; as_tr='ölçeği|olcegi' ;;
     report) as_en='the friction report'; as_tr='sürtünme raporunu|surtunme raporunu' ;;
     commit) as_en='the commit'; as_tr="commit'i" ;;
     push) as_en='the push'; as_tr="push'u" ;;
@@ -5087,6 +5463,169 @@ pending_request() {
   done
   printf '%s\n' "$pr_r"
 }
+# --- Several approvals in one message (A202 item 31). The single-approval grammar (text_has_approval) is NOT changed. A message that
+# the grammar does not accept as a whole is split ONLY on commas and line breaks; each segment is tried alone with that same grammar
+# against the open requests. A segment that is not exactly one approval of an open request is rejected alone and named; the others are
+# recorded by `approve`, each as its own record bound to the same user prompt (capture id, hash, single-use per kind). Text that is a
+# question, negated or conditional, quoted (a `>` line, a fenced block) or over the cap (approval.max_per_message, default 8) is never
+# read as an approval. The mode is on only when at least two segments approve, or one approves and every other segment at least
+# tried to ("approve the plan, but wait" stays refused as a whole). A new approval kind needs no change here: the open requests and
+# valid_approval_kind are the table.
+# approval_pending_pairs [RUNID]: "TARGET KIND" for every open request of the run and of the no-run scope.
+approval_pending_pairs() {
+  for pq_t in ${1:-} -; do
+    [ -n "$pq_t" ] || continue
+    [ "$pq_t" = - ] || [ -d "$(run_dir "$pq_t")" ] || continue
+    pq_d=$(approvals_dir "$pq_t"); [ -d "$pq_d" ] || continue
+    for pq_f in "$pq_d"/[0-9][0-9][0-9]-request-*.yaml; do
+      [ -f "$pq_f" ] || continue
+      pq_k=$(gate_field "$pq_f" kind)
+      valid_approval_kind "$pq_k" || continue
+      pending_request "$pq_t" "$pq_k" >/dev/null || continue   # A171: an answered request is used up; no process is started for it
+      printf '%s %s\n' "$pq_t" "$pq_k"
+    done
+  done
+}
+# approval_words TARGET KIND: the words the open request is answered with (a delivery step: delivery; a joint reopen: reopen:<ID>).
+approval_words() {
+  aw_r=$(latest_request "$1" "$2") || { printf '%s\n' "$2"; return 0; }
+  aw_w=$2; [ -z "$(gate_field "$aw_r" delivery)" ] || aw_w=delivery
+  aw_j=$(gate_field "$aw_r" joint); [ -z "$aw_j" ] || aw_w=$aw_j
+  printf '%s\n' "$aw_w"
+}
+# approval_say TARGET KIND: the exact phrase to type for that open request.
+approval_say() {
+  sy_w=$(approval_words "$1" "$2")
+  case "$sy_w" in rule:*|reopen:*|rationale:*) printf 'approve %s\n' "$(kind_words "$sy_w")" ;; *) printf 'approve %s\n' "$(kind_words "$sy_w" | cut -d' ' -f1)" ;; esac
+}
+# approval_multi_scan TEXTFILE RUNID SHA: one line per segment, tab separated: `S ok "T|KIND T|KIND" SEGMENT` or `S no REASON SEGMENT`,
+# then `M yes|no SHA`.
+approval_multi_scan() {
+  ms_tab=$(printf '\t')
+  ms_max=$(cfg approval.max_per_message 8); case "$ms_max" in ''|*[!0-9]*) ms_max=8 ;; esac; { [ "$ms_max" -ge 1 ] && [ "$ms_max" -le 16 ]; } || ms_max=8
+  # constant size: the first 8 KB and 64 lines only (what is beyond is never read as an approval)
+  ms_seg=$(head -c 8192 "$1" | head -n 64 | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C awk '
+    function trim(s) { gsub(/^ +| +$/, "", s); return s }
+    { t = trim($0)
+      if (t ~ /^(```|~~~)/) { if (!f) { f = 1; print "Q\t" substr(t, 1, 40) } else f = 0; next }
+      if (f) next
+      if (t ~ /^>/) { print "Q\t" substr(t, 1, 40); next }
+      n = split($0, p, ",")
+      for (i = 1; i <= n; i++) { s = trim(p[i]); if (s == "") continue; print (split(s, w, " ") > 16 ? "L" : "T") "\t" substr(s, 1, 200) } }')
+  ms_nt=$(printf '%s\n' "$ms_seg" | grep -c '^[TLQ]' || :)
+  if [ "${ms_nt:-0}" -lt 2 ]; then printf 'M\tno\t%s\n' "$3"; return 0; fi
+  ms_pg=''
+  while read -r ms_t ms_k; do
+    [ -n "$ms_k" ] || continue
+    ms_pg="$ms_pg$ms_t|$(approval_words "$ms_t" "$ms_k")|$ms_k
+"
+  done <<EOF2
+$(approval_pending_pairs "$2" | sort -u)
+EOF2
+  [ -n "$ms_pg" ] || { printf 'M\tno\t%s\n' "$3"; return 0; }
+  ms_ex=$(printf '%s' "$ms_pg" | sed -n 1p); ms_ex=$(approval_say "${ms_ex%%|*}" "${ms_ex##*|}")
+  ms_pl=$(approval_phrases | tr ',' '\n' | approval_norm_lines)
+  ms_f=$(mktemp "${TMPDIR:-/tmp}/proofline-multi.XXXXXX")
+  ms_i=0 ms_nok=0 ms_nnop=0 ms_over=0 ms_out='' ms_acc='' ms_rj='' ms_veto=''
+  while IFS="$ms_tab" read -r ms_ty ms_s; do
+    case "$ms_ty" in
+      Q) ms_out="${ms_out}S${ms_tab}no${ms_tab}quoted or pasted text is never an approval${ms_tab}$ms_s
+"; continue ;;
+      T|L) ;;
+      *) continue ;;
+    esac
+    ms_i=$((ms_i + 1))
+    if [ "$ms_i" -gt "$ms_max" ]; then ms_over=$((ms_over + 1)); continue; fi
+    ms_hit='' ms_c=''
+    if [ "$ms_ty" = T ]; then
+      printf '%s\n' "$ms_s" > "$ms_f"
+      while IFS= read -r ms_p; do
+        [ -n "$ms_p" ] || continue
+        ms_pt=${ms_p%%|*}; ms_pr=${ms_p#*|}; ms_pw=${ms_pr%%|*}; ms_pk=${ms_pr#*|}; ms_key="$ms_pt|$ms_pw"
+        case "$ms_c" in
+          *";$ms_key=y;"*) ms_r=y ;;
+          *";$ms_key=n;"*) ms_r=n ;;
+          *) if text_has_approval "$ms_f" "$ms_pw" "$ms_pt"; then ms_r=y; else ms_r=n; fi; ms_c="$ms_c;$ms_key=$ms_r;" ;;
+        esac
+        [ "$ms_r" != y ] || ms_hit="$ms_hit $ms_pt|$ms_pk"
+      done <<EOF2
+$ms_pg
+EOF2
+    fi
+    if [ -n "$ms_hit" ]; then
+      ms_nok=$((ms_nok + 1)); ms_acc="$ms_acc $ms_hit"; ms_out="${ms_out}S${ms_tab}ok${ms_tab}${ms_hit# }${ms_tab}$ms_s
+"; continue
+    fi
+    ms_n=$(printf '%s\n' "$ms_s" | approval_norm); ms_neg='' ms_has=''
+    ms_hedge=' not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin cancel undo stop ignore nope nah revoke reject withdraw abort halt disregard cannot isnt shouldnt negative refuse deny denied oppose jk iptal vazgectim hmm '   # negation, hedge and retraction words: they give a rejected segment its reason and, when the segment names no other open kind, veto the whole message; an accepted segment never reads this
+    for ms_w in $ms_n; do case "$ms_hedge" in *" $ms_w "*) ms_neg=y ;; esac; done
+    ms_low=" $ms_n "
+    while IFS= read -r ms_w; do [ -z "$ms_w" ] || case "$ms_low" in *" $ms_w "*) ms_has=y; break ;; esac; done <<EOF2
+$ms_pl
+EOF2
+    [ -n "$ms_has" ] || ms_nnop=$((ms_nnop + 1))
+    # a negated, hedged or questioning segment vetoes the message unless it names an open kind of its own (checked after the scan against the accepted kinds)
+    if [ "$ms_ty" = T ] && { [ -n "$ms_neg" ] || case "$ms_s" in *\?*) true ;; *) false ;; esac; }; then
+      ms_nm=''
+      while IFS= read -r ms_p; do
+        [ -n "$ms_p" ] || continue
+        ms_pt=${ms_p%%|*}; ms_pr=${ms_p#*|}; ms_pw=${ms_pr%%|*}; ms_pk=${ms_pr#*|}
+        for ms_w in $(kind_words "$ms_pw"); do case "$ms_low" in *" $ms_w "*) ms_nm="$ms_nm $ms_pt|$ms_pk"; break ;; esac; done
+      done <<EOF2
+$ms_pg
+EOF2
+      if [ -z "$ms_nm" ]; then ms_veto=y; else ms_rj="$ms_rj$ms_nm
+"; fi
+    fi
+    if [ "$ms_ty" = L ]; then ms_why='too long to be one approval'
+    else case "$ms_s" in *\?*) ms_why='a question is not an approval' ;; *)
+      if [ -n "$ms_neg" ]; then ms_why='negated, conditional or hedged'
+      elif [ -n "$ms_has" ]; then ms_why="not one exact approval of an open request (type e.g. \"$ms_ex\")"
+      else ms_why='no approval phrase in it'; fi ;; esac; fi
+    ms_out="${ms_out}S${ms_tab}no${ms_tab}${ms_why}${ms_tab}$ms_s
+"
+  done <<EOF2
+$ms_seg
+EOF2
+  rm -f "$ms_f"
+  [ "$ms_over" -eq 0 ] || ms_out="${ms_out}S${ms_tab}no${ms_tab}more than $ms_max approvals in one message (limit $ms_max)${ms_tab}$ms_over extra segment(s)
+"
+  ms_mode=no ms_quiet=''
+  for ms_a in $ms_acc; do case "
+$ms_rj" in *" $ms_a"*|*"
+$ms_a"*) ms_veto=y ;; esac; done
+  if [ -n "$ms_veto" ]; then :
+  elif [ "$ms_nok" -ge 2 ] || { [ "$ms_nok" -ge 1 ] && [ "$ms_nnop" -eq 0 ]; }; then ms_mode=yes; fi
+  # one approval with a filler clause ("plan approved, go ahead") is a single approval: accepted whole, nothing to report
+  if [ "$ms_mode" = yes ] && [ "$ms_nok" -le 1 ]; then
+    while IFS= read -r ms_p; do
+      [ -n "$ms_p" ] || continue
+      ms_pr=${ms_p#*|}; text_has_approval "$1" "${ms_pr%%|*}" "${ms_p%%|*}" && { ms_quiet=quiet; break; }
+    done <<EOF2
+$ms_pg
+EOF2
+  fi
+  printf '%sM\t%s\t%s\t%s\n' "$ms_out" "$ms_mode" "$3" "$ms_quiet"
+}
+# approval_scan_latest [RUNID]: the scan of the newest user prompt capture (its text checked against its hash, as `approve` does).
+approval_scan_latest() {
+  sl_cap=$(latest_capture 2>/dev/null) || return 1
+  sl_f=$(mktemp "${TMPDIR:-/tmp}/proofline-multi.XXXXXX")
+  capture_field "$sl_cap" text > "$sl_f" 2>/dev/null || { rm -f "$sl_f"; return 1; }
+  sl_h=$(hash_file "$sl_f")
+  [ "$sl_h" = "$(capture_field "$sl_cap" sha256 2>/dev/null || true)" ] || { rm -f "$sl_f"; return 1; }
+  approval_multi_scan "$sl_f" "${1:-}" "$sl_h" || :
+  rm -f "$sl_f"
+}
+# approval_scan_report SCAN NRECORDED: the user-facing lines of a multi-approval message (nothing for any other message).
+approval_scan_report() {
+  sr_tab=$(printf '\t')
+  case "$1" in *"M${sr_tab}yes${sr_tab}"*) ;; *) return 0 ;; esac
+  case "$1" in *"${sr_tab}quiet"*) return 0 ;; esac
+  printf '%s\n' "$1" | awk -F'\t' -v n="${2:-0}" '
+    $1 == "S" { t++; if ($2 == "ok") k++; else { m[++r] = "multi: not recorded: " substr($4, 1, 60) ": " $3 } }
+    END { printf "multi: %d of %d segments read as approvals, %d approval record(s) written\n", k, t, n; for (i = 1; i <= r && i <= 10; i++) print m[i] }'
+}
 # approve_pending [ID]: run by the runtime's prompt hook right after it stored the user's prompt capture
 # (A41). Every open approval request of the run (and of the no-run scope: commit, push) that this prompt
 # satisfies becomes an approval. The lead never runs `approve` itself: the runtime hook denies it. Each
@@ -5094,18 +5633,9 @@ pending_request() {
 approve_pending() {
   ap_run=${1:-}; ap_log=$sr_main/.agents/local/approve.log   # the shared log (A185): the prompt hook, the main tree and a worktree write one file
   mkdir -p "$sr_main/.agents/local" 2>/dev/null || :
-  for ap_t in $ap_run -; do
-    [ -n "$ap_t" ] || continue
-    [ "$ap_t" = - ] || [ -d "$(run_dir "$ap_t")" ] || continue
-    ap_dir=$(approvals_dir "$ap_t"); [ -d "$ap_dir" ] || continue
-    for ap_rf in "$ap_dir"/[0-9][0-9][0-9]-request-*.yaml; do
-      [ -f "$ap_rf" ] || continue
-      ap_k=$(gate_field "$ap_rf" kind)
-      valid_approval_kind "$ap_k" || continue
-      pending_request "$ap_t" "$ap_k" >/dev/null || continue   # A171: an answered request is used up; no process is started for it
-      printf '%s %s\n' "$ap_t" "$ap_k"
-    done
-  done | sort -u | awk '{ r = 0; if ($2 == "commit") r = 1; else if ($2 == "push") r = 2; else if ($2 == "pr") r = 3; else if ($2 == "merge") r = 4; else if ($2 == "cleanup") r = 5; print $1, r, $2 }' |
+  ap_scan=$(approval_scan_latest "$ap_run" 2>/dev/null) || ap_scan=''   # A202 item 31: read before the approvals use the requests up
+  ap_resf=$(mktemp "${TMPDIR:-/tmp}/proofline-approvals.XXXXXX")
+  approval_pending_pairs "$ap_run" | sort -u | awk '{ r = 0; if ($2 == "commit") r = 1; else if ($2 == "push") r = 2; else if ($2 == "pr") r = 3; else if ($2 == "merge") r = 4; else if ($2 == "cleanup") r = 5; print $1, r, $2 }' |
     sort -k1,1 -k2,2n -k3,3 | awk '{ if ($1 != t) { if (t != "") print t k; t = $1; k = "" } k = k " " $3 } END { if (t != "") print t k }' |
   while read -r ap_t ap_ks; do
     # one process per target, the delivery steps in their order (A169): a cut-off by the hook's time limit leaves a usable prefix
@@ -5115,9 +5645,19 @@ approve_pending() {
     ap_o=$(sh "$scripts/agent.sh" approve "$ap_t" $ap_ks 2>&1 </dev/null) && ap_rc=0 || ap_rc=$?
     ap_l=$(printf '%s' "$ap_o" | tr '\n' ' ' | tr -s ' ' | cut -c1-300)
     printf '%s target=%s kinds=%s rc=%s output: %s\n' "$(now_iso)" "$ap_t" "${ap_ks# }" "$ap_rc" "$ap_l" >> "$ap_log" 2>/dev/null || :
+    printf 'recorded-count: %s\n' "$(printf '%s\n' "$ap_o" | grep -c '^approval recorded' || :)"   # A202 item 31: counted before the line is cut
     if [ "$ap_rc" = 0 ]; then echo "approved: ${ap_t#-} ${ap_ks# }: $ap_l"
     else case "$ap_o" in *"contain no approval phrase"*|*"none of the open requests"*) ;; *) echo "not recorded: ${ap_t#-} ${ap_ks# }: $ap_l" ;; esac; fi
-  done
+  done > "$ap_resf"
+  ap_res=$(cat "$ap_resf"); rm -f "$ap_resf"
+  ap_nrec=$(printf '%s\n' "$ap_res" | awk '/^recorded-count: / { n += $2 } END { print n + 0 }')
+  ap_res=$(printf '%s\n' "$ap_res" | grep -v '^recorded-count: ' || :)
+  [ -z "$ap_res" ] || printf '%s\n' "$ap_res"
+  # A202 item 31: a message that held several approvals (commas or lines): one line says how many were recorded, one line per segment that was not
+  ap_rep=$(approval_scan_report "$ap_scan" "$ap_nrec")
+  if [ -n "$ap_rep" ]; then printf '%s\n' "$ap_rep"; printf '%s\n' "$ap_rep" | sed "s/^/$(now_iso) /" >> "$ap_log" 2>/dev/null || :; fi
+  # A202 item 28: the hook's raw copies of the user's prompts (prompts/intake) are a safety net; those older than two days go
+  [ ! -d "$sr_main/.agents/local/prompts/intake" ] || find "$sr_main/.agents/local/prompts/intake" -type f -mtime +2 -exec rm -f {} + 2>/dev/null || :
   # the log is shared by every tree: rotate it under a lock (a rotation racing an append would lose lines); a busy lock just skips the rotation
   if [ -f "$ap_log" ] && [ "$(wc -l < "$ap_log")" -gt 400 ] && mkdir "$ap_log.lock" 2>/dev/null; then
     tail -n 200 "$ap_log" > "$ap_log.tmp" && mv "$ap_log.tmp" "$ap_log"; rmdir "$ap_log.lock" 2>/dev/null || :
@@ -5197,6 +5737,9 @@ request_approval() {
     rq_rows=$(awk -v tr="$rq_tr" '/^## / { i = ($0 ~ /^## Data[[:space:]]*$/); next } i && /^[[:space:]]*rows:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*/, ""); print (tr ? "   risk altındaki veri: " : "   data at risk: ") substr($0, 6); exit }' "$(run_dir "$rq_id")/PLAN.md")
   fi
   [ "$rq_kind" != commands ] || rq_rows=$(awk -F'\t' '!/^#/ { print "   commands." $1 ": " $2 }' "$(shared_dir commands)/PROPOSAL.tsv" 2>/dev/null)
+  [ "$rq_kind" != known-issue ] || rq_rows=$(awk -F'\t' '{ print "   known issue: " $1 " " $2 ": " $3 " (follow-up task " $4 ")" }' "$(shared_dir known-issues)/PROPOSAL.tsv" 2>/dev/null)
+  [ "$rq_kind" != scale ] || rq_rows=$(awk -F'\t' '{ print "   timeouts." $1 ": " $2 }' "$(shared_dir scale)/PROPOSAL.tsv" 2>/dev/null)
+  [ "$rq_kind" != rename ] || rq_rows=$(awk -F'\t' '{ print "   rename: " $1 " -> " $2 }' "$(shared_dir rename)/PROPOSAL.tsv" 2>/dev/null)
   case "$rq_kind" in rationale:*) rq_rows="   rationale line of DESIGN.md: $(rationale_line "${rq_kind#rationale:}")" ;; esac
   [ "$rq_kind" != mutation_budget ] || rq_rows="   mutation budget: $(mutation_budget "$rq_id"), PLAN ## Tests criteria: $(plan_test_acs "$(run_dir "$rq_id")/PLAN.md")"
   if [ "$rq_kind" = batch ]; then printf 'QUESTIONS:\n1. Approve the night batch shown above (batch %s)?\n' "$(printf '%s' "$rq_bound" | cut -c1-12)"
@@ -5207,6 +5750,9 @@ request_approval() {
   if [ "$rq_tr" = 1 ]; then
     printf '   seçenekler: approve | reject (onay için "approve %s" yazın, vazgeçmek için "reject")\n   kabul edilen onay sözcükleri: %s (tür sözcüğüyle birlikte, örn. "approve %s"; bunlardan başka yalnızca şu sözcükler: %s); ya da yanıtın tamamı tek bir tam cümle: %s; başka herhangi bir sözcük yanıtı belirsiz yapar: onay sayılmaz ve soru yeniden sorulur\n   önerilen: yok (karar kullanıcıya ait)\n   neden: %s\n' "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_example "$rq_kind")" "$(approval_why "$rq_kind" "$rq_bound" tr)"
   else printf '   options: approve | reject\n   accepted answers: %s (with the kind word, for example "approve %s"; besides those only the words: %s); or the whole reply as one full sentence: %s; any other word makes the reply ambiguous: it is not an approval and the question is asked again\n   recommended: none (the user decides)\n   why: %s\n' "$(approval_phrases)" "$(kind_words "$rq_kind" | cut -d' ' -f1)" "$(approval_fillers)" "$(approval_example "$rq_kind")" "$(approval_why "$rq_kind" "$rq_bound")"; fi
+  # A202 item 31: several open requests are answered by one message, one exact phrase per comma or line
+  rq_sy=$(approval_pending_pairs "$rq_id" | sort -u | while read -r rq_t rq_k; do approval_say "$rq_t" "$rq_k"; done | awk '!s[$0]++' | head -n 8 | paste -s -d, - | sed 's/,/, /g')
+  case "$rq_sy" in *,*) printf '   several open requests: one message answers them, one phrase per comma or line: %s\n' "$rq_sy" ;; esac
 }
 approval_why() { # KIND BOUND [tr]
   if [ "${3:-}" = tr ]; then
@@ -5223,6 +5769,9 @@ approval_why() { # KIND BOUND [tr]
       rule:*) echo "kanıttan çıkan ders proje kuralı olur: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
       rationale:*) echo 'DESIGN.md gerekçesi yalnızca sizin onayınızla bir desen bulgusunu engelleyici olmaktan çıkarır; ajanın yazdığı gerekçe bulguyu geçirmez' ;;
       report) echo 'anonim sürtünme raporu GitHub issue olarak yalnızca onayınızla gönderilir' ;;
+      known-issue) echo 'bu bulgu, görevin dokunmadığı bir yerde zaten var ve bir takip görevi var: onayınızla bilinen sorun olur ve görevi durdurmaz; yeni bir bulgu ya da dokunulan yer yine engeller; SECRETS ve SECURITY hiçbir zaman listelenmez' ;;
+      rename) echo 'sıradaki görev dosyaları yalnızca sizin onayınızla <ID>-<slug>.md adına taşınır; başlamış ya da raporu yayınlanmış görevlere dokunulmaz' ;;
+      scale) echo 'bu makine için önerilen timeouts.scale değeri yalnızca sizin onayınızla .agents/config.yaml dosyasına yazılır; bütün süreler birlikte uzar, hiçbir denetim kapanmaz' ;;
       commands) echo 'boş commands.build|test|lint anahtarları için önerilen komutlar yalnızca sizin onayınızla .agents/config.yaml dosyasına yazılır' ;;
       batch) echo 'gece modu: bu tek özet, listelenen görevlerin plan, teslimat ve mutasyon bütçesi onaylarının yerine geçer; başka hiçbir şeyin yerine geçmez' ;;
       *) echo 'bir FAIL bulgusu yalnızca kullanıcının açık talimatıyla feragat edilir' ;;
@@ -5242,6 +5791,9 @@ approval_why() { # KIND BOUND [tr]
     rule:*) echo "a lesson from run evidence becomes a project rule: $(sh "$scripts/lessons.sh" text "${1#rule:}")" ;;
     rationale:*) echo 'a DESIGN.md pattern rationale downgrades a design finding from blocking to info only with your approval; a rationale an agent wrote does not pass the finding' ;;
     report) echo 'the anonymous friction report (.agents/local/friction/latest.md) is sent as a GitHub issue only with your approval' ;;
+    known-issue) echo 'this finding already exists where the task does not touch, and a follow-up task owns it: with your approval it becomes a known issue and stops no task; a new finding or a touched place still blocks; SECRETS and SECURITY are never listed' ;;
+    rename) echo 'queued task files are renamed to <ID>-<slug>.md only with your approval; a started task or one with a published report is never touched' ;;
+    scale) echo 'the proposed timeouts.scale for this machine is written into .agents/config.yaml only with your approval; every duration grows together, no check is switched off' ;;
     commands) echo 'the proposed commands.build|test|lint are written into .agents/config.yaml only with your approval' ;;
     batch) echo 'night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else' ;;
     *) echo 'a FAIL finding is waived only on explicit user instruction' ;;
@@ -5284,7 +5836,7 @@ approve() {
   ap_csha=$(hash_file "$ap_txt")
   # A106: single-use is per capture event (session + time + hash), never per text: the same words answer a later request.
   ap_cid="$ap_session:$ap_time:$ap_csha"
-  text_has_approval "$ap_txt" "$ap_words" "$ap_id" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_words (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_words")', and no other word; the question stays pending)"; }
+  text_has_approval "$ap_txt" "$ap_words" "$ap_id" || approval_multi_accepts "$ap_csha" "$ap_id" "$ap_kind" || { rm -f "$ap_txt"; fail "approval refused: the user's words contain no approval phrase for $ap_words (an explicit approval phrase from approval.phrases and the kind word '$(kind_words "$ap_words")', and no other word; the question stays pending)"; }
   if [ "$ap_src" = prompt_capture ] && grep -l "^capture_id: \"$ap_cid\"" "$ap_ad"/[0-9][0-9][0-9]-"$ap_slug".yaml >/dev/null 2>&1; then fail "approval refused: this user prompt already granted a $ap_kind approval (single-use)"; fi
   ap_n=$(next_num "$ap_ad")
   printf 'kind: "%s"\nbound: "%s"\nsource: "%s"\nsession: "%s"\ncapture_sha256: "%s"\ncapture_id: "%s"\ncapture_time: %s\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\n' \
@@ -5302,8 +5854,22 @@ approve() {
 # the order given; a kind that is refused (no phrase for it, already approved, content changed) changes nothing and does not stop
 # the next. The runtime hook that calls this has a time limit (30 s in a Claude Code UserPromptSubmit hook): five processes that
 # each took the locks and walked the tree were cut off after the fourth step in a real project, and the last step had no approval.
+approval_multi_accepts() { # CAPTURE-SHA TARGET KIND: this exact prompt held several approvals and one segment of it approves this request
+  [ "${ap_multi_sha:-}" = "$1" ] || return 1
+  case " ${ap_multi_ok:-} " in *" $2|$3 "*) return 0 ;; esac
+  return 1
+}
 approve_kinds() {
   ak_id=$1; shift
+  # A202 item 31: scan the newest prompt once for several approvals (commas, lines); `approve` consults the result only after the whole-text grammar refused
+  ap_multi_ok='' ap_multi_sha=''; ak_tab=$(printf '\t')
+  if ! { [ -t 0 ] && [ -t 1 ]; }; then
+    ak_scan=$(approval_scan_latest "$ak_id" 2>/dev/null) || ak_scan=''
+    case "$ak_scan" in *"M${ak_tab}yes${ak_tab}"*)
+      ap_multi_sha=$(printf '%s\n' "$ak_scan" | awk -F'\t' '$1 == "M" { print $3 }')
+      ap_multi_ok=$(printf '%s\n' "$ak_scan" | awk -F'\t' '$1 == "S" && $2 == "ok" { print $3 }' | tr '\n' ' ') ;;
+    esac
+  fi
   if [ $# -eq 1 ]; then approve "$ak_id" "$1"; return; fi
   ak_need=''
   for ak_k in "$@"; do case "$ak_k" in commit|push|pr|merge|cleanup) ak_need=1 ;; esac; done
@@ -5381,6 +5947,134 @@ commands_check() {
   # Nothing here reads the proposal's own text for a time: the request's requested_at is the ledger time.
   find_approval - commands "$(hash_file "$cc_f")" >/dev/null || fail "the user's newest message does not approve the commands: no unconsumed commands approval is bound to this proposal (ask: agent.sh request-approval - commands, relay it; the reply \"approve commands\" records the approval)"
   echo "commands $cc_h: approved by the user"
+}
+# --- A202: consistent task file names: <ID>-<slug>.md ----------------------------------------------
+# task-rename-plan lists the queued markdown task files (backlog/, todo/ and the top level of tasks.dir) that are named only by their ID or
+# only by a slug and proposes <ID>-<slug-of-the-title>.md; it asks the user's approval (kind `rename`, bound to the proposal's sha256).
+# task-rename-apply renames only after that approval, and re-checks every row first. A task that has a run or a worktree, one whose file
+# holds a published completion report, and every file in in-progress/ or done/ is never proposed and never renamed.
+rename_candidate() { # ABS-FILE -> ABS-NEW-NAME on stdout when the file is a queued, non-conforming task file
+  rc_f=$1; rc_b=$(basename "$rc_f" .md)
+  rc_id=$(sed -n '1s/^# Task: *\([^ ]*\).*/\1/p' "$rc_f" 2>/dev/null | head -1)
+  { [ -n "$rc_id" ] && valid_task_id "$rc_id"; } || return 1
+  case "$rc_b" in "$rc_id"-FU[0-9]*) return 1 ;; esac
+  { [ ! -e "$root/.agents/runs/$rc_id" ] && [ ! -e "$(shared_dir worktrees)/$rc_id" ]; } || return 1
+  ! grep -q "COMPLETION-REPORT:BEGIN" "$rc_f" 2>/dev/null || return 1
+  rc_idl=$(sh "$agents/task-integrations/slug.sh" "$rc_id")
+  case "$rc_b" in "$rc_id"-?*)
+    rc_sl=${rc_b#"$rc_id"-}
+    if [ "$rc_sl" = "$(sh "$agents/task-integrations/slug.sh" "$rc_sl")" ] && [ "$rc_sl" != "$rc_idl" ]; then return 1; fi ;;
+  esac
+  rc_sl=$(sh "$agents/task-integrations/slug.sh" "$(task_title_of "$rc_f")")
+  { [ -n "$rc_sl" ] && [ "$rc_sl" != "$rc_idl" ]; } || return 1
+  rc_new=$(dirname "$rc_f")/$rc_id-$rc_sl.md
+  [ ! -e "$rc_new" ] || return 1
+  printf '%s\n' "$rc_new"
+}
+task_rename_files() { # the queued task files
+  trf_td=$root/$(cfg tasks.dir .agents/tasks)
+  for trf_f in "$trf_td"/backlog/*.md "$trf_td"/todo/*.md "$trf_td"/*.md; do [ -f "$trf_f" ] && [ ! -L "$trf_f" ] && printf '%s\n' "$trf_f"; done
+}
+task_rename_plan() {
+  require_lead; trp_pf=$(shared_dir rename)/PROPOSAL.tsv; mkdir -p "$(dirname "$trp_pf")"; trp_t=$trp_pf.tmp; : > "$trp_t"
+  task_rename_files | while IFS= read -r trp_f; do
+    trp_n=$(rename_candidate "$trp_f") || continue
+    printf '%s\t%s\n' "${trp_f#"$root"/}" "${trp_n#"$root"/}"
+  done > "$trp_t"
+  if [ ! -s "$trp_t" ]; then rm -f "$trp_t" "$trp_pf"; echo "task-rename: every queued task file is already named <ID>-<slug>.md"; return 0; fi
+  mv "$trp_t" "$trp_pf"; cat "$trp_pf"
+  request_approval - rename
+}
+task_rename_apply() {
+  require_lead; tra_pf=$(shared_dir rename)/PROPOSAL.tsv; [ -s "$tra_pf" ] || fail "no rename proposal (agent.sh task-rename-plan)"
+  tra_app=$(find_approval - rename "$(hash_file "$tra_pf")") || fail "renaming task files needs the user's approval: 'agent.sh request-approval - rename' (task-rename-plan does it), relay it; the reply \"approve rename\" records the approval"
+  while IFS="$(printf '\t')" read -r tra_o tra_n; do
+    [ "$(rename_candidate "$root/$tra_o" 2>/dev/null)" = "$root/$tra_n" ] || fail "$tra_o is no longer a queued task file that needs this rename (started, reported, renamed or changed since the proposal); run task-rename-plan again"
+  done < "$tra_pf"
+  consume_approval - "$tra_app"
+  while IFS="$(printf '\t')" read -r tra_o tra_n; do
+    if git -C "$root" ls-files --error-unmatch -- "$tra_o" >/dev/null 2>&1; then git -C "$root" mv -- "$tra_o" "$tra_n"; else mv -- "$root/$tra_o" "$root/$tra_n"; fi
+    echo "renamed: $tra_o -> $tra_n"
+  done < "$tra_pf"
+  rm -f "$tra_pf"
+}
+# --- A202 (item 27): the user-approved known-issues list ------------------------------------------------------------------
+# A finding that was already there and that a task does not touch need not stop that task, but only the USER decides which ones:
+# a record (gate, place, finding text, follow-up task) exists only after the user's own `approve known issue` (kind known-issue,
+# bound to the sha256 of the one proposed record). known-issues.sh holds the data rules; here are the commands and the single place
+# where a listed finding stops being blocking (finding_waived). Matching is exact; the task must not touch the place (frozen scope and
+# the actual diff, both computed here); SECRETS/SECURITY, a place that is not a tracked file, an undeterminable scope, a missing or
+# closed follow-up, a new finding: the finding stays blocking. The gate record keeps the finding; the Facts block and the status
+# block name it as a known issue with the record id and the follow-up task.
+ki() { KI_DIR=$(shared_dir known-issues) KI_APPROVALS=$(approvals_dir -) KI_TASKS=$sr_main/$(cfg tasks.dir .agents/tasks) KI_ADAPTER=$(cfg tasks.adapter markdown) KI_MAIN=$sr_main \
+  KI_RUNS="$sr_main/.agents/runs $(ls -d "$sr_main"/.agents/local/worktrees/*/.agents/runs 2>/dev/null | tr '\n' ' ')" sh "$scripts/known-issues.sh" "$@"; }
+# ki_untouched ID PLACE-PATH: 0 only when the run's frozen scope does not cover the place and the diff since the run's base does not hold it
+ki_untouched() {
+  kiu_d=$(run_dir "$1"); [ -f "$kiu_d/RUN.yaml" ] || return 1
+  kiu_s=$(section_value "$kiu_d" freeze scope_paths); [ -n "$kiu_s" ] || return 1
+  for kiu_e in $(printf '%s' "$kiu_s" | tr ',' ' '); do scope_entry_covers "$kiu_e" "$2" fold && return 1; done
+  kiu_b=$(repository_base_sha "$kiu_d" 2>/dev/null) || return 1; [ -n "$kiu_b" ] || return 1
+  kiu_all=$( { git -C "$root" diff --no-renames --name-only "$kiu_b" 2>/dev/null || echo __FAILED__; current_tracked_paths; current_untracked_paths; } ) || return 1
+  case "$kiu_all" in *__FAILED__*) return 1 ;; esac
+  kiu_pl=$(norm_rel_path "$2" | tr '[:upper:]' '[:lower:]')
+  [ -n "$kiu_pl" ] || return 1
+  ! printf '%s\n' "$kiu_all" | tr '[:upper:]' '[:lower:]' | sed 's|^\./||' | grep -Fxq -- "$kiu_pl"
+}
+# finding_known_issue ID GATE-RECORD FINDING-ID: prints "KI-<n><TAB><follow-up>" when the blocking finding is an active record, untouched
+finding_known_issue() {
+  [ -s "$(shared_dir known-issues)/LIST.tsv" ] || return 1
+  case "$(gate_field "$2" gate)" in SECRETS|SECURITY) return 1 ;; esac
+  fki_c=$(ki canon "$2" "$3" 2>/dev/null) || return 1
+  fki_g=$(printf '%s' "$fki_c" | cut -f1); fki_p=$(printf '%s' "$fki_c" | cut -f2); fki_t=$(printf '%s' "$fki_c" | cut -f3-)
+  fki_m=$(ki lookup "$fki_g" "$fki_p" "$fki_t" 2>/dev/null) || return 1
+  [ "$(printf '%s' "$fki_m" | cut -f2)" != "$1" ] || return 1   # the task that is the follow-up fixes it: it is not a known issue for that task
+  ki_untouched "$1" "${fki_p%%:*}" || return 1
+  printf '%s\n' "$fki_m"
+}
+# ki_gate_facts ID GATE: "KI-n:FINDING:follow-up" words for the gate's current blocking findings that are listed known issues
+ki_gate_facts() {
+  [ -s "$(shared_dir known-issues)/LIST.tsv" ] || return 0
+  for kg_fc in - $(risk_gate_focuses "$1" "$2"); do
+    kg_f=$(gate_latest_file "$1" "$2" "$kg_fc"); [ -n "$kg_f" ] && [ "$(gate_field "$kg_f" result)" = fail ] || continue
+    for kg_x in $(blocking_finding_ids "$kg_f"); do
+      kg_m=$(finding_known_issue "$1" "$kg_f" "$kg_x") || continue
+      printf '%s:%s:%s\n' "$(printf '%s' "$kg_m" | cut -f1)" "$kg_x" "$(printf '%s' "$kg_m" | cut -f2)"
+    done
+  done
+}
+ki_run_dir() { # RUN-ID -> the run's folder in this tree or in its task worktree
+  [ -d "$(run_dir "$1")" ] && { run_dir "$1"; return 0; }
+  [ -d "$sr_main/.agents/local/worktrees/$1/.agents/runs/$1" ] && { printf '%s\n' "$sr_main/.agents/local/worktrees/$1/.agents/runs/$1"; return 0; }
+  return 1
+}
+# known-issue-propose RUN FINDING-ID --followup TASK: writes the one proposed record and asks the user (kind known-issue)
+known_issue_propose() {
+  require_lead; kp_run=${1:-}; kp_fid=${2:-}; kp_fu=''; [ $# -ge 2 ] || fail "usage: agent.sh known-issue-propose <RUN-ID> <FINDING-ID> --followup <TASK-ID>"; shift 2
+  while [ $# -gt 0 ]; do case "$1" in --followup) kp_fu=${2:-}; shift 2 || shift ;; *) fail "unknown argument: $1" ;; esac; done
+  [ -n "$kp_fu" ] || fail "a known issue needs a follow-up task (--followup <TASK-ID>): a record without one is not valid"
+  valid_task_id "$kp_fu" || fail "invalid follow-up task id: $kp_fu"
+  kp_rd=$(ki_run_dir "$kp_run") || fail "no run $kp_run on this machine"
+  kp_rec=''
+  for kp_f in $(ls -1 "$kp_rd"/gates/[0-9][0-9][0-9]-*.yaml 2>/dev/null | sort); do ki canon "$kp_f" "$kp_fid" >/dev/null 2>&1 && kp_rec=$kp_f; done
+  [ -n "$kp_rec" ] || fail "no blocking finding $kp_fid in a gate record of run $kp_run"
+  kp_c=$(ki canon "$kp_rec" "$kp_fid"); kp_g=$(printf '%s' "$kp_c" | cut -f1); kp_p=$(printf '%s' "$kp_c" | cut -f2); kp_t=$(printf '%s' "$kp_c" | cut -f3-)
+  ki listable "$kp_g" "$kp_p" || fail "this finding cannot be listed"
+  case "$(ki followup-state "$kp_fu")" in backlog|todo|in-progress) ;; done) fail "the follow-up task $kp_fu is already done" ;; *) fail "the follow-up task $kp_fu is not an open markdown task file of the project (create it first; known issues need the markdown task adapter)" ;; esac
+  kp_pf=$(shared_dir known-issues)/PROPOSAL.tsv; mkdir -p "$(dirname "$kp_pf")"
+  printf '%s\t%s\t%s\t%s\n' "$kp_g" "$kp_p" "$kp_t" "$kp_fu" > "$kp_pf"
+  cat "$kp_pf"
+  request_approval - known-issue
+}
+# known-issue-apply: writes the record only with the user's recorded approval of exactly the proposal
+known_issue_apply() {
+  require_lead; kpa_pf=$(shared_dir known-issues)/PROPOSAL.tsv; [ -s "$kpa_pf" ] || fail "no known-issue proposal (agent.sh known-issue-propose)"
+  kpa_app=$(find_approval - known-issue "$(hash_file "$kpa_pf")") || fail "a known issue needs the user's approval: 'agent.sh request-approval - known-issue' (known-issue-propose does it), relay it; the reply \"approve known issue\" records the approval"
+  [ "$(gate_field "$kpa_app" answered_by)" = user ] || fail "the approval is not the user's"
+  kpa_g=$(cut -f1 "$kpa_pf"); kpa_p=$(cut -f2 "$kpa_pf"); kpa_t=$(cut -f3 "$kpa_pf"); kpa_f=$(cut -f4 "$kpa_pf")
+  consume_approval - "$kpa_app"
+  kpa_id=$(ki append "$kpa_g" "$kpa_p" "$kpa_t" "$kpa_f" "$(basename "$kpa_app")") || fail "the record was not written"
+  rm -f "$kpa_pf"
+  echo "known issue recorded: $kpa_id ($kpa_g $kpa_p, follow-up $kpa_f)"
 }
 batch_plan() {
   require_lead; mkdir -p "$agents/local"
@@ -5484,7 +6178,7 @@ waive() {
   wv_follow=none
   if [ "$(cfg review.waiver_followup none)" = task ]; then
     wv_fu=$wv_d/waivers/$wv_n-$wv_fid.followup.md
-    { printf '# Follow-up: waived finding %s of %s\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\n' "$wv_fid" "$wv_id"
+    { printf '# Follow-up: waived finding %s of %s\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\nOrigin: %s (waived finding %s)\n\n' "$wv_fid" "$wv_id" "$wv_id" "$wv_fid"
       grep "^finding: $wv_fid|" "$wv_rec" | sed 's/^finding: //'; printf '\nWaiver reason: %s\n' "$wv_reason"; } > "$wv_fu"
     wv_ad=$agents/task-integrations/$(cfg tasks.adapter markdown).sh
     if [ -f "$wv_ad" ]; then wv_follow=$(sh "$wv_ad" followup "$wv_id" "$wv_fu") || fail "follow-up task creation failed via $wv_ad"; else wv_follow=pending; fi
@@ -5520,6 +6214,7 @@ ask_question() {
   { printf 'from: %s\nasked_at: %s\n---\n' "$execution_role" "$(now_epoch)"; cat "$aq_t"; } > "$aq_d/questions/$aq_n.md"; rm -f "$aq_t"
   if section_key_present "$aq_d" execution awaiting_input; then set_run_value "$aq_id" execution awaiting_input true; fi
   if gates_enforced "$aq_id"; then ledger_append "$aq_id" ask - - "$(ledger_token "questions/$aq_n.md" "$aq_id")"; fi
+  status_block_update "$aq_id" ask
   echo "question recorded: $aq_id $aq_n (relay it verbatim with 'agent.sh questions $aq_id')"
 }
 # assumption_prompt_accepts PROMPT ID: the user's captured prompt accepts assumption ID (A79) only when it STARTS with
@@ -5627,6 +6322,7 @@ answer() {
   an_as=$(sed -n 's/^[[:space:]]*ASSUMPTION: \([^[:space:]]*\)[[:space:]]*$/ assumption=\1/p' "$an_q" | head -1)
   an_ev=answer; [ "$an_amend" = no ] || an_ev=answer-amend
   if gates_enforced "$an_id"; then ledger_append "$an_id" "$an_ev" - - "$(basename "$an_q") answered_by=$an_by${an_src:+ source=$an_src}${an_amends:+ amends=$an_amends}$an_as"; fi
+  status_block_update "$an_id" answer
   echo "answer recorded: $an_id $(basename "$an_q" .md) answered_by=$an_by${an_amends:+ (amends $an_amends, the old record is kept)}"
   if [ -n "$an_src" ]; then echo "answer source: the user's message ${an_src} ($(epoch_iso "${an_src%%-*}")): $(tr -s '[:space:]' ' ' < "$(shared_dir prompts)/history/$an_src" | cut -c1-80)"; fi
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
@@ -5836,7 +6532,8 @@ wait_line() {
   [ -s "$wl_f" ] || now_epoch > "$wl_f" 2>/dev/null || true
   wl_s=$(cat "$wl_f" 2>/dev/null); case "$wl_s" in ''|*[!0-9]*) wl_s=$(now_epoch) ;; esac
   wl_e=$(( $(now_epoch) - wl_s ))
-  printf 'waiting: %s, %dm%02ds so far\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60))
+  wl_t=$(budget_usage "$wl_id" | head -n 1)
+  printf 'waiting: %s, %dm%02ds so far%s\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60)) "$([ -z "$wl_t" ] || { set -- $wl_t; printf ' (TIME: %d%% of its %dm limit)' $(($2 * 100 / $3)) $(($3 / 60)); })"
 }
 
 # --- Metrics (D5, A80): .agents/local/metrics/, best effort, `metrics: off` disables ALL of it ---
@@ -5885,17 +6582,24 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
   fi
   metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$ms_in" "$ms_out" "$ms_tot" - - - - "$4"
 }
+# task_size_of ID: the task-author's size estimate (front matter `size:`) from the run's frozen TASK.md; empty when none
+# (the status block and the metrics run record read the same source)
+task_size_of() {
+  awk '/^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^size:/ { sub(/^size:[ \t]*/, ""); print; exit }' "$(run_dir "$1")/TASK.md" 2>/dev/null | tr -cd 'A-Za-z0-9 ._-' | cut -c1-16
+}
 metrics_run() { # ID OUTCOME
   mr_first=$(head -1 "$(ledger_file "$1")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p'); mr_dur=-
   [ -z "$mr_first" ] || mr_dur=$(( $(now_epoch) - mr_first ))
   metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
   mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
-  metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2"
+  # A202: the estimate (task size) and the frozen scope path count, from the task and RUN.yaml, never from agent text
+  mr_sz=$(task_size_of "$1" | tr -d ' ' | tr '[:lower:]' '[:upper:]'); mr_sp=$(section_value "$(run_dir "$1")" freeze scope_paths 2>/dev/null | tr ',' '\n' | grep -c . || true)
+  metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2" "$mr_sz" "$mr_sp"
   hook_time "$1" 2>/dev/null || :   # A171: the hooks' timings spooled so far reach the ledger (this process holds the locks) before the report counts them
   sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A149: the friction report is built at run end, never sent unasked
 }
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
-#   DELEGATIONS FIX_ROUNDS RESULT -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
+#   DELEGATIONS FIX_ROUNDS RESULT [SIZE SCOPE_PATHS] -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
 #   by the control plane from its own state and the runtime's structured output; no model-written text is copied in.
 #   Empty or "-" is null; a number field that is not digits is null; strings are cut to [A-Za-z0-9._+:-], so a
 #   record can never carry free text (and so never a secret). `metrics: off` writes nothing.
@@ -5905,9 +6609,9 @@ metrics_json() {
   mkdir -p "$(dirname "$mj_f")" 2>/dev/null || return 0
   mj_s() { mj_v=$(printf '%s' "$1" | tr -cd 'A-Za-z0-9._+:-'); case "$mj_v" in ''|-) printf null ;; *) printf '"%s"' "$mj_v" ;; esac; }
   mj_n() { case "$1" in ''|*[!0-9]*) printf null ;; *) printf '%s' "$1" ;; esac; }
-  printf '{"schema":"proofline.metrics/1","kind":%s,"time":"%s","task":%s,"role":%s,"focus":%s,"gate":%s,"runtime":%s,"model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":%s,"turns":%s,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s}\n' \
+  printf '{"schema":"proofline.metrics/1","kind":%s,"time":"%s","task":%s,"role":%s,"focus":%s,"gate":%s,"runtime":%s,"model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":%s,"turns":%s,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s,"size":%s,"scope_paths":%s}\n' \
     "$(mj_s "$1")" "$(now_iso)" "$(mj_s "$2")" "$(mj_s "$3")" "$(mj_s "$4")" "$(mj_s "$5")" "$(mj_s "$6")" "$(mj_s "$7")" \
-    "$(mj_n "$8")" "$(mj_n "$9")" "$(mj_n "${10}")" "$(mj_n "${11}")" "$(mj_n "${12}")" "$(mj_n "${13}")" "$(mj_n "${14}")" "$(mj_n "${15}")" "$(mj_s "${16}")" >> "$mj_f" 2>/dev/null || true
+    "$(mj_n "$8")" "$(mj_n "$9")" "$(mj_n "${10}")" "$(mj_n "${11}")" "$(mj_n "${12}")" "$(mj_n "${13}")" "$(mj_n "${14}")" "$(mj_n "${15}")" "$(mj_s "${16}")" "$(mj_s "${17:-}")" "$(mj_n "${18:-}")" >> "$mj_f" 2>/dev/null || true
 }
 # metrics-dispatch (called by dispatch.sh, lead only): one record per specialist dispatch.
 metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURNS RETRIES RESULT
@@ -5924,7 +6628,7 @@ metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURN
 inflight_pid_alive() {
   case "$1" in ''|*[!0-9]*|0) return 1 ;; esac
   kill -0 "$1" 2>/dev/null || return 1
-  ipa_t=$(cfg dispatch.timeout_seconds 1800); case "$ipa_t" in ''|*[!0-9]*) ipa_t=1800 ;; esac
+  ipa_t=$(tm_dispatch_seconds '')
   # A171: the marker names the timeout of its own attempt (a class may run longer than the global one)
   ipa_m=$(sed -n 's/^timeout=//p' "$2" 2>/dev/null | head -n 1); case "$ipa_m" in ''|*[!0-9]*) ;; *) [ "$ipa_m" -le "$ipa_t" ] || ipa_t=$ipa_m ;; esac
   [ -z "$(find "$2" -mmin "+$(( (ipa_t + 119) / 60 ))" 2>/dev/null)" ]
@@ -5945,6 +6649,28 @@ inflight_dispatch() { # ID
   return 1
 }
 
+# budget_usage ID: for every dispatched step of the run in flight that has used timeouts.warn_percent (default 80) of its time, one line
+# `ROLE ELAPSED-S TIMEOUT-S` (A202 item 29). The time-out is last resort: the lead is told once per call, in `next` and `wait-line`,
+# non-blocking; the marker holds the attempt's own start and limit (dispatch.sh), so a run without them says nothing.
+budget_usage() {
+  bu_pct=$(tm_warn_percent); bu_now=$(now_epoch)
+  for bu_f in "$(run_dir "$1")"/dispatch/*.running; do
+    [ -f "$bu_f" ] || continue
+    inflight_pid_alive "$(sed -n 's/^pid=//p' "$bu_f" | head -n 1)" "$bu_f" || continue
+    bu_t=$(sed -n 's/^timeout=//p' "$bu_f" | head -n 1); bu_s=$(sed -n 's/^started_epoch=//p' "$bu_f" | head -n 1)
+    case "$bu_t$bu_s" in ''|*[!0-9]*) continue ;; esac
+    [ -n "$bu_t" ] && [ -n "$bu_s" ] && [ "$bu_t" -gt 0 ] || continue
+    bu_e=$((bu_now - bu_s))
+    [ $((bu_e * 100)) -ge $((bu_t * bu_pct)) ] || continue
+    printf '%s %s %s\n' "$(sed -n 's/^role=//p' "$bu_f" | head -n 1)" "$bu_e" "$bu_t"
+  done
+}
+budget_note() { # ID: the one line for `next`
+  budget_usage "$1" | while read -r bn_r bn_e bn_t; do
+    printf 'note=TIME: dispatch %s has used %dm of its %dm limit (%d%%); at the limit it fails (never a pass) and the next dispatch of the step resumes from dispatch/RESUME-*.md. Do not stop it; tell the user in one line that this step is slow (proofline doctor --scale proposes a longer limit)\n' "${bn_r:-specialist}" $((bn_e / 60)) $((bn_t / 60)) $((bn_e * 100 / bn_t))
+  done
+}
+
 next_step() {
   ns_id=$1; require_run "$ns_id"; ns_d=$(run_dir "$ns_id"); risk_prime "$ns_id"
   ns_st=$(run_state "$ns_d"); ns_hs=$(section_value "$ns_d" handoff state)
@@ -5955,7 +6681,7 @@ next_step() {
   if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> --captured"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_stale=$(inflight_sweep "$ns_id")
   if ns_if=$(inflight_dispatch "$ns_id"); then
-    o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; return 0
+    o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; budget_note "$ns_id"; return 0
   fi
   [ -z "$ns_stale" ] || printf 'note=stale dispatch marker removed: %s\n' "${ns_stale% }"
   ns_class=$(pipeline_class "$ns_id")
@@ -6104,7 +6830,7 @@ next_step() {
       case "$(section_value "$ns_d" execution knowledge_state)" in
         KNOWLEDGE_DONE|not_applicable)
           [ "$(section_value "$ns_d" completion_report published)" = true ] || friction_reminder "$ns_id"
-          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
+          if [ "$(section_value "$ns_d" completion_report published)" != true ]; then unsupported_next "$ns_id"; not_rerun_next "$ns_id"; o "write COMPLETION_REPORT.md (top: the summary block of the template in the user's language, no Look-at lines, publish copies QA_REPORT.md Human checks; no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts $ns_id'; publish appends that Facts block); agent.sh publish-completion-report $ns_id"; r "completion report not published"
           else o "agent.sh handoff $ns_id DONE"; r "report published"; fi ;;
         *) ns_kd=$(knowledge_drift "$ns_id" | head -n 5 | tr '\n' ';')
            [ -z "$ns_kd" ] || printf 'note=design-sync drift in knowledge-scope documents (information for the knowledge step, which must fix it before knowledge-done): %s\n' "${ns_kd%;}"
@@ -6309,16 +7035,65 @@ required_report_headings() {
   if ls "$dir"/waivers/*.yaml >/dev/null 2>&1; then printf '## Waivers\n'; fi
   if [ -n "$(decision_files "$id")" ]; then printf '## Execution\n'; fi
   if [ -n "$(risk_unsupported "$id")" ]; then printf '## Unsupported Checks\n'; fi
+  # A202: the user asked for a final summary format in the task; the report carries the lead's last message in that format
+  if [ -n "$(task_section_lines "$dir/TASK.md" 'Completion response' | grep '[^[:space:]]')" ]; then printf '## Requested Response\n'; fi
   return 0
+}
+# A202: the summary block. The first lines of COMPLETION_REPORT.md, between these markers, are a short note to the user in the user's
+# language: what changed, what to look at, one command to verify. It is not evidence: the evidence checks read the report without it,
+# the language scan blanks it, and the `Look at:` lines are never typed by the model (publish copies them from QA_REPORT.md).
+REPORT_SUMMARY_BEGIN='<!-- proofline:summary:begin -->'
+REPORT_SUMMARY_END='<!-- proofline:summary:end -->'
+report_blank_summary() { # FILE -> the file with the summary block's lines blanked (line numbers kept)
+  awk -v b="$REPORT_SUMMARY_BEGIN" -v e="$REPORT_SUMMARY_END" '$0 == b && !done { skip = 1; print ""; next } skip { if ($0 == e) { skip = 0; done = 1 } print ""; next } { print }' "$1"
+}
+# human_checks ID: the items of QA_REPORT.md `## Human checks` (what a machine measures badly: text naturalness, visual impression), at most three
+human_checks() {
+  hc_f=$(run_dir "$1")/QA_REPORT.md; [ -f "$hc_f" ] || return 0
+  awk '/^## Human checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i && /^[-*][ \t]+[^ \t]/ { sub(/^[-*][ \t]+/, ""); sub(/[ \t]+$/, ""); if (n < 3) print; n++ }' "$hc_f"
+}
+# report_summary_apply ID: validates the summary block and rewrites it with the script-copied `Look at:` lines (once, before `Verify:`)
+report_summary_apply() {
+  rsa_f=$(run_dir "$1")/COMPLETION_REPORT.md
+  rsa_b=$(grep -nFx -- "$REPORT_SUMMARY_BEGIN" "$rsa_f" | head -n 1 | cut -d: -f1)
+  if [ -z "$rsa_b" ]; then echo "note: COMPLETION_REPORT.md has no summary block at the top; the user reads it first (what changed, what to look at, one command to verify): see the template" >&2; return 0; fi
+  [ "$rsa_b" -le 4 ] || fail "completion report: the summary block must open within the first lines of the report, right after the title"
+  rsa_e=$(awk -v b="$rsa_b" -v e="$REPORT_SUMMARY_END" 'NR > b && $0 == e { print NR; exit }' "$rsa_f")
+  [ -n "$rsa_e" ] || fail "completion report: the summary block has no closing marker $REPORT_SUMMARY_END"
+  rsa_body=$(sed -n "$((rsa_b + 1)),$((rsa_e - 1))p" "$rsa_f" | grep -v '^Look at:' | grep '[^[:space:]]' || true)
+  rsa_items=$(human_checks "$1")
+  rsa_v=$(printf '%s\n' "$rsa_body" | grep -c '^Verify:' || true)
+  { [ "$rsa_v" = 1 ] && printf '%s\n' "$rsa_body" | grep '^Verify:' | grep -q '`[^`][^`]*`'; } || fail "completion report: the summary block needs exactly one line 'Verify: \`<one command the user runs on their own machine>\`'"
+  rsa_main=$(printf '%s\n' "$rsa_body" | grep -v '^Verify:' || true)
+  while IFS= read -r rsa_i; do
+    [ -n "$rsa_i" ] || continue
+    ! printf '%s\n' "$rsa_main" | grep -iqF -- "$rsa_i" || fail "completion report: the summary block repeats a QA_REPORT.md 'Human checks' item ('$rsa_i'); the script copies that list as 'Look at:' lines, remove your copy"
+  done <<EOF
+$rsa_items
+EOF
+  rsa_n=$(( $(printf '%s\n' "$rsa_body" | grep -c . || true) + $(printf '%s\n' "$rsa_items" | grep -c . || true) ))
+  [ "$rsa_n" -le 5 ] || fail "completion report: the summary block is $rsa_n lines with the 'Look at:' lines the script adds; at most five (what changed, what to look at, one command to verify)"
+  rsa_t=$(mktemp "${TMPDIR:-/tmp}/agent-summary.XXXXXX") || fail "cannot create a temporary file"
+  { sed -n "1,${rsa_b}p" "$rsa_f"
+    [ -z "$rsa_main" ] || printf '%s\n' "$rsa_main"
+    printf '%s\n' "$rsa_items" | sed '/^$/d; s/^/Look at: /'
+    printf '%s\n' "$rsa_body" | grep '^Verify:'
+    sed -n "${rsa_e},\$p" "$rsa_f"; } > "$rsa_t" && cp "$rsa_t" "$rsa_f"; rm -f "$rsa_t"
 }
 validate_completion_report_structure() {
   id=$1 dir=$(run_dir "$1"); report="$dir/COMPLETION_REPORT.md"
   [ -f "$report" ] || fail "completion report missing: $report"
   size=$(wc -c < "$report" | tr -d ' '); [ "$size" -ge 200 ] || fail "completion report is too short to be meaningful"
+  # A202: the evidence checks below read the report without its summary block (the summary is a note to the user, not evidence)
+  mkdir -p "$dir/scratch"; report_blank_summary "$report" > "$dir/scratch/COMPLETION_REPORT.evidence.md"; report="$dir/scratch/COMPLETION_REPORT.evidence.md"
   for vc_h in $(required_report_headings "$dir" | sed 's/^## //; s/ /_/g'); do
     vc_h=$(printf '## %s' "$vc_h" | tr '_' ' ')
     grep -Fq "$vc_h" "$report" || fail "completion report missing required section: $vc_h"
   done
+  # A202: a task with a `Completion response` section needs the requested summary written in the report, not left out
+  if [ -n "$(task_section_lines "$dir/TASK.md" 'Completion response' | grep '[^[:space:]]')" ]; then
+    awk '/^## Requested Response[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report" | grep -q '[^[:space:]]' || fail "completion report: the '## Requested Response' section is empty (the task's Completion response asks for a final summary in its own format: write it there, and end your last message with the same text)"
+  fi
   # A79: every assumption that is not verified is listed in `## Assumptions` (an accepted-by-user one with the
   # answer file that accepted it); a run with none writes "none".
   vc_sec=$(awk '/^## Assumptions[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
@@ -6391,6 +7166,9 @@ report_facts() {
       rf_i=$(gate_report_ids "$rf_id" "$rf_g" "$rf_fc" | tr '\n' ' ' | sed 's/ $//')
       printf -- '  - Focus %s:%s: %s; findings: %s\n' "$rf_g" "$rf_fc" "$(gate_focus_status "$rf_id" "$rf_g" "$rf_fc" reuse "$rf_fp")" "${rf_i:-none}"
     done
+  done
+  for rf_g in $rf_gl; do   # A202 item 27: a listed finding is shown, never hidden (its gate record keeps it)
+    for rf_k in $(ki_gate_facts "$rf_id" "$rf_g"); do printf -- '- Known issue (not blocking, the gate record keeps the finding): %s in gate %s, record %s, follow-up task %s\n' "$(printf '%s' "$rf_k" | cut -d: -f2)" "$rf_g" "$(printf '%s' "$rf_k" | cut -d: -f1)" "$(printf '%s' "$rf_k" | cut -d: -f3)"; done
   done
   rf_ks=$(section_value "$(run_dir "$rf_id")" execution knowledge_state); rf_kr=$(section_value "$(run_dir "$rf_id")" execution knowledge_reason)
   printf -- '- Friction notes recorded (A200): proofline_bug %s, user-command %s, user-shell %s\n' "$(friction_count "$rf_id" proofline_bug)" "$(friction_count "$rf_id" user-command)" "$(friction_count "$rf_id" user-shell)"
@@ -6468,6 +7246,7 @@ publish_completion_report() {
   # A143: the Facts block of an earlier publish is removed first so it never satisfies a check, the text is checked
   # against the records, and a fresh block generated from them is appended verbatim.
   report_strip_facts "$dir/COMPLETION_REPORT.md"
+  report_summary_apply "$id"
   validate_completion_report_structure "$id"
   report_claims_check "$id" "$dir/COMPLETION_REPORT.md"
   { printf '\n'; report_facts "$id"; } >> "$dir/COMPLETION_REPORT.md"
@@ -6505,6 +7284,211 @@ verify_completion_report() {
   sh "$script" verify "$id" "$receipt" || fail "completion report publication could not be verified: $id"
   echo "completion report publication verified: $id"
 }
+# --- Status block (A202): the one live status of a task, updated in place --------------------------------------------------
+# The content is written by the control plane from RECORDED state only (RUN.yaml, the ledger, the questions, the delivery records, the
+# metrics records, the batch state): no agent text is copied in except the three recorded reasons (a question, a park, a failure), and
+# those go through sb_scrub (an allowlist: no path, address, key or token survives, one line, 160 characters). The adapter op
+# `statusblock` places it (markdown: a marked section; GitHub, Jira, Linear: one comment found by its marker and edited). The update
+# is best effort: it is bounded in time and never fails a run or a gate; an unreachable tracker is a logged note.
+# sb_scrub: stdin -> one safe line. IPv4 and IPv6 addresses are replaced first; then a word with a slash, a backslash, a leading ~, a drive
+# letter, an @, an = , a known key prefix (sk-, sk_live_, sk_test_, ghp_ ...), a word over 40 characters or 24+ letters-and-digits is replaced; a
+# word naming a credential redacts the word after it; the characters that remain are letters, digits and . _ % + - ! ? & # only (the rest is
+# dropped from each word, so no other symbol and no non-ASCII text survives); 160 characters at most.
+sb_scrub() {
+  tr -c '[:print:]' ' ' | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/REDACTEDX/g; s/([0-9A-Fa-f]{0,4}:){3,}[0-9A-Fa-f]{0,4}/REDACTEDX/g; s/[Ff][Ee]80::[0-9A-Fa-f:]*/REDACTEDX/g' | tr '<>`|()[]{}"'"'"',;:' ' ' | awk '{
+    n = split($0, w, " "); out = ""; nx = 0
+    for (i = 1; i <= n; i++) {
+      t = w[i]
+      if (nx) { nx = 0; t = "[redacted]" }
+      else if (t ~ /REDACTEDX/ || length(t) > 40) t = "[redacted]"
+      else if (t ~ /[\/\\]/ || t ~ /^~/ || t ~ /^[A-Za-z]:/) t = "[path]"
+      else if (t ~ /@/ || t ~ /=/) t = "[redacted]"
+      else if (t ~ /^(ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|sk-|sk_|pk_|rk_|AKIA|xox|AIza|eyJ)/ || t ~ /BEGIN/ || t ~ /_(live|test)_/) t = "[redacted]"
+      else if (length(t) >= 24 && t ~ /[0-9]/ && t ~ /[A-Za-z]/) t = "[redacted]"
+      else if (tolower(t) ~ /^(password|passwd|secret|token|apikey|api_key|bearer|authorization|credential|credentials)s?:?$/) { sub(/:$/, "", t); nx = 1 }
+      if (t != "[redacted]" && t != "[path]") gsub(/[^A-Za-z0-9._%+!?&#-]/, "", t)
+      if (t == "") continue
+      out = out (out == "" ? "" : " ") t
+    }
+    print substr(out, 1, 160)
+  }'
+}
+# sb_pr_link N: the pull request address, only for a github.com origin (credentials and every other form give "")
+sb_pr_link() {
+  sbl_u=$(git -C "$root" remote get-url origin 2>/dev/null) || return 0
+  case "$sbl_u" in
+    https://github.com/*/*) sbl_p=${sbl_u#https://github.com/} ;;
+    git@github.com:*/*) sbl_p=${sbl_u#git@github.com:} ;;
+    ssh://git@github.com/*/*) sbl_p=${sbl_u#ssh://git@github.com/} ;;
+    *) return 0 ;;
+  esac
+  sbl_p=${sbl_p%.git}
+  printf '%s' "$sbl_p" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || return 0
+  printf 'https://github.com/%s/pull/%s\n' "$sbl_p" "$1"
+}
+# status_block_body ID EVENT [PR]: the block lines (`- key: value`), on stdout
+status_block_body() {
+  sbb_id=$1 sbb_ev=$2 sbb_pr=${3:-}; sbb_d=$(run_dir "$sbb_id"); sbb_has=no; [ -f "$sbb_d/RUN.yaml" ] && sbb_has=yes
+  case "$sbb_ev" in run-start|ask|answer|parked|unparked|code-done|pr-opened|merged|failed) ;; *) sbb_ev=update ;; esac
+  sbb_kv() { case " $SB_KEYS " in *" $1 "*) printf -- '- %s: %s\n' "$1" "$2" ;; *) echo "status block: key '$1' is not in SB_KEYS" >&2; return 1 ;; esac; }
+  sbb_kv run "$sbb_id"
+  sbb_type=''
+  if [ "$sbb_has" = yes ]; then
+    sbb_type=$(awk 'NR == 1 && $0 != "---" && /^# / { next } /^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^type:/ { sub(/^type:[ \t]*/, ""); gsub(/["\047]/, ""); print tolower($0); exit } /^\*\*Type:\*\*/ { sub(/^\*\*Type:\*\*[ \t]*/, ""); print tolower($0); exit }' "$sbb_d/TASK.md" 2>/dev/null | tr -d ' \r')
+    case "$sbb_type" in feature|bug|refactor|content|docs|chore) sbb_kv type "$sbb_type" ;; esac
+    sbb_c=$(section_value "$sbb_d" pipeline classification); case "$sbb_c" in TRIVIAL|STANDARD|COMPLEX|CRITICAL) sbb_kv class "$sbb_c" ;; esac
+  fi
+  # stage, and the park / failure / question lines: a parked task never reads like a running one
+  sbb_park=$(awk -F'\t' -v t="$sbb_id" '$1 == t && $2 == "parked" { print $3; exit }' "$(shared_dir batch)/state.tsv" 2>/dev/null || true)
+  sbb_state=PLANNING sbb_hs=PLANNED sbb_wait=no
+  if [ "$sbb_has" = yes ]; then
+    sbb_state=$(run_state "$sbb_d"); sbb_hs=$(section_value "$sbb_d" handoff state)
+    [ "$(section_value "$sbb_d" execution awaiting_input)" != true ] || sbb_wait=yes
+  fi
+  case "$sbb_ev:$sbb_state" in
+    failed:*|*:FAILED|*:BLOCKED) sbb_stage="PARKED ($sbb_state)" ;;
+    pr-opened:*) sbb_stage='PR OPEN (waiting for the merge)' ;;
+    merged:*) sbb_stage=MERGED ;;
+    *) if [ "$sbb_wait" = yes ]; then sbb_stage='PARKED (waiting for your answer)'
+       elif [ -n "$sbb_park" ]; then sbb_stage='PARKED (by the lead)'
+       elif [ "$sbb_has" = no ]; then sbb_stage='NOT STARTED'
+       elif [ "$sbb_hs" = CODE_DONE ] || [ "$sbb_hs" = DONE ]; then sbb_stage="CODE_DONE (delivery next)"
+       else sbb_stage="RUNNING ($sbb_state, handoff $sbb_hs)"; fi ;;
+  esac
+  sbb_kv stage "$sbb_stage"; sbb_kv event "$sbb_ev"; sbb_kv updated "$(now_iso)"
+  if [ "$sbb_has" = yes ]; then
+    sbb_b=$(section_value "$sbb_d" repository task_branch | tr -cd 'A-Za-z0-9._/-' | cut -c1-120); case "$sbb_b" in ''|PENDING) ;; *) sbb_kv branch "$sbb_b" ;; esac
+    sbb_s=$(repository_base_sha "$sbb_d" | tr -cd '0-9a-f' | cut -c1-12); [ "${#sbb_s}" -ge 7 ] && sbb_kv start_commit "$sbb_s"
+    sbb_kv runtime "$(cfg runtime.lead claude | tr -cd 'A-Za-z0-9._-' | cut -c1-32)"
+    sbb_sess=$(printf '%s' "${CLAUDE_CODE_SESSION_ID:-${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}}" | tr -cd 'A-Za-z0-9_-' | cut -c1-64); [ -z "$sbb_sess" ] || sbb_kv session "$sbb_sess"
+  fi
+  if [ "$sbb_wait" = yes ]; then
+    sbb_q=''; sbb_qn=''
+    for sbb_f in "$sbb_d"/questions/[0-9][0-9][0-9].md; do
+      [ -f "$sbb_f" ] && [ ! -e "${sbb_f%.md}.answer.md" ] || continue
+      sbb_qn=${sbb_f##*/}; sbb_qn=${sbb_qn%.md}; sbb_q=$(grep -m1 -E '^[0-9]+\. [^[:space:]]' "$sbb_f" | sb_scrub)
+    done
+    sbb_kv question "${sbb_qn:+#$sbb_qn }${sbb_q:-pending}"
+    sbb_kv answer "reply to the lead in the session; it records your message with: agent.sh answer $sbb_id ${sbb_qn:-N} --captured"
+  fi
+  if [ "$sbb_has" = yes ] && [ -s "$(shared_dir known-issues)/LIST.tsv" ]; then   # A202 item 27: record ids and task ids only, from the script's own match
+    sbb_ki=$(for sbb_g in $(required_gates "$sbb_id" 2>/dev/null); do ki_gate_facts "$sbb_id" "$sbb_g"; done | awk -F: '{ print $1 " (" $2 ", follow-up " $3 ")" }' | tr '\n' ',' | sed 's/,$//; s/,/, /g' | tr -cd 'A-Za-z0-9 ._(),-')
+    [ -z "$sbb_ki" ] || sbb_kv known_issues "$sbb_ki"
+  fi
+  [ -z "$sbb_park" ] || sbb_kv park "$(printf '%s' "$sbb_park" | sb_scrub)"
+  case "$sbb_state" in
+    FAILED|BLOCKED) sbb_fr=$(grep -F ' event=terminate ' "$(ledger_file "$sbb_id")" 2>/dev/null | tail -n 1 | sed -n 's/.* detail=reason: \(.*\); evidence: .*/\1/p' | sb_scrub)
+      sbb_kv failure "$sbb_state${sbb_fr:+: $sbb_fr}" ;;
+  esac
+  # after delivery: the pull request, its CI result and the merge commit
+  sbb_dd=$(deliver_dir "$sbb_id"); [ -n "$sbb_pr" ] || sbb_pr=$(cat "$sbb_dd/PR" 2>/dev/null || true)
+  case "$sbb_pr" in ''|*[!0-9]*) sbb_pr='' ;; esac
+  case "$sbb_ev" in pr-opened|merged)
+    if [ -n "$sbb_pr" ]; then sbb_lk=$(sb_pr_link "$sbb_pr" || true); sbb_kv pr "#$sbb_pr${sbb_lk:+ $sbb_lk}"; fi
+    sbb_ci=$(sed -n 's/^ci: //p' "$sbb_dd/SUMMARY.md" 2>/dev/null | head -n 1 | sb_scrub); [ -z "$sbb_ci" ] || sbb_kv ci "$sbb_ci" ;;
+  esac
+  if [ "$sbb_ev" = merged ]; then   # the commit that was merged, read from git (no platform call: a squash merge makes its own commit, the platform shows it)
+    sbb_mc=$(git -C "$root" rev-parse -q --verify HEAD 2>/dev/null | tr -cd '0-9a-f' | cut -c1-12) || sbb_mc=''
+    [ "${#sbb_mc}" -lt 7 ] || sbb_kv delivered_commit "$sbb_mc"
+  fi
+  if [ "$sbb_has" = yes ]; then
+    sbb_sz=$(task_size_of "$sbb_id")
+    [ -z "$sbb_sz" ] || sbb_kv estimate "size $sbb_sz"
+    sbb_t0=$(head -n 1 "$(ledger_file "$sbb_id")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p')
+    if [ -n "$sbb_t0" ]; then sbb_s=$(( $(now_epoch) - sbb_t0 )); [ "$sbb_s" -ge 0 ] && sbb_kv duration "$((sbb_s / 60)) min"; fi
+    sbb_tk=$(awk -v t="\"task\":\"$sbb_id\"" 'index($0, t) && match($0, /"tokens_total":[0-9]+/) { v = substr($0, RSTART + 15, RLENGTH - 15) + 0; if (index($0, "\"kind\":\"step\"")) s += v; else if (index($0, "\"kind\":\"dispatch\"")) d += v }
+      END { if (s > 0) print s; else if (d > 0) print d }' "$(shared_dir metrics)/records.jsonl" 2>/dev/null || true)
+    [ -z "$sbb_tk" ] || sbb_kv tokens "$sbb_tk"
+    # A202: what the user should look at is QA_REPORT.md's own list, copied here (scrubbed like every status line), never retyped
+    human_checks "$sbb_id" | while IFS= read -r sbb_hc; do [ -z "$sbb_hc" ] || sbb_kv look_at "$(printf '%s' "$sbb_hc" | sb_scrub)"; done
+  fi
+  return 0
+}
+# status_block_run ID EVENT [PR]: build the block and hand it to the configured adapter
+status_block_run() {
+  sbr_id=$1; valid_task_id "$sbr_id" || { echo "invalid task id" >&2; return 1; }
+  sbr_adapter=$(cfg tasks.adapter markdown); sbr_script=$(adapter_script "$sbr_adapter") || return 1
+  sbr_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-block.XXXXXX") || return 1
+  status_block_body "$sbr_id" "$2" "${3:-}" > "$sbr_f" || { rm -f "$sbr_f"; return 1; }
+  sbr_rc=0; sh "$sbr_script" statusblock "$sbr_id" "$sbr_f" >/dev/null || sbr_rc=$?
+  rm -f "$sbr_f"; return "$sbr_rc"
+}
+# status_block_update ID EVENT [PR]: the lifecycle hook. Best effort in every way: a subshell (the run never sees a failure), bounded
+# in time (an unreachable tracker cannot hold a run or a gate; tasks.status_block_seconds, default 20), a note in
+# .agents/local/status-block.log. `tasks.status_block: off` switches it off.
+status_block_update() {
+  [ "$(cfg tasks.status_block on)" != off ] || return 0
+  sbu_log=$(shared_dir status-block.log); sbu_err=$(mktemp "${TMPDIR:-/tmp}/agent-status-err.XXXXXX") || return 0
+  sbu_max=$(cfg tasks.status_block_seconds 20); case "$sbu_max" in ''|*[!0-9]*) sbu_max=20 ;; esac; [ "$sbu_max" -ge 1 ] || sbu_max=1; [ "$sbu_max" -le 300 ] || sbu_max=300; sbu_max=$(tm_scaled "$sbu_max" 1 900)
+  ( status_block_run "$@" ) >/dev/null 2>"$sbu_err" &
+  sbu_pid=$!; sbu_n=0
+  while kill -0 "$sbu_pid" 2>/dev/null; do
+    sbu_n=$((sbu_n + 1))
+    if [ "$sbu_n" -gt $((sbu_max * 5)) ]; then kill "$sbu_pid" 2>/dev/null || :; echo "timed out after ${sbu_max}s" > "$sbu_err"; wait "$sbu_pid" 2>/dev/null || :; sbu_pid=''; break; fi
+    sleep 0.2
+  done
+  sbu_rc=0; [ -z "$sbu_pid" ] && sbu_rc=1 || wait "$sbu_pid" 2>/dev/null || sbu_rc=$?
+  if [ "$sbu_rc" -ne 0 ]; then
+    sbu_msg=$(head -n 3 "$sbu_err" | tr '\n' ' ' | sb_scrub)
+    echo "note: the status block of $1 was not updated ($2): ${sbu_msg:-the adapter failed}; the run goes on" >&2
+    mkdir -p "$(dirname "$sbu_log")" 2>/dev/null && printf '%s %s %s %s\n' "$(now_iso)" "$1" "$2" "${sbu_msg:-failed}" >> "$sbu_log" 2>/dev/null || :
+  fi
+  rm -f "$sbu_err"; return 0
+}
+# --- The status block survives the run's worktree (A202 item 10) ---------------------------------------------------
+# A markdown task file is edited in the run's worktree while the run lives. The delivery removes that worktree, and the final block (MERGED) would go
+# with it, so the merge is also written into the task file of the MAIN working tree, the one the user reads. That edit is a tracked-file change made by the
+# control plane alone: sb_strip drops the marked block from a task file, a change that is only the block is "block-only", it never blocks the worktree
+# cleanup or the fast-forward of the main tree (parked before, put back after, by the adapter, so the block stays the control plane's text).
+# sb_strip ID: stdin without the FIRST status section whose marker id is ID, and only when its lines are blank or `- <SB_KEYS key>: ...` and its END marker
+# exists; anything else (a second block, other id, free text inside the markers, no END) is left in the text, so it shows as a difference
+sb_strip() {
+  awk -v id="$1" -v keys="$SB_KEYS" '{ line[NR] = $0 } END {
+    alt = keys; gsub(/ /, "|", alt); skeys = "^- (" alt "): "
+    bg = "<!-- PROOFLINE-STATUS:BEGIN:" id " -->"; en = "<!-- PROOFLINE-STATUS:END:" id " -->"; done = 0
+    for (i = 1; i <= NR; i++) {
+      if (!done && line[i] == "## Proofline Status") {
+        j = i + 1; while (j <= NR && line[j] ~ /^[[:space:]]*$/) j++
+        if (j <= NR && line[j] == bg) {
+          for (k = j + 1; k <= NR && line[k] != en; k++) { }
+          ok = (k <= NR)
+          for (m = j + 1; ok && m < k; m++) if (line[m] !~ /^[[:space:]]*$/ && line[m] !~ skeys) ok = 0
+          if (ok) { i = k; done = 1; continue }
+        }
+      }
+      print line[i]
+    }
+  }'
+}
+# sb_block_only TREE PATH ID: the tracked file differs from HEAD only by task ID's own status block
+sb_block_only() {
+  git -C "$1" ls-files --error-unmatch -- "$2" >/dev/null 2>&1 || return 1
+  [ -f "$1/$2" ] || return 1
+  [ "$(sb_strip "$3" < "$1/$2")" = "$(git -C "$1" show "HEAD:$2" 2>/dev/null | sb_strip "$3")" ]
+}
+# sb_main_park TREE DIR: every block-only modified task file of TREE: its block body is kept in DIR (<n>.blk, first line the task id) and the file reset
+sb_main_park() {
+  smp_n=0
+  git -C "$1" status --porcelain --untracked-files=no 2>/dev/null | sed -n 's/^ M //p' | while IFS= read -r smp_p; do
+    smp_id=$(sed -n 's/^<!-- PROOFLINE-STATUS:BEGIN:\(.*\) -->$/\1/p' "$1/$smp_p" | head -n 1); [ -n "$smp_id" ] || continue
+    sb_block_only "$1" "$smp_p" "$smp_id" || continue
+    smp_n=$((smp_n + 1))
+    { printf '%s\n' "$smp_id"; awk -v b="<!-- PROOFLINE-STATUS:BEGIN:$smp_id -->" -v e="<!-- PROOFLINE-STATUS:END:$smp_id -->" '$0 == b { on = 1; next } $0 == e { on = 0 } on' "$1/$smp_p"; } > "$2/$smp_n.blk"
+    git -C "$1" checkout -q -- "$smp_p" 2>/dev/null || :
+  done
+}
+# sb_main_put ID BLOCKFILE: place a block body into the task file of the main working tree through the configured adapter (best effort, a note on failure)
+sb_main_put() {
+  smu_a=${sfp_a:-$(cfg tasks.adapter markdown)}; [ "$smu_a" = markdown ] || return 0   # a tracker holds its block remotely; only a task FILE needs this
+  [ -f "$sr_main/.agents/task-integrations/markdown.sh" ] || return 0
+  ( cd "$sr_main" && sh .agents/task-integrations/markdown.sh statusblock "$1" "$2" ) >/dev/null 2>&1 || echo "note: the status block of $1 could not be placed in the main working tree" >&2
+}
+# sb_main_restore DIR: put the parked blocks back
+sb_main_restore() { for smr_f in "$1"/*.blk; do [ -f "$smr_f" ] || continue; sed 1d "$smr_f" > "$smr_f.body"; sb_main_put "$(sed -n 1p "$smr_f")" "$smr_f.body"; done; }
+# sb_final_prepare ID [PR]: the MERGED block body, built from the run's records BEFORE the run and its worktree go
+sb_final_prepare() { sfp_p=$(awk '/^task_source:$/ { i = 1; next } i && /^[^[:space:]]/ { exit } i && /^[[:space:]]*path:/ { sub(/^[^:]*:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$(run_dir "$1")/RUN.yaml" 2>/dev/null); sfp_a=$(cfg tasks.adapter markdown); [ "$(cfg tasks.status_block on)" != off ] || { sfp_f=''; return 0; }; sfp_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-final.XXXXXX") || { sfp_f=''; return 0; }; status_block_body "$1" merged "${2:-}" > "$sfp_f" 2>/dev/null || { rm -f "$sfp_f"; sfp_f=''; }; }
+# sb_final_put ID: after the run is gone, the final block into the main working tree's task file (only when the run lived in a worktree)
+sb_final_put() { [ -n "${sfp_f:-}" ] || return 0; [ "$sr_main" = "$root" ] || [ -z "${sfp_p:-}" ] || [ ! -f "$sr_main/$sfp_p" ] || sb_main_put "$1" "$sfp_f"; rm -f "$sfp_f"; sfp_f=''; sfp_a=''; }
 # A159: `not_applicable` is a claim the script checks. It needs one specific sentence and is refused, with the signal named,
 # when the task changed something the wiki or the design documents describe: a documentation path in the diff, a contract,
 # data or design-document mention in the frozen plan, or user-visible words in the acceptance criteria. Any signal refuses.
@@ -6638,6 +7622,7 @@ terminate_run() {
   set_run_value "$id" execution state "$outcome"
   ledger_append "$id" terminate "$prev" "$outcome" "reason: $reason; evidence: $evidence"
   metrics_run "$id" "$(printf '%s' "$outcome" | tr "[:upper:]" "[:lower:]")"
+  status_block_update "$id" failed
   echo "run terminated: $id $outcome"
 }
 # archive_run ID RUNDIR (A200): before cleanup or worktree-remove deletes a run's records, a compressed copy goes to
@@ -6669,6 +7654,7 @@ cleanup_run() {
   id=$1; require_run "$id"; dir=$(run_dir "$id"); require_lead
   [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
   cu_term=no; case "$(run_state "$dir")" in FAILED|BLOCKED) cu_term=yes ;; esac
+  [ ! -f "$scripts/rules.sh" ] || sh "$scripts/rules.sh" tally >/dev/null 2>&1 || :   # A202: the rule-use counter keeps the review counts after the run documents go
   case "$(run_state "$dir")" in
     FAILED|BLOCKED)
       verify_seal "$id"; grep -Ev " event=hook(-timeout)? " "$(ledger_file "$id")" | tail -n 1 | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
@@ -6730,6 +7716,11 @@ cleanup_worktree() {
   cw_st=$(git -C "$cw_p" status --porcelain --ignored --untracked-files=all 2>/dev/null) || { echo "note: the worktree $cw_p is kept: git status failed"; return 0; }
   cw_rc=0; cw_x=$(printf '%s\n' "$cw_st" | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_list") || cw_rc=$?
   [ "$cw_rc" -le 1 ] || { echo "note: the worktree $cw_p is kept: the file check failed"; return 0; }
+  if [ -n "$cw_x" ]; then   # A202: a task file changed only by its status block is the control plane's own edit, not work
+    cw_y=''; for cw_q in $cw_x; do sb_block_only "$cw_p" "$cw_q" "$1" || cw_y="$cw_y$cw_q
+"; done
+    cw_x=$(printf '%s' "$cw_y")
+  fi
   if [ -n "$cw_x" ] && [ -f "$scripts/ecosystems.sh" ] && [ -s "$agents/ecosystems.tsv" ]; then
     # shellcheck source=/dev/null
     . "$scripts/ecosystems.sh"; eco_init "$agents/ecosystems.tsv" && for cw_f in $(eco_union worktree_deps.folders); do cw_x=$(printf '%s\n' "$cw_x" | grep -v -e "^$cw_f/" -e "^$cw_f\$" || true); done
@@ -7373,6 +8364,7 @@ deliver_step() {
       [ "$(git -C "$root" rev-parse -q --verify "refs/remotes/$(ds_v remote)/$ds_br" 2>/dev/null || true)" = "$ds_head" ] || ds_stop "$(ds_v remote)/$ds_br is not at HEAD (push first)"
       consume_approval "$ds_t" "$ds_app"
       deliver_create_cmd "$(ds_v base)" "$ds_br" "$(ds_v title)" "$ds_rel/PR_BODY.md"
+      status_block_update "$ds_id" pr-opened
       if [ "$(ds_v merge_by)" = user ]; then
         # round 3: the delivered commit, kept so the merge can be recorded from git later (deliver-merged)
         printf '%s\t%s\t%s\n' "$ds_head" "$(ds_v base)" "$ds_br" > "$ds_dir/MERGE_HEAD"
@@ -7382,6 +8374,7 @@ deliver_step() {
       deliver_consumed "$ds_t" pr "$ds_h" || ds_stop "the pr step of this delivery has not run"
       [ "$ds_pv" = "OPEN false $ds_want" ] || ds_stop "pull request $ds_pr is not this delivery's open, non-draft pull request ($ds_want; gh: $ds_pv)"
       consume_approval "$ds_t" "$ds_app"; printf '%s\n' "$ds_pr" > "$ds_dir/PR"
+      status_block_update "$ds_id" pr-opened "$ds_pr"
       if [ "$(ds_v ci)" = 'verified locally, no CI' ]; then printf 'no CI here: nothing to watch\n'; else printf 'run: %s\n' "$(deliver_watch_cmd "$ds_pr")"; fi
       printf 'run: proofline merge %s\nif a check fails or proofline merge refuses: STOP here, no cleanup; report the state (the pull request stays open)\n' "$ds_pr"
       [ -z "$(ds_v task_done)" ] || printf 'on that STOP also report: the task file was moved to done/ only in the unmerged pull request branch, so the task is still not done on %s\n' "$(ds_v base)"
@@ -7393,7 +8386,10 @@ deliver_step() {
       # A157: a batch keeps its own record of the merge. It is written BEFORE the cleanup: a crash in between must leave the task merged
       # (never run again), not a half-cleaned run that looks unmerged.
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
+      status_block_update "$ds_id" merged "$ds_pr"
+      sb_final_prepare "$ds_id" "$ds_pr"
       cleanup_merged_claim=yes; cleanup_run "$ds_id"
+      sb_final_put "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
@@ -7468,6 +8464,9 @@ deliver_merged() {
   if [ "$dm_chk" = yes ]; then echo "merged: $dm_how"; return 0; fi
   [ ! -d "$(shared_dir batch)" ] || grep -q "^$dm_id	" "$(shared_dir batch)/merged.tsv" 2>/dev/null || printf '%s\t%s\t%s\n' "$dm_id" - "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
   echo "merge recorded for $dm_id: $dm_how"
+  status_block_update "$dm_id" merged
+  sb_final_prepare "$dm_id"
+  dm_sbd=$(mktemp -d "${TMPDIR:-/tmp}/agent-sb-park.XXXXXX") && sb_main_park "$sr_main" "$dm_sbd"
   # the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
   dm_m=$sr_main
   # A200: the commands the user approved were written into the main tree's config.yaml (uncommitted) and carried into the delivered commit; once origin has
@@ -7480,7 +8479,9 @@ deliver_merged() {
     git -C "$dm_m" merge --ff-only -q "refs/remotes/origin/$dm_base" >/dev/null 2>&1 && echo "local $dm_base fast-forwarded to origin/$dm_base" || echo "note: local $dm_base was not fast-forwarded (it has commits origin lacks): update it before the next task"
   else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
   rm -f "$dm_dir/MERGE_HEAD"
+  [ -z "${dm_sbd:-}" ] || { sb_main_restore "$dm_sbd"; rm -rf "$dm_sbd"; }
   cleanup_merged_claim=yes; cleanup_run "$dm_id"
+  sb_final_put "$dm_id"
   rm -rf "$dm_dir"
 }
 # --- One worktree per run (A169) ---------------------------------------------------------------------------------
@@ -7584,15 +8585,20 @@ worktree_remove() {
 }
 
 # --- Branch: <git.branch_prefix><TASK-ID>-<slug> from the canonical branch's exact tip --------
+# A202: the slug comes from the file name after `<ID>-`; a file named only by its ID (or whose slug repeats the ID) takes it from the
+# task's title instead, so the branch is never <ID>-<id lowercase>. Turkish and other Latin letters become ASCII first (slug.sh).
+task_title_of() { sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$1" 2>/dev/null | head -1; } # TASK.md -> the H1 title
 derive_task_slug() {
-  dir=$1; id=$(basename "$1"); type=$(section_value "$1" task_source type)
+  dir=$1; id=$(basename "$1"); type=$(section_value "$1" task_source type); slug=''
   case "$type" in
-    local_markdown) base=$(basename "$(section_value "$dir" task_source path)" .md); case "$base" in "$id"-*) slug=${base#"$id"-} ;; *) slug=$base ;; esac ;;
+    local_markdown) base=$(basename "$(section_value "$dir" task_source path)" .md); case "$base" in "$id"-*) slug=${base#"$id"-} ;; "$id") slug='' ;; *) slug=$base ;; esac ;;
     none) slug=run ;;
-    *) slug=$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$dir/TASK.md" 2>/dev/null); [ -n "$slug" ] || slug=run ;;
   esac
-  slug=$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-48 | sed 's/-$//')
-  [ -n "$slug" ] || fail "derived task slug is empty for $id"
+  slug=$(sh "$agents/task-integrations/slug.sh" "$slug")
+  id_low=$(sh "$agents/task-integrations/slug.sh" "$id")
+  if [ -z "$slug" ] || [ "$slug" = "$id_low" ]; then slug=$(sh "$agents/task-integrations/slug.sh" "$(task_title_of "$dir/TASK.md")"); fi
+  if [ "$slug" = "$id_low" ]; then slug=''; fi
+  [ -n "$slug" ] || slug=task
   printf '%s\n' "$slug"
 }
 branch_setup() {
@@ -7677,6 +8683,13 @@ digest_run() {
   for dg_f in "$dg_d"/questions/[0-9][0-9][0-9].md; do if [ -e "$dg_f" ] && [ ! -e "${dg_f%.md}.answer.md" ]; then dg_q=$((dg_q + 1)); fi; done
   summary_run "$dg_id"
   printf 'OPEN QUESTIONS: %s\n' "$dg_q"
+  # A202: the scope by derived kind, computed here and not written in any document; a claimed kind the script does not share is named
+  if [ -f "$dg_d/PLAN.md" ]; then
+    dg_k=$(scope_kind_rows "$dg_d/PLAN.md" 2>/dev/null) || dg_k=''
+    if [ -n "$dg_k" ]; then
+      printf '%s\n' "$dg_k" | awk -F'\t' '{ n[$4]++; if ($2 != "-" && $2 != $3 && !($2 == "doc" && $3 == "content")) bad = bad " " $1 } END { printf "SCOPE: code=%d test=%d content=%d", n["code"], n["test"], n["content"]; if (bad != "") printf " (kind claimed wrongly, counted as code:%s)", bad; printf "\n" }'
+    fi
+  fi
   next_step "$dg_id" | sed -n 's/^next=/NEXT: /p;s/^reason=/WHY: /p'
 }
 
@@ -7687,12 +8700,15 @@ run_suites() { # every sibling *-test.sh
 # --- CLI ---------------------------------------------------------------------------------------
 valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
+# A202 item 28: read-only commands may use the big-file fingerprint cache (fp_cache_key); everything else hashes and refreshes it, so no
+# integrity check (gate record, handoff, freeze, verify-*, delivery, approval, window) ever trusts a remembered hash.
+case "$command" in next|digest|summary|status-block|next-user|status|friction|batch-status|batch-next|insights) fp_fast=yes ;; *) fp_fast=refresh ;; esac
 # A169: a run that lives in its own worktree (night mode, worktree-add) is served by that worktree's agent.sh, so `answer`, `questions`,
 # `next`, `reopen` and the rest work for it from the main working tree too (the working directory becomes the worktree; use absolute paths).
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
   case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
-read_only_commands='repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind test-path batch-answers commands-check'
+read_only_commands='timeouts hook-timeouts verify-timeout tm-scaled scale-check human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
 case "$execution_role" in
   lead) ;;
@@ -7748,6 +8764,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>
   handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)
+  status-block <ID> [EVENT [PR]]   (lead, A202: rebuild the task's one status block from the records and place it through the task adapter; best effort, never fails a run)
   worktree-add <ID> | worktree-path <ID> | worktree-remove <ID> [--force]   (A169, lead, main working tree: one worktree per run under .agents/local/worktrees/<ID>; night mode uses it for every task)
   open-runs | discard-stray <ID> <FILE-NAME>   (lead: remove one stray, non-artifact top-level regular file of the run directory)
   submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]
@@ -7762,6 +8779,12 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>
   batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)
   path-kind <path>...   (A200: content or code, for the scope bound)
+  human-checks <ID>   (A202: QA_REPORT.md's list of what the user should look at, as the summary and the status block copy it)
+  scope-kinds <ID>   (A202: per scope path: claimed kind, derived kind, effective kind, exemption; a claim never lowers the derived one)
+  task-scope-entries <task-file> <heading> | scope-covers <entry> <path>   (A202: read a task's scope sections; does an entry cover a path)
+  task-type <TASK.md>   (A202: the task type; a task without one is a feature)
+  known-issue-propose <RUN> <FINDING-ID> --followup <TASK> | known-issue-apply | known-issue-list | known-issue-candidates   (A202: the user-approved known-issues list; apply only after the user's 'approve known issue')
+  task-rename-plan | task-rename-apply   (A202: <ID>-<slug>.md names for queued tasks; apply only after the user's 'approve rename')
   test-path <path>...   (A200: `test` or `product` per path: whether selective repetition may treat it as a test)
   batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)
   deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one "approve delivery", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)
@@ -7771,6 +8794,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>
   entry-tier <BULLET TEXT>   (read-only: mandatory, information or none for one PLAN.md ## Contracts bullet, A162)
   verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)
+  rules list|report|tally   (A202: the Project rules budget and proposals to merge, ask about or remove rules; it never edits a rule; `tally` is lead only)
   lessons derive|write|validate|count|bound|text|promote   (lesson candidates from run evidence, repeat count, promotion to AGENTS.md only with a rule:<ID> approval; `write` and `promote` are lead-only)
   friction <report ID|show|issue-cmd|send>   (A149: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)
   calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)
@@ -7810,6 +8834,7 @@ case "$command" in
   debt) case "${2:-}" in page) require_lead ;; esac; sh "$scripts/debt.sh" "${2:-list}" ;;
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
+  rules) case "${2:-}" in tally) require_lead ;; esac; shift; sh "$scripts/rules.sh" "$@" ;;   # A202: project rules budget; proposes, never edits
   next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
   worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
@@ -7860,6 +8885,7 @@ case "$command" in
     if [ -n "${2:-}" ] && rw_valid_id "$2" && [ ! -d "$(run_dir "$2")" ] && ! wt_linked && grep -q "^$2	" "$(shared_dir batch)/merged.tsv" 2>/dev/null && rw_registered "$(rw_dir "$2")"; then worktree_remove "$2"
     else cleanup_run "${2:?usage: agent.sh cleanup <ID>}"; fi ;;
   deliver-merged) deliver_merged "${2:?usage: agent.sh deliver-merged <ID> [--check]}" "${3:-}" ;;
+  status-block) require_lead; valid_task_id "${2:-}" || fail "usage: agent.sh status-block <ID> [EVENT]"; status_block_update "$2" "${3:-update}" "${4:-}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;
   worktree-path) require_lead; worktree_path "${2:-}" ;;
   worktree-remove) require_lead; worktree_remove "${2:-}" "${3:-}" ;;
@@ -7868,9 +8894,25 @@ case "$command" in
   batch-status) sh "$scripts/batch.sh" status ;;
   batch-check) batch_check ;;
   commands-check) commands_check ;;
+  scale-check) scale_check ;;
+  timeouts) timeouts_info ;;
+  hook-timeouts) hook_timeouts ;;
+  verify-timeout) verify_command_timeout ;;
+  tm-scaled) tm_scaled "${2:?usage: agent.sh tm-scaled <seconds> [min] [max]}" "${3:-1}" "${4:-28800}" ;;
   batch-answer) require_lead; sh "$scripts/batch.sh" answer ;;
   batch-answers) sh "$scripts/batch.sh" answers "${2:-}" ;;
   test-path) shift; [ $# -gt 0 ] || fail "usage: agent.sh test-path <path>..."; for tp_p in "$@"; do if test_code_path "$tp_p"; then printf 'test\t%s\n' "$tp_p"; else printf 'product\t%s\n' "$tp_p"; fi; done ;;
+  task-scope-entries) [ $# -eq 3 ] || fail "usage: agent.sh task-scope-entries <task-file> <heading>"; task_scope_entries "$2" "$3" ;;
+  scope-covers) [ $# -eq 3 ] || fail "usage: agent.sh scope-covers <entry> <path>"; scope_entry_covers "$2" "$3" ;;
+  task-rename-plan) task_rename_plan ;;
+  task-rename-apply) task_rename_apply ;;
+  known-issue-propose) shift; known_issue_propose "$@" ;;
+  known-issue-apply) known_issue_apply ;;
+  known-issue-list) ki list ;;
+  known-issue-candidates) ki candidates ;;
+  task-type) [ $# -eq 2 ] || fail "usage: agent.sh task-type <TASK.md>"; task_type "$2" ;;
+  human-checks) human_checks "${2:?usage: agent.sh human-checks <ID>}" ;;
+  scope-kinds) scope_kind_rows "$(run_dir "${2:?usage: agent.sh scope-kinds <ID>}")/PLAN.md" ;;
   path-kind) shift; [ $# -gt 0 ] || fail "usage: agent.sh path-kind <path>..."; for pk_p in "$@"; do printf '%s\t%s\n' "$(path_kind "$pk_p")" "$pk_p"; done ;;
   # pr-state only reads the platform (deliver_pr_view): read-only and role-agnostic by design
   pr-state) printf '%s\n' "$(deliver_pr_view "${2:?usage: agent.sh pr-state <PR>}" | awk 'NR == 1 { print $1 }')" ;;

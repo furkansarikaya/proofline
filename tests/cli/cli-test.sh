@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.38" "$out" "proofline 0.0.38"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.38 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.39" "$out" "proofline 0.0.39"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.39 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.38 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.39 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -157,7 +157,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.38' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.39' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -466,6 +466,11 @@ out=$(pl "$st" 2>&1); expect "no command means status" "$out" "active_task=T-1";
 out=$(pl "$st" resume 2>&1); expect "resume ends with the user's next step (A159)" "$out" "Next step: /proofline resume"; expect "resume prints the state" "$out" "state=PLANNING"
 expect "resume checks freshness" "$out" "freshness:"; expect "resume tells Claude users what to say" "$out" "/proofline resume"
 out=$(pl "$st" queue 2>&1); expect "queue lists task files" "$out" "todo/T-9.md"; expect "queue lists runs and marks the active one" "$out" "* T-1"
+# A202: a finished task shows title and status only; the completion report in the file is never printed
+mkdir -p "$st/.agents/tasks/done"; printf '# Task: T-4 - finished one\n\n**Status:** done\n\n## Goal\nx\n\n## Completion Report\n\nREPORT-SENTINEL-203\n' > "$st/.agents/tasks/done/T-4-finished.md"
+out=$(pl "$st" queue 2>&1); expect "queue shows a finished task's title and status" "$out" "done/T-4-finished.md: Task: T-4 - finished one [done]"
+reject "queue never prints a finished task's completion report" "$out" "REPORT-SENTINEL-203"
+rm -rf "$st/.agents/tasks/done"
 out=$(pl "$st" run T-2 2>&1); expect "run prints the Claude instruction" "$out" "/proofline run T-2"; expect "run warns about the active run" "$out" "run T-1 is active"
 out=$(pl "$st" task --grill "add a lookup" 2>&1); expect "task --grill prints the instruction" "$out" "/proofline task --grill add a lookup"
 out=$(pl "$st" design api --check 2>&1); expect "design api --check prints the instruction" "$out" "/proofline design api --check"
@@ -542,7 +547,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.38" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.39" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -593,6 +598,19 @@ out=$(pl "$ins" insights --json 2>&1); LAST=$out
 printf '%s' "$out" | jq -e '.schema == "proofline.insights/1"' >/dev/null 2>&1 && ok "insights --json is valid JSON" || die "insights --json is not valid JSON"
 printf '%s' "$out" | jq -e '(.runs[] | select(.run == "RUN-C") | .tokens_in) == null and .totals.tokens_in == 8000 and .totals.tokens_in_reported == 3 and .totals.tokens_total == 13300 and .totals.tokens_total_reported == 4 and .metrics.duplicate_run_records == 1 and .metrics.skipped_non_json == 1 and ([.patterns[] | select(.kind == "repeated-finding")] | length == 1)' >/dev/null 2>&1 \
   && ok "insights --json: null tokens stay null, totals and one repeated-finding pattern" || die "insights --json content"
+# A202: estimated size against actual duration, tokens and scope paths: a suggestion line from planted records, no file changes
+cal=$T/cal; mkdir -p "$cal"; sh "$repo/fixtures/insights/setup.sh" "$cal/p" >/dev/null 2>&1 || die "calibration fixture"
+cf=$cal/p/.agents/local/metrics/records.jsonl
+for r in 1:S:1200:3000:2 2:S:1800:5000:4 3:S:2400:9000:3 4:M:600:20000:5 5:M:900:30000:6 6:M:1200:40000:7; do
+  oldifs=$IFS; IFS=:; set -- $r; IFS=$oldifs
+  printf '{"schema":"proofline.metrics/1","kind":"dispatch","time":"t","task":"CAL-%s","role":"implementer","model":"m","duration_s":1,"tokens_total":%s}\n' "$1" "$4" >> "$cf"
+  printf '{"schema":"proofline.metrics/1","kind":"run","time":"t","task":"CAL-%s","role":"lead","duration_s":%s,"result":"done","size":"%s","scope_paths":%s}\n' "$1" "$3" "$2" "$5" >> "$cf"
+done
+before=$(sig "$cal/p"); out=$(pl "$cal/p" insights 2>&1) || { LAST=$out; die "insights calibration run"; }
+expect "insights: calibration median for S tasks from the planted records" "$out" "S tasks (3): median 30 min / 5000 tokens / 3 paths"
+expect "insights: calibration suggests raising the estimate when smaller tasks took longer" "$out" "S tasks took longer or touched more paths than M tasks; consider estimating tasks like the S ones one size up."
+pl "$cal/p" insights --json 2>/dev/null | jq -e '.calibration[0].size == "S" and .calibration[0].median_min == 30' >/dev/null 2>&1 && ok "insights --json carries the calibration" || die "insights --json calibration"
+[ "$before" = "$(sig "$cal/p")" ] && ok "insights calibration changes no file" || die "insights calibration changed a file"
 out=$(pl "$ins" insights --run RUN-B 2>&1)
 expect "insights --run limits the report to one run" "$out" "RUN-B"
 reject "insights --run: other runs are not listed" "$out" "RUN-A"

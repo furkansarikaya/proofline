@@ -13,8 +13,8 @@
 # 3 run: codex `exec` (a permission profile that lists the writable paths one by one, A199), claude `-p` running the
 #   generated agent (`--agent proofline-<role>` from .claude/agents/, else `--agents` JSON built from
 #   .agents/roles/<role>.md and .agents/tools.conf; never the Agent/Task tools), or config
-#   dispatch.command_template.<runtime> (D8), with a timeout (config dispatch.timeout_seconds, default 1800,
-#   minimum 30; pipelines.<CLASS>.dispatch_timeout_seconds of the run's class wins, A171). The implementer, and the designer while handoff is IMPLEMENTING, are bracketed by
+#   dispatch.command_template.<runtime> (D8), with a timeout (config dispatch.timeout_seconds, default 5400,
+#   30 to 28800, times timeouts.scale; pipelines.<CLASS>.dispatch_timeout_seconds of the run's class wins, A171). The implementer, and the designer while handoff is IMPLEMENTING, are bracketed by
 #   `agent.sh window-open` / `window-close`; every other role must leave the product tree unchanged. A change
 #   to .git/config (e.g. core.hooksPath) or to HEAD during the step is BLOCKED for every role.
 # 4 the last message is saved as dispatch/<NNN>-<role>-<runtime>.md in the run (a log, never parsed; results/ holds recorded results only);
@@ -166,10 +166,14 @@ git_state() {
 }
 handoff_state() { awk '$0 == "handoff:" { i = 1; next } i && /^[^ ]/ { exit } i && /^  state:/ { sub(/^  state:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$run/RUN.yaml" 2>/dev/null; }
 
-timeout_s=$(cfg dispatch timeout_seconds); case "$timeout_s" in ''|*[!0-9]*) timeout_s=1800 ;; esac
+timeout_s=$(cfg dispatch timeout_seconds); case "$timeout_s" in ''|*[!0-9]*) timeout_s=5400 ;; esac
 # A171: the run's class may set its own timeout (pipelines.<CLASS>.dispatch_timeout_seconds, COMPLEX longer); it wins over the global one.
 run_class=$(awk '$0 == "pipeline:" { i = 1; next } i && /^[^ ]/ { exit } i && /^  classification:/ { sub(/^  classification:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$run/RUN.yaml" 2>/dev/null) || run_class=''
 case "$run_class" in TRIVIAL|STANDARD|COMPLEX|CRITICAL) class_t=$(cfg pipelines "$run_class" dispatch_timeout_seconds); case "$class_t" in ''|*[!0-9]*) ;; *) timeout_s=$class_t ;; esac ;; esac
+# A202 item 29: timeouts.scale (0.5 to 10, else 1) multiplies the step's time, rounded up and kept at or under 28800 s; a timeout is still a failure
+# (exit 124), the scale only waits longer. agent.sh holds the same rule (tm_scaled).
+scale_v=$(cfg timeouts scale)
+timeout_s=$(awk -v n="$timeout_s" -v s="$scale_v" 'BEGIN { if (s !~ /^[0-9]+(\.[0-9]+)?$/ || s + 0 < 0.5 || s + 0 > 10) s = 1; x = n * s; r = int(x); if (r < x) r++; if (r > 28800) r = 28800; print r }')
 # PROOFLINE_DISPATCH_MIN_TIMEOUT exists for the test suite only.
 min_t=${PROOFLINE_DISPATCH_MIN_TIMEOUT:-30}; [ "$timeout_s" -ge "$min_t" ] || timeout_s=$min_t
 
@@ -231,6 +235,13 @@ claude_result() {
 
 retry_note=''
 resume_file=$run/dispatch/RESUME-$role${focus:+-$(printf '%s' "$focus" | tr '+' '-')}.md
+# A202 item 29: explorers run in parallel, one per assignment, and share a role: a second timeout would overwrite the first one's note. The note of an explorer
+# with an assignment is also kept under the assignment's own name (cksum of its prompt file), which the same assignment finds first; the shared name stays the fallback.
+resume_one=''
+if [ "$role" = explorer ] && [ -n "$prompt_file" ] && [ -f "$prompt_file" ]; then
+  resume_one=$run/dispatch/RESUME-explorer-$(cksum < "$prompt_file" | cut -d' ' -f1).md
+  [ ! -s "$resume_one" ] || resume_file=$resume_one
+fi
 subdir=$root/.agents/local/submissions
 seq_n=$(find "$run/dispatch" -name '*.log' 2>/dev/null | wc -l | tr -d ' '); seq_n=$((seq_n + 1))
 mkdir -p "$run/results" "$run/dispatch"
@@ -414,7 +425,7 @@ EOF_CP
   echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code${pm:+ permission_mode=$pm}" >&2
   status=0
   # A124: .md and .log stay empty until the worker exits, so a reader cannot tell a running dispatch from a dead one.
-  printf 'pid=%s\nrole=%s\ntimeout=%s\ndispatch in flight: %s %s on %s, started %s.\nThis dispatch.sh command has not returned: the .md and .log of this step stay empty until it does.\nWait for the command to return; do not re-dispatch this step or read these files as a result.\n' "$$" "$role" "$timeout_s" "$id" "$role" "$rt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$running"
+  printf 'pid=%s\nrole=%s\ntimeout=%s\nstarted_epoch=%s\ndispatch in flight: %s %s on %s, started %s.\nThis dispatch.sh command has not returned: the .md and .log of this step stay empty until it does.\nWait for the command to return; do not re-dispatch this step or read these files as a result.\n' "$$" "$role" "$timeout_s" "$(date +%s)" "$id" "$role" "$rt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$running"
   if [ -z "$tmpl" ] && ! command -v "$1" >/dev/null 2>&1; then status=127; echo "runtime binary not found: $1" > "$log"
   else (cd "$root" && PROOFLINE_DISPATCH_START=$(date +%s) && export AGENT_ROLE="$role" PROOFLINE_AGENT="$token" PROOFLINE_FOCUS="$focus" PROOFLINE_DISPATCH_RUNTIME="$rt" PROOFLINE_DISPATCH_START &&
     if [ "$rt" = codex ] && [ -n "${PROOFLINE_CODEX_HOME_DIR:-}" ]; then
@@ -472,6 +483,7 @@ write_resume() { # [WHY]: timeout (default) or network
     printf 'last_output_of_the_worker:\n'
     tail -n 25 "$log" 2>/dev/null | cut -c1-300 | sed 's/^/  | /'
   } > "$resume_file" 2>/dev/null || true
+  [ -z "$resume_one" ] || cp "$resume_file" "$resume_one" 2>/dev/null || true
   note "dispatch resume note written role=$role file=${resume_file#"$root"/}" || true
 }
 # A200: a transient network error (a dropped connection, an SSL/TLS failure) is not a task failure and not a reason to fail over: the same step is
@@ -546,7 +558,7 @@ while :; do
   state=$(sed -n 's/^status=//p' "$st" 2>/dev/null | head -n 1)
   if [ "$state" = ok ]; then
     sr=$(sed -n 's/^result=//p' "$st" | head -n 1); sg=$(sed -n 's/^gate=//p' "$st" | head -n 1); sw=$(sed -n 's/^raw=//p' "$st" | head -n 1)
-    rm -f "$resume_file"   # the resumed step delivered: the note is spent
+    rm -f "$resume_file" ${resume_one:+"$resume_one"}   # the resumed step delivered: the note is spent
     printf 'submitted: %s %s %s%s (%s)\n' "$id" "$role" "$sr" "${sg:+ gate=$sg}" "${sw:-no raw}"
     exit 0
   fi

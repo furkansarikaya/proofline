@@ -8,6 +8,8 @@ on whether it keeps that property.
 Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer for the skill tests. Nothing is installed into
 the project; there is no build step.
 
+Run locally (the `CI` variable unset), `tests/selftest.sh` and `tests/affected.sh` use half of the cores (at least one) and run under `nice`, so the machine stays usable; `SELFTEST_JOBS=N` sets the job count. With `CI` set (GitHub Actions does) they use every core at normal priority.
+
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 cd proofline
@@ -50,6 +52,7 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
 - **Every new user-visible command, option or rule updates the documentation before merge** (A153): `proofline help` (`bin/proofline`), the entry skill (`skills/proofline/SKILL.md`: argument-hint and routing), the lead Commands table (`skills/proofline-lead/SKILL.md`), the README (command list, and a short explanation of a new rule) and the relevant `docs/concepts` page. The README says what proofline is and how to use it; detail goes to `docs/concepts` (`tests/shared/check-static.sh` bounds the README size). The CLI test compares `proofline help` with the entry skill, the lead table and the README command list.
 - **EXPECTED files are never loosened to fit a result.** If an expectation contradicts the design, say so in the
   pull request and let the maintainer decide; fix the product, not the answer key.
+- **Read `.out-of-scope/README.md` before proposing or implementing a feature.** A request that matches a Rejected entry is not implemented and the user is told which entry it matches; a Deferred entry is not built as a side effect of other work. Changing an entry needs a user decision recorded in [docs/decisions.md](docs/decisions.md).
 - **No file sharing between skills.** A skill is installable alone; shared rules are copied into each skill
   and checked by `tests/shared/check-shared.sh`.
 - **No organisation-specific names, rules or paths** anywhere in the repository, and no third-party project
@@ -83,6 +86,12 @@ A patch that changes anything under `tests/invariants/` must say why in the pull
 `Invariant-test-change:`, and the review approves that change separately from the rest of the patch. `tests/invariants/check-changed.sh`
 fails the pull request otherwise. Locally: `sh tests/invariants/invariants-test.sh`, and `PR_BODY="..." sh tests/invariants/check-changed.sh < changed-paths.txt`.
 
+The text proofline loads into every session (the AGENTS.md and CLAUDE.md blocks, the SessionStart text, the entry skill, each role's agent
+file and first skill) has a size budget (A202): `sh bin/lib/context-size.sh repo .` measures it, `tests/context/budget.tsv` holds the limits and
+`tests/context/context-budget-test.sh` fails a patch that grows an item above its limit. A patch that changes the budget file says why on a line
+that starts with `Context-budget-change:` (`tests/context/check-budget-changed.sh`). A rule that leaves the AGENTS.md block gets a row in
+`tests/context/rule-map.tsv` with its new place.
+
 ## New runtime support
 
 Follow [writing an adapter](docs/guides/writing-an-adapter.md) and [adapters/README.md](adapters/README.md).
@@ -102,6 +111,7 @@ How work is split between agents in this repository.
 - Models: lead Opus; implementer, test and review Sonnet; Opus advises on hard design decisions.
   Sub-agents return a compact result only: findings and file paths.
 - Agents work in their own worktrees, never in the main checkout.
+- Leads and sub-agents never read `docs/decisions.md` end to end (it is over 500 KB): `grep -n "^## A<n>\|<keyword>" docs/decisions.md` for the relevant `A` entries and read only those.
 - A review FAIL returns its findings to the same implementer, at most 2 rounds. Then that job stops, is
   reported, and other jobs continue.
 - One branch and one pull request per job. Merge when CI is green; no direct push to `main`. Green is checked by

@@ -93,10 +93,12 @@ fi
 out=$(mktemp -d "${TMPDIR:-/tmp}/proofline-affected.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
 n=0 failed=0
+nice_cmd=''
+{ [ -n "${CI:-}" ] || ! command -v nice >/dev/null 2>&1; } || nice_cmd='nice -n 10'   # local runs stay low priority (CI unchanged)
 for u in $selected; do
   n=$((n + 1))
   case "$u" in
-    *.mjs) node --test "$u" >"$out/log" 2>&1 ;;
+    *.mjs) $nice_cmd node --test "$u" >"$out/log" 2>&1 ;;
     *) SELFTEST_ONLY=$(basename "$u" .sh) sh tests/selftest.sh >"$out/log" 2>&1 ;;
   esac
   if [ $? -ne 0 ]; then failed=$((failed + 1)); echo "FAIL $u"; tail -n 30 "$out/log"; fi

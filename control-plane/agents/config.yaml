@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.38
+proofline_version: 0.0.39
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -73,6 +73,8 @@ commands:
 tasks:
   adapter: markdown
   dir: .agents/tasks
+  # How long one status-block update may take (1 to 300, times timeouts.scale); a slower tracker costs a note, never the run.
+  status_block_seconds: 20
 design_docs:
   design: docs/design/DESIGN.md
   # One document per UI surface instead of one path: write design as a mapping (agent.sh design-surface <PATH> names the
@@ -105,8 +107,11 @@ archive:
 # Build record (A148). env_files: space-separated project-relative names of SECRET-FREE test env files (for example `.env.test`) that may
 # enter the clean copy of the build record, which otherwise holds no git-ignored file and so no .env*. Default: none. Each listed file is
 # scanned for secrets first; one visible secret makes `agent.sh build-record <ID> run` refuse, naming the file and the line, never the value.
+# command_timeout_seconds (60 to 28800, times timeouts.scale): the limit of one build, test or install command in the build record and of one
+# re-run of a reproduced command; a command that hits it fails (exit 124), is never a pass, and leaves no finished record, so the next run starts it again.
 verification:
   env_files:
+  command_timeout_seconds: 1800
   # Documentation paths (A197): a scope path of this kind (also design_docs and knowledge_scope_root) without tdd_exemption gets a freeze warning. Space-separated;
   # a directory entry ends in /, `*.ext` matches a suffix, any other entry an exact path.
   doc_paths: docs/ *.md *.mdx *.rst *.adoc
@@ -288,7 +293,9 @@ safety:
 # The class selects artifacts and the QA gate. review: yes|no|optional sets a review floor (tier at least
 # small); CRITICAL is always tier full. max_scope_paths bounds PLAN.md scope paths (default 15): over it, freeze stops and
 # proposes a split; only the user's answer 'proceed without splitting' lets it continue (recorded, A171). TRIVIAL refuses outright.
-# dispatch_timeout_seconds (A171) overrides dispatch.timeout_seconds for a dispatched step of that class.
+# dispatch_timeout_seconds (A171) overrides dispatch.timeout_seconds for a dispatched step of that class (30 to 28800; times timeouts.scale).
+# The values come from measured step durations plus a wide margin (A202 item 29, docs/concepts/timeouts.md): STANDARD is derived from the real
+# metrics, the other classes had no data and are a documented multiple of the earlier default.
 pipelines:
   TRIVIAL:
     evidence: no
@@ -297,7 +304,7 @@ pipelines:
     architect: no
     max_explorers: 0
     max_scope_paths: 2
-    dispatch_timeout_seconds: 900
+    dispatch_timeout_seconds: 1800
   STANDARD:
     evidence: yes
     qa: yes
@@ -305,7 +312,7 @@ pipelines:
     architect: no
     max_explorers: 1
     max_scope_paths: 15
-    dispatch_timeout_seconds: 1800
+    dispatch_timeout_seconds: 5400
   COMPLEX:
     evidence: yes
     qa: yes
@@ -313,7 +320,7 @@ pipelines:
     architect: yes
     max_explorers: 2
     max_scope_paths: 15
-    dispatch_timeout_seconds: 3600
+    dispatch_timeout_seconds: 7200
   CRITICAL:
     evidence: yes
     qa: yes
@@ -321,7 +328,7 @@ pipelines:
     architect: yes
     max_explorers: 3
     max_scope_paths: 12
-    dispatch_timeout_seconds: 3600
+    dispatch_timeout_seconds: 7200
 # Execution policy (D5, D7): read by exec-policy.sh, dispatch.sh and runtime-detect.sh.
 execution_policy:
   # Policy semantics version; bump when resolution or escalation behaviour changes.
@@ -367,9 +374,38 @@ batch:
   mutation_budget_cap: 40
   ci_wait_minutes: 30
   ci_appear_minutes: 10
+# One multiplier for every duration below (A202 item 29): dispatch, class dispatch timeouts, build and re-run commands, lock waits, the status block, the
+# CI waits and the hook timeouts written into .claude/settings.json (0.5 to 10, default 1.0). It never scales hook.approve_budget_seconds, which keeps its own
+# tight bound (the approval is recorded first, before any other work). `proofline doctor --scale` measures this machine and proposes a value; it is written only
+# after your reply "approve scale". A timeout is always a failure, never a pass: a larger value only waits longer. warn_percent (50 to 95) is how much of a
+# step's time may pass before the lead is told in one line (`agent.sh next`, `agent.sh wait-line`).
+timeouts:
+  scale: 1.0
+  warn_percent: 80
+# Time limits of the runtime hooks (A202 item 28), for a slow machine only: they never replace the fast path, and a value outside the bounds is
+# moved to the nearest bound, so none of them can switch a check off. The runtime stops a hook at 30 s.
+#   approve_budget_seconds: how long the prompt hook waits for the approval step (5 to 25), then it says the approval was not recorded.
+#   next_budget_seconds: how long the session hook waits for `agent.sh next` (2 to 20).
+#   lock_wait_seconds: how long a hook waits for a busy lock (1 to 20). `proofline doctor` measures the approval path and warns near the budget.
+hook:
+  approve_budget_seconds: 20
+  next_budget_seconds: 10
+  lock_wait_seconds: 8
+  # The runtime's own limit per hook event, written into .claude/settings.json by init and upgrade (merged, your other settings are kept), times
+  # timeouts.scale; 10 to 600. The prompt timeout must stay at least approve_budget_seconds + 5.
+  session_timeout_seconds: 30
+  prompt_timeout_seconds: 30
+  pretool_timeout_seconds: 30
+  posttool_timeout_seconds: 30
+  subagent_start_timeout_seconds: 60
+  subagent_stop_timeout_seconds: 120
+  stop_timeout_seconds: 30
+# Files of at least this many bytes (65536 or more) are hashed once and remembered by the read-only commands (next, digest, summary).
+fingerprint:
+  cache_min_bytes: 262144
 dispatch:
-  # Timeout of one specialist run in seconds (minimum 30).
-  timeout_seconds: 1800
+  # Timeout of one specialist run in seconds (30 to 28800), used when the run has no class; times timeouts.scale.
+  timeout_seconds: 5400
   # A dropped connection or an SSL/TLS error is retried on the same runtime, resuming (A200): at most network_retries times (0 turns it off, at
   # most 6), waiting network_backoff_seconds first and twice as long each time (at most 300 s).
   network_retries: 3
@@ -384,3 +420,8 @@ dispatch:
   # A runtime used this way also needs execution_policy.providers.<runtime> and capabilities.<runtime>.
   # A template set for claude or codex replaces the built-in invocation.
   command_template:
+# Project rules (A202): the budget for the "## Project rules" section of AGENTS.md, and how many reviewed runs must pass before a rule that
+# no review cited is proposed for removal. Over the budget, `proofline doctor` proposes merging, asking about and removing rules; it changes none.
+rules:
+  budget_bytes: 4000
+  unused_after_reviews: 10

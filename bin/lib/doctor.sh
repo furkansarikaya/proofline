@@ -3,6 +3,7 @@
 # probes in a throwaway repository (the project's own installed hooks and scripts are copied there).
 # Prints PASS / WARN / FAIL lines, exits non-zero on any FAIL. Sourced by bin/proofline.
 
+doctor_ms() { dm_v=$(date +%s%N 2>/dev/null); case "$dm_v" in ''|*[!0-9]*) perl -MTime::HiRes=time -e 'printf "%d", time()*1000' 2>/dev/null || echo $(( $(date +%s) * 1000 )) ;; *) echo $((dm_v / 1000000)) ;; esac; }
 d_pass() { printf 'PASS %s\n' "$*"; }
 d_warn() { printf 'WARN %s\n' "$*"; D_WARNS=$((D_WARNS + 1)); }
 d_fail() { printf 'FAIL %s\n' "$*"; D_FAILS=$((D_FAILS + 1)); }
@@ -53,6 +54,22 @@ doctor_platform() {
     bitbucket:*) d_warn "platform: bitbucket (source $dp_src); merge rule: manual. proofline has no adapter: it pushes the branch and prints the pull request address ($dp_w); YOU open and merge it" ;;
     *) d_warn "platform: not recognized (${dp_w:-the origin address}; source $dp_src; a private host is named with git.platform and git.platform_host in .agents/config.yaml); merge rule: manual. proofline pushes the branch and prints the manual steps; YOU open and merge the pull request" ;;
   esac
+}
+
+# doctor_context (A202): the size of the text loaded into every session and every role (one script, bin/lib/context-size.sh).
+doctor_context() {
+  dx_o=$(sh "$PL_HOME/bin/lib/context-size.sh" project "$ROOT" report 2>/dev/null) || dx_o=''
+  [ -n "$dx_o" ] || { d_warn "context: the size of the text loaded into every session could not be measured"; return 0; }
+  d_pass "$(printf '%s\n' "$dx_o" | sed 's/^/    /;1s/^ *//')"
+}
+
+# doctor_rules (A202): the Project rules budget and the proposals (merge, ask, remove); it only reports, a rule changes on the user's approval.
+doctor_rules() {
+  [ -f "$ROOT/.agents/scripts/rules.sh" ] || return 0
+  dr_o=$(cd "$ROOT" && sh "$A" rules report 2>/dev/null) || return 0
+  case "$dr_o" in 'project rules: none') return 0 ;; esac
+  if printf '%s\n' "$dr_o" | grep -Eq '\(OVER\)|^  (merge|ask the user|remove):'; then d_warn "$(printf '%s\n' "$dr_o" | sed 's/^/    /;1s/^ *//')"
+  else d_pass "$(printf '%s\n' "$dr_o" | head -n 1)"; fi
 }
 
 doctor_identity() {
@@ -204,6 +221,26 @@ doctor_ecosystems() {
   else d_warn "ecosystems: node is not available and .agents/ecosystems.json is not the shipped file, so the tsv could not be checked"; fi
 }
 
+# Item 30: machine load above the core count is one WARN line with the load and the executable that started the
+# most processes (name only, never arguments). Best effort; silent when the load is fine or cannot be read.
+# PROOFLINE_DOCTOR_LOAD / PROOFLINE_DOCTOR_CORES override the readings (tests).
+doctor_load() {
+  dl_l=${PROOFLINE_DOCTOR_LOAD:-}
+  if [ -z "$dl_l" ]; then
+    dl_l=$(awk '{ print $1; exit }' /proc/loadavg 2>/dev/null) || dl_l=''
+    [ -n "$dl_l" ] || dl_l=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{ print $1 }') || dl_l=''
+    [ -n "$dl_l" ] || dl_l=$(uptime 2>/dev/null | sed 's/.*load averages*: *//' | tr -d ',' | awk '{ print $1 }') || dl_l=''
+  fi
+  dl_c=${PROOFLINE_DOCTOR_CORES:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo '')}
+  case "$dl_c" in ''|*[!0-9]*|0) return 0 ;; esac
+  dl_l=$(printf '%s' "$dl_l" | tr ',' '.')
+  case "$dl_l" in ''|*[!0-9.]*) return 0 ;; esac
+  awk -v l="$dl_l" -v c="$dl_c" 'BEGIN { exit !(l + 0 > c + 0) }' || return 0
+  dl_t=$(ps -A -o comm= 2>/dev/null | awk '{ n = split($0, a, "/"); c[a[n]]++ } END { for (k in c) print c[k], k }' | sort -rn | head -n 1 | awk '{ print $2 }') || dl_t=''
+  d_warn "load: machine load $dl_l is above its $dl_c cores${dl_t:+; the executable with the most processes: $dl_t}. Hooks and tests slow down until it settles"
+  return 0
+}
+
 # A194: the plugin (this CLI) and the project's install are one version; when they differ, one line and the next step.
 doctor_version() {
   dv_i=$(cfg_val "$CFG" proofline_version '')
@@ -222,11 +259,21 @@ doctor_tools() {
   d_pass "tools: $dtl_a; $dtl_r"
 }
 
+# A202 item 29: the time limits in force (the scale and the largest dispatch limit), one line; the user is pointed at the measured proposal.
+doctor_timeouts() {
+  dt_sc=$(cfg_val "$CFG" timeouts.scale 1.0)
+  dt_info=$(cd "$ROOT" && sh "$A" timeouts 2>/dev/null) || dt_info=''
+  dt_mx=$(printf '%s\n' "$dt_info" | sed -n 's/^dispatch\.CRITICAL=//p')
+  d_pass "time limits: timeouts.scale $dt_sc, a dispatched step may take up to ${dt_mx:-?} s (CRITICAL); the approval budget is never scaled. This machine's speed: proofline doctor --scale"
+}
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   case "${1:-}" in
     --commands) require_installed; cm_propose; return 0 ;;
     --apply-commands) require_installed; cm_apply; return 0 ;;
+    --scale) require_installed; ts_propose; return 0 ;;
+    --apply-scale) require_installed; ts_apply; return 0 ;;
     '') ;;
     *) die "doctor: unknown argument: $1" ;;
   esac
@@ -276,6 +323,20 @@ EOF
 
   if out=$(cd "$ROOT" && sh "$A" config-check 2>&1); then d_pass "config: $(printf '%s' "$out" | head -1)"
   else d_fail "config: agent.sh config-check failed: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"; fi
+
+  # A202 item 28: how long the approval path takes on THIS machine (the content fingerprint every approval binds, then the approval step with
+  # nothing to approve: the cost the prompt hook pays before it can write an approval), against the hook's approval budget.
+  if [ -f "$A" ]; then
+    da_b=$(cfg_val "$CFG" hook.approve_budget_seconds 20); case "$da_b" in ''|*[!0-9]*) da_b=20 ;; esac
+    [ "$da_b" -ge 5 ] || da_b=5; [ "$da_b" -le 25 ] || da_b=25
+    da_t0=$(doctor_ms); (cd "$ROOT" && sh "$A" fingerprint >/dev/null 2>&1 </dev/null); (cd "$ROOT" && sh "$A" approve-pending - >/dev/null 2>&1 </dev/null); da_t1=$(doctor_ms)
+    da_ms=$((da_t1 - da_t0))
+    if [ "$da_ms" -ge $((da_b * 500)) ]; then
+      d_warn "approval path: $da_ms ms on this machine, $((da_b * 1000)) ms hook budget (hook.approve_budget_seconds); close to or over half of it. A slow machine can raise hook.approve_budget_seconds in .agents/config.yaml (5 to 25); the cause is usually a large unignored folder or a loaded machine"
+    else d_pass "approval path: $da_ms ms (hook budget $((da_b * 1000)) ms)"; fi
+  fi
+
+  doctor_timeouts
 
   doctor_ecosystems
 
@@ -337,7 +398,10 @@ EOF
     'ci: present'*) d_pass "$dc_ci" ;;
   esac
 
+  doctor_context
+  doctor_rules
   doctor_version
+  doctor_load
   doctor_tools
   doctor_toolchain
   doctor_foreign

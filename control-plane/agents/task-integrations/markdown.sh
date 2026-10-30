@@ -7,11 +7,15 @@
 #   markdown.sh followup <TASK-ID> <waiver-file>             creates tasks/backlog/<ID>-FU<n>.md, prints its path
 #   markdown.sh status   <TASK-ID> <backlog|todo|in-progress|done>
 #   markdown.sh create   <TASK-ID> <title> <body-file>  prints the new in-progress task path
+#   markdown.sh statusblock <TASK-ID> <block-file>           places/replaces the one status block (A202), best effort
 #
 # Task files live in `tasks.dir` (default .agents/tasks), usually in lifecycle folders backlog/ todo/
 # in-progress/ done/ with a `**Status:**` line. The completion report is the one block agent.sh's
 # task-source contract excludes from the frozen contract hash: the `## Completion Report` heading, a
 # blank line, the BEGIN marker, the report, the END marker. Nothing else is written by `publish`.
+# The status block (`statusblock`, A202) is the second such block: the `## Proofline Status` heading, a blank line, the
+# `<!-- PROOFLINE-STATUS:BEGIN:<ID> -->` marker, `- key: value` lines from the control plane, the END marker. It is replaced
+# wholesale, never appended to; a second block of the same task is dropped.
 set -eu
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$here/../.." && pwd)
@@ -53,7 +57,7 @@ case "$op" in
     id=$2 title=$3 body=$4; pl_id "$id"
     [ -f "$body" ] || pl_die "task body missing: $body"
     [ -n "$title" ] || pl_die 'task title is required'
-    slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-48 | sed 's/-$//')
+    slug=$(sh "$here/slug.sh" "$title")   # A202: ASCII transliteration first, always <ID>-<slug>.md
     [ -n "$slug" ] || pl_die 'task title needs a usable slug'
     if find_task "$id" >/dev/null 2>&1; then pl_die "task file already exists for $id"; fi
     rel=$tdir/in-progress/$id-$slug.md
@@ -144,12 +148,13 @@ case "$op" in
     rel=$tdir/backlog/$nid.md
     mkdir -p "$root/$tdir/backlog"
     {
-      printf '# Task: %s — %s\n\n**Status:** backlog\n\n' "$nid" "$title"
+      printf '# Task: %s — %s\n\n**Status:** backlog\n\n---\norigin: %s\n\n---\n\n' "$nid" "$title" "$id"   # A202: the source is written, not remembered
       awk '!d && /^# / { d=1; next } { print }' "$wf"
       for h in 'Acceptance criteria' 'Out of scope' 'Constraints' 'Risks' 'Suggested class' 'Verification commands'; do
         grep -Fxq "## $h" "$wf" || printf '\n## %s\n\nTBD (task-author completes this follow-up)\n' "$h"
       done
     } > "$root/$rel"
+    pl_link "$root/$tdir/links.tsv" "$id" "$nid" followup   # A202: the back link (the source task file stays untouched, its hash too)
     printf '%s\n' "$rel"
     ;;
   status)
@@ -176,5 +181,27 @@ case "$op" in
     [ "$rel" = "$dest" ] || mv "$root/$rel" "$root/$dest"
     printf '%s\n' "$dest"
     ;;
-  *) pl_usage 'markdown.sh <import|publish|verify|followup|status> ...' ;;
+  statusblock)
+    [ $# -eq 3 ] || pl_usage 'markdown.sh statusblock <TASK-ID> <block-file>'
+    id=$2 blk=$3; pl_status_check "$id" "$blk"
+    path=$(run_task_path "$id"); [ -n "$path" ] || path=$(find_task "$id") || pl_die "no task file for $id in $tdir"
+    target="$root/$path"; [ -f "$target" ] || pl_die "task source file missing: $path"
+    begin="<!-- PROOFLINE-STATUS:BEGIN:$id -->"; end="<!-- PROOFLINE-STATUS:END:$id -->"
+    tmp=$(mktemp "${TMPDIR:-/tmp}/markdown-adapter.XXXXXX")
+    if grep -Fxq "$begin" "$target" && ! grep -Fxq "$end" "$target"; then rm -f "$tmp"; pl_die "$path has $begin but no $end; refusing to update the status block"; fi
+    if grep -Fxq "$begin" "$target"; then
+      awk -v b="$begin" -v e="$end" -v rf="$blk" '
+        BEGIN { n = 0; while ((getline line < rf) > 0) body[++n] = line }
+        skip { if ($0 == e) skip = 0; next }
+        $0 == b { if (done) { skip = 1; next } print; for (i = 1; i <= n; i++) print body[i]; print e; done = 1; skip = 1; next }
+        { print }
+      ' "$target" > "$tmp"
+    else
+      cp "$target" "$tmp"
+      { printf '\n## Proofline Status\n\n%s\n' "$begin"; cat "$blk"; printf '%s\n' "$end"; } >> "$tmp"
+    fi
+    cat "$tmp" > "$target"; rm -f "$tmp"
+    printf '%s\n' "$path"
+    ;;
+  *) pl_usage 'markdown.sh <import|publish|verify|followup|status|statusblock> ...' ;;
 esac

@@ -131,6 +131,24 @@ again. A lesson promotion is not covered by that reply: it needs its own.
 A red CI check after the pull request is open is not a question (A169): `agent.sh deliver-step <ID> ci-fix|ci-commit|ci-push|ci-merge <PR>` reads the error from the failed run, fixes it inside the frozen scope through the normal gates and pushes to the same pull request branch, at most 2 rounds; your delivery approval covers exactly those pushes. A third red CI stops with one question (in night mode the task is parked); `resume` continues an open round.
 Cleanup deletes the run directory so the git hooks no longer see the run; then the lead stops.
 
+## Task types and names (A202)
+
+A task has a `type` (`feature`, `bug`, `refactor`, `content`, `docs`, `chore`; none means feature) and a file name `<ID>-<slug>.md`. The type
+feeds classification, the batch pre-flight and the scope bound: `bug` needs reproduction, expected/actual and environment and a debug-proof and is
+never TRIVIAL, `refactor` needs the unchanged-behaviour criterion, and `content` and `docs` get a written test-first exemption that never applies to a
+path holding code. Optional fields (Allowed and Forbidden scope, pattern references, completion response, `priority`, `origin`) are in the
+[task templates](../guides/task-templates.md). The PLAN scope table has a `kind` column that the script re-derives; `agent.sh scope-kinds <ID>`
+prints it. COMPLEX and CRITICAL plans carry a `rollback:` line in `## Risk`.
+
+## Live status block (A202)
+
+Every task has one status block (a `## Proofline Status` section in markdown, one marker comment on GitHub, Jira and Linear) that the control plane updates
+in place at run start, a question or park, CODE_DONE, the pull request, the merge and FAILED/BLOCKED: run, type, class, stage, branch, the pending question and how
+to answer it, park or failure reason, then PR, CI result and delivered commit, and the estimated size against actual time and tokens. It comes from recorded state only,
+passes a scrubber (no paths, keys, e-mails, IPs), is best effort and does not change the task contract hash. A parked task shows PARKED with its reason in
+`batch status`. Off: `tasks.status_block: off`. Details: [task integrations](../../control-plane/agents/task-integrations/README.md). Time limits for every step:
+[timeouts](timeouts.md).
+
 ## Night mode
 
 The summary, the limits and the resume rules are also described on their own page: [night mode](night-mode.md).

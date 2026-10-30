@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { validate, parseTemplate, importIssue, checkExport, resolveTemplate } from "../../skills/task-author/scripts/validate-task.mjs";
+import { validate, slugify, fileNameWarning, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS, scopeParse } from "../../skills/task-author/scripts/validate-task.mjs";
+import { linkOrigin } from "../../skills/task-author/scripts/link-origin.mjs";
+import { VAGUE_WORDS } from "../../skills/product-spec/scripts/check-prd.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../skills/task-author/scripts/validate-task.mjs", import.meta.url));
 const TPL = (t) => readFileSync(fileURLToPath(new URL(`../../skills/task-author/assets/templates/${t}.md`, import.meta.url)), "utf8");
@@ -260,4 +262,113 @@ test("Covers: a criterion links PRD requirements; a task without it stays valid;
   assert.equal(validate(GOOD).task.covers, undefined);
   assert.match(validate(linked.replace("Covers: FR-1, NFR-2", "Covers: login")).errors.join("\n"), /Covers must list requirement ids/);
   assert.match(validate(GOOD.replace("returns HTTP 429.", "returns HTTP 429. Covers: FR-1")).warnings.join("\n"), /names no PRD/);
+});
+
+// ---- A202: optional fields ----
+const withFm = (kv, t = GOOD) => t.replace("\n## Goal", `\n---\n${kv}\n\n---\n\n## Goal`);
+test("A202 the ambiguous-word list is product-spec's list", () => {
+  assert.deepEqual([...AMBIGUOUS_WORDS].sort(), [...VAGUE_WORDS].sort());
+});
+test("A202 a task that names no PRD gets the product-spec ambiguous-word check", () => {
+  const t = GOOD.replace("returns HTTP 429.", "returns HTTP 429 quickly.");
+  assert.match(errs(t), /AC-1 .*quickly/);
+  assert.equal(validate(withFm("prd: login-limits", t)).errors.some((e) => /ambiguous word/.test(e)), false);
+  assert.match(validate(GOOD.replace("zero.", "zero, easily."), { vagueWords: [] }).errors.join(), /easily/);
+  assert.match(validate(GOOD.replace("zero.", "zero without fuss."), { vagueWords: ["without fuss"] }).errors.join(), /without fuss/);
+  assert.equal(validate(GOOD).valid, true);
+});
+test("A202 priority, origin and the scope sections are checked, absent fields change nothing", () => {
+  assert.equal(validate(withFm("priority: high")).valid, true);
+  assert.match(errs(withFm("priority: urgent")), /priority must be one of/);
+  assert.equal(validate(withFm("origin: prd:login-limits")).valid, true);
+  assert.match(errs(withFm("origin: not a task")), /origin must be/);
+  const scoped = GOOD + "\n## Allowed scope\n\n- `src/auth/`\n\n## Forbidden scope\n\n- `src/billing/**`\n\n## Existing pattern references\n\n- `src/orders/list.ts`\n\n## Completion response\n\nThree bullets.\n";
+  assert.equal(validate(scoped).valid, true, errs(scoped));
+  assert.match(errs(GOOD + "\n## Forbidden scope\n\nnothing here\n"), /Forbidden scope" lists no path/);
+  assert.match(errs(GOOD + "\n## Completion response\n\n"), /Completion response" is empty/);
+  // review B1: every token counts, a non-path token is an error naming it, the heading may carry trailing text in any case
+  assert.deepEqual(scopeParse(["- `legacy/` and `vendor/`", "- src/a.js, src/b.js", "- none"]).entries, ["legacy/", "vendor/", "src/a.js", "src/b.js"]);
+  assert.match(errs(GOOD + "\n## Forbidden scope\n\n- Do not modify the billing module\n"), /not a path or glob: "Do"/);
+  assert.match(errs(GOOD + "\n## forbidden scope (do not touch)\n\n- src/a.js and the billing module\n"), /not a path or glob: "and"/);
+  assert.match(errs(GOOD + "\n## Allowed scope\n\n- `src/ok/`\n\nkeep it small please\n"), /not a path or glob: "keep it small please"/);
+  assert.match(errs(GOOD + "\n## Forbidden scope\n\n- `src/{a,b}.js`\n"), /not a path or glob: "src\/\{a"/);
+  assert.deepEqual(scopeParse(["- `src/foo.js:`", "- src/bar.js:"]).entries, ["src/foo.js", "src/bar.js"]);
+  assert.match(errs(withFm("type: bug\ntype: chore")), /type must be one of/);
+  assert.equal(validate(GOOD + "\n## Forbidden scope (do not touch)\n\n- `src/a.js`, `src/b.js`\n").valid, true);
+});
+test("A202 link-origin writes the origin and the way back, once, and leaves the source alone", () => {
+  const d = mkdtempSync(join(tmpdir(), "origin-"));
+  const src = GOOD, srcPath = join(d, "T-1.md"); writeFileSync(srcPath, src);
+  const f = join(d, "T-1-FU1.md"); writeFileSync(f, GOOD.replace("T-1 —", "T-1-FU1 —"));
+  linkOrigin(f, { from: "T-1", tasksDir: d }); linkOrigin(f, { from: "T-1", tasksDir: d });
+  assert.equal(readFileSync(srcPath, "utf8"), src);
+  assert.equal(readFileSync(join(d, "links.tsv"), "utf8"), "T-1\tT-1-FU1\tfollowup\n");
+  const r = validate(readFileSync(f, "utf8"), { tasksDirs: [d] });
+  assert.equal(r.valid, true, r.errors.join()); assert.equal(r.task.meta.origin, "T-1"); assert.deepEqual(r.warnings, []);
+  assert.match(validate(withFm("origin: T-404"), { tasksDirs: [d] }).errors.join(), /matches no task/);
+  const g = join(d, "T-2.md"); writeFileSync(g, GOOD.replace("T-1 —", "T-2 —"));
+  linkOrigin(g, { prd: "login-limits", tasksDir: d });
+  assert.match(readFileSync(g, "utf8"), /origin: prd:login-limits/);
+  assert.match(readFileSync(join(d, "links.tsv"), "utf8"), /prd:login-limits\tT-2\tprd/);
+  assert.equal(validate(readFileSync(g, "utf8")).valid, true);
+});
+test("A202: a finished task is identified by its title only; its completion report is never read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rep-"));
+  mkdirSync(join(dir, "done"));
+  // the report (far below the title) holds a sentinel that looks like a task title; it must not register an id
+  writeFileSync(join(dir, "done", "T-1-a.md"), GOOD + "\n" + "x\n".repeat(2000) + "\n## Completion Report\n\n# Task: SENTINEL-9 - from a report\n");
+  const f = join(dir, "y.md.txt");
+  const run = (dep) => { writeFileSync(f, GOOD.replace(/^(# Task:.*\n)/, `$1\n---\ndepends_on: [${dep}]\n---\n`).replace("T-1", "T-2")); return spawnSync("node", [SCRIPT, f, "--tasks-dir", dir], { encoding: "utf8" }); };
+  assert.equal(run("T-1").status, 0);
+  const r = run("SENTINEL-9");
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout + r.stderr, /depends_on id "SENTINEL-9" matches no task/);
+});
+
+// ---- A202: task types and file names ----
+const withType = (type, extra = "") => GOOD.replace("# Task: T-1 — Rate limit login\n", `# Task: T-1 — Rate limit login\n\n---\ntype: ${type}\n---\n`).replace("## Out of scope", `${extra}## Out of scope`);
+
+test("a task without a type is a feature and needs no type sections", () => {
+  const r = validate(GOOD);
+  assert.equal(r.valid, true, r.errors.join("; "));
+  assert.equal(r.task.type, "feature");
+  assert.equal(validate(withType("chore")).task.type, "chore");
+  assert.ok(validate(withType("epic")).errors.some((e) => /type must be one of/.test(e)));
+});
+
+test("a bug without reproduction steps, expected and actual behaviour and environment is rejected", () => {
+  const r = validate(withType("bug"));
+  assert.equal(r.valid, false);
+  for (const sec of ["Reproduction steps", "Expected and actual behaviour", "Environment"]) assert.ok(r.errors.some((e) => e.includes(sec)), sec);
+  const ok = validate(withType("bug", "## Reproduction steps\n1. Fail login six times.\n\n## Expected and actual behaviour\nExpected 429, got 200.\n\n## Environment\nNode 22, staging.\n\n"));
+  assert.equal(ok.valid, true, ok.errors.join("; "));
+});
+
+test("a refactor needs the behaviour-unchanged statement and an existing-tests criterion", () => {
+  const r = validate(withType("refactor"));
+  assert.ok(r.errors.some((e) => e.includes("Behaviour unchanged")));
+  assert.ok(r.errors.some((e) => /existing tests/.test(e)));
+  const ok = withType("refactor", "## Behaviour unchanged\nNo observable change.\n\n").replace("- AC-2: A successful login resets the failure counter to zero.", "- AC-2: The existing tests pass without changes.");
+  assert.equal(validate(ok).valid, true, validate(ok).errors.join("; "));
+});
+
+test("content and docs tasks need no extra sections", () => {
+  assert.equal(validate(withType("content")).valid, true);
+  assert.equal(validate(withType("docs")).valid, true);
+});
+
+test("the slug of a Turkish title is ASCII, at most 48 characters", () => {
+  assert.equal(slugify("Türkçe Başlık: Çalışma ışığı İyi Ösü ğ"), "turkce-baslik-calisma-isigi-iyi-osu-g");
+  assert.equal(slugify("Straße façade"), "strasse-facade");
+  assert.ok(slugify("a".repeat(80)).length <= 48);
+});
+
+test("a file named only by its ID is flagged with the proposed <ID>-<slug>.md name", () => {
+  const w = fileNameWarning("T-1", "Rate limit login", "T-1.md");
+  assert.match(w, /propose "T-1-rate-limit-login\.md"/);
+  assert.equal(fileNameWarning("T-1", "Rate limit login", "T-1-rate-limit-login.md"), null);
+  assert.equal(fileNameWarning("T-1", "Rate limit login", "T-1-FU1.md"), null);
+  assert.equal(fileNameWarning("T-1", "Rate limit login", "TASK.md"), null);
+  assert.ok(fileNameWarning("T-1", "Rate limit login", "T-1-t-1.md"));
+  assert.ok(validate(GOOD, { fileName: "T-1.md" }).warnings.some((x) => /not <ID>-<slug>\.md/.test(x)));
 });

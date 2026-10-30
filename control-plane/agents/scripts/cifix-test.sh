@@ -13,7 +13,7 @@ mkdir -p "$base/bin"
 printf '#!/bin/sh\ncase "$1 $2" in\n  "run list") cat "%s/gh.runs" ;;\n  "run view") cat "%s/gh.log" ;;\n  "pr checks") cat "%s/gh.checks" ;;\n  *) cat "%s/ghstate" ;;\nesac\n' "$base" "$base" "$base" "$base" > "$base/bin/gh"; chmod +x "$base/bin/gh"
 : > "$base/gh.runs"; : > "$base/gh.log"; : > "$base/gh.checks"
 PATH=$base/bin:$PATH PROOFLINE_SELFTEST=1 PROOFLINE_NO_TTY=1; export PATH PROOFLINE_SELFTEST PROOFLINE_NO_TTY
-gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lc main acme}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE OWNER]
+gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lookup main acme}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE OWNER]
 S() { A deliver-step LC "$@"; }
 has() { hs_p=$1; shift; "$@" > "$base/has.out" 2>&1 || die "$* failed: $(cat "$base/has.out")"; grep -q -- "$hs_p" "$base/has.out" || die "$* printed no '$hs_p': $(cat "$base/has.out")"; }
 tasks_in_tasks() { sed 's#^  dir: .agents/tasks#  dir: tasks#' .agents/config.yaml > "$base/cfg" && cp "$base/cfg" .agents/config.yaml; }
@@ -28,8 +28,8 @@ hooks() {
 ci_red() { printf '%s completed failure build\n' "${1:-123}" > "$base/gh.runs"; printf 'build\tRun tests\t2026-01-01T00:00:00Z %s\n' "${2:-AssertionError: lookup returned the wrong value for an empty key}" > "$base/gh.log"; }
 ci_green() { printf '123 completed success build\n' > "$base/gh.runs"; : > "$base/gh.log"; }
 push_real() { # what the lead does after ci-push / push: a real git push through the pre-push hook, then origin's tracking ref
-  git push -q bare proofline/LC-lc 2> "$base/push.err" || die "the approved push was blocked: $(cat "$base/push.err")"
-  git update-ref refs/remotes/origin/proofline/LC-lc HEAD
+  git push -q bare proofline/LC-lookup 2> "$base/push.err" || die "the approved push was blocked: $(cat "$base/push.err")"
+  git update-ref refs/remotes/origin/proofline/LC-lookup HEAD
 }
 # to_pr_open: a delivery that reached the merge step (the pull request is open, number 7, the delivery approval used)
 to_pr_open() {
@@ -66,9 +66,9 @@ sc_ci_fix_normal() {
   [ ! -e .agents/runs/LC/ci-fix ] && [ "$(ledger_n ci-fix-open)" = 0 ] || die "a refused ci-fix left a record"
   ci_red 123
   expect_msg "ci-fix for another pull request number" "pull request 8 is not this delivery's" S ci-fix 8
-  gh_says "OPEN false" "$(git rev-parse HEAD^) proofline/LC-lc main acme"
+  gh_says "OPEN false" "$(git rev-parse HEAD^) proofline/LC-lookup main acme"
   expect_msg "ci-fix on a pull request at another head" "not this delivery's open" S ci-fix 7
-  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lc main forker"
+  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lookup main forker"
   expect_msg "ci-fix on a fork's pull request" "not this delivery's open" S ci-fix 7
   gh_says "OPEN false"
   # open: no question, the run is reopened inside the frozen scope, the error is in the record
@@ -98,20 +98,20 @@ sc_ci_fix_normal() {
   git rm -q --cached late.txt; rm late.txt
   git add -A; git commit -qF .agents/local/deliver/LC/ci-fix-001.msg 2> "$base/commit.err" || die "the CI-fix commit was blocked: $(cat "$base/commit.err")"
   expect_fail "a second commit under the same approval" git commit -q --allow-empty -m 'chore: more'
-  has 'git push origin proofline/LC-lc' S ci-push 7
+  has 'git push origin proofline/LC-lookup' S ci-push 7
   pa=$(ls .agents/runs/LC/approvals/*-push.yaml | tail -1)
-  grep -q '^source: "delivery_ci_fix"' "$pa" && grep -q '^ref: "refs/heads/proofline/LC-lc"' "$pa" && grep -q '^consumed: "false"' "$pa" || die "push approval: $(cat "$pa")"
+  grep -q '^source: "delivery_ci_fix"' "$pa" && grep -q '^ref: "refs/heads/proofline/LC-lookup"' "$pa" && grep -q '^consumed: "false"' "$pa" || die "push approval: $(cat "$pa")"
   # forbidden: the approval does not carry a push to another branch, nor a tag; it stays unused
-  rc=0; git push bare proofline/LC-lc:refs/heads/other > "$base/other.out" 2>&1 || rc=$?
+  rc=0; git push bare proofline/LC-lookup:refs/heads/other > "$base/other.out" 2>&1 || rc=$?
   [ "$rc" != 0 ] && grep -q 'not for a push to refs/heads/other' "$base/other.out" || die "a push to another branch was not refused: $(cat "$base/other.out")"
   [ -z "$(git ls-remote bare refs/heads/other)" ] || die "the other branch exists on the remote"
   grep -q '^consumed: "false"' "$pa" || die "the refused push consumed the approval"
   head_before=$(git rev-parse HEAD); old=$(git rev-parse HEAD^)
   push_real
-  [ "$(git ls-remote bare refs/heads/proofline/LC-lc | cut -f1)" = "$head_before" ] || die "the fix is not on the pull request branch"
+  [ "$(git ls-remote bare refs/heads/proofline/LC-lookup | cut -f1)" = "$head_before" ] || die "the fix is not on the pull request branch"
   grep -q '^consumed: "true"' "$pa" || die "the push did not consume its approval"
   # forbidden: another push needs another approval
-  expect_fail "a second use of the push approval" A approval-consume LC push '' refs/heads/proofline/LC-lc
+  expect_fail "a second use of the push approval" A approval-consume LC push '' refs/heads/proofline/LC-lookup
   gh_says "OPEN false"; has 'run: proofline merge 7' S ci-merge 7
   [ "$(rec_field 001 state)" = pushed ] && [ "$(rec_field 001 pushed_head)" = "$head_before" ] && [ "$(rec_field 001 failing_head)" = "$old" ] || die "record after the push: $(cat .agents/runs/LC/ci-fix/001.yaml)"
   grep " event=ci-fix-push " .agents/runs/LC/LEDGER.log | grep -q "attempt=1 pr=7 ci_run=123 from=$old to=$head_before" || die "the ledger does not tie the push to the fix"
@@ -169,12 +169,12 @@ sc_ci_fix_batch() {
   A deliver-plan LC > "$base/plan.out" || die "deliver-plan refused: $(tail -2 "$base/plan.out")"
   A batch-cover LC delivery >/dev/null || die "batch-cover delivery refused"
   bp=$(ls .agents/runs/LC/approvals/*-push.yaml | tail -1)
-  grep -q '^source: "batch"' "$bp" && grep -q '^ref: "refs/heads/proofline/LC-lc"' "$bp" || die "the covered push approval lacks the batch source or the ref: $(cat "$bp")"
+  grep -q '^source: "batch"' "$bp" && grep -q '^ref: "refs/heads/proofline/LC-lookup"' "$bp" || die "the covered push approval lacks the batch source or the ref: $(cat "$bp")"
   rm -f .agents/local/prompts/*.json   # no user reply exists from here on: the rest must run on the covers alone
   deliver_approved
   ci_round 1
   grep -q 'source: "delivery_ci_fix"' .agents/runs/LC/approvals/*-push.yaml || die "no CI-fix push approval under the batch delivery cover"
-  expect_fail "a push to another branch under the batch cover" sh -c "git push bare proofline/LC-lc:refs/heads/other 2>/dev/null"
+  expect_fail "a push to another branch under the batch cover" sh -c "git push bare proofline/LC-lookup:refs/heads/other 2>/dev/null"
   ci_round 2
   ci_red 130 'Error: still failing'; gh_says "OPEN false"
   expect_msg "a third attempt in a batch" 'STOP: the CI is red after 2 CI-fix attempts' S ci-fix 7

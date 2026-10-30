@@ -22,6 +22,7 @@ script; provider logic (auth, API calls, formatting) stays inside it. A new adap
 <adapter>.sh verify   <TASK-ID> <receipt>            # re-read; exit 0 iff the published report is still there
 <adapter>.sh followup <TASK-ID> <waiver-file>        # create a follow-up task; print a receipt (path, key or URL)
 <adapter>.sh status   <TASK-ID> <backlog|todo|in-progress|done>
+<adapter>.sh statusblock <TASK-ID> <block-file>       # the one live status block of the task, created or replaced in place (A202)
 markdown.sh create    <TASK-ID> <title> <body-file>  # create in-progress task for agent.sh start
 ```
 
@@ -109,3 +110,26 @@ contacted. Review before relying on them.
 each. Fields: `title goal context acceptance_criteria out_of_scope constraints risks suggested_class
 verification_commands labels components` and custom `x_*`. Editing the project copy defines a team's own required
 fields and sections once; import and export follow it.
+
+## Names and types (A202)
+
+`slug.sh` builds the slug from the title (ASCII, at most 48 characters); `markdown` always writes `<ID>-<slug>.md` and the branch
+is `proofline/<ID>-<slug>`. `type:` (`feature|bug|refactor|content|docs|chore`, none means feature) travels with the task; other
+trackers carry it as a label and an `Origin:` line. Renaming queued files is `agent.sh task-rename-plan` / `task-rename-apply`
+after the user's `approve rename`.
+
+## Status block (`statusblock`, A202)
+
+Each task has ONE status block, updated in place at run start, a question or park, CODE_DONE, the pull request, the merge and
+FAILED/BLOCKED. `agent.sh` writes the block file from recorded state only (run id, type, class, stage, branch and start commit,
+runtime and session, the pending question and how to answer it, park and failure reasons, then the pull request, CI result,
+delivered commit, estimated size against actual duration and tokens) and every free-text reason passes an allowlist scrubber. An
+adapter only places it, and refuses a block that holds a local path, a secret-looking token or an e-mail address.
+
+- markdown: the `## Proofline Status` section with `<!-- PROOFLINE-STATUS:BEGIN:<ID> -->` / `END` markers, replaced wholesale. The
+  task contract hash excludes exactly this marked block, and only while every line in it is a `- <known key>: value` line; any other
+  line inside the markers stays hashed. A second block of the same task is dropped at the next update.
+- GitHub, Jira, Linear: one comment whose first line is `<!-- proofline:status:<ID> -->`; it is found by that marker and edited
+  (`gh api PATCH`, Jira `PUT .../comment/<id>`, Linear `commentUpdate`); a new comment is created only when none exists.
+- Best effort: the call is bounded in time (`tasks.status_block_seconds`, default 20) and a failure is a note in
+  `.agents/local/status-block.log`, never a failed run or gate. `tasks.status_block: off` switches it off.

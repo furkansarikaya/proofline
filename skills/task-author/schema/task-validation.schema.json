@@ -16,15 +16,19 @@
         "title": { "type": ["string", "null"] },
         "acs": { "type": "integer", "minimum": 0 },
         "class": { "enum": ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL", null] },
+        "type": { "enum": ["feature", "bug", "refactor", "content", "docs", "chore"], "description": "the task type; a task without a type is a feature" },
         "meta": {
           "type": "object",
           "description": "optional front matter, present only when the task has one",
           "properties": {
+            "type": { "type": "string", "description": "task type: feature, bug, refactor, content, docs or chore (A202)" },
             "size": { "enum": ["S", "M", "L"] },
             "sprint": { "type": "string" },
             "assignee": { "type": "string" },
             "depends_on": { "type": "string" },
-            "prd": { "type": "string", "description": "slug of the PRD the Covers ids refer to (product-spec)" }
+            "prd": { "type": "string", "description": "slug of the PRD the Covers ids refer to (product-spec)" },
+            "priority": { "enum": ["high", "medium", "low"], "description": "orders a night batch among tasks without dependencies (A202)" },
+            "origin": { "type": "string", "description": "the source task id, or prd:<slug> (A202)" }
           }
         },
         "covers": {

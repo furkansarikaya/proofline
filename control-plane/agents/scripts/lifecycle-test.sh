@@ -871,11 +871,88 @@ scenario_approval_fail_closed() {
   ok "approval detection is fail-closed (A108)"
 }
 
+# A202 item 31: several approvals in one message. The single-approval grammar is unchanged; a message it does not accept whole is split on
+# commas and line breaks and each segment is parsed alone. This scenario ATTEMPTS the forbidden: a hedged, negated, conditional or
+# question segment, quoted and fenced text, more segments than the cap, a waiver of a SECURITY finding. Only the exact ones are recorded.
+scenario_approval_multi() {
+  scaffold standalone no TRIVIAL supervised
+  ad=.agents/runs/LC/approvals
+  capture_ml() { mkdir -p .agents/local/prompts; printf '%s' "$1" > "$base/cap.txt"; cp_text=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{ printf "%s%s", (NR > 1 ? "\\n" : ""), $0 }')
+    printf '{"session":"s1","time":%s,"sha256":"%s","text":"%s"}\n' "$(( $(date +%s) + 3600 + ${cm_n:=0} ))" "$(tsha "$base/cap.txt")" "$cp_text" > .agents/local/prompts/s1.json; cm_n=$((cm_n + 1)); }
+  has() { ls "$ad"/[0-9][0-9][0-9]-"$1".yaml >/dev/null 2>&1; }
+  clear_approvals() { for k in "$@"; do rm -f "$ad"/[0-9][0-9][0-9]-"$k".yaml; done; }
+  only() { # recorded exactly these kinds (of plan scope budget destructive)
+    for k in plan scope budget destructive; do
+      case " $* " in *" $k "*) has "$k" || die "multi: $k was not recorded ($_msg)" ;; *) ! has "$k" || die "multi: $k was recorded but must not be ($_msg)" ;; esac
+    done; }
+  for k in plan scope budget destructive; do A request-approval LC "$k" >/dev/null; done
+  # the question of a run with several open requests shows the one message that answers all of them
+  qo=$(A request-approval LC plan); printf '%s' "$qo" | grep -Fq 'approve budget, approve destructive, approve plan, approve scope' || die "the question does not show the phrases for several open requests: $qo"
+  # 1. four approvals in one message: four records, every record bound to the same user prompt
+  _msg='approve plan, approve scope, approve budget, approve destructive'; capture_ml "$_msg"
+  out=$(A approve-pending LC); only plan scope budget destructive
+  printf '%s\n' "$out" | grep -Fq 'multi: 4 of 4 segments read as approvals, 4 approval record(s) written' || die "no confirmation line: $out"
+  [ "$(for k in plan scope budget destructive; do cat "$ad"/[0-9][0-9][0-9]-"$k".yaml; done | sed -n 's/^capture_id: //p' | sort -u | wc -l | tr -d ' ')" = 1 ] || die "the records are not bound to one user prompt"
+  # 2. lines instead of commas
+  clear_approvals plan scope budget destructive; _msg='approve plan
+approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only plan scope
+  # 3. negated, conditional, question and unclear segments are rejected alone, each named on one line; the exact ones are recorded
+  clear_approvals plan scope budget destructive; _msg='approve plan, do not approve scope, approve budget if CI is green, approve destructive?, approve the thing'; capture_ml "$_msg"
+  out=$(A approve-pending LC); only plan
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: do not approve scope: negated, conditional or hedged' || die "negated segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve budget if CI is green: negated, conditional or hedged' || die "conditional segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve destructive?: a question is not an approval' || die "question segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve the thing: not one exact approval' || die "unclear segment not named: $out"
+  printf '%s\n' "$out" | grep -Fq '1 of 5 segments read as approvals, 1 approval record(s) written' || die "no count line: $out"
+  # 4. one ambiguous segment is rejected alone, the others are recorded
+  clear_approvals plan scope budget destructive; _msg='approve plan, approve budget, approve scope maybe'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only plan budget
+  # 5. a lone approval with a hedge stays refused as a whole (no guessing); so does a hedge that is no attempt at an approval
+  clear_approvals plan scope budget destructive
+  for _msg in 'approve the plan, but wait' 'approve plan, hmm' 'approve plan, thanks!'; do capture_ml "$_msg"; out=$(A approve-pending LC); only; printf '%s\n' "$out" | grep -Fq 'multi:' && die "multi mode on for a lone approval with a hedge: $_msg"; done
+  # 6. quoted and pasted text is never an approval: a blockquote line, a fenced block, a quote that is the whole message
+  _msg='approve plan
+> approve scope, approve budget'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: > approve scope, approve budget: quoted or pasted text' || die "quote not named: $out"
+  clear_approvals plan; _msg='approve plan
+```
+approve scope
+approve budget
+```'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan; printf '%s\n' "$out" | grep -Fq 'quoted or pasted text' || die "fence not named: $out"
+  clear_approvals plan; _msg='> approve plan, approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only
+  # 7. a question: the question segment is not an approval, the other one is
+  _msg='should I approve plan?, approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null; only scope
+  # 8. more than the cap: the extras are rejected with one line, the ninth segment records nothing
+  clear_approvals scope; _msg='approve plan, approve plan, approve plan, approve plan, approve plan, approve plan, approve plan, approve plan, approve scope'; capture_ml "$_msg"
+  out=$(A approve-pending LC); only plan; printf '%s\n' "$out" | grep -Fq 'more than 8 approvals in one message (limit 8)' || die "cap not reported: $out"
+  # 9. a waiver of a SECURITY finding is no approval kind that can be open: refused, the others are recorded
+  clear_approvals plan; expect_fail "a SECURITY waiver request was created" A request-approval LC waive:SECURITY-1
+  _msg='approve plan, approve waive SECURITY-1, approve scope'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan scope
+  printf '%s\n' "$out" | grep -Fq 'multi: not recorded: approve waive SECURITY-1' || die "waiver segment not named: $out"
+  for f in "$ad"/*waive*; do [ ! -e "$f" ] || die "a waiver record exists"; done
+  # 11. review A1: a negated, hedged or questioning sibling that names no other open kind vetoes the whole message
+  clear_approvals plan scope budget destructive
+  for _msg in 'approve plan, not ok' "approve the plan, on second thought I don't approve" "approve plan
+I don't approve it" "approve the plan, unless the tests fail then I don't approve" "approve plan, yes I'm not sure" "approve plan, approve scope, I don't approve any of it" 'approve plan, approve scope, did I approve?'; do
+    capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
+  done
+  # round 2: retraction words veto too; the valid multi-approvals keep working
+  for _msg in 'approve plan, ok cancel' 'approve plan, ok undo' 'approve plan, ok stop' 'approve plan, ok ignore the above' 'approve plan, ok nope' 'approve plan, ok nah' 'approve plan, ok cannot' "approve plan, ok isn't" 'approve plan, approve scope, cancel' 'approve plan, approve scope, revoke' 'approve plan, approve scope, reject' 'approve plan, approve scope, nope' 'approve plan, approve scope, hmm'; do
+    capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
+  done
+  _msg='approve plan, approve scope'; capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only plan scope
+  clear_approvals plan scope
+  # a negated segment that names a different open kind is still reported alone (case 3), but one that names an accepted kind vetoes
+  _msg="approve plan, I don't approve plan"; capture_ml "$_msg"; A approve-pending LC >/dev/null 2>&1 || :; only
+  # 10. a single approval behaves as before: no multi line, one record
+  clear_approvals plan scope; _msg='approve the plan'; capture_ml "$_msg"; out=$(A approve-pending LC); only plan; printf '%s\n' "$out" | grep -Fq 'multi:' && die "multi line for a single approval"
+  ok "several approvals in one message are parsed one by one (A202)"
+}
+
 # Delivery then cleanup: the commit moves HEAD past base_sha; cleanup must still succeed (base_sha an ancestor,
 # task-owned patch = the CODE_DONE patch and committed), and afterwards the git hooks see no open run.
 scenario_cleanup_after_delivery() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; finish_done
-  tb=$(git branch --show-current); [ "$tb" = proofline/LC-lc ] || die "task branch: $tb"
+  tb=$(git branch --show-current); [ "$tb" = proofline/LC-lookup ] || die "task branch: $tb"
   mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit"
   git config core.hooksPath "$base/hooks"; PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
   git add -A; expect_msg "a commit without the user's approval" 'commit approval' git commit -qm 'feat: lookup (LC)'
@@ -1317,9 +1394,49 @@ scenario_uncommitted_block_file() {
   ok "an uncommitted block-only AGENTS.md/CLAUDE.md is control plane (verify-scope, reopen); extra text, a second pair, a lone marker, no markers and a symlink are product changes with the hint"
 }
 
+# A202: the task's own boundaries are checked at every freeze. Forbidden scope is refused with no waiver path, Allowed scope refuses a
+# path outside it, an Existing pattern reference must exist and be named in the plan. A task without the sections freezes as before.
+scenario_task_boundaries() {
+  scaffold standalone no TRIVIAL manual
+  t=.agents/runs/LC/TASK.md; cp "$t" "$base/task.orig"; before=$(cat .agents/runs/LC/RUN.yaml)
+  printf '\n## Forbidden scope\n\n<!-- a comment with - `ignored.txt` in it -->\n- `impl.txt` (the user keeps this file out)\n' >> "$t"
+  expect_msg "a plan path in Forbidden scope froze" "Forbidden scope" A freeze LC
+  [ "$before" = "$(cat .agents/runs/LC/RUN.yaml)" ] || die "a refused freeze changed RUN.yaml"
+  printf '\n## Completion response\n\nTried to waive it.\n' >> "$t"   # no agent text or waiver lifts it: a waiver needs a gate finding and the user's approval
+  expect_msg "the Forbidden scope was lifted by editing around it" "Forbidden scope" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Forbidden scope\n\n- `imp*`\n' >> "$t"
+  expect_msg "a glob in Forbidden scope froze" "Forbidden scope" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Allowed scope\n\n- `src/`\n' >> "$t"
+  expect_msg "a plan path outside the Allowed scope froze" "outside the task's Allowed scope" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Allowed scope\n\n- `impl.txt`\n' >> "$t"
+  expect_msg "impl_test.txt is outside an Allowed scope of impl.txt" "outside the task's Allowed scope: impl_test.txt" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Existing pattern references\n\n- `no/such/file.go`\n' >> "$t"
+  expect_msg "a pattern reference that does not exist froze" "does not exist" A freeze LC
+  cp "$base/task.orig" "$t"; printf '\n## Existing pattern references\n\n- `tasks/LC.md`\n' >> "$t"
+  expect_msg "a plan that never names the pattern reference froze" "does not mention the task's Existing pattern reference tasks/LC.md" A freeze LC
+  printf '\nFollows tasks/LC.md in structure.\n' >> .agents/runs/LC/PLAN.md
+  cp "$base/task.orig" "$t"; printf '\n## Allowed scope\n\n- `impl*`\n- `docs/`\n\n## Forbidden scope\n\n- `vendor/`\n\n## Existing pattern references\n\n- `tasks/LC.md`\n' >> "$t"
+  A freeze LC >/dev/null || die "a plan inside its Allowed scope, outside Forbidden scope and naming its pattern reference was refused"
+  ok "task boundaries: Forbidden scope (path, glob) is refused at freeze without a waiver path; Allowed scope and pattern references are checked; a plan inside them freezes"
+}
+# A202: a task that asks for a final summary format cannot publish a report without it.
+scenario_completion_response() {
+  SC_TASK_EXTRA="$(printf '\n## Completion response\n\nThree bullets: what changed, how it was verified, what is left.')"; export SC_TASK_EXTRA; scaffold standalone no TRIVIAL; unset SC_TASK_EXTRA
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
+  A knowledge-done LC not_applicable "nothing durable changed in this synthetic test run" >/dev/null
+  r=.agents/runs/LC/COMPLETION_REPORT.md
+  printf '%s\n' '# Completion Report: LC' '' '## Implementation Summary' 'impl.txt and impl_test.txt changed under the TRIVIAL pipeline.' '' '## TDD Evidence' 'RED then GREEN recorded by the lead.' '' '## Verification' 'The VERIFY gate passed on the final tree.' '' '## Assumptions' 'none' '' '## Review Result' 'REVIEW_SMALL passed.' '' '## Known Limitations / Follow-up' 'None.' > "$r"
+  expect_msg "a report without the requested response was published" "Requested Response" A publish-completion-report LC markdown
+  printf '\n## Requested Response\n\n- changed: lookup default\n- verified: VERIFY gate\n- left: nothing\n' >> "$r"
+  A publish-completion-report LC markdown >/dev/null || die "a report with the requested response was refused"
+  ok "completion response: the report needs its Requested Response section"
+}
+
 run_sc scenario_standalone
 run_sc scenario_failed_run_cleanup
 run_sc scenario_approval_fail_closed
+run_sc scenario_approval_multi
 run_sc scenario_evidence_order
 run_sc scenario_independence
 run_sc scenario_orchestrated_loop
@@ -1352,6 +1469,8 @@ run_sc scenario_task_contract_projection
 run_sc scenario_task_source_status
 run_sc scenario_cleanup_after_delivery
 run_sc scenario_freeze_scope_mapping
+run_sc scenario_task_boundaries
+run_sc scenario_completion_response
 run_sc scenario_freeze_ac_coverage
 run_sc scenario_window_open_no_plan
 run_sc scenario_digest_resume

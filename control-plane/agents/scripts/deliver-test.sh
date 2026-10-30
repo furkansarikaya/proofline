@@ -11,7 +11,7 @@ set -eu
 mkdir -p "$base/bin"
 printf '#!/bin/sh\ncase "$1 $2" in\n  "run list") cat "%s/gh.runs" ;;\n  "run view") cat "%s/gh.log" ;;\n  "pr checks") cat "%s/gh.checks" ;;\n  *) cat "%s/ghstate" ;;\nesac\n' "$base" "$base" "$base" "$base" > "$base/bin/gh"; chmod +x "$base/bin/gh"
 PATH=$base/bin:$PATH PROOFLINE_SELFTEST=1 PROOFLINE_NO_TTY=1; export PATH PROOFLINE_SELFTEST PROOFLINE_NO_TTY
-gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lc main acme}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE OWNER]
+gh_says() { printf '%s %s\n' "$1" "${2:-$(git rev-parse HEAD) proofline/LC-lookup main acme}" > "$base/ghstate"; }   # STATE ISDRAFT [HEAD BRANCH BASE OWNER]
 S() { A deliver-step LC "$@"; }
 # has PATTERN CMD...: CMD succeeds and prints a line matching PATTERN (no pipe into grep -q: SIGPIPE would leave a stale lock)
 has() { hs_p=$1; shift; "$@" > "$base/has.out" || die "$* failed: $(cat "$base/has.out")"; grep -q -- "$hs_p" "$base/has.out" || die "$* printed no '$hs_p': $(cat "$base/has.out")"; }
@@ -38,17 +38,17 @@ scenario_normal_chain() {
   expect_msg "push before the commit" 'commit first' S push
   has '^run: git commit -F .agents/local/deliver/LC/COMMIT_MSG$' S commit
   A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the approved commit was blocked"
-  has '^run: git push -u origin proofline/LC-lc$' S push
+  has '^run: git push -u origin proofline/LC-lookup$' S push
   expect_msg "pr before the push" 'push first' S pr
   pushed LC
-  S pr > "$base/pr.out"; grep -q '^run: gh pr create --base main --head proofline/LC-lc --title "feat: lookup (LC)"' "$base/pr.out" && ! grep -q -- '--draft' "$base/pr.out" || die "pr step: $(cat "$base/pr.out")"
+  S pr > "$base/pr.out"; grep -q '^run: gh pr create --base main --head proofline/LC-lookup --title "feat: lookup (LC)"' "$base/pr.out" && ! grep -q -- '--draft' "$base/pr.out" || die "pr step: $(cat "$base/pr.out")"
   gh_says "MERGED false"
   expect_msg "cleanup before the merge step" 'merge step of this delivery did not run' S cleanup 7
-  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lc release acme"
+  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lookup release acme"
   expect_msg "merge of a pull request into another base" "not this delivery's open" S merge 7
-  gh_says "OPEN false" "$(git rev-parse HEAD^) proofline/LC-lc main acme"
+  gh_says "OPEN false" "$(git rev-parse HEAD^) proofline/LC-lookup main acme"
   expect_msg "merge of a pull request at another head" "not this delivery's open" S merge 7
-  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lc main forker"
+  gh_says "OPEN false" "$(git rev-parse HEAD) proofline/LC-lookup main forker"
   expect_msg "merge of a fork's pull request with the same head, branch and base" "not this delivery's open" S merge 7
   expect_msg "gh outside PATH rules" 'may be shadowed' env -u PROOFLINE_SELFTEST sh ./.agents/scripts/agent.sh deliver-step LC merge 7
   gh_says "OPEN false"
@@ -56,7 +56,7 @@ scenario_normal_chain() {
   # CI red: proofline merge refused, the pull request stays open
   expect_msg "cleanup after a failed merge" "not this delivery's merged" S cleanup 7
   [ -d .agents/runs/LC ] || die "the run went after a failed merge"
-  gh_says "MERGED false" "$(git rev-parse HEAD^) proofline/LC-lc main acme"
+  gh_says "MERGED false" "$(git rev-parse HEAD^) proofline/LC-lookup main acme"
   expect_msg "cleanup on another merged pull request" "not this delivery's merged" S cleanup 7
   gh_says "MERGED false"
   expect_msg "cleanup naming another pull request number" 'did not run for pull request 8' S cleanup 8
@@ -136,7 +136,7 @@ scenario_task_moves_to_done() {
   git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the commit with the moved task file was blocked"
   git show --stat --format= HEAD | grep -q 'LC.md' || die "the move is not inside the delivery commit"
   [ -z "$(git status --porcelain --untracked-files=all | grep -v '^.. \.agents/')" ] || die "dirty after the commit"
-  has '^run: git push -u origin proofline/LC-lc$' S push
+  has '^run: git push -u origin proofline/LC-lookup$' S push
   pushed LC; S pr >/dev/null
   gh_says "OPEN false"
   has 'moved to done/ only in the unmerged pull request branch' S merge 7
@@ -260,7 +260,7 @@ scenario_one_approval_real_chain() {
   S commit >/dev/null || die "commit step: $(S commit 2>&1 | tail -1)"
   A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the approved commit was blocked"
   S push > "$base/step.out" 2>&1 || die "push step after the foreseen commit: $(tail -1 "$base/step.out")"
-  git push -u origin proofline/LC-lc > "$base/push.out" 2>&1 || die "git push after the foreseen commit: $(tail -3 "$base/push.out")"
+  git push -u origin proofline/LC-lookup > "$base/push.out" 2>&1 || die "git push after the foreseen commit: $(tail -3 "$base/push.out")"
   S pr > "$base/step.out" 2>&1 || die "pr step: $(tail -1 "$base/step.out")"
   gh_says "OPEN false"
   S merge 7 > "$base/step.out" 2>&1 || die "merge step: $(tail -1 "$base/step.out")"
@@ -281,7 +281,7 @@ scenario_partial_reply_recovers() {
   expect_msg "that refusal does not send the lead to a new summary" 'do not prepare it again' S push
   capture 'approve delivery'; A approve-pending LC >/dev/null   # the user sends the reply once more
   S push >/dev/null || die "push step after the repeated reply: $(S push 2>&1 | tail -1)"
-  git push -u origin proofline/LC-lc > "$base/push.out" 2>&1 || die "git push after the repeated reply: $(tail -3 "$base/push.out")"
+  git push -u origin proofline/LC-lookup > "$base/push.out" 2>&1 || die "git push after the repeated reply: $(tail -3 "$base/push.out")"
   expect_msg "a second push on the used approval" 'was already used' S push
   S pr >/dev/null || die "pr step after the repeated reply: $(S pr 2>&1 | tail -1)"
   ok "deliver: a reply recorded in part is completed by the same reply once more, not by a new summary"
@@ -349,7 +349,7 @@ lo_chain() {
   capture 'approve delivery'; A approve-pending LC >/dev/null
   S commit >/dev/null; A task-source-done LC >/dev/null; git add -A; git commit -qF .agents/local/deliver/LC/COMMIT_MSG || die "the approved commit was blocked"
   S push >/dev/null || die "push step: $(S push 2>&1 | tail -1)"
-  git push -q origin proofline/LC-lc 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"
+  git push -q origin proofline/LC-lookup 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"
   S pr > "$base/pr.out" 2>&1 || die "pr step: $(cat "$base/pr.out")"
 }
 scenario_local_origin() {
@@ -362,7 +362,7 @@ scenario_local_origin() {
     grep -q '^steps: commit push pr$' .agents/local/deliver/LC/SUMMARY.md && grep -q '^merge_by: user$' .agents/local/deliver/LC/SUMMARY.md || die "$u: steps/merge_by: $(cat .agents/local/deliver/LC/SUMMARY.md)"
     # a relative origin is shown as its absolute url (a direct push from any worktree), the others as origin
     case "$u" in ../*) lo_w="$(cd "$base" && pwd -P)/${u#../}" ;; *) lo_w=origin ;; esac
-    grep -q "git push $lo_w proofline/LC-lc:main" "$base/plan.out" || die "$u: no 'git push $lo_w proofline/LC-lc:main' hand-off: $(cat "$base/plan.out")"
+    grep -q "git push $lo_w proofline/LC-lookup:main" "$base/plan.out" || die "$u: no 'git push $lo_w proofline/LC-lookup:main' hand-off: $(cat "$base/plan.out")"
   done
   # a host-shaped address without a path is not a local repository, and no hosting-service tool is applied to a local origin
   for u in github.com.evil.example https://github.com.evil.example host.example; do
@@ -387,8 +387,8 @@ scenario_manual_merge_proof() {
   git clone -q "$lo" "$base/c0" && ( cd "$base/c0" && git checkout -q main && echo other > other.txt && git add other.txt && git commit -qm other && git push -q origin main ) || die "other commit on origin"
   expect_msg "deliver-merged when origin/main moved on without the delivery" 'not merged' A deliver-merged LC
   # a squash merge: another commit, identical content on every delivered path
-  ( cd "$base/c0" && git fetch -q origin && git merge --squash -q origin/proofline/LC-lc >/dev/null 2>&1 && git commit -qm 'squash of LC' && git push -q origin main ) || die "squash merge on origin"
-  git merge-base --is-ancestor proofline/LC-lc "$(git ls-remote "$lo" refs/heads/main | cut -f1)" 2>/dev/null && die "the fixture is a fast-forward, not a squash"
+  ( cd "$base/c0" && git fetch -q origin && git merge --squash -q origin/proofline/LC-lookup >/dev/null 2>&1 && git commit -qm 'squash of LC' && git push -q origin main ) || die "squash merge on origin"
+  git merge-base --is-ancestor proofline/LC-lookup "$(git ls-remote "$lo" refs/heads/main | cut -f1)" 2>/dev/null && die "the fixture is a fast-forward, not a squash"
   A deliver-merged LC --check | grep -q '^merged: every delivered path has the same content' || die "check does not prove the squash: $(A deliver-merged LC --check 2>&1)"
   A deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged refused a squash merge: $(cat "$base/dm.out")"
   grep -q '^merge recorded for LC: every delivered path has the same content' "$base/dm.out" || die "squash output: $(cat "$base/dm.out")"
@@ -397,7 +397,7 @@ scenario_manual_merge_proof() {
 }
 scenario_manual_merge_ff() {
   lo_chain; mkdir -p .agents/local/batch
-  git --git-dir="$lo" update-ref refs/heads/main "$(git rev-parse proofline/LC-lc)"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git rev-parse proofline/LC-lookup)"
   A deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged refused a fast-forward merge: $(cat "$base/dm.out")"
   grep -q '^merge recorded for LC: the delivered commit is on origin/main' "$base/dm.out" && grep -q 'not on a clean main' "$base/dm.out" || die "ff output: $(cat "$base/dm.out")"
   grep -q "^LC	-	" .agents/local/batch/merged.tsv && [ ! -e .agents/runs/LC ] || die "ff: no record or the run survived"
@@ -406,7 +406,7 @@ scenario_manual_merge_ff() {
 scenario_manual_merge_config_edit() {
   wt_done_run; wt_deliver local
   # origin's main carries the approved commands (the delivered commit plus the config), the main working tree holds the same edit uncommitted
-  git clone -q "$lo" "$base/c9" && ( cd "$base/c9" && git checkout -q proofline/LC-lc && printf '# approved commands\n' >> .agents/config.yaml && git add .agents/config.yaml && git -c user.email=a@b.c -c user.name=a commit -qm cfg && git push -q origin HEAD:main ) || die "config commit on origin"
+  git clone -q "$lo" "$base/c9" && ( cd "$base/c9" && git checkout -q proofline/LC-lookup && printf '# approved commands\n' >> .agents/config.yaml && git add .agents/config.yaml && git -c user.email=a@b.c -c user.name=a commit -qm cfg && git push -q origin HEAD:main ) || die "config commit on origin"
   cp "$base/c9/.agents/config.yaml" .agents/config.yaml
   W deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged: $(cat "$base/dm.out")"
   grep -q 'local .agents/config.yaml edit was dropped' "$base/dm.out" && grep -q '^local main fast-forwarded' "$base/dm.out" || die "config edit output: $(cat "$base/dm.out")"
@@ -419,10 +419,10 @@ into_worktree() {
   git diff HEAD > "$base/mv.patch"; rm -rf "$base/mv"; mkdir -p "$base/mv"
   for f in $(git ls-files --others --exclude-standard | grep -v '^\.agents/'); do mkdir -p "$base/mv/$(dirname "$f")"; cp "$f" "$base/mv/$f"; done
   rm -rf "$base/mv-run"; cp -R .agents/runs/LC "$base/mv-run"
-  git checkout -q -- .; git clean -fdq -e .agents; git checkout -q main; git branch -qD proofline/LC-lc
+  git checkout -q -- .; git clean -fdq -e .agents; git checkout -q main; git branch -qD proofline/LC-lookup
   rm -rf .agents/runs/LC; : > .agents/local/ACTIVE_RUN
   wt=$(A worktree-add LC) || die "worktree-add: $wt"
-  git -C "$wt" checkout -q -b proofline/LC-lc; [ ! -s "$base/mv.patch" ] || git -C "$wt" apply "$base/mv.patch" || die "the work does not apply in the worktree"
+  git -C "$wt" checkout -q -b proofline/LC-lookup; [ ! -s "$base/mv.patch" ] || git -C "$wt" apply "$base/mv.patch" || die "the work does not apply in the worktree"
   cp -R "$base/mv/." "$wt/"; mkdir -p "$wt/.agents/runs"; cp -R "$base/mv-run" "$wt/.agents/runs/LC"; echo LC > "$wt/.agents/local/ACTIVE_RUN"
   mkdir -p .agents/local/batch
 }
@@ -437,8 +437,8 @@ wt_deliver() { # local|gh
   W deliver-step LC commit >/dev/null || die "commit step in the worktree"
   W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "the commit in the worktree was blocked: $(cat "$base/commit.err")"
   W deliver-step LC push >/dev/null || die "push step in the worktree"
-  if [ "$1" = local ]; then git -C "$wt" push -q origin proofline/LC-lc 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"
-  else git -C "$wt" push -q bare proofline/LC-lc 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"; git -C "$wt" update-ref refs/remotes/origin/proofline/LC-lc HEAD; fi
+  if [ "$1" = local ]; then git -C "$wt" push -q origin proofline/LC-lookup 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"
+  else git -C "$wt" push -q bare proofline/LC-lookup 2> "$base/push.err" || die "git push: $(cat "$base/push.err")"; git -C "$wt" update-ref refs/remotes/origin/proofline/LC-lookup HEAD; fi
   W deliver-step LC pr > "$base/pr.out" 2>&1 || die "pr step in the worktree: $(cat "$base/pr.out")"
 }
 scenario_wt_cleanup_manual() {
@@ -452,15 +452,49 @@ scenario_wt_cleanup_manual() {
   [ "$(git rev-parse main)" = "$(git --git-dir="$lo" rev-parse main)" ] || die "the local main was not brought to the merge (the next task starts from it)"
   ok "deliver-merged inside the run's worktree: merge proven from git, recorded, local main fast-forwarded, the worktree removed (A169, A181)"
 }
+# A202 item 10: the status block says MERGED where the merge is recorded from git (platform other, the user merged) and the final block does not die with the
+# run's worktree: the task file of the main working tree (the one the user reads) ends with exactly one section, stage MERGED, the delivered commit
+scenario_wt_merged_block() {
+  wt_done_run
+  cp "$tl_agents"/task-integrations/markdown.sh "$tl_agents"/task-integrations/_lib.sh "$wt/.agents/task-integrations/"
+  wt_deliver local
+  sb_f=$(find "$wt/tasks" -name 'LC*.md' | head -n 1); [ -n "$sb_f" ] || die "no task file of LC in the worktree"
+  grep -q '^- stage: PR OPEN' "$sb_f" || die "the pr step left no PR OPEN block: $(tail -n 8 "$sb_f")"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"; sb_head=$(git -C "$wt" rev-parse HEAD)
+  W deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged in the worktree: $(cat "$base/dm.out")"
+  wt_gone || die "the worktree survived deliver-merged: $(cat "$base/dm.out")"
+  sb_m=$(find tasks -name 'LC*.md' | head -n 1); [ -n "$sb_m" ] || die "no task file of LC in the main working tree after the merge"
+  [ "$(grep -c '^## Proofline Status' "$sb_m")" = 1 ] && [ "$(grep -c 'PROOFLINE-STATUS:BEGIN:LC' "$sb_m")" = 1 ] || die "$sb_m: not exactly one status section: $(tail -n 14 "$sb_m")"
+  grep -q '^- stage: MERGED$' "$sb_m" && grep -q '^- event: merged$' "$sb_m" || die "$sb_m: the block does not say MERGED: $(tail -n 14 "$sb_m")"
+  grep -q "^- delivered_commit: $(printf '%s' "$sb_head" | cut -c1-12)\$" "$sb_m" || die "$sb_m: no delivered commit $sb_head: $(tail -n 14 "$sb_m")"
+  ok "deliver-merged: the status block of the task file in the main working tree says MERGED with the delivered commit, one section, after the worktree is gone (A202)"
+}
+# A202: a worktree whose task file differs by MORE than the task's own status block is work: it is kept (a second marked block)
+scenario_wt_block_smuggle() {
+  wt_done_run
+  cp "$tl_agents"/task-integrations/markdown.sh "$tl_agents"/task-integrations/_lib.sh "$wt/.agents/task-integrations/"
+  wt_deliver local
+  sm_f=$(find "$wt/tasks" -name 'LC*.md' | head -n 1)
+  # a second marked block of ANOTHER id (the adapter rewrites only this task's own block): it is not the task's status, so it is work and is kept
+  { cat "$sm_f"; printf '\n## Proofline Status\n\n<!-- PROOFLINE-STATUS:BEGIN:OTHER-1 -->\n- run: OTHER-1\n<!-- PROOFLINE-STATUS:END:OTHER-1 -->\n'; } > "$base/sm.md"; cat "$base/sm.md" > "$sm_f"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
+  W deliver-merged LC > "$base/dm.out" 2>&1 || :   # cleanup itself may refuse (task-owned change not committed) or keep the worktree: both keep it
+  [ -d "$wt" ] || die "a second marked block did not keep the worktree: $(cat "$base/dm.out")"
+  ok "cleanup: a task file changed by more than the task's own status block keeps the worktree (A202)"
+}
 scenario_wt_cleanup_pr() {
   wt_done_run; git remote set-url origin https://github.com/acme/app.git; git init -q --bare "$base/bare.git"; git remote add bare "$base/bare.git"
+  cp "$tl_agents"/task-integrations/markdown.sh "$tl_agents"/task-integrations/_lib.sh "$wt/.agents/task-integrations/"   # the real adapter: a status block is written
   wt_deliver gh
-  gh_says "OPEN false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lc main acme"
+  gh_says "OPEN false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lookup main acme"
   W deliver-step LC merge 7 > "$base/mg.out" 2>&1 || die "merge step in the worktree: $(cat "$base/mg.out")"
-  gh_says "MERGED false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lc main acme"
+  gh_says "MERGED false" "$(git -C "$wt" rev-parse HEAD) proofline/LC-lookup main acme"
   W deliver-step LC cleanup 7 > "$base/cl.out" 2>&1 || die "cleanup step in the worktree: $(cat "$base/cl.out")"
   grep -q '^worktree removed: LC' "$base/cl.out" && wt_gone || die "the worktree survived deliver-step cleanup: $(cat "$base/cl.out")"
-  ok "deliver-step cleanup after a merged pull request removes the run's worktree (A169)"
+  # A202: the delivery moved the task to done/ in the pull request branch only; the main tree still holds it at the old path, and the user's next
+  # `git pull --ff-only` must not abort on a block written there
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the main working tree is dirty after deliver-step cleanup (a status block at the old task path): $(git status --porcelain --untracked-files=no)"
+  ok "deliver-step cleanup after a merged pull request removes the run's worktree and leaves the main tree clean (A169, A202)"
 }
 scenario_wt_cleanup_kept() {
   wt_done_run
@@ -493,17 +527,17 @@ scenario_wt_relative_origin() {
   git remote set-url origin ../lo.git; git -c core.hooksPath=/dev/null push -q origin main
   [ ! -d "$wt/../lo.git" ] && [ ! -d "$wt/lo.git" ] || die "the fixture path is also valid from the worktree"
   W deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan in the worktree: $(tail -2 "$base/plan.out")"
-  grep -q "git push $lo_abs proofline/LC-lc" "$base/plan.out" && grep -q "git push $lo_abs proofline/LC-lc:main" "$base/plan.out" || die "the plan shows a relative origin: $(grep -n 'push' "$base/plan.out")"
+  grep -q "git push $lo_abs proofline/LC-lookup" "$base/plan.out" && grep -q "git push $lo_abs proofline/LC-lookup:main" "$base/plan.out" || die "the plan shows a relative origin: $(grep -n 'push' "$base/plan.out")"
   capture 'approve delivery'; W approve-pending LC >/dev/null
   W deliver-step LC commit >/dev/null || die "commit step"
   W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
   W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
   # round 5: the push step pushes itself (the runtime guard refuses a push to an absolute path outside the project)
-  grep -q "^pushed: proofline/LC-lc -> $lo_abs\$" "$base/push.out" || die "the push step did not push to the absolute origin: $(cat "$base/push.out")"
+  grep -q "^pushed: proofline/LC-lookup -> $lo_abs\$" "$base/push.out" || die "the push step did not push to the absolute origin: $(cat "$base/push.out")"
   ls "$wt"/.agents/runs/LC/approvals/*-push.yaml >/dev/null 2>&1 && grep -q "^consumed: \"true\"" "$wt"/.agents/runs/LC/approvals/*-push.yaml || die "the push approval was not consumed by the step"
-  [ "$(git --git-dir="$lo" rev-parse -q --verify refs/heads/proofline/LC-lc)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the branch is not in the local origin"
+  [ "$(git --git-dir="$lo" rev-parse -q --verify refs/heads/proofline/LC-lookup)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the branch is not in the local origin"
   W deliver-step LC pr > "$base/pr.out" 2>&1 || die "pr step: $(cat "$base/pr.out")"
-  grep -q "git push $lo_abs proofline/LC-lc:main" "$base/pr.out" || die "the hand-off shows a relative origin: $(cat "$base/pr.out")"
+  grep -q "git push $lo_abs proofline/LC-lookup:main" "$base/pr.out" || die "the hand-off shows a relative origin: $(cat "$base/pr.out")"
   expect_msg "deliver-merged --check from the worktree before the merge" 'not merged' W deliver-merged LC --check
   git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"
   W deliver-merged LC --check > "$base/chk.out" 2>&1 || die "deliver-merged --check from the worktree does not reach the relative origin: $(cat "$base/chk.out")"
@@ -525,7 +559,7 @@ scenario_hand_pushed() {
   capture 'approve delivery'; W approve-pending LC >/dev/null
   W deliver-step LC commit >/dev/null || die "commit step"
   W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" commit -qF .agents/local/deliver/LC/COMMIT_MSG 2> "$base/commit.err" || die "commit: $(cat "$base/commit.err")"
-  git -C "$wt" -c core.hooksPath=/dev/null push -q origin proofline/LC-lc 2> "$base/push.err" || die "hand push: $(cat "$base/push.err")"
+  git -C "$wt" -c core.hooksPath=/dev/null push -q origin proofline/LC-lookup 2> "$base/push.err" || die "hand push: $(cat "$base/push.err")"
   expect_msg "pushed by hand, not merged" 'not merged' W deliver-merged LC
   [ ! -e .agents/local/batch/merged.tsv ] || ! grep -q '^LC	' .agents/local/batch/merged.tsv || die "an unmerged hand push was recorded"
   [ -d "$wt/.agents/runs/LC" ] || die "the run went before the merge"
@@ -597,10 +631,10 @@ scenario_wt_relative_guards() {
   [ ! -e "$wt/touch" ] && [ ! -e touch ] || die "an option-like origin was executed"
   git remote set-url origin ../lo.git
   W deliver-step LC push > "$base/push.out" 2>&1 || die "push step: $(cat "$base/push.out")"
-  [ "$(git --git-dir="$lo" rev-parse refs/heads/proofline/LC-lc)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the approved head was not pushed"
+  [ "$(git --git-dir="$lo" rev-parse refs/heads/proofline/LC-lookup)" = "$(git -C "$wt" rev-parse HEAD)" ] || die "the approved head was not pushed"
   W deliver-step LC pr >/dev/null 2>&1 || die "pr step"
   # an empty delivery (the delivered commit is the run's base) proves nothing
-  printf '%s\tmain\tproofline/LC-lc\n' "$(sed -n 's/^  base_sha: *//p' "$wt/.agents/runs/LC/RUN.yaml" | tr -d '"' | head -n 1)" > "$wt/.agents/local/deliver/LC/MERGE_HEAD"
+  printf '%s\tmain\tproofline/LC-lookup\n' "$(sed -n 's/^  base_sha: *//p' "$wt/.agents/runs/LC/RUN.yaml" | tr -d '"' | head -n 1)" > "$wt/.agents/local/deliver/LC/MERGE_HEAD"
   expect_msg "deliver-merged of an empty delivery" 'empty delivery' W deliver-merged LC
   [ ! -s .agents/local/batch/merged.tsv ] || die "an empty delivery was recorded as merged"
   ok "relative origin: the approved head is pushed, a changed or option-like origin is refused, an empty delivery records no merge (round 6)"
@@ -626,6 +660,8 @@ run_sc scenario_manual_merge_proof
 run_sc scenario_manual_merge_ff
 run_sc scenario_manual_merge_config_edit
 run_sc scenario_wt_cleanup_manual
+run_sc scenario_wt_merged_block
+run_sc scenario_wt_block_smuggle
 run_sc scenario_wt_cleanup_pr
 run_sc scenario_wt_cleanup_kept
 run_sc scenario_wt_failed_kept

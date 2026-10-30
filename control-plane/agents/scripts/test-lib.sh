@@ -55,6 +55,7 @@ install_control_plane() {
   cp "$tl_agents/scripts/agent.sh" "$1/.agents/scripts/"
   [ ! -f "$tl_agents/ecosystems.tsv" ] || { cp "$tl_agents/ecosystems.tsv" "$1/.agents/"; cp "$tl_agents/scripts/ecosystems.sh" "$1/.agents/scripts/"; }   # A173: the risk sets read the ecosystem definition
   [ ! -f "$tl_agents/scripts/next-user.sh" ] || cp "$tl_agents/scripts/next-user.sh" "$1/.agents/scripts/"   # A159: agent.sh next-user runs it
+  [ ! -f "$tl_agents/scripts/known-issues.sh" ] || cp "$tl_agents/scripts/known-issues.sh" "$1/.agents/scripts/"   # A202: the known-issues list data rules
   [ ! -f "$tl_agents/scripts/platform.sh" ] || cp "$tl_agents/scripts/platform.sh" "$1/.agents/scripts/"   # A180: the delivery reads the hosting platform
   [ ! -f "$tl_agents/scripts/worktree-prep.sh" ] || cp "$tl_agents/scripts/worktree-prep.sh" "$1/.agents/scripts/"   # A185: worktree-add prepares dependency folders and env files
   cat > "$1/.agents/scripts/secret-scan.sh" <<'STUB'
@@ -109,6 +110,7 @@ case "$op" in
   *) exit 2 ;;
 esac
 STUB
+  cp "$tl_agents/task-integrations/slug.sh" "$1/.agents/task-integrations/slug.sh"   # A202: agent.sh derives the branch slug with it
   chmod +x "$1/.agents/scripts/"*.sh "$1/.agents/task-integrations/markdown.sh"
 }
 # The fixture repository is built once per content hash of the control plane and the stubs above, shared by every
@@ -126,7 +128,7 @@ tl_template=''
 tl_ensure_template() {
   [ -z "$tl_template" ] || return 0
   if command -v fx_template >/dev/null 2>&1; then
-    tl_key=$(fx_key "$tl_agents" config.yaml modes templates scripts/agent.sh scripts/next-user.sh scripts/platform.sh scripts/test-lib.sh ecosystems.tsv scripts/ecosystems.sh)
+    tl_key=$(fx_key "$tl_agents" config.yaml modes templates scripts/agent.sh scripts/next-user.sh scripts/platform.sh scripts/test-lib.sh ecosystems.tsv scripts/ecosystems.sh scripts/known-issues.sh)
     tl_template=$(fx_template "ctl-$tl_key" tl_build_template) || { echo "test-lib: cannot build the fixture template" >&2; exit 2; }
   else
     mkdir "$base/template"; tl_build_template "$base/template"; tl_template=$base/template
@@ -158,6 +160,7 @@ result_for() {
   if [ -n "${RF_FOCUS:-}" ]; then rf_art=$(risk_report "$RF_FOCUS"); rf_fc=$RF_FOCUS; fi
   mkdir -p ".agents/runs/$RID/$(dirname "$rf_art")"
   printf '# %s report\n\nVerdict: %s\n\nJudged the whole current tree.\n' "$rf_g" "$rf_r" > ".agents/runs/$RID/$rf_art"
+  [ -z "${RF_EXTRA:-}" ] || printf '\n%s\n' "$RF_EXTRA" >> ".agents/runs/$RID/$rf_art"   # A202: more report text (the QA report'"'"'s Human checks)
   # A200: a visual PASS is accepted only with the independent machine report (reviews/visual-proof/report.json) saying PASS
   if [ "$rf_fc" = visual ] && [ "$rf_r" = PASS ]; then printf '{"schema":"visual-proof/1","result":"%s","cells":[]}\n' "$rf_r" > ".agents/runs/$RID/reviews/visual-proof/report.json"
     # the record reruns the source lint (A200 review): the skill is installed in the fixture, outside git
@@ -236,11 +239,14 @@ scaffold() {
   tpath=tasks/LC.md; [ "$layout" = yes ] && tpath=tasks/in-progress/LC.md
   new_repo; RID=LC; d=.agents/runs/LC; mkdir -p "$d" tasks
   printf 'LC\n' > .agents/local/ACTIVE_RUN
-  printf '# Task: LC — lookup\n\n## Acceptance criteria\n\n- AC-1: lookup behavior\n' > "$d/TASK.md"
+  printf '# Task: LC — lookup\n\n' > "$d/TASK.md"
+  [ -z "${SC_TASK_FM:-}" ] || printf -- '---\n%s\n---\n\n' "$SC_TASK_FM" >> "$d/TASK.md"   # A202: front matter (type: ...) right after the H1
+  printf '## Acceptance criteria\n\n- AC-1: lookup behavior\n' >> "$d/TASK.md"
   [ -z "${SC_TASK_EXTRA:-}" ] || printf '%s\n' "$SC_TASK_EXTRA" >> "$d/TASK.md"
   case "$class" in TRIVIAL) ;; *) printf '%s\n' '# Evidence' '' '## Assumptions' 'none' '' '## Claims' > "$d/EVIDENCE.md"; printf '# QA plan\n\n- QA-1 (AC-1): lookup returns the stored value\n' > "$d/QA_PLAN.md"; [ "${SC_TEST_CRIT:-${SC_SCOPE_OTHER:-AC-1}}" = AC-1 ] || printf -- '- QA-2 (%s): second behavior\n' "${SC_TEST_CRIT:-$SC_SCOPE_OTHER}" >> "$d/QA_PLAN.md"; [ -z "${SC_QA_EXTRA:-}" ] || printf '%s\n' "$SC_QA_EXTRA" >> "$d/QA_PLAN.md" ;; esac
   printf '%s\n' '---' 'scope:' '  - path: impl.txt' '    criteria: [AC-1]' ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} '  - path: impl_test.txt' "    criteria: [${SC_TEST_CRIT:-AC-1}]" ${SC_EXEMPT:+'    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_EXTRA:+'  - path: other.txt' "    criteria: [$SC_SCOPE_EXTRA]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_OTHER:+'  - path: far.txt' "    criteria: [$SC_SCOPE_OTHER]" '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_AGENTS:+'  - path: .agents/impl.txt' '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} ${SC_SCOPE_NAMED:+"  - path: $SC_SCOPE_NAMED" '    criteria: [AC-1]' '    tdd_exemption: fixture file without executable behaviour to test here'} '---' '# Plan' '' '## Assumptions' 'none' '' '## Architecture' 'one storage map; no new module' > "$d/PLAN.md"
   [ -z "${SC_PLAN_EXTRA:-}" ] || printf '%s\n' "$SC_PLAN_EXTRA" >> "$d/PLAN.md"
+  [ -z "${SC_KIND_CLAIM:-}" ] || { awk -v p="${SC_KIND_CLAIM%%=*}" -v k="${SC_KIND_CLAIM#*=}" '{ print } $0 == "  - path: " p { print "    kind: " k }' "$d/PLAN.md" > "$d/PLAN.kind" && mv "$d/PLAN.kind" "$d/PLAN.md"; }   # A202: a plan that labels one path's kind
   printf '%s\n' 'task:' '  id: LC' 'repository:' '  base_sha: PENDING' "${SC_BRANCH:+  canonical_branch: PENDING}" "${SC_BRANCH:+  task_branch: PENDING}" 'task_source:' '  type: local_markdown' "  path: $tpath" '  revision: PENDING' \
     'execution:' '  mode: deterministic' '  profile: PENDING' "  autonomy: $auto" "  topology: $topo" '  state: PLANNING' '  knowledge_state: not_started' '  knowledge_reason: ""' '  awaiting_input: false' \
     'pipeline:' '  classification: PENDING' '  review: PENDING' '  tier: PENDING' \

@@ -6,7 +6,7 @@
 //   node validate-task.mjs --import ISSUE.md --template T.md       (JSON: fields, custom, missing)
 //   node validate-task.mjs --check-export ISSUE.md --template T.md (every template section filled)
 
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +87,31 @@ export function defectErrors(text) {
 }
 
 export const SIZES = ["S", "M", "L"];
+// A202: the task type (front matter `type:`); a task without one is a feature. Proposed by the task author, changed only by the user.
+export const TYPES = ["feature", "bug", "refactor", "content", "docs", "chore"];
+// required sections per type (a bug without reproduction steps, expected and actual behaviour and environment is not a bug report)
+export const TYPE_SECTIONS = {
+  bug: ["Reproduction steps", "Expected and actual behaviour", "Environment"],
+  refactor: ["Behaviour unchanged"],
+};
+const EXISTING_TESTS_PASS = /\bexisting\s+tests?\b[^\n]*\b(pass|passes|passing|stay|stays|remain|remains|green)\b|\b(pass|passes|passing|green)\b[^\n]*\bexisting\s+tests?\b/i;
+
+// ASCII slug of a title, the same rules as control-plane/agents/task-integrations/slug.sh (Turkish and other Latin letters first, max 48)
+const SPECIAL = { "ı": "i", "İ": "i", "ß": "ss", "æ": "ae", "Æ": "ae", "œ": "oe", "Œ": "oe", "ø": "o", "Ø": "o", "đ": "d", "Đ": "d", "ł": "l", "Ł": "l" };
+export function slugify(title) {
+  const ascii = String(title).replace(/[ıİßæÆœŒøØđĐłŁ]/g, (c) => SPECIAL[c]).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return ascii.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-$/, "");
+}
+// A task file is named <ID>-<slug>.md. Returns a warning (with the proposed name) for a file named only by its ID or only by a slug.
+export function fileNameWarning(id, title, fileName) {
+  if (!id || !fileName || !fileName.endsWith(".md") || fileName === "TASK.md") return null;
+  const stem = fileName.slice(0, -3);
+  if (new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-FU\\d+$`).test(stem)) return null;
+  const slug = stem.startsWith(`${id}-`) ? stem.slice(id.length + 1) : null;
+  if (slug && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) && slug !== slugify(id)) return null;
+  const want = slugify(title);
+  return `file name "${fileName}" is not <ID>-<slug>.md${want ? ` (propose "${id}-${want}.md"; a queued task is renamed only on the user's approval, a started or reported task never)` : ""}`;
+}
 // Optional link from a criterion to the PRD requirements it satisfies (product-spec): the criterion ends with
 // `Covers: FR-1, NFR-2` (usually on its own indented line under it); the task names the PRD with front matter `prd: <slug>`.
 export const COVERS = /\bCovers:\s*(.*?)\s*\.?\s*$/;
@@ -102,13 +127,14 @@ export function frontMatter(text) {
     m = [h[0], h[2]]; pre = h[1];
   }
   const meta = {};
-  let key = null;
+  let key = null, types = 0;
   for (const l of m[1].split(/\r?\n/)) {
     const item = /^\s+-\s+(.*?)\s*$/.exec(l);
     if (item && key) { meta[key] = [meta[key], item[1]].filter(Boolean).join(","); continue; }
     const kv = /^([A-Za-z_]+):\s*(.*?)\s*$/.exec(l);
-    if (kv) { key = kv[1]; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
+    if (kv) { key = kv[1]; if (key === "type") types++; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
   }
+  if (types > 1) meta.type = "duplicate";   // two `type:` lines: never guess which one counts (the freeze reads it the same way)
   return { meta, body: pre + text.slice(m[0].length) };
 }
 
@@ -116,7 +142,8 @@ export function frontMatter(text) {
 function knownIds(dirs) {
   const ids = new Set(), names = [];
   ids.has2 = (d) => ids.has(d) || names.some((c) => c.startsWith(`${d}-`));
-  const h1 = (f) => { try { const m = /^# Task: (\S+)/m.exec(readFileSync(f, "utf8")); if (m) ids.add(m[1]); } catch {} };
+  // A202: only the first line (the title) of a sibling task is read, never its body: a finished task's completion report is not loaded.
+  const h1 = (f) => { try { const fd = openSync(f, "r"); const b = Buffer.alloc(1024); const n = readSync(fd, b, 0, 1024, 0); closeSync(fd); const m = /^# Task: (\S+)/m.exec(b.toString("utf8", 0, n).split(/\n## /)[0]); if (m) ids.add(m[1]); } catch {} };
   for (const d of dirs) {
     let entries = [];
     try { entries = readdirSync(d); } catch { continue; }
@@ -139,6 +166,9 @@ export function validate(full, opts = {}) {
   if ("size" in meta && !SIZES.includes(meta.size)) errors.push(`front matter size must be one of ${SIZES.join("|")}`);
   if ("sprint" in meta && !meta.sprint) errors.push("front matter sprint is empty (positive integer or label)");
   if ("assignee" in meta && !meta.assignee) errors.push("front matter assignee is empty");
+  let type = String(meta.type ?? "feature").toLowerCase();
+  if (type === "defect") { warnings.push("front matter type `defect` is the old spelling of `bug`; use `type: bug`"); type = "feature"; }   // still triggers debug-proof in agent.sh, but has no new sections
+  else if ("type" in meta && !TYPES.includes(type)) errors.push(`front matter type must be one of ${TYPES.join("|")}`);
   if ("prd" in meta && !/^[a-z0-9][a-z0-9-]*$/.test(meta.prd)) errors.push("front matter prd must be the PRD's slug (lowercase letters, digits, -)");
   if ("depends_on" in meta) {
     const deps = meta.depends_on.split(/[\s,]+/).filter(Boolean);
@@ -148,12 +178,19 @@ export function validate(full, opts = {}) {
     }
   }
   const t = parseTask(text);
+  validateOptionalFields(meta, t, errors, warnings, opts);   // A202
   if (!t.id) errors.push("H1 must be `# Task: <ID> — <title>`");
   for (const name of REQUIRED) {
     const body = t.secs.get(name);
     if (!body) errors.push(`missing section "## ${name}"`);
     else if (!body.some((l) => l.trim())) errors.push(`section "## ${name}" is empty`);
   }
+  for (const name of TYPE_SECTIONS[type] || []) {
+    const body = t.secs.get(name);
+    if (!body) errors.push(`a ${type} task needs the section "## ${name}"`);
+    else if (!body.some((l) => l.trim())) errors.push(`section "## ${name}" is empty`);
+  }
+  if (type === "refactor" && !t.acs.some((ac) => EXISTING_TESTS_PASS.test(ac.text))) errors.push("a refactor task needs an acceptance criterion that the existing tests pass unchanged (the safety net), for example `AC-2: the existing tests pass without changes`");
   if (t.acs.length === 0 && (t.secs.get("Acceptance criteria") || []).some((l) => l.trim())) errors.push("no acceptance criteria in the form `AC-<n>: <text>`");
   const covers = {};
   t.acs.forEach((ac, i) => {
@@ -171,6 +208,7 @@ export function validate(full, opts = {}) {
       if (!OBSERVABLE.test(text)) errors.push(`AC-${ac.n} names no observable behaviour (no verb such as returns, shows, rejects, persists)`);
       const v = VAGUE.exec(text);
       if (v) errors.push(`AC-${ac.n} is not testable: vague term "${v[0]}"`);
+      else if (!meta.prd) { const w = ambiguousRegex(opts.vagueWords).exec(text); if (w) errors.push(`AC-${ac.n} cannot be measured: ambiguous word "${w[0]}" (a number, a path or an observable result instead; A202)`); }
       if (IMPL.test(text)) warnings.push(`AC-${ac.n} may dictate implementation; keep only if the user stated it as a constraint`);
     }
   });
@@ -182,7 +220,73 @@ export function validate(full, opts = {}) {
   if (PLACEHOLDER.test(stripComments(text).replace(/^# Task:.*$/m, ""))) errors.push("unfilled placeholder (<...>, TBD, TODO or ???) remains");
   errors.push(...defectErrors(text));
   if (defectEntries(text).some((e) => /decision:\s*fix\b/i.test(e))) warnings.push("a pre-existing defect with `decision: fix` needs the user's own `scope` approval at freeze; an answer such as \"use your recommended option\" is not one");
-  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, ...(Object.keys(meta).length ? { meta } : {}), ...(Object.keys(covers).length ? { covers } : {}) } };
+  const nameWarn = fileNameWarning(t.id, t.title, opts.fileName);
+  if (nameWarn) warnings.push(nameWarn);
+  return { valid: errors.length === 0, errors, warnings, task: { id: t.id, title: t.title, acs: t.acs.length, class: t.cls, type: TYPES.includes(type) ? type : "feature", ...(Object.keys(meta).length ? { meta } : {}), ...(Object.keys(covers).length ? { covers } : {}) } };
+}
+
+// ---- A202 optional task fields: priority, origin, Allowed/Forbidden scope, Existing pattern references, Completion response ----
+export const PRIORITIES = ["high", "medium", "low"];
+export const SCOPE_SECTIONS = ["Allowed scope", "Forbidden scope", "Existing pattern references"];
+// Words an acceptance criterion cannot be measured by. Kept in step with product-spec's check-prd.mjs VAGUE_WORDS (a test compares them);
+// a skill is installable alone, so the list is copied, not imported. Extended by config product.vague_words.
+export const AMBIGUOUS_WORDS = [
+  "robust", "seamless", "seamlessly", "etc.", "etc", "and so on", "user-friendly", "user friendly", "fast", "faster", "quick", "quickly",
+  "intuitive", "easy", "easily", "simple", "simply", "scalable", "flexible", "efficient", "efficiently", "modern", "powerful", "smooth",
+  "smoothly", "properly", "appropriate", "appropriately", "as needed", "optimal", "reasonable",
+  "kullanıcı dostu", "hızlı", "hızlıca", "çabuk", "sağlam", "kolay", "kolayca", "sezgisel", "basit", "esnek", "ölçeklenebilir",
+  "verimli", "sorunsuz", "kusursuz", "güçlü", "uygun", "makul", "vb.", "vs.", "gibi şeyler",
+];
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const ambiguousRegex = (extra = []) => new RegExp(`(?<![\\p{L}\\p{N}])(${[...new Set([...AMBIGUOUS_WORDS, ...extra])].sort((a, b) => b.length - a.length).map(escRe).join("|")})(?![\\p{L}\\p{N}])`, "iu");
+// scopeParse: every entry of a scope section (the shell freeze reads it the same way). A bullet with backticks gives each backticked token (commas split),
+// without backticks every word; each word must look like a path or glob. What cannot be read is returned in `bad` (never dropped silently).
+const TOKEN_BAD = /[\s()<>|;{}"'$&\\]/, PATH_LIKE = /[\]\[/*?]|\.[A-Za-z0-9]/;
+export function scopeParse(lines) {
+  const entries = [], bad = [], prose = [];
+  const emit = (t0, ticked) => {
+    const t = t0.trim().replace(/[,;:]+$/, "");
+    if (!t) return;
+    if (TOKEN_BAD.test(t) || /^[./]+$/.test(t) || (!ticked && !PATH_LIKE.test(t))) { bad.push(t); return; }
+    entries.push(t.replace(/^\.\//, "").replace(/^\//, ""));
+  };
+  for (const raw of lines || []) {
+    const line = raw.replace(/\r/g, "");
+    if (!line.trim()) continue;
+    const m = /^\s*(?:[-*]|\d+[.)])\s+(.*?)\s*$/.exec(line);
+    const text = m ? m[1] : line.trim();
+    if (text.toLowerCase() === "none") continue;
+    if (!m) { prose.push(text.slice(0, 60)); continue; }
+    if (text.includes("`")) { for (const b of text.matchAll(/`([^`]*)`/g)) for (const part of b[1].split(",")) emit(part, true); }
+    else for (const w of text.split(/[\s,]+/)) emit(w, false);
+  }
+  return { entries, bad, prose };
+}
+export const scopeEntries = (lines) => scopeParse(lines).entries;
+// a heading with trailing text ("Forbidden scope (do not touch)") and any letter case is the section too
+export function scopeBody(secs, name) {
+  const want = name.toLowerCase(), out = [];
+  for (const [h, body] of secs) { const lh = h.trim().toLowerCase(); if (lh === want || (lh.startsWith(want) && !/[a-z0-9]/.test(lh[want.length] || ""))) out.push(...body); }
+  return out;
+}
+export function validateOptionalFields(meta, t, errors, warnings, opts = {}) {
+  if ("priority" in meta && !PRIORITIES.includes(meta.priority)) errors.push(`front matter priority must be one of ${PRIORITIES.join("|")}`);
+  if ("origin" in meta) {
+    if (!/^(prd:[a-z0-9][a-z0-9-]*|[A-Za-z0-9][A-Za-z0-9._-]*)$/.test(meta.origin)) errors.push("front matter origin must be the source task's id or `prd:<slug>`");
+    else if (!meta.origin.startsWith("prd:") && opts.tasksDirs?.length) {
+      if (!knownIds(opts.tasksDirs).has2(meta.origin)) errors.push(`origin "${meta.origin}" matches no task in ${opts.tasksDirs.join(", ")}`);
+      else if (!opts.tasksDirs.some((d) => { try { return readFileSync(join(d, "links.tsv"), "utf8").split("\n").some((r) => r.split("\t")[0] === meta.origin && r.split("\t")[1] === t.id); } catch { return false; } }))
+        warnings.push(`origin ${meta.origin} has no back link to ${t.id} in links.tsv (link-origin.mjs writes both directions)`);
+    }
+  }
+  for (const name of SCOPE_SECTIONS) {
+    const body = scopeBody(t.secs, name);
+    if (!body.some((l) => l.trim())) continue;
+    const { entries, bad, prose } = scopeParse(body);
+    if (bad.length || (entries.length && prose.length)) errors.push(`section "## ${name}" has an entry that is not a path or glob: "${bad[0] ?? prose[0]}". Write one path, folder or glob per bullet, each in backticks, e.g. - \`src/billing/\` or - \`**/*.sql\` (several per bullet are fine)`);
+    else if (entries.length === 0) errors.push(`section "## ${name}" lists no path (one bullet per file, folder or glob, or remove the section)`);
+  }
+  if (t.secs.get("Completion response") && !t.secs.get("Completion response").some((l) => l.trim())) errors.push('section "## Completion response" is empty (describe the final summary you want, or remove the section)');
 }
 
 // ---- templates (D25) ----
@@ -250,6 +354,22 @@ export function resolveTemplate(target, root) {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "templates", `${target}.md`);
 }
 
+// product.vague_words from the nearest .agents/config.yaml above the task (the same key product-spec reads).
+function configVagueWords(from) {
+  for (let d = dirname(from), i = 0; i < 8; d = dirname(d), i++) {
+    const c = join(d, ".agents", "config.yaml");
+    if (!existsSync(c)) continue;
+    let inBlock = false;
+    for (const l of readFileSync(c, "utf8").split(/\r?\n/)) {
+      if (/^\S/.test(l)) { inBlock = /^product:\s*(#.*)?$/.test(l); continue; }
+      const m = inBlock && /^  vague_words:\s*(.*?)\s*$/.exec(l);
+      if (m) return m[1].replace(/\s+#.*$/, "").replace(/^"(.*)"$/, "$1").split(",").map((w) => w.trim()).filter(Boolean);
+    }
+    return [];
+  }
+  return [];
+}
+
 function main(argv) {
   const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
@@ -275,7 +395,7 @@ function main(argv) {
   const td = opt("--tasks-dir");
   const own = dirname(resolve(file));
   const tasksDirs = td ? [resolve(td)] : [own, dirname(own)];
-  const r = validate(read(file), { tasksDirs });
+  const r = validate(read(file), { tasksDirs, vagueWords: configVagueWords(resolve(file)), fileName: basename(file) });
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
   else { r.errors.forEach((e) => console.error(`error: ${e}`)); r.warnings.forEach((w) => console.error(`warning: ${w}`)); }
   return r.valid ? 0 : 1;

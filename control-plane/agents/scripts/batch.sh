@@ -40,9 +40,25 @@ cfgv() { v=$(sh "$agent" config-get "$1" 2>/dev/null) || v=''; [ -n "$v" ] || v=
 tsv() { printf '%s' "$*" | tr '\t\n' '  '; }
 bid() { sha "$bd/SUMMARY.md" | cut -c1-12; }
 PLUG_LINE='Keep the computer awake (plugged in, lid open) and this session open.'   # one place so other texts can reuse it
+# A202: a task file is <ID>.md or <ID>-<slug>.md (the consistent form); the ID is the one in the H1, the file name only when there is none.
+tid() { t_b=$(basename "$1" .md); t_id=$(sed -n '1s/^# Task: *\([^ ]*\).*/\1/p' "$1" 2>/dev/null | head -1); case "$t_b" in "$t_id"|"$t_id"-?*) [ -z "$t_id" ] || { printf '%s\n' "$t_id"; return 0; } ;; esac; printf '%s\n' "$t_b"; }
+tfile() { # ID -> the path of its queued task file (top level, todo/, backlog/), nothing when none
+  for t_d in "$td" "$td/todo" "$td/backlog"; do
+    [ -f "$t_d/$1.md" ] && { printf '%s\n' "$t_d/$1.md"; return 0; }
+    for t_f in "$t_d/$1"-*.md; do
+      [ -f "$t_f" ] || continue
+      case "$(basename "$t_f" .md)" in "$1"-FU[0-9]*) continue ;; esac
+      [ "$(tid "$t_f")" = "$1" ] || continue
+      printf '%s\n' "$t_f"; return 0
+    done
+  done
+  return 1
+}
 # --- plan ------------------------------------------------------------------------------------------------------------
 cls_of() { awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$1"; }
 deps_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^depends_on:/ { sub(/^depends_on:[[:space:]]*/, ""); gsub(/["\[\]]/, ""); gsub(/[,[:space:]]+/, ","); sub(/^,/, ""); sub(/,$/, ""); print; exit }' "$1"; }
+# # prio_of FILE (A202): front matter `priority: high|medium|low` as a rank (1 high, 2 medium, 3 low); medium when absent or unreadable.
+prio_of() { awk 'NR > 1 && /^## / { exit } /^---[[:space:]]*$/ { fm = !fm; next } fm && /^priority:/ { v = tolower($2); gsub(/["\047]/, "", v); r = (v == "high") ? 1 : (v == "low") ? 3 : 2; print r; found = 1; exit } END { if (!found) print 2 }' "$1"; }
 # ci_absent (A163, A180): true when the project has no pull_request workflow. That is a WARNING, no longer a blocker: proofline merge
 # then verifies each commit with the project's build and test commands in a clean copy and says "verified locally, no CI".
 ci_absent() { ci_out=$(sh "$agent" ci-check 2>/dev/null) || :; [ "$(printf '%s\n' "$ci_out" | head -1)" = 'ci: absent' ]; }
@@ -82,11 +98,59 @@ lint_task() {
   elif [ -n "$lt_vague" ]; then
     printf '%s\tac\tA criterion cannot be measured as written: "%s". Which?\ta) park the task until it is rewritten with a number, a path or an observable result (task-author) [recommended]|b) run it as written (QA may block on it)\ta\t-\n' "$lt_id" "$lt_vague" >> "$tmp/lint.raw"
   fi
+  # A202: a task with an Allowed scope that names a path outside it (in its Context, criteria or constraints) will get that path in its plan;
+  # the freeze refuses it, so the question is asked now. Forbidden scope is never a question: the freeze refuses it and only the task's edit lifts it.
+  lt_allow=$(sh "$agent" task-scope-entries "$lt_f" 'Allowed scope' 2>/dev/null) || lt_allow=''
+  if [ -n "$lt_allow" ] && [ -n "$lt_paths" ]; then
+    lt_out=''
+    lt_skip=$(for lt_h in 'Forbidden scope' 'Existing pattern references'; do sh "$agent" task-scope-entries "$lt_f" "$lt_h" 2>/dev/null; done)
+    for lt_p in $lt_paths; do
+      printf '%s\n' "$lt_skip" | grep -Fxq -- "$lt_p" && continue
+      lt_in=no
+      while IFS= read -r lt_e; do
+        [ -n "$lt_e" ] || continue
+        sh "$agent" scope-covers "$lt_e" "$lt_p" 2>/dev/null && { lt_in=yes; break; }
+      done <<EOF
+$lt_allow
+EOF
+      [ "$lt_in" = yes ] || lt_out="$lt_out $lt_p"
+    done
+    lt_out=$(printf '%s\n' "$lt_out" | cut -c1-120)
+    if [ -n "${lt_out# }" ]; then
+      printf '%s\tscope\tThe task has an Allowed scope but names path(s) outside it:%s. The plan would need them and the freeze refuses a path outside the Allowed scope. Which?\ta) park the task until its Allowed scope is widened or the path is dropped (you edit the task) [recommended]|b) the plan may use paths outside the Allowed scope for this task\ta\t-\n' "$lt_id" "$lt_out" >> "$tmp/lint.raw"
+    fi
+  fi
+  # A202: the task type is an input of the pre-flight: a bug without its reproduction steps or a refactor without its behaviour statement
+  # would be refused by the validator, and a bug or refactor classified TRIVIAL would be refused by `classify`.
+  lt_ty=$(sh "$agent" task-type "$lt_f" 2>/dev/null) || lt_ty=feature
+  lt_miss=''
+  case "$lt_ty" in
+    bug) for lt_s in "Reproduction steps" "Expected and actual behaviour" "Environment"; do
+           awk -v s="$lt_s" '/^## / { g = (substr($0, 4) == s); next } g && NF { f = 1 } END { exit !f }' "$lt_f" || lt_miss="$lt_miss, $lt_s"; done ;;
+    refactor) awk '/^## / { g = (substr($0, 4) == "Behaviour unchanged"); next } g && NF { f = 1 } END { exit !f }' "$lt_f" || lt_miss=", Behaviour unchanged" ;;
+  esac
+  if [ -n "$lt_miss" ]; then
+    printf '%s\ttype\tThe task is typed %s but these sections are empty or missing: %s. The validator refuses such a task. Which?\ta) park the task until they are written (task-author) [recommended]|b) run it anyway (the freeze or the review stops on it)\ta\t-\n' "$lt_id" "$lt_ty" "${lt_miss#, }" >> "$tmp/lint.raw"
+  fi
+  case "$lt_ty:$lt_c" in bug:TRIVIAL|refactor:TRIVIAL)
+    printf '%s\ttype\tThe task is typed %s but classified TRIVIAL; a %s changes behaviour or code, so `classify` refuses TRIVIAL. Which?\ta) park the task until it is classified STANDARD or higher (task-author) [recommended]|b) run it anyway (the classification stops at freeze)\ta\t-\n' "$lt_id" "$lt_ty" "$lt_ty" >> "$tmp/lint.raw" ;;
+  esac
   lt_n=$((lt_code + lt_cont))
   case "$lt_c:$([ "$lt_n" -le 6 ] && echo small)" in COMPLEX:small)
     lt_why=$(awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && NF { print substr($0, 1, 90); exit }' "$lt_f")
     printf '%s\tclass\tClassified COMPLEX (%s path(s) named). Its reason: "%s". COMPLEX adds an architect, a stricter review and more gates (more time). Keep it?\ta) keep COMPLEX [recommended]|b) STANDARD (you take the lighter review)|c) another class: say which in your answer\ta\t-\n' "$lt_id" "$lt_n" "${lt_why:-none written}" >> "$tmp/lint.raw" ;;
   esac
+}
+# lint_known (A202, item 27): blocking findings that runs on this machine recorded, whose run did not touch the place (its frozen scope
+# does not cover the file) and that are not on the user's known-issues list. They may already be on main and would stop every task that
+# meets them, so they are asked now. What this can see: gate records of runs still on disk. What it cannot: a finding that no run recorded
+# (a failing build, test or lint on main is not a finding record), or a run that was cleaned up. It is no scanner. The answer is a
+# question's answer, never an approval: listing needs `agent.sh known-issue-propose` and the user's own "approve known issue".
+lint_known() {
+  sh "$agent" known-issue-candidates 2>/dev/null | head -n 8 | while IFS="$(printf '\t')" read -r kr kfid kg kp kt; do
+    [ -n "$kr" ] || continue
+    printf '%s\tknown\tRun %s recorded the blocking finding %s (%s) at %s: "%s". Its run did not touch that file, so it may already be on main, and it is not on the known-issues list: it will stop every task that meets it. Which?\ta) leave it blocking [recommended]|b) list it as a known issue: name its follow-up task (an existing open task) in your answer; I then propose the record and you approve it separately with "approve known issue"\ta\t-\n' "$kr" "$kr" "$kfid" "$kg" "$kp" "$(printf '%s' "$kt" | cut -c1-100)" >> "$tmp/lint.raw"
+  done
 }
 # ans_row ID KIND: the newest recorded answer for the batch in force: letter<TAB>question number
 ans_row() {
@@ -100,7 +164,7 @@ plan() {
   td=$root/$(cfgv tasks.dir .agents/tasks)
   # the same approved batch, not finished: continue it instead of planning a new one (a new plan has a new summary and needs a new approval)
   if [ "$repl" = no ] && [ -f "$bd/order.tsv" ] && sh "$agent" batch-check >/dev/null 2>&1 && [ "$(derive_state)" = approved ]; then
-    rs_sel="$*"; [ "$rs_sel" != all ] || rs_sel=$(for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && basename "$f" .md; done | sort -u | tr '\n' ' ')
+    rs_sel="$*"; [ "$rs_sel" != all ] || rs_sel=$(for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && tid "$f"; done | sort -u | tr '\n' ' ')
     rs_out=''; for a in $rs_sel; do grep -q "^$a	" "$bd/order.tsv" || grep -q "^- $a:" "$bd/SUMMARY.md" || rs_out="$rs_out $a"; done
     if [ -n "$rs_out" ]; then
       die "batch $(bid) is approved and not finished, and it does not contain:$rs_out. Continue it with /proofline batch (no task IDs), or plan a new batch that includes them with agent.sh batch-plan --replace <ID...|all> (a new summary and a new approval)"
@@ -114,21 +178,21 @@ plan() {
   : > "$tmp/sel"
   if [ "$1" = all ]; then
     [ $# -eq 1 ] || die "'all' stands alone"
-    for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && basename "$f" .md; done | sort -u > "$tmp/sel" || :
+    for f in "$td"/todo/*.md "$td"/*.md; do [ -f "$f" ] && tid "$f"; done | sort -u > "$tmp/sel" || :
   else
     for id in "$@"; do
       case "$id" in run|status|all|'') die "'$id' is a reserved word, not a task ID" ;; *[!A-Za-z0-9_-]*) die "invalid task ID: $id" ;; esac
-      [ -f "$td/$id.md" ] || [ -f "$td/todo/$id.md" ] || [ -f "$td/backlog/$id.md" ] || die "task $id not found in $td (top level, todo/ or backlog/)"
+      [ -n "$(tfile "$id")" ] || die "task $id not found in $td (top level, todo/ or backlog/)"
       grep -Fxq "$id" "$tmp/sel" || printf '%s\n' "$id" >> "$tmp/sel"
     done
   fi
   [ -s "$tmp/sel" ] || die "no task to batch in $td"
-  for f in "$td"/done/*.md; do [ -f "$f" ] && basename "$f" .md; done > "$tmp/done" || :
+  for f in "$td"/done/*.md; do [ -f "$f" ] && tid "$f"; done > "$tmp/done" || :
   : > "$tmp/info"
   while IFS= read -r id; do
-    f=$td/$id.md; [ -f "$f" ] || f=$td/todo/$id.md; [ -f "$f" ] || f=$td/backlog/$id.md
+    f=$(tfile "$id")
     c=$(cls_of "$f"); d=$(deps_of "$f")
-    printf '%s\t%s\t%s\t%s\n' "$id" "${c:--}" "${d:--}" "$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$f" | tr '\t' ' ')" >> "$tmp/info"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$id" "${c:--}" "${d:--}" "$(sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$f" | tr '\t' ' ')" "$(prio_of "$f")" >> "$tmp/info"
   done < "$tmp/sel"
   # a dependency cycle among the selected tasks refuses the whole batch
   awk -F'\t' '
@@ -145,7 +209,7 @@ plan() {
   # what a batch never runs: CRITICAL, class unknown, and whatever depends on an excluded task or on a task nobody finishes
   awk -F'\t' -v OFS='\t' '
     FILENAME == ARGV[1] { done[$1] = 1; next }
-    { n++; id[n] = $1; cls[$1] = $2; dep[$1] = $3; title[$1] = $4; sel[$1] = 1 }
+    { n++; id[n] = $1; cls[$1] = $2; dep[$1] = $3; title[$1] = $4; pri[$1] = $5; sel[$1] = 1 }
     END {
       for (i = 1; i <= n; i++) { u = id[i]
         if (cls[u] == "CRITICAL") ex[u] = "class CRITICAL (keeps its per-task approvals)"
@@ -157,19 +221,20 @@ plan() {
             if (v in ex) { ex[u] = "depends on " v ", which is not in this batch"; ch = 1; break }
             if (!(v in sel) && !(v in done)) { ex[u] = "dependency " v " is neither in this batch nor done"; ch = 1; break } } }
       } while (ch)
-      for (i = 1; i <= n; i++) { u = id[i]; if (u in ex) print "X", u, ex[u]; else print "K", u, cls[u], dep[u], title[u] }
+      for (i = 1; i <= n; i++) { u = id[i]; if (u in ex) print "X", u, ex[u]; else print "K", u, cls[u], dep[u], title[u], pri[u] }
     }' "$tmp/done" "$tmp/info" > "$tmp/split"
   awk -F'\t' '$1 == "K"' "$tmp/split" > "$tmp/kept"
   [ -s "$tmp/kept" ] || { awk -F'\t' '$1 == "X" { print "  " $2 ": " $3 }' "$tmp/split" >&2; die "no task can be batched; nothing was written"; }
-  # topological order; ties keep the listed order
+  # topological order; among the tasks that are ready, the higher priority (A202: front matter priority, high before medium before low) goes first, and ties keep the listed order
   awk -F'\t' -v OFS='\t' '
-    { n++; id[n] = $2; cls[$2] = $3; dep[$2] = $4; kept[$2] = 1 }
+    { n++; id[n] = $2; cls[$2] = $3; dep[$2] = $4; pri[$2] = ($6 == "" ? 2 : $6); kept[$2] = 1 }
     END { left = n
-      while (left > 0) {
+      while (left > 0) { best = 0
         for (i = 1; i <= n; i++) { u = id[i]; if (u in em) continue
           m = split(dep[u], a, ","); ok = 1
           for (j = 1; j <= m; j++) if ((a[j] in kept) && !(a[j] in em)) ok = 0
-          if (ok) { em[u] = 1; print u, cls[u], dep[u]; left--; break } } } }' "$tmp/kept" > "$tmp/order"
+          if (ok && (best == 0 || pri[u] < pri[id[best]])) best = i }
+        u = id[best]; em[u] = 1; print u, cls[u], dep[u]; left-- } }' "$tmp/kept" > "$tmp/order"
   # a batch that did work goes to history; an unworked plan is simply replaced
   mkdir -p "$bd"
   if [ -f "$bd/state.tsv" ] || [ -s "$bd/merged.tsv" ] || [ -f "$bd/ci.tsv" ] || [ -f "$bd/answers.tsv" ]; then
@@ -180,13 +245,14 @@ plan() {
   # A200: plan-lint and the commands proposal, before the summary (the approval is bound to the summary's hash, so to both)
   : > "$tmp/lint.raw"
   while IFS="$(printf '\t')" read -r _k lid lcls _d _t; do
-    lf=$td/$lid.md; [ -f "$lf" ] || lf=$td/todo/$lid.md; [ -f "$lf" ] || lf=$td/backlog/$lid.md
+    lf=$(tfile "$lid")
     lint_task "$lid" "$lf" "$lcls"
   done < "$tmp/kept"
+  lint_known
   # A200: the code paths each task names (content and document paths are left out): a task that shares one with an earlier task that is not merged waits for it
   : > "$tmp/paths.tsv"
   while IFS="$(printf '\t')" read -r _k lid _c _d _t; do
-    lf=$td/$lid.md; [ -f "$lf" ] || lf=$td/todo/$lid.md; [ -f "$lf" ] || lf=$td/backlog/$lid.md
+    lf=$(tfile "$lid")
     lp=$(lint_paths "$lf")
     # shellcheck disable=SC2086 # paths of the safe character set of lint_paths
     [ -z "$lp" ] || sh "$agent" path-kind $lp 2>/dev/null | awk -F'\t' -v t="$lid" '$1 == "code" { print t "\t" $2 }' >> "$tmp/paths.tsv" || :
@@ -286,9 +352,11 @@ own_state() {
   if [ "$(st_get "$os_id" 2)" = parked ]; then DS=parked; DD=$(st_get "$os_id" 3); DQ=$(st_get "$os_id" 4); return 0; fi
   # A200: a task whose pre-flight answer is "park until it is decided or written" never starts; the answer is the user's own
   if ! has_run "$os_id"; then
-    for os_k in dep ac; do
+    for os_k in dep ac scope type; do
       os_a=$(ans_row "$os_id" "$os_k")
       if [ "$(printf '%s' "$os_a" | cut -f1)" = b ] && [ "$os_k" = dep ]; then DS=parked; DD="new dependency"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with b: a dependency is needed and only you approve it; decide it, then agent.sh batch-park $os_id --clear"; return 0; fi
+      if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = scope ]; then DS=parked; DD="allowed scope"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the task's Allowed scope is widened (or the path dropped) by you first; then agent.sh batch-park $os_id --clear"; return 0; fi
+      if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = type ]; then DS=parked; DD="type sections to write"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the sections the task type needs are written (task-author) first; then agent.sh batch-park $os_id --clear"; return 0; fi
       if [ "$(printf '%s' "$os_a" | cut -f1)" = a ] && [ "$os_k" = ac ]; then DS=parked; DD="criteria to write"; DQ="you answered $(printf '%s' "$os_a" | cut -f2) with a: the acceptance criteria are written (task-author) first; then agent.sh batch-park $os_id --clear"; return 0; fi
     done
   fi
@@ -424,7 +492,8 @@ next_report() {
   awake_line
   nr_wait=''; nr_wait=$(claim_owner) || :
   printf '%s | %s | %s | %s\n' task state detail 'pending question'
-  printf '%s\n' "$nr_rows" | awk -F'\t' '{ printf "%s | %s | %s | %s\n", $1, $2, ($3 == "" ? "-" : $3), ($4 == "" ? "-" : $4) }'
+  # A202: a parked task is written PARKED (not "parked", not a running state) and the reason leads its detail; the pending question stays last
+  printf '%s\n' "$nr_rows" | awk -F'\t' '{ printf "%s | %s | %s | %s\n", $1, ($2 == "parked" ? "PARKED" : $2), ($3 == "" ? "-" : $3), ($4 == "" ? "-" : $4) }'
   nr_ci=$(ci_pending) || nr_ci=''
   nr_open=$(printf '%s\n' "$nr_rows" | awk -F'\t' '$2 == "open" { print $1 "\t" $3; exit }')
   if [ -n "$nr_wait" ]; then
@@ -526,7 +595,7 @@ status() {
   awake_line
   printf '\n%s | %s | %s | %s | %s | %s\n' task result PR merge 'park reason' 'pending question'
   derive | while IFS="$(printf '\t')" read -r st_id st_s st_d st_q st_p st_t; do
-    case "$st_s" in open|waiting) st_s=pending; st_d='' ;; esac
+    case "$st_s" in open|waiting) st_s=pending; st_d='' ;; parked) st_s=PARKED ;; esac   # A202: a parked task never reads like a running or pending one
     [ -z "$st_t" ] || st_t=$(fmt_ts "$st_t")
     printf '%s | %s | %s | %s | %s | %s\n' "$st_id" "$st_s" "${st_p:--}" "${st_t:--}" "${st_d:--}" "${st_q:--}"
   done
@@ -559,8 +628,8 @@ ci_cmd() { # ID
   case "$cc_rc" in
     0) ci_record "$cc_id" "$cc_sha"; echo "ci: green (run of $cc_s7)" ;;
     1) echo "ci: RED (run of $cc_s7): stop the batch" ;;
-    2) echo "ci: still running (run of $cc_s7): ask again in a minute, give up after $(cfgv batch.ci_wait_minutes 30) minutes" ;;
-    4) echo "ci: no run for $cc_s7 yet: ask again in a minute, give up after $(cfgv batch.ci_appear_minutes 10) minutes" ;;
+    2) echo "ci: still running (run of $cc_s7): ask again in a minute, give up after $(sh "$agent" tm-scaled "$(cfgv batch.ci_wait_minutes 30)" 1 720) minutes" ;;
+    4) echo "ci: no run for $cc_s7 yet: ask again in a minute, give up after $(sh "$agent" tm-scaled "$(cfgv batch.ci_appear_minutes 10)" 1 240) minutes" ;;
     *) echo "ci: cannot be read (gh run list failed)" ;;
   esac
   return "$cc_rc"
@@ -611,6 +680,9 @@ park() { # ID REASON | ID --clear
   { if [ -f "$bd/state.tsv" ]; then awk -F'\t' -v t="$pk_id" '$1 != t' "$bd/state.tsv"; fi
     [ "$pk_r" = --clear ] || printf '%s\tparked\t%s\t\n' "$pk_id" "$(tsv "$pk_r")"; } > "$bd/state.tsv.tmp" && mv "$bd/state.tsv.tmp" "$bd/state.tsv"
   if [ "$pk_r" = --clear ]; then echo "batch: $pk_id is no longer parked by the lead"; else echo "batch: $pk_id parked: $pk_r"; fi
+  # A202: the task's one status block shows the park (or its end); best effort, the park itself is already recorded
+  if [ "$pk_r" = --clear ]; then pk_ev=unparked; else pk_ev=parked; fi
+  sh "$agent" status-block "$pk_id" "$pk_ev" >/dev/null 2>&1 || echo "batch: note: the status block of $pk_id was not updated" >&2
 }
 
 case "${1:-}" in

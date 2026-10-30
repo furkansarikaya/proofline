@@ -4,6 +4,15 @@
 or a git base ref. Output: one JSON report (`version: 1`, schema [impact.schema.json](../schema/impact.schema.json)).
 Read-only; never runs project code; installs nothing.
 
+## Assignment and rules (moved from SKILL.md)
+
+Same role, same read-only rules; used when the assignment (or the user) asks what a change reaches: the changed symbols or files come from the diff or the plan scope. Run `scripts/impact.mjs` and `scripts/validate-impact.mjs` ([IMPACT.md](IMPACT.md)): per symbol, references marked `exact | textual | heuristic`, affected files and modules, contracts and tests, plus the limits of static analysis and what is `unknown` (cross-repo consumers always). Rules on top of the hard rules above:
+
+- "No references found" is reported as "none found statically", never as safe. The `limits` and `unknown` sections are never trimmed.
+- A `textual` occurrence (comment, string, prose, contract spelling) and an excluded homonym are never claimed as a dependency; a `heuristic` one is claimed only as `risk` or `affected` with the word "unresolved" in the finding.
+- A language server or analysis tool that already exists on the machine is only recorded in `analysis.tools`; nothing is installed to improve the result.
+- The report is consumed by plan scope, test-trust diff mode, verify-proof and contract-proof through the interface in [IMPACT.md](IMPACT.md#consumption-interface); the report file is not a claims document and `verify-claims.mjs` does not read it.
+
 ## Running it
 
 ```

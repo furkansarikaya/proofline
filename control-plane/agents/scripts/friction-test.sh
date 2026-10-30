@@ -69,6 +69,7 @@ ok "send: approval first, bound to the report hash, single use; the printed comm
 
 # calibration: suggestions only
 { printf '## Tests\n'; i=1; while [ "$i" -le 25 ]; do printf -- '- AC-%s: x\n' "$i"; i=$((i + 1)); done; } > .agents/runs/RUN-001/PLAN.md
+sed 's/^  timeout_seconds: 5400$/  timeout_seconds: 1800/' .agents/config.yaml > "$base/config.1800" && cp "$base/config.1800" .agents/config.yaml   # A202-29: the records below were made under the earlier 1800 s limit
 cp .agents/config.yaml "$base/config.before"
 c=$(sh ./.agents/scripts/agent.sh calibrate)
 printf '%s' "$c" | grep -q 'suggest: test_trust.mutation_budget 25' || die "no budget suggestion: $c"

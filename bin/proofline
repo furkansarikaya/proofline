@@ -7,7 +7,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.38
+PROOFLINE_VERSION=0.0.39
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -36,6 +36,8 @@ else sha256() { sha256sum "$1" | awk '{print $1}'; }; fi
 . "$LIB/install.sh"
 # shellcheck source=lib/commands.sh
 . "$LIB/commands.sh"
+# shellcheck source=lib/timeouts.sh
+. "$LIB/timeouts.sh"
 # shellcheck source=lib/doctor.sh
 . "$LIB/doctor.sh"
 # shellcheck source=lib/insights.sh
@@ -62,6 +64,7 @@ setup
                             --role ROLE=RUNTIME (repeatable)  run one role on another runtime
   upgrade [--dry-run]     update unmodified control-plane files; keep yours and report conflicts
   doctor                  verify hooks, runtimes, config, commit identity and every enforced rule (live probes)
+                            --scale  measure this machine and propose timeouts.scale; --apply-scale writes it after your "approve scale"
                             --commands  find, prove by one run and propose the empty commands.build|test|lint (one question)
                             --apply-commands  write the proven proposal after your yes
   version
@@ -182,6 +185,16 @@ cmd_queue() {
   done
   for f in "$td"/*.md; do [ -f "$f" ] || continue; say "  $(basename "$f")"; found=1; done
   [ "$found" = 1 ] || say "  (none)"
+  # A202: finished tasks show their title and status only (the first lines of the file); the completion report stays in the file as evidence and is never read here.
+  dn=0
+  for f in "$td"/done/*.md; do
+    [ -f "$f" ] || continue
+    dn=$((dn + 1)); [ "$dn" -le 20 ] || continue
+    [ "$dn" -gt 1 ] || say "done (title and status only):"
+    dh=$(head -n 12 "$f"); dt=$(printf '%s\n' "$dh" | sed -n '1s/^# *//p'); ds=$(printf '%s\n' "$dh" | sed -n 's/^\*\*Status:\*\* *//p' | head -n 1)
+    say "  done/$(basename "$f"): ${dt:-(no title)} [${ds:--}]"
+  done
+  [ "$dn" -le 20 ] || say "  ... and $((dn - 20)) more finished task(s)"
   act=$(active_id); say "runs (.agents/runs):"
   found=0
   for r in "$ROOT"/.agents/runs/*/ "$ROOT"/.agents/local/worktrees/*/.agents/runs/*/; do

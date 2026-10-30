@@ -283,3 +283,15 @@ test("ids: QA-n and AC-n are one identity in any case and with leading zeros", (
   assert.equal(validatePlan(lower, TASK).valid, true, perr(lower, TASK));
   assert.equal(validatePlan(PLAN, TASK.replace(/AC-(\d)/g, "ac-0$1")).valid, true, perr(PLAN, TASK.replace(/AC-(\d)/g, "ac-0$1")));
 });
+
+// A202 (item 17): the one place for what the user must eyeball.
+test("report: Human checks is optional, at most three items or None., copied by script elsewhere", () => {
+  const withHc = (hc) => report(PLAN).replace("## Failures", `## Human checks\n${hc}\n\n## Failures`);
+  const e = (hc) => validateReport(withHc(hc), PLAN);
+  assert.equal(e("\nNone.").valid, true, e("\nNone.").errors.join());
+  assert.equal(e("\n- The error text reads naturally\n- The empty state looks balanced").valid, true);
+  assert.match(e("\n- a\n- b\n- c\n- d").errors.join(), /at most 3/);
+  assert.match(e("\nsomething free-form").errors.join(), /Human checks/);
+  assert.match(e("\n- " + "x".repeat(170)).errors.join(), /over 160/);
+  assert.equal(validateReport(report(PLAN), PLAN).valid, true, "old reports without the section stay valid");
+});

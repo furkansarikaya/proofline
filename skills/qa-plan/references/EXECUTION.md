@@ -26,6 +26,10 @@
 
 Evidence in the report line: what was observed, then the command and exit status in parentheses.
 
+## Pre-existing
+
+`PRE-EXISTING`: the same scenario, run on the base revision in a worktree (step 2), fails identically, so the change did not cause it; the evidence names the base run. It never makes the gate `FAIL` or `BLOCKED`; it is listed under `## Failures` as a pre-existing defect for the lead's follow-up and carried into the completion report, and the changed code is judged on every other scenario.
+
 ## Failures section
 
 For each `FAIL`: id, expected vs actual, smallest reproduction, `fix_scope:` (project paths the fix should touch, from tracing the failing path), fix instruction (what behaviour is wrong, not how to code it). For each `BLOCKED`: id, reason, what would unblock it. Suspicions (no reproduction) are listed under `Suspicions:` and never change the verdict.

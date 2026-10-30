@@ -30,20 +30,20 @@
 4. When the assignment is `docs create`, `docs update` or `docs audit`, or the task changed user-visible behaviour, follow .agents/skills/docs-writer/SKILL.md in team mode and write the changed documents under `design/docs/`. When the assignment is `explain`, follow .agents/skills/explain-html/SKILL.md standalone.
 5. Persistence or schema questions belong to the data architect: list them as findings, do not design them.
 6. A requirement-level choice the task and evidence do not settle: write state to `design/ARCHITECTURE.md`
-   and return NEEDS_INPUT. Questions about the architecture, the API and data retention all go in this one round (the
-   two questions of a decision pair too). Gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
+   and return NEEDS_INPUT. Questions about the architecture, the API and data retention (the two questions of a
+   decision pair too) all go in this one round: gather every open question first and return them together, numbered, in ONE NEEDS_INPUT result. After you are resumed with ANSWERS you never return NEEDS_INPUT again in this run (`submit` rejects it): decide with the recommended option you offered and say so, or return BLOCKED with the reason. The limit is per role per run: a later instance of the role (another slice, a redispatch) has no second round either and decides the same way.
 7. Return the result with the PLAN `## Architecture` text (and `## Contracts` entries) after the table, plus the
    PLAN `## Risk` flags the design implies, one line each: `contract_change: yes|no` (an API, event or schema
    contract changes), `concurrency: yes|no` (shared state, locks, retries, ordering, idempotency),
    `performance_critical: yes|no` (a stated latency, throughput or resource bound; a relative regression budget
    goes on the same line as `budget_pct=<n>`, A87). They are frozen with the plan
    and select the REVIEW focuses `contract`, `concurrency` and `performance`; a contract file changed without
-   `contract_change: yes` is a blocking finding (A78; `agent.sh pipeline <ID>` lists the signals). Stop.
+   `contract_change: yes` is a blocking finding (A78; `agent.sh pipeline <ID>` lists the signals). Add the line `rollback: <feature flag, how a migration is reversed, the first step if production breaks>` to `## Risk`, a few lines at most (A202). Stop.
 
 ## Output
 
 Report with `agent.sh submit`. You never type a result header, the fingerprint or a hash: the script builds
-and validates them, assigns finding ids and returns any rejection to you at once (fix what it names and submit
+and validates them and returns any rejection to you at once (fix what it names and submit
 again; a stop without a recorded submission is sent back once). Your final message is not parsed.
 
 ```
@@ -51,9 +51,9 @@ AGENT_ROLE=architect sh .agents/scripts/agent.sh submit <TASK-ID> --agent <token
   --confidence <high|medium|low> [--artifact <path>] [--findings <rows file|->] [--report <file|->] [--reason "<one line>"] [--questions <file>]
 ```
 
-`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report (e.g. `design/ARCHITECTURE.md`); any path spelling is accepted and the script hashes it.
+`--result` is `DONE`, `BLOCKED` (with `--reason`) or `NEEDS_INPUT` (with `--questions`). `--artifact` is the run-relative path of your report; any path spelling is accepted and the script hashes it.
 
-The recorded header (built by the script from your facts; shown so you know what is checked):
+The recorded header (built by the script; shown so you know what is checked):
 
 ```
 ROLE: architect
@@ -68,12 +68,12 @@ ARTIFACT: <run-relative path, e.g. design/ARCHITECTURE.md> <sha256>
 |---|---|---|---|---|
 
 `--report -` writes the report from stdin (heredoc) to `--artifact`; use it instead of the Write tool, which a
-subagent runtime may refuse for report files, and `--findings -` instead of a scratch file.
+subagent runtime may refuse for report files.
 
 `--findings` is a file with one row per line, `blocking|path:line|finding|evidence` or `info|path:line|finding|evidence`
 (no numbering, no header, no table). Zero rows is a clean result: pass `--findings none`; rows are required only for defects and observations, and an answer-only task uses `--findings none` or one `info|-|answer|<one line>` row. Only one of `--report`/`--findings` may read stdin (`-`): put the other in a file, or send ONE stdin document with the report, then a line `=== FINDINGS ===`, then the rows.
 
-Row ids are assigned by the script: `architect-<n>`: contract changes, compatibility breaks, risks, items for other roles. Then
+Row ids `architect-<n>` (script-assigned): contract changes, compatibility breaks, risks, items for other roles. Then
 `BLOCKED_REASON: <one line>` when BLOCKED, and for NEEDS_INPUT:
 
 ```
