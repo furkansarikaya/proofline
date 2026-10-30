@@ -221,7 +221,7 @@ exists (receipt recorded; `pending` otherwise).
 ## Known issues (A202)
 
 A blocking finding that was already there and that the task does not touch is `waived` through the user's known-issues list, never through
-an agent's claim. `agent.sh known-issue-propose <RUN> <FINDING-ID> --followup <TASK>` (lead) writes one proposed record (gate, place,
+an agent's claim. A waiver binds the finding's persistent key (gate, focus, cited line text, number of identical lines above, text), so a gate re-run keeps it and the same rule at a new place asks again; `waive --group` waives all open blocking findings of one rule in the same record on one approval. `tree-inspect` / `tree-accept` (approval kind `tree`) recover a tree changed outside the worker windows: the accepted tree is attested and every gate runs again. `agent.sh known-issue-propose <RUN> <FINDING-ID> --followup <TASK>` (lead) writes one proposed record (gate, place,
 text, follow-up) and asks `known-issue` (no run; bound to the proposal's sha256); the reply "approve known issue" and then
 `agent.sh known-issue-apply` write `.agents/local/known-issues/LIST.tsv` (read only by scripts and the user; never in a context). A record
 counts only while its approval file is the user's for exactly its content, its follow-up is an open markdown task, the gate is not

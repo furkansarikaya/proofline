@@ -191,6 +191,7 @@ run_timed() {
   rt_wd=$!
   rt_rc=0; wait "$rt_pid" || rt_rc=$?
   kill -TERM "$rt_wd" 2>/dev/null || true; wait "$rt_wd" 2>/dev/null || true
+  rt_pid='' rt_wd=''   # reaped: finish must never signal a pid the system may have reused
   if [ -f "$rt_mark" ]; then rm -f "$rt_mark"; return 124; fi
   return "$rt_rc"
 }
@@ -298,8 +299,27 @@ harvest() { # after one attempt: add what the runtime reported
     codex) m_tot=$(add_n "$(codex_total)" "$m_tot") ;;
   esac
 }
+# stop_worker: a dispatch that is stopped (TERM, INT, HUP, or any early exit) takes the worker it started with it, the failover worker
+# included (the failover attempt is the same run_timed call again, so rt_pid is whichever worker is running), and the worker's own
+# children. A worker that already exited was reaped and rt_pid cleared, so nothing else is ever signalled.
+stop_worker() {
+  [ -z "${rt_wd:-}" ] || kill -TERM "$rt_wd" 2>/dev/null || :
+  [ -n "${rt_pid:-}" ] || return 0
+  sw_all=$rt_pid; sw_q=$rt_pid
+  while [ -n "$sw_q" ]; do
+    sw_n=''
+    for sw_p in $sw_q; do sw_n="$sw_n $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$sw_p" '$2 == p { print $1 }' | tr '\n' ' ')"; done
+    sw_q=$(printf '%s' "$sw_n" | tr -s ' ' | sed 's/^ //;s/ $//'); sw_all="$sw_all $sw_q"
+  done
+  # shellcheck disable=SC2086 # pids
+  kill -TERM $sw_all 2>/dev/null || :
+  # shellcheck disable=SC2086
+  (sleep 5; kill -KILL $sw_all) >/dev/null 2>&1 &
+  rt_pid='' rt_wd=''
+}
 finish() {
   fin_rc=$?
+  stop_worker
   if [ "$attempts" -gt 0 ]; then
     case "$fin_rc" in 0) fin_res=submitted ;; 124) fin_res=timeout ;; 5) fin_res=needs_input ;; 6) fin_res=blocked ;; *) fin_res=failed ;; esac
     # the claude runtime reports input and output; the total is their sum only when both were reported

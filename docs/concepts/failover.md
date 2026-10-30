@@ -24,7 +24,9 @@ runtimes are installed.
 - With `ask`, `dispatch.sh` asks you through the standard question mechanism first.
 - With `off`, a failing runtime blocks the step.
 
-This is not a silent fallback: it is allowed by config and recorded.
+This is not a silent fallback: it is allowed by config and recorded. Stopping a dispatch (TERM, INT, HUP) stops the worker it started, a failover worker and the
+worker's own children included; none is left running in the tree. A change that still enters the tree outside the recorded windows is recovered with
+`agent.sh tree-inspect` and `tree-accept` ([gates](gates.md)).
 
 In real use (2026-10-23 to 25) Codex implementer dispatches failed or timed out and Claude took over in three tasks, and the work was merged. Claude to Codex failover is covered only by the dispatch test.
 

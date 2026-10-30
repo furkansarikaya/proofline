@@ -19,7 +19,10 @@ dependencies, criteria that cannot be measured, the reason for a class. Answer i
 records the answers from your captured message (`agent.sh batch-answer`, read back with `batch-answers`) and they are applied when each plan freezes. A split
 answer is capped at the ceiling the summary showed, new dependencies stay unapproved (the task parks), an exemption or class answer only adds a freeze note. When
 `commands.build` or `commands.test` is empty the summary proposes the commands that `proofline doctor --commands` proved, and approving the batch covers writing
-them (`doctor --apply-commands`); nothing unproven is written. A task waits for every task it depends on and for an earlier unmerged task that names the same
+them (`doctor --apply-commands`); nothing unproven is written. The summary also lists the findings that other runs on this machine recorded outside the batch's tasks
+and the DESIGN.md pattern justifications nobody approved yet ("Expected known issues and rationales"); one answer ("Q<n> b", never "all recommended") accepts the
+whole list for this batch only: a listed finding stops no task of the batch that does not touch its file, and a listed rationale is approved with
+`agent.sh batch-cover <ID> rationale:<pattern>` when its run asks. SECRETS and SECURITY findings are never listed or accepted this way. A task waits for every task it depends on and for an earlier unmerged task that names the same
 code path, and the lead delivers each task itself and goes on to the next one (it does not stop at CODE_DONE).
 
 A project with no CI check on pull requests can still run a batch (A180). The summary carries a WARNING with the ready

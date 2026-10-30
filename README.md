@@ -122,6 +122,8 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 
 **The task model (A202).** A task has a type (`feature|bug|refactor|content|docs|chore`; `bug` needs repro steps, `content` and `docs` a written test-first exemption that never covers code), a name `<ID>-<slug>.md` and optional scope limits, pattern references, `priority`, `origin`. One status block per task is updated in place; a finding the task does not touch can become a user-approved known issue; one message may hold several approvals; limits scale with `proofline doctor --scale` ([types](docs/guides/task-templates.md), [status](docs/concepts/workflow.md#live-status-block-a202), [known issues](docs/concepts/gates.md#known-issues-a202), [timeouts](docs/concepts/timeouts.md)).
 
+**Approvals that do not repeat.** A waiver follows the finding, not the gate record (a re-run keeps it; a new place asks again), findings of one rule are one decision (`waive --group`), the batch summary lists the expected known issues and rationales for one accept answer (never SECRETS or SECURITY), and a change that entered the tree outside the worker windows is recovered with `tree-inspect` and `tree-accept` instead of losing the run ([gates](docs/concepts/gates.md)).
+
 **Processes.** An agent stops only a process it started, by its PID; the hook denies kill-by-name and mass kills (a tripwire, not a sandbox: [process rules](docs/concepts/enforcement-layers.md#process-rules)).
 
 ## Documentation
