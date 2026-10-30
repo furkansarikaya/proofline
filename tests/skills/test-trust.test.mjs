@@ -309,3 +309,27 @@ test("mutation_budget: never below one mutant per criterion (validator and thres
   assert.match(out(run), /mutation_budget=40\n/, "a leading zero is the same number as the ledger row's");
   assert.match(out(), /mutation_budget=20\n/);
 });
+
+// Reviewers ran 22 to 59 mutants against a budget of 20: the budget is a cap enforced by a counter, not a sentence in the prose.
+const GATE_PATH = new URL("../../skills/test-trust/scripts/gate.mjs", import.meta.url).pathname;
+test("mutant: the counter allows exactly mutation_budget mutants and refuses the rest", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tt-mut-"));
+  const cfg = join(dir, "config.yaml"); writeFileSync(cfg, "test_trust:\n  mutation_budget: 3\n");
+  const count = join(dir, "reviews", "mutants.count");
+  const ask = () => spawnSync("node", [GATE_PATH, "mutant", count, cfg], { encoding: "utf8" });
+  const answers = Array.from({ length: 59 }, ask);
+  assert.equal(answers.filter((r) => r.status === 0).length, 3, "only the budget's worth of mutants is allowed, however many are asked");
+  assert.match(answers[0].stdout, /^OK 1\/3/);
+  assert.match(answers[2].stdout, /^OK 3\/3/);
+  assert.equal(answers[3].status, 1);
+  assert.match(answers[3].stdout, /^REFUSED 3\/3/);
+  assert.equal(readFileSync(count, "utf8").trim(), "3", "a refused call does not move the count");
+});
+test("mutant: the cap follows the run's floor (one mutant per criterion) when a run directory is given", () => {
+  const run = mkdtempSync(join(tmpdir(), "tt-mutrun-"));
+  const acs = Array.from({ length: 25 }, (_, i) => `- AC-${i + 1}: \`t.test.js\` "t${i + 1}"`).join("\n");
+  writeFileSync(join(run, "PLAN.md"), `## Tests\n\n${acs}\n\n## Verification commands\n\n- npm test\n`);
+  const count = join(run, "mutants.count");
+  const ok = Array.from({ length: 30 }, () => spawnSync("node", [GATE_PATH, "mutant", count, join(run, "none.yaml"), run], { encoding: "utf8" })).filter((r) => r.status === 0).length;
+  assert.equal(ok, 25);
+});
