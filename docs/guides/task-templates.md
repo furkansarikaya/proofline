@@ -30,6 +30,25 @@ required: title goal acceptance_criteria out_of_scope constraints risks labels c
 ...
 ```
 
+## Names, type and optional fields (A202)
+
+A task file is named `<ID>-<slug>.md`; the slug comes from the title (Turkish and other Latin letters become ASCII, at most 48
+characters), and the branch is `proofline/<ID>-<slug>`. The validator warns about other names; `agent.sh task-rename-plan` lists the
+queued files to rename and `task-rename-apply` renames them only after your `approve rename` (a task with a run, a published report or
+in progress is never touched).
+
+`type:` in the front matter is one of `feature`, `bug`, `refactor`, `content`, `docs`, `chore`; the task-author proposes it, you may
+change it, a task without one is a feature. `bug` needs reproduction steps, expected and actual behaviour and the environment (and asks
+for a debug-proof); `refactor` needs a "behaviour does not change" statement and the existing tests as an acceptance criterion;
+`content` and `docs` start with a written test-first exemption reason in the plan, which never covers a path that holds code. No type
+removes a gate.
+
+Optional sections and fields: `Allowed scope` and `Forbidden scope` (a plan path in Forbidden is refused at freeze, a path outside
+Allowed is asked in the batch pre-flight), `Existing pattern references` ("do it like this file"; the explorer reads them, freeze
+checks they exist, review checks conformity), `Completion response` (the shape of the closing message, `## Requested Response` in the
+report), `priority: high|medium|low` (orders a batch among free tasks) and `origin:` (written for a follow-up or a PRD requirement,
+with a link back). Acceptance criteria also pass the vague-word and two-engineer check when no PRD is behind the task.
+
 ## Customising
 
 Templates are yours to edit: add required fields or custom sections once and every new task follows the

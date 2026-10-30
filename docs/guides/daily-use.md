@@ -30,6 +30,7 @@ Inside Claude Code the same commands are `/proofline status`, `/proofline run <T
 | `proofline clean [--yes]` | remove `.agents/local` state and finished runs |
 | `proofline merge <PR> [--squash\|--rebase] [--delete-branch]` | the only allowed merge: merges the pull request only when every check is green on its current head (A136); the hook denies `gh pr merge` and the other merge paths |
 | `proofline insights [--run ID] [--json]` | read-only report: cost per run, role and model (tokens only where the runtime reported them) and recurring failures with suggestions; changes nothing |
+| `proofline doctor --scale`, `--apply-scale` | measure this machine and propose `timeouts.scale`; written only after your `approve scale` ([timeouts](../concepts/timeouts.md)) |
 
 ## Good habits
 

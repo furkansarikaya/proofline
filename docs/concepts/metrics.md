@@ -115,6 +115,15 @@ part reports "no metrics recorded"; the failure part still reads the ledgers.
 
 `--json` prints the same data as one object, `proofline.insights/1`.
 
+**Estimate calibration (A202).** `proofline insights` ends with a CALIBRATION section: for each size S/M/L with at least 3 finished tasks, the median minutes,
+tokens and scope paths from the metrics records (which now carry `size` and `scope_paths`). It is a suggestion for the task-author's size estimate and changes nothing.
+
+**Context size and archives (A202).** `bin/lib/context-size.sh` (shown by `doctor` and `insights`) measures the bytes that load automatically (AGENTS.md block, SessionStart text,
+entry skill, each role's skill and agent). `tests/context/budget.tsv` bounds them and `tests/context/context-budget-test.sh` runs on every pull request; raising a bound needs a
+`Context-budget-change:` line. `agent.sh rules list|report|tally` proposes merging duplicate or contradicting rules and removing rules no review cited, against `rules.budget_bytes`;
+nothing changes without your approval. `validate-wiki.mjs --archive-log` moves old wiki log entries to `log-archive.md` (nothing is deleted), and finished tasks are read by title and
+status only. Every `docs/decisions.md` lookup is a grep, not a full read.
+
 ## Friction report and calibration (A149)
 
 **Friction report.** When a run ends (`handoff DONE`, `terminate`), `friction.sh` builds

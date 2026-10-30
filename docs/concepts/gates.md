@@ -179,6 +179,21 @@ Further kinds (A200): `rationale:<pattern-id>` approves one design rationale and
 recorded only from your reply. Only such an approved rationale can downgrade a visual finding; an agent-written one never does. A visual PASS also needs an
 independent `reviews/visual-proof/report.json` that says PASS, and a FAIL or INCONCLUSIVE report never counts as PASS.
 
+**Several approvals in one message (A202).** When the whole message is not one approval, it is split only on commas and newlines and
+each segment goes through the same strict check; every approved segment is its own record bound to the same captured message (at most
+`approval.max_per_message`, 8). A rejected segment prints `not recorded: <segment>: <reason>`; a negated, hedged or retracting segment
+vetoes the whole message. Recording comes first: the hook copies your message to `.agents/local/prompts/intake/` before any parse, git or
+scan, so the size of a run cannot lose an approval (`hook.approve_budget_seconds`, `doctor` times it). Limits: [timeouts](timeouts.md).
+
+## Known issues (A202)
+
+A blocking finding in a place the task does not touch (not in its frozen scope or diff) can be recorded as a **known issue** so it does not
+stop every later task. The lead proposes one record (`known-issue-propose <RUN> <FINDING-ID> --followup <TASK>`, an open markdown follow-up
+task is required) and only your reply `approve known issue` applies it (`known-issue-apply`); the list is local
+(`.agents/local/known-issues/LIST.tsv`), matches only the exact gate, place (`path[:line]` of a tracked file) and text, drops when the
+follow-up is done, and never covers SECRETS or SECURITY. A matched finding is shown as "known issue" with its record id in the report and the
+status block; the gate record keeps it. `known-issue-list` and `known-issue-candidates` are read-only.
+
 ## Repeating gates after a fix round (A200)
 
 After a fix round or an amendment a gate re-runs when the fingerprint of its inputs changed. A `pass` REVIEW_PLAN, RULES, DATA or SECURITY record is

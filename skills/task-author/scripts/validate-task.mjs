@@ -142,7 +142,7 @@ export function frontMatter(text) {
 function knownIds(dirs) {
   const ids = new Set(), names = [];
   ids.has2 = (d) => ids.has(d) || names.some((c) => c.startsWith(`${d}-`));
-  // A203: only the first line (the title) of a sibling task is read, never its body: a finished task's completion report is not loaded.
+  // A202: only the first line (the title) of a sibling task is read, never its body: a finished task's completion report is not loaded.
   const h1 = (f) => { try { const fd = openSync(f, "r"); const b = Buffer.alloc(1024); const n = readSync(fd, b, 0, 1024, 0); closeSync(fd); const m = /^# Task: (\S+)/m.exec(b.toString("utf8", 0, n).split(/\n## /)[0]); if (m) ids.add(m[1]); } catch {} };
   for (const d of dirs) {
     let entries = [];

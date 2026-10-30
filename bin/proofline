@@ -7,7 +7,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.38
+PROOFLINE_VERSION=0.0.39
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -185,7 +185,7 @@ cmd_queue() {
   done
   for f in "$td"/*.md; do [ -f "$f" ] || continue; say "  $(basename "$f")"; found=1; done
   [ "$found" = 1 ] || say "  (none)"
-  # A203: finished tasks show their title and status only (the first lines of the file); the completion report stays in the file as evidence and is never read here.
+  # A202: finished tasks show their title and status only (the first lines of the file); the completion report stays in the file as evidence and is never read here.
   dn=0
   for f in "$td"/done/*.md; do
     [ -f "$f" ] || continue

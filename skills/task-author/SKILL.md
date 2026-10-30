@@ -4,7 +4,7 @@ description: Turns a one-sentence request or an external issue (GitHub, Jira, Li
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.38"
+  version: "0.0.39"
 ---
 
 # task-author
@@ -72,7 +72,7 @@ Standalone: show the draft task(s) and ask for approval (this is the one approva
 ## Split, size, sprint, team
 
 - **Split.** When the work holds several independent deliverables, propose splitting it into tasks: each deliverable alone, with its dependencies and acceptance criteria. If the user asks for one task, keep one.
-- **Finished tasks are read by title and status only (A203).** For duplicate and dependency checks read the file name, the `# Task:` title line and the `**Status:**` line of a task in `done/`, never its `## Completion Report`. The report stays in the task file as evidence; open it only when the user asks for it or a check cannot be answered without it, and say why.
+- **Finished tasks are read by title and status only (A202).** For duplicate and dependency checks read the file name, the `# Task:` title line and the `**Status:**` line of a task in `done/`, never its `## Completion Report`. The report stays in the task file as evidence; open it only when the user asks for it or a check cannot be answered without it, and say why.
 - **Split code from user decisions (A200).** Propose separate tasks for the code changes and for the work that needs the user's decision (design rationales, copy or text approvals, a wording sign-off). The code task is then not parked on a question that only the user can answer, and the decision task carries the questions and records the user's answers. When the user wants one task, keep one.
 - **Type (A202).** Every task gets a `type` in the front matter block: `feature`, `bug`, `refactor`, `content`, `docs` or `chore`. You propose it from the request, say it in the draft, and the user may change it; nobody else does (it is part of the frozen task contract, so a later change makes the run stale). A task without a type is a feature. Ask yourself which type fits the user's words: a defect to fix is `bug`; a change that keeps behaviour is `refactor`; text, copy or data only is `content`; documentation only is `docs`; build, tooling or housekeeping is `chore`. The type decides the template and the checks (full list in [TEMPLATES.md](references/TEMPLATES.md#task-types)):
   - `bug`: sections `## Reproduction steps`, `## Expected and actual behaviour`, `## Environment` (all filled; the validator rejects the task without them); the run requires the debug-proof result (`reports/NNN-debug.md`), a bug is never classified TRIVIAL. A `bug` or `defect` label under `## Labels` still triggers the debug-proof result too. Words such as "fix" in the text do not (A200), so type every defect task.

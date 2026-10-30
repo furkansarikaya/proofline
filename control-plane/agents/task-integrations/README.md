@@ -111,6 +111,13 @@ each. Fields: `title goal context acceptance_criteria out_of_scope constraints r
 verification_commands labels components` and custom `x_*`. Editing the project copy defines a team's own required
 fields and sections once; import and export follow it.
 
+## Names and types (A202)
+
+`slug.sh` builds the slug from the title (ASCII, at most 48 characters); `markdown` always writes `<ID>-<slug>.md` and the branch
+is `proofline/<ID>-<slug>`. `type:` (`feature|bug|refactor|content|docs|chore`, none means feature) travels with the task; other
+trackers carry it as a label and an `Origin:` line. Renaming queued files is `agent.sh task-rename-plan` / `task-rename-apply`
+after the user's `approve rename`.
+
 ## Status block (`statusblock`, A202)
 
 Each task has ONE status block, updated in place at run start, a question or park, CODE_DONE, the pull request, the merge and

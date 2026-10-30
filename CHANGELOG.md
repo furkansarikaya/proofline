@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.0.39 — 2026-10-30
+
+- The task model (A202). Names: the slug comes from the title (Turkish letters to ASCII, 48 characters), files are `<ID>-<slug>.md`, branches `proofline/<ID>-<slug>`; queued files are renamed only after `approve rename`. Types: `feature|bug|refactor|content|docs|chore` (none is feature), each with its required fields; a test-first exemption for `content` and `docs` never covers a path with code.
+- New optional task fields: Allowed and Forbidden scope (Forbidden is refused at freeze, Allowed is asked in the batch pre-flight), pattern references, completion response, `priority`, `origin` with a back link; the vague-word and two-engineer check also runs for tasks without a PRD.
+- Live status: one status block per task, updated in place at run start, question or park, CODE_DONE, PR, merge and FAILED/BLOCKED (markdown section, one marker comment on GitHub, Jira, Linear); no paths, secrets or personal data; outside the contract hash. A parked task shows PARKED. `insights` gets a CALIBRATION section (size against actual time, tokens and scope paths, suggestions only).
+- Run documents: a `kind` column in the PLAN scope table derived by script, a `rollback:` note for COMPLEX/CRITICAL, QA `Human checks`, a `Not inspected:` line in reviews, and a short user-language summary at the top of the completion report.
+- Known issues: a finding in code the task does not touch can be recorded in a local list with your `approve known issue`, bound to one follow-up task; SECRETS and SECURITY never.
+- Approvals survive big runs and busy machines: the prompt is copied first, a fingerprint cache serves read-only commands, hook budgets are config keys, and one message may hold up to 8 approvals (each its own record, a hedged part vetoes the message).
+- Realistic time limits from measured runs (STANDARD step 5400 s, command 1800 s), one `timeouts.scale` with `doctor --scale` / `--apply-scale` after `approve scale`, hook timeouts from config, a warning at 80 percent, and [one inventory](docs/concepts/timeouts.md). A timed-out step is still a failure.
+- Leaner context: the AGENTS.md block 4058 to 2687 bytes, SessionStart 272 to 223, role additions shrunk back under budget; `tests/context/` bounds every auto-loaded item in CI. `agent.sh rules` proposes merging or removing rules (never without approval), the wiki log can be archived, finished tasks are read by title and status, and local tests use half the cores.
+
 ## 0.0.38 — 2026-10-29
 
 - The motion audit's baseline no longer depends on the host's reduced-motion setting (A201): it emulates `no-preference` explicitly, reports "not measured" if the baseline or the reduced emulation does not take effect, and writes `motion-diagnostics.json`; two broken motion fixtures and an OS-level reduced-motion test keep its power. Aimed at the nightly macOS `static` failure (runner setting inferred; the next nightly confirms).

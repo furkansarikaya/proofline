@@ -17,7 +17,7 @@
 
 ## Status
 
-Version 0.0.38 is an early release.
+Version 0.0.39 is an early release.
 Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
 Codex as implementer is supported (real use, 2026-10-23 to 25).
 Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
@@ -88,7 +88,7 @@ approve every commit and push. A plan with an entry point taking external input 
 `proofline <command>` in a terminal, `/proofline <command>` in an agent session. `proofline help` prints the same list.
 
 ```text
-init, upgrade, doctor, version        install, update, verify, version
+init, upgrade, doctor, version        install, update, verify (doctor --scale, --commands), version
 status, resume, queue                 state of the active run, the task queue
 task, design, docs, explain           write a task, design documents, documentation, an explanation page
 design ui <mode> <target>             focused UI change of one target (bolder, quieter, polish, ...), run like any task
@@ -103,22 +103,24 @@ reopen <TASK>                         take a FAILED or BLOCKED run back into the
 deliver <TASK>                        commit, push, pull request, merge and cleanup after one approval
 batch <ID...|all>                     night mode: one approval of one summary for several tasks, run in this session; batch status
 debt                                  list the shortcut comments in the code (read-only, needs no run)
-clean, merge, insights                clean up, the only allowed merge, cost and recurring failures
+clean, merge, insights                clean up, the only allowed merge, cost, failures, calibration
 ```
 
-**Platforms.** GitHub, GitLab, Azure DevOps; a private host is named by `git.platform` and `git.platform_host`; else you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
+**Platforms.** GitHub, GitLab, Azure DevOps; a private host is named by `git.platform_host`; else you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
 
 **The next step.** Every command ends with `Next step: ...`, the one command (or action of yours) that follows. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [details](docs/concepts/workflow.md#the-next-step).
 
-**Night mode.** `/proofline batch <ID...|all>` shows one summary and takes one approval ("approve batch") for several tasks. The same session then runs and delivers each in dependency order, each in its own git worktree with copies of the dependencies and git-ignored `.env*` files. Keep the computer awake and the session open; `/proofline batch` continues after an interruption. What the approval does not cover parks that task; `proofline batch status` is the morning table ([night mode](docs/concepts/night-mode.md)).
+**Night mode.** `/proofline batch <ID...|all>` shows one summary and takes one approval ("approve batch") for several tasks. The same session runs and delivers each in dependency order, each in its own git worktree. Keep the computer awake; `/proofline batch` continues after an interruption. What the approval does not cover parks that task; `proofline batch status` is the morning table ([night mode](docs/concepts/night-mode.md)).
 
-**Shortcut debt.** A corner cut on purpose is marked `shortcut: <limit>, <when to improve>` and listed by `proofline debt` ([workflow](docs/concepts/workflow.md#shortcut-debt)). **Observations.** Out-of-scope issues the implementer saw are listed, not fixed, and become tasks only after you approve; a change tied to no acceptance criterion fails plan review ([workflow](docs/concepts/workflow.md#observations-and-unrelated-changes)). **Language.** Run files are English; project text in another language is quoted as it is, never transliterated ([details](docs/concepts/workflow.md#language-of-run-files)).
+**Shortcut debt.** A corner cut on purpose is marked `shortcut: <limit>, <when to improve>` and listed by `proofline debt` ([workflow](docs/concepts/workflow.md#shortcut-debt)). **Observations.** Out-of-scope issues the implementer saw are listed, not fixed, and become tasks only after you approve ([workflow](docs/concepts/workflow.md#observations-and-unrelated-changes)). **Language.** Run files are English; other-language project text is quoted as is ([details](docs/concepts/workflow.md#language-of-run-files)).
 
 **Product skills.** `product-discovery`, `product-assess` and `product-spec` propose assumptions, risks, opportunities, edge cases and questions themselves; you accept, change or reject each one, and the checkers count a minimum (5 pre-mortem items, 5 assumptions, 3 never-mentioned topics in the review). Facts still need a source. The PRD carries a ten-topic completeness list; files from before 0.0.34 need a migration ([details](docs/concepts/product.md)).
 
 **Project layout.** No layout is assumed: one ecosystem definition drives `init` (a command per ecosystem, workspaces included); `commands.build|test|lint` may be a list; an ambiguous one gets none and the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
 
-**Faster, not looser (A200).** Gates re-run when their inputs changed, batch questions are asked before the approval, empty `commands.*` are proposed by `proofline doctor --commands` and written only after your yes, and a design rationale counts only when you approved it. Six core invariants ([CONTRIBUTING](CONTRIBUTING.md#core-invariants)) bound every change and are tested in CI ([gates](docs/concepts/gates.md#repeating-gates-after-a-fix-round-a200)).
+**Faster, not looser (A200).** Gates re-run when their inputs changed, batch questions come before the approval, empty `commands.*` are proposed by `proofline doctor --commands` and written only after your yes. Six core invariants ([CONTRIBUTING](CONTRIBUTING.md#core-invariants)) bound every change and are tested in CI ([gates](docs/concepts/gates.md#repeating-gates-after-a-fix-round-a200)).
+
+**The task model (A202).** A task has a type (`feature|bug|refactor|content|docs|chore`; `bug` needs repro steps, `content` and `docs` a written test-first exemption that never covers code), a name `<ID>-<slug>.md` and optional scope limits, pattern references, `priority`, `origin`. One status block per task is updated in place; a finding the task does not touch can become a user-approved known issue; one message may hold several approvals; limits scale with `proofline doctor --scale` ([types](docs/guides/task-templates.md), [status](docs/concepts/workflow.md#live-status-block-a202), [known issues](docs/concepts/gates.md#known-issues-a202), [timeouts](docs/concepts/timeouts.md)).
 
 **Processes.** An agent stops only a process it started, by its PID; the hook denies kill-by-name and mass kills (a tripwire, not a sandbox: [process rules](docs/concepts/enforcement-layers.md#process-rules)).
 
@@ -132,7 +134,7 @@ clean, merge, insights                clean up, the only allowed merge, cost and
 
 ## Versioning and license
 
-Version **0.0.38**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.39**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

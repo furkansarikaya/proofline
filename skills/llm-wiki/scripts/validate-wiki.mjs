@@ -4,7 +4,7 @@
 // Errors: missing source, source that is not a repository file, invalid status, contradicted page without
 // contradicts, duplicate title, broken [[wikilink]]. Warning: possible orphan page.
 // Warnings also propose merging pages that are very similar (word-set Jaccard >= SIMILAR, a proposal only) and archiving a log.md
-// that holds more than LOG_MAX entries. Other modes (A203):
+// that holds more than LOG_MAX entries. Other modes (A202):
 //   --archive-log [--keep N]   move the oldest log.md entries to log-archive.md (append only; nothing is deleted)
 //   --similar "<title words>"  list the existing pages most similar to a new page title (look before opening a page)
 // Exit: 0 no errors (warnings allowed), 1 errors, 2 usage/read error. No dependencies.
