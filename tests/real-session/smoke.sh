@@ -168,6 +168,8 @@ a202_task_files() {
     [ -f "$a2_f" ] && printf '%s\n' "$a2_f"
   done
 }
+# a202_both_merged: the control plane's own block of both tasks says MERGED (in any copy of the task file)
+a202_both_merged() { for ab_t in T-2 T-3; do grep -qs '^- stage: MERGED$' $(a202_task_files "$ab_t") || return 1; done; }
 # a202_status_row PREFIX ID: the status block, read from the task file the control plane wrote (never from the model's text)
 a202_status_row() {
   as_n="$1 batch status block ($2): one section, updated in place, MERGED, no local path"; as_t=$(date +%s); as_best=''; as_why=''
@@ -288,6 +290,10 @@ EOF
   if drive "$pr_pre-batch" "/proofline batch T-2 T-3" 'git --git-dir="$ORIGIN" show main:src/whisper.js >/dev/null 2>&1 && git --git-dir="$ORIGIN" show main:src/repeat.js >/dev/null 2>&1' "approve batch"; then
     row "$pr_pre /proofline batch T-2 T-3 (both reach origin main)" PASS "$(secs "$t0")" "$(A batch-status 2>/dev/null | head -n 1)"
   else row "$pr_pre /proofline batch T-2 T-3 (both reach origin main)" FAIL "$(secs "$t0")" "$(A batch-next 2>/dev/null | tail -n 1)"; fi
+  # the drive above ends the moment the user's merge lands on the origin; the control plane records a merge only when the lead is told (deliver-merged), so the
+  # block can honestly say PR OPEN until then. The user says so once more, as in the real flow, and the rows are read after the lead recorded both merges.
+  user_merges
+  drive "$pr_pre-batch-merged" "I merged T-2 and T-3 on the origin. Record the merges and finish the batch." 'a202_both_merged' "I merged them on the origin; record the merges (deliver-merged) and clean up." >/dev/null 2>&1 || :
   a202_rows "$pr_pre"   # A202: the status block and the slug in the branch name, read from files and agent.sh state
   if [ "${SMOKE_ONLY:-}" = a202 ]; then :
   elif command -v codex >/dev/null 2>&1; then

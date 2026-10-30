@@ -7432,6 +7432,54 @@ status_block_update() {
   fi
   rm -f "$sbu_err"; return 0
 }
+# --- The status block survives the run's worktree (A202 item 10) ---------------------------------------------------
+# A markdown task file is edited in the run's worktree while the run lives. The delivery removes that worktree, and the final block (MERGED) would go
+# with it, so the merge is also written into the task file of the MAIN working tree, the one the user reads. That edit is a tracked-file change made by the
+# control plane alone: sb_strip drops the marked block from a task file, a change that is only the block is "block-only", it never blocks the worktree
+# cleanup or the fast-forward of the main tree (parked before, put back after, by the adapter, so the block stays the control plane's text).
+sb_strip() {
+  awk '{ line[NR] = $0 } END {
+    for (i = 1; i <= NR; i++) {
+      if (line[i] == "## Proofline Status") {
+        j = i + 1; while (j <= NR && line[j] ~ /^[[:space:]]*$/) j++
+        if (j <= NR && line[j] ~ /^<!-- PROOFLINE-STATUS:BEGIN:[A-Za-z0-9._-]+ -->$/) {
+          for (k = j + 1; k <= NR && line[k] !~ /^<!-- PROOFLINE-STATUS:END:[A-Za-z0-9._-]+ -->$/; k++) { }
+          if (k <= NR) { i = k; continue }
+        }
+      }
+      print line[i]
+    }
+  }'
+}
+# sb_block_only TREE PATH: the tracked file differs from HEAD only by its marked status block
+sb_block_only() {
+  git -C "$1" ls-files --error-unmatch -- "$2" >/dev/null 2>&1 || return 1
+  [ -f "$1/$2" ] || return 1
+  [ "$(sb_strip < "$1/$2")" = "$(git -C "$1" show "HEAD:$2" 2>/dev/null | sb_strip)" ]
+}
+# sb_main_park TREE DIR: every block-only modified task file of TREE: its block body is kept in DIR (<n>.blk, first line the task id) and the file reset
+sb_main_park() {
+  smp_n=0
+  git -C "$1" status --porcelain --untracked-files=no 2>/dev/null | sed -n 's/^ M //p' | while IFS= read -r smp_p; do
+    sb_block_only "$1" "$smp_p" || continue
+    smp_id=$(sed -n 's/^<!-- PROOFLINE-STATUS:BEGIN:\(.*\) -->$/\1/p' "$1/$smp_p" | head -n 1); [ -n "$smp_id" ] || continue
+    smp_n=$((smp_n + 1))
+    { printf '%s\n' "$smp_id"; awk -v b="<!-- PROOFLINE-STATUS:BEGIN:$smp_id -->" -v e="<!-- PROOFLINE-STATUS:END:$smp_id -->" '$0 == b { on = 1; next } $0 == e { on = 0 } on' "$1/$smp_p"; } > "$2/$smp_n.blk"
+    git -C "$1" checkout -q -- "$smp_p" 2>/dev/null || :
+  done
+}
+# sb_main_put ID BLOCKFILE: place a block body into the task file of the main working tree through the configured adapter (best effort, a note on failure)
+sb_main_put() {
+  smu_a=${sfp_a:-$(cfg tasks.adapter markdown)}; [ "$smu_a" = markdown ] || return 0   # a tracker holds its block remotely; only a task FILE needs this
+  [ -f "$sr_main/.agents/task-integrations/markdown.sh" ] || return 0
+  ( cd "$sr_main" && sh .agents/task-integrations/markdown.sh statusblock "$1" "$2" ) >/dev/null 2>&1 || echo "note: the status block of $1 could not be placed in the main working tree" >&2
+}
+# sb_main_restore DIR: put the parked blocks back
+sb_main_restore() { for smr_f in "$1"/*.blk; do [ -f "$smr_f" ] || continue; sed 1d "$smr_f" > "$smr_f.body"; sb_main_put "$(sed -n 1p "$smr_f")" "$smr_f.body"; done; }
+# sb_final_prepare ID [PR]: the MERGED block body, built from the run's records BEFORE the run and its worktree go
+sb_final_prepare() { sfp_a=$(cfg tasks.adapter markdown); [ "$(cfg tasks.status_block on)" != off ] || { sfp_f=''; return 0; }; sfp_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-final.XXXXXX") || { sfp_f=''; return 0; }; status_block_body "$1" merged "${2:-}" > "$sfp_f" 2>/dev/null || { rm -f "$sfp_f"; sfp_f=''; }; }
+# sb_final_put ID: after the run is gone, the final block into the main working tree's task file (only when the run lived in a worktree)
+sb_final_put() { [ -n "${sfp_f:-}" ] || return 0; [ "$sr_main" = "$root" ] || sb_main_put "$1" "$sfp_f"; rm -f "$sfp_f"; sfp_f=''; sfp_a=''; }
 # A159: `not_applicable` is a claim the script checks. It needs one specific sentence and is refused, with the signal named,
 # when the task changed something the wiki or the design documents describe: a documentation path in the diff, a contract,
 # data or design-document mention in the frozen plan, or user-visible words in the acceptance criteria. Any signal refuses.
@@ -7659,6 +7707,11 @@ cleanup_worktree() {
   cw_st=$(git -C "$cw_p" status --porcelain --ignored --untracked-files=all 2>/dev/null) || { echo "note: the worktree $cw_p is kept: git status failed"; return 0; }
   cw_rc=0; cw_x=$(printf '%s\n' "$cw_st" | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_list") || cw_rc=$?
   [ "$cw_rc" -le 1 ] || { echo "note: the worktree $cw_p is kept: the file check failed"; return 0; }
+  if [ -n "$cw_x" ]; then   # A202: a task file changed only by its status block is the control plane's own edit, not work
+    cw_y=''; for cw_q in $cw_x; do sb_block_only "$cw_p" "$cw_q" || cw_y="$cw_y$cw_q
+"; done
+    cw_x=$(printf '%s' "$cw_y")
+  fi
   if [ -n "$cw_x" ] && [ -f "$scripts/ecosystems.sh" ] && [ -s "$agents/ecosystems.tsv" ]; then
     # shellcheck source=/dev/null
     . "$scripts/ecosystems.sh"; eco_init "$agents/ecosystems.tsv" && for cw_f in $(eco_union worktree_deps.folders); do cw_x=$(printf '%s\n' "$cw_x" | grep -v -e "^$cw_f/" -e "^$cw_f\$" || true); done
@@ -8325,7 +8378,9 @@ deliver_step() {
       # (never run again), not a half-cleaned run that looks unmerged.
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
       status_block_update "$ds_id" merged "$ds_pr"
+      sb_final_prepare "$ds_id" "$ds_pr"
       cleanup_merged_claim=yes; cleanup_run "$ds_id"
+      sb_final_put "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
   esac
@@ -8401,6 +8456,8 @@ deliver_merged() {
   [ ! -d "$(shared_dir batch)" ] || grep -q "^$dm_id	" "$(shared_dir batch)/merged.tsv" 2>/dev/null || printf '%s\t%s\t%s\n' "$dm_id" - "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
   echo "merge recorded for $dm_id: $dm_how"
   status_block_update "$dm_id" merged
+  sb_final_prepare "$dm_id"
+  dm_sbd=$(mktemp -d "${TMPDIR:-/tmp}/agent-sb-park.XXXXXX") && sb_main_park "$sr_main" "$dm_sbd"
   # the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
   dm_m=$sr_main
   # A200: the commands the user approved were written into the main tree's config.yaml (uncommitted) and carried into the delivered commit; once origin has
@@ -8413,7 +8470,9 @@ deliver_merged() {
     git -C "$dm_m" merge --ff-only -q "refs/remotes/origin/$dm_base" >/dev/null 2>&1 && echo "local $dm_base fast-forwarded to origin/$dm_base" || echo "note: local $dm_base was not fast-forwarded (it has commits origin lacks): update it before the next task"
   else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
   rm -f "$dm_dir/MERGE_HEAD"
+  [ -z "${dm_sbd:-}" ] || { sb_main_restore "$dm_sbd"; rm -rf "$dm_sbd"; }
   cleanup_merged_claim=yes; cleanup_run "$dm_id"
+  sb_final_put "$dm_id"
   rm -rf "$dm_dir"
 }
 # --- One worktree per run (A169) ---------------------------------------------------------------------------------

@@ -452,6 +452,23 @@ scenario_wt_cleanup_manual() {
   [ "$(git rev-parse main)" = "$(git --git-dir="$lo" rev-parse main)" ] || die "the local main was not brought to the merge (the next task starts from it)"
   ok "deliver-merged inside the run's worktree: merge proven from git, recorded, local main fast-forwarded, the worktree removed (A169, A181)"
 }
+# A202 item 10: the status block says MERGED where the merge is recorded from git (platform other, the user merged) and the final block does not die with the
+# run's worktree: the task file of the main working tree (the one the user reads) ends with exactly one section, stage MERGED, the delivered commit
+scenario_wt_merged_block() {
+  wt_done_run
+  cp "$tl_agents"/task-integrations/markdown.sh "$tl_agents"/task-integrations/_lib.sh "$wt/.agents/task-integrations/"
+  wt_deliver local
+  sb_f=$(find "$wt/tasks" -name 'LC*.md' | head -n 1); [ -n "$sb_f" ] || die "no task file of LC in the worktree"
+  grep -q '^- stage: PR OPEN' "$sb_f" || die "the pr step left no PR OPEN block: $(tail -n 8 "$sb_f")"
+  git --git-dir="$lo" update-ref refs/heads/main "$(git -C "$wt" rev-parse HEAD)"; sb_head=$(git -C "$wt" rev-parse HEAD)
+  W deliver-merged LC > "$base/dm.out" 2>&1 || die "deliver-merged in the worktree: $(cat "$base/dm.out")"
+  wt_gone || die "the worktree survived deliver-merged: $(cat "$base/dm.out")"
+  sb_m=$(find tasks -name 'LC*.md' | head -n 1); [ -n "$sb_m" ] || die "no task file of LC in the main working tree after the merge"
+  [ "$(grep -c '^## Proofline Status' "$sb_m")" = 1 ] && [ "$(grep -c 'PROOFLINE-STATUS:BEGIN:LC' "$sb_m")" = 1 ] || die "$sb_m: not exactly one status section: $(tail -n 14 "$sb_m")"
+  grep -q '^- stage: MERGED$' "$sb_m" && grep -q '^- event: merged$' "$sb_m" || die "$sb_m: the block does not say MERGED: $(tail -n 14 "$sb_m")"
+  grep -q "^- delivered_commit: $(printf '%s' "$sb_head" | cut -c1-12)\$" "$sb_m" || die "$sb_m: no delivered commit $sb_head: $(tail -n 14 "$sb_m")"
+  ok "deliver-merged: the status block of the task file in the main working tree says MERGED with the delivered commit, one section, after the worktree is gone (A202)"
+}
 scenario_wt_cleanup_pr() {
   wt_done_run; git remote set-url origin https://github.com/acme/app.git; git init -q --bare "$base/bare.git"; git remote add bare "$base/bare.git"
   wt_deliver gh
@@ -626,6 +643,7 @@ run_sc scenario_manual_merge_proof
 run_sc scenario_manual_merge_ff
 run_sc scenario_manual_merge_config_edit
 run_sc scenario_wt_cleanup_manual
+run_sc scenario_wt_merged_block
 run_sc scenario_wt_cleanup_pr
 run_sc scenario_wt_cleanup_kept
 run_sc scenario_wt_failed_kept
