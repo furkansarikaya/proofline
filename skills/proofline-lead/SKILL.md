@@ -63,7 +63,9 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    `risk.unsupported: block`) goes to the user. `pass_low` re-runs with escalation. At most
    `review.max_fix_rounds` fix rounds; then `A terminate <ID> FAILED`. The lead never waives on its own;
    `A waive` needs the user's explicit instruction naming the finding, with a reason (the hook-captured
-   prompt is what the approval and `waive` verify), and is never possible for `SECRETS` or `SECURITY`.
+   prompt is what the approval and `waive` verify), and is never possible for `SECRETS` or `SECURITY`. A waiver follows the finding across gate re-runs; findings of one rule
+   are one decision (`A waive <ID> <FINDING-ID> --group --reason TEXT`). A change in the tree outside every worker window does not discard the run: `A tree-inspect <ID>`, then
+   `A tree-accept <ID>` (the user approves that tree; every gate then runs again).
 8. **Delivery needs the user (D19, D34)** ([DELIVERY.md](references/DELIVERY.md)). Commit, push and PR only
    with the user's explicit approval in the current message and every required gate passing for the
    current content. `deliver` asks once: `A deliver-plan` shows one summary, the user's `approve delivery`
@@ -238,7 +240,7 @@ After the user's "approve batch" (A157) you run the batch yourself, in this sess
    - `NEXT: commands`: the approved summary named a proven commands proposal that is not written yet: run `proofline doctor --apply-commands` now, before any task (the batch approval covers exactly that proposal), then `A batch-next` again. Never ask the user to reply "approve commands" for it.
    - `NEXT: run <ID>`: `A worktree-add <ID>` (A169: `.agents/local/worktrees/<ID>`; the run, ACTIVE_RUN and the task-file move live there; the batch, approvals, metrics, friction and prompts folders are links to the main tree's). Work for that task in that folder (`cd` there for every command, give it to sub-agents as their working folder), then `/proofline run <ID>`. If the worktree cannot be made, `A batch-park <ID> "<reason>"` and go on.
    - `NEXT: resume <ID>`: the run exists: continue it (`A next <ID>`), in its worktree.
-   - `NEXT: cover <ID> <kind>`: `A batch-cover <ID> <kind>` (kind plan, mutation_budget or delivery). It records the approval only while the batch approval is valid, the task is in the batch, the run is open and not CRITICAL and the request is pending (a mutation budget also stays within `batch.mutation_budget_cap`). If it refuses, treat the request as any other (step 2).
+   - `NEXT: cover <ID> <kind>`: `A batch-cover <ID> <kind>` (kind plan, mutation_budget, delivery, or `rationale:<pattern>` once the user answered the summary's accept question with b). It records the approval only while the batch approval is valid, the task is in the batch, the run is open and not CRITICAL and the request is pending (a mutation budget also stays within `batch.mutation_budget_cap`). If it refuses, treat the request as any other (step 2).
    - `NEXT: deliver <ID>`: the whole delivery ([DELIVERY.md](references/DELIVERY.md#5-deliver-task-the-whole-delivery-in-one-command)); its approval is `A batch-cover <ID> delivery`, never a question to the user. Go to the next task ONLY when the pull request is merged (a record in `merged.tsv`); `batch-next` shows it.
    - `NEXT: ci <ID>`: `A batch-ci <ID>` checks the CI run of the merge commit itself. Exit 0: go on. Exit 2 or 4 (still running, no run yet): wait a minute and ask again, at most `batch.ci_wait_minutes` / `batch.ci_appear_minutes`. Exit 1 (red), 3 (unreadable) or the wait over: STOP the batch, report why, leave the rest pending.
    - `NEXT: wait (owned by pid N)`: another session works this batch: STOP, do not start a second one.

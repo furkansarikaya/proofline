@@ -91,6 +91,7 @@ case "${FAKE_CODEX:-ok}" in
   ssl) echo 'error sending request: SSL handshake failed (connection reset by peer)' >&2; exit 1 ;;
   fail) echo "error: tests failed in src/x" >&2; exit 1 ;;
   sleep) exec sleep 20 ;;
+  hang) echo $$ > "$loc/codex.pid"; exec sleep 30 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
   hooks) git -C "$FAKE_ROOT" config core.hooksPath /dev/null; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
   head) git -C "$FAKE_ROOT" symbolic-ref HEAD refs/heads/elsewhere; printf 'x\n' > "$o"; sub --confidence high --result PASS ;;
@@ -225,6 +226,17 @@ reset; d FAKE_CLAUDE=limit T-1 reviewer
 ck "limit error fails over to codex (auto)" '[ "$rc" -eq 0 ] && has "$loc/recorded.md" "role=reviewer result=DONE" && [ "$(cat "$loc/codex.role")" = reviewer ] && has "$loc/codex.argv" "$a/runs/T-1" && ! has "$loc/codex.argv" worker-evidence'
 ck "failover ledgered with reason" 'has "$loc/ledger.log" "failover from=claude to=codex reason=limit role=reviewer"'
 ck "failover re-decides on the other runtime" 'grep -q "^decide T-1 reviewer --runtime codex" "$loc/calls.log"'
+
+# Stopping a dispatch stops its worker, the failover worker included (it used to leave the worker running, writing into the tree)
+reset; env FAKE_CLAUDE=limit FAKE_CODEX=hang sh "$a/scripts/dispatch.sh" T-1 reviewer >/dev/null 2>&1 &
+sd_pid=$!; sd_n=0
+while [ ! -s "$loc/codex.pid" ] && [ "$sd_n" -lt 100 ]; do sleep 0.1; sd_n=$((sd_n + 1)); done
+sd_w=$(cat "$loc/codex.pid" 2>/dev/null || echo 0)
+ck "the failover worker is running before the dispatch is stopped" 'kill -0 "$sd_w" 2>/dev/null && has "$loc/ledger.log" "failover from=claude to=codex"'
+kill -TERM "$sd_pid" 2>/dev/null; wait "$sd_pid" 2>/dev/null || :
+sd_n=0; while kill -0 "$sd_w" 2>/dev/null && [ "$sd_n" -lt 50 ]; do sleep 0.1; sd_n=$((sd_n + 1)); done
+ck "stopping a dispatch also stops its failover worker" '! kill -0 "$sd_w" 2>/dev/null'
+kill -KILL "$sd_w" 2>/dev/null || :
 
 reset; d PROOFLINE_CLAUDE_BIN="$tmp/bin/nope" T-1 reviewer
 ck "missing binary fails over" '[ "$rc" -eq 0 ] && has "$loc/ledger.log" "reason=missing_binary"'

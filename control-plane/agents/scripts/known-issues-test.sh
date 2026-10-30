@@ -175,7 +175,72 @@ sc_candidates() {
   ok "known issue: candidates are recorded blocking findings of runs on this machine whose scope did not cover the place and that are not on the list"
 }
 
-# review B4: a place with // , /./ , .. or a trailing dot segment is not a place (one spelling, so the touch check cannot be evaded)
+# batch_with LETTER SUMMARY-LINE...: a hand-built batch of LC that the user approved (their message), with their answer to the accept question
+batch_with() {
+  bw_l=$1; shift; bw_d=.agents/local/batch; rm -rf "$bw_d"; mkdir -p "$bw_d" .agents/local/prompts/history
+  { printf '# Night batch\n\nnonce: t-%s\n\n## Expected known issues and rationales (accept for this batch)\n\n' "$$"; for bw_x in "$@"; do printf -- '- %s\n' "$bw_x"; done; } > "$bw_d/SUMMARY.md"
+  printf 'LC\tSTANDARD\t-\n' > "$bw_d/order.tsv"
+  A request-approval - batch >/dev/null; capture 'approve batch' "$(( $(date +%s) + 7200 ))"; A approve - batch >/dev/null || die "the batch approval was refused"
+  bw_b=$( { shasum -a 256 2>/dev/null || sha256sum; } < "$bw_d/SUMMARY.md" | cut -c1-12)
+  printf 'x\n' > .agents/local/prompts/history/1-aaaa1111.txt
+  printf '%s\tbatch\tQ1\taccept\t%s\t-\t1-aaaa1111.txt\n' "$bw_b" "$bw_l" > "$bw_d/answers.tsv"
+}
+
+# The batch approval lets the user accept the expected findings and rationales with ONE answer: a listed finding of a task of the batch
+# that does not touch it asks nothing; everything else (another answer, another finding, SECRETS, SECURITY) stays as it was.
+sc_batch_accept() {
+  mk_run
+  batch_with a "accept K QA $PLACE: $TXT"
+  [ "$(gate_st QA)" = fail ] || die "an accept answer of a (no) was taken as an acceptance: $(gate_st QA)"
+  batch_with b "accept K QA $PLACE: $TXT"
+  [ "$(gate_st QA)" = waived ] || die "a finding accepted for the batch still stops the task: $(gate_st QA)"
+  rec QA FAIL high "QA-1|blocking|$PLACE|$TXT|traced: x" "QA-2|blocking|.gitignore:3|a second finding nobody listed|traced: x"
+  [ "$(gate_st QA)" = fail ] || die "an unlisted finding next to an accepted one was let through: $(gate_st QA)"
+  rec QA FAIL high "QA-1|blocking|$PLACE|$TXT|traced: x"
+  batch_with b "accept K QA $PLACE: another text"
+  [ "$(gate_st QA)" = fail ] || die "a finding that is not on the approved summary was accepted: $(gate_st QA)"
+  batch_with b "accept K QA $PLACE: $TXT"; printf 'LC2\tSTANDARD\t-\n' > .agents/local/batch/order.tsv
+  [ "$(gate_st QA)" = fail ] || die "a task outside the batch used the batch acceptance: $(gate_st QA)"
+  batch_with b "accept K QA $PLACE: $TXT"; echo 'tampered' >> .agents/local/batch/SUMMARY.md
+  [ "$(gate_st QA)" = fail ] || die "an edited summary (no approval of its content) accepted a finding: $(gate_st QA)"
+  batch_with b "accept K QA $PLACE: $TXT"; rm -f .agents/local/prompts/history/1-aaaa1111.txt
+  [ "$(gate_st QA)" = fail ] || die "an answer without a captured user message accepted a finding: $(gate_st QA)"
+  ok "batch accept: one answer b accepts the listed findings for the batch; answer a, another finding, a task outside the batch, an edited summary or no captured message do not"
+}
+sc_batch_accept_never() {
+  # SECURITY: even a summary that lists it and an answer b do not accept it
+  scaffold standalone no CRITICAL manual; approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
+  solo RED fail impl_test.txt 'test: lookup'; solo GREEN pass impl.txt 'impl: lookup'; A handoff LC IMPLEMENTED >/dev/null
+  rec SECURITY FAIL high "SECURITY-1|blocking|$PLACE|$TXT|traced: input -> eval"
+  batch_with b "accept K SECURITY $PLACE: $TXT"
+  [ "$(gate_st SECURITY)" = fail ] || die "a SECURITY finding was accepted by the batch answer: $(gate_st SECURITY)"
+  scaffold standalone no STANDARD autonomous
+  solo RED fail impl_test.txt 'test: lookup'; solo GREEN pass impl.txt 'PLANTED_SECRET=abc'; A handoff LC IMPLEMENTED >/dev/null
+  A secret-scan LC >/dev/null; [ "$(gate_st SECRETS)" = fail ] || die "the planted secret was not found"
+  sf=$(ls .agents/runs/LC/gates/*-SECRETS.yaml | tail -1)
+  sl=$(sed -n 's/^finding: SECRETS-1|blocking|\([^|]*\)|\(.*\)$/\1 \2/p' "$sf" | head -1)
+  batch_with b "accept K SECRETS ${sl%% *}: ${sl#* }"
+  [ "$(gate_st SECRETS)" = fail ] || die "a SECRETS finding was accepted by the batch answer: $(gate_st SECRETS)"
+  ok "batch accept: a SECURITY and a SECRETS finding are never accepted this way, whatever the summary and the answer say"
+}
+sc_batch_accept_rationale() {
+  mk_run
+  printf '# Design\n\n## Pattern justifications\n\n- mono-labels: file names are the product here\n' > DESIGN.md
+  A request-approval LC rationale:mono-labels >/dev/null
+  batch_with a "accept R mono-labels: file names are the product here"
+  expect_fail "a rationale covered although the user answered a" A batch-cover LC rationale:mono-labels
+  batch_with b "accept R mono-labels: file names are the product here"
+  A request-approval LC rationale:mono-labels >/dev/null
+  A batch-cover LC rationale:mono-labels > "$base/cover.out" 2>&1 || die "the accepted rationale was refused: $(cat "$base/cover.out")"
+  [ "$(A design-rationales LC | cut -f1,2)" = "$(printf 'mono-labels\tapproved')" ] || die "the accepted rationale is not approved: $(A design-rationales LC)"
+  printf '# Design\n\n## Pattern justifications\n\n- mono-labels: changed after the user accepted it\n' > DESIGN.md
+  A request-approval LC rationale:mono-labels >/dev/null
+  expect_fail "an edited DESIGN.md line covered by the old acceptance" A batch-cover LC rationale:mono-labels
+  expect_msg "a waiver covered by the batch" "not covered by the batch approval" A batch-cover LC waive:QA-1
+  ok "batch accept: a listed rationale is approved for the batch only with answer b and only as the approved summary lists it"
+}
+
+# review B4: a place with //, /./ , .. or a trailing dot segment is not a place (one spelling, so the touch check cannot be evaded)
 sc_place_spelling() {
   mk_run
   for bp in './.gitignore:1' 'a//b.txt:1' 'src/./a.txt:1' 'src/../.gitignore:1' 'src/.' '.gitignore/:1' '.gitignore//'; do
@@ -193,3 +258,6 @@ run_sc sc_touched
 run_sc sc_never_secrets
 run_sc sc_invalid
 run_sc sc_candidates
+run_sc sc_batch_accept
+run_sc sc_batch_accept_never
+run_sc sc_batch_accept_rationale

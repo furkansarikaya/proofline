@@ -1426,6 +1426,44 @@ sc_waiver_rebind() {
   ok "waiver approvals bind the failing gate record and finding; a later round never reuses them"
 }
 
+# A waiver follows the finding (its rule, place and line), not the gate record: a re-run of the gate, even on changed content,
+# does not ask for the waiver again; the same text at a NEW place, or a changed finding, asks again.
+sc_waiver_persists() {
+  scaffold orchestrated no STANDARD; implemented orchestrated
+  f='VERIFY-1|blocking|impl.txt:1|cache never invalidated on write|traced'; g='VERIFY-2|blocking|impl.txt:1|an unrelated problem|traced'
+  rec VERIFY FAIL high "$f" "$g"
+  approve_as_user waive:VERIFY-1 'approve VERIFY-1'
+  A waive LC VERIFY-1 --reason 'the user accepted the cache gap for this task' >/dev/null
+  [ "$(gate_st VERIFY)" = fail ] || die "the second finding no longer blocks: $(gate_st VERIFY)"
+  rec VERIFY FAIL high "$f"
+  [ "$(gate_st VERIFY)" = waived ] || die "a gate re-run on the same content asked for the waiver again: $(gate_st VERIFY)"
+  rec VERIFY FAIL high "$f" "$g"
+  A handoff LC IMPLEMENTING >/dev/null; worker FIX pass impl.txt 'impl: unrelated fix'; A handoff LC IMPLEMENTED >/dev/null
+  rec VERIFY FAIL high "$f"
+  [ "$(gate_st VERIFY)" = waived ] || die "a re-run on changed content (the cited line untouched) lost the waiver: $(gate_st VERIFY)"
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:2|cache never invalidated on write|traced'
+  [ "$(gate_st VERIFY)" = fail ] || die "the same rule at a NEW place was waived: $(gate_st VERIFY)"
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:1|cache never invalidated on delete|traced'
+  [ "$(gate_st VERIFY)" = fail ] || die "a changed finding kept the waiver: $(gate_st VERIFY)"
+  ok "a waiver follows the finding across gate re-runs; a new place or a changed finding asks again"
+}
+
+# N findings of one rule are ONE decision: one request names the count, one approval and one `waive --group` waive all of them; a
+# finding of another rule stays blocking.
+sc_waiver_group() {
+  scaffold orchestrated no STANDARD; implemented orchestrated
+  rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:1|hard-coded spacing 13px on line 4|traced' 'VERIFY-2|blocking|impl.txt:1|hard-coded spacing 17px on line 9|traced' \
+    'VERIFY-3|blocking|impl.txt:1|hard-coded spacing 21px on line 12|traced' 'VERIFY-4|blocking|impl.txt:1|focus ring removed|traced'
+  A request-approval LC waive:VERIFY-1 > "$base/rq.out"; grep -q 'covers 3 findings of the same rule' "$base/rq.out" || die "the request did not present the 3 same-rule findings as one decision"
+  capture 'I approve the waiver of VERIFY-1.'; A approve LC waive:VERIFY-1 >/dev/null || die "the waiver sentence was refused"
+  expect_msg "a group waiver by a reviewer" 'command denied' AS reviewer waive LC VERIFY-1 --group --reason 'the user accepted the spacing rule for this task'
+  A waive LC VERIFY-1 --group --reason 'the user accepted the spacing rule for this task' >/dev/null
+  [ "$(ls .agents/runs/LC/waivers/*.yaml | wc -l | tr -d ' ')" = 3 ] || die "the group waiver wrote $(ls .agents/runs/LC/waivers/*.yaml | wc -l) waivers, want 3"
+  [ "$(gate_st VERIFY)" = fail ] || die "the finding of another rule was waived with the group: $(gate_st VERIFY)"
+  expect_msg "a second finding waived with the consumed approval" "needs the user's approval" A waive LC VERIFY-4 --reason 'the user accepted the focus ring for this task'
+  ok "same-rule findings are one request, one approval and one waive --group; another rule stays blocking"
+}
+
 # A130: the report names the finding ids of every required gate (info rows included); 'none' only for a gate with no rows.
 sc_report_finding_ids() {
   scaffold orchestrated; implemented orchestrated
@@ -2869,6 +2907,8 @@ sc_build_record_auto() {
 run_sc sc_secret_scan
 run_sc sc_provenance
 run_sc sc_waiver_rebind
+run_sc sc_waiver_persists
+run_sc sc_waiver_group
 run_sc sc_open_runs
 run_sc sc_report_finding_ids
 run_sc sc_report_facts

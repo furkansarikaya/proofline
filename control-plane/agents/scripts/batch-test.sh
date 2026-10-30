@@ -891,7 +891,13 @@ sc_known_issues_preflight() {
   grep -q '\[R-1, known\].*QA-1.*docs/old.md:3' "$summary" || die "the finding of a run that did not cover the place raised no question: $(grep -n 'known\|Pre-flight' "$summary")"
   grep -q '\[R-2, known\]' "$summary" && die "a run whose scope covered the place raised a question (the finding is its own change)"
   grep -q 'approve known issue' "$summary" || die "the question does not say that listing needs the user's own approval"
-  ok "A202: the batch pre-flight asks about recorded findings no run covered and that are not listed; a run's own scope finding is not asked; no scanner is claimed"
+  # the expected findings and rationales are offered as ONE decision; "all recommended" is the safe answer (a), never an acceptance
+  grep -q '^## Expected known issues and rationales' "$summary" || die "no expected-findings section: $(cat "$summary")"
+  grep -q '^- accept K QA docs/old.md:3: the old page drops a section$' "$summary" || die "the expected finding is not listed as an accept line: $(sed -n '/Expected known/,/Pre-flight/p' "$summary")"
+  grep -q '\[batch, accept\]' "$summary" || die "no accept question: $(grep -n 'Q[0-9]' "$summary")"
+  [ "$(awk -F'\t' '$3 == "accept" { n++; r = $6 } END { print n, r }' .agents/local/batch/lint.tsv)" = "1 a" ] || die "the accept question is not one question recommending a (no): $(cat .agents/local/batch/lint.tsv)"
+  grep -q 'SECRETS and SECURITY' "$summary" || die "the summary does not say SECRETS and SECURITY are never accepted this way"
+  ok "A202: the batch pre-flight asks about recorded findings no run covered and that are not listed; a run's own scope finding is not asked; no scanner is claimed; the expected list is one accept decision"
 }
 
 # --- 16. the keys of the removed driver are ignored, not validated; the live keys still are -------------------------------------------
