@@ -1189,6 +1189,8 @@ sc_decide() {
   [ ! -e .agents/runs/LC/decisions/002-reviewer.decision ] || die "a refused decision was persisted"
   expect_fail "an unknown decide flag was accepted" A decide LC reviewer --agent-path --turbo yes
   expect_fail "a reviewer called decide" AS reviewer decide LC reviewer
+  expect_msg "the lead labelled its own choice an automatic failover" "dispatch.sh's alone" A decide LC reviewer --agent-path --runtime codex --runtime-reason AUTOMATIC_FAILOVER
+  expect_msg "the lead labelled a dry decision an automatic failover" "dispatch.sh's alone" A decide LC reviewer --dry --runtime codex --runtime-reason AUTOMATIC_FAILOVER
   # A171: decide is not called ahead of a dispatch; --dry reads without writing; the output starts with a one-line summary
   nd=$(($(ls .agents/runs/LC/decisions | wc -l))); nl=$(($(wc -l < .agents/runs/LC/LEDGER.log)))
   expect_msg "a bare decide (ahead of a dispatch) was accepted" 'not called ahead of one' A decide LC reviewer --focus rules+tests
@@ -1446,6 +1448,32 @@ sc_waiver_persists() {
   rec VERIFY FAIL high 'VERIFY-1|blocking|impl.txt:1|cache never invalidated on delete|traced'
   [ "$(gate_st VERIFY)" = fail ] || die "a changed finding kept the waiver: $(gate_st VERIFY)"
   ok "a waiver follows the finding across gate re-runs; a new place or a changed finding asks again"
+}
+
+# A waiver that cannot tell WHICH copy it covers (no line number, or a cited line that no longer resolves) binds its gate record
+# only; and a cited line holding a backslash still counts its earlier copies (no escape processing), so a waiver for one copy of
+# a duplicated line never covers the other.
+sc_waiver_key_edges() {
+  scaffold orchestrated no STANDARD; implemented orchestrated
+  for loc in impl.txt impl.txt:99; do
+    rec VERIFY FAIL high "VERIFY-1|blocking|$loc|cache never invalidated on write|traced"
+    approve_as_user waive:VERIFY-1 'approve VERIFY-1'
+    A waive LC VERIFY-1 --reason 'the user accepted the cache gap for this task' >/dev/null
+    [ "$(gate_st VERIFY)" = waived ] || die "the waiver did not apply to its own record ($loc)"
+    rec VERIFY FAIL high "VERIFY-1|blocking|$loc|cache never invalidated on write|traced"
+    [ "$(gate_st VERIFY)" = fail ] || die "a waiver without a resolvable line covered a later record ($loc): $(gate_st VERIFY)"
+  done
+  A handoff LC IMPLEMENTING >/dev/null
+  worker FIX pass impl.txt 'same\nline'; worker FIX pass impl.txt 'other'; worker FIX pass impl.txt 'same\nline'; A handoff LC IMPLEMENTED >/dev/null
+  n2=$(wc -l < impl.txt | tr -d ' '); n1=$((n2 - 2))
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:$n2|cache never invalidated on write|traced"
+  approve_as_user waive:VERIFY-1 'approve VERIFY-1'
+  A waive LC VERIFY-1 --reason 'the user accepted the second copy for this task' >/dev/null
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:$n2|cache never invalidated on write|traced"
+  [ "$(gate_st VERIFY)" = waived ] || die "the waiver lost its own copy: $(gate_st VERIFY)"
+  rec VERIFY FAIL high "VERIFY-1|blocking|impl.txt:$n1|cache never invalidated on write|traced"
+  [ "$(gate_st VERIFY)" = fail ] || die "a waiver for one copy of a line with a backslash covered the other: $(gate_st VERIFY)"
+  ok "a waiver without a resolvable line binds its record only; a backslash line keeps its copies apart"
 }
 
 # N findings of one rule are ONE decision: one request names the count, one approval and one `waive --group` waive all of them; a
@@ -2928,6 +2956,7 @@ run_sc sc_secret_scan
 run_sc sc_provenance
 run_sc sc_waiver_rebind
 run_sc sc_waiver_persists
+run_sc sc_waiver_key_edges
 run_sc sc_waiver_group
 run_sc sc_open_runs
 run_sc sc_report_finding_ids

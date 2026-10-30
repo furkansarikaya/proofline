@@ -3412,11 +3412,13 @@ finding_waiver_key() { # GATE-RECORD-FILE FINDING-ID
   fwk_loc=$(printf '%s' "$fwk_row" | cut -d'|' -f3 | tr -d ' '); fwk_txt=$(printf '%s' "$fwk_row" | cut -d'|' -f4)
   fwk_fp=$(gate_field "$1" fingerprint); fwk_fc=$(gate_field "$1" focus); fwk_k=$(finding_key "$fwk_fp" "$fwk_loc" "$fwk_txt"); fwk_ord=0
   fwk_n=${fwk_loc##*:}; fwk_n=${fwk_n%%-*}
-  case "$fwk_n" in ''|*[!0-9]*) ;; *)
-    if [ "$fwk_n" -gt 1 ] && [ "$fwk_loc" != "$fwk_n" ]; then
-      fwk_lt=$(tree_line "$fwk_fp" "$fwk_loc")
-      fwk_ord=$(git -C "$root" cat-file -p "$fwk_fp:${fwk_loc%:*}" 2>/dev/null | awk -v n="$fwk_n" -v t="$fwk_lt" 'NR < n && $0 == t { c++ } END { print c + 0 }')
-    fi ;; esac
+  # No line number, or a cited line that no longer resolves: no order can be told, so no key (the waiver binds the record only).
+  case "$fwk_n" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$fwk_loc" != "$fwk_n" ] || return 0
+  fwk_lt=$(tree_line "$fwk_fp" "$fwk_loc"); [ -n "$fwk_lt" ] || return 0
+  if [ "$fwk_n" -gt 1 ]; then
+    fwk_ord=$(git -C "$root" cat-file -p "$fwk_fp:${fwk_loc%:*}" 2>/dev/null | fwk_t=$fwk_lt awk -v n="$fwk_n" 'NR < n && $0 == ENVIRON["fwk_t"] { c++ } END { print c + 0 }')
+  fi
   printf '%s\t%s\t%s\t%s\t%s\n' "$(gate_field "$1" gate)" "${fwk_fc:--}" "$fwk_k" "$fwk_ord" "$(printf '%s' "$fwk_txt" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' ' ' | sed 's/^ //;s/ $//')" | git hash-object --stdin
 }
 fail_fully_waived() { # ID GATE-RECORD-FILE
@@ -5772,8 +5774,8 @@ approve_pending() {
 }
 # hook_time ID: the runtime hooks' own timings (A171). A hook appends `epoch|name|ms|result|note` to
 # .agents/local/hook-times (a plain append, no lock, so a slow or killed hook still leaves its line; a killed one is found by the
-# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's HOOKS.log (A203; never the ledger)
-# under the locks into the run's HOOKS.log (A203; not into the ledger): one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
+# next hook through its in-flight marker and written with result=timeout). This command moves the lines into the run's HOOKS.log
+# (A203; never the ledger) under the locks: one `hook` event per name (`name=<event or step> runs=<n> total_ms=<n> max_ms=<n>`) and one `hook-timeout`
 # event per timeout (`name=<event> ms=<n> note=...`). The friction report counts both. A run without lifecycle gates takes none.
 hook_time() {
   ht_id=${1:-}; require_lead; ht_f=$root/.agents/local/hook-times
@@ -6587,6 +6589,7 @@ decide() {
         fi ;; esac
       [ "$dc_nok" != yes ] || [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || rm -f "$dc_nf"
     fi ;; esac
+  case "$dc_over " in *" --runtime-reason "*) [ "$dc_nok" = yes ] || fail "decide --runtime-reason is dispatch.sh's alone (an automatic failover): the lead does not label its own choice" ;; esac
   [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "$dc_nok" = yes ] ||
     fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
   [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"

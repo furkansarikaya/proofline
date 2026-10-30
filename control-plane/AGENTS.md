@@ -7,14 +7,13 @@ before delivery. No evidence, no claim. This file is the boot protocol; the work
 ## Boot protocol
 
 1. Read this file, then `.agents/config.yaml` and `.agents/WORKFLOW.md`. Load `.agents/GATES.md`,
-   `.agents/PROTOCOL.md`, `ENGINEERING.md`, `VERIFICATION.md`, `GIT.md`, `KNOWLEDGE.md` only when their
-   rules apply.
+   `.agents/PROTOCOL.md`, `ENGINEERING.md`, `VERIFICATION.md`, `GIT.md`, `KNOWLEDGE.md` only when relevant.
 2. `.agents/scripts/agent.sh status` shows the active task and the effective policy. No active task:
    implementation is not allowed.
 3. Your role is `AGENT_ROLE` (default `lead`). A specialist obeys its row in WORKFLOW.md "Roles", works only
    on its assignment, writes only the artifacts it owns, reports with `agent.sh submit` (PROTOCOL.md) and never
    runs state commands.
-4. Lead: `agent.sh next <TASK-ID>` prints the next step. Intake of a new request, resume after an interruption
+4. Lead: `agent.sh next <TASK-ID>` prints the next step. Intake, resume after interruption
    and the Codex lead's git access are in `.agents/skills/proofline-lead/SKILL.md` and its `references/`.
 
 ## Rules that always apply
@@ -32,7 +31,7 @@ before delivery. No evidence, no claim. This file is the boot protocol; the work
 - Never install anything into the project. Never touch global git configuration. Stop only a process you
   started yourself, by its own PID; never `pkill`, `killall` or kill by pattern or port.
 - Run artifacts are English; product text and the user's words are quoted, never translated.
-- If the project has `.out-of-scope/`, read its README before proposing a feature; if it does not, do nothing: do
-  not create the folder and do not ask.
+- If the project has `.out-of-scope/`, read its README before proposing a feature (a Rejected match is not built and the
+  user is told; Deferred is never a side effect); if not, do nothing (no folder, no question).
 
 Details: `.agents/WORKFLOW.md` "Sources of truth", the lead skill, its `DISPATCH.md` section 5.
