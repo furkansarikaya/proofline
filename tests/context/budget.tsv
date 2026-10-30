@@ -1,7 +1,7 @@
 # Context budget (A202): the most bytes each item of bin/lib/context-size.sh may have. A patch above a line breaks CI.
 # Changing this file needs a `Context-budget-change: <reason>` line in the PR description (tests/context/check-budget-changed.sh).
 # name<TAB>max bytes. Lines are the measured size rounded up to the next 50.
-agents_md	2700
+agents_md	2650
 claude_md	450
 session_start	250
 entry_skill	15850
