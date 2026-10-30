@@ -154,7 +154,14 @@ grep -qxF .agents/local/ "$base/.gitignore" && grep -qxF .agents/runs/ "$base/.g
 # .out-of-scope/ belongs to the proofline repository: a user project gets only the conditional line and no folder
 blk=$(awk '/^<!-- proofline:begin -->$/ { on = 1 } on { print } /^<!-- proofline:end -->$/ { on = 0 }' "$base/AGENTS.md")
 bmax=$(awk -F'	' '$1 == "agents_md" { print $2 }' "$repo/tests/context/budget.tsv")
-printf '%s' "$blk" | grep -qF 'If the project has `.out-of-scope/`, read its README before proposing a feature; if it does not, do nothing' && ! printf '%s' "$blk" | tr '\n' ' ' | grep -qF 'read `.out-of-scope/README.md`' && [ "$(printf '%s\n' "$blk" | wc -c)" -le "$bmax" ] && ok "installed AGENTS.md block: conditional .out-of-scope line, no unconditional read, within budget" || die "installed AGENTS.md block out-of-scope rule"
+bflat=$(printf '%s' "$blk" | tr '\n' ' ' | tr -s ' ')
+oos_ok=yes
+printf '%s' "$bflat" | grep -qF 'If the project has `.out-of-scope/`, read its README before proposing a feature' || oos_ok=no   # conditional on the project having the folder
+printf '%s' "$bflat" | grep -qF 'if not, do nothing (no folder, no question)' || oos_ok=no   # absent: nothing, no folder, no question
+printf '%s' "$bflat" | grep -qF 'a Rejected match is not built and the user is told; Deferred is never a side effect' || oos_ok=no
+! printf '%s' "$bflat" | grep -qF 'read `.out-of-scope/README.md`' || oos_ok=no   # no unconditional read
+[ "$(printf '%s\n' "$blk" | wc -c)" -le "$bmax" ] || oos_ok=no
+[ "$oos_ok" = yes ] && ok "installed AGENTS.md block: conditional .out-of-scope line, no unconditional read, within budget" || die "installed AGENTS.md block out-of-scope rule"
 own=''
 for oe in "$repo"/.out-of-scope/*.md; do oe=${oe##*/}; [ "$oe" = README.md ] || own="$own $oe"; done
 [ -n "$own" ] || die "no proofline .out-of-scope entries found to compare against"
