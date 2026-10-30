@@ -159,7 +159,7 @@ Three rules keep the loop fair (A171). A rules review scans for the whole class 
 the scan and every instance, so the examples are fixed together. A failing record whose every blocking row cites a
 line that was already in the previously reviewed revision (and was not cited before) is a missed example and does not
 use up a round. Blocking or info follows a written rule (`GATES.md`), and the same observation keeps its
-classification from round to round. A mutation budget overrun in the tests review (21 of 20) is a warning, not a block.
+classification from round to round. A mutation budget overrun in the tests review (21 of 20) is a warning, not a block. The cap is enforced while the mutants run: `gate.mjs mutant <review-folder>/mutants.count ...` refuses a mutant past the budget, and the validator fails a finding that records more executed mutants than the budget (A203).
 
 ## Waivers
 
