@@ -22,7 +22,7 @@ csb() {
   while IFS= read -r csb_a; do set -- "$@" "$csb_a"; done <<EOF_CSB
 $(sh "$csb_prof/.agents/scripts/dispatch.sh" codex-profile LC)
 EOF_CSB
-  codex sandbox -C "$csb_d" -P proofline-worker "$@" -- sh "$csb_s"
+  mkdir -p "$base/sbtmp"; TMPDIR=$base/sbtmp codex sandbox -C "$csb_d" -P proofline-worker "$@" -- sh "$csb_s"
 }
 
 # the probe: what a worker tries. Prints WROTE <path> or DENIED <path> per path, then runs submit
@@ -73,6 +73,32 @@ for where in main worktree; do
   for ok_p in impl.txt .agents/runs/LC/scratch/own.txt .agents/local/locks/own.lock-probe .agents/local/submissions/own.probe; do want "$out" "$ok_p" wrote "($where) a worker's own path"; done
   for no_p in .agents/local/windows/forged .agents/local/approvals/forged .agents/local/prompts/forged .agents/local/batch/forged .agents/runs/LC/approvals/forged .agents/local/escalate .agents/roles.conf.probe; do want "$out" "$no_p" denied "($where) a path a worker must not write"; done
   ok "A199 ($where) in a real Codex sandbox: product files and the worker's own record paths are writable; windows, approvals, prompts, batch, the run's approvals and the rest of .agents are not"
+
+  # git operations a worker does in its tree (A203). In a worktree: status, diff, add and commit work (own worktree folder plus the common objects/ folder) and
+  # nothing else of the git dir is writable: not a branch ref, not another task's worktree folder, not a new worktree (an evidence worktree, D10). In the main
+  # tree the whole .git stays read-only (the lead commits there): status and diff work, add and commit are refused.
+  cat > "$base/git.sh" <<'EOF_GIT'
+g() { n=$1; shift; o=$("$@" 2>&1) && echo "GITOK $n" || echo "GITFAIL $n: $(printf '%s' "$o" | head -c 300 | tr '\n' ' ')"; }
+cd=$(git rev-parse --git-common-dir)
+echo changed >> impl.txt
+g status git status --short
+g diff git diff --stat
+g add git add impl.txt
+g commit git -c user.name=w -c user.email=w@example.invalid commit -q -m worker-probe
+g wtadd git worktree add --detach "$TMPDIR/ev-probe" HEAD
+g ref git update-ref refs/heads/forged HEAD
+g other mkdir "$cd/worktrees/other-task"
+EOF_GIT
+  gout=$base/git-$where.out; g_head=$(git rev-parse HEAD)
+  csb "$run_root" "$base/git.sh" > "$gout" 2>&1 || :
+  : > impl.txt; git reset -q --hard "$g_head" 2>/dev/null || :
+  gexp() { # NAME ok|fail
+    if [ "$2" = ok ]; then grep -q "^GITOK $1\$" "$gout" || die "A203 ($where) git $1 must work inside the Codex sandbox; got: $(grep "GITFAIL $1" "$gout" | head -1). A dispatched Codex worker that reports BLOCKED on this: run the role with --runtime claude"
+    else grep -q "^GITFAIL $1:" "$gout" || die "A203 ($where) git $1 must be refused inside the Codex sandbox; got: $(grep "GITOK $1" "$gout" | head -1)"; fi
+  }
+  gexp status ok; gexp diff ok; gexp ref fail; gexp other fail; gexp wtadd fail
+  if [ "$where" = worktree ]; then gexp add ok; gexp commit ok; else gexp add fail; gexp commit fail; fi
+  ok "A203 ($where) git: status and diff work; $([ "$where" = worktree ] && echo 'add and commit work (own worktree folder, common objects/)' || echo 'add and commit are refused (.git read-only)'); branch refs, other worktree folders and new worktrees are refused"
 
   # submit succeeds from inside the sandbox (an explorer report), taking the locks
   art=.agents/runs/LC/scratch/e9-report.md
