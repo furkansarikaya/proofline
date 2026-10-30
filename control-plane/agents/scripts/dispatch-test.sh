@@ -390,7 +390,8 @@ wt=$(cd "$loc/worktrees/T-1" && pwd -P)
 rc=0; out=$(sh "$wt/.agents/scripts/dispatch.sh" T-1 implementer --prompt-file "$here/../roles.conf" 2>"$tmp/err") || rc=$?; err=$(cat "$tmp/err")
 ck "A196 worktree run: only the main tree's .agents/local/locks is writable there" 'has "$loc/codex.argv" "\"$(cd "$p" && pwd -P)/.agents/local/locks\"=\"write\"" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents/local\"=" && ! has "$loc/codex.argv" "$(cd "$p" && pwd -P)/.agents\"="'
 ck "A200 worktree run: only this task's own folder of .git/worktrees is writable, never the whole folder" 'has "$loc/codex.argv" "/.git/worktrees/T-1\"=\"write\"" && [ "$(grep -o "[^\"]*/worktrees\"=\"write\"" "$loc/codex.argv" | wc -l | tr -d " ")" = 0 ]'
-ck "A196 worktree run: no other absolute path of the main tree is granted" '[ "$(grep -o "\"/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "locks\|/worktrees")" = 0 ]'
+ck "A203 worktree run: the common objects folder is writable (git add, git commit), and no ref, log, packed-refs or config path" 'has "$loc/codex.argv" "/.git/objects\"=\"write\"" && [ "$(grep -o "[^\"]*/\.git/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "/\.git/objects\"\|/\.git/worktrees/T-1\"")" = 0 ]'
+ck "A196 worktree run: no other absolute path of the main tree is granted" '[ "$(grep -o "\"/[^\"]*\"=\"write\"" "$loc/codex.argv" | grep -vc "locks\|/worktrees\|/\.git/objects")" = 0 ]'
 reset; d T-1 implementer --prompt-file "$here/../roles.conf"
 ck "A196 main tree run: no main-tree locks path outside the run's own tree" '! has "$loc/codex.argv" "/worktrees/T-1/"'
 

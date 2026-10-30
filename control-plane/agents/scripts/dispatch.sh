@@ -63,6 +63,11 @@ tok() { case "$2" in ''|*[!A-Za-z0-9._+:-]*|-*) die "invalid value for $1: '$2'"
 #   <git dir>/worktrees/<name>           (a run in a worktree only) that worktree's own git folder (index, HEAD) and nothing else under
 #                                        <git dir>/worktrees, so a worker cannot touch another task's worktree metadata (A200). A worker can
 #                                        therefore not `git worktree add` an evidence worktree: that needs the whole folder (D10)
+#   <common git dir>/objects             (a run in a worktree only, A203) `git add` and `git commit` write loose objects there (a worktree is
+#                                        detached, so HEAD and its log are in the own folder above and no ref is written). objects/ cannot be
+#                                        narrower: git creates the fan-out folders (objects/ab) on demand. Content-addressed, so it cannot forge a
+#                                        ref. NOT opened: refs/, logs/, packed-refs, the common index, config, hooks and any other worktrees/ folder.
+#                                        A run in the main tree keeps the whole .git read-only: its worker cannot add or commit (the lead does)
 # The profile replaces `-s workspace-write`: Codex refuses a mix of default_permissions and a sandbox mode.
 codex_profile_args() {
   cp_id=$1; cp_root=$2
@@ -76,7 +81,11 @@ codex_profile_args() {
   case "$cp_g" in '') ;; /*) ;; *) cp_g=$cp_root/$cp_g ;; esac
   if [ -f "$cp_root/.git" ] && [ -d "$cp_g" ]; then
     cp_g=$(cd "$cp_g" && pwd -P)
-    case "$cp_g" in */worktrees/*) cp_abs="$cp_abs,\"$cp_g\"=\"write\"" ;; esac
+    case "$cp_g" in */worktrees/*)
+      cp_abs="$cp_abs,\"$cp_g\"=\"write\""
+      cp_o=$(git -C "$cp_root" rev-parse --git-common-dir 2>/dev/null || true); case "$cp_o" in /*) ;; *) cp_o=$cp_root/$cp_o ;; esac
+      [ ! -d "$cp_o/objects" ] || cp_abs="$cp_abs,\"$(cd "$cp_o/objects" && pwd -P)\"=\"write\"" ;;
+    esac
   fi
   case "$cp_rules$cp_abs" in *\\*) die "a path with a backslash cannot be placed in the Codex permission profile" ;; esac
   printf '%s\n' -c 'default_permissions="proofline-worker"' -c 'permissions.proofline-worker.extends=":workspace"' \
@@ -565,7 +574,11 @@ while :; do
   err=$(sed -n 's/^error=//p' "$st" 2>/dev/null | head -n 1)
   submissions=$((submissions + 1))
   if [ "$submissions" -ge 2 ]; then
-    blocked "no valid submission from $role after one retry${err:+ (last rejection: $err)}; nothing recorded"
+    sandbox_hint=''
+    if [ "$rt" = codex ] && tail -n 200 "$log" 2>/dev/null | grep -Eiq 'worktrees?[^[:space:]]*.*(not permitted|read-only|denied)|(not permitted|read-only|denied).*worktrees?'; then
+      sandbox_hint="; the Codex sandbox refused a git worktree or git metadata write (A203: a Codex worker writes only its own worktree folder and the common objects folder, so it cannot create an evidence worktree): run this role with --runtime claude"
+    fi
+    blocked "no valid submission from $role after one retry${err:+ (last rejection: $err)}$sandbox_hint; nothing recorded"
   fi
   # A127: name what was looked for and what exists, so a missing status file (a submit under another token) shows in the ledger
   seen=$(ls "$subdir" 2>/dev/null | tr '\n' ',')
