@@ -32,8 +32,7 @@ before delivery. No evidence, no claim. This file is the boot protocol; the work
 - Never install anything into the project. Never touch global git configuration. Stop only a process you
   started yourself, by its own PID; never `pkill`, `killall` or kill by pattern or port.
 - Run artifacts are English; product text and the user's words are quoted, never translated.
-- Before proposing or building a feature, read `.out-of-scope/README.md`: a Rejected match is not built and the
-  user is told the entry; Deferred is never a side effect. Changing one needs a user decision in
-  `docs/decisions.md`.
+- If the project has `.out-of-scope/`, read its README before proposing a feature; if it does not, do nothing: do
+  not create the folder and do not ask.
 
 Details: `.agents/WORKFLOW.md` "Sources of truth", the lead skill, its `DISPATCH.md` section 5.

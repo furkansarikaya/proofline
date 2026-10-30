@@ -151,6 +151,16 @@ done
 grep -qx '<!-- proofline:begin -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:end -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:begin -->' "$base/CLAUDE.md" && ok "AGENTS.md and CLAUDE.md carry the marked proofline block" || die "marked blocks missing"
 grep -qxF .agents/local/ "$base/.gitignore" && grep -qxF .agents/runs/ "$base/.gitignore" && ok ".gitignore ignores .agents/local/ and .agents/runs/" || die ".gitignore lines missing"
 ! grep -Eq '^/?\.claude(/|$)' "$base/.gitignore" && ok ".gitignore of an installed project has no .claude line (A117)" || die "init added a .claude line to .gitignore"
+# .out-of-scope/ belongs to the proofline repository: a user project gets only the conditional line and no folder
+blk=$(awk '/^<!-- proofline:begin -->$/ { on = 1 } on { print } /^<!-- proofline:end -->$/ { on = 0 }' "$base/AGENTS.md")
+bmax=$(awk -F'	' '$1 == "agents_md" { print $2 }' "$repo/tests/context/budget.tsv")
+printf '%s' "$blk" | grep -qF 'If the project has `.out-of-scope/`, read its README before proposing a feature; if it does not, do nothing' && ! printf '%s' "$blk" | tr '\n' ' ' | grep -qF 'read `.out-of-scope/README.md`' && [ "$(printf '%s\n' "$blk" | wc -c)" -le "$bmax" ] && ok "installed AGENTS.md block: conditional .out-of-scope line, no unconditional read, within budget" || die "installed AGENTS.md block out-of-scope rule"
+own=''
+for oe in "$repo"/.out-of-scope/*.md; do oe=${oe##*/}; [ "$oe" = README.md ] || own="$own $oe"; done
+[ -n "$own" ] || die "no proofline .out-of-scope entries found to compare against"
+bad=$(find "$base" -path "$base/.git" -prune -o -name .out-of-scope -print | head -1)
+for e in $own; do [ -z "$(find "$base" -path "$base/.git" -prune -o -name "$e" -print | head -1)" ] || bad="$bad $e"; done
+[ ! -e "$base/.out-of-scope" ] && [ -z "$bad" ] && ok "init creates no .out-of-scope folder and installs none of proofline's own entries" || die ".out-of-scope reached the installed project: $bad"
 [ "$(git -C "$base" config --local --get core.hooksPath)" = .agents/githooks ] && ok "core.hooksPath is set locally" || die "core.hooksPath not set locally"
 [ -z "$(git config --global --get core.hooksPath 2>/dev/null || true)" ] && [ "$(shasum -a 256 "$GIT_CONFIG_GLOBAL" | awk '{print $1}')" = "$global_sha" ] && ok "global git configuration is untouched" || die "global git config changed"
 bad=''

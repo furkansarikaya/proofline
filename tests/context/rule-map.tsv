@@ -35,4 +35,4 @@ codex.interactive	skills/proofline-lead/references/DISPATCH.md	In interactive us
 codex.headless	skills/proofline-lead/references/DISPATCH.md	in headless use, run the lead with `danger-full-access`
 codex.workers	skills/proofline-lead/references/DISPATCH.md	Dispatched workers retain `workspace-write` plus access to the run directory
 codex.ownership	skills/proofline-lead/references/DISPATCH.md	Product-code ownership is still enforced by the proofline hooks and gates
-rule.out-of-scope	control-plane/AGENTS.md	Before proposing or building a feature, read `.out-of-scope/README.md`
+rule.out-of-scope	control-plane/AGENTS.md	If the project has `.out-of-scope/`, read its README before proposing a feature
