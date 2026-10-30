@@ -38,7 +38,8 @@ gate_refused() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | grep -Eq 'secre
 place_path() { printf '%s' "${1%%:*}"; }
 place_ok() { # PLACE: a repository-relative path with an optional :line
   printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_.@+-][A-Za-z0-9_./@+-]*(:[0-9]+(-[0-9]+)?)?$' || return 1
-  case "$(place_path "$1")" in *..*|*/|./*) return 1 ;; esac
+  # one spelling only: no .. , no empty or . segment (a//b, a/./b, ./a, a/.), no trailing slash, so the touch check cannot be walked around by how a path is written
+  case "$(place_path "$1")" in *..*|*/|./*|*//*|*/./*|*/.) return 1 ;; esac
   return 0
 }
 fu_state() { # TASK-ID

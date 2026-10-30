@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { validate, slugify, fileNameWarning, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS } from "../../skills/task-author/scripts/validate-task.mjs";
+import { validate, slugify, fileNameWarning, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS, scopeParse } from "../../skills/task-author/scripts/validate-task.mjs";
 import { linkOrigin } from "../../skills/task-author/scripts/link-origin.mjs";
 import { VAGUE_WORDS } from "../../skills/product-spec/scripts/check-prd.mjs";
 
@@ -286,6 +286,12 @@ test("A202 priority, origin and the scope sections are checked, absent fields ch
   assert.equal(validate(scoped).valid, true, errs(scoped));
   assert.match(errs(GOOD + "\n## Forbidden scope\n\nnothing here\n"), /Forbidden scope" lists no path/);
   assert.match(errs(GOOD + "\n## Completion response\n\n"), /Completion response" is empty/);
+  // review B1: every token counts, a non-path token is an error naming it, the heading may carry trailing text in any case
+  assert.deepEqual(scopeParse(["- `legacy/` and `vendor/`", "- src/a.js, src/b.js", "- none"]).entries, ["legacy/", "vendor/", "src/a.js", "src/b.js"]);
+  assert.match(errs(GOOD + "\n## Forbidden scope\n\n- Do not modify the billing module\n"), /not a path or glob: "Do"/);
+  assert.match(errs(GOOD + "\n## forbidden scope (do not touch)\n\n- src/a.js and the billing module\n"), /not a path or glob: "and"/);
+  assert.match(errs(GOOD + "\n## Allowed scope\n\n- `src/ok/`\n\nkeep it small please\n"), /not a path or glob: "keep it small please"/);
+  assert.equal(validate(GOOD + "\n## Forbidden scope (do not touch)\n\n- `src/a.js`, `src/b.js`\n").valid, true);
 });
 test("A202 link-origin writes the origin and the way back, once, and leaves the source alone", () => {
   const d = mkdtempSync(join(tmpdir(), "origin-"));

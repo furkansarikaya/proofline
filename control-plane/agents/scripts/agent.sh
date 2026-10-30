@@ -1718,6 +1718,7 @@ classify() {
     fail "classification refused: TASK.md suggests $cl_sug and $class is lower. Classify at least $cl_sug, or change the task's '## Suggested class' with the reason (a task change before freeze)"
   fi
   # A202: a bug or a refactor changes behaviour or code: TRIVIAL (text and configuration only) is refused for both
+  [ "$(task_type "$dir/TASK.md")" != invalid ] || fail "classification refused: $(task_type_refusal "$dir/TASK.md")"
   case "$(task_type "$dir/TASK.md")" in bug|refactor) [ "$class" != TRIVIAL ] || fail "classification refused: the task is typed $(task_type "$dir/TASK.md") and TRIVIAL covers text and configuration only; classify STANDARD or higher, or ask the user to change the task type" ;; esac
   # CLASSIFY precedes BRANCH (WORKFLOW.md): the branch is enforced once it is established.
   case "$(section_value "$dir" repository task_branch)" in ''|PENDING) ;; *) enforce_task_branch "$id" ;; esac
@@ -1810,26 +1811,47 @@ authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 
 # A202: optional task sections the user writes into TASK.md: `Allowed scope`, `Forbidden scope`, `Existing pattern references`
 # and `Completion response`. A section is a `##` (or an imported `###`) heading; HTML comments inside it are dropped. The run's
-# copy of TASK.md is sealed, so an agent cannot edit a boundary after the freeze. An entry is a bullet with a path (the first
-# backticked token, else the first word): a file, a folder (a parent of the plan path) or a glob.
-task_section_lines() { # FILE HEADING -> the section's lines without HTML comments; nothing when it is absent
+# copy of TASK.md is sealed at the freeze (and compared with the task file before it), so an agent cannot edit a boundary. An entry is a bullet of paths (every
+# backticked token, else every word; commas split): a file, a folder (a parent of the plan path) or a glob. What cannot be read as one refuses the freeze.
+task_section_lines() { # FILE HEADING [prefix] -> the section's lines without HTML comments; nothing when it is absent. `prefix`: a heading with trailing text ("Forbidden scope (do not touch)") is the section too
   [ -f "$1" ] || return 0
-  awk -v h="$2" '
+  awk -v h="$2" -v pre="${3:-}" '
     function strip(s,   o, p) { o = ""
       while (1) {
         if (inc) { p = index(s, "-->"); if (!p) return o; s = substr(s, p + 3); inc = 0 }
         else { p = index(s, "<!--"); if (!p) return o s; o = o substr(s, 1, p - 1); s = substr(s, p + 4); inc = 1 } } }
     BEGIN { want = tolower(h) }
     { s = strip($0)
-      if (s ~ /^#+[ \t]/) { t = s; sub(/^#+[ \t]+/, "", t); sub(/[ \t\r]+$/, "", t); on = (s ~ /^###?[ \t]/ && tolower(t) == want); next }
+      if (s ~ /^#+[ \t]/) { t = s; sub(/^#+[ \t]+/, "", t); sub(/[ \t\r]+$/, "", t); lt = tolower(t); on = (s ~ /^###?[ \t]/ && (lt == want || (pre != "" && index(lt, want) == 1 && substr(lt, length(want) + 1, 1) !~ /[a-z0-9]/))); next }
       if (on) print s }' "$1"
 }
-task_scope_entries() { # FILE HEADING -> one path, folder or glob per line
-  task_section_lines "$1" "$2" | awk '
+# task_scope_parse MODE FILE HEADING: every entry of a scope section, one per line. MODE ok: the entries; MODE bad: what could not be read
+# as an entry (a token that is no path or glob, or a line that is no bullet), so the freeze can refuse instead of dropping it. A bullet with
+# backticks gives each backticked token (commas split), without backticks every word (commas and spaces split) and each word must look
+# like a path: it has a / or a glob character or a dotted name. `none` is no entry.
+task_scope_parse() {
+  task_section_lines "$2" "$3" prefix | awk -v mode="$1" '
+    function emit(t, ticked) {
+      gsub(/^[ \t]+|[ \t]+$/, "", t); sub(/[,;]+$/, "", t)
+      if (t == "") return
+      if (t ~ badre || t ~ /^[.\/]+$/ || (!ticked && t !~ pathre)) { if (mode == "bad") print t; return }
+      sub(/^\.\//, "", t); sub(/^\//, "", t); if (mode == "ok") print t }
+    BEGIN { badre = "[ \t()<>|;\"\047$&\\\\]"; pathre = "[][/*?]|\\.[A-Za-z0-9]" }
+    { gsub(/\r/, "") }
+    /^[ \t]*$/ { next }
     /^[ \t]*([-*]|[0-9]+[.)])[ \t]+/ { l = $0; sub(/^[ \t]*([-*]|[0-9]+[.)])[ \t]+/, "", l)
-      if (match(l, /`[^`]+`/)) e = substr(l, RSTART + 1, RLENGTH - 2); else { e = l; sub(/[ \t].*$/, "", e) }
-      gsub(/^[ \t]+|[ \t]+$/, "", e); sub(/^\.\//, "", e); sub(/^\//, "", e); sub(/[,;]+$/, "", e)
-      if (e != "" && tolower(e) != "none") print e }'
+      low = tolower(l); gsub(/^[ \t]+|[ \t]+$/, "", low); if (low == "none") next
+      if (index(l, "`")) { rest = l
+        while (match(rest, /`[^`]*`/)) { tk = substr(rest, RSTART + 1, RLENGTH - 2); rest = substr(rest, RSTART + RLENGTH); n = split(tk, P, ","); for (i = 1; i <= n; i++) emit(P[i], 1) } }
+      else { n = split(l, P, /[ \t,]+/); for (i = 1; i <= n; i++) emit(P[i], 0) }
+      next }
+    { low = tolower($0); gsub(/^[ \t]+|[ \t]+$/, "", low); if (low == "none") next; if (mode == "bad") print substr($0, 1, 60) }'
+}
+task_scope_entries() { # FILE HEADING -> one path, folder or glob per line
+  task_scope_parse ok "$1" "$2"
+}
+task_scope_bad() { # FILE HEADING -> what is in the section but not a readable entry, one per line
+  task_scope_parse bad "$1" "$2"
 }
 norm_rel_path() { # PATH -> the path without ./ segments, doubled or leading or trailing slashes, and with .. resolved lexically
   printf '%s\n' "$1" | awk '{ n = split($0, a, "/"); m = 0
@@ -1860,9 +1882,28 @@ EOF
 # A202: the freeze (and every refreeze) checks the plan against the task's own boundaries. Forbidden scope is a hard refusal with
 # no waiver path: only the user's edit of the task lifts it. Allowed scope, when given, is a boundary the user either widens in the
 # task or answers at the batch pre-flight (kind scope, option b). Existing pattern references must exist and be named in the plan.
+# require_task_copy_matches_source ID: before the FIRST freeze the run's TASK.md must carry what the task file says about the task type and the
+# three boundary sections (Allowed scope, Forbidden scope, Existing pattern references): the lead cannot retype a bug or drop a Forbidden scope in
+# the run copy and then freeze it. Compared only for a run whose task file is a task document of this id (first line `# Task: <ID> `), which is every
+# run started from a task file; a run whose task source is some other document (a scaffolded test run, an untracked note) has nothing to compare with.
+require_task_copy_matches_source() { # ID
+  rcs_d=$(run_dir "$1"); local_task_source_run "$1" || return 0
+  rcs_p=$(section_value "$rcs_d" task_source path); [ -n "$rcs_p" ] && [ -f "$root/$rcs_p" ] && [ ! -L "$root/$rcs_p" ] || return 0
+  case "$(sed -n 1p "$root/$rcs_p" | tr -d '\r')" in "# Task: $1 "*) ;; *) return 0 ;; esac
+  rcs_a=$(task_type "$root/$rcs_p"); rcs_b=$(task_type "$rcs_d/TASK.md")
+  [ "$rcs_a" = "$rcs_b" ] || fail "the run's TASK.md says type $rcs_b but the task file $rcs_p says $rcs_a: the type is the user's, an agent cannot change it before the freeze. Restore the run copy from the task file (A202)"
+  for rcs_h in 'Allowed scope' 'Forbidden scope' 'Existing pattern references'; do
+    rcs_x=$(task_section_lines "$root/$rcs_p" "$rcs_h" prefix | tr -d '\r' | sed 's/[[:space:]]*$//'); rcs_y=$(task_section_lines "$rcs_d/TASK.md" "$rcs_h" prefix | tr -d '\r' | sed 's/[[:space:]]*$//')
+    [ "$rcs_x" = "$rcs_y" ] || fail "the run's TASK.md differs from the task file $rcs_p in '## $rcs_h' (- task file, + run copy): $(printf '%s\n' "$rcs_x" | sed 's/^/- /' | head -n 3 | tr '\n' ' ')/ $(printf '%s\n' "$rcs_y" | sed 's/^/+ /' | head -n 3 | tr '\n' ' '). A boundary is the user's; restore the run copy from the task file (A202)"
+  done
+}
 require_task_boundaries() { # ID
   rtb_d=$(run_dir "$1"); rtb_t=$rtb_d/TASK.md; [ -f "$rtb_t" ] || return 0
   rtb_paths=$(scope_mappings "$rtb_d/PLAN.md" 2>/dev/null | cut -d '|' -f1)
+  for rtb_h in 'Forbidden scope' 'Allowed scope' 'Existing pattern references'; do
+    rtb_bad=$(task_scope_bad "$rtb_t" "$rtb_h" | head -n 1)
+    [ -z "$rtb_bad" ] || fail "the task section '## $rtb_h' has an entry that is not a path or glob: \"$rtb_bad\". Write one path, folder or glob per bullet, each in backticks, e.g. - \`src/billing/\` or - \`**/*.sql\`, several per bullet allowed (a sentence is not a boundary and is never guessed at, so the freeze is refused until the user fixes the task) (A202)"
+  done
   rtb_forb=$(task_scope_entries "$rtb_t" 'Forbidden scope')
   if [ -n "$rtb_forb" ]; then
     for rtb_p in $rtb_paths; do
@@ -2045,6 +2086,8 @@ freeze() {
   verify_seal "$id"
   verify_task_source_status "$id"
   require_scope_mapping "$id"
+  [ "$(task_type "$dir/TASK.md")" != invalid ] || fail "$(task_type_refusal "$dir/TASK.md")"
+  freeze_hash_present "$dir" || require_task_copy_matches_source "$id"
   require_task_boundaries "$id"   # A202
   require_ac_coverage "$id"
   # A112: QA's visual focus runs for every non-TRIVIAL plan with a UI part; its same-origin-write allowance is declared
@@ -2822,9 +2865,12 @@ verify_no_scratch_worktrees() {
 # an unknown value is `invalid` (the validator refuses it; here it gets no exemption and no lighter path). The type is part of the task
 # contract that the freeze hashes, so changing it after the freeze makes the run stale: an agent cannot relabel a bug to skip its gates.
 task_type() { # TASK.md -> the type
-  tt_v=$(awk '/^##/ { exit } !fm && $0 == "---" { fm = 1; next } fm && $0 == "---" { exit }
-    fm && tolower($0) ~ /^type[[:space:]]*:/ { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); gsub(/["'"'"'[:space:]]/, "", v); print tolower(v); exit }' "$1" 2>/dev/null)
+  tt_v=$(awk '{ sub(/\r$/, "") } /^##/ { exit } !fm && $0 == "---" { fm = 1; next } fm && $0 == "---" { exit }
+    fm && tolower($0) ~ /^type[[:space:]]*:/ { v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/["'"'"'[:space:]]/, "", v); print (v == "" ? "?" : tolower(v)); exit }' "$1" 2>/dev/null)
   case "$tt_v" in ''|feature) echo feature ;; defect) echo bug ;; bug|refactor|content|docs|chore) echo "$tt_v" ;; *) echo invalid ;; esac
+}
+task_type_refusal() { # TASK.md: why an unreadable type stops the run
+  printf 'the task type in %s cannot be read (front matter `type:` must be one of feature, bug, refactor, content, docs, chore, optionally followed by a # comment); an unreadable type gets no exemption and no lighter path, so the user corrects it (A202)' "$1"
 }
 defect_words_default='bug defect regression'
 task_defect_label() { # TASK.md -> the first type or label word that makes the task a defect task, else nothing
@@ -7240,19 +7286,24 @@ verify_completion_report() {
 # those go through sb_scrub (an allowlist: no path, address, key or token survives, one line, 160 characters). The adapter op
 # `statusblock` places it (markdown: a marked section; GitHub, Jira, Linear: one comment found by its marker and edited). The update
 # is best effort: it is bounded in time and never fails a run or a gate; an unreachable tracker is a logged note.
-# sb_scrub: stdin -> one safe line. A word with a slash, a backslash, a leading ~, a drive letter, an @, an = , a known key prefix or
-# 24+ letters-and-digits is replaced; a word naming a credential redacts the word after it.
+# sb_scrub: stdin -> one safe line. IPv4 and IPv6 addresses are replaced first; then a word with a slash, a backslash, a leading ~, a drive
+# letter, an @, an = , a known key prefix (sk-, sk_live_, sk_test_, ghp_ ...), a word over 40 characters or 24+ letters-and-digits is replaced; a
+# word naming a credential redacts the word after it; the characters that remain are letters, digits and . _ % + - ! ? & # only (the rest is
+# dropped from each word, so no other symbol and no non-ASCII text survives); 160 characters at most.
 sb_scrub() {
-  tr -c '[:print:]' ' ' | tr '<>`|()[]{}"'"'"',;:' ' ' | awk '{
+  tr -c '[:print:]' ' ' | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/REDACTEDX/g; s/([0-9A-Fa-f]{0,4}:){3,}[0-9A-Fa-f]{0,4}/REDACTEDX/g' | tr '<>`|()[]{}"'"'"',;:' ' ' | awk '{
     n = split($0, w, " "); out = ""; nx = 0
     for (i = 1; i <= n; i++) {
       t = w[i]
       if (nx) { nx = 0; t = "[redacted]" }
+      else if (t ~ /REDACTEDX/ || length(t) > 40) t = "[redacted]"
       else if (t ~ /[\/\\]/ || t ~ /^~/ || t ~ /^[A-Za-z]:/) t = "[path]"
       else if (t ~ /@/ || t ~ /=/) t = "[redacted]"
-      else if (t ~ /^(ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|sk-|AKIA|xox|AIza|eyJ)/ || t ~ /BEGIN/) t = "[redacted]"
+      else if (t ~ /^(ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|sk-|sk_|pk_|rk_|AKIA|xox|AIza|eyJ)/ || t ~ /BEGIN/ || t ~ /_(live|test)_/) t = "[redacted]"
       else if (length(t) >= 24 && t ~ /[0-9]/ && t ~ /[A-Za-z]/) t = "[redacted]"
       else if (tolower(t) ~ /^(password|passwd|secret|token|apikey|api_key|bearer|authorization|credential|credentials)s?:?$/) { sub(/:$/, "", t); nx = 1 }
+      if (t != "[redacted]" && t != "[path]") gsub(/[^A-Za-z0-9._%+!?&#-]/, "", t)
+      if (t == "") continue
       out = out (out == "" ? "" : " ") t
     }
     print substr(out, 1, 160)

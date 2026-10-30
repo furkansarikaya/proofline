@@ -175,6 +175,16 @@ sc_candidates() {
   ok "known issue: candidates are recorded blocking findings of runs on this machine whose scope did not cover the place and that are not on the list"
 }
 
+# review B4: a place with // , /./ , .. or a trailing dot segment is not a place (one spelling, so the touch check cannot be evaded)
+sc_place_spelling() {
+  mk_run
+  for bp in './.gitignore:1' 'a//b.txt:1' 'src/./a.txt:1' 'src/../.gitignore:1' 'src/.' '.gitignore/:1' '.gitignore//'; do
+    expect_msg "place [$bp] was accepted" 'is not a repository path' env KI_DIR="$base/ki" KI_APPROVALS="$base/ki" KI_TASKS="$base/ki" KI_MAIN="$PWD" sh "$tl_agents/scripts/known-issues.sh" listable QA "$bp"
+  done
+  env KI_DIR="$base/ki" KI_APPROVALS="$base/ki" KI_TASKS="$base/ki" KI_MAIN="$PWD" sh "$tl_agents/scripts/known-issues.sh" listable QA .gitignore:1 >/dev/null 2>&1 || :   # the plain spelling is not refused for its spelling
+  ok "known issue: a place spelled with //, /./, .. or a trailing / is refused"
+}
+run_sc sc_place_spelling
 run_sc sc_agent_cannot
 run_sc sc_flow
 run_sc sc_near_miss

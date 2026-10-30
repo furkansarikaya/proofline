@@ -238,8 +238,36 @@ export const AMBIGUOUS_WORDS = [
 ];
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const ambiguousRegex = (extra = []) => new RegExp(`(?<![\\p{L}\\p{N}])(${[...new Set([...AMBIGUOUS_WORDS, ...extra])].sort((a, b) => b.length - a.length).map(escRe).join("|")})(?![\\p{L}\\p{N}])`, "iu");
-export const scopeEntries = (lines) => (lines || []).map((l) => /^\s*(?:[-*]|\d+[.)])\s+(.*?)\s*$/.exec(l)).filter(Boolean)
-  .map((m) => { const b = /`([^`]+)`/.exec(m[1]); return (b ? b[1] : m[1].split(/\s+/)[0]).replace(/^\.?\//, "").replace(/[,;]+$/, ""); }).filter((e) => e && e.toLowerCase() !== "none");
+// scopeParse: every entry of a scope section (the shell freeze reads it the same way). A bullet with backticks gives each backticked token (commas split),
+// without backticks every word; each word must look like a path or glob. What cannot be read is returned in `bad` (never dropped silently).
+const TOKEN_BAD = /[\s()<>|;"'$&\\]/, PATH_LIKE = /[\]\[/*?]|\.[A-Za-z0-9]/;
+export function scopeParse(lines) {
+  const entries = [], bad = [], prose = [];
+  const emit = (t0, ticked) => {
+    const t = t0.trim().replace(/[,;]+$/, "");
+    if (!t) return;
+    if (TOKEN_BAD.test(t) || /^[./]+$/.test(t) || (!ticked && !PATH_LIKE.test(t))) { bad.push(t); return; }
+    entries.push(t.replace(/^\.\//, "").replace(/^\//, ""));
+  };
+  for (const raw of lines || []) {
+    const line = raw.replace(/\r/g, "");
+    if (!line.trim()) continue;
+    const m = /^\s*(?:[-*]|\d+[.)])\s+(.*?)\s*$/.exec(line);
+    const text = m ? m[1] : line.trim();
+    if (text.toLowerCase() === "none") continue;
+    if (!m) { prose.push(text.slice(0, 60)); continue; }
+    if (text.includes("`")) { for (const b of text.matchAll(/`([^`]*)`/g)) for (const part of b[1].split(",")) emit(part, true); }
+    else for (const w of text.split(/[\s,]+/)) emit(w, false);
+  }
+  return { entries, bad, prose };
+}
+export const scopeEntries = (lines) => scopeParse(lines).entries;
+// a heading with trailing text ("Forbidden scope (do not touch)") and any letter case is the section too
+export function scopeBody(secs, name) {
+  const want = name.toLowerCase(), out = [];
+  for (const [h, body] of secs) { const lh = h.trim().toLowerCase(); if (lh === want || (lh.startsWith(want) && !/[a-z0-9]/.test(lh[want.length] || ""))) out.push(...body); }
+  return out;
+}
 export function validateOptionalFields(meta, t, errors, warnings, opts = {}) {
   if ("priority" in meta && !PRIORITIES.includes(meta.priority)) errors.push(`front matter priority must be one of ${PRIORITIES.join("|")}`);
   if ("origin" in meta) {
@@ -251,8 +279,11 @@ export function validateOptionalFields(meta, t, errors, warnings, opts = {}) {
     }
   }
   for (const name of SCOPE_SECTIONS) {
-    const body = t.secs.get(name);
-    if (body && body.some((l) => l.trim()) && scopeEntries(body).length === 0) errors.push(`section "## ${name}" lists no path (one bullet per file, folder or glob, or remove the section)`);
+    const body = scopeBody(t.secs, name);
+    if (!body.some((l) => l.trim())) continue;
+    const { entries, bad, prose } = scopeParse(body);
+    if (bad.length || (entries.length && prose.length)) errors.push(`section "## ${name}" has an entry that is not a path or glob: "${bad[0] ?? prose[0]}". Write one path, folder or glob per bullet, each in backticks, e.g. - \`src/billing/\` or - \`**/*.sql\` (several per bullet are fine)`);
+    else if (entries.length === 0) errors.push(`section "## ${name}" lists no path (one bullet per file, folder or glob, or remove the section)`);
   }
   if (t.secs.get("Completion response") && !t.secs.get("Completion response").some((l) => l.trim())) errors.push('section "## Completion response" is empty (describe the final summary you want, or remove the section)');
 }

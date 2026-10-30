@@ -58,7 +58,7 @@ ok "markdown: one status section, replaced in place, nothing outside it touched"
 new_repo; mkdir -p tasks/in-progress; cp /dev/null tasks/in-progress/SB-1.md; printf '# Task: SB-1 — x\n' > tasks/in-progress/SB-1.md
 mkdir -p .agents/runs/SB-1; printf '%s\n' 'task_source:' '  type: local_markdown' '  path: tasks/in-progress/SB-1.md' '  revision: x' > .agents/runs/SB-1/RUN.yaml
 cp tasks/in-progress/SB-1.md "$base/orig.md"
-for bad in "- park: look at $PLANT_PATH" "- park: key $PLANT_KEY" "- park: mail $PLANT_MAIL" '- park: password: hunter2' '- park: AKIAABCDEFGHIJKLMNOP' '- pr: https://user:pw@example.invalid/x' '- park: C:\Users\x\y' '- park: see ~/notes'; do
+for bad in "- park: look at $PLANT_PATH" "- park: key $PLANT_KEY" "- park: mail $PLANT_MAIL" '- park: password: hunter2' '- park: AKIAABCDEFGHIJKLMNOP' '- pr: https://user:pw@example.invalid/x' '- park: C:\Users\x\y' '- park: see ~/notes' '- park: sk_live_abcdef012345' '- park: pk_test_abcdef012345' '- park: token:abc123def456' '- park: host 10.0.0.12 is down' '- park: 192.168.1.1:8080' '- park: 2001:db8:85a3:0:0:8a2e:370:7334'; do
   printf '%s\n' '- run: SB-1' "$bad" > "$base/bad"
   if sh $MD statusblock SB-1 "$base/bad" 2>/dev/null; then die "the adapter accepted: $bad"; fi
   cmp -s tasks/in-progress/SB-1.md "$base/orig.md" || die "a refused block still changed the file"
@@ -82,10 +82,11 @@ A freshness LC >/dev/null || die "a status update made the task stale"
 ok "ask: the block shows the park, the question and how to answer; planted values scrubbed; freshness intact"
 # the scrubber itself: a short key wrapped in quotes, brackets or after a colon is redacted too (else the adapter would refuse the whole update)
 eval "$(awk '/^sb_scrub\(\)/ { p = 1 } p { print } p && /^}/ { exit }' "$CP/scripts/agent.sh")"
-for wrapped in '(AKIAABCDEFGHIJKLMNOP)' '"sk-abc123def"' "'ghp_abcd1234'" 'key:ghp_abcd1234' '[xoxb-123]' 'token:abc' 'see C:foo'; do
-  case "$(printf 'use %s now' "$wrapped" | sb_scrub)" in *AKIA*|*sk-abc*|*ghp_*|*xoxb*|*:abc*|*C:foo*) die "the scrubber kept $wrapped" ;; esac
+for wrapped in '(AKIAABCDEFGHIJKLMNOP)' '"sk-abc123def"' "'ghp_abcd1234'" 'key:ghp_abcd1234' '[xoxb-123]' 'token:abc' 'see C:foo' 'sk_live_abcdef012345' 'sk_test_abc' 'token:abc123def456' '10.0.0.12' '192.168.1.1:8080' '2001:db8:85a3:0:0:8a2e:370:7334' 'x.y.z.w1234567890abcdefghijklmnopqrstuvwxyzzzzz'; do
+  case "$(printf 'use %s now' "$wrapped" | sb_scrub)" in *AKIA*|*sk-abc*|*sk_*|*ghp_*|*xoxb*|*:abc*|*C:foo*|*abc123def456*|*10.0.0*|*192.168*|*2001*|*db8*|*xyz*) die "the scrubber kept $wrapped" ;; esac
 done
 [ "$(printf 'which cache? a) yes' | sb_scrub)" = 'which cache? a yes' ] || die "the scrubber damaged a plain question"
+[ "$(printf 'caf\303\251 $HOME ok' | sb_scrub)" = 'caf HOME ok' ] || die "the scrubber kept a non-ASCII or shell symbol: $(printf 'caf\303\251 $HOME ok' | sb_scrub)"
 ok "scrubber: keys wrapped in quotes, brackets or after a colon are redacted"
 
 # the answer event: the block is back to running, still a single block

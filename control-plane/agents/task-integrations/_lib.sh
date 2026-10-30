@@ -149,8 +149,8 @@ pl_status_marker() { printf '<!-- proofline:status:%s -->\n' "$1"; }
 pl_status_check() {   # ID BLOCK-FILE: valid id, readable file, nothing local or secret in it
   pl_id "$1"; [ -f "$2" ] || pl_die "status block file missing: $2"
   [ "$(wc -c < "$2" | tr -d ' ')" -le 6000 ] || pl_die "status block is too large"
-  if grep -Eiq '(^|[^A-Za-z0-9_.-])(/Users/|/home/|/tmp/|/var/|/private/|/etc/|/root/|/opt/|/mnt/|~/|[A-Za-z]:[\\/])|-----BEGIN|(ghp|gho|ghs|ghu|ghr|github_pat)_[A-Za-z0-9_]{10,}|sk-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{12,}|xox[abprs]-[A-Za-z0-9-]{6,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{15,}\.|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(password|passwd|secret|token|api[_-]?key|bearer|authorization)[[:space:]]*[:=]|://[^/[:space:]]*:[^/[:space:]]*@' "$2"; then
-    pl_die "status block refused: it holds a local path, a secret or a personal address"
+  if grep -Eiq '(^|[^A-Za-z0-9_.-])(/Users/|/home/|/tmp/|/var/|/private/|/etc/|/root/|/opt/|/mnt/|~/|[A-Za-z]:[\\/])|-----BEGIN|(ghp|gho|ghs|ghu|ghr|github_pat)_[A-Za-z0-9_]{10,}|sk-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{12,}|xox[abprs]-[A-Za-z0-9-]{6,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{15,}\.|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(sk|pk|rk)_(live|test)_[A-Za-z0-9]{6,}|(^|[^0-9.])[0-9]{1,3}(\.[0-9]{1,3}){3}([^0-9.]|$)|([0-9A-Fa-f]{1,4}:){4,}[0-9A-Fa-f]{1,4}|(password|passwd|secret|token|api[_-]?key|bearer|authorization)[[:space:]]*[:=]|://[^/[:space:]]*:[^/[:space:]]*@' "$2"; then
+    pl_die "status block refused: it holds a local path, a secret, an IP address or a personal address"
   fi
 }
 # pl_status_comment ID BLOCK-FILE: the text of the tracker comment (marker first, so it can be found again)
