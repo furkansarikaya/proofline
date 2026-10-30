@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.39"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.40"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);

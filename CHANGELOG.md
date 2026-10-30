@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.40 — 2026-10-30
+
 - Retro of four tasks, less waiting for you and no core invariant loosened (A203). The batch spent 51 percent of its time waiting for an approval (87 percent in one task) and 32 percent productive.
 - A Codex worker in a run worktree can `git add` and `git commit`: its profile opens only the common git folder's `objects`; refs, windows, approvals, prompts and batch stay unwritable, and `git worktree add` is still refused.
 - Waivers follow the finding: a waiver is bound to rule and location, so a finding in a new place or a changed finding asks again; findings of one rule are one decision (`waive --group`).
