@@ -50,7 +50,7 @@ The summary block above is for the user, in the user's language, at most five li
 
 ## Execution
 
-(when decisions exist) role, runtime, model, effort, signals, failovers.
+(when decisions exist) the control plane writes this table at publish from the decision records (role, runtime, model, effort, signals, failovers); leave it out or write only the heading.
 
 ## Amendments
 

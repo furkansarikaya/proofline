@@ -225,6 +225,7 @@ reset; d FAKE_CLAUDE=limit T-1 reviewer
 ck "limit error fails over to codex (auto)" '[ "$rc" -eq 0 ] && has "$loc/recorded.md" "role=reviewer result=DONE" && [ "$(cat "$loc/codex.role")" = reviewer ] && has "$loc/codex.argv" "$a/runs/T-1" && ! has "$loc/codex.argv" worker-evidence'
 ck "failover ledgered with reason" 'has "$loc/ledger.log" "failover from=claude to=codex reason=limit role=reviewer"'
 ck "failover re-decides on the other runtime" 'grep -q "^decide T-1 reviewer --runtime codex" "$loc/calls.log"'
+ck "A203: the failover decision carries its own reason (AUTOMATIC_FAILOVER), the first decision none" 'grep -q "^decide T-1 reviewer --runtime codex --runtime-reason AUTOMATIC_FAILOVER" "$loc/calls.log" && [ "$(grep -c "runtime-reason" "$loc/calls.log")" = 1 ]'
 
 reset; d PROOFLINE_CLAUDE_BIN="$tmp/bin/nope" T-1 reviewer
 ck "missing binary fails over" '[ "$rc" -eq 0 ] && has "$loc/ledger.log" "reason=missing_binary"'

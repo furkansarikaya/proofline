@@ -61,6 +61,12 @@ res --role architect $base
 check "balanced architect uses the top tier" 0 runtime=codex model=gpt-6-astra
 res --role architect $base --runtime claude
 check "runtime override wins over config" 0 runtime=claude runtime_reason=OPERATOR_OVERRIDE model=opus
+res --role architect $base --runtime claude --runtime-reason AUTOMATIC_FAILOVER
+check "A203: an automatic failover has its own runtime reason, not OPERATOR_OVERRIDE" 0 runtime=claude runtime_reason=AUTOMATIC_FAILOVER
+res --role architect $base --runtime claude --runtime-reason SOMETHING_ELSE
+check "A203: no other runtime reason can be claimed" 3 err~INVALID_RUNTIME_REASON
+res --role architect $base --runtime-reason AUTOMATIC_FAILOVER
+check "A203: the label needs a runtime override to attach to" 0 runtime_reason=CONFIG_RUNTIME_GROUP
 res --role verifier $base
 check "per-role runtime from config" 0 runtime=codex runtime_reason=CONFIG_RUNTIME_ROLE model=gpt-6-sol
 res --role implementer $base

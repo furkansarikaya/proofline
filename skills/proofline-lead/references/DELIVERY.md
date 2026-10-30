@@ -80,7 +80,11 @@ with ONE question to the user. It applies to a CODE_DONE run only. A FAILED or B
      proofline does not merge there and the USER opens and merges it; there is no `merge` or `cleanup` step, and after the user
      merged `A cleanup <ID>` closes the run.
    - `merge <PR>`: the printed watch command (`gh pr checks <PR> --watch --fail-fast`, `glab ci status --live`, or
-     `az repos pr policy list`; none when the project has no CI), then `proofline merge <PR>`. A pull request without any check
+     `az repos pr policy list`; none when the project has no CI), then `proofline merge <PR>`. **Always watch in the background**
+     (A203): whenever the lead opens a pull request it starts that watch command with `run_in_background` right after the `pr` step,
+     does no polling and no sleeping, prints the one-line `wait-line` ("CI of the pull request") at most once, and continues
+     with `proofline merge <PR>` (or the CI-fix round) the moment the background command finishes; a foreground watch that blocks the
+     session, or a CI the lead forgot to watch, is the failure this rule removes. A pull request without any check
      is merged only after the configured build and test pass in a clean copy of its commit (the build record), and gets the
      note "verified locally, no CI"; the PR description already says so when `agent.sh ci-check` shows no CI. A failed
      check or a refused merge: STOP, no cleanup, report the state.

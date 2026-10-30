@@ -127,12 +127,12 @@ status only. Every `docs/decisions.md` lookup is a grep, not a full read.
 ## Friction report and calibration (A149)
 
 **Friction report.** When a run ends (`handoff DONE`, `terminate`), `friction.sh` builds
-`.agents/local/friction/latest.md` from the run's `LEDGER.log` and `records.jsonl`: how many times the user was
+`.agents/local/friction/latest.md` (and one file per run, `.agents/local/friction/<run id>.md`, so a later run does not replace an earlier run's report) from the run's `LEDGER.log`, its `HOOKS.log` (the hook timings; they are not ledger lines) and `records.jsonl`: how many times the user was
 asked (questions plus approval requests), failed gates and blocked steps per gate and role, runtime failovers and
 dispatch timeouts, fix rounds and delegated steps, run duration, and tokens (sums of the reported values only,
 `n/a` when none). It holds counts and controlled identifiers only: no run id, no path, no name, no free text.
 A scrub check refuses to write it when a line has a character outside a small set or mentions the project
-directory, the repository user, the repository email or `$USER`. `agent.sh friction show` prints it.
+directory, the repository user, the repository email or `$USER`. `agent.sh friction show [ID]` prints the latest report, or the one of that run.
 
 Sending is never automatic. `agent.sh friction issue-cmd` prints the `gh issue create` command a send would run.
 `agent.sh request-approval - report` asks the user; only after their `report` approval (bound to the sha256 of the

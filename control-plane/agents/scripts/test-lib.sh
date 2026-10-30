@@ -73,10 +73,10 @@ STUB
 # test stub for the execution-policy resolver: echoes its inputs as a decision.
 [ "${1:-}" = resolve ] || exit 2; shift
 [ -z "${STUB_ARGS:-}" ] || printf '%s\n' "$*" >> "$STUB_ARGS"
-model=sonnet sig='' rt=claude effort=medium
+model=sonnet sig='' rt=claude effort=medium rr=''
 while [ $# -gt 0 ]; do
   case "$1" in
-    --runtime) rt=$2 ;; --signal) sig="$sig $2" ;; --effort) effort=$2 ;;
+    --runtime) rt=$2 ;; --signal) sig="$sig $2" ;; --effort) effort=$2 ;; --runtime-reason) rr=$2 ;;
     --model) model=$2; [ "$model" != bogus ] || exit 3 ;;
     --role|--class|--tier|--profile|--context-bytes|--escalations-used) ;;
     *) exit 3 ;;
@@ -85,6 +85,7 @@ while [ $# -gt 0 ]; do
 done
 case "$sig" in *fix_round_2*|*critical_class*|*low_confidence_pass*) model=opus ;; esac
 printf 'runtime=%s\nmodel=%s\neffort=%s\ncontext_bytes=65536\ncapability_tier=2\nmodel_reason=stub%s\n' "$rt" "$model" "$effort" "$(printf '%s' "$sig" | tr ' ' '+')"
+[ -z "$rr" ] || printf 'runtime_reason=%s\n' "$rr"
 STUB
   cat > "$1/.agents/task-integrations/markdown.sh" <<'STUB'
 #!/bin/sh

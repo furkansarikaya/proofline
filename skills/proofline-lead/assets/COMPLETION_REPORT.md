@@ -75,7 +75,7 @@ Visual (when the `visual` focus ran): <the `SUMMARY:` line of `reviews/visual-pr
 
 ## Execution
 
-(when decisions exist)
+(when decisions exist; the control plane writes this section at publish from the decision records and replaces what you put here: leave it out or write only the heading)
 
 | role | focus | runtime | model | effort | signals | note |
 |---|---|---|---|---|---|---|
