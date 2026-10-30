@@ -403,3 +403,10 @@ test("A202: a COMPLEX or CRITICAL plan without a rollback note in Risk is warned
   const withNote = { ...body, Risk: ["contract_change: no", "rollback: ship behind the shipping flag; first step if production breaks: switch the flag off"] };
   assert.ok(!lint(plan({ body: withNote }), TASK, { root: repo, cls: "COMPLEX" }).some((x) => x.includes("rollback")));
 });
+
+// A visual acceptance criterion is proven by a browser measurement, not by a unit test that counts characters.
+test("skill text: visual criteria are proven by browser measurement (visual-proof)", () => {
+  const skill = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../skills/plan-contract/SKILL.md"), "utf8");
+  assert.match(skill, /\*\*Visual criteria\.\*\* A criterion about layout, overflow[^`]*is proven by a browser measurement \(the `visual-proof` skill/);
+  assert.match(skill, /never by a unit test that counts characters/);
+});

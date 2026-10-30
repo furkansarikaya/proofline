@@ -295,3 +295,11 @@ test("report: Human checks is optional, at most three items or None., copied by 
   assert.match(e("\n- " + "x".repeat(170)).errors.join(), /over 160/);
   assert.equal(validateReport(report(PLAN), PLAN).valid, true, "old reports without the section stay valid");
 });
+
+// A visual acceptance criterion is measured in a browser, not with a unit test that counts characters.
+test("skill text: visual criteria are executed by browser measurement (visual-proof)", () => {
+  const skill = readFileSync(fileURLToPath(new URL("../../skills/qa-plan/SKILL.md", import.meta.url)), "utf8");
+  const refs = readFileSync(fileURLToPath(new URL("../../skills/qa-plan/references/SCENARIOS.md", import.meta.url)), "utf8");
+  assert.match(skill, /visual criterion \(layout, overflow[^)]*\): measure it in a browser \(`visual-proof`\), never with a test that counts characters/);
+  assert.match(refs, /executed by browser measurement with the `visual-proof` skill/);
+});
