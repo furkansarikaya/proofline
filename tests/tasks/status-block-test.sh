@@ -80,6 +80,13 @@ A freshness LC >/dev/null || die "a status update made the task stale"
 [ "$(rv task_source revision)" = "$frozen" ] || die "a status update moved the frozen revision"
 [ "$(count $TF 'PROOFLINE-STATUS:BEGIN')" = 1 ] || die "not one block after ask"
 ok "ask: the block shows the park, the question and how to answer; planted values scrubbed; freshness intact"
+# the scrubber itself: a short key wrapped in quotes, brackets or after a colon is redacted too (else the adapter would refuse the whole update)
+eval "$(awk '/^sb_scrub\(\)/ { p = 1 } p { print } p && /^}/ { exit }' "$CP/scripts/agent.sh")"
+for wrapped in '(AKIAABCDEFGHIJKLMNOP)' '"sk-abc123def"' "'ghp_abcd1234'" 'key:ghp_abcd1234' '[xoxb-123]' 'token:abc' 'see C:foo'; do
+  case "$(printf 'use %s now' "$wrapped" | sb_scrub)" in *AKIA*|*sk-abc*|*ghp_*|*xoxb*|*:abc*|*C:foo*) die "the scrubber kept $wrapped" ;; esac
+done
+[ "$(printf 'which cache? a) yes' | sb_scrub)" = 'which cache? a yes' ] || die "the scrubber damaged a plain question"
+ok "scrubber: keys wrapped in quotes, brackets or after a colon are redacted"
 
 # the answer event: the block is back to running, still a single block
 printf 'use the cache\n' | A answer LC 1 >/dev/null
