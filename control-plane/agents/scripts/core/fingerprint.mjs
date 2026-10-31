@@ -4,7 +4,7 @@
 // working tree in a private index exactly as `content_fingerprint` does, with batched git calls. The cache has the same file, key and
 // line format as the shell, so the shell and Node hit the same entries.
 import { createHash } from 'node:crypto';
-import { closeSync, copyFileSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, appendFileSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, appendFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fail } from './errors.mjs';
 import { git, gitPaths } from './git.mjs';
@@ -191,6 +191,32 @@ function namedPaths(ctx) {
   return { named, keep, td };
 }
 
+/** A path exists in the working tree (a link counts). @param {Context} ctx @param {string} rel */
+function onDisk(ctx, rel) { try { lstatSync(`${ctx.root}/${rel}`); return true; } catch { return false; } }
+
+/** The files `upgrade` installs that are in the working tree: the agent files by pattern and the manifest-listed ones. @param {Context} ctx */
+function installedOnDisk(ctx) {
+  /** @type {string[]} */ const out = [];
+  for (const [d, re] of /** @type {Array<[string, RegExp]>} */ ([['.claude/agents', /^proofline-.*\.md$/], ['.codex/agents', /^proofline-.*\.toml$/]])) {
+    try { for (const n of readdirSync(`${ctx.root}/${d}`)) if (re.test(n)) out.push(`${d}/${n}`); } catch { /* none */ }
+  }
+  for (const p of installedControlPaths(ctx)) if (onDisk(ctx, p)) out.push(p);
+  return out;
+}
+
+/**
+ * The index and objects folders of a plain repository (a .git folder, no environment override): what `rev-parse --git-path` prints, with
+ * no process. null for a linked worktree or any override.
+ * @param {Context} ctx
+ */
+function plainGitPaths(ctx) {
+  for (const k of ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_WORK_TREE']) if (ctx.env[k] !== undefined) return null;
+  const g = `${ctx.root}/.git`;
+  try { if (!statSync(g).isDirectory()) return null; } catch { return null; }
+  if (existsSync(`${g}/commondir`)) return null;
+  return { index: `${g}/index`, objects: `${g}/objects` };
+}
+
 /** @param {string[]} a @param {number} n */
 function chunks(a, n) { /** @type {string[][]} */ const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
 
@@ -203,7 +229,7 @@ function chunks(a, n) { /** @type {string[][]} */ const out = []; for (let i = 0
 export function contentFingerprint(ctx, mode = '') {
   const tmp = mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'proofline-fp.'));
   try {
-    const { index, objects } = gitPaths(ctx);
+    const { index, objects } = plainGitPaths(ctx) ?? gitPaths(ctx);
     const { named, keep, td } = namedPaths(ctx);
     const kn = mode === 'gate' ? knowledgeScopeEntries(ctx) : [];
     /** @param {string} objDir @returns {string} */
@@ -219,7 +245,8 @@ export function contentFingerprint(ctx, mode = '') {
       g(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', '.agents', td]);
       if (mode === 'gate') {
         const entries = kn.map((x) => x.replace(/\/$/, ''));
-        if (entries.length > 0) {
+        // the private index mirrors the working tree (add -A): an entry that is not on disk has nothing to remove
+        if (entries.some((e) => /[*?[]/.test(e) || onDisk(ctx, e))) {
           const ls = g(['ls-files', '-z', '--', ...words(entries.join('\n'))]);
           const list = ls.out.split('\0').filter((x) => x !== '' && /\.(md|json|ya?ml|txt)$/i.test(x));
           for (const c of chunks(list, 500)) g(['rm', '-q', '--cached', '--ignore-unmatch', '--', ...c]);
@@ -228,7 +255,8 @@ export function contentFingerprint(ctx, mode = '') {
         if (add.length > 0 && g(['add', '-f', '--', ...add]).status !== 0) return '';
       }
       if (keep.length > 0 && g(['add', '-f', '--', ...keep]).status !== 0) return '';
-      g(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', '.claude/agents/proofline-*.md', '.codex/agents/proofline-*.toml', ...installedControlPaths(ctx)]);
+      const inst = installedOnDisk(ctx);
+      if (inst.length > 0) g(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', '.claude/agents/proofline-*.md', '.codex/agents/proofline-*.toml', ...installedControlPaths(ctx)]);
       const back = named.filter((n) => installedControlPath(ctx, n) && isFile(`${ctx.root}/${n}`));
       if (back.length > 0 && g(['add', '-f', '--', ...back]).status !== 0) return '';
       for (const b of ['AGENTS.md', 'CLAUDE.md']) {

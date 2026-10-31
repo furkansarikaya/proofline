@@ -124,8 +124,13 @@ export function catBatch(ctx, specs) {
  * @param {Context} ctx @param {string} base @param {string[]} paths @returns {Map<string, string[]>}
  */
 export function addedLines(ctx, base, paths) {
+  if (paths.length === 0) return new Map();
+  return ctx.once(`git:added:${base}:${paths.join('\0')}`, () => addedLinesNow(ctx, base, paths));
+}
+
+/** @param {Context} ctx @param {string} base @param {string[]} paths @returns {Map<string, string[]>} */
+function addedLinesNow(ctx, base, paths) {
   /** @type {Map<string, string[]>} */ const out = new Map();
-  if (paths.length === 0) return out;
   const r = git(ctx, ['diff', '--no-renames', '-U0', base, '--', ...paths]);
   /** @type {string[] | null} */ let cur = null;
   let hunk = false;

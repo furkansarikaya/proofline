@@ -26,9 +26,13 @@ describe('command table', () => {
     assert.deepEqual(READ_ONLY_COMMANDS, line.slice("read_only_commands='".length, -1).split(' '));
     for (const c of READ_ONLY_COMMANDS) assert.ok(COMMAND_NAMES.includes(c), c);
   });
-  test('exactly the ten commands of stage 1 are moved', () => {
-    assert.deepEqual(commandTable().filter((e) => e.moved).map((e) => e.name).sort(), [...MOVED].sort());
-    assert.deepEqual(Object.keys(HANDLERS).sort(), [...MOVED].sort());
+  test('the moved commands are the handlers AND the delegation list of the agent.sh preamble (the two lists are identical)', () => {
+    const m = /\n  ((?:[a-z][a-z0-9-]*\|)+[a-z][a-z0-9-]*)\)\n    pl_sh=no/.exec(agentSh);
+    assert.ok(m, 'the preamble list');
+    const preamble = m[1].split('|');
+    assert.deepEqual([...preamble].sort(), Object.keys(HANDLERS).sort());
+    assert.deepEqual(commandTable().filter((e) => e.moved).map((e) => e.name).sort(), [...preamble].sort());
+    for (const c of MOVED) assert.ok(preamble.includes(c), `stage 1 command ${c} stays moved`);
   });
   test('the data copied from agent.sh is the data of agent.sh', () => {
     const grab = (/** @type {string} */ n) => (agentSh.split('\n').find((l) => l.startsWith(`${n}='`)) ?? '').slice(n.length + 2, -1);

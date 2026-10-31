@@ -26,7 +26,7 @@ describe('the core entry accepts only the commands it owns', () => {
     }
   });
   test('the lead, and a read-only command of any role, are refused too: not a command of the Node core', () => {
-    for (const [role, cmd] of [['lead', 'terminate'], ['lead', 'approve'], ['lead', 'status'], ['explorer', 'status'], ['implementer', 'handoff'], ['lead', 'nonsense'], ['lead', '']]) {
+    for (const [role, cmd] of [['lead', 'terminate'], ['lead', 'approve'], ['lead', 'next'], ['explorer', 'next'], ['implementer', 'handoff'], ['lead', 'nonsense'], ['lead', '']]) {
       proc.resetSpawnCounts();
       const m = memoryIo('/nonexistent-root', { AGENT_ROLE: role });
       assert.equal(run([cmd, 'T-1'], m.io), 2, `${role} ${cmd}`);

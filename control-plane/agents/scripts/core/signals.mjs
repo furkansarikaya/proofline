@@ -8,7 +8,7 @@ import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
 import { BridgeToShell } from './errors.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
-import { addedLines, catBatch, diffNames, numstat, objectExists, show, trackedSet, untrackedPaths, sortUnique } from './git.mjs';
+import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
 import { sha256 } from './hash.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -135,7 +135,14 @@ function fpOrEmpty(ctx, p) {
  * CODE_DONE and baseline files whose content is unchanged.
  * @param {Context} ctx @param {string} dir @returns {string[]}
  */
-export function taskChangedPaths(ctx, dir) {
+export function taskChangedPaths(ctx, dir) { return changedInfo(ctx, dir).paths; }
+
+/**
+ * `taskChangedPaths` with where each path came from: `diff` holds the ones `git diff BASE` lists (tracked, or present at the base), the
+ * others are untracked and so new. This replaces a `ls-files --error-unmatch` and a `cat-file -e` per path.
+ * @param {Context} ctx @param {string} dir @returns {{ paths: string[], diff: Set<string> }}
+ */
+export function changedInfo(ctx, dir) {
   return ctx.once(`changed:${dir}`, () => {
     const base = baseOrHead(ctx, dir);
     const tasks = ctx.config().get('tasks.dir', '.agents/tasks');
@@ -143,7 +150,8 @@ export function taskChangedPaths(ctx, dir) {
     const maps = sc.ok ? sc.rows : [];
     const hs = sectionValue(ctx, dir, 'handoff', 'state');
     const ks = hs === 'CODE_DONE' || hs === 'DONE';
-    const list = sortUnique([...diffNames(ctx, base), ...untrackedPaths(ctx)]);
+    const diffList = diffNames(ctx, base);
+    const list = sortUnique([...diffList, ...untrackedPaths(ctx)]);
     /** @type {string[]} */ const out = [];
     for (const p of list) {
       if (p === '') continue;
@@ -157,26 +165,23 @@ export function taskChangedPaths(ctx, dir) {
       if (prior !== '' && prior === fpOrEmpty(ctx, p)) continue;
       out.push(p);
     }
-    return out;
+    return { paths: out, diff: new Set(diffList) };
   });
 }
 
 /**
  * The changed line count (added + deleted) of each path against the base; a binary file counts as large. Batched: the same numbers as
- * `path_changed_lines` for every path, with a handful of git calls in all.
+ * `path_changed_lines` for every path, with one git call in all.
  * @param {Context} ctx @param {string} dir @param {string[]} paths @returns {Map<string, number>}
  */
 export function pathChangedLines(ctx, dir, paths) {
   const base = baseOrHead(ctx, dir);
+  const { diff } = changedInfo(ctx, dir);
   /** @type {Map<string, number>} */ const out = new Map();
   if (paths.length === 0) return out;
-  const tracked = trackedSet(ctx, paths);
-  const rest = paths.filter((p) => !tracked.has(p));
-  const atBase = catBatch(ctx, rest.map((p) => `${base}:${p}`));
-  const diffable = paths.filter((p) => tracked.has(p) || atBase.get(`${base}:${p}`) !== null && atBase.get(`${base}:${p}`) !== undefined);
-  const stats = numstat(ctx, base, diffable);
+  const stats = numstat(ctx, base, paths.filter((p) => diff.has(p)));
   for (const p of paths) {
-    if (tracked.has(p) || (atBase.get(`${base}:${p}`) ?? null) !== null) { out.set(p, stats.get(p) ?? 0); continue; }
+    if (diff.has(p)) { out.set(p, stats.get(p) ?? 0); continue; }
     const f = `${ctx.root}/${p}`;
     if (isFile(f)) {
       const buf = readFileSync(f);
@@ -431,6 +436,7 @@ function riskCompute(ctx, dir) {
   const cfg = ctx.config();
   const base = baseOrHead(ctx, dir);
   const doc = /\.(md|mdx|rst|adoc)$/;
+  const diffSet = changedInfo(ctx, dir).diff;
   const changed = taskChangedPaths(ctx, dir).filter((p) => !doc.test(p) && !p.startsWith('.agents/'));
   const scope = scopePaths(planScope(ctx, dir).rows).filter((p) => !doc.test(p));
   /** @type {Array<[string, string]>} */ const tagged = [...changed.map((p) => /** @type {[string, string]} */ (['diff', p])), ...scope.map((p) => /** @type {[string, string]} */ (['scope', p]))];
@@ -438,15 +444,14 @@ function riskCompute(ctx, dir) {
   /** @type {RiskSignal[]} */ const out = [];
   /** @type {Map<string, string | null> | null} */ let blobs = null;
   /** @type {Map<string, string[]> | null} */ let added = null;
-  const baseBlobs = () => (blobs ??= catBatch(ctx, changed.map((x) => `${base}:${x}`)));
+  const old = changed.filter((x) => diffSet.has(x));
+  const baseBlobs = () => (blobs ??= catBatch(ctx, old.map((x) => `${base}:${x}`)));
   /** the lines each changed path adds against the base (the whole file when it is new), computed once */
   const addedOf = () => {
     if (added !== null) return added;
-    const b = baseBlobs();
-    const old = changed.filter((x) => b.get(`${base}:${x}`) !== null && b.get(`${base}:${x}`) !== undefined);
     added = addedLines(ctx, base, old);
     for (const x of changed) {
-      if (old.includes(x)) { if (!added.has(x)) added.set(x, addedLines(ctx, base, [x]).get(x) ?? []); }
+      if (old.includes(x)) { if (!added.has(x)) added.set(x, /[^\x21-\x7e]|["\\]/.test(x) ? addedLines(ctx, base, [x]).get(x) ?? [] : []); }
       else { const t = fileText(ctx, `${ctx.root}/${x}`); added.set(x, t === null ? [] : textLines(t)); }
     }
     return added;
@@ -599,14 +604,12 @@ function validationCandidates(ctx, dir) {
     if (t !== null && grepEq(ctx, pat, t)) out.push(`scope|${x}`);
   }
   const changed = taskChangedPaths(ctx, dir).filter((p) => !doc.test(p) && !p.startsWith('.agents/'));
-  const tracked = trackedSet(ctx, changed);
-  const rest = changed.filter((p) => !tracked.has(p));
-  const atBase = catBatch(ctx, rest.map((p) => `${base}:${p}`));
-  const old = changed.filter((p) => tracked.has(p) || (atBase.get(`${base}:${p}`) ?? null) !== null);
+  const diffSet = changedInfo(ctx, dir).diff;
+  const old = changed.filter((p) => diffSet.has(p));
   const added = addedLines(ctx, base, old);
   for (const x of changed) {
     if (old.includes(x)) {
-      const ls = (added.get(x) ?? addedLines(ctx, base, [x]).get(x) ?? []).filter((l) => !l.startsWith('++'));
+      const ls = (added.get(x) ?? (/[^\x21-\x7e]|["\\]/.test(x) ? addedLines(ctx, base, [x]).get(x) : undefined) ?? []).filter((l) => !l.startsWith('++'));
       if (grepEq(ctx, pat, ls.join('\n'))) out.push(`diff|${x}`);
     } else if (isFile(`${ctx.root}/${x}`)) {
       const t = fileText(ctx, `${ctx.root}/${x}`);
