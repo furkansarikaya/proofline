@@ -25,18 +25,33 @@ export function sortUnique(lines) { return [...new Set(lines)].sort((a, b) => (a
 /** Non-empty lines of git output. @param {string} out */
 function nonEmpty(out) { return out.split('\n').filter((l) => l !== ''); }
 
+/**
+ * One `git status` for both lists (the working tree against the index, the index against HEAD, and the untracked files): the same paths as
+ * `diff --name-only`, `diff --cached --name-only` and `ls-files --others --exclude-standard`, in one process. Not used for a delivered
+ * run (its paths are measured from the base commit). Read-only (`--no-optional-locks`: the index is not refreshed on disk).
+ * @param {Context} ctx @returns {{ tracked: string[], untracked: string[] }}
+ */
+function statusLists(ctx) {
+  return ctx.once('changed:status', () => {
+    const r = git(ctx, ['--no-optional-locks', '-c', 'status.renames=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all']);
+    /** @type {string[]} */ const tracked = []; /** @type {string[]} */ const untracked = [];
+    for (const e of r.out.split('\0')) {
+      if (e.length < 4) continue;
+      (e.startsWith('??') ? untracked : tracked).push(e.slice(3));
+    }
+    return { tracked: sortUnique(tracked), untracked: sortUnique(untracked) };
+  });
+}
+
 /** `current_tracked_paths`: the paths changed against the index and against HEAD (or against a delivered run's base). @param {Context} ctx @returns {string[]} */
 export function trackedPaths(ctx) {
   const base = ctx.ctpBase;
-  const a = base !== '' ? git(ctx, ['diff', '--no-renames', '--name-only', base]).out
-    : git(ctx, ['diff', '--no-renames', '--name-only']).out + git(ctx, ['diff', '--cached', '--no-renames', '--name-only']).out;
-  return sortUnique(nonEmpty(a));
+  if (base === '') return statusLists(ctx).tracked;
+  return sortUnique(nonEmpty(git(ctx, ['diff', '--no-renames', '--name-only', base]).out));
 }
 
 /** `current_untracked_paths` @param {Context} ctx @returns {string[]} */
-export function untrackedPaths(ctx) {
-  return sortUnique(nonEmpty(git(ctx, ['ls-files', '--others', '--exclude-standard']).out));
-}
+export function untrackedPaths(ctx) { return statusLists(ctx).untracked; }
 
 /** `git diff --no-renames --name-only BASE --` (the task's tracked changes against its base), sorted. @param {Context} ctx @param {string} base */
 export function diffNames(ctx, base) {
