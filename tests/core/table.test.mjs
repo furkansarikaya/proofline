@@ -11,7 +11,10 @@ import { commandAllowed, commandTable } from '../../control-plane/agents/scripts
 import { agentSh, extractRange } from './helpers.mjs';
 
 const ROLES = ['lead', 'task_author', 'explorer', 'architect', 'data_architect', 'designer', 'qa', 'implementer', 'reviewer', 'security_reviewer', 'verifier'];
-const MOVED = ['role', 'config-get', 'config-check', 'timeouts', 'hook-timeouts', 'verify-timeout', 'tm-scaled', 'db-config', 'hook-config', 'help'];
+const STAGE1 = ['role', 'config-get', 'config-check', 'timeouts', 'hook-timeouts', 'verify-timeout', 'tm-scaled', 'db-config', 'hook-config', 'help'];
+// stage 2, package TOOLS (appended block)
+const STAGE2_TOOLS = ['debt', 'task-type', 'task-scope-entries', 'scope-covers', 'human-checks', 'questions', 'repro-normalize', 'design-surface', 'test-path', 'path-kind', 'scope-kinds'];
+const MOVED = [...STAGE1, ...STAGE2_TOOLS];
 
 describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {
@@ -26,7 +29,7 @@ describe('command table', () => {
     assert.deepEqual(READ_ONLY_COMMANDS, line.slice("read_only_commands='".length, -1).split(' '));
     for (const c of READ_ONLY_COMMANDS) assert.ok(COMMAND_NAMES.includes(c), c);
   });
-  test('exactly the ten commands of stage 1 are moved', () => {
+  test('exactly the commands of stage 1 and the stage 2 packages are moved', () => {
     assert.deepEqual(commandTable().filter((e) => e.moved).map((e) => e.name).sort(), [...MOVED].sort());
     assert.deepEqual(Object.keys(HANDLERS).sort(), [...MOVED].sort());
   });

@@ -11,6 +11,7 @@ import { isFile } from '../paths.mjs';
 import * as proc from '../proc.mjs';
 import { hookKnob, hookTimeouts, timeoutsInfo, tmScaled, verifyCommandTimeout } from '../timeouts.mjs';
 import { checkConfigLines } from './config-check.mjs';
+import { TOOLS_HANDLERS } from './tools.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -154,4 +155,6 @@ export const HANDLERS = {
   'db-config': dbConfig,
   'hook-config': hookConfig,
   help,
+  // --- stage 2, package TOOLS (appended block) ---
+  ...TOOLS_HANDLERS,
 };
