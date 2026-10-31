@@ -11,7 +11,10 @@ import path from 'node:path';
 import { now, sleepSync } from './clock.mjs';
 import { fail } from './errors.mjs';
 import { sha256 } from './hash.mjs';
+import { runSections } from './records.mjs';
 import { tmScaled } from './timeouts.mjs';
+
+export { runSections };
 
 const DIGITS = /^[0-9]+$/;
 
@@ -33,23 +36,6 @@ function isDirSync(p) { try { return statSync(p).isDirectory(); } catch { return
 
 // --- RUN.yaml access and the ledger: only what the `lock-break` event needs (the full ports come with the stage that moves `records`) ---
 
-/** `sv_load`: "section.key=value" lines of a RUN.yaml, as the awk program prints them. @param {string} text */
-export function runSections(text) {
-  /** @type {string[]} */ const out = [];
-  const seen = new Set();
-  let s = '';
-  for (const line of text.split('\n')) {
-    if (/^[a-z_]+:[ \t\n\v\f\r]*$/.test(line)) { s = line.split(/[ \t\n\v\f\r]+/)[0].replace(/:[^]*$/, ''); continue; }
-    if (/^[^ \t\n\v\f\r#]/.test(line)) { s = ''; continue; }
-    if (s !== '' && /^ {2}[a-z_0-9]+:/.test(line)) {
-      const k = line.slice(2).replace(/:[^]*$/, '');
-      const v = line.replace(/^[^:]*:[ \t\n\v\f\r]*/, '').replace(/[ \t\n\v\f\r]+#[^]*$/, '').replace(/"/g, '');
-      if (!seen.has(`${s}.${k}`)) { seen.add(`${s}.${k}`); out.push(`${s}.${k}=${v}`); }
-    }
-  }
-  return out;
-}
-
 /** `section_value DIR SECTION KEY`, or null when the key is not there. @param {string[]} rows @param {string} section @param {string} key */
 function sectionValue(rows, section, key) {
   const prefix = `${section}.${key}=`;
@@ -58,7 +44,7 @@ function sectionValue(rows, section, key) {
 }
 
 /** `lifecycle_digest`: the digest of the lifecycle fields of RUN.yaml. @param {string[]} rows */
-function lifecycleDigest(rows) {
+export function lifecycleDigest(rows) {
   /** @param {string} s @param {string} k */
   const lv = (s, k) => `${s}.${k}=${sectionValue(rows, s, k) ?? ''}\n`;
   let t = lv('execution', 'state') + lv('execution', 'knowledge_state') + lv('execution', 'awaiting_input') + lv('execution', 'autonomy')
