@@ -40,8 +40,14 @@ case "${1:-}" in
       pl_e=${pl_e%"${pl_e##*[![:space:]]}"}
       case "$pl_e" in sh) pl_sh=yes ;; sh:*) case ",${pl_e#sh:}," in *",$1,"*) pl_sh=yes ;; esac ;; esac
     fi
-    # a folder without proofline-core.mjs beside this file (a test fixture that copies agent.sh alone, test-lib.sh) runs the shell code
-    [ -f "$self_dir/proofline-core.mjs" ] || pl_sh=yes
+    # No core beside this file: a folder that is not an installed project (no manifest; a test fixture that copies agent.sh alone, test-lib.sh)
+    # runs the shell code; an installed project fails closed (a guard that needs this command must deny, not see empty settings).
+    if [ "$pl_sh" = no ] && { [ ! -f "$self_dir/proofline-core.mjs" ] || [ ! -d "$self_dir/core" ]; }; then
+      if [ -f "$sr_main/.agents/.proofline-manifest" ]; then
+        echo "proofline: $self_dir/proofline-core.mjs or $self_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
+      fi
+      pl_sh=yes
+    fi
     if [ "$pl_sh" = no ]; then
       case "$1" in
         config-get) case "${2:-}" in ''|*\\*) pl_sh=yes ;; esac; [ -f "$config" ] || pl_sh=yes ;;

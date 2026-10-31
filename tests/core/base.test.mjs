@@ -1,7 +1,7 @@
 // @ts-check
 // proc.mjs (the only child_process importer, counted), errors, clock, hash, paths, context.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -14,7 +14,7 @@ import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { scriptsDir } from './helpers.mjs';
 
 describe('proc.mjs', () => {
-  test('counts every child per program and logs to PROOFLINE_SPAWN_LOG', () => {
+  test('counts and times every child per program, in process; no environment value or file switches a log on', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pl-proc-'));
     try {
       proc.resetSpawnCounts();
@@ -24,9 +24,11 @@ describe('proc.mjs', () => {
       assert.equal(r.status, 3); assert.equal(r.stdout.toString(), 'out'); assert.equal(r.stderr.toString(), 'err');
       proc.run('sh', ['-c', 'exit 0'], { env });
       assert.deepEqual(proc.spawnCounts(), { total: 2, byProgram: { sh: 2 } });
-      const lines = readFileSync(log, 'utf8').trim().split('\n');
-      assert.equal(lines.length, 2);
-      assert.match(lines[0], /^sh\t\d+$/);
+      const entries = proc.spawnLog();
+      assert.equal(entries.length, 2);
+      assert.equal(entries[0].program, 'sh'); assert.ok(entries[0].ms >= 0);
+      assert.equal(existsSync(log), false, 'PROOFLINE_SPAWN_LOG is not read');
+      assert.doesNotMatch(readFileSync(path.join(scriptsDir, 'core', 'proc.mjs'), 'utf8'), /process\.env|appendFileSync|writeFileSync|PROOFLINE_[A-Z_]+\s*[=)]/);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
   test('a program that is not found gives 127, input reaches stdin, a signal gives 128 + n, runUserCommand uses sh -c', async () => {

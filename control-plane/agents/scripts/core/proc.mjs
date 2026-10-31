@@ -1,8 +1,8 @@
 // @ts-check
 // The only module of the core, the hook and the CLI that imports node:child_process (ADR 8.1; a static check fails otherwise).
-// Every child is counted per program; PROOFLINE_SPAWN_LOG=<file> appends one line per child (program, tab, milliseconds).
+// Every child is counted per program and timed, in process: spawnCounts() and spawnLog() are read by the caller (tests, the benchmark). No
+// environment value and no file switches this on or sends it anywhere (an env-named log file would be an arbitrary-file append for any role).
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
 
 /** @type {Map<string, number>} */
 const counts = new Map();
@@ -10,12 +10,14 @@ const counts = new Map();
 /** @param {string} program */
 function count(program) { counts.set(program, (counts.get(program) ?? 0) + 1); }
 
-/** @param {NodeJS.ProcessEnv | undefined} env @param {string} program @param {number} ms */
-function logSpawn(env, program, ms) {
-  const file = (env ?? process.env).PROOFLINE_SPAWN_LOG;
-  if (!file) return;
-  try { appendFileSync(file, `${program}\t${ms}\n`); } catch { /* the log is best effort */ }
-}
+/** @type {Array<{ program: string, ms: number }>} */
+const log = [];
+
+/** @param {string} program @param {number} ms */
+function logSpawn(program, ms) { log.push({ program, ms }); }
+
+/** One entry per child started so far (program, milliseconds). @returns {Array<{ program: string, ms: number }>} */
+export function spawnLog() { return log.slice(); }
 
 /**
  * @typedef {object} ProcOptions
@@ -57,7 +59,7 @@ export function run(program, args, options = {}) {
     maxBuffer: 1 << 30,
     windowsHide: true,
   });
-  logSpawn(options.env, program, Date.now() - t0);
+  logSpawn(program, Date.now() - t0);
   if (r.error && /** @type {NodeJS.ErrnoException} */ (r.error).code === 'ENOENT') {
     return { status: 127, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), started: false };
   }
@@ -82,12 +84,12 @@ export function runAsync(program, args, options = {}) {
     if (options.timeoutMs) timer = setTimeout(() => killTree(child), options.timeoutMs);
     child.on('error', () => {
       if (timer) clearTimeout(timer);
-      logSpawn(options.env, program, Date.now() - t0);
+      logSpawn(program, Date.now() - t0);
       resolve({ status: 127, stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: false });
     });
     child.on('close', (code, signal) => {
       if (timer) clearTimeout(timer);
-      logSpawn(options.env, program, Date.now() - t0);
+      logSpawn(program, Date.now() - t0);
       resolve({ status: code ?? 128 + signalNumber(signal), stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: true });
     });
     if (options.input !== undefined && child.stdin) child.stdin.end(options.input);
@@ -121,4 +123,4 @@ export function spawnCounts() {
   return { total, byProgram };
 }
 
-export function resetSpawnCounts() { counts.clear(); }
+export function resetSpawnCounts() { counts.clear(); log.length = 0; }

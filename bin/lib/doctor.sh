@@ -273,6 +273,10 @@ doctor_node() {
 # The engine switch (ADR 0001 section 5.3): the file .agents/local/engine of the main working tree and the PROOFLINE_ENGINE and PROOFLINE_ENGINE_SH
 # environment values; any one of them forcing sh wins. The same reading as the preamble of agent.sh.
 doctor_engine() {
+  if [ ! -f "$ROOT/.agents/scripts/proofline-core.mjs" ] || [ ! -d "$ROOT/.agents/scripts/core" ]; then
+    d_fail "engine: .agents/scripts/proofline-core.mjs or .agents/scripts/core/ is missing, so the moved commands cannot run in Node 22.13 or newer and exit 127 (run: proofline upgrade)"
+    return 0
+  fi
   de_main=$ROOT
   if [ -f "$ROOT/.git" ]; then
     de_m=$(git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); de_p=$(cd "$ROOT" && pwd -P)
