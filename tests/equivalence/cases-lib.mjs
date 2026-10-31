@@ -10,7 +10,7 @@ import { FULL, SKIP_HEAVY, touchedCommands } from './scope.mjs';
 export const isSlow = (/** @type {import('./rig.mjs').Case} */ c) => /^(timeouts|hook-timeouts):/.test(c.name);
 
 /** The cases that call a touched command (all of them under EQUIVALENCE_FULL=1). */
-const touches = (/** @type {import('./rig.mjs').Case} */ c, /** @type {string[]} */ cmds) => FULL || c.steps.some((s) => s.args && s.args[0] && cmds.includes(s.args[0]));
+export const touches = (/** @type {import('./rig.mjs').Case} */ c, /** @type {string[]} */ cmds) => FULL || c.steps.some((s) => s.args && s.args[0] && cmds.includes(s.args[0]));
 
 export function registerCases(/** @type {import('./rig.mjs').Case[]} */ cases, /** @type {{ heavy?: boolean }} */ o = {}) {
   const cmds = touchedCommands();

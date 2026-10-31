@@ -6,13 +6,15 @@
 //   node tests/bench/agent-procs.mjs [--only cmd,cmd] [--fixture small,perf,scale-0,scale-20,scale-60] [--repeat N] [--engine sh|default]
 //        [--out FILE] [--compare tests/bench/agent-procs-baseline-0.0.40.json] [--max-seconds N]
 //   writes JSON to --out (default: print). --compare prints, per command, processes and stdout bytes against the baseline and exits 1 when a
-//   moved command's stdout grew (stdout may shrink only if the rig shows the move is a pure rewrite; so growth is the failure).
+//   moved command's stdout grew (stdout may shrink only if the rig shows the move is a pure rewrite; so growth is the failure). --compare also
+//   checks every measured command against the named maxima of tests/bench/output-budgets.tsv (--budgets FILE to use another) and exits 1 on an excess.
 // The baseline is committed as tests/bench/agent-procs-baseline-0.0.40.json (data file, measured on the 0.0.40 code, shell engine).
 // Not run by CI's default job: measurements, like tests/bench/hook-procs.sh.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { checkBudgets, loadBudgets } from './output-budgets.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 const scripts = join(repo, 'control-plane/agents/scripts');
@@ -48,8 +50,8 @@ const FIXTURES = /** @type {Record<string,string>} */ ({
   'scale-60': 'scaffold orchestrated no COMPLEX; mkdir -p src; i=0; while [ "$i" -lt 60 ]; do printf "line %s\\n" "$i" > "src/f$i.txt"; i=$((i + 1)); done',
 });
 // the commands that read on every hook event or step and grow with the run: measured on the larger fixtures too
-const PERF_COMMANDS = ['next', 'summary', 'digest', 'pipeline', 'status', 'effective', 'verify-gates', 'verify-seal', 'verify-handoff', 'verify-freeze', 'verify-scope', 'fingerprint', 'validate', 'questions', 'open-runs', 'report-facts', 'report-execution', 'human-checks', 'delivery-check', 'hook-config', 'config-get', 'role', 'tier', 'status-block', 'record', 'secret-scan', 'handoff', 'publish-completion-report'];
-const SCALE_COMMANDS = ['fingerprint', 'baseline', 'summary', 'next', 'pipeline', 'digest', 'verify-scope', 'validate', 'secret-scan', 'status-block'];
+const PERF_COMMANDS = ['next', 'summary', 'summary --status', 'digest', 'pipeline', 'status', 'effective', 'verify-gates', 'verify-seal', 'verify-handoff', 'verify-freeze', 'verify-scope', 'fingerprint', 'validate', 'questions', 'open-runs', 'report-facts', 'report-execution', 'human-checks', 'delivery-check', 'hook-config', 'config-get', 'role', 'tier', 'status-block', 'record', 'secret-scan', 'handoff', 'publish-completion-report'];
+const SCALE_COMMANDS = ['fingerprint', 'baseline', 'summary', 'summary --status', 'next', 'pipeline', 'digest', 'verify-scope', 'validate', 'secret-scan', 'status-block'];
 
 export function buildFixture(/** @type {string} */ name) {
   const out = mkdtempSync(join(tmpdir(), `bench-${name}.`));
@@ -59,6 +61,8 @@ export function buildFixture(/** @type {string} */ name) {
   if (existsSync(join(scripts, 'proofline-core.mjs'))) {
     cpSync(join(scripts, 'proofline-core.mjs'), join(out, '.agents/scripts/proofline-core.mjs'));
     cpSync(join(scripts, 'core'), join(out, '.agents/scripts/core'), { recursive: true });
+    // the core is not part of the measured run: untracked, it would be listed by the scope checks and grow their stdout past the 0.0.40 size
+    appendFileSync(join(out, '.git/info/exclude'), '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n');
   }
   return out;
 }
@@ -66,7 +70,7 @@ export function buildFixture(/** @type {string} */ name) {
 // ---- the 132 commands with arguments that give each a meaningful run on the fixtures (an error exit is recorded as it is) ----
 const ID = 'LC';
 /** @type {Record<string, string>} */
-const ARGS = {
+export const ARGS = {
   amend: ID, answer: `${ID} 1`, 'approval-consume': `${ID} push`, approve: `${ID} push`, 'approve-pending': ID, ask: `${ID}`, baseline: ID, 'batch-answer': '', 'batch-answers': '', 'batch-awake': '', 'batch-check': '', 'batch-ci': ID,
   'batch-cover': `${ID} plan`, 'batch-next': '', 'batch-park': `${ID} reason`, 'batch-plan': ID, 'batch-status': '', branch: ID, 'build-record': `${ID} show`, calibrate: '', 'ci-check': '', 'ci-task-command': '', classify: `${ID} COMPLEX`,
   cleanup: ID, 'commands-check': '', 'config-check': '', 'config-get': 'profile', 'db-check': ID, 'db-config': 'all', debt: '', decide: `${ID} reviewer --dry --focus rules`, 'deliver-merged': `${ID} --check`, 'deliver-plan': ID,
@@ -82,11 +86,13 @@ const ARGS = {
   'verify-qa-plan': ID, 'verify-scope': ID, 'verify-seal': ID, 'verify-timeout': '', 'verify-worker-evidence': ID, 'wait-line': ID, waive: `${ID} F1 --reason r`, 'window-close': `${ID} 0 0`, 'window-open': ID,
   'worker-evidence': `${ID} RED fail`, 'worktree-add': ID, 'worktree-path': ID, 'worktree-remove': ID, 'worktree-root': '/nonexistent',
 };
+// measured under their own name (command and flag, as output-budgets.tsv names them): the real command is the first word
+export const VARIANTS = /** @type {Record<string, string>} */ ({ 'summary --status': `${ID} --status` });
 // `test` runs every suite (about an hour): measured by nobody here. Its stdout size is not an output budget.
 const SKIP = new Set(['test']);
 const SHIMMED = 'jq awk sed tr cat dirname basename date mkdir find git grep cut shasum sha256sum head tail wc mv rm cp sort mktemp node perl sleep kill ps ls readlink uname id touch chmod ln xargs expr rmdir stat uniq od tee comm diff du'.split(' ');
 
-function makeShim() {
+export function makeShim() {
   const dir = mkdtempSync(join(tmpdir(), 'bench-shim.')); const log = join(dir, 'procs.log'); writeFileSync(log, '');
   for (const c of SHIMMED) {
     const r = spawnSync('sh', ['-c', `command -v ${c}`], { encoding: 'utf8' }).stdout.trim(); if (!r.startsWith('/')) continue;
@@ -96,13 +102,13 @@ function makeShim() {
 }
 
 const median = (/** @type {number[]} */ a) => [...a].sort((x, y) => x - y)[Math.floor((a.length - 1) / 2)];
-function measure(/** @type {string} */ fx, /** @type {string} */ cmd, /** @type {{ dir: string, log: string }} */ shim, /** @type {number} */ repeat) {
-  const args = (ARGS[cmd] ?? '').split(' ').filter(Boolean); const procs = []; const times = []; let out = { code: /** @type {number|null} */ (0), bytes: 0, err: '' };
+export function measure(/** @type {string} */ fx, /** @type {string} */ cmd, /** @type {{ dir: string, log: string }} */ shim, /** @type {number} */ repeat) {
+  const args = (VARIANTS[cmd] ?? ARGS[cmd] ?? '').split(' ').filter(Boolean); const procs = []; const times = []; let out = { code: /** @type {number|null} */ (0), bytes: 0, err: '' };
   for (let i = 0; i < repeat; i++) {
     const work = mkdtempSync(join(tmpdir(), 'bench-run.')); cpSync(fx, work, { recursive: true, verbatimSymlinks: true });
     writeFileSync(shim.log, '');
     const t0 = process.hrtime.bigint();
-    const r = spawnSync('sh', ['./.agents/scripts/agent.sh', cmd, ...args], { cwd: work, env: { ...ENV, ...(ENGINE === 'sh' ? { PROOFLINE_ENGINE: 'sh' } : {}), PATH: `${shim.dir}:${ENV.PATH}`, EQ_PROCS_LOG: shim.log }, input: '', timeout: MAX_S * 1000, maxBuffer: 1 << 28 });
+    const r = spawnSync('sh', ['./.agents/scripts/agent.sh', cmd.split(' ')[0], ...args], { cwd: work, env: { ...ENV, ...(ENGINE === 'sh' ? { PROOFLINE_ENGINE: 'sh' } : {}), PATH: `${shim.dir}:${ENV.PATH}`, EQ_PROCS_LOG: shim.log }, input: '', timeout: MAX_S * 1000, maxBuffer: 1 << 28 });
     const ms = Number((process.hrtime.bigint() - t0) / 1000000n);
     procs.push(readFileSync(shim.log, 'utf8').split('\n').filter(Boolean).length); times.push(ms);
     out = { code: r.status, bytes: Buffer.byteLength(r.stdout ?? ''), err: String(r.stderr ?? '').split('\n')[0].slice(0, 160) };
@@ -122,7 +128,7 @@ for (const c of commands) if (!(c in ARGS) && !SKIP.has(c)) throw new Error(`no 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const shim = makeShim(); const result = { schema: 'proofline.agent-procs/1', engine: ENGINE, repeat: { small: Math.min(REPEAT, 1), others: REPEAT }, node_start: nodeStart(), fixtures: /** @type {Record<string, Record<string, any>>} */ ({}) };
   for (const name of fixtureNames) {
-    const fx = buildFixture(name); const list = (name.startsWith('scale-') ? SCALE_COMMANDS : name === 'perf' ? PERF_COMMANDS : commands).filter((c) => !SKIP.has(c) && (!only || only.includes(c)));
+    const fx = buildFixture(name); const list = (name.startsWith('scale-') ? SCALE_COMMANDS : name === 'perf' ? PERF_COMMANDS : [...commands, ...Object.keys(VARIANTS)]).filter((c) => !SKIP.has(c) && (!only || only.includes(c)));
     result.fixtures[name] = {};
     for (const c of list) { result.fixtures[name][c] = measure(fx, c, shim, name === 'small' ? Math.min(REPEAT, 1) : REPEAT); process.stderr.write(`${name} ${c} ${JSON.stringify(result.fixtures[name][c])}\n`); }
     rmSync(fx, { recursive: true, force: true });
@@ -139,5 +145,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       process.stderr.write(`${fxn} ${c}: execs ${b.execs} -> ${m.execs}, ms ${b.ms} -> ${m.ms}, stdout ${b.stdout_bytes} -> ${m.stdout_bytes}${flag}\n`);
     }
     if (grew) process.exitCode = 1;
+    const over = checkBudgets(result.fixtures, loadBudgets(opt('budgets', join(repo, 'tests/bench/output-budgets.tsv'))));
+    for (const v of over) process.stderr.write(`OVER BUDGET ${v}\n`);
+    if (over.length) process.exitCode = 1;
   }
 }

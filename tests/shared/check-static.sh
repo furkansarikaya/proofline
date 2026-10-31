@@ -122,7 +122,10 @@ fi
 etsv=$root/control-plane/agents/ecosystems.tsv
 ids=''
 [ -f "$etsv" ] && ids=$(awk -F'\t' '$1 != "*" && $2 == "id" { print $3 }' "$etsv" | paste -sd'|' -)
-if [ -z "$ids" ]; then echo "PASS ecosystem branching (no ecosystems.tsv here)"
+if [ -z "$ids" ]; then
+  # the rule needs the ecosystem definition to know the ids: a missing or empty table is a failure, never a pass
+  echo "FAIL ecosystem branching: no ecosystem ids (control-plane/agents/ecosystems.tsv is missing or lists none), so the rule can not run"
+  status=1
 else
   # bracket expressions instead of backslashes: the same regex works in every awk and grep
   # a case arm: the line, `;;` or ` in ` starts a pattern list (no spaces inside) in which one pattern is exactly an id
