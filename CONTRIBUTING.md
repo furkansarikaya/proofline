@@ -5,7 +5,7 @@ on whether it keeps that property.
 
 ## Set up
 
-Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer for the skill tests. Nothing is installed into
+Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests). Nothing is installed into
 the project; there is no build step.
 
 Run locally (the `CI` variable unset), `tests/selftest.sh` and `tests/affected.sh` use half of the cores (at least one) and run under `nice`, so the machine stays usable; `SELFTEST_JOBS=N` sets the job count. With `CI` set (GitHub Actions does) they use every core at normal priority.
@@ -144,10 +144,15 @@ How the lead works with sub-agents. Later releases cite this section.
 
 - Agents run only `sh tests/affected.sh` locally. The full self-test is CI's job, and a pull request is merged
   when CI is green.
+- The Core invariants suite, the equivalence rig, the Node tests and the static checks are never skipped, not even by the CI fast mode below.
 - Tests run quiet: they print failures and one summary line.
 - A new validator gets one valid example and one or two invalid examples.
 - No test calls a model and there is no end-to-end test in CI.
 - The number of tests is not a goal.
+
+### Temporary CI fast mode (Node migration)
+
+What: while `tests/ci/fast-mode.txt` exists and is not expired, a pull request skips the legacy self-test shards, the fixtures job and the skill tests step. Why: a user decision of 2026-10-31, so that the Node migration stage 1 pull requests are not held by the hour-long legacy self-test. Safeguards: the decision is taken from the base (the base-sha rule: a pull request runs the base's reader and the base's `tests/ci/fast-mode.txt`); the pull request that introduces the mechanism has no reader on its base, so its own reader and `tests/ci/fast-mode.txt` decide and it runs FAST (bootstrap rule; this one-time self-enable is covered by CODEOWNERS and review); a pull request that changes `tests/ci/fast-mode.*` runs the full suite; the invariants (context budget included), equivalence, Node tests, type check and static checks always run; pushes to main, the nightly run and manual runs run everything; `tests/ci/fast-mode.mjs` validates the file and the `changes` job fails after the expiry. It expires 2026-11-07 or when stage 12 lands, whichever is first. Removal: delete `tests/ci/fast-mode.txt`.
 
 ## Commits and pull requests
 

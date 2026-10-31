@@ -6,6 +6,15 @@
 
 MANIFEST_REL=.agents/.proofline-manifest
 
+# node_status: `ok:vX.Y.Z` (Node 22.13 or newer), `old:vX.Y.Z` or `missing`. Node 22.13 is a runtime requirement: the commands moved to
+# control-plane/agents/scripts/proofline-core.mjs run in it (docs/adr/0001-node-control-plane.md section 4).
+node_status() {
+  ns_v=$(node --version 2>/dev/null) || ns_v=''
+  ns_n=${ns_v#v}; ns_maj=${ns_n%%.*}; ns_r=${ns_n#*.}; ns_min=${ns_r%%.*}
+  case "$ns_maj$ns_min" in ''|*[!0-9]*) echo missing; return 0 ;; esac
+  if [ "$ns_maj" -gt 22 ] || { [ "$ns_maj" -eq 22 ] && [ "$ns_min" -ge 13 ]; }; then echo "ok:$ns_v"; else echo "old:$ns_v"; fi
+}
+
 plog() { printf '%s\t%s\n' "$1" "$2" >> "$STAGE/plan"; }
 rt_has() { case " $RUNTIMES " in *" $1 "*) return 0 ;; esac; return 1; }
 g() { git -C "$ROOT" "$@"; }
@@ -402,6 +411,12 @@ cmd_init() {
   MODE=init
   [ -d "$PL_HOME/control-plane/agents" ] || die "no control-plane/ in $PL_HOME"
   g rev-parse --show-toplevel >/dev/null 2>&1 || die "$ROOT is not a git repository; run git init first"
+  ni_s=$(node_status)
+  case "$ni_s" in
+    ok:*) ;;
+    old:*) die "init: Node ${ni_s#old:} is older than 22.13; proofline needs Node 22.13 or newer (the control plane's commands run in it)" ;;
+    *) die "init: node not found on PATH; proofline needs Node 22.13 or newer (the control plane's commands run in it)" ;;
+  esac
   ex=$ROOT/.agents/config.yaml
   MANIFEST_OLD=$ROOT/$MANIFEST_REL
   INTERACTIVE=0

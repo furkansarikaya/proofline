@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": ["node"],
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0
+  },
+  "include": [
+    "control-plane/agents/scripts/proofline-core.mjs",
+    "control-plane/agents/scripts/core/**/*.mjs",
+    "tests/ci/**/*.mjs",
+    "tests/enforcement/**/*.mjs",
+    "tests/equivalence/**/*.mjs",
+    "tests/bench/**/*.mjs"
+  ]
+}

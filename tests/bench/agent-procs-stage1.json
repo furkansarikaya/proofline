@@ -1,0 +1,145 @@
+{
+ "schema": "proofline.agent-procs/1",
+ "about": "After-numbers of the ten moved commands (default engine = proofline-core.mjs, fixture = installed-like tree with core beside agent.sh, no env seams) against agent-procs-baseline-0.0.40.json. execs counts external programs started through the PATH shim, node included; the exec in agent.sh replaces the sh process, so a Node command is 1 process (the issue estimated 2: sh exec and node). config-check keeps 19 processes because it validates the entry_* regular expressions with the platform grep -E and awk, as the shell does. There is no budget mechanism in agent-procs.mjs: --compare fails only when stdout bytes grow.",
+ "measured_on": {
+  "base": "feat/node-stage-1 core",
+  "date": "2026-10-31"
+ },
+ "engine": "default",
+ "repeat": {
+  "small": 1,
+  "others": 3
+ },
+ "node_start": {
+  "node": "v24.14.1",
+  "platform": "darwin",
+  "arch": "arm64",
+  "median_ms": 28.23
+ },
+ "fixtures": {
+  "small": {
+   "config-check": {
+    "args": "",
+    "execs": 19,
+    "ms": 809,
+    "stdout_bytes": 34,
+    "exit": 0
+   },
+   "config-get": {
+    "args": "profile",
+    "execs": 1,
+    "ms": 54,
+    "stdout_bytes": 9,
+    "exit": 0
+   },
+   "db-config": {
+    "args": "all",
+    "execs": 1,
+    "ms": 58,
+    "stdout_bytes": 1439,
+    "exit": 0
+   },
+   "help": {
+    "args": "",
+    "execs": 1,
+    "ms": 56,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "hook-config": {
+    "args": "",
+    "execs": 1,
+    "ms": 56,
+    "stdout_bytes": 1579,
+    "exit": 0
+   },
+   "hook-timeouts": {
+    "args": "",
+    "execs": 1,
+    "ms": 81,
+    "stdout_bytes": 88,
+    "exit": 0
+   },
+   "role": {
+    "args": "",
+    "execs": 1,
+    "ms": 53,
+    "stdout_bytes": 10,
+    "exit": 0
+   },
+   "timeouts": {
+    "args": "",
+    "execs": 1,
+    "ms": 53,
+    "stdout_bytes": 493,
+    "exit": 0
+   },
+   "tm-scaled": {
+    "args": "30",
+    "execs": 1,
+    "ms": 54,
+    "stdout_bytes": 3,
+    "exit": 0
+   },
+   "verify-timeout": {
+    "args": "",
+    "execs": 1,
+    "ms": 55,
+    "stdout_bytes": 5,
+    "exit": 0
+   }
+  }
+ },
+ "baseline_0_0_40": {
+  "config-check": {
+   "execs": 38,
+   "ms": 296,
+   "stdout_bytes": 34
+  },
+  "config-get": {
+   "execs": 3,
+   "ms": 51,
+   "stdout_bytes": 9
+  },
+  "db-config": {
+   "execs": 1,
+   "ms": 59,
+   "stdout_bytes": 1439
+  },
+  "help": {
+   "execs": 3,
+   "ms": 64,
+   "stdout_bytes": 0
+  },
+  "hook-config": {
+   "execs": 1,
+   "ms": 296,
+   "stdout_bytes": 1579
+  },
+  "hook-timeouts": {
+   "execs": 2,
+   "ms": 1224,
+   "stdout_bytes": 88
+  },
+  "role": {
+   "execs": 2,
+   "ms": 55,
+   "stdout_bytes": 10
+  },
+  "timeouts": {
+   "execs": 4,
+   "ms": 3164,
+   "stdout_bytes": 493
+  },
+  "tm-scaled": {
+   "execs": 2,
+   "ms": 130,
+   "stdout_bytes": 3
+  },
+  "verify-timeout": {
+   "execs": 2,
+   "ms": 135,
+   "stdout_bytes": 5
+  }
+ }
+}

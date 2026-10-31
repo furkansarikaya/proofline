@@ -3,6 +3,11 @@ name: ci
 # pushes to main are Linux only too; macOS (static, fixtures, selftest), visual-browser and the benchmark report
 # run only on the nightly schedule and manual runs. A pull request that changes only plain documentation skips the heavy test
 # jobs (tests/ci/classify.sh) but still runs shellcheck and the sync checks. The `checks` job always reports.
+# Node migration (docs/adr/0001-node-control-plane.md): `equivalence` (the rig, tests/equivalence), `node-tests` (the Node tests of tests/ci and
+# tests/enforcement on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates. TEMPORARY FAST MODE: while
+# tests/ci/fast-mode.txt exists and has not expired, a pull request skips the legacy self-test shards, the fixtures job and the skill tests
+# step (tests/ci/fast-mode.mjs, read by `changes`); it never skips invariants, equivalence, node-tests, types or static. After the expiry
+# date `changes` fails while the file exists.
 on:
   push:
     branches: [main]
@@ -24,10 +29,47 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      fast: ${{ steps.mode.outputs.fast || steps.modeboot.outputs.fast || steps.modepush.outputs.fast }}
+      notice: ${{ steps.mode.outputs.notice || steps.modeboot.outputs.notice || steps.modepush.outputs.notice }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      # Fast mode is decided from the BASE (security review F3): a pull request runs the base's reader and the base's tests/ci/fast-mode.txt, and a
+      # pull request that changes the fast-mode files runs the full suite. A base without the reader (the pull request that adds it) runs the full suite.
+      - name: base tree for the fast-mode reader
+        if: github.event_name == 'pull_request'
+        run: git worktree add --detach "$RUNNER_TEMP/base" ${{ github.event.pull_request.base.sha }}
+      - name: paths this pull request changes
+        if: github.event_name == 'pull_request'
+        run: git diff --name-only --no-renames ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > "$RUNNER_TEMP/fm-changed.txt"
+      - id: basehas
+        name: does the base have the fast-mode reader
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: git cat-file -e ${{ github.event.pull_request.base.sha }}:tests/ci/fast-mode.mjs
+      - id: mode
+        name: fast mode (pull request, from the base)
+        if: github.event_name == 'pull_request' && steps.basehas.outcome == 'success'
+        run: node "$RUNNER_TEMP/base/tests/ci/fast-mode.mjs" --event pull_request --file "$RUNNER_TEMP/base/tests/ci/fast-mode.txt" --changed-file "$RUNNER_TEMP/fm-changed.txt" --github-output "$GITHUB_OUTPUT"
+      # Bootstrap: only the pull request that introduces the mechanism (the base has no reader at all) uses its own head's reader and file. Once the base
+      # has the reader, the base rules above apply and a head change to tests/ci/fast-mode.* runs the full suite.
+      - id: modeboot
+        name: fast mode (the base has no reader yet, bootstrap from the head)
+        if: github.event_name == 'pull_request' && steps.basehas.outcome != 'success'
+        run: node tests/ci/fast-mode.mjs --event pull_request --github-output "$GITHUB_OUTPUT"
+      - id: modepush
+        name: fast mode (push, schedule, manual, always off, expiry enforced)
+        if: github.event_name != 'pull_request'
+        run: node tests/ci/fast-mode.mjs --event ${{ github.event_name }} --github-output "$GITHUB_OUTPUT"
+      - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests are skipped on this pull request
+        if: steps.mode.outputs.fast == 'true' || steps.modeboot.outputs.fast == 'true'
+        env:
+          NOTICE: ${{ steps.mode.outputs.notice || steps.modeboot.outputs.notice }}
+        run: echo "::warning title=FAST MODE::$NOTICE"
       - id: classify
         run: |
           code=true
@@ -48,6 +90,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: shellcheck
         run: |
@@ -85,6 +129,14 @@ jobs:
       - name: front matter and link check
         run: node --test tests/skills/frontmatter.test.mjs
 
+      # ADR 0001 section 9: the no-shell-logic ratchet. Entries of the two snapshots may only disappear; a new or changed shell file, run: step or hook string fails.
+      - name: shell ratchet (pull request, against the base)
+        if: github.event_name == 'pull_request'
+        run: node tests/ci/no-shell-logic.mjs --base ${{ github.event.pull_request.base.sha }}
+      - name: shell ratchet
+        if: github.event_name != 'pull_request'
+        run: node tests/ci/no-shell-logic.mjs
+
       - name: generator tests
         if: needs.changes.outputs.code == 'true'
         run: sh tests/generator/generator-test.sh
@@ -95,7 +147,7 @@ jobs:
           node-version: 22
 
       - name: skill tests
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code == 'true' && needs.changes.outputs.fast != 'true'
         run: |
           if ls tests/skills/*.test.mjs >/dev/null 2>&1; then node --test tests/skills/
           else echo "SKIPPED: no tests/skills/*.test.mjs yet"; fi
@@ -103,7 +155,7 @@ jobs:
 
   fixtures:
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.fast != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -169,7 +221,7 @@ jobs:
   # run on every core (tests/selftest.sh).
   selftest:
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.fast != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -195,6 +247,66 @@ jobs:
           name: unit-times-${{ matrix.os }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
           if-no-files-found: error
+
+  # ADR 0001 section 6: the equivalence rig (tests/equivalence) replays recorded command traces against the shell code and the Node core and compares
+  # every byte. A pull request replays the touched commands on Linux; the nightly and manual runs replay everything on Linux and macOS.
+  # Never skipped by fast mode.
+  equivalence:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    env:
+      EQUIVALENCE_FULL: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
+    steps:
+      # full history: the downgrade test unpacks the previous release (git archive <commit>) from this clone
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      # a glob, not a directory: this Node does not expand a directory argument of --test to the test files
+      - name: equivalence rig
+        run: node --test "tests/equivalence/*.test.mjs"
+      # C2/C6: the Core invariants also pass with the engine forced to the shell code; the `invariants` job runs the default engine. Not in a
+      # fast-mode-skippable job.
+      - name: Core invariants with the engine switched to sh
+        env:
+          PROOFLINE_ENGINE: sh
+        run: sh tests/invariants/invariants-test.sh
+
+  # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped by fast mode.
+  node-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.13.0', 'lts/*']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: ratchet, fast mode and enforcement guard tests
+        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs"
+
+  # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
+  # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: fetch the pinned checker (typescript 6.0.3, @types/node 22.20.4)
+        run: npm install --prefix "$RUNNER_TEMP/tc" --no-save --no-package-lock --ignore-scripts typescript@6.0.3 @types/node@22.20.4
+      - name: type check
+        run: node "$RUNNER_TEMP/tc/node_modules/typescript/bin/tsc" -p jsconfig.json --typeRoots "$RUNNER_TEMP/tc/node_modules/@types"
 
   # Core invariants (CONTRIBUTING.md): the invariant tests run on EVERY pull request, documentation-only ones included, and on every push
   # to main. A pull request that changes tests/invariants/ must carry an `Invariant-test-change:` line in its description. The
@@ -235,9 +347,14 @@ jobs:
   # passed, a failed or cancelled job fails it.
   checks:
     if: always()
-    needs: [changes, static, fixtures, visual-browser, selftest, invariants]
+    needs: [changes, static, fixtures, visual-browser, selftest, invariants, equivalence, node-tests, types]
     runs-on: ubuntu-latest
     steps:
+      - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests were skipped
+        if: needs.changes.outputs.fast == 'true'
+        env:
+          NOTICE: ${{ needs.changes.outputs.notice }}
+        run: printf '%s\n' '### FAST MODE ACTIVE (temporary)' "$NOTICE" >> "$GITHUB_STEP_SUMMARY"
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
           echo "a CI job failed or was cancelled"
