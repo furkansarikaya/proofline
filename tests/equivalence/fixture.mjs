@@ -20,6 +20,8 @@ export function baseEnv(/** @type {string} */ home, /** @type {Record<string,str
     PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LC_ALL: 'C',
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
     GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid', PROOFLINE_NO_TTY: '1',
+    // `git commit` starts a detached `git maintenance run --auto` that can repack and delete loose objects while a test copies the tree (ENOENT on .git/objects)
+    GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'gc.auto', GIT_CONFIG_VALUE_0: '0', GIT_CONFIG_KEY_1: 'maintenance.auto', GIT_CONFIG_VALUE_1: 'false',
   };
   return { ...e, ...extra };
 }
@@ -41,7 +43,7 @@ export function installMinimal(/** @type {string} */ dir) {
   for (const f of readdirSync(join(a, 'scripts'))) if (f.endsWith('.sh')) chmodSync(join(a, 'scripts', f), 0o755);
   writeFileSync(join(dir, '.gitignore'), '.agents/runs/\n.agents/local/\n');
   const g = (/** @type {string[]} */ ...x) => run('git', x, { cwd: dir, env: baseEnv(dir) });
-  g('init', '-q', '-b', 'main'); g('add', '-A'); g('commit', '-qm', 'baseline');
+  g('init', '-q', '-b', 'main'); g('config', 'gc.auto', '0'); g('config', 'maintenance.auto', 'false'); g('add', '-A'); g('commit', '-qm', 'baseline');
 }
 
 /** @typedef {{ dir: string, builtAt: number }} Fixture */
@@ -64,6 +66,7 @@ export function scaffoldFixture(topology = 'orchestrated', cls = 'COMPLEX', extr
   if (r.code !== 0) throw new Error(`scaffold failed (${r.code}): ${r.stderr}${r.stdout}`);
   // test-lib fixtures hold only agent.sh: without the core beside it agent.sh runs the shell, so the Node engine would not be under test
   addCore(out);
+  run('git', ['config', 'gc.auto', '0'], { cwd: out, env: baseEnv(out) }); run('git', ['config', 'maintenance.auto', 'false'], { cwd: out, env: baseEnv(out) });
   const f = { dir: out, builtAt }; scaffolds.set(key, f); return f;
 }
 

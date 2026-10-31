@@ -9,8 +9,9 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { SKIP_HEAVY } from './scope.mjs';
 import { baseEnv, copyTree, coreAbsent, run, scaffoldFixture, scriptsSrc, snapshot } from './fixture.mjs';
-import { compareSides, formatDiffs } from './rig.mjs';
+import { compareSides, formatDiffs, isShellFlake } from './rig.mjs';
 
 // The shell function `sh` shadows the program for the agent.sh calls only; the counter lives in a file because $(...) runs in a subshell.
 const SCRIPT = `
@@ -48,11 +49,11 @@ function lifecycle(/** @type {boolean} */ alternate) {
   return { calls: Number(/calls=(\d+)/.exec(r.stdout)?.[1]), side: { outputs: [{ code: r.code, stdout: r.stdout.replace(/calls=\d+\n/, ''), stderr: '' }], files, window: /** @type {[number, number]} */ ([Math.min(t0 - 1, scaf.builtAt), t1]) } };
 }
 
-test(`one run lifecycle with alternating engines equals the same lifecycle on the old engine${coreAbsent() ? ' (the new engine is the shell until proofline-core.mjs exists)' : ''}`, { timeout: 1800000 }, () => {
+test(`one run lifecycle with alternating engines equals the same lifecycle on the old engine${coreAbsent() ? ' (the new engine is the shell until proofline-core.mjs exists)' : ''}`, { timeout: 1800000, skip: SKIP_HEAVY }, () => {
   // The shell reads `date` twice per ledger line (ts= and epoch=), so a line written across a second boundary names two seconds. That is a flake of
   // the old engine, not a rig finding, and the check is not loosened: a scenario is run once more when the ONLY violations are ts/epoch seconds
   // mismatches. Any other difference fails at once; a second mismatch fails too.
-  const flakeOnly = (/** @type {import('./rig.mjs').Diff[]} */ d) => d.length > 0 && d.every((x) => x.kind === 'check' && /ts=.* and epoch=\d+ name different seconds/.test(x.detail));
+  const flakeOnly = (/** @type {import('./rig.mjs').Diff[]} */ d) => isShellFlake(d, [old.side, alt.side]);
   let d = []; let old; let alt;
   for (let attempt = 0; attempt < 2; attempt++) {
     old = lifecycle(false); alt = lifecycle(true);

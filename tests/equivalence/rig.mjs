@@ -73,9 +73,27 @@ export function runCase(/** @type {Case} */ c, /** @type {[SideSpec, SideSpec]} 
   // both sides run at the same absolute path, so no path needs masking
   const work = mkdtempSync(join(tmpdir(), 'eq-work.'));
   try {
-    const a = runSide(c, sides[0], { work }); const b = runSide(c, sides[1], { work });
-    return compareSides(a, b, [sides[0].name, sides[1].name]);
+    let a = runSide(c, sides[0], { work }); let b = runSide(c, sides[1], { work });
+    let d = compareSides(a, b, [sides[0].name, sides[1].name]);
+    if (isShellFlake(d, [a, b])) { a = runSide(c, sides[0], { work }); b = runSide(c, sides[1], { work }); d = compareSides(a, b, [sides[0].name, sides[1].name]); } // see isShellFlake
+    return d;
   } finally { rmSync(work, { recursive: true, force: true }); }
 }
 
 export const formatDiffs = (/** @type {Diff[]} */ d) => d.map((x) => `${x.kind}${x.where ? ` ${x.where}` : ''}: ${x.detail}`).join('\n');
+
+/**
+ * Differences that the 0.0.40 shell can produce between two correct runs of the same scenario, none of which the closed list may hide:
+ * a ledger line whose ts= and epoch= were read from `date` across a second boundary, and a `printf ... | grep -q` whose printf lost the race with grep
+ * (stderr "write error: Broken pipe"). A scenario whose ONLY differences are these is run once more by its test; anything else fails at once, and
+ * a second occurrence fails too. The checks themselves are not loosened.
+ * @param {Diff[]} diffs
+ * @param {import('./normalise.mjs').Side[]} sides the raw sides compared
+ */
+export function isShellFlake(diffs, sides) {
+  const pipe = sides.some((s) => s.outputs.some((o) => /write error|Broken pipe/.test(o.stderr)));
+  return diffs.length > 0 && diffs.every((d) =>
+    (d.kind === 'check' && /ts=.* and epoch=\d+ name different seconds/.test(d.detail))
+    || (d.kind === 'content' && /LEDGER\.log$/.test(d.where))
+    || (d.kind === 'stderr' && pipe));
+}

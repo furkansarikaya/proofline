@@ -9,12 +9,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { SKIP_HEAVY } from './scope.mjs';
 import { baseEnv, repoRoot, run, scriptsSrc } from './fixture.mjs';
 
 const REF = process.env.EQ_PREVIOUS_REF || 'bc072f3';
 const shell = (/** @type {string} */ script, /** @type {string} */ cwd, /** @type {Record<string,string>} */ env) => run('sh', ['-c', script, join(scriptsSrc, 'x.sh')], { cwd, env, timeout: 600000 });
 
-test(`a project installed from this checkout is upgraded from ${REF}'s checkout with a run in flight, and the run continues to DONE`, { timeout: 1500000 }, () => {
+test(`a project installed from this checkout is upgraded from ${REF}'s checkout with a run in flight, and the run continues to DONE`, { timeout: 1500000, skip: SKIP_HEAVY }, () => {
   const have = run('git', ['cat-file', '-e', `${REF}^{commit}`], { cwd: repoRoot });
   assert.equal(have.code, 0, `the previous release (${REF}) is not in this clone's history: fetch it (git fetch --unshallow), or set EQ_PREVIOUS_REF`);
   const base = mkdtempSync(join(tmpdir(), 'eq-down.')); const old = join(base, 'previous'); const proj = join(base, 'project'); mkdirSync(old); mkdirSync(proj);

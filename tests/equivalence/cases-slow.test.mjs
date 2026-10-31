@@ -3,4 +3,4 @@
 import { movedCommandCases } from './cases/moved-commands.mjs';
 import { isSlow, registerCases } from './cases-lib.mjs';
 
-registerCases(movedCommandCases().filter(isSlow));
+registerCases(movedCommandCases().filter(isSlow), { heavy: true });

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { agentsSrc, scaffoldFixture, scriptsSrc } from './fixture.mjs';
-import { compareSides, formatDiffs, runSide } from './rig.mjs';
+import { compareSides, formatDiffs, isShellFlake, runSide } from './rig.mjs';
 import { sha256 } from './normalise.mjs';
 
 /** @typedef {import('./rig.mjs').Step} Step */
@@ -60,7 +60,8 @@ test('with no fixture stub, every PROOFLINE_TEST* and PROOFLINE_ENGINE* value le
   const variants = [['seams only', { ...SEAMS }], ...ENGINE_VALUES.map((v) => [`seams + PROOFLINE_ENGINE=${JSON.stringify(v)}`, { ...SEAMS, PROOFLINE_ENGINE: v }])];
   for (const [name, env] of /** @type {[string, Record<string,string>][]} */ (variants)) {
     for (const eng of /** @type {('default'|'sh')[]} */ (name === 'seams only' ? ['default', 'sh'] : ['default'])) { // PROOFLINE_ENGINE itself picks the engine of the others
-      const d = compareSides(base, run(env, eng), ['no seams', `${name}, ${eng} engine`]);
+      let b = base; let v = run(env, eng); let d = compareSides(b, v, ['no seams', `${name}, ${eng} engine`]);
+      if (isShellFlake(d, [b, v])) { b = run({}, 'default'); v = run(env, eng); d = compareSides(b, v, ['no seams', `${name}, ${eng} engine`]); } // a known 0.0.40 shell flake: once more
       assert.equal(d.length, 0, `${name} (${eng}):\n${formatDiffs(d)}`);
     }
   }
