@@ -17,8 +17,8 @@ describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {
     const cli = agentSh.slice(agentSh.indexOf('\ncase "$command" in\n  role)'));
     const labels = [...cli.matchAll(/^  ([a-z][a-z0-9|-]*)\)/gm)].flatMap((m) => m[1].split('|'));
-    assert.equal(commandTable.length, 132);
-    assert.deepEqual(commandTable.map((e) => e.name), labels);
+    assert.equal(commandTable().length, 132);
+    assert.deepEqual(commandTable().map((e) => e.name), labels);
     assert.deepEqual(COMMAND_NAMES, labels);
   });
   test('the read-only list is the shell list', () => {
@@ -27,7 +27,7 @@ describe('command table', () => {
     for (const c of READ_ONLY_COMMANDS) assert.ok(COMMAND_NAMES.includes(c), c);
   });
   test('exactly the ten commands of stage 1 are moved', () => {
-    assert.deepEqual(commandTable.filter((e) => e.moved).map((e) => e.name).sort(), [...MOVED].sort());
+    assert.deepEqual(commandTable().filter((e) => e.moved).map((e) => e.name).sort(), [...MOVED].sort());
     assert.deepEqual(Object.keys(HANDLERS).sort(), [...MOVED].sort());
   });
   test('the data copied from agent.sh is the data of agent.sh', () => {
@@ -74,6 +74,19 @@ describe('role gate and locking rule equal the shell text', () => {
       const [role, command, a2, a3, verdict] = row.split('|');
       const readOnly = READ_ONLY_COMMANDS.includes(command);
       assert.equal(takesLocks(command, [a2, a3], role, readOnly), verdict === 'yes', row);
+    }
+  });
+});
+
+describe('commandTable()', () => {
+  test('is a function returning name, readOnly, roles and moved for the 132 commands', () => {
+    assert.equal(typeof commandTable, 'function');
+    const t = commandTable();
+    assert.equal(t.length, 132);
+    for (const e of t) {
+      assert.equal(typeof e.name, 'string'); assert.equal(typeof e.readOnly, 'boolean'); assert.ok(Array.isArray(e.roles)); assert.equal(typeof e.moved, 'boolean');
+      assert.ok(e.roles.includes('lead'));
+      assert.equal(e.roles.length === ROLES.length, e.readOnly || ['record', 'submit'].includes(e.name), e.name);
     }
   });
 });

@@ -126,3 +126,20 @@ describe('context.mjs', () => {
     assert.equal(mk({}).role, 'lead'); assert.equal(mk({ AGENT_ROLE: '' }).role, 'lead'); assert.equal(mk({ AGENT_ROLE: 'independent_reviewer' }).role, 'reviewer');
   });
 });
+
+describe('fail closed', () => {
+  test('an unexpected exception in a moved command prints the error and exits 70; it is not answered by the shell code', async () => {
+    const { run } = await import('../../control-plane/agents/scripts/proofline-core.mjs');
+    const root = mkdtempSync(path.join(tmpdir(), 'pl-fc-'));
+    try {
+      mkdirSync(path.join(root, '.agents', 'scripts'), { recursive: true });
+      /** @type {Buffer[]} */ const err = [];
+      proc.resetSpawnCounts();
+      const io = { env: { PATH: process.env.PATH ?? '' }, cwd: root, scriptPath: path.join(root, '.agents', 'scripts', 'agent.sh'),
+        stdout: { write() { throw new Error('boom'); } }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) } };
+      assert.equal(run(['role'], io), 70);
+      assert.match(Buffer.concat(err).toString(), /^proofline: internal error in role: Error: boom/);
+      assert.equal(proc.spawnCounts().total, 0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});

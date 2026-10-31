@@ -40,6 +40,8 @@ case "${1:-}" in
       pl_e=${pl_e%"${pl_e##*[![:space:]]}"}
       case "$pl_e" in sh) pl_sh=yes ;; sh:*) case ",${pl_e#sh:}," in *",$1,"*) pl_sh=yes ;; esac ;; esac
     fi
+    # a folder without proofline-core.mjs beside this file (a test fixture that copies agent.sh alone, test-lib.sh) runs the shell code
+    [ -f "$self_dir/proofline-core.mjs" ] || pl_sh=yes
     if [ "$pl_sh" = no ]; then
       case "$1" in
         config-get) case "${2:-}" in ''|*\\*) pl_sh=yes ;; esac; [ -f "$config" ] || pl_sh=yes ;;

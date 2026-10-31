@@ -27,8 +27,18 @@ const READ_ONLY = new Set(READ_ONLY_COMMANDS);
  * @property {boolean} moved a Node handler owns it; the others are run by the shell code through the bridge
  */
 
-/** The 132 commands of agent.sh, in the order of its dispatch. @type {CommandEntry[]} */
-export const commandTable = COMMAND_NAMES.map((name) => ({ name, readOnly: READ_ONLY.has(name), moved: Object.hasOwn(HANDLERS, name) }));
+/** @type {CommandEntry[]} */
+const COMMANDS = COMMAND_NAMES.map((name) => ({ name, readOnly: READ_ONLY.has(name), moved: Object.hasOwn(HANDLERS, name) }));
+const ROLE_NAMES = ['lead', 'task_author', 'explorer', 'architect', 'data_architect', 'designer', 'qa', 'implementer', 'reviewer', 'security_reviewer', 'verifier'];
+
+/**
+ * The 132 commands of agent.sh, in the order of its dispatch: name, readOnly (any role), the roles that may run it, moved (a Node handler
+ * owns it; the others go through the bridge).
+ * @returns {Array<CommandEntry & { roles: string[] }>}
+ */
+export function commandTable() {
+  return COMMANDS.map((e) => ({ ...e, roles: ROLE_NAMES.filter((r) => commandAllowed(r, e.name)) }));
+}
 
 /** The commands every role may run besides the read-only ones, per role (agent.sh lines 8929-8933). @param {string} role @returns {string[] | null} null: all */
 function extraCommands(role) {
@@ -83,10 +93,12 @@ export function run(argv, io) {
   } catch (e) {
     if (e instanceof BridgeToShell) return viaShell(ctx, argv);
     if (e instanceof ProoflineError) { ctx.printError(e); ctx.flush(); return e.exitCode; }
-    // An unexpected failure inside a moved command (it writes only when it is done) is not shown as a stack trace: the shell code, which is
-    // the specification, answers instead (a counted spawn of sh).
-    if (argv[0] !== undefined && Object.hasOwn(HANDLERS, argv[0])) return viaShell(ctx, argv);
-    throw e;
+    // An unexpected exception is a bug of the core: it fails closed (message and stack on stderr, a non-zero status), it is never answered by
+    // the shell code. Only the enumerated shell-error-text shapes (BridgeToShell) are handed back.
+    ctx.discard();
+    const text = e instanceof Error ? (e.stack ?? e.message) : String(e);
+    io.stderr.write(Buffer.from(`proofline: internal error in ${argv[0] ?? ''}: ${text}\n`));
+    return 70;
   } finally {
     locks.releaseAll();
   }
