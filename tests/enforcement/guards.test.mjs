@@ -12,7 +12,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync, existsSync, renameSync, symlinkSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync, existsSync, renameSync, symlinkSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, delimiter } from 'node:path';
 
@@ -152,6 +152,44 @@ const ENV_SPELLINGS = [
   'PROOFLINE_TESTX+=1',
 ];
 
+// The script operand rule: node on a script path the hook cannot read from the text. Denied for a model role in an open run.
+const OPERAND_DENIED = [
+  'D=.agents; node $D/scripts/pro*.mjs debt page',
+  'D=.agents; node "$D"/scripts/proofline-core.mjs freshness T-1',
+  'cd .agents; cd scripts; node pro*.mjs debt page',
+  'ls .agents/scripts/pro*.mjs | xargs node {} debt page',
+  "find .agents/scripts -name 'pro*.mjs' -exec node {} debt page \\;",
+  'node "$(printf \'.agents/scripts/%s\' proofline-core.mjs)" debt page',
+  'node ~/x/main.mjs',
+  'node pro?file-core.mjs role',
+  'node pro[f]*.mjs role',
+  'node {a,b}.mjs',
+  "node pro''fline-core.mjs role",
+  'node $SCRIPT debt page',
+  'env node $F',
+  'npx node $F',
+  'command node pro*.mjs',
+  'exec node pro*.mjs',
+  "printf 'process.exit(0)' | node",
+  'cat prog.mjs | node -',
+  'node < prog.mjs',
+  'echo .agents/scripts/proofline-core.mjs | xargs node',
+  'node --test $D/scripts/pro*.mjs',
+  'node --test .agents/scripts/proofline-core.mjs',
+];
+const OPERAND_FREE = [
+  'node --test "tests/x/*.test.mjs"',
+  'node --test tests/x/*.test.mjs tests/y/',
+  'node tests/literal.mjs arg --flag',
+  'node "tests/literal.mjs"',
+  "node 'tests/literal.mjs'",
+  'node --check literal.mjs',
+  'node --version',
+  'node -v',
+  'ls tests/*.test.mjs | xargs node --test',
+  'node --max-old-space-size 4096 tests/literal.mjs',
+];
+
 const FREE = [
   'node --test tests/skills/',
   'node -e "console.log(1)"',
@@ -208,6 +246,13 @@ describe('tripwires (open run, installed project)', { skip }, () => {
   for (const c of ENV_SPELLINGS) {
     test(`denied for the lead: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'PROOFLINE_ENGINE* or PROOFLINE_TEST*', c));
   }
+  for (const c of OPERAND_DENIED) test(`operand rule, denied for the lead: ${JSON.stringify(c)}`, () => denied(bash(p, c), '', c));
+  for (const agent of ['proofline-explorer', 'proofline-reviewer']) {
+    test(`operand rule, denied for ${agent} (debt page and freshness are lead-only writers)`, () => {
+      for (const c of ['D=.agents; node $D/scripts/pro*.mjs debt page', 'D=.agents; node $D/scripts/pro*.mjs freshness T-1', "cd .agents; cd scripts; node pro*.mjs debt page"]) denied(bash(p, c, { agent }), '', c);
+    });
+  }
+  for (const c of OPERAND_FREE) test(`operand rule, stays free: ${JSON.stringify(c)}`, () => allowed(bash(p, c), c));
   for (const c of FREE) test(`stays free: ${JSON.stringify(c)}`, () => allowed(bash(p, c), c));
   for (const c of CHECK_AFTER_OPERAND) test(`--check/-c after the script is an argument, denied: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'never starts Node', c));
   for (const c of KNOWN_OVERBLOCK) test(`known over-block, kept (the issue lists the spelling): ${JSON.stringify(c)}`, () => denied(bash(p, c), 'never starts Node', c));
@@ -232,6 +277,12 @@ describe('tripwire scope', { skip }, () => {
     const p = project({ run: false });
     allowed(bash(p, 'node .agents/scripts/proofline-core.mjs role'), 'node on the core');
     allowed(bash(p, 'PROOFLINE_ENGINE=sh ls'), 'engine assignment');
+  });
+  test("the user's terminal (no open run in the hook's view) and a plain project: the operand-rule spellings are not touched", () => {
+    const q = project({ run: false });
+    for (const c of OPERAND_DENIED) allowed(bash(q, c), c);
+    const plain = plainProject();
+    for (const c of OPERAND_DENIED) allowed(bash(plain, c), c);
   });
   test('a project without proofline: the tripwires do not apply', () => {
     const p = plainProject();
@@ -336,5 +387,80 @@ describe('node absent (C2)', { skip }, () => {
   }
   test('a project without proofline asks no moved command: nothing changes', () => {
     allowed(bash(plainProject(), 'ls', { path: np }), 'a Bash call in a plain project');
+  });
+});
+
+// Every other moved command the hook calls (the audit of ADR 5.3): Stop (report-tokens, summary), SessionStart (next) and the path checks (summary,
+// config-get fallbacks) fail closed too, each in the way its event can: PreToolUse denies, Stop blocks once, SessionStart says so.
+/** Wrap agent.sh so that only the named commands fail (exit CODE, no output); everything else is the real shell code. */
+function wrapFailing(dir, cmds, code = 127) {
+  const sc = join(dir, '.agents/scripts');
+  renameSync(join(sc, 'agent.sh'), join(sc, 'agent-real.sh'));
+  writeFileSync(join(sc, 'agent.sh'), `#!/bin/sh\ncase "\${1:-}" in ${cmds.join('|')}) echo "agent.sh: simulated failure" >&2; exit ${code} ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n`);
+}
+function runEvent(dir, event, payload, env = {}) {
+  const r = spawnSync('sh', [hook, event, 'claude'], { cwd: dir, input: JSON.stringify({ session_id: 's1', cwd: dir, ...payload }), env: { ...baseEnv(), ...env }, encoding: 'utf8', timeout: 120000 });
+  return r.stdout || '';
+}
+const stopPayload = (active = false) => ({ hook_event_name: 'Stop', last_assistant_message: 'The final report.', stop_hook_active: active });
+function reportTurn(dir) { mkdirSync(join(dir, '.agents/local/report-turn'), { recursive: true }); writeFileSync(join(dir, '.agents/local/report-turn/s1'), ''); }
+
+describe('every moved command the hook calls fails closed (audit)', { skip }, () => {
+  test('Stop: report-tokens failing (node absent) blocks the final report once, naming the command and Node 22.13', () => {
+    const p = project(); wrapFailing(p, ['report-tokens']); reportTurn(p);
+    const out = runEvent(p, 'stop', stopPayload());
+    assert.match(out, /"decision":"block"/);
+    assert.match(out, /report-tokens exited 127/);
+    assert.match(out, /Node 22\.13/);
+  });
+  test('Stop: the retry (stop_hook_active) ends the turn with the message instead of looping', () => {
+    const p = project(); wrapFailing(p, ['report-tokens']); reportTurn(p);
+    const out = runEvent(p, 'stop', stopPayload(true));
+    assert.doesNotMatch(out, /"decision":"block"/);
+    assert.match(out, /"systemMessage":"[^"]*report-tokens exited 127[^"]*Node 22\.13/);
+  });
+  test('Stop: a non-127 failure of report-tokens blocks the same way', () => {
+    const p = project(); wrapFailing(p, ['report-tokens'], 3); reportTurn(p);
+    assert.match(runEvent(p, 'stop', stopPayload()), /report-tokens exited 3/);
+  });
+  test('Stop: summary failing while identifiers are missing blocks too', () => {
+    const p = project(); reportTurn(p);
+    const sc = join(p, '.agents/scripts');
+    renameSync(join(sc, 'agent.sh'), join(sc, 'agent-real.sh'));
+    writeFileSync(join(sc, 'agent.sh'), '#!/bin/sh\ncase "${1:-}" in report-tokens) echo T-9; exit 0 ;; summary) exit 127 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n');
+    const out = runEvent(p, 'stop', stopPayload());
+    assert.match(out, /"decision":"block"/);
+    assert.match(out, /summary exited 127/);
+  });
+  test('Stop: with the moved commands working, the final report is not blocked for a Node reason', () => {
+    const p = project(); wrapFailing(p, ['nothing-fails-here']); reportTurn(p);
+    assert.doesNotMatch(runEvent(p, 'stop', stopPayload()), /Node 22\.13/);
+  });
+  test('Stop: no run, no report-turn marker: nothing is asked of the moved commands', () => {
+    const p = project({ run: false }); wrapFailing(p, ['report-tokens', 'summary']);
+    assert.doesNotMatch(runEvent(p, 'stop', stopPayload()), /Node 22\.13/);
+  });
+  test('SessionStart: next failing is said in the session context, with Node 22.13', () => {
+    const p = project(); wrapFailing(p, ['next']);
+    const out = runEvent(p, 'session', { hook_event_name: 'SessionStart' });
+    assert.match(out, /agent\.sh next exited 127/);
+    assert.match(out, /Node 22\.13/);
+  });
+  test('PreToolUse: summary failing inside a path check (knowledge step) denies at the end of the event', () => {
+    const p = project(); wrapFailing(p, ['summary']);
+    const r = runHook(p, 'Write', { file_path: join(p, 'docs/design/x.md') });
+    denied(r, 'summary exited 127', 'knowledge path check');
+    assert.match(r.reason, /Node 22\.13/);
+  });
+  test('PreToolUse: config-get failing inside a path check denies (hook-config unavailable, run open)', () => {
+    const p = project(); wrapFailing(p, ['hook-config', 'config-get']);
+    const r = runHook(p, 'Write', { file_path: join(p, 'src/a.txt') });
+    denied(r, 'Node 22.13', 'config-get fallback');
+  });
+  test('the other wiring files start only the hook: no moved command in a hook command string', () => {
+    for (const f of ['adapters/claude/hooks/hooks.json', 'adapters/claude/settings.fragment.json', 'adapters/codex/hooks.json']) {
+      const t = readFileSync(join(repo, f), 'utf8');
+      assert.ok(!/agent\.sh/.test(t), `${f} runs agent.sh`);
+    }
   });
 });

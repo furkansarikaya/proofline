@@ -150,11 +150,31 @@ hk_budget() {
   hb_rc=0; wait "$hb_pid" 2>/dev/null || hb_rc=$?
   return "$hb_rc"
 }
+hk_denied=''
 deny() {
+  hk_denied=1
+  # a path check that met a failed moved command (mc_flag) says so: the refusal that follows is a consequence of the missing node
+  if [ "$ev" = pretool ] && [ -s "$tmp/mcfail" ]; then mc_text; set -- "$mc_x | $*"; fi
   alt_hint "$*"
   [ -z "$alt_r" ] || set -- "$* | $alt_r"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(jesc "proofline: $*")"
   exit 0
+}
+# mc_flag COMMAND STATUS (ADR 0001 section 5.3, every moved command): a call site that runs inside a command substitution cannot deny itself (the
+# output would be captured). It records the failure, and the exit hook below turns it into the PreToolUse deny when the event ends without an
+# answer. Only while a run exists, like the database guard.
+mc_flag() {
+  [ "$ev" = pretool ] && [ -n "${act:-}" ] || return 0
+  printf '%s %s\n' "$1" "$2" > "$tmp/mcfail" 2>/dev/null || :
+}
+mc_text() {
+  IFS=' ' read -r mx_c mx_r < "$tmp/mcfail" || :
+  mc_x="agent.sh $mx_c exited $mx_r, so a guard cannot read the run state and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it), or write sh into .agents/local/engine to run the old shell code"
+}
+hk_mcexit() {
+  [ "$ev" = pretool ] && [ -z "$hk_denied" ] && [ -s "$tmp/mcfail" ] || return 0
+  mc_text
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(jesc "proofline: $mc_x")"
 }
 # sha FILE: the SHA-256 of FILE (the digest is the first word of the tool's line; no awk)
 if command -v shasum >/dev/null 2>&1; then sha() { sh_o=$(shasum -a 256 "$1") || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }; else sha() { sh_o=$(sha256sum "$1") || :; [ -z "$sh_o" ] || printf '%s\n' "${sh_o%% *}"; }; fi
@@ -322,7 +342,7 @@ hk_finish() {
 if [ "$installed" = yes ] && { [ -d "$local_dir/hooks-inflight" ] || mkdir -p "$local_dir/hooks-inflight" 2>/dev/null; }; then
   hk_mark=$local_dir/hooks-inflight/$ev.$$; printf '%s %s\n' "$$" "$hk_t0" > "$hk_mark" 2>/dev/null || hk_mark=''
 fi
-trap 'hk_finish; rm -rf "$tmp" ${hk_mark:+"$hk_mark"}' EXIT
+trap 'hk_mcexit; hk_finish; rm -rf "$tmp" ${hk_mark:+"$hk_mark"}' EXIT
 hk_sweep() { # in-flight markers of hooks that are gone without finishing: the runtime killed them at its time limit
   for hk_f in "$local_dir"/hooks-inflight/*; do
     [ -f "$hk_f" ] && [ "$hk_f" != "$hk_mark" ] || continue
@@ -472,7 +492,9 @@ own_match() {
 }
 # knowledge_stage (A159): is the active run in the knowledge step, CODE_DONE not yet DONE, or FAILED/BLOCKED? Any doubt: no.
 knowledge_stage() {
-  ks_s=$(sh "$agent" summary "$act" 2>/dev/null | sed -n 's/^STATUS: \([A-Z_]*\) (handoff \([A-Za-z_]*\),.*/\1 \2/p')
+  ks_rc=0; ks_o=$(sh "$agent" summary "$act" 2>/dev/null) || ks_rc=$?
+  [ "$ks_rc" -eq 0 ] || [ -n "$ks_o" ] || mc_flag summary "$ks_rc"   # a summary that printed nothing and failed is a missing node, not a state
+  ks_s=$(printf '%s\n' "$ks_o" | sed -n 's/^STATUS: \([A-Z_]*\) (handoff \([A-Za-z_]*\),.*/\1 \2/p')
   case "$ks_s" in "CODE_DONE DONE") return 1 ;; CODE_DONE\ *|FAILED\ *|BLOCKED\ *) return 0 ;; esac
   return 1
 }
@@ -480,7 +502,7 @@ knowledge_stage() {
 path_ok() {
   po=$1; run=.agents/runs/$act
   if [ -z "$tasks_dir" ]; then
-    if hcfg_load; then tasks_dir=$hc_tasks; else tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || tasks_dir=''; fi
+    if hcfg_load; then tasks_dir=$hc_tasks; else tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || { mc_flag config-get "$?"; tasks_dir=''; }; fi
     tasks_dir=${tasks_dir%/}; [ -n "$tasks_dir" ] || tasks_dir=.agents/tasks
   fi
   case "$po" in @outside) return 0 ;; @unknown) echo "cannot resolve the target path"; return 1 ;; esac
@@ -549,7 +571,7 @@ path_ok() {
 nr_path_ok() {
   np=$1
   if [ -z "$tasks_dir" ]; then
-    if hcfg_load; then tasks_dir=$hc_tasks; else tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || tasks_dir=''; fi
+    if hcfg_load; then tasks_dir=$hc_tasks; else tasks_dir=$(sh "$agent" config-get tasks.dir 2>/dev/null) || { mc_flag config-get "$?"; tasks_dir=''; }; fi
     tasks_dir=${tasks_dir%/}; [ -n "$tasks_dir" ] || tasks_dir=.agents/tasks
   fi
   case "$np" in @outside) return 0 ;; @unknown) echo "cannot resolve the target path"; return 1 ;; esac
@@ -567,7 +589,7 @@ nr_path_ok() {
   ! git -C "$sroot" check-ignore -q -- "$np" 2>/dev/null || return 0
   sh "$agent" in-knowledge-scope "$np" >/dev/null 2>&1 && return 0
   # product.dir (product-spec output) may be set to another folder than docs/product
-  if hcfg_load; then np_pd=$hc_product; else np_pd=$(sh "$agent" config-get product.dir 2>/dev/null) || np_pd=''; fi
+  if hcfg_load; then np_pd=$hc_product; else np_pd=$(sh "$agent" config-get product.dir 2>/dev/null) || { mc_flag config-get "$?"; np_pd=''; }; fi
   np_pd=${np_pd%/}
   case "$np_pd" in ''|.|/*|*..*) ;; *) case "$np" in "$np_pd"/*) return 0 ;; esac ;; esac
   echo "no run is active, and the lead never edits product files itself (D2, A169). Propose a light run (TRIVIAL or STANDARD) with '/proofline run <text>' and let the implementer make the change; the push approval then binds to that run. Without a run the lead writes only task files ($tasks_dir/), .agents/, the knowledge scope (docs/design/ docs/adr/ docs/wiki/ docs/product/) and git-ignored files"
@@ -1010,6 +1032,56 @@ TWSEGS
   # the core run as a command word (its shebang starts Node): ./proofline-core.mjs, .agents/scripts/proofline-core.mjs
   printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -Eq '^[[:space:]]*(env[[:space:]]+)?[^[:space:]]*proofline-core[.]mjs' && return 0
   return 1
+}
+# tw_lit TOKEN: is TOKEN a plain literal path? One pair of surrounding quotes is fine; a variable, substitution, glob character, tilde, brace,
+# backslash or a quote inside the word (quote splicing) is not.
+tw_lit() {
+  tl_t=$1
+  case $tl_t in \"*\") tl_t=${tl_t#\"}; tl_t=${tl_t%\"} ;; \'*\') tl_t=${tl_t#\'}; tl_t=${tl_t%\'} ;; esac
+  case $tl_t in *[\$\`\*\?\[\~\{\\\"\']*) return 1 ;; esac
+  return 0
+}
+# tw_node_operand TEXT (ADR 0001 section 7, the script operand rule): a node word whose script operand is not a plain literal runs a file the hook
+# cannot read from the text (D=.agents; node $D/scripts/pro*.mjs ...). Hit when, in a node segment (cut at ; & | ( ) { }), node and the wrappers
+# around it (env, npx, command, exec) have: a non-literal first operand; or no operand while xargs/-exec feeds it or a pipe/redirect feeds the script
+# to stdin; or xargs/-exec ending in node with a text that names .agents/scripts or proofline-core. Not a hit: options that run no operand
+# (-e/-p and friends are the inline rules' business, --check/-c, -v/-h), and `node --test <patterns>`, whose operands are test globs: those must
+# still hold no variable, substitution or .agents path.
+tw_node_operand() {
+  case "$1" in *node*) ;; *) return 1 ;; esac
+  tw_named=no
+  printf '%s' "$1" | grep -Eq '(proofline-core|[.]agents/scripts)' && tw_named=yes
+  tw_nodeq='(^|[^[:alnum:]_.-])(node|nodejs)([^[:alnum:]_-]|$)'
+  tw_osegs=$(printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -E "$tw_nodeq")
+  while IFS= read -r tw_seg; do
+    [ -n "$tw_seg" ] || continue
+    tw_opts=$(printf '%s \n' "$tw_seg" | sed -En 's/.*(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+((-[^[:space:]]*[[:space:]]+)*).*/\3/p')
+    tw_opts="$tw_opts "
+    tw_op=$(printf '%s \n' "$tw_seg" | sed -En 's/.*(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*([^-[:space:]][^[:space:]]*).*/\4/p' | head -n 1)
+    tw_feed=no; case "$tw_seg" in *xargs*|*-exec*) tw_feed=yes ;; esac
+    case " $tw_opts" in
+      *" --test "*|*" --test-"*)
+        # operands are test patterns: a glob is theirs, a variable, a substitution or a path under .agents is not
+        case "$tw_seg" in *'$'*|*'`'*|*.agents*) return 0 ;; esac
+        continue ;;
+      *" --check "*|*" -c "*|*" -e "*|*" -p "*|*" -pe "*|*" --eval "*|*" --print "*|*" -v "*|*" --version "*|*" -h "*|*" --help "*|*" --input-type"*) continue ;;
+    esac
+    if [ -n "$tw_op" ]; then tw_lit "$tw_op" || return 0
+    else
+      # no operand: the script comes from stdin or from xargs / find -exec
+      [ "$tw_feed" = no ] || return 0
+    fi
+    [ "$tw_feed" = no ] || [ "$tw_named" = no ] || return 0
+  done <<TWOPS
+$tw_osegs
+TWOPS
+  tw_pf=$(printf '%s' "$1" | tr '\n' ' ')
+  # brace expansion in the operand ({a,b}.mjs): the brace cut above hides it, so look at the whole text (not for `node --test`, whose patterns may use braces)
+  case " $tw_pf" in *" --test"*) ;; *) printf '%s' "$(printf '%s' "$1" | tr '\n' ' ')" | grep -Eq '(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*([^[:space:]{-][^[:space:]{]*)?[{][^}[:space:]]' && return 0 ;; esac
+  # a pipe or redirect that feeds a node word with no operand at all (cat prog.mjs | node; node < prog.mjs)
+  printf '%s' "$tw_pf" | grep -Eq '([|<][[:space:]]*((env|npx|command|exec)[[:space:]]+)*(node|nodejs)([[:space:]]+-[^[:space:]]*)*[[:space:]]*($|[;&|)]))|((node|nodejs)([[:space:]]+-[^[:space:]]*)*[[:space:]]*<[^<])' || return 1
+  case " $tw_pf" in *" -e "*|*" -p "*|*" --eval "*|*" --print "*|*" --test"*|*" --check "*|*" -c "*|*" -v "*|*" --version"*) return 1 ;; esac
+  return 0
 }
 db_loaded=no
 db_load() {
@@ -2136,6 +2208,8 @@ pretool)
           && deny "a model command never assigns PROOFLINE_ENGINE* or PROOFLINE_TEST*: they select the engine and the test seams, which only the user (.agents/local/engine) or a test harness sets"
         tw_core_node "$tw_t" \
           && deny "a model command never starts Node on the control plane (the core under .agents/scripts, proofline-core.mjs): run it only through sh .agents/scripts/agent.sh <command>, which applies the role gate, the locks and the ledger"
+        tw_node_operand "$tw_t" \
+          && deny "a model command runs node only on a script path written out literally (no variable, substitution, glob, tilde, brace or quote splicing, and no script fed by xargs, find -exec or stdin): the hook cannot read the file such a command starts, and the control plane is reached only through sh .agents/scripts/agent.sh <command>"
       done
     fi
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
@@ -2543,11 +2617,21 @@ stop)
   [ -n "$msg" ] || exit 0
   out=''
   if [ "$final_report" = yes ] && [ -n "$act" ] && [ "$act" != INVALID ]; then
-    need=$(unset AGENT_ROLE; sh "$agent" report-tokens "$act" 2>/dev/null) || need=''
+    need_rc=0; need=$(unset AGENT_ROLE; sh "$agent" report-tokens "$act" 2>/dev/null) || need_rc=$?
+    if [ "$need_rc" -ne 0 ]; then   # a moved command that failed (a missing node: 127): the identifier check cannot run, so the report is not passed unchecked
+      need=''
+      mc_msg="proofline: agent.sh report-tokens exited $need_rc, so the final report's identifiers could not be checked: this command runs in Node and the user must check that Node 22.13 or newer is on PATH; tell the user and do not claim the report is complete"
+      if [ "$(jget stop_hook_active)" != true ]; then printf '{"decision":"block","reason":"%s"}\n' "$(jesc "$mc_msg")"; exit 0; fi
+      out="$mc_msg"
+    fi
     missing=''
     for tk in $need; do printf '%s' "$msg" | grep -Fqw -- "$tk" || missing="$missing $tk"; done
     if [ -n "$missing" ]; then
-      summ=$(unset AGENT_ROLE; sh "$agent" summary "$act" 2>/dev/null) || summ=''
+      summ_rc=0; summ=$(unset AGENT_ROLE; sh "$agent" summary "$act" 2>/dev/null) || summ_rc=$?
+      if [ "$summ_rc" -ne 0 ] && [ -z "$summ" ]; then   # the same rule for the second moved command of this check
+        mc_msg="proofline: agent.sh summary exited $summ_rc, so the missing identifiers could not be appended: this command runs in Node and the user must check that Node 22.13 or newer is on PATH"
+        if [ "$(jget stop_hook_active)" != true ]; then printf '{"decision":"block","reason":"%s"}\n' "$(jesc "$mc_msg")"; exit 0; fi
+      fi
       lines=''
       for tk in $missing; do
         l=$(printf '%s\n' "$summ" | grep -Fw -- "$tk" | head -n 1)
@@ -2654,6 +2738,8 @@ session)
     hb_rc=0; hk_budget "$hk_next_budget" "$tmp/next.out" sh "$agent" next "$act" || hb_rc=$?
     nxt=$(sed -n 's/^next=//p' "$tmp/next.out" | awk 'BEGIN { ORS = "" } { if (NR > 1) print "; "; print }')
     [ "$hb_rc" != 124 ] || nxt="run sh .agents/scripts/agent.sh next $act (the session check did not finish within the hook's time budget)"
+    # a moved command that failed (a missing node: 127) is said, not hidden: SessionStart cannot block, the PreToolUse guards deny until it is fixed
+    if [ "$hb_rc" != 0 ] && [ "$hb_rc" != 124 ] && [ -z "$nxt" ]; then nxt="agent.sh next exited $hb_rc: this command runs in Node; the user must check that Node 22.13 or newer is on PATH (every tool call is denied until then)"; fi
   else nxt="no active run: start one with the proofline-lead skill"; fi
   # A194: the plugin and the project's install are different versions: one line, and the lead says so before it starts a run
   sv_msg=''
