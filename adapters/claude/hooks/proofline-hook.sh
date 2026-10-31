@@ -958,7 +958,7 @@ stray_tmp_path() {
 mc_fail() {
   [ "$ev" = pretool ] || return 0
   [ "$2" != run ] || [ -n "$act" ] || return 0
-  deny "agent.sh $1 exited $3, so the $4 cannot read its settings and fails closed: this command runs in Node and needs Node 22.13 or newer on PATH (check: node --version), then retry; the user can also write sh into .agents/local/engine to run the old shell code"
+  deny "agent.sh $1 exited $3, so the $4 cannot read its settings and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it), or write sh into .agents/local/engine to run the old shell code"
 }
 hcfg_state=''
 hcfg_load() {
@@ -991,7 +991,15 @@ tw_core_node() {
   tw_nw='(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+([^;&|]*[[:space:]])?'   # a node word and its arguments up to the flag
   printf '%s' "$tw_flat" | grep -Eq "${tw_nw}(-[A-Za-z]*[eEpr]|--eval|--print|--require|--import|--loader|--experimental-loader)([[:space:]=].*)?${tw_core}" && return 0
   printf '%s' "$tw_flat" | grep -Eq "${tw_nw}(--input-type|-)([[:space:]=]|$)" && return 0
-  printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -E "$tw_node" | grep -Eq "$tw_core" && return 0
+  # a node segment: the core named anywhere in it (proofline-core.mjs, .agents/scripts/core/), or a script under .agents/scripts as its first operand.
+  # `node --check` only parses and runs nothing; a node program that merely receives the agent path as an option value (tests/bench/agent-procs.mjs
+  # --agent .agents/scripts/agent.sh) names it after its own script. -e/-p reading under .agents/scripts stays denied: the issue lists it.
+  tw_segs=$(printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -E "$tw_node")
+  printf '%s' "$tw_segs" | grep -Eq '(^|[[:space:]])(--check|-c)([[:space:]]|$)' || {
+    printf '%s' "$tw_segs" | grep -Eq '(proofline-core([.]mjs|[^[:alnum:]_.-]|$)|[.]agents/scripts/core/)' && return 0
+    tw_op=$(printf '%s\n' "$tw_segs" | sed -En 's/.*(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*([^-[:space:]][^[:space:]]*).*/\4/p')
+    case "$tw_op" in *.agents/scripts*) return 0 ;; esac
+  }
   # the core run as a command word (its shebang starts Node): ./proofline-core.mjs, .agents/scripts/proofline-core.mjs
   printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -Eq '^[[:space:]]*(env[[:space:]]+)?[^[:space:]]*proofline-core[.]mjs' && return 0
   return 1
@@ -1505,7 +1513,9 @@ mg_api() {
   return 0
 }
 merge_guard() {
-  mg_load
+  # A missing node (mg_load fails closed) is felt only by a command that could merge or push: the protected-branch list is loaded for a git, gh,
+  # glab, az or HTTP-client word, or for a merge, push or alias word; `ls` or a test run needs no settings and is not denied for a missing node.
+  case "$cmd" in *git*|*gh*|*glab*|*az*|*merge*|*push*|*curl*|*wget*|*http*|*alias*|*eval*|*MERGE*|*Merge*) mg_load ;; esac
   mg_flat=$(printf '%s' "$cmd" | tr '\n' ' ')
   case "$cmd" in *PROOFLINE_SELFTEST*) deny "PROOFLINE_SELFTEST is a self-test switch (it lifts the wrapper's PATH-shadowing rule); a model command never names it: $MG_MSG" ;; esac
   # (a) a variable, substitution or backtick where the gh subcommand goes

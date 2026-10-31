@@ -29,8 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.classify.outputs.code }}
-      fast: ${{ steps.mode.outputs.fast }}
-      notice: ${{ steps.mode.outputs.notice }}
+      fast: ${{ steps.mode.outputs.fast || steps.modepush.outputs.fast }}
+      notice: ${{ steps.mode.outputs.notice || steps.modepush.outputs.notice }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,7 +38,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
+      # Fast mode is decided from the BASE (security review F3): a pull request runs the base's reader and the base's tests/ci/fast-mode.txt, and a
+      # pull request that changes the fast-mode files runs the full suite. A base without the reader (the pull request that adds it) runs the full suite.
+      - name: base tree for the fast-mode reader
+        if: github.event_name == 'pull_request'
+        run: git worktree add --detach "$RUNNER_TEMP/base" ${{ github.event.pull_request.base.sha }}
+      - name: paths this pull request changes
+        if: github.event_name == 'pull_request'
+        run: git diff --name-only --no-renames ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > "$RUNNER_TEMP/fm-changed.txt"
+      - id: basehas
+        name: does the base have the fast-mode reader
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: git cat-file -e ${{ github.event.pull_request.base.sha }}:tests/ci/fast-mode.mjs
       - id: mode
+        name: fast mode (pull request, from the base)
+        if: github.event_name == 'pull_request' && steps.basehas.outcome == 'success'
+        run: node "$RUNNER_TEMP/base/tests/ci/fast-mode.mjs" --event pull_request --file "$RUNNER_TEMP/base/tests/ci/fast-mode.txt" --changed-file "$RUNNER_TEMP/fm-changed.txt" --github-output "$GITHUB_OUTPUT"
+      - id: modepush
+        name: fast mode (push, schedule, manual, always off, expiry enforced)
+        if: github.event_name != 'pull_request'
         run: node tests/ci/fast-mode.mjs --event ${{ github.event_name }} --github-output "$GITHUB_OUTPUT"
       - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests are skipped on this pull request
         if: steps.mode.outputs.fast == 'true'
@@ -243,6 +262,12 @@ jobs:
           node-version: 22.13.0
       - name: equivalence rig
         run: node --test tests/equivalence/
+      # C2/C6: the Core invariants also pass with the engine forced to the shell code; the `invariants` job runs the default engine. Not in a
+      # fast-mode-skippable job.
+      - name: Core invariants with the engine switched to sh
+        env:
+          PROOFLINE_ENGINE: sh
+        run: sh tests/invariants/invariants-test.sh
 
   # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped by fast mode.
   node-tests:

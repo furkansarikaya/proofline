@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { decide, parseFile } from './fast-mode.mjs';
+import { decide, parseFile, touchesFastMode } from './fast-mode.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 const script = join(repo, 'tests/ci/fast-mode.mjs');
@@ -55,6 +55,19 @@ describe('decide', () => {
     assert.equal(decide({ event: 'pull_request', text: FILE + 'garbage line\n', today: '2026-11-01' }).ok, false);
     assert.equal(decide({ event: 'pull_request', text: FILE.replace('removal: delete the file', 'removal:'), today: '2026-11-01' }).ok, false);
   });
+  test('a pull request that changes the fast-mode file or any tests/ci/fast-mode.* file runs the full suite', () => {
+    for (const f of ['tests/ci/fast-mode.txt', 'tests/ci/fast-mode.mjs', 'tests/ci/fast-mode.test.mjs']) {
+      const d = decide({ event: 'pull_request', text: FILE, today: '2026-11-01', changed: ['README.md', f] });
+      assert.deepEqual([d.ok, d.fast], [true, false], f);
+    }
+    assert.equal(decide({ event: 'pull_request', text: FILE, today: '2026-11-01', changed: ['README.md', 'tests/ci/classify.sh'] }).fast, true);
+    assert.equal(touchesFastMode('tests/ci/fast-mode.txt'), true);
+    assert.equal(touchesFastMode('tests/ci/other.mjs'), false);
+  });
+  test('a pull request that touches the files cannot be failed by an expired file (it is the way to remove it) and still runs everything', () => {
+    const d = decide({ event: 'pull_request', text: FILE, today: '2027-01-01', changed: ['tests/ci/fast-mode.txt'] });
+    assert.deepEqual([d.ok, d.fast], [true, false]);
+  });
   test('parseFile skips comments and blank lines', () => {
     assert.deepEqual(Object.keys(parseFile(FILE)), ['name', 'reason', 'owner', 'expires', 'removal']);
   });
@@ -87,6 +100,19 @@ describe('the command line', () => {
     assert.equal(r.status, 1);
     assert.match(r.stderr, /::error title=FAST MODE::FAST MODE EXPIRED/);
   });
+  test('--changed-file: a pull request that changes the fast-mode reader is fast=false', () => {
+    const ch = join(dir, 'changed.txt');
+    writeFileSync(ch, 'README.md\ntests/ci/fast-mode.mjs\n');
+    const out = join(dir, 'out4');
+    const r = run('--event', 'pull_request', '--file', f, '--today', '2026-11-02', '--changed-file', ch, '--github-output', out);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /changes the fast-mode files: full suite/);
+    assert.match(readFileSync(out, 'utf8'), /^fast=false$/m);
+    writeFileSync(ch, 'README.md\n');
+    const out2 = join(dir, 'out5');
+    assert.equal(run('--event', 'pull_request', '--file', f, '--today', '2026-11-02', '--changed-file', ch, '--github-output', out2).status, 0);
+    assert.match(readFileSync(out2, 'utf8'), /^fast=true$/m);
+  });
   test('a missing file is fast=false and exit 0', () => {
     const out = join(dir, 'out3');
     const r = run('--event', 'pull_request', '--file', join(dir, 'none.txt'), '--today', '2030-01-01', '--github-output', out);
@@ -112,12 +138,29 @@ describe('ci.yml wiring', () => {
     assert.ok(m, `job ${name} exists`);
     return m[1];
   };
-  test('the changes job runs the script for the event and exposes fast and notice', () => {
+  test('the changes job decides fast mode from the BASE, not from the pull request tree', () => {
     const j = job('changes');
-    assert.match(j, /fast: \$\{\{ steps\.mode\.outputs\.fast \}\}/);
-    assert.match(j, /notice: \$\{\{ steps\.mode\.outputs\.notice \}\}/);
-    assert.match(j, /node tests\/ci\/fast-mode\.mjs --event \$\{\{ github\.event_name \}\} --github-output "\$GITHUB_OUTPUT"/);
+    assert.match(j, /fast: \$\{\{ steps\.mode\.outputs\.fast \|\| steps\.modepush\.outputs\.fast \}\}/);
+    assert.match(j, /notice: \$\{\{ steps\.mode\.outputs\.notice \|\| steps\.modepush\.outputs\.notice \}\}/);
+    assert.match(j, /git worktree add --detach "\$RUNNER_TEMP\/base" \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+    assert.match(j, /git cat-file -e \$\{\{ github\.event\.pull_request\.base\.sha \}\}:tests\/ci\/fast-mode\.mjs/);
+    // the pull request step runs the base's script on the base's file with the changed paths
+    assert.match(j, /node "\$RUNNER_TEMP\/base\/tests\/ci\/fast-mode\.mjs" --event pull_request --file "\$RUNNER_TEMP\/base\/tests\/ci\/fast-mode\.txt" --changed-file "\$RUNNER_TEMP\/fm-changed\.txt"/);
+    const prStep = /- id: mode\n[\s\S]*?(?=\n      - id: modepush)/.exec(j);
+    assert.ok(prStep);
+    assert.ok(!/run: node tests\/ci\/fast-mode/.test(prStep[0]), 'the pull request step never runs the pull request tree copy');
+    // push, schedule and manual runs use the branch's own copy: fast=false there, expiry enforced
+    assert.match(j, /- id: modepush\n[\s\S]*?if: github\.event_name != 'pull_request'\n\s+run: node tests\/ci\/fast-mode\.mjs/);
     assert.match(j, /name: FAST MODE ACTIVE/);
+  });
+  test('CODEOWNERS puts .github/ and tests/ci/ under the repository owner', () => {
+    const co = readFileSync(join(repo, '.github/CODEOWNERS'), 'utf8');
+    assert.match(co, /^\/\.github\/ @furkansarikaya$/m);
+    assert.match(co, /^\/tests\/ci\/ @furkansarikaya$/m);
+  });
+  test('the equivalence job also runs the Core invariants with the engine switched to sh', () => {
+    const j = job('equivalence');
+    assert.match(j, /PROOFLINE_ENGINE: sh\n\s+run: sh tests\/invariants\/invariants-test\.sh/);
   });
   test('the heavy legacy jobs and the skill tests step are skipped by fast mode', () => {
     assert.match(job('selftest'), /needs\.changes\.outputs\.fast != 'true'/);

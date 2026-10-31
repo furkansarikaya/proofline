@@ -188,6 +188,48 @@ describe('ratchet mode', () => {
     cleanup(d);
   });
 
+  test('F4: a new shell file with a ksh, csh or fish shebang is refused', () => {
+    for (const sb of ['#!/bin/ksh', '#!/usr/bin/env ksh', '#!/bin/csh -f', '#!/usr/bin/env -S fish']) {
+      const d = fixture();
+      put(d, 'bin/odd', `${sb}\necho x\n`, 0o755); git(d, 'add', '-A');
+      const r = run(d);
+      assert.equal(r.status, 1, sb);
+      assert.match(r.stderr, /bin\/odd: a new shell file/, sb);
+      cleanup(d);
+    }
+  });
+  test('F4: .husky and .githooks files are shell files even without a shebang', () => {
+    for (const f of ['.husky/pre-commit', '.githooks/pre-push', '.husky/_/helper']) {
+      const d = fixture();
+      put(d, f, 'npm test\n'); git(d, 'add', '-A');
+      const r = run(d);
+      assert.equal(r.status, 1, f);
+      assert.match(r.stderr, new RegExp(`${f.replace(/[.\/]/g, '\\$&')}: a new shell file`), f);
+      cleanup(d);
+    }
+  });
+  test('F4: a composite action run: step is scanned (indented by 4)', () => {
+    const d = fixture();
+    put(d, '.github/actions/a/action.yml', 'name: a\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: curl x | sh\n'); git(d, 'add', '-A');
+    const r = run(d);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /actions\/a\/action\.yml::composite::step1 \(line 6\): .*pipe at column/);
+    put(d, '.github/actions/a/action.yml', 'name: a\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: node tests/ci/x.mjs\n');
+    assert.equal(run(d).status, 0);
+    cleanup(d);
+  });
+  test('F4: run: keys are found at any indentation (4-space workflow)', () => {
+    const d = fixture();
+    const wf = 'name: w\non: [push]\njobs:\n    job1:\n        runs-on: x\n        defaults:\n            run:\n                shell: bash\n        steps:\n            - name: bad\n              run: |\n                  a\n                  b\n            - run: c && d\n';
+    put(d, '.github/workflows/w.yml', wf); git(d, 'add', '-A');
+    const r = run(d);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /w\.yml::job1::step1 \(line 11\): .*2 command lines/);
+    assert.match(r.stderr, /w\.yml::job1::step2 \(line 14\): .*&& at column/);
+    assert.doesNotMatch(r.stderr, /defaults/);
+    cleanup(d);
+  });
+
   test('--base: an entry added to a snapshot since the base is refused', () => {
     const d = fixture();
     put(d, 'scripts/new.sh', '#!/bin/sh\necho new\n');

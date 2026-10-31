@@ -1,0 +1,3 @@
+# The CI workflow and the CI helpers decide what runs on a pull request (including the temporary fast mode); the owner reviews every change.
+/.github/ @furkansarikaya
+/tests/ci/ @furkansarikaya

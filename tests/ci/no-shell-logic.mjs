@@ -12,6 +12,11 @@
 //   inline-shell-snapshot.txt  one line per `run:` step of .github/workflows/*.yml and per hook command string of the three wiring files:
 //                              <sha256> <location>. Location: <file>::<job>::step<N> for a step, <file>::<event>::<N> for a hook string.
 //
+// Known gaps (a tripwire, not the boundary; the security review F4 rest): content is not hashed, so a command appended to an allowlisted shell
+// file passes (stages 2-14 move such files by review); YAML is read by a line scanner (flow-style `steps: [...]`, anchors and `run:` values built
+// by an expression are not seen); a shell file with an unusual shebang interpreter outside the list above, or a script without shebang and
+// extension outside githooks/.githooks/.husky, is not recognised. Covered: any `run:` key at any indentation, composite actions, workflows.
+//
 // Ratchet rules: a shell file that is not in the allowlist fails; an allowlist entry whose file is gone or no longer a shell file fails (remove
 // it); a step or hook string whose SHA-256 is not in the snapshot (same file and job/event) is new or changed and must already meet the
 // strict rule; a snapshot entry that no step or string matches fails (remove it). The ratchet never accepts an addition.
@@ -52,10 +57,10 @@ function firstLine(file) {
   } catch { return ''; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
-const SHEBANG = /^#!\s*(?:\S*\/)?(?:env\s+(?:-S\s+)?)?(?:sh|bash|dash|ash|zsh)(?:\s|$)/;
+const SHEBANG = /^#!\s*(?:\S*\/)?(?:env\s+(?:-S\s+)?)?(?:[a-z]*sh|busybox)(?:\s|$)/;   // sh bash dash ash zsh ksh mksh csh tcsh fish busybox
 export function isShellFile(root, rel) {
   if (/\.(sh|bash)$/.test(rel)) return true;
-  if (rel.split('/').includes('githooks')) return true;
+  if (rel.split('/').some((d) => d === 'githooks' || d === '.githooks' || d === '.husky')) return true;
   const abs = join(root, rel);
   try { if (!statSync(abs).isFile()) return false; } catch { return false; }
   return SHEBANG.test(firstLine(abs));
@@ -79,21 +84,34 @@ export function runSteps(file, text) {
   const lines = text.split('\n');
   /** @type {Item[]} */
   const out = [];
-  let job = '';
-  let inJobs = false;
+  const workflow = /^\.github\/workflows\//.test(file);
+  let job = workflow ? '' : 'composite';
+  let inJobs = !workflow;
+  let jobsIndent = -1;
+  let stepDash = -1;
   let stepNo = 0;
+  const indentOf = (t) => t.length - t.trimStart().length;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
-    if (/^jobs:\s*$/.test(l)) { inJobs = true; continue; }
-    if (inJobs && /^\S/.test(l) && l.trim() !== '' && !l.startsWith('#')) inJobs = false;
-    if (!inJobs) continue;
-    let m = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/.exec(l);
-    if (m) { job = m[1]; stepNo = 0; continue; }
-    if (/^ {6}- /.test(l)) stepNo++;
-    m = /^( {6}- | {8})run:\s*(.*)$/.exec(l);   // a step key: `- run:` or `run:` beside another key of the step (not `defaults: run:`)
-    if (!m) continue;
-    const keyIndent = 8;
-    let body = m[2];
+    if (l.trim() === '' || l.trimStart().startsWith('#')) continue;
+    const ind = indentOf(l);
+    if (workflow) {
+      if (/^jobs:\s*$/.test(l)) { inJobs = true; jobsIndent = -1; continue; }
+      if (inJobs && ind === 0) inJobs = false;
+      if (!inJobs) continue;
+      if (jobsIndent < 0) jobsIndent = ind;
+      const jm = ind === jobsIndent ? /^\s*([A-Za-z0-9_-]+):\s*(?:#.*)?$/.exec(l) : null;
+      if (jm) { job = jm[1]; stepNo = 0; stepDash = -1; continue; }
+    }
+    if (/^\s*steps:\s*(?:#.*)?$/.test(l)) { stepDash = -2; continue; }   // the next list item sets the step indentation
+    if (stepDash === -2 && /^\s*- /.test(l)) stepDash = ind;
+    if (stepDash >= 0 && ind === stepDash && /^\s*- /.test(l)) stepNo++;
+    // any `run:` key with a value is a step command, whatever the indentation (the empty `defaults: run:` mapping is not)
+    const m = /^(\s*)(- )?run:\s*(.*)$/.exec(l);
+    if (!m || m[3].trim() === '' || m[3].trim().startsWith('#')) continue;
+    const keyIndent = m[1].length + (m[2] ? m[2].length : 0);
+    const startLine = i + 1;
+    let body = m[3];
     let text1;
     if (/^[|>][+-]?\d*\s*(#.*)?$/.test(body)) {
       const block = [];
@@ -101,12 +119,11 @@ export function runSteps(file, text) {
       for (; j < lines.length; j++) {
         const t = lines[j];
         if (t.trim() === '') { block.push(''); continue; }
-        const ind = t.length - t.trimStart().length;
-        if (ind <= keyIndent) break;
+        if (indentOf(t) <= keyIndent) break;
         block.push(t);
       }
       while (block.length && block[block.length - 1] === '') block.pop();
-      const strip = Math.min(...block.filter((x) => x !== '').map((x) => x.length - x.trimStart().length));
+      const strip = Math.min(...block.filter((x) => x !== '').map(indentOf));
       text1 = block.map((x) => (x === '' ? '' : x.slice(strip))).join('\n');
       i = j - 1;
     } else {
@@ -114,7 +131,7 @@ export function runSteps(file, text) {
       if ((body.startsWith('"') && body.endsWith('"') && body.length > 1) || (body.startsWith("'") && body.endsWith("'") && body.length > 1)) body = body.slice(1, -1);
       text1 = body;
     }
-    out.push({ kind: 'run', file, job, index: stepNo, line: i + 1, text: text1, location: `${file}::${job}::step${stepNo}`, group: `${file}::${job}` });
+    out.push({ kind: 'run', file, job, index: stepNo, line: startLine, text: text1, location: `${file}::${job}::step${stepNo}`, group: `${file}::${job}` });
   }
   return out;
 }
@@ -193,7 +210,7 @@ export function currentInline(root) {
   /** @type {Item[]} */
   const items = [];
   const files = trackedFiles(root);
-  for (const rel of files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f))) items.push(...runSteps(rel, readFileSync(join(root, rel), 'utf8')));
+  for (const rel of files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f) || /^\.github\/actions\/.+\.ya?ml$/.test(f) || /(^|\/)action\.ya?ml$/.test(f))) items.push(...runSteps(rel, readFileSync(join(root, rel), 'utf8')));
   for (const rel of WIRING_FILES) if (files.includes(rel)) items.push(...hookStrings(rel, readFileSync(join(root, rel), 'utf8')));
   for (const it of items) it.sha = sha256(it.kind === 'run' ? it.text.replace(/\s+$/, '') : it.text);
   return items;
