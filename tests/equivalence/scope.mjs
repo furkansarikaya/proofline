@@ -1,7 +1,7 @@
 // @ts-check
 // What a run of the rig covers (issue #166: "replay only touched commands per pull request, full replay nightly").
-//   EQUIVALENCE_FULL=1        the heavy set as well: the slow cases (timeouts, hook-timeouts), the alternating-engine lifecycle, the downgrade test and
-//                             the trace replay of every moved command's cases; every command counts as touched. CI sets it on schedule and workflow_dispatch.
+//   EQUIVALENCE_FULL=1        the heavy extras as well: the slow cases (timeouts, hook-timeouts) and the trace replay of every moved command's cases;
+//                             the alternating-engine lifecycle and the downgrade test (needs history for bc072f3: CI fetch-depth 0) are acceptance tests and always run; every command counts as touched. CI sets it on schedule and workflow_dispatch.
 //   EQUIVALENCE_COMMANDS=a,b  the touched commands, by hand (a developer's own choice; wins over the diff)
 //   otherwise                 the touched commands come from the files changed against the merge base with origin/main (or main): a file under
 //                             core/ that belongs to one command family narrows the set, any other control-plane or rig file means all ten.
