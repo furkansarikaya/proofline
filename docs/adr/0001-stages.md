@@ -21,7 +21,7 @@ or newer and Node's own libraries; no npm package. Faster: one process per comma
 
 | order | stage | depends on | estimate (agent-days) |
 |---|---|---|---|
-| 1 | Equivalence rig, core skeleton, spawn wrapper, ratchet, config commands | - | 4-6 |
+| 1 | Equivalence rig, core skeleton, spawn wrapper, ratchet, config commands | - | 6-9 |
 | 2 | Read-only commands | 1 | 7-10 |
 | 3 | Hooks, approval and answer fast path, git hooks | 2 | 8-12 |
 | 4 | Run lifecycle | 2, 3 | 5-8 |
@@ -37,15 +37,24 @@ or newer and Node's own libraries; no npm package. Faster: one process per comma
 | 14 | Fixtures | 11 | 3-5 |
 | 15 | Strict no-shell-logic check and the last shell files | 12, 13, 14 | 1-2 |
 
-Total estimate: 72-108 agent-days. Stages 12, 13 and 14 may run in parallel (they touch different folders).
+Total: 74-111 agent-days (estimate), about 15-23 weeks (estimate) at one patch per working day. Basis: lines to port per stage
+(inventory), test volume, recent patch sizes, and a 2-3 agent-day allowance in stage 1 for building the rig and recording traces.
+Stages 12, 13 and 14 may run in parallel (they touch different folders).
+
+**Re-plan point after stage 2.** Stages 1 and 2 build the rig and most of the shared library. Before stage 3 starts, their measured
+effort, CI time and trace volume are compared with the estimates here, and stages 3-15 are re-estimated (and re-ordered if needed) in a
+decision entry.
 
 **Common acceptance criteria.** Every stage's own criteria include these; the stage sections refer to them as C1-C8.
 
 - **C1 Equivalence.** Every command the stage moves has scenario cases and trace cases in `tests/equivalence/`; the `equivalence` CI
   job is green on Linux and the nightly full replay is green on Linux and macOS; the alternating-engine lifecycle case is green; no
   normalisation rule was added without the maintainer's approval (stages 1-10).
-- **C2 Invariants.** `sh tests/invariants/invariants-test.sh` passes unchanged with the default engine and with `PROOFLINE_ENGINE=sh`
-  (stages 1-9; default only from stage 10). Nothing under `tests/invariants/` changes before stage 13.
+- **C2 Invariants and the safe side.** `sh tests/invariants/invariants-test.sh` passes unchanged with the default engine and with the
+  engine switch set to `sh` (stages 1-9; default only from stage 10). Nothing under `tests/invariants/` and nothing in `test-lib.sh`
+  (which the suite sources) changes before stage 13 (`test-lib.sh`: before 15). The rig's "Node absent" case is green: with `node`
+  removed from PATH, every guard that needs a moved command denies during a run, `agent.sh` exits non-zero and a commit is blocked;
+  the enforcement suite has the same case for the hook.
 - **C3 Tests.** The full self-test (16 shards), the Node tests, the fixtures job and the static job (including the shell-allowlist
   ratchet and the type check) are green.
 - **C4 Performance.** The pull request description has a before/after table (processes and wall time) for the paths named in the
@@ -53,9 +62,10 @@ Total estimate: 72-108 agent-days. Stages 12, 13 and 14 may run in parallel (the
   are set to the measured value after the change plus a margin (as A203 did).
 - **C5 Smoke.** `sh tests/real-session/smoke.sh` (later its Node form) is all PASS on the last commit, with the steps named in the
   stage; the table is in the description.
-- **C6 Rollback.** The stage's rollback path is shown: `PROOFLINE_ENGINE=sh` passes the stage's suites through `tests/affected.sh`
-  (stages 1-9).
-- **C7 Records.** A decision entry `A<n>` (citing A204) for the stage, including any test seam added; the version is raised with
+- **C6 Rollback.** The stage's rollback path is shown: with `sh` in `.agents/local/engine` the stage's suites pass through
+  `tests/affected.sh`, and a hook process started by the runtime sees the switch (stages 1-9); the downgrade test passes (a project of
+  this stage, with a run in flight, upgraded from the previous release's checkout continues the run).
+- **C7 Records.** A decision entry `A<n>` (citing A204) for the stage; no environment test seam is added (D14); the version is raised with
   `tests/ci/bump-version.sh`; the CHANGELOG entry names the moved commands.
 - **C8 Documentation.** CONTRIBUTING, the README and `docs/concepts` updated where the stage changes what a user needs or types.
 
@@ -96,15 +106,29 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     sections: about 680 lines of `agent.sh`, inventory).
   - Commands moved (10): `role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`, `verify-timeout`, `tm-scaled`, `db-config`,
     `hook-config`, `help` (the usage text keeps omitting the same 16 commands).
-  - `agent.sh` delegation preamble (before any parsing) with `PROOFLINE_ENGINE=sh` and `PROOFLINE_ENGINE_SH=<list>`; the bridge from the
-    core to unmoved commands; the test clock seam `PROOFLINE_TEST_CLOCK` in the old code and the core (only with `PROOFLINE_TEST=1`).
-  - `tests/equivalence/`: rig, closed normalisation list with its planted-difference tests, the trace recorder (`PROOFLINE_TRACE`),
-    scenario cases, the alternating-engine case; a CI job `equivalence`.
+  - `agent.sh` delegation preamble (before any parsing); the engine switch read from `.agents/local/engine` (`sh` or
+    `sh:<command>,...`; the main tree's file in a worktree) and from `PROOFLINE_ENGINE` / `PROOFLINE_ENGINE_SH` (CI), either forcing
+    `sh` wins; `doctor` prints it; the bridge from the core to unmoved commands. No clock or other environment test seam (D14).
+  - The shell hook fails closed on a moved command (ADR section 5.3): where it now drops a failure of `hook-config`, `db-config` or
+    `config-get` (`proofline-hook.sh` lines 959, 977, 1331), it denies while a run exists when the command exits 127 or non-zero, with a
+    message that names the command and Node 22.13; the merge guard denies the same way in an installed project also without a run.
+  - `tests/equivalence/`: rig, closed normalisation list (times masked only after each side's ledger chain verifies) with its
+    planted-difference tests, the trace recorder (`PROOFLINE_TRACE`), scenario cases, the alternating-engine case, the "Node absent"
+    case; a CI job `equivalence`.
   - `tests/bench/agent-procs.mjs`: the inventory's PATH-shim command benchmark committed, with the 0.0.40 baseline as a data file.
-  - `tests/ci/no-shell-logic.mjs` in ratchet mode with `tests/ci/shell-allowlist.txt` (every shell file of 0.0.40).
+  - `tests/ci/no-shell-logic.mjs` in ratchet mode with `tests/ci/shell-allowlist.txt` (every shell file of 0.0.40) and
+    `tests/ci/inline-shell-snapshot.txt` (every `run:` step of `ci.yml` and every hook command string of the three wiring files, by
+    location and SHA-256); entries may only disappear, and a new or changed step or string must already meet the strict rule.
   - Type checking: `jsconfig.json` and a CI job that runs a pinned checker and pinned Node type definitions, fetched in that job only.
   - A differential test of the two ecosystem glob implementations (awk `g2re` against `globToRegExp`) over a path and pattern corpus.
-  - The runtime hook (still shell) denies a model's direct call of `proofline-core.mjs approve` and `approve-pending` like `agent.sh approve`.
+  - Hook tripwires (the hook is still shell): deny a model command that starts Node and loads the core in any visible spelling (a path to
+    `proofline-core.mjs` or `.agents/scripts/core/`; `node -e`/`--eval`/`-p`/`--print`; `--input-type=module` with stdin code;
+    `--import`/`--require`/`-r`/`--loader`; `env node`; `npx node`; a variable holding `process.execPath`; whenever the text names
+    `.agents/scripts` or `proofline-core`), and a model command that assigns `PROOFLINE_ENGINE*` or `PROOFLINE_TEST*`. These are tripwires
+    (`.out-of-scope/small-rejected-ideas.md`); the boundary stays that `approve` records only from a captured user message.
+  - `frontmatter.test.mjs` checks documented commands against the core's command table (all 132 entries) instead of `agent.sh` text.
+  - A downgrade test: a project installed from this stage's checkout, with a run in flight, is upgraded from the previous release's
+    checkout (`proofline upgrade` installs the tree of the checkout it runs from; verified in `bin/lib/install.sh`), and the run continues.
   - `proofline doctor` and `proofline init` check Node 22.13 (in `bin/lib/doctor.sh` and `install.sh`, ported in stage 9); CI tests
     Node 22.13.0 and the current active LTS; CONTRIBUTING and the README say Node 22.13 is a runtime requirement.
   - Installer: copy `proofline-core.mjs` and `core/` into `.agents/scripts/` and the manifest.
@@ -117,18 +141,30 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - Lock interop: an old-engine and a new-engine process contend for the same lock and exclude each other; a stale lock is broken with
     the same `lock-break` ledger event.
   - The glob differential test passes on the whole corpus.
+  - Node absent (C2): with `node` removed from PATH and a run open, the shell hook denies a Bash call (database guard) and a file write
+    (database guard), and denies `git push origin main` (merge guard); without the change, the same cases are allowed (the test fails on
+    0.0.40-style fallback).
+  - Seam safety: with no fixture stub present, setting every `PROOFLINE_TEST*` and `PROOFLINE_ENGINE*` value leaves SECRETS results,
+    execution-policy decisions and approval results unchanged (both engines).
+  - Enforcement: one case per tripwire spelling above is denied for a model role and allowed for the user's own terminal; `agent.sh approve`
+    keeps its deny.
+  - The ratchet fails on a planted new shell file, a planted new multi-line `run:` step and a planted changed hook string.
+  - The downgrade test passes.
   - Performance (before -> after, `tests/bench/agent-procs.mjs` and `sh tests/bench/hook-procs.sh`): `config-get` 3 processes / 0.1 s
     (measured); `hook-config` 1 process / 0.3 s, the 0.3 s being the shell's start on the 9,170-line file (measured). Target (estimate):
     `hook-config` at most 2 processes (`sh` exec and `node`) and below 0.1 s; hook events unchanged or lower. `node -e 0` start time
-    recorded on Linux, macOS and `windows-latest` as the reference for later stages.
+    recorded on Node 22.13 and the active LTS, on Linux, macOS and `windows-latest`, as the reference for later stages (about 28 ms was
+    measured once on a macOS machine with Node 24.14.1 while writing the plan).
   - Smoke: the default run (setup, doctor, `/proofline run`, `/proofline deliver`, `/proofline batch T-2 T-3`, skill-tool rows), and
-    `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+    `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** the trace recorder makes CI slower (mitigation: replay only touched commands per pull request, full replay nightly);
   the config parser has edge cases (block lists under `commands.*`, quotes, octal-looking numbers stripped by `dec0`) that the rig must
   cover; the checker download is a CI-only dependency.
-- **Rollback:** `PROOFLINE_ENGINE=sh` (or `PROOFLINE_ENGINE_SH=hook-config,...`); plain revert of the pull request.
-- **Estimate:** 4-6 agent-days (estimate). Basis: about 1,500-2,500 new lines (rig, wrapper, libraries, bench, ratchet) and about 680
-  ported lines; the config family has few tests of its own but every suite uses it.
+- **Rollback:** `sh` (or `sh:hook-config,...`) in `.agents/local/engine` (`PROOFLINE_ENGINE=sh` in CI); the previous release installed
+  with `proofline upgrade` from its checkout; a revert.
+- **Estimate:** 6-9 agent-days (estimate). Basis: about 1,500-2,500 new lines (rig, wrapper, libraries, bench, ratchet) and about 680
+  ported lines (4-6 days), plus 2-3 days for building the rig and recording and storing the traces; the config family has few tests of
+  its own but every suite uses it.
 
 ## Stage 2
 
@@ -145,22 +181,33 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     `summary` line 1 `STATUS: ...`).
   - One baseline map per invocation (removes the paths-times-entries loop); path fingerprints with `fs` and `node:crypto`; `verify-seal`
     in one pass.
+  - Ecosystem-branching check for Node: `tests/shared/check-static.sh` rule 5 (lines 122-125) reads ids from `ecosystems.tsv`, passes when
+    the file is missing and scans shell only. This stage adds a Node check over the core, hook and CLI `.mjs` that reads
+    `ecosystems.json` and fails when it is missing, and changes rule 5 to fail, not pass, when its data file is missing. Both run in the
+    static job from here on, before anything deletes the TSV (stage 10).
+  - Golden tests recorded from the old engine, added beside the extraction tests (which keep testing the old code until stage 10):
+    `risk_words_match` (`risk-test.sh` 830, 867) and the `next` output order (`proofline-lead.test.mjs` 350, 370).
+  - The re-plan point of the epic follows this stage.
 - **Depends on:** stage 1.
 - **Acceptance criteria:**
   - C1-C8. Trace cases cover every gate state of the `gates-test` and `risk-test` fixtures and the scaling fixture.
+  - The Node ecosystem check fails on a planted `case` arm that names an ecosystem id in a core module and on a missing
+    `ecosystems.json`; rule 5 fails on a missing `ecosystems.tsv`.
   - The `perf-test.sh` budgets (`next` at most 260, `digest` at most 340 processes) hold, then are lowered to the measured value plus
     margin.
   - Performance (before measured, target estimate), with `perf-test.sh` (`PERF_REPORT=1`) and `tests/bench/agent-procs.mjs`:
-    `next` 68-193 processes / 2.3-4.6 s at 2 files and 1,930 / 18.3 s at 60 files -> target at most 10 processes at any file count and
+    `next` 68-193 processes / 2.3-4.6 s at 0 extra changed files (the 2-file fixture) and 1,930 / 18.3 s at 60 -> target at most 10 processes at any file count and
     under 1 s at 60 files; `digest` 129-225 / 3-5 s -> at most 12; `summary` (full) 346-665 / 8.5-14.2 s -> at most 12; `pipeline`
     208-364 / 3.8-5.4 s -> at most 10; `verify-seal` 67 processes at 63 ledger lines -> no child process at any length;
     `patch-fingerprint` 490 and `verify-scope` 438 at 60 files -> at most 6; `report-facts` 200 / 3.4 s -> at most 8; `proofline status`
     126 (measured; the CLI is still shell) -> recorded.
-  - Smoke: the default run; `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+  - Smoke: the default run; `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** `next` reads about 15 kinds of run files and calls more than 60 helpers, so trace coverage matters more than scenario
   coverage; byte-order sorting and byte lengths must match the shell under `LC_ALL=C`; the fingerprint cache key uses nanosecond times
   and inodes (masked by the rig, but the cache must still hit the same entries).
-- **Rollback:** `PROOFLINE_ENGINE=sh` or per command; revert.
+- **Rollback:** the engine switch: `sh` (or `sh:<command>,...`) in `.agents/local/engine`, read by every command and hook event
+  (`PROOFLINE_ENGINE=sh` in CI); or the previous release installed with `proofline upgrade` from its checkout (the downgrade test of
+  stage 1); or a revert.
 - **Estimate:** 7-10 agent-days (estimate). Basis: about 3,500 lines of helpers and handlers plus 375 lines of `debt.sh` and
   `insights.sh`; these helpers are reused by every later stage, so this stage carries most of the shared library.
 
@@ -177,9 +224,17 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     `window-close`. About 1,200 lines of `agent.sh` (estimate: approvals, prompt captures, language scan, windows).
   - The capture contract kept byte for byte: the intake copy, `prompts/<session>.json` (`{"session","time","sha256","text"}`), the history
     copy, the capture id `<session>:<time>:<sha>`, the single-use rule, and the Stop hook's reading of the same file.
-  - The wiring strings in `hooks.json`, `settings.fragment.json` and `codex/hooks.json` change to the pinned Node templates; the install
-    merge (`bin/lib/install.sh`) learns the old `sh -c` strings and replaces them; the Node hook yields when an old shell wiring for the
-    same event is in the same settings file.
+  - Golden capture fixtures committed (`tests/golden/capture/`): the prompt corpus and, per prompt, the exact capture, intake and history
+    bytes written by the old hook (times and pids taken from a recorded event, so the bytes are fixed); the Node hook's tests compare
+    against them from now on, after the rig is gone too.
+  - Golden test for `approval_phrases` (recorded from the old engine), beside `reply-loop-test.sh`'s extraction, which keeps testing the
+    old code until stage 10.
+  - The wiring strings in `hooks.json`, `settings.fragment.json` and `codex/hooks.json` change to the pinned Node templates, all three with
+    the PreToolUse fail-closed guard (a failed start exits 2; the plugin form gains it); the install merge (`bin/lib/install.sh`) learns the
+    old `sh -c` strings and replaces them; the Node hook yields when an old shell wiring for the same event is in the same settings file.
+    The ratchet snapshot is updated with the new strings, which meet their templates.
+  - The Node hook keeps the stage-1 tripwires (core-loading Node spellings, `PROOFLINE_ENGINE*` and `PROOFLINE_TEST*` assignments) and
+    reads the engine switch from `.agents/local/engine`.
   - `githooks/pre-commit` and `pre-push` become launchers (`#!/bin/sh` and one `exec node` line) of core subcommands; `human.sh` (14)
     moves into the core; `delivery-check` is reached through the bridge until stage 4.
   - `doctor` verifies all 7 hook events (it checks 6 today; Stop is never checked).
@@ -190,8 +245,12 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - C1-C8.
   - Capture corpus: for every prompt in the corpus (Unicode, quotes, backslashes, CR, tabs, control bytes, Turkish letters, a long text,
     a `<task-notification>` prompt that must be ignored) the old and the new hook write byte-identical capture, intake and history files.
+  - The golden capture fixtures are committed and the Node hook matches them byte for byte.
   - Cross-version approval: the old `approve` accepts every capture the new hook writes and refuses what it refused before; the new `approve`
     does the same with old captures; replies with several approvals, hedged replies and replies older than the request behave identically.
+  - Node absent (C2): with `node` removed from PATH, each of the three hook forms blocks PreToolUse with exit 2 (start failure), during a
+    run and, for the project and Codex forms, whenever `.agents/config.yaml` exists; the enforcement suite has these cases.
+  - Enforcement keeps the tripwire cases of stage 1 green against the Node hook.
   - Deny texts identical: `tests/enforcement` (enforcement, kill-guard, merge-guard, approval-load, timeouts) pass unchanged against the new
     hook; the PreToolUse fail-closed cases (unparsable JSON during a run, malformed ACTIVE_RUN, missing hook file with config present) still
     deny or block.
@@ -204,13 +263,15 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     15 (+ about 7 git) and `git push` 9 (+ about 3 git) without a run -> one Node process plus the git calls. The Windows job records its
     numbers in the job summary.
   - Smoke: the default run; `SMOKE_ONLY=codex`; `SMOKE_ONLY=a200` (an approval answered in the pre-flight); the rtk pass when rtk is
-    installed; `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+    installed; `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** the capture bytes (mitigated by the corpus and cross-version tests); how each runtime runs hook strings on Windows is unknown
   (the job decides the string forms, and the README keeps "WSL or Git Bash" until the job passes); Node start-up in the hook (lazy
   imports, compile cache, budget in the benchmark); the scanner's tokenizer is security-relevant: every scanner case of the enforcement
   suite must keep its verdict.
-- **Rollback:** `PROOFLINE_ENGINE=sh` makes the Node hook hand the event to the kept `proofline-hook.sh` (one extra process, rollback
-  only) and the git hook launchers run the old code; `proofline upgrade` from the previous release restores the old wiring; revert.
+- **Rollback:** `sh` in `.agents/local/engine` (read by the hook process the runtime starts, unlike a shell `export`) makes the Node
+  hook hand the event to the kept `proofline-hook.sh` (one extra process, rollback only) and the git hook launchers run the old code;
+  `proofline upgrade` from the previous release's checkout restores the old wiring (the old merge adds its string and the Node hook
+  yields); a revert.
 - **Estimate:** 8-12 agent-days (estimate). Basis: 2,609 hook lines with the largest single port item (the scanner), about 1,200
   `agent.sh` lines, 274 lines of `next-user.sh`, 121 git-hook lines, the capture corpus, and 2,465 lines of enforcement tests to keep green.
 
@@ -225,20 +286,25 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     `validate-plan.mjs` with `node` when installed.
   - The status block keeps its best-effort, time-bounded update (today a background subshell polled with `kill -0`) with a timer.
   - `archive_run` keeps `tar` (member list and bytes compared by the rig).
+  - Golden tests recorded from the old engine, beside the extraction tests (which keep testing the old code until stage 10): `sb_scrub`,
+    `sb_strip` and the `SB_KEYS` list (`status-block-test.sh`), and the freeze messages that `plan-contract.test.mjs` reads from
+    `agent.sh` text.
 - **Depends on:** stages 2 and 3.
 - **Acceptance criteria:**
   - C1-C8. The alternating-engine case runs a full lifecycle from `start` to `cleanup` with engines alternating per call.
   - A run started on 0.0.40 (a recorded fixture at IMPLEMENTED) continues to DONE on this stage, and a run started on this stage continues
-    on 0.0.40 (`PROOFLINE_ENGINE=sh`).
+    on 0.0.40 (the engine switch set to `sh`, and the 0.0.40 release installed by the downgrade path).
   - Performance (`tests/bench/agent-procs.mjs`; before measured, target estimate): `handoff` IMPLEMENTED 216 / 3.8 s, CODE_DONE 391 / 7.1 s,
     DONE 568 / 11.5 s -> at most 15 each (git and the node validators); `freeze` 202 / 2.9 s -> at most 8; `classify` 50 / 1.3 s -> at most 4;
     `tier` 58 / 1.0 s -> at most 4; `baseline` 31 / 0.6 s -> at most 4; `delivery-check` 89 / 2.6 s -> at most 6; `db-check` 18 / 0.4 s ->
     1 (one process, no `find`).
-  - Smoke: the default run; `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+  - Smoke: the default run; `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** the five places where the shell works around `set -e` (background subshells, nested `sh agent.sh` re-invocations) must become
   explicit result checks without changing which errors stop a command; freeze escalates classification and consumes approvals, so
   ordering of writes matters (the rig compares the files after each call).
-- **Rollback:** `PROOFLINE_ENGINE=sh` or per command; revert.
+- **Rollback:** the engine switch: `sh` (or `sh:<command>,...`) in `.agents/local/engine`, read by every command and hook event
+  (`PROOFLINE_ENGINE=sh` in CI); or the previous release installed with `proofline upgrade` from its checkout (the downgrade test of
+  stage 1); or a revert.
 - **Estimate:** 5-8 agent-days (estimate). Basis: about 2,000 lines; `lifecycle-test` (1,545 lines, 68 units) is the main proof.
 
 ## Stage 5
@@ -251,19 +317,25 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     section and the completion-report code about 2,300 lines of `agent.sh` (estimate).
   - `scripts/secret-scan.sh` (64) into the core; `submit` calls `record` in process (today a nested `sh agent.sh record`);
     `publish-completion-report` calls `freshness` in process.
-  - Test seam: `PROOFLINE_TEST_SECRET_SCAN` (only with `PROOFLINE_TEST=1`) replaces the secret-scan stub that `test-lib.sh` writes;
-    `test-lib.sh` sets it. `tests/invariants/` is not edited.
+  - No environment seam (D14): the stub that `test-lib.sh` writes stays a fixture file. While `.agents/scripts/secret-scan.sh` exists in
+    the project the core runs it, exactly as `agent.sh` does today; the installer stops shipping it, so only a fixture that writes one
+    gets it. `test-lib.sh` and `tests/invariants/` are not edited.
+  - Golden test for `blocking_rule_version` (recorded from the old engine), beside the `gates-test.sh` line 511 text read, which keeps
+    testing the old code until stage 10.
   - The task adapter's `publish` and `verify` are reached through the bridge until stage 6.
 - **Depends on:** stage 4.
 - **Acceptance criteria:**
   - C1-C8. Trace cases include every `record` refusal of `gates-test` (98 units) and every waiver case (SECRETS and SECURITY refused).
+  - Seam safety (as in stage 1): without a fixture stub, no `PROOFLINE_TEST*` value changes a SECRETS result.
   - Performance (`tests/bench/agent-procs.mjs`; before measured, target estimate): `record` 449-459 / 8.0-8.3 s -> at most 15 (git, node
     validators); `secret-scan` 280 / 5.6 s -> at most 6; `publish-completion-report` 1,754 / 34 s -> at most 20; `worker-evidence` 67-92 /
     1.1-1.2 s -> at most 6; `knowledge-done` 97 / 2.1 s -> at most 8.
-  - Smoke: the default run; `SMOKE_ONLY=a200` (the test-only fix round without SECURITY); `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+  - Smoke: the default run; `SMOKE_ONLY=a200` (the test-only fix round without SECURITY); `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** `record` validates specialist text with long awk blocks (150-line programs) whose exact acceptance must be kept, including
   the language check of quoted user text; the gate record and manifest bytes feed the hash chain.
-- **Rollback:** `PROOFLINE_ENGINE=sh` or per command; revert.
+- **Rollback:** the engine switch: `sh` (or `sh:<command>,...`) in `.agents/local/engine`, read by every command and hook event
+  (`PROOFLINE_ENGINE=sh` in CI); or the previous release installed with `proofline upgrade` from its checkout (the downgrade test of
+  stage 1); or a revert.
 - **Estimate:** 6-9 agent-days (estimate). Basis: about 2,300 lines; the heaviest validation logic of the control plane.
 
 ## Stage 6
@@ -277,8 +349,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     the CI part of `scripts/batch.sh`.
   - Task adapters (762 lines): `markdown.sh`, `github.sh`, `jira.sh`, `linear.sh`, `_lib.sh`, `slug.sh` -> `.mjs` with the same operations,
     exit codes and receipts; `slug` keeps its letter table; `jira` and `linear` use `fetch` instead of `curl` and `jq` (still not tested
-    against a real service). A user-written `task-integrations/<name>.sh` is still run through `runUserCommand`. Test seam
-    `PROOFLINE_TEST_TASK_ADAPTER` replaces the markdown stub of `test-lib.sh`.
+    against a real service). A user-written `task-integrations/<name>.sh` is still run through `runUserCommand`, which is also how the
+    markdown stub that `test-lib.sh` writes into fixtures keeps working (no environment seam, D14).
   - `gh`, `glab`, `az` through `proc.mjs`, with the A180 refusal of a tool that resolves into the project or a temporary folder, and
     Windows `.cmd` shims handled.
 - **Depends on:** stage 5.
@@ -290,10 +362,11 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     `deliver-*`); `platform` 13 processes (measured) -> at most 2 (git, or none with a cached remote); `deliver-plan` and `deliver-step`
     after not higher than before; `batch-ci` polling no more often than today.
   - Smoke: the default run (deliver and batch reach the local origin); `SMOKE_ONLY=a202` with the default engine (status block, branch
-    slug) and with `PROOFLINE_ENGINE=sh`.
+    slug) and with `sh` in `.agents/local/engine`.
 - **Risks:** platform CLIs differ per host and are mostly tested with fakes; `deliver-merged --check` fetches from the network even in
   read-only use (kept); the receipts' hashes must stay byte-identical.
-- **Rollback:** `PROOFLINE_ENGINE=sh` or per command; the shell adapters stay in place for the fallback until stage 10; revert.
+- **Rollback:** `sh` in `.agents/local/engine` (the shell adapters stay in place for the fallback until stage 10); the previous release
+  installed with `proofline upgrade` from its checkout; a revert.
 - **Estimate:** 5-7 agent-days (estimate). Basis: about 1,000 lines of `agent.sh` plus 1,250 lines of scripts and adapters.
 
 ## Stage 7
@@ -309,7 +382,9 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - The nonce: the dispatcher calls `decide` in process; the `decide` command with a nonce keeps checking a live ancestor (Linux `/proc`,
     macOS `ps`); on Windows it fails closed unless called in process.
   - `scripts/exec-policy.sh` (302), `runtime-detect.sh` (37), `batch.sh` (728, the rest), `worktree-prep.sh` (114), `known-issues.sh`
-    (194). Test seam `PROOFLINE_TEST_EXEC_POLICY` replaces the exec-policy stub of `test-lib.sh`.
+    (194). The exec-policy stub that `test-lib.sh` writes stays a fixture file: while `.agents/scripts/exec-policy.sh` exists in the
+    project the core runs it, as `agent.sh` does today; no environment seam (D14). Seam safety test: without a stub, no `PROOFLINE_TEST*`
+    value changes an execution-policy decision.
 - **Depends on:** stages 5 and 6 (dispatch records results and the batch watches delivery).
 - **Acceptance criteria:**
   - C1-C8. `dispatch-test` (watchdog and timeouts), `batch-test` (34 units, sleep inhibitor, wrapper agent), `exec-policy-test`,
@@ -321,10 +396,11 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     (estimate): `decide` at most 3, the dispatcher's own overhead (without the runtime child) at most 10, `batch-next` (3 processes
     measured) at most 1.
   - Smoke: the default run; `SMOKE_ONLY=codex`; `sh tests/real-session/codex-sandbox.sh` (the Codex permission profile is built by the
-    dispatcher); `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+    dispatcher); `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** process-group behaviour differs between platforms; the nonce check on macOS still needs `ps`; the Codex profile arguments
   must stay byte-identical (A199, A203 item 1).
-- **Rollback:** `PROOFLINE_ENGINE=sh` (the `dispatch.sh` launcher runs the kept shell dispatcher); revert.
+- **Rollback:** `sh` in `.agents/local/engine` (the `dispatch.sh` launcher runs the kept shell dispatcher); the previous release
+  installed with `proofline upgrade` from its checkout; a revert.
 - **Estimate:** 6-9 agent-days (estimate). Basis: about 2,600 lines including the repository's heaviest process management.
 
 ## Stage 8
@@ -345,9 +421,11 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - `build-record` still runs each configured command with its full output kept (evidence is never compressed).
   - Performance: before measured in this stage (`build-record`, `doctor --commands`, `context-size`); after not higher; `friction`,
     `calibrate`, `lessons`, `rules` (3 processes each, measured) -> 1.
-  - Smoke: the default run; `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+  - Smoke: the default run; `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** discovery trial-runs user commands with a timeout: the process-group kill must stop the whole tree on every platform.
-- **Rollback:** `PROOFLINE_ENGINE=sh` or per command; revert.
+- **Rollback:** the engine switch: `sh` (or `sh:<command>,...`) in `.agents/local/engine`, read by every command and hook event
+  (`PROOFLINE_ENGINE=sh` in CI); or the previous release installed with `proofline upgrade` from its checkout (the downgrade test of
+  stage 1); or a revert.
 - **Estimate:** 3-5 agent-days (estimate). Basis: about 1,400 lines, mostly self-contained scripts with their own suites.
 
 ## Stage 9
@@ -374,32 +452,43 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - `tests/skills/performance-proof.test.mjs` and `runtime-versions.test.mjs` pass against the new scripts with the same fake tools.
   - Performance: `proofline status` 126 processes (measured) -> at most 3 (estimate); `doctor` and `init` before measured in this stage,
     after not higher; `runtime-versions` before/after counted with the PATH shim.
-  - Smoke: the default run (the setup and doctor rows exercise `init` and `doctor`); `SMOKE_ONLY=a202` with `PROOFLINE_ENGINE=sh`.
+  - Smoke: the default run (the setup and doctor rows exercise `init` and `doctor`); `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
 - **Risks:** users installed `bin/proofline` through a symlink created by the old installer (Node resolves it, tested); the skill scripts
   are installed alone into user projects and must not import anything outside their skill.
-- **Rollback:** `PROOFLINE_ENGINE=sh` for the core; the old `bin/proofline` from the previous release (the CLI is a checkout); revert.
+- **Rollback:** `sh` in `.agents/local/engine` for the core; the old `bin/proofline` from the previous release (the CLI is a checkout);
+  a revert. The config-parser comparison of `check-shared.sh` goes in this stage with `bin/lib/config.sh` (one Node parser is left; the
+  `agent.sh` parser it compared against stays only as the fallback until stage 10).
 - **Estimate:** 5-7 agent-days (estimate). Basis: about 2,350 lines; the installer and generators are covered by `cli-test` and
   `generator-test`.
 
 ## Stage 10
 
-- **Title:** Node migration 10/15: remove the shell paths (launchers, engine switch, fallbacks, extraction tests)
+- **Title:** Node migration 10/15: remove the shell paths (launchers, engine switch, fallbacks)
 - **Version:** 0.0.x
 - **Scope:**
-  - `agent.sh` (9,170 lines) becomes the launcher; `dispatch.sh` stays a launcher; the kept shell code is deleted: the 13 sibling scripts,
-    `proofline-hook.sh`, the shell task adapters, the old git-hook bodies, `control-plane/agents/scripts/ecosystems.sh`, `ecosystems.tsv`
-    and its `write` path in `ecosystems.mjs`.
-  - `PROOFLINE_ENGINE`, `PROOFLINE_ENGINE_SH` and the bridge are removed; the test seams stay.
-  - Tests that read `agent.sh` text are rewritten against the core: `status-block-test.sh` (`sb_scrub`, `sb_strip`, `SB_KEYS=`),
-    `risk-test.sh` (`risk_words_match`, the `eco_*` use), `gates-test.sh` (`blocking_rule_version=`), `reply-loop-test.sh`
-    (`approval_phrases`), `check-shared.sh` (the config-parser comparison goes: one parser is left), `frontmatter.test.mjs` (documented
-    commands checked against the core's command table), `plan-contract.test.mjs`, `proofline-lead.test.mjs`.
-  - The equivalence rig is retired; a curated set of its trace cases becomes golden-output regression tests (`node:test`), so the proof
-    outlives the old code.
+  - `agent.sh` (9,170 lines) becomes the launcher; `dispatch.sh` stays a launcher; `proofline-hook.sh` becomes a transitional launcher of
+    `proofline-hook.mjs` (until stage 15) so that a session started before stage 3 does not lose its hook; the kept shell code is deleted:
+    the 13 sibling scripts, the shell task adapters, the old git-hook bodies, `control-plane/agents/scripts/ecosystems.sh`,
+    `ecosystems.tsv` and its `write` path in `ecosystems.mjs`.
+  - The engine switch (`.agents/local/engine`, `PROOFLINE_ENGINE`, `PROOFLINE_ENGINE_SH`) and the bridge are removed; `doctor` reports a
+    leftover `.agents/local/engine` file as unused. The fixture-file stub rule of stages 5-7 stays until stage 15 (it serves `test-lib.sh`).
+  - The extraction tests that read deleted `agent.sh` text are deleted with that text: `status-block-test.sh` (`sb_scrub`, `sb_strip`,
+    `SB_KEYS=`), `risk-test.sh` (`risk_words_match` at 830 and 867, and its `eco_*` use), `gates-test.sh` line 511, `reply-loop-test.sh`
+    (`approval_phrases`), and the `agent.sh` text reads of `plan-contract.test.mjs` and `proofline-lead.test.mjs`. Their golden
+    replacements were added in stages 2-5, so no test is rewritten in the stage that deletes its code.
+  - `check-static.sh` rule 5 moves its remaining shell scan to the Node ecosystem check of stage 2 in the same pull request that deletes
+    `ecosystems.tsv`, so the rule never runs without its data.
+  - The equivalence rig is retired. The golden set that outlives it (`node:test`): a curated set of trace cases, the capture, intake and
+    history fixtures of stage 3, the golden tests of stages 2-5 (`risk_words_match`, `next` order, `approval_phrases`, `sb_scrub`,
+    `sb_strip`, `SB_KEYS`, freeze messages, `blocking_rule_version`), and the recorded 0.0.40 run carried to DONE.
 - **Depends on:** stage 9.
 - **Acceptance criteria:**
   - C2 (default engine), C3, C4, C5, C7, C8.
-  - The shell allowlist holds only launchers and the test files still waiting for stages 11-15.
+  - The shell allowlist holds only launchers (including the transitional `proofline-hook.sh`) and the test files still waiting for
+    stages 11-15.
+  - A session whose hook strings still run `proofline-hook.sh` (project and plugin forms of a release before stage 3) keeps its guards:
+    a PreToolUse deny case passes through the transitional launcher.
+  - The static job's ecosystem check still fails on a planted ecosystem `case` arm after the TSV is gone.
   - A run recorded on 0.0.40 at IMPLEMENTED continues to DONE on this version (golden case).
   - The 101-call scenario (9,384 processes / 189 s on 0.0.40, measured) re-measured with the PATH shim: target (estimate) at most 1,000
     processes and under 30 s; every command within its budget in `tests/bench/spawn-budgets.tsv`.
@@ -408,7 +497,7 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   one release each); version skew between a main-tree and a worktree copy (A169 re-exec) during upgrades.
 - **Rollback:** revert of the pull request, or the previous release (`proofline upgrade` from its checkout); runs continue because no format
   changed.
-- **Estimate:** 3-4 agent-days (estimate). Basis: mostly deletion; about 8 test files to rewrite; the golden corpus.
+- **Estimate:** 3-4 agent-days (estimate). Basis: mostly deletion; the golden replacements already exist from stages 2-5.
 
 ## Stage 11
 
@@ -416,8 +505,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
 - **Version:** 0.0.x
 - **Scope:**
   - `tests/lib/harness.mjs`: the Node form of `test-lib.sh` (291) with the same helpers (`A`, `AS`, `expect_msg`, `expect_fail`, `scaffold`,
-    `to_code_done`, `rec`, `gpass`, `gfail`, `worker`, `approve_as_user`, ...) and the same environment hardening. `test-lib.sh` stays,
-    frozen, because the shell invariant suite sources it (until stage 15).
+    `to_code_done`, `rec`, `gpass`, `gfail`, `worker`, `approve_as_user`, ...) and the same environment hardening. `test-lib.sh` stays
+    untouched, because the shell invariant suite sources it (until stage 15).
   - `tests/selftest.sh` (159), `selftest-weights.sh` (62), `affected.sh` (106) -> Node, with the same unit split (459 units), the
     weights file, `SELFTEST_SHARD=i/n` (16 shards in CI), the job count rules and `LC_ONLY`; the runner still runs the not-yet-ported shell
     suites as units.
@@ -472,8 +561,9 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - `tests/enforcement` (6 files, 2,465: enforcement, kill-guard, approval-load, merge-guard, platform, timeouts), `tests/cli` (1,041),
     `tests/tasks` (618), `tests/e2e` (519, including `run.sh`), `tests/real-session` (625: `smoke.sh`, `codex-sandbox.sh`).
   - `tests/invariants`: a Node copy of `invariants-test.sh` (211) and `check-changed.sh` (31) beside the shell files, under the
-    `Invariant-test-change:` rule (the pull request says why on that line; review approves it separately). The shell copy keeps running
-    unchanged until stage 15.
+    `Invariant-test-change:` rule (the pull request says why on that line; review approves it separately). The shell copy and
+    `test-lib.sh` keep running unchanged beside it until the Node copy has been green on `main` through at least one full release after
+    this one (recommended default, maintainer to confirm; ADR section 16).
 - **Depends on:** stage 11.
 - **Acceptance criteria:**
   - C2 (both invariant copies green), C3, C5, C7.
@@ -486,7 +576,7 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - Performance: CI wall time of the affected jobs before and after; the smoke's own duration recorded.
 - **Risks:** the invariant suite is the boundary of every patch; porting it is the riskiest test change (mitigated: both copies, mutants,
   separate approval).
-- **Rollback:** revert (test-only change); the shell invariant copy is untouched.
+- **Rollback:** revert (test-only change); the shell invariant copy and `test-lib.sh` are untouched.
 - **Estimate:** 4-6 agent-days (estimate). Basis: about 5,550 lines.
 
 ## Stage 14
@@ -518,7 +608,10 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - `tests/ci/no-shell-logic.mjs` switches from the ratchet to the strict rule of the ADR (launchers equal to their templates, hook strings
     equal to their templates, one-line CI steps, no awk anywhere, no `sh` or `awk` started from Node outside `runUserCommand`).
   - The shell invariant suite (`invariants-test.sh`, `check-changed.sh` and its test) and `test-lib.sh` are deleted, under the
-    `Invariant-test-change:` rule; the Node copy has run beside them since stage 13.
+    `Invariant-test-change:` rule, only if the Node copy has been green on `main` through at least one full release after the one that
+    added it (stage 13); otherwise this deletion waits for a later release and the rest of the stage ships.
+  - The transitional `proofline-hook.sh` launcher is deleted (sessions started before stage 3 are at least eleven releases old); the
+    fixture-file stub rule of stages 5-7 goes with `test-lib.sh`.
   - `shellcheck` leaves CI (only launchers remain; the strict check pins their text).
   - The `windows-latest` job runs the core's Node tests and the Node invariant suite. CONTRIBUTING (set-up, test commands, Core invariant
     command) and the README (requirements, Windows status as proven by the job) updated.

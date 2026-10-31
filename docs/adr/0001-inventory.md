@@ -116,7 +116,7 @@ written twice (awk `g2re` and `globToRegExp`).
 
 | file | lines | class | measured per event (processes / ms) | status | stage |
 |---|---|---|---|---|---|
-| `adapters/claude/hooks/proofline-hook.sh` | 2,609 | HOT (7 events, Claude and Codex) | PreToolUse Bash 39 (45 in one traced run) / 688; Read 15 / 505; Write 17 / 530; PostToolUse 13 / 172; prompt 17 / 220; **prompt that records an approval 544 / 3,370**; Stop 40 / 416; SessionStart 130 / 3,254; SubagentStart 67 / 852; SubagentStop 20 / 202 | ported (`proofline-hook.mjs`) | 3 |
+| `adapters/claude/hooks/proofline-hook.sh` | 2,609 | HOT (7 events, Claude and Codex) | PreToolUse Bash 39 (45 in one traced run) / 688; Read 15 / 505; Write 17 / 530; PostToolUse 13 / 172; prompt 17 / 220; **prompt that records an approval 544 / 3,370**; Stop 40 / 416; SessionStart 130 / 3,254; SubagentStart 67 / 852; SubagentStop 20 / 202 | ported (`proofline-hook.mjs`); a transitional launcher in stages 10-14 | 3, 15 |
 | `adapters/claude/hooks/hooks.json` (plugin) | 83 | HOT wiring | one extra `grep` per event (duplicate check against the project settings) | launcher (pinned command string) | 3 |
 | `adapters/claude/settings.fragment.json` (project) | 83 | HOT wiring | `sh -c` and `exec sh`; PreToolUse fails closed (exit 2) when the hook file is missing but `.agents/config.yaml` exists | launcher (pinned command string) | 3 |
 | `adapters/codex/hooks.json` | 83 | HOT wiring | one `git rev-parse` and one `sh` per event | launcher (pinned command string) | 3 |
@@ -167,14 +167,14 @@ script (`roles/verifier.md` and its two generated agent files) changes with stag
 | area | files / lines | notes | status | stage |
 |---|---|---|---|---|
 | `control-plane/agents/scripts/*-test.sh` | 21 suites / 10,041 | biggest: `gates-test` 3,016, `lifecycle-test` 1,545, `batch-test` 1,071, `risk-test` 976, `deliver-test` 673 | ported | 12 |
-| `control-plane/agents/scripts/test-lib.sh` | 291 | sourced by 27 files; writes sh stubs of `secret-scan.sh`, `exec-policy.sh` and `markdown.sh` into fixtures | ported; kept frozen for the sh invariant suite until stage 15 | 11, 15 |
+| `control-plane/agents/scripts/test-lib.sh` | 291 | sourced by 27 files; writes sh stubs of `secret-scan.sh`, `exec-policy.sh` and `markdown.sh` into fixtures | ported to a Node harness in 11; the sh file stays untouched (the sh invariant suite sources it) until stage 15 | 11, 15 |
 | `tests/enforcement` | 6 / 2,465 | drive the real hook and git hooks with hook JSON | ported | 13 |
 | `tests/cli` | 3 / 1,041 | source `bin/lib/*.sh` | ported | 13 |
 | `tests/real-session` | 2 / 625 | `smoke.sh` (501) drives a real session; never CI | ported | 13 |
-| `tests/tasks` | 2 / 618 | `status-block-test` evals `sb_scrub`, `sb_strip` and reads `SB_KEYS=` from `agent.sh` | ported | 10 (extraction), 13 |
+| `tests/tasks` | 2 / 618 | `status-block-test` evals `sb_scrub`, `sb_strip` and reads `SB_KEYS=` from `agent.sh` | ported; golden tests for `sb_scrub`, `sb_strip`, `SB_KEYS` in 4, extraction deleted with the code in 10 | 4, 10, 13 |
 | `tests/ci` | 11 / 595 | classify, bump-version, sync-design-library and their tests | ported | 11 |
-| `tests/e2e` | 7 / 519 | `reply-loop-test` extracts `approval_phrases()` from `agent.sh` | ported | 10 (extraction), 13 |
-| `tests/shared` | 4 / 445 | `check-shared.sh` compares the awk config readers of `bin/lib/config.sh` and `agent.sh` | ported | 11 |
+| `tests/e2e` | 7 / 519 | `reply-loop-test` extracts `approval_phrases()` from `agent.sh` | ported; golden test for `approval_phrases` in 3, extraction deleted with the code in 10 | 3, 10, 13 |
+| `tests/shared` | 4 / 445 | `check-shared.sh` compares the awk config readers of `bin/lib/config.sh` and `agent.sh`; `check-static.sh` rule 5 reads ecosystem ids from `ecosystems.tsv`, passes when it is missing and scans shell only | ported; a Node ecosystem-branching check over the `.mjs` core reading `ecosystems.json` in 2, rule 5 fails on a missing data file from 2 | 2, 9, 10, 11 |
 | `tests/generator` | 2 / 359 | | ported | 11 |
 | `tests/invariants` | 3 / 283 | one section per Core invariant against the real `agent.sh` | Node copy added in 13; sh copy runs unchanged until 15 | 13, 15 |
 | `tests/` top level | 3 / 327 | `selftest.sh` 159, `affected.sh` 106, `selftest-weights.sh` 62 (sum) | ported | 11 |
@@ -211,11 +211,12 @@ The files that remain after stage 15. Each starts Node and holds no logic; the C
 | file | form | why it must exist |
 |---|---|---|
 | `control-plane/agents/scripts/agent.sh` | `#!/bin/sh` + one `exec node .../proofline-core.mjs "$@"` line | 278 lines in skills and roles name it; models, git hooks and about 2,587 test calls run `sh .agents/scripts/agent.sh`; the hook's deny rules match it |
-| `control-plane/agents/scripts/dispatch.sh` | same form, core subcommand `dispatch` | 26 skill, role, doc and hook files tell the lead to run `sh .agents/scripts/dispatch.sh <ID> <role>` |
+| `control-plane/agents/scripts/dispatch.sh` | same form, core subcommand `dispatch` | 36 tracked files name `dispatch.sh` outside `tests/`, `fixtures/`, `*-test.sh`, the CHANGELOG, `docs/decisions.md` and `docs/adr/` (59 tracked files in all), among them the skills, roles, docs and the hook text that tell the lead to run `sh .agents/scripts/dispatch.sh <ID> <role>` |
+| `adapters/claude/hooks/proofline-hook.sh` (transitional) | same form, starting `proofline-hook.mjs`; stages 10-14, removed in 15 | a session started before stage 3 keeps hook strings that run this file; deleting it would block every tool call (project form) or fail open (plugin form) |
 | `control-plane/agents/githooks/pre-commit`, `pre-push` | same form | git runs an executable file with a shebang at a fixed path (`core.hooksPath`); git for Windows runs it with its bundled `sh` |
 | `bin/proofline` | `#!/usr/bin/env node` + one dynamic `import` | users type `proofline`; Node resolves the symlink that `install` creates |
 | `bin/proofline.cmd` (new) | one line, `@node "%~dp0proofline" %*` | Windows `cmd` and PowerShell do not read a shebang |
-| hook commands in `adapters/claude/hooks/hooks.json`, `adapters/claude/settings.fragment.json`, `adapters/codex/hooks.json` (7 events each) | one pinned command string per event that runs `node` | the runtimes take a shell command string; the project and Codex forms keep a pinned fail-closed guard (see the ADR) |
+| hook commands in `adapters/claude/hooks/hooks.json`, `adapters/claude/settings.fragment.json`, `adapters/codex/hooks.json` (7 events each) | one pinned command string per event that runs `node` | the runtimes take a shell command string; all three forms keep a pinned fail-closed guard for PreToolUse (see the ADR); from stage 1 the ratchet snapshot lets a string change only into one that meets its template |
 
 Shell that stays because it is the user's data, not proofline code: command strings in `config.yaml` (`commands.*`,
 `dispatch.command_template`, `commands.secret_scan`) and a task adapter that a user writes as `<name>.sh`.
