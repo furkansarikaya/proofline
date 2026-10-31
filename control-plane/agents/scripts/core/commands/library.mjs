@@ -2,20 +2,18 @@
 // Stage 2, shared-library package: status, open-runs, effective, fingerprint, patch-fingerprint, verify-seal, verify-gates, pipeline,
 // entry-tier. Each keeps its arguments, stdout, stderr, exit code and files exactly as in agent.sh 0.0.41. An argument shape whose shell
 // error text the core does not copy (`${2:?usage}`) throws BridgeToShell before any output; the entry then runs the shell code.
-import { readdirSync, statSync } from 'node:fs';
 import { bytes } from '../config.mjs';
 import { BridgeToShell, fail } from '../errors.mjs';
+import { inflightDispatch } from '../dispatch.mjs';
 import { contentFingerprint, gateFingerprint } from '../fingerprint.mjs';
-import { fixRoundsUsed, gateDeps, gateStatus, gateUnsupportedFocuses, gateFocusStatus, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported, taskPatchFingerprint, verifyLifecycleGates } from '../gates.mjs';
+import { fixRoundsUsed, gateDeps, gateStatus, gateUnsupportedFocuses, gateFocusStatus, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported, taskPatchFingerprint, unsupportedLabel, verifyLifecycleGates } from '../gates.mjs';
 import { verifySeal } from '../ledger.mjs';
-import { isFile } from '../paths.mjs';
-import { fileText, textLines } from '../records.mjs';
+import { fileText } from '../records.mjs';
 import { activeRun, effective, openRuns, requireRun, runDir } from '../runs.mjs';
 import {
   ECO_WARNING, ecosystemSets, entryTier, pipelineClass, pipelineClassValid, pipelineDeclared, pipelineNeeds, pipelineReview, pipelineValue, planFlag,
   riskFocusOnGate, riskGateFocuses, riskMissingFlags, riskSignals, riskUiExempt, runAutonomy, tierEffective, validationShow,
 } from '../signals.mjs';
-import { tmDispatchSeconds } from '../timeouts.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -93,34 +91,6 @@ function entryTierCommand(ctx, args) {
   ctx.out(`${entryTier(ctx, bytes(args[0])) || 'none'}\n`);
   return 0;
 }
-
-/** `inflight_pid_alive PID MARKER` @param {Context} ctx @param {string} pid @param {string} marker @param {string[]} lines */
-function inflightAlive(ctx, pid, marker, lines) {
-  if (!/^[0-9]+$/.test(pid) || pid === '0') return false;
-  try { process.kill(Number(pid), 0); } catch { return false; }
-  let t = tmDispatchSeconds(ctx.config(), '');
-  const m = (lines.find((l) => l.startsWith('timeout=')) ?? '').slice('timeout='.length);
-  if (/^[0-9]+$/.test(m) && Number(m) <= t) t = Number(m);
-  try { return Date.now() - statSync(marker).mtimeMs <= Math.floor((t + 119) / 60) * 60000; } catch { return false; }
-}
-
-/** `inflight_dispatch ID`: the role and pid of the first dispatch marker whose pid is alive, or null. @param {Context} ctx @param {string} dir */
-function inflightDispatch(ctx, dir) {
-  let names = [];
-  try { names = readdirSync(`${dir}/dispatch`).filter((n) => n.endsWith('.running')).sort(); } catch { return null; }
-  for (const n of names) {
-    const f = `${dir}/dispatch/${n}`;
-    if (!isFile(f)) continue;
-    const lines = textLines(fileText(ctx, f) ?? '');
-    const pid = (lines.find((l) => l.startsWith('pid=')) ?? '').slice(4);
-    const role = (lines.find((l) => l.startsWith('role=')) ?? '').slice(5);
-    if (inflightAlive(ctx, pid, f, lines)) return { role: role === '' ? 'specialist' : role, pid };
-  }
-  return null;
-}
-
-/** @param {string} v */
-function unsupportedLabel(v) { return v === 'info' ? 'UNSUPPORTED (unproven, reported)' : 'UNSUPPORTED (blocking: a waiver or a measurement is needed)'; }
 
 /** `risk_show ID`: the signal lines of `pipeline` (A78). @param {Context} ctx @param {string} dir @param {string[]} req */
 function riskShow(ctx, dir, req) {
