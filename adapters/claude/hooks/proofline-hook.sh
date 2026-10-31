@@ -1544,7 +1544,7 @@ merge_guard() {
     # and backslashes already removed, so g''it, "g""it" and g\it are git) except a short list of words that cannot merge or push by themselves.
     # No raw-text pre-filter: a split word must not skip the list.
     case "$mg_cw" in
-      ls|pwd|cd|pushd|popd|echo|printf|cat|true|false|test|'['|node|nodejs|npm|npx|pnpm|yarn|mkdir|touch|date|sleep|wc|head|tail|grep|egrep|fgrep|rg|sed|awk|tr|cut|sort|uniq|jq|diff|which|type|agent.sh|proofline|'<') ;;
+      ls|pwd|cd|pushd|popd|echo|printf|cat|true|false|test|'['|node|nodejs|mkdir|touch|date|sleep|wc|head|tail|grep|egrep|fgrep|rg|sed|awk|tr|cut|sort|uniq|jq|diff|which|type|agent.sh|proofline|'<') ;;
       *) mg_load ;;
     esac
     case "$mg_cw" in
