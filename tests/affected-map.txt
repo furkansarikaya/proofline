@@ -34,3 +34,5 @@ bin/lib/context-size.sh context-budget-test cli-test
 control-plane/agents/scripts/rules.sh rules-test
 tests/enforcement/approval-load-test.sh approval-load-test
 tests/bench/big-run.sh approval-load-test
+
+tests/equivalence/* rig.test.mjs cases.test.mjs cases-slow.test.mjs trace.test.mjs glob-differential.test.mjs node-absent.test.mjs lock-interop.test.mjs seam-safety.test.mjs role-table.test.mjs lifecycle.test.mjs downgrade.test.mjs

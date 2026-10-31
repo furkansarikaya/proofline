@@ -62,7 +62,16 @@ export function scaffoldFixture(topology = 'orchestrated', cls = 'COMPLEX', extr
   const out = mkdtempSync(join(tmpdir(), 'eq-scaffold.')); const builtAt = Math.floor(Date.now() / 1000);
   const r = run('sh', ['-c', `. "$EQ_LIB"; ${extra}scaffold ${topology} no ${cls} autonomous && cp -R "$PWD/." "$EQ_OUT/"`, join(scriptsSrc, 'x.sh')], { env: { ...baseEnv(out), EQ_OUT: out, EQ_LIB: join(scriptsSrc, 'test-lib.sh') } });
   if (r.code !== 0) throw new Error(`scaffold failed (${r.code}): ${r.stderr}${r.stdout}`);
+  // test-lib fixtures hold only agent.sh: without the core beside it agent.sh runs the shell, so the Node engine would not be under test
+  addCore(out);
   const f = { dir: out, builtAt }; scaffolds.set(key, f); return f;
+}
+
+/** Put proofline-core.mjs and core/ next to the fixture's agent.sh (what the installer ships). A no-op while the core is absent. */
+export function addCore(/** @type {string} */ dir) {
+  if (coreAbsent()) return;
+  cpSync(corePath, join(dir, '.agents/scripts/proofline-core.mjs'));
+  cpSync(join(scriptsSrc, 'core'), join(dir, '.agents/scripts/core'), { recursive: true });
 }
 
 export function copyTree(/** @type {string} */ src, /** @type {string} */ dst) {

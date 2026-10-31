@@ -49,10 +49,18 @@ function lifecycle(/** @type {boolean} */ alternate) {
 }
 
 test(`one run lifecycle with alternating engines equals the same lifecycle on the old engine${coreAbsent() ? ' (the new engine is the shell until proofline-core.mjs exists)' : ''}`, { timeout: 1800000 }, () => {
-  const old = lifecycle(false); const alt = lifecycle(true);
-  assert.ok(old.calls > 40, `a lifecycle makes many calls (${old.calls})`); assert.equal(old.calls, alt.calls);
-  assert.ok([...old.side.files.keys()].some((p) => p.endsWith('/LEDGER.log')) && [...old.side.files.keys()].some((p) => p.endsWith('COMPLETION_REPORT.md')));
-  // the full lifecycle writes time fields the closed list does not name yet (PENDING_APPROVAL in normalise.mjs): masked here, flagged for the maintainer
-  const d = compareSides(old.side, alt.side, ['old only', 'alternating'], { pendingApproval: true });
+  // The shell reads `date` twice per ledger line (ts= and epoch=), so a line written across a second boundary names two seconds. That is a flake of
+  // the old engine, not a rig finding, and the check is not loosened: a scenario is run once more when the ONLY violations are ts/epoch seconds
+  // mismatches. Any other difference fails at once; a second mismatch fails too.
+  const flakeOnly = (/** @type {import('./rig.mjs').Diff[]} */ d) => d.length > 0 && d.every((x) => x.kind === 'check' && /ts=.* and epoch=\d+ name different seconds/.test(x.detail));
+  let d = []; let old; let alt;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    old = lifecycle(false); alt = lifecycle(true);
+    assert.ok(old.calls > 40, `a lifecycle makes many calls (${old.calls})`); assert.equal(old.calls, alt.calls);
+    assert.ok([...old.side.files.keys()].some((p) => p.endsWith('/LEDGER.log')) && [...old.side.files.keys()].some((p) => p.endsWith('COMPLETION_REPORT.md')));
+    // the full lifecycle writes time fields the closed list does not name yet (PENDING_APPROVAL in normalise.mjs): masked here, flagged for the maintainer
+    d = compareSides(old.side, alt.side, ['old only', 'alternating'], { pendingApproval: true });
+    if (!flakeOnly(d)) break;
+  }
   assert.equal(d.length, 0, formatDiffs(d));
 });
