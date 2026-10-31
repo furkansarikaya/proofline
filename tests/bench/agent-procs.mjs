@@ -55,6 +55,11 @@ export function buildFixture(/** @type {string} */ name) {
   const out = mkdtempSync(join(tmpdir(), `bench-${name}.`));
   const r = sh(`. "$EQ_LIB"; PROOFLINE_ENGINE=sh; export PROOFLINE_ENGINE; ${FIXTURES[name]}\ncp -R "$PWD/." "$EQ_OUT/"`, { EQ_OUT: out });
   if (r.status !== 0) throw new Error(`fixture ${name} failed: ${r.stderr}${r.stdout}`);
+  // an installed-like tree: the core beside agent.sh (test-lib fixtures hold only agent.sh, and without the core agent.sh runs the shell)
+  if (existsSync(join(scripts, 'proofline-core.mjs'))) {
+    cpSync(join(scripts, 'proofline-core.mjs'), join(out, '.agents/scripts/proofline-core.mjs'));
+    cpSync(join(scripts, 'core'), join(out, '.agents/scripts/core'), { recursive: true });
+  }
   return out;
 }
 
