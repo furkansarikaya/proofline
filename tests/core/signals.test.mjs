@@ -89,3 +89,29 @@ describe('tiers', () => {
     assert.equal(tierMax('docs', 'small'), 'small'); assert.equal(tierMax('full', 'small'), 'full'); assert.equal(tierMax('small', 'small'), 'small');
   });
 });
+
+describe('ERE safety (S2-4)', () => {
+  test('nested quantifiers and quantified alternations go to the platform tools, in no time', () => {
+    for (const p of ['(a+)+$', '(a|a)*b', '(a*)*', '(x+x+)+y', '(a|b)+c']) {
+      const t0 = Date.now();
+      assert.equal(ereToRegExp(p), null, p);
+      assert.ok(Date.now() - t0 < 100);
+    }
+    assert.ok(ereToRegExp('(a)?b') !== null);
+    assert.ok(ereToRegExp('(^|[^A-Za-z0-9])(log|Log)(\\.|\\()') !== null);
+  });
+  test('the pattern of the report is answered by grep, not by a backtracking engine', () => {
+    const ctx = fx.ctx();
+    const t0 = Date.now();
+    assert.equal(riskWordsMatch(ctx, '(a+)+$', 'x', ['a'.repeat(32) + 'b']), false);
+    assert.ok(Date.now() - t0 < 5000);
+  });
+  test('a dot matches a carriage return, like grep and awk', () => {
+    for (const [p, t] of [['a.b', 'a\rb'], ['^x.*$', 'xy\r'], ['x.$', 'x\r'], ['a.b', 'a\tb']]) {
+      const re = ereToRegExp(p);
+      assert.ok(re);
+      const g = spawnSync('grep', ['-Eq', '--', p], { input: `${t}\n`, encoding: 'latin1' }).status === 0;
+      assert.equal(re.test(t), g, `${p} on ${JSON.stringify(t)}`);
+    }
+  });
+});

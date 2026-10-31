@@ -1,7 +1,7 @@
 // @ts-check
 // fingerprint.mjs against the shell: the content fingerprint (gate, full, legacy), path fingerprints and the cache key, on fixture trees.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { describe, test, after } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -91,3 +91,57 @@ describe('baseline map', () => {
     assert.equal(baselineMap(ctx, dir).size, 2);
   });
 });
+
+describe('the cache is never written through a link or with a control character (S2-3)', () => {
+  const big = 'big;echo PWNED>&2;#.txt';
+  test('node: a link at fp-cache or at .agents/local is no cache; the victim stays untouched', () => {
+    const f = makeFixture();
+    try {
+      put2(f.root, big, 'x'.repeat(300000));
+      const victim = path.join(f.root, 'victim');
+      writeFileSync(victim, 'keep\n');
+      mkdirSync(path.join(f.root, '.agents/local'), { recursive: true });
+      symlinkSync(victim, path.join(f.root, '.agents/local/fp-cache'));
+      const ctx = f.ctx(); ctx.fpMode = 'refresh';
+      assert.match(pathFingerprint(ctx, big), /^[0-9a-f]{64}$/);
+      assert.equal(readFileSync(victim, 'utf8'), 'keep\n');
+      rmSync(path.join(f.root, '.agents/local/fp-cache'));
+      const other = path.join(f.root, 'elsewhere'); mkdirSync(other);
+      rmSync(path.join(f.root, '.agents/local'), { recursive: true }); symlinkSync(other, path.join(f.root, '.agents/local'));
+      const ctx2 = f.ctx(); ctx2.fpMode = 'refresh'; pathFingerprint(ctx2, big);
+      assert.deepEqual(readdirSync(other), []);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+  test('node: a regular cache works; a key with a control character is not written', () => {
+    const f = makeFixture();
+    try {
+      put2(f.root, big, 'x'.repeat(300000)); put2(f.root, 'tab\there.txt', 'y'.repeat(300000));
+      const ctx = f.ctx(); ctx.fpMode = 'refresh';
+      pathFingerprint(ctx, big); pathFingerprint(ctx, 'tab\there.txt');
+      const text = readFileSync(path.join(f.root, '.agents/local/fp-cache'), 'latin1');
+      assert.equal(text.split('\n').filter(Boolean).length, 1);
+      assert.ok(text.startsWith(`${big}|300000|`));
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+  test('shell: the same two cases', () => {
+    const f = makeFixture();
+    try {
+      put2(f.root, big, 'x'.repeat(300000));
+      const victim = path.join(f.root, 'victim'); writeFileSync(victim, 'keep\n');
+      mkdirSync(path.join(f.root, '.agents/local'), { recursive: true });
+      symlinkSync(victim, path.join(f.root, '.agents/local/fp-cache'));
+      const fns = extractFunctions(['fp_cache_file', 'fp_cache_usable', 'fp_cache_put']);
+      const run = () => spawnSync('sh', ['-c', `sr_main="${f.root}"\n${fns}\nfp_cache_put "$1" "$2"`, 'x', `${big}|1|2|3|4`, 'a'.repeat(64)], { encoding: 'utf8' });
+      run();
+      assert.equal(readFileSync(victim, 'utf8'), 'keep\n');
+      rmSync(path.join(f.root, '.agents/local/fp-cache'));
+      run();
+      assert.ok(readFileSync(path.join(f.root, '.agents/local/fp-cache'), 'latin1').startsWith(`${big}|1|2|3|4\t`));
+      spawnSync('sh', ['-c', `sr_main="${f.root}"\n${fns}\nfp_cache_put "$1" "$2"`, 'x', 'bad\tkey', 'b'.repeat(64)]);
+      assert.ok(!readFileSync(path.join(f.root, '.agents/local/fp-cache'), 'latin1').includes('bad'));
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+});
+
+/** @param {string} root @param {string} rel @param {string} text */
+function put2(root, rel, text) { writeFileSync(path.join(root, rel), text); }

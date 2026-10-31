@@ -4,7 +4,7 @@
 // working tree in a private index exactly as `content_fingerprint` does, with batched git calls. The cache has the same file, key and
 // line format as the shell, so the shell and Node hit the same entries.
 import { createHash } from 'node:crypto';
-import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, appendFileSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { fail } from './errors.mjs';
 import { git, gitPaths } from './git.mjs';
@@ -51,8 +51,22 @@ export function cacheKey(ctx, target, rel) {
   return `${rel}|${st.size}|${secNs(st.mtimeNs)}|${st.ino}|${secNs(st.ctimeNs)}`;
 }
 
+/**
+ * The cache file is usable only when neither .agents nor .agents/local is a link and the file itself is a regular file or absent: a
+ * repository can commit a link there, and the cache must never be written (or read) through it. An unusable cache is no cache.
+ * @param {Context} ctx
+ */
+function cacheUsable(ctx) {
+  const main = ctx.sharedMain();
+  for (const p of [`${main}/.agents`, `${main}/.agents/local`]) {
+    try { if (lstatSync(p).isSymbolicLink()) return false; } catch { /* absent: made on a write */ }
+  }
+  try { return lstatSync(cacheFile(ctx)).isFile(); } catch (e) { return /** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT'; }
+}
+
 /** `fp_cache_get KEY`: the last entry of that key, when it is a 64 hex digest. @param {Context} ctx @param {string} key */
 export function cacheGet(ctx, key) {
+  if (!cacheUsable(ctx)) return '';
   const lines = fileLines(ctx, cacheFile(ctx));
   let h = '';
   for (const l of lines) {
@@ -63,22 +77,28 @@ export function cacheGet(ctx, key) {
   return /^[0-9a-f]{64}$/.test(h) ? h : '';
 }
 
-/** `fp_cache_put KEY HASH`: append, and cut the file to its last 1000 lines when it passed 4000. @param {Context} ctx @param {string} key @param {string} hash */
+/**
+ * `fp_cache_put KEY HASH`: append, and cut the file to its last 1000 lines when it passed 4000. Never through a link, never a key with a
+ * control character (a file name is data: it is written between a bar and a tab and read back by line, nothing evaluates it).
+ * @param {Context} ctx @param {string} key @param {string} hash
+ */
 export function cachePut(ctx, key, hash) {
+  if (/[\x00-\x1f\x7f]/.test(key) || !/^[0-9a-f]{64}$/.test(hash) || !cacheUsable(ctx)) return;
   const file = cacheFile(ctx);
-  try { mkdirSync(path.dirname(file), { recursive: true }); } catch { return; }
   try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    if (!cacheUsable(ctx)) return;
     if (isFile(file)) {
-      const text = readFileSync(file, 'latin1');
-      const lines = text.split('\n');
-      const count = lines.length - 1;
-      if (count > 4000) {
+      const lines = readFileSync(file, 'latin1').split('\n');
+      if (lines.length - 1 > 4000) {
         const keep = lines.slice(0, -1).slice(-1000).join('\n') + '\n';
-        writeFileSync(`${file}.t`, Buffer.from(keep, 'latin1'));
+        rmSync(`${file}.t`, { force: true });
+        writeFileSync(`${file}.t`, Buffer.from(keep, 'latin1'), { flag: 'wx' });
         renameSync(`${file}.t`, file);
       }
     }
-    appendFileSync(file, Buffer.from(`${key}\t${hash}\n`, 'latin1'));
+    const fd = openSync(file, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o666);
+    try { writeSync(fd, Buffer.from(`${key}\t${hash}\n`, 'latin1')); } finally { closeSync(fd); }
   } catch { /* a speed-up only */ }
   ctx.forget(`file:${file}`); ctx.forget(`file:lines:${file}`);
 }

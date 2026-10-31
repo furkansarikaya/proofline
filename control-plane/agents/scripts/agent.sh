@@ -667,8 +667,11 @@ fp_cache_key() {
   [ "${fk_m%%|*}" -ge "$fk_min" ] 2>/dev/null || return 1
   printf '%s|%s\n' "$2" "$fk_m"
 }
-fp_cache_get() { [ -f "$(fp_cache_file)" ] || return 1; awk -F'\t' -v k="$1" '$1 == k { h = $2 } END { if (h ~ /^[0-9a-f]{64}$/) print h; else exit 1 }' "$(fp_cache_file)"; }
+fp_cache_usable() { [ ! -L "$sr_main/.agents" ] && [ ! -L "$sr_main/.agents/local" ] && [ ! -L "$(fp_cache_file)" ]; }   # a link there (a repository can commit one) is no cache: never read or written through
+fp_cache_get() { fp_cache_usable && [ -f "$(fp_cache_file)" ] || return 1; awk -F'\t' -v k="$1" '$1 == k { h = $2 } END { if (h ~ /^[0-9a-f]{64}$/) print h; else exit 1 }' "$(fp_cache_file)"; }
 fp_cache_put() {
+  fp_cache_usable || return 0
+  case "$1" in *[[:cntrl:]]*) return 0 ;; esac   # a file name with a control character is never written
   mkdir -p "$sr_main/.agents/local" 2>/dev/null || return 0
   if [ -f "$(fp_cache_file)" ] && [ "$(wc -l < "$(fp_cache_file)")" -gt 4000 ]; then tail -n 1000 "$(fp_cache_file)" > "$(fp_cache_file).t" 2>/dev/null && mv "$(fp_cache_file).t" "$(fp_cache_file)" 2>/dev/null || :; fi
   printf '%s\t%s\n' "$1" "$2" >> "$(fp_cache_file)" 2>/dev/null || :
