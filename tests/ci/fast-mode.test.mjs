@@ -179,6 +179,12 @@ describe('ci.yml wiring', () => {
     assert.match(co, /^\/\.github\/ @furkansarikaya$/m);
     assert.match(co, /^\/tests\/ci\/ @furkansarikaya$/m);
   });
+  test('node --test gets globs, never a bare directory, in the jobs of this stage; the equivalence job has full history', () => {
+    assert.match(job('equivalence'), /run: node --test "tests\/equivalence\/\*\.test\.mjs"/);
+    assert.match(job('equivalence'), /actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
+    assert.match(job('node-tests'), /node --test "tests\/ci\/\*\.test\.mjs" "tests\/enforcement\/\*\.test\.mjs" "tests\/core\/\*\.test\.mjs"/);
+    for (const n of ['equivalence', 'node-tests', 'types']) assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(job(n)), n);
+  });
   test('the equivalence job also runs the Core invariants with the engine switched to sh', () => {
     const j = job('equivalence');
     assert.match(j, /PROOFLINE_ENGINE: sh\n\s+run: sh tests\/invariants\/invariants-test\.sh/);

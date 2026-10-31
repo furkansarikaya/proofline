@@ -262,12 +262,16 @@ jobs:
     env:
       EQUIVALENCE_FULL: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
     steps:
+      # full history: the downgrade test unpacks the previous release (git archive <commit>) from this clone
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
+      # a glob, not a directory: this Node does not expand a directory argument of --test to the test files
       - name: equivalence rig
-        run: node --test tests/equivalence/
+        run: node --test "tests/equivalence/*.test.mjs"
       # C2/C6: the Core invariants also pass with the engine forced to the shell code; the `invariants` job runs the default engine. Not in a
       # fast-mode-skippable job.
       - name: Core invariants with the engine switched to sh
@@ -288,7 +292,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: ratchet, fast mode and enforcement guard tests
-        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs"
+        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs"
 
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
   # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.
