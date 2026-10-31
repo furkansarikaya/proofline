@@ -90,14 +90,6 @@ function verifyFreeze(ctx, id, quiet = false) {
 
 // ---- the scope scans -------------------------------------------------------------------------------------------------------------
 
-/** `fingerprint_path` whose failure is printed and ends the listing (a pipeline subshell). @param {Context} ctx @param {string} p @returns {string | null} */
-function fpOrStop(ctx, p) {
-  try { return pathFingerprint(ctx, p); } catch (e) {
-    if (e instanceof Error && e.name === 'ProoflineError') { ctx.err(`${e.message}\n`); return null; }
-    throw e;
-  }
-}
-
 /** The scope mappings of the run, or the failure `invalid scope mapping`. @param {Context} ctx @param {string} dir */
 function mappingsOrFail(ctx, dir) {
   const sc = planScope(ctx, dir);
@@ -132,8 +124,8 @@ function verifyScope(ctx, id, allowArg) {
       if (taskSourceBookkeepingOnly(ctx, id, changed)) continue;
       if (allow && inKnowledgeScope(ctx, changed) && !authorizedPath(maps, changed)) continue;
       const prior = baselineFingerprint(ctx, type, changed, dir);
-      const current = fpOrStop(ctx, changed);
-      if (current === null) break;
+      // a path that cannot be baselined (a symlink, a nested git directory, a submodule) fails the whole command, as the shell's pipeline does under set -e
+      const current = pathFingerprint(ctx, changed);
       if (prior !== '' && prior === current) continue;
       if (authorizedPath(maps, changed)) continue;
       if (changed.startsWith('.agents/')) { cp.push(changed); continue; }
@@ -164,8 +156,8 @@ function knowledgeOwnedPaths(ctx, id) {
       if (!inKnowledgeScope(ctx, changed)) continue;
       if (authorizedPath(maps, changed)) continue;
       const prior = baselineFingerprint(ctx, type, changed, dir);
-      const current = fpOrStop(ctx, changed);
-      if (current === null) break;
+      // a path that cannot be baselined (a symlink, a nested git directory, a submodule) fails the whole command, as the shell's pipeline does under set -e
+      const current = pathFingerprint(ctx, changed);
       if (prior !== '' && prior === current) continue;
       out.push(changed);
     }
@@ -203,6 +195,12 @@ function freshness(ctx, id) {
   verifyFreeze(ctx, id);
   const base = sectionValue(ctx, dir, 'repository', 'base_sha');
   const head = headOrBridge(ctx);
+  // every condition that leaves the command to the shell is decided here, before RUN.yaml or the ledger is written: the shell then runs it whole
+  if (fileText(ctx, `${dir}/RUN.yaml`) === null) throw new BridgeToShell('RUN.yaml is not readable');
+  if (sectionValue(ctx, dir, 'task_source', 'type') === 'local_markdown') {
+    const tp = `${ctx.root}/${sectionValue(ctx, dir, 'task_source', 'path')}`;
+    if (isFile(tp) && fileText(ctx, tp) === null) throw new BridgeToShell('task source is not readable');
+  }
   if (base !== head && !(ctx.ctpBase === base && isAncestor(ctx, base, 'HEAD'))) {
     if (baseMovedControlOnly(ctx, dir, base, false)) {
       const line = `base_sha moved (${base} -> ${head}): the commits between touch control-plane files only; the plan stays fresh`;

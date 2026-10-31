@@ -4,6 +4,7 @@
 // (`${2:?usage}`) throws BridgeToShell before any output; the entry then runs the shell code.
 import { bytes } from '../config.mjs';
 import { BridgeToShell } from '../errors.mjs';
+import { isDir, isFile } from '../paths.mjs';
 import { digestRun, nextCommand, planSection, reportExecution, reportFacts, reportTokens, summaryRun } from '../reports.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -19,7 +20,18 @@ function needId(args) {
 const FAST = 'yes';
 
 /** @param {Context} ctx @param {string[]} args */
-function next(ctx, args) { ctx.fpMode = FAST; nextCommand(ctx, bytes(args[0] ?? '')); return 0; }
+function next(ctx, args) {
+  ctx.fpMode = FAST;
+  const id = bytes(args[0] ?? '');
+  if (noRunYaml(ctx, id)) return 2;
+  nextCommand(ctx, id);
+  return 0;
+}
+
+/** A run folder without RUN.yaml: the shell's awk reads it, fails silently and `set -e` ends `next` and `digest` with status 2, no output. @param {Context} ctx @param {string} id */
+function noRunYaml(ctx, id) {
+  return /^[A-Za-z0-9_-]+$/.test(id) && isDir(`${ctx.root}/.agents/runs/${id}`) && !isFile(`${ctx.root}/.agents/runs/${id}/RUN.yaml`);
+}
 
 /** @param {Context} ctx @param {string[]} args */
 function summary(ctx, args) { ctx.fpMode = FAST; summaryRun(ctx, bytes(args[0] ?? ''), bytes(args[1] ?? '')); return 0; }
@@ -35,7 +47,13 @@ function planSectionCommand(ctx, args) {
 }
 
 /** @param {Context} ctx @param {string[]} args */
-function digest(ctx, args) { ctx.fpMode = FAST; digestRun(ctx, needId(args)); return 0; }
+function digest(ctx, args) {
+  ctx.fpMode = FAST;
+  const id = needId(args);
+  if (noRunYaml(ctx, id)) return 2;
+  digestRun(ctx, id);
+  return 0;
+}
 
 /** @param {Context} ctx @param {string[]} args */
 function reportFactsCommand(ctx, args) { ctx.fpMode = 'refresh'; reportFacts(ctx, needId(args)); return 0; }

@@ -9,11 +9,30 @@ import * as proc from './proc.mjs';
 const isFileF = (/** @type {string} */ f) => { try { return statSync(f).isFile(); } catch { return false; } };
 const isDirF = (/** @type {string} */ f) => { try { return statSync(f).isDirectory(); } catch { return false; } };
 
-/** `"$dir"/*.md` that are files, in glob order. @param {string} dir */
-function mdFiles(dir) {
-  let names = [];
-  try { names = readdirSync(dir, { encoding: 'latin1' }); } catch { return []; }
-  return names.filter((n) => n.endsWith('.md') && !n.startsWith('.') && isFileF(`${dir}/${n}`)).sort();
+/** The locale the shell's glob sorted by: LC_ALL, else LC_COLLATE, else LANG. C, POSIX and C.UTF-8 sort by byte. @param {Context} ctx */
+function byteOrder(ctx) {
+  const l = [ctx.env.LC_ALL, ctx.env.LC_COLLATE, ctx.env.LANG].find((x) => x !== undefined && x !== '') ?? '';
+  return l === '' || l === 'C' || l === 'POSIX' || /^C\.(UTF-?8|utf-?8)$/.test(l);
+}
+
+/**
+ * The names a shell glob `"$dir"/PATTERN` lists, in the order the shell sorts them: by byte in the C locale, else the shell itself expands
+ * the glob under the user's locale (the same collation as the front end used).
+ * @param {Context} ctx @param {string} dir @param {string} pattern `*.md` or `*` @returns {string[]}
+ */
+function globNames(ctx, dir, pattern) {
+  if (byteOrder(ctx)) {
+    let names = [];
+    try { names = readdirSync(dir, { encoding: 'latin1' }); } catch { return []; }
+    return names.filter((n) => !n.startsWith('.') && (pattern === '*' || n.endsWith('.md'))).sort();
+  }
+  const r = proc.run('sh', ['-c', `for f in "$1"/${pattern}; do [ -e "$f" ] || [ -L "$f" ] || continue; printf '%s\\0' "\${f##*/}"; done`, 'x', dir], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
+  return r.stdout.toString('latin1').split('\0').filter((x) => x !== '');
+}
+
+/** `"$dir"/*.md` that are files, in glob order. @param {Context} ctx @param {string} dir */
+function mdFiles(ctx, dir) {
+  return globNames(ctx, dir, '*.md').filter((n) => isFileF(`${dir}/${n}`));
 }
 
 /** The first 12 lines of a file (`head -n 12`), as `$(...)` returns them. @param {string} f */
@@ -37,11 +56,11 @@ export function queue(ctx) {
   const td = `${ctx.root}/${tdName}`;
   ctx.out(`tasks (${tdName}):\n`);
   let found = false;
-  for (const d of ['todo', 'backlog']) for (const n of mdFiles(`${td}/${d}`)) { ctx.out(`  ${d}/${n}\n`); found = true; }
-  for (const n of mdFiles(td)) { ctx.out(`  ${n}\n`); found = true; }
+  for (const d of ['todo', 'backlog']) for (const n of mdFiles(ctx, `${td}/${d}`)) { ctx.out(`  ${d}/${n}\n`); found = true; }
+  for (const n of mdFiles(ctx, td)) { ctx.out(`  ${n}\n`); found = true; }
   if (!found) ctx.out('  (none)\n');
   let dn = 0;
-  for (const n of mdFiles(`${td}/done`)) {
+  for (const n of mdFiles(ctx, `${td}/done`)) {
     dn++;
     if (dn > 20) continue;
     if (dn === 1) ctx.out('done (title and status only):\n');
@@ -57,7 +76,7 @@ export function queue(ctx) {
   ctx.out('runs (.agents/runs):\n');
   found = false;
   /** @type {Array<{ rid: string, wt: boolean }>} */ const runs = [];
-  const sub = (/** @type {string} */ d) => { try { return readdirSync(d, { encoding: 'latin1' }).filter((n) => !n.startsWith('.') && isDirF(`${d}/${n}`)).sort(); } catch { return []; } };
+  const sub = (/** @type {string} */ d) => globNames(ctx, d, '*').filter((n) => isDirF(`${d}/${n}`));
   for (const n of sub(`${ctx.root}/.agents/runs`)) runs.push({ rid: n, wt: false });
   for (const w of sub(`${ctx.root}/.agents/local/worktrees`)) for (const n of sub(`${ctx.root}/.agents/local/worktrees/${w}/.agents/runs`)) runs.push({ rid: n, wt: true });
   for (const { rid, wt } of runs) {

@@ -5,6 +5,7 @@
 // Four branches stay with the shell until the stages that move their writers (BridgeToShell before any output): a pending approval that
 // has to read the user's newest prompt (approval_wait_o), a delivery whose pull request is open (ci_progress), a task of an approved batch
 // (batch_member), a listed known issue (ki_gate_facts) and the design-sync drift of the knowledge step (knowledge_drift).
+import { asciiLower } from './shellglob.mjs';
 import { lstatSync, statSync } from 'node:fs';
 import { BridgeToShell } from './errors.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
@@ -90,7 +91,7 @@ function blockingRows(ctx, rec) {
 }
 
 /** `visual_row_text` @param {string} t */
-const visualRowText = (t) => t.toLowerCase().includes('reviews/visual-proof/');
+const visualRowText = (t) => asciiLower(t).includes('reviews/visual-proof/');
 
 /** `finding_plan_rows ID GATE_FILE` @param {Context} ctx @param {string} id @param {string} rec */
 function findingPlanRows(ctx, id, rec) {
@@ -442,7 +443,7 @@ function failing(ctx, id, d, fail, emit, o, r) {
       cov += countRows(ctx, lf, /^finding: [^|]*\|blocking\|.*(maps to no scope path|requires tdd_exemption)/);
       vp += findingVisualRows(ctx, lf);
       ac += countRows(ctx, lf, /^finding: [^|]*\|blocking\|[^|]*\|(AC proof cites|re-running `|the recorded output line)/);
-      if (gateField(ctx, lf, 'result').toLowerCase() === 'fail' && !(a > 0)) oth++;
+      if (asciiLower(gateField(ctx, lf, 'result')) === 'fail' && !(a > 0)) oth++;
       for (const l of fileLines(ctx, lf)) {
         const m = /^finding: ([^|]*)\|blocking\|[^|]*\|UNSUPPORTED /.exec(l);
         if (m && !findingWaived(ctx, d, lf, m[1])) o(`agent.sh request-approval ${id} waive:${m[1]} (blocking UNSUPPORTED ${fc}: an INCONCLUSIVE measurement or risk.unsupported: block, never a PASS; the user decides whether to accept the gap, listed in the completion report)`);
