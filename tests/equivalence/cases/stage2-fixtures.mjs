@@ -2,10 +2,10 @@
 // Fixture states of the Stage 2 scenario cases (issue #167): every gate state of the gates-test fixtures, the risk-test fixtures and the scaling
 // fixture (0/20/60 changed files). Each state is a shell snippet run after test-lib.sh `scaffold`; a state is built once per process, on first
 // use (building one takes seconds, and a pull request replays only the touched commands), and copied into every case that names it.
-import { mkdtempSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addCore, baseEnv, installedFixture, run, scriptsSrc } from '../fixture.mjs';
+import { addCore, agentsSrc, baseEnv, installedFixture, run, scriptsSrc } from '../fixture.mjs';
 
 /** @typedef {import('../fixture.mjs').Fixture} Fixture */
 
@@ -75,15 +75,52 @@ export const RUN_STATES = Object.keys(STATES);
 export const SCALE_STATES = ['scale-0', 'scale-20', 'scale-60'];
 
 /** @type {Map<string, Fixture>} */ const built = new Map();
-/** @returns {Fixture} the state's fixture (built on first use). */
-export function stateFixture(/** @type {string} */ name) {
-  if (name === 'empty') return installedFixture();
-  const hit = built.get(name); if (hit) return hit;
-  const script = STATES[name]; if (!script) throw new Error(`unknown fixture state ${name}`);
+
+/** True when a ledger line of the tree has ts= and epoch= naming different seconds: the 0.0.40 shell read `date` twice across a second boundary (see isShellFlake in rig.mjs). */
+function ledgerStraddles(/** @type {string} */ dir) {
+  const runs = join(dir, '.agents/runs');
+  if (!existsSync(runs)) return false;
+  for (const r of readdirSync(runs)) {
+    const f = join(runs, r, 'LEDGER.log');
+    if (!existsSync(f)) continue;
+    for (const m of readFileSync(f, 'latin1').matchAll(/ ts=(\S+) epoch=(\d+)/g)) if (Date.parse(m[1]) / 1000 !== Number(m[2])) return true;
+  }
+  return false;
+}
+
+/** What an installed project has beside agent.sh (what `proofline init` copies): every non-test script, the data files; test-lib fixtures hold only a few of them. */
+function installLikeProject(/** @type {string} */ out) {
+  const a = join(out, '.agents');
+  for (const f of readdirSync(scriptsSrc)) {
+    if (f.endsWith('-test.sh') || f === 'test-lib.sh' || f === 'core' || f === 'proofline-core.mjs') continue;
+    if (!existsSync(join(a, 'scripts', f))) cpSync(join(scriptsSrc, f), join(a, 'scripts', f), { recursive: true });
+  }
+  for (const f of ['ecosystems.json', 'ecosystems.mjs', 'ecosystems.tsv', 'owns.conf', 'roles.conf', 'tools.conf']) if (existsSync(join(agentsSrc, f)) && !existsSync(join(a, f))) copyFileSync(join(agentsSrc, f), join(a, f));
+  for (const d of ['modes', 'templates', 'task-integrations', 'githooks']) if (!existsSync(join(a, d))) cpSync(join(agentsSrc, d), join(a, d), { recursive: true });
+  for (const f of readdirSync(join(a, 'scripts'))) if (f.endsWith('.sh')) chmodSync(join(a, 'scripts', f), 0o755);
+  // the added files are not part of the project's history: the scope checks must not list them
+  const ex = join(out, '.git/info/exclude');
+  if (existsSync(join(out, '.git'))) appendFileSync(ex, '.agents/scripts/\n.agents/ecosystems.*\n.agents/*.conf\n');
+}
+
+function buildState(/** @type {string} */ name, /** @type {string} */ script) {
   const out = mkdtempSync(join(tmpdir(), `eq-s2-${name}.`)); const builtAt = Math.floor(Date.now() / 1000);
   const r = run('sh', ['-c', `. "$EQ_LIB"; ${script}\ncp -R "$PWD/." "$EQ_OUT/"`, join(scriptsSrc, 'x.sh')],
     { env: { ...baseEnv(out), EQ_OUT: out, EQ_LIB: join(scriptsSrc, 'test-lib.sh') } });
   if (r.code !== 0) throw new Error(`fixture state ${name} failed (${r.code}): ${r.stderr}${r.stdout}`);
+  return { out, builtAt };
+}
+
+/** @returns {Fixture} the state's fixture (built on first use; rebuilt once when the known shell flake straddled a second while building). */
+export function stateFixture(/** @type {string} */ name) {
+  if (name === 'empty') return installedFixture();
+  const hit = built.get(name); if (hit) return hit;
+  const script = STATES[name]; if (!script) throw new Error(`unknown fixture state ${name}`);
+  let b = buildState(name, script);
+  if (ledgerStraddles(b.out)) { rmSync(b.out, { recursive: true, force: true }); b = buildState(name, script); }
+  const { out, builtAt } = b;
+  if (ledgerStraddles(out)) throw new Error(`fixture state ${name}: a ledger line names different seconds in ts= and epoch= twice in a row`);
+  installLikeProject(out);
   addCore(out);
   for (const k of ['gc.auto', 'maintenance.auto']) run('git', ['config', k, k === 'gc.auto' ? '0' : 'false'], { cwd: out, env: baseEnv(out) });
   const f = { dir: out, builtAt }; built.set(name, f); return f;
