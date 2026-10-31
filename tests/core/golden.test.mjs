@@ -14,7 +14,8 @@ import { describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { baseEnv } from '../equivalence/fixture.mjs';
 import { stateFixture } from '../equivalence/cases/stage2-fixtures.mjs';
-import { repo, scriptsDir } from './helpers.mjs';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { makeProject, memoryIo, repo, scriptsDir } from './helpers.mjs';
 import { NEXT_STATES, shellRiskWordsMatch } from './golden/record.mjs';
 
 const golden = (/** @type {string} */ n) => path.join(import.meta.dirname, 'golden', n);
@@ -26,7 +27,12 @@ async function nodeRiskWordsMatch() {
     if (!existsSync(d)) continue;
     for (const f of readdirSync(d).filter((x) => x.endsWith('.mjs')).sort()) {
       const m = await import(pathToFileURL(path.join(d, f)).href);
-      if (typeof m.riskWordsMatch === 'function') return m.riskWordsMatch;
+      if (typeof m.riskWordsMatch === 'function') {
+        // the core function is riskWordsMatch(ctx, content, wordList, lines): the context only serves the awk fallback of a pattern the translator does not cover
+        const { io } = memoryIo(makeProject());
+        const ctx = new Context(io, io.scriptPath);
+        return (/** @type {string} */ re, /** @type {string} */ words, /** @type {string} */ text) => m.riskWordsMatch(ctx, re, words, text.split('\n').filter((l, i, a) => i < a.length - 1 || l !== ''));
+      }
     }
   }
   return null;
