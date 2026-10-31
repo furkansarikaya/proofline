@@ -22,6 +22,7 @@ const GATE_FILE = /^[0-9]{3}-(SECRETS|REVIEW_SMALL|REVIEW_PLAN|REVIEW_RULES|REVI
 
 /** `gates_dir ID` @param {string} dir */
 export function gatesDir(dir) { return `${dir}/gates`; }
+export { gatesDir as gatesDirOf };
 
 /** `gate_owner GATE` @param {string} g */
 export function gateOwner(g) {
@@ -132,7 +133,7 @@ export function findingRows(ctx, rec) {
  * `finding_waived ID RECORD FINDING`: a listed known issue, an accepted batch finding, or a ledger-bound waiver for exactly this record.
  * @param {Context} ctx @param {string} dir @param {string} rec @param {string} finding
  */
-function findingWaived(ctx, dir, rec, finding) {
+export function findingWaived(ctx, dir, rec, finding) {
   const gate = gateField(ctx, rec, 'gate');
   if (gate === 'SECRETS' || gate === 'SECURITY') return false;
   const shared = ctx.sharedMain();
@@ -372,6 +373,9 @@ export function gateUnsupportedFocuses(ctx, dir, id, gate, mode, now) {
   return riskGateFocuses(ctx, dir, gate).filter((f) => gateFocusStatus(ctx, dir, id, gate, f, mode, now) === 'unsupported').join(',');
 }
 
+/** `unsupported_label SEVERITY` @param {string} v */
+export function unsupportedLabel(v) { return v === 'info' ? 'UNSUPPORTED (unproven, reported)' : 'UNSUPPORTED (blocking: a waiver or a measurement is needed)'; }
+
 /** `gate_satisfied` @param {string} s */
 export function gateSatisfied(s) { return s === 'pass' || s === 'waived' || s === 'unsupported'; }
 
@@ -555,7 +559,7 @@ export function riskUnsupported(ctx, dir) {
 }
 
 /** `gate_blocking_rows FILE N`: "id loc: text" of the first N blocking rows, 300 bytes each. @param {Context} ctx @param {string} rec @param {number} n */
-function gateBlockingRows(ctx, rec, n) {
+export function gateBlockingRows(ctx, rec, n) {
   /** @type {string[]} */ const out = [];
   for (const l of fileLines(ctx, rec)) {
     const m = /^finding: ([^|]*)\|blocking\|([^|]*)\|([^|]*)\|/.exec(l);
