@@ -272,7 +272,7 @@ export function walkRunFolder(ctx, dir) {
   /** @param {Buffer} d */
   const walk = (d) => {
     let handle;
-    try { handle = opendirSync(d, { encoding: 'buffer' }); } catch { return; }
+    try { handle = opendirSync(d, { encoding: /** @type {any} */ ('buffer') }); } catch { return; }
     try {
       for (let e = handle.readSync(); e !== null; e = handle.readSync()) {
         const name = /** @type {Buffer} */ (/** @type {unknown} */ (e.name));
