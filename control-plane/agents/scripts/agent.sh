@@ -25,6 +25,32 @@ if [ -f "$root/.git" ]; then   # a linked worktree has a .git file; only the one
 fi
 shared_dir() { printf '%s/.agents/local/%s\n' "$sr_main" "$1"; }
 PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
+
+# Node migration, stage 1 (ADR 0001 5.3): a moved command runs in proofline-core.mjs, before anything below is parsed, unless the engine is
+# forced to this shell code: by the file <main tree>/.agents/local/engine (one line, `sh` for every command or `sh:<command>,<command>`), or by
+# PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
+# exec fails with 127. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
+case "${1:-}" in
+  role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help)
+    pl_sh=no
+    [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
+    case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac
+    if [ "$pl_sh" = no ] && [ -r "$sr_main/.agents/local/engine" ]; then
+      pl_e=''; IFS= read -r pl_e < "$sr_main/.agents/local/engine" || :
+      pl_e=${pl_e%"${pl_e##*[![:space:]]}"}
+      case "$pl_e" in sh) pl_sh=yes ;; sh:*) case ",${pl_e#sh:}," in *",$1,"*) pl_sh=yes ;; esac ;; esac
+    fi
+    if [ "$pl_sh" = no ]; then
+      case "$1" in
+        config-get) case "${2:-}" in ''|*\\*) pl_sh=yes ;; esac; [ -f "$config" ] || pl_sh=yes ;;
+        tm-scaled)
+          case "${2:-}" in ''|*[!0-9]*|?????????????*) pl_sh=yes ;; esac
+          case "${3:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac
+          case "${4:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac ;;
+      esac
+    fi
+    [ "$pl_sh" = yes ] || exec node "$self_dir/proofline-core.mjs" "$@" ;;
+esac
 cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
 

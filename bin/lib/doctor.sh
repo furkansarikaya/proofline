@@ -259,6 +259,41 @@ doctor_tools() {
   d_pass "tools: $dtl_a; $dtl_r"
 }
 
+# Node migration stage 1 (docs/adr/0001-node-control-plane.md section 4): the moved commands run in Node 22.13 or newer. A missing node is a
+# failure (every guard that needs a moved command denies without it); a node older than 22.13 is a warning with the same consequence.
+doctor_node() {
+  dn_s=$(node_status)
+  case "$dn_s" in
+    ok:*) d_pass "node: ${dn_s#ok:} (Node 22.13 or newer is a runtime requirement)" ;;
+    old:*) d_warn "node: ${dn_s#old:} is older than 22.13; the commands that run in Node exit non-zero and the guards that need them deny (install Node 22.13 or newer, or write sh into .agents/local/engine to run the shell code)" ;;
+    *) d_fail "node: not found on PATH; proofline needs Node 22.13 or newer (the commands that run in Node exit 127 and the guards that need them deny; install it, or write sh into .agents/local/engine to run the shell code)" ;;
+  esac
+}
+
+# The engine switch (ADR 0001 section 5.3): the file .agents/local/engine of the main working tree and the PROOFLINE_ENGINE and PROOFLINE_ENGINE_SH
+# environment values; any one of them forcing sh wins. The same reading as the preamble of agent.sh.
+doctor_engine() {
+  de_main=$ROOT
+  if [ -f "$ROOT/.git" ]; then
+    de_m=$(git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); de_p=$(cd "$ROOT" && pwd -P)
+    case "$de_p" in "$de_m"/.agents/local/worktrees/*) de_main=$de_m ;; esac
+  fi
+  de_all='' de_list='' de_src=''
+  if [ "${PROOFLINE_ENGINE:-}" = sh ]; then de_all=yes; de_src="PROOFLINE_ENGINE=sh"; fi
+  if [ -n "${PROOFLINE_ENGINE_SH:-}" ]; then de_list="$PROOFLINE_ENGINE_SH"; de_src="${de_src:+$de_src, }PROOFLINE_ENGINE_SH=$PROOFLINE_ENGINE_SH"; fi
+  if [ -r "$de_main/.agents/local/engine" ]; then
+    de_e=''; IFS= read -r de_e < "$de_main/.agents/local/engine" || :
+    de_e=${de_e%"${de_e##*[![:space:]]}"}
+    case "$de_e" in
+      sh) de_all=yes; de_src="${de_src:+$de_src, }.agents/local/engine: sh" ;;
+      sh:*) de_list="${de_list:+$de_list,}${de_e#sh:}"; de_src="${de_src:+$de_src, }.agents/local/engine: $de_e" ;;
+    esac
+  fi
+  if [ "$de_all" = yes ]; then d_warn "engine: the shell code runs every command ($de_src); delete the switch to run the moved commands in Node"
+  elif [ -n "$de_list" ]; then d_warn "engine: the shell code runs $de_list ($de_src); every other moved command runs in Node"
+  else d_pass "engine: the moved commands run in Node (no switch set: .agents/local/engine absent, PROOFLINE_ENGINE and PROOFLINE_ENGINE_SH unset)"; fi
+}
+
 # A202 item 29: the time limits in force (the scale and the largest dispatch limit), one line; the user is pointed at the measured proposal.
 doctor_timeouts() {
   dt_sc=$(cfg_val "$CFG" timeouts.scale 1.0)
@@ -286,13 +321,15 @@ cmd_doctor() {
   RUNTIMES=$(manifest_meta runtimes || true)
   [ -n "$RUNTIMES" ] || RUNTIMES=$(printf '%s %s %s\n' "$(cfg_val "$CFG" runtime.lead claude)" "$(cfg_val "$CFG" runtime.worker '')" "$(cfg_val "$CFG" runtime.reviewers '')" | tr ' ' '\n' | grep . | sort -u | tr '\n' ' ' | sed 's/ $//')
   d_pass "installed: proofline $(cfg_val "$CFG" proofline_version '?') in $ROOT (runtimes: $RUNTIMES, profile $(cfg_val "$CFG" profile balanced))"
+  doctor_node
+  doctor_engine
 
   if [ -f "$MANIFEST_OLD" ]; then
     dm_bad=0; dm_gone=0; dm_crit=''
     while read -r dm_s dm_p; do
       if [ ! -e "$ROOT/$dm_p" ]; then
         case "$dm_p" in
-          .agents/scripts/agent.sh|.agents/scripts/dispatch.sh|.agents/githooks/*|.agents/hooks/*|.agents/owns.conf|.agents/roles/owns.conf|.agents/tools.conf|.agents/roles.conf|.agents/skills/proofline-lead/*)
+          .agents/scripts/agent.sh|.agents/scripts/dispatch.sh|.agents/scripts/proofline-core.mjs|.agents/scripts/core/*|.agents/githooks/*|.agents/hooks/*|.agents/owns.conf|.agents/roles/owns.conf|.agents/tools.conf|.agents/roles.conf|.agents/skills/proofline-lead/*)
             dm_crit="$dm_crit $dm_p" ;;
           *) dm_gone=$((dm_gone + 1)) ;;
         esac
