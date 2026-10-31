@@ -30,9 +30,9 @@ describe('command table', () => {
     for (const c of READ_ONLY_COMMANDS) assert.ok(COMMAND_NAMES.includes(c), c);
   });
   test('the moved commands are the handlers AND the delegation list of the agent.sh preamble (the two lists are identical)', () => {
-    const m = /\n  ((?:[a-z][a-z0-9-]*\|)+[a-z][a-z0-9-]*)\)\n    pl_sh=no/.exec(agentSh);
+    const m = /\ncase "\$\{1:-\}" in\n((?:[^\n]*\\\n)*[^\n]*\))\n    pl_sh=no/.exec(agentSh);
     assert.ok(m, 'the preamble list');
-    const preamble = m[1].split('|');
+    const preamble = m[1].replace(/\\\n/g, '').trim().replace(/\)$/, '').split('|').map((x) => x.trim());
     assert.deepEqual([...preamble].sort(), Object.keys(HANDLERS).sort());
     assert.deepEqual(commandTable().filter((e) => e.moved).map((e) => e.name).sort(), [...preamble].sort());
     for (const c of MOVED) assert.ok(preamble.includes(c), `stage 1 command ${c} stays moved`);
