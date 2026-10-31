@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join, dirname, basename, resolve, relative } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 // A121-style guard (A125): GitHub, Claude Code and other runtimes parse the YAML front matter of
 // SKILL.md, roles and generated agents, and the YAML/TOML the product ships. Node has no YAML parser and
@@ -403,10 +404,32 @@ test("decision numbers cited in Markdown exist in docs/decisions.md", () => {
   assert.deepEqual([...new Set(bad)], []);
 });
 
-test("agent.sh subcommands named in Markdown exist in agent.sh", () => {
-  const src = readFileSync(join(REPO, "control-plane/agents/scripts/agent.sh"), "utf8");
-  const have = new Set();
-  for (const m of src.matchAll(/^ {2}([a-z][a-z0-9-]*(?:\|[a-z][a-z0-9-]*)*)\)/gm)) for (const w of m[1].split("|")) have.add(w);
+// ADR 0001 section 10: the documented commands are checked against the core's command table (all 132 entries, moved or bridged), not against
+// agent.sh text. The table is read through one stable function, `commandTable()`, exported by control-plane/agents/scripts/proofline-core.mjs and
+// returning an array of { name, readOnly, roles }.
+const COMMAND_COUNT = 132;
+async function commandNames() {
+  const core = await import(pathToFileURL(join(REPO, "control-plane/agents/scripts/proofline-core.mjs")).href);
+  assert.equal(typeof core.commandTable, "function", "proofline-core.mjs must export commandTable()");
+  const table = core.commandTable();
+  assert.ok(Array.isArray(table), "commandTable() returns an array");
+  for (const e of table) {
+    assert.equal(typeof e.name, "string", "every entry has a name");
+    assert.equal(typeof e.readOnly, "boolean", `${e.name}: readOnly is a boolean`);
+    assert.ok(Array.isArray(e.roles), `${e.name}: roles is an array`);
+  }
+  return table.map((e) => e.name);
+}
+
+test("the core's command table has all 132 commands, each once", async () => {
+  const names = await commandNames();
+  assert.equal(names.length, COMMAND_COUNT);
+  assert.equal(new Set(names).size, COMMAND_COUNT, "no duplicate command name");
+  for (const n of names) assert.match(n, /^[a-z][a-z0-9-]*$/, n);
+});
+
+test("agent.sh subcommands named in Markdown exist in the core's command table", async () => {
+  const have = new Set(await commandNames());
   const bad = [];
   for (const f of mdFiles) {
     if (f === "CHANGELOG.md" || f === "docs/decisions.md") continue; // history may name removed commands
