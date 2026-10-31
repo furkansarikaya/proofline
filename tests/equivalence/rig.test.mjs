@@ -10,7 +10,7 @@ import { synthSide, toSide } from './lib-synth.mjs';
 const T0 = 1_800_000_000; const WIN = /** @type {[number, number]} */ ([T0 - 5, T0 + 60]);
 const good = (/** @type {number} */ t = T0, tweak = {}) => toSide(synthSide(t, tweak), [t - 5, t + 60]);
 const kinds = (/** @type {import('./rig.mjs').Diff[]} */ d) => d.map((x) => x.kind);
-const expectReported = (/** @type {any} */ a, /** @type {any} */ b, /** @type {RegExp} */ re, /** @type {string[]|undefined} */ kindList) => {
+const expectReported = (/** @type {any} */ a, /** @type {any} */ b, /** @type {RegExp} */ re, /** @type {string[]} */ kindList = []) => {
   const d = compareSides(a, b); assert.ok(d.length > 0, 'the rig reported nothing for a planted difference');
   assert.match(formatDiffs(d), re, formatDiffs(d)); if (kindList) for (const k of kindList) assert.ok(kinds(d).includes(k), `${k} not in ${kinds(d)}`);
 };
