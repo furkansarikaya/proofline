@@ -54,6 +54,12 @@ case "${1:-}" in
       fi
       pl_sh=yes
     fi
+    # The mandatory arguments of the moved commands (the `${N:?usage: ...}` of the dispatch below): when one is absent or empty the shell prints its
+    # own usage text, with its own $0 and status, so the core is not started. ONE table; tests/core/mandatory.test.mjs checks it against the dispatch.
+    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate'
+    pl_need3='plan-section'
+    case " $pl_need2 " in *" $1 "*) [ -n "${2:-}" ] || pl_sh=yes ;; esac
+    case " $pl_need3 " in *" $1 "*) [ -n "${3:-}" ] || pl_sh=yes ;; esac
     if [ "$pl_sh" = no ]; then
       case "$1" in
         config-get) case "${2:-}" in ''|*\\*) pl_sh=yes ;; esac; [ -f "$config" ] || pl_sh=yes ;;
