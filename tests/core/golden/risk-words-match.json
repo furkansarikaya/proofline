@@ -1,0 +1,561 @@
+[
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(userPassword)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(user_password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(passwords)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(PASSWORD)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(card)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(ssn)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(user.Email)"
+  ],
+  "match": true
+ },
+ {
+  "re": "^log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(discard)"
+  ],
+  "match": false
+ },
+ {
+  "re": "^log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(classname)"
+  ],
+  "match": false
+ },
+ {
+  "re": "^log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(scardy)"
+  ],
+  "match": false
+ },
+ {
+  "re": "^log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(started)"
+  ],
+  "match": false
+ },
+ {
+  "re": "^log",
+  "words": "password card ssn email",
+  "lines": [
+   "print(password)"
+  ],
+  "match": false
+ },
+ {
+  "re": "^log",
+  "words": "token",
+  "lines": [
+   "x",
+   "log(token)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "Console.WriteLine(password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "Debug.WriteLine(token)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "Trace.WriteLine(secret)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "fmt.Fprintf(w, \"%s\", password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "fmt.Fprint(os.Stderr, token)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "fmt.Fprintln(w, secret)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "FMT.FPRINTF(w, password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "print \"password\""
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "puts \"token\""
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "var_dump($password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret",
+  "lines": [
+   "dump($password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "logger.info(\"started\")"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "x = discard"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "classname = 1"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "cardinality = 2"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "phoneme = 3"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "scorecard = 4"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "cardholder = 5"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "wildcard = 6"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "tokenizer = 7"
+  ],
+  "match": false
+ },
+ {
+  "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+  "words": "password token secret card phone",
+  "lines": [
+   "secretary = 8"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(myPassword)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(my_password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(my-password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(1password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(Passwords)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(PASSWORDS)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(passwordx)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(passwordS)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(passwordsx)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(passwordss)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(xpassword)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(XPassword)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(passwordAbc)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(password1)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(password_x)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log( password )"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(\"the password is\")"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(passwordpassword)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(pass)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(credit card)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(creditcard)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(Card)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password card ssn email",
+  "lines": [
+   "log(CARDS)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "",
+  "lines": [
+   "log(password)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "   ",
+  "lines": [
+   "log(password)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "Password  CARD",
+  "lines": [
+   "log(password)",
+   "log(card)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password",
+  "lines": [
+   ""
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password",
+  "lines": [
+   "no match here",
+   "log(nothing)",
+   "log(password) at the end"
+  ],
+  "match": true
+ },
+ {
+  "re": "^$",
+  "words": "password",
+  "lines": [
+   "password"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password",
+  "lines": [
+   "log(pass",
+   "word)"
+  ],
+  "match": false
+ },
+ {
+  "re": "log",
+  "words": "password password",
+  "lines": [
+   "log(password)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log|print",
+  "words": "token",
+  "lines": [
+   "print(Token)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "pass.word",
+  "lines": [
+   "log(pass.word)",
+   "log(passXword)"
+  ],
+  "match": true
+ },
+ {
+  "re": "log",
+  "words": "password",
+  "lines": [
+   "log(\tpassword\t)",
+   "log(password)\r"
+  ],
+  "match": true
+ }
+]
