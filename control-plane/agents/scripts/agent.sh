@@ -35,7 +35,9 @@ case "${1:-}" in
   role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
   debt|task-type|task-scope-entries|scope-covers|human-checks|questions|repro-normalize|design-surface|test-path|path-kind|scope-kinds|\
   status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier|\
-  next|summary|plan-section|digest|report-facts|report-execution|report-tokens)
+  next|summary|plan-section|digest|report-facts|report-execution|report-tokens|\
+  verify-freeze|verify-scope|verify-knowledge-scope|freshness|verify-handoff|verify-qa-plan|verify-worker-evidence|ci-check|ci-task-command|validate|\
+  design-rationales|commands-check|scale-check|batch-check)
     pl_sh=no
     [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
     case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac

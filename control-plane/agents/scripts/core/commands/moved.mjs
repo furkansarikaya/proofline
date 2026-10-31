@@ -14,6 +14,8 @@ import { checkConfigLines } from './config-check.mjs';
 import { C1_HANDLERS } from './c1.mjs';
 import { LIBRARY_HANDLERS } from './library.mjs';
 import { TOOLS_HANDLERS } from './tools.mjs';
+import { CHECK_HANDLERS } from './checks.mjs';
+import { VERIFY_HANDLERS } from './verify.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -163,4 +165,7 @@ export const HANDLERS = {
   ...TOOLS_HANDLERS,
   // --- stage 2, package C1 ---
   ...C1_HANDLERS,
+  // --- stage 2, package C2 ---
+  ...VERIFY_HANDLERS,
+  ...CHECK_HANDLERS,
 };
