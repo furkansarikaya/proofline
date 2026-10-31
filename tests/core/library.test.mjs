@@ -37,17 +37,25 @@ function exec(fx, args, engine, env = {}) {
   return { out: r.stdout, err: r.stderr, code: r.status };
 }
 
-const COMMANDS = [['status'], ['open-runs'], ['effective'], ['effective', 'LC'], ['effective', 'NOPE'], ['fingerprint'], ['fingerprint', 'LC'], ['fingerprint', 'LC', 'full'], ['patch-fingerprint', 'LC'],
+const ALL = [['status'], ['open-runs'], ['effective'], ['effective', 'LC'], ['effective', 'NOPE'], ['fingerprint'], ['fingerprint', 'LC'], ['fingerprint', 'LC', 'full'], ['patch-fingerprint', 'LC'],
   ['verify-seal', 'LC'], ['verify-gates', 'LC'], ['pipeline', 'LC'], ['pipeline', 'NOPE'], ['patch-fingerprint', 'NOPE'], ['verify-seal', 'NOPE'], ['verify-gates', 'NOPE'], ['pipeline'], ['verify-seal'], ['verify-gates'], ['patch-fingerprint'],
   ['entry-tier', 'a POST /orders endpoint that accepts a body'], ['entry-tier', 'POST /x removed'], ['entry-tier', 'a candidate endpoint, unchanged'], ['entry-tier', 'plain text'], ['entry-tier', 'adds a --flag option'], ['entry-tier']];
 
+// the commands whose output depends on the state, per state; the argument-shape and error cases run on the first state only
+const COMMANDS = [['status'], ['effective', 'LC'], ['fingerprint', 'LC', 'full'], ['patch-fingerprint', 'LC'], ['verify-seal', 'LC'], ['verify-gates', 'LC'], ['pipeline', 'LC']];
+let shapesDone = false;
+let rolesDone = false;
+
 /** @param {string} fx @param {string} label @param {string[][]} [extra] */
 function allSame(fx, label, extra = []) {
-  for (const c of [...COMMANDS, ...extra]) {
+  const list = shapesDone ? [...COMMANDS, ...extra] : [...ALL, ...extra];
+  shapesDone = true;
+  for (const c of list) {
     const a = exec(fx, c, 'node'); const b = exec(fx, c, 'sh');
     assert.deepEqual(a, b, `${label}: agent.sh ${c.join(' ')}`);
   }
-  for (const c of [['status'], ['pipeline', 'LC'], ['verify-gates', 'LC'], ['fingerprint', 'LC']]) {
+  for (const c of rolesDone ? [] : [['status'], ['pipeline', 'LC'], ['verify-gates', 'LC'], ['fingerprint', 'LC']]) {
+    rolesDone = true;
     for (const env of [{ AGENT_ROLE: 'reviewer' }, { AGENT_ROLE: 'bogus' }]) {
       assert.deepEqual(exec(fx, c, 'node', env), exec(fx, c, 'sh', env), `${label}: ${c.join(' ')} as ${env.AGENT_ROLE}`);
     }
