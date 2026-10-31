@@ -144,10 +144,15 @@ How the lead works with sub-agents. Later releases cite this section.
 
 - Agents run only `sh tests/affected.sh` locally. The full self-test is CI's job, and a pull request is merged
   when CI is green.
+- The Core invariants suite, the equivalence rig, the Node tests and the static checks are never skipped, not even by the CI fast mode below.
 - Tests run quiet: they print failures and one summary line.
 - A new validator gets one valid example and one or two invalid examples.
 - No test calls a model and there is no end-to-end test in CI.
 - The number of tests is not a goal.
+
+### Temporary CI fast mode (Node migration)
+
+What: while `tests/ci/fast-mode.txt` exists and is not expired, a pull request skips the legacy self-test shards, the fixtures job and the skill tests step. Why: a user decision of 2026-10-31, so that the Node migration stage 1 pull requests are not held by the hour-long legacy self-test. Safeguards: the invariants (context budget included), equivalence, Node tests, type check and static checks always run; pushes to main, the nightly run and manual runs run everything; `tests/ci/fast-mode.mjs` validates the file and the `changes` job fails after the expiry. It expires 2026-11-07 or when stage 12 lands, whichever is first. Removal: delete `tests/ci/fast-mode.txt`.
 
 ## Commits and pull requests
 

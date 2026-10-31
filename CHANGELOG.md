@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.0.41 — 2026-10-31
+
+- Node migration, stage 1 (A205, issue #166, ADR 0001): ten commands now run in Node (`control-plane/agents/scripts/proofline-core.mjs`, no npm dependency, Node 22.13 or newer) with byte-identical arguments, output, exit codes and files: `role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`, `verify-timeout`, `tm-scaled`, `db-config`, `hook-config` and `help`. Every other command still runs the shell code.
+- Engine switch: `.agents/local/engine` (`sh`, or `sh:cmd,cmd`; the main tree's file in a worktree), `PROOFLINE_ENGINE=sh` or `PROOFLINE_ENGINE_SH=cmd,cmd` run the shell code of the named commands instead of Node. `doctor` prints the engine in force and FAILs when Node or the core file is missing.
+- Fail closed: a hook that needs Node denies when Node is missing, too old or throws, in all three hook forms; a model Bash command that starts Node on the control plane or assigns `PROOFLINE_ENGINE*` / `PROOFLINE_TEST*` is denied (tripwires).
+- Tests and CI: an equivalence rig (`tests/equivalence`) replays recorded command traces against the shell code and the Node core and compares every byte; a no-shell-logic ratchet (`tests/ci/no-shell-logic.mjs`) lets the shell allowlist and inline-shell snapshot only shrink; a type check of the Node code (`jsconfig.json`, checker fetched in the CI job only); a process-count bench with the 0.0.40 baseline (`tests/bench`).
+- TEMPORARY FAST MODE of CI (user decision of 2026-10-31, `tests/ci/fast-mode.txt`): a pull request skips only the legacy self-test shards, the fixtures job and the skill tests step. It never skips the Core invariants (context budget included), the equivalence job, the Node tests, the type check or the static checks; pushes to main, the nightly run and manual runs always run everything. It expires 2026-11-07 (or when stage 12 lands, whichever is first); after that the `changes` job fails while the file exists.
+
 ## 0.0.40 — 2026-10-30
 
 - Retro of four tasks, less waiting for you and no core invariant loosened (A203). The batch spent 51 percent of its time waiting for an approval (87 percent in one task) and 32 percent productive.
