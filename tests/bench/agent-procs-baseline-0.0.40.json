@@ -1,0 +1,1361 @@
+{
+ "schema": "proofline.agent-procs/1",
+ "about": "Baseline of tests/bench/agent-procs.mjs on the 0.0.40 code (commit bc072f3, shell engine: PROOFLINE_ENGINE=sh). execs and stdout_bytes are deterministic; ms is a median of the runs on a machine that was loaded by other builds, so read it as an upper bound (config-get 3 processes / 0.1 s and hook-config 1 process / 0.3 s match the inventory). exit and stderr_first record what a command did with the arguments of the table in the script (an error exit still has a real stdout size). Fixtures: small = frozen COMPLEX run (2 scoped files); perf = the fixture of perf-test.sh; scale-N = small plus N changed files.",
+ "measured_on": {
+  "commit": "bc072f3",
+  "version": "0.0.40",
+  "date": "2026-10-31",
+  "platform": "darwin",
+  "arch": "arm64"
+ },
+ "engine": "sh",
+ "repeat": {
+  "small": 1,
+  "others": 2
+ },
+ "node_start": {
+  "node": "v24.14.1",
+  "platform": "darwin",
+  "arch": "arm64",
+  "median_ms": 27.55
+ },
+ "fixtures": {
+  "small": {
+   "amend": {
+    "args": "LC",
+    "execs": 19,
+    "ms": 901,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "answer": {
+    "args": "LC 1",
+    "execs": 19,
+    "ms": 553,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "approval-consume": {
+    "args": "LC push",
+    "execs": 35,
+    "ms": 1046,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "approve": {
+    "args": "LC push",
+    "execs": 26,
+    "ms": 523,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "approve-pending": {
+    "args": "LC",
+    "execs": 12,
+    "ms": 125,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "ask": {
+    "args": "LC",
+    "execs": 23,
+    "ms": 461,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "baseline": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 440,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "batch-answer": {
+    "args": "",
+    "execs": 14,
+    "ms": 317,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "batch-answers": {
+    "args": "",
+    "execs": 2,
+    "ms": 65,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "batch-awake": {
+    "args": "",
+    "execs": 2,
+    "ms": 64,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "batch-check": {
+    "args": "",
+    "execs": 2,
+    "ms": 67,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "batch-ci": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 85,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "batch-cover": {
+    "args": "LC plan",
+    "execs": 18,
+    "ms": 435,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "batch-next": {
+    "args": "",
+    "execs": 2,
+    "ms": 59,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "batch-park": {
+    "args": "LC reason",
+    "execs": 2,
+    "ms": 60,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "batch-plan": {
+    "args": "LC",
+    "execs": 19,
+    "ms": 415,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "batch-status": {
+    "args": "",
+    "execs": 2,
+    "ms": 58,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "branch": {
+    "args": "LC",
+    "execs": 22,
+    "ms": 456,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "build-record": {
+    "args": "LC show",
+    "execs": 2,
+    "ms": 60,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "calibrate": {
+    "args": "",
+    "execs": 2,
+    "ms": 59,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "ci-check": {
+    "args": "",
+    "execs": 12,
+    "ms": 228,
+    "stdout_bytes": 91,
+    "exit": 0
+   },
+   "ci-task-command": {
+    "args": "",
+    "execs": 18,
+    "ms": 174,
+    "stdout_bytes": 188,
+    "exit": 0
+   },
+   "classify": {
+    "args": "LC COMPLEX",
+    "execs": 57,
+    "ms": 1145,
+    "stdout_bytes": 46,
+    "exit": 0
+   },
+   "cleanup": {
+    "args": "LC",
+    "execs": 22,
+    "ms": 522,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "commands-check": {
+    "args": "",
+    "execs": 2,
+    "ms": 54,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "config-check": {
+    "args": "",
+    "execs": 38,
+    "ms": 296,
+    "stdout_bytes": 34,
+    "exit": 0
+   },
+   "config-get": {
+    "args": "profile",
+    "execs": 3,
+    "ms": 51,
+    "stdout_bytes": 9,
+    "exit": 0
+   },
+   "db-check": {
+    "args": "LC",
+    "execs": 18,
+    "ms": 440,
+    "stdout_bytes": 31,
+    "exit": 0
+   },
+   "db-config": {
+    "args": "all",
+    "execs": 1,
+    "ms": 59,
+    "stdout_bytes": 1439,
+    "exit": 0
+   },
+   "debt": {
+    "args": "",
+    "execs": 2,
+    "ms": 60,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "decide": {
+    "args": "LC reviewer --dry --focus rules",
+    "execs": 74,
+    "ms": 1159,
+    "stdout_bytes": 303,
+    "exit": 0
+   },
+   "deliver-merged": {
+    "args": "LC --check",
+    "execs": 2,
+    "ms": 57,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "deliver-plan": {
+    "args": "LC",
+    "execs": 21,
+    "ms": 431,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "deliver-step": {
+    "args": "LC commit",
+    "execs": 18,
+    "ms": 405,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "delivery-check": {
+    "args": "LC",
+    "execs": 19,
+    "ms": 461,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "design-rationales": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 57,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "design-surface": {
+    "args": "src/a.txt",
+    "execs": 3,
+    "ms": 68,
+    "stdout_bytes": 113,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 129,
+    "ms": 3122,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "discard-stray": {
+    "args": "LC x.txt",
+    "execs": 76,
+    "ms": 674,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "effective": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 97,
+    "stdout_bytes": 1012,
+    "exit": 0
+   },
+   "entry-tier": {
+    "args": "a contract bullet",
+    "execs": 4,
+    "ms": 99,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "fingerprint": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 466,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "freeze": {
+    "args": "LC",
+    "execs": 60,
+    "ms": 1317,
+    "stdout_bytes": 73,
+    "exit": 1
+   },
+   "freshness": {
+    "args": "LC",
+    "execs": 24,
+    "ms": 575,
+    "stdout_bytes": 52,
+    "exit": 0
+   },
+   "friction": {
+    "args": "show",
+    "execs": 2,
+    "ms": 62,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "friction-note": {
+    "args": "LC proofline_bug",
+    "execs": 30,
+    "ms": 632,
+    "stdout_bytes": 30,
+    "exit": 0
+   },
+   "gate": {
+    "args": "LC QA pass",
+    "execs": 18,
+    "ms": 428,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "handoff": {
+    "args": "LC IMPLEMENTED",
+    "execs": 88,
+    "ms": 1817,
+    "stdout_bytes": 75,
+    "exit": 1
+   },
+   "help": {
+    "args": "",
+    "execs": 3,
+    "ms": 64,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "hook-config": {
+    "args": "",
+    "execs": 1,
+    "ms": 296,
+    "stdout_bytes": 1579,
+    "exit": 0
+   },
+   "hook-time": {
+    "args": "LC",
+    "execs": 18,
+    "ms": 441,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "hook-timeouts": {
+    "args": "",
+    "execs": 2,
+    "ms": 1224,
+    "stdout_bytes": 88,
+    "exit": 0
+   },
+   "human-checks": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 56,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "in-knowledge-scope": {
+    "args": "docs/a.md",
+    "execs": 2,
+    "ms": 111,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "knowledge-done": {
+    "args": "LC not_applicable reason",
+    "execs": 19,
+    "ms": 416,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "known-issue-apply": {
+    "args": "",
+    "execs": 14,
+    "ms": 313,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "known-issue-candidates": {
+    "args": "",
+    "execs": 5,
+    "ms": 100,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "known-issue-list": {
+    "args": "",
+    "execs": 4,
+    "ms": 77,
+    "stdout_bytes": 19,
+    "exit": 0
+   },
+   "known-issue-propose": {
+    "args": "LC F1 --followup T",
+    "execs": 20,
+    "ms": 417,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "language-check": {
+    "args": "",
+    "execs": 9,
+    "ms": 112,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "ledger-note": {
+    "args": "LC note",
+    "execs": 31,
+    "ms": 610,
+    "stdout_bytes": 25,
+    "exit": 0
+   },
+   "lessons": {
+    "args": "count",
+    "execs": 2,
+    "ms": 59,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "metrics-dispatch": {
+    "args": "LC reviewer rules claude sonnet 1 1 1 2 1 0 DONE",
+    "execs": 30,
+    "ms": 550,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 68,
+    "ms": 2242,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "next-user": {
+    "args": "",
+    "execs": 6,
+    "ms": 69,
+    "stdout_bytes": 0,
+    "exit": 2
+   },
+   "open-runs": {
+    "args": "",
+    "execs": 4,
+    "ms": 72,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "patch-fingerprint": {
+    "args": "LC",
+    "execs": 10,
+    "ms": 119,
+    "stdout_bytes": 65,
+    "exit": 0
+   },
+   "path-kind": {
+    "args": "src/a.txt docs/b.md",
+    "execs": 6,
+    "ms": 227,
+    "stdout_bytes": 33,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 208,
+    "ms": 3906,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "plan-section": {
+    "args": "LC Architecture",
+    "execs": 4,
+    "ms": 76,
+    "stdout_bytes": 55,
+    "exit": 0
+   },
+   "platform": {
+    "args": "",
+    "execs": 12,
+    "ms": 129,
+    "stdout_bytes": 86,
+    "exit": 0
+   },
+   "platform-warn": {
+    "args": "",
+    "execs": 12,
+    "ms": 134,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "pr-state": {
+    "args": "1",
+    "execs": 33,
+    "ms": 277,
+    "stdout_bytes": 11,
+    "exit": 0
+   },
+   "publish-completion-report": {
+    "args": "LC markdown",
+    "execs": 19,
+    "ms": 421,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "questions": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 57,
+    "stdout_bytes": 25,
+    "exit": 0
+   },
+   "raise-budget": {
+    "args": "LC 5",
+    "execs": 26,
+    "ms": 523,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "record": {
+    "args": "LC --file missing.md",
+    "execs": 20,
+    "ms": 424,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "refreeze": {
+    "args": "LC 001.md",
+    "execs": 60,
+    "ms": 1124,
+    "stdout_bytes": 73,
+    "exit": 1
+   },
+   "reopen": {
+    "args": "LC",
+    "execs": 19,
+    "ms": 423,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "report-execution": {
+    "args": "LC",
+    "execs": 5,
+    "ms": 64,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "report-facts": {
+    "args": "LC",
+    "execs": 200,
+    "ms": 3273,
+    "stdout_bytes": 844,
+    "exit": 0
+   },
+   "report-tokens": {
+    "args": "LC",
+    "execs": 3,
+    "ms": 67,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "repro-normalize": {
+    "args": "",
+    "execs": 3,
+    "ms": 63,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "request-approval": {
+    "args": "LC push",
+    "execs": 78,
+    "ms": 831,
+    "stdout_bytes": 747,
+    "exit": 0
+   },
+   "role": {
+    "args": "",
+    "execs": 2,
+    "ms": 55,
+    "stdout_bytes": 10,
+    "exit": 0
+   },
+   "rules": {
+    "args": "list",
+    "execs": 2,
+    "ms": 61,
+    "stdout_bytes": 0,
+    "exit": 127
+   },
+   "run-language": {
+    "args": "",
+    "execs": 16,
+    "ms": 310,
+    "stdout_bytes": 3,
+    "exit": 0
+   },
+   "scale-check": {
+    "args": "",
+    "execs": 2,
+    "ms": 57,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "scope-covers": {
+    "args": "src/ src/a.txt",
+    "execs": 4,
+    "ms": 97,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "scope-kinds": {
+    "args": "LC",
+    "execs": 29,
+    "ms": 338,
+    "stdout_bytes": 53,
+    "exit": 0
+   },
+   "secret-scan": {
+    "args": "LC",
+    "execs": 44,
+    "ms": 1338,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "start": {
+    "args": "B1",
+    "execs": 16,
+    "ms": 316,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "status": {
+    "args": "",
+    "execs": 10,
+    "ms": 158,
+    "stdout_bytes": 1027,
+    "exit": 0
+   },
+   "status-block": {
+    "args": "LC",
+    "execs": 59,
+    "ms": 927,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "submit": {
+    "args": "LC --result DONE --confidence high",
+    "execs": 2,
+    "ms": 54,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 346,
+    "ms": 8693,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "task-rename-apply": {
+    "args": "",
+    "execs": 14,
+    "ms": 350,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "task-rename-plan": {
+    "args": "",
+    "execs": 17,
+    "ms": 330,
+    "stdout_bytes": 68,
+    "exit": 0
+   },
+   "task-scope-entries": {
+    "args": "tasks/LC.md Scope",
+    "execs": 4,
+    "ms": 60,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "task-source-done": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 437,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "task-source-relocate": {
+    "args": "LC tasks/other.md",
+    "execs": 42,
+    "ms": 933,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "task-source-status": {
+    "args": "LC",
+    "execs": 28,
+    "ms": 559,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "task-type": {
+    "args": ".agents/runs/LC/TASK.md",
+    "execs": 3,
+    "ms": 63,
+    "stdout_bytes": 8,
+    "exit": 0
+   },
+   "terminate": {
+    "args": "LC FAILED",
+    "execs": 32,
+    "ms": 564,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "test-path": {
+    "args": "src/a_test.go src/a.go",
+    "execs": 5,
+    "ms": 84,
+    "stdout_bytes": 36,
+    "exit": 0
+   },
+   "tier": {
+    "args": "LC",
+    "execs": 58,
+    "ms": 1108,
+    "stdout_bytes": 6,
+    "exit": 0
+   },
+   "timeouts": {
+    "args": "",
+    "execs": 4,
+    "ms": 3164,
+    "stdout_bytes": 493,
+    "exit": 0
+   },
+   "tm-scaled": {
+    "args": "30",
+    "execs": 2,
+    "ms": 130,
+    "stdout_bytes": 3,
+    "exit": 0
+   },
+   "tree-accept": {
+    "args": "LC",
+    "execs": 32,
+    "ms": 538,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "tree-inspect": {
+    "args": "LC",
+    "execs": 14,
+    "ms": 154,
+    "stdout_bytes": 251,
+    "exit": 0
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 7,
+    "ms": 196,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "verify-assumptions": {
+    "args": "LC",
+    "execs": 11,
+    "ms": 216,
+    "stdout_bytes": 25,
+    "exit": 0
+   },
+   "verify-completion-report": {
+    "args": "LC",
+    "execs": 3,
+    "ms": 69,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "verify-freeze": {
+    "args": "LC",
+    "execs": 19,
+    "ms": 451,
+    "stdout_bytes": 20,
+    "exit": 0
+   },
+   "verify-gates": {
+    "args": "LC",
+    "execs": 7,
+    "ms": 162,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-handoff": {
+    "args": "LC",
+    "execs": 29,
+    "ms": 483,
+    "stdout_bytes": 54,
+    "exit": 0
+   },
+   "verify-knowledge-scope": {
+    "args": "LC",
+    "execs": 13,
+    "ms": 161,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-qa-plan": {
+    "args": "LC",
+    "execs": 28,
+    "ms": 235,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 17,
+    "ms": 317,
+    "stdout_bytes": 23,
+    "exit": 0
+   },
+   "verify-seal": {
+    "args": "LC",
+    "execs": 7,
+    "ms": 153,
+    "stdout_bytes": 28,
+    "exit": 0
+   },
+   "verify-timeout": {
+    "args": "",
+    "execs": 2,
+    "ms": 135,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "verify-worker-evidence": {
+    "args": "LC",
+    "execs": 31,
+    "ms": 517,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "wait-line": {
+    "args": "LC",
+    "execs": 18,
+    "ms": 415,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "waive": {
+    "args": "LC F1 --reason r",
+    "execs": 21,
+    "ms": 432,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "window-close": {
+    "args": "LC 0 0",
+    "execs": 23,
+    "ms": 464,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "window-open": {
+    "args": "LC",
+    "execs": 43,
+    "ms": 702,
+    "stdout_bytes": 65,
+    "exit": 0
+   },
+   "worker-evidence": {
+    "args": "LC RED fail",
+    "execs": 20,
+    "ms": 431,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "worktree-add": {
+    "args": "LC",
+    "execs": 43,
+    "ms": 665,
+    "stdout_bytes": 101,
+    "exit": 0
+   },
+   "worktree-path": {
+    "args": "LC",
+    "execs": 21,
+    "ms": 415,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "worktree-remove": {
+    "args": "LC",
+    "execs": 24,
+    "ms": 487,
+    "stdout_bytes": 19,
+    "exit": 0
+   },
+   "worktree-root": {
+    "args": "/nonexistent",
+    "execs": 4,
+    "ms": 71,
+    "stdout_bytes": 0,
+    "exit": 1
+   }
+  },
+  "perf": {
+   "next": {
+    "args": "LC",
+    "execs": 165,
+    "ms": 3974,
+    "stdout_bytes": 576,
+    "exit": 0
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 606,
+    "ms": 12489,
+    "stdout_bytes": 263,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 231,
+    "ms": 5294,
+    "stdout_bytes": 381,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 364,
+    "ms": 5631,
+    "stdout_bytes": 376,
+    "exit": 0
+   },
+   "status": {
+    "args": "",
+    "execs": 10,
+    "ms": 213,
+    "stdout_bytes": 1027,
+    "exit": 0
+   },
+   "effective": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 107,
+    "stdout_bytes": 1012,
+    "exit": 0
+   },
+   "verify-gates": {
+    "args": "LC",
+    "execs": 166,
+    "ms": 3823,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-seal": {
+    "args": "LC",
+    "execs": 134,
+    "ms": 3105,
+    "stdout_bytes": 28,
+    "exit": 0
+   },
+   "verify-handoff": {
+    "args": "LC",
+    "execs": 222,
+    "ms": 5146,
+    "stdout_bytes": 54,
+    "exit": 0
+   },
+   "verify-freeze": {
+    "args": "LC",
+    "execs": 19,
+    "ms": 490,
+    "stdout_bytes": 20,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 31,
+    "ms": 706,
+    "stdout_bytes": 23,
+    "exit": 0
+   },
+   "fingerprint": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 453,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 13,
+    "ms": 254,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "missing required artifact: COMPLETION_REPORT.md"
+   },
+   "questions": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 60,
+    "stdout_bytes": 25,
+    "exit": 0
+   },
+   "open-runs": {
+    "args": "",
+    "execs": 4,
+    "ms": 93,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "report-facts": {
+    "args": "LC",
+    "execs": 383,
+    "ms": 5197,
+    "stdout_bytes": 835,
+    "exit": 0
+   },
+   "report-execution": {
+    "args": "LC",
+    "execs": 5,
+    "ms": 67,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "human-checks": {
+    "args": "LC",
+    "execs": 3,
+    "ms": 66,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "delivery-check": {
+    "args": "LC",
+    "execs": 19,
+    "ms": 447,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "delivery blocked: CODE_DONE required"
+   },
+   "hook-config": {
+    "args": "",
+    "execs": 1,
+    "ms": 298,
+    "stdout_bytes": 1579,
+    "exit": 0
+   },
+   "config-get": {
+    "args": "profile",
+    "execs": 3,
+    "ms": 55,
+    "stdout_bytes": 9,
+    "exit": 0
+   },
+   "role": {
+    "args": "",
+    "execs": 2,
+    "ms": 56,
+    "stdout_bytes": 10,
+    "exit": 0
+   },
+   "tier": {
+    "args": "LC",
+    "execs": 53,
+    "ms": 1053,
+    "stdout_bytes": 6,
+    "exit": 0
+   },
+   "status-block": {
+    "args": "LC",
+    "execs": 60,
+    "ms": 764,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "record": {
+    "args": "LC --file missing.md",
+    "execs": 20,
+    "ms": 442,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "result file not found: missing.md"
+   },
+   "secret-scan": {
+    "args": "LC",
+    "execs": 410,
+    "ms": 9385,
+    "stdout_bytes": 37,
+    "exit": 0
+   },
+   "handoff": {
+    "args": "LC IMPLEMENTED",
+    "execs": 346,
+    "ms": 7168,
+    "stdout_bytes": 161,
+    "exit": 0
+   },
+   "publish-completion-report": {
+    "args": "LC markdown",
+    "execs": 19,
+    "ms": 448,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "completion report may only be published after CODE_DONE"
+   }
+  },
+  "scale-0": {
+   "fingerprint": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 438,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "baseline": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 446,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 346,
+    "ms": 8686,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 68,
+    "ms": 2250,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 208,
+    "ms": 3845,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 129,
+    "ms": 3073,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 17,
+    "ms": 310,
+    "stdout_bytes": 23,
+    "exit": 0
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 7,
+    "ms": 201,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "secret-scan": {
+    "args": "LC",
+    "execs": 44,
+    "ms": 1311,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "status-block": {
+    "args": "LC",
+    "execs": 59,
+    "ms": 751,
+    "stdout_bytes": 0,
+    "exit": 0
+   }
+  },
+  "scale-20": {
+   "fingerprint": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 439,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "baseline": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 442,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 2394,
+    "ms": 26472,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 690,
+    "ms": 7550,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 930,
+    "ms": 10267,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 751,
+    "ms": 8478,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 158,
+    "ms": 3312,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 7,
+    "ms": 201,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "secret-scan": {
+    "args": "LC",
+    "execs": 264,
+    "ms": 3272,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "status-block": {
+    "args": "LC",
+    "execs": 59,
+    "ms": 770,
+    "stdout_bytes": 0,
+    "exit": 0
+   }
+  },
+  "scale-60": {
+   "fingerprint": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 456,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "baseline": {
+    "args": "LC",
+    "execs": 20,
+    "ms": 431,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 6474,
+    "ms": 60944,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 1930,
+    "ms": 20882,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 2370,
+    "ms": 26472,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 1991,
+    "ms": 23569,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 438,
+    "ms": 10142,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 7,
+    "ms": 208,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "secret-scan": {
+    "args": "LC",
+    "execs": 704,
+    "ms": 8275,
+    "stdout_bytes": 0,
+    "exit": 1
+   },
+   "status-block": {
+    "args": "LC",
+    "execs": 59,
+    "ms": 789,
+    "stdout_bytes": 0,
+    "exit": 0
+   }
+  }
+ }
+}
