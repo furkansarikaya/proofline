@@ -164,6 +164,16 @@ const FREE = [
   'grep -rn PROOFLINE_ENGINE docs',
   'unset PROOFLINE_ENGINE; ls',
   'ls node_modules/.bin; node_modules/.bin/jest --version',
+  'node --check src/a.mjs',
+  'node --check .agents/scripts/proofline-core.mjs',
+  'node tests/bench/agent-procs.mjs --agent .agents/scripts/agent.sh',
+];
+
+// Over-blocks that stay on purpose: the issue lists them as tripwire spellings (any node -e/-p text that names .agents/scripts, any
+// node operand under .agents/scripts). They are kept as denied cases so a later narrowing is a visible decision.
+const KNOWN_OVERBLOCK = [
+  `node -e "console.log(require('fs').readdirSync('.agents/scripts'))"`,
+  'node .agents/scripts/anything.mjs',
 ];
 
 describe('tripwires (open run, installed project)', { skip }, () => {
@@ -183,6 +193,16 @@ describe('tripwires (open run, installed project)', { skip }, () => {
     test(`denied for the lead: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'PROOFLINE_ENGINE* or PROOFLINE_TEST*', c));
   }
   for (const c of FREE) test(`stays free: ${JSON.stringify(c)}`, () => allowed(bash(p, c), c));
+  for (const c of KNOWN_OVERBLOCK) test(`known over-block, kept (the issue lists the spelling): ${JSON.stringify(c)}`, () => denied(bash(p, c), 'never starts Node', c));
+  // the engine switch file is the user's: a model cannot write it (ADR 5.3 relies on .agents/local being protected)
+  for (const c of ['echo sh > .agents/local/engine', 'printf sh >> .agents/local/engine', 'echo sh | tee .agents/local/engine', 'cp /dev/null .agents/local/engine', 'rm .agents/local/engine'])
+    test(`engine file: Bash ${JSON.stringify(c)} is denied`, () => denied(bash(p, c), '', c));
+  for (const tool of ['Write', 'Edit', 'MultiEdit']) {
+    test(`engine file: ${tool} on .agents/local/engine is denied (lead and subagent)`, () => {
+      denied(runHook(p, tool, { file_path: '.agents/local/engine' }), '', tool);
+      denied(runHook(p, tool, { file_path: join(p, '.agents/local/engine') }, { agent: 'proofline-implementer' }), '', tool);
+    });
+  }
   test('agent.sh approve keeps its deny', () => {
     denied(bash(p, 'sh .agents/scripts/agent.sh approve LC plan'), "an approval is the user's", 'approve');
     denied(bash(p, 'sh .agents/scripts/agent.sh approve-pending LC'), "an approval is the user's", 'approve-pending');
@@ -236,6 +256,8 @@ describe('node absent (C2)', { skip }, () => {
     const r = bash(p, 'ls', { path: np });
     denied(r, 'Node 22.13', 'Bash call');
     assert.match(r.reason, /db-config|config-get/);
+    assert.ok(!r.reason.includes('node --version'), 'the message must not tell the model to run a command the hook then denies');
+    assert.match(r.reason, /the user must check/);
   });
   test('run open: a file write is denied (database guard)', () => {
     const p = project(); wrapMoved(p);
@@ -265,7 +287,11 @@ describe('node absent (C2)', { skip }, () => {
     const p = project({ run: false }); wrapMoved(p);
     allowed(runHook(p, 'Read', { file_path: 'src/a.txt' }, { path: np }), 'a file read without a run');
     denied(bash(p, 'git push origin main', { path: np }), 'Node 22.13', 'git push origin main without a run');
-    denied(bash(p, 'git status', { path: np }), 'Node 22.13', 'any Bash call without a run (merge guard)');
+    denied(bash(p, 'git status', { path: np }), 'Node 22.13', 'a git command without a run (merge guard)');
+    denied(bash(p, 'gh pr ' + 'merge 7 --squash', { path: np }), 'Node 22.13', 'a PR merge command without a run');
+    // the branch list is loaded lazily: a command that cannot merge or push is not denied merely because node is absent
+    allowed(bash(p, 'ls', { path: np }), 'ls without a run');
+    allowed(bash(p, 'node --version', { path: np }), 'node --version without a run');
   });
   test('only PreToolUse denies: a PostToolUse event never does', () => {
     const p = project(); wrapMoved(p);
