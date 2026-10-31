@@ -14,6 +14,8 @@ const trimBT = (s) => s.replace(/^[ \t]+|[ \t]+$/g, '');
 const trimWs = (s) => s.replace(new RegExp(`^${WS}+|${WS}+$`, 'g'), '');
 /** awk tolower in the C locale. @param {string} s */
 const lower = (s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+/** awk `toupper` in the C locale: ASCII only. @param {string} s */
+const asciiUpper = (s) => s.replace(/[a-z]/g, (c) => c.toUpperCase());
 
 // ---- plan_migration_shape --------------------------------------------------------------------------------------------------------
 
@@ -79,8 +81,8 @@ export function assumptionScan(text) {
       const id = t(2); const risk = t(5); const st = t(7);
       if (NF !== 9) { err(`Assumptions ${id}: expected 7 columns`); continue; }
       if (!/^AS-[0-9]+$/.test(id)) err(`Assumptions ${id}: id must match AS-<n>`);
-      if (seen.has(id.toUpperCase())) err(`Assumptions ${id}: duplicate id`);
-      seen.add(id.toUpperCase());
+      if (seen.has(asciiUpper(id))) err(`Assumptions ${id}: duplicate id`);
+      seen.add(asciiUpper(id));
       if (t(3) === '') err(`Assumptions ${id}: assumption text is empty`);
       if (t(4) === '') err(`Assumptions ${id}: source is empty`);
       if (risk !== 'low' && risk !== 'medium' && risk !== 'high') err(`Assumptions ${id}: risk must be low|medium|high`);

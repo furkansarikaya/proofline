@@ -118,6 +118,12 @@ describe('cli subcommands through the front ends', () => {
     setup();
   });
 
+  test('queue: file names sort as the shell glob does under the user locale (C and a collating locale)', () => {
+    for (const n of ['B-upper.md', 'a-lower.md', 'Zed.md', 'alpha.md', '_under.md', '10-ten.md', '2-two.md']) w(`.agents/tasks/todo/${n}`, `# ${n}\n`);
+    for (const env of [{ LC_ALL: 'C' }, { LC_ALL: 'en_US.UTF-8' }, { LC_ALL: '', LANG: 'en_US.UTF-8' }, { LC_ALL: 'POSIX' }]) same(['queue'], env);
+    rmSync(path.join(fx, '.agents/tasks/todo'), { recursive: true, force: true });
+  });
+
   test('the engine switch: sh:insights and PROOFLINE_ENGINE_SH keep the shell form', () => {
     const a = exec(['insights'], 'node', { PROOFLINE_ENGINE_SH: 'insights' });
     const b = exec(['insights'], 'sh');

@@ -4,6 +4,7 @@
 // patch fingerprint, mutation ownership and `verify-gates`. Read-only.
 // Two states stay with the shell until the stages that move their writers: a known-issues list (LIST.tsv) or an approved batch summary
 // that could accept a finding, and a persistent waiver key; reaching one throws BridgeToShell before any output.
+import { asciiLower } from './shellglob.mjs';
 import { readdirSync, statSync } from 'node:fs';
 import { BridgeToShell, fail } from './errors.mjs';
 import { baselineFingerprint, gateFingerprint, legacyFingerprintMatch, pathFingerprint } from './fingerprint.mjs';
@@ -138,7 +139,7 @@ export function findingWaived(ctx, dir, rec, finding) {
   if (gate === 'SECRETS' || gate === 'SECURITY') return false;
   const shared = ctx.sharedMain();
   if (nonEmptyFile(`${shared}/.agents/local/known-issues/LIST.tsv`)) throw new BridgeToShell('known issues list present');
-  const focusLow = gateField(ctx, rec, 'focus').toLowerCase();
+  const focusLow = asciiLower(gateField(ctx, rec, 'focus'));
   if (!/secret|secur/.test(focusLow) && isFile(`${shared}/.agents/local/batch/SUMMARY.md`)) throw new BridgeToShell('batch summary present');
   const all = listNames(`${dir}/waivers`, /^[0-9]{3}-.*\.yaml$/);
   if (all.length === 0) return false;
