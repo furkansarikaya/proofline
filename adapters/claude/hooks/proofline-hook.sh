@@ -994,12 +994,19 @@ tw_core_node() {
   # a node segment: the core named anywhere in it (proofline-core.mjs, .agents/scripts/core/), or a script under .agents/scripts as its first operand.
   # `node --check` only parses and runs nothing; a node program that merely receives the agent path as an option value (tests/bench/agent-procs.mjs
   # --agent .agents/scripts/agent.sh) names it after its own script. -e/-p reading under .agents/scripts stays denied: the issue lists it.
+  # Per node segment. --check/-c counts only as one of node's own options, before the first operand (the script path): `node -c core.mjs` parses and
+  # runs nothing, `node core.mjs role -c` runs the core with an argument.
   tw_segs=$(printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -E "$tw_node")
-  printf '%s' "$tw_segs" | grep -Eq '(^|[[:space:]])(--check|-c)([[:space:]]|$)' || {
-    printf '%s' "$tw_segs" | grep -Eq '(proofline-core([.]mjs|[^[:alnum:]_.-]|$)|[.]agents/scripts/core/)' && return 0
-    tw_op=$(printf '%s\n' "$tw_segs" | sed -En 's/.*(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*([^-[:space:]][^[:space:]]*).*/\4/p')
+  while IFS= read -r tw_seg; do
+    [ -n "$tw_seg" ] || continue
+    tw_opts=$(printf '%s\n' "$tw_seg" | sed -En 's/.*(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+((-[^[:space:]]*[[:space:]]+)*).*/\3/p')
+    case " $tw_opts" in *" --check "*|*" -c "*) continue ;; esac
+    printf '%s' "$tw_seg" | grep -Eq '(proofline-core([.]mjs|[^[:alnum:]_.-]|$)|[.]agents/scripts/core/)' && return 0
+    tw_op=$(printf '%s\n' "$tw_seg" | sed -En 's/.*(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*([^-[:space:]][^[:space:]]*).*/\4/p')
     case "$tw_op" in *.agents/scripts*) return 0 ;; esac
-  }
+  done <<TWSEGS
+$tw_segs
+TWSEGS
   # the core run as a command word (its shebang starts Node): ./proofline-core.mjs, .agents/scripts/proofline-core.mjs
   printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -Eq '^[[:space:]]*(env[[:space:]]+)?[^[:space:]]*proofline-core[.]mjs' && return 0
   return 1
@@ -1513,9 +1520,6 @@ mg_api() {
   return 0
 }
 merge_guard() {
-  # A missing node (mg_load fails closed) is felt only by a command that could merge or push: the protected-branch list is loaded for a git, gh,
-  # glab, az or HTTP-client word, or for a merge, push or alias word; `ls` or a test run needs no settings and is not denied for a missing node.
-  case "$cmd" in *git*|*gh*|*glab*|*az*|*merge*|*push*|*curl*|*wget*|*http*|*alias*|*eval*|*MERGE*|*Merge*) mg_load ;; esac
   mg_flat=$(printf '%s' "$cmd" | tr '\n' ' ')
   case "$cmd" in *PROOFLINE_SELFTEST*) deny "PROOFLINE_SELFTEST is a self-test switch (it lifts the wrapper's PATH-shadowing rule); a model command never names it: $MG_MSG" ;; esac
   # (a) a variable, substitution or backtick where the gh subcommand goes
@@ -1536,6 +1540,13 @@ merge_guard() {
     case "$mg_rec" in C"$TAB"*) ;; *) continue ;; esac
     mg_rest=${mg_rec#*"$TAB"}; mg_cw=${mg_rest%%"$TAB"*}
     case "$mg_rest" in *"$TAB"*) mg_args=$(printf '%s' "${mg_rest#*"$TAB"}" | tr '\003\002' '\n\n') ;; *) mg_args='' ;; esac
+    # The protected-branch list (mg_load; fails closed when node is absent) is loaded at the point of use: for every command WORD of the scan (quotes
+    # and backslashes already removed, so g''it, "g""it" and g\it are git) except a short list of words that cannot merge or push by themselves.
+    # No raw-text pre-filter: a split word must not skip the list.
+    case "$mg_cw" in
+      ls|pwd|cd|pushd|popd|echo|printf|cat|true|false|test|'['|node|nodejs|npm|npx|pnpm|yarn|mkdir|touch|date|sleep|wc|head|tail|grep|egrep|fgrep|rg|sed|awk|tr|cut|sort|uniq|jq|diff|which|type|agent.sh|proofline|'<') ;;
+      *) mg_load ;;
+    esac
     case "$mg_cw" in
       cd)
         mg_first=$(printf '%s\n' "$mg_args" | grep -v '^-' | head -n 1)

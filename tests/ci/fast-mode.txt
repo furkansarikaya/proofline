@@ -6,4 +6,4 @@ name: Node migration stage 1 fast pull request checks
 reason: user decision for the week of the Node migration stage 1 work, so that pull requests are not held by the hour-long legacy self-test
 owner: furkansarikaya
 expires: 2026-11-07
-removal: delete this file when the Node migration stage 1 pull requests are merged, and at the latest on 2026-11-07
+removal: expires 2026-11-07, or when Stage 12 (#177) lands, whichever is first; remove by deleting this file

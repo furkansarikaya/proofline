@@ -140,18 +140,39 @@ describe('ci.yml wiring', () => {
   };
   test('the changes job decides fast mode from the BASE, not from the pull request tree', () => {
     const j = job('changes');
-    assert.match(j, /fast: \$\{\{ steps\.mode\.outputs\.fast \|\| steps\.modepush\.outputs\.fast \}\}/);
-    assert.match(j, /notice: \$\{\{ steps\.mode\.outputs\.notice \|\| steps\.modepush\.outputs\.notice \}\}/);
+    assert.match(j, /notice: \$\{\{ steps\.mode\.outputs\.notice \|\| steps\.modeboot\.outputs\.notice \|\| steps\.modepush\.outputs\.notice \}\}/);
     assert.match(j, /git worktree add --detach "\$RUNNER_TEMP\/base" \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
     assert.match(j, /git cat-file -e \$\{\{ github\.event\.pull_request\.base\.sha \}\}:tests\/ci\/fast-mode\.mjs/);
     // the pull request step runs the base's script on the base's file with the changed paths
     assert.match(j, /node "\$RUNNER_TEMP\/base\/tests\/ci\/fast-mode\.mjs" --event pull_request --file "\$RUNNER_TEMP\/base\/tests\/ci\/fast-mode\.txt" --changed-file "\$RUNNER_TEMP\/fm-changed\.txt"/);
-    const prStep = /- id: mode\n[\s\S]*?(?=\n      - id: modepush)/.exec(j);
+    const prStep = /- id: mode\n[\s\S]*?(?=\n      # Bootstrap)/.exec(j);
     assert.ok(prStep);
     assert.ok(!/run: node tests\/ci\/fast-mode/.test(prStep[0]), 'the pull request step never runs the pull request tree copy');
     // push, schedule and manual runs use the branch's own copy: fast=false there, expiry enforced
     assert.match(j, /- id: modepush\n[\s\S]*?if: github\.event_name != 'pull_request'\n\s+run: node tests\/ci\/fast-mode\.mjs/);
     assert.match(j, /name: FAST MODE ACTIVE/);
+  });
+  test('bootstrap: the head reader is used only when the base has no reader at all', () => {
+    const j = job('changes');
+    assert.match(j, /fast: \$\{\{ steps\.mode\.outputs\.fast \|\| steps\.modeboot\.outputs\.fast \|\| steps\.modepush\.outputs\.fast \}\}/);
+    const boot = /- id: modeboot\n([\s\S]*?)(?=\n      - id: modepush)/.exec(j);
+    assert.ok(boot);
+    assert.match(boot[1], /if: github\.event_name == 'pull_request' && steps\.basehas\.outcome != 'success'/);
+    assert.match(boot[1], /run: node tests\/ci\/fast-mode\.mjs --event pull_request --github-output/);
+    const base = /- id: mode\n([\s\S]*?)(?=\n      # Bootstrap)/.exec(j);
+    assert.ok(base);
+    assert.match(base[1], /steps\.basehas\.outcome == 'success'/);
+    assert.ok(!base[1].includes('run: node tests/ci/fast-mode'), 'the base rule never runs the head copy');
+  });
+  test('once the base has the reader, a head change to the fast-mode files means the full suite (script rule); the head file is not consulted', () => {
+    const d = decide({ event: 'pull_request', text: FILE.replace('2026-11-07', '2099-01-01'), today: '2026-11-01', changed: ['tests/ci/fast-mode.txt'] });
+    assert.equal(d.fast, false);
+    const e = decide({ event: 'pull_request', text: FILE, today: '2026-11-01', changed: [] });
+    assert.equal(e.fast, true);
+  });
+  test('the committed removal condition matches the CHANGELOG, CONTRIBUTING and A205 wording', () => {
+    const kv = parseFile(readFileSync(join(repo, 'tests/ci/fast-mode.txt'), 'utf8'));
+    assert.equal(kv.removal, 'expires 2026-11-07, or when Stage 12 (#177) lands, whichever is first; remove by deleting this file');
   });
   test('CODEOWNERS puts .github/ and tests/ci/ under the repository owner', () => {
     const co = readFileSync(join(repo, '.github/CODEOWNERS'), 'utf8');
