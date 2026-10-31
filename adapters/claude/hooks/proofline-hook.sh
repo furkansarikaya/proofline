@@ -952,11 +952,21 @@ stray_tmp_path() {
 # hcfg_load: ask agent.sh hook-config ONCE per event (A188) for tasks.dir, canonical_branch, product.dir and the database settings; the
 # answers are in hc_tasks hc_branch hc_product hc_paths hc_clients hc_migrate. Fails (the callers then ask for each value as before)
 # when agent.sh does not know the command or refuses it for this role (hook-config is allowed for the same roles as db-config).
+# mc_fail COMMAND WHEN STATUS GUARD (ADR 0001 section 5.3): fail closed when a guard's moved command (it runs in Node 22.13 or newer) exits non-zero. Only
+# PreToolUse denies; every other event keeps its fallback. The database guard asks while a run exists (WHEN=run), the merge guard in every
+# installed project, run or not (WHEN=any, A136). The three reads run without AGENT_ROLE (a configuration read is the lead's; a dispatched role is refused by the role gate, which is not a missing node). A missing node makes the launcher exit 127; the guard must not fall back to empty settings then.
+mc_fail() {
+  [ "$ev" = pretool ] || return 0
+  [ "$2" != run ] || [ -n "$act" ] || return 0
+  deny "agent.sh $1 exited $3, so the $4 cannot read its settings and fails closed: this command runs in Node and needs Node 22.13 or newer on PATH (check: node --version), then retry; the user can also write sh into .agents/local/engine to run the old shell code"
+}
 hcfg_state=''
 hcfg_load() {
   case $hcfg_state in ok) return 0 ;; no) return 1 ;; esac
   hcfg_state=no
-  [ "$installed" = yes ] && sh "$agent" hook-config > "$tmp/hcfg" 2>/dev/null || return 1
+  [ "$installed" = yes ] || return 1
+  hcfg_rc=0; (unset AGENT_ROLE; sh "$agent" hook-config) > "$tmp/hcfg" 2>/dev/null || hcfg_rc=$?
+  [ "$hcfg_rc" -eq 0 ] || return 1
   hc_tasks='' hc_branch='' hc_product='' hc_paths='' hc_clients='' hc_migrate=''
   while IFS= read -r hc_l || [ -n "$hc_l" ]; do
     case $hc_l in
@@ -966,6 +976,26 @@ hcfg_load() {
   done < "$tmp/hcfg"
   hcfg_state=ok
 }
+# tw_core_node TEXT: does TEXT start Node on the control plane in a spelling the hook can see? Segments are cut at ; & | ( ) { } and newlines. A segment that
+# has a node word and names the core (proofline-core.mjs, .agents/scripts/...) hits. So does inline code (node -e/--eval/-p/--print, --import,
+# --require/-r, --loader) that names the core after the flag, code on stdin (--input-type, a bare -) with the text naming the core anywhere (a heredoc or a
+# pipe feeds it), and process.execPath with the text naming the core. The lead's evidence commands (sh .agents/scripts/agent.sh ... | node -e ...;
+# node --test x) do not hit: the node segment does not name the core.
+tw_core_node() {
+  case "$1" in *node*|*execPath*|*proofline-core*) ;; *) return 1 ;; esac
+  tw_core='(proofline-core([.]mjs|[^[:alnum:]_.-]|$)|[.]agents/scripts)'
+  printf '%s' "$1" | grep -Eq "$tw_core" || return 1
+  tw_node='(^|[^[:alnum:]_.-])(node|nodejs)([^[:alnum:]_-]|$)'
+  tw_flat=$(printf '%s' "$1" | tr '\n' ' ')
+  case "$tw_flat" in *execPath*) return 0 ;; esac
+  tw_nw='(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+([^;&|]*[[:space:]])?'   # a node word and its arguments up to the flag
+  printf '%s' "$tw_flat" | grep -Eq "${tw_nw}(-[A-Za-z]*[eEpr]|--eval|--print|--require|--import|--loader|--experimental-loader)([[:space:]=].*)?${tw_core}" && return 0
+  printf '%s' "$tw_flat" | grep -Eq "${tw_nw}(--input-type|-)([[:space:]=]|$)" && return 0
+  printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -E "$tw_node" | grep -Eq "$tw_core" && return 0
+  # the core run as a command word (its shebang starts Node): ./proofline-core.mjs, .agents/scripts/proofline-core.mjs
+  printf '%s' "$1" | tr ';&|(){}' '\n\n\n\n\n\n\n' | grep -Eq '^[[:space:]]*(env[[:space:]]+)?[^[:space:]]*proofline-core[.]mjs' && return 0
+  return 1
+}
 db_loaded=no
 db_load() {
   [ "$db_loaded" = no ] || return 0
@@ -974,7 +1004,8 @@ db_load() {
   # (it was db-config plus three sed and three head processes). Without hook-config the old db-config call is used.
   if hcfg_load; then db_paths=$hc_paths db_clients=$hc_clients db_migrate=$hc_migrate
   else
-    sh "$agent" db-config all > "$tmp/dbconf" 2>/dev/null || : > "$tmp/dbconf"
+    dbc_rc=0; (unset AGENT_ROLE; sh "$agent" db-config all) > "$tmp/dbconf" 2>/dev/null || dbc_rc=$?
+    [ "$dbc_rc" -eq 0 ] || { : > "$tmp/dbconf"; mc_fail db-config run "$dbc_rc" "database guard"; }
     db_paths='' db_clients='' db_migrate='' dl_p=no dl_c=no dl_m=no
     while IFS= read -r dl_l || [ -n "$dl_l" ]; do
       case $dl_l in
@@ -1328,7 +1359,9 @@ mg_prot=''
 mg_isprot() { case " $mg_prot " in *" $1 "*) return 0 ;; esac; return 1; }
 mg_load() {
   [ -z "$mg_prot" ] || return 0
-  mg_cb=''; [ "$installed" = no ] || if hcfg_load; then mg_cb=$hc_branch; else mg_cb=$(sh "$agent" config-get canonical_branch 2>/dev/null) || mg_cb=''; fi
+  mg_cb=''; mg_rc=0
+  [ "$installed" = no ] || if hcfg_load; then mg_cb=$hc_branch; else mg_cb=$(unset AGENT_ROLE; sh "$agent" config-get canonical_branch 2>/dev/null) || mg_rc=$?; fi
+  [ "$mg_rc" -eq 0 ] || { mg_cb=''; mc_fail config-get any "$mg_rc" "merge guard"; }
   mg_oh=$(git -C "$root" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^[^/]*/||') || mg_oh=''
   mg_prot="main master $mg_cb $mg_oh"
 }
@@ -2073,6 +2106,17 @@ pretool)
     fi
     # A102: the capability probes' self-test switches are never set by a model (they would hide a browser or benchmark).
     case "$cmd" in *PROOFLINE_PROBE_ROOT*|*PROOFLINE_SELFTEST*) deny "PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them" ;; esac
+    # ADR 0001 sections 5.3 and 7 (tripwires, not the boundary: approve records only from a captured user message). Scope: this model Bash command
+    # text in an installed project with an open run. Suites and scripts that set the existing seams inside themselves, the repository's own test
+    # runs, CI and the user's terminal never reach this hook with such text.
+    if [ -n "$act" ]; then
+      for tw_t in "$cmd" "$cmd_norm"; do
+        printf '%s' "$tw_t" | grep -Eq 'PROOFLINE_(ENGINE|TEST)[A-Za-z0-9_]*[[:space:]]*[+]?=' \
+          && deny "a model command never assigns PROOFLINE_ENGINE* or PROOFLINE_TEST*: they select the engine and the test seams, which only the user (.agents/local/engine) or a test harness sets"
+        tw_core_node "$tw_t" \
+          && deny "a model command never starts Node on the control plane (the core under .agents/scripts, proofline-core.mjs): run it only through sh .agents/scripts/agent.sh <command>, which applies the role gate, the locks and the ledger"
+      done
+    fi
     # A specialist never mutates the live tree with git (stash, reset, checkout --, restore, clean, ...):
     # mutation evidence runs in a separate worktree (`git worktree add`, then `git -C <worktree> ...`).
     # (A read role is checked precisely by stash_guard below: effective directory, `git -C`, `cd`.)
