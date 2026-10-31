@@ -31,7 +31,7 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
 # exec fails with 127. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
 case "${1:-}" in
-  role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help)
+  role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier)
     pl_sh=no
     [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
     case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac

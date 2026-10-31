@@ -92,3 +92,55 @@ export function gitPaths(ctx) {
   const abs = (/** @type {string} */ p) => (p.startsWith('/') ? p : `${ctx.root}/${p}`);
   return { index: abs(i), objects: abs(o) };
 }
+
+/**
+ * Many objects in ONE `git cat-file --batch` process: spec ("REV:PATH") -> content bytes, or null when the object is missing.
+ * @param {Context} ctx @param {string[]} specs @returns {Map<string, string | null>}
+ */
+export function catBatch(ctx, specs) {
+  /** @type {Map<string, string | null>} */ const out = new Map();
+  if (specs.length === 0) return out;
+  const r = proc.run('git', ['-C', ctx.root, 'cat-file', '--batch'], {
+    cwd: ctx.cwd, env: ctx.childEnv(), input: Buffer.from(`${specs.join('\n')}\n`, 'latin1'), stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  const buf = r.stdout;
+  let pos = 0;
+  for (const spec of specs) {
+    const nl = buf.indexOf(0x0a, pos);
+    if (nl < 0) { out.set(spec, null); continue; }
+    const head = buf.subarray(pos, nl).toString('latin1');
+    pos = nl + 1;
+    const m = /^[0-9a-f]+ (\w+) ([0-9]+)$/.exec(head);
+    if (!m) { out.set(spec, null); continue; }
+    const size = Number(m[2]);
+    out.set(spec, m[1] === 'blob' ? buf.subarray(pos, pos + size).toString('latin1') : null);
+    pos += size + 1;
+  }
+  return out;
+}
+
+/**
+ * `git diff --no-renames -U0 BASE -- PATH...` in one call, split per file: path -> the lines the diff adds.
+ * @param {Context} ctx @param {string} base @param {string[]} paths @returns {Map<string, string[]>}
+ */
+export function addedLines(ctx, base, paths) {
+  /** @type {Map<string, string[]>} */ const out = new Map();
+  if (paths.length === 0) return out;
+  const r = git(ctx, ['diff', '--no-renames', '-U0', base, '--', ...paths]);
+  /** @type {string[] | null} */ let cur = null;
+  let hunk = false;
+  for (const l of r.out.split('\n')) {
+    if (l.startsWith('diff --git a/')) {
+      const rest = l.slice('diff --git a/'.length);
+      const p = rest.slice(0, (rest.length - 3) / 2);
+      cur = [];
+      out.set(p, cur);
+      hunk = false;
+      continue;
+    }
+    if (l.startsWith('diff --git ')) { cur = null; hunk = false; continue; } // a quoted name: the caller asks for that path alone
+    if (l.startsWith('@@')) { hunk = true; continue; }
+    if (hunk && cur && l.startsWith('+')) cur.push(l.slice(1));
+  }
+  return out;
+}
