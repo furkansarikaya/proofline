@@ -166,11 +166,27 @@ const FREE = [
   'ls node_modules/.bin; node_modules/.bin/jest --version',
   'node --check src/a.mjs',
   'node --check .agents/scripts/proofline-core.mjs',
+  'node -c .agents/scripts/proofline-core.mjs',
   'node tests/bench/agent-procs.mjs --agent .agents/scripts/agent.sh',
 ];
 
 // Over-blocks that stay on purpose: the issue lists them as tripwire spellings (any node -e/-p text that names .agents/scripts, any
 // node operand under .agents/scripts). They are kept as denied cases so a later narrowing is a visible decision.
+// --check/-c is exempt only as one of node's own options before the script path; after it, it is an argument of the program.
+const CHECK_AFTER_OPERAND = [
+  'node .agents/scripts/proofline-core.mjs role -c',
+  'node .agents/scripts/proofline-core.mjs role --check',
+  'node ./.agents/scripts/core/proc.mjs -c',
+];
+// Quote- and backslash-split words must reach the merge guard exactly like the plain words (it loads its list at the point of use).
+const SPLIT_PUSHES = [
+  "g''it p''ush origin main",
+  '"g""it" "pu""sh" origin HEAD:main',
+  'g\\it p\\ush origin main',
+  "g''it up''date-ref refs/heads/main HEAD",
+  "g''it me''rge feature",
+  "g''it br''anch -f main HEAD",
+];
 const KNOWN_OVERBLOCK = [
   `node -e "console.log(require('fs').readdirSync('.agents/scripts'))"`,
   'node .agents/scripts/anything.mjs',
@@ -193,6 +209,7 @@ describe('tripwires (open run, installed project)', { skip }, () => {
     test(`denied for the lead: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'PROOFLINE_ENGINE* or PROOFLINE_TEST*', c));
   }
   for (const c of FREE) test(`stays free: ${JSON.stringify(c)}`, () => allowed(bash(p, c), c));
+  for (const c of CHECK_AFTER_OPERAND) test(`--check/-c after the script is an argument, denied: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'never starts Node', c));
   for (const c of KNOWN_OVERBLOCK) test(`known over-block, kept (the issue lists the spelling): ${JSON.stringify(c)}`, () => denied(bash(p, c), 'never starts Node', c));
   // the engine switch file is the user's: a model cannot write it (ADR 5.3 relies on .agents/local being protected)
   for (const c of ['echo sh > .agents/local/engine', 'printf sh >> .agents/local/engine', 'echo sh | tee .agents/local/engine', 'cp /dev/null .agents/local/engine', 'rm .agents/local/engine'])
@@ -306,6 +323,17 @@ describe('node absent (C2)', { skip }, () => {
     const r = spawnSync('sh', [hook, 'pretool', 'claude'], { cwd: p, input: JSON.stringify(payload), env: { ...baseEnv(), AGENT_ROLE: 'implementer' }, encoding: 'utf8' });
     assert.ok(!(r.stdout || '').includes('Node 22.13'), r.stdout);
   });
+  for (const c of SPLIT_PUSHES) {
+    test(`split spelling ${JSON.stringify(c)}: denied with node present (as on 0.0.40) and with node absent (list unavailable)`, () => {
+      const p = project({ run: false });
+      // node present: the 0.0.40 deny of the merge guard, no Node message
+      const r1 = bash(p, c);
+      denied(r1, 'proofline merge', c);
+      // node absent (wrapped project): fail closed
+      const q = project({ run: false }); wrapMoved(q);
+      denied(bash(q, c, { path: np }), '', c);
+    });
+  }
   test('a project without proofline asks no moved command: nothing changes', () => {
     allowed(bash(plainProject(), 'ls', { path: np }), 'a Bash call in a plain project');
   });

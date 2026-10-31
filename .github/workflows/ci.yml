@@ -29,8 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.classify.outputs.code }}
-      fast: ${{ steps.mode.outputs.fast || steps.modepush.outputs.fast }}
-      notice: ${{ steps.mode.outputs.notice || steps.modepush.outputs.notice }}
+      fast: ${{ steps.mode.outputs.fast || steps.modeboot.outputs.fast || steps.modepush.outputs.fast }}
+      notice: ${{ steps.mode.outputs.notice || steps.modeboot.outputs.notice || steps.modepush.outputs.notice }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,14 +55,20 @@ jobs:
         name: fast mode (pull request, from the base)
         if: github.event_name == 'pull_request' && steps.basehas.outcome == 'success'
         run: node "$RUNNER_TEMP/base/tests/ci/fast-mode.mjs" --event pull_request --file "$RUNNER_TEMP/base/tests/ci/fast-mode.txt" --changed-file "$RUNNER_TEMP/fm-changed.txt" --github-output "$GITHUB_OUTPUT"
+      # Bootstrap: only the pull request that introduces the mechanism (the base has no reader at all) uses its own head's reader and file. Once the base
+      # has the reader, the base rules above apply and a head change to tests/ci/fast-mode.* runs the full suite.
+      - id: modeboot
+        name: fast mode (the base has no reader yet, bootstrap from the head)
+        if: github.event_name == 'pull_request' && steps.basehas.outcome != 'success'
+        run: node tests/ci/fast-mode.mjs --event pull_request --github-output "$GITHUB_OUTPUT"
       - id: modepush
         name: fast mode (push, schedule, manual, always off, expiry enforced)
         if: github.event_name != 'pull_request'
         run: node tests/ci/fast-mode.mjs --event ${{ github.event_name }} --github-output "$GITHUB_OUTPUT"
       - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests are skipped on this pull request
-        if: steps.mode.outputs.fast == 'true'
+        if: steps.mode.outputs.fast == 'true' || steps.modeboot.outputs.fast == 'true'
         env:
-          NOTICE: ${{ steps.mode.outputs.notice }}
+          NOTICE: ${{ steps.mode.outputs.notice || steps.modeboot.outputs.notice }}
         run: echo "::warning title=FAST MODE::$NOTICE"
       - id: classify
         run: |
