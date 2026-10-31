@@ -67,6 +67,8 @@ const validTaskId = (id) => /^[A-Za-z0-9_-]+$/.test(id);
  * @param {Context} ctx @param {string[]} argv @param {{ cwd?: string, script?: string, force?: boolean }} [opt]
  */
 function viaShell(ctx, argv, opt = {}) {
+  // the bridge exists for the shell-error-text fallbacks of the commands this core owns, never for another command
+  if (argv[0] === undefined || !Object.hasOwn(HANDLERS, argv[0])) throw new ProoflineError('proofline-core: the bridge only serves the commands of the Node core', 2, 'NOT_MOVED');
   ctx.discard();
   const env = opt.force === false ? { ...ctx.env } : { ...ctx.env, PROOFLINE_ENGINE: 'sh' };
   const script = opt.script ?? path.join(ctx.scriptDir, 'agent.sh');
@@ -106,23 +108,23 @@ export function run(argv, io) {
 
 /** @param {Context} ctx @param {LockSet} locks @param {string[]} argv */
 function dispatch(ctx, locks, argv) {
-  // agent.sh parses the config at its start: a config that exists but cannot be read is the shell's (awk's) error
-  if (isFile(ctx.configFile)) { try { accessSync(ctx.configFile, constants.R_OK); } catch { throw new BridgeToShell('config unreadable'); } }
-  if (!validRole(ctx.role)) throw new ProoflineError(`invalid execution role: ${bytes(ctx.rawRole)}`, 1);
   const command = argv[0] ?? '';
   const args = argv.slice(1);
-  // A169: a run that lives in its own worktree is served by that worktree's agent.sh
-  const id = args[0];
-  if (id !== undefined && validTaskId(id) && !isExisting(`${ctx.root}/.agents/runs/${id}`)
-    && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`) && isFile(`${ctx.root}/.agents/local/worktrees/${id}/.agents/scripts/agent.sh`)) {
-    if (!['start', 'worktree-add', 'worktree-path', 'worktree-remove'].includes(command) && !command.startsWith('batch-')) {
-      const wt = `${ctx.root}/.agents/local/worktrees/${id}`;
-      return viaShell(ctx, argv, { cwd: wt, script: '.agents/scripts/agent.sh', force: false });
-    }
-  }
-  if (!commandAllowed(ctx.role, command)) throw new ProoflineError(`command denied for ${ctx.role}: ${command}`, 1);
   const handler = Object.hasOwn(HANDLERS, command) ? HANDLERS[command] : undefined;
-  if (!handler) return viaShell(ctx, argv);
+  // agent.sh parses the config at its start: a config that exists but cannot be read is the shell's (awk's) error
+  if (handler && isFile(ctx.configFile)) { try { accessSync(ctx.configFile, constants.R_OK); } catch { throw new BridgeToShell('config unreadable'); } }
+  if (!validRole(ctx.role)) throw new ProoflineError(`invalid execution role: ${bytes(ctx.rawRole)}`, 1);
+  // A169: a run that lives in its own worktree is served by that worktree's agent.sh (only for a command this core owns)
+  const id = args[0];
+  if (handler && id !== undefined && validTaskId(id) && !isExisting(`${ctx.root}/.agents/runs/${id}`)
+    && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`) && isFile(`${ctx.root}/.agents/local/worktrees/${id}/.agents/scripts/agent.sh`)) {
+    const wt = `${ctx.root}/.agents/local/worktrees/${id}`;
+    return viaShell(ctx, argv, { cwd: wt, script: '.agents/scripts/agent.sh', force: false });
+  }
+  // the role gate comes first, for every command
+  if (!commandAllowed(ctx.role, command)) throw new ProoflineError(`command denied for ${ctx.role}: ${command}`, 1);
+  // This entry is not a second front door to agent.sh: it runs the commands it owns and nothing else. An unmoved command is run with agent.sh.
+  if (!handler) throw new ProoflineError(`proofline-core: ${command === '' ? '(no command)' : command} is not a command of the Node core; run it with agent.sh`, 2, 'NOT_MOVED');
   if (takesLocks(command, args, ctx.role, READ_ONLY.has(command))) takeCommandLocks(locks, ctx, command, args);
   const code = handler(ctx, args);
   ctx.flush();
