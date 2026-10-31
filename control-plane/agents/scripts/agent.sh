@@ -32,7 +32,8 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # exec fails with 127. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
 case "${1:-}" in
   role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
-  debt|task-type|task-scope-entries|scope-covers|human-checks|questions|repro-normalize|design-surface|test-path|path-kind|scope-kinds)
+  debt|task-type|task-scope-entries|scope-covers|human-checks|questions|repro-normalize|design-surface|test-path|path-kind|scope-kinds|\
+  status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier)
     pl_sh=no
     [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
     case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac

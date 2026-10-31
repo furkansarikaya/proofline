@@ -52,6 +52,26 @@ export class Context {
     /** @type {Config | null} */ this._config = null;
     /** @type {string | null} */ this._shared = null;
     /** @type {Array<['out' | 'err', Buffer]>} */ this.chunks = [];
+    /** @type {Map<string, unknown>} */ this.memo = new Map();
+    /** fp_fast of agent.sh: 'no' (always hash), 'yes' (read-only commands: use the fingerprint cache), 'refresh' (sealing commands: hash, then store) */
+    this.fpMode = 'no';
+    /** ctp_base of agent.sh: set by delivered mode; task paths are then measured from this commit instead of HEAD */
+    this.ctpBase = '';
+  }
+
+  /**
+   * Read once per invocation: the value for KEY, made by MAKE on the first call. The context lives for one command, so nothing is cached
+   * across commands (A203). A writer drops what it changed with forget().
+   * @template T @param {string} key @param {() => T} make @returns {T}
+   */
+  once(key, make) {
+    if (!this.memo.has(key)) this.memo.set(key, make());
+    return /** @type {T} */ (this.memo.get(key));
+  }
+
+  /** Drop the remembered values whose key starts with PREFIX (every writer calls it, like sv_reset). @param {string} prefix */
+  forget(prefix) {
+    for (const k of [...this.memo.keys()]) if (k.startsWith(prefix)) this.memo.delete(k);
   }
 
   /** The config, read once. */
