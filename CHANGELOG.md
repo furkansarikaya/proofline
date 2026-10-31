@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.0.42 — 2026-10-31
+
+- Node migration, stage 2 (A206, issue #167, ADR 0001): 41 more commands run in Node with byte-identical arguments, output, exit codes and files: `status`, `open-runs`, `effective`, `fingerprint`, `pipeline`, `next`, `summary`, `plan-section`, `digest`, `debt`, `design-surface`, `report-facts`, `report-execution`, `repro-normalize`, `design-rationales`, `report-tokens`, `verify-freeze`, `verify-scope`, `verify-knowledge-scope`, `freshness`, `verify-handoff`, `entry-tier`, `verify-qa-plan`, `verify-worker-evidence`, `questions`, `batch-check`, `commands-check`, `scale-check`, `test-path`, `task-scope-entries`, `scope-covers`, `task-type`, `human-checks`, `scope-kinds`, `path-kind`, `patch-fingerprint`, `verify-gates`, `verify-seal`, `ci-check`, `ci-task-command` and `validate`. The CLI-only core subcommands `insights` and `queue` also run in Node (the `proofline` front ends stay shell until stage 9). The engine switch covers them (`sh:<command>`).
+- The `agent.sh` preamble screens arguments: a moved command without its mandatory argument stays in the shell, so its usage text is unchanged. A few documented paths of moved commands still call the shell code (A206).
+- Fewer processes (node counted, before to after): `next` 68-193 to 1-9 (60 files: 1,930 processes and 18.3 s to 1 and 61 ms), `digest` 129-225 to 6-9, `summary` 346-665 to 6-9, `pipeline` 208-2370 to 6-9 (26 s to 0.23 s at 60 files), `verify-seal` 7-134 to 1, `verify-scope` 438 to 4 (60 files), `verify-handoff` 222 to 7, `report-facts` 200 to 9.
+- Tests: the ecosystem-branching check also covers Node code, and rule 5 of `check-static.sh` fails on a missing `ecosystems.tsv`; output budgets (`tests/bench/output-budgets.tsv`) and golden tests of the moved commands. The full legacy self-test stays skipped on pull requests by the CI fast mode (A205).
+
 ## 0.0.41 — 2026-10-31
 
 - Node migration, stage 1 (A205, issue #166, ADR 0001): ten commands now run in Node (`control-plane/agents/scripts/proofline-core.mjs`, no npm dependency, Node 22.13 or newer) with byte-identical arguments, output, exit codes and files: `role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`, `verify-timeout`, `tm-scaled`, `db-config`, `hook-config` and `help`. Every other command still runs the shell code.
