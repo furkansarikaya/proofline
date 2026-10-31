@@ -152,7 +152,7 @@ export function reportTokens(ctx, id) {
   if (listNames(`${d}/worker-evidence`, /^RED-.*\.yaml$/).length && listNames(`${d}/worker-evidence`, /^GREEN-.*\.yaml$/).length) ctx.out('RED\nGREEN\n');
 }
 
-/** `decision_files ID` @param {Context} ctx @param {string} d */
+/** `decision_files ID` @param {string} d */
 function decisionFiles(d) { return listNames(`${d}/decisions`, /^[0-9]{3}-.*\.decision$/); }
 
 /** `report_execution ID` @param {Context} ctx @param {string} id */
