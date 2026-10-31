@@ -36,6 +36,7 @@ or newer and Node's own libraries; no npm package. Faster: one process per comma
 | 13 | Enforcement, invariant, CLI, task, e2e and real-session tests | 11 | 4-6 |
 | 14 | Fixtures | 11 | 3-5 |
 | 15 | Strict no-shell-logic check and the last shell files | 12, 13, 14 | 1-2 |
+| follow-up | Tool-call economy (outside the 15 stages, its own issue; see [Follow-up: tool-call economy](#follow-up-tool-call-economy)) | 2 | 3-5 |
 
 Total: 74-111 agent-days (estimate), about 15-23 weeks (estimate) at one patch per working day. Basis: lines to port per stage
 (inventory), test volume, recent patch sizes, and a 2-3 agent-day allowance in stage 1 for building the rig and recording traces.
@@ -115,7 +116,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - `tests/equivalence/`: rig, closed normalisation list (times masked only after each side's ledger chain verifies) with its
     planted-difference tests, the trace recorder (`PROOFLINE_TRACE`), scenario cases, the alternating-engine case, the "Node absent"
     case; a CI job `equivalence`.
-  - `tests/bench/agent-procs.mjs`: the inventory's PATH-shim command benchmark committed, with the 0.0.40 baseline as a data file.
+  - `tests/bench/agent-procs.mjs`: the inventory's PATH-shim command benchmark committed, with the 0.0.40 baseline as a data file; it
+    also records the stdout bytes of every command on its fixtures (the basis of the output budgets, ADR section 8.3).
   - `tests/ci/no-shell-logic.mjs` in ratchet mode with `tests/ci/shell-allowlist.txt` (every shell file of 0.0.40) and
     `tests/ci/inline-shell-snapshot.txt` (every `run:` step of `ci.yml` and every hook command string of the three wiring files, by
     location and SHA-256); entries may only disappear, and a new or changed step or string must already meet the strict rule.
@@ -193,6 +195,10 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - C1-C8. Trace cases cover every gate state of the `gates-test` and `risk-test` fixtures and the scaling fixture.
   - The Node ecosystem check fails on a planted `case` arm that names an ecosystem id in a core module and on a missing
     `ecosystems.json`; rule 5 fails on a missing `ecosystems.tsv`.
+  - Tool-call economy (ADR section 8.3): `tests/bench/output-budgets.tsv` holds the named maximum stdout bytes per command class, set
+    from stage 1's measurement (HOT: `next`, `summary --status`, `report-tokens`; STEP read: `pipeline`, `digest`, the `verify-*` family,
+    `questions`, per fixture state); every command moved here stays within it on the fixtures (equivalence keeps the bytes; the budget
+    keeps later changes from growing them).
   - The `perf-test.sh` budgets (`next` at most 260, `digest` at most 340 processes) hold, then are lowered to the measured value plus
     margin.
   - Performance (before measured, target estimate), with `perf-test.sh` (`PERF_REPORT=1`) and `tests/bench/agent-procs.mjs`:
@@ -251,6 +257,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - Node absent (C2): with `node` removed from PATH, each of the three hook forms blocks PreToolUse with exit 2 (start failure), during a
     run and, for the project and Codex forms, whenever `.agents/config.yaml` exists; the enforcement suite has these cases.
   - Enforcement keeps the tripwire cases of stage 1 green against the Node hook.
+  - Tool-call economy: the context text the hook adds (SessionStart, the Stop hook's `Next step:` line from `next-user`, PostToolUse
+    relays) stays within the context budget of `tests/context/budget.tsv` and within its output budget in `tests/bench/output-budgets.tsv`.
   - Deny texts identical: `tests/enforcement` (enforcement, kill-guard, merge-guard, approval-load, timeouts) pass unchanged against the new
     hook; the PreToolUse fail-closed cases (unparsable JSON during a run, malformed ACTIVE_RUN, missing hook file with config present) still
     deny or block.
@@ -392,6 +400,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - Watchdog cases with fake runtimes: one that ignores TERM (killed after 5 s), one that hangs, one that exits early, one that spawns
     grandchildren (all killed), a signal to the dispatcher (forwarded); identical records on both engines.
   - Known-issue approvals bound to the exact TSV row bytes accept and refuse identically.
+  - Tool-call economy: the read-oriented batch commands (`batch-status`, `batch-next`, `batch-answers`, `known-issue-list`) stay within
+    their output budgets in `tests/bench/output-budgets.tsv`.
   - Performance: before measured in this stage with a fake runtime (`decide` estimated at 100-150 processes by the inventory); target
     (estimate): `decide` at most 3, the dispatcher's own overhead (without the runtime child) at most 10, `batch-next` (3 processes
     measured) at most 1.
@@ -418,7 +428,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
 - **Acceptance criteria:**
   - C1-C8. `build-record-test`, `friction-test`, `lessons-test`, `rules-test`, `debt-test`, `tests/cli/discover-*`, `tests/context/*` pass
     unchanged.
-  - `build-record` still runs each configured command with its full output kept (evidence is never compressed).
+  - `build-record` still runs each configured command with its full output kept (evidence is never compressed); its summary to the
+    context (`show`) and the read-oriented `friction show`, `rules list` and `calibrate` stay within their output budgets.
   - Performance: before measured in this stage (`build-record`, `doctor --commands`, `context-size`); after not higher; `friction`,
     `calibrate`, `lessons`, `rules` (3 processes each, measured) -> 1.
   - Smoke: the default run; `SMOKE_ONLY=a202` with `sh` in `.agents/local/engine`.
@@ -624,3 +635,55 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
 - **Risks:** a launcher template that is too strict for a platform (adjusted only by a decision, never by loosening the check silently).
 - **Rollback:** revert.
 - **Estimate:** 1-2 agent-days (estimate). Basis: one script switch, deletions and documentation.
+
+## Follow-up: tool-call economy
+
+A separate issue, outside the 15 stages and listed in the epic table. It applies the principle of ADR section 8.3 to the roles.
+
+- **Title:** Tool-call economy: measure tool calls and context bytes per role, then give the most call-heavy jobs one combined command each
+- **Version:** 0.0.x
+- **Scope:**
+  - **Measure first, from data that exists today** (no data is invented; what is missing is named):
+    - `.agents/local/metrics/records.jsonl` (A80): per step and per dispatch the role, gate, duration and tokens; `turns` only for
+      dispatched workers (from the runtime's structured output, `num_turns`); no tool-call count and no output size.
+    - `.agents/local/metrics/history.tsv`: time, task, role, runtime, model, duration, outcome; no tool data.
+    - `runs/<ID>/LEDGER.log`: lifecycle transitions; no tool data.
+    - `runs/<ID>/HOOKS.log`: per hook event the number of runs and their time; the PreToolUse count approximates the tool calls of a
+      session for the matched tools, but it is not attributed to a role.
+    - Runtime session logs: for a Claude subagent the transcript path is line 1 of `.agents/local/submissions/<agent>.started` (it is
+      already read for token usage); it holds every tool call and its result, so per-role call counts and result bytes can be derived
+      where it exists. The lead's own session log is not recorded by proofline; a dispatched worker's output is in
+      `runs/<ID>/dispatch/`; for Codex the source is to be checked.
+    - **Needs a new record:** per step, the number of tool calls by kind and the bytes of tool results that entered the context, written
+      by the control plane from the runtime log at `submit` into a new file (`.agents/local/metrics/tools.jsonl`), so that the existing
+      `records.jsonl` format does not change (ADR D3); and, if wanted, the lead's session log path.
+  - From those numbers, per role and per run: the jobs with the most calls. Expected candidates, to be confirmed or rejected by the
+    measurement: exploration (explorer), exhaustive finding sweeps (reviewers, security reviewer), evidence gathering (verifier).
+  - **Then propose combined commands** for the top jobs (new core subcommands, named in the pull request): a multi-step search done by one
+    command, whose output to the context is a short summary (counts, the top items, the path of the raw file, "truncated" when it is).
+    The commands are control-plane code (reviewed, shipped, deterministic: declared inputs such as the frozen PLAN scope, fixed tools such
+    as `git grep` and the skills' validators, byte-order output), run by the control plane, and write the exact command line, the input
+    hashes and the raw output to `runs/<ID>/evidence/<command>-<n>/`, so anyone can re-run them and compare. A script a model writes during
+    the run, and its statement, is still not evidence (Core invariant 4).
+  - Role and skill instructions name the combined commands for those jobs; `adapters/generate.sh` regenerates the agent files. These
+    texts count as code for review (CONTRIBUTING: Markdown under `skills/`, `roles/`, `control-plane/` and `adapters/` is reviewed like code).
+- **Depends on:** stage 2 (the read-only commands and the shared library it builds); it can run in parallel with stages 3-15, but a combined
+  command that needs a not-yet-moved command uses the moved form only.
+- **Acceptance criteria:**
+  - A measurement report in the pull request: tool calls per role per run and context bytes per role per run, before and after, on a named
+    fixture run: the real-session smoke's `/proofline run` task and one COMPLEX scenario of `tests/e2e` (same model, same task).
+  - The new record file's format is documented and written only by the control plane from runtime data (no model text), with strings
+    reduced as `records.jsonl` does today.
+  - Each combined command: a test that its summary's finding count equals the count in its raw file; a planted finding beyond the summary's
+    top items still appears in the count and in the raw file; re-running the recorded command line reproduces the raw file byte for byte.
+  - Context budgets (`tests/context/budget.tsv`) unchanged or smaller; the context budget tests and `check-budget-changed` pass.
+  - `sh tests/invariants/invariants-test.sh` (or its Node copy, depending on when this ships) passes unchanged.
+  - Smoke: the default run, and the measurement taken on it.
+- **Risks:** a summary hides a finding (mitigation: the raw output stays, the finding count is printed, "truncated" is said, and a role
+  deciding about one item reads the raw file; in doubt the safe side wins, Core invariant 6); the measurement depends on runtime log
+  formats that can change (the reader fails visibly and records null, as `metrics_step` does); instructions that grow the auto-loaded
+  context (the context budget forbids it).
+- **Rollback:** the role and skill texts go back to their previous wording (a revert); the combined commands stay available but unused;
+  the new record file can be ignored (nothing reads it for a decision).
+- **Estimate:** 3-5 agent-days (estimate). Basis: 1-2 days to build the reader and measure; 2-3 days for two or three combined commands
+  with their tests and the role-text changes.

@@ -314,7 +314,27 @@ otherwise). It offers `run(program, args, options)` (sync and async), `runUserCo
   (renames, deletions, untracked files in ignored folders, worktrees).
 - The hook loads modules lazily and may use `module.enableCompileCache()`; stage 3 measures both.
 
-### 8.3 Form
+### 8.3 Tool-call economy (principle)
+
+When a role makes many tool calls (searches, reads, commands) for **one** decision, that work is done by **one** command or
+script, and only the short result the decision needs enters the model's context; the raw output stays in a file in the run folder.
+
+- Commands moved to Node are designed by this principle: the size of what a command prints into the context is part of its design.
+  During stages 1-10 the output of a moved command must stay byte-identical (the rig), so the principle is applied there as a cap, not
+  a change: stage 1's benchmark records the stdout bytes of every command on its fixtures (the inventory measured processes, not
+  output size, so there is no earlier basis), and from the stage that moves a read-oriented command its output may not grow past that
+  0.0.40 size on the same fixture. The named maxima per command class are set from that measurement in stage 2 and kept in
+  `tests/bench/output-budgets.tsv`: HOT commands (read on every hook event or by a parser: `next`, `summary --status`, `hook-config`,
+  `report-tokens`) at their measured size; STEP read commands (`pipeline`, `digest`, the `verify-*` family, `questions`) at their
+  measured size per fixture state.
+- New combined commands (the follow-up issue "Tool-call economy" in [0001-stages.md](0001-stages.md#follow-up-tool-call-economy)) and any
+  output change after stage 10 follow the principle fully: print a summary with counts and the path of the raw file, never the raw dump.
+- The evidence rule does not change (Core invariant 4): evidence is produced by deterministic commands that the control plane ships and
+  runs; a script a model writes during a run, and its statement, is not evidence. A combined command records its exact command line,
+  input hashes and raw output in the run folder so that anyone can re-run it and compare. A summary never hides a finding: it prints
+  the finding count, says when it is truncated, and the raw file stays (Core invariant 6).
+
+### 8.4 Form
 
 - Modern JavaScript, ESM (`.mjs`), `// @ts-check` at the top of every core, hook, CLI and test-harness module, types in JSDoc.
 - Type checking is a development tool that never enters the runtime: a CI job runs the checker with exact pinned versions of the
@@ -441,6 +461,7 @@ commit. Details in [0001-stages.md](0001-stages.md).
 | 13 | enforcement, invariants (Node copy), CLI, task, e2e and real-session tests | 11 | 4-6 |
 | 14 | fixtures | 11 | 3-5 |
 | 15 | strict no-shell-logic check, last shell removed, documentation | 12, 13, 14 | 1-2 |
+| follow-up | tool-call economy (section 8.3): measure calls and context bytes per role, then combined commands; outside the 15 stages | 2 | 3-5 |
 
 **Total: 74-111 agent-days (estimate), about 15-23 weeks (estimate)** at the observed pace of one patch per working day, five working
 days a week. Basis: lines to port per stage (inventory), the test volume, recent patch sizes (0.0.33: 4,047 inserted lines; 0.0.39: 5,655;
