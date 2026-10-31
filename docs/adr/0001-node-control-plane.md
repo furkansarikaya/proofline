@@ -137,7 +137,7 @@ control-plane/agents/scripts/
     proc.mjs               the only module that imports node:child_process (see 8.1)
     errors.mjs             ProoflineError: code, message (the existing text), exit code
     paths.mjs              root and worktree resolution, POSIX form for stored paths, Windows input paths
-    clock.mjs              now(), with the test clock seam
+    clock.mjs              now()
     hash.mjs               SHA-256 over bytes and files (node:crypto)
     lock.mjs               the mkdir lock protocol of agent.sh
     config.mjs             the one config reader (replaces four)
@@ -174,7 +174,11 @@ shell, it runs `exec node "$(dirname "$0")/proofline-core.mjs" "$@"`. Sibling sc
     and may not see an `export` made after the session started; `.agents/local` is already protected from model writes by the hook.
     `proofline doctor` prints the active switch.
   - `PROOFLINE_ENGINE=sh` and `PROOFLINE_ENGINE_SH=<command>,<command>` in the environment, for CI and tests.
-- The hook denies a model's command that assigns `PROOFLINE_ENGINE*` or `PROOFLINE_TEST*` (a tripwire; see section 7).
+- The hook denies a model's command that assigns `PROOFLINE_ENGINE*` or `PROOFLINE_TEST*` (a tripwire; see section 7). Scope: the
+  model's own Bash tool calls in an installed project while a run is open, matched on the command text. Not affected: test suites and
+  scripts that set the existing seams inside themselves (for example `batch.sh` line 668, `friction.sh` line 19, `test-lib.sh`), the
+  repository's own test runs and CI (not user sessions), and the user's own terminal. The existing seams stay as they are (honoured only
+  with `PROOFLINE_TEST=1`); D14 forbids adding new ones that reach a decision.
 - The core runs a command it does not own yet by calling the old code through `proc.mjs` (`sh agent.sh` with the engine forced to
   shell), so nothing loops. These bridge calls are counted and shrink to zero by stage 10.
 - **The shell hook fails closed on a moved command.** Today the shell hook drops failures of `hook-config`, `db-config` and
@@ -224,17 +228,29 @@ exit code; every file under the project root including `.agents/` (content and t
 names and porcelain status. Directory order is byte order on both sides.
 
 **No clock seam.** A test clock in the product would also move the time that approval checks compare (a capture must be newer than
-its request), so there is none (D14). Times are masked instead, in the named fields only, and the hash chain is checked rather than
-masked: each side's ledger must verify on its own (every `prev=` equals the SHA-256 of that side's previous line), and the lines are
-then compared with only `ts=`, `epoch=` and the `prev=` values that depend on them masked. `digest=` is compared exactly: it covers
-RUN.yaml lifecycle fields that hold no time (`lifecycle_digest`, agent.sh 3252-3260).
+its request), so there is none (D14). Times are masked instead, in the named fields only, and only after three checks on each side:
+
+1. **Format.** Every masked time has its exact format: ISO `YYYY-MM-DDTHH:MM:SSZ`, epoch as digits, and a line's `ts=` and `epoch=`
+   name the same second.
+2. **Order.** Within one side, the order the protocol requires holds: ledger epochs never decrease; `requested_at` < capture time
+   <= `approved_at` <= `consumed_at` (the capture must be newer than its request, as `approve` checks); `asked_at` <= `answered_epoch`; `decided_at` of a decision <= the epoch of the ledger line that
+   records it; every value lies inside the case's wall-clock window. Across the two sides, the masked times sort into the same sequence
+   of fields (same rank order), so an engine that writes events in a different order fails.
+3. **Derived hashes.** A hash whose input contains a masked value is re-verified on each side and only then masked: the ledger chain
+   (every `prev=` equals the SHA-256 of that side's previous line); the `<subdir>/<name>@<sha256>` binding tokens in ledger `detail=`
+   (the SHA-256 of that side's named file); `gate_record_sha256` in waivers; `bound:` values and `message_sha256`/`body_sha256` that
+   cover a delivery summary holding a nonce or time. Each must equal the hash recomputed from that side's own file.
+
+`digest=` is compared exactly: it covers RUN.yaml lifecycle fields that hold no time (`lifecycle_digest`, agent.sh 3252-3260). Gate
+`.manifest` files are compared exactly: they hash product files, which hold no proofline times.
 
 **The closed normalisation list** (`tests/equivalence/normalise.mjs`). Only values that differ between two correct runs are masked,
 each only in the field named:
 
 | value | where |
 |---|---|
-| times | ledger `ts=`, `epoch=` and the dependent `prev=` (after the chain check above); `timestamp:`, `requested_at:`, `approved_at:`, `asked_at:`, `answered_epoch:`, `decided_at=`, `consumed_at:` in records; each value must lie inside the case's wall-clock window |
+| times | ledger `ts=` and `epoch=`; `timestamp:`, `requested_at:`, `approved_at:`, `asked_at:`, `answered_epoch:`, `decided_at=`, `consumed_at:` in records; only after the format and order checks above |
+| hashes derived from masked values | ledger `prev=`; `<subdir>/<name>@<sha256>` binding tokens; `gate_record_sha256`; `bound:`, `message_sha256`, `body_sha256` over a delivery summary; only after each is re-verified against its own side's file |
 | process ids | lock `pid` files, `pid=` in dispatch markers, line 1 of nonce files, `$$`-based temp names, intake file names `<ms>-<pid>.json` |
 | temporary directories | `$TMPDIR/...XXXXXX` paths in messages |
 | random nonces | the hex part of `nonce:` in delivery summaries and of `local/dispatch/nonce-<hex>` names |
@@ -327,8 +343,9 @@ script, and only the short result the decision needs enters the model's context;
   `tests/bench/output-budgets.tsv`: HOT commands (read on every hook event or by a parser: `next`, `summary --status`, `hook-config`,
   `report-tokens`) at their measured size; STEP read commands (`pipeline`, `digest`, the `verify-*` family, `questions`) at their
   measured size per fixture state.
-- New combined commands (the follow-up issue "Tool-call economy" in [0001-stages.md](0001-stages.md#follow-up-tool-call-economy)) and any
-  output change after stage 10 follow the principle fully: print a summary with counts and the path of the raw file, never the raw dump.
+- New combined commands (the follow-up issue "Tool-call economy" in [0001-stages.md](0001-stages.md#follow-up-tool-call-economy), which
+  ships after stage 10 so that the 132-command one-to-one map holds while the shell engine can still be selected) and any output change
+  after stage 10 follow the principle fully: print a summary with counts and the path of the raw file, never the raw dump.
 - The evidence rule does not change (Core invariant 4): evidence is produced by deterministic commands that the control plane ships and
   runs; a script a model writes during a run, and its statement, is not evidence. A combined command records its exact command line,
   input hashes and raw output in the run folder so that anyone can re-run it and compare. A summary never hides a finding: it prints
@@ -403,8 +420,10 @@ not change. Places that need care, in the stage where their target moves:
   `markdown.sh` into the fixture's `.agents/`. When those move (stages 5, 6, 7) the core keeps today's rule: if that sibling file exists
   in the project, it is run, exactly as `agent.sh` runs it today. The installer stops shipping those files, so only a fixture that writes
   one gets it; the exposure equals today's (an installed file under `.agents/`, covered by the hook's path policy and the manifest). No
-  environment seam is added. The rule goes in stage 15 with `test-lib.sh`; the Node harness (stage 11) writes stub modules into its
-  fixtures the same way.
+  environment seam is added. This file override is **temporary**: it exists only because `test-lib.sh` (shell, child processes) cannot
+  reach the core any other way, and it is deleted in stage 15 with `test-lib.sh`, leaving no override path in shipped code. The Node
+  harness (stage 11 on) does not write stub files: it calls `run(argv, io)` in process and passes stubs in `io.stubs`; the CLI and hook
+  entry points never set `io.stubs`, so it is not reachable from a command line, a file or the environment.
 - **Text extractions get golden tests before their code goes.** The seven extractions (`sb_scrub`, `sb_strip`, `SB_KEYS=`,
   `risk_words_match` twice, `blocking_rule_version=`, `approval_phrases`), the awk-parser comparison in `check-shared.sh` and the three
   `.test.mjs` files that read `agent.sh` text keep testing the old code while it exists. In the stage where the related command moves,
@@ -461,7 +480,7 @@ commit. Details in [0001-stages.md](0001-stages.md).
 | 13 | enforcement, invariants (Node copy), CLI, task, e2e and real-session tests | 11 | 4-6 |
 | 14 | fixtures | 11 | 3-5 |
 | 15 | strict no-shell-logic check, last shell removed, documentation | 12, 13, 14 | 1-2 |
-| follow-up | tool-call economy (section 8.3): measure calls and context bytes per role, then combined commands; outside the 15 stages | 2 | 3-5 |
+| follow-up | tool-call economy (section 8.3), outside the 15 stages: measuring may start after stage 2 (it adds no command); the combined commands and role texts ship only after stage 10, when the shell engine can no longer be selected | 2 (measure), 10 (ship) | 3-5 |
 
 **Total: 74-111 agent-days (estimate), about 15-23 weeks (estimate)** at the observed pace of one patch per working day, five working
 days a week. Basis: lines to port per stage (inventory), the test volume, recent patch sizes (0.0.33: 4,047 inserted lines; 0.0.39: 5,655;

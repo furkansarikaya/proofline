@@ -36,7 +36,7 @@ or newer and Node's own libraries; no npm package. Faster: one process per comma
 | 13 | Enforcement, invariant, CLI, task, e2e and real-session tests | 11 | 4-6 |
 | 14 | Fixtures | 11 | 3-5 |
 | 15 | Strict no-shell-logic check and the last shell files | 12, 13, 14 | 1-2 |
-| follow-up | Tool-call economy (outside the 15 stages, its own issue; see [Follow-up: tool-call economy](#follow-up-tool-call-economy)) | 2 | 3-5 |
+| follow-up | Tool-call economy (outside the 15 stages, its own issue; see [Follow-up: tool-call economy](#follow-up-tool-call-economy)): measuring after stage 2, shipping commands and role texts after stage 10 | 2 (measure), 10 (ship) | 3-5 |
 
 Total: 74-111 agent-days (estimate), about 15-23 weeks (estimate) at one patch per working day. Basis: lines to port per stage
 (inventory), test volume, recent patch sizes, and a 2-3 agent-day allowance in stage 1 for building the rig and recording traces.
@@ -113,7 +113,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - The shell hook fails closed on a moved command (ADR section 5.3): where it now drops a failure of `hook-config`, `db-config` or
     `config-get` (`proofline-hook.sh` lines 959, 977, 1331), it denies while a run exists when the command exits 127 or non-zero, with a
     message that names the command and Node 22.13; the merge guard denies the same way in an installed project also without a run.
-  - `tests/equivalence/`: rig, closed normalisation list (times masked only after each side's ledger chain verifies) with its
+  - `tests/equivalence/`: rig, closed normalisation list (times masked only after their format and order checks; hashes derived from times, such as
+    ledger `prev=`, binding tokens, `gate_record_sha256` and summary-bound values, masked only after each side re-verifies them) with its
     planted-difference tests, the trace recorder (`PROOFLINE_TRACE`), scenario cases, the alternating-engine case, the "Node absent"
     case; a CI job `equivalence`.
   - `tests/bench/agent-procs.mjs`: the inventory's PATH-shim command benchmark committed, with the 0.0.40 baseline as a data file; it
@@ -126,7 +127,9 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
   - Hook tripwires (the hook is still shell): deny a model command that starts Node and loads the core in any visible spelling (a path to
     `proofline-core.mjs` or `.agents/scripts/core/`; `node -e`/`--eval`/`-p`/`--print`; `--input-type=module` with stdin code;
     `--import`/`--require`/`-r`/`--loader`; `env node`; `npx node`; a variable holding `process.execPath`; whenever the text names
-    `.agents/scripts` or `proofline-core`), and a model command that assigns `PROOFLINE_ENGINE*` or `PROOFLINE_TEST*`. These are tripwires
+    `.agents/scripts` or `proofline-core`), and a model command that assigns `PROOFLINE_ENGINE*` or `PROOFLINE_TEST*` (scope: the model's
+    own Bash command text in an installed project with an open run; suites and scripts that set the existing seams inside themselves,
+    the repository's own test runs, CI and the user's terminal are not affected; ADR section 5.3). These are tripwires
     (`.out-of-scope/small-rejected-ideas.md`); the boundary stays that `approve` records only from a captured user message.
   - `frontmatter.test.mjs` checks documented commands against the core's command table (all 132 entries) instead of `agent.sh` text.
   - A downgrade test: a project installed from this stage's checkout, with a run in flight, is upgraded from the previous release's
@@ -138,7 +141,9 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
 - **Acceptance criteria:**
   - C1-C8.
   - The rig reports every planted difference (one byte of a ledger `detail=`, an exit code, a missing file, a mode bit, a changed hash
-    next to a masked value) and passes on identical runs.
+    next to a masked value) and passes on identical runs. It also reports: an `approved_at` earlier than its `requested_at`, a
+    `consumed_at` before `approved_at`, a decreasing ledger epoch, a `ts=` and `epoch=` that name different seconds, a malformed ISO time,
+    events in a different order on the two sides, and a binding token or `gate_record_sha256` that does not match its own side's file.
   - The role table test: every role against every one of the 132 commands gives the same allow/deny on both engines.
   - Lock interop: an old-engine and a new-engine process contend for the same lock and exclude each other; a stale lock is broken with
     the same `lock-break` ledger event.
@@ -517,7 +522,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
 - **Scope:**
   - `tests/lib/harness.mjs`: the Node form of `test-lib.sh` (291) with the same helpers (`A`, `AS`, `expect_msg`, `expect_fail`, `scaffold`,
     `to_code_done`, `rec`, `gpass`, `gfail`, `worker`, `approve_as_user`, ...) and the same environment hardening. `test-lib.sh` stays
-    untouched, because the shell invariant suite sources it (until stage 15).
+    untouched, because the shell invariant suite sources it (until stage 15). The harness calls `run(argv, io)` in process and passes
+    stubs (secret scan, execution policy, task adapter) in `io.stubs`, never as files; the CLI and hook entry points never set it.
   - `tests/selftest.sh` (159), `selftest-weights.sh` (62), `affected.sh` (106) -> Node, with the same unit split (459 units), the
     weights file, `SELFTEST_SHARD=i/n` (16 shards in CI), the job count rules and `LC_ONLY`; the runner still runs the not-yet-ported shell
     suites as units.
@@ -622,7 +628,8 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
     `Invariant-test-change:` rule, only if the Node copy has been green on `main` through at least one full release after the one that
     added it (stage 13); otherwise this deletion waits for a later release and the rest of the stage ships.
   - The transitional `proofline-hook.sh` launcher is deleted (sessions started before stage 3 are at least eleven releases old); the
-    fixture-file stub rule of stages 5-7 goes with `test-lib.sh`.
+    fixture-file stub rule of stages 5-7 goes with `test-lib.sh`, so no override path remains in shipped code (the Node harness injects
+    stubs through `io.stubs`).
   - `shellcheck` leaves CI (only launchers remain; the strict check pins their text).
   - The `windows-latest` job runs the core's Node tests and the Node invariant suite. CONTRIBUTING (set-up, test commands, Core invariant
     command) and the README (requirements, Windows status as proven by the job) updated.
@@ -667,8 +674,10 @@ A separate issue, outside the 15 stages and listed in the epic table. It applies
     the run, and its statement, is still not evidence (Core invariant 4).
   - Role and skill instructions name the combined commands for those jobs; `adapters/generate.sh` regenerates the agent files. These
     texts count as code for review (CONTRIBUTING: Markdown under `skills/`, `roles/`, `control-plane/` and `adapters/` is reviewed like code).
-- **Depends on:** stage 2 (the read-only commands and the shared library it builds); it can run in parallel with stages 3-15, but a combined
-  command that needs a not-yet-moved command uses the moved form only.
+- **Depends on:** stage 2 for the measuring half (it adds no command and changes no role text, so it may start after stage 2) and stage 10
+  for the rest: the combined commands and the role texts that name them ship only after stage 10, when the shell engine can no longer be
+  selected. Earlier, a Node-only subcommand would break the one-to-one 132-command map, and an engine switch back to the old code would
+  leave role texts naming commands it lacks.
 - **Acceptance criteria:**
   - A measurement report in the pull request: tool calls per role per run and context bytes per role per run, before and after, on a named
     fixture run: the real-session smoke's `/proofline run` task and one COMPLEX scenario of `tests/e2e` (same model, same task).
