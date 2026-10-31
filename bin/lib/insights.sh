@@ -52,6 +52,19 @@ cmd_insights() {
   if [ -n "$in_run" ] && [ ! -d "$ROOT/.agents/runs/$in_run" ]; then
     grep -qF "\"task\":\"$in_run\"" "$ROOT/.agents/local/metrics/records.jsonl" 2>/dev/null || die "no such run: $in_run (see: proofline queue)"
   fi
+  if core_wanted insights; then
+    set --; [ "$in_json" = 0 ] || set -- --json; [ -z "$in_run" ] || set -- "$@" --run "$in_run"
+    (cd "$ROOT" && node "$ROOT/.agents/scripts/proofline-core.mjs" cli insights "$@") || return $?
+  else insights_report_sh; fi
+  # A202: the size of the text loaded into every session, from the same script doctor and the budget test use
+  if [ "$in_json" = 0 ] && [ -z "$in_run" ]; then
+    printf '\n'; sh "$PL_HOME/bin/lib/context-size.sh" project "$ROOT" report || :
+    if [ -f "$ROOT/.agents/scripts/rules.sh" ]; then printf '\n'; (cd "$ROOT" && sh "$A" rules report) || :; fi
+  fi
+}
+
+# The shell form of the report (the engine switch `sh` and a project without the Node core); the same text as `proofline-core.mjs cli insights`.
+insights_report_sh() {
   in_off=0; [ "$(cfg_val "$CFG" metrics on)" != off ] || in_off=1
   insights_stream "$in_run" | LC_ALL=C awk -v json="$in_json" -v only="$in_run" -v off="$in_off" '
     function jv(s, k,   p, i, r) {
@@ -290,9 +303,4 @@ cmd_insights() {
       print "(a blocked scope check, a refused approval phrase) leave no record, so only what a ledger or finding states is counted."
     }
   '
-  # A202: the size of the text loaded into every session, from the same script doctor and the budget test use
-  if [ "$in_json" = 0 ] && [ -z "$in_run" ]; then
-    printf '\n'; sh "$PL_HOME/bin/lib/context-size.sh" project "$ROOT" report || :
-    if [ -f "$ROOT/.agents/scripts/rules.sh" ]; then printf '\n'; (cd "$ROOT" && sh "$A" rules report) || :; fi
-  fi
 }

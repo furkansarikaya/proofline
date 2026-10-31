@@ -7,6 +7,7 @@ import './core/node-check.mjs';
 import { accessSync, constants, realpathSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runCli } from './core/commands/cli.mjs';
 import { HANDLERS } from './core/commands/moved.mjs';
 import { COMMAND_NAMES, READ_ONLY_COMMANDS } from './core/commands/names.mjs';
 import { bytes } from './core/config.mjs';
@@ -110,6 +111,8 @@ export function run(argv, io) {
 function dispatch(ctx, locks, argv) {
   const command = argv[0] ?? '';
   const args = argv.slice(1);
+  // the CLI-only subcommands (closed set, read-only; see core/commands/cli.mjs) are not agent.sh commands and take neither role gate nor bridge
+  if (command === 'cli') return runCli(ctx, args);
   const handler = Object.hasOwn(HANDLERS, command) ? HANDLERS[command] : undefined;
   // agent.sh parses the config at its start: a config that exists but cannot be read is the shell's (awk's) error
   if (handler && isFile(ctx.configFile)) { try { accessSync(ctx.configFile, constants.R_OK); } catch { throw new BridgeToShell('config unreadable'); } }
