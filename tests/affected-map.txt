@@ -40,5 +40,7 @@ tests/bench/agent-procs* output-budgets.test.mjs process-budgets.test.mjs
 tests/bench/process-budgets* process-budgets.test.mjs
 tests/bench/output-budgets* output-budgets.test.mjs
 tests/ci/ecosystem-branching.mjs ecosystem-branching.test.mjs
+tests/golden/capture/* capture.test.mjs windows-paths.test.mjs
+tests/ci/windows-paths.test.mjs windows-paths.test.mjs
 tests/shared/check-static.sh static-test
 tests/core/golden/* golden.test.mjs
