@@ -17,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { engineFileValue } from './lib/agent.mjs';
 import { EVENTS, buildContext, finish } from './lib/context.mjs';
 import { rmf } from './lib/fsx.mjs';
+import { yieldsToOtherWiring } from './lib/yield.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 
@@ -64,6 +65,7 @@ function failClosed(c, e) {
 export async function main(argv) {
   const ev = argv[0] ?? '';
   const rt = argv[1] ?? 'claude';
+  if (yieldsToOtherWiring(here, ev, rt, process.env)) return 0;   // the same event is wired by the old shell string (or by the project, for the plugin): handled once
   const raw = readStdin();
   const c = await buildContext(ev, rt, raw, process.env);
   if (!c) return 0;

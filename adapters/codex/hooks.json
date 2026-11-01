@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" session codex'",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs\" session codex",
             "timeout": 30
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" prompt codex'",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs\" prompt codex",
             "timeout": 30
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || { [ -f \"$r/.agents/config.yaml\" ] || exit 0; echo \"proofline: $h is missing; failing closed\" >&2; exit 2; }; exec sh \"$h\" pretool codex'",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs\" pretool codex || test ! -f \"$(git rev-parse --show-toplevel)/.agents/config.yaml\" || { echo \"proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed\" >&2; exit 2; }",
             "timeout": 30
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" posttool codex'",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs\" posttool codex",
             "timeout": 30
           }
         ]
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" subagent-start codex'",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs\" subagent-start codex",
             "timeout": 60
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" subagent-stop codex'",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs\" subagent-stop codex",
             "timeout": 120
           }
         ]
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" stop codex'",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs\" stop codex",
             "timeout": 30
           }
         ]
