@@ -257,7 +257,8 @@ export function insightsReport(events, opt) {
   for (const [u, c] of ucount) if (c >= 2) addpat('unsupported', u, c, LST.get(key2('u', u)) ?? '',
     'A check could not run because the project lacks the tool or capability it needs, so its result is UNSUPPORTED, not PASS. Proofline never installs anything: add the tool yourself if you want the check to run, or accept that it stays unsupported.');
   /** @type {Map<string, number>} */ const unmet = new Map();
-  for (const [ak, [r, k]] of akind) {
+  // awk walks `akind` in hash order (unspecified, differs between awks); the runs of an approval pattern are listed in byte order here
+  for (const [ak, [r, k]] of [...akind].sort((x, y) => (x[1][1] < y[1][1] ? -1 : x[1][1] > y[1][1] ? 1 : x[1][0] < y[1][0] ? -1 : x[1][0] > y[1][0] ? 1 : 0))) {
     const a = asks.get(ak) ?? 0; const gr = grants.get(ak) ?? 0;
     if (a >= 2 && gr < a) { unmet.set(k, (unmet.get(k) ?? 0) + a - gr); addset('ap', k, r); }
   }
