@@ -59,6 +59,10 @@ what the hook uses there.
 
 Ten commands (`role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`, `verify-timeout`, `tm-scaled`, `db-config`, `hook-config`, `help`) run in Node; the rest still run the shell code. To run the shell code instead, write `sh` (every moved command) or `sh:cmd,cmd` (the named ones) into `.agents/local/engine`, or set `PROOFLINE_ENGINE=sh` / `PROOFLINE_ENGINE_SH=cmd,cmd`; any one of them forcing `sh` wins. `proofline doctor` prints one `engine:` line (PASS with no switch, WARN with the switch and its source) and FAILs when the core file is missing and WARNs for Node older than 22.13. A hook that needs Node denies when it is missing. The 41 commands that stage 2 moved (A206) follow the same switch (`sh:<command>`).
 
+## The Node hook (A207)
+
+The runtime hook is one Node process per event: `.agents/hooks/proofline-hook.mjs` with its `events/` and `guards/` (the Bash command scanner is `command-scan.mjs`). The wiring files (`settings.fragment.json`, `.codex/hooks.json` and the third wiring file) start it with `node`; a failed node start in PreToolUse exits 2, so the call is denied. An install replaces the old `sh -c` wiring strings, and the Node hook yields while one is still present. `proofline doctor` checks all 7 hook events. Rollback: `sh` in `.agents/local/engine` (or `PROOFLINE_ENGINE=sh`) makes the installed hook run the old shell hook; the git hooks are one-line launchers and cannot branch on it.
+
 ## Process rules
 
 An agent stops only a process it started itself, by its own PID. `pkill`, `killall`, `kill` by pattern (`kill $(pgrep ...)`, `pgrep ... | xargs kill`, a variable or loop variable filled from `pgrep`/`ps`, `find -exec kill`) and mass kills (`kill -1`, `kill 0` in any spelling) are denied by the runtime hook for the agents' tool calls, also when they sit in an interpreter one-liner (`python -c`, `perl -e`, `node -e`), a here-document, `eval` or a script file the command runs from the project or a temp folder.

@@ -6,7 +6,7 @@ adapter: state, gates and the commit/push lock are in `control-plane/agents/scri
 hooks, which work with any agent (D6). Supported: Claude Code and Codex (full). Others: send a PR (D8).
 Untested adapters must be labelled "not tested".
 
-## Support status (0.0.42)
+## Support status (0.0.43)
 
 Rendering and hooks are covered by `tests/generator/generator-test.sh`, the enforcement tests and the self-tests.
 End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, with the commit of every run, are in

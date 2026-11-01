@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.0.43 — 2026-11-01
+
+- Node migration, stage 3 (A207, issue #168, ADR 0001): the hook is one Node process per event (`adapters/claude/hooks/proofline-hook.mjs`, `events/*`, `guards/*`, `command-scan.mjs`, a tokenizer port of the awk command scanner). A PreToolUse Bash event went from 39-45 processes and 688 ms to 1 and 47 ms; Read and Write from 15-17 to 1.
+- 13 more commands run in Node: `next-user`, `worktree-root`, `in-knowledge-scope`, `request-approval`, `approve`, `approve-pending`, `approval-consume`, `answer`, `hook-time`, `language-check`, `friction-note`, `window-open`, `window-close`; plus `cli pre-commit|pre-push` (the git hooks are one-line launchers; `human.sh` moved into the core).
+- Wiring: the strings in all three wiring files start the Node hook, PreToolUse fails closed (a failed node start exits 2), the install merge replaces the old `sh -c` strings, the Node hook yields while an old shell wiring is present, and `proofline doctor` verifies all 7 hook events. Hooks need Node 22.13: a missing node blocks PreToolUse.
+- Rollback: `.agents/local/engine` `sh` (or `PROOFLINE_ENGINE=sh`) makes the installed hook run the old shell hook. The git hooks cannot branch on it.
+- Tests: golden capture fixtures (`tests/golden/capture/`), approval grammar goldens and a hook-windows CI job (nightly and manual).
+
 ## 0.0.42 — 2026-10-31
 
 - Node migration, stage 2 (A206, issue #167, ADR 0001): 41 more commands run in Node with byte-identical arguments, output, exit codes and files: `status`, `open-runs`, `effective`, `fingerprint`, `pipeline`, `next`, `summary`, `plan-section`, `digest`, `debt`, `design-surface`, `report-facts`, `report-execution`, `repro-normalize`, `design-rationales`, `report-tokens`, `verify-freeze`, `verify-scope`, `verify-knowledge-scope`, `freshness`, `verify-handoff`, `entry-tier`, `verify-qa-plan`, `verify-worker-evidence`, `questions`, `batch-check`, `commands-check`, `scale-check`, `test-path`, `task-scope-entries`, `scope-covers`, `task-type`, `human-checks`, `scope-kinds`, `path-kind`, `patch-fingerprint`, `verify-gates`, `verify-seal`, `ci-check`, `ci-task-command` and `validate`. The CLI-only core subcommands `insights` and `queue` also run in Node (the `proofline` front ends stay shell until stage 9). The engine switch covers them (`sh:<command>`).
