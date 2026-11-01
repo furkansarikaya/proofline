@@ -132,7 +132,7 @@ function readStdin(ctx) {
 function statusBlock(ctx, id) {
   if (ctx.config().get('tasks.status_block', 'on') === 'off') return;
   ctx.locks?.releaseAll();
-  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, 'status-block', id, 'answer'], { cwd: ctx.cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, 'status-block', id, 'answer'], { cwd: ctx.cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
   if (r.stderr.length) ctx.err(r.stderr.toString('latin1'));
 }
 

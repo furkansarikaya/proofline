@@ -75,7 +75,7 @@ function viaShell(ctx, argv, opt = {}) {
   // the script as agent.sh was typed (so that $0 is identical in the shell's own error texts), else the absolute path of the sibling agent.sh
   const script = opt.script ?? ctx.io.argv0 ?? path.join(ctx.scriptDir, 'agent.sh');
   const own = ctx.io.isProcess === true;
-  const r = proc.run('sh', [script, ...argv], { cwd: opt.cwd ?? ctx.cwd, env, stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+  const r = proc.run('sh', [script, ...argv], { cwd: opt.cwd ?? ctx.cwd, env, stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
   if (!own) {
     if (r.stdout.length) ctx.io.stdout.write(r.stdout);
     if (r.stderr.length) ctx.io.stderr.write(r.stderr);
@@ -165,7 +165,7 @@ function fdWriter(fd) {
  * The leading `--pl-argv0 <$0>` that agent.sh's preamble passes: the typed script path, used by the bridge only when it names the core's own
  * sibling agent.sh (same real path); anything else is ignored and the bridge uses the absolute path. It never selects what is executed.
  * @param {string[]} args @param {string} scriptPath @param {string} cwd
- * @returns {{ argv: string[], argv0?: string }}
+ * @returns {{ argv: string[], argv0?: string, rootScript?: string }}
  */
 export function splitArgv0(args, scriptPath, cwd) {
   if (args[0] !== '--pl-argv0' || args.length < 2) return { argv: args };
@@ -177,7 +177,13 @@ export function splitArgv0(args, scriptPath, cwd) {
     // sh resolves `..` physically (after following a symbolic link), so the typed path is resolved the same way: joined to the working
     // directory WITHOUT textual normalisation and handed to the C library's realpath (realpathSync.native), never to path.resolve.
     const physical = realpathSync.native(path.isAbsolute(typed) ? typed : `${cwd}/${typed}`);
-    if (physical !== sibling) return { argv: rest };
+    if (physical !== sibling) {
+      // a run worktree's agent.sh (the project's own core is the one running, see agent.sh): the worktree is the ROOT, nothing of its code is run
+      const main = realpathSync.native(path.resolve(path.dirname(scriptPath), '..', '..'));
+      const prefix = `${main}/.agents/local/worktrees/`;
+      if (physical.startsWith(prefix) && /^[^/]+\/\.agents\/scripts\/agent\.sh$/.test(physical.slice(prefix.length))) return { argv: rest, argv0: typed.split('/').includes('..') ? physical : typed, rootScript: physical };
+      return { argv: rest };
+    }
     // the typed path is executed only when it has no `..` segment; otherwise the verified real path stands in for it
     return { argv: rest, argv0: typed.split('/').includes('..') ? sibling : typed };
   } catch { /* not a file: ignored */ }
@@ -190,7 +196,8 @@ export function main(scriptPath) {
   const split = splitArgv0(process.argv.slice(2), path.resolve(scriptPath), cwd);
   const io = {
     env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
-    scriptPath: path.resolve(scriptPath), argv0: split.argv0,
+    // from a run worktree the script that names the root is the worktree's agent.sh; the code that runs stays this core's
+    scriptPath: split.rootScript ?? path.resolve(scriptPath), argv0: split.argv0,
   };
   return run(split.argv, io);
 }

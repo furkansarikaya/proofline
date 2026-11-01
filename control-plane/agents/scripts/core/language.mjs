@@ -87,7 +87,7 @@ export function languageCheck(ctx, args, stdin) {
   try {
     let target = f;
     if (stdinMode) { target = `${dir}/text`; writeFileSync(target, Buffer.from(text, 'latin1'), { mode: 0o600 }); }
-    const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, 'language-check', target, ...(hint !== '' ? [hint] : [])], { cwd: ctx.cwd, env: { ...ctx.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, 'language-check', target, ...(hint !== '' ? [hint] : [])], { cwd: ctx.cwd, env: { ...ctx.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
     ctx.out(r.stdout.toString('latin1'));
     if (r.stderr.length) ctx.err(r.stderr.toString('latin1'));
     return r.status;

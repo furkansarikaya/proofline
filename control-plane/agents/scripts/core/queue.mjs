@@ -46,7 +46,12 @@ function head12(f) {
 
 /** @param {Context} ctx @param {string[]} argv */
 function agentOut(ctx, argv) {
-  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
+  if (ctx.runner !== null && (argv[0] === 'status' || argv[0] === 'next')) { // both are commands of this core: in process, with the same root (no script is started)
+    /** @type {Buffer[]} */ const out = [];
+    ctx.runner(argv, { env: ctx.env, cwd: ctx.root, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: () => true }, scriptPath: ctx.scriptPath, isProcess: false });
+    return Buffer.concat(out).toString('latin1');
+  }
+  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
   return r.stdout.toString('latin1');
 }
 

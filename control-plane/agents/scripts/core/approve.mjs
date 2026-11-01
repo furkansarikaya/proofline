@@ -740,7 +740,7 @@ export function approveInChild(parent, target, kinds) {
     if (e instanceof BridgeToShell) {
       child.discard();
       locks.releaseAll();
-      const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
       return { rc: r.status, output: Buffer.concat([r.stdout, r.stderr]).toString('latin1') };
     }
     if (e instanceof ProoflineError) { child.flush(); sink.push(Buffer.from(`${e.message}\n`, 'latin1')); rc = e.exitCode; } else throw e;

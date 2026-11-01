@@ -49,11 +49,15 @@ case "${1:-}" in
       pl_e=${pl_e%"${pl_e##*[![:space:]]}"}
       case "$pl_e" in sh) pl_sh=yes ;; sh:*) case ",${pl_e#sh:}," in *",$1,"*) pl_sh=yes ;; esac ;; esac
     fi
+    # A run worktree's scripts are tracked content a task could have rewritten (security round 3): from a worktree the PROJECT's (main tree's) core runs,
+    # and --pl-argv0 below names the worktree's agent.sh, which tells the core which folder is the root. In the main tree pl_core_dir is self_dir.
+    pl_core_dir=$self_dir
+    [ "$sr_main" = "$root" ] || pl_core_dir=$sr_main/.agents/scripts
     # No core beside this file: a folder that is not an installed project (no manifest; a test fixture that copies agent.sh alone, test-lib.sh)
     # runs the shell code; an installed project fails closed (a guard that needs this command must deny, not see empty settings).
-    if [ "$pl_sh" = no ] && { [ ! -f "$self_dir/proofline-core.mjs" ] || [ ! -d "$self_dir/core" ]; }; then
+    if [ "$pl_sh" = no ] && { [ ! -f "$pl_core_dir/proofline-core.mjs" ] || [ ! -d "$pl_core_dir/core" ]; }; then
       if [ -f "$sr_main/.agents/.proofline-manifest" ]; then
-        echo "proofline: $self_dir/proofline-core.mjs or $self_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
+        echo "proofline: $pl_core_dir/proofline-core.mjs or $pl_core_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
       fi
       pl_sh=yes
     fi
@@ -72,7 +76,7 @@ case "${1:-}" in
           case "${4:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac ;;
       esac
     fi
-    [ "$pl_sh" = yes ] || exec node "$self_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
+    [ "$pl_sh" = yes ] || exec node "$pl_core_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
 esac
 cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD

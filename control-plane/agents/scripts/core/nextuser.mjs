@@ -151,7 +151,7 @@ function question(ctx, id) {
 
 /** `batch_state` / `batch_rows` @param {Context} ctx */
 function batchNext(ctx) {
-  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, 'batch-next', '--tsv'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, 'batch-next', '--tsv'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
   return r.stdout.toString('latin1').split('\n').filter((l, i, a) => !(i === a.length - 1 && l === ''));
 }
 const batchState = (/** @type {string[]} */ lines) => { const f = (lines[0] ?? '').split('\t'); return lines.length > 0 && f[0] === 'state' ? (f[1] ?? '') : 'nobatch'; };

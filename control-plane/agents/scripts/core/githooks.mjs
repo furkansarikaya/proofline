@@ -84,7 +84,7 @@ function agent(ctx, argv) {
     const code = ctx.runner(argv, io);
     return { code, out: Buffer.concat(out).toString('latin1'), err: Buffer.concat(err).toString('latin1') };
   }
-  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
   return { code: r.status, out: r.stdout.toString('latin1'), err: r.stderr.toString('latin1') };
 }
 
