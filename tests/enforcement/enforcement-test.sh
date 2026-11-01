@@ -13,14 +13,25 @@ if [ -z "${ENF_INNER:-}" ]; then
   ENF_INNER=1 ENF_REPO=$repo exec sh -c '. "$0"; . "$1"' "$repo/control-plane/agents/scripts/test-lib.sh" "$repo/tests/enforcement/enforcement-test.sh"
 fi
 
-hook=$ENF_REPO/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$ENF_REPO/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun=node; hbase=proofline-hook.mjs ;; *) hrun=sh; hbase=proofline-hook.sh ;; esac
+# install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
+install_hook() {
+  case $hook in
+    *.mjs) cp -R "$(dirname "$hook")/." .agents/hooks/; cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
+      printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> .git/info/exclude ;;
+    *) cp "$hook" .agents/hooks/ ;;
+  esac
+}
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 # a loaded runner must not expire the approval step of the hook mid-test: tests that exercise the budget set their own
 PROOFLINE_HOOK_APPROVE_BUDGET=300; PROOFLINE_HOOK_LOCK_WAIT=120; export PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT
 
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) print "\\n"; print }'; }
-H() { printf '%s' "$2" | sh "$hook" "$1" "${3:-claude}"; }   # EVENT JSON [RUNTIME] -> hook stdout
+H() { printf '%s' "$2" | $hrun "$hook" "$1" "${3:-claude}"; }   # EVENT JSON [RUNTIME] -> hook stdout
 who() { [ -z "${1:-}" ] || printf ',"agent_type":"%s","agent_id":"%s"' "$1" "${2:-a1}"; }
 pre_edit() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"$1\",\"tool_input\":{\"file_path\":\"$2\"}$(who "${3:-}" "${4:-}")}"; }
 pre_bash() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$(jstr "$1")\"}$(who "${2:-}" "${3:-}")}"; }
@@ -35,7 +46,7 @@ denied() { printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (
 allowed() { ! printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (denied: $2)"; ok "$1"; }
 fixture() { # scaffold an orchestrated run at IMPLEMENTING with git hooks and the runtime hook installed
   scaffold orchestrated no "${1:-COMPLEX}" "${2:-}"
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks src; cp "$hook" .agents/hooks/
+  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks src; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude   # committed in a real install
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }
@@ -756,10 +767,12 @@ questions() {
   H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}" codex | grep -q '.agents/skills/proofline-lead/SKILL.md' || die "Codex SessionStart skill path"
   ok "SessionStart tells the lead its skill, the active run and the next step"
   # A200: the session check is bounded; a slow `agent.sh next` is stopped and the lead is told to ask it itself, the hook answers in time
+  [ "$hrun" != node ] || sleep 2   # the same event within two seconds is a duplicate registration; the shell hook was slower than that
+  [ "$hrun" != node ] || printf 'sh:next\n' > .agents/local/engine   # the Node hook runs `next` in its own process unless the user's engine switch asks for agent.sh
   mv .agents/scripts/agent.sh .agents/scripts/agent-real.sh
   printf '#!/bin/sh\ncase "$1" in next) sleep 25; exit 0 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n' > .agents/scripts/agent.sh
   se_t0=$(date +%s); out=$(PROOFLINE_HOOK_NEXT_BUDGET=2 H session "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"cwd\":\"$PWD\"}"); se_t1=$(date +%s)
-  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh
+  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh; rm -f .agents/local/engine
   [ $((se_t1 - se_t0)) -lt 15 ] || die "the session hook waited $((se_t1 - se_t0))s for a slow agent.sh next (A200)"
   printf '%s' "$out" | grep -q "agent.sh next LC (the session check did not finish" || die "the session hook did not hand a timed-out next to the lead: $out"
   ok "SessionStart bounds the next-step check (A200)"
@@ -1268,6 +1281,8 @@ worktree_state() {
   printf 'impl.txt\n' > .agents/owns.conf.tmp; rm -f .agents/owns.conf.tmp
   M=$PWD
   wt=$(sh .agents/scripts/agent.sh worktree-add W-1) || die "worktree-add: $wt"
+  # the core is not tracked in the fixture, so a run worktree has none; the Node hook reads the core of the tree it acts on
+  [ "$hrun" != node ] || { cp "$tl_agents/scripts/proofline-core.mjs" "$wt/.agents/scripts/"; cp -R "$tl_agents/scripts/core" "$wt/.agents/scripts/core"; }
   mkdir -p "$wt/.agents/runs" "$wt/.agents/local/approvals" "$wt/.agents/local/records"
   cp -R .agents/runs/LC "$wt/.agents/runs/LC"; cp .agents/local/ACTIVE_RUN "$wt/.agents/local/ACTIVE_RUN"
   [ "$(sh .agents/scripts/agent.sh worktree-root "$wt/.agents/runs/LC")" = "$wt" ] || die "worktree-root of the run folder"
