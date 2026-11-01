@@ -1,6 +1,6 @@
 // @ts-check
 // PreToolUse guard of the read tools (Read, Glob, Grep). The shell hook has one rule for them: the database guard (no agent reads a database
-// file while a run is open), judged on the path and pattern fields of the input. Returns null (allow) or { decision: 'deny', reason }.
+// file while a run is open), judged on the path and pattern fields of the input. A refusal is thrown as kit.Deny; null allows.
 import { fileTool } from './write.mjs';
 import { jget } from '../lib/text.mjs';
 

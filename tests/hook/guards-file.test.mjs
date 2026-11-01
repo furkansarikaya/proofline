@@ -5,9 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildContext, finish } from '../../adapters/claude/hooks/lib/context.mjs';
-import { readGuard } from '../../adapters/claude/hooks/guards/read.mjs';
-import { writeGuard } from '../../adapters/claude/hooks/guards/write.mjs';
-import { otherGuard } from '../../adapters/claude/hooks/guards/other.mjs';
+import { handle } from '../../adapters/claude/hooks/events/pretool.mjs';
 import { buildTemplate, haveJq, runHook, cleanEnv, copyProject, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync } from './harness.mjs';
 import { symlinkSync, linkSync } from 'node:fs';
 
@@ -60,20 +58,16 @@ before(() => {
 });
 after(() => { rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
-/** The Node side: the guard the router would pick for the tool. @param {string} dir @param {any} payload @param {Record<string, string>} env */
-async function nodeVerdict(dir, payload, env) {
+/** The Node side: the router with the real guards, in this process. @param {string} dir @param {any} payload @param {Record<string, string>} env @returns {Promise<string>} what the hook prints */
+async function nodeOut(dir, payload, env) {
   const raw = Buffer.from(JSON.stringify({ cwd: dir, session_id: 's1', ...payload }));
   const ctx = await buildContext('pretool', 'claude', raw, cleanEnv({ CLAUDE_PROJECT_DIR: dir, ...env }));
   assert.ok(ctx);
-  try {
-    const t = payload.tool_name;
-    const r = /^(Read|Glob|Grep)$/.test(t) ? await readGuard(ctx.input, ctx) : /^(Write|Edit|MultiEdit|NotebookEdit)$/.test(t) ? await writeGuard(ctx.input, ctx) : await otherGuard(ctx.input, ctx);
-    return r;
-  } finally { finish(ctx); }
+  try { return (await handle(ctx)) ?? ''; } finally { finish(ctx); }
 }
 
-/** @param {string} out the shell hook's stdout @returns {string | null} the deny reason without the prefix */
-function shellReason(out) {
+/** @param {string} out @returns {string | null} the deny reason, null when nothing was printed */
+function reasonOf(out) {
   if (out.trim() === '') return null;
   const j = JSON.parse(out);
   assert.equal(j.hookSpecificOutput.permissionDecision, 'deny');
@@ -89,20 +83,15 @@ async function compare(c) {
   const agent = c.who ? { agent_type: c.who.split(' ')[0], agent_id: c.who.split(' ')[1] ?? 'a1' } : {};
   const payload = { hook_event_name: 'PreToolUse', tool_name: c.tool, tool_input: c.input(dir), ...agent };
   const env = c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v.replaceAll('<P>', dir).replaceAll('<B>', base)])) : {};
-  const [sh, node] = await Promise.all([runHook('sh', dir, 'pretool', payload, { env }), nodeVerdict(dir, payload, env)]);
-  const sr = shellReason(sh.stdout);
+  const [sh, node] = await Promise.all([runHook('sh', dir, 'pretool', payload, { env }), nodeOut(dir, payload, env)]);
+  const sr = reasonOf(sh.stdout); const nr = reasonOf(node);
   if (c.stricter) {
     assert.equal(sr, null, `${c.n}: the shell allows this one (that is the hole)`);
-    assert.equal(node?.decision, 'deny', `${c.n}: the Node guard must deny`);
+    assert.notEqual(nr, null, `${c.n}: the Node hook must deny`);
     return;
   }
-  if (sr === null) assert.equal(node, null, `${c.n}: shell allows, node says ${node?.reason}`);
-  else {
-    assert.ok(node, `${c.n}: shell denies (${sr}), node allows`);
-    assert.equal(node.decision, 'deny');
-    assert.ok(sr === `proofline: ${node.reason}` || sr.startsWith(`proofline: ${node.reason} | `), `${c.n}: texts differ\n shell: ${sr}\n node:  ${node.reason}`);
-  }
-  if (c.expect) assert.equal(sr === null ? 'allow' : 'deny', c.expect, `${c.n}: expectation`);
+  assert.equal(node, sh.stdout, `${c.n}: the printed answer differs`);
+  if (c.expect) assert.equal(nr === null ? 'allow' : 'deny', c.expect, `${c.n}: expectation`);
 }
 
 /** @param {string} n @param {string} tool @param {string} p @param {Partial<Case>} [o] @returns {Case} */
@@ -264,7 +253,6 @@ test('file-tool guards: same verdict and text as the shell hook (no run)', { ski
 
 test('file-tool guards: a case variant of a protected name is protected (case-insensitive file systems)', { skip: skip || caseSensitive, timeout: 60000 }, async () => {
   for (const p of ['.AGENTS/local/approvals/x.yaml', '.agents/LOCAL/approvals/x.yaml', '.agents/runs/LC/run.yaml', '.agents/runs/LC/Gates/001.yaml']) {
-    const r = await nodeVerdict(runDir, { tool_name: 'Write', tool_input: { file_path: p } }, {});
-    assert.equal(r?.decision, 'deny', p);
+    assert.notEqual(reasonOf(await nodeOut(runDir, { tool_name: 'Write', tool_input: { file_path: p } }, {})), null, p);
   }
 });
