@@ -93,5 +93,5 @@ export function toMsysPath(p, platform = process.platform) {
   if (platform !== 'win32') return p;
   const n = normalizeInputPath(p, platform);
   const m = /^([A-Za-z]):\/(.*)$/s.exec(n);
-  return m ? `/${m[1].toLowerCase()}${m[2] ? `/${m[2]}` : ''}` : n;
+  return m ? `/${m[1].replace(/[A-Z]/, (c) => c.toLowerCase())}${m[2] ? `/${m[2]}` : ''}` : n;
 }
