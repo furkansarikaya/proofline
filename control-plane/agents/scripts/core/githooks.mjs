@@ -106,7 +106,7 @@ function forbidden(ctx, config, email) {
   return false;
 }
 
-/** @param {Context} ctx @param {string} config @param {string} section */
+/** @param {string} config */
 function protectedBranches(config) { return cfg2(config, 'git', 'protected_branches').split(/[ \t\n]+/).filter((x) => x !== ''); }
 
 /** The runs `open-runs` lists: [id, branch]. @param {Context} ctx @param {string} hook @returns {Array<[string, string]>} */
