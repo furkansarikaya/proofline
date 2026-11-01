@@ -157,6 +157,7 @@ hooks_merge() {
     [ "$(jq -S -c . "$1")" != "$(jq -S -c . "$3")" ] || return 0
     return 3
   elif command -v node >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # the program is JavaScript, not shell
     node -e '
       const fs = require("fs"); const [cur, frag, out] = process.argv.slice(1);
       let c, f; try { c = JSON.parse(fs.readFileSync(cur, "utf8")); f = JSON.parse(fs.readFileSync(frag, "utf8")); } catch (e) { process.exit(1); }
