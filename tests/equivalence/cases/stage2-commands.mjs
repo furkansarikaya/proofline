@@ -4,7 +4,7 @@
 // Cases of a command that has not moved yet run the shell against the shell and pass trivially; they become the equivalence proof when the command
 // is added to the Node HANDLERS. scope.mjs picks a case up through its command (steps[].args[0]): a pull request replays the cases of the touched
 // commands, the nightly EQUIVALENCE_FULL run replays all of them.
-import { EXTRA_STATES, RUN_STATES, SCALE_STATES, stateFixture } from './stage2-fixtures.mjs';
+import { BLOCK_STATES, EXTRA_STATES, RUN_STATES, SCALE_STATES, stateFixture } from './stage2-fixtures.mjs';
 
 /** @typedef {import('../rig.mjs').Case} Case */
 /** @typedef {import('../rig.mjs').Step} Step */
@@ -29,8 +29,8 @@ const A = (/** @type {string[]} */ args, /** @type {Partial<Step>} */ o = {}) =>
 export const ROWS = [
   // the commands that read a run: gate-sensitive ones on every state
   { cmd: 'effective', states: [...ALL, ...SCALE_STATES], calls: [A(['effective', ID]), A(['effective', ID], { role: 'reviewer' })] },
-  { cmd: 'fingerprint', states: [...ALL, ...SCALE_STATES], calls: [A(['fingerprint', ID]), A(['fingerprint', ID, 'full']), A(['fingerprint'])] },
-  { cmd: 'pipeline', states: [...ALL, ...SCALE_STATES], calls: [A(['pipeline', ID]), A(['pipeline', ID], { role: 'qa' }), A(['pipeline'])] },
+  { cmd: 'fingerprint', states: [...ALL, ...SCALE_STATES, ...BLOCK_STATES], calls: [A(['fingerprint', ID]), A(['fingerprint', ID, 'full']), A(['fingerprint'])] },
+  { cmd: 'pipeline', states: [...ALL, ...SCALE_STATES, ...BLOCK_STATES], calls: [A(['pipeline', ID]), A(['pipeline', ID], { role: 'qa' }), A(['pipeline'])] },
   { cmd: 'next', states: [...ALL, ...SCALE_STATES], calls: [A(['next', ID]), A(['next']), A(['next', ID], { role: 'implementer' })] },
   { cmd: 'summary', states: [...ALL, ...SCALE_STATES], calls: [A(['summary', ID]), A(['summary', ID, '--status']), A(['summary']), A(['summary', 'NOPE'])] },
   { cmd: 'digest', states: [...ALL, ...SCALE_STATES], calls: [A(['digest', ID]), A(['digest'])] },
@@ -44,7 +44,7 @@ export const ROWS = [
   { cmd: 'verify-knowledge-scope', states: CORE, calls: [A(['verify-knowledge-scope', ID]), A(['verify-knowledge-scope'])] },
   { cmd: 'verify-qa-plan', states: CORE, calls: [A(['verify-qa-plan', ID]), A(['verify-qa-plan', 'NOPE'])] },
   { cmd: 'verify-worker-evidence', states: CORE, calls: [A(['verify-worker-evidence', ID]), A(['verify-worker-evidence'])] },
-  { cmd: 'patch-fingerprint', states: CORE, calls: [A(['patch-fingerprint', ID]), A(['patch-fingerprint', 'NOPE'])] },
+  { cmd: 'patch-fingerprint', states: [...CORE, ...BLOCK_STATES], calls: [A(['patch-fingerprint', ID]), A(['patch-fingerprint', 'NOPE'])] },
   { cmd: 'plan-section', states: CORE, calls: [A(['plan-section', ID, 'Architecture']), A(['plan-section', ID, 'Assumptions']), A(['plan-section', ID, 'Data']), A(['plan-section', ID, 'Arch.*']), A(['plan-section', ID, '[Aa]rchitecture']), A(['plan-section', ID, 'Architecture|Data']), A(['plan-section', ID, '^Arch']), A(['plan-section', ID, '[abc']), A(['plan-section', ID, 'a\\b']), A(['plan-section', ID, '*']), A(['plan-section', ID, '']), A(['plan-section', ID]), A(['plan-section'])] },
   { cmd: 'report-facts', states: CORE, calls: [A(['report-facts', ID]), A(['report-facts'])] },
   { cmd: 'report-execution', states: CORE, calls: [A(['report-execution', ID]), A(['report-execution'])] },

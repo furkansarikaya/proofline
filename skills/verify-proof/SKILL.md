@@ -4,7 +4,7 @@ description: Mechanical proof that a frozen plan was implemented - every accepta
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.43"
+  version: "0.0.44"
 ---
 
 # verify-proof

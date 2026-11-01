@@ -19,7 +19,7 @@ export const CORPUS = [
   { name: 'carriage-return', prompt: 'line one\r\nline two\rline three\r\n' },
   { name: 'tabs', prompt: 'a\tb\t\tc\t' },
   { name: 'control-bytes', prompt: 'bell\u0007 esc\u001b[0m soh\u0001 us\u001f del\u007f ff\f vt\u000b' },
-  { name: 'nul', prompt: 'before\u0000after' },
+  { name: 'nul-byte', prompt: 'before\u0000after' },
   { name: 'newlines', prompt: '\n\nleading and trailing newlines\n\n\n' },
   { name: 'multiline', prompt: 'approve plan,\napprove commit\n\n> quoted line\n```\nfenced\n```' },
   { name: 'json-looking', prompt: '{"session":"x","time":1,"sha256":"y","text":"z"}' },

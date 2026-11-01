@@ -86,6 +86,10 @@ rrun COMPLEX 'src/b.go'`,
 risk_open`,
   'risk-passed': `${RISK}
 risk_open; pass_all`,
+  // lifecycle-test: the proofline block of AGENTS.md/CLAUDE.md and the files an upgrade installs are control plane, not content (A154, A156, A161)
+  'block-new-agents': `scaffold orchestrated no COMPLEX; ${IMPL}; pass_all; printf '<!-- proofline:begin -->\\nblock v1\\n<!-- proofline:end -->\\n' > AGENTS.md; printf '<!-- proofline:begin -->\\nb\\n<!-- proofline:end -->\\nproject text\\n' > CLAUDE.md`,
+  'block-change': `SC_AGENTS_MD=1 scaffold orchestrated no COMPLEX; ${IMPL}; pass_all; sed -i.bak 's/^block v1$/block v2/' AGENTS.md; rm -f AGENTS.md.bak`,
+  'block-upgraded': `SC_AGENTS_MD=1 scaffold orchestrated no COMPLEX; ${IMPL}; pass_all; mkdir -p .claude/agents .codex/agents .claude/skills/proofline; printf 'agent\\n' > .claude/agents/proofline-x.md; printf 'agent\\n' > .codex/agents/proofline-x.toml; printf 'skill\\n' > .claude/skills/proofline/SKILL.md; printf '# version: 0.0.17\\n0000  .claude/skills/proofline/SKILL.md\\n' > .agents/.proofline-manifest; sed -i.bak 's/^block v1$/block v2/' AGENTS.md; rm -f AGENTS.md.bak; printf '<!-- proofline:begin -->\\nb\\n<!-- proofline:end -->\\n' > CLAUDE.md`,
   // the scaling fixture of tests/bench/agent-procs.mjs: the frozen run plus N untracked changed files
   'scale-0': `scaffold orchestrated no COMPLEX; ${files(0)}`,
   'scale-20': `scaffold orchestrated no COMPLEX; ${files(20)}`,
@@ -94,7 +98,8 @@ risk_open; pass_all`,
 /** The states of the waiver, known-issue, batch, approval, SECRETS/SECURITY, pass_low, pull-request, drift and dispatch scenarios (read by every run command). */
 export const EXTRA_STATES = ['gates-waived', 'gates-waived-key', 'gates-waive-nomatch', 'gates-pending-waive', 'gates-pending-plan', 'gates-secrets-fail', 'gates-security-fail', 'gates-pass-low',
   'gates-known-issue', 'gates-known-issue-unlisted', 'gates-batch-accept', 'gates-batch-decline', 'gates-pr-open', 'gates-drift', 'gates-dispatch'];
-export const RUN_STATES = Object.keys(STATES);
+export const BLOCK_STATES = ['block-new-agents', 'block-change', 'block-upgraded'];
+export const RUN_STATES = Object.keys(STATES).filter((k) => !BLOCK_STATES.includes(k));
 export const SCALE_STATES = ['scale-0', 'scale-20', 'scale-60'];
 
 /** @type {Map<string, Fixture>} */ const built = new Map();

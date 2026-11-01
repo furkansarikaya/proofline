@@ -1106,7 +1106,8 @@ reopen_failed_run() {
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
 }
 ro() { printf 'reason: the budget decision was made and the verifier false alarm is fixed\n' | "$@"; }
-ro_approve() { A request-approval LC reopen:LC >/dev/null; capture 'I approve the reopen of LC'; A approve LC reopen:LC >/dev/null; }
+# a capture at the real time after the request: a project that runs the Node core ignores a capture stamped in the future (Stage 3 hardening)
+ro_approve() { A request-approval LC reopen:LC >/dev/null; sleep 1; capture 'I approve the reopen of LC' "$(date +%s)"; A approve LC reopen:LC >/dev/null; }
 
 # reopen of a FAILED run (A152): refused without the user's approval, by non-lead roles and on a non-terminal run; with it,
 # passing gates stay, the failed gate and the fix rounds restart, knowledge restarts, the scope is checked, CODE_DONE is reachable.
@@ -1208,10 +1209,12 @@ scenario_reopen_approval_kinds() {
 }
 
 # A154: what `proofline upgrade` installs outside .agents/ is control plane: no scope error, no fingerprint change, no stale gate.
+# A real `proofline upgrade` installs the Node core beside agent.sh and writes the manifest; an installed project without the core fails closed (exit 127)
+install_core() { cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; rm -rf .agents/scripts/core; cp -R "$tl_agents/scripts/core" .agents/scripts/core; }
 upgrade_files() {
   mkdir -p .claude/agents .codex/agents .claude/skills/proofline
   printf 'agent\n' > .claude/agents/proofline-x.md; printf 'agent\n' > .codex/agents/proofline-x.toml; printf 'skill\n' > .claude/skills/proofline/SKILL.md
-  printf '# version: 0.0.17\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.17\n0000  .claude/skills/proofline/SKILL.md\n' > .agents/.proofline-manifest; install_core
 }
 scenario_reopen_after_upgrade() {
   SC_AGENTS_MD=1 reopen_failed_run; fp0=$(A fingerprint LC)
@@ -1230,7 +1233,7 @@ scenario_upgrade_product_edits() {
 }
 scenario_upgrade_named_path() {
   SC_SCOPE_NAMED=.claude/skills/proofline/named.md scaffold orchestrated; unset SC_SCOPE_NAMED; to_code_done orchestrated
-  printf '# version: 0.0.17\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest
+  printf '# version: 0.0.17\n0000  .claude/skills/proofline/named.md\n' > .agents/.proofline-manifest; install_core
   fp0=$(A fingerprint LC); mkdir -p .claude/skills/proofline; printf 'edit\n' > .claude/skills/proofline/named.md
   [ "$(A fingerprint LC)" != "$fp0" ] || die "a plan-scope-named installed file left the fingerprint"
   A pipeline LC | grep '^gate\.' | grep -q '=stale' || die "gates not stale after a plan-scope-named installed file changed"

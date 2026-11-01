@@ -369,7 +369,7 @@ jobs:
         node: ['22.13.0', 'lts/*']
         # One leg per group of test FILES (the slow ones split further by test name: `name` runs the tests whose name matches the pattern, `skip` runs
         # all the others, so a name list and its complement partition a file). Before this one job ran every file serially (68 and 34 minutes). Every leg
-        # runs on both Node versions; tests/ci/node-tests-legs.test.mjs checks that every test file and every test of a split file is in exactly one leg.
+        # runs on both Node versions; the `ci-bench-enforcement` leg names globs, so a new test file under tests/ci, tests/bench or tests/enforcement joins it by itself; tests/ci/node-tests-legs.test.mjs checks that every test file and every test of a split file is in exactly one leg.
         leg:
           - name: c1-a
             mode: name
@@ -414,7 +414,7 @@ jobs:
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'
-            files: tests/bench/output-budgets.test.mjs tests/bench/process-budgets.test.mjs tests/ci/ecosystem-branching.test.mjs tests/ci/equivalence-legs.test.mjs tests/ci/fast-mode.test.mjs tests/ci/hook-node-job.test.mjs tests/ci/no-shell-logic.test.mjs tests/ci/node-tests-legs.test.mjs tests/enforcement/command-scan.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs
+            files: tests/bench/*.test.mjs tests/ci/*.test.mjs tests/enforcement/*.test.mjs
           - name: full-serial
             mode: full
             pattern: 'none'

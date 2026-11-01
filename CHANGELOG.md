@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 0.0.44 — 2026-11-01
+
+- Legacy self-test fixes (A208, no product change): scenarios of stages 1 to 3 failed in the legacy self-test; the temporary CI fast mode (A205) hid them and an accidental full run found them. Fixed in test fixtures only: the lifecycle and risk fixtures that write `.agents/.proofline-manifest` now install the Node core like a real upgrade (an installed project without the core fails closed with exit 127); `ro_approve` (reopen approvals in `risk-test.sh`) and the `cli-test.sh` commands reply stamp real capture times, because the legacy `capture` helper stamps now plus 3600, which the Stage 3 hardening ignores once a fixture runs the Node core (`test-lib.sh` is untouched); the equivalence rig has states for a new block-only AGENTS.md / CLAUDE.md, a block-only change and the files an upgrade installs (fingerprint, pipeline, patch-fingerprint).
 - CI: the equivalence job (about 3 h per run) is sharded into 15 parallel legs. A pull request replays a representative set (31 commands on four light states) plus the acceptance tests; the full replay runs nightly and on manual runs (A209).
 
 ## 0.0.43 — 2026-11-01
