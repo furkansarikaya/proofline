@@ -17,7 +17,7 @@ S() { A deliver-step LC "$@"; }
 has() { hs_p=$1; shift; "$@" > "$base/has.out" || die "$* failed: $(cat "$base/has.out")"; grep -q -- "$hs_p" "$base/has.out" || die "$* printed no '$hs_p': $(cat "$base/has.out")"; }
 origin() { git remote add origin https://github.com/acme/app.git; }   # never fetched or pushed
 hooks() {
-  origin; mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/pre-push" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit" "$base/hooks/pre-push"
+  origin; mkdir -p "$base/hooks"; node "$tl_agents/../../tests/legacy-githooks/install.mjs" "$base/hooks"
   git config core.hooksPath "$base/hooks"
 }
 tasks_in_tasks() { sed 's#^  dir: .agents/tasks#  dir: tasks#' .agents/config.yaml > "$base/cfg" && cp "$base/cfg" .agents/config.yaml; }   # the fixtures keep task files in tasks/

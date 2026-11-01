@@ -22,7 +22,7 @@ next_has() { A next LC > "$base/nx.out" 2>&1 || die "next failed: $(cat "$base/n
 ledger_n() { grep -c " event=$1 " .agents/runs/LC/LEDGER.log || true; }
 hooks() {
   git remote add origin https://github.com/acme/app.git; git init -q --bare "$base/bare.git"; git remote add bare "$base/bare.git"
-  mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/pre-push" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit" "$base/hooks/pre-push"
+  mkdir -p "$base/hooks"; node "$tl_agents/../../tests/legacy-githooks/install.mjs" "$base/hooks"
   git config core.hooksPath "$base/hooks"
 }
 ci_red() { printf '%s completed failure build\n' "${1:-123}" > "$base/gh.runs"; printf 'build\tRun tests\t2026-01-01T00:00:00Z %s\n' "${2:-AssertionError: lookup returned the wrong value for an empty key}" > "$base/gh.log"; }

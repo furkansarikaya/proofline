@@ -994,7 +994,7 @@ I don't approve it" "approve the plan, unless the tests fail then I don't approv
 scenario_cleanup_after_delivery() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; finish_done
   tb=$(git branch --show-current); [ "$tb" = proofline/LC-lookup ] || die "task branch: $tb"
-  mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit"
+  mkdir -p "$base/hooks"; node "$tl_agents/../../tests/legacy-githooks/install.mjs" "$base/hooks" pre-commit human.sh
   git config core.hooksPath "$base/hooks"; PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
   git add -A; expect_msg "a commit without the user's approval" 'commit approval' git commit -qm 'feat: lookup (LC)'
   A request-approval LC commit >/dev/null; capture 'commit it'; A approve LC commit >/dev/null

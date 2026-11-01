@@ -12,11 +12,12 @@
 //   events/<name>.mjs  export async function handle(ctx): Promise<string | undefined>   the stdout line (with its newline) or nothing
 //   lib/               text (jesc, jget, safe, sha), fsx (writes that refuse links), agent (the project's commands), context
 // An unexpected exception fails closed: PreToolUse denies while a run exists; the other events print the error on stderr and exit 1.
-import { existsSync, readFileSync, writeSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { engineFileValue } from './lib/agent.mjs';
 import { EVENTS, buildContext, finish } from './lib/context.mjs';
 import { rmf } from './lib/fsx.mjs';
+import { yieldsToOtherWiring } from './lib/yield.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 
@@ -64,6 +65,7 @@ function failClosed(c, e) {
 export async function main(argv) {
   const ev = argv[0] ?? '';
   const rt = argv[1] ?? 'claude';
+  if (yieldsToOtherWiring(here, ev, rt, process.env)) return 0;   // the same event is wired by the old shell string (or by the project, for the plugin): handled once
   const raw = readStdin();
   const c = await buildContext(ev, rt, raw, process.env);
   if (!c) return 0;
@@ -86,6 +88,12 @@ export async function main(argv) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+/** True when this file is the program node was started with: both sides by real path (a project under a symlinked folder, /tmp on macOS, must still run the hook, not fall silent). @returns {boolean} */
+function isEntry() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]); } catch { return fileURLToPath(import.meta.url) === process.argv[1]; }
+}
+
+if (isEntry()) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { writeOut(2, `proofline: ${e instanceof Error ? e.stack : e}\n`); process.exitCode = 1; });
 }

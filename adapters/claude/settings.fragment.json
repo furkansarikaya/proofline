@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" session claude'",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" session claude",
             "timeout": 30
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" prompt claude'",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" prompt claude",
             "timeout": 30
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || { [ -f \"$r/.agents/config.yaml\" ] || exit 0; echo \"proofline: $h is missing; failing closed\" >&2; exit 2; }; exec sh \"$h\" pretool claude'",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" pretool claude || test ! -f \"$CLAUDE_PROJECT_DIR/.agents/config.yaml\" || { echo \"proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed\" >&2; exit 2; }",
             "timeout": 30
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" posttool claude'",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" posttool claude",
             "timeout": 30
           }
         ]
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" subagent-start claude'",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" subagent-start claude",
             "timeout": 60
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" subagent-stop claude'",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" subagent-stop claude",
             "timeout": 120
           }
         ]
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f \"$h\" ] || exit 0; exec sh \"$h\" stop claude'",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" stop claude",
             "timeout": 30
           }
         ]

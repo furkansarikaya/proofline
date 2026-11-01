@@ -127,7 +127,7 @@ check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && 
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
 done; ok "scripts and git hooks are executable"
-for f in .agents/WORKFLOW.md .agents/GATES.md .agents/templates/RUN.yaml .agents/modes/deterministic.yaml .agents/hooks/proofline-hook.sh .agents/roles.conf .agents/roles/lead.md \
+for f in .agents/WORKFLOW.md .agents/GATES.md .agents/templates/RUN.yaml .agents/modes/deterministic.yaml .agents/hooks/proofline-hook.sh .agents/hooks/proofline-hook.mjs .agents/hooks/events/pretool.mjs .agents/hooks/lib/yield.mjs .agents/roles.conf .agents/roles/lead.md \
   .claude/agents/proofline-reviewer.md .codex/agents/proofline-reviewer.toml AGENTS.md CLAUDE.md .claude/settings.json .codex/hooks.json .agents/.proofline-manifest; do
   [ -f "$base/$f" ] || die "missing after init: $f"
 done; ok "control plane, roles, agents, hooks and instruction files are installed"
@@ -143,11 +143,11 @@ gen=$T/gen-economy; sh "$snap/adapters/generate.sh" --profile economy --out "$ge
 diff -r "$gen/.claude/agents" "$base/.claude/agents" >/dev/null 2>&1 && diff -r "$gen/.codex/agents" "$base/.codex/agents" >/dev/null 2>&1 && diff "$gen/.agents/roles.conf" "$base/.agents/roles.conf" >/dev/null 2>&1 \
   && ok "roles are rendered for the chosen profile (equals generate.sh --profile economy)" || die "installed roles differ from generate.sh --profile economy"
 bad=''
-for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop; do
-  jqe ".hooks.$ev | map(.hooks[].command) | flatten | any(contains(\"proofline-hook.sh\"))" "$base/.claude/settings.json" || bad="$bad claude:$ev"
-  jqe ".hooks.$ev | map(.hooks[].command) | flatten | any(contains(\"proofline-hook.sh\"))" "$base/.codex/hooks.json" || bad="$bad codex:$ev"
+for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop Stop; do
+  jqe ".hooks.$ev | map(.hooks[].command) | flatten | any(contains(\"proofline-hook.mjs\"))" "$base/.claude/settings.json" || bad="$bad claude:$ev"
+  jqe ".hooks.$ev | map(.hooks[].command) | flatten | any(contains(\"proofline-hook.mjs\"))" "$base/.codex/hooks.json" || bad="$bad codex:$ev"
 done
-[ -z "$bad" ] && ok "Claude settings and Codex hooks wire all six events" || die "hooks missing:$bad"
+[ -z "$bad" ] && ok "Claude settings and Codex hooks wire all seven events (the Node hook)" || die "hooks missing:$bad"
 grep -qx '<!-- proofline:begin -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:end -->' "$base/AGENTS.md" && grep -qx '<!-- proofline:begin -->' "$base/CLAUDE.md" && ok "AGENTS.md and CLAUDE.md carry the marked proofline block" || die "marked blocks missing"
 grep -qxF .agents/local/ "$base/.gitignore" && grep -qxF .agents/runs/ "$base/.gitignore" && ok ".gitignore ignores .agents/local/ and .agents/runs/" || die ".gitignore lines missing"
 ! grep -Eq '^/?\.claude(/|$)' "$base/.gitignore" && ok ".gitignore of an installed project has no .claude line (A117)" || die "init added a .claude line to .gitignore"
@@ -215,7 +215,7 @@ out=$(pl "$pre" init --yes --runtimes claude,codex 2>&1) || { LAST=$out; die "in
 grep -qx node_modules "$pre/.gitignore" && grep -qxF .agents/runs/ "$pre/.gitignore" && ok ".gitignore: existing lines kept" || die ".gitignore overwritten"
 grep -qxF .agents/local/ "$pre/.gitignore" && ! grep -Eq '^/?\.claude(/|$)' "$pre/.gitignore" && ok ".gitignore: init adds no .claude line to an existing file (A117)" || die "init added .claude to an existing .gitignore"
 jqe '.permissions.allow[0] == "Bash(ls)" and .model == "opus"' "$pre/.claude/settings.json" && ok ".claude/settings.json keeps the user's keys" || die "settings.json keys dropped"
-jqe '[.hooks.PreToolUse[].hooks[].command] | (index("echo mine") != null) and (map(select(contains("proofline-hook.sh"))) | length == 1)' "$pre/.claude/settings.json" && ok ".claude/settings.json keeps the user's hook and adds one proofline hook" || die "settings.json hooks wrong"
+jqe '[.hooks.PreToolUse[].hooks[].command] | (index("echo mine") != null) and (map(select(contains("proofline-hook.mjs"))) | length == 1)' "$pre/.claude/settings.json" && ok ".claude/settings.json keeps the user's hook and adds one proofline hook" || die "settings.json hooks wrong"
 jqe '.extra == 1 and ([.hooks.SessionStart[].hooks[].command] | index("echo codex-mine") != null)' "$pre/.codex/hooks.json" && jqe '.hooks.SubagentStop | length >= 1' "$pre/.codex/hooks.json" && ok ".codex/hooks.json is merged, not replaced" || die "codex hooks.json not merged"
 grep -Fqx 'network_access = true' "$pre/.codex/config.toml" && grep -Fqx 'custom = "mine"' "$pre/.codex/config.toml" && grep -Fqx 'model = "user-model"' "$pre/.codex/config.toml" && grep -Fq '# toml-.codex/config.toml:' "$pre/.agents/.proofline-manifest" && ok '.codex/config.toml enables network, keeps user keys, and is manifest-tracked' || die 'codex config.toml merge failed'
 s1=$(sig "$pre"); out=$(pl "$pre" init --yes --runtimes claude,codex 2>&1); [ "$s1" = "$(sig "$pre")" ] && ok "re-running init on a merged project changes nothing (no duplicated hooks or blocks)" || { LAST=$out; die "merged project not idempotent"; }
@@ -331,6 +331,24 @@ d1=$T/d1; cp -R "$base" "$d1"
 out=$(pl "$d1" doctor 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "doctor passes on a fresh install" || { LAST=$out; die "doctor failed on a fresh install"; }
 reject "doctor prints no FAIL on a fresh install" "$out" "FAIL "
+expect "doctor verifies all 7 Claude hook events" "$out" "wires all 7 proofline events"
+expect "doctor verifies all 7 Codex hook events" "$out" "codex hooks: .codex/hooks.json wires all 7 proofline events"
+expect "doctor checks the Node hook" "$out" "PASS hooks: .agents/hooks/proofline-hook.mjs present"
+# the Stop event was never checked: a settings file without it is a FAIL in each form (Node string, or the shell string of 0.0.40)
+for dsf in claude codex; do
+  dst=$T/dstop-$dsf; cp -R "$base" "$dst"
+  if [ "$dsf" = claude ]; then dsfile=$dst/.claude/settings.json; else dsfile=$dst/.codex/hooks.json; fi
+  jq 'del(.hooks.Stop)' "$dsfile" > "$dsfile.t" && mv "$dsfile.t" "$dsfile"
+  out=$(pl "$dst" doctor 2>&1); rc=$?
+  expect "doctor FAILs when the $dsf hooks lack Stop" "$out" "FAIL $dsf hooks: "
+  expect "doctor names Stop as the missing event ($dsf)" "$out" "lacks proofline hooks for: Stop"
+  [ "$rc" != 0 ] && ok "doctor exits non-zero when $dsf Stop is not wired" || die "doctor passed without the $dsf Stop hook"
+done
+dold=$T/dold; cp -R "$base" "$dold"
+jq '.hooks |= with_entries(.value |= map(.hooks |= map(.command |= "sh -c \u0027exec sh \"$h\" x proofline-hook.sh\u0027")))' "$dold/.claude/settings.json" > "$dold/s.t" && mv "$dold/s.t" "$dold/.claude/settings.json"
+expect "doctor accepts the shell wiring of 0.0.40 for all 7 events (a rollback state)" "$(pl "$dold" doctor 2>&1)" "claude hooks: .claude/settings.json wires all 7 proofline events"
+dmj=$T/dmj; cp -R "$base" "$dmj"; rm "$dmj/.agents/hooks/proofline-hook.mjs"
+expect "doctor FAILs when the Node hook file is missing" "$(pl "$dmj" doctor 2>&1)" "FAIL hooks: .agents/hooks/proofline-hook.mjs missing"
 expect "doctor shows the runtime versions" "$out" "runtime claude: 9.9.9"
 expect "doctor runs the identity probe" "$out" "probe: pre-commit blocks a forbidden identity"
 expect "doctor runs the push probe" "$out" "probe: pre-push blocks a push without approval"

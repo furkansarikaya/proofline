@@ -30,7 +30,7 @@ install_hook() {
 }
 fixture() {
   scaffold orchestrated no COMPLEX ""
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks; install_hook
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }

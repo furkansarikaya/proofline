@@ -513,7 +513,7 @@ sc_cover_delivery() {
   BP all >/dev/null || die "batch-plan failed"; batch_approve
   to_code_done orchestrated
   git remote add origin https://github.com/acme/app.git
-  mkdir -p "$base/hooks"; cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/human.sh" "$base/hooks/"; chmod +x "$base/hooks/pre-commit"; git config core.hooksPath "$base/hooks"
+  mkdir -p "$base/hooks"; node "$tl_agents/../../tests/legacy-githooks/install.mjs" "$base/hooks" pre-commit human.sh; git config core.hooksPath "$base/hooks"
   finish_done
   A deliver-plan LC > "$base/dp.out" || die "deliver-plan refused: $(cat "$base/dp.out")"
   expect_msg "a step before any approval" "no unconsumed commit approval" A deliver-step LC commit
@@ -602,7 +602,7 @@ sc_worktree_prep() {
   grep -qxF .env "$wt/.agents/local/worktree-copied" || die "the copied file is not listed: $(cat "$wt/.agents/local/worktree-copied" 2>/dev/null)"
   [ -z "$(git -C "$wt" status --porcelain | grep -F .env)" ] || die "git status shows the copied .env"
   git -C "$wt" add -A; [ -z "$(git -C "$wt" diff --cached --name-only | grep -F .env)" ] || die "git add -A staged the copied .env"
-  cp -R "$tl_agents/githooks" "$wt/.agents/githooks" || die "no githooks to copy"
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" "$wt/.agents/githooks" || die "no githooks to copy"
   git -C "$wt" add -f .env
   if git -C "$wt" -c core.hooksPath=.agents/githooks -c user.name=t -c user.email=t@example.invalid commit -qm env >"$base/pc.out" 2>&1; then die "the pre-commit hook let a copied .env into a commit"; fi
   grep -q 'worktree.copy_files' "$base/pc.out" || die "the refusal does not say why: $(cat "$base/pc.out")"
