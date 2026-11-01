@@ -1,7 +1,7 @@
 // @ts-check
 // Shared helpers of the Node hook tests: a throwaway installed-project fixture (the scaffold of the legacy self-tests, the core beside agent.sh),
 // the two hooks run on the same recorded input, and a normalised view of what they left on disk.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -49,13 +49,21 @@ export function copyProject(template, base) {
 
 /**
  * Run a hook on an event. @param {'node' | 'sh'} kind @param {string} dir @param {string} ev @param {object | string} payload
- * @param {{ env?: Record<string, string>, runtime?: string }} [opt]
+ * @param {{ env?: Record<string, string>, runtime?: string }} [opt] @returns {Promise<{ status: number | null, stdout: string, stderr: string }>}
  */
 export function runHook(kind, dir, ev, payload, opt = {}) {
   const text = typeof payload === 'string' ? payload : JSON.stringify({ cwd: dir, session_id: 's1', ...payload });
   const args = kind === 'node' ? [nodeHook, ev, opt.runtime ?? 'claude'] : [shellHook, ev, opt.runtime ?? 'claude'];
-  const r = spawnSync(kind === 'node' ? process.execPath : 'sh', args, { cwd: dir, input: text, encoding: 'utf8', env: cleanEnv({ CLAUDE_PROJECT_DIR: dir, ...opt.env }), timeout: 120000 });
-  return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+  return new Promise((resolveRun) => {
+    const child = spawn(kind === 'node' ? process.execPath : 'sh', args, { cwd: dir, env: cleanEnv({ CLAUDE_PROJECT_DIR: dir, ...opt.env }) });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 120000);
+    child.on('close', (status) => { clearTimeout(timer); resolveRun({ status, stdout, stderr }); });
+    child.stdin.on('error', () => {});
+    child.stdin.end(text);
+  });
 }
 
 /** Everything under .agents/local and .agents/runs as {relative path: text}, times and process ids normalised. @param {string} dir */
@@ -80,17 +88,16 @@ export function snapshot(dir) {
 /** Times (epoch seconds and milliseconds), paths of the fixture and dates become placeholders. @param {string} text @param {string} dir */
 export function norm(text, dir) {
   return text.split(dir).join('<P>').replace(/"time":[0-9]{10}/g, '"time":<T>').replace(/:[0-9]{10}:/g, ':<T>:').replace(/\b1[0-9]{9,12}\b/g, '<T>')
-    .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/g, '<D>');
+    .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/g, '<D>').replace(/\b(total_|max_)?ms=[0-9]*/g, 'ms=<N>').replace(/prev=[0-9a-f]{64}/g, 'prev=<H>').replace(/@[0-9a-f]{64}/g, '@<H>');
 }
 
 /** Run both hooks on copies of the template and return the two results and the two snapshots. @param {string} template @param {string} base @param {string} ev
  * @param {(dir: string) => object | string} payload @param {{ setup?: (dir: string) => void, env?: Record<string, string>, runtime?: string }} [opt] */
-export function pair(template, base, ev, payload, opt = {}) {
+export async function pair(template, base, ev, payload, opt = {}) {
   const a = copyProject(template, base);
   const b = copyProject(template, base);
   if (opt.setup) { opt.setup(a); opt.setup(b); }
-  const ra = runHook('sh', a, ev, payload(a), opt);
-  const rb = runHook('node', b, ev, payload(b), opt);
+  const [ra, rb] = await Promise.all([runHook('sh', a, ev, payload(a), opt), runHook('node', b, ev, payload(b), opt)]);
   return { sh: { ...ra, stdout: norm(ra.stdout, a), files: snapshot(a) }, node: { ...rb, stdout: norm(rb.stdout, b), files: snapshot(b) } };
 }
 
