@@ -145,3 +145,39 @@ describe('the cache is never written through a link or with a control character 
 
 /** @param {string} root @param {string} rel @param {string} text */
 function put2(root, rel, text) { writeFileSync(path.join(root, rel), text); }
+
+describe('the cache cut never writes through a planted temp link (S2-3b)', () => {
+  /** @param {string} root */
+  function plant(root) {
+    mkdirSync(path.join(root, '.agents/local'), { recursive: true });
+    const victim = path.join(root, 'victim'); writeFileSync(victim, 'keep\n');
+    const cache = path.join(root, '.agents/local/fp-cache');
+    writeFileSync(cache, Array.from({ length: 4100 }, (_, i) => `k${i}|1|2|3|4\t${'c'.repeat(64)}\n`).join(''));
+    symlinkSync(victim, `${cache}.t`);
+    return { victim, cache };
+  }
+  test('node', () => {
+    const f = makeFixture();
+    try {
+      const { victim, cache } = plant(f.root);
+      writeFileSync(path.join(f.root, 'big.txt'), 'x'.repeat(300000));
+      const ctx = f.ctx(); ctx.fpMode = 'refresh';
+      pathFingerprint(ctx, 'big.txt');
+      assert.equal(readFileSync(victim, 'utf8'), 'keep\n');
+      const lines = readFileSync(cache, 'latin1').split('\n').filter(Boolean);
+      assert.ok(lines.length <= 1001 && lines.length > 900, String(lines.length));
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+  test('shell', () => {
+    const f = makeFixture();
+    try {
+      const { victim, cache } = plant(f.root);
+      const fns = extractFunctions(['fp_cache_file', 'fp_cache_usable', 'fp_cache_put']);
+      spawnSync('sh', ['-c', `sr_main="${f.root}"\n${fns}\nfp_cache_put "$1" "$2"`, 'x', 'new|1|2|3|4', 'd'.repeat(64)]);
+      assert.equal(readFileSync(victim, 'utf8'), 'keep\n');
+      const lines = readFileSync(cache, 'latin1').split('\n').filter(Boolean);
+      assert.ok(lines.length <= 1001 && lines.length > 900, String(lines.length));
+      assert.ok(lines[lines.length - 1].startsWith('new|1|2|3|4\t'));
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+});
