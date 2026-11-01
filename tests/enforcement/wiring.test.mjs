@@ -4,7 +4,7 @@
 // same settings file, so each event is handled once. The engine switch in .agents/local/engine is read through the installed wiring. The shipped git
 // hook launchers: a commit is blocked when node is absent, the allowed path is unchanged, the push guard holds.
 import assert from 'node:assert/strict';
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -145,6 +145,34 @@ test('the engine switch .agents/local/engine, read through the installed wiring,
   const r = wired(command, dir, { input: '{}' });
   assert.match(r.stdout, /SHELL HOOK pretool claude/);
   assert.equal(r.code, 0);
+});
+
+test('C6 rollback: with `sh` in .agents/local/engine, or PROOFLINE_ENGINE=sh, every wiring form runs the OLD shell hook (its own bytes, not a stub)', () => {
+  for (const [form, rel, rt] of FORMS) {
+    const command = pretoolOf(rel);
+    const dir = project({ run: true });
+    // the project's shell hook leaves a marker file when it starts (its first lines are the real file's): the Node hook never does
+    const shPath = join(dir, '.agents/hooks/proofline-hook.sh');
+    const shText = readFileSync(shPath, 'utf8');
+    writeFileSync(shPath, shText.replace('\n', `\n: > "${dir}/.shell-ran"\n`));
+    // the plugin form runs the plugin's own hook tree (not the project's copy), so only the other two forms can show the marker
+    const ran = () => form === 'plugin' || existsSync(join(dir, '.shell-ran'));
+    const direct = run('sh', [join(dir, '.agents/hooks/proofline-hook.sh'), 'pretool', rt], { cwd: dir, env: baseEnv(base, { CLAUDE_PROJECT_DIR: dir }), input: 'this is not json' });
+    assert.ok(denied(direct), `${form}: the shell hook denies unparsable input during a run`);
+    rmSync(join(dir, '.shell-ran'), { force: true });
+    assert.ok(denied(wired(command, dir, { input: 'this is not json' })), `${form}: Node hook denies`);
+    assert.ok(!ran(), `${form}: the Node hook does not start the shell hook by default`);
+    writeFileSync(join(dir, '.agents/local/engine'), 'sh\n');
+    const byFile = wired(command, dir, { input: 'this is not json' });
+    assert.ok(ran(), `${form}: engine file: the shell hook ran`); rmSync(join(dir, '.shell-ran'));
+    rmSync(join(dir, '.agents/local/engine'));
+    const byEnv = wired(command, dir, { input: 'this is not json', env: { PROOFLINE_ENGINE: 'sh' } });
+    assert.ok(ran(), `${form}: PROOFLINE_ENGINE=sh: the shell hook ran`);
+    for (const [how, r] of [['engine file', byFile], ['PROOFLINE_ENGINE=sh', byEnv]]) {
+      assert.equal(r.stdout, direct.stdout, `${form}, ${how}: the shell hook's bytes`);
+      assert.equal(r.code, direct.code, `${form}, ${how}: exit status`);
+    }
+  }
 });
 
 // ---- the git hook launchers ---------------------------------------------------------------------------------------------------------------
