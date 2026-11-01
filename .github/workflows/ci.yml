@@ -306,6 +306,49 @@ jobs:
       - name: ratchet, fast mode and enforcement guard tests
         run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/bench/*.test.mjs"
 
+  # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the six shell enforcement suites run AGAINST
+  # adapters/claude/hooks/proofline-hook.mjs (the legacy self-test shards keep testing the shell hook, which stays until stage 15). One leg per suite so the
+  # wall time is the slowest leg: enforcement-test about 8 minutes on a 4-core runner (the local run takes 380 s on 8 cores), timeouts-test about 3, the
+  # rest under a minute each; the node-tests legs (hook tests, guards, wiring, process budgets) about 6 minutes. The Node tests run on Node 22.13.0
+  # and the active LTS, the shell suites on 22.13.0. Never skipped by fast mode.
+  hook-node:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {suite: node-tests, node: '22.13.0'}
+          - {suite: node-tests, node: 'lts/*'}
+          - {suite: enforcement-test, node: '22.13.0'}
+          - {suite: timeouts-test, node: '22.13.0'}
+          - {suite: kill-guard-test, node: '22.13.0'}
+          - {suite: merge-guard-test, node: '22.13.0'}
+          - {suite: platform-test, node: '22.13.0'}
+          - {suite: approval-load-test, node: '22.13.0'}
+    runs-on: ubuntu-latest
+    env:
+      HOOK_UNDER_TEST: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: hook tests (node:test)
+        if: matrix.suite == 'node-tests'
+        run: node --test "tests/hook/*.test.mjs"
+      - name: guard tests against the Node hook
+        if: matrix.suite == 'node-tests'
+        env:
+          GUARDS_HOOK: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
+        run: node --test tests/enforcement/guards.test.mjs
+      - name: wiring tests
+        if: matrix.suite == 'node-tests'
+        run: node --test tests/enforcement/wiring.test.mjs
+      - name: shell suite ${{ matrix.suite }} against the Node hook
+        if: matrix.suite != 'node-tests'
+        env:
+          SELFTEST_ONLY: ${{ matrix.suite }}
+        run: sh tests/selftest.sh
+
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
   # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.
   types:
@@ -359,7 +402,7 @@ jobs:
   # passed, a failed or cancelled job fails it.
   checks:
     if: always()
-    needs: [changes, static, fixtures, visual-browser, selftest, invariants, equivalence, node-tests, types]
+    needs: [changes, static, fixtures, visual-browser, selftest, invariants, equivalence, node-tests, hook-node, types]
     runs-on: ubuntu-latest
     steps:
       - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests were skipped
