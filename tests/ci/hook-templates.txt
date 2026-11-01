@@ -1,0 +1,8 @@
+# Pinned hook command strings (ADR 0001 section 9, stage 3): every `command` of the three wiring files equals one line.
+# <event> is the hook event argument. PreToolUse is pinned apart: a failed start of node blocks (exit 2), as the runtime reads it.
+node "${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.mjs" <event> claude
+node "${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.mjs" pretool claude || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }
+node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" <event> claude
+node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" pretool claude || test ! -f "$CLAUDE_PROJECT_DIR/.agents/config.yaml" || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }
+node "$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs" <event> codex
+node "$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs" pretool codex || test ! -f "$(git rev-parse --show-toplevel)/.agents/config.yaml" || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }

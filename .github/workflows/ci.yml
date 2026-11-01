@@ -200,10 +200,11 @@ jobs:
       - name: visual-proof browser measurement
         run: sh fixtures/visual-proof/browser-check.sh --no-sandbox
 
-  # A188: how many processes the runtime hook starts per event and how long that takes on Git Bash (Windows), where a process is slow.
-  # Nightly and manual runs only (A164), a measurement and not a gate: it is not in `checks` and a failure of the runner image
-  # (no jq, no node) does not fail the workflow. The table is written to the job summary. Never run by a pull request or a push.
-  hook-time-windows:
+  # A188, stage 3: the Node hook on Windows. It runs the hook tests (node:test) and the hook benchmark in its Node form (processes and time per event, the
+  # table goes to the job summary). It replaces the Git Bash timing job for the hook: the hook no longer needs an `sh` of its own. Nightly and manual runs
+  # only (A164, A204), a measurement and not a gate: it is not in `checks` and continue-on-error keeps a runner-image problem from failing the workflow.
+  # The hook tests and the benchmark still build their fixtures with Git Bash scripts (stage 15 removes that), so the steps run in bash.
+  hook-windows:
     needs: [changes]
     if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'
     runs-on: windows-latest
@@ -215,10 +216,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - name: hook processes and time per event
-        run: |
-          { echo '### Runtime hook per event (Git Bash on Windows)'; echo; echo '```'; REPEAT=5 sh tests/bench/hook-procs.sh; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          node-version: 22.13.0
+      - name: hook tests (node:test)
+        run: node --test "tests/hook/*.test.mjs"
+      - name: summary heading
+        run: echo '### Node hook per event (Windows, Git Bash fixtures)' >> "$GITHUB_STEP_SUMMARY"
+      - name: summary table open
+        run: echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: hook processes and time per event (Node form)
+        run: REPEAT=5 sh tests/bench/hook-procs.sh adapters/claude/hooks/proofline-hook.mjs >> "$GITHUB_STEP_SUMMARY"
+      - name: summary table close
+        if: always()
+        run: echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   # The self-test suites are split into scenario units and spread over sixteen shards, balanced by unit weight (A109); inside a shard the units
   # run on every core (tests/selftest.sh).
@@ -297,6 +306,57 @@ jobs:
       - name: ratchet, fast mode and enforcement guard tests
         run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/bench/*.test.mjs"
 
+  # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the six shell enforcement suites run AGAINST
+  # adapters/claude/hooks/proofline-hook.mjs (the legacy self-test shards keep testing the shell hook, which stays until stage 15). One leg per suite so the
+  # wall time is the slowest leg: enforcement-test about 8 minutes on a 4-core runner (the local run takes 380 s on 8 cores), timeouts-test about 3, the
+  # rest under a minute each; the node-tests legs (hook tests, guards, wiring, process budgets) about 6 minutes. The Node tests run on Node 22.13.0
+  # and the active LTS, the shell suites on 22.13.0. Never skipped by fast mode.
+  hook-node:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: node-tests
+            node: '22.13.0'
+          - suite: node-tests
+            node: 'lts/*'
+          - suite: enforcement-test
+            node: '22.13.0'
+          - suite: timeouts-test
+            node: '22.13.0'
+          - suite: kill-guard-test
+            node: '22.13.0'
+          - suite: merge-guard-test
+            node: '22.13.0'
+          - suite: platform-test
+            node: '22.13.0'
+          - suite: approval-load-test
+            node: '22.13.0'
+    runs-on: ubuntu-latest
+    env:
+      HOOK_UNDER_TEST: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: hook tests (node:test)
+        if: matrix.suite == 'node-tests'
+        run: node --test "tests/hook/*.test.mjs"
+      - name: guard tests against the Node hook
+        if: matrix.suite == 'node-tests'
+        env:
+          GUARDS_HOOK: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
+        run: node --test tests/enforcement/guards.test.mjs
+      - name: wiring tests
+        if: matrix.suite == 'node-tests'
+        run: node --test tests/enforcement/wiring.test.mjs
+      - name: shell suite ${{ matrix.suite }} against the Node hook
+        if: matrix.suite != 'node-tests'
+        env:
+          SELFTEST_ONLY: ${{ matrix.suite }}
+        run: sh tests/selftest.sh
+
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
   # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.
   types:
@@ -350,7 +410,7 @@ jobs:
   # passed, a failed or cancelled job fails it.
   checks:
     if: always()
-    needs: [changes, static, fixtures, visual-browser, selftest, invariants, equivalence, node-tests, types]
+    needs: [changes, static, fixtures, visual-browser, selftest, invariants, equivalence, node-tests, hook-node, types]
     runs-on: ubuntu-latest
     steps:
       - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests were skipped

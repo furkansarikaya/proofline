@@ -8,15 +8,15 @@ d_pass() { printf 'PASS %s\n' "$*"; }
 d_warn() { printf 'WARN %s\n' "$*"; D_WARNS=$((D_WARNS + 1)); }
 d_fail() { printf 'FAIL %s\n' "$*"; D_FAILS=$((D_FAILS + 1)); }
 
-# hook_has FILE EVENT: does the JSON hook file wire a proofline-hook.sh command to EVENT?
+# hook_has FILE EVENT: does the JSON hook file wire a proofline-hook command (the Node hook, or the shell hook of 0.0.40-0.0.42) to EVENT?
 hook_has() {
   [ -f "$1" ] || return 1
   if command -v jq >/dev/null 2>&1; then
-    jq -e --arg e "$2" '[(.hooks[$e] // [])[] | (.hooks // [])[] | .command // ""] | any(contains("proofline-hook.sh"))' "$1" >/dev/null 2>&1
+    jq -e --arg e "$2" '[(.hooks[$e] // [])[] | (.hooks // [])[] | .command // ""] | any(test("proofline-hook[.](mjs|sh)"))' "$1" >/dev/null 2>&1
   elif command -v node >/dev/null 2>&1; then
     node -e 'try { const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const g = (j.hooks || {})[process.argv[2]] || [];
-      process.exit(g.some((x) => (x.hooks || []).some((h) => String(h.command).includes("proofline-hook.sh"))) ? 0 : 1) } catch (e) { process.exit(1) }' "$1" "$2"
-  else grep -q 'proofline-hook.sh' "$1" && grep -q "\"$2\"" "$1"; fi
+      process.exit(g.some((x) => (x.hooks || []).some((h) => /proofline-hook[.](mjs|sh)/.test(String(h.command)))) ? 0 : 1) } catch (e) { process.exit(1) }' "$1" "$2"
+  else grep -Eq 'proofline-hook[.](mjs|sh)' "$1" && grep -q "\"$2\"" "$1"; fi
 }
 
 # identity_forbidden CONFIG EMAIL: the same test the pre-commit hook applies (glob or ERE, case-insensitive).
@@ -161,7 +161,7 @@ doctor_foreign() {
       [ -f "$df_f" ] || continue
       case "$df_f" in */plugins/cache/proofline/*) continue ;; esac
       df_l=$(jq -r --arg f "${df_f#"$HOME"/}" '(.hooks // {}) | to_entries[] | select(.key == "SessionStart" or .key == "UserPromptSubmit") | .key as $e
-        | (.value[]? | (.hooks // [])[]? | .command // "") | select(contains("proofline-hook.sh") | not)
+        | (.value[]? | (.hooks // [])[]? | .command // "") | select(test("proofline-hook[.](mjs|sh)") | not)
         | "WARN foreign hook: \($e) in \($f) may add context to the prompt: \(.[0:80])"' "$df_f" 2>/dev/null) || df_l=''
       [ -z "$df_l" ] || { printf '%s\n' "$df_l"; D_WARNS=$((D_WARNS + $(printf '%s\n' "$df_l" | wc -l))); }
     done
@@ -351,10 +351,10 @@ EOF
   case "$hp" in
     .agents/githooks|"$ROOT/.agents/githooks")
       dh_ok=1
-      for dh in pre-commit pre-push human.sh; do
+      for dh in pre-commit pre-push; do
         if [ ! -x "$ROOT/.agents/githooks/$dh" ]; then d_fail "git hooks: .agents/githooks/$dh is missing or not executable"; dh_ok=0; fi
       done
-      [ "$dh_ok" = 0 ] || d_pass "git hooks: core.hooksPath = .agents/githooks, pre-commit, pre-push and human.sh executable" ;;
+      [ "$dh_ok" = 0 ] || d_pass "git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable" ;;
     '') d_fail "git hooks: core.hooksPath is not set; the commit and push locks are inactive. Fix: git config --local core.hooksPath .agents/githooks" ;;
     *) d_fail "git hooks: core.hooksPath is '$hp', not .agents/githooks; the proofline locks are inactive" ;;
   esac
@@ -400,14 +400,17 @@ EOF
     else d_pass "runtime $rt: not installed (not used by config.yaml)"; fi
   done
 
-  hs=$ROOT/.agents/hooks/proofline-hook.sh
-  if [ ! -f "$hs" ]; then d_fail "hooks: .agents/hooks/proofline-hook.sh missing"
+  hs=$ROOT/.agents/hooks/proofline-hook.sh; hm=$ROOT/.agents/hooks/proofline-hook.mjs
+  if [ ! -f "$hm" ]; then d_fail "hooks: .agents/hooks/proofline-hook.mjs missing (run: proofline upgrade)"
+  elif [ ! -d "$ROOT/.agents/hooks/events" ] || [ ! -d "$ROOT/.agents/hooks/guards" ] || [ ! -d "$ROOT/.agents/hooks/lib" ] || [ ! -f "$ROOT/.agents/hooks/command-scan.mjs" ]; then d_fail "hooks: .agents/hooks/ lacks events/, guards/, lib/ or command-scan.mjs of the Node hook (run: proofline upgrade)"
+  else d_pass "hooks: .agents/hooks/proofline-hook.mjs present"; fi
+  if [ ! -f "$hs" ]; then d_fail "hooks: .agents/hooks/proofline-hook.sh missing (the rollback target of the engine switch)"
   elif ! sh -n "$hs" 2>/dev/null; then d_fail "hooks: .agents/hooks/proofline-hook.sh does not parse"
   else d_pass "hooks: .agents/hooks/proofline-hook.sh present"; fi
   if rt_has claude; then
     miss=''
-    for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop; do hook_has "$ROOT/.claude/settings.json" "$ev" || miss="$miss $ev"; done
-    if [ -z "$miss" ]; then d_pass "claude hooks: .claude/settings.json wires all 6 proofline events"
+    for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop Stop; do hook_has "$ROOT/.claude/settings.json" "$ev" || miss="$miss $ev"; done
+    if [ -z "$miss" ]; then d_pass "claude hooks: .claude/settings.json wires all 7 proofline events"
     else
       RW_OUT=$(mktemp "${TMPDIR:-/tmp}/proofline-plugin.XXXXXX"); export RW_OUT
       run_with_timeout 20 "${PROOFLINE_CLAUDE_BIN:-claude}" plugin list 2>/dev/null
@@ -418,8 +421,8 @@ EOF
   fi
   if rt_has codex; then
     miss=''
-    for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop; do hook_has "$ROOT/.codex/hooks.json" "$ev" || miss="$miss $ev"; done
-    if [ -z "$miss" ]; then d_pass "codex hooks: .codex/hooks.json wires all 6 proofline events"
+    for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop Stop; do hook_has "$ROOT/.codex/hooks.json" "$ev" || miss="$miss $ev"; done
+    if [ -z "$miss" ]; then d_pass "codex hooks: .codex/hooks.json wires all 7 proofline events"
     else d_fail "codex hooks: .codex/hooks.json lacks proofline hooks for:$miss (run: proofline init)"; fi
     d_warn "codex trust: Codex loads project hooks only once the project is trusted and the hooks are reviewed; open codex here and approve them with /hooks (doctor cannot check this)"
   fi

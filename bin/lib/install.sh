@@ -58,6 +58,10 @@ stage_build() {
     cp -R "${sb_d%/}" "$sf/.agents/skills/"
   done
   cp "$PL_HOME/adapters/claude/hooks/proofline-hook.sh" "$sf/.agents/hooks/proofline-hook.sh"
+  # the Node hook tree (stage 3) is staged apart: see node_hook_install
+  nh=$STAGE/nodehook; mkdir -p "$nh"
+  cp "$PL_HOME/adapters/claude/hooks/proofline-hook.mjs" "$PL_HOME/adapters/claude/hooks/command-scan.mjs" "$nh/"
+  cp -R "$PL_HOME/adapters/claude/hooks/events" "$PL_HOME/adapters/claude/hooks/guards" "$PL_HOME/adapters/claude/hooks/lib" "$nh/"
   sh "$PL_HOME/adapters/generate.sh" --profile "$PROFILE" --out "$STAGE/gen" --root "$PL_HOME" >/dev/null || die "role generation failed"
   cp -R "$STAGE/gen/.agents/." "$sf/.agents/"
   if rt_has claude; then
@@ -99,6 +103,25 @@ place() {
   plog "$pl_act" "$1"
 }
 
+# node_hook_install: the Node hook tree (.agents/hooks/proofline-hook.mjs, command-scan.mjs, events/, guards/, lib/). It is the code the wiring strings start, so it
+# is written as a whole, not file by file against the manifest: a file the user edited is replaced (hook code is not configuration), a file an older release
+# no longer ships is dropped, and the files are NOT listed in the manifest. That last point is the rollback: the previous release's `upgrade` removes the
+# files its manifest lists and this version no longer ships; the Node hook must survive it, because it is the process that yields to the old shell wiring
+# the old installer adds beside the new string (ADR 0001 sections 5.4 and 9).
+node_hook_install() {
+  nhi_d=$ROOT/.agents/hooks
+  nhi_act=new
+  if [ -f "$nhi_d/proofline-hook.mjs" ]; then
+    nhi_act=same
+    for nhi_f in $(cd "$STAGE/nodehook" && find . -type f | sed 's|^\./||'); do cmp -s "$STAGE/nodehook/$nhi_f" "$nhi_d/$nhi_f" || nhi_act=update; done
+  fi
+  if [ "$DRY" != 1 ] && [ "$nhi_act" != same ]; then
+    mkdir -p "$nhi_d"; rm -rf "${nhi_d:?}/events" "${nhi_d:?}/guards" "${nhi_d:?}/lib"
+    cp -R "$STAGE/nodehook/." "$nhi_d/"
+  fi
+  plog "$nhi_act" ".agents/hooks/proofline-hook.mjs"
+}
+
 place_all() {
   : > "$STAGE/manifest.new"
   (cd "$STAGE/files" && find . -type f | sed 's|^\./||' | sort) > "$STAGE/list"
@@ -123,15 +146,18 @@ hooks_merge() {
   if command -v jq >/dev/null 2>&1; then
     jq -s '
       def cmds: [(.hooks // [])[] | .command];
+      def isold: ((.command // "") | tostring | test("^sh -c \u0027.*proofline-hook(\\.|\\[\\.\\])sh"));
+      def strip: . as $g | if (.hooks | type) == "array" then (.hooks |= map(select(isold | not))) | select(($g.hooks | length) == 0 or (.hooks | length) > 0) else . end;
       .[0] as $cur | .[1] as $frag
       | if ($cur | type) != "object" then error("not an object") else . end
       | $cur | .hooks = (reduce ($frag.hooks | to_entries[]) as $e (.hooks // {};
-          ((.[$e.key] // []) as $h | ([$h[] | cmds[]]) as $present
+          ((((.[$e.key] // []) | map(strip))) as $h | ([$h[] | cmds[]]) as $present
           | .[$e.key] = ($h + [$e.value[] | select(([cmds[] | select(. as $c | $present | index($c) != null)] | length) == 0)]))))' \
       "$1" "$2" > "$3" 2>/dev/null || return 1
     [ "$(jq -S -c . "$1")" != "$(jq -S -c . "$3")" ] || return 0
     return 3
   elif command -v node >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # the program is JavaScript, not shell
     node -e '
       const fs = require("fs"); const [cur, frag, out] = process.argv.slice(1);
       let c, f; try { c = JSON.parse(fs.readFileSync(cur, "utf8")); f = JSON.parse(fs.readFileSync(frag, "utf8")); } catch (e) { process.exit(1); }
@@ -139,7 +165,13 @@ hooks_merge() {
       const before = JSON.stringify(c);
       const hooks = c.hooks && typeof c.hooks === "object" ? c.hooks : {};
       for (const [ev, groups] of Object.entries(f.hooks || {})) {
-        const have = Array.isArray(hooks[ev]) ? hooks[ev] : [];
+        // the old `sh -c` strings of 0.0.40-0.0.42 are replaced by the new ones, not kept beside them
+        const old = /^sh -c \x27.*proofline-hook(\.|\[\.\])sh/;
+        const have = (Array.isArray(hooks[ev]) ? hooks[ev] : []).flatMap((g) => {
+          if (!g || !Array.isArray(g.hooks)) return [g];
+          const kept = g.hooks.filter((h) => !old.test(String((h && h.command) || "")));
+          return kept.length === 0 && g.hooks.length > 0 ? [] : [{ ...g, hooks: kept }];
+        });
         const present = new Set(have.flatMap((g) => (g.hooks || []).map((h) => h.command)));
         for (const g of groups) {
           const cmds = (g.hooks || []).map((h) => h.command);
@@ -187,7 +219,7 @@ hook_timeouts_apply() {
   if command -v jq >/dev/null 2>&1; then
     jq --argjson t "{$ht_map}" '
       if (.hooks | type) == "object" then
-        .hooks |= with_entries(.key as $ev | .value |= (if type == "array" then map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | contains("proofline-hook.sh")) and ($t[$ev] != null) then .timeout = $t[$ev] else . end) else . end) else . end))
+        .hooks |= with_entries(.key as $ev | .value |= (if type == "array" then map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | test("proofline-hook[.](sh|mjs)")) and ($t[$ev] != null) then .timeout = $t[$ev] else . end) else . end) else . end))
       else . end' "$ROOT/$1" > "$ht_out" 2>/dev/null && ht_rc=0
   elif command -v node >/dev/null 2>&1; then
     node -e '
@@ -196,7 +228,7 @@ hook_timeouts_apply() {
       const t = JSON.parse("{" + map + "}");
       if (j && typeof j.hooks === "object" && j.hooks) for (const [ev, groups] of Object.entries(j.hooks)) {
         if (!Array.isArray(groups) || t[ev] == null) continue;
-        for (const g of groups) if (g && Array.isArray(g.hooks)) for (const h of g.hooks) if (h && String(h.command || "").includes("proofline-hook.sh")) h.timeout = t[ev];
+        for (const g of groups) if (g && Array.isArray(g.hooks)) for (const h of g.hooks) if (h && String(h.command || "").match(/proofline-hook[.](sh|mjs)/)) h.timeout = t[ev];
       }
       fs.writeFileSync(out, JSON.stringify(j, null, 2) + "\n");' "$ROOT/$1" "$ht_out" "$ht_map" && ht_rc=0
   fi
@@ -371,6 +403,7 @@ install_run() { # MODE set by the caller
   MANIFEST_OLD=$ROOT/$MANIFEST_REL
   stage_build
   place_all
+  node_hook_install
   do_config
   if rt_has claude; then json_merge .claude/settings.json "$PL_HOME/adapters/claude/settings.fragment.json"; hook_timeouts_apply .claude/settings.json; fi
   if rt_has codex; then json_merge .codex/hooks.json "$PL_HOME/adapters/codex/hooks.json"; hook_timeouts_apply .codex/hooks.json; codex_network_config; fi

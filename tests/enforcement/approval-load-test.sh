@@ -12,16 +12,27 @@ if [ -z "${AL_INNER:-}" ]; then
   repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
   AL_INNER=1 AL_REPO=$repo exec sh -c '. "$0"; . "$1"' "$repo/control-plane/agents/scripts/test-lib.sh" "$repo/tests/enforcement/approval-load-test.sh"
 fi
-hook=$AL_REPO/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$AL_REPO/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun='node'; hbase=proofline-hook.mjs ;; *) hrun='sh'; hbase=proofline-hook.sh ;; esac
+# install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
+install_hook() {
+  case $hook in
+    *.mjs) cp -R "$(dirname "$hook")/." .agents/hooks/; cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
+      printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> .git/info/exclude ;;
+    *) cp "$hook" .agents/hooks/ ;;
+  esac
+}
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT PROOFLINE_HOOK_NEXT_BUDGET 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 fixture() {
   scaffold orchestrated no COMPLEX ""
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks; cp "$hook" .agents/hooks/
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }
-prompt() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$PWD" "$1" | sh .agents/hooks/proofline-hook.sh prompt claude; }
+prompt() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$PWD" "$1" | $hrun .agents/hooks/$hbase prompt claude; }
 ms() { v=$(date +%s%N 2>/dev/null); case "$v" in ''|*[!0-9]*) perl -MTime::HiRes=time -e 'printf "%d", time()*1000' ;; *) echo $((v / 1000000)) ;; esac; }
 bigfiles() { # DIR COUNT BYTES: deterministic filler files (not images, but big and distinct)
   bf_i=0; mkdir -p "$1"
@@ -96,7 +107,7 @@ intake_first() {
   fixture
   mkdir -p "$base/shim"; printf '#!/bin/sh\nsleep 4\nexec %s "$@"\n' "$(command -v git)" > "$base/shim/git"; chmod +x "$base/shim/git"
   t0=$(ms)
-  ( printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"plan approved, go ahead"}' "$PWD" | CLAUDE_PROJECT_DIR=$PWD PATH="$base/shim:$PATH" sh .agents/hooks/proofline-hook.sh prompt claude >/dev/null 2>&1 ) &
+  ( printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"plan approved, go ahead"}' "$PWD" | CLAUDE_PROJECT_DIR=$PWD PATH="$base/shim:$PATH" $hrun .agents/hooks/$hbase prompt claude >/dev/null 2>&1 ) &
   hp=$!
   i=0; while [ "$i" -lt 30 ]; do ls .agents/local/prompts/intake/*.json >/dev/null 2>&1 && break; sleep 0.1; i=$((i + 1)); done
   t1=$(ms)
@@ -127,10 +138,13 @@ timeout_message() {
   # review A2: the approval is written, then the process runs past the budget: the message says it IS recorded
   rm -f .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml; sleep 1; A request-approval LC plan >/dev/null 2>&1 || :; sleep 1
   mkdir -p "$base/shim2"; rm -f "$base/slept"
+  # the slow step is simulated by a `date` shim, which only the shell code of approve runs (the Node core runs in-process, no date process): this part pins the shell code
+  printf 'sh:approve-pending,approve\n' > .agents/local/engine
   printf '#!/bin/sh\nif ls "%s"/.agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 && [ ! -e "%s/slept" ]; then : > "%s/slept"; sleep 8; fi\nexec %s "$@"\n' "$PWD" "$base" "$base" "$(command -v date)" > "$base/shim2/date"; chmod +x "$base/shim2/date"
   out=$(PATH="$base/shim2:$PATH" PROOFLINE_HOOK_APPROVE_BUDGET=2 prompt 'plan approved, go ahead')
   printf '%s' "$out" | grep -q 'your approval was recorded' || { printf '%s' "$out" | grep -q 'approval recorded' && ls "$base/slept" >/dev/null 2>&1 && die "approval written then slow: no timeout path was taken: $out"; die "the recorded-then-timed-out case did not say recorded: $out"; }
   printf '%s' "$out" | grep -q 'could not be recorded' && die "a written approval was reported as lost: $out"
+  rm -f .agents/local/engine
   # review A3 at the hook: a budget written with a leading zero does not break the hook's arithmetic, the approval is still recorded
   rm -f .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml; sleep 1; A request-approval LC plan >/dev/null 2>&1 || :; sleep 1
   sed 's/approve_budget_seconds: 20/approve_budget_seconds: 08/' .agents/config.yaml > "$base/cfg0" && cp "$base/cfg0" .agents/config.yaml

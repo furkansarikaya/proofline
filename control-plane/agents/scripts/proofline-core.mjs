@@ -75,7 +75,7 @@ function viaShell(ctx, argv, opt = {}) {
   // the script as agent.sh was typed (so that $0 is identical in the shell's own error texts), else the absolute path of the sibling agent.sh
   const script = opt.script ?? ctx.io.argv0 ?? path.join(ctx.scriptDir, 'agent.sh');
   const own = ctx.io.isProcess === true;
-  const r = proc.run('sh', [script, ...argv], { cwd: opt.cwd ?? ctx.cwd, env, stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+  const r = proc.run('sh', [script, ...argv], { cwd: opt.cwd ?? ctx.cwd, env, stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
   if (!own) {
     if (r.stdout.length) ctx.io.stdout.write(r.stdout);
     if (r.stderr.length) ctx.io.stderr.write(r.stderr);
@@ -92,10 +92,13 @@ function viaShell(ctx, argv, opt = {}) {
 export function run(argv, io) {
   const ctx = new Context(io, io.scriptPath ?? fileURLToPath(import.meta.url));
   const locks = new LockSet(ctx);
+  ctx.locks = locks;
+  ctx.runner = run;
   try {
     return dispatch(ctx, locks, argv);
   } catch (e) {
-    if (e instanceof BridgeToShell) return viaShell(ctx, argv);
+    // the shell code takes the locks itself: ours go first (a locking command that hands over would wait for its own lock)
+    if (e instanceof BridgeToShell) { locks.releaseAll(); return viaShell(ctx, argv); }
     if (e instanceof ProoflineError) { ctx.printError(e); ctx.flush(); return e.exitCode; }
     // An unexpected exception is a bug of the core: it fails closed (message and stack on stderr, a non-zero status), it is never answered by
     // the shell code. Only the enumerated shell-error-text shapes (BridgeToShell) are handed back.
@@ -122,8 +125,10 @@ function dispatch(ctx, locks, argv) {
   const id = args[0];
   if (handler && id !== undefined && validTaskId(id) && !isExisting(`${ctx.root}/.agents/runs/${id}`)
     && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`) && isFile(`${ctx.root}/.agents/local/worktrees/${id}/.agents/scripts/agent.sh`)) {
+    // served in process by THIS core with the worktree as the root (its agent.sh is only the path that names the root; nothing of it is run: its
+    // proofline-core.mjs and scripts are tracked content a task could have rewritten)
     const wt = `${ctx.root}/.agents/local/worktrees/${id}`;
-    return viaShell(ctx, argv, { cwd: wt, script: '.agents/scripts/agent.sh', force: false });
+    return run(argv, { ...ctx.io, cwd: wt, scriptPath: `${wt}/.agents/scripts/agent.sh`, argv0: undefined });
   }
   // the role gate comes first, for every command
   if (!commandAllowed(ctx.role, command)) throw new ProoflineError(`command denied for ${ctx.role}: ${command}`, 1);
@@ -160,7 +165,7 @@ function fdWriter(fd) {
  * The leading `--pl-argv0 <$0>` that agent.sh's preamble passes: the typed script path, used by the bridge only when it names the core's own
  * sibling agent.sh (same real path); anything else is ignored and the bridge uses the absolute path. It never selects what is executed.
  * @param {string[]} args @param {string} scriptPath @param {string} cwd
- * @returns {{ argv: string[], argv0?: string }}
+ * @returns {{ argv: string[], argv0?: string, rootScript?: string }}
  */
 export function splitArgv0(args, scriptPath, cwd) {
   if (args[0] !== '--pl-argv0' || args.length < 2) return { argv: args };
@@ -172,7 +177,13 @@ export function splitArgv0(args, scriptPath, cwd) {
     // sh resolves `..` physically (after following a symbolic link), so the typed path is resolved the same way: joined to the working
     // directory WITHOUT textual normalisation and handed to the C library's realpath (realpathSync.native), never to path.resolve.
     const physical = realpathSync.native(path.isAbsolute(typed) ? typed : `${cwd}/${typed}`);
-    if (physical !== sibling) return { argv: rest };
+    if (physical !== sibling) {
+      // a run worktree's agent.sh (the project's own core is the one running, see agent.sh): the worktree is the ROOT, nothing of its code is run
+      const main = realpathSync.native(path.resolve(path.dirname(scriptPath), '..', '..'));
+      const prefix = `${main}/.agents/local/worktrees/`;
+      if (physical.startsWith(prefix) && /^[^/]+\/\.agents\/scripts\/agent\.sh$/.test(physical.slice(prefix.length))) return { argv: rest, argv0: typed.split('/').includes('..') ? physical : typed, rootScript: physical };
+      return { argv: rest };
+    }
     // the typed path is executed only when it has no `..` segment; otherwise the verified real path stands in for it
     return { argv: rest, argv0: typed.split('/').includes('..') ? sibling : typed };
   } catch { /* not a file: ignored */ }
@@ -185,7 +196,8 @@ export function main(scriptPath) {
   const split = splitArgv0(process.argv.slice(2), path.resolve(scriptPath), cwd);
   const io = {
     env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
-    scriptPath: path.resolve(scriptPath), argv0: split.argv0,
+    // from a run worktree the script that names the root is the worktree's agent.sh; the code that runs stays this core's
+    scriptPath: split.rootScript ?? path.resolve(scriptPath), argv0: split.argv0,
   };
   return run(split.argv, io);
 }

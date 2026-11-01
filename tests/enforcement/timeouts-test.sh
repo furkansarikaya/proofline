@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2154,SC2016,SC2015 # fixture vars come from test-lib.sh; literal command text
+# shellcheck disable=SC2034,SC2154,SC2016,SC2015 # fixture vars come from test-lib.sh; literal command text
 # A202 item 29: time limits that fit real use and slow machines (docs/concepts/timeouts.md).
 #  - timeouts.scale multiplies every duration and is bounded; the approval budget is never scaled;
 #  - every timeout key has a minimum and a maximum in config-check, so none can switch a limit off or make it endless;
@@ -16,10 +16,21 @@ if [ -z "${TO_INNER:-}" ]; then
 fi
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT PROOFLINE_HOOK_NEXT_BUDGET PROOFLINE_LOCK_TIMEOUT BUILD_RECORD_WAIT 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
-hook=$TO_REPO/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$TO_REPO/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun='node'; hbase=proofline-hook.mjs ;; *) hrun='sh'; hbase=proofline-hook.sh ;; esac
+# install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
+install_hook() {
+  case $hook in
+    *.mjs) cp -R "$(dirname "$hook")/." .agents/hooks/; cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
+      printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> .git/info/exclude ;;
+    *) cp "$hook" .agents/hooks/ ;;
+  esac
+}
 fixture() {
   scaffold orchestrated no COMPLEX ""
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks; cp "$hook" .agents/hooks/
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }
@@ -156,7 +167,7 @@ EOF
   sh "$PL" init --yes --runtimes claude --lead claude --worker claude --reviewers claude >/dev/null 2>&1 || die "init failed"
   s=.claude/settings.json
   command -v jq >/dev/null 2>&1 || command -v node >/dev/null 2>&1 || { ok "A202-29 settings merge (neither jq nor node here: skipped)"; return 0; }
-  hk() { jq -r --arg ev "$1" '[.hooks[$ev][] | .hooks[] | select((.command // "") | contains("proofline-hook.sh")) | .timeout] | first' "$s" 2>/dev/null || node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const g=j.hooks[process.argv[2]];for(const x of g)for(const h of x.hooks)if(String(h.command).includes("proofline-hook.sh")){console.log(h.timeout);process.exit()}' "$s" "$1"; }
+  hk() { jq -r --arg ev "$1" '[.hooks[$ev][] | .hooks[] | select((.command // "") | contains("proofline-hook.mjs")) | .timeout] | first' "$s" 2>/dev/null || node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const g=j.hooks[process.argv[2]];for(const x of g)for(const h of x.hooks)if(String(h.command).includes("proofline-hook.mjs")){console.log(h.timeout);process.exit()}' "$s" "$1"; }
   [ "$(hk PreToolUse)" = 30 ] && [ "$(hk SubagentStop)" = 120 ] && [ "$(hk SubagentStart)" = 60 ] || die "default hook limits not written: $(hk PreToolUse) $(hk SubagentStart) $(hk SubagentStop)"
   grep -q '"model": "opus"' "$s" && grep -q 'MY_FLAG' "$s" && grep -q 'Read(./secrets' "$s" && grep -q 'echo note' "$s" && grep -q '"timeout": 7' "$s" || die "init lost a user setting: $(cat "$s")"
   # config -> settings: scale 2 and a single limit
@@ -165,7 +176,7 @@ EOF
   [ "$(hk PreToolUse)" = 60 ] && [ "$(hk SubagentStop)" = 240 ] && [ "$(hk SubagentStart)" = 90 ] && [ "$(hk UserPromptSubmit)" = 60 ] || die "scaled hook limits not written: $(hk PreToolUse) $(hk SubagentStart) $(hk SubagentStop) $(hk UserPromptSubmit)"
   grep -q '"timeout": 7' "$s" || die "the timeout of a hook that is not proofline's was changed"
   grep -q '"model": "opus"' "$s" && grep -q 'MY_FLAG' "$s" && grep -q 'Read(./secrets' "$s" && grep -q 'echo note' "$s" && grep -q 'echo mine' "$s" || die "upgrade lost a user setting"
-  [ "$(grep -c 'proofline-hook.sh' "$s")" = 7 ] || die "hook groups were duplicated or lost: $(grep -c 'proofline-hook.sh' "$s")"
+  [ "$(grep -c 'proofline-hook.mjs' "$s")" = 7 ] || die "hook groups were duplicated or lost: $(grep -c 'proofline-hook.mjs' "$s")"
   # the second run changes nothing, byte for byte
   cp "$s" "$base/settings.once"; sh "$PL" upgrade >/dev/null 2>&1 || die "second upgrade failed"; sh "$PL" upgrade >/dev/null 2>&1 || die "third upgrade failed"
   cmp -s "$s" "$base/settings.once" || die "a repeated upgrade changed the settings file"
@@ -218,8 +229,9 @@ doctor_scale() {
   case "$v" in [1-9]*.[05]|[1-9]|10) ;; *) die "the proposed scale is not a bounded half step: $v" ;; esac
   # no reply, a reply that is not an approval, a negation, another kind: nothing is written
   rc=0; sh "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote without any reply"
+  sleep 1   # a capture is newer than its request and not ahead of the clock (the Node core ignores a capture dated more than 5 s ahead)
   for t in 'looks good' 'do not approve scale' 'approve commands' 'approve scale if it is safe'; do
-    capture "$t" "$(( $(date +%s) + 7200 ))"; A approve-pending >/dev/null 2>&1 || :
+    capture "$t" "$(date +%s)"; A approve-pending >/dev/null 2>&1 || :
     rc=0; sh "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote after '$t'"
     [ "$(cat .agents/config.yaml)" = "$before" ] || die "the config changed after '$t'"
   done
@@ -227,7 +239,7 @@ doctor_scale() {
   printf 'scale\t9\n' > .agents/local/scale/PROPOSAL.tsv; rc=0; A scale-check >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "a changed proposal was covered by the earlier request"
   PATH="$base/shim:$PATH" sh "$PL" doctor --scale >/dev/null 2>&1
   v=$(awk -F'\t' '$1 == "scale" { print $2 }' .agents/local/scale/PROPOSAL.tsv)   # measured again: the value may differ, the approval binds the new file
-  capture 'approve scale' "$(( $(date +%s) + 7200 ))"; A approve-pending >/dev/null 2>&1 || :
+  sleep 1; capture 'approve scale' "$(date +%s)"; A approve-pending >/dev/null 2>&1 || :
   sh "$PL" doctor --apply-scale >/dev/null 2>&1 || die "--apply-scale refused after the user's 'approve scale'"
   [ "$(cfg_v=$(sed -n 's/^  scale: //p' .agents/config.yaml); echo "$cfg_v")" = "$v" ] || die "the approved scale was not written: $(sed -n 's/^  scale: //p' .agents/config.yaml) (wanted $v)"
   A config-check >/dev/null || die "the written scale does not pass config-check"

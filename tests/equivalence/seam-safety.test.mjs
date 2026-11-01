@@ -11,9 +11,9 @@ import { sha256 } from './normalise.mjs';
 
 /** @typedef {import('./rig.mjs').Step} Step */
 const SECRET_FILE = 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY1"\nPLANTED_SECRET\n';
-const capture = (/** @type {string} */ text, /** @type {number} */ time) => /** @type {Step} */ ({ write: { path: '.agents/local/prompts/s1.json', content: `${JSON.stringify({ session: 's1', time, sha256: sha256(text), text })}\n` } });
+/** A prompt capture of session s1, stamped when the step runs: 'now' (never in the future, newer than the request made at least a second before) or 'stale' (older than any request). */
+const capture = (/** @type {string} */ text, /** @type {'now'|'stale'} */ when) => /** @type {Step} */ ({ write: { path: '.agents/local/prompts/s1.json', content: () => `${JSON.stringify({ session: 's1', time: when === 'now' ? Math.floor(Date.now() / 1000) : 1000, sha256: sha256(text), text })}\n` } });
 const A = (/** @type {string[]} */ args, /** @type {Partial<Step>} */ o = {}) => /** @type {Step} */ ({ args, ...o });
-const FUTURE = Math.floor(Date.now() / 1000) + 3600; // one value for every run, so the capture ids are equal
 
 /** @returns {Step[]} */
 function steps(/** @type {Record<string,string>} */ env) {
@@ -32,12 +32,38 @@ function steps(/** @type {Record<string,string>} */ env) {
     e(A(['decide', 'LC', 'reviewer', '--dry', '--focus', 'rules'])), e(A(['decide', 'LC', 'qa', '--dry'])), e(A(['decide', 'LC', 'implementer', '--dry'])),
     // approval results: refused (no capture), refused (words), refused (stale), recorded, single-use refusal
     e(A(['request-approval', 'LC', 'push'])), e(A(['approve', 'LC', 'push'])),
-    capture('what is the weather', FUTURE), e(A(['approve', 'LC', 'push'])),
-    capture('approve push', 1000), e(A(['approve', 'LC', 'push'])),
-    capture('approve push', FUTURE), e(A(['approve', 'LC', 'push'])), e(A(['approve', 'LC', 'push'])),
+    { exec: ['sleep', '1'] }, // a capture is accepted only when it is newer than the request (the core compares whole seconds)
+    capture('what is the weather', 'now'), e(A(['approve', 'LC', 'push'])),
+    capture('approve push', 'stale'), e(A(['approve', 'LC', 'push'])),
+    capture('approve push', 'now'), e(A(['approve', 'LC', 'push'])), e(A(['approve', 'LC', 'push'])),
     e(A(['approval-consume', 'LC', 'push'])), e(A(['approval-consume', 'LC', 'push'])), e(A(['request-approval', 'LC', 'nosuchkind'])),
   ];
 }
+
+/**
+ * The approval records, the ledger, the approval log and the capture files carry the second of each run (capture_id and capture_time are the capture's
+ * own time, which a run must stamp when it runs: a capture in the future is ignored). They are taken out of the rig comparison and compared here by
+ * what they say: the order of ledger events, the records without their time lines, the file names of the prompts folder. Everything else, and every
+ * output byte, is compared by the rig as before.
+ * @param {import('./normalise.mjs').Side} side
+ */
+function split(side) {
+  const timed = (/** @type {string} */ p) => /(^|\/)approvals\/[^/]+\.yaml$|(^|\/)LEDGER\.log$|(^|\/)approve\.log$|\.agents\/local\/prompts\//.test(p);
+  /** @type {Record<string, string>} */ const proj = {};
+  for (const [p, e] of side.files) {
+    if (!timed(p)) continue;
+    const t = e.data.toString('latin1');
+    proj[p] = p.endsWith('LEDGER.log') ? t.split('\n').filter(Boolean).map((l) => /event=(\S+)/.exec(l)?.[1] + ' ' + (/detail=(\S+)/.exec(l)?.[1] ?? '').replace(/@[0-9a-f]{64}/, '')).join('\n')
+      : p.includes('/approvals/') ? t.split('\n').filter((l) => !/^(capture_id|capture_time|approved_at|consumed_at|requested_at)/.test(l)).join('\n')
+      : p.includes('/prompts/') ? '' : t.replace(/^\d{4}-\d\d-\d\dT\S+/gm, '<T>');
+  }
+  const files = new Map([...side.files].filter(([p]) => !timed(p)));
+  return { side: { ...side, files }, proj };
+}
+const same = (/** @type {import('./normalise.mjs').Side} */ a, /** @type {import('./normalise.mjs').Side} */ b, /** @type {string[]} */ names) => {
+  const x = split(a); const y = split(b);
+  return { d: compareSides(x.side, y.side, names), proj: [JSON.stringify(x.proj, null, 1), JSON.stringify(y.proj, null, 1)] };
+};
 
 const ENGINE_VALUES = ['sh', 'node', 'garbage', ''];
 const SEAMS = {
@@ -60,8 +86,11 @@ test('with no fixture stub, every PROOFLINE_TEST* and PROOFLINE_ENGINE* value le
   const variants = [['seams only', { ...SEAMS }], ...ENGINE_VALUES.map((v) => [`seams + PROOFLINE_ENGINE=${JSON.stringify(v)}`, { ...SEAMS, PROOFLINE_ENGINE: v }])];
   for (const [name, env] of /** @type {[string, Record<string,string>][]} */ (variants)) {
     for (const eng of /** @type {('default'|'sh')[]} */ (name === 'seams only' ? ['default', 'sh'] : ['default'])) { // PROOFLINE_ENGINE itself picks the engine of the others
-      let b = base; let v = run(env, eng); let d = compareSides(b, v, ['no seams', `${name}, ${eng} engine`]);
-      if (isShellFlake(d, [b, v])) { b = run({}, 'default'); v = run(env, eng); d = compareSides(b, v, ['no seams', `${name}, ${eng} engine`]); } // a known 0.0.40 shell flake: once more
+      const names = ['no seams', `${name}, ${eng} engine`];
+      let b = base; let v = run(env, eng); let r = same(b, v, names);
+      if (isShellFlake(r.d, [b, v])) { b = run({}, 'default'); v = run(env, eng); r = same(b, v, names); } // a known 0.0.40 shell flake: once more
+      const d = r.d;
+      assert.equal(r.proj[0], r.proj[1], `${name} (${eng}): the approval records, ledger events or prompt files differ`);
       assert.equal(d.length, 0, `${name} (${eng}):\n${formatDiffs(d)}`);
     }
   }

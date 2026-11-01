@@ -31,6 +31,7 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
 # exec fails with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its
 # error texts; the core uses it only when it names this very file. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
+# stage 3, package CMDS: the last line of the list below (worktree-root ... window-close)
 # stage 2, package C1: the last line of the list below (next summary plan-section digest report-facts report-execution report-tokens)
 case "${1:-}" in
   role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
@@ -38,7 +39,8 @@ case "${1:-}" in
   status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier|\
   next|summary|plan-section|digest|report-facts|report-execution|report-tokens|\
   verify-freeze|verify-scope|verify-knowledge-scope|freshness|verify-handoff|verify-qa-plan|verify-worker-evidence|ci-check|ci-task-command|validate|\
-  design-rationales|commands-check|scale-check|batch-check)
+  design-rationales|commands-check|scale-check|batch-check|\
+  next-user|worktree-root|in-knowledge-scope|request-approval|approve|approve-pending|approval-consume|answer|hook-time|language-check|friction-note|window-open|window-close)
     pl_sh=no
     [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
     case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac
@@ -47,18 +49,22 @@ case "${1:-}" in
       pl_e=${pl_e%"${pl_e##*[![:space:]]}"}
       case "$pl_e" in sh) pl_sh=yes ;; sh:*) case ",${pl_e#sh:}," in *",$1,"*) pl_sh=yes ;; esac ;; esac
     fi
+    # A run worktree's scripts are tracked content a task could have rewritten (security round 3): from a worktree the PROJECT's (main tree's) core runs,
+    # and --pl-argv0 below names the worktree's agent.sh, which tells the core which folder is the root. In the main tree pl_core_dir is self_dir.
+    pl_core_dir=$self_dir
+    [ "$sr_main" = "$root" ] || pl_core_dir=$sr_main/.agents/scripts
     # No core beside this file: a folder that is not an installed project (no manifest; a test fixture that copies agent.sh alone, test-lib.sh)
     # runs the shell code; an installed project fails closed (a guard that needs this command must deny, not see empty settings).
-    if [ "$pl_sh" = no ] && { [ ! -f "$self_dir/proofline-core.mjs" ] || [ ! -d "$self_dir/core" ]; }; then
+    if [ "$pl_sh" = no ] && { [ ! -f "$pl_core_dir/proofline-core.mjs" ] || [ ! -d "$pl_core_dir/core" ]; }; then
       if [ -f "$sr_main/.agents/.proofline-manifest" ]; then
-        echo "proofline: $self_dir/proofline-core.mjs or $self_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
+        echo "proofline: $pl_core_dir/proofline-core.mjs or $pl_core_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
       fi
       pl_sh=yes
     fi
     # The mandatory arguments of the moved commands (the `${N:?usage: ...}` of the dispatch below): when one is absent or empty the shell prints its
     # own usage text, with its own $0 and status, so the core is not started. ONE table; tests/core/mandatory.test.mjs checks it against the dispatch.
-    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate'
-    pl_need3='plan-section'
+    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate worktree-root in-knowledge-scope request-approval answer friction-note window-open window-close'
+    pl_need3='plan-section request-approval answer'
     case " $pl_need2 " in *" $1 "*) [ -n "${2:-}" ] || pl_sh=yes ;; esac
     case " $pl_need3 " in *" $1 "*) [ -n "${3:-}" ] || pl_sh=yes ;; esac
     if [ "$pl_sh" = no ]; then
@@ -70,7 +76,7 @@ case "${1:-}" in
           case "${4:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac ;;
       esac
     fi
-    [ "$pl_sh" = yes ] || exec node "$self_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
+    [ "$pl_sh" = yes ] || exec node "$pl_core_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
 esac
 cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD

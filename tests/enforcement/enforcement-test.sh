@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2012,SC2015,SC2016,SC2154 # assertion chains; literal command text; fixture vars come from test-lib.sh
+# shellcheck disable=SC2034,SC2012,SC2015,SC2016,SC2154 # assertion chains; literal command text; fixture vars come from test-lib.sh
 # Enforcement tests (D27 layer 2): every forbidden action is really attempted and must be blocked, by the
 # real agent.sh and git hooks in throwaway installed projects, and by the real runtime hook script
 # (adapters/claude/hooks/proofline-hook.sh) fed with hook JSON in the shapes Claude Code and Codex send
@@ -13,14 +13,25 @@ if [ -z "${ENF_INNER:-}" ]; then
   ENF_INNER=1 ENF_REPO=$repo exec sh -c '. "$0"; . "$1"' "$repo/control-plane/agents/scripts/test-lib.sh" "$repo/tests/enforcement/enforcement-test.sh"
 fi
 
-hook=$ENF_REPO/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$ENF_REPO/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun='node'; hbase=proofline-hook.mjs ;; *) hrun='sh'; hbase=proofline-hook.sh ;; esac
+# install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
+install_hook() {
+  case $hook in
+    *.mjs) cp -R "$(dirname "$hook")/." .agents/hooks/; cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
+      printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> .git/info/exclude ;;
+    *) cp "$hook" .agents/hooks/ ;;
+  esac
+}
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 # a loaded runner must not expire the approval step of the hook mid-test: tests that exercise the budget set their own
 PROOFLINE_HOOK_APPROVE_BUDGET=300; PROOFLINE_HOOK_LOCK_WAIT=120; export PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT
 
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) print "\\n"; print }'; }
-H() { printf '%s' "$2" | sh "$hook" "$1" "${3:-claude}"; }   # EVENT JSON [RUNTIME] -> hook stdout
+H() { printf '%s' "$2" | $hrun "$hook" "$1" "${3:-claude}"; }   # EVENT JSON [RUNTIME] -> hook stdout
 who() { [ -z "${1:-}" ] || printf ',"agent_type":"%s","agent_id":"%s"' "$1" "${2:-a1}"; }
 pre_edit() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"$1\",\"tool_input\":{\"file_path\":\"$2\"}$(who "${3:-}" "${4:-}")}"; }
 pre_bash() { H pretool "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s1\",\"cwd\":\"$PWD\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$(jstr "$1")\"}$(who "${2:-}" "${3:-}")}"; }
@@ -35,7 +46,7 @@ denied() { printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (
 allowed() { ! printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (denied: $2)"; ok "$1"; }
 fixture() { # scaffold an orchestrated run at IMPLEMENTING with git hooks and the runtime hook installed
   scaffold orchestrated no "${1:-COMPLEX}" "${2:-}"
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks src; cp "$hook" .agents/hooks/
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks src; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude   # committed in a real install
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }
@@ -749,17 +760,21 @@ questions() {
   needs_input 2 q2 architect; sub_stop proofline-architect q2 >/dev/null
   prompt 'please use nil for the empty key'
   printf 'nil for the empty key\n' | A answer LC 2 >/dev/null
-  grep -q '^answered_by: user' .agents/runs/LC/questions/002.answer.md || die "the user's captured answer was not attributed to the user"
-  ok "an answer contained in the captured user prompt -> answered_by user"
+  # stage 3 security round 2: the Node core attributes nothing to the user from a capture FILE (a planted one looks the same); the old shell engine does
+  if [ "$hrun" = node ]; then grep -q '^answered_by: lead' .agents/runs/LC/questions/002.answer.md || die "an answer typed by the lead was attributed to the user from a capture file"
+  else grep -q '^answered_by: user' .agents/runs/LC/questions/002.answer.md || die "the user's captured answer was not attributed to the user"; fi
+  ok "an answer contained in the captured user prompt -> answered_by user (shell engine) / lead (Node core: no attribution from a file)"
   out=$(H session "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"cwd\":\"$PWD\"}")
   printf '%s' "$out" | grep -q 'active run: LC' && printf '%s' "$out" | grep -q 'proofline-lead/SKILL.md' && printf '%s' "$out" | grep -q 'next step: ' || die "SessionStart context: $out"
   H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}" codex | grep -q '.agents/skills/proofline-lead/SKILL.md' || die "Codex SessionStart skill path"
   ok "SessionStart tells the lead its skill, the active run and the next step"
   # A200: the session check is bounded; a slow `agent.sh next` is stopped and the lead is told to ask it itself, the hook answers in time
+  [ "$hrun" != node ] || sleep 2   # the same event within two seconds is a duplicate registration; the shell hook was slower than that
+  [ "$hrun" != node ] || printf 'sh:next\n' > .agents/local/engine   # the Node hook runs `next` in its own process unless the user's engine switch asks for agent.sh
   mv .agents/scripts/agent.sh .agents/scripts/agent-real.sh
   printf '#!/bin/sh\ncase "$1" in next) sleep 25; exit 0 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n' > .agents/scripts/agent.sh
   se_t0=$(date +%s); out=$(PROOFLINE_HOOK_NEXT_BUDGET=2 H session "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"cwd\":\"$PWD\"}"); se_t1=$(date +%s)
-  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh
+  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh; rm -f .agents/local/engine
   [ $((se_t1 - se_t0)) -lt 15 ] || die "the session hook waited $((se_t1 - se_t0))s for a slow agent.sh next (A200)"
   printf '%s' "$out" | grep -q "agent.sh next LC (the session check did not finish" || die "the session hook did not hand a timed-out next to the lead: $out"
   ok "SessionStart bounds the next-step check (A200)"
@@ -973,18 +988,20 @@ EOF')"
 
 hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing PreToolUse hook denies; CLI-4
   fixture
+  # the shipped wiring runs the Node hook: this scenario tests that wiring, so the Node hook is the installed one whichever hook the suite runs
+  case $hook in *.mjs) ;; *) hook_sh=$hook; hook=$ENF_REPO/adapters/claude/hooks/proofline-hook.mjs; install_hook; hook=$hook_sh ;; esac
   jcmd() { if command -v jq >/dev/null 2>&1; then jq -r ".hooks.$2[0].hooks[0].command" "$1"; else node -e 'const j = require(process.argv[1]); console.log(j.hooks[process.argv[2]][0].hooks[0].command)' "$1" "$2"; fi; }
   cx=$(jcmd "$ENF_REPO/adapters/codex/hooks.json" PreToolUse); cl=$(jcmd "$ENF_REPO/adapters/claude/settings.fragment.json" PreToolUse)
   js="{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD/src\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"printf x > ../impl.txt\"}}"
   out=$(cd src && printf '%s' "$js" | sh -c "$cx"); denied "CLI-3 codex hook from a subdirectory denies a product write" "$out" "product changes go through the implementer"
-  mv .agents/hooks/proofline-hook.sh "$base/hook.bak"
+  mv .agents/hooks/proofline-hook.mjs "$base/hook.bak"
   (cd src && printf '%s' "$js" | sh -c "$cx" 2>/dev/null); rc=$?
   [ "$rc" = 2 ] || die "CLI-3 a missing hook script did not deny the codex PreToolUse (exit $rc)"; ok "CLI-3 a missing codex PreToolUse hook script denies (exit 2)"
   (printf '%s' "$js" | CLAUDE_PROJECT_DIR=$PWD sh -c "$cl" 2>/dev/null); rc=$?
   [ "$rc" = 2 ] || die "a missing hook script did not deny the claude PreToolUse (exit $rc)"; ok "CLI-3 a missing claude PreToolUse hook script denies (exit 2)"
   d=$(mktemp -d "$base/plain.XXXXXX"); (cd "$d" && printf '%s' "$js" | sh -c "$cx"); rc=$?
   [ "$rc" = 0 ] || die "codex hook outside a proofline project exits $rc"; ok "CLI-3 outside a proofline project the codex hook is a no-op"
-  mv "$base/hook.bak" .agents/hooks/proofline-hook.sh
+  mv "$base/hook.bak" .agents/hooks/proofline-hook.mjs
   out=$(H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}")
   printf '%s' "$out" | grep -q '(.agents/skills/proofline-lead/SKILL.md)' || die "CLI-4 SessionStart skill path: $out"
   sleep 2   # the same event within two seconds is a duplicate registration (below)
@@ -1268,6 +1285,8 @@ worktree_state() {
   printf 'impl.txt\n' > .agents/owns.conf.tmp; rm -f .agents/owns.conf.tmp
   M=$PWD
   wt=$(sh .agents/scripts/agent.sh worktree-add W-1) || die "worktree-add: $wt"
+  # the core is not tracked in the fixture, so a run worktree has none; the Node hook reads the core of the tree it acts on
+  [ "$hrun" != node ] || { cp "$tl_agents/scripts/proofline-core.mjs" "$wt/.agents/scripts/"; cp -R "$tl_agents/scripts/core" "$wt/.agents/scripts/core"; }
   mkdir -p "$wt/.agents/runs" "$wt/.agents/local/approvals" "$wt/.agents/local/records"
   cp -R .agents/runs/LC "$wt/.agents/runs/LC"; cp .agents/local/ACTIVE_RUN "$wt/.agents/local/ACTIVE_RUN"
   [ "$(sh .agents/scripts/agent.sh worktree-root "$wt/.agents/runs/LC")" = "$wt" ] || die "worktree-root of the run folder"

@@ -2,12 +2,13 @@
 // `next`: the deterministic next step of a run (agent.sh 6878-7062). The state machine reads the records once (RUN.yaml, the gate records,
 // the ledger, the plan), asks the shared library for the gate states and prints the `task=`, `state=`, `handoff=`, `next=`, `reason=`,
 // `note=`, `missing_step=`, `finding=` and `fix_path=` lines the lead and the hooks parse. It removes stale dispatch markers like the shell.
-// Four branches stay with the shell until the stages that move their writers (BridgeToShell before any output): a pending approval that
-// has to read the user's newest prompt (approval_wait_o), a delivery whose pull request is open (ci_progress), a task of an approved batch
+// Three branches stay with the shell until the stages that move their writers (BridgeToShell before any output):
+// a delivery whose pull request is open (ci_progress), a task of an approved batch
 // (batch_member), a listed known issue (ki_gate_facts) and the design-sync drift of the knowledge step (knowledge_drift).
 import { asciiLower } from './shellglob.mjs';
 import { lstatSync, statSync } from 'node:fs';
 import { BridgeToShell } from './errors.mjs';
+import { approvalWaitO } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import {
   findingWaived, fixRoundsUsed, gateBlockingRows, gateDeps, gateFocus, gateFocusStatus, gateLatestFile, gateNames, gateOwner, gateSatisfied, gateStatus, gatesDirOf, maxFixRounds,
@@ -250,7 +251,7 @@ function configEmptyCmds(ctx) {
 /** `build_record_missing`: the build record script says exit 3 (no finished record for this tree). @param {Context} ctx */
 function buildRecordMissing(ctx) {
   if (configEmptyCmds(ctx)) return false;
-  const script = `${ctx.scripts}/build-record.sh`;
+  const script = `${ctx.trustedScripts}/build-record.sh`;
   if (!isFile(script)) return false;
   const r = proc.run('sh', [script, 'show'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
   return r.status === 3;
@@ -381,7 +382,7 @@ function preFreeze(ctx, id, d, cls, emit, o, r) {
 /** The line for a missing approval: ask for it, or (a request already stands) leave the wait line to the shell. @param {Context} ctx @param {string} id @param {string} kind @param {string} ph @param {(m: string) => void} o */
 function requestApproval(ctx, id, kind, ph, o) {
   const rq = latestRequest(ctx, id, kind);
-  if (rq !== '' && gateField(ctx, rq, 'bound') === ph) throw new BridgeToShell('pending approval request');
+  if (rq !== '' && gateField(ctx, rq, 'bound') === ph) { approvalWaitO(ctx, rq, kind, id, o); return; }
   o(`agent.sh request-approval ${id} ${kind} (relay verbatim)`);
 }
 

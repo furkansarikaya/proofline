@@ -58,6 +58,9 @@ export class Context {
     this.fpMode = 'no';
     /** ctp_base of agent.sh: set by delivered mode; task paths are then measured from this commit instead of HEAD */
     this.ctpBase = '';
+    /** the lock set of this invocation (set by the entry), so that a command may release its locks before it starts a command that takes them itself */
+    /** @type {{ releaseAll(): void } | null} */ this.locks = null;
+    /** runs one more command of this core in process, with a context of its own (set by the entry; the stand-in for `sh agent.sh ...`) @type {((argv: string[], io: Io) => number) | null} */ this.runner = null;
   }
 
   /**
@@ -87,6 +90,15 @@ export class Context {
     return this._shared;
   }
 
+  /**
+   * The scripts folder whose helper scripts (lessons.sh, platform.sh, build-record.sh) this command may start: the project's own. In a run worktree the
+   * worktree's copy is never started (it is tracked content a task could have rewritten), so the main tree's serves.
+   */
+  get trustedScripts() {
+    const main = this.sharedMain();
+    return this.root !== main && this.root.startsWith(`${main}/.agents/local/worktrees/`) ? `${main}/.agents/scripts` : this.scripts;
+  }
+
   /** `run_dir ID` @param {string} id */
   runDir(id) { return `${this.root}/.agents/runs/${id}`; }
 
@@ -107,6 +119,16 @@ export class Context {
   /** The environment every child of the shell code inherits from agent.sh's own start (lines 8-10, 27). */
   childEnv() {
     return { ...this.env, LC_ALL: 'C', RTK_DISABLED: '1', PROOFLINE_SHARED_ROOT: this.sharedMain() };
+  }
+
+  /**
+   * Has the caller stopped waiting for this command? The prompt hook runs an approval step on a worker thread under a time budget and sets this flag when
+   * the budget ends (a bridged child of the worker cannot be killed, so the step is told instead): a record that would be written after that is not.
+   * Never settable from a command line, a file or the environment (the hook builds io in its own process).
+   */
+  cancelled() {
+    const c = /** @type {{ cancel?: Int32Array }} */ (this.io).cancel;
+    return c !== undefined && Atomics.load(c, 0) !== 0;
   }
 
   /** Print the message of an error like `fail` does. @param {ProoflineError} e */

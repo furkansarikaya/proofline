@@ -1,0 +1,14 @@
+# Process-count budgets of the Node hook (issue #168): the most external processes one run of proofline-hook.mjs may start per event on the benchmark fixture
+# of tests/bench/hook-procs.sh (the PATH shim counts them: no clock is read). max = the measured count (REPEAT=3 median) plus a margin of max(2, 25 percent).
+# The shell hook starts 13 to 540 processes per event (measured on the same fixture). tests/hook/budgets.test.mjs fails above max.
+# event<TAB>max_processes<TAB>measured
+pretool-write-impl	3	1
+pretool-read	3	1
+pretool-bash	3	1
+posttool	3	1
+prompt-plain	3	1
+prompt-approval	5	3
+stop	3	1
+session	5	3
+subagent-start	4	2
+subagent-stop	3	1

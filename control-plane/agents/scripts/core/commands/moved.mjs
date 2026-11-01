@@ -16,6 +16,8 @@ import { LIBRARY_HANDLERS } from './library.mjs';
 import { TOOLS_HANDLERS } from './tools.mjs';
 import { CHECK_HANDLERS } from './checks.mjs';
 import { VERIFY_HANDLERS } from './verify.mjs';
+import { APPROVE_HANDLERS } from './approve.mjs';
+import { HOOKCMD_HANDLERS } from './hookcmds.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -77,7 +79,7 @@ function configCheck(ctx, args) {
   }
   if (messages.length === 0) {
     ctx.out(`config valid: ${rel}\n`);
-    const platform = `${ctx.scripts}/platform.sh`;
+    const platform = `${ctx.trustedScripts}/platform.sh`;
     if (file === config && isFile(platform)) {
       // the warning is the platform script's stdout, shown on stderr; its own stderr is dropped
       const r = proc.run('sh', [platform, 'warn', '-C', ctx.root], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
@@ -168,4 +170,7 @@ export const HANDLERS = {
   // --- stage 2, package C2 ---
   ...VERIFY_HANDLERS,
   ...CHECK_HANDLERS,
+  // --- stage 3, package CMDS ---
+  ...APPROVE_HANDLERS,
+  ...HOOKCMD_HANDLERS,
 };

@@ -16,7 +16,7 @@ timeit() { # NAME CMD...: wall milliseconds of one run
 }
 scaffold orchestrated no COMPLEX ""
 case "${BR_STATE:-implemented}" in implemented) worker RED fail impl_test.txt 'test: x'; worker GREEN pass impl.txt 'impl: x'; A handoff "$RID" IMPLEMENTED >/dev/null ;; codedone) to_code_done orchestrated ;; esac
-cp -R "$tl_agents/githooks" .agents/githooks 2>/dev/null || :
+node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks
 [ -z "${BR_UNIGNORED:-}" ] || printf '.agents/local/\n' > .gitignore   # BR_UNIGNORED=1: the run folder is NOT git-ignored (a project that lost the line)
 files=${FILES:-400}; bytes=${BYTES:-70000}
 bigdir=.agents/runs/$RID/reviews/visual-proof/screens; mkdir -p "$bigdir"

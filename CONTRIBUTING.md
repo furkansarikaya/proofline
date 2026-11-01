@@ -5,7 +5,7 @@ on whether it keeps that property.
 
 ## Set up
 
-Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests). Nothing is installed into
+Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests). The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed); `sh` in `.agents/local/engine` runs the old shell hook instead. Nothing is installed into
 the project; there is no build step.
 
 Run locally (the `CI` variable unset), `tests/selftest.sh` and `tests/affected.sh` use half of the cores (at least one) and run under `nice`, so the machine stays usable; `SELFTEST_JOBS=N` sets the job count. With `CI` set (GitHub Actions does) they use every core at normal priority.
