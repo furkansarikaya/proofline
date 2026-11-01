@@ -18,13 +18,18 @@ import { stateFixture } from './stage2-fixtures.mjs';
 export const STAGE3 = Object.freeze(['next-user', 'worktree-root', 'in-knowledge-scope', 'request-approval', 'approve', 'approve-pending', 'approval-consume', 'answer', 'hook-time', 'language-check', 'friction-note', 'window-open', 'window-close']);
 
 const ID = 'LC';
+/** Run FN once, on the first call (a fixture is built only when a selected case uses it, never at import). @template T @param {() => T} fn @returns {() => T} */
+const lazy = (fn) => { let done = false; /** @type {T} */ let v; return () => { if (!done) { v = fn(); done = true; } return v; }; };
+/** A fixture that is built on the first read of its folder or its start time. @param {() => import('../fixture.mjs').Fixture} get @returns {import('../fixture.mjs').Fixture} */
+const lazyFx = (get) => { const g = lazy(get); return { get dir() { return g().dir; }, get builtAt() { return g().builtAt; } }; };
+
 const A = (/** @type {string[]} */ args, /** @type {Partial<Step>} */ o = {}) => /** @type {Step} */ ({ args, ...o });
 
-/** A prompt capture as the hook writes it (session s1, a time after any request). @param {string} text @param {number} [time] @returns {Step} */
-export const capture = (text, time) => ({ write: { path: '.agents/local/prompts/s1.json', content: captureBytes('s1', time, text).toString('utf8') } });
+/** A prompt capture as the hook writes it (session s1, a time after any request). @param {string} text @param {number | (() => number)} time the capture time, or a function that gives it once the fixture exists @returns {Step} */
+export const capture = (text, time) => ({ write: { path: '.agents/local/prompts/s1.json', get content() { return captureBytes('s1', typeof time === 'function' ? time() : time, text).toString('utf8'); } } });
 
-/** A capture whose hash does not match its text. @param {string} text @param {number} time @returns {Step} */
-const forged = (text, time) => ({ write: { path: '.agents/local/prompts/s1.json', content: captureBytes('s1', time, text).toString('utf8').replace(createHash('sha256').update(text).digest('hex'), '0'.repeat(64)) } });
+/** A capture whose hash does not match its text. @param {string} text @param {number | (() => number)} time @returns {Step} */
+const forged = (text, time) => ({ write: { path: '.agents/local/prompts/s1.json', get content() { return captureBytes('s1', typeof time === 'function' ? time() : time, text).toString('utf8').replace(createHash('sha256').update(text).digest('hex'), '0'.repeat(64)); } } });
 
 
 /**
@@ -99,12 +104,19 @@ export function hardenedCases() { return allCases().filter((c) => HARDENED.inclu
 
 function allCases() {
   /** @type {Case[]} */ const cases = [];
-  const base = stateFixture('gates-pending-plan');
   const Q = '1. Which option do you want?\n   options: a | b\n   recommended: a\n   why: because\n';
-  // the plan request of the state and a request of no run; the second fixture also a scope request and two open questions
-  const { fx: pending, t: T } = derive(base, [[['request-approval', '-', 'commit']]]);
-  const { fx: asked, t: TQ } = derive(base, [[['request-approval', '-', 'commit']], [['request-approval', ID, 'scope']], [['ask', ID], Q], [['ask', ID], Q]]);
-  const cap = (/** @type {string} */ text, time = T) => capture(text, time);
+  // Fixtures are built on first use by a case that runs (never at import): the plan request of the state and a request of no run; the second
+  // fixture also a scope request and two open questions; the third the single-use state. Each is built once per process.
+  const getBase = lazy(() => stateFixture('gates-pending-plan'));
+  const getPending = lazy(() => derive(getBase(), [[['request-approval', '-', 'commit']]]));
+  const getAsked = lazy(() => derive(getBase(), [[['request-approval', '-', 'commit']], [['request-approval', ID, 'scope']], [['ask', ID], Q], [['ask', ID], Q]]));
+  const getSpent = lazy(() => deriveSingleUse(getBase()));
+  const pending = lazyFx(() => getPending().fx);
+  const asked = lazyFx(() => getAsked().fx);
+  const spent = lazyFx(() => getSpent().fx);
+  const T = () => getPending().t;
+  const TQ = () => getAsked().t;
+  const cap = (/** @type {string} */ text, /** @type {number | (() => number)} */ time = T) => capture(text, time);
   const capQ = (/** @type {string} */ text) => capture(text, TQ);
   // the replies that approve: one case each (the approval ends the question); the others are chained (a refusal changes nothing)
   const yes = REPLIES.slice(0, 10);
@@ -123,9 +135,7 @@ function allCases() {
   // single use (Invariant 3): a capture approves ONE request. The first approval is made while the fixture is built; the second plan request is made
   // before the capture's time (the capture is dated two seconds after the first request, which the clock reader accepts as not far ahead), so the
   // same capture is neither stale nor in the future for it and only the single-use rule can refuse it.
-  const { fx: spent, t: TS } = deriveSingleUse(base);
   cases.push({ name: 'approve:single-use-two-requests', fixture: spent, steps: [A(['approve', ID, 'plan']), A(['approve-pending', ID]), A(['approve', ID, 'plan'], { role: 'reviewer' })] });
-  void TS;
   cases.push({ name: 'approve:role-denied', fixture: pending, steps: [cap('approve the plan'), A(['approve', ID, 'plan'], { role: 'implementer' }), A(['approve', ID, 'plan'], { role: 'reviewer' })] });
   cases.push({ name: 'approve:several-kinds', fixture: asked, steps: [capQ('approve plan, approve commit'), A(['approve', ID, 'plan', 'scope']), A(['approve', '-', 'commit'])] });
   cases.push({ name: 'request-approval:kinds', fixture: pending, steps: [A(['request-approval', ID, 'plan']), A(['request-approval', ID, 'destructive']), A(['request-approval', ID, 'scope']), A(['request-approval', ID, 'budget']), A(['request-approval', ID, 'mutation_budget']), A(['request-approval', '-', 'push']), A(['request-approval', ID, 'commit']), A(['request-approval', '-', 'plan']), A(['request-approval', ID, 'bogus']), A(['request-approval', ID, 'reopen:LC']), A(['request-approval', ID, 'waive:X-1']), A(['request-approval', ID, 'rule:R1']), A(['request-approval', ID, 'rationale:p-1']), A(['request-approval', '-', 'report']), A(['request-approval', '-', 'batch']), A(['request-approval', 'NOPE', 'plan']), A(['request-approval', ID, 'plan'], { role: 'reviewer' })] });
@@ -139,19 +149,19 @@ function allCases() {
   cases.push({ name: 'friction-note', fixture: pending, steps: [A(['friction-note', ID, 'user-command']), A(['friction-note', ID, 'proofline_bug']), A(['friction-note', ID, 'bogus']), A(['friction-note', ID]), A(['friction-note', 'NOPE', 'user-shell']), A(['friction-note', ID, 'user-shell'], { role: 'reviewer' })] });
   cases.push({ name: 'hook-time', fixture: pending, steps: [{ write: { path: '.agents/local/hook-times', content: '1|prompt|10|ok|\n2|prompt|30|ok|\n3|stop|5|timeout|why\n4|bad name|3|ok|\n5|session|007|ok|\n6|prompt|abc|ok|\n' } }, A(['hook-time', ID]), A(['hook-time', ID]), A(['hook-time', '-']), A(['hook-time'])] });
   cases.push({ name: 'language-check', fixture: pending, steps: [A(['language-check', '-'], { stdin: 'plain English text\n' }), A(['language-check', '-'], { stdin: 'café çalışma öğretmen\n' }), A(['language-check', '-'], { stdin: '> café çalışma öğretmen\n' }), A(['language-check', 'README.md']), A(['language-check', 'missing.md']), A(['language-check'], { stdin: '中文中文中文' }), A(['language-check', '-', '.agents/runs/LC/COMPLETION_REPORT.md'], { stdin: '<!-- proofline:summary:begin -->\nçağışüö\n<!-- proofline:summary:end -->\nok\n' })] });
-  const hist = (/** @type {string} */ name, /** @type {string} */ text) => /** @type {Step} */ ({ write: { path: `.agents/local/prompts/history/${name}`, content: text } });
+  const hist = (/** @type {string} */ name, /** @type {string} */ text) => /** @type {Step} */ ({ write: { get path() { return `.agents/local/prompts/history/${TQ()}-${name}`; }, content: text } });
   cases.push({ name: 'answer:typed', fixture: asked, steps: [capQ('use a please'), A(['answer', ID, '1'], { stdin: 'use a\n' }), A(['answer', ID, '1'], { stdin: 'again\n' }), A(['answer', ID, 'x']), A(['answer', ID, '7'], { stdin: 'z' }), A(['answer', ID, '1', '--amend'])] });
   cases.push({ name: 'answer:lead-text-not-user', fixture: asked, steps: [capQ('something else'), A(['answer', ID, '1'], { stdin: 'use a' }), A(['answer', ID, '1'], { stdin: '  \n' })] });
-  cases.push({ name: 'answer:captured', fixture: asked, steps: [A(['answer', ID, '1', '--captured']), hist(`${TQ}-aaaaaaaa.txt`, 'first remark'), hist(`${TQ}-bbbbbbbb.txt`, 'option b, please\nand more'), hist(`${TQ}-cccccccc.txt`, '<task-notification>x'), A(['answer', ID, '1', '--captured']), A(['answer', ID, '2', '--captured']), hist(`${TQ}-dddddddd.txt`, 'no, option a'), A(['answer', ID, '2', '--captured']), A(['answer', ID, '2', '--captured'])] });
+  cases.push({ name: 'answer:captured', fixture: asked, steps: [A(['answer', ID, '1', '--captured']), hist(`aaaaaaaa.txt`, 'first remark'), hist(`bbbbbbbb.txt`, 'option b, please\nand more'), hist(`cccccccc.txt`, '<task-notification>x'), A(['answer', ID, '1', '--captured']), A(['answer', ID, '2', '--captured']), hist(`dddddddd.txt`, 'no, option a'), A(['answer', ID, '2', '--captured']), A(['answer', ID, '2', '--captured'])] });
   cases.push({ name: 'next:approval-wait', fixture: pending, steps: [A(['next', ID]), cap('hmm, maybe later'), A(['next', ID]), A(['next', ID], { role: 'reviewer' }), cap('approve the plan'), A(['next', ID], { role: 'reviewer' }), A(['next', ID]), A(['next', ID])] });
   const states = ['gates-pending-plan', 'gates-frozen', 'gates-done', 'gates-failed'];
   for (const st of states) {
-    cases.push({ name: `next-user:${st}`, fixture: stateFixture(st), steps: ['status', 'resume', 'deliver', 'knowledge', 'run', 'task', 'batch', 'queue', 'reopen', 'product', 'doctor'].map((c) => A(['next-user', c])).concat([A(['next-user', 'deliver', ID]), A(['next-user', 'status', ID]), A(['next-user', 'deliver', '--error']), A(['next-user', 'status', '--error=usage']), A(['next-user', 'bogus']), A(['next-user', '--commands']), A(['next-user']), A(['next-user', 'product', 'discover', 'frame', 'my-slug']), A(['next-user', 'product', 'assess', 'decision', 'my-slug']), A(['next-user', 'batch', 'status']), A(['next-user', 'status', '../x'])]) });
+    cases.push({ name: `next-user:${st}`, fixture: lazyFx(() => stateFixture(st)), steps: ['status', 'resume', 'deliver', 'knowledge', 'run', 'task', 'batch', 'queue', 'reopen', 'product', 'doctor'].map((c) => A(['next-user', c])).concat([A(['next-user', 'deliver', ID]), A(['next-user', 'status', ID]), A(['next-user', 'deliver', '--error']), A(['next-user', 'status', '--error=usage']), A(['next-user', 'bogus']), A(['next-user', '--commands']), A(['next-user']), A(['next-user', 'product', 'discover', 'frame', 'my-slug']), A(['next-user', 'product', 'assess', 'decision', 'my-slug']), A(['next-user', 'batch', 'status']), A(['next-user', 'status', '../x'])]) });
   }
-  cases.push({ name: 'next-user:empty', fixture: stateFixture('empty'), steps: ['status', 'run', 'task', 'batch', 'deliver', 'init'].map((c) => A(['next-user', c])).concat([A(['next-user', 'status', '--error']), A(['next-user', '--commands'])]) });
-  const frozen = stateFixture('gates-frozen');
+  cases.push({ name: 'next-user:empty', fixture: lazyFx(() => stateFixture('empty')), steps: ['status', 'run', 'task', 'batch', 'deliver', 'init'].map((c) => A(['next-user', c])).concat([A(['next-user', 'status', '--error']), A(['next-user', '--commands'])]) });
+  const frozen = lazyFx(() => stateFixture('gates-frozen'));
   cases.push({ name: 'window:orchestrated', fixture: frozen, steps: [A(['window-open', ID]), A(['window-open', ID, 'designer']), A(['window-open', ID, 'qa']), A(['window-close', ID]), A(['window-close', ID, 'deadbeef']), A(['window-open', 'NOPE']), A(['window-open', ID], { role: 'implementer' })] });
-  const standalone = stateFixture('gates-standalone');
+  const standalone = lazyFx(() => stateFixture('gates-standalone'));
   cases.push({ name: 'window:standalone', fixture: standalone, steps: [A(['window-open', ID]), A(['window-close', ID, 'x']), A(['window-close', ID])] });
   return cases;
 }
