@@ -12,13 +12,16 @@ import { checkProcessBudgets, loadProcessBudgets, PROCESS_BUDGET_FILE } from './
 const here = import.meta.dirname;
 const budgets = loadProcessBudgets();
 const measuredFile = JSON.parse(readFileSync(join(here, 'agent-procs-stage2.json'), 'utf8'));
+// stage 3 adds the 13 commands it moved (measured with --engine default on the small fixture)
+const stage3 = JSON.parse(readFileSync(join(here, 'agent-procs-stage3.json'), 'utf8'));
+for (const [fx, cmds] of Object.entries(stage3.fixtures)) measuredFile.fixtures[fx] = { ...measuredFile.fixtures[fx], ...cmds };
 
 test('the table covers the hot and step commands, the CLI status and every fixture, and equals the recorded stage 2 measurement', () => {
   for (const c of ['next', 'summary', 'summary --status', 'digest', 'pipeline', 'report-facts', 'report-tokens', 'verify-seal', 'verify-scope', 'patch-fingerprint', 'proofline status'])
     assert.ok(budgets.some((b) => b.command === c), `no process budget for ${c}`);
   for (const fx of ['small', 'scale-0', 'scale-20', 'scale-60', 'perf']) assert.ok(budgets.some((b) => b.fixture === fx), fx);
   for (const b of budgets) {
-    assert.equal(measuredFile.fixtures[b.fixture]?.[b.command]?.execs, b.measured, `${b.command} on ${b.fixture}: the table differs from agent-procs-stage2.json`);
+    assert.equal(measuredFile.fixtures[b.fixture]?.[b.command]?.execs, b.measured, `${b.command} on ${b.fixture}: the table differs from agent-procs-stage2.json or agent-procs-stage3.json`);
     assert.ok(b.max >= b.measured + 2 || b.max >= Math.ceil(b.measured * 1.25), `${b.command} on ${b.fixture}: no margin`);
   }
   const rf = budgets.find((b) => b.command === 'report-facts' && b.fixture === 'perf');

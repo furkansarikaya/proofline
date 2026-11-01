@@ -102,3 +102,17 @@ verify-handoff	perf	4	2
 validate	perf	3	1
 summary --status	perf	3	1
 proofline status	perf	37	29
+# stage 3 (issue #168): the 13 commands moved in stage 3, measured on the small fixture with --engine default (tests/bench/agent-procs.mjs); max = measured + max(2, 25 percent)
+answer	small	3	1
+approval-consume	small	6	4
+approve	small	3	1
+approve-pending	small	3	1
+friction-note	small	3	1
+hook-time	small	3	1
+in-knowledge-scope	small	3	1
+language-check	small	3	1
+next-user	small	3	1
+request-approval	small	6	4
+window-close	small	3	1
+window-open	small	4	2
+worktree-root	small	5	3

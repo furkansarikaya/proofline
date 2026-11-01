@@ -1,0 +1,116 @@
+{
+ "schema": "proofline.agent-procs/1",
+ "engine": "default",
+ "repeat": {
+  "small": 1,
+  "others": 1
+ },
+ "node_start": {
+  "node": "v24.14.1",
+  "platform": "darwin",
+  "arch": "arm64",
+  "median_ms": 31.47
+ },
+ "fixtures": {
+  "small": {
+   "answer": {
+    "args": "LC 1",
+    "execs": 1,
+    "ms": 336,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "no question 1 for LC"
+   },
+   "approval-consume": {
+    "args": "LC push",
+    "execs": 4,
+    "ms": 313,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "no unconsumed push approval bound to 0b216a99dce37af1ea4187c7d0a7a35d83c9b49f for LC"
+   },
+   "approve": {
+    "args": "LC push",
+    "execs": 1,
+    "ms": 72,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "no approval request for push: run 'agent.sh request-approval LC push' and relay it to the user first"
+   },
+   "approve-pending": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 68,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "friction-note": {
+    "args": "LC proofline_bug",
+    "execs": 1,
+    "ms": 78,
+    "stdout_bytes": 30,
+    "exit": 0
+   },
+   "hook-time": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 81,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "in-knowledge-scope": {
+    "args": "docs/a.md",
+    "execs": 1,
+    "ms": 72,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": ""
+   },
+   "language-check": {
+    "args": "",
+    "execs": 1,
+    "ms": 77,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "next-user": {
+    "args": "",
+    "execs": 1,
+    "ms": 81,
+    "stdout_bytes": 0,
+    "exit": 2,
+    "stderr_first": "next-user: unknown command: help"
+   },
+   "request-approval": {
+    "args": "LC push",
+    "execs": 4,
+    "ms": 127,
+    "stdout_bytes": 747,
+    "exit": 0
+   },
+   "window-close": {
+    "args": "LC 0 0",
+    "execs": 1,
+    "ms": 71,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "worker window began at a tree that is not the last attested one: unattributed mutation"
+   },
+   "window-open": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 95,
+    "stdout_bytes": 65,
+    "exit": 0
+   },
+   "worktree-root": {
+    "args": "/nonexistent",
+    "execs": 3,
+    "ms": 103,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": ""
+   }
+  }
+ }
+}

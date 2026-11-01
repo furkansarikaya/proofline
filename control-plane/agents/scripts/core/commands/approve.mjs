@@ -4,12 +4,9 @@
 // order of the delivery steps, each with its own locks and its own context (nothing is shared between the targets, as when each was a process).
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { now } from '../clock.mjs';
-import { approvalConsume, approvalScanLatest, approvalScanReport, approveKinds, forgetFiles, requestApproval, requireLead } from '../approve.mjs';
+import { approvalConsume, approvalScanLatest, approvalScanReport, approveInChild, approveKinds, forgetFiles, requestApproval, requireLead } from '../approve.mjs';
 import { approvalPendingPairs } from '../approvals.mjs';
-import { Context } from '../context.mjs';
-import { BridgeToShell, ProoflineError, fail } from '../errors.mjs';
-import { LockSet, takeCommandLocks } from '../lock.mjs';
-import * as proc from '../proc.mjs';
+import { fail } from '../errors.mjs';
 
 /** @typedef {import('../context.mjs').Context} Ctx */
 
@@ -31,35 +28,6 @@ function approvalConsumeCommand(ctx, args) {
 }
 
 const RANK = /** @type {Record<string, number>} */ ({ commit: 1, push: 2, pr: 3, merge: 4, cleanup: 5 });
-
-/**
- * One `agent.sh approve TARGET KIND...` the way approve-pending ran it: its own context and locks, stdin not a terminal, stdout and stderr
- * merged. @param {Ctx} parent @param {string} target @param {string[]} kinds @returns {{ rc: number, output: string }}
- */
-function approveInChild(parent, target, kinds) {
-  /** @type {Buffer[]} */ const sink = [];
-  const io = { env: parent.env, cwd: parent.cwd, stdout: { write: (/** @type {Buffer} */ b) => sink.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => sink.push(b) }, scriptPath: parent.scriptPath, isProcess: false };
-  const child = new Context(io, parent.scriptPath);
-  const locks = new LockSet(child);
-  let rc = 0;
-  try {
-    child.fpMode = 'refresh';
-    takeCommandLocks(locks, child, 'approve', [target, ...kinds]);
-    rc = approveKinds(child, target, kinds);
-    child.flush();
-  } catch (e) {
-    if (e instanceof BridgeToShell) {
-      child.discard();
-      locks.releaseAll();
-      const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'] });
-      return { rc: r.status, output: Buffer.concat([r.stdout, r.stderr]).toString('latin1') };
-    }
-    if (e instanceof ProoflineError) { child.flush(); sink.push(Buffer.from(`${e.message}\n`, 'latin1')); rc = e.exitCode; } else throw e;
-  } finally {
-    locks.releaseAll();
-  }
-  return { rc, output: Buffer.concat(sink).toString('latin1') };
-}
 
 /** `now_iso` @param {string} text */
 const tail = (text) => text.replace(/\n+$/, '').replace(/\n/g, ' ').replace(/ +/g, ' ').slice(0, 300);

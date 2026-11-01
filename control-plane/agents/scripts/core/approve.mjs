@@ -4,7 +4,7 @@
 // terminal), only when that message is newer than the request (and, for a waiver, than the failing gate record), only when its words pass the
 // grammar of approvals.mjs, and each captured message grants a kind at most once. Nothing here lets a model produce an approval: a refusal
 // keeps its text, and an input whose shell behaviour is a shell error text throws BridgeToShell before anything is written.
-import { mkdirSync, readSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { captureField } from './capture.mjs';
 import { BridgeToShell, ProoflineError, fail } from './errors.mjs';
@@ -19,6 +19,8 @@ import { gateFingerprint } from './fingerprint.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { ledgerIf } from './lifecycle.mjs';
 import * as proc from './proc.mjs';
+import { Context } from './context.mjs';
+import { LockSet, takeCommandLocks } from './lock.mjs';
 import { isDir, isFile } from './paths.mjs';
 import { WS, fileLines, gateField, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
@@ -708,4 +710,67 @@ export function approvalConsume(ctx, args) {
   consumeApproval(ctx, id, f);
   ctx.out(`approval consumed: ${id} ${kind0} ${f.slice(f.lastIndexOf('/') + 1)}\n`);
   return 0;
+}
+
+/**
+ * One `agent.sh approve TARGET KIND...` the way approve-pending ran it: its own context and locks, stdin not a terminal, stdout and stderr
+ * merged. @param {Context} parent @param {string} target @param {string[]} kinds @returns {{ rc: number, output: string }}
+ */
+export function approveInChild(parent, target, kinds) {
+  /** @type {Buffer[]} */ const sink = [];
+  const io = { env: parent.env, cwd: parent.cwd, stdout: { write: (/** @type {Buffer} */ b) => sink.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => sink.push(b) }, scriptPath: parent.scriptPath, isProcess: false };
+  const child = new Context(io, parent.scriptPath);
+  const locks = new LockSet(child);
+  let rc = 0;
+  try {
+    child.fpMode = 'refresh';
+    takeCommandLocks(locks, child, 'approve', [target, ...kinds]);
+    rc = approveKinds(child, target, kinds);
+    child.flush();
+  } catch (e) {
+    if (e instanceof BridgeToShell) {
+      child.discard();
+      locks.releaseAll();
+      const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      return { rc: r.status, output: Buffer.concat([r.stdout, r.stderr]).toString('latin1') };
+    }
+    if (e instanceof ProoflineError) { child.flush(); sink.push(Buffer.from(`${e.message}\n`, 'latin1')); rc = e.exitCode; } else throw e;
+  } finally {
+    locks.releaseAll();
+  }
+  return { rc, output: Buffer.concat(sink).toString('latin1') };
+}
+
+
+/**
+ * `approval_wait_o REQFILE KIND ID`: the `next` line of a pending approval request. A newer user prompt that is no approval leaves the request
+ * pending and the lead asks again (A108); a newer prompt that approves but was not recorded (the hook was cut off) is recorded now (A171).
+ * @param {Context} ctx @param {string} req @param {string} kind @param {string} id @param {(m: string) => void} o
+ */
+export function approvalWaitO(ctx, req, kind, id, o) {
+  /** The newest capture when it is newer than the request: its text and whether it approves. */
+  const newest = () => {
+    const cap = latestCapture(ctx, true);
+    if (cap === null) return null;
+    const buf = readBytes(cap) ?? '';
+    const t = captureField(buf, 'time');
+    const asked = gateField(ctx, req, 'requested_at');
+    if (t === null || !/^[0-9]+$/.test(t) || !/^[0-9]+$/.test(asked) || !(BigInt(t) > BigInt(asked))) return null;
+    return { approves: textHasApproval(ctx, captureField(buf, 'text') ?? '', kind, id) };
+  };
+  const n = newest();
+  if (n !== null && !n.approves) {
+    o(`the user's last reply is not an explicit approval (an answer that is ambiguous or a refusal never approves): relay the question again verbatim with its accepted answers: agent.sh request-approval ${id} ${kind} (relay verbatim), then wait for the reply and: agent.sh next ${id}`);
+    return;
+  }
+  if (n !== null && ctx.role === 'lead') {
+    const { rc, output } = approveInChild(ctx, id, [kind]);
+    try { appendFileSync(`${ctx.sharedMain()}/.agents/local/approve.log`, `${now().iso} target=${id} kinds=${kind} rc=${rc} retry output: ${output.replace(/\n+$/, '').replace(/\n/g, ' ').slice(0, 300)}\n`); } catch { /* best effort */ }
+    if (rc === 0) {
+      forgetFiles(ctx);
+      o(`the user's approval of ${kind} was recorded just now (the prompt hook had not finished it, A171; log .agents/local/approve.log): agent.sh next ${id}`);
+      return;
+    }
+  }
+  o(`wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next ${id}`);
 }
