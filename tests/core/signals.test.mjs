@@ -115,3 +115,15 @@ describe('ERE safety (S2-4)', () => {
     }
   });
 });
+
+describe('ERE polynomial patterns (S2-4)', () => {
+  test('more than two unbounded quantifiers in one branch go to grep, in well under a second', () => {
+    const t0 = Date.now();
+    assert.equal(ereToRegExp('.*.*.*.*.*.*.*x'), null);
+    assert.equal(ereToRegExp('a*b*c*d'), null);
+    assert.equal(ereToRegExp('a{2,}b+c*'), null);
+    assert.ok(ereToRegExp('a*b*c') !== null);
+    assert.ok(ereToRegExp('a*|b*|c*|d*') !== null, 'branches do not add up');
+    assert.ok(Date.now() - t0 < 1000);
+  });
+});

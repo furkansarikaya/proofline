@@ -23,25 +23,26 @@ export function ereToRegExp(ere, ignoreCase = false) {
   const n = ere.length;
   // A group that holds a quantifier or an alternation and is itself quantified (`(a+)+`, `(a|a)*`) can take exponential time in a
   // backtracking engine; grep and awk run such patterns in linear time. They go to the platform tools (null).
-  /** @type {Array<{ quant: boolean, alt: boolean }>} */ const groups = [{ quant: false, alt: false }];
+  /** @type {Array<{ quant: boolean, alt: boolean, cur: number, max: number }>} */ const groups = [{ quant: false, alt: false, cur: 0, max: 0 }];
   while (i < n) {
     const c = ere[i];
-    if (c === '(') { groups.push({ quant: false, alt: false }); out += c; i++; continue; }
-    if (c === '|') { groups[groups.length - 1].alt = true; out += c; i++; continue; }
+    if (c === '(') { groups.push({ quant: false, alt: false, cur: 0, max: 0 }); out += c; i++; continue; }
+    if (c === '|') { const t = groups[groups.length - 1]; t.alt = true; t.max = Math.max(t.max, t.cur); t.cur = 0; out += c; i++; continue; }
     if (c === ')') {
       if (groups.length < 2) return null;
-      const g = /** @type {{ quant: boolean, alt: boolean }} */ (groups.pop());
+      const g = /** @type {{ quant: boolean, alt: boolean, cur: number, max: number }} */ (groups.pop());
       const next = ere[i + 1];
       const top = groups[groups.length - 1];
       if (next === '*' || next === '+' || next === '{' || next === '?') {
         if ((g.quant || g.alt) && next !== '?') return null;
         top.quant = true;
       }
+      top.cur += Math.max(g.max, g.cur); // the unbounded quantifiers of one branch of the group join its enclosing branch
       if (g.quant) top.quant = true;
       if (g.alt) top.alt = true;
       out += c; i++; continue;
     }
-    if (c === '*' || c === '+') groups[groups.length - 1].quant = true;
+    if (c === '*' || c === '+') { groups[groups.length - 1].quant = true; groups[groups.length - 1].cur++; }
     if (c === '.') { out += '[^\\n]'; i++; continue; }
     if (c === '\\') {
       const d = ere[i + 1];
@@ -81,11 +82,14 @@ export function ereToRegExp(ere, ignoreCase = false) {
       const m = /^\{[0-9]+(,[0-9]*)?\}/.exec(ere.slice(i));
       if (!m) return null;
       groups[groups.length - 1].quant = true;
+      if (/,\}$/.test(m[0])) groups[groups.length - 1].cur++;
       out += m[0]; i += m[0].length; continue;
     }
     if (c === '}') return null;
     out += c; i++;
   }
   if (groups.length !== 1) return null;
+  // more than two unbounded quantifiers in one branch can backtrack polynomially (`.*.*.*.*x`): grep and awk answer those
+  if (Math.max(groups[0].max, groups[0].cur) > 2) return null;
   try { return new RegExp(out, ignoreCase ? 'i' : ''); } catch { return null; }
 }

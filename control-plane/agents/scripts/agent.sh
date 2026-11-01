@@ -674,7 +674,7 @@ fp_cache_put() {
   fp_cache_usable || return 0
   case "$1" in *[[:cntrl:]]*) return 0 ;; esac   # a file name with a control character is never written
   mkdir -p "$sr_main/.agents/local" 2>/dev/null || return 0
-  if [ -f "$(fp_cache_file)" ] && [ "$(wc -l < "$(fp_cache_file)")" -gt 4000 ]; then tail -n 1000 "$(fp_cache_file)" > "$(fp_cache_file).t" 2>/dev/null && mv "$(fp_cache_file).t" "$(fp_cache_file)" 2>/dev/null || :; fi
+  if [ -f "$(fp_cache_file)" ] && [ "$(wc -l < "$(fp_cache_file)")" -gt 4000 ]; then rm -f "$(fp_cache_file).t" 2>/dev/null; (set -C; tail -n 1000 "$(fp_cache_file)" > "$(fp_cache_file).t") 2>/dev/null && mv "$(fp_cache_file).t" "$(fp_cache_file)" 2>/dev/null || :; fi
   printf '%s\t%s\n' "$1" "$2" >> "$(fp_cache_file)" 2>/dev/null || :
 }
 # A154: files `proofline init/upgrade` installs outside .agents/ are control plane, not product: the files the manifest
