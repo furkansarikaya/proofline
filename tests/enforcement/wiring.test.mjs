@@ -211,7 +211,7 @@ test('C6 rollback: with `sh` in .agents/local/engine, or PROOFLINE_ENGINE=sh, ev
     rmSync(join(dir, '.agents/local/engine'));
     const byEnv = wired(command, dir, { input: 'this is not json', env: { PROOFLINE_ENGINE: 'sh' } });
     assert.ok(form === 'plugin' || ran(), `${form}: PROOFLINE_ENGINE=sh: the shell hook ran`);
-    for (const [how, r] of [['engine file', byFile], ['PROOFLINE_ENGINE=sh', byEnv]]) {
+    for (const [how, r] of /** @type {[string, ReturnType<typeof wired>][]} */ ([['engine file', byFile], ['PROOFLINE_ENGINE=sh', byEnv]])) {
       assert.equal(r.stdout, direct.stdout, `${form}, ${how}: the shell hook's bytes`);
       assert.equal(r.code, direct.code, `${form}, ${how}: exit status`);
     }
