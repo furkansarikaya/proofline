@@ -266,45 +266,182 @@ jobs:
   equivalence:
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
+    name: equivalence (${{ matrix.os }}, ${{ matrix.leg.name }})
     strategy:
       fail-fast: false
       matrix:
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # One leg per group of test FILES, each on a runner of its own (before this the job ran every file on one runner for about three hours).
+        # A pull request replays only what it touched (tests/equivalence/scope.mjs): a command file selects that command on every state, a shared
+        # file (a library, the rig, a case table) selects one command per family on the four light states, so the `states-N` legs, `scoped-misc` and
+        # `acceptance` finish in minutes. The always-on legs are the acceptance tests (`acceptance`: node absent, role table, lock interop, seam safety,
+        # glob differential, planted differences, scope tests), `lifecycle` (the alternating-engine run, about 10 to 15 minutes) and `downgrade` /
+        # `upgrade-rest` (the previous release and the cross-version approval). The nightly and manual runs set EQUIVALENCE_FULL=1: every command on
+        # every state, the trace replays and the slow cases, in the same legs (each `states-N` leg holds one eighth of the states: about 30 minutes).
+        # `invariants-sh-N` is the Core invariants on the shell engine, one scenario per leg. `full-macos` is the nightly and manual macOS replay, the whole set on one runner
+        # (the other macOS legs do nothing).
+        leg:
+          - name: states-1
+            files: tests/equivalence/stage2-cases-1.test.mjs tests/equivalence/stage2-trace-1.test.mjs
+          - name: states-2
+            files: tests/equivalence/stage2-cases-2.test.mjs tests/equivalence/stage2-trace-2.test.mjs
+          - name: states-3
+            files: tests/equivalence/stage2-cases-3.test.mjs tests/equivalence/stage2-trace-3.test.mjs
+          - name: states-4
+            files: tests/equivalence/stage2-cases-4.test.mjs tests/equivalence/stage2-trace-4.test.mjs
+          - name: states-5
+            files: tests/equivalence/stage2-cases-5.test.mjs tests/equivalence/stage2-trace-5.test.mjs
+          - name: states-6
+            files: tests/equivalence/stage2-cases-6.test.mjs tests/equivalence/stage2-trace-6.test.mjs
+          - name: states-7
+            files: tests/equivalence/stage2-cases-7.test.mjs tests/equivalence/stage2-trace-7.test.mjs
+          - name: states-8
+            files: tests/equivalence/stage2-cases-8.test.mjs tests/equivalence/stage2-trace-8.test.mjs
+          - name: lifecycle
+            files: tests/equivalence/lifecycle.test.mjs
+          - name: downgrade
+            files: tests/equivalence/downgrade.test.mjs
+          - name: upgrade-rest
+            files: tests/equivalence/stage3-crossversion.test.mjs tests/equivalence/wiring-upgrade.test.mjs tests/equivalence/stage3-hardening.test.mjs
+          - name: scoped-misc
+            files: tests/equivalence/cases.test.mjs tests/equivalence/cases-slow.test.mjs tests/equivalence/stage2-cases.test.mjs tests/equivalence/stage3-cases.test.mjs tests/equivalence/trace-replay.test.mjs
+          - name: acceptance
+            files: tests/equivalence/node-absent.test.mjs tests/equivalence/role-table.test.mjs tests/equivalence/lock-interop.test.mjs tests/equivalence/seam-safety.test.mjs tests/equivalence/glob-differential.test.mjs tests/equivalence/rig.test.mjs tests/equivalence/trace.test.mjs tests/equivalence/scope.test.mjs
+          - name: invariants-sh-1
+            files: none
+            scenario: sc_inv1_code_done_needs_gates
+          - name: invariants-sh-2
+            files: none
+            scenario: sc_inv2_never_waivable
+          - name: invariants-sh-3
+            files: none
+            scenario: sc_inv2_run_on_change
+          - name: invariants-sh-4
+            files: none
+            scenario: sc_inv3_user_message_only
+          - name: invariants-sh-5
+            files: none
+            scenario: sc_inv4_evidence_reproduced
+          - name: invariants-sh-6
+            files: none
+            scenario: sc_inv4_green_needs_change
+          - name: invariants-sh-7
+            files: none
+            scenario: sc_inv5_no_self_review
+          - name: invariants-sh-8
+            files: none
+            scenario: sc_inv6_safe_side
+          - name: full-macos
+            files: all
     runs-on: ${{ matrix.os }}
     env:
       EQUIVALENCE_FULL: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
     steps:
-      # full history: the downgrade test unpacks the previous release (git archive <commit>) from this clone
+      # full history: the downgrade test unpacks the previous release (git archive <commit>) from this clone, and the scope selection diffs against the merge base
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
-      # a glob, not a directory: this Node does not expand a directory argument of --test to the test files
-      - name: equivalence rig
+      # a list of files or a glob, not a directory: this Node does not expand a directory argument of --test to the test files
+      - name: equivalence rig (this leg's files)
+        if: matrix.os == 'ubuntu-latest' && matrix.leg.files != 'none' && matrix.leg.files != 'all'
+        run: node --test ${{ matrix.leg.files }}
+      - name: equivalence rig (the whole set on macOS, nightly and manual runs)
+        if: matrix.os == 'macos-latest' && matrix.leg.files == 'all'
         run: node --test "tests/equivalence/*.test.mjs"
       # C2/C6: the Core invariants also pass with the engine forced to the shell code; the `invariants` job runs the default engine. Not in a
       # fast-mode-skippable job.
-      - name: Core invariants with the engine switched to sh
+      - name: Core invariants with the engine switched to sh (this scenario)
+        if: matrix.os == 'ubuntu-latest' && matrix.leg.files == 'none'
         env:
+          LC_EXACT: ${{ matrix.leg.scenario }}
           PROOFLINE_ENGINE: sh
         run: sh tests/invariants/invariants-test.sh
 
   # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped by fast mode.
   node-tests:
+    name: node-tests (${{ matrix.node }}, ${{ matrix.leg.name }})
     strategy:
       fail-fast: false
       matrix:
         node: ['22.13.0', 'lts/*']
+        # One leg per group of test FILES (the slow ones split further by test name: `name` runs the tests whose name matches the pattern, `skip` runs
+        # all the others, so a name list and its complement partition a file). Before this one job ran every file serially (68 and 34 minutes). Every leg
+        # runs on both Node versions; tests/ci/node-tests-legs.test.mjs checks that every test file and every test of a split file is in exactly one leg.
+        leg:
+          - name: c1-a
+            mode: name
+            pattern: '^(code done|done)$'
+            files: tests/core/c1.test.mjs
+          - name: c1-b
+            mode: name
+            pattern: '^(code done, (report not published|knowledge not recorded))$'
+            files: tests/core/c1.test.mjs
+          - name: c1-c
+            mode: name
+            pattern: '^(standalone code done|a failing gate.*|all gates pass|pass then edited \(stale\))$'
+            files: tests/core/c1.test.mjs
+          - name: c1-d
+            mode: name
+            pattern: '^(gates partly passed|risky path in the diff \(tier full, signals\)|implemented|standalone standard)$'
+            files: tests/core/c1.test.mjs
+          - name: c1-e
+            mode: skip
+            pattern: '^(code done|done|code done, (report not published|knowledge not recorded)|standalone code done|a failing gate.*|all gates pass|pass then edited \(stale\)|gates partly passed|risky path in the diff \(tier full, signals\)|implemented|standalone standard)$'
+            files: tests/core/c1.test.mjs
+          - name: library-a
+            mode: name
+            pattern: '^(code done|ledger faults.*|tampered gate record.*)$'
+            files: tests/core/library.test.mjs
+          - name: library-b
+            mode: skip
+            pattern: '^(code done|ledger faults.*|tampered gate record.*)$'
+            files: tests/core/library.test.mjs
+          - name: c1-slow
+            mode: files
+            pattern: 'none'
+            files: tests/core/c1-slow.test.mjs
+          - name: verify
+            mode: files
+            pattern: 'none'
+            files: tests/core/verify.test.mjs tests/core/verify-slow.test.mjs tests/core/verify-fixes.test.mjs
+          - name: core-rest
+            mode: files
+            pattern: 'none'
+            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/mandatory.test.mjs tests/core/parity.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
+          - name: ci-bench-enforcement
+            mode: files
+            pattern: 'none'
+            files: tests/bench/output-budgets.test.mjs tests/bench/process-budgets.test.mjs tests/ci/ecosystem-branching.test.mjs tests/ci/equivalence-legs.test.mjs tests/ci/fast-mode.test.mjs tests/ci/hook-node-job.test.mjs tests/ci/no-shell-logic.test.mjs tests/ci/node-tests-legs.test.mjs tests/enforcement/command-scan.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs
+          - name: full-serial
+            mode: full
+            pattern: 'none'
+            files: all
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: ratchet, fast mode and enforcement guard tests
+      - name: tests of this leg (files)
+        if: matrix.leg.mode == 'files'
+        run: node --test ${{ matrix.leg.files }}
+      # nightly and manual runs only: the whole set in one process as before, the safety net behind the legs (on a pull request this leg does nothing)
+      - name: every test file in one process (nightly and manual runs)
+        if: matrix.leg.mode == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/bench/*.test.mjs"
+      - name: tests of this leg (by test name)
+        if: matrix.leg.mode == 'name'
+        env:
+          PATTERN: ${{ matrix.leg.pattern }}
+        run: node --test "--test-name-pattern=$PATTERN" ${{ matrix.leg.files }}
+      - name: tests of this leg (all but the names of another leg)
+        if: matrix.leg.mode == 'skip'
+        env:
+          PATTERN: ${{ matrix.leg.pattern }}
+        run: node --test "--test-skip-pattern=$PATTERN" ${{ matrix.leg.files }}
 
   # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the six shell enforcement suites run AGAINST
   # adapters/claude/hooks/proofline-hook.mjs (the legacy self-test shards keep testing the shell hook, which stays until stage 15). One leg per suite so the
@@ -375,6 +512,21 @@ jobs:
   # to main. A pull request that changes tests/invariants/ must carry an `Invariant-test-change:` line in its description. The
   # description is read live (a re-run sees an edited description), falling back to the event payload.
   invariants:
+    name: invariants (${{ matrix.scenario }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # One leg per scenario of tests/invariants/invariants-test.sh (its own LC_EXACT filter, the one every suite has); before this one serial run took 22
+        # minutes. The first leg also runs the checks that are not scenarios (the change-reason scripts and the context budget).
+        scenario:
+          - sc_inv1_code_done_needs_gates
+          - sc_inv2_never_waivable
+          - sc_inv2_run_on_change
+          - sc_inv3_user_message_only
+          - sc_inv4_evidence_reproduced
+          - sc_inv4_green_needs_change
+          - sc_inv5_no_self_review
+          - sc_inv6_safe_side
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -383,23 +535,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: invariant tests
-        run: |
-          sh tests/invariants/check-changed-test.sh
-          sh tests/invariants/invariants-test.sh
+      - name: invariant change-reason script tests
+        if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
+        run: sh tests/invariants/check-changed-test.sh
+      - name: invariant tests (this scenario)
+        env:
+          LC_EXACT: ${{ matrix.scenario }}
+        run: sh tests/invariants/invariants-test.sh
       - name: context budget (A202)
+        if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
         run: |
           sh tests/context/check-budget-changed-test.sh
           sh tests/context/context-budget-test.sh
       - name: invariant tests changed only with a reason
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           body=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""' 2>/dev/null) && export PR_BODY="$body"
           git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" | sh tests/invariants/check-changed.sh
       - name: context budget changed only with a reason (A202)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- CI: the equivalence job (about 3 h per run) is sharded into 15 parallel legs. A pull request replays a representative set (31 commands on four light states) plus the acceptance tests; the full replay runs nightly and on manual runs (A209).
+
 ## 0.0.43 — 2026-11-01
 
 - Node migration, stage 3 (A207, issue #168, ADR 0001): the hook is one Node process per event (`adapters/claude/hooks/proofline-hook.mjs`, `events/*`, `guards/*`, `command-scan.mjs`, a tokenizer port of the awk command scanner). A PreToolUse Bash event went from 39-45 processes and 688 ms to 1 and 47 ms; Read and Write from 15-17 to 1.
