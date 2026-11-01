@@ -344,8 +344,10 @@ sc_unsupported_evidence() {
 
 # A161 (#128): evidence a validator wrote against the base BEFORE an accepted control-plane-only move still counts; a chain of two
 # moves too; an unrelated base never does. (The migration validator prints no BASE line, so only contract evidence is bound to one.)
+# a real `proofline upgrade` installs the Node core with the manifest; an installed project without the core fails closed (exit 127)
+install_core() { cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; rm -rf .agents/scripts/core; cp -R "$tl_agents/scripts/core" .agents/scripts/core; }
 ue_move() { # N: an upgrade-style control-plane commit, then an accepted freshness check (records base-moved)
-  mkdir -p .claude/agents; printf 'agent %s\n' "$1" > .claude/agents/proofline-x.md; printf '# version: 0.0.%s\n' "$1" > .agents/.proofline-manifest
+  mkdir -p .claude/agents; printf 'agent %s\n' "$1" > .claude/agents/proofline-x.md; printf '# version: 0.0.%s\n' "$1" > .agents/.proofline-manifest; install_core
   git add .claude; git add -f .agents/.proofline-manifest; git commit -qm "chore: upgrade $1"
   A freshness LC >/dev/null || die "a control-plane-only commit staled the plan: $(A freshness LC 2>&1 | tail -1)"
 }

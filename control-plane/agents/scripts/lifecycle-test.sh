@@ -1106,7 +1106,8 @@ reopen_failed_run() {
   printf 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' | A terminate LC FAILED >/dev/null
 }
 ro() { printf 'reason: the budget decision was made and the verifier false alarm is fixed\n' | "$@"; }
-ro_approve() { A request-approval LC reopen:LC >/dev/null; capture 'I approve the reopen of LC'; A approve LC reopen:LC >/dev/null; }
+# a capture at the real time after the request: a project that runs the Node core ignores a capture stamped in the future (Stage 3 hardening)
+ro_approve() { A request-approval LC reopen:LC >/dev/null; sleep 1; capture 'I approve the reopen of LC' "$(date +%s)"; A approve LC reopen:LC >/dev/null; }
 
 # reopen of a FAILED run (A152): refused without the user's approval, by non-lead roles and on a non-terminal run; with it,
 # passing gates stay, the failed gate and the fix rounds restart, knowledge restarts, the scope is checked, CODE_DONE is reachable.

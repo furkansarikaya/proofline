@@ -843,8 +843,9 @@ sc_commands() {
   [ -z "$(cfgv "$cm" commands.test)" ] && ok "...and nothing is written before the user answers" || die "commands.test written without an answer"
   nocheck "doctor --apply-commands without the user's reply fails" pl "$cm" doctor --apply-commands
   [ -z "$(cfgv "$cm" commands.test)" ] || die "apply wrote without a reply"
-  mkdir -p "$cm/.agents/local/prompts"; printf 'approve commands' > "$T/cap.txt"
-  printf '{"session":"s1","time":%s,"sha256":"%s","text":"approve commands"}\n' "$(( $(date +%s) + 3600 ))" "$(shasum -a 256 "$T/cap.txt" | awk '{print $1}')" > "$cm/.agents/local/prompts/s1.json"
+ mkdir -p "$cm/.agents/local/prompts"; printf 'approve commands' > "$T/cap.txt"
+  sleep 1   # the reply is newer than the request, and stamped with the real time (the Node core ignores a capture from the future)
+  printf '{"session":"s1","time":%s,"sha256":"%s","text":"approve commands"}\n' "$(date +%s)" "$(shasum -a 256 "$T/cap.txt" | awk '{print $1}')" > "$cm/.agents/local/prompts/s1.json"
   (cd "$cm" && sh .agents/scripts/agent.sh approve-pending >/dev/null 2>&1) || :   # the prompt hook records the reply as an approval of the request doctor --commands made
   out=$(pl "$cm" doctor --apply-commands 2>&1) || { LAST=$out; die "apply after the user's reply: $out"; }
   [ "$(cfgv "$cm" commands.test)" = "npm test" ] && ok "doctor --apply-commands writes the proven command after the user's own 'approve commands'" || die "commands.test: $(cfgv "$cm" commands.test)"
