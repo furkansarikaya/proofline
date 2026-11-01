@@ -266,27 +266,73 @@ jobs:
   equivalence:
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
+    name: equivalence (${{ matrix.os }}, ${{ matrix.leg.name }})
     strategy:
       fail-fast: false
       matrix:
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # One leg per group of test FILES, each on a runner of its own (before this the job ran every file on one runner for about three hours).
+        # A pull request replays only what it touched (tests/equivalence/scope.mjs): a command file selects that command on every state, a shared
+        # file (a library, the rig, a case table) selects one command per family on the four light states, so the `states-N` legs, `scoped-misc` and
+        # `acceptance` finish in minutes. The always-on legs are the acceptance tests (`acceptance`: node absent, role table, lock interop, seam safety,
+        # glob differential, planted differences, scope tests), `lifecycle` (the alternating-engine run, about 10 to 15 minutes) and `downgrade` /
+        # `upgrade-rest` (the previous release and the cross-version approval). The nightly and manual runs set EQUIVALENCE_FULL=1: every command on
+        # every state, the trace replays and the slow cases, in the same legs (each `states-N` leg holds one eighth of the states: about 30 minutes).
+        # `invariants-sh` is the Core invariants on the shell engine. `full-macos` is the nightly and manual macOS replay, the whole set on one runner
+        # (the other macOS legs do nothing).
+        leg:
+          - name: states-1
+            files: tests/equivalence/stage2-cases-1.test.mjs tests/equivalence/stage2-trace-1.test.mjs
+          - name: states-2
+            files: tests/equivalence/stage2-cases-2.test.mjs tests/equivalence/stage2-trace-2.test.mjs
+          - name: states-3
+            files: tests/equivalence/stage2-cases-3.test.mjs tests/equivalence/stage2-trace-3.test.mjs
+          - name: states-4
+            files: tests/equivalence/stage2-cases-4.test.mjs tests/equivalence/stage2-trace-4.test.mjs
+          - name: states-5
+            files: tests/equivalence/stage2-cases-5.test.mjs tests/equivalence/stage2-trace-5.test.mjs
+          - name: states-6
+            files: tests/equivalence/stage2-cases-6.test.mjs tests/equivalence/stage2-trace-6.test.mjs
+          - name: states-7
+            files: tests/equivalence/stage2-cases-7.test.mjs tests/equivalence/stage2-trace-7.test.mjs
+          - name: states-8
+            files: tests/equivalence/stage2-cases-8.test.mjs tests/equivalence/stage2-trace-8.test.mjs
+          - name: lifecycle
+            files: tests/equivalence/lifecycle.test.mjs
+          - name: downgrade
+            files: tests/equivalence/downgrade.test.mjs
+          - name: upgrade-rest
+            files: tests/equivalence/stage3-crossversion.test.mjs tests/equivalence/wiring-upgrade.test.mjs tests/equivalence/stage3-hardening.test.mjs
+          - name: scoped-misc
+            files: tests/equivalence/cases.test.mjs tests/equivalence/cases-slow.test.mjs tests/equivalence/stage2-cases.test.mjs tests/equivalence/stage3-cases.test.mjs tests/equivalence/trace-replay.test.mjs
+          - name: acceptance
+            files: tests/equivalence/node-absent.test.mjs tests/equivalence/role-table.test.mjs tests/equivalence/lock-interop.test.mjs tests/equivalence/seam-safety.test.mjs tests/equivalence/glob-differential.test.mjs tests/equivalence/rig.test.mjs tests/equivalence/trace.test.mjs tests/equivalence/scope.test.mjs
+          - name: invariants-sh
+            files: none
+          - name: full-macos
+            files: all
     runs-on: ${{ matrix.os }}
     env:
       EQUIVALENCE_FULL: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
     steps:
-      # full history: the downgrade test unpacks the previous release (git archive <commit>) from this clone
+      # full history: the downgrade test unpacks the previous release (git archive <commit>) from this clone, and the scope selection diffs against the merge base
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
-      # a glob, not a directory: this Node does not expand a directory argument of --test to the test files
-      - name: equivalence rig
+      # a list of files or a glob, not a directory: this Node does not expand a directory argument of --test to the test files
+      - name: equivalence rig (this leg's files)
+        if: matrix.os == 'ubuntu-latest' && matrix.leg.files != 'none' && matrix.leg.files != 'all'
+        run: node --test ${{ matrix.leg.files }}
+      - name: equivalence rig (the whole set on macOS, nightly and manual runs)
+        if: matrix.os == 'macos-latest' && matrix.leg.files == 'all'
         run: node --test "tests/equivalence/*.test.mjs"
       # C2/C6: the Core invariants also pass with the engine forced to the shell code; the `invariants` job runs the default engine. Not in a
       # fast-mode-skippable job.
       - name: Core invariants with the engine switched to sh
+        if: matrix.os == 'ubuntu-latest' && matrix.leg.files == 'none'
         env:
           PROOFLINE_ENGINE: sh
         run: sh tests/invariants/invariants-test.sh
