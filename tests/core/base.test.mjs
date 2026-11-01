@@ -9,7 +9,7 @@ import { now } from '../../control-plane/agents/scripts/core/clock.mjs';
 import { Context, canonRole, validRole } from '../../control-plane/agents/scripts/core/context.mjs';
 import { ProoflineError, fail } from '../../control-plane/agents/scripts/core/errors.mjs';
 import { sha256, sha256File } from '../../control-plane/agents/scripts/core/hash.mjs';
-import { normalizeInputPath, projectRoot, sharedRoot, toPosix } from '../../control-plane/agents/scripts/core/paths.mjs';
+import { normalizeInputPath, projectRoot, sharedRoot, toMsysPath, toNativePath, toPosix } from '../../control-plane/agents/scripts/core/paths.mjs';
 import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { scriptsDir } from './helpers.mjs';
 
@@ -143,5 +143,37 @@ describe('fail closed', () => {
       assert.match(Buffer.concat(err).toString(), /^proofline: internal error in role: Error: boom/);
       assert.equal(proc.spawnCounts().total, 0);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+describe('paths.mjs: Windows paths in both directions', () => {
+  const n = (/** @type {string} */ p, /** @type {string} */ pl = 'win32') => normalizeInputPath(p, pl);
+  test('input forms become the POSIX form of stored paths', () => {
+    assert.equal(n('C:\\'), 'C:/'); assert.equal(n('c:'), 'c:'); assert.equal(n('C:/'), 'C:/');
+    assert.equal(n('C:\\a/b\\c'), 'C:/a/b/c'); assert.equal(n('c:\\a\\\\b//c\\'), 'C:/a/b/c'); assert.equal(n('C:\\a\\.\\b\\..\\c'), 'C:/a/c');
+    assert.equal(n('C:\\..\\..\\x'), 'C:/x'); assert.equal(n('d:/Proj Dir/x y'), 'D:/Proj Dir/x y');
+    assert.equal(n('\\\\?\\C:\\Users\\x'), 'C:/Users/x'); assert.equal(n('\\\\.\\c:/x'), 'C:/x');
+    assert.equal(n('\\\\srv\\share\\x'), '//srv/share/x');
+    assert.equal(n('/c'), 'C:/'); assert.equal(n('/c/'), 'C:/'); assert.equal(n('/c/Users/x/'), 'C:/Users/x'); assert.equal(n('/d/a/../b'), 'D:/b');
+    assert.equal(n('/cygdrive/c/x'), 'C:/x');
+    assert.equal(n('/usr/bin'), '/usr/bin'); assert.equal(n('/cc/x'), '/cc/x'); assert.equal(n('rel\\dir/x'), 'rel/dir/x');
+    assert.equal(n('/c/x', 'linux'), '/c/x'); assert.equal(n('/cygdrive/c/x', 'darwin'), '/cygdrive/c/x'); assert.equal(n('C:\\x', 'linux'), 'C:/x');
+    assert.equal(n(''), '');
+  });
+  test('spawn arguments: native on a Windows host, unchanged elsewhere', () => {
+    assert.equal(toNativePath('C:/Users/x/proj', 'win32'), 'C:\\Users\\x\\proj');
+    assert.equal(toNativePath('/c/Users/x', 'win32'), 'C:\\Users\\x'); assert.equal(toNativePath('C:\\a/b', 'win32'), 'C:\\a\\b');
+    assert.equal(toNativePath('rel/dir/f', 'win32'), 'rel\\dir\\f'); assert.equal(toNativePath('C:/', 'win32'), 'C:\\');
+    assert.equal(toNativePath('C:/Users/x', 'linux'), 'C:/Users/x'); assert.equal(toNativePath('/usr/bin', 'darwin'), '/usr/bin');
+    assert.equal(toMsysPath('C:/Users/x', 'win32'), '/c/Users/x'); assert.equal(toMsysPath('C:\\Users\\x', 'win32'), '/c/Users/x');
+    assert.equal(toMsysPath('C:/', 'win32'), '/c'); assert.equal(toMsysPath('/c/x', 'win32'), '/c/x'); assert.equal(toMsysPath('rel/x', 'win32'), 'rel/x');
+    assert.equal(toMsysPath('C:/x', 'linux'), 'C:/x');
+  });
+  test('stored and spawn forms round-trip', () => {
+    for (const p of ['C:\\Users\\x\\proj', 'c:/a/b', '/c/a/b', 'D:\\']) {
+      const stored = normalizeInputPath(p, 'win32');
+      assert.equal(normalizeInputPath(toNativePath(stored, 'win32'), 'win32'), stored);
+      assert.equal(normalizeInputPath(toMsysPath(stored, 'win32'), 'win32'), stored);
+    }
   });
 });
