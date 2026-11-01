@@ -4,7 +4,14 @@
 //     (`sh -c '... proofline-hook.sh ... <event> <runtime>'`), which a 0.0.40-0.0.42 `proofline upgrade` over a new project adds beside the new string;
 //   - the plugin form yields when the project's settings wire the same event themselves, old shell string or new Node string (what `grep` did).
 // Yielding only ever hands the event to a hook that is wired for it, so it cannot switch a guard off. An unreadable file means: do not yield.
-import { readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { lstatSync, readFileSync, statSync } from 'node:fs';
+import { sameTree } from './tree.mjs';
+
+/** SHA-256 of proofline-hook.sh as released in 0.0.40 to 0.0.42 (the file a rollback `upgrade` puts back; unchanged since, until stage 3). */
+export const OLD_SHELL_HOOK_SHA256 = 'e91d39f792136d566af34ef1dea90f6ea5f8aa840085cf7d2b33822431a023ea';
+/** What the project's Node hook is made of, relative to .agents/hooks/: the entry, the scanner and the three folders it imports. */
+const HOOK_TREE = ['proofline-hook.mjs', 'command-scan.mjs', 'events', 'guards', 'lib'];
 
 const KEY = { session: 'SessionStart', prompt: 'UserPromptSubmit', pretool: 'PreToolUse', posttool: 'PostToolUse', 'subagent-start': 'SubagentStart', 'subagent-stop': 'SubagentStop', stop: 'Stop' };
 const MSG = 'echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2;';
@@ -46,8 +53,25 @@ function wiredCommands(j, key) {
   return out;
 }
 
-/** @param {string} f */
-function isFile(f) { try { return statSync(f).isFile(); } catch { return false; } }
+/** A regular file, not a link, with exactly these bytes (SHA-256). @param {string} f @param {string} sha */
+function isFileWithSha(f, sha) {
+  try {
+    if (!lstatSync(f).isFile()) return false;
+    return createHash('sha256').update(readFileSync(f)).digest('hex') === sha;
+  } catch { return false; }
+}
+
+/**
+ * The plugin yields to the project's Node hook only if that hook is the genuine one: the files it runs (the hook tree and the core it imports) are
+ * byte-identical to the plugin's own copies, links never count. Any mismatch, missing file or read error: false, and the plugin stays active (an
+ * event handled twice is harmless, an event handled by a stub is not). @param {string} here the plugin's hook folder @param {string} root the project
+ */
+function genuineProjectHook(here, root) {
+  const mine = here.replace(/\/$/, '');
+  for (const n of HOOK_TREE) if (!sameTree(`${mine}/${n}`, `${root}/.agents/hooks/${n}`)) return false;
+  const coreSrc = `${mine}/../../../control-plane/agents/scripts`;
+  return sameTree(`${coreSrc}/proofline-core.mjs`, `${root}/.agents/scripts/proofline-core.mjs`) && sameTree(`${coreSrc}/core`, `${root}/.agents/scripts/core`);
+}
 
 /**
  * @param {string} here the directory of proofline-hook.mjs, with a trailing slash @param {string} ev @param {string} rt @param {Record<string, string | undefined>} env
@@ -65,7 +89,8 @@ export function yieldsToOtherWiring(here, ev, rt, env) {
   try { if (statSync(file).size > 4 << 20) return false; j = JSON.parse(readFileSync(file, 'utf8')); } catch { return false; }
   const cmds = wiredCommands(j, key);
   const known = knownStrings(ev, rt);
-  // the old shell wiring handles the event only if its hook file is there; the project's Node string (plugin form) likewise
-  if (isFile(`${root}/.agents/hooks/proofline-hook.sh`) && cmds.some((c) => known.old.includes(c))) return true;
-  return !project && isFile(`${root}/.agents/hooks/proofline-hook.mjs`) && cmds.some((c) => known.newProject.includes(c));
+  // the old shell wiring handles the event only if the hook file it starts is the released one (a stub or a modified copy handles nothing); the project's
+  // Node string (plugin form) only if the project's hook is the plugin's own, byte for byte
+  if (cmds.some((c) => known.old.includes(c)) && isFileWithSha(`${root}/.agents/hooks/proofline-hook.sh`, OLD_SHELL_HOOK_SHA256)) return true;
+  return !project && cmds.some((c) => known.newProject.includes(c)) && genuineProjectHook(h, root);
 }

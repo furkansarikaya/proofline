@@ -4,7 +4,7 @@
 // same settings file, so each event is handled once. The engine switch in .agents/local/engine is read through the installed wiring. The shipped git
 // hook launchers: a commit is blocked when node is absent, the allowed path is unchanged, the push guard holds.
 import assert from 'node:assert/strict';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, symlinkSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -119,7 +119,7 @@ test('the Node hook yields when the same settings file also wires the old shell 
     const alone = project({ run: true });
     settings(alone, file, name === 'plugin' || name.startsWith('plugin ') ? [] : [command]);
     assert.ok(denied(wired(command, alone, { input: bad })), `${name}: handles the event when it is the only wiring`);
-    const both = project({ run: true });
+    const both = project({ run: true }); oldShellHook(both);
     settings(both, file, [oldCmd, command]);
     const r = wired(command, both, { input: bad });
     assert.equal(r.code, 0, `${name}: yields (${r.stdout}${r.stderr})`);
@@ -162,15 +162,23 @@ test('a decoy in the settings file never makes the hook yield (S3-4); unparsable
     }
   }
   // the positive case for contrast: the exact old string, in the right event, with its hook file present
-  const real = project({ run: true });
+  const real = project({ run: true }); oldShellHook(real);
   settings(real, '.claude/settings.json', [OLD_PROJECT]);
   assert.equal(wired(projCmd, real, { input: bad }).stdout, '', 'the exact old string makes the project hook yield');
   // the exact old string but without the shell hook it would start: nothing handles the event, so no yield
-  const gone = project({ run: true });
+  const gone = project({ run: true }); oldShellHook(gone);
   settings(gone, '.claude/settings.json', [OLD_PROJECT]);
   rmSync(join(gone, '.agents/hooks/proofline-hook.sh'));
   assert.ok(denied(wired(projCmd, gone, { input: bad })), 'no shell hook file: no yield');
 });
+
+/** The shell hook of 0.0.40-0.0.42 byte for byte (the fixture has no shebang: it is not a shell file of this tree). @param {string} dir */
+function oldShellHook(dir) {
+  const f = join(dir, '.agents/hooks/proofline-hook.sh');
+  rmSync(f, { force: true });
+  writeFileSync(f, `#!/bin/sh\n${readFileSync(join(repoRoot, 'tests/legacy-hook/proofline-hook.legacy'), 'utf8')}`);
+  chmodSync(f, 0o755);
+}
 
 /** @param {string} dir @param {string} rel @param {unknown} json */
 function put(dir, rel, json) {
@@ -295,5 +303,49 @@ test('S3-6: a huge command is answered within the budget, and denied while a run
     assert.ok(Date.now() - t0 < 20000, `${size} bytes answered in ${Date.now() - t0} ms`);
     assert.ok(denied(r), `${size} bytes: ${r.stdout.slice(0, 200)}${r.stderr.slice(0, 200)}`);
     assert.match(r.stdout, /ran out of time/);
+  }
+});
+
+test('S3-4 round 2: a hook is yielded to only when it is the genuine one (stub, modified, linked or missing files keep the hook active)', () => {
+  const bad = 'this is not json';
+  const projNode = pretoolOf('adapters/claude/settings.fragment.json');
+  const plug = pretoolOf('adapters/claude/hooks/hooks.json');
+  const proj = pretoolOf('adapters/claude/settings.fragment.json');
+  /** @type {[string, (d: string) => void][]} */
+  const tamper = [
+    ['a stub proofline-hook.mjs', (d) => writeFileSync(join(d, '.agents/hooks/proofline-hook.mjs'), '// does nothing\n')],
+    ['a modified guard file', (d) => appendFileSync(join(d, '.agents/hooks/guards/bash.mjs'), '\n// x\n')],
+    ['a modified lib file', (d) => appendFileSync(join(d, '.agents/hooks/lib/context.mjs'), '\n// x\n')],
+    ['a missing import', (d) => rmSync(join(d, '.agents/hooks/guards/merge.mjs'))],
+    ['a missing command-scan.mjs', (d) => rmSync(join(d, '.agents/hooks/command-scan.mjs'))],
+    ['a symlinked hook file', (d) => { const f = join(d, '.agents/hooks/proofline-hook.mjs'); const real = join(d, 'real-hook.mjs'); cpSync(f, real); rmSync(f); symlinkSync(real, f); }],
+    ['a symlinked guards folder', (d) => { const g = join(d, '.agents/hooks/guards'); const real = join(d, 'real-guards'); cpSync(g, real, { recursive: true }); rmSync(g, { recursive: true }); symlinkSync(real, g); }],
+    ['a modified core budget.mjs', (d) => appendFileSync(join(d, '.agents/scripts/core/budget.mjs'), '\n// x\n')],
+    ['a missing core', (d) => rmSync(join(d, '.agents/scripts/core'), { recursive: true })],
+  ];
+  for (const [name, make] of tamper) {
+    const d = project({ run: true });
+    settings(d, '.claude/settings.json', [projNode]);
+    make(d);
+    assert.ok(denied(wired(plug, d, { input: bad })), `plugin: ${name}: the plugin stays active`);
+  }
+  // the genuine tree: the plugin yields (the project's own hook handles the event)
+  const ok = project({ run: true });
+  settings(ok, '.claude/settings.json', [projNode]);
+  assert.equal(wired(plug, ok, { input: bad }).stdout, '', 'plugin: genuine project hook: yields');
+  // the old shell hook: a stub, a modified copy, a link or a missing file is not the released hook
+  /** @type {[string, (d: string) => void][]} */
+  const oldBad = [
+    ['a stub', (d) => writeFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '#!/bin/sh\nexit 0\n')],
+    ['a modified copy', (d) => appendFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '\n# x\n')],
+    ['the current (not the released) hook', (d) => { rmSync(join(d, '.agents/hooks/proofline-hook.sh')); cpSync(join(repoRoot, 'adapters/claude/hooks/proofline-hook.sh'), join(d, '.agents/hooks/proofline-hook.sh')); }],
+    ['a symlink to the released bytes', (d) => { const f = join(d, '.agents/hooks/proofline-hook.sh'); const real = join(d, 'old.sh'); cpSync(f, real); rmSync(f); symlinkSync(real, f); }],
+    ['a missing file', (d) => rmSync(join(d, '.agents/hooks/proofline-hook.sh'))],
+  ];
+  for (const [name, make] of oldBad) {
+    const d = project({ run: true });
+    oldShellHook(d); make(d);
+    settings(d, '.claude/settings.json', [OLD_PROJECT]);
+    assert.ok(denied(wired(proj, d, { input: bad })), `project: old string with ${name}: the Node hook stays active`);
   }
 });
