@@ -4,7 +4,7 @@ description: Writes a product requirements document (PRD) with the user in the m
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.43"
+  version: "0.0.44"
 ---
 
 # product-spec

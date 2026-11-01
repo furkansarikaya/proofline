@@ -4,7 +4,7 @@ description: Proves backward and forward compatibility of changed API, event and
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.43"
+  version: "0.0.44"
 ---
 
 # contract-proof
