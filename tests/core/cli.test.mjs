@@ -32,9 +32,21 @@ function exec(args, engine, env = {}) {
   return { out: r.stdout, err: r.stderr, code: r.status };
 }
 /** @param {string[]} args @param {Record<string, string>} [env] */
+/**
+ * The run lists of an approval pattern come from awk's `for (k in akind)`: its order is unspecified and differs between awks (macOS awk,
+ * mawk, gawk). The contract is the SET of runs, so the `runs:` lines of the text report and the "runs" arrays of the JSON are compared as
+ * sorted sets for insights; every other byte is compared as is. (Node lists them sorted.)
+ * @param {{ out: string, err: string, code: number | null }} r
+ */
+function asSets(r) {
+  const sortList = (/** @type {string} */ s) => s.split(',').sort().join(',');
+  const out = r.out.replace(/^(\s+runs: )(.*)$/gm, (_m, a, b) => a + sortList(b)).replace(/"runs":\[([^\]]*)\]/g, (_m, b) => `"runs":[${sortList(b)}]`);
+  return { ...r, out };
+}
 function same(args, env = {}) {
   const a = exec(args, 'node', env); const b = exec(args, 'sh', env);
-  assert.deepEqual(a, b, `proofline ${args.join(' ')}`);
+  if (args[0] === 'insights') assert.deepEqual(asSets(a), asSets(b), `proofline ${args.join(' ')}`);
+  else assert.deepEqual(a, b, `proofline ${args.join(' ')}`);
   return a;
 }
 
@@ -108,6 +120,13 @@ describe('cli subcommands through the front ends', () => {
     w('.agents/local/metrics/records.jsonl', keep);
   });
 
+  test('queue: a run whose `next` fails or prints nothing is shown as `state unknown`, exactly like the shell', () => {
+    const r = same(['queue']);
+    assert.match(r.out, /^ {3}R11 {2}state unknown$/m);
+    assert.match(r.out, /^ {3}R1 {2}state unknown$/m);
+    assert.doesNotMatch(r.out, /handoff=/);
+  });
+
   test('queue: tasks, done list, runs and the active run', () => {
     same(['queue']);
     w('.agents/config.yaml', `${realConfig}\ntasks:\n  dir: .agents/tasks\n`);
@@ -127,9 +146,9 @@ describe('cli subcommands through the front ends', () => {
   test('the engine switch: sh:insights and PROOFLINE_ENGINE_SH keep the shell form', () => {
     const a = exec(['insights'], 'node', { PROOFLINE_ENGINE_SH: 'insights' });
     const b = exec(['insights'], 'sh');
-    assert.deepEqual(a, b);
+    assert.deepEqual(asSets(a), asSets(b));
     w('.agents/local/engine', 'sh:queue,insights\n');
-    assert.deepEqual(exec(['insights'], 'node'), b);
+    assert.deepEqual(asSets(exec(['insights'], 'node')), asSets(b));
     rmSync(path.join(fx, '.agents/local/engine'));
   });
 });
