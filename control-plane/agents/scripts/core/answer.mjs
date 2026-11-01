@@ -62,7 +62,8 @@ export function answer(ctx, args) {
     let pick = '';
     for (const name of sortedNames(`${prompts}/history`, /\.txt$/)) {
       const e = name.slice(0, name.indexOf('-') < 0 ? name.length : name.indexOf('-'));
-      if (!/^[0-9]+$/.test(e) || !(BigInt(e) >= BigInt(a0))) continue;
+      // Stage 3 hardening: a history copy named for a time in the future is not one the hook wrote (a planted name would sort last)
+      if (!/^[0-9]+$/.test(e) || !(BigInt(e) >= BigInt(a0)) || BigInt(e) > BigInt(now().epoch) + 5n) continue;
       const t = readBytes(`${prompts}/history/${name}`) ?? '';
       if (!/[^ \t\n\v\f\r]/.test(t) || t.slice(0, 19) === '<task-notification>') continue;
       if (name === prevSrc) continue;

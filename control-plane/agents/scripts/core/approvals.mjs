@@ -9,6 +9,7 @@ import { sha256File } from './hash.mjs';
 import * as proc from './proc.mjs';
 import { isDir as isDirectory, isFile } from './paths.mjs';
 import { captureField } from './capture.mjs';
+import { now } from './clock.mjs';
 import { WS, gateField, gatesEnforced, readBytes, textLines } from './records.mjs';
 import { runDir } from './runs.mjs';
 
@@ -280,12 +281,20 @@ export function promptsDir(ctx) { return sharedDirOf(ctx, 'prompts'); }
 
 /**
  * `latest_capture`: the capture file with the greatest time, or null. Any unsafe capture file refuses every capture (the message goes to
- * stderr unless `quiet`). @param {Context} ctx @param {boolean} [quiet] @returns {string | null}
+ * stderr unless `quiet`). Stage 3 hardening (deliberately unlike the shell): a file whose `session` is not its own name, or whose `time` lies in
+ * the future, is not a capture the hook wrote and is ignored (a planted file with a far-future time would otherwise be "the newest prompt").
+ * When the prompt hook handed this process the capture of the event it is handling (`ctx.io.promptCapture`, set by the hook in its own
+ * process, never by a command line, a file or the environment), only that capture is meant: its file, and only when the file still holds exactly
+ * that session, time, hash and text.
+ * @param {Context} ctx @param {boolean} [quiet] @returns {string | null}
  */
 export function latestCapture(ctx, quiet = false) {
+  const given = /** @type {{ promptCapture?: { session: string, time: number, sha256: string, text: string } }} */ (ctx.io).promptCapture;
   let best = ''; let bestT = -1n;
   /** @type {string[]} */ let names = [];
   try { names = readDir(promptsDir(ctx)).filter((n) => n.endsWith('.json') && !n.startsWith('.')).sort(); } catch { names = []; }
+  if (given) names = names.filter((n) => n === `${given.session}.json`);
+  const limit = BigInt(now().epoch) + 5n;
   for (const n of names) {
     const f = `${promptsDir(ctx)}/${n}`;
     if (!safeStateFile(ctx, f)) {
@@ -294,7 +303,9 @@ export function latestCapture(ctx, quiet = false) {
     }
     const buf = readBytes(f);
     const v = buf === null ? null : captureField(buf, 'time');
-    if (v === null || !/^[0-9]+$/.test(v)) continue;
+    if (buf === null || v === null || !/^[0-9]+$/.test(v)) continue;
+    if (captureField(buf, 'session') !== n.slice(0, -5) || BigInt(v) > limit) continue;
+    if (given && (v !== String(given.time) || captureField(buf, 'sha256') !== given.sha256 || captureField(buf, 'text') !== Buffer.from(given.text, 'utf8').toString('latin1'))) continue;
     if (BigInt(v) > bestT) { bestT = BigInt(v); best = f; }
   }
   return best === '' ? null : best;

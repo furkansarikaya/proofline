@@ -45,16 +45,22 @@ test('SessionStart: plugin and project of different versions', { skip }, async (
   assert.match(r.node.stdout, /systemMessage/);
 });
 
-test('SessionStart: a slow next is stopped by its budget', { skip }, async () => {
-  const setup = (/** @type {string} */ d) => {
-    spawnSync('mv', [join(d, '.agents/scripts/agent.sh'), join(d, '.agents/scripts/agent-real.sh')]);
-    writeFileSync(join(d, '.agents/scripts/agent.sh'), '#!/bin/sh\ncase "$1" in next) sleep 20; exit 0 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n');
-  };
+test('a budgeted core command is stopped by its budget; the hook stops waiting and says so', { skip }, async () => {
+  const root = mkdtempSync(join(base, 'fake-'));
+  mkdirSync(join(root, '.agents/scripts/core'), { recursive: true });
+  writeFileSync(join(root, '.agents/scripts/proofline-core.mjs'),
+    "export const commandTable = () => [{ name: 'next', moved: true }, { name: 'role', moved: true }];\nexport const run = (argv) => { if (argv[0] === 'next') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6000); return 0; };\n");
+  const { Agents } = await import('../../adapters/claude/hooks/lib/agent.mjs');
+  const agents = new Agents({ root, mainRoot: root, agentPath: join(root, '.agents/scripts/agent.sh'), env: {}, lockWait: 8, cwd: root });
   const t0 = Date.now();
-  const r = await pair(template, base, 'session', () => ({ hook_event_name: 'SessionStart' }), { setup, env: { PROOFLINE_HOOK_NEXT_BUDGET: '1' } });
-  assert.ok(Date.now() - t0 < 12000, 'both hooks answer within their budget');
-  same(r, 'timed-out next');
-  assert.match(r.node.stdout, /the session check did not finish/);
+  const r = await agents.run(['next', 'LC'], { budgetMs: 500 });
+  assert.equal(r.timedOut, true);
+  assert.equal(r.status, 124);
+  assert.ok(Date.now() - t0 < 3000, 'the wait ended with the budget');
+  assert.equal(agents.abandoned, true);
+  const q = await agents.run(['role'], { budgetMs: 5000 });
+  assert.equal(q.status, 0);
+  process.exitCode = 0;
 });
 
 test('SubagentStart: window, token and role text', { skip }, async () => {
