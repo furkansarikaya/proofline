@@ -9,7 +9,8 @@
 //   git(ctx, args)          one git call through the project's proc.mjs (the only module that starts children)
 //   grepq / globMatch       `grep -Eq` over a multi-line text (per line), shell `case` pattern matching
 //   stashPath               a directory named in command text, resolved the way the shell hook's stash_path did
-import { realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { cmdSubst } from '../lib/text.mjs';
 
 /** The refusal of a guard (the text without the "proofline: " prefix). */
@@ -109,10 +110,53 @@ export async function git(ctx, args, opt = {}) {
   return { status: r.status, stdout: r.stdout.toString('utf8') };
 }
 
-/** The registered worktrees of the project: `git -C root worktree list --porcelain | sed -n 's/^worktree //p'`. @param {import('../lib/context.mjs').HookContext} ctx @returns {Promise<string[]>} */
+/** The git dir of a working directory: walks up to the nearest `.git` (a folder, or a `gitdir:` file). null when none. @param {string} start */
+function findGitDir(start) {
+  let d = start;
+  for (;;) {
+    const g = `${d}/.git`;
+    try {
+      const st = statSync(g);
+      if (st.isDirectory()) return g;
+      if (st.isFile()) {
+        const m = /^gitdir: (.*)$/m.exec(readFileSync(g, 'utf8'));
+        return m ? resolve(d, /** @type {string} */ (m[1])) : null;
+      }
+    } catch { /* keep walking */ }
+    const up = dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+}
+
+/**
+ * The registered worktrees of the project: `git -C root worktree list --porcelain | sed -n 's/^worktree //p'`. Read from the common git dir (the main
+ * working tree and the `gitdir` file of every linked one) without a process; any unusual layout asks git.
+ * @param {import('../lib/context.mjs').HookContext} ctx @returns {Promise<string[]>}
+ */
 export async function worktrees(ctx) {
   const st = stateOf(ctx);
   if (st.wts) return st.wts;
+  const gd = ctx.env.GIT_DIR || ctx.env.GIT_COMMON_DIR || ctx.env.GIT_WORK_TREE ? null : findGitDir(ctx.root);
+  if (gd) {
+    try {
+      let common = gd;
+      try { common = resolve(gd, readFileSync(`${gd}/commondir`, 'utf8').replace(/\n+$/, '')); } catch { /* the main git dir itself */ }
+      if (basename(common) === '.git') {
+        /** @type {string[]} */ const out = [dirname(common)];
+        let names = [];
+        try { names = readdirSync(`${common}/worktrees`).sort(); } catch { /* none */ }
+        for (const n of names) {
+          let t = '';
+          try { t = readFileSync(`${common}/worktrees/${n}/gitdir`, 'utf8').replace(/\n+$/, ''); } catch { continue; }
+          if (!t.endsWith('/.git')) throw new Error('unusual worktree entry');
+          out.push(t.slice(0, -5));
+        }
+        st.wts = out;
+        return out;
+      }
+    } catch { /* ask git */ }
+  }
   const r = await git(ctx, ['-C', ctx.root, 'worktree', 'list', '--porcelain']);
   st.wts = r ? r.stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9)) : [];
   return st.wts;
