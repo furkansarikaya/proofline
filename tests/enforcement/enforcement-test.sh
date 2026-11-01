@@ -986,18 +986,20 @@ EOF')"
 
 hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing PreToolUse hook denies; CLI-4
   fixture
+  # the shipped wiring runs the Node hook: this scenario tests that wiring, so the Node hook is the installed one whichever hook the suite runs
+  case $hook in *.mjs) ;; *) hook_sh=$hook; hook=$ENF_REPO/adapters/claude/hooks/proofline-hook.mjs; install_hook; hook=$hook_sh ;; esac
   jcmd() { if command -v jq >/dev/null 2>&1; then jq -r ".hooks.$2[0].hooks[0].command" "$1"; else node -e 'const j = require(process.argv[1]); console.log(j.hooks[process.argv[2]][0].hooks[0].command)' "$1" "$2"; fi; }
   cx=$(jcmd "$ENF_REPO/adapters/codex/hooks.json" PreToolUse); cl=$(jcmd "$ENF_REPO/adapters/claude/settings.fragment.json" PreToolUse)
   js="{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD/src\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"printf x > ../impl.txt\"}}"
   out=$(cd src && printf '%s' "$js" | sh -c "$cx"); denied "CLI-3 codex hook from a subdirectory denies a product write" "$out" "product changes go through the implementer"
-  mv .agents/hooks/proofline-hook.sh "$base/hook.bak"
+  mv .agents/hooks/proofline-hook.mjs "$base/hook.bak"
   (cd src && printf '%s' "$js" | sh -c "$cx" 2>/dev/null); rc=$?
   [ "$rc" = 2 ] || die "CLI-3 a missing hook script did not deny the codex PreToolUse (exit $rc)"; ok "CLI-3 a missing codex PreToolUse hook script denies (exit 2)"
   (printf '%s' "$js" | CLAUDE_PROJECT_DIR=$PWD sh -c "$cl" 2>/dev/null); rc=$?
   [ "$rc" = 2 ] || die "a missing hook script did not deny the claude PreToolUse (exit $rc)"; ok "CLI-3 a missing claude PreToolUse hook script denies (exit 2)"
   d=$(mktemp -d "$base/plain.XXXXXX"); (cd "$d" && printf '%s' "$js" | sh -c "$cx"); rc=$?
   [ "$rc" = 0 ] || die "codex hook outside a proofline project exits $rc"; ok "CLI-3 outside a proofline project the codex hook is a no-op"
-  mv "$base/hook.bak" .agents/hooks/proofline-hook.sh
+  mv "$base/hook.bak" .agents/hooks/proofline-hook.mjs
   out=$(H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}")
   printf '%s' "$out" | grep -q '(.agents/skills/proofline-lead/SKILL.md)' || die "CLI-4 SessionStart skill path: $out"
   sleep 2   # the same event within two seconds is a duplicate registration (below)
