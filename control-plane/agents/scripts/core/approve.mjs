@@ -27,7 +27,6 @@ import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
 import { asciiLower } from './shellglob.mjs';
 
-/** @typedef {import('./context.mjs').Context} Context */
 
 const bs = (/** @type {string} */ s) => Buffer.from(s, 'utf8').toString('latin1');
 const TAB = '\t';
