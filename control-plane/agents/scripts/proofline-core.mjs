@@ -167,8 +167,14 @@ export function splitArgv0(args, scriptPath, cwd) {
   const typed = args[1];
   const rest = args.slice(2);
   try {
-    const sibling = realpathSync(path.join(path.dirname(scriptPath), 'agent.sh'));
-    if (typed !== '' && !typed.startsWith('-') && realpathSync(path.resolve(cwd, typed)) === sibling) return { argv: rest, argv0: typed };
+    const sibling = realpathSync.native(path.join(path.dirname(scriptPath), 'agent.sh'));
+    if (typed === '' || typed.startsWith('-')) return { argv: rest };
+    // sh resolves `..` physically (after following a symbolic link), so the typed path is resolved the same way: joined to the working
+    // directory WITHOUT textual normalisation and handed to the C library's realpath (realpathSync.native), never to path.resolve.
+    const physical = realpathSync.native(path.isAbsolute(typed) ? typed : `${cwd}/${typed}`);
+    if (physical !== sibling) return { argv: rest };
+    // the typed path is executed only when it has no `..` segment; otherwise the verified real path stands in for it
+    return { argv: rest, argv0: typed.split('/').includes('..') ? sibling : typed };
   } catch { /* not a file: ignored */ }
   return { argv: rest };
 }

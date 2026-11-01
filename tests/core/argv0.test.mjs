@@ -3,7 +3,7 @@
 // names the core's own sibling agent.sh, and never executes anything it chose.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -37,7 +37,10 @@ describe('the bridged shell prints the same $0 as the shell', () => {
         const viaNode = sh(cwd, typed, ['timeouts']);
         const viaShell = sh(cwd, typed, ['timeouts'], { PROOFLINE_ENGINE: 'sh' });
         assert.ok(viaShell.stderr.includes(typed), `the shell's error text names $0: ${viaShell.stderr}`);
-        assert.deepEqual({ out: viaNode.stdout, err: viaNode.stderr, code: viaNode.status }, { out: viaShell.stdout, err: viaShell.stderr, code: viaShell.status });
+        // a typed path with a `..` segment is replaced by the verified real path of the same script: only $0 differs
+        const real = path.join(realpathSync(root), '.agents', 'scripts', 'agent.sh');
+        const err = label === 'with ..' ? viaShell.stderr.split(typed).join(real) : viaShell.stderr;
+        assert.deepEqual({ out: viaNode.stdout, err: viaNode.stderr, code: viaNode.status }, { out: viaShell.stdout, err, code: viaShell.status });
       } finally { rmSync(root, { recursive: true, force: true }); }
     });
   }
@@ -62,6 +65,32 @@ describe('--pl-argv0 is checked, never trusted', () => {
       for (const bad of ['/bin/evil', '../x', '', '-c', '/bin/sh', '.agents/config.yaml', 'nonexistent.sh']) assert.deepEqual(splitArgv0(['--pl-argv0', bad, 'role'], script, root), { argv: ['role'] }, bad);
       assert.deepEqual(splitArgv0(['role'], script, root), { argv: ['role'] });
       assert.deepEqual(splitArgv0(['--pl-argv0'], script, root), { argv: ['--pl-argv0'] });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  test('a `..` behind a symbolic link is resolved physically, as sh does: the textual fold cannot pass the check', () => {
+    const root = project();
+    try {
+      const script = path.join(root, '.agents', 'scripts', 'proofline-core.mjs');
+      // foo -> other/sub, so foo/.. is other (physical), while a textual fold of foo/.. is the project root
+      const other = path.join(root, 'other');
+      mkdirSync(path.join(other, 'sub'), { recursive: true });
+      mkdirSync(path.join(other, '.agents', 'scripts'), { recursive: true });
+      const mark = path.join(root, 'EVIL-RAN');
+      writeFileSync(path.join(other, '.agents', 'scripts', 'agent.sh'), `touch '${mark}'\n`);
+      symlinkSync(path.join(other, 'sub'), path.join(root, 'foo'));
+      const typed = 'foo/../.agents/scripts/agent.sh';
+      assert.equal(realpathSync(path.resolve(root, typed)), realpathSync(path.join(root, '.agents/scripts/agent.sh')), 'the textual fold would name the sibling');
+      assert.deepEqual(splitArgv0(['--pl-argv0', typed, 'role'], script, root), { argv: ['role'] });
+      const r = spawnSync(process.execPath, [script, '--pl-argv0', typed, 'timeouts'], { cwd: root, encoding: 'utf8' });
+      assert.equal(existsSync(mark), false, 'the other script was executed');
+      assert.ok(r.stderr.includes(path.join(root, '.agents', 'scripts', 'agent.sh')), r.stderr);
+      // a link whose `..` really leads back to the project: accepted, but the real path is used instead of the typed one
+      symlinkSync(path.join(root, '.agents'), path.join(root, 'back'));
+      mkdirSync(path.join(root, 'plain'), { recursive: true });
+      symlinkSync(path.join(root, 'plain'), path.join(root, 'ok'));
+      const sibling = realpathSync(path.join(root, '.agents/scripts/agent.sh'));
+      assert.deepEqual(splitArgv0(['--pl-argv0', 'ok/../.agents/scripts/agent.sh', 'role'], script, root), { argv: ['role'], argv0: sibling });
+      assert.deepEqual(splitArgv0(['--pl-argv0', 'back/scripts/agent.sh', 'role'], script, root), { argv: ['role'], argv0: 'back/scripts/agent.sh' });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
   test('a forged --pl-argv0 is ignored: nothing it names is executed, and the bridge still answers with the absolute path', () => {
