@@ -15,6 +15,7 @@ import { projectRoot, sharedRoot } from './paths.mjs';
  * @property {{ write(chunk: Buffer): unknown }} stderr
  * @property {NodeJS.ReadableStream | null} [stdin]
  * @property {boolean} [isProcess] true when stdout and stderr are this process's own descriptors (the CLI): a child may inherit them
+ * @property {string} [argv0] agent.sh's own $0 as typed, already checked to name the core's sibling agent.sh (see main() in proofline-core.mjs)
  * @property {string} [scriptPath] the file whose folder is <root>/.agents/scripts (agent.sh or proofline-core.mjs); default: this core
  */
 

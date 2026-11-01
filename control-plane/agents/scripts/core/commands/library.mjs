@@ -4,7 +4,7 @@
 // error text the core does not copy (`${2:?usage}`) throws BridgeToShell before any output; the entry then runs the shell code.
 import { bytes } from '../config.mjs';
 import { BridgeToShell, fail } from '../errors.mjs';
-import { inflightDispatch } from '../dispatch.mjs';
+import { inflightDispatch, inflightParts } from '../dispatch.mjs';
 import { contentFingerprint, gateFingerprint } from '../fingerprint.mjs';
 import { fixRoundsUsed, gateDeps, gateStatus, gateUnsupportedFocuses, gateFocusStatus, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported, taskPatchFingerprint, unsupportedLabel, verifyLifecycleGates } from '../gates.mjs';
 import { verifySeal } from '../ledger.mjs';
@@ -133,7 +133,7 @@ function pipelineShow(ctx, args) {
   if (!pipelineClassValid(cls)) fail(`run ${id} is not classified yet`);
   if (!ecosystemSets(ctx).loaded) ctx.out(`warning=${ECO_WARNING}\n`);
   const fly = inflightDispatch(ctx, dir);
-  if (fly) ctx.out(`in_flight=dispatch.sh ${id} ${fly.role} (pid ${fly.pid}): wait for the command to return\n`);
+  if (fly) { const p = inflightParts(fly); ctx.out(`in_flight=dispatch.sh ${id} ${p.role} (pid ${p.pid}): wait for the command to return\n`); }
   const tier = tierEffective(ctx, dir);
   const gates = requiredGates(ctx, dir, tier);
   let art = 'TASK.md PLAN.md';

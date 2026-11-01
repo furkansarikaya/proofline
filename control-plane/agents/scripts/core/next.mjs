@@ -13,7 +13,7 @@ import {
   findingWaived, fixRoundsUsed, gateBlockingRows, gateDeps, gateFocus, gateFocusStatus, gateLatestFile, gateNames, gateOwner, gateSatisfied, gateStatus, gatesDirOf, maxFixRounds,
   requiredGates, riskNotRerun, riskUnsupported, taskPatchFingerprint, unsupportedLabel, gateBoundToContract,
 } from './gates.mjs';
-import { budgetNote, inflightDispatch, removeMarkers, staleMarkers } from './dispatch.mjs';
+import { budgetNote, inflightDispatch, inflightParts, removeMarkers, staleMarkers } from './dispatch.mjs';
 import { boundNames, listNames } from './ledger.mjs';
 import { isFile } from './paths.mjs';
 import { assumptionBlocked, assumptionShapeErrors, planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
@@ -285,7 +285,8 @@ export function nextStep(ctx, id, emit) {
   const stale = staleMarkers(ctx, d);
   const fly = inflightDispatch(ctx, d);
   if (fly) {
-    o(`wait: dispatch.sh ${id} ${fly.role} in flight (pid ${fly.pid}; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns`);
+    const fp = inflightParts(fly);
+    o(`wait: dispatch.sh ${id} ${fp.role} in flight (pid ${fp.pid}; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns`);
     r('a dispatch is running (A124)');
     emit(budgetNote(ctx, d));
     removeMarkers(d, stale);

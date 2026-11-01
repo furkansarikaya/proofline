@@ -45,6 +45,16 @@ export function inflightDispatch(ctx, dir) {
 }
 
 /**
+ * The two parts of "ROLE PID" as the shell cuts them, `${s% *}` (role) and `${s#* }` (pid): they cut at the last and at the FIRST space, so
+ * a role that contains a space loses its first word from the pid part. Byte-for-byte with agent.sh.
+ * @param {{ role: string, pid: string }} fly
+ */
+export function inflightParts(fly) {
+  const s = `${fly.role} ${fly.pid}`;
+  return { role: s.slice(0, s.lastIndexOf(' ')), pid: s.slice(s.indexOf(' ') + 1) };
+}
+
+/**
  * `inflight_sweep ID` without the removal: the names of the markers whose pid is dead (stale). The caller removes them with
  * `removeMarkers` once the command is sure to finish in Node (a hand-over to the shell must find them still there).
  * @param {Context} ctx @param {string} dir @returns {string[]}

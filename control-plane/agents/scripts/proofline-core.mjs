@@ -72,7 +72,8 @@ function viaShell(ctx, argv, opt = {}) {
   if (argv[0] === undefined || !Object.hasOwn(HANDLERS, argv[0])) throw new ProoflineError('proofline-core: the bridge only serves the commands of the Node core', 2, 'NOT_MOVED');
   ctx.discard();
   const env = opt.force === false ? { ...ctx.env } : { ...ctx.env, PROOFLINE_ENGINE: 'sh' };
-  const script = opt.script ?? path.join(ctx.scriptDir, 'agent.sh');
+  // the script as agent.sh was typed (so that $0 is identical in the shell's own error texts), else the absolute path of the sibling agent.sh
+  const script = opt.script ?? ctx.io.argv0 ?? path.join(ctx.scriptDir, 'agent.sh');
   const own = ctx.io.isProcess === true;
   const r = proc.run('sh', [script, ...argv], { cwd: opt.cwd ?? ctx.cwd, env, stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
   if (!own) {
@@ -155,13 +156,32 @@ function fdWriter(fd) {
   };
 }
 
+/**
+ * The leading `--pl-argv0 <$0>` that agent.sh's preamble passes: the typed script path, used by the bridge only when it names the core's own
+ * sibling agent.sh (same real path); anything else is ignored and the bridge uses the absolute path. It never selects what is executed.
+ * @param {string[]} args @param {string} scriptPath @param {string} cwd
+ * @returns {{ argv: string[], argv0?: string }}
+ */
+export function splitArgv0(args, scriptPath, cwd) {
+  if (args[0] !== '--pl-argv0' || args.length < 2) return { argv: args };
+  const typed = args[1];
+  const rest = args.slice(2);
+  try {
+    const sibling = realpathSync(path.join(path.dirname(scriptPath), 'agent.sh'));
+    if (typed !== '' && !typed.startsWith('-') && realpathSync(path.resolve(cwd, typed)) === sibling) return { argv: rest, argv0: typed };
+  } catch { /* not a file: ignored */ }
+  return { argv: rest };
+}
+
 /** The entry point: the arguments of the process, its descriptors, its environment. @param {string} scriptPath */
 export function main(scriptPath) {
+  const cwd = process.cwd();
+  const split = splitArgv0(process.argv.slice(2), path.resolve(scriptPath), cwd);
   const io = {
-    env: process.env, cwd: process.cwd(), stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
-    scriptPath: path.resolve(scriptPath),
+    env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
+    scriptPath: path.resolve(scriptPath), argv0: split.argv0,
   };
-  return run(process.argv.slice(2), io);
+  return run(split.argv, io);
 }
 
 const entry = process.argv[1];

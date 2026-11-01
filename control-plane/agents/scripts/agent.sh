@@ -29,7 +29,8 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # Node migration, stage 1 (ADR 0001 5.3): a moved command runs in proofline-core.mjs, before anything below is parsed, unless the engine is
 # forced to this shell code: by the file <main tree>/.agents/local/engine (one line, `sh` for every command or `sh:<command>,<command>`), or by
 # PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
-# exec fails with 127. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
+# exec fails with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its
+# error texts; the core uses it only when it names this very file. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
 # stage 2, package C1: the last line of the list below (next summary plan-section digest report-facts report-execution report-tokens)
 case "${1:-}" in
   role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
@@ -69,7 +70,7 @@ case "${1:-}" in
           case "${4:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac ;;
       esac
     fi
-    [ "$pl_sh" = yes ] || exec node "$self_dir/proofline-core.mjs" "$@" ;;
+    [ "$pl_sh" = yes ] || exec node "$self_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
 esac
 cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
