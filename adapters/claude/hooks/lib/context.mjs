@@ -208,6 +208,8 @@ export async function buildContext(ev, rt, raw, env) {
   // A202 item 28: the user's prompt is on disk FIRST, before any parse or lookup (the project named by the runtime, when it names one)
   if (env.CLAUDE_PROJECT_DIR) intakeWrite(c, inputPath(env.CLAUDE_PROJECT_DIR));
   try {
+    // the existing test seam of the shell hook: PROOFLINE_JSON=none means "no JSON parser" (the input then counts as unparsable)
+    if (env.PROOFLINE_JSON === 'none') throw new Error('no JSON parser');
     const text = raw.toString('utf8');
     c.input = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
     c.parsed = true;
