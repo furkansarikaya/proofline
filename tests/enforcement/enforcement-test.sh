@@ -767,10 +767,12 @@ questions() {
   H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}" codex | grep -q '.agents/skills/proofline-lead/SKILL.md' || die "Codex SessionStart skill path"
   ok "SessionStart tells the lead its skill, the active run and the next step"
   # A200: the session check is bounded; a slow `agent.sh next` is stopped and the lead is told to ask it itself, the hook answers in time
+  [ "$hrun" != node ] || sleep 2   # the same event within two seconds is a duplicate registration; the shell hook was slower than that
+  [ "$hrun" != node ] || printf 'sh:next\n' > .agents/local/engine   # the Node hook runs `next` in its own process unless the user's engine switch asks for agent.sh
   mv .agents/scripts/agent.sh .agents/scripts/agent-real.sh
   printf '#!/bin/sh\ncase "$1" in next) sleep 25; exit 0 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n' > .agents/scripts/agent.sh
   se_t0=$(date +%s); out=$(PROOFLINE_HOOK_NEXT_BUDGET=2 H session "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"cwd\":\"$PWD\"}"); se_t1=$(date +%s)
-  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh
+  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh; rm -f .agents/local/engine
   [ $((se_t1 - se_t0)) -lt 15 ] || die "the session hook waited $((se_t1 - se_t0))s for a slow agent.sh next (A200)"
   printf '%s' "$out" | grep -q "agent.sh next LC (the session check did not finish" || die "the session hook did not hand a timed-out next to the lead: $out"
   ok "SessionStart bounds the next-step check (A200)"
@@ -1279,6 +1281,8 @@ worktree_state() {
   printf 'impl.txt\n' > .agents/owns.conf.tmp; rm -f .agents/owns.conf.tmp
   M=$PWD
   wt=$(sh .agents/scripts/agent.sh worktree-add W-1) || die "worktree-add: $wt"
+  # the core is not tracked in the fixture, so a run worktree has none; the Node hook reads the core of the tree it acts on
+  [ "$hrun" != node ] || { cp "$tl_agents/scripts/proofline-core.mjs" "$wt/.agents/scripts/"; cp -R "$tl_agents/scripts/core" "$wt/.agents/scripts/core"; }
   mkdir -p "$wt/.agents/runs" "$wt/.agents/local/approvals" "$wt/.agents/local/records"
   cp -R .agents/runs/LC "$wt/.agents/runs/LC"; cp .agents/local/ACTIVE_RUN "$wt/.agents/local/ACTIVE_RUN"
   [ "$(sh .agents/scripts/agent.sh worktree-root "$wt/.agents/runs/LC")" = "$wt" ] || die "worktree-root of the run folder"
