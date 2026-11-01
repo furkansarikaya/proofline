@@ -20,6 +20,17 @@ export const STAGE3 = Object.freeze(['next-user', 'worktree-root', 'in-knowledge
 const ID = 'LC';
 /** Run FN once, on the first call (a fixture is built only when a selected case uses it, never at import). @template T @param {() => T} fn @returns {() => T} */
 const lazy = (fn) => { let done = false; /** @type {T} */ let v; return () => { if (!done) { v = fn(); done = true; } return v; }; };
+/**
+ * Wait until the wall clock has reached second T (never a fixed guess: the clock is read). A capture stamped T is then not in the future for the
+ * commands that follow, so an approval made from it has approved_at >= capture_time on both engines (the rig's own order check). T is at most one
+ * second ahead of the clock, well inside the 5 s the product tolerates for a capture date.
+ * @param {number} t epoch seconds
+ */
+function waitUntil(t) {
+  const cell = new Int32Array(new SharedArrayBuffer(4));
+  while (Math.floor(Date.now() / 1000) < t) Atomics.wait(cell, 0, 0, 25);
+}
+
 /** A fixture that is built on the first read of its folder or its start time. @param {() => import('../fixture.mjs').Fixture} get @returns {import('../fixture.mjs').Fixture} */
 const lazyFx = (get) => { const g = lazy(get); return { get dir() { return g().dir; }, get builtAt() { return g().builtAt; } }; };
 
@@ -48,6 +59,7 @@ function derive(base, steps) {
     try { names = readdirSync(d).filter((n) => re.test(n)); } catch { /* none */ }
     for (const n of names) { const m = new RegExp(`^${key}: (\\d+)`, 'm').exec(readFileSync(join(d, n), 'utf8')); if (m) t = Math.max(t, Number(m[1])); }
   }
+  waitUntil(t + 1);
   return { fx: { dir, builtAt: base.builtAt }, t: t + 1 };
 }
 
@@ -78,6 +90,7 @@ function deriveSingleUse(base) {
     writeFileSync(`${ad}/${String(Number(seq) + 1).padStart(3, '0')}-request-plan.yaml`, `kind: "plan"\nbound: "${bound}"\nrequested_at: ${t - 1}\n`);
     mkdirSync(`${dir}/.agents/local/prompts`, { recursive: true });
     writeFileSync(`${dir}/.agents/local/prompts/s1.json`, captureBytes('s1', t, text));
+    waitUntil(t);
     return { fx: { dir, builtAt: base.builtAt }, t };
   }
   throw new Error('could not build the single-use fixture');
