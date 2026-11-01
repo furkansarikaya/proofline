@@ -4,7 +4,7 @@
 // of the Node router. The shell hook stays in the repository until stage 10.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTemplate, copyProject, haveJq, runHook, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join } from './harness.mjs';
+import { buildTemplate, copyProject, haveJq, runHook, snapshot, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join } from './harness.mjs';
 
 const skip = haveJq ? false : 'jq is required for the shell hook';
 let withRun = '';
@@ -61,6 +61,8 @@ function scenario(name, template, who, env = {}) {
       });
     }
     assert.deepEqual(bad, []);
+    // the files the hook leaves (the run's baseline, the report-turn marker) are the same
+    assert.deepEqual(snapshot(b), snapshot(a));
   });
 }
 
