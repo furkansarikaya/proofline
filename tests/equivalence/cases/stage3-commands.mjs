@@ -5,6 +5,11 @@
 // so a case is also the cross-version proof: the old `approve` reads what the new writer wrote, the new one reads what the old one would have.
 import { captureBytes } from '../../../control-plane/agents/scripts/core/capture.mjs';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { baseEnv } from '../fixture.mjs';
 import { stateFixture } from './stage2-fixtures.mjs';
 
 /** @typedef {import('../rig.mjs').Case} Case */
@@ -13,14 +18,33 @@ import { stateFixture } from './stage2-fixtures.mjs';
 export const STAGE3 = Object.freeze(['next-user', 'worktree-root', 'in-knowledge-scope', 'request-approval', 'approve', 'approve-pending', 'approval-consume', 'answer', 'hook-time', 'language-check', 'friction-note', 'window-open', 'window-close']);
 
 const ID = 'LC';
-const FUTURE = 4102444800;
 const A = (/** @type {string[]} */ args, /** @type {Partial<Step>} */ o = {}) => /** @type {Step} */ ({ args, ...o });
 
 /** A prompt capture as the hook writes it (session s1, a time after any request). @param {string} text @param {number} [time] @returns {Step} */
-export const capture = (text, time = FUTURE) => ({ write: { path: '.agents/local/prompts/s1.json', content: captureBytes('s1', time, text).toString('utf8') } });
+export const capture = (text, time) => ({ write: { path: '.agents/local/prompts/s1.json', content: captureBytes('s1', time, text).toString('utf8') } });
 
-/** A capture whose hash does not match its text. @param {string} text @returns {Step} */
-const forged = (text) => ({ write: { path: '.agents/local/prompts/s1.json', content: captureBytes('s1', FUTURE, text).toString('utf8').replace(createHash('sha256').update(text).digest('hex'), '0'.repeat(64)) } });
+/** A capture whose hash does not match its text. @param {string} text @param {number} time @returns {Step} */
+const forged = (text, time) => ({ write: { path: '.agents/local/prompts/s1.json', content: captureBytes('s1', time, text).toString('utf8').replace(createHash('sha256').update(text).digest('hex'), '0'.repeat(64)) } });
+
+
+/**
+ * A copy of a fixture with more requests and questions made in it (by the shell, once), and the second after the last of them: a capture
+ * stamped then is newer than every request and not in the future, so both engines judge it by the grammar alone (the hardening of the capture
+ * reader refuses a capture dated ahead of the clock or filed under another session; tests/equivalence/stage3-hardening.test.mjs records that).
+ * @param {import('../fixture.mjs').Fixture} base @param {Array<[string[], string?]>} steps @returns {{ fx: import('../fixture.mjs').Fixture, t: number }}
+ */
+function derive(base, steps) {
+  const dir = mkdtempSync(join(tmpdir(), 'eq-s3-'));
+  cpSync(base.dir, dir, { recursive: true, verbatimSymlinks: true });
+  for (const [args, input] of steps) spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: dir, env: baseEnv(dir, { PROOFLINE_ENGINE: 'sh' }), input: input ?? '', encoding: 'utf8' });
+  let t = 0;
+  for (const [d, re, key] of /** @type {Array<[string, RegExp, string]>} */ ([[`${dir}/.agents/runs/${ID}/approvals`, /-request-/, 'requested_at'], [`${dir}/.agents/local/approvals`, /-request-/, 'requested_at'], [`${dir}/.agents/runs/${ID}/questions`, /^\d{3}\.md$/, 'asked_at']])) {
+    let names = [];
+    try { names = readdirSync(d).filter((n) => re.test(n)); } catch { /* none */ }
+    for (const n of names) { const m = new RegExp(`^${key}: (\\d+)`, 'm').exec(readFileSync(join(d, n), 'utf8')); if (m) t = Math.max(t, Number(m[1])); }
+  }
+  return { fx: { dir, builtAt: base.builtAt }, t: t + 1 };
+}
 
 /** The replies of the grammar: accepted, hedged, questions, other kinds, Turkish, several approvals. */
 export const REPLIES = [
@@ -34,41 +58,46 @@ export const REPLIES = [
 /** @returns {Case[]} */
 export function stage3Cases() {
   /** @type {Case[]} */ const cases = [];
-  const pending = stateFixture('gates-pending-plan');
+  const base = stateFixture('gates-pending-plan');
+  const Q = '1. Which option do you want?\n   options: a | b\n   recommended: a\n   why: because\n';
+  // the plan request of the state and a request of no run; the second fixture also a scope request and two open questions
+  const { fx: pending, t: T } = derive(base, [[['request-approval', '-', 'commit']]]);
+  const { fx: asked, t: TQ } = derive(base, [[['request-approval', '-', 'commit']], [['request-approval', ID, 'scope']], [['ask', ID], Q], [['ask', ID], Q]]);
+  const cap = (/** @type {string} */ text, time = T) => capture(text, time);
+  const capQ = (/** @type {string} */ text) => capture(text, TQ);
   // the replies that approve: one case each (the approval ends the question); the others are chained (a refusal changes nothing)
   const yes = REPLIES.slice(0, 10);
   const rest = REPLIES.slice(10);
-  yes.forEach((text, i) => cases.push({ name: `approve:accept-${i}`, fixture: pending, steps: [capture(text), A(['approve', ID, 'plan']), A(['approve', ID, 'plan'])] }));
+  yes.forEach((text, i) => cases.push({ name: `approve:accept-${i}`, fixture: pending, steps: [cap(text), A(['approve', ID, 'plan']), A(['approve', ID, 'plan'])] }));
   for (let c = 0; c < rest.length; c += 10) {
     const part = rest.slice(c, c + 10);
-    cases.push({ name: `approve:refuse-${c / 10}`, fixture: pending, steps: part.flatMap((t) => [capture(t), A(['approve', ID, 'plan'])]) });
-    cases.push({ name: `approve-pending:chain-${c / 10}`, fixture: pending, steps: [A(['request-approval', '-', 'commit']), ...part.flatMap((t) => [capture(t), A(['approve-pending', ID])])] });
+    cases.push({ name: `approve:refuse-${c / 10}`, fixture: pending, steps: part.flatMap((t) => [cap(t), A(['approve', ID, 'plan'])]) });
+    cases.push({ name: `approve-pending:chain-${c / 10}`, fixture: pending, steps: [...part.flatMap((t) => [cap(t), A(['approve-pending', ID])])] });
   }
-  yes.forEach((text, i) => { if (i % 3 === 0) cases.push({ name: `approve-pending:accept-${i}`, fixture: pending, steps: [A(['request-approval', '-', 'commit']), capture(text), A(['approve-pending', ID]), A(['approve-pending', ID])] }); });
-  cases.push({ name: 'approve:stale-capture', fixture: pending, steps: [capture('approve the plan', 1), A(['approve', ID, 'plan'])] });
-  cases.push({ name: 'approve:hash-mismatch', fixture: pending, steps: [forged('approve the plan'), A(['approve', ID, 'plan'])] });
+  yes.forEach((text, i) => { if (i % 3 === 0) cases.push({ name: `approve-pending:accept-${i}`, fixture: pending, steps: [cap(text), A(['approve-pending', ID]), A(['approve-pending', ID])] }); });
+  cases.push({ name: 'approve:stale-capture', fixture: pending, steps: [cap('approve the plan', 1), A(['approve', ID, 'plan'])] });
+  cases.push({ name: 'approve:hash-mismatch', fixture: pending, steps: [forged('approve the plan', T), A(['approve', ID, 'plan'])] });
   cases.push({ name: 'approve:no-capture', fixture: pending, steps: [A(['approve', ID, 'plan'])] });
-  cases.push({ name: 'approve:no-request', fixture: pending, steps: [capture('approve the commit'), A(['approve', ID, 'scope']), A(['approve', ID, 'bogus']), A(['approve', '-', 'plan']), A(['approve', ID])] });
-  cases.push({ name: 'approve:single-use-two-requests', fixture: pending, steps: [capture('approve the plan'), A(['approve', ID, 'plan']), A(['request-approval', ID, 'plan']), A(['approve', ID, 'plan'])] });
-  cases.push({ name: 'approve:role-denied', fixture: pending, steps: [capture('approve the plan'), A(['approve', ID, 'plan'], { role: 'implementer' }), A(['approve', ID, 'plan'], { role: 'reviewer' })] });
-  cases.push({ name: 'approve:several-kinds', fixture: pending, steps: [A(['request-approval', '-', 'commit']), A(['request-approval', ID, 'scope']), capture('approve plan, approve commit'), A(['approve', ID, 'plan', 'scope']), A(['approve', '-', 'commit'])] });
-  cases.push({ name: 'request-approval:kinds', fixture: pending, steps: [A(['request-approval', ID, 'plan']), A(['request-approval', ID, 'destructive']), A(['request-approval', ID, 'scope']), A(['request-approval', ID, 'budget']), A(['request-approval', ID, 'mutation_budget']), A(['request-approval', '-', 'commit']), A(['request-approval', '-', 'push']), A(['request-approval', ID, 'commit']), A(['request-approval', '-', 'plan']), A(['request-approval', ID, 'bogus']), A(['request-approval', ID, 'reopen:LC']), A(['request-approval', ID, 'waive:X-1']), A(['request-approval', ID, 'rule:R1']), A(['request-approval', ID, 'rationale:p-1']), A(['request-approval', '-', 'report']), A(['request-approval', '-', 'batch']), A(['request-approval', 'NOPE', 'plan']), A(['request-approval', ID, 'plan'], { role: 'reviewer' })] });
+  cases.push({ name: 'approve:no-request', fixture: pending, steps: [cap('approve the commit'), A(['approve', ID, 'scope']), A(['approve', ID, 'bogus']), A(['approve', '-', 'plan']), A(['approve', ID])] });
+  cases.push({ name: 'approve:single-use-two-requests', fixture: pending, steps: [cap('approve the plan'), A(['approve', ID, 'plan']), A(['request-approval', ID, 'plan']), A(['approve', ID, 'plan'])] });
+  cases.push({ name: 'approve:role-denied', fixture: pending, steps: [cap('approve the plan'), A(['approve', ID, 'plan'], { role: 'implementer' }), A(['approve', ID, 'plan'], { role: 'reviewer' })] });
+  cases.push({ name: 'approve:several-kinds', fixture: asked, steps: [capQ('approve plan, approve commit'), A(['approve', ID, 'plan', 'scope']), A(['approve', '-', 'commit'])] });
+  cases.push({ name: 'request-approval:kinds', fixture: pending, steps: [A(['request-approval', ID, 'plan']), A(['request-approval', ID, 'destructive']), A(['request-approval', ID, 'scope']), A(['request-approval', ID, 'budget']), A(['request-approval', ID, 'mutation_budget']), A(['request-approval', '-', 'push']), A(['request-approval', ID, 'commit']), A(['request-approval', '-', 'plan']), A(['request-approval', ID, 'bogus']), A(['request-approval', ID, 'reopen:LC']), A(['request-approval', ID, 'waive:X-1']), A(['request-approval', ID, 'rule:R1']), A(['request-approval', ID, 'rationale:p-1']), A(['request-approval', '-', 'report']), A(['request-approval', '-', 'batch']), A(['request-approval', 'NOPE', 'plan']), A(['request-approval', ID, 'plan'], { role: 'reviewer' })] });
   cases.push({ name: 'request-approval:turkish', fixture: pending, steps: [{ write: { path: '.agents/runs/LC/TASK.md', content: '# Task\n\nLanguage: tr\n' } }, A(['request-approval', ID, 'plan']), A(['request-approval', ID, 'destructive'])] });
   cases.push({ name: 'request-approval:turkish-quote', fixture: pending, steps: [{ write: { path: '.agents/runs/LC/TASK.md', content: '# Task\n\n> bunu yap lütfen ve sonra bir şey daha\n' } }, A(['request-approval', ID, 'plan'])] });
-  cases.push({ name: 'request-approval:phrases-config', fixture: pending, steps: [{ write: { path: '.agents/config.yaml', content: 'approval:\n  phrases: "ship it, go"\n' } }, A(['request-approval', ID, 'plan']), capture('ship it plan'), A(['approve', ID, 'plan'])] });
-  cases.push({ name: 'approval-consume', fixture: pending, steps: [capture('approve the plan'), A(['approve', ID, 'plan']), A(['approval-consume', ID, 'plan']), A(['approval-consume', ID, 'plan']), A(['approval-consume', ID]), A(['approval-consume', ID, 'bogus'])] });
-  cases.push({ name: 'approval-consume:commit', fixture: pending, steps: [A(['request-approval', '-', 'commit']), capture('approve the commit'), A(['approve-pending', ID]), A(['fingerprint', ID, 'full']), A(['approval-consume', '-', 'commit']), A(['approval-consume', '-', 'commit', 'deadbeef', 'refs/heads/x'])] });
+  cases.push({ name: 'request-approval:phrases-config', fixture: pending, steps: [{ write: { path: '.agents/config.yaml', content: 'approval:\n  phrases: "ship it, go"\n' } }, A(['request-approval', ID, 'plan']), cap('ship it plan'), A(['approve', ID, 'plan'])] });
+  cases.push({ name: 'approval-consume', fixture: pending, steps: [cap('approve the plan'), A(['approve', ID, 'plan']), A(['approval-consume', ID, 'plan']), A(['approval-consume', ID, 'plan']), A(['approval-consume', ID]), A(['approval-consume', ID, 'bogus'])] });
+  cases.push({ name: 'approval-consume:commit', fixture: pending, steps: [cap('approve the commit'), A(['approve-pending', ID]), A(['fingerprint', ID, 'full']), A(['approval-consume', '-', 'commit']), A(['approval-consume', '-', 'commit', 'deadbeef', 'refs/heads/x'])] });
   cases.push({ name: 'worktree-root', fixture: pending, steps: [A(['worktree-root', '/nope']), A(['worktree-root', 'rel']), A(['worktree-root', '/a/../b']), A(['worktree-root']), A(['worktree-root', '/tmp/x/.agents/local/worktrees/a'])] });
   cases.push({ name: 'in-knowledge-scope', fixture: pending, steps: [A(['in-knowledge-scope', 'docs/design/a.md']), A(['in-knowledge-scope', 'src/a.go']), A(['in-knowledge-scope', 'docs/adr/0001.md']), A(['in-knowledge-scope']), A(['in-knowledge-scope', 'docs/wiki'])] });
   cases.push({ name: 'friction-note', fixture: pending, steps: [A(['friction-note', ID, 'user-command']), A(['friction-note', ID, 'proofline_bug']), A(['friction-note', ID, 'bogus']), A(['friction-note', ID]), A(['friction-note', 'NOPE', 'user-shell']), A(['friction-note', ID, 'user-shell'], { role: 'reviewer' })] });
   cases.push({ name: 'hook-time', fixture: pending, steps: [{ write: { path: '.agents/local/hook-times', content: '1|prompt|10|ok|\n2|prompt|30|ok|\n3|stop|5|timeout|why\n4|bad name|3|ok|\n5|session|007|ok|\n6|prompt|abc|ok|\n' } }, A(['hook-time', ID]), A(['hook-time', ID]), A(['hook-time', '-']), A(['hook-time'])] });
   cases.push({ name: 'language-check', fixture: pending, steps: [A(['language-check', '-'], { stdin: 'plain English text\n' }), A(['language-check', '-'], { stdin: 'café çalışma öğretmen\n' }), A(['language-check', '-'], { stdin: '> café çalışma öğretmen\n' }), A(['language-check', 'README.md']), A(['language-check', 'missing.md']), A(['language-check'], { stdin: '中文中文中文' }), A(['language-check', '-', '.agents/runs/LC/COMPLETION_REPORT.md'], { stdin: '<!-- proofline:summary:begin -->\nçağışüö\n<!-- proofline:summary:end -->\nok\n' })] });
-  const Q = '1. Which option do you want?\n   options: a | b\n   recommended: a\n   why: because\n';
   const hist = (/** @type {string} */ name, /** @type {string} */ text) => /** @type {Step} */ ({ write: { path: `.agents/local/prompts/history/${name}`, content: text } });
-  cases.push({ name: 'answer:typed', fixture: pending, steps: [A(['ask', ID], { stdin: Q }), capture('use a please'), A(['answer', ID, '1'], { stdin: 'use a\n' }), A(['answer', ID, '1'], { stdin: 'again\n' }), A(['answer', ID, 'x']), A(['answer', ID, '7'], { stdin: 'z' }), A(['answer', ID, '1', '--amend'])] });
-  cases.push({ name: 'answer:lead-text-not-user', fixture: pending, steps: [A(['ask', ID], { stdin: Q }), capture('something else'), A(['answer', ID, '1'], { stdin: 'use a' }), A(['answer', ID, '1'], { stdin: '  \n' })] });
-  cases.push({ name: 'answer:captured', fixture: pending, steps: [A(['ask', ID], { stdin: Q }), A(['answer', ID, '1', '--captured']), hist('4102444800-aaaaaaaa.txt', 'first remark'), hist('4102444801-bbbbbbbb.txt', 'option b, please\nand more'), hist('4102444802-cccccccc.txt', '<task-notification>x'), A(['answer', ID, '1', '--captured']), A(['ask', ID], { stdin: Q }), A(['answer', ID, '2', '--captured']), hist('4102444900-dddddddd.txt', 'no, option a'), A(['answer', ID, '2', '--captured']), A(['answer', ID, '2', '--captured'])] });
-  cases.push({ name: 'next:approval-wait', fixture: pending, steps: [A(['next', ID]), capture('hmm, maybe later'), A(['next', ID]), A(['next', ID], { role: 'reviewer' }), capture('approve the plan'), A(['next', ID], { role: 'reviewer' }), A(['next', ID]), A(['next', ID])] });
+  cases.push({ name: 'answer:typed', fixture: asked, steps: [capQ('use a please'), A(['answer', ID, '1'], { stdin: 'use a\n' }), A(['answer', ID, '1'], { stdin: 'again\n' }), A(['answer', ID, 'x']), A(['answer', ID, '7'], { stdin: 'z' }), A(['answer', ID, '1', '--amend'])] });
+  cases.push({ name: 'answer:lead-text-not-user', fixture: asked, steps: [capQ('something else'), A(['answer', ID, '1'], { stdin: 'use a' }), A(['answer', ID, '1'], { stdin: '  \n' })] });
+  cases.push({ name: 'answer:captured', fixture: asked, steps: [A(['answer', ID, '1', '--captured']), hist(`${TQ}-aaaaaaaa.txt`, 'first remark'), hist(`${TQ}-bbbbbbbb.txt`, 'option b, please\nand more'), hist(`${TQ}-cccccccc.txt`, '<task-notification>x'), A(['answer', ID, '1', '--captured']), A(['answer', ID, '2', '--captured']), hist(`${TQ}-dddddddd.txt`, 'no, option a'), A(['answer', ID, '2', '--captured']), A(['answer', ID, '2', '--captured'])] });
+  cases.push({ name: 'next:approval-wait', fixture: pending, steps: [A(['next', ID]), cap('hmm, maybe later'), A(['next', ID]), A(['next', ID], { role: 'reviewer' }), cap('approve the plan'), A(['next', ID], { role: 'reviewer' }), A(['next', ID]), A(['next', ID])] });
   const states = ['gates-pending-plan', 'gates-frozen', 'gates-done', 'gates-failed'];
   for (const st of states) {
     cases.push({ name: `next-user:${st}`, fixture: stateFixture(st), steps: ['status', 'resume', 'deliver', 'knowledge', 'run', 'task', 'batch', 'queue', 'reopen', 'product', 'doctor'].map((c) => A(['next-user', c])).concat([A(['next-user', 'deliver', ID]), A(['next-user', 'status', ID]), A(['next-user', 'deliver', '--error']), A(['next-user', 'status', '--error=usage']), A(['next-user', 'bogus']), A(['next-user', '--commands']), A(['next-user']), A(['next-user', 'product', 'discover', 'frame', 'my-slug']), A(['next-user', 'product', 'assess', 'decision', 'my-slug']), A(['next-user', 'batch', 'status']), A(['next-user', 'status', '../x'])]) });
