@@ -167,7 +167,7 @@ EOF
   sh "$PL" init --yes --runtimes claude --lead claude --worker claude --reviewers claude >/dev/null 2>&1 || die "init failed"
   s=.claude/settings.json
   command -v jq >/dev/null 2>&1 || command -v node >/dev/null 2>&1 || { ok "A202-29 settings merge (neither jq nor node here: skipped)"; return 0; }
-  hk() { jq -r --arg ev "$1" '[.hooks[$ev][] | .hooks[] | select((.command // "") | contains("proofline-hook.sh")) | .timeout] | first' "$s" 2>/dev/null || node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const g=j.hooks[process.argv[2]];for(const x of g)for(const h of x.hooks)if(String(h.command).includes("proofline-hook.sh")){console.log(h.timeout);process.exit()}' "$s" "$1"; }
+  hk() { jq -r --arg ev "$1" '[.hooks[$ev][] | .hooks[] | select((.command // "") | contains("proofline-hook.mjs")) | .timeout] | first' "$s" 2>/dev/null || node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const g=j.hooks[process.argv[2]];for(const x of g)for(const h of x.hooks)if(String(h.command).includes("proofline-hook.mjs")){console.log(h.timeout);process.exit()}' "$s" "$1"; }
   [ "$(hk PreToolUse)" = 30 ] && [ "$(hk SubagentStop)" = 120 ] && [ "$(hk SubagentStart)" = 60 ] || die "default hook limits not written: $(hk PreToolUse) $(hk SubagentStart) $(hk SubagentStop)"
   grep -q '"model": "opus"' "$s" && grep -q 'MY_FLAG' "$s" && grep -q 'Read(./secrets' "$s" && grep -q 'echo note' "$s" && grep -q '"timeout": 7' "$s" || die "init lost a user setting: $(cat "$s")"
   # config -> settings: scale 2 and a single limit
@@ -176,7 +176,7 @@ EOF
   [ "$(hk PreToolUse)" = 60 ] && [ "$(hk SubagentStop)" = 240 ] && [ "$(hk SubagentStart)" = 90 ] && [ "$(hk UserPromptSubmit)" = 60 ] || die "scaled hook limits not written: $(hk PreToolUse) $(hk SubagentStart) $(hk SubagentStop) $(hk UserPromptSubmit)"
   grep -q '"timeout": 7' "$s" || die "the timeout of a hook that is not proofline's was changed"
   grep -q '"model": "opus"' "$s" && grep -q 'MY_FLAG' "$s" && grep -q 'Read(./secrets' "$s" && grep -q 'echo note' "$s" && grep -q 'echo mine' "$s" || die "upgrade lost a user setting"
-  [ "$(grep -c 'proofline-hook.sh' "$s")" = 7 ] || die "hook groups were duplicated or lost: $(grep -c 'proofline-hook.sh' "$s")"
+  [ "$(grep -c 'proofline-hook.mjs' "$s")" = 7 ] || die "hook groups were duplicated or lost: $(grep -c 'proofline-hook.mjs' "$s")"
   # the second run changes nothing, byte for byte
   cp "$s" "$base/settings.once"; sh "$PL" upgrade >/dev/null 2>&1 || die "second upgrade failed"; sh "$PL" upgrade >/dev/null 2>&1 || die "third upgrade failed"
   cmp -s "$s" "$base/settings.once" || die "a repeated upgrade changed the settings file"
