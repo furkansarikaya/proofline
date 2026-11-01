@@ -726,7 +726,7 @@ export function approvalConsume(ctx, args) {
  */
 export function approveInChild(parent, target, kinds) {
   /** @type {Buffer[]} */ const sink = [];
-  const io = { env: parent.env, cwd: parent.cwd, stdout: { write: (/** @type {Buffer} */ b) => sink.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => sink.push(b) }, scriptPath: parent.scriptPath, isProcess: false };
+  const io = { env: parent.env, cwd: parent.cwd, stdout: { write: (/** @type {Buffer} */ b) => sink.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => sink.push(b) }, scriptPath: parent.scriptPath, isProcess: false, promptCapture: /** @type {{ promptCapture?: unknown }} */ (parent.io).promptCapture };
   const child = new Context(io, parent.scriptPath);
   const locks = new LockSet(child);
   let rc = 0;

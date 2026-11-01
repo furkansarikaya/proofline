@@ -12,6 +12,7 @@
 //   ctx.agent(argv, opt)     one agent.sh command (see agent.mjs); ctx.line/step: the hook-times spool; ctx.once(): the duplicate guard
 import { realpathSync, readdirSync, statSync, rmSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Agents } from './agent.mjs';
 import { append, isDir, isFile, mkdirp, put, readText, rmf } from './fsx.mjs';
 import { canon, cmdSubst, jget, safe, sha256, validRole } from './text.mjs';
@@ -63,6 +64,12 @@ export class HookContext {
 
   /** `jget PATH...` @param {...string} paths */
   get(...paths) { return this.parsed ? jget(this.input, ...paths) : ''; }
+
+  /** The project's core/capture.mjs (the one writer of the prompt capture), or null when the project has none. */
+  capture() {
+    const f = `${this.root}/.agents/scripts/core/capture.mjs`;
+    return isFile(f) ? import(pathToFileURL(f).href).catch(() => null) : Promise.resolve(null);
+  }
 
   /** One agent.sh command. @param {string[]} argv @param {import('./agent.mjs').AgentOptions} [opt] */
   agent(argv, opt) { return /** @type {Agents} */ (this.agents).run(argv, opt); }

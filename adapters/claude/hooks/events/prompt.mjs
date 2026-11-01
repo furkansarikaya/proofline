@@ -6,7 +6,7 @@
 // approval, bounded in time; 4. the ledger flush.
 import { readFileSync, statSync, rmSync } from 'node:fs';
 import { append, isDir, isFile, mkdirp, names, put, putAtomic, readText, rmf } from '../lib/fsx.mjs';
-import { jescExact, jesc, jgetRaw, safe, sha256 } from '../lib/text.mjs';
+import { jesc, jgetRaw, safe, sha256 } from '../lib/text.mjs';
 
 const REQUEST = /^[0-9]{3}-request-.*\.yaml$/;
 
@@ -48,15 +48,18 @@ export async function handle(ctx) {
   // (an answer recorded afterwards compared against it) and cannot approve anything.
   if (pt.startsWith('<task-notification>')) return undefined;
   if (!ctx.once()) return undefined;
-  const sess = safe(ctx.get('session_id')) || 'unknown';
   const prompts = `${ctx.sharedLocal}/prompts`;
   if (!isDir(prompts) && !mkdirp(prompts)) return undefined;
   ctx.tick(); const c0 = ctx.v;
+  // the ONE capture writer: the project's core/capture.mjs (the bytes of the old shell hook; tests/golden/capture)
+  const cap = await ctx.capture();
+  const rawSession = ctx.get('session_id');
+  const sess = cap ? cap.safeSession(rawSession) : safe(rawSession) || 'unknown';
   const h = sha256(Buffer.from(pt, 'utf8'));
   const capS = ctx.s; // the capture id of THIS message keeps this second
-  try { putAtomic(`${prompts}/${sess}.json`, `${prompts}/.${sess}.tmp`, `{"session":"${sess}","time":${ctx.s},"sha256":"${h}","text":"${jescExact(pt)}"}\n`); } catch { /* the intake copy still holds the message */ }
-  // Every prompt is kept (raw text) so an answer recorded as the user's can be checked against what was said (A60).
-  try { if (isDir(`${prompts}/history`) || mkdirp(`${prompts}/history`)) put(`${prompts}/history/${ctx.s}-${h.slice(0, 8)}.txt`, pt); } catch { /* ignore */ }
+  if (cap) cap.storePrompt(ctx.sharedLocal, rawSession, ctx.s, pt);
+  /** The capture of THIS event, handed to the approval step: it never selects "the newest capture" from disk. */
+  const promptCapture = { session: sess, time: capS, sha256: h, text: pt };
   ctx.step('capture', c0);
   // The previous run of this hook did not finish (killed at the runtime's timeout): say so plainly. An .approving- marker of another session
   // that is older than two minutes is left over from a killed hook too: removed (A171), never reported here.
@@ -87,7 +90,7 @@ export async function handle(ctx) {
   if (ctx.act !== 'INVALID' && requestOpen) {
     ctx.tick(); const a0 = ctx.v;
     try { put(marker, `${h}\n`); } catch { /* ignore */ }
-    const r = await ctx.agent(['approve-pending', ctx.act], { budgetMs });
+    const r = await ctx.agent(['approve-pending', ctx.act], { budgetMs, promptCapture });
     used += Date.now() - a0;
     if (r.timedOut) {
       ctx.tick(); ctx.line(`${ctx.ev}.approve`, ctx.v - a0, 'timeout', 'stopped-by-hook-budget');
@@ -129,11 +132,12 @@ export async function handle(ctx) {
     for (const [wlD, run] of wl) {
       const w = await ctx.agent(['worktree-root', wlD], { keepRole: true });
       if (w.status !== 0 || w.stdout.replace(/\n+$/, '') !== wlD) continue;
-      // the worktree's agent.sh is a tracked file a task could have rewritten: it runs only when it is byte-identical to the main tree's own
+      // The worktree decides only which tree's data this works on: the code that runs is the project's own core (a worktree's scripts are tracked
+      // content a task could have rewritten). worktree-root confirmed the folder above.
       const wa = `${wlD}/.agents/scripts/agent.sh`;
-      if (!isFile(wa) || !sameBytes(wa, ctx.agentPath)) continue;
+      if (!isFile(wa)) continue;
       const t1 = Date.now();
-      const r = await ctx.agent(['approve-pending', run], { agentPath: wa, budgetMs: Math.max(budgetMs - used, 50) });
+      const r = await ctx.agent(['approve-pending', run], { agentPath: wa, budgetMs: Math.max(budgetMs - used, 50), promptCapture });
       used += Date.now() - t1;
       if (r.timedOut) {
         ctx.tick(); ctx.line(`${ctx.ev}.approve`, ctx.v - a2, 'timeout', 'stopped-by-hook-budget');
@@ -155,9 +159,6 @@ export async function handle(ctx) {
 
 /** `date -u +%Y-%m-%dT%H:%M:%SZ` */
 function utcStamp() { return `${new Date().toISOString().slice(0, 19)}Z`; }
-
-/** @param {string} a @param {string} b `cmp -s` */
-function sameBytes(a, b) { try { return readFileSync(a).equals(readFileSync(b)); } catch { return false; } }
 
 /** The spool is kept short: past 5000 lines only the last 2000 stay. @param {string} file */
 function trimSpool(file) {

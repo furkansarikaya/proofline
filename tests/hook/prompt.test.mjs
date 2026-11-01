@@ -4,7 +4,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
-import { buildTemplate, haveJq, pair, runHook, copyProject, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, spawnSync, cleanEnv } from './harness.mjs';
+import { spawn } from 'node:child_process';
+import { buildTemplate, haveJq, pair, runHook, copyProject, snapshot, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, spawnSync, cleanEnv } from './harness.mjs';
 
 const skip = haveJq ? false : 'jq is required for the shell hook';
 let template = '';
@@ -108,14 +109,16 @@ test('an approval step: recorded from the user\'s reply, refused for a vague one
 });
 
 test('the approval step is stopped by its budget; the message says it was not recorded and is kept', { skip }, async () => {
-  const setup = (/** @type {string} */ d) => {
-    spawnSync('mv', [join(d, '.agents/scripts/agent.sh'), join(d, '.agents/scripts/agent-real.sh')]);
-    writeFileSync(join(d, '.agents/scripts/agent.sh'), '#!/bin/sh\ncase "$1" in approve-pending) sleep 20; exit 0 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n');
-  };
-  const t0 = Date.now();
-  const r = await pair(requested, base, 'prompt', () => ({ hook_event_name: 'UserPromptSubmit', prompt: 'plan approved, go ahead' }), { setup, env: { PROOFLINE_HOOK_APPROVE_BUDGET: '2' } });
-  assert.ok(Date.now() - t0 < 15000);
-  same(r, 'budget');
-  assert.match(r.node.stdout, /your approval could not be recorded, send it again/);
-  assert.ok(!Object.keys(r.node.files).some((k) => k.includes('.approving-')), 'the marker is gone');
+  const d = copyProject(requested, base);
+  const holder = spawn('sleep', ['30']);
+  try {
+    mkdirSync(join(d, '.agents/local/.lock'));
+    writeFileSync(join(d, '.agents/local/.lock/pid'), `${holder.pid}\n`);
+    const t0 = Date.now();
+    const r = await runHook('node', d, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'plan approved, go ahead' }, { env: { PROOFLINE_HOOK_LOCK_WAIT: '30', PROOFLINE_HOOK_APPROVE_BUDGET: '1' } });
+    assert.ok(Date.now() - t0 < 15000, 'the hook answered within its budget');
+    assert.match(r.stdout, /your approval could not be recorded, send it again/);
+    assert.equal(snapshot(d)['.agents/local/prompts/s1.json'].includes('plan approved, go ahead'), true, 'the message is kept');
+    assert.ok(!Object.keys(snapshot(d)).some((k) => k.includes('.approving-')), 'the marker is gone');
+  } finally { holder.kill(); }
 });

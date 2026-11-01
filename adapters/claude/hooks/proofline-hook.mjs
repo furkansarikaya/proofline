@@ -80,6 +80,7 @@ export async function main(argv) {
     const mod = await import(pathToFileURL(`${here}events/${ev}.mjs`).href);
     const out = await mod.handle(c);
     if (typeof out === 'string' && out !== '') writeOut(1, out);
+    if (c.agents?.abandoned) { finish(c); process.exit(0); } // a stopped worker may still be waiting in a lock
     return 0;
   } catch (e) {
     return failClosed(c, e);
