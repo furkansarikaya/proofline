@@ -164,7 +164,7 @@ test('C6 rollback: with `sh` in .agents/local/engine, or PROOFLINE_ENGINE=sh, ev
     assert.ok(!ran(), `${form}: the Node hook does not start the shell hook by default`);
     writeFileSync(join(dir, '.agents/local/engine'), 'sh\n');
     const byFile = wired(command, dir, { input: 'this is not json' });
-    assert.ok(form === 'plugin' || ran(), `${form}: engine file: the shell hook ran`); rmSync(join(dir, '.shell-ran'));
+    assert.ok(form === 'plugin' || ran(), `${form}: engine file: the shell hook ran`); rmSync(join(dir, '.shell-ran'), { force: true });
     rmSync(join(dir, '.agents/local/engine'));
     const byEnv = wired(command, dir, { input: 'this is not json', env: { PROOFLINE_ENGINE: 'sh' } });
     assert.ok(form === 'plugin' || ran(), `${form}: PROOFLINE_ENGINE=sh: the shell hook ran`);

@@ -290,6 +290,23 @@ describe('the strict rule', () => {
     assert.ok(!launcherOk('#!/bin/sh\nset -u\nexec node "$(dirname "$0")/proofline-core.mjs" "$@"\n'));
     assert.ok(!launcherOk('#!/bin/sh\nif true; then exec node "$(dirname "$0")/x.mjs" "$@"; fi\n'));
     assert.ok(!launcherOk('#!/bin/sh\nexec node /abs/proofline-core.mjs "$@"\n'));
+    // the git hook form (no "$@", the core in ../scripts/) and planted launchers that carry extra logic
+    assert.ok(launcherOk('#!/bin/sh\nexec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-commit\n'));
+    for (const bad of [
+      'exec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-commit; rm -rf x',
+      'exec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-commit && true',
+      'exec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli $(id)',
+      'exec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-commit | tee x',
+      'exec node "$(dirname "$0")/../../x.mjs" cli pre-commit',
+      'exec node "$(dirname "$0")/../scripts/../x.mjs" cli pre-commit',
+      'exec node "$(dirname "$0")/../scripts/a/b.mjs" cli pre-commit',
+      'exec node "$(dirname "$0")/../other/proofline-core.mjs" cli pre-commit',
+      'exec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-commit "$@" "$@"',
+      'exec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-commit > /dev/null',
+      '[ -n "$X" ] || exit 0',
+      'node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-commit',
+    ]) assert.ok(!launcherOk(`#!/bin/sh\n${bad}\n`), bad);
+    assert.ok(!launcherOk('#!/bin/sh\nexec node "$(dirname "$0")/../scripts/a.mjs" cli pre-commit\nexec node "$(dirname "$0")/../scripts/b.mjs"\n'));
   });
   test('hook templates', () => {
     assert.match(hookStrictProblem('x', []), /no pinned hook template/);
