@@ -9,7 +9,7 @@ repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
 # The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
 # the default is the shell hook. The hook never reads it.
 hook=${HOOK_UNDER_TEST:-$repo/adapters/claude/hooks/proofline-hook.sh}
-case $hook in *.mjs) hrun=node ;; *) hrun=sh ;; esac
+case $hook in *.mjs) hrun='node' ;; *) hrun='sh' ;; esac
 # a Node hook imports the project's core (.agents/scripts/proofline-core.mjs, A194): an installed-looking fixture gets it
 core_into() { [ "$hrun" = node ] || return 0; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$1/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$1/.agents/scripts/core"; }
 pl=$repo/bin/proofline

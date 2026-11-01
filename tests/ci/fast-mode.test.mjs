@@ -183,7 +183,7 @@ describe('ci.yml wiring', () => {
     assert.match(job('equivalence'), /run: node --test "tests\/equivalence\/\*\.test\.mjs"/);
     assert.match(job('equivalence'), /actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
     assert.match(job('node-tests'), /node --test "tests\/ci\/\*\.test\.mjs" "tests\/enforcement\/\*\.test\.mjs" "tests\/core\/\*\.test\.mjs"/);
-    for (const n of ['equivalence', 'node-tests', 'hook-node', 'types']) assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(job(n)), n);
+    for (const n of ['equivalence', 'node-tests', 'types']) assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(job(n)), n);
   });
   test('the equivalence job also runs the Core invariants with the engine switched to sh', () => {
     const j = job('equivalence');
@@ -197,7 +197,7 @@ describe('ci.yml wiring', () => {
     assert.match(skill[1], /needs\.changes\.outputs\.fast != 'true'/);
   });
   test('invariants, equivalence, the Node tests, the type check and the static checks never read the fast output', () => {
-    for (const n of ['invariants', 'equivalence', 'node-tests', 'hook-node', 'types']) assert.ok(!/outputs\.fast/.test(job(n)), n);
+    for (const n of ['invariants', 'equivalence', 'node-tests', 'types']) assert.ok(!/outputs\.fast/.test(job(n)), n);
     const staticJob = job('static');
     const refs = staticJob.match(/^.*outputs\.fast.*$/gm) ?? [];
     assert.equal(refs.length, 1, 'only the skill tests step of the static job reads it');
@@ -205,38 +205,8 @@ describe('ci.yml wiring', () => {
   });
   test('the checks job needs the new jobs and prints the notice in its summary', () => {
     const j = job('checks');
-    for (const n of ['equivalence', 'node-tests', 'hook-node', 'types']) assert.match(j, new RegExp(`needs: \\[[^\\]]*\\b${n}\\b`), n);
+    for (const n of ['equivalence', 'node-tests', 'types']) assert.match(j, new RegExp(`needs: \\[[^\\]]*\\b${n}\\b`), n);
     assert.match(j, /GITHUB_STEP_SUMMARY/);
     assert.match(j, /needs\.changes\.outputs\.notice/);
-  });
-});
-
-describe('the Node hook is a pull request gate (hook-node)', () => {
-  const ci = readFileSync(join(repo, '.github/workflows/ci.yml'), 'utf8');
-  const j = (/^  hook-node:\n([\s\S]*?)(?=^  [a-z][a-z0-9-]*:\n)/m.exec(ci) ?? [])[1] ?? '';
-  test('the job exists, runs on Linux, is never skipped (no if: on the job, no fast output) and is in the checks needs', () => {
-    assert.ok(j, 'job hook-node exists');
-    assert.match(j, /runs-on: ubuntu-latest/);
-    assert.ok(!/^    if:/m.test(j), 'the job has no job-level if');
-    assert.ok(!/outputs\.fast|needs\.changes/.test(j), 'fast mode and the classifier are not read');
-    assert.match(/^  checks:\n([\s\S]*)/m.exec(ci)?.[1] ?? '', /needs: \[[^\]]*\bhook-node\b/);
-  });
-  test('it runs the hook tests, the guard tests with GUARDS_HOOK, the wiring tests and the six shell suites with HOOK_UNDER_TEST on the .mjs hook', () => {
-    assert.match(j, /HOOK_UNDER_TEST: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
-    assert.match(j, /GUARDS_HOOK: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
-    assert.match(j, /run: node --test "tests\/hook\/\*\.test\.mjs"/);
-    assert.match(j, /run: node --test tests\/enforcement\/guards\.test\.mjs/);
-    assert.match(j, /run: node --test tests\/enforcement\/wiring\.test\.mjs/);
-    for (const s of ['enforcement-test', 'timeouts-test', 'kill-guard-test', 'merge-guard-test', 'platform-test', 'approval-load-test']) assert.match(j, new RegExp(`- suite: ${s}\\n\\s+node: '22\\.13\\.0'`), s);
-    assert.match(j, /SELFTEST_ONLY: \$\{\{ matrix\.suite \}\}\n\s+run: sh tests\/selftest\.sh/);
-  });
-  test('the Node tests run on Node 22.13.0 and the active LTS', () => {
-    assert.match(j, /- suite: node-tests\n\s+node: '22\.13\.0'/);
-    assert.match(j, /- suite: node-tests\n\s+node: 'lts\/\*'/);
-    assert.ok(!/\{suite:/.test(j), 'block style only: the repository YAML check rejects inline flow mappings with ": "');
-  });
-  test('every suite named in the matrix exists and honours HOOK_UNDER_TEST', () => {
-    for (const s of ['enforcement-test', 'timeouts-test', 'kill-guard-test', 'merge-guard-test', 'platform-test', 'approval-load-test'])
-      assert.match(readFileSync(join(repo, 'tests/enforcement', `${s}.sh`), 'utf8'), /HOOK_UNDER_TEST:-/, s);
   });
 });

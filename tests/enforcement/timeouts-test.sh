@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC2154,SC2016,SC2015 # fixture vars come from test-lib.sh; literal command text
+# shellcheck disable=SC2034,SC2154,SC2016,SC2015 # fixture vars come from test-lib.sh; literal command text
 # A202 item 29: time limits that fit real use and slow machines (docs/concepts/timeouts.md).
 #  - timeouts.scale multiplies every duration and is bounded; the approval budget is never scaled;
 #  - every timeout key has a minimum and a maximum in config-check, so none can switch a limit off or make it endless;
@@ -19,7 +19,7 @@ PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 # The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
 # the default is the shell hook. The hook never reads it.
 hook=${HOOK_UNDER_TEST:-$TO_REPO/adapters/claude/hooks/proofline-hook.sh}
-case $hook in *.mjs) hrun=node; hbase=proofline-hook.mjs ;; *) hrun=sh; hbase=proofline-hook.sh ;; esac
+case $hook in *.mjs) hrun='node'; hbase=proofline-hook.mjs ;; *) hrun='sh'; hbase=proofline-hook.sh ;; esac
 # install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
 install_hook() {
   case $hook in

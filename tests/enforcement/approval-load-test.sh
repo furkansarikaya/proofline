@@ -15,7 +15,7 @@ fi
 # The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
 # the default is the shell hook. The hook never reads it.
 hook=${HOOK_UNDER_TEST:-$AL_REPO/adapters/claude/hooks/proofline-hook.sh}
-case $hook in *.mjs) hrun=node; hbase=proofline-hook.mjs ;; *) hrun=sh; hbase=proofline-hook.sh ;; esac
+case $hook in *.mjs) hrun='node'; hbase=proofline-hook.mjs ;; *) hrun='sh'; hbase=proofline-hook.sh ;; esac
 # install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
 install_hook() {
   case $hook in
