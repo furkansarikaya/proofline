@@ -316,14 +316,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suite: node-tests, node: '22.13.0'}
-          - {suite: node-tests, node: 'lts/*'}
-          - {suite: enforcement-test, node: '22.13.0'}
-          - {suite: timeouts-test, node: '22.13.0'}
-          - {suite: kill-guard-test, node: '22.13.0'}
-          - {suite: merge-guard-test, node: '22.13.0'}
-          - {suite: platform-test, node: '22.13.0'}
-          - {suite: approval-load-test, node: '22.13.0'}
+          - suite: node-tests
+            node: '22.13.0'
+          - suite: node-tests
+            node: 'lts/*'
+          - suite: enforcement-test
+            node: '22.13.0'
+          - suite: timeouts-test
+            node: '22.13.0'
+          - suite: kill-guard-test
+            node: '22.13.0'
+          - suite: merge-guard-test
+            node: '22.13.0'
+          - suite: platform-test
+            node: '22.13.0'
+          - suite: approval-load-test
+            node: '22.13.0'
     runs-on: ubuntu-latest
     env:
       HOOK_UNDER_TEST: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
