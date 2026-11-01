@@ -5,7 +5,8 @@
 // grammar of approvals.mjs, and each captured message grants a kind at most once. Nothing here lets a model produce an approval: a refusal
 // keeps its text, and an input whose shell behaviour is a shell error text throws BridgeToShell before anything is written.
 import { appendFileSync, mkdirSync, readSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
-import { now } from './clock.mjs';
+import { isatty } from 'node:tty';
+import { now, sleepSync } from './clock.mjs';
 import { captureField } from './capture.mjs';
 import { BridgeToShell, ProoflineError, fail } from './errors.mjs';
 import { contentFingerprint } from './fingerprint.mjs';
@@ -554,13 +555,21 @@ function quoteBlock(text) {
   return first.length === 0 ? '' : body + (cut || endsNl ? '\n' : '');
 }
 
-/** The newest typed line of a terminal. */
+/**
+ * `IFS= read -r line` from the terminal: one line, a blocking read. Node puts descriptor 0 in non-blocking mode as soon as `process.stdin` is
+ * touched on a terminal (the entry hands it to the context), so a read can answer EAGAIN while the user is still typing: it waits 25 ms and
+ * asks again, never spinning, and gives up (as end of input) after ten minutes. End of input or any other error ends the line.
+ */
 function readLineFromTty() {
   const buf = Buffer.alloc(1);
   const chunks = [];
+  let waited = 0;
   for (;;) {
     let n = 0;
-    try { n = readSync(0, buf, 0, 1, null); } catch { break; }
+    try { n = readSync(0, buf, 0, 1, null); } catch (e) {
+      if (/** @type {NodeJS.ErrnoException} */ (e).code === 'EAGAIN' && waited < 600000) { sleepSync(25); waited += 25; continue; }
+      break;
+    }
     if (n === 0 || buf[0] === 10) break;
     chunks.push(buf[0]);
   }
@@ -643,7 +652,7 @@ export function approveOne(ctx, id, kind0, st) {
 }
 
 /** Is stdin and stdout a terminal (the interactive path of `approve`)? @param {Context} ctx */
-export function isTerminal(ctx) { return ctx.io.isProcess === true && process.stdin.isTTY === true && process.stdout.isTTY === true; }
+export function isTerminal(ctx) { return ctx.io.isProcess === true && isatty(0) && isatty(1); }
 
 /**
  * `approve_kinds ID KIND...`: the user's one reply answers several open requests. A kind that is refused changes nothing and does not stop
