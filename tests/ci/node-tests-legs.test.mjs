@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const repo = resolve(import.meta.dirname, '../..');
 const ci = readFileSync(join(repo, '.github/workflows/ci.yml'), 'utf8');
@@ -30,7 +30,9 @@ test('every test file the old globs matched (tests/ci, tests/enforcement, tests/
   for (const d of ['ci', 'enforcement', 'core', 'bench']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
   assert.ok(all.length > 30);
   const where = new Map(all.map((f) => [f, /** @type {typeof legs} */ ([])]));
-  for (const l of legs) if (l.mode !== 'full') for (const f of l.files) { assert.ok(where.has(f), `${l.name}: ${f} is not a test file the old globs matched`); where.get(f)?.push(l); }
+  /** A leg names files or globs of one directory (tests/<dir>/*.test.mjs); a glob picks up a new test file without a CI edit. @param {string} f */
+  const expand = (f) => (f.includes('*') ? readdirSync(join(repo, dirname(f))).filter((x) => x.endsWith('.test.mjs')).map((x) => `${dirname(f)}/${x}`) : [f]);
+  for (const l of legs) if (l.mode !== 'full') for (const g of l.files) for (const f of expand(g)) { assert.ok(where.has(f), `${l.name}: ${f} is not a test file the old globs matched`); where.get(f)?.push(l); }
   for (const [f, ls] of where) {
     assert.ok(ls.length >= 1, `${f} is in no leg`);
     if (ls.length > 1) assert.ok(ls.every((l) => l.mode === 'name' || l.mode === 'skip'), `${f} is in ${ls.length} legs that are not split by test name`);
