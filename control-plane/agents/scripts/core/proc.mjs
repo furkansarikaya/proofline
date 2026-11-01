@@ -26,7 +26,8 @@ export function spawnLog() { return log.slice(); }
  * @property {Buffer|string} [input] bytes written to the child's stdin
  * @property {'pipe'|'inherit'|'ignore'|Array<'pipe'|'inherit'|'ignore'|number>} [stdio]
  * @property {number} [timeoutMs]
- * @property {boolean} [group] runAsync on POSIX: the child leads its own process group, and the time limit stops the whole group (the processes it started too)
+ * @property {AbortSignal} [signal] runAsync: when it aborts, the child (and its process group, with `group`) is stopped
+ * @property {boolean} [group] runAsync: the child leads its own process group on POSIX, so a stop reaches everything it started (no `ps` walk)
  */
 
 /**
@@ -35,7 +36,6 @@ export function spawnLog() { return log.slice(); }
  * @property {Buffer} stdout
  * @property {Buffer} stderr
  * @property {boolean} started false when the program could not be started (not found)
- * @property {boolean} [timedOut] runAsync: the time limit stopped the child
  */
 
 /** @param {string|null} signal */
@@ -77,29 +77,28 @@ export function runAsync(program, args, options = {}) {
   count(program);
   const t0 = Date.now();
   return new Promise((resolve) => {
-    const leader = options.group === true && process.platform !== 'win32';
-    const child = spawn(program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe', windowsHide: true, detached: leader });
+    const grouped = options.group === true && process.platform !== 'win32';
+    const child = spawn(program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe', windowsHide: true, detached: grouped });
+    if (grouped) groupLeaders.add(child);
+    const stop = () => killTree(child);
+    if (options.signal) { if (options.signal.aborted) stop(); else options.signal.addEventListener('abort', stop, { once: true }); }
     /** @type {Buffer[]} */ const out = [];
     /** @type {Buffer[]} */ const err = [];
     child.stdout?.on('data', (d) => out.push(d));
     child.stderr?.on('data', (d) => err.push(d));
     let timer;
-    let timedOut = false;
-    if (options.timeoutMs) {
-      timer = setTimeout(() => {
-        timedOut = true;
-        if (leader && child.pid !== undefined) { try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ } } else killTree(child);
-      }, options.timeoutMs);
-    }
+    if (options.timeoutMs) timer = setTimeout(() => killTree(child), options.timeoutMs);
     child.on('error', () => {
       if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener('abort', stop);
       logSpawn(program, Date.now() - t0);
-      resolve({ status: 127, stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: false, timedOut });
+      resolve({ status: 127, stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: false });
     });
     child.on('close', (code, signal) => {
       if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener('abort', stop);
       logSpawn(program, Date.now() - t0);
-      resolve({ status: code ?? 128 + signalNumber(signal), stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: true, timedOut });
+      resolve({ status: code ?? 128 + signalNumber(signal), stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: true });
     });
     if (options.input !== undefined && child.stdin) child.stdin.end(options.input);
   });
@@ -113,15 +112,29 @@ export function runUserCommand(text, options = {}) {
   return run(process.platform === 'win32' ? 'sh' : '/bin/sh', ['-c', text], options);
 }
 
-/** Kill a child and, on POSIX, its process group when it leads one. @param {import('node:child_process').ChildProcess} child */
+/** @type {WeakSet<import('node:child_process').ChildProcess>} */
+const groupLeaders = new WeakSet();
+const KILL_GRACE_MS = 2000;
+
+/**
+ * Stop a child: SIGTERM, and SIGKILL two seconds later when it is still there. A child started with `group` leads its process group,
+ * and the whole group is stopped (everything it started, found by the kernel, not by a walk over `ps`); on Windows `taskkill /t`.
+ * @param {import('node:child_process').ChildProcess} child
+ */
 export function killTree(child) {
   if (child.pid === undefined) return;
+  const pid = child.pid;
   if (process.platform === 'win32') {
     count('taskkill');
-    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+    spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
     return;
   }
-  try { process.kill(child.pid, 'SIGTERM'); } catch { /* already gone */ }
+  const target = groupLeaders.has(child) ? -pid : pid;
+  try { process.kill(target, 'SIGTERM'); } catch { /* already gone */ }
+  const t = setTimeout(() => { try { process.kill(target, 'SIGKILL'); } catch { /* gone */ } }, KILL_GRACE_MS);
+  t.unref();
+  // the leader is gone: whatever it left in its group has had its TERM; end it now
+  child.once('close', () => { clearTimeout(t); if (target < 0) { try { process.kill(target, 'SIGKILL'); } catch { /* none left */ } } });
 }
 
 /** @returns {{ total: number, byProgram: Record<string, number> }} */

@@ -11,7 +11,7 @@ let base = '';
 before(() => { template = buildTemplate(); base = mkdtempSync(join(tmpdir(), 'hook-ev-')); });
 after(() => { rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
-/** @param {Awaited<ReturnType<typeof pair>>} r @param {string} what */
+/** @param {{ node: any, sh: any }} r @param {string} what */
 function same(r, what) {
   assert.equal(r.node.stdout, r.sh.stdout, `${what}: stdout`);
   assert.equal(r.node.status, r.sh.status, `${what}: status`);

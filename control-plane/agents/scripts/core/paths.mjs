@@ -49,18 +49,49 @@ export function sharedDir(sr_main, name) { return `${sr_main}/.agents/local/${na
 export function toPosix(p) { return p.split(path.win32.sep).join(path.posix.sep); }
 
 /**
- * Input paths from a runtime on Windows: `C:\x\y` and `C:/x/y` become `C:/x/y`; the Git-for-Windows form `/c/x/y` too, on a Windows
- * host only (elsewhere `/c` is an ordinary folder). Anything else is returned in POSIX form. Pure, so it is tested with the Windows
- * rules on every platform.
+ * Input paths from a runtime on Windows, to the POSIX form every stored path has: `C:\x\y`, `C:/x/y` and mixed `C:\x/y\z` become
+ * `C:/x/y/z` (drive letter upper case, `.` and `..` resolved, no trailing slash); the long-path prefixes `\\?\C:\x` and `\\.\C:\x` lose
+ * the prefix; a UNC path `\\srv\share\x` becomes `//srv/share/x`; the Git-for-Windows form `/c/x/y` and the Cygwin form
+ * `/cygdrive/c/x/y` become `C:/x/y` on a Windows host only (elsewhere `/c` is an ordinary folder). Anything else is returned with its
+ * backslashes turned into slashes. Pure, so it is tested with the Windows rules on every platform.
  * @param {string} p @param {string} [platform]
  */
 export function normalizeInputPath(p, platform = process.platform) {
-  const drive = /^([A-Za-z]):[\\/]+(.*)$/.exec(p);
+  const lp = /^\\\\[?.]\\([A-Za-z]:[\\/].*)$/s.exec(p);
+  if (lp) p = lp[1];
+  const drive = /^([A-Za-z]):[\\/]+(.*)$/s.exec(p);
   if (drive) {
-    const rest = path.win32.normalize(drive[2] || '.').split(path.win32.sep).join('/').replace(/^\.$/, '').replace(/\/$/, '');
-    return `${drive[1].toUpperCase()}:/${rest}`;
+    const full = path.win32.normalize(`${drive[1].toUpperCase()}:\\${drive[2]}`).split(path.win32.sep).join('/');
+    return full.length > 3 ? full.replace(/\/$/, '') : `${full.slice(0, 2)}/`;
   }
-  const msys = platform === 'win32' ? /^\/([A-Za-z])(?:\/(.*))?$/.exec(p) : null;
-  if (msys) return `${msys[1].toUpperCase()}:/${(msys[2] ?? '').replace(/\/$/, '')}`;
+  const msys = platform === 'win32' ? /^(?:\/cygdrive)?\/([A-Za-z])(?:\/(.*))?$/s.exec(p) : null;
+  if (msys) {
+    const rest = path.posix.normalize(msys[2] || '.').replace(/^\.$/, '').replace(/\/$/, '');
+    return `${msys[1].toUpperCase()}:/${rest}`;
+  }
   return toPosix(p);
+}
+
+/**
+ * A stored (POSIX form) path as an argument for a program the hook starts: on a Windows host `C:/x/y` becomes `C:\x\y` (and `/c/x` too),
+ * a relative `a/b` becomes `a\b`; on every other platform the path is returned unchanged. The reverse of `normalizeInputPath` for spawn
+ * arguments (Node accepts both slashes, native tools and `cmd` do not always).
+ * @param {string} p @param {string} [platform]
+ */
+export function toNativePath(p, platform = process.platform) {
+  if (platform !== 'win32') return p;
+  const n = normalizeInputPath(p, platform);
+  return n.split('/').join(path.win32.sep);
+}
+
+/**
+ * A stored path as an argument for a program that runs under Git Bash or MSYS (`sh`): `C:/x/y` becomes `/c/x/y`; any other path is
+ * unchanged. Windows hosts only; elsewhere unchanged.
+ * @param {string} p @param {string} [platform]
+ */
+export function toMsysPath(p, platform = process.platform) {
+  if (platform !== 'win32') return p;
+  const n = normalizeInputPath(p, platform);
+  const m = /^([A-Za-z]):\/(.*)$/s.exec(n);
+  return m ? `/${m[1].toLowerCase()}${m[2] ? `/${m[2]}` : ''}` : n;
 }

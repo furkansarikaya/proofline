@@ -62,6 +62,7 @@ export class Agents {
    * Run one agent.sh command. @param {string[]} argv @param {AgentOptions} [opt] @returns {Promise<AgentResult>}
    */
   async run(argv, opt = {}) {
+    /** @type {NodeJS.ProcessEnv} */
     const env = { ...this.s.env, PROOFLINE_LOCK_TIMEOUT: String(opt.lockWait ?? this.s.lockWait) };
     if (!opt.keepRole) delete env.AGENT_ROLE;
     const agentPath = opt.agentPath ?? this.s.agentPath;
@@ -75,8 +76,9 @@ export class Agents {
     }
     const args = [agentPath, ...argv];
     if (opt.budgetMs !== undefined) {
-      const r = await proc.runAsync('sh', args, { cwd, env, input: opt.input ?? '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: opt.budgetMs, group: true });
-      return { status: r.timedOut ? 124 : r.status, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8'), timedOut: r.timedOut === true };
+      const budget = await import(pathToFileURL(`${this.coreDir}/core/budget.mjs`).href);
+      const r = await budget.runWithBudget(opt.budgetMs / 1000, 'sh', args, { cwd, env, input: opt.input ?? '', stdio: ['pipe', 'pipe', 'pipe'] });
+      return { status: r.status, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8'), timedOut: r.timedOut };
     }
     const r = proc.run('sh', args, { cwd, env, input: opt.input ?? '', stdio: ['pipe', 'pipe', 'pipe'] });
     return { status: r.status, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8'), timedOut: false };
