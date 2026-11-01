@@ -109,6 +109,9 @@ export function runAsync(program, args, options = {}) {
       logSpawn(program, Date.now() - t0);
       resolve({ status: code ?? 128 + signalNumber(signal), stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: true });
     });
+    // a child that ends before it reads (a stub that exits at once) closes its stdin: the EPIPE of the write is not an error of ours, and without a
+    // listener it would be an uncaught exception that ends the whole hook process
+    child.stdin?.on('error', () => {});
     if (options.input !== undefined && child.stdin) child.stdin.end(options.input);
   });
 }
