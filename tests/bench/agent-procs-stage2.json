@@ -1,0 +1,745 @@
+{
+ "schema": "proofline.agent-procs/1",
+ "engine": "default",
+ "repeat": {
+  "small": 1,
+  "others": 2
+ },
+ "node_start": {
+  "node": "v24.14.1",
+  "platform": "darwin",
+  "arch": "arm64",
+  "median_ms": 27.46
+ },
+ "fixtures": {
+  "small": {
+   "batch-check": {
+    "args": "",
+    "execs": 1,
+    "ms": 381,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "no valid batch approval for the current summary (agent.sh batch-plan, then the user's reply \"approve batch\")"
+   },
+   "ci-check": {
+    "args": "",
+    "execs": 11,
+    "ms": 1034,
+    "stdout_bytes": 91,
+    "exit": 0
+   },
+   "ci-task-command": {
+    "args": "",
+    "execs": 11,
+    "ms": 146,
+    "stdout_bytes": 188,
+    "exit": 0
+   },
+   "commands-check": {
+    "args": "",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "no commands proposal (proofline doctor --commands)"
+   },
+   "config-check": {
+    "args": "",
+    "execs": 19,
+    "ms": 371,
+    "stdout_bytes": 34,
+    "exit": 0
+   },
+   "config-get": {
+    "args": "profile",
+    "execs": 1,
+    "ms": 61,
+    "stdout_bytes": 9,
+    "exit": 0
+   },
+   "db-config": {
+    "args": "all",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 1439,
+    "exit": 0
+   },
+   "debt": {
+    "args": "",
+    "execs": 3,
+    "ms": 91,
+    "stdout_bytes": 20,
+    "exit": 0
+   },
+   "design-rationales": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "design-surface": {
+    "args": "src/a.txt",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 113,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 164,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "effective": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 1012,
+    "exit": 0
+   },
+   "entry-tier": {
+    "args": "a contract bullet",
+    "execs": 1,
+    "ms": 66,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "fingerprint": {
+    "args": "LC",
+    "execs": 4,
+    "ms": 111,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "freshness": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 76,
+    "stdout_bytes": 52,
+    "exit": 0
+   },
+   "help": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "hook-config": {
+    "args": "",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 1579,
+    "exit": 0
+   },
+   "hook-timeouts": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 88,
+    "exit": 0
+   },
+   "human-checks": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "open-runs": {
+    "args": "",
+    "execs": 1,
+    "ms": 66,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "patch-fingerprint": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 81,
+    "stdout_bytes": 65,
+    "exit": 0
+   },
+   "path-kind": {
+    "args": "src/a.txt docs/b.md",
+    "execs": 1,
+    "ms": 67,
+    "stdout_bytes": 33,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 161,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "plan-section": {
+    "args": "LC Architecture",
+    "execs": 1,
+    "ms": 65,
+    "stdout_bytes": 55,
+    "exit": 0
+   },
+   "questions": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 66,
+    "stdout_bytes": 25,
+    "exit": 0
+   },
+   "report-execution": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "report-facts": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 161,
+    "stdout_bytes": 844,
+    "exit": 0
+   },
+   "report-tokens": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "repro-normalize": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "role": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 10,
+    "exit": 0
+   },
+   "scale-check": {
+    "args": "",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "no scale proposal (proofline doctor --scale)"
+   },
+   "scope-covers": {
+    "args": "src/ src/a.txt",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "scope-kinds": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 79,
+    "stdout_bytes": 53,
+    "exit": 0
+   },
+   "status": {
+    "args": "",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 1027,
+    "exit": 0
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 156,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "task-scope-entries": {
+    "args": "tasks/LC.md Scope",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "task-type": {
+    "args": ".agents/runs/LC/TASK.md",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 8,
+    "exit": 0
+   },
+   "test-path": {
+    "args": "src/a_test.go src/a.go",
+    "execs": 1,
+    "ms": 65,
+    "stdout_bytes": 36,
+    "exit": 0
+   },
+   "timeouts": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 493,
+    "exit": 0
+   },
+   "tm-scaled": {
+    "args": "30",
+    "execs": 1,
+    "ms": 75,
+    "stdout_bytes": 3,
+    "exit": 0
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 71,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "missing required artifact: COMPLETION_REPORT.md"
+   },
+   "verify-freeze": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 78,
+    "stdout_bytes": 20,
+    "exit": 0
+   },
+   "verify-gates": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 61,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-handoff": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 80,
+    "stdout_bytes": 54,
+    "exit": 0
+   },
+   "verify-knowledge-scope": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 80,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-qa-plan": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 80,
+    "stdout_bytes": 23,
+    "exit": 0
+   },
+   "verify-seal": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 66,
+    "stdout_bytes": 28,
+    "exit": 0
+   },
+   "verify-timeout": {
+    "args": "",
+    "execs": 1,
+    "ms": 66,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "verify-worker-evidence": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 65,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "worker-evidence verification failed: LC: missing valid RED+GREEN implementation evidence (topology=orchestrated, expected role=implementer; or TDD exemption) fo"
+   },
+   "summary --status": {
+    "args": "LC --status",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 63,
+    "exit": 0
+   },
+   "proofline status": {
+    "args": "status",
+    "execs": 21,
+    "ms": 1543,
+    "stdout_bytes": 167,
+    "exit": 0
+   }
+  },
+  "scale-0": {
+   "fingerprint": {
+    "args": "LC",
+    "execs": 4,
+    "ms": 113,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 155,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "summary --status": {
+    "args": "LC --status",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 63,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 69,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 158,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 163,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 81,
+    "stdout_bytes": 23,
+    "exit": 0
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "missing required artifact: COMPLETION_REPORT.md"
+   }
+  },
+  "scale-20": {
+   "fingerprint": {
+    "args": "LC",
+    "execs": 4,
+    "ms": 128,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 171,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "summary --status": {
+    "args": "LC --status",
+    "execs": 1,
+    "ms": 60,
+    "stdout_bytes": 63,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 164,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 184,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 86,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "unexpected or unmapped task-introduced paths:"
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "missing required artifact: COMPLETION_REPORT.md"
+   }
+  },
+  "scale-60": {
+   "fingerprint": {
+    "args": "LC",
+    "execs": 4,
+    "ms": 144,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 207,
+    "stdout_bytes": 273,
+    "exit": 0
+   },
+   "summary --status": {
+    "args": "LC --status",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 63,
+    "exit": 0
+   },
+   "next": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 147,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 209,
+    "stdout_bytes": 385,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 6,
+    "ms": 210,
+    "stdout_bytes": 425,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 86,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "unexpected or unmapped task-introduced paths:"
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 61,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "missing required artifact: COMPLETION_REPORT.md"
+   }
+  },
+  "perf": {
+   "next": {
+    "args": "LC",
+    "execs": 9,
+    "ms": 199,
+    "stdout_bytes": 576,
+    "exit": 0
+   },
+   "summary": {
+    "args": "LC",
+    "execs": 9,
+    "ms": 212,
+    "stdout_bytes": 263,
+    "exit": 0
+   },
+   "summary --status": {
+    "args": "LC --status",
+    "execs": 1,
+    "ms": 60,
+    "stdout_bytes": 62,
+    "exit": 0
+   },
+   "digest": {
+    "args": "LC",
+    "execs": 9,
+    "ms": 208,
+    "stdout_bytes": 381,
+    "exit": 0
+   },
+   "pipeline": {
+    "args": "LC",
+    "execs": 9,
+    "ms": 203,
+    "stdout_bytes": 376,
+    "exit": 0
+   },
+   "status": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 1027,
+    "exit": 0
+   },
+   "effective": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 1012,
+    "exit": 0
+   },
+   "verify-gates": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 82,
+    "stdout_bytes": 29,
+    "exit": 0
+   },
+   "verify-seal": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 28,
+    "exit": 0
+   },
+   "verify-handoff": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 85,
+    "stdout_bytes": 54,
+    "exit": 0
+   },
+   "verify-freeze": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 20,
+    "exit": 0
+   },
+   "verify-scope": {
+    "args": "LC",
+    "execs": 2,
+    "ms": 83,
+    "stdout_bytes": 23,
+    "exit": 0
+   },
+   "fingerprint": {
+    "args": "LC",
+    "execs": 4,
+    "ms": 113,
+    "stdout_bytes": 41,
+    "exit": 0
+   },
+   "validate": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 64,
+    "stdout_bytes": 0,
+    "exit": 1,
+    "stderr_first": "missing required artifact: COMPLETION_REPORT.md"
+   },
+   "questions": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 25,
+    "exit": 0
+   },
+   "open-runs": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 5,
+    "exit": 0
+   },
+   "report-facts": {
+    "args": "LC",
+    "execs": 9,
+    "ms": 199,
+    "stdout_bytes": 835,
+    "exit": 0
+   },
+   "report-execution": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "human-checks": {
+    "args": "LC",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 0,
+    "exit": 0
+   },
+   "hook-config": {
+    "args": "",
+    "execs": 1,
+    "ms": 62,
+    "stdout_bytes": 1579,
+    "exit": 0
+   },
+   "config-get": {
+    "args": "profile",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 9,
+    "exit": 0
+   },
+   "role": {
+    "args": "",
+    "execs": 1,
+    "ms": 63,
+    "stdout_bytes": 10,
+    "exit": 0
+   },
+   "proofline status": {
+    "args": "status",
+    "execs": 29,
+    "ms": 516,
+    "stdout_bytes": 636,
+    "exit": 0
+   }
+  }
+ },
+ "about": "Stage 2 measurement of tests/bench/agent-procs.mjs with --engine default (the Node core runs the moved commands) on the installed-like bench fixtures (the core beside agent.sh). execs is deterministic (a PATH shim counts the processes); ms is a loaded-machine upper bound. `proofline status` is the CLI (still shell). report-facts is 9 processes on the perf fixture against the issue target 8 (measured, recorded as it is). The process budgets in process-budgets.tsv are these counts plus a margin.",
+ "measured_on": {
+  "commit": "stage 2 branch",
+  "version": "0.0.41+",
+  "date": "2026-11-01",
+  "platform": "darwin",
+  "arch": "arm64"
+ }
+}

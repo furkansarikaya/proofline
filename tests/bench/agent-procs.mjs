@@ -7,7 +7,7 @@
 //        [--out FILE] [--compare tests/bench/agent-procs-baseline-0.0.40.json] [--max-seconds N]
 //   writes JSON to --out (default: print). --compare prints, per command, processes and stdout bytes against the baseline and exits 1 when a
 //   moved command's stdout grew (stdout may shrink only if the rig shows the move is a pure rewrite; so growth is the failure). --compare also
-//   checks every measured command against the named maxima of tests/bench/output-budgets.tsv (--budgets FILE to use another) and exits 1 on an excess.
+//   checks every measured command against the named maxima of tests/bench/output-budgets.tsv (--budgets FILE to use another) and against the process budgets of tests/bench/process-budgets.tsv (--process-budgets FILE) and exits 1 on an excess.
 // The baseline is committed as tests/bench/agent-procs-baseline-0.0.40.json (data file, measured on the 0.0.40 code, shell engine).
 // Not run by CI's default job: measurements, like tests/bench/hook-procs.sh.
 import { spawnSync } from 'node:child_process';
@@ -15,6 +15,7 @@ import { appendFileSync, chmodSync, cpSync, existsSync, mkdtempSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { checkBudgets, loadBudgets } from './output-budgets.mjs';
+import { checkProcessBudgets, loadProcessBudgets, PROCESS_BUDGET_FILE } from './process-budgets.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 const scripts = join(repo, 'control-plane/agents/scripts');
@@ -50,7 +51,7 @@ const FIXTURES = /** @type {Record<string,string>} */ ({
   'scale-60': 'scaffold orchestrated no COMPLEX; mkdir -p src; i=0; while [ "$i" -lt 60 ]; do printf "line %s\\n" "$i" > "src/f$i.txt"; i=$((i + 1)); done',
 });
 // the commands that read on every hook event or step and grow with the run: measured on the larger fixtures too
-const PERF_COMMANDS = ['next', 'summary', 'summary --status', 'digest', 'pipeline', 'status', 'effective', 'verify-gates', 'verify-seal', 'verify-handoff', 'verify-freeze', 'verify-scope', 'fingerprint', 'validate', 'questions', 'open-runs', 'report-facts', 'report-execution', 'human-checks', 'delivery-check', 'hook-config', 'config-get', 'role', 'tier', 'status-block', 'record', 'secret-scan', 'handoff', 'publish-completion-report'];
+const PERF_COMMANDS = ['next', 'summary', 'summary --status', 'proofline status', 'digest', 'pipeline', 'status', 'effective', 'verify-gates', 'verify-seal', 'verify-handoff', 'verify-freeze', 'verify-scope', 'fingerprint', 'validate', 'questions', 'open-runs', 'report-facts', 'report-execution', 'human-checks', 'delivery-check', 'hook-config', 'config-get', 'role', 'tier', 'status-block', 'record', 'secret-scan', 'handoff', 'publish-completion-report'];
 const SCALE_COMMANDS = ['fingerprint', 'baseline', 'summary', 'summary --status', 'next', 'pipeline', 'digest', 'verify-scope', 'validate', 'secret-scan', 'status-block'];
 
 export function buildFixture(/** @type {string} */ name) {
@@ -88,6 +89,8 @@ export const ARGS = {
 };
 // measured under their own name (command and flag, as output-budgets.tsv names them): the real command is the first word
 export const VARIANTS = /** @type {Record<string, string>} */ ({ 'summary --status': `${ID} --status` });
+// the CLI (bin/proofline, still shell): `proofline status` is measured under its own name; its process count is the sum of the launcher and the agent.sh calls it makes
+export const CLI = /** @type {Record<string, string[]>} */ ({ 'proofline status': ['status'] });
 // `test` runs every suite (about an hour): measured by nobody here. Its stdout size is not an output budget.
 const SKIP = new Set(['test']);
 const SHIMMED = 'jq awk sed tr cat dirname basename date mkdir find git grep cut shasum sha256sum head tail wc mv rm cp sort mktemp node perl sleep kill ps ls readlink uname id touch chmod ln xargs expr rmdir stat uniq od tee comm diff du'.split(' ');
@@ -103,12 +106,12 @@ export function makeShim() {
 
 const median = (/** @type {number[]} */ a) => [...a].sort((x, y) => x - y)[Math.floor((a.length - 1) / 2)];
 export function measure(/** @type {string} */ fx, /** @type {string} */ cmd, /** @type {{ dir: string, log: string }} */ shim, /** @type {number} */ repeat) {
-  const args = (VARIANTS[cmd] ?? ARGS[cmd] ?? '').split(' ').filter(Boolean); const procs = []; const times = []; let out = { code: /** @type {number|null} */ (0), bytes: 0, err: '' };
+  const args = cmd in CLI ? CLI[cmd] : (VARIANTS[cmd] ?? ARGS[cmd] ?? '').split(' ').filter(Boolean); const procs = []; const times = []; let out = { code: /** @type {number|null} */ (0), bytes: 0, err: '' };
   for (let i = 0; i < repeat; i++) {
     const work = mkdtempSync(join(tmpdir(), 'bench-run.')); cpSync(fx, work, { recursive: true, verbatimSymlinks: true });
     writeFileSync(shim.log, '');
     const t0 = process.hrtime.bigint();
-    const r = spawnSync('sh', ['./.agents/scripts/agent.sh', cmd.split(' ')[0], ...args], { cwd: work, env: { ...ENV, ...(ENGINE === 'sh' ? { PROOFLINE_ENGINE: 'sh' } : {}), PATH: `${shim.dir}:${ENV.PATH}`, EQ_PROCS_LOG: shim.log }, input: '', timeout: MAX_S * 1000, maxBuffer: 1 << 28 });
+    const r = spawnSync('sh', cmd in CLI ? [join(repo, 'bin/proofline'), ...args] : ['./.agents/scripts/agent.sh', cmd.split(' ')[0], ...args], { cwd: work, env: { ...ENV, ...(ENGINE === 'sh' ? { PROOFLINE_ENGINE: 'sh' } : {}), PATH: `${shim.dir}:${ENV.PATH}`, EQ_PROCS_LOG: shim.log }, input: '', timeout: MAX_S * 1000, maxBuffer: 1 << 28 });
     const ms = Number((process.hrtime.bigint() - t0) / 1000000n);
     procs.push(readFileSync(shim.log, 'utf8').split('\n').filter(Boolean).length); times.push(ms);
     out = { code: r.status, bytes: Buffer.byteLength(r.stdout ?? ''), err: String(r.stderr ?? '').split('\n')[0].slice(0, 160) };
@@ -128,7 +131,7 @@ for (const c of commands) if (!(c in ARGS) && !SKIP.has(c)) throw new Error(`no 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const shim = makeShim(); const result = { schema: 'proofline.agent-procs/1', engine: ENGINE, repeat: { small: Math.min(REPEAT, 1), others: REPEAT }, node_start: nodeStart(), fixtures: /** @type {Record<string, Record<string, any>>} */ ({}) };
   for (const name of fixtureNames) {
-    const fx = buildFixture(name); const list = (name.startsWith('scale-') ? SCALE_COMMANDS : name === 'perf' ? PERF_COMMANDS : [...commands, ...Object.keys(VARIANTS)]).filter((c) => !SKIP.has(c) && (!only || only.includes(c)));
+    const fx = buildFixture(name); const list = (name.startsWith('scale-') ? SCALE_COMMANDS : name === 'perf' ? PERF_COMMANDS : [...commands, ...Object.keys(VARIANTS), ...Object.keys(CLI)]).filter((c) => !SKIP.has(c) && (!only || only.includes(c)));
     result.fixtures[name] = {};
     for (const c of list) { result.fixtures[name][c] = measure(fx, c, shim, name === 'small' ? Math.min(REPEAT, 1) : REPEAT); process.stderr.write(`${name} ${c} ${JSON.stringify(result.fixtures[name][c])}\n`); }
     rmSync(fx, { recursive: true, force: true });
@@ -147,6 +150,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (grew) process.exitCode = 1;
     const over = checkBudgets(result.fixtures, loadBudgets(opt('budgets', join(repo, 'tests/bench/output-budgets.tsv'))));
     for (const v of over) process.stderr.write(`OVER BUDGET ${v}\n`);
-    if (over.length) process.exitCode = 1;
+    // the process budgets are the Node engine's: they are judged only on an --engine default run (the shell engine starts more processes by design)
+    const overP = ENGINE !== 'default' ? [] : checkProcessBudgets(result.fixtures, loadProcessBudgets(opt('process-budgets', PROCESS_BUDGET_FILE)));
+    for (const v of overP) process.stderr.write(`OVER PROCESS BUDGET ${v}\n`);
+    if (over.length || overP.length) process.exitCode = 1;
   }
 }
