@@ -220,19 +220,19 @@ export function approvalSentences(kind, runId = '-') {
     case 'merge': en = 'the merge'; tr = "merge'i"; break;
     case 'delivery': en = 'the delivery'; tr = 'teslimatı|teslimati'; break;
     default:
-      if (kind.startsWith('waive:')) { en = `the waiver of ${id}`; tr = bs(`${id} feragatini`); break; }
-      if (kind.startsWith('rule:')) { en = `the rule ${id}`; tr = bs(`${id} kuralını`); break; }
-      if (kind.startsWith('rationale:')) { en = `the rationale ${id}`; tr = bs(`${id} gerekçesini|${id} gerekcesini`); break; }
-      if (kind.startsWith('reopen:')) { en = `the reopen of ${id}`; tr = bs(`${id} yeniden açılışını|${id} yeniden acilisini`); break; }
+      if (kind.startsWith('waive:')) { en = `the waiver of ${id}`; tr = `${id} feragatini`; break; }
+      if (kind.startsWith('rule:')) { en = `the rule ${id}`; tr = `${id} kuralını`; break; }
+      if (kind.startsWith('rationale:')) { en = `the rationale ${id}`; tr = `${id} gerekçesini|${id} gerekcesini`; break; }
+      if (kind.startsWith('reopen:')) { en = `the reopen of ${id}`; tr = `${id} yeniden açılışını|${id} yeniden acilisini`; break; }
       return [];
   }
   const run = /^(waive|rule|reopen|rationale):/.test(kind) || runId === '-' ? '' : runId;
   /** @type {string[]} */ const out = [];
-  for (const o of bs(en).split('|')) {
+  for (const o of en.split('|')) {
     out.push(`i approve ${o}`, `i approved ${o}`);
     if (run !== '') out.push(`i approve ${o} for ${run}`, `i approved ${o} for ${run}`);
   }
-  for (const o of bs(tr).split('|')) {
+  for (const o of tr.split('|')) {
     out.push(bs(`${o} onaylıyorum`), bs(`${o} onayliyorum`), bs(`${o} onayladım`), bs(`${o} onayladim`));
     if (run !== '') out.push(bs(`${run} için ${o} onaylıyorum`), bs(`${run} icin ${o} onayliyorum`), bs(`${run} için ${o} onayladım`), bs(`${run} icin ${o} onayladim`));
   }
