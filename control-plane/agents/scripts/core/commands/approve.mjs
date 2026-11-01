@@ -50,6 +50,7 @@ function approveInChild(parent, target, kinds) {
   } catch (e) {
     if (e instanceof BridgeToShell) {
       child.discard();
+      locks.releaseAll();
       const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'] });
       return { rc: r.status, output: Buffer.concat([r.stdout, r.stderr]).toString('latin1') };
     }
@@ -61,7 +62,7 @@ function approveInChild(parent, target, kinds) {
 }
 
 /** `now_iso` @param {string} text */
-const tail = (text) => text.replace(/\n/g, ' ').replace(/ +/g, ' ').slice(0, 300);
+const tail = (text) => text.replace(/\n+$/, '').replace(/\n/g, ' ').replace(/ +/g, ' ').slice(0, 300);
 
 /** `approve_pending [ID]` @param {Ctx} ctx @param {string[]} args */
 function approvePendingCommand(ctx, args) {
