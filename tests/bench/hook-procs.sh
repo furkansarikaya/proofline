@@ -14,7 +14,7 @@ hook=$HP_HOOK
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 scaffold orchestrated no COMPLEX ""
-cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks src; cp "$hook" .agents/hooks/proofline-hook.sh
+node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks src; cp "$hook" .agents/hooks/proofline-hook.sh
 hrun=sh
 case "$hook" in
   *.mjs)

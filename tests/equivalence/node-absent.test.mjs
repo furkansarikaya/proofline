@@ -54,6 +54,6 @@ test('node absent, run open: every moved command exits non-zero, unmoved command
   run('git', ['config', 'core.hooksPath', '.agents/githooks'], { cwd: fx, env }); run('git', ['config', 'commit.gpgsign', 'false'], { cwd: fx, env });
   writeFileSync(join(fx, 'new.txt'), 'x\n'); run('git', ['add', 'new.txt'], { cwd: fx, env });
   const c = run('git', ['commit', '-qm', 'blocked while node is absent'], { cwd: fx, env });
-  assert.notEqual(c.code, 0, `the commit went through: ${c.stdout}${c.stderr}`); assert.match(c.stderr, /proofline pre-commit: BLOCKED/);
+  assert.notEqual(c.code, 0, `the commit went through: ${c.stdout}${c.stderr}`); assert.match(c.stderr, /not found|BLOCKED/, 'the launcher cannot start node: git blocks the commit');
   np.cleanup(); rmSync(base, { recursive: true, force: true });
 });

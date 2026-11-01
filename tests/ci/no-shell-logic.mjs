@@ -66,14 +66,14 @@ export function isShellFile(root, rel) {
   return SHEBANG.test(firstLine(abs));
 }
 
-// A launcher's text: a shebang, comment lines, blank lines, and at most one `exec node "$(dirname "$0")/<file>" "$@"` line.
+// A launcher's text: a shebang, comment lines, blank lines, and at most one `exec node "$(dirname "$0")/<file>" [words] ["$@"]` line (a git hook launcher reaches the core in ../scripts/ and passes no arguments: git hands pre-push the remote name and URL, which the core does not take).
 export function launcherOk(text) {
   const lines = text.split('\n').map((l) => l.trimEnd());
   let exec = 0;
   for (const [i, l] of lines.entries()) {
     if (l === '' || (i > 0 && l.startsWith('#'))) continue;
     if (i === 0 && SHEBANG.test(l)) continue;
-    if (/^exec node "\$\(dirname "\$0"\)\/[A-Za-z0-9_.-]+(?:\.mjs)?"(?: [a-z-]+)* "\$@"$/.test(l)) { exec++; continue; }
+    if (/^exec node "\$\(dirname "\$0"\)\/(?:\.\.\/scripts\/)?[A-Za-z0-9_.-]+(?:\.mjs)?"(?: [a-z-]+)*(?: "\$@")?$/.test(l)) { exec++; continue; }
     return false;
   }
   return exec <= 1;

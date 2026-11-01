@@ -46,7 +46,7 @@ denied() { printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (
 allowed() { ! printf '%s' "$2" | grep -q '"permissionDecision":"deny"' || die "$1 (denied: $2)"; ok "$1"; }
 fixture() { # scaffold an orchestrated run at IMPLEMENTING with git hooks and the runtime hook installed
   scaffold orchestrated no "${1:-COMPLEX}" "${2:-}"
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks src; install_hook
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks src; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude   # committed in a real install
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }

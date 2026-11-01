@@ -28,7 +28,7 @@ unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON PROOFLINE_HOOK_APPROV
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 fixture() {
   scaffold orchestrated no COMPLEX ""
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks; install_hook
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }

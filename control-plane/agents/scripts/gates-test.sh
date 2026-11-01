@@ -1568,7 +1568,7 @@ sc_report_facts() {
 # B1: the git hooks see every open run, not ACTIVE_RUN.
 sc_open_runs() {
   scaffold orchestrated no STANDARD
-  mkdir -p .agents/githooks; cp "$tl_agents/githooks/"* .agents/githooks/; git config core.hooksPath .agents/githooks
+  node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; git config core.hooksPath .agents/githooks
   : > .agents/local/ACTIVE_RUN
   [ "$(A open-runs)" = 'LC -' ] || die "open-runs: $(A open-runs)"
   printf 'notes\n' > notes.md; git add notes.md

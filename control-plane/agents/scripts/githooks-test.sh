@@ -20,7 +20,7 @@ said() { grep -q "$1" "$tmp/out"; }
 git init -q -b work "$r"
 git clone -q --bare "$r" "$tmp/remote.git" 2>/dev/null || git init -q --bare "$tmp/remote.git"
 mkdir -p "$r/.agents/scripts" "$r/.agents/runs/T-1" "$st"
-cp -R "$here/../githooks" "$r/.agents/githooks"
+node "$here/../../../tests/legacy-githooks/install.mjs" "$r/.agents/githooks"
 cat > "$r/.agents/config.yaml" <<'EOF'
 git:
   protected_branches: main release/*

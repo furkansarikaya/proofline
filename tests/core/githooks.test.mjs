@@ -24,6 +24,7 @@ function both(hook, setup, env, input = '') {
     try {
       cpSync(installedFixture().dir, dir, { recursive: true });
       sh(dir, ['git', 'config', 'user.email', 'dev@example.org'], {});
+      if (engine === 'shell') sh(dir, ['node', path.join(import.meta.dirname, '../legacy-githooks/install.mjs'), `${dir}/.agents/githooks`], {});   // the old shell hooks are the specification
       setup(dir);
       const a = engine === 'shell' ? [`${dir}/.agents/githooks/${hook}`] : ['node', `${dir}/.agents/scripts/proofline-core.mjs`, 'cli', hook];
       res.push(sh(dir, a, { PROOFLINE_NO_TTY: '1', ...env }, input));
