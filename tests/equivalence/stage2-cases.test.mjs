@@ -6,9 +6,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { repoRoot } from './fixture.mjs';
-import { BUCKETS, ROWS, STAGE2 } from './cases/stage2-commands.mjs';
+import { BUCKETS, ONE_OFF, ROWS, STAGE2 } from './cases/stage2-commands.mjs';
 import { MOVED } from './cases/moved-commands.mjs';
-import { RUN_STATES, SCALE_STATES, STATES } from './cases/stage2-fixtures.mjs';
+import { EXTRA_STATES, RUN_STATES, SCALE_STATES, STATES } from './cases/stage2-fixtures.mjs';
 import { ALL_COMMANDS, touchedCommands } from './scope.mjs';
 
 const commands = readFileSync(join(repoRoot, 'tests/equivalence/commands.txt'), 'utf8').split('\n').filter(Boolean);
@@ -36,6 +36,17 @@ test('every stage 2 command has cases, each call starts with its command, and a 
   }
 });
 
+test('the waiver, known-issue, batch, approval, SECRETS/SECURITY, pass_low, pull-request, drift and dispatch states are read by the run commands, and the one-off cases name their command', () => {
+  for (const c of ['next', 'summary', 'digest', 'pipeline', 'verify-gates', 'verify-handoff', 'report-facts', 'report-tokens', 'verify-worker-evidence', 'validate', 'effective']) {
+    const r = ROWS.find((x) => x.cmd === c);
+    for (const s of EXTRA_STATES) assert.ok(r?.states.includes(s), `${c} misses ${s}`);
+  }
+  assert.ok(ROWS.find((x) => x.cmd === 'ci-check')?.states.includes('gates-pr-open'));
+  for (const s of ['gates-waived', 'gates-waived-key', 'gates-waive-nomatch', 'gates-known-issue', 'gates-batch-accept', 'gates-secrets-fail', 'gates-security-fail', 'gates-pass-low', 'gates-pending-waive', 'gates-pr-open', 'gates-drift']) assert.ok(s in STATES, s);
+  assert.ok(ONE_OFF.length >= 9);
+  for (const o of ONE_OFF) { assert.ok(o.state in STATES); assert.ok(o.calls.filter((x) => x.args).every((x) => x.args?.[0] === o.cmd), o.cmd); }
+});
+
 test('the gate-sensitive commands run on every gate and risk state; the performance commands also on 0/20/60 changed files', () => {
   const gateStates = RUN_STATES.filter((s) => !s.startsWith('scale-'));
   for (const c of ['effective', 'fingerprint', 'pipeline', 'next', 'summary', 'digest', 'verify-gates', 'verify-seal', 'verify-handoff', 'validate', 'verify-scope', 'freshness', 'status']) {
@@ -46,7 +57,7 @@ test('the gate-sensitive commands run on every gate and risk state; the performa
     const r = ROWS.find((x) => x.cmd === c);
     for (const s of SCALE_STATES) assert.ok(r?.states.includes(s), `${c} misses ${s}`);
   }
-  const named = ['gates-full', 'intake-unclassified', 'intake-classified', 'intake-branched', 'intake-planned', 'gates-frozen', 'gates-implemented', 'gates-partial', 'gates-failed', 'gates-allpass', 'gates-stale', 'gates-codedone', 'gates-done', 'risk-unfrozen', 'risk-open', 'risk-passed'];
+  const named = [...EXTRA_STATES, 'gates-full', 'intake-unclassified', 'intake-classified', 'intake-branched', 'intake-planned', 'gates-frozen', 'gates-implemented', 'gates-partial', 'gates-failed', 'gates-allpass', 'gates-stale', 'gates-codedone', 'gates-done', 'risk-unfrozen', 'risk-open', 'risk-passed'];
   for (const s of named) assert.ok(s in STATES, s);
 });
 
