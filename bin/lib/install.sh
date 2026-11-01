@@ -58,9 +58,10 @@ stage_build() {
     cp -R "${sb_d%/}" "$sf/.agents/skills/"
   done
   cp "$PL_HOME/adapters/claude/hooks/proofline-hook.sh" "$sf/.agents/hooks/proofline-hook.sh"
-  # the Node hook (stage 3): the entry, its tokenizer, the event handlers, the guards and the helpers; the shell hook stays beside it (rollback)
-  cp "$PL_HOME/adapters/claude/hooks/proofline-hook.mjs" "$PL_HOME/adapters/claude/hooks/command-scan.mjs" "$sf/.agents/hooks/"
-  cp -R "$PL_HOME/adapters/claude/hooks/events" "$PL_HOME/adapters/claude/hooks/guards" "$PL_HOME/adapters/claude/hooks/lib" "$sf/.agents/hooks/"
+  # the Node hook tree (stage 3) is staged apart: see node_hook_install
+  nh=$STAGE/nodehook; mkdir -p "$nh"
+  cp "$PL_HOME/adapters/claude/hooks/proofline-hook.mjs" "$PL_HOME/adapters/claude/hooks/command-scan.mjs" "$nh/"
+  cp -R "$PL_HOME/adapters/claude/hooks/events" "$PL_HOME/adapters/claude/hooks/guards" "$PL_HOME/adapters/claude/hooks/lib" "$nh/"
   sh "$PL_HOME/adapters/generate.sh" --profile "$PROFILE" --out "$STAGE/gen" --root "$PL_HOME" >/dev/null || die "role generation failed"
   cp -R "$STAGE/gen/.agents/." "$sf/.agents/"
   if rt_has claude; then
@@ -100,6 +101,25 @@ place() {
     *) [ -z "$pl_keep" ] || printf '%s  %s\n' "$pl_keep" "$1" >> "$STAGE/manifest.new" ;;
   esac
   plog "$pl_act" "$1"
+}
+
+# node_hook_install: the Node hook tree (.agents/hooks/proofline-hook.mjs, command-scan.mjs, events/, guards/, lib/). It is the code the wiring strings start, so it
+# is written as a whole, not file by file against the manifest: a file the user edited is replaced (hook code is not configuration), a file an older release
+# no longer ships is dropped, and the files are NOT listed in the manifest. That last point is the rollback: the previous release's `upgrade` removes the
+# files its manifest lists and this version no longer ships; the Node hook must survive it, because it is the process that yields to the old shell wiring
+# the old installer adds beside the new string (ADR 0001 sections 5.4 and 9).
+node_hook_install() {
+  nhi_d=$ROOT/.agents/hooks
+  nhi_act=new
+  if [ -f "$nhi_d/proofline-hook.mjs" ]; then
+    nhi_act=same
+    for nhi_f in $(cd "$STAGE/nodehook" && find . -type f | sed 's|^\./||'); do cmp -s "$STAGE/nodehook/$nhi_f" "$nhi_d/$nhi_f" || nhi_act=update; done
+  fi
+  if [ "$DRY" != 1 ] && [ "$nhi_act" != same ]; then
+    mkdir -p "$nhi_d"; rm -rf "${nhi_d:?}/events" "${nhi_d:?}/guards" "${nhi_d:?}/lib"
+    cp -R "$STAGE/nodehook/." "$nhi_d/"
+  fi
+  plog "$nhi_act" ".agents/hooks/proofline-hook.mjs"
 }
 
 place_all() {
@@ -382,6 +402,7 @@ install_run() { # MODE set by the caller
   MANIFEST_OLD=$ROOT/$MANIFEST_REL
   stage_build
   place_all
+  node_hook_install
   do_config
   if rt_has claude; then json_merge .claude/settings.json "$PL_HOME/adapters/claude/settings.fragment.json"; hook_timeouts_apply .claude/settings.json; fi
   if rt_has codex; then json_merge .codex/hooks.json "$PL_HOME/adapters/codex/hooks.json"; hook_timeouts_apply .codex/hooks.json; codex_network_config; fi
