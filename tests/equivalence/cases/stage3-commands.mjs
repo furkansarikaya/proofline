@@ -6,7 +6,7 @@
 import { captureBytes } from '../../../control-plane/agents/scripts/core/capture.mjs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { baseEnv } from '../fixture.mjs';
@@ -46,6 +46,38 @@ function derive(base, steps) {
   return { fx: { dir, builtAt: base.builtAt }, t: t + 1 };
 }
 
+
+/**
+ * A fixture for the single-use rule: an approval record of the plan made from a capture (written here as the engines write it, a second after the
+ * request it answers), then a SECOND plan request dated before that capture. The capture is then neither stale nor in the future for the second
+ * request, and only the single-use rule can refuse it. Both records are written by the build in the form the engines write them.
+ * @param {import('../fixture.mjs').Fixture} base @returns {{ fx: import('../fixture.mjs').Fixture, t: number }}
+ */
+function deriveSingleUse(base) {
+  const text = 'approve the plan';
+  const sha = createHash('sha256').update(text).digest('hex');
+  for (let attempt = 0; attempt < 1; attempt++) {
+    const dir = mkdtempSync(join(tmpdir(), 'eq-s3-su-'));
+    cpSync(base.dir, dir, { recursive: true, verbatimSymlinks: true });
+    const sh = (/** @type {string[]} */ args) => spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: dir, env: baseEnv(dir, { PROOFLINE_ENGINE: 'sh' }), encoding: 'utf8' });
+    const ad = `${dir}/.agents/runs/${ID}/approvals`;
+    const stamp = (/** @type {string} */ n) => Number(/^requested_at: (\d+)/m.exec(readFileSync(`${ad}/${n}`, 'utf8'))?.[1]);
+    const reqs = () => readdirSync(ad).filter((n) => /-request-plan\.yaml$/.test(n)).sort();
+    sh(['request-approval', ID, 'plan']);
+    const first = reqs().pop() ?? '';
+    const t = stamp(first) + 1;
+    const bound = /^bound: "(.*)"$/m.exec(readFileSync(`${ad}/${first}`, 'utf8'))?.[1] ?? '';
+    const seq = String(Number(first.slice(0, 3)) + 1).padStart(3, '0');
+    writeFileSync(`${ad}/${seq}-plan.yaml`, `kind: "plan"\nbound: "${bound}"\nsource: "prompt_capture"\nsession: "s1"\ncapture_sha256: "${sha}"\ncapture_id: "s1:${t}:${sha}"\ncapture_time: ${t}\nrequest: "${first}"\nanswered_by: "user"\napproved_at: ${t}\nconsumed: "false"\nreply: |\n  > ${text}`);
+    // the second request, as request-approval writes it, dated like the first (no second of waiting for the shell to run twice)
+    writeFileSync(`${ad}/${String(Number(seq) + 1).padStart(3, '0')}-request-plan.yaml`, `kind: "plan"\nbound: "${bound}"\nrequested_at: ${t - 1}\n`);
+    mkdirSync(`${dir}/.agents/local/prompts`, { recursive: true });
+    writeFileSync(`${dir}/.agents/local/prompts/s1.json`, captureBytes('s1', t, text));
+    return { fx: { dir, builtAt: base.builtAt }, t };
+  }
+  throw new Error('could not build the single-use fixture');
+}
+
 /** The replies of the grammar: accepted, hedged, questions, other kinds, Turkish, several approvals. */
 export const REPLIES = [
   'approve the plan', 'approve plan', 'Approve Plan!', 'plan approved', 'ok, go ahead with the plan', 'I approve the plan', 'i approved the plan for LC', 'LC için planı onaylıyorum',
@@ -79,7 +111,12 @@ export function stage3Cases() {
   cases.push({ name: 'approve:hash-mismatch', fixture: pending, steps: [forged('approve the plan', T), A(['approve', ID, 'plan'])] });
   cases.push({ name: 'approve:no-capture', fixture: pending, steps: [A(['approve', ID, 'plan'])] });
   cases.push({ name: 'approve:no-request', fixture: pending, steps: [cap('approve the commit'), A(['approve', ID, 'scope']), A(['approve', ID, 'bogus']), A(['approve', '-', 'plan']), A(['approve', ID])] });
-  cases.push({ name: 'approve:single-use-two-requests', fixture: pending, steps: [cap('approve the plan'), A(['approve', ID, 'plan']), A(['request-approval', ID, 'plan']), A(['approve', ID, 'plan'])] });
+  // single use (Invariant 3): a capture approves ONE request. The first approval is made while the fixture is built; the second plan request is made
+  // before the capture's time (the capture is dated two seconds after the first request, which the clock reader accepts as not far ahead), so the
+  // same capture is neither stale nor in the future for it and only the single-use rule can refuse it.
+  const { fx: spent, t: TS } = deriveSingleUse(base);
+  cases.push({ name: 'approve:single-use-two-requests', fixture: spent, steps: [A(['approve', ID, 'plan']), A(['approve-pending', ID]), A(['approve', ID, 'plan'], { role: 'reviewer' })] });
+  void TS;
   cases.push({ name: 'approve:role-denied', fixture: pending, steps: [cap('approve the plan'), A(['approve', ID, 'plan'], { role: 'implementer' }), A(['approve', ID, 'plan'], { role: 'reviewer' })] });
   cases.push({ name: 'approve:several-kinds', fixture: asked, steps: [capQ('approve plan, approve commit'), A(['approve', ID, 'plan', 'scope']), A(['approve', '-', 'commit'])] });
   cases.push({ name: 'request-approval:kinds', fixture: pending, steps: [A(['request-approval', ID, 'plan']), A(['request-approval', ID, 'destructive']), A(['request-approval', ID, 'scope']), A(['request-approval', ID, 'budget']), A(['request-approval', ID, 'mutation_budget']), A(['request-approval', '-', 'push']), A(['request-approval', ID, 'commit']), A(['request-approval', '-', 'plan']), A(['request-approval', ID, 'bogus']), A(['request-approval', ID, 'reopen:LC']), A(['request-approval', ID, 'waive:X-1']), A(['request-approval', ID, 'rule:R1']), A(['request-approval', ID, 'rationale:p-1']), A(['request-approval', '-', 'report']), A(['request-approval', '-', 'batch']), A(['request-approval', 'NOPE', 'plan']), A(['request-approval', ID, 'plan'], { role: 'reviewer' })] });
