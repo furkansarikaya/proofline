@@ -141,7 +141,9 @@ export function answer(ctx, args) {
 
 /** The answer typed by the lead arrives on stdin. @param {Context} ctx */
 function readStdin(ctx) {
-  try { return readFileSync(0, 'latin1'); } catch { void ctx; return ''; }
+  const given = /** @type {{ stdinText?: string }} */ (ctx.io).stdinText; // handed over by the Node hook, which runs this in its own process
+  if (given !== undefined) return Buffer.from(given, 'utf8').toString('latin1');
+  try { return readFileSync(0, 'latin1'); } catch { return ''; }
 }
 
 /** `status_block_update ID answer`: best effort; the command takes the locks itself, so ours go first. @param {Context} ctx @param {string} id */
