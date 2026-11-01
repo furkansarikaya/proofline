@@ -231,8 +231,10 @@ class Kill {
     const z = '([+-]?0+|-[ \\t\\n\\v\\f\\r]*0*1)';
     /** @type {string} */ let re = '';
     switch (l) {
+      // eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       case 'python': re = `os\\.kill(pg)?\\([ \\t\\n\\v\\f\\r]*${z}[ \\t\\n\\v\\f\\r]*[,)]|os\\.killpg\\([ \\t\\n\\v\\f\\r]*os\\.getpgrp\\(`; break;
       case 'node': re = `process\\.kill\\([ \\t\\n\\v\\f\\r]*${z}[ \\t\\n\\v\\f\\r]*[,)]`; break;
+      // eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
       case 'ruby': re = `Process\\.kill[ \\t\\n\\v\\f\\r(][^,)]*,[ \\t\\n\\v\\f\\r]*${z}[ \\t\\n\\v\\f\\r]*([,)]|$)`; break;
       case 'perl': re = `(^|[^A-Za-z0-9_$.>-])kill[ \\t\\n\\v\\f\\r(]*[^,;)]*,[ \\t\\n\\v\\f\\r]*${z}[ \\t\\n\\v\\f\\r]*([,;)]|$)`; break;
       default: re = '';
@@ -444,8 +446,10 @@ class Kill {
           break;
         }
         case 'source': case '.': { const a = al[0] ?? ''; if (a !== '') runs.push(['sh', this.rp(a, cd)]); break; }
+        // eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         case 'python': case 'pypy': case 'pypy3': this.interp('python', al, cd, searched, depth, runs, (v) => { stdin = `${stdin} ${v}`; }); break;
         case 'node': case 'nodejs': case 'deno': case 'bun': this.interp('node', al, cd, searched, depth, runs, (v) => { stdin = `${stdin} ${v}`; }); break;
+        // eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         case 'perl': case 'ruby': case 'php': case 'lua': case 'osascript': this.interp(cw, al, cd, searched, depth, runs, (v) => { stdin = `${stdin} ${v}`; }); break;
         case 'awk': case 'gawk': case 'mawk': case 'nawk': this.interp('awk', al, cd, searched, depth, runs, (v) => { stdin = `${stdin} ${v}`; }); break;
         case 'echo': case 'printf': {
@@ -515,6 +519,7 @@ class Kill {
       if (!dd) {
         if (a === '--') { dd = true; continue; }
         if (a === '-') { code = true; addStdin(l); continue; }
+        // eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         if (l === 'python') {
           if (a === '-m') { code = true; nx = 'skip'; continue; }
           if (a === '-W' || a === '-X') { nx = 'skip'; continue; }
@@ -523,8 +528,10 @@ class Kill {
           if (['-e', '--eval', '-p', '--print', '-pe', '-ep'].includes(a)) { nx = 'code'; continue; }
           if (['-r', '--require', '--import', '--loader'].includes(a)) { nx = 'skip'; continue; }
           if (a === 'eval') { nx = 'code'; continue; }
+        // eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         } else if (l === 'perl' || l === 'ruby') {
           if (/^-[^]*[^A-Za-z0-9]/.test(a) || a.startsWith('--')) { if (a === '-I' || a === '-r') { nx = 'skip'; continue; } } else if (/^-[^]*[eE]$/.test(a)) { nx = 'code'; continue; }
+        // eco-ok: an interpreter whose inline code this safety guard reads, not an ecosystem's build or test command (A187)
         } else if (l === 'php') {
           if (a === '-r') { nx = 'code'; continue; }
           if (a === '-d') { nx = 'skip'; continue; }
