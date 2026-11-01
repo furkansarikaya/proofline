@@ -19,6 +19,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { jesc } from '../lib/text.mjs';
 import { stateOf, mcText, Deny } from '../guards/kit.mjs';
 import { baseline } from '../guards/paths.mjs';
+import { cfgNum } from '../lib/context.mjs';
+import { readText } from '../lib/fsx.mjs';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 
@@ -84,6 +86,24 @@ function skillGuard(ctx) {
   return file === '' ? null : { decision: 'deny', reason: `do not use the Skill tool; read ${file} and continue with the same step` };
 }
 
+
+/** A command longer than this is not scanned while the guards could be starved of time (S3-6): the scan is linear, about 17 us a byte on a loaded machine. */
+const COMMAND_CAP = 256 * 1024;
+
+/**
+ * The overall budget of the PreToolUse guards, in seconds: the PreToolUse limit of the runtime (hook.pretool_timeout_seconds, the knob that sets the
+ * hook's `timeout`) less 10 s, never under 5. The runtime kills a hook at its limit and reads that as "no objection".
+ * @param {import('../lib/context.mjs').HookContext} ctx
+ */
+function guardBudget(ctx) {
+  return Math.max(5, cfgNum(readText(`${ctx.root}/.agents/config.yaml`), 'pretool_timeout_seconds', 30, 10, 600) - 10);
+}
+
+/** @param {import('../lib/context.mjs').HookContext} ctx @param {number} secs */
+function ranOut(ctx, secs) {
+  return denyOut(ctx, `the guard ran out of time (${secs}s) reading a command that is too large or too slow to clear; split the command or run it from a short script`);
+}
+
 const SHELL_TOOLS = ['Bash', 'shell', 'local_shell', 'exec_command', 'unified_exec'];
 
 /** @param {import('../lib/context.mjs').HookContext} ctx @returns {Promise<string | undefined>} */
@@ -103,10 +123,18 @@ export async function handle(ctx) {
   }
   const cmd = SHELL_TOOLS.includes(tool) ? ctx.get('tool_input.command', 'tool_input.cmd') : '';
   /** @type {Verdict | null} */ let verdict = null;
+  const secs = guardBudget(ctx);
   try {
     if (cmd !== '') {
       if (!existsSync(`${here}guards/bash.mjs`)) return await viaShell(ctx);
-      verdict = await (await import(pathToFileURL(`${here}guards/bash.mjs`).href)).bashGuard(input, ctx);
+      if (ctx.installed && cmd.length > COMMAND_CAP) return ranOut(ctx, secs);   // fail closed, before any scan (S3-6)
+      const bash = (await import(pathToFileURL(`${here}guards/bash.mjs`).href)).bashGuard;
+      const budget = ctx.agents ? await import(pathToFileURL(`${ctx.agents.coreDir}/core/budget.mjs`).href).catch(() => null) : null;
+      if (budget && ctx.installed) {
+        const r = await budget.withBudget(secs, () => bash(input, ctx));
+        if (r.timedOut) return ranOut(ctx, secs);
+        verdict = r.value;
+      } else verdict = await bash(input, ctx);
     } else if (!ctx.installed) return undefined;
     else if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
       if (!existsSync(`${here}guards/read.mjs`)) return await viaShell(ctx);

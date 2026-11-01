@@ -132,8 +132,51 @@ test('the Node hook yields when the same settings file also wires the old shell 
   assert.ok(denied(wired(pretoolOf('adapters/claude/settings.fragment.json'), other, { input: bad })), 'an old string of another event is no reason to yield');
   const oldPlugin = project({ run: true });
   settings(oldPlugin, '.claude/settings.json', [OLD_PLUGIN]);
-  assert.equal(wired(pretoolOf('adapters/claude/settings.fragment.json'), oldPlugin, { input: bad }).code, 0, 'the old plugin-style string yields too');
+  assert.ok(denied(wired(pretoolOf('adapters/claude/settings.fragment.json'), oldPlugin, { input: bad })), 'the old plugin string in a settings file greps itself and handles nothing: no yield');
 });
+
+test('a decoy in the settings file never makes the hook yield (S3-4); unparsable settings keep it active', () => {
+  const bad = 'this is not json';
+  const projCmd = pretoolOf('adapters/claude/settings.fragment.json');
+  const plugCmd = pretoolOf('adapters/claude/hooks/hooks.json');
+  const decoyText = 'echo proofline-hook.sh pretool claude';
+  const nodeDecoy = 'true # .agents/hooks/proofline-hook.mjs pretool claude';
+  /** @type {[string, (dir: string) => void][]} */
+  const cases = [
+    ['a command key under env', (d) => put(d, '.claude/settings.json', { env: { command: decoyText }, hooks: {} })],
+    ['a Notification hook', (d) => put(d, '.claude/settings.json', { hooks: { Notification: [{ hooks: [{ type: 'command', command: `${decoyText}` }] }] } })],
+    ['a PreToolUse entry that only contains the name (shell)', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: decoyText }] }] } })],
+    ['a PreToolUse entry that only contains the name (node)', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: nodeDecoy }] }] } })],
+    ['the exact old string under another event', (d) => put(d, '.claude/settings.json', { hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: OLD_PROJECT }] }] } })],
+    ['the old string plus a suffix', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: `${OLD_PROJECT} # x` }] }] } })],
+    ['a non-array hooks value', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: { hooks: [{ command: OLD_PROJECT }] } } })],
+    ['hooks as an array', (d) => put(d, '.claude/settings.json', { hooks: [{ command: OLD_PROJECT }] })],
+    ['a malformed settings file', (d) => { mkdirSync(join(d, '.claude'), { recursive: true }); writeFileSync(join(d, '.claude/settings.json'), `{ "hooks": ${OLD_PROJECT} `); }],
+    ['the old string only in settings.local.json', (d) => put(d, '.claude/settings.local.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: OLD_PROJECT }] }] } })],
+  ];
+  for (const [name, make] of cases) {
+    for (const [form, command] of [['project', projCmd], ['plugin', plugCmd]]) {
+      const dir = project({ run: true });
+      make(dir);
+      assert.ok(denied(wired(command, dir, { input: bad })), `${form}: ${name}: the hook stays active`);
+    }
+  }
+  // the positive case for contrast: the exact old string, in the right event, with its hook file present
+  const real = project({ run: true });
+  settings(real, '.claude/settings.json', [OLD_PROJECT]);
+  assert.equal(wired(projCmd, real, { input: bad }).stdout, '', 'the exact old string makes the project hook yield');
+  // the exact old string but without the shell hook it would start: nothing handles the event, so no yield
+  const gone = project({ run: true });
+  settings(gone, '.claude/settings.json', [OLD_PROJECT]);
+  rmSync(join(gone, '.agents/hooks/proofline-hook.sh'));
+  assert.ok(denied(wired(projCmd, gone, { input: bad })), 'no shell hook file: no yield');
+});
+
+/** @param {string} dir @param {string} rel @param {unknown} json */
+function put(dir, rel, json) {
+  mkdirSync(join(dir, rel, '..'), { recursive: true });
+  writeFileSync(join(dir, rel), JSON.stringify(json));
+}
 
 test('the engine switch .agents/local/engine, read through the installed wiring, hands the event to the shell hook', () => {
   const dir = project({ run: true });
@@ -229,4 +272,28 @@ test('pre-push launcher: the push guard holds (protected branch, approval switch
   // a human (no agent marker, PROOFLINE_NO_TTY unset) passes the approval switch but never a protected branch... a human may push there
   const human = run('git', ['push', '-q', 'origin', 'topic:topic'], { cwd: dir, env: (() => { const e = baseEnv(base); delete e.PROOFLINE_NO_TTY; return e; })() });
   assert.equal(human.code, 0, human.stderr);
+});
+
+test('yield.mjs knows exactly the strings the installers wrote (no drift from the wiring files or the 0.0.40 strings)', async () => {
+  const { knownStrings } = await import('../../adapters/claude/hooks/lib/yield.mjs');
+  const keys = { session: 'SessionStart', prompt: 'UserPromptSubmit', pretool: 'PreToolUse', posttool: 'PostToolUse', 'subagent-start': 'SubagentStart', 'subagent-stop': 'SubagentStop', stop: 'Stop' };
+  const frag = wiring('adapters/claude/settings.fragment.json');
+  for (const [ev, key] of Object.entries(keys)) {
+    assert.deepEqual(knownStrings(ev, 'claude').newProject, [frag.find((w) => w.event === key)?.command], ev);
+  }
+  assert.deepEqual(knownStrings('pretool', 'claude').old, [OLD_PROJECT]);
+  assert.deepEqual(knownStrings('pretool', 'codex').old, [OLD_CODEX]);
+});
+
+test('S3-6: a huge command is answered within the budget, and denied while a run exists', () => {
+  const command = pretoolOf('adapters/claude/settings.fragment.json');
+  const dir = project({ run: true });
+  for (const size of [300 * 1024, 4 * 1024 * 1024]) {
+    const cmd = 'xargs a b c '.repeat(Math.ceil(size / 12));
+    const t0 = Date.now();
+    const r = wired(command, dir, { input: JSON.stringify({ cwd: dir, session_id: 's1', tool_name: 'Bash', tool_input: { command: cmd } }) });
+    assert.ok(Date.now() - t0 < 20000, `${size} bytes answered in ${Date.now() - t0} ms`);
+    assert.ok(denied(r), `${size} bytes: ${r.stdout.slice(0, 200)}${r.stderr.slice(0, 200)}`);
+    assert.match(r.stdout, /ran out of time/);
+  }
 });

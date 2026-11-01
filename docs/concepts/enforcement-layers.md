@@ -61,7 +61,7 @@ Ten commands (`role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`,
 
 ## The Node hook (A207)
 
-The runtime hook is one Node process per event: `.agents/hooks/proofline-hook.mjs` with its `events/` and `guards/` (the Bash command scanner is `command-scan.mjs`). The wiring files (`settings.fragment.json`, `.codex/hooks.json` and the third wiring file) start it with `node`; a failed node start in PreToolUse exits 2, so the call is denied. An install replaces the old `sh -c` wiring strings, and the Node hook yields while one is still present. `proofline doctor` checks all 7 hook events. Rollback: `sh` in `.agents/local/engine` (or `PROOFLINE_ENGINE=sh`) makes the installed hook run the old shell hook; the git hooks are one-line launchers and cannot branch on it.
+The runtime hook is one Node process per event: `.agents/hooks/proofline-hook.mjs` with its `events/` and `guards/` (the Bash command scanner is `command-scan.mjs`). The three wiring files (`adapters/claude/hooks/hooks.json`, `adapters/claude/settings.fragment.json` and `adapters/codex/hooks.json`) start it with `node`; a failed node start in PreToolUse exits 2, so the call is denied. An install replaces the old `sh -c` wiring strings, and the Node hook yields while one is still present (only for the exact old string of the same event, with its hook file present). `proofline doctor` checks all 7 hook events. Rollback: `sh` in `.agents/local/engine` (or `PROOFLINE_ENGINE=sh`) makes the installed hook run the old shell hook; the git hooks are one-line launchers and cannot branch on it.
 
 ## Process rules
 
