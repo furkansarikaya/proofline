@@ -26,6 +26,7 @@ export function spawnLog() { return log.slice(); }
  * @property {Buffer|string} [input] bytes written to the child's stdin
  * @property {'pipe'|'inherit'|'ignore'|Array<'pipe'|'inherit'|'ignore'|number>} [stdio]
  * @property {number} [timeoutMs]
+ * @property {boolean} [group] runAsync on POSIX: the child leads its own process group, and the time limit stops the whole group (the processes it started too)
  */
 
 /**
@@ -34,6 +35,7 @@ export function spawnLog() { return log.slice(); }
  * @property {Buffer} stdout
  * @property {Buffer} stderr
  * @property {boolean} started false when the program could not be started (not found)
+ * @property {boolean} [timedOut] runAsync: the time limit stopped the child
  */
 
 /** @param {string|null} signal */
@@ -75,22 +77,29 @@ export function runAsync(program, args, options = {}) {
   count(program);
   const t0 = Date.now();
   return new Promise((resolve) => {
-    const child = spawn(program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe', windowsHide: true });
+    const leader = options.group === true && process.platform !== 'win32';
+    const child = spawn(program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe', windowsHide: true, detached: leader });
     /** @type {Buffer[]} */ const out = [];
     /** @type {Buffer[]} */ const err = [];
     child.stdout?.on('data', (d) => out.push(d));
     child.stderr?.on('data', (d) => err.push(d));
     let timer;
-    if (options.timeoutMs) timer = setTimeout(() => killTree(child), options.timeoutMs);
+    let timedOut = false;
+    if (options.timeoutMs) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        if (leader && child.pid !== undefined) { try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ } } else killTree(child);
+      }, options.timeoutMs);
+    }
     child.on('error', () => {
       if (timer) clearTimeout(timer);
       logSpawn(program, Date.now() - t0);
-      resolve({ status: 127, stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: false });
+      resolve({ status: 127, stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: false, timedOut });
     });
     child.on('close', (code, signal) => {
       if (timer) clearTimeout(timer);
       logSpawn(program, Date.now() - t0);
-      resolve({ status: code ?? 128 + signalNumber(signal), stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: true });
+      resolve({ status: code ?? 128 + signalNumber(signal), stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: true, timedOut });
     });
     if (options.input !== undefined && child.stdin) child.stdin.end(options.input);
   });
