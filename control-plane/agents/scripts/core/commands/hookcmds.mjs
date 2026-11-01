@@ -191,7 +191,12 @@ function windowClose(ctx, args) {
 /** @param {Context} ctx @param {string[]} args */
 function languageCheckCommand(ctx, args) {
   let stdin = '';
-  if ((args[0] ?? '-') === '-' || args[0] === '') { try { stdin = readFileSync(0, 'latin1'); } catch { stdin = ''; } }
+  if ((args[0] ?? '-') === '-' || args[0] === '') {
+    // the Node hook runs this in its own process and hands the text over (its own stdin is the hook event, already read): as the bytes a pipe would carry
+    const given = /** @type {{ stdinText?: string }} */ (ctx.io).stdinText;
+    if (given !== undefined) stdin = Buffer.from(given, 'utf8').toString('latin1');
+    else { try { stdin = readFileSync(0, 'latin1'); } catch { stdin = ''; } }
+  }
   return languageCheck(ctx, args, stdin);
 }
 

@@ -138,10 +138,13 @@ timeout_message() {
   # review A2: the approval is written, then the process runs past the budget: the message says it IS recorded
   rm -f .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml; sleep 1; A request-approval LC plan >/dev/null 2>&1 || :; sleep 1
   mkdir -p "$base/shim2"; rm -f "$base/slept"
+  # the slow step is simulated by a `date` shim, which only the shell code of approve runs (the Node core runs in-process, no date process): this part pins the shell code
+  printf 'sh:approve-pending,approve\n' > .agents/local/engine
   printf '#!/bin/sh\nif ls "%s"/.agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml >/dev/null 2>&1 && [ ! -e "%s/slept" ]; then : > "%s/slept"; sleep 8; fi\nexec %s "$@"\n' "$PWD" "$base" "$base" "$(command -v date)" > "$base/shim2/date"; chmod +x "$base/shim2/date"
   out=$(PATH="$base/shim2:$PATH" PROOFLINE_HOOK_APPROVE_BUDGET=2 prompt 'plan approved, go ahead')
   printf '%s' "$out" | grep -q 'your approval was recorded' || { printf '%s' "$out" | grep -q 'approval recorded' && ls "$base/slept" >/dev/null 2>&1 && die "approval written then slow: no timeout path was taken: $out"; die "the recorded-then-timed-out case did not say recorded: $out"; }
   printf '%s' "$out" | grep -q 'could not be recorded' && die "a written approval was reported as lost: $out"
+  rm -f .agents/local/engine
   # review A3 at the hook: a budget written with a leading zero does not break the hook's arithmetic, the approval is still recorded
   rm -f .agents/runs/LC/approvals/[0-9][0-9][0-9]-plan.yaml; sleep 1; A request-approval LC plan >/dev/null 2>&1 || :; sleep 1
   sed 's/approve_budget_seconds: 20/approve_budget_seconds: 08/' .agents/config.yaml > "$base/cfg0" && cp "$base/cfg0" .agents/config.yaml
