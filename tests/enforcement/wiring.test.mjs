@@ -96,15 +96,16 @@ test('node present: the three PreToolUse strings run the hook; an unparsable inp
   }
 });
 
-// The strings of 0.0.40-0.0.42, which a rollback `upgrade` adds beside the new ones.
+// The strings of 0.0.40 to 0.0.42 (identical in the three releases), which a rollback `upgrade` adds beside the new ones.
 const OLD_PROJECT = `sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f "$h" ] || { [ -f "$r/.agents/config.yaml" ] || exit 0; echo "proofline: $h is missing; failing closed" >&2; exit 2; }; exec sh "$h" pretool claude'`;
 const OLD_PLUGIN = `sh -c 'grep -Eqs "proofline-hook[.]sh.* pretool claude" "$CLAUDE_PROJECT_DIR/.claude/settings.json" && exit 0; exec sh "\${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh" pretool claude'`;
 const OLD_CODEX = `sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f "$h" ] || { [ -f "$r/.agents/config.yaml" ] || exit 0; echo "proofline: $h is missing; failing closed" >&2; exit 2; }; exec sh "$h" pretool codex'`;
 
 /** @param {string} dir @param {string} file @param {string[]} commands */
-function settings(dir, file, commands) {
+function settings(dir, file, commands, matcher = file.startsWith('.codex') ? '.*' : 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill') {
   mkdirSync(join(dir, file, '..'), { recursive: true });
-  writeFileSync(join(dir, file), JSON.stringify({ hooks: { PreToolUse: [{ hooks: commands.map((command) => ({ type: 'command', command })) }] } }, null, 2));
+  const entry = matcher === '' ? {} : { matcher };
+  writeFileSync(join(dir, file), JSON.stringify({ hooks: { PreToolUse: [{ ...entry, hooks: commands.map((command) => ({ type: 'command', command, timeout: 45 })) }] } }, null, 2));
 }
 
 test('the Node hook yields when the same settings file also wires the old shell string for the event (each event is handled once)', () => {
@@ -172,11 +173,11 @@ test('a decoy in the settings file never makes the hook yield (S3-4); unparsable
   assert.ok(denied(wired(projCmd, gone, { input: bad })), 'no shell hook file: no yield');
 });
 
-/** The shell hook of 0.0.40-0.0.42 byte for byte (the fixture has no shebang: it is not a shell file of this tree). @param {string} dir */
-function oldShellHook(dir) {
+/** A released shell hook byte for byte (the fixtures have no shebang: they are not shell files of this tree). @param {string} dir @param {string} [version] */
+function oldShellHook(dir, version = '0.0.40') {
   const f = join(dir, '.agents/hooks/proofline-hook.sh');
   rmSync(f, { force: true });
-  writeFileSync(f, `#!/bin/sh\n${readFileSync(join(repoRoot, 'tests/legacy-hook/proofline-hook.legacy'), 'utf8')}`);
+  writeFileSync(f, `#!/bin/sh\n${readFileSync(join(repoRoot, `tests/legacy-hook/proofline-hook-${version}.legacy`), 'utf8')}`);
   chmodSync(f, 0o755);
 }
 
@@ -338,7 +339,6 @@ test('S3-4 round 2: a hook is yielded to only when it is the genuine one (stub, 
   const oldBad = [
     ['a stub', (d) => writeFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '#!/bin/sh\nexit 0\n')],
     ['a modified copy', (d) => appendFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '\n# x\n')],
-    ['the current (not the released) hook', (d) => { rmSync(join(d, '.agents/hooks/proofline-hook.sh')); cpSync(join(repoRoot, 'adapters/claude/hooks/proofline-hook.sh'), join(d, '.agents/hooks/proofline-hook.sh')); }],
     ['a symlink to the released bytes', (d) => { const f = join(d, '.agents/hooks/proofline-hook.sh'); const real = join(d, 'old.sh'); cpSync(f, real); rmSync(f); symlinkSync(real, f); }],
     ['a missing file', (d) => rmSync(join(d, '.agents/hooks/proofline-hook.sh'))],
   ];
@@ -348,4 +348,33 @@ test('S3-4 round 2: a hook is yielded to only when it is the genuine one (stub, 
     settings(d, '.claude/settings.json', [OLD_PROJECT]);
     assert.ok(denied(wired(proj, d, { input: bad })), `project: old string with ${name}: the Node hook stays active`);
   }
+});
+
+test('S3-4 round 3: each released shell hook (0.0.40, 0.0.41, 0.0.42) makes the project hook yield; a modified copy does not; the entry matcher must be the template\'s', () => {
+  const bad = 'this is not json';
+  const proj = pretoolOf('adapters/claude/settings.fragment.json');
+  for (const v of ['0.0.40', '0.0.41', '0.0.42']) {
+    const d = project({ run: true });
+    oldShellHook(d, v);
+    settings(d, '.claude/settings.json', [OLD_PROJECT]);
+    assert.equal(wired(proj, d, { input: bad }).stdout, '', `${v}: yields`);
+    appendFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '\n# x\n');
+    assert.ok(denied(wired(proj, d, { input: bad })), `${v} modified: stays active`);
+  }
+  // an entry that fires for another tool set (or for all tools) is not the wiring of the event, for the old string and the Node string alike
+  for (const matcher of ['Bash', '*', '', 'Edit|Write']) {
+    const d = project({ run: true });
+    oldShellHook(d);
+    settings(d, '.claude/settings.json', [OLD_PROJECT], matcher);
+    assert.ok(denied(wired(proj, d, { input: bad })), `old string, matcher "${matcher}": no yield`);
+    const p = project({ run: true });
+    settings(p, '.claude/settings.json', [proj], matcher);
+    assert.ok(denied(wired(pretoolOf('adapters/claude/hooks/hooks.json'), p, { input: bad })), `plugin, project Node string with matcher "${matcher}": no yield`);
+  }
+  // an entry with an extra key is not the template's entry
+  const x = project({ run: true });
+  oldShellHook(x);
+  mkdirSync(join(x, '.claude'), { recursive: true });
+  writeFileSync(join(x, '.claude/settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill', if: 'never', hooks: [{ type: 'command', command: OLD_PROJECT }] }] } }));
+  assert.ok(denied(wired(proj, x, { input: bad })), 'an entry with an extra key: no yield');
 });
