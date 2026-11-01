@@ -10,7 +10,7 @@ import { normaliseSide, rankConflicts } from './normalise.mjs';
 
 /**
  * @typedef {{ args?: string[], role?: string, env?: Record<string,string>, stdin?: string, cwd?: string, engine?: 'sh'|'default'|'side',
- *   write?: { path: string, content: string, mode?: number }, exec?: string[] }} Step
+ *   write?: { path: string, content: string | (() => string), mode?: number }, exec?: string[] }} Step
  * @typedef {{ name: string, fixture: import('./fixture.mjs').Fixture, steps: Step[] }} Case
  * @typedef {{ name: string, engineFor: (i: number) => 'sh'|'default' }} SideSpec
  * @typedef {{ kind: string, where: string, detail: string }} Diff
@@ -25,7 +25,7 @@ export function runSide(/** @type {Case} */ c, /** @type {SideSpec} */ spec, /**
   /** @type {import('./normalise.mjs').Output[]} */ const outputs = [];
   const t0 = Math.floor(Date.now() / 1000);
   c.steps.forEach((s, i) => {
-    if (s.write) { const p = join(fx, s.write.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, s.write.content); if (s.write.mode !== undefined) chmodSync(p, s.write.mode); return; }
+    if (s.write) { const p = join(fx, s.write.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, typeof s.write.content === 'function' ? s.write.content() : s.write.content); if (s.write.mode !== undefined) chmodSync(p, s.write.mode); return; }
     const eng = s.engine && s.engine !== 'side' ? s.engine : spec.engineFor(i);
     /** @type {Record<string,string>} */ const env = baseEnv(home, { TMPDIR: tmp, ...(s.role ? { AGENT_ROLE: s.role } : {}), ...(eng === 'sh' ? { PROOFLINE_ENGINE: 'sh' } : {}), ...(s.env ?? {}) });
     const [cmd, args] = s.exec ? [s.exec[0], s.exec.slice(1)] : ['sh', ['./.agents/scripts/agent.sh', ...(s.args ?? [])]];
