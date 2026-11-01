@@ -16,6 +16,8 @@
   "include": [
     "control-plane/agents/scripts/proofline-core.mjs",
     "control-plane/agents/scripts/core/**/*.mjs",
+    "adapters/claude/hooks/*.mjs",
+    "tests/core/budget.test.mjs",
     "tests/ci/**/*.mjs",
     "tests/enforcement/**/*.mjs",
     "tests/equivalence/**/*.mjs",

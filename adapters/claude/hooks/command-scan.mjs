@@ -351,6 +351,7 @@ function scan(input) {
       hasc = 0;
       for (j = k + 1; j <= nw; j++) {
         const wj = W(j);
+        // eco-ok: ruby here is the interpreter whose -i edits a file in place, not an ecosystem
         if (c === 'ruby' ? /^-[0adlnpsSwWxXvuT]*i/.test(wj) : (/^-i?inplace/.test(wj) || wj === '--include=inplace' || ((wj === '-i' || wj === '--include') && /^inplace/.test(W(j + 1))))) hasc = 1;
       }
       if (hasc) { for (j = k + 1; j <= nw; j++) if (!/^-/.test(W(j)) && W(j) !== '') out('P', W(j)); if (nw > k + 1) out('W', W(nw)); }
