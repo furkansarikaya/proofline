@@ -4,11 +4,9 @@
 // every other command, a command whose engine is forced to the shell code, and a step that needs a time budget run as `sh agent.sh`
 // (a child that can be stopped, and that honours a project's own agent.sh).
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 import { isFile, isDir } from './fsx.mjs';
-import { sameTree } from './tree.mjs';
 
 /**
  * @typedef {object} AgentResult
@@ -86,9 +84,6 @@ export class Agents {
     }
     const proc = await this.proc();
     if (!proc) return { status: 127, stdout: '', stderr: `proofline: ${this.coreDir}/core/proc.mjs is missing\n`, timedOut: false };
-    if (path.dirname(agentPath) !== this.coreDir && !sameTree(path.dirname(agentPath), this.coreDir)) {
-      return { status: 126, stdout: '', stderr: `proofline: ${path.dirname(agentPath)} differs from the project's own scripts, so its ${command} is not run\n`, timedOut: false };
-    }
     const args = [agentPath, ...argv];
     if (opt.budgetMs !== undefined) {
       const budget = await import(pathToFileURL(`${this.coreDir}/core/budget.mjs`).href);

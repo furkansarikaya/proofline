@@ -771,14 +771,12 @@ export function approvalWaitO(ctx, req, kind, id, o) {
     o(`the user's last reply is not an explicit approval (an answer that is ambiguous or a refusal never approves): relay the question again verbatim with its accepted answers: agent.sh request-approval ${id} ${kind} (relay verbatim), then wait for the reply and: agent.sh next ${id}`);
     return;
   }
-  if (n !== null && ctx.role === 'lead') {
-    const { rc, output } = approveInChild(ctx, id, [kind]);
-    try { appendFileSync(`${ctx.sharedMain()}/.agents/local/approve.log`, `${now().iso} target=${id} kinds=${kind} rc=${rc} retry output: ${output.replace(/\n+$/, '').replace(/\n/g, ' ').slice(0, 300)}\n`); } catch { /* best effort */ }
-    if (rc === 0) {
-      forgetFiles(ctx);
-      o(`the user's approval of ${kind} was recorded just now (the prompt hook had not finished it, A171; log .agents/local/approve.log): agent.sh next ${id}`);
-      return;
-    }
+  if (n !== null) {
+    // Stage 3 hardening (deliberately unlike the shell): this reads the newest capture FILE, which a file written by anything that can write
+    // .agents/local looks exactly like, so `next` never records an approval from it. The prompt hook records an approval from the prompt event it
+    // is handling; a reply it missed is asked for again.
+    o(`the user's last reply approves ${kind}, but the prompt hook did not record it (it was cut off, or the reply did not come through the runtime). The lead never records an approval from a file: ask the user to send the approval again (the runtime records it from the reply), then: agent.sh next ${id}`);
+    return;
   }
   o(`wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next ${id}`);
 }

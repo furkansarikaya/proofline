@@ -53,29 +53,20 @@ export function answer(ctx, args) {
   if (amend) { if (!existsSync(prev)) fail(`question ${n} has no answer to amend`); } else if (existsSync(prev)) fail(`question ${n} is already answered (a wrong answer is corrected with: agent.sh answer ${id} ${n} --amend, after the user's new message)`);
   const prompts = sharedDirOf(ctx, 'prompts');
   const consumed = () => (readBytes(`${prompts}/consumed`) ?? '').split('\n');
-  let text = ''; let cm = false; let used = ''; let src = '';
-  if (mode === '--captured' || amend) {
+  let text = ''; let cm = false; let used = ''; let src = ''; let pick = '';
+  // Stage 3 hardening (deliberately unlike the shell, which read the newest capture or history FILE and called it the user's): the user's words
+  // are known to the prompt hook alone, which hands the message it is handling to this command in its own process (`ctx.io.promptCapture`, the same
+  // handoff as for an approval). From the hook only an acceptance of an assumption is recorded this way. Anything typed by the lead is the lead's.
+  const handed = /** @type {{ promptCapture?: { session: string, time: number, sha256: string, text: string } }} */ (ctx.io).promptCapture;
+  if (mode === '--captured' && !handed) fail('answer --captured is recorded by the prompt hook from the user\'s own message and by nothing else: pass the answer on stdin (it is then recorded as the lead\'s answer, answered_by=lead) and keep asking the user for the acceptance of an assumption');
+  if ((mode === '--captured' || amend) && handed) {
     cm = true;
+    if (latestCapture(ctx, true) === null) fail('the capture of this message is not on disk as the hook wrote it');
     let a0 = gateField(ctx, q, 'asked_at'); if (!/^[0-9]+$/.test(a0)) a0 = '0';
-    let prevSrc = '';
-    if (amend) { let pe = gateField(ctx, prev, 'answered_epoch'); if (!/^[0-9]+$/.test(pe)) pe = a0; a0 = pe; prevSrc = gateField(ctx, prev, 'source_message'); }
-    let pick = '';
-    for (const name of sortedNames(`${prompts}/history`, /\.txt$/)) {
-      const e = name.slice(0, name.indexOf('-') < 0 ? name.length : name.indexOf('-'));
-      // Stage 3 hardening: a history copy named for a time in the future is not one the hook wrote (a planted name would sort last)
-      if (!/^[0-9]+$/.test(e) || !(BigInt(e) >= BigInt(a0)) || BigInt(e) > BigInt(now().epoch) + 5n) continue;
-      const t = readBytes(`${prompts}/history/${name}`) ?? '';
-      if (!/[^ \t\n\v\f\r]/.test(t) || t.slice(0, 19) === '<task-notification>') continue;
-      if (name === prevSrc) continue;
-      if (amend && consumed().includes(name)) continue;
-      pick = name;
-    }
-    if (pick === '') {
-      if (amend) fail(`no captured user message newer than the recorded answer to question ${n}: only a new message of the user corrects an answer (ask the user, wait for the reply, then run this again)`);
-      fail(`no captured user prompt since question ${n} was asked: the user has not answered it (or the prompt hook is not wired)`);
-    }
-    if (consumed().includes(pick)) fail(`the user's newest message since question ${n} (${pick}) already answered another question: the user has not answered this one yet`);
-    text = readBytes(`${prompts}/history/${pick}`) ?? ''; used = pick; src = pick;
+    if (BigInt(handed.time) < BigInt(a0)) fail(`this message is older than question ${n}`);
+    pick = `${handed.time}-${handed.sha256.slice(0, 8)}.txt`;
+    if (consumed().includes(pick)) fail(`this message (${pick}) already answered another question`);
+    text = Buffer.from(handed.text, 'utf8').toString('latin1'); used = pick; src = pick;
   } else {
     text = readStdin(ctx);
   }
@@ -89,18 +80,7 @@ export function answer(ctx, args) {
   if (cm) {
     by = 'user';
     if (tok !== '' && assumptionPromptAccepts(norm, tokId)) acc = true;
-  } else if (asked !== '' && norm.length >= 3) {
-    const cap = latestCapture(ctx);
-    if (cap !== null) {
-      const buf = readBytes(cap) ?? '';
-      const ct = captureField(buf, 'text') ?? '';
-      const ctime = captureField(buf, 'time') ?? '0';
-      if (/^[0-9]+$/.test(ctime) && BigInt(ctime) >= BigInt(asked) && sha256(ct) === (captureField(buf, 'sha256') ?? '')) {
-        const cnorm = ct.replace(/[ \t\n\v\f\r]+/g, ' ');
-        if (cnorm.includes(norm)) by = 'user';
-        if (by === 'user' && tok !== '' && assumptionPromptAccepts(cnorm, tokId)) acc = true;
-      }
-    }
+    if (!acc) fail(`this message is not an acceptance of the assumption of question ${n} (only an acceptance is recorded as the user's answer from the hook)`);
   }
   let body = text;
   if (tok !== '' && /^accept/i.test(norm)) {

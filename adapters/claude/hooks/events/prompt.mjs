@@ -151,6 +151,7 @@ export async function handle(ctx) {
     msgs = approvalMessages(all, msgs);
   }
   rmf(marker);
+  if (ctx.act !== '' && ctx.act !== 'INVALID' && /accept/i.test(pt)) await recordAcceptances(ctx, promptCapture);
   await ctx.flush();
   if (warn !== '') msgs = `${warn}${msgs !== '' ? ` ${msgs}` : ''}`;
   if (msgs === '') return undefined;
@@ -169,4 +170,20 @@ function trimSpool(file) {
     const keep = `${lines.slice(-2001, -1).join('\n')}\n`;
     putAtomic(file, `${file}.t`, keep);
   } catch { /* none */ }
+}
+
+/**
+ * An assumption the user accepts (a prompt that starts with `accept <id>`) is recorded as the user's answer by THIS hook, from the message it is
+ * handling: the core records nothing as the user's from a file (answer.mjs). Only questions that carry an assumption token are tried; the core
+ * refuses (and records nothing) when the message is not an acceptance of that token.
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {{ session: string, time: number, sha256: string, text: string }} promptCapture
+ */
+async function recordAcceptances(ctx, promptCapture) {
+  const dir = `${ctx.sroot}/.agents/runs/${ctx.act}/questions`;
+  const list = names(dir);
+  for (const n of list) {
+    const m = /^([0-9]{3})\.md$/.exec(n);
+    if (!m || list.includes(`${m[1]}.answer.md`) || !/^[ \t]*ASSUMPTION: [^ \t]+[ \t]*$/m.test(readText(`${dir}/${n}`))) continue;
+    await ctx.agent(['answer', ctx.act, String(Number(m[1])), '--captured'], { promptCapture });
+  }
 }
