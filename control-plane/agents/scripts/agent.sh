@@ -31,6 +31,7 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
 # exec fails with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its
 # error texts; the core uses it only when it names this very file. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
+# stage 3, package CMDS: the last line of the list below (worktree-root ... window-close)
 # stage 2, package C1: the last line of the list below (next summary plan-section digest report-facts report-execution report-tokens)
 case "${1:-}" in
   role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
@@ -38,7 +39,8 @@ case "${1:-}" in
   status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier|\
   next|summary|plan-section|digest|report-facts|report-execution|report-tokens|\
   verify-freeze|verify-scope|verify-knowledge-scope|freshness|verify-handoff|verify-qa-plan|verify-worker-evidence|ci-check|ci-task-command|validate|\
-  design-rationales|commands-check|scale-check|batch-check)
+  design-rationales|commands-check|scale-check|batch-check|\
+  next-user|worktree-root|in-knowledge-scope|request-approval|approve|approve-pending|approval-consume|answer|hook-time|language-check|friction-note|window-open|window-close)
     pl_sh=no
     [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
     case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac
@@ -57,8 +59,8 @@ case "${1:-}" in
     fi
     # The mandatory arguments of the moved commands (the `${N:?usage: ...}` of the dispatch below): when one is absent or empty the shell prints its
     # own usage text, with its own $0 and status, so the core is not started. ONE table; tests/core/mandatory.test.mjs checks it against the dispatch.
-    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate'
-    pl_need3='plan-section'
+    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate worktree-root in-knowledge-scope request-approval answer friction-note window-open window-close'
+    pl_need3='plan-section request-approval answer'
     case " $pl_need2 " in *" $1 "*) [ -n "${2:-}" ] || pl_sh=yes ;; esac
     case " $pl_need3 " in *" $1 "*) [ -n "${3:-}" ] || pl_sh=yes ;; esac
     if [ "$pl_sh" = no ]; then

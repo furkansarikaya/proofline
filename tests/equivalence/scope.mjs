@@ -8,10 +8,11 @@
 import { spawnSync } from 'node:child_process';
 import { MOVED } from './cases/moved-commands.mjs';
 import { STAGE2 } from './cases/stage2-commands.mjs';
+import { STAGE3 } from './cases/stage3-commands.mjs';
 import { repoRoot } from './fixture.mjs';
 
 /** Every command a case can be attached to: the ten of stage 1 and the 41 of stage 2 (later stages add theirs here). */
-export const ALL_COMMANDS = Object.freeze([...MOVED, ...STAGE2]);
+export const ALL_COMMANDS = Object.freeze([...MOVED, ...STAGE2, ...STAGE3]);
 export const FULL = process.env.EQUIVALENCE_FULL === '1';
 export const SKIP_HEAVY = FULL ? false : 'heavy set: runs with EQUIVALENCE_FULL=1 (the nightly job)';
 

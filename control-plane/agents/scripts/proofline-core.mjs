@@ -92,10 +92,13 @@ function viaShell(ctx, argv, opt = {}) {
 export function run(argv, io) {
   const ctx = new Context(io, io.scriptPath ?? fileURLToPath(import.meta.url));
   const locks = new LockSet(ctx);
+  ctx.locks = locks;
+  ctx.runner = run;
   try {
     return dispatch(ctx, locks, argv);
   } catch (e) {
-    if (e instanceof BridgeToShell) return viaShell(ctx, argv);
+    // the shell code takes the locks itself: ours go first (a locking command that hands over would wait for its own lock)
+    if (e instanceof BridgeToShell) { locks.releaseAll(); return viaShell(ctx, argv); }
     if (e instanceof ProoflineError) { ctx.printError(e); ctx.flush(); return e.exitCode; }
     // An unexpected exception is a bug of the core: it fails closed (message and stack on stderr, a non-zero status), it is never answered by
     // the shell code. Only the enumerated shell-error-text shapes (BridgeToShell) are handed back.

@@ -1,0 +1,1 @@
+C:\Users\me\file.txt and \n is not a newline and \u00e9 is not an escape \\

@@ -58,6 +58,9 @@ export class Context {
     this.fpMode = 'no';
     /** ctp_base of agent.sh: set by delivered mode; task paths are then measured from this commit instead of HEAD */
     this.ctpBase = '';
+    /** the lock set of this invocation (set by the entry), so that a command may release its locks before it starts a command that takes them itself */
+    /** @type {{ releaseAll(): void } | null} */ this.locks = null;
+    /** runs one more command of this core in process, with a context of its own (set by the entry; the stand-in for `sh agent.sh ...`) @type {((argv: string[], io: Io) => number) | null} */ this.runner = null;
   }
 
   /**

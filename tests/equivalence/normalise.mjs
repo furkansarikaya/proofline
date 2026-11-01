@@ -33,7 +33,7 @@ const epochOf = (/** @type {string} */ v) => (/^\d{1,12}$/.test(v) ? Number(v) :
  * `epoch:` in gate records (it must name the second of the record's `timestamp:`), the time column of the metrics files, the line-leading time of
  * status-block.log, the epoch column of the hook timing spool.
  */
-export const PENDING_APPROVAL = Object.freeze(['gate-record epoch:', 'metrics time (history.tsv, records.jsonl)', 'status-block.log time', 'hook-times epoch column']);
+export const PENDING_APPROVAL = Object.freeze(['gate-record epoch:', 'metrics time (history.tsv, records.jsonl)', 'status-block.log time', 'hook-times epoch column', 'approve.log line-leading time', 'HOOKS.log ts= and epoch=']);
 const EPOCH_FIELDS = ['requested_at', 'approved_at', 'consumed_at', 'asked_at', 'answered_epoch', 'amended_at'];
 const dirOf = (/** @type {string} */ p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 const baseOf = (/** @type {string} */ p) => p.slice(p.lastIndexOf('/') + 1);
@@ -97,6 +97,8 @@ export function normaliseSide(side, label, opts = {}) {
         if (/\/metrics\/history\.tsv$/.test(p)) return line.replace(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)(\t|$)/, (all, iso, tab) => { const t = isoToEpoch(iso); if (t === null) return all; inWindow(`${p} time`, t); return `<T>${tab}`; });
         if (/\/metrics\/records\.jsonl$/.test(p)) return line.replace(/("time":")(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)(")/, (all, a, iso, c) => { const t = isoToEpoch(iso); if (t === null) return all; inWindow(`${p} time`, t); return `${a}<T>${c}`; });
         if (baseOf(p) === 'status-block.log') return line.replace(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)( |$)/, (all, iso, sp) => { const t = isoToEpoch(iso); if (t === null) return all; inWindow(`${p} time`, t); return `<T>${sp}`; });
+        if (baseOf(p) === 'approve.log') return line.replace(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)( |$)/, (all, iso, sp) => { const t = isoToEpoch(iso); if (t === null) return all; inWindow(`${p} time`, t); return `<T>${sp}`; });
+        if (baseOf(p) === 'HOOKS.log') return line.replace(/^ts=(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) epoch=(\d+) /, (all, iso, ep) => { const t = isoToEpoch(iso); if (t === null || t !== Number(ep)) return all; inWindow(`${p} time`, t); return 'ts=<T> epoch=<T> '; });
         if (baseOf(p) === 'hook-times') return line.replace(/^(\d+)(\|)/, (all, e, bar) => (Number(e) > 1e9 ? (inWindow(`${p} epoch`, Number(e)), `<T>${bar}`) : all));
       }
       return line;
