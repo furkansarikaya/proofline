@@ -15,10 +15,10 @@ unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 scaffold orchestrated no COMPLEX ""
 node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks src; cp "$hook" .agents/hooks/proofline-hook.sh
-hrun=sh
+hrun="sh"
 case "$hook" in
   *.mjs)
-    hrun=node
+    hrun="node"
     cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/pre-push" .agents/githooks/   # the shipped launchers: a commit or push costs one node plus the git calls
     cp -R "$(dirname "$hook")/." .agents/hooks/
     cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core

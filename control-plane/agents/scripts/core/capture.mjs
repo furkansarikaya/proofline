@@ -6,7 +6,7 @@
 //   <shared>/.agents/local/prompts/history/<s>-<sha8>.txt  the prompt, byte for byte
 //   <project>/.agents/local/prompts/intake/<ms>-<pid>.json the raw event, as the runtime sent it (a safety net)
 // The capture id an approval stores is `<session>:<time>:<sha256>`.
-import { constants, copyFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, copyFileSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { sha256 } from './hash.mjs';
 
 /** The prompt as the shell hook held it: a command substitution cannot hold a NUL byte, so it was dropped. @param {string} text */
@@ -65,7 +65,12 @@ export function storePrompt(sharedLocal, rawSession, timeSec, rawText) {
   const sha = sha256(Buffer.from(text, 'utf8'));
   const tmp = `${dir}/.${session}.tmp`;
   const capture = `${dir}/${session}.json`;
-  try { rmSync(tmp, { force: true }); writeFileSync(tmp, captureBytes(session, timeSec, text), { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0) }); renameSync(tmp, capture); } catch { return null; }
+  try {
+    rmSync(tmp, { force: true });
+    const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o666); // never through a link
+    try { writeSync(fd, captureBytes(session, timeSec, text)); } finally { closeSync(fd); }
+    renameSync(tmp, capture);
+  } catch { return null; }
   const history = `${dir}/history/${timeSec}-${sha.slice(0, 8)}.txt`;
   try { mkdirSync(`${dir}/history`, { recursive: true }); writeFileSync(history, Buffer.from(text, 'utf8')); } catch { /* the history copy is best effort, like the shell */ }
   return { session, time: timeSec, sha256: sha, id: `${session}:${timeSec}:${sha}`, capture, history };
