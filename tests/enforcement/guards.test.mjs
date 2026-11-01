@@ -8,6 +8,11 @@
 //                names the command and Node 22.13. The 0.0.40 fallback (empty settings) does not, so these cases fail on it:
 //                GUARDS_HOOK=<path of the old hook> runs the same cases against another hook file.
 //
+// Known limit, not closable at the hook: a model can write a scratch script that imports the core (a file under .agents/local/scratch or the
+// run's scratch/ folder) and then run it with a plain literal `node scratch.mjs`. The hook reads command text, not file contents. The boundary is
+// the one the ADR names: the core serves the role it is told by the environment, `approve` records only from a captured user message, and
+// writes to .agents/local/ are refused to models. The tripwires here only close the spellings the hook can see.
+//
 // This is a Node test on purpose: tests/ci/no-shell-logic.mjs (ratchet) refuses new shell files.
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -176,8 +181,25 @@ const OPERAND_DENIED = [
   'echo .agents/scripts/proofline-core.mjs | xargs node',
   'node --test $D/scripts/pro*.mjs',
   'node --test .agents/scripts/proofline-core.mjs',
+  // round 2: replacement operands, code from stdin
+  'ls .agents/scripts/*.mjs | xargs -I{} node {}',
+  'ls | xargs -I{} node { }',
+  'ls | xargs -I % node %',
+  'ls | xargs --replace node {} debt page',
+  "node /dev/stdin <<'EOF'\nconsole.log(1)\nEOF",
+  'node /dev/fd/3 3<<<"console.log(1)"',
+  'node /proc/self/fd/0 < prog.mjs',
+  'cat prog.mjs | node -',
+  'node - < prog.mjs',
+  'NODE_OPTIONS=--require=./x.cjs node tests/a.mjs',
+  'NODE_OPTIONS="--import ./x.mjs" node tests/a.mjs',
+  'NODE_OPTIONS=-r./x.cjs node tests/a.mjs',
+  'export NODE_OPTIONS=--loader=./l.mjs',
+  'NODE_OPTIONS=--experimental-loader=./l.mjs node tests/a.mjs',
 ];
 const OPERAND_FREE = [
+  'NODE_OPTIONS=--max-old-space-size=4096 node tests/a.mjs',
+  'ls tests/*.test.mjs | xargs node --test',
   'node --test "tests/x/*.test.mjs"',
   'node --test tests/x/*.test.mjs tests/y/',
   'node tests/literal.mjs arg --flag',

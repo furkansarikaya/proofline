@@ -1059,6 +1059,9 @@ tw_node_operand() {
     tw_opts="$tw_opts "
     tw_op=$(printf '%s \n' "$tw_seg" | sed -En 's/.*(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*([^-[:space:]][^[:space:]]*).*/\4/p' | head -n 1)
     tw_feed=no; case "$tw_seg" in *xargs*|*-exec*) tw_feed=yes ;; esac
+    # code from stdin: `-` as the script, /dev/stdin, /dev/fd/N, /proc/self/fd/N as the operand
+    case " $tw_opts" in *" - "*) return 0 ;; esac
+    case "$tw_op" in /dev/stdin|/dev/fd/*|/proc/self/fd/*|/proc/*/fd/*) return 0 ;; esac
     case " $tw_opts" in
       *" --test "*|*" --test-"*)
         # operands are test patterns: a glob is theirs, a variable, a substitution or a path under .agents is not
@@ -1076,6 +1079,12 @@ tw_node_operand() {
 $tw_osegs
 TWOPS
   tw_pf=$(printf '%s' "$1" | tr '\n' ' ')
+  # the replacement operand of xargs / find -exec: `node {}` (the cut above made it an empty operand) and `xargs -I<str> ... node <str>`
+  case " $tw_pf" in
+    *" --test"*|*" -e "*|*" -p "*|*" --eval "*|*" --print "*|*" --check "*|*" -c "*) ;;
+    *) printf '%s' "$tw_pf" | grep -Eq '(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*[{][[:space:]]*[}]' && return 0
+       printf '%s' "$tw_pf" | grep -Eq 'xargs[^;&|]*[[:space:]](-I|-J|--replace)[^;&|]*[[:space:]](node|nodejs)([[:space:]]|$)' && return 0 ;;
+  esac
   # brace expansion in the operand ({a,b}.mjs): the brace cut above hides it, so look at the whole text (not for `node --test`, whose patterns may use braces)
   case " $tw_pf" in *" --test"*) ;; *) printf '%s' "$(printf '%s' "$1" | tr '\n' ' ')" | grep -Eq '(^|[^[:alnum:]_.-])(node|nodejs)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*([^[:space:]{-][^[:space:]{]*)?[{][^}[:space:]]' && return 0 ;; esac
   # a pipe or redirect that feeds a node word with no operand at all (cat prog.mjs | node; node < prog.mjs)
@@ -2208,6 +2217,8 @@ pretool)
           && deny "a model command never assigns PROOFLINE_ENGINE* or PROOFLINE_TEST*: they select the engine and the test seams, which only the user (.agents/local/engine) or a test harness sets"
         tw_core_node "$tw_t" \
           && deny "a model command never starts Node on the control plane (the core under .agents/scripts, proofline-core.mjs): run it only through sh .agents/scripts/agent.sh <command>, which applies the role gate, the locks and the ledger"
+        printf '%s' "$tw_t" | grep -Eq 'NODE_OPTIONS[[:space:]]*[+]?=[^;&|]*(--require|--import|--loader|--experimental-loader)|NODE_OPTIONS[[:space:]]*[+]?=([^;&|]*[[:space:]="'"'"'])?-r([[:space:]=./"'"'"']|$)' \
+          && deny "a model command never sets NODE_OPTIONS with --require, --import, -r or --loader: it would run a file before any node script, outside what the hook can read"
         tw_node_operand "$tw_t" \
           && deny "a model command runs node only on a script path written out literally (no variable, substitution, glob, tilde, brace or quote splicing, and no script fed by xargs, find -exec or stdin): the hook cannot read the file such a command starts, and the control plane is reached only through sh .agents/scripts/agent.sh <command>"
       done
