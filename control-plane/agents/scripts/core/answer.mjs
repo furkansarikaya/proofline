@@ -101,6 +101,7 @@ export function answer(ctx, args) {
   let head = `answered_by: ${by}\ntime: ${t.iso}\nanswered_epoch: ${t.epoch}\n`;
   if (src !== '') head += `source_message: ${src}\n`;
   if (amends !== '') head += `amends: ${amends}\n`;
+  if (ctx.cancelled()) fail('answer refused: the prompt hook stopped waiting for this step (its time budget ended)');
   writeFileSync(prev, Buffer.from(`${head}---\n${body}`, 'latin1'));
   if (used !== '') { mkdirSync(prompts, { recursive: true }); appendFileSync(`${prompts}/consumed`, `${used}\n`); }
   let left = false;

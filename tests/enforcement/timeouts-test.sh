@@ -229,8 +229,9 @@ doctor_scale() {
   case "$v" in [1-9]*.[05]|[1-9]|10) ;; *) die "the proposed scale is not a bounded half step: $v" ;; esac
   # no reply, a reply that is not an approval, a negation, another kind: nothing is written
   rc=0; sh "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote without any reply"
+  sleep 1   # a capture is newer than its request and not ahead of the clock (the Node core ignores a capture dated more than 5 s ahead)
   for t in 'looks good' 'do not approve scale' 'approve commands' 'approve scale if it is safe'; do
-    capture "$t" "$(( $(date +%s) + 7200 ))"; A approve-pending >/dev/null 2>&1 || :
+    capture "$t" "$(date +%s)"; A approve-pending >/dev/null 2>&1 || :
     rc=0; sh "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote after '$t'"
     [ "$(cat .agents/config.yaml)" = "$before" ] || die "the config changed after '$t'"
   done
@@ -238,7 +239,7 @@ doctor_scale() {
   printf 'scale\t9\n' > .agents/local/scale/PROPOSAL.tsv; rc=0; A scale-check >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "a changed proposal was covered by the earlier request"
   PATH="$base/shim:$PATH" sh "$PL" doctor --scale >/dev/null 2>&1
   v=$(awk -F'\t' '$1 == "scale" { print $2 }' .agents/local/scale/PROPOSAL.tsv)   # measured again: the value may differ, the approval binds the new file
-  capture 'approve scale' "$(( $(date +%s) + 7200 ))"; A approve-pending >/dev/null 2>&1 || :
+  sleep 1; capture 'approve scale' "$(date +%s)"; A approve-pending >/dev/null 2>&1 || :
   sh "$PL" doctor --apply-scale >/dev/null 2>&1 || die "--apply-scale refused after the user's 'approve scale'"
   [ "$(cfg_v=$(sed -n 's/^  scale: //p' .agents/config.yaml); echo "$cfg_v")" = "$v" ] || die "the approved scale was not written: $(sed -n 's/^  scale: //p' .agents/config.yaml) (wanted $v)"
   A config-check >/dev/null || die "the written scale does not pass config-check"

@@ -33,9 +33,11 @@ export class Agents {
     this.s = s;
     /** @type {Promise<any> | null} */ this._proc = null;
     /** @type {Promise<any> | null} */ this._core = null;
-    this.coreDir = `${s.root}/.agents/scripts`;
     this.abandoned = false;
   }
+
+  /** The scripts folder of the MAIN tree: the code the hook runs, also for a session rooted in a run worktree (a worktree's copy is tracked content a task could rewrite). */
+  get coreDir() { return `${this.s.mainRoot}/.agents/scripts`; }
 
   /** The project's proc.mjs (null when the project has none). */
   proc() {
@@ -96,9 +98,12 @@ export class Agents {
 
   /** @param {string[]} argv @param {object} io @param {number} budgetMs @returns {Promise<AgentResult>} */
   onWorker(argv, io, budgetMs) {
-    const worker = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { coreUrl: pathToFileURL(`${this.coreDir}/proofline-core.mjs`).href, argv, io } });
+    // the shared flag tells the worker the hook stopped waiting (a child the worker's bridge started cannot be killed): the core then writes no record
+    const cancel = new Int32Array(new SharedArrayBuffer(4));
+    const worker = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { coreUrl: pathToFileURL(`${this.coreDir}/proofline-core.mjs`).href, argv, io, cancel } });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
+        Atomics.store(cancel, 0, 1);
         this.abandoned = true; // the process ends with process.exit: a worker stuck in a synchronous wait cannot be stopped sooner
         void worker.terminate();
         resolve({ status: 124, stdout: '', stderr: '', timedOut: true });

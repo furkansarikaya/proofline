@@ -644,6 +644,7 @@ export function approveOne(ctx, id, kind0, st) {
   if (ref !== '') body += `ref: "${ref}"\n`;
   // A171: the user's reply, verbatim, as a quote block (the language check exempts it; the first 20 lines)
   body += `reply: |\n${quoteBlock(text)}`;
+  if (ctx.cancelled()) fail('approval refused: the prompt hook stopped waiting for this step (its time budget ended)');
   writeFileSync(file, Buffer.from(body, 'latin1'));
   forgetFiles(ctx);
   const tok = id === '-' ? '' : `approvals/${n}-${slug}.yaml@${sha256File(file)} `;
@@ -726,7 +727,7 @@ export function approvalConsume(ctx, args) {
  */
 export function approveInChild(parent, target, kinds) {
   /** @type {Buffer[]} */ const sink = [];
-  const io = { env: parent.env, cwd: parent.cwd, stdout: { write: (/** @type {Buffer} */ b) => sink.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => sink.push(b) }, scriptPath: parent.scriptPath, isProcess: false, promptCapture: /** @type {{ promptCapture?: unknown }} */ (parent.io).promptCapture };
+  const io = { env: parent.env, cwd: parent.cwd, stdout: { write: (/** @type {Buffer} */ b) => sink.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => sink.push(b) }, scriptPath: parent.scriptPath, isProcess: false, promptCapture: /** @type {{ promptCapture?: unknown }} */ (parent.io).promptCapture, cancel: /** @type {{ cancel?: Int32Array }} */ (parent.io).cancel };
   const child = new Context(io, parent.scriptPath);
   const locks = new LockSet(child);
   let rc = 0;

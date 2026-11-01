@@ -19,9 +19,6 @@ export function sameTree(a, b) {
   } catch { return false; }
 }
 
-/** @type {Map<string, boolean>} one verdict per script tree and process (a hook or a command lives for milliseconds) */
-const verdicts = new Map();
-
 /**
  * The shell script a child would run, when it lives in a run worktree's script folder: `{ tree, main }` (the worktree's .agents/scripts and the
  * project's own), else null. @param {string} program @param {string[]} args @param {string | undefined} cwd
@@ -45,8 +42,6 @@ function worktreeScript(program, args, cwd) {
 export function refuseUntrustedScript(program, args, cwd) {
   const w = worktreeScript(program, args, cwd);
   if (!w) return null;
-  const key = `${w.tree}\0${w.main}`;
-  let same = verdicts.get(key);
-  if (same === undefined) { same = sameTree(w.tree, w.main); verdicts.set(key, same); }
-  return same ? null : `proofline: ${w.tree} differs from the project's own ${w.main}, so none of its scripts is run (a run worktree's scripts are tracked content a task could have rewritten); upgrade or repair the worktree\n`;
+  // compared again at every spawn: a verdict kept for later would be stale as soon as a task rewrites a file
+  return sameTree(w.tree, w.main) ? null : `proofline: ${w.tree} differs from the project's own ${w.main}, so none of its scripts is run (a run worktree's scripts are tracked content a task could have rewritten); upgrade or repair the worktree\n`;
 }

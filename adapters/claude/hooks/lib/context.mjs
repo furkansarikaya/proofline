@@ -67,7 +67,7 @@ export class HookContext {
 
   /** The project's core/capture.mjs (the one writer of the prompt capture), or null when the project has none. */
   capture() {
-    const f = `${this.root}/.agents/scripts/core/capture.mjs`;
+    const f = `${this.mainRoot}/.agents/scripts/core/capture.mjs`;
     return isFile(f) ? import(pathToFileURL(f).href).catch(() => null) : Promise.resolve(null);
   }
 
@@ -232,19 +232,16 @@ export async function buildContext(ev, rt, raw, env) {
   c.agentPath = `${c.root}/.agents/scripts/agent.sh`;
   c.installed = isFile(`${c.root}/.agents/config.yaml`) && isFile(c.agentPath);
   c.mainRoot = c.root;
-  c.agents = new Agents({ root: c.root, mainRoot: c.mainRoot, agentPath: c.agentPath, env, lockWait: c.lockWait, cwd: process.cwd() });
-  if (isFile(`${c.root}/.git`)) { // root itself is a linked worktree: its main tree holds the shared state
-    const proc = await c.agents.proc();
-    if (proc) {
-      const r = proc.run('git', ['-C', c.root, 'worktree', 'list', '--porcelain'], { env, stdio: ['ignore', 'pipe', 'ignore'] });
-      const first = r.stdout.toString('utf8').split('\n')[0] ?? '';
-      const m = first.startsWith('worktree ') ? first.slice(9) : '';
-      if (m !== '' && c.root.startsWith(`${m}/.agents/local/worktrees/`)) c.mainRoot = m;
-    }
+  if (isFile(`${c.root}/.git`)) { // root itself is a linked worktree: its main tree holds the shared state (and the code that runs: see agent.mjs)
+    // read from the .git file (`gitdir: <main>/.git/worktrees/<name>`), without a git process and without starting any code of the worktree
+    const m = /^gitdir:[ \t]*(.+)\/\.git\/worktrees\/[^/]+[ \t]*$/m.exec(readText(`${c.root}/.git`));
+    let main = '';
+    try { main = m ? realpathSync(m[1]) : ''; } catch { main = ''; }
+    if (main !== '' && c.root.startsWith(`${main}/.agents/local/worktrees/`)) c.mainRoot = main;
   }
+  c.agents = new Agents({ root: c.root, mainRoot: c.mainRoot, agentPath: c.agentPath, env, lockWait: c.lockWait, cwd: process.cwd() });
   c.sharedLocal = `${c.mainRoot}/.agents/local`;
   c.sroot = c.root;
-  c.agents.s.mainRoot = c.mainRoot;
   if (c.installed && c.mainRoot === c.root) await findRunWorktree(c);
   c.localDir = `${c.sroot}/.agents/local`;
   c.agents.s.agentPath = c.agentPath;
