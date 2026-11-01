@@ -88,7 +88,16 @@ export const REPLIES = [
 ];
 
 /** @returns {Case[]} */
-export function stage3Cases() {
+/** The cases whose engines differ ON PURPOSE (stage 3 security round 2): nothing a capture or history FILE says is recorded as the user's by `next` or `answer`. See stage3-hardening.test.mjs. */
+export const HARDENED = Object.freeze(['answer:typed', 'answer:captured', 'next:approval-wait']);
+
+/** The cases both engines must answer alike. */
+export function stage3Cases() { return allCases().filter((c) => !HARDENED.includes(c.name)); }
+
+/** The cases of HARDENED. */
+export function hardenedCases() { return allCases().filter((c) => HARDENED.includes(c.name)); }
+
+function allCases() {
   /** @type {Case[]} */ const cases = [];
   const base = stateFixture('gates-pending-plan');
   const Q = '1. Which option do you want?\n   options: a | b\n   recommended: a\n   why: because\n';

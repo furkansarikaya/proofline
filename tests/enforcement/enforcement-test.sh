@@ -760,8 +760,10 @@ questions() {
   needs_input 2 q2 architect; sub_stop proofline-architect q2 >/dev/null
   prompt 'please use nil for the empty key'
   printf 'nil for the empty key\n' | A answer LC 2 >/dev/null
-  grep -q '^answered_by: user' .agents/runs/LC/questions/002.answer.md || die "the user's captured answer was not attributed to the user"
-  ok "an answer contained in the captured user prompt -> answered_by user"
+  # stage 3 security round 2: the Node core attributes nothing to the user from a capture FILE (a planted one looks the same); the old shell engine does
+  if [ "$hrun" = node ]; then grep -q '^answered_by: lead' .agents/runs/LC/questions/002.answer.md || die "an answer typed by the lead was attributed to the user from a capture file"
+  else grep -q '^answered_by: user' .agents/runs/LC/questions/002.answer.md || die "the user's captured answer was not attributed to the user"; fi
+  ok "an answer contained in the captured user prompt -> answered_by user (shell engine) / lead (Node core: no attribution from a file)"
   out=$(H session "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"cwd\":\"$PWD\"}")
   printf '%s' "$out" | grep -q 'active run: LC' && printf '%s' "$out" | grep -q 'proofline-lead/SKILL.md' && printf '%s' "$out" | grep -q 'next step: ' || die "SessionStart context: $out"
   H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}" codex | grep -q '.agents/skills/proofline-lead/SKILL.md' || die "Codex SessionStart skill path"

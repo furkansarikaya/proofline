@@ -4,11 +4,9 @@
 // every other command, a command whose engine is forced to the shell code, and a step that needs a time budget run as `sh agent.sh`
 // (a child that can be stopped, and that honours a project's own agent.sh).
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 import { isFile, isDir } from './fsx.mjs';
-import { sameTree } from './tree.mjs';
 
 /**
  * @typedef {object} AgentResult
@@ -35,9 +33,11 @@ export class Agents {
     this.s = s;
     /** @type {Promise<any> | null} */ this._proc = null;
     /** @type {Promise<any> | null} */ this._core = null;
-    this.coreDir = `${s.root}/.agents/scripts`;
     this.abandoned = false;
   }
+
+  /** The scripts folder of the MAIN tree: the code the hook runs, also for a session rooted in a run worktree (a worktree's copy is tracked content a task could rewrite). */
+  get coreDir() { return `${this.s.mainRoot}/.agents/scripts`; }
 
   /** The project's proc.mjs (null when the project has none). */
   proc() {
@@ -86,9 +86,6 @@ export class Agents {
     }
     const proc = await this.proc();
     if (!proc) return { status: 127, stdout: '', stderr: `proofline: ${this.coreDir}/core/proc.mjs is missing\n`, timedOut: false };
-    if (path.dirname(agentPath) !== this.coreDir && !sameTree(path.dirname(agentPath), this.coreDir)) {
-      return { status: 126, stdout: '', stderr: `proofline: ${path.dirname(agentPath)} differs from the project's own scripts, so its ${command} is not run\n`, timedOut: false };
-    }
     const args = [agentPath, ...argv];
     if (opt.budgetMs !== undefined) {
       const budget = await import(pathToFileURL(`${this.coreDir}/core/budget.mjs`).href);
@@ -101,9 +98,12 @@ export class Agents {
 
   /** @param {string[]} argv @param {object} io @param {number} budgetMs @returns {Promise<AgentResult>} */
   onWorker(argv, io, budgetMs) {
-    const worker = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { coreUrl: pathToFileURL(`${this.coreDir}/proofline-core.mjs`).href, argv, io } });
+    // the shared flag tells the worker the hook stopped waiting (a child the worker's bridge started cannot be killed): the core then writes no record
+    const cancel = new Int32Array(new SharedArrayBuffer(4));
+    const worker = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { coreUrl: pathToFileURL(`${this.coreDir}/proofline-core.mjs`).href, argv, io, cancel } });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
+        Atomics.store(cancel, 0, 1);
         this.abandoned = true; // the process ends with process.exit: a worker stuck in a synchronous wait cannot be stopped sooner
         void worker.terminate();
         resolve({ status: 124, stdout: '', stderr: '', timedOut: true });

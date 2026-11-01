@@ -7,8 +7,7 @@ import { jesc } from '../lib/text.mjs';
 export async function handle(ctx) {
   if (ctx.role !== 'lead' || ctx.sub) return undefined;
   if (!ctx.once()) return undefined;
-  ctx.sweep();
-  await ctx.flush();
+  try { ctx.sweep(); await ctx.flush(); } catch { /* housekeeping never blanks the session message */ }
   const plugin = ctx.env.CLAUDE_PLUGIN_ROOT ?? '';
   let skill;
   if (ctx.rt === 'codex') skill = '.agents/skills/proofline-lead/SKILL.md';
@@ -17,7 +16,9 @@ export async function handle(ctx) {
   let nxt;
   if (act !== '' && act !== 'INVALID') {
     // A200: bounded (hook.next_budget_seconds of the runtime's 30): the session starts at once and the lead asks `agent.sh next` itself
-    const r = await ctx.agent(['next', act], { keepRole: true, budgetMs: ctx.nextBudget * 1000 });
+    /** @type {import('../lib/agent.mjs').AgentResult} */
+    let r;
+    try { r = await ctx.agent(['next', act], { keepRole: true, budgetMs: ctx.nextBudget * 1000 }); } catch (e) { r = { status: 70, stdout: '', stderr: String(e), timedOut: false }; } // said, not hidden
     nxt = (r.stdout + r.stderr).split('\n').filter((l) => l.startsWith('next=')).map((l) => l.slice(5)).join('; ');
     if (r.timedOut) nxt = `run sh .agents/scripts/agent.sh next ${act} (the session check did not finish within the hook's time budget)`;
     // a moved command that failed (a missing node: 127) is said, not hidden: SessionStart cannot block, the PreToolUse guards deny until it is fixed

@@ -3,6 +3,8 @@
 // Every child is counted per program and timed, in process: spawnCounts() and spawnLog() are read by the caller (tests, the benchmark). No
 // environment value and no file switches this on or sends it anywhere (an env-named log file would be an arbitrary-file append for any role).
 import { spawn, spawnSync } from 'node:child_process';
+import { writeSync } from 'node:fs';
+import { refuseUntrustedScript } from './tree.mjs';
 
 /** @type {Map<string, number>} */
 const counts = new Map();
@@ -50,6 +52,11 @@ function signalNumber(signal) {
  * @param {string} program @param {string[]} args @param {ProcOptions} [options] @returns {ProcResult}
  */
 export function run(program, args, options = {}) {
+  const refused = refuseUntrustedScript(program, args, options.cwd);
+  if (refused !== null) {
+    if (options.stdio === 'inherit') { try { writeSync(2, refused); } catch { /* no stderr */ } }
+    return { status: 126, stdout: Buffer.alloc(0), stderr: Buffer.from(refused), started: false };
+  }
   count(program);
   const t0 = Date.now();
   const r = spawnSync(program, args, {
@@ -74,6 +81,8 @@ export function run(program, args, options = {}) {
  * @param {string} program @param {string[]} args @param {ProcOptions} [options] @returns {Promise<ProcResult>}
  */
 export function runAsync(program, args, options = {}) {
+  const refused = refuseUntrustedScript(program, args, options.cwd);
+  if (refused !== null) return Promise.resolve({ status: 126, stdout: Buffer.alloc(0), stderr: Buffer.from(refused), started: false });
   count(program);
   const t0 = Date.now();
   return new Promise((resolve) => {
@@ -100,6 +109,9 @@ export function runAsync(program, args, options = {}) {
       logSpawn(program, Date.now() - t0);
       resolve({ status: code ?? 128 + signalNumber(signal), stdout: Buffer.concat(out), stderr: Buffer.concat(err), started: true });
     });
+    // a child that ends before it reads (a stub that exits at once) closes its stdin: the EPIPE of the write is not an error of ours, and without a
+    // listener it would be an uncaught exception that ends the whole hook process
+    child.stdin?.on('error', () => {});
     if (options.input !== undefined && child.stdin) child.stdin.end(options.input);
   });
 }

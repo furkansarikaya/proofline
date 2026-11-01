@@ -112,6 +112,16 @@ export class Context {
     return { ...this.env, LC_ALL: 'C', RTK_DISABLED: '1', PROOFLINE_SHARED_ROOT: this.sharedMain() };
   }
 
+  /**
+   * Has the caller stopped waiting for this command? The prompt hook runs an approval step on a worker thread under a time budget and sets this flag when
+   * the budget ends (a bridged child of the worker cannot be killed, so the step is told instead): a record that would be written after that is not.
+   * Never settable from a command line, a file or the environment (the hook builds io in its own process).
+   */
+  cancelled() {
+    const c = /** @type {{ cancel?: Int32Array }} */ (this.io).cancel;
+    return c !== undefined && Atomics.load(c, 0) !== 0;
+  }
+
   /** Print the message of an error like `fail` does. @param {ProoflineError} e */
   printError(e) { this.err(`${e.message}\n`); }
 }

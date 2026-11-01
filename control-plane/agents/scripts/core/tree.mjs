@@ -1,0 +1,47 @@
+// @ts-check
+// Is a folder tree byte-identical to another? Used by proc.mjs: a shell script of a RUN WORKTREE is started only when the worktree's whole
+// .agents/scripts equals the main tree's (the worktree's copy is tracked content that a task could have rewritten: agent.sh is a launcher of
+// proofline-core.mjs and core/, and the shell fallback and the helper scripts run from the same folder).
+import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import path from 'node:path';
+
+/** @param {string} a @param {string} b @returns {boolean} true when both are folders with the same names and, for files, the same bytes; a link is never the same */
+export function sameTree(a, b) {
+  try {
+    const sa = lstatSync(a); const sb = lstatSync(b);
+    if (sa.isSymbolicLink() || sb.isSymbolicLink()) return false;
+    if (sa.isDirectory() && sb.isDirectory()) {
+      const na = readdirSync(a).sort(); const nb = readdirSync(b).sort();
+      if (na.length !== nb.length || na.some((n, i) => n !== nb[i])) return false;
+      return na.every((n) => sameTree(`${a}/${n}`, `${b}/${n}`));
+    }
+    return sa.isFile() && sb.isFile() && sa.size === sb.size && readFileSync(a).equals(readFileSync(b));
+  } catch { return false; }
+}
+
+/**
+ * The shell script a child would run, when it lives in a run worktree's script folder: `{ tree, main }` (the worktree's .agents/scripts and the
+ * project's own), else null. @param {string} program @param {string[]} args @param {string | undefined} cwd
+ * @returns {{ tree: string, main: string } | null}
+ */
+function worktreeScript(program, args, cwd) {
+  if (!/(^|\/)(sh|bash|dash)$/.test(program)) return null;
+  const first = args.find((a) => !a.startsWith('-'));
+  if (first === undefined) return null;
+  let file = path.resolve(cwd ?? process.cwd(), first);
+  try { file = realpathSync(file); } catch { /* the shell reports a missing file */ }
+  const m = /^(.*)\/\.agents\/local\/worktrees\/[^/]+\/\.agents\/scripts\//.exec(file);
+  return m ? { tree: file.slice(0, file.indexOf('/.agents/scripts/') + '/.agents/scripts'.length), main: `${m[1]}/.agents/scripts` } : null;
+}
+
+/**
+ * The refusal text when a child would run a script of a run worktree whose script tree is not the project's own, else null. proc.mjs calls it
+ * before every spawn, so the bridge to the shell code, the helper scripts and the worktree re-exec of a run all pass the same check.
+ * @param {string} program @param {string[]} args @param {string | undefined} cwd @returns {string | null}
+ */
+export function refuseUntrustedScript(program, args, cwd) {
+  const w = worktreeScript(program, args, cwd);
+  if (!w) return null;
+  // compared again at every spawn: a verdict kept for later would be stale as soon as a task rewrites a file
+  return sameTree(w.tree, w.main) ? null : `proofline: ${w.tree} differs from the project's own ${w.main}, so none of its scripts is run (a run worktree's scripts are tracked content a task could have rewritten); upgrade or repair the worktree\n`;
+}
