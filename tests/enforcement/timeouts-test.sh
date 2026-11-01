@@ -16,10 +16,21 @@ if [ -z "${TO_INNER:-}" ]; then
 fi
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT PROOFLINE_HOOK_NEXT_BUDGET PROOFLINE_LOCK_TIMEOUT BUILD_RECORD_WAIT 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
-hook=$TO_REPO/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$TO_REPO/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun=node; hbase=proofline-hook.mjs ;; *) hrun=sh; hbase=proofline-hook.sh ;; esac
+# install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
+install_hook() {
+  case $hook in
+    *.mjs) cp -R "$(dirname "$hook")/." .agents/hooks/; cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
+      printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> .git/info/exclude ;;
+    *) cp "$hook" .agents/hooks/ ;;
+  esac
+}
 fixture() {
   scaffold orchestrated no COMPLEX ""
-  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks; cp "$hook" .agents/hooks/
+  cp -R "$tl_agents/githooks" .agents/githooks; mkdir -p .agents/hooks; install_hook
   printf '.agents/githooks/\n.agents/hooks/\n' >> .git/info/exclude
   git config core.hooksPath .agents/githooks; git config commit.gpgsign false
 }

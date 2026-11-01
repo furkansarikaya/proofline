@@ -6,7 +6,10 @@
 # One selftest unit per scenario (LC_EXACT names one; see tests/selftest.sh).
 set -u
 repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
-hook=$repo/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$repo/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun=node ;; *) hrun=sh ;; esac
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-kill.XXXXXX") || { echo "kill-guard: TMPDIR must be an existing directory" >&2; exit 2; }
 trap 'rm -rf "$base" "${HOME:-/nonexistent}/.proofline-kg-test-$$.sh"' EXIT
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -15,7 +18,7 @@ command -v jq >/dev/null 2>&1 || { echo "kill-guard: jq is required"; exit 2; }
 proj=$base/proj; mkdir -p "$proj"
 git -C "$proj" init -q -b main 2>/dev/null || { git -C "$proj" init -q; git -C "$proj" checkout -q -b main; }
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) print "\\n"; print }'; }
-pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | sh "$hook" pretool claude; }
+pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | $hrun "$hook" pretool claude; }
 denies() { out=$(pre "$1"); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "not denied: $1 -> $out"; printf '%s' "$out" | grep -Fq 'A156' || die "denial is not the kill guard: $1 -> $out"; }
 allows() { out=$(pre "$1"); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "denied: $1 -> $out"; }
 
@@ -166,7 +169,7 @@ EOF
     # the budget is read every 20 records, so the scripts are 30 commands long
     { i=0; while [ $i -lt 30 ]; do echo "echo $i"; i=$((i + 1)); done; echo 'kill 12'; } > "$proj/bk.sh"
     { i=0; while [ $i -lt 30 ]; do echo "echo $i"; i=$((i + 1)); done; echo 'echo hi'; } > "$proj/bn.sh"
-    pre_b() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | PROOFLINE_KG_BUDGET=0 sh "$hook" pretool claude; }
+    pre_b() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | PROOFLINE_KG_BUDGET=0 $hrun "$hook" pretool claude; }
     out=$(pre_b 'sh bk.sh'); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0 did not deny a script holding kill: $out"
     printf '%s' "$out" | grep -Fq 'ran out of time' || die "budget denial text missing: $out"
     out=$(pre_b 'sh bn.sh'); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0 denied a script without a kill word: $out"
@@ -176,7 +179,7 @@ EOF
     { echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo 'kill 12'; } > "$proj/wk.sh"
     { echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo "echo $pad"; echo 'echo hi'; } > "$proj/wn.sh"
     [ "$(wc -c < "$proj/wk.sh")" -ge 1024 ] || die "fixture script under 1 KB"
-    pre_w() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | PROOFLINE_KG_BUDGET=0 PROOFLINE_KG_BGMIN=1 sh "$hook" pretool claude; }
+    pre_w() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | PROOFLINE_KG_BUDGET=0 PROOFLINE_KG_BGMIN=1 $hrun "$hook" pretool claude; }
     out=$(pre_w 'sh wk.sh'); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0, background path: a script holding kill not denied: $out"
     printf '%s' "$out" | grep -Fq 'ran out of time' || die "budget denial text missing: $out"
     out=$(pre_w 'sh wn.sh'); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "budget 0, background path: a script without a kill word denied: $out"
@@ -187,7 +190,7 @@ EOF
     [ "$(wc -c < "$proj/big2.sh")" -ge 100000 ] || die "fixture script under 100 KB"
     j=$(printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"sh big2.sh"}}' "$proj")
     n=0; while [ $n -lt 3 ]; do
-      printf '%s' "$j" | sh "$hook" pretool claude > "$base/hs.out" 2> "$base/hs.err"
+      printf '%s' "$j" | $hrun "$hook" pretool claude > "$base/hs.out" 2> "$base/hs.err"
       [ ! -s "$base/hs.err" ] || die "the hook wrote to stderr: $(head -c 300 "$base/hs.err")"
       ! grep -q '"permissionDecision":"deny"' "$base/hs.out" || die "a kill-free big script was denied: $(cat "$base/hs.out")"
       n=$((n + 1))

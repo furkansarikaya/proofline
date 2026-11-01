@@ -6,7 +6,10 @@
 # in a clean copy of the commit ("verified locally, no CI"). The hook keeps the single merge path for glab and az.
 set -u
 repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
-hook=$repo/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$repo/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun=node ;; *) hrun=sh ;; esac
 pl=$repo/bin/proofline
 pfs=$repo/control-plane/agents/scripts/platform.sh
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-platform.XXXXXX") || { echo "platform: TMPDIR must be an existing directory" >&2; exit 2; }
@@ -267,7 +270,7 @@ refused "github: a red check is still refused (no local verification replaces it
 
 # --- the hook keeps the single merge path on glab and az ---------------------------------------------
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); if (NR > 1) print "\\n"; print }'; }
-pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | sh "$hook" pretool claude; }
+pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$proj" "$(jstr "$1")" | $hrun "$hook" pretool claude; }
 git -C "$proj" checkout -q -b feat/x
 for c in 'glab mr merge 7' 'glab mr merge 7 --squash --yes' 'glab -R acme/app mr merge 7' 'glab alias set m "mr merge"' 'glab api -X PUT projects/1/merge_requests/7/merge' \
   'glab api projects/1/merge_requests/7/merge -X PUT -f merge_when_pipeline_succeeds=true' 'sh -c "glab mr merge 7"' 'm=merge; glab mr $m 7' \

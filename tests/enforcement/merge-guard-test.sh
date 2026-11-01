@@ -4,7 +4,10 @@
 # every other merge path. Everything runs in a throwaway directory under $TMPDIR; no shared git config is touched.
 set -u
 repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
-hook=$repo/adapters/claude/hooks/proofline-hook.sh
+# The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
+# the default is the shell hook. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$repo/adapters/claude/hooks/proofline-hook.sh}
+case $hook in *.mjs) hrun=node ;; *) hrun=sh ;; esac
 pl=$repo/bin/proofline
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-merge.XXXXXX") || { echo "merge-guard: TMPDIR must be an existing directory" >&2; exit 2; }
 trap 'rm -rf "$base"' EXIT
@@ -102,7 +105,7 @@ grep -Fq "jq is not installed" "$base/out" || die "jq missing message: $(cat "$b
 
 # --- the hook ----------------------------------------------------------------------------------
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); if (NR > 1) print "\\n"; print }'; }
-pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "${CWD:-$proj}" "$(jstr "$1")" | sh "$hook" pretool claude; }
+pre() { printf '{"hook_event_name":"PreToolUse","session_id":"s","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "${CWD:-$proj}" "$(jstr "$1")" | $hrun "$hook" pretool claude; }
 denies() { out=$(pre "$1"); printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "not denied: $1 -> $out"; printf '%s' "$out" | grep -Fq 'proofline merge' || die "denial does not name the wrapper: $1 -> $out"; }
 allows() { out=$(pre "$1"); ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || die "denied: $1 -> $out"; }
 git -C "$proj" checkout -q -b feat/x
