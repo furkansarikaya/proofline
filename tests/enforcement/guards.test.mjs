@@ -24,7 +24,8 @@ import { join, resolve, delimiter } from 'node:path';
 const repo = resolve(import.meta.dirname, '../..');
 const hook = process.env.GUARDS_HOOK || join(repo, 'adapters/claude/hooks/proofline-hook.sh');
 // GUARDS_HOOK may name proofline-hook.mjs: the Node hook is then started with this very node (an absolute path, so a PATH without node still starts it)
-const hookRun = (/** @type {string} */ event) => (hook.endsWith('.mjs') ? [process.execPath, [hook, event, 'claude']] : ['sh', [hook, event, 'claude']]);
+/** @param {string} event @returns {[string, string[]]} */
+const hookRun = (event) => (hook.endsWith('.mjs') ? [process.execPath, [hook, event, 'claude']] : ['sh', [hook, event, 'claude']]);
 const haveJq = spawnSync('jq', ['--version']).status === 0;
 const haveGit = spawnSync('git', ['--version']).status === 0;
 
