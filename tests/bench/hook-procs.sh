@@ -19,6 +19,7 @@ hrun=sh
 case "$hook" in
   *.mjs)
     hrun=node
+    cp "$tl_agents/githooks/pre-commit" "$tl_agents/githooks/pre-push" .agents/githooks/   # the shipped launchers: a commit or push costs one node plus the git calls
     cp -R "$(dirname "$hook")/." .agents/hooks/
     cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
     printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> .git/info/exclude ;;
