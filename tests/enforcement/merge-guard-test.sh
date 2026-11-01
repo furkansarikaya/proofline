@@ -8,6 +8,8 @@ repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
 # the default is the shell hook. The hook never reads it.
 hook=${HOOK_UNDER_TEST:-$repo/adapters/claude/hooks/proofline-hook.sh}
 case $hook in *.mjs) hrun=node ;; *) hrun=sh ;; esac
+# a Node hook imports the project's core (.agents/scripts/proofline-core.mjs, A194): an installed-looking fixture gets it
+core_into() { [ "$hrun" = node ] || return 0; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$1/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$1/.agents/scripts/core"; }
 pl=$repo/bin/proofline
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-merge.XXXXXX") || { echo "merge-guard: TMPDIR must be an existing directory" >&2; exit 2; }
 trap 'rm -rf "$base"' EXIT
@@ -162,6 +164,6 @@ for c in 'proofline merge 7' 'sh bin/proofline merge 7 --squash' 'git push -n or
   'git commit -m "docs: gh pr merge goes through the wrapper"' 'echo gh pr merge 7' 'grep -rn "pr merge" docs' 'git log --oneline' 'git merge-base main HEAD' 'git fetch origin main' 'git pull --ff-only origin main'; do allows "$c"; done
 ok "the wrapper, feature-branch pushes and read-only gh / git commands are allowed"
 # installed project: the same guard runs before any run logic
-mkdir -p "$proj/.agents/scripts"; : > "$proj/.agents/config.yaml"; printf 'echo main\n' > "$proj/.agents/scripts/agent.sh"
+mkdir -p "$proj/.agents/scripts"; : > "$proj/.agents/config.yaml"; printf 'echo main\n' > "$proj/.agents/scripts/agent.sh"; core_into "$proj"
 denies 'gh pr merge 7 --admin'; denies 'git push origin main'; allows 'proofline merge 7'; ok "the guard also runs in an installed project"
 echo "merge guard tests passed"

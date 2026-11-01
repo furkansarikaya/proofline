@@ -10,6 +10,8 @@ repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
 # the default is the shell hook. The hook never reads it.
 hook=${HOOK_UNDER_TEST:-$repo/adapters/claude/hooks/proofline-hook.sh}
 case $hook in *.mjs) hrun=node ;; *) hrun=sh ;; esac
+# a Node hook imports the project's core (.agents/scripts/proofline-core.mjs, A194): an installed-looking fixture gets it
+core_into() { [ "$hrun" = node ] || return 0; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$1/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$1/.agents/scripts/core"; }
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-kill.XXXXXX") || { echo "kill-guard: TMPDIR must be an existing directory" >&2; exit 2; }
 trap 'rm -rf "$base" "${HOME:-/nonexistent}/.proofline-kg-test-$$.sh"' EXIT
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -50,7 +52,7 @@ for sc in $scenarios; do
     denies 'kill -9 -- "$(pgrep x)"'; denies 'kill -s TERM "$(pgrep x)"'; allows 'kill "$(cat app.pid)"'
     ok "kill with a quoted \$(pgrep) or \$(lsof) substitution is denied, kill \"\$(cat app.pid)\" is allowed" ;;
   installed)   # the guard runs in an installed project too
-    mkdir -p "$proj/.agents/scripts"; : > "$proj/.agents/config.yaml"; printf 'echo main\n' > "$proj/.agents/scripts/agent.sh"
+    mkdir -p "$proj/.agents/scripts"; : > "$proj/.agents/config.yaml"; printf 'echo main\n' > "$proj/.agents/scripts/agent.sh"; core_into "$proj"
     denies 'pkill node'; allows 'kill 1234'; ok "the guard also runs in an installed project" ;;
   heredoc_indirect)   # an unquoted heredoc body is expanded by the shell; a quoted or escaped delimiter is plain text
     denies "$(printf 'cat <<EOF\n$(pkill node)\nEOF')"; denies "$(printf 'cat <<EOF\nx `killall node` y\nEOF')"

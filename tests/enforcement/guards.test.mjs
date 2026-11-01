@@ -23,6 +23,8 @@ import { join, resolve, delimiter } from 'node:path';
 
 const repo = resolve(import.meta.dirname, '../..');
 const hook = process.env.GUARDS_HOOK || join(repo, 'adapters/claude/hooks/proofline-hook.sh');
+// GUARDS_HOOK may name proofline-hook.mjs: the Node hook is then started with this very node (an absolute path, so a PATH without node still starts it)
+const hookRun = (/** @type {string} */ event) => (hook.endsWith('.mjs') ? [process.execPath, [hook, event, 'claude']] : ['sh', [hook, event, 'claude']]);
 const haveJq = spawnSync('jq', ['--version']).status === 0;
 const haveGit = spawnSync('git', ['--version']).status === 0;
 
@@ -86,7 +88,7 @@ function runHook(dir, tool, input, opts = {}) {
   /** @type {Record<string, string | undefined>} */
   const env = baseEnv();
   if (path) env.PATH = path;
-  const r = spawnSync('sh', [hook, 'pretool', 'claude'], { cwd: dir, input: JSON.stringify(payload), env, encoding: 'utf8', timeout: 120000 });
+  const r = spawnSync(...hookRun('pretool'), { cwd: dir, input: JSON.stringify(payload), env, encoding: 'utf8', timeout: 120000 });
   let decision = 'allow';
   let reason = '';
   try {
@@ -319,7 +321,14 @@ describe('tripwire scope', { skip }, () => {
 
 // The launcher preamble of the real agent.sh (ADR 5.3) as a wrapper in front of the shell code: a moved command needs node on PATH.
 const MOVED = 'role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help';
+/** The Node hook runs a moved command in its own process; the simulated failures below need agent.sh to run it, which the user's engine switch (`sh:<commands>` in .agents/local/engine) asks for. */
+function viaAgentSh(dir, cmds) {
+  if (!hook.endsWith('.mjs')) return;
+  mkdirSync(join(dir, '.agents/local'), { recursive: true });
+  writeFileSync(join(dir, '.agents/local/engine'), `sh:${cmds.join(',')}\n`);
+}
 function wrapMoved(dir, code) {
+  viaAgentSh(dir, MOVED.split('|'));
   const s = join(dir, '.agents/scripts');
   renameSync(join(s, 'agent.sh'), join(s, 'agent-real.sh'));
   const body = code === undefined
@@ -387,13 +396,13 @@ describe('node absent (C2)', { skip }, () => {
     const p = project(); wrapMoved(p);
     /** @type {Record<string, any>} */
   const payload = { hook_event_name: 'PostToolUse', session_id: 's1', cwd: p, tool_name: 'Agent', tool_input: {}, tool_response: {} };
-    const r = spawnSync('sh', [hook, 'posttool', 'claude'], { cwd: p, input: JSON.stringify(payload), env: { ...baseEnv(), PATH: np }, encoding: 'utf8' });
+    const r = spawnSync(...hookRun('posttool'), { cwd: p, input: JSON.stringify(payload), env: { ...baseEnv(), PATH: np }, encoding: 'utf8' });
     assert.ok(!(r.stdout || '').includes('"permissionDecision":"deny"'), r.stdout);
   });
   test('a dispatched specialist (AGENT_ROLE in the hook environment) is not mistaken for a missing node', () => {
     const p = project();
     const payload = { hook_event_name: 'PreToolUse', session_id: 's1', cwd: p, tool_name: 'Bash', tool_input: { command: 'ls' } };
-    const r = spawnSync('sh', [hook, 'pretool', 'claude'], { cwd: p, input: JSON.stringify(payload), env: { ...baseEnv(), AGENT_ROLE: 'implementer' }, encoding: 'utf8' });
+    const r = spawnSync(...hookRun('pretool'), { cwd: p, input: JSON.stringify(payload), env: { ...baseEnv(), AGENT_ROLE: 'implementer' }, encoding: 'utf8' });
     assert.ok(!(r.stdout || '').includes('Node 22.13'), r.stdout);
   });
   for (const c of SPLIT_PUSHES) {
@@ -416,12 +425,13 @@ describe('node absent (C2)', { skip }, () => {
 // config-get fallbacks) fail closed too, each in the way its event can: PreToolUse denies, Stop blocks once, SessionStart says so.
 /** Wrap agent.sh so that only the named commands fail (exit CODE, no output); everything else is the real shell code. */
 function wrapFailing(dir, cmds, code = 127) {
+  viaAgentSh(dir, cmds);
   const sc = join(dir, '.agents/scripts');
   renameSync(join(sc, 'agent.sh'), join(sc, 'agent-real.sh'));
   writeFileSync(join(sc, 'agent.sh'), `#!/bin/sh\ncase "\${1:-}" in ${cmds.join('|')}) echo "agent.sh: simulated failure" >&2; exit ${code} ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n`);
 }
 function runEvent(dir, event, payload, env = {}) {
-  const r = spawnSync('sh', [hook, event, 'claude'], { cwd: dir, input: JSON.stringify({ session_id: 's1', cwd: dir, ...payload }), env: { ...baseEnv(), ...env }, encoding: 'utf8', timeout: 120000 });
+  const r = spawnSync(...hookRun(event), { cwd: dir, input: JSON.stringify({ session_id: 's1', cwd: dir, ...payload }), env: { ...baseEnv(), ...env }, encoding: 'utf8', timeout: 120000 });
   return r.stdout || '';
 }
 const stopPayload = (active = false) => ({ hook_event_name: 'Stop', last_assistant_message: 'The final report.', stop_hook_active: active });
@@ -446,7 +456,7 @@ describe('every moved command the hook calls fails closed (audit)', { skip }, ()
     assert.match(runEvent(p, 'stop', stopPayload()), /report-tokens exited 3/);
   });
   test('Stop: summary failing while identifiers are missing blocks too', () => {
-    const p = project(); reportTurn(p);
+    const p = project(); reportTurn(p); viaAgentSh(p, ['report-tokens', 'summary']);
     const sc = join(p, '.agents/scripts');
     renameSync(join(sc, 'agent.sh'), join(sc, 'agent-real.sh'));
     writeFileSync(join(sc, 'agent.sh'), '#!/bin/sh\ncase "${1:-}" in report-tokens) echo T-9; exit 0 ;; summary) exit 127 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n');

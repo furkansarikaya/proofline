@@ -10,6 +10,8 @@ repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
 # the default is the shell hook. The hook never reads it.
 hook=${HOOK_UNDER_TEST:-$repo/adapters/claude/hooks/proofline-hook.sh}
 case $hook in *.mjs) hrun=node ;; *) hrun=sh ;; esac
+# a Node hook imports the project's core (.agents/scripts/proofline-core.mjs, A194): an installed-looking fixture gets it
+core_into() { [ "$hrun" = node ] || return 0; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$1/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$1/.agents/scripts/core"; }
 pl=$repo/bin/proofline
 pfs=$repo/control-plane/agents/scripts/platform.sh
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-platform.XXXXXX") || { echo "platform: TMPDIR must be an existing directory" >&2; exit 2; }
@@ -58,6 +60,7 @@ here=$(dirname "$0")
 case "$2" in commands.build) cat "$here/../cmd.build" 2>/dev/null ;; commands.test) cat "$here/../cmd.test" 2>/dev/null ;; esac
 exit 0
 EOF
+core_into "$proj"
 git -C "$proj" config user.name t; git -C "$proj" config user.email t@t
 printf '.agents/local/\n' > "$proj/.gitignore"
 FS=$base/fs; mkdir -p "$FS"; export FS
