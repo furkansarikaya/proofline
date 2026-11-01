@@ -50,6 +50,26 @@ export const STATES = /** @type {Record<string, string>} */ ({
   'gates-failed': `scaffold orchestrated no COMPLEX; ${IMPL}; A secret-scan LC >/dev/null; gfail REVIEW_SMALL impl.txt`,
   // a risky path makes the tier full: the full gate set (plan, rules, tests, security reviews), one passed, one failed
   'gates-full': `scaffold orchestrated no COMPLEX; ${IMPL}; printf '{}\\n' > package.json; A tier LC >/dev/null; A secret-scan LC >/dev/null; gpass REVIEW_PLAN; gfail REVIEW_RULES impl.txt`,
+  // gates-test waiver, SECRETS/SECURITY, pass_low, pending approval and design-sync scenarios: the paths that carry Core invariants 1 and 2 (waiver key,
+  // known issues, batch accept) and the shell fallbacks of the Node engine
+  'gates-waived': `scaffold orchestrated no COMPLEX; ${IMPL}; failed_small; waive_it`,
+  'gates-waived-key': `scaffold orchestrated no COMPLEX; ${IMPL}; failed_small; waive_it; gfail REVIEW_SMALL impl.txt`,
+  'gates-waive-nomatch': `scaffold orchestrated no COMPLEX; ${IMPL}; failed_small; waive_it; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:1|a different defect|traced: empty key; scan: grep -n lookup impl_test.txt; instances: single'`,
+  'gates-pending-waive': `scaffold orchestrated no COMPLEX; ${IMPL}; failed_small; A request-approval LC waive:REVIEW_SMALL-1 >/dev/null`,
+  'gates-pending-plan': 'scaffold standalone no COMPLEX manual; A request-approval LC plan >/dev/null',
+  'gates-secrets-fail': `scaffold orchestrated no COMPLEX; worker RED fail impl_test.txt 'test: lookup'; worker GREEN pass impl.txt 'PLANTED_SECRET=abc'; A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null || true`,
+  'gates-security-fail': `scaffold standalone no CRITICAL manual; approve_as_user plan 'approve the plan'; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null; solo RED fail impl_test.txt 'test: lookup'; solo GREEN pass impl.txt 'impl: lookup'; A handoff LC IMPLEMENTED >/dev/null; rec SECURITY FAIL high 'SECURITY-1|blocking|impl.txt:1|injection reachable from input|traced: input -> eval'`,
+  'gates-pass-low': `scaffold orchestrated no COMPLEX; ${IMPL}; rec REVIEW_SMALL PASS low`,
+  'gates-known-issue': 'mk_run; list_it FU-9',
+  'gates-known-issue-unlisted': 'mk_run',
+  'gates-batch-accept': 'mk_run; batch_with b "accept K QA $PLACE: $TXT"',
+  'gates-batch-decline': 'mk_run; batch_with a "accept K QA $PLACE: $TXT"',
+  // a pull request is open on a DONE run (the merge step ran): the GitHub origin makes the platform tool gh
+  'gates-pr-open': `scaffold orchestrated no COMPLEX; ${IMPL}; pass_all; A handoff LC CODE_DONE >/dev/null; finish_done; git remote add origin https://github.com/acme/widgets.git; mkdir -p .agents/local/deliver/LC; printf '7\\n' > .agents/local/deliver/LC/PR`,
+  // design-sync drift in a knowledge-scope document, before the knowledge step
+  'gates-drift': 'drift_run',
+  // a dispatch step in flight (its marker is written by the case, see stage2-commands.mjs)
+  'gates-dispatch': `scaffold orchestrated no COMPLEX; ${IMPL}; mkdir -p .agents/runs/LC/dispatch`,
   'gates-allpass': `scaffold orchestrated no COMPLEX; ${IMPL}; pass_all`,
   'gates-stale': `scaffold orchestrated no COMPLEX; ${IMPL}; pass_all; printf 'edit after the gates\\n' >> impl.txt`,
   'gates-codedone': `scaffold orchestrated no COMPLEX; ${IMPL}; pass_all; A handoff LC CODE_DONE >/dev/null`,
@@ -71,6 +91,9 @@ risk_open; pass_all`,
   'scale-20': `scaffold orchestrated no COMPLEX; ${files(20)}`,
   'scale-60': `scaffold orchestrated no COMPLEX; ${files(60)}`,
 });
+/** The states of the waiver, known-issue, batch, approval, SECRETS/SECURITY, pass_low, pull-request, drift and dispatch scenarios (read by every run command). */
+export const EXTRA_STATES = ['gates-waived', 'gates-waived-key', 'gates-waive-nomatch', 'gates-pending-waive', 'gates-pending-plan', 'gates-secrets-fail', 'gates-security-fail', 'gates-pass-low',
+  'gates-known-issue', 'gates-known-issue-unlisted', 'gates-batch-accept', 'gates-batch-decline', 'gates-pr-open', 'gates-drift', 'gates-dispatch'];
 export const RUN_STATES = Object.keys(STATES);
 export const SCALE_STATES = ['scale-0', 'scale-20', 'scale-60'];
 
@@ -105,8 +128,8 @@ function installLikeProject(/** @type {string} */ out) {
 
 function buildState(/** @type {string} */ name, /** @type {string} */ script) {
   const out = mkdtempSync(join(tmpdir(), `eq-s2-${name}.`)); const builtAt = Math.floor(Date.now() / 1000);
-  const r = run('sh', ['-c', `. "$EQ_LIB"; ${script}\ncp -R "$PWD/." "$EQ_OUT/"`, join(scriptsSrc, 'x.sh')],
-    { env: { ...baseEnv(out), EQ_OUT: out, EQ_LIB: join(scriptsSrc, 'test-lib.sh') } });
+  const r = run('sh', ['-c', `. "$EQ_LIB"; . "$EQ_PRELUDE"; ${script}\ncp -R "$PWD/." "$EQ_OUT/"`, join(scriptsSrc, 'x.sh')],
+    { env: { ...baseEnv(out), EQ_OUT: out, EQ_LIB: join(scriptsSrc, 'test-lib.sh'), EQ_PRELUDE: join(import.meta.dirname, 'stage2-prelude.txt') } });
   if (r.code !== 0) throw new Error(`fixture state ${name} failed (${r.code}): ${r.stderr}${r.stdout}`);
   return { out, builtAt };
 }

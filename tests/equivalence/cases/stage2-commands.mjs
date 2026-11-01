@@ -4,7 +4,7 @@
 // Cases of a command that has not moved yet run the shell against the shell and pass trivially; they become the equivalence proof when the command
 // is added to the Node HANDLERS. scope.mjs picks a case up through its command (steps[].args[0]): a pull request replays the cases of the touched
 // commands, the nightly EQUIVALENCE_FULL run replays all of them.
-import { RUN_STATES, SCALE_STATES, stateFixture } from './stage2-fixtures.mjs';
+import { EXTRA_STATES, RUN_STATES, SCALE_STATES, stateFixture } from './stage2-fixtures.mjs';
 
 /** @typedef {import('../rig.mjs').Case} Case */
 /** @typedef {import('../rig.mjs').Step} Step */
@@ -45,7 +45,7 @@ export const ROWS = [
   { cmd: 'verify-qa-plan', states: CORE, calls: [A(['verify-qa-plan', ID]), A(['verify-qa-plan', 'NOPE'])] },
   { cmd: 'verify-worker-evidence', states: CORE, calls: [A(['verify-worker-evidence', ID]), A(['verify-worker-evidence'])] },
   { cmd: 'patch-fingerprint', states: CORE, calls: [A(['patch-fingerprint', ID]), A(['patch-fingerprint', 'NOPE'])] },
-  { cmd: 'plan-section', states: CORE, calls: [A(['plan-section', ID, 'Architecture']), A(['plan-section', ID, 'Assumptions']), A(['plan-section', ID, 'Data']), A(['plan-section', ID]), A(['plan-section'])] },
+  { cmd: 'plan-section', states: CORE, calls: [A(['plan-section', ID, 'Architecture']), A(['plan-section', ID, 'Assumptions']), A(['plan-section', ID, 'Data']), A(['plan-section', ID, 'Arch.*']), A(['plan-section', ID, '[Aa]rchitecture']), A(['plan-section', ID, 'Architecture|Data']), A(['plan-section', ID, '^Arch']), A(['plan-section', ID, '[abc']), A(['plan-section', ID, 'a\\b']), A(['plan-section', ID, '*']), A(['plan-section', ID, '']), A(['plan-section', ID]), A(['plan-section'])] },
   { cmd: 'report-facts', states: CORE, calls: [A(['report-facts', ID]), A(['report-facts'])] },
   { cmd: 'report-execution', states: CORE, calls: [A(['report-execution', ID]), A(['report-execution'])] },
   { cmd: 'report-tokens', states: CORE, calls: [A(['report-tokens', ID]), A(['report-tokens'])] },
@@ -81,11 +81,29 @@ export const ROWS = [
     { write: { path: 'tasks/typed2.md', content: '# Task: T\n\n---\ntype: weird\n---\n' } }, A(['task-type', 'tasks/typed2.md']), A(['task-type', 'tasks/none.md']), A(['task-type'])] },
 ];
 
+// the waiver, known-issue, batch, approval, SECRETS/SECURITY, pass_low, pull-request and design-sync states are read by every command that reads a run
+for (const r of ROWS) if (r.states.includes('gates-frozen') || r.states.includes('gates-implemented')) r.states = [...r.states, ...EXTRA_STATES.filter((x) => !r.states.includes(x))];
+ROWS.find((r) => r.cmd === 'ci-check')?.states.push('gates-pr-open');
+
+/** A marker of a dispatch in flight (the pid is the test process, alive while the case runs; the start is 3000 s before the call, so the elapsed minutes do not move). */
+const marker = (/** @type {string} */ role) => /** @type {Step} */ ({ exec: ['sh', '-c', `printf 'pid=%s\\nrole=%s\\ntimeout=3600\\nstarted_epoch=%s\\n' "$PPID" '${role}' "$(( $(date +%s) - 3000 ))" > .agents/runs/LC/dispatch/001-x.running`] });
+/** The platform tool gh as a PATH stub beside the project (the rig's own PATH mechanism: no environment variable of the product is set). */
+const ghStub = /** @type {Step} */ ({ write: { path: 'stubbin/gh', content: '#!/bin/sh\necho "OPEN false 0000000000000000000000000000000000000000 proofline/LC-lookup main acme"\n', mode: 0o755 } });
+const withGh = (/** @type {string[]} */ args) => A(args, { env: { PATH: `stubbin:${process.env.PATH ?? ''}` } });
+
+/** Cases that need steps of their own on one state: a dispatch marker with an empty role or blanks (the shell fallback of budget_note), a pull request open on a DONE run. */
+export const ONE_OFF = /** @type {{ cmd: string, state: string, label: string, calls: Step[] }[]} */ ([
+  ...['next', 'summary', 'digest', 'pipeline'].map((cmd) => ({ cmd, state: 'gates-dispatch', label: 'markers', calls: [
+    marker('implementer'), A([cmd, ID]), marker(''), A([cmd, ID]), marker('two words'), A([cmd, ID]), marker('tab\there'), A([cmd, ID]), { exec: ['rm', '-f', '.agents/runs/LC/dispatch/001-x.running'] }, A([cmd, ID])] })),
+  ...['next', 'summary', 'report-facts', 'digest', 'status'].map((cmd) => ({ cmd, state: 'gates-pr-open', label: 'gh stub', calls: [ghStub, withGh(cmd === 'status' ? [cmd] : [cmd, ID]), A(cmd === 'status' ? [cmd] : [cmd, ID])] })),
+]);
+
 /** The states split over test files (node --test runs the files in parallel; building a state takes seconds, so a state belongs to one file). */
 export const BUCKETS = /** @type {string[][]} */ ([
-  ['empty', 'gates-frozen', 'gates-implemented', 'gates-partial', 'gates-standalone', 'intake-unclassified', 'intake-classified', 'intake-branched', 'intake-planned'],
-  ['gates-failed', 'gates-full', 'gates-allpass', 'gates-stale', 'gates-codedone'],
-  ['gates-done', 'risk-unfrozen', 'risk-open', 'risk-passed', 'scale-0', 'scale-20', 'scale-60'],
+  ['empty', 'gates-frozen', 'gates-implemented', 'gates-partial', 'gates-standalone', 'intake-unclassified', 'intake-classified', 'intake-branched', 'intake-planned', 'gates-secrets-fail', 'gates-security-fail', 'gates-pass-low'],
+  ['gates-failed', 'gates-full', 'gates-allpass', 'gates-stale', 'gates-codedone', 'gates-waived', 'gates-pending-waive', 'gates-pending-plan'],
+  ['gates-waived-key', 'gates-waive-nomatch', 'gates-known-issue', 'gates-known-issue-unlisted', 'gates-batch-accept', 'gates-batch-decline', 'gates-drift'],
+  ['gates-done', 'gates-pr-open', 'gates-dispatch', 'risk-unfrozen', 'risk-open', 'risk-passed', 'scale-0', 'scale-20', 'scale-60'],
 ]);
 
 /** The cases: one per (command, state), named `<command>: <state>` so that a failure names both. The fixture is built when a case first runs. @returns {Case[]} */
@@ -94,6 +112,10 @@ export function stage2Cases(/** @type {string[]|undefined} */ onlyStates = undef
   for (const r of ROWS) for (const s of r.states) {
     if (onlyStates && !onlyStates.includes(s)) continue;
     out.push({ name: `${r.cmd}: ${s}`, get fixture() { return stateFixture(s); }, steps: r.calls });
+  }
+  for (const o of ONE_OFF) {
+    if (onlyStates && !onlyStates.includes(o.state)) continue;
+    out.push({ name: `${o.cmd}: ${o.state} (${o.label})`, get fixture() { return stateFixture(o.state); }, steps: o.calls });
   }
   return out;
 }
