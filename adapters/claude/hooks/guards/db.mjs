@@ -8,8 +8,9 @@
 //   dbGuardCmd(ctx, scan)             the Bash command: tokens of every command and write target, SQL clients, destructive SQL, migrations
 //   scratchPath(ctx, p)               a throwaway location outside the project root
 import { readFileSync, statSync } from 'node:fs';
+import { isDir as isDirectory } from '../lib/fsx.mjs';
 import { cmdSubst } from '../lib/text.mjs';
-import { cParts, deny, ereToJs, globMatch, grepq, hcfgLoad, lines, mcFail, stateOf } from './kit.mjs';
+import { cParts, deny, dn, physDir, ereToJs, globMatch, grepq, hcfgLoad, lines, mcFail, stateOf } from './kit.mjs';
 
 const DSQL = new RegExp('(^|[^a-z_])(drop[ \\t\\n\\v\\f\\r]+(table|column|index|view|schema|database|trigger)|alter[ \\t\\n\\v\\f\\r]+table[^;]*[ \\t\\n\\v\\f\\r]drop[ \\t\\n\\v\\f\\r]|truncate[ \\t\\n\\v\\f\\r]+(table[ \\t\\n\\v\\f\\r]+)?[a-z_"`]|delete[ \\t\\n\\v\\f\\r]+from[ \\t\\n\\v\\f\\r])', 'i');
 
@@ -34,19 +35,34 @@ export async function dbLoad(ctx) {
   st.dbClients = clients;
 }
 
-/** `scratch_path P`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 */
+/**
+ * `scratch_path P`: a throwaway location outside the project root. Stricter than the shell: a `..` component, or a link that leads out of the
+ * scratch folders, makes it no scratch (`/tmp/../project/x.db` is the project's database).
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0
+ */
 export function scratchPath(ctx, p0) {
-  const p = p0.replace(/^\/private/, '');
-  const r = ctx.root.replace(/^\/private/, '');
-  if (p === r || p.startsWith(`${r}/`)) return false;
-  if (p.startsWith('/tmp/') || p.startsWith('/var/folders/') || p.startsWith('$TMPDIR/') || p.startsWith('${TMPDIR}/')) return true;
-  const tmp = ctx.env.TMPDIR ?? '';
-  if (tmp !== '') {
-    let t = tmp.endsWith('/') ? tmp.slice(0, -1) : tmp;
-    t = t.replace(/^\/private/, '');
-    if (p.startsWith(`${t}/`)) return true;
+  const textual = (/** @type {string} */ q0) => {
+    const p = q0.replace(/^\/private/, '');
+    const r = ctx.root.replace(/^\/private/, '');
+    if (p === r || p.startsWith(`${r}/`)) return false;
+    if (p.startsWith('/tmp/') || p.startsWith('/var/folders/') || p.startsWith('$TMPDIR/') || p.startsWith('${TMPDIR}/')) return true;
+    const tmp = ctx.env.TMPDIR ?? '';
+    if (tmp !== '') {
+      let t = tmp.endsWith('/') ? tmp.slice(0, -1) : tmp;
+      t = t.replace(/^\/private/, '');
+      if (p.startsWith(`${t}/`)) return true;
+    }
+    return false;
+  };
+  if (!textual(p0)) return false;
+  if (`/${p0}/`.includes('/../')) return false;
+  if (p0.startsWith('/')) {
+    let d = p0;
+    for (let i = 0; i < 64 && d !== '/' && !isDirectory(d); i++) d = dn(d);
+    const real = physDir(d);
+    if (real !== '' && !textual(real + p0.slice(d.length))) return false;
   }
-  return false;
+  return true;
 }
 
 /** `db_is_path TOKEN`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} tok */

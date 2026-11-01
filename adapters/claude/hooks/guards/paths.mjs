@@ -12,7 +12,9 @@
 //   roTail(ctx)            the sentence a read role's denial ends with
 //   baseline(ctx)          once per run: the untracked files that exist before the run changes anything
 //   alwaysProtected(rel)   the git hooks and the git config that wires them
-import { lstatSync, realpathSync, renameSync, statSync, existsSync } from 'node:fs';
+import { lstatSync, realpathSync, statSync, existsSync } from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { putAtomic, mkdirp, isFile, isDir, readText, rmf } from '../lib/fsx.mjs';
 import { canon, cmdSubst } from '../lib/text.mjs';
 import { bn, dn, git, globMatch, hcfgLoad, mcFlag, stateOf, worktrees } from './kit.mjs';
@@ -29,35 +31,82 @@ export function alwaysProtected(rel) {
 }
 
 /** @param {string} p */
-function physical(p) { try { return realpathSync.native(p); } catch { return ''; } }
+function physical(p) { try { return realpathSync.native(p).split(path.sep).join('/'); } catch { return ''; } }
+
+/** @type {Promise<(p: string) => string> | null} */
+let normFn = null;
+/**
+ * A path from the runtime in POSIX form: Windows drive, UNC and backslash spellings are converted before anything resolves them
+ * (core/paths.mjs normalizeInputPath of the project, else of this repository, else backslashes only). Plain POSIX paths pass untouched.
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {string} p
+ */
+export async function inputPath(ctx, p) {
+  if (!p.includes('\\') && !/^[A-Za-z]:/.test(p) && !p.startsWith('/c/') && !p.startsWith('/cygdrive/')) return p;
+  normFn ??= (async () => {
+    for (const d of [`${ctx.root}/.agents/scripts/core`, path.resolve(import.meta.dirname, '../../../../control-plane/agents/scripts/core')]) {
+      if (!isFile(`${d}/paths.mjs`)) continue;
+      try { const m = await import(pathToFileURL(`${d}/paths.mjs`).href); return (/** @type {string} */ x) => m.normalizeInputPath(x); } catch { /* next */ }
+    }
+    return (/** @type {string} */ x) => x.replace(/\\/g, '/');
+  })();
+  return (await normFn)(p);
+}
+
+/** An absolute path; a drive spelling counts only on a Windows host (elsewhere `C:/x` is a name under the working directory, as in the shell). @param {string} p */
+function isAbs(p) { return p.startsWith('/') || (process.platform === 'win32' && /^[A-Za-z]:\//.test(p)); }
+
+/** Per-event memo of relpath answers. @type {WeakMap<object, Map<string, { rel: string, abs: string }>>} */
+const RELS = new WeakMap();
 
 /**
- * `relpath P [abs]`: the project-relative path of P (resolved against cwd; symlinks in every existing parent directory resolved).
+ * `relpath P [abs]`: the project-relative path of P (resolved against cwd; every existing parent directory resolved PHYSICALLY, so `link/..` is
+ * the parent of the link target, not the textual parent the shell's `cd` produced). Stricter than the shell on purpose: Windows spellings are
+ * converted first, and an existing last component takes the case it has on disk (macOS: `run.yaml` is `RUN.yaml`).
  * @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 @returns {Promise<{ rel: string, abs: string }>}
  */
 export async function relpathAbs(ctx, p0) {
-  let rp = p0.startsWith('/') ? p0 : `${ctx.cwd}/${p0}`;
+  let memo = RELS.get(ctx);
+  if (!memo) { memo = new Map(); RELS.set(ctx, memo); }
+  const hit = memo.get(p0);
+  if (hit) return hit;
+  const r = await relpathCompute(ctx, p0);
+  memo.set(p0, r);
+  return r;
+}
+
+/** @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 */
+async function relpathCompute(ctx, p0) {
+  const p = await inputPath(ctx, p0);
+  let rp = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   let dir = dn(rp);
   let tail = bn(rp);
   while (!isDir(dir)) {
     try { if (lstatSync(dir).isSymbolicLink()) return { rel: '@unknown', abs: '' }; } catch { /* not there */ }
     tail = `${bn(dir)}/${tail}`;
-    dir = dn(dir);
+    const up = dn(dir);
+    if (up === dir) return { rel: '@unknown', abs: '' };
+    dir = up;
   }
   if (`/${tail}/`.includes('/../') || `/${tail}/`.includes('/./')) return { rel: '@unknown', abs: '' };
   const phys = physical(dir);
   if (phys === '') return { rel: '@unknown', abs: '' };
-  rp = `${phys}/${tail}`;
+  // an existing last component keeps the case it has on disk (never a link: the link itself is judged by target_ok)
+  if (!tail.includes('/')) {
+    try {
+      if (!lstatSync(`${phys}/${tail}`).isSymbolicLink()) tail = path.basename(realpathSync.native(`${phys}/${tail}`));
+    } catch { /* not there yet */ }
+  }
+  rp = phys === '/' ? `/${tail}` : `${phys}/${tail}`;
   // A184: a session whose project root is a run worktree still protects the MAIN tree
+  const root = physical(ctx.root) || ctx.root; const main = physical(ctx.mainRoot) || ctx.mainRoot;
   let base = '';
-  if (rp === ctx.root || rp.startsWith(`${ctx.root}/`)) base = ctx.root;
-  else if (rp === ctx.mainRoot || rp.startsWith(`${ctx.mainRoot}/`)) base = ctx.mainRoot;
+  if (rp === root || rp.startsWith(`${root}/`)) base = root;
+  else if (rp === main || rp.startsWith(`${main}/`)) base = main;
   if (base === '') return { rel: '@outside', abs: rp };
   if (rp === base) return { rel: '.', abs: rp };
-  if (!rp.startsWith(`${base}/`)) return { rel: '@outside', abs: rp };
   let rel = rp.slice(base.length + 1);
   // A184: a path inside a run's own git worktree is judged relative to THAT worktree's root (agent.sh worktree-root decides)
-  if (rel.startsWith('.agents/local/worktrees/') && rel.indexOf('/', '.agents/local/worktrees/'.length) >= 0 && ctx.installed) {
+  if (/^\.agents\/local\/worktrees\/.*\/.*$/s.test(rel) && ctx.installed) {
     const r = await ctx.agent(['worktree-root', rp], { keepRole: true });
     const w = cmdSubst(r.stdout);
     if (r.status === 0 && w !== '' && rp.startsWith(`${w}/`)) rel = rp.slice(w.length + 1);
@@ -89,21 +138,23 @@ export async function outsideOk(ctx, p) {
   return `${p} is outside the project. A run writes nothing outside the copy (registered worktrees and the runtime's own storage excepted); a path that merely shares a prefix with the project root is outside too`;
 }
 
-/** `target_ok P`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} p @returns {Promise<string | null>} */
-export async function targetOk(ctx, p) {
-  const abs = p.startsWith('/') ? p : `${ctx.cwd}/${p}`;
+/** `target_ok P`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 @returns {Promise<string | null>} */
+export async function targetOk(ctx, p0) {
+  const p = await inputPath(ctx, p0);
+  const abs = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   try { if (lstatSync(abs).isSymbolicLink()) return 'the target is a symbolic link; writes through links are never allowed during a run'; } catch { /* absent */ }
   try { const st = statSync(abs); if (st.isFile() && st.nlink > 1) return 'the target has several hard links; writes through links are never allowed during a run'; } catch { /* absent */ }
-  return pathOk(ctx, await relpath(ctx, p));
+  return pathOk(ctx, await relpath(ctx, p0));
 }
 
-/** `erasable P`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} p @returns {Promise<boolean>} */
-export async function erasable(ctx, p) {
-  const rel = await relpath(ctx, p);
+/** `erasable P`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 @returns {Promise<boolean>} */
+export async function erasable(ctx, p0) {
+  const rel = await relpath(ctx, p0);
   if (rel.startsWith('@') || rel === '.' || rel === '.git' || rel.startsWith('.git/') || rel.startsWith('.claude/') || rel.startsWith('.codex/')) return false;
   const scratch = rel.startsWith(`.agents/runs/${ctx.act}/scratch/`);
   if (!scratch && rel.startsWith('.agents/')) return false;
-  const abs = p.startsWith('/') ? p : `${ctx.cwd}/${p}`;
+  const p = await inputPath(ctx, p0);
+  const abs = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   let exists = false;
   try { const st = lstatSync(abs); exists = st.isFile() || st.isSymbolicLink(); } catch { /* none */ }
   if (!exists) return false;
