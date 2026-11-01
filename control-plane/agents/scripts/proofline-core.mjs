@@ -125,8 +125,10 @@ function dispatch(ctx, locks, argv) {
   const id = args[0];
   if (handler && id !== undefined && validTaskId(id) && !isExisting(`${ctx.root}/.agents/runs/${id}`)
     && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`) && isFile(`${ctx.root}/.agents/local/worktrees/${id}/.agents/scripts/agent.sh`)) {
+    // served in process by THIS core with the worktree as the root (its agent.sh is only the path that names the root; nothing of it is run: its
+    // proofline-core.mjs and scripts are tracked content a task could have rewritten)
     const wt = `${ctx.root}/.agents/local/worktrees/${id}`;
-    return viaShell(ctx, argv, { cwd: wt, script: '.agents/scripts/agent.sh', force: false });
+    return run(argv, { ...ctx.io, cwd: wt, scriptPath: `${wt}/.agents/scripts/agent.sh`, argv0: undefined });
   }
   // the role gate comes first, for every command
   if (!commandAllowed(ctx.role, command)) throw new ProoflineError(`command denied for ${ctx.role}: ${command}`, 1);

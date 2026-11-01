@@ -35,13 +35,15 @@ function worktreeScript(program, args, cwd) {
 }
 
 /**
- * The refusal text when a child would run a script of a run worktree whose script tree is not the project's own, else null. proc.mjs calls it
- * before every spawn, so the bridge to the shell code, the helper scripts and the worktree re-exec of a run all pass the same check.
- * @param {string} program @param {string[]} args @param {string | undefined} cwd @returns {string | null}
+ * The refusal text when a child would run a script of a run worktree, else null. proc.mjs calls it before every spawn. A worktree's copy is tracked
+ * content a task could have rewritten, and comparing it with the project's and then running it leaves a window for a rewrite in between, so the core
+ * never runs it: a run of a worktree is served in process by the project's own code with the worktree as its root (proofline-core.mjs), and its helper
+ * scripts are the project's (Context.trustedScripts). Only a caller that says so (`allowEqualTree`: the hook, when the USER forced the shell engine for
+ * a rollback) may run a worktree's script, and only while the whole tree equals the project's (the residual window is that of the rollback mode).
+ * @param {string} program @param {string[]} args @param {string | undefined} cwd @param {boolean} [allowEqualTree] @returns {string | null}
  */
-export function refuseUntrustedScript(program, args, cwd) {
+export function refuseUntrustedScript(program, args, cwd, allowEqualTree = false) {
   const w = worktreeScript(program, args, cwd);
   if (!w) return null;
-  // compared again at every spawn: a verdict kept for later would be stale as soon as a task rewrites a file
-  return sameTree(w.tree, w.main) ? null : `proofline: ${w.tree} differs from the project's own ${w.main}, so none of its scripts is run (a run worktree's scripts are tracked content a task could have rewritten); upgrade or repair the worktree\n`;
+  return allowEqualTree && sameTree(w.tree, w.main) ? null : `proofline: ${w.tree} is a run worktree's copy of ${w.main}, so none of its scripts is run (a run worktree's scripts are tracked content a task could have rewritten; the project's own code serves the worktree's runs)\n`;
 }
