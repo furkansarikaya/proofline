@@ -1,0 +1,52 @@
+# Output budgets (ADR 0001 section 8.3): the named maximum number of stdout bytes of a command on a benchmark fixture.
+# class<TAB>command<TAB>fixture<TAB>max_stdout_bytes
+#   HOT   read on every hook event or by a parser (next, summary --status, hook-config, report-tokens): the 0.0.40 size.
+#   STEP  read once per lifecycle step (pipeline, digest, questions, the verify-* family): the 0.0.40 size per fixture state.
+# Fixtures are those of tests/bench/agent-procs.mjs (small, perf, scale-0, scale-20, scale-60). The numbers are the stdout bytes of tests/bench/
+# agent-procs-baseline-0.0.40.json (an error exit counts too: its stdout may not grow either); summary --status was not in that table and is
+# measured by the same script on the same code (shell engine, 0.0.41 = 0.0.40 for this command). A moved command may print less, never more.
+# agent-procs.mjs --compare and tests/bench/output-budgets.test.mjs fail when a command exceeds its row. Raise a row only with a decision in docs/decisions.md.
+HOT	next	small	147
+HOT	next	perf	576
+HOT	next	scale-0	147
+HOT	next	scale-20	147
+HOT	next	scale-60	147
+HOT	summary --status	small	63
+HOT	summary --status	perf	62
+HOT	summary --status	scale-0	63
+HOT	summary --status	scale-20	63
+HOT	summary --status	scale-60	63
+HOT	report-tokens	small	0
+HOT	hook-config	small	1579
+HOT	hook-config	perf	1579
+STEP	pipeline	small	385
+STEP	pipeline	perf	376
+STEP	pipeline	scale-0	385
+STEP	pipeline	scale-20	385
+STEP	pipeline	scale-60	385
+STEP	digest	small	425
+STEP	digest	perf	381
+STEP	digest	scale-0	425
+STEP	digest	scale-20	425
+STEP	digest	scale-60	425
+STEP	questions	small	25
+STEP	questions	perf	25
+STEP	verify-assumptions	small	25
+STEP	verify-completion-report	small	0
+STEP	verify-freeze	small	20
+STEP	verify-freeze	perf	20
+STEP	verify-gates	small	29
+STEP	verify-gates	perf	29
+STEP	verify-handoff	small	54
+STEP	verify-handoff	perf	54
+STEP	verify-knowledge-scope	small	29
+STEP	verify-qa-plan	small	29
+STEP	verify-scope	small	23
+STEP	verify-scope	perf	23
+STEP	verify-scope	scale-0	23
+STEP	verify-scope	scale-20	0
+STEP	verify-scope	scale-60	0
+STEP	verify-seal	small	28
+STEP	verify-seal	perf	28
+STEP	verify-timeout	small	5
+STEP	verify-worker-evidence	small	0

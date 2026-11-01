@@ -7,8 +7,9 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { agentsSrc, baseEnv, copyTree, coreAbsent, pathWithoutNode, run, scaffoldFixture, SKIP_NO_CORE } from './fixture.mjs';
+import { scriptsSrc, agentsSrc, baseEnv, copyTree, coreAbsent, pathWithoutNode, run, scaffoldFixture, SKIP_NO_CORE } from './fixture.mjs';
 
 const MOVED_READERS = [['role'], ['config-get', 'profile'], ['config-check'], ['timeouts'], ['hook-timeouts'], ['verify-timeout'], ['tm-scaled', '10'], ['db-config'], ['hook-config'], ['help']];
 
@@ -30,7 +31,24 @@ test('node absent, run open: every moved command exits non-zero, unmoved command
     const r = A(env, args);
     assert.notEqual(r.code, 0, `agent.sh ${args.join(' ')} must not succeed without node (got ${r.code}: ${r.stdout}${r.stderr})`);
   }
-  assert.equal(A(env, ['open-runs']).code, 0, 'an unmoved command does not need node');
+  // Derived from the preamble of agent.sh (the case list that delegates to Node) and from the read-only list, so it cannot rot as commands move:
+  // every moved command that succeeds with node must fail without it, and an unmoved read-only command that succeeds with node must still succeed.
+  const agentText = readFileSync(join(scriptsSrc, 'agent.sh'), 'utf8');
+  const pre = /case "\$\{1:-\}" in\n([\s\S]*?)\)\n\s+pl_sh=no/.exec(agentText)?.[1] ?? '';
+  const movedAll = pre.replace(/\\\n/g, '').split('|').map((x) => x.trim()).filter(Boolean);
+  assert.ok(movedAll.length >= 10 && movedAll.includes('role') && movedAll.includes('next'), `the preamble list was not found (${movedAll.length})`);
+  const readOnly = (/^read_only_commands='([^']*)'/m.exec(agentText)?.[1] ?? '').split(' ').filter(Boolean);
+  let movedChecked = 0;
+  for (const c of movedAll) {
+    if (A(withNode, [c]).code !== 0) continue;
+    movedChecked++; const r = A(env, [c]);
+    assert.notEqual(r.code, 0, `moved command ${c} succeeded without node (${r.stdout}${r.stderr})`);
+  }
+  assert.ok(movedChecked >= 5, `only ${movedChecked} moved commands succeeded with no arguments`);
+  const unmoved = readOnly.filter((c) => !movedAll.includes(c));
+  const works = unmoved.filter((c) => A(withNode, [c]).code === 0);
+  assert.ok(works.length > 0, `no unmoved read-only command succeeds with node (unmoved: ${unmoved.join(' ')})`);
+  for (const c of works) assert.equal(A(env, [c]).code, 0, `the unmoved command ${c} does not need node`);
   // a commit while the run is open: the git hook blocks (also when the hook itself cannot read the settings)
   cpSync(join(agentsSrc, 'githooks'), join(fx, '.agents/githooks'), { recursive: true });
   run('git', ['config', 'core.hooksPath', '.agents/githooks'], { cwd: fx, env }); run('git', ['config', 'commit.gpgsign', 'false'], { cwd: fx, env });

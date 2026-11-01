@@ -57,7 +57,7 @@ what the hook uses there.
 
 ## Engine switch and doctor (A205)
 
-Ten commands (`role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`, `verify-timeout`, `tm-scaled`, `db-config`, `hook-config`, `help`) run in Node; the rest still run the shell code. To run the shell code instead, write `sh` (every moved command) or `sh:cmd,cmd` (the named ones) into `.agents/local/engine`, or set `PROOFLINE_ENGINE=sh` / `PROOFLINE_ENGINE_SH=cmd,cmd`; any one of them forcing `sh` wins. `proofline doctor` prints one `engine:` line (PASS with no switch, WARN with the switch and its source) and FAILs when the core file is missing and WARNs for Node older than 22.13. A hook that needs Node denies when it is missing.
+Ten commands (`role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`, `verify-timeout`, `tm-scaled`, `db-config`, `hook-config`, `help`) run in Node; the rest still run the shell code. To run the shell code instead, write `sh` (every moved command) or `sh:cmd,cmd` (the named ones) into `.agents/local/engine`, or set `PROOFLINE_ENGINE=sh` / `PROOFLINE_ENGINE_SH=cmd,cmd`; any one of them forcing `sh` wins. `proofline doctor` prints one `engine:` line (PASS with no switch, WARN with the switch and its source) and FAILs when the core file is missing and WARNs for Node older than 22.13. A hook that needs Node denies when it is missing. The 41 commands that stage 2 moved (A206) follow the same switch (`sh:<command>`).
 
 ## Process rules
 

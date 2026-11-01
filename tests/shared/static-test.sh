@@ -11,6 +11,8 @@ trap 'rm -rf "$T"' EXIT HUP INT TERM
 # scratch: a git repository with a README and one code file; $1 names the directory
 scratch() {
   mkdir -p "$T/$1/src" && printf '# x\n' > "$T/$1/README.md" && printf 'x=1\n' > "$T/$1/src/a.sh"
+  # rule 5 needs the ecosystem table (it fails without it): every scratch repository carries the repository's own
+  mkdir -p "$T/$1/control-plane/agents" && cp "$here/../../control-plane/agents/ecosystems.tsv" "$T/$1/control-plane/agents/"
   git -C "$T/$1" init -q && git -C "$T/$1" add -A
 }
 # foreign shortcut label in a code comment
@@ -105,3 +107,11 @@ if [ -f "$repo/control-plane/agents/ecosystems.tsv" ]; then
   grep -q '^PASS no ecosystem branching' "$T/o" || die "eco-ok line not accepted: $(cat "$T/o")"
   echo "ok an ecosystem branch added to a shared script fails the static rule; eco-ok exempts a marked line"
 fi
+# rule 5 without its ecosystem table fails (it used to pass): a missing table, and a table that lists no ids
+rm -rf "$T/noeco"; mkdir -p "$T/noeco/control-plane/agents"; printf '# x\n' > "$T/noeco/README.md"
+if sh "$chk" --root "$T/noeco" > "$T/o" 2>&1; then die "rule 5 passed without ecosystems.tsv: $(cat "$T/o")"; fi
+grep -q '^FAIL ecosystem branching: no ecosystem ids' "$T/o" || die "rule 5 does not say why it failed without ecosystems.tsv: $(cat "$T/o")"
+printf '# no id rows\n' > "$T/noeco/control-plane/agents/ecosystems.tsv"
+if sh "$chk" --root "$T/noeco" > "$T/o" 2>&1; then die "rule 5 passed with an ecosystems.tsv that lists no ids: $(cat "$T/o")"; fi
+grep -q '^FAIL ecosystem branching: no ecosystem ids' "$T/o" || die "rule 5 failure text: $(cat "$T/o")"
+echo "ok rule 5 fails when ecosystems.tsv is missing or lists no ids"

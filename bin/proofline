@@ -7,7 +7,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.41
+PROOFLINE_VERSION=0.0.42
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -125,6 +125,24 @@ EOF
 installed() { [ -f "$CFG" ] && [ -f "$A" ]; }
 require_installed() { installed || die "proofline is not installed in $ROOT (.agents/config.yaml missing); run: proofline init"; }
 agent() { (cd "$ROOT" && sh "$A" "$@"); }
+# Stage 2: insights and queue are computed by the Node core (`proofline-core.mjs cli NAME`, ADR 0001) unless the engine is forced to the shell
+# the way the agent.sh preamble reads it (PROOFLINE_ENGINE=sh, PROOFLINE_ENGINE_SH=NAME, or .agents/local/engine: `sh` or `sh:NAME,...`), or this
+# project has no core or no node (then the shell code below runs, as before). core_wanted NAME: 0 when the core runs it.
+core_wanted() {
+  [ "${PROOFLINE_ENGINE:-}" != sh ] || return 1
+  case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) return 1 ;; esac
+  cw_sr=$ROOT
+  if [ -f "$ROOT/.git" ]; then
+    cw_m=$(git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); cw_p=$(cd "$ROOT" && pwd -P)
+    case "$cw_p" in "$cw_m"/.agents/local/worktrees/*) cw_sr=$cw_m ;; esac
+  fi
+  if [ -r "$cw_sr/.agents/local/engine" ]; then
+    cw_e=''; IFS= read -r cw_e < "$cw_sr/.agents/local/engine" || :
+    cw_e=${cw_e%"${cw_e##*[![:space:]]}"}
+    case "$cw_e" in sh) return 1 ;; sh:*) case ",${cw_e#sh:}," in *",$1,"*) return 1 ;; esac ;; esac
+  fi
+  [ -f "$ROOT/.agents/scripts/proofline-core.mjs" ] && [ -d "$ROOT/.agents/scripts/core" ] && command -v node >/dev/null 2>&1
+}
 active_id() { agent status 2>/dev/null | sed -n 's/^active_task=//p' | head -1; }
 tasks_dir() { cfg_val "$CFG" tasks.dir .agents/tasks; }
 
@@ -177,6 +195,7 @@ cmd_resume() {
 
 cmd_queue() {
   require_installed
+  if core_wanted queue; then (cd "$ROOT" && node "$ROOT/.agents/scripts/proofline-core.mjs" cli queue); return; fi
   td=$ROOT/$(tasks_dir)
   say "tasks ($(tasks_dir)):"
   found=0

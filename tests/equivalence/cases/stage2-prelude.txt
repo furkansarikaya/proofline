@@ -1,0 +1,56 @@
+# Shell helpers of the extra Stage 2 fixture states (sourced after test-lib.sh by stage2-fixtures.mjs; copied from known-issues-test.sh and gates-test.sh,
+# which are suites and not libraries). Not a script: nothing runs it by itself.
+TXT='the legacy ignore list drops a documented entry'
+PLACE='.gitignore:1'
+KI_DIR=.agents/local/known-issues
+mk_run() {
+  mr_place=${1:-$PLACE} mr_text=${2:-$TXT} mr_gate=${3:-QA}
+  scaffold standalone no STANDARD autonomous
+  solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass impl.txt 'impl: lookup returns the stored value'
+  A handoff LC IMPLEMENTED >/dev/null
+  A secret-scan LC >/dev/null
+  for mr_g in $(required); do case "$mr_g" in SECRETS|VERIFY|"$mr_gate") ;; *) gpass "$mr_g" ;; esac; done
+  rec "$mr_gate" FAIL high "$mr_gate-1|blocking|$mr_place|$mr_text|traced: the entry is missing from the list; scan: grep -n entry .gitignore; instances: single"
+  gpass VERIFY
+}
+mk_followup() { mkdir -p .agents/tasks/todo; printf '# Task: %s — Fix the legacy ignore list\n\n**Status:** todo\n\n## Goal\n\nFix it.\n' "$1" > ".agents/tasks/todo/$1.md"; }
+user_says() { capture "$1" "$(( $(date +%s) + 7200 ))"; A approve - "${2:-known-issue}" >/dev/null; }
+list_it() { mk_followup "${1:-FU-9}"; A known-issue-propose LC QA-1 --followup "${1:-FU-9}" >/dev/null; user_says 'approve known issue'; A known-issue-apply >/dev/null; }
+batch_with() {
+  bw_l=$1; shift; bw_d=.agents/local/batch; rm -rf "$bw_d"; mkdir -p "$bw_d" .agents/local/prompts/history
+  { printf '# Night batch\n\nnonce: t-fixed\n\n## Expected known issues and rationales (accept for this batch)\n\n'; for bw_x in "$@"; do printf -- '- %s\n' "$bw_x"; done; } > "$bw_d/SUMMARY.md"
+  printf 'LC\tSTANDARD\t-\n' > "$bw_d/order.tsv"
+  A request-approval - batch >/dev/null; capture 'approve batch' "$(( $(date +%s) + 7200 ))"; A approve - batch >/dev/null || die "the batch approval was refused"
+  bw_b=$( { shasum -a 256 2>/dev/null || sha256sum; } < "$bw_d/SUMMARY.md" | cut -c1-12)
+  printf 'x\n' > .agents/local/prompts/history/1-aaaa1111.txt
+  printf '%s\tbatch\tQ1\taccept\t%s\t-\t1-aaaa1111.txt\n' "$bw_b" "$bw_l" > "$bw_d/answers.tsv"
+}
+waive_it() { approve_as_user 'waive:REVIEW_SMALL-1' 'I approve the waiver of REVIEW_SMALL-1.'; A waive LC REVIEW_SMALL-1 --reason 'accepted risk: the default is documented upstream' >/dev/null; }
+failed_small() { A secret-scan LC >/dev/null; gfail REVIEW_SMALL impl.txt; gpass QA; gpass VERIFY; }
+vw() {
+  d=.agents/runs/LC
+  printf '%s\n' '# Verification: LC' '' '## Commands' '' "- \`sh .agents/local/check.sh\` | exit=0" "  output: ok 3 tests" '' '## AC coverage' '' '| AC | test or command | status | evidence |' '|---|---|---|---|' \
+    "| AC-1 | impl_test.txt::lookup | PASS | \`sh .agents/local/check.sh\` exit=0 |" '' '## Scope' '' 'verify-scope: exit=0' '' '## Design sync' '' 'design-sync: SKIPPED (no design documents)' '' '## Runtime' '' 'runtime: none (no runtime in this test)' '' \
+    '## Pre-existing failures' '' 'None' '' '## Failures' '' 'None' '' "Verdict: PASS" > "$d/VERIFY.md"
+}
+drift_run() {
+  SC_PLAN_EXTRA='
+## Verification commands
+
+- `sh .agents/local/check.sh`
+- `sh .agents/local/quiet.sh`' scaffold orchestrated
+  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'; A handoff LC IMPLEMENTED >/dev/null
+  mkdir -p .agents/skills; cp -R "$tl_agents/../../skills/verify-proof" .agents/skills/verify-proof; cp -R "$tl_agents/../../skills/plan-contract" .agents/skills/plan-contract
+  printf '.agents/skills/\n' >> .git/info/exclude
+  printf '%s\n' 'echo ok 3 tests' > .agents/local/check.sh; printf '%s\n' ':' > .agents/local/quiet.sh
+  d=.agents/runs/LC
+  cp -R "$tl_agents/../../skills/design-sync" .agents/skills/design-sync
+  mkdir -p docs/design "$d/design"; printf '# Design\n\nThe widget lives in `src/missing.js`.\n' > docs/design/DESIGN.md; printf 'docs/\n' >> .git/info/exclude
+  printf '%s\n' '# Design sync: LC' '' 'Verdict: FAIL' '' '## Documents' '' '| Role | Path | Present |' '|---|---|---|' '| design | docs/design/DESIGN.md | yes |' '' '## Counts' '' 'matched: 0, unmatched (after review): 1, unverifiable: 0' '' '## Drift' '' '- docs/design/DESIGN.md:3 -> path src/missing.js: no such file or directory' '' '## Unverifiable' '' 'None.' > "$d/design/SYNC.md"
+  vw
+  sed 's|^design-sync: SKIPPED.*|design-sync: PASS (knowledge-scope drift: 1 line handed to the knowledge step)|' "$d/VERIFY.md" > "$d/VERIFY.tmp" && mv "$d/VERIFY.tmp" "$d/VERIFY.md"
+  printf 'blocking|docs/design/DESIGN.md:3|D-1: design-sync drift: path src/missing.js not found|design-sync exit=1\n' > "$base/rows"
+  AS verifier submit LC --confidence high --findings "$base/rows" --agent kd1 >/dev/null
+  pass_all; A handoff LC CODE_DONE >/dev/null
+  grep -v '^docs/$' .git/info/exclude > "$base/excl" && cp "$base/excl" .git/info/exclude
+}

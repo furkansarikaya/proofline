@@ -1,0 +1,104 @@
+# Process-count budgets (issue #167, C4): the most external processes a command may start on a benchmark fixture with the default engine
+# (the Node core runs the moved commands). max = the measured count after the stage 2 move (tests/bench/agent-procs-stage2.json) plus a margin
+# of max(2, 25 percent). report-facts is measured at 9 on the perf fixture against the issue target 8; its row holds the measured value.
+# command<TAB>fixture<TAB>max_processes<TAB>measured. agent-procs.mjs --engine default --compare and tests/bench/process-budgets.test.mjs fail on an excess.
+role	small	3	1
+config-get	small	3	1
+config-check	small	24	19
+timeouts	small	3	1
+hook-timeouts	small	3	1
+verify-timeout	small	3	1
+tm-scaled	small	3	1
+db-config	small	3	1
+hook-config	small	3	1
+help	small	3	1
+status	small	3	1
+open-runs	small	3	1
+effective	small	3	1
+fingerprint	small	6	4
+patch-fingerprint	small	4	2
+verify-seal	small	3	1
+verify-gates	small	3	1
+pipeline	small	8	6
+entry-tier	small	3	1
+debt	small	5	3
+task-type	small	3	1
+task-scope-entries	small	3	1
+scope-covers	small	3	1
+human-checks	small	3	1
+questions	small	3	1
+repro-normalize	small	3	1
+design-surface	small	3	1
+test-path	small	3	1
+path-kind	small	3	1
+scope-kinds	small	3	1
+next	small	3	1
+summary	small	8	6
+plan-section	small	3	1
+digest	small	8	6
+report-facts	small	8	6
+report-execution	small	3	1
+report-tokens	small	3	1
+verify-freeze	small	3	1
+verify-scope	small	4	2
+verify-knowledge-scope	small	4	2
+freshness	small	4	2
+verify-handoff	small	4	2
+verify-qa-plan	small	3	1
+verify-worker-evidence	small	3	1
+validate	small	3	1
+ci-check	small	14	11
+ci-task-command	small	14	11
+design-rationales	small	3	1
+commands-check	small	3	1
+scale-check	small	3	1
+batch-check	small	3	1
+summary --status	small	3	1
+proofline status	small	27	21
+fingerprint	scale-0	6	4
+pipeline	scale-0	8	6
+next	scale-0	3	1
+summary	scale-0	8	6
+digest	scale-0	8	6
+verify-scope	scale-0	4	2
+validate	scale-0	3	1
+summary --status	scale-0	3	1
+fingerprint	scale-20	6	4
+pipeline	scale-20	8	6
+next	scale-20	3	1
+summary	scale-20	8	6
+digest	scale-20	8	6
+verify-scope	scale-20	4	2
+validate	scale-20	3	1
+summary --status	scale-20	3	1
+fingerprint	scale-60	6	4
+pipeline	scale-60	8	6
+next	scale-60	3	1
+summary	scale-60	8	6
+digest	scale-60	8	6
+verify-scope	scale-60	4	2
+validate	scale-60	3	1
+summary --status	scale-60	3	1
+role	perf	3	1
+config-get	perf	3	1
+hook-config	perf	3	1
+status	perf	3	1
+open-runs	perf	3	1
+effective	perf	3	1
+fingerprint	perf	6	4
+verify-seal	perf	3	1
+verify-gates	perf	4	2
+pipeline	perf	12	9
+human-checks	perf	3	1
+questions	perf	3	1
+next	perf	12	9
+summary	perf	12	9
+digest	perf	12	9
+report-facts	perf	12	9
+report-execution	perf	3	1
+verify-freeze	perf	3	1
+verify-scope	perf	4	2
+verify-handoff	perf	4	2
+validate	perf	3	1
+summary --status	perf	3	1
+proofline status	perf	37	29

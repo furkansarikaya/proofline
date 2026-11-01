@@ -35,4 +35,10 @@ control-plane/agents/scripts/rules.sh rules-test
 tests/enforcement/approval-load-test.sh approval-load-test
 tests/bench/big-run.sh approval-load-test
 
-tests/equivalence/* rig.test.mjs cases.test.mjs cases-slow.test.mjs trace.test.mjs glob-differential.test.mjs node-absent.test.mjs lock-interop.test.mjs seam-safety.test.mjs role-table.test.mjs lifecycle.test.mjs downgrade.test.mjs
+tests/equivalence/* rig.test.mjs cases.test.mjs cases-slow.test.mjs trace.test.mjs glob-differential.test.mjs node-absent.test.mjs lock-interop.test.mjs seam-safety.test.mjs role-table.test.mjs lifecycle.test.mjs downgrade.test.mjs stage2-cases.test.mjs stage2-cases-1.test.mjs stage2-cases-2.test.mjs stage2-cases-3.test.mjs stage2-trace-1.test.mjs stage2-trace-2.test.mjs stage2-trace-3.test.mjs stage2-cases-4.test.mjs stage2-trace-4.test.mjs
+tests/bench/agent-procs* output-budgets.test.mjs process-budgets.test.mjs
+tests/bench/process-budgets* process-budgets.test.mjs
+tests/bench/output-budgets* output-budgets.test.mjs
+tests/ci/ecosystem-branching.mjs ecosystem-branching.test.mjs
+tests/shared/check-static.sh static-test
+tests/core/golden/* golden.test.mjs

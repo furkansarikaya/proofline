@@ -29,9 +29,16 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # Node migration, stage 1 (ADR 0001 5.3): a moved command runs in proofline-core.mjs, before anything below is parsed, unless the engine is
 # forced to this shell code: by the file <main tree>/.agents/local/engine (one line, `sh` for every command or `sh:<command>,<command>`), or by
 # PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
-# exec fails with 127. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
+# exec fails with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its
+# error texts; the core uses it only when it names this very file. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
+# stage 2, package C1: the last line of the list below (next summary plan-section digest report-facts report-execution report-tokens)
 case "${1:-}" in
-  role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help)
+  role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
+  debt|task-type|task-scope-entries|scope-covers|human-checks|questions|repro-normalize|design-surface|test-path|path-kind|scope-kinds|\
+  status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier|\
+  next|summary|plan-section|digest|report-facts|report-execution|report-tokens|\
+  verify-freeze|verify-scope|verify-knowledge-scope|freshness|verify-handoff|verify-qa-plan|verify-worker-evidence|ci-check|ci-task-command|validate|\
+  design-rationales|commands-check|scale-check|batch-check)
     pl_sh=no
     [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
     case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac
@@ -48,6 +55,12 @@ case "${1:-}" in
       fi
       pl_sh=yes
     fi
+    # The mandatory arguments of the moved commands (the `${N:?usage: ...}` of the dispatch below): when one is absent or empty the shell prints its
+    # own usage text, with its own $0 and status, so the core is not started. ONE table; tests/core/mandatory.test.mjs checks it against the dispatch.
+    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate'
+    pl_need3='plan-section'
+    case " $pl_need2 " in *" $1 "*) [ -n "${2:-}" ] || pl_sh=yes ;; esac
+    case " $pl_need3 " in *" $1 "*) [ -n "${3:-}" ] || pl_sh=yes ;; esac
     if [ "$pl_sh" = no ]; then
       case "$1" in
         config-get) case "${2:-}" in ''|*\\*) pl_sh=yes ;; esac; [ -f "$config" ] || pl_sh=yes ;;
@@ -57,7 +70,7 @@ case "${1:-}" in
           case "${4:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac ;;
       esac
     fi
-    [ "$pl_sh" = yes ] || exec node "$self_dir/proofline-core.mjs" "$@" ;;
+    [ "$pl_sh" = yes ] || exec node "$self_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
 esac
 cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
@@ -655,10 +668,13 @@ fp_cache_key() {
   [ "${fk_m%%|*}" -ge "$fk_min" ] 2>/dev/null || return 1
   printf '%s|%s\n' "$2" "$fk_m"
 }
-fp_cache_get() { [ -f "$(fp_cache_file)" ] || return 1; awk -F'\t' -v k="$1" '$1 == k { h = $2 } END { if (h ~ /^[0-9a-f]{64}$/) print h; else exit 1 }' "$(fp_cache_file)"; }
+fp_cache_usable() { [ ! -L "$sr_main/.agents" ] && [ ! -L "$sr_main/.agents/local" ] && [ ! -L "$(fp_cache_file)" ]; }   # a link there (a repository can commit one) is no cache: never read or written through
+fp_cache_get() { fp_cache_usable && [ -f "$(fp_cache_file)" ] || return 1; awk -F'\t' -v k="$1" '$1 == k { h = $2 } END { if (h ~ /^[0-9a-f]{64}$/) print h; else exit 1 }' "$(fp_cache_file)"; }
 fp_cache_put() {
+  fp_cache_usable || return 0
+  case "$1" in *[[:cntrl:]]*) return 0 ;; esac   # a file name with a control character is never written
   mkdir -p "$sr_main/.agents/local" 2>/dev/null || return 0
-  if [ -f "$(fp_cache_file)" ] && [ "$(wc -l < "$(fp_cache_file)")" -gt 4000 ]; then tail -n 1000 "$(fp_cache_file)" > "$(fp_cache_file).t" 2>/dev/null && mv "$(fp_cache_file).t" "$(fp_cache_file)" 2>/dev/null || :; fi
+  if [ -f "$(fp_cache_file)" ] && [ "$(wc -l < "$(fp_cache_file)")" -gt 4000 ]; then rm -f "$(fp_cache_file).t" 2>/dev/null; (set -C; tail -n 1000 "$(fp_cache_file)" > "$(fp_cache_file).t") 2>/dev/null && mv "$(fp_cache_file).t" "$(fp_cache_file)" 2>/dev/null || :; fi
   printf '%s\t%s\n' "$1" "$2" >> "$(fp_cache_file)" 2>/dev/null || :
 }
 # A154: files `proofline init/upgrade` installs outside .agents/ are control plane, not product: the files the manifest

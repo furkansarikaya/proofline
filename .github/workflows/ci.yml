@@ -128,6 +128,9 @@ jobs:
           node-version: 22
       - name: front matter and link check
         run: node --test tests/skills/frontmatter.test.mjs
+      # ADR 0001 section 9 / A187: no ecosystem branching in shared Node code; fails when ecosystems.json is missing
+      - name: ecosystem branching (Node)
+        run: node tests/ci/ecosystem-branching.mjs
 
       # ADR 0001 section 9: the no-shell-logic ratchet. Entries of the two snapshots may only disappear; a new or changed shell file, run: step or hook string fails.
       - name: shell ratchet (pull request, against the base)
@@ -292,7 +295,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: ratchet, fast mode and enforcement guard tests
-        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs"
+        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/bench/*.test.mjs"
 
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
   # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.

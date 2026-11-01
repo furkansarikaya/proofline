@@ -1,0 +1,72 @@
+== no run (agent.sh next)
+# exit 0
+task=none
+next=agent.sh start <ID> [--title "<title>"] [--task-file <path>]
+reason=obtain a canonical task from task-author or an adapter import, then start it
+== intake-unclassified (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=PLANNED
+next=agent.sh classify LC <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review]
+reason=run is not classified (TRIVIAL is text and configuration only; a plan that changes code or adds tests is STANDARD or higher)
+== intake-classified (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=PLANNED
+next=agent.sh branch LC
+reason=task branch not established
+== intake-branched (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=PLANNED
+next=agent.sh baseline LC
+reason=baseline not captured
+== intake-planned (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=PLANNED
+note=commands.build and commands.test are empty: run proofline doctor --commands (it finds them, proves each by one run and asks the user once; the PLAN Verification commands and the build record need them; this run does not wait for it)
+next=agent.sh freeze LC
+reason=artifacts ready
+== gates-standalone (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=IMPLEMENTING
+next=dispatch.sh LC implementer
+next=agent.sh handoff LC IMPLEMENTED
+reason=implementation in progress
+== gates-frozen (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=IMPLEMENTING
+next=dispatch.sh LC implementer
+next=agent.sh handoff LC IMPLEMENTED
+reason=implementation in progress
+== gates-implemented (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=IMPLEMENTED
+missing_step=lead, before the review gates: commands.build and commands.test are empty, so no build record can be made for this tree and the reviewers and the verifier have none to read. Do: proofline doctor --commands   (finds the commands, proves each by one run and asks the user ONE question; the user's yes writes only the proven ones; then agent.sh build-record LC run). If the user declines, say in the completion report that no build or test was recorded
+next=agent.sh secret-scan LC
+next=dispatch.sh LC reviewer --focus rules+tests
+next=dispatch.sh LC qa
+next=dispatch.sh LC verifier
+reason=gates not passing: SECRETS:missing REVIEW_SMALL:missing QA:missing VERIFY:missing
+== gates-failed (agent.sh next LC)
+# exit 0
+task=LC
+state=PLANNING
+handoff=IMPLEMENTED
+next=agent.sh handoff LC IMPLEMENTING (fix round 1; findings of: REVIEW_SMALL)
+next=dispatch.sh LC implementer (with the findings)
+fix_path=impl.txt
+fix_path=impl_test.txt
+finding=REVIEW_SMALL REVIEW_SMALL-1 impl.txt:1: lookup returns the wrong value for an empty key
+reason=failing gates: REVIEW_SMALL
