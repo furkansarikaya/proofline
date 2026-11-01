@@ -92,6 +92,8 @@ function viaShell(ctx, argv, opt = {}) {
 export function run(argv, io) {
   const ctx = new Context(io, io.scriptPath ?? fileURLToPath(import.meta.url));
   const locks = new LockSet(ctx);
+  ctx.locks = locks;
+  ctx.runner = run;
   try {
     return dispatch(ctx, locks, argv);
   } catch (e) {
