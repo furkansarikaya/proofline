@@ -98,12 +98,16 @@ export const ONE_OFF = /** @type {{ cmd: string, state: string, label: string, c
   ...['next', 'summary', 'report-facts', 'digest', 'status'].map((cmd) => ({ cmd, state: 'gates-pr-open', label: 'gh stub', calls: [ghStub, withGh(cmd === 'status' ? [cmd] : [cmd, ID]), A(cmd === 'status' ? [cmd] : [cmd, ID])] })),
 ]);
 
-/** The states split over test files (node --test runs the files in parallel; building a state takes seconds, so a state belongs to one file). */
+/** The states split over eight test files per kind (node --test runs the files in parallel, and the nightly job gives each file a runner of its own; building a state takes seconds, so a state belongs to one file). Balanced by the measured case time of each state. */
 export const BUCKETS = /** @type {string[][]} */ ([
-  ['empty', 'gates-frozen', 'gates-implemented', 'gates-partial', 'gates-standalone', 'intake-unclassified', 'intake-classified', 'intake-branched', 'intake-planned', 'gates-secrets-fail', 'gates-security-fail', 'gates-pass-low'],
-  ['gates-failed', 'gates-full', 'gates-allpass', 'gates-stale', 'gates-codedone', 'gates-waived', 'gates-pending-waive', 'gates-pending-plan'],
-  ['gates-waived-key', 'gates-waive-nomatch', 'gates-known-issue', 'gates-known-issue-unlisted', 'gates-batch-accept', 'gates-batch-decline', 'gates-drift'],
-  ['gates-done', 'gates-pr-open', 'gates-dispatch', 'risk-unfrozen', 'risk-open', 'risk-passed', 'scale-0', 'scale-20', 'scale-60'],
+  ['intake-planned', 'gates-secrets-fail', 'gates-pr-open', 'scale-0'],
+  ['gates-failed', 'gates-stale', 'gates-pending-plan', 'gates-dispatch', 'risk-unfrozen'],
+  ['intake-unclassified', 'gates-pass-low', 'gates-allpass', 'gates-waived-key', 'scale-20'],
+  ['gates-standalone', 'intake-classified', 'gates-known-issue-unlisted', 'gates-batch-decline', 'gates-done'],
+  ['empty', 'gates-partial', 'intake-branched', 'gates-pending-waive', 'gates-waive-nomatch'],
+  ['gates-security-fail', 'gates-codedone', 'gates-drift', 'scale-60'],
+  ['gates-implemented', 'gates-full', 'gates-batch-accept', 'risk-passed'],
+  ['gates-frozen', 'gates-waived', 'gates-known-issue', 'risk-open'],
 ]);
 
 /** The cases: one per (command, state), named `<command>: <state>` so that a failure names both. The fixture is built when a case first runs. @returns {Case[]} */
