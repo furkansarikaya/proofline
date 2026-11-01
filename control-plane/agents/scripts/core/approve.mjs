@@ -175,7 +175,7 @@ export function approvalBound(ctx, id, kind, fp = '') {
   }
   if (kind.startsWith('reopen:')) return hashFileOrBridge(`${runDir(ctx, id)}/PLAN.md`);
   if (kind.startsWith('rule:')) {
-    const r = proc.run('sh', [`${ctx.scripts}/lessons.sh`, 'bound', id, kind.slice(5)], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    const r = proc.run('sh', [`${ctx.trustedScripts}/lessons.sh`, 'bound', id, kind.slice(5)], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     if (r.status !== 0) throw new BridgeToShell('lessons.sh bound failed');
     return r.stdout.toString('latin1').replace(/\n+$/, '');
   }
@@ -357,7 +357,7 @@ export function approvalScanReport(scan, nrec) {
 
 /** @param {Context} ctx @param {string} rule */
 function lessonText(ctx, rule) {
-  const r = proc.run('sh', [`${ctx.scripts}/lessons.sh`, 'text', rule], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = proc.run('sh', [`${ctx.trustedScripts}/lessons.sh`, 'text', rule], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
   if (r.stderr.length) ctx.err(r.stderr.toString('latin1'));
   return r.stdout.toString('latin1').replace(/\n+$/, '');
 }

@@ -89,10 +89,10 @@ export class Agents {
     const args = [agentPath, ...argv];
     if (opt.budgetMs !== undefined) {
       const budget = await import(pathToFileURL(`${this.coreDir}/core/budget.mjs`).href);
-      const r = await budget.runWithBudget(opt.budgetMs / 1000, 'sh', args, { cwd, env, input: opt.input ?? '', stdio: ['pipe', 'pipe', 'pipe'] });
+      const r = await budget.runWithBudget(opt.budgetMs / 1000, 'sh', args, { cwd, env, input: opt.input ?? '', stdio: ['pipe', 'pipe', 'pipe'], allowEqualTree: true });
       return { status: r.status, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8'), timedOut: r.timedOut };
     }
-    const r = proc.run('sh', args, { cwd, env, input: opt.input ?? '', stdio: ['pipe', 'pipe', 'pipe'] });
+    const r = proc.run('sh', args, { cwd, env, input: opt.input ?? '', stdio: ['pipe', 'pipe', 'pipe'], allowEqualTree: true });
     return { status: r.status, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8'), timedOut: false };
   }
 

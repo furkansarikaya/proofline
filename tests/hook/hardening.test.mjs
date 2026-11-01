@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { buildTemplate, copyProject, runHook, cleanEnv, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join } from './harness.mjs';
 
@@ -90,4 +90,23 @@ test('the core of a hook rooted in a run worktree is the main tree\'s', async ()
   const { Agents } = await import('../../adapters/claude/hooks/lib/agent.mjs');
   const agents = new Agents({ root: wt, mainRoot: main, agentPath: join(wt, '.agents/scripts/agent.sh'), env: {}, lockWait: 8, cwd: wt });
   assert.equal(agents.coreDir, `${main}/.agents/scripts`);
+});
+
+test('a run that lives in a worktree is served by the project\'s own code; the worktree\'s agent.sh and core never run', () => {
+  const d = copyProject(template, base);
+  const wt = join(d, '.agents/local/worktrees/T-9');
+  mkdirSync(join(wt, '.agents/runs/T-9'), { recursive: true });
+  cpSync(join(d, '.agents/scripts'), join(wt, '.agents/scripts'), { recursive: true });
+  cpSync(join(d, '.agents/config.yaml'), join(wt, '.agents/config.yaml'));
+  writeFileSync(join(wt, '.agents/runs/T-9/RUN.yaml'), readFileSync(join(d, '.agents/runs/LC/RUN.yaml'), 'utf8'));
+  const marks = ['agent.sh', 'proofline-core.mjs'].map((f) => {
+    const file = join(wt, '.agents/scripts', f);
+    const mark = join(d, `MARK-${f}`);
+    writeFileSync(file, f.endsWith('.sh') ? `#!/bin/sh\n: > ${JSON.stringify(mark)}\n` : `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(mark)}, 'x');\n${readFileSync(file, 'utf8')}`);
+    return mark;
+  });
+  const r = agent(d, ['pipeline', 'T-9']);
+  for (const m of marks) assert.ok(!existsSync(m), `${m} ran`);
+  assert.doesNotMatch(r.stderr, /run worktree's copy/, 'nothing tried to start a worktree script');
+  assert.notEqual(r.status, 126);
 });

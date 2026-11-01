@@ -90,6 +90,15 @@ export class Context {
     return this._shared;
   }
 
+  /**
+   * The scripts folder whose helper scripts (lessons.sh, platform.sh, build-record.sh) this command may start: the project's own. In a run worktree the
+   * worktree's copy is never started (it is tracked content a task could have rewritten), so the main tree's serves.
+   */
+  get trustedScripts() {
+    const main = this.sharedMain();
+    return this.root !== main && this.root.startsWith(`${main}/.agents/local/worktrees/`) ? `${main}/.agents/scripts` : this.scripts;
+  }
+
   /** `run_dir ID` @param {string} id */
   runDir(id) { return `${this.root}/.agents/runs/${id}`; }
 

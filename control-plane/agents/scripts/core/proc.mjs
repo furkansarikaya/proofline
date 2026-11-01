@@ -29,6 +29,7 @@ export function spawnLog() { return log.slice(); }
  * @property {'pipe'|'inherit'|'ignore'|Array<'pipe'|'inherit'|'ignore'|number>} [stdio]
  * @property {number} [timeoutMs]
  * @property {AbortSignal} [signal] runAsync: when it aborts, the child (and its process group, with `group`) is stopped
+ * @property {boolean} [allowEqualTree] a run worktree's script may run while its whole tree equals the project's (the hook's rollback mode only; see tree.mjs)
  * @property {boolean} [group] runAsync: the child leads its own process group on POSIX, so a stop reaches everything it started (no `ps` walk)
  */
 
@@ -52,7 +53,7 @@ function signalNumber(signal) {
  * @param {string} program @param {string[]} args @param {ProcOptions} [options] @returns {ProcResult}
  */
 export function run(program, args, options = {}) {
-  const refused = refuseUntrustedScript(program, args, options.cwd);
+  const refused = refuseUntrustedScript(program, args, options.cwd, options.allowEqualTree === true);
   if (refused !== null) {
     if (options.stdio === 'inherit') { try { writeSync(2, refused); } catch { /* no stderr */ } }
     return { status: 126, stdout: Buffer.alloc(0), stderr: Buffer.from(refused), started: false };
@@ -81,7 +82,7 @@ export function run(program, args, options = {}) {
  * @param {string} program @param {string[]} args @param {ProcOptions} [options] @returns {Promise<ProcResult>}
  */
 export function runAsync(program, args, options = {}) {
-  const refused = refuseUntrustedScript(program, args, options.cwd);
+  const refused = refuseUntrustedScript(program, args, options.cwd, options.allowEqualTree === true);
   if (refused !== null) return Promise.resolve({ status: 126, stdout: Buffer.alloc(0), stderr: Buffer.from(refused), started: false });
   count(program);
   const t0 = Date.now();

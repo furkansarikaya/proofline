@@ -79,7 +79,7 @@ function configCheck(ctx, args) {
   }
   if (messages.length === 0) {
     ctx.out(`config valid: ${rel}\n`);
-    const platform = `${ctx.scripts}/platform.sh`;
+    const platform = `${ctx.trustedScripts}/platform.sh`;
     if (file === config && isFile(platform)) {
       // the warning is the platform script's stdout, shown on stderr; its own stderr is dropped
       const r = proc.run('sh', [platform, 'warn', '-C', ctx.root], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });

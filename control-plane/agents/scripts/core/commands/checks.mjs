@@ -18,7 +18,7 @@ const CI_WARN = 'no CI check runs on pull requests here. proofline merge verifie
 
 /** `sh platform.sh field platform -C ROOT 2>/dev/null || echo other`, as a `$(...)` value. @param {Context} ctx */
 function platformField(ctx) {
-  const r = proc.run('sh', [`${ctx.scripts}/platform.sh`, 'field', 'platform', '-C', ctx.root], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = proc.run('sh', [`${ctx.trustedScripts}/platform.sh`, 'field', 'platform', '-C', ctx.root], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
   let out = r.stdout.toString('latin1');
   if (r.status !== 0) out += 'other\n';
   return out.replace(/\n+$/, '');

@@ -251,7 +251,7 @@ function configEmptyCmds(ctx) {
 /** `build_record_missing`: the build record script says exit 3 (no finished record for this tree). @param {Context} ctx */
 function buildRecordMissing(ctx) {
   if (configEmptyCmds(ctx)) return false;
-  const script = `${ctx.scripts}/build-record.sh`;
+  const script = `${ctx.trustedScripts}/build-record.sh`;
   if (!isFile(script)) return false;
   const r = proc.run('sh', [script, 'show'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
   return r.status === 3;
