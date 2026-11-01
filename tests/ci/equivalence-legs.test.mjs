@@ -41,8 +41,11 @@ test('full history, the whole macOS set on one runner, and the invariants on the
   assert.match(job, /actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
   assert.ok(legs.some((l) => l.name === 'full-macos' && l.files === 'all'));
   assert.match(job, /if: matrix\.os == 'macos-latest' && matrix\.leg\.files == 'all'\n\s+run: node --test "tests\/equivalence\/\*\.test\.mjs"/);
-  assert.ok(legs.some((l) => l.name === 'invariants-sh' && l.files === 'none'));
-  assert.match(job, /if: matrix\.os == 'ubuntu-latest' && matrix\.leg\.files == 'none'\n\s+env:\n\s+PROOFLINE_ENGINE: sh\n\s+run: sh tests\/invariants\/invariants-test\.sh/);
+  assert.equal(legs.filter((l) => /^invariants-sh-\d$/.test(l.name) && l.files === 'none').length, 8, 'one invariants-sh leg per scenario');
+  assert.match(job, /if: matrix\.os == 'ubuntu-latest' && matrix\.leg\.files == 'none'\n\s+env:\n\s+LC_EXACT: \$\{\{ matrix\.leg\.scenario \}\}\n\s+PROOFLINE_ENGINE: sh\n\s+run: sh tests\/invariants\/invariants-test\.sh/);
+  const scen = [...readFileSync(join(repo, 'tests/invariants/invariants-test.sh'), 'utf8').matchAll(/^run_sc (sc_\S+)$/gm)].map((m) => m[1]);
+  const inJob = [...job.matchAll(/ scenario: (sc_\S+)/g)].map((m) => m[1]);
+  assert.deepEqual(inJob.sort(), scen.sort(), 'the invariants-sh legs are exactly the scenarios of the suite');
   assert.match(job, /EQUIVALENCE_FULL: \$\{\{ \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && '1' \|\| '' \}\}/);
 });
 test('the leg steps run files explicitly, never a bare directory', () => {
