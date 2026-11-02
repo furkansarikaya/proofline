@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
 // proofline runtime hook, Node form (ADR 0001 stage 3): one Node process per event for Claude Code and Codex. It replaces proofline-hook.sh,
-// which stays beside it as the specification and as the rollback target (`sh` in .agents/local/engine hands the event to it).
+// which stays beside it as the specification until the shell hook is deleted.
 //
 //   node proofline-hook.mjs <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]
 //
@@ -14,7 +14,6 @@
 // An unexpected exception fails closed: PreToolUse denies while a run exists; the other events print the error on stderr and exit 1.
 import { existsSync, readFileSync, realpathSync, writeSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { engineFileValue } from './lib/agent.mjs';
 import { EVENTS, buildContext, finish } from './lib/context.mjs';
 import { rmf } from './lib/fsx.mjs';
 import { yieldsToOtherWiring } from './lib/yield.mjs';
@@ -72,8 +71,7 @@ export async function main(argv) {
   try {
     if (c.ev !== 'pretool' && !c.installed) return 0;
     if (!EVENTS.includes(ev)) { writeOut(2, 'usage: proofline-hook.mjs <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]\n'); return 0; }
-    // the engine switch: `sh` in <main tree>/.agents/local/engine (or PROOFLINE_ENGINE=sh) hands the event to the old shell hook
-    if (engineFileValue(c.mainRoot) === 'sh' || process.env.PROOFLINE_ENGINE === 'sh' || !existsSync(`${here}events/${ev}.mjs`)) {
+    if (!existsSync(`${here}events/${ev}.mjs`)) {
       rmf(c.mark); c.mark = '';
       return await handToShell(c, raw);
     }

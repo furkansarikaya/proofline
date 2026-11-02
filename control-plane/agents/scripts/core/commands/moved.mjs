@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { bytes, configGetFrom } from '../config.mjs';
 import { configLines, dec0 } from '../config.mjs';
-import { BridgeToShell, fail } from '../errors.mjs';
+import { fail, unsupported } from '../errors.mjs';
 import { isFile } from '../paths.mjs';
 import * as proc from '../proc.mjs';
 import { hookKnob, hookTimeouts, timeoutsInfo, tmScaled, verifyCommandTimeout } from '../timeouts.mjs';
@@ -27,7 +27,7 @@ const DIGITS = /^[0-9]+$/;
 /** The text of a byte string as an argument for a child (the bytes must be UTF-8, else the shell code decides). @param {string} s */
 function toArg(s) {
   const back = Buffer.from(s, 'latin1').toString('utf8');
-  if (bytes(back) !== s) throw new BridgeToShell('argument is not UTF-8');
+  if (bytes(back) !== s) throw unsupported('argument is not UTF-8');
   return back;
 }
 
@@ -41,7 +41,7 @@ function role(ctx) {
 function configGet(ctx, args) {
   const raw = args[0] ?? '';
   // `${2:?usage}` prints a shell-specific error for a missing key; awk -v reads backslash escapes in the key
-  if (raw === '' || raw.includes('\\') || !isFile(ctx.configFile)) throw new BridgeToShell('config-get shape');
+  if (raw === '' || raw.includes('\\') || !isFile(ctx.configFile)) throw unsupported('config-get shape');
   const key = bytes(raw);
   const v = ctx.config().getRaw(key);
   if (v === null) fail(`config key not found: ${key}`);
@@ -57,10 +57,10 @@ function configCheck(ctx, args) {
   const disk = path.resolve(ctx.cwd, Buffer.from(file, 'latin1').toString('utf8'));
   if (!isFile(disk)) fail(`config missing: ${file}`);
   let text;
-  try { text = readFileSync(disk, 'latin1'); } catch { throw new BridgeToShell('config unreadable'); }
+  try { text = readFileSync(disk, 'latin1'); } catch { throw unsupported('config unreadable'); }
   const lines = configLines(text);
   const checked = checkConfigLines(lines);
-  if (checked.ambiguous) throw new BridgeToShell('message order of an awk loop');
+  if (checked.ambiguous) throw unsupported('message order of an awk loop');
   let messages = checked.messages;
   if (messages.length === 0) {
     // The regular expressions are validated by the platform's own grep -E and awk, exactly as the shell does (a spawn each, counted)
@@ -104,7 +104,7 @@ function verifyTimeout(ctx) { ctx.out(`${verifyCommandTimeout(ctx.config())}\n`)
 function tmScaledCommand(ctx, args) {
   const [n = '', lo = '', hi = ''] = args;
   const num = (/** @type {string} */ s) => DIGITS.test(s) && s.length <= 12;
-  if (!num(n) || (lo !== '' && !num(lo)) || (hi !== '' && !num(hi))) throw new BridgeToShell('tm-scaled shape');
+  if (!num(n) || (lo !== '' && !num(lo)) || (hi !== '' && !num(hi))) throw unsupported('tm-scaled shape');
   ctx.out(`${tmScaled(ctx.config(), n, lo === '' ? 1 : Number(dec0(lo)), hi === '' ? 28800 : Number(dec0(hi)))}\n`);
   return 0;
 }

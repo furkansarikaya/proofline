@@ -2,7 +2,7 @@
 // Timeouts (A202 item 29, agent.sh lines 182-254) and the hook knobs: one multiplier for every duration. All functions are pure
 // functions of the config. Numbers are exact integers (BigInt where the shell multiplies); a value the shell would read in an
 // implementation-specific way throws BridgeToShell before anything has been printed.
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 import { dec0, smallInt } from './config.mjs';
 
 const DIGITS = /^[0-9]+$/;
@@ -19,7 +19,7 @@ export function tmScaleMilli(cfg) {
   if (!DIGITS.test(ip + fp) ) return 1000;
   if (ip === '') ip = '0';
   if (fp === '') fp = '0';
-  if (ip.length > 12) throw new BridgeToShell(`timeouts.scale too long: ${v}`);
+  if (ip.length > 12) throw unsupported(`timeouts.scale too long: ${v}`);
   fp = `${fp}000`.slice(0, 3);
   const milli = Number(dec0(ip)) * 1000 + Number(dec0(fp));
   return milli >= 500 && milli <= 10000 ? milli : 1000;
@@ -34,7 +34,7 @@ export function tmScale(cfg) { return String(Number((tmScaleMilli(cfg) / 1000).t
  */
 export function tmScaled(cfg, n, lo = 1, hi = 28800) {
   const ds = dec0(String(n));
-  if (!DIGITS.test(ds) || ds.length > 12) throw new BridgeToShell(`tm_scaled argument: ${ds}`);
+  if (!DIGITS.test(ds) || ds.length > 12) throw unsupported(`tm_scaled argument: ${ds}`);
   let x = (BigInt(ds) * BigInt(tmScaleMilli(cfg)) + 999n) / 1000n;
   if (x < BigInt(lo)) x = BigInt(lo);
   if (x > BigInt(hi)) x = BigInt(hi);
@@ -117,7 +117,7 @@ export function timeoutsInfo(cfg) {
   o.push(`dispatch.default=${tmDispatchSeconds(cfg, '')}`);
   for (const c of ['TRIVIAL', 'STANDARD', 'COMPLEX', 'CRITICAL']) o.push(`dispatch.${c}=${tmDispatchSeconds(cfg, c)}`);
   const sb = cfg.get('tasks.status_block_seconds', '20');
-  if (!DIGITS.test(sb)) throw new BridgeToShell(`tasks.status_block_seconds: ${sb}`); // the shell's arithmetic error text
+  if (!DIGITS.test(sb)) throw unsupported(`tasks.status_block_seconds: ${sb}`); // the shell's arithmetic error text
   o.push(`verification.command=${verifyCommandTimeout(cfg)}`, `lock=${tmScaled(cfg, 120, 1, 3600)}`, `status_block=${tmScaled(cfg, sb, 1, 900)}`);
   o.push(`batch.ci_wait_minutes=${batchMinutes(cfg, 'batch.ci_wait_minutes', 30)}`, `batch.ci_appear_minutes=${batchMinutes(cfg, 'batch.ci_appear_minutes', 10)}`);
   o.push(`hook.approve_budget=${hookKnob(cfg, 'approve_budget_seconds', 20, 5, 25)} (never scaled)`, `hook.next_budget=${hookKnob(cfg, 'next_budget_seconds', 10, 2, 20)}`, `hook.lock_wait=${hookKnob(cfg, 'lock_wait_seconds', 8, 1, 20)}`);

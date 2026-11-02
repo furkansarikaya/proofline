@@ -108,7 +108,7 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 
 **Platforms.** GitHub, GitLab, Azure DevOps; a private host is named by `git.platform_host`; else you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
 
-**The next step.** Every command ends with `Next step: ...`, the one command (or action of yours) that follows. One table in the control plane (`next-user.sh`) holds it; the entry skill lists it; see [details](docs/concepts/workflow.md#the-next-step).
+**The next step.** Every command ends with `Next step: ...`, the one command (or action of yours) that follows. One table in the control plane (`core/nextuser.mjs`) holds it; the entry skill lists it; see [details](docs/concepts/workflow.md#the-next-step).
 
 **Night mode.** `/proofline batch <ID...|all>` shows one summary and takes one approval ("approve batch") for several tasks. The same session runs and delivers each in dependency order, each in its own git worktree. Keep the computer awake; `/proofline batch` continues after an interruption. What the approval does not cover parks that task; `proofline batch status` is the morning table ([night mode](docs/concepts/night-mode.md)).
 

@@ -143,20 +143,12 @@ describe('cli subcommands through the front ends', () => {
     rmSync(path.join(fx, '.agents/tasks/todo'), { recursive: true, force: true });
   });
 
-  test('the engine switch: sh:insights and PROOFLINE_ENGINE_SH keep the shell form', () => {
-    const a = exec(['insights'], 'node', { PROOFLINE_ENGINE_SH: 'insights' });
-    const b = exec(['insights'], 'sh');
-    assert.deepEqual(asSets(a), asSets(b));
-    w('.agents/local/engine', 'sh:queue,insights\n');
-    assert.deepEqual(asSets(exec(['insights'], 'node')), asSets(b));
-    rmSync(path.join(fx, '.agents/local/engine'));
-  });
 });
 
 describe('the closed set of CLI-only subcommands', () => {
   const core = path.join(repo, 'control-plane/agents/scripts/proofline-core.mjs');
   test('exactly insights, queue and the two git hooks; none is an agent.sh command', () => {
-    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['insights', 'pre-commit', 'pre-push', 'queue']);
+    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['insights', 'next-line', 'pre-commit', 'pre-push', 'queue']);
     for (const n of Object.keys(CLI_COMMANDS)) assert.ok(!COMMAND_NAMES.includes(n), n);
     assert.ok(!COMMAND_NAMES.includes('cli'));
     assert.throws(() => { CLI_COMMANDS.extra = () => 0; });

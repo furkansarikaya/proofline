@@ -2,7 +2,7 @@
 // Read-only views of a run built from its records: `summary` (and the `--status` form), `digest`, `plan-section`, `report-tokens`,
 // `report-execution` and `report-facts` (agent.sh 7363-7420, 8880-8940). Counts and statuses come from the records, never from text.
 import { statSync } from 'node:fs';
-import { BridgeToShell, fail, ProoflineError } from './errors.mjs';
+import { BridgeToShell, fail, ProoflineError, unsupported } from './errors.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
 import { listNames } from './ledger.mjs';
@@ -125,7 +125,7 @@ export function planSection(ctx, id, name) {
     return;
   }
   // the section name is a pattern in grep and awk: any character with a meaning of its own is the shell's to read
-  if (/[\\.*[\]^$+?(){}|]/.test(name)) throw new BridgeToShell('section name with pattern characters');
+  if (/[\\.*[\]^$+?(){}|]/.test(name)) throw unsupported('section name with pattern characters');
   const head = new RegExp(`^## ${name}${WS}*$`);
   if (!lines.some((l) => head.test(l))) {
     const names = lines.map((l) => /^## (.*[^ \t\n\v\f\r])[ \t\n\v\f\r]*$/.exec(l)).filter((m) => m !== null).map((m) => `${m?.[1]} `).join('');

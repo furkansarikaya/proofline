@@ -1,7 +1,7 @@
 // The equivalence rig runs as parallel legs: `equivalence` (Linux, pull requests and the nightly) and `equivalence-macos` (nightly and manual runs only; before
 // the split a serial macOS leg took 2 h 7 min). These tests read .github/workflows/ci.yml: every tests/equivalence/*.test.mjs file is in exactly one leg of each
-// job, both jobs feed `checks`, neither is skipped by fast mode, no pull request run starts a macOS runner, and the invariants legs are exactly the scenarios of
-// the suite. They live here, not in fast-mode.test.mjs: a pull request that changes tests/ci/fast-mode.* runs the full legacy suite.
+// job, both jobs feed `checks`, neither is skipped by fast mode, no pull request run starts a macOS runner.
+// They live here, not in fast-mode.test.mjs: a pull request that changes tests/ci/fast-mode.* runs the full legacy suite.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -18,7 +18,6 @@ const mac = jobText('equivalence-macos');
 const linLegs = legsOf(lin);
 const macLegs = legsOf(mac);
 const testFiles = readdirSync(join(repo, 'tests/equivalence')).filter((f) => f.endsWith('.test.mjs')).map((f) => `tests/equivalence/${f}`);
-const scenarios = [...readFileSync(join(repo, 'tests/invariants/invariants-test.sh'), 'utf8').matchAll(/^run_sc (sc_\S+)$/gm)].map((m) => m[1]);
 
 for (const [label, j, legs] of /** @type {[string, string, typeof linLegs][]} */ ([['equivalence (Linux)', lin, linLegs], ['equivalence-macos', mac, macLegs]])) {
   test(`${label}: a matrix of uniquely named legs in block style`, () => {
@@ -49,16 +48,12 @@ test('the Linux job keeps the code gate and is the one pull requests run; the lo
   for (let i = 1; i <= 8; i++) assert.ok(linLegs.some((l) => l.name === `states-${i}` && l.files.includes(`stage2-cases-${i}.test.mjs`) && l.files.includes(`stage2-trace-${i}.test.mjs`)), `states-${i}`);
   for (const [n, f] of [['lifecycle', 'lifecycle.test.mjs'], ['downgrade', 'downgrade.test.mjs']]) assert.equal(linLegs.find((l) => l.name === n)?.files, `tests/equivalence/${f}`);
 });
-test('Linux: the Core invariants on the shell engine run one scenario per leg, exactly the scenarios of the suite', () => {
-  assert.deepEqual(linLegs.filter((l) => l.files === 'none').map((l) => l.scenario), scenarios);
-  assert.match(lin, /if: matrix\.leg\.files == 'none'\n\s+env:\n\s+LC_EXACT: \$\{\{ matrix\.leg\.scenario \}\}\n\s+PROOFLINE_ENGINE: sh\n\s+run: sh tests\/invariants\/invariants-test\.sh/);
-});
 test('the whole-set serial run is an opt-in repository variable, never the default', () => {
   assert.ok(linLegs.some((l) => l.name === 'full-serial' && l.files === 'all'));
   assert.match(lin, /if: vars\.EQUIVALENCE_SERIAL == '1' && matrix\.leg\.files == 'all'\n\s+run: node --test "tests\/equivalence\/\*\.test\.mjs"/);
   assert.match(lin, /EQUIVALENCE_FULL: \$\{\{ \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && '1' \|\| '' \}\}/);
 });
-test('equivalence-macos: nightly and manual only, EQUIVALENCE_FULL=1, one file per leg for the long case and trace files, two invariants legs', () => {
+test('equivalence-macos: nightly and manual only, EQUIVALENCE_FULL=1, one file per leg for the long case and trace files', () => {
   assert.match(mac, /\n    if: needs\.changes\.outputs\.code == 'true' && \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\)\n/);
   assert.match(mac, /runs-on: macos-latest/);
   assert.match(mac, /EQUIVALENCE_FULL: '1'/);
@@ -66,10 +61,6 @@ test('equivalence-macos: nightly and manual only, EQUIVALENCE_FULL=1, one file p
     assert.equal(macLegs.find((l) => l.name === `cases-${i}`)?.files, `tests/equivalence/stage2-cases-${i}.test.mjs`);
     assert.equal(macLegs.find((l) => l.name === `trace-${i}`)?.files, `tests/equivalence/stage2-trace-${i}.test.mjs`);
   }
-  const inv = macLegs.filter((l) => l.files === 'none');
-  assert.ok(inv.length >= 1, 'at least one invariants leg on the shell engine');
-  for (const l of inv) assert.ok(scenarios.includes(l.scenario), l.scenario);
-  assert.match(mac, /if: matrix\.leg\.files == 'none'\n\s+env:\n\s+LC_EXACT: \$\{\{ matrix\.leg\.scenario \}\}\n\s+PROOFLINE_ENGINE: sh\n\s+run: sh tests\/invariants\/invariants-test\.sh/);
 });
 test('no pull request run starts a macOS runner: every job that names macos-latest is gated to the schedule and manual runs', () => {
   const jobs = [...ci.matchAll(/^  ([a-z][a-z0-9-]*):\n([\s\S]*?)(?=^  [a-z][a-z0-9-]*:\n|^  #|(?![\s\S]))/gm)];

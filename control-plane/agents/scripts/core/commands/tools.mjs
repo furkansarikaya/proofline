@@ -8,7 +8,7 @@
 import { readSync, readdirSync, statSync } from 'node:fs';
 import { bytes } from '../config.mjs';
 import { debt } from '../debt.mjs';
-import { BridgeToShell, ProoflineError, fail } from '../errors.mjs';
+import { BridgeToShell, ProoflineError, fail, unsupported } from '../errors.mjs';
 import { designGlobMatch, PathKinds, scopeKindRows } from '../pathkind.mjs';
 import { isDir, isFile } from '../paths.mjs';
 import { afterFrontMatter, evidenceField, humanChecks, readBytes, scopeEntries, scopeEntryCovers, taskType } from '../taskfile.mjs';
@@ -18,20 +18,20 @@ import { afterFrontMatter, evidenceField, humanChecks, readBytes, scopeEntries, 
 /** An argument as a byte string; text that is not valid UTF-8 cannot travel through process.argv, so the shell decides. @param {string | undefined} a */
 function arg(a) {
   const s = a ?? '';
-  if (s.includes('�')) throw new BridgeToShell('argument is not UTF-8');
+  if (s.includes('�')) throw unsupported('argument is not UTF-8');
   return bytes(s);
 }
 
 /** A byte-string path as a path on disk. @param {Context} ctx @param {string} s */
 function disk(ctx, s) {
   const back = Buffer.from(s, 'latin1').toString('utf8');
-  if (bytes(back) !== s) throw new BridgeToShell('path is not UTF-8');
+  if (bytes(back) !== s) throw unsupported('path is not UTF-8');
   return back.startsWith('/') ? back : `${ctx.cwd}/${back}`;
 }
 
 /** `${N:?usage}` -> the shell prints a shell-specific error for a missing or empty argument. @param {string | undefined} a */
 function required(a) {
-  if (a === undefined || a === '') throw new BridgeToShell('missing argument');
+  if (a === undefined || a === '') throw unsupported('missing argument');
   return arg(a);
 }
 
@@ -64,7 +64,7 @@ function taskScopeEntries(ctx, args) {
   const file = disk(ctx, arg(args[0]));
   if (!isFile(file)) return 0;
   const text = readBytes(file);
-  if (text === null) throw new BridgeToShell('task file unreadable');
+  if (text === null) throw unsupported('task file unreadable');
   for (const e of scopeEntries(text, arg(args[1]))) ctx.out(`${e}\n`);
   return 0;
 }
@@ -81,7 +81,7 @@ function humanChecksCommand(ctx, args) {
   const f = `${ctx.runDir(id)}/QA_REPORT.md`;
   if (!isFile(f)) return 0;
   const text = readBytes(f);
-  if (text === null) throw new BridgeToShell('QA_REPORT.md unreadable');
+  if (text === null) throw unsupported('QA_REPORT.md unreadable');
   for (const l of humanChecks(text)) ctx.out(`${l}\n`);
   return 0;
 }
@@ -104,7 +104,7 @@ function questions(ctx, args) {
     if (!exists(f)) continue;
     if (exists(`${f.slice(0, -3)}.answer.md`)) continue;
     const text = readBytes(f);
-    if (text === null || (text !== '' && !text.endsWith('\n'))) throw new BridgeToShell('question file shape');
+    if (text === null || (text !== '' && !text.endsWith('\n'))) throw unsupported('question file shape');
     any = true;
     ctx.out(`=== QUESTION ${n.slice(0, 3)} (from ${evidenceField(text, 'from') ?? ''})\n`);
     for (const l of afterFrontMatter(text)) ctx.out(`${l}\n`);
@@ -211,7 +211,7 @@ function scopeKinds(ctx, args) {
   const id = required(args[0]);
   const f = `${ctx.runDir(id)}/PLAN.md`;
   const text = isFile(f) ? readBytes(f) : null;
-  if (text === null) throw new BridgeToShell('PLAN.md missing: awk prints its own error');
+  if (text === null) throw unsupported('PLAN.md missing: awk prints its own error');
   ctx.out(scopeKindRows(new PathKinds(ctx), text));
   return 0;
 }

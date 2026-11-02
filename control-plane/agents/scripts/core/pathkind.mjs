@@ -4,7 +4,7 @@
 // the run library has its own readers of the same facts (NEEDS-LATER: one copy).
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 import { isFile } from './paths.mjs';
 import { asciiLower, caseMatch, expandWords, pathMatches } from './shellglob.mjs';
 
@@ -71,7 +71,7 @@ export class PathKinds {
       const n = r.indexOf('.');
       if (n > 0) { const s = r.slice(0, n); if (!out.includes(s)) out.push(s); }
     }
-    for (const s of out) if (!/^[A-Za-z0-9_-]+$/.test(s)) throw new BridgeToShell('unusual surface name');
+    for (const s of out) if (!/^[A-Za-z0-9_-]+$/.test(s)) throw unsupported('unusual surface name');
     return out;
   }
 
@@ -118,7 +118,7 @@ export class PathKinds {
 
   /** `path_kind PATH` -> content | code @param {string} p */
   pathKind(p) {
-    if (p.includes('\n')) throw new BridgeToShell('newline in a path');
+    if (p.includes('\n')) throw unsupported('newline in a path');
     if (p !== '' && pathMatches(p, this.cfg.get('review.executable_code', EXECUTABLE_CODE_DEFAULT))) return 'code';
     return this.isDocPath(p) ? 'content' : 'code';
   }
@@ -211,7 +211,7 @@ export function scopeKindRows(pk, text) {
   const exempt = tddExemptions(text);
   // `for p in $(... | cut -d '|' -f1)`: split into words
   const words = scopeMappingPaths(text).map((l) => l.split('|')[0]).join('\n').split(/[ \t\n]+/).filter((w) => w !== '');
-  for (const w of words) if (/[*?[\\]/.test(w)) throw new BridgeToShell('glob character in a scope path');
+  for (const w of words) if (/[*?[\\]/.test(w)) throw unsupported('glob character in a scope path');
   /** @type {string[]} */ const rows = [];
   for (const p of words) {
     const cl = claims.find((l) => l.includes(`${p}|`));

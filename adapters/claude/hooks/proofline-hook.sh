@@ -169,7 +169,7 @@ mc_flag() {
 }
 mc_text() {
   IFS=' ' read -r mx_c mx_r < "$tmp/mcfail" || :
-  mc_x="agent.sh $mx_c exited $mx_r, so a guard cannot read the run state and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it), or write sh into .agents/local/engine to run the old shell code"
+  mc_x="agent.sh $mx_c exited $mx_r, so a guard cannot read the run state and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it)"
 }
 hk_mcexit() {
   [ "$ev" = pretool ] && [ -z "$hk_denied" ] && [ -s "$tmp/mcfail" ] || return 0
@@ -980,7 +980,7 @@ stray_tmp_path() {
 mc_fail() {
   [ "$ev" = pretool ] || return 0
   [ "$2" != run ] || [ -n "$act" ] || return 0
-  deny "agent.sh $1 exited $3, so the $4 cannot read its settings and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it), or write sh into .agents/local/engine to run the old shell code"
+  deny "agent.sh $1 exited $3, so the $4 cannot read its settings and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it)"
 }
 hcfg_state=''
 hcfg_load() {

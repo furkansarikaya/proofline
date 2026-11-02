@@ -6,7 +6,7 @@
 import { accessSync, constants, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
 import { sha256 } from './hash.mjs';
@@ -214,7 +214,7 @@ export function riskNames(ctx) {
 
 /** A config number that feeds a comparison; a value the shell's `[` would reject leaves the command to the shell. @param {string} v */
 function numberOrBridge(v) {
-  if (!/^[0-9]+$/.test(v) || v.length > 15) throw new BridgeToShell(`not a number: ${v}`);
+  if (!/^[0-9]+$/.test(v) || v.length > 15) throw unsupported(`not a number: ${v}`);
   return Number(v);
 }
 

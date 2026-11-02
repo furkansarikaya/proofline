@@ -214,7 +214,7 @@ describe('package TOOLS: the string rules', () => {
     lines.forEach((l, i) => {
       const [p, s] = l.split('\t');
       let m;
-      try { m = caseMatch(p, s ?? ''); } catch (e) { assert.equal(/** @type {Error} */ (e).name, 'BridgeToShell'); bridged++; return; }
+      try { m = caseMatch(p, s ?? ''); } catch (e) { assert.equal(/** @type {Error} */ (e).name, 'ProoflineError'); bridged++; return; }
       assert.equal(m ? '1' : '0', got[i], `${JSON.stringify(p)} ${JSON.stringify(s)}`);
     });
     assert.ok(bridged > 0 && bridged < lines.length / 4, `bridged ${bridged}`);

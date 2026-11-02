@@ -38,8 +38,6 @@ control-plane/agents/scripts/known-issues.sh
 control-plane/agents/scripts/lessons-test.sh
 control-plane/agents/scripts/lessons.sh
 control-plane/agents/scripts/lifecycle-test.sh
-control-plane/agents/scripts/next-user-test.sh
-control-plane/agents/scripts/next-user.sh
 control-plane/agents/scripts/perf-test.sh
 control-plane/agents/scripts/platform.sh
 control-plane/agents/scripts/risk-test.sh

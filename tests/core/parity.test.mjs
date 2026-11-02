@@ -137,28 +137,4 @@ describe('parity with the shell code', () => {
     }
     same([]); same(['']);
   });
-
-  test('the engine switch: env, file, either forcing sh wins', () => {
-    setConfig(realConfig.toString('latin1'));
-    const file = path.join(fx, '.agents', 'local', 'engine');
-    mkdirSync(path.dirname(file), { recursive: true });
-    const probe = (/** @type {Record<string,string>} */ env) => spawnSync('sh', [agent, 'hook-timeouts'], { cwd: fx, env: { ...process.env, PATH: '/usr/bin:/bin', ...env }, encoding: 'utf8' });
-    // node is not on this PATH: a moved command that is delegated fails with 127, one that is forced to sh runs
-    const nodeless = (/** @type {Record<string,string>} */ env) => probe(env).status;
-    rmSync(file, { force: true });
-    if (spawnSync('sh', ['-c', 'PATH=/usr/bin:/bin command -v node']).status !== 0) {
-      assert.equal(nodeless({}), 127);
-      assert.equal(nodeless({ PROOFLINE_ENGINE: 'sh' }), 0);
-      assert.equal(nodeless({ PROOFLINE_ENGINE_SH: 'hook-timeouts,role' }), 0);
-      assert.equal(nodeless({ PROOFLINE_ENGINE_SH: 'role' }), 127);
-      writeFileSync(file, 'sh\n'); assert.equal(nodeless({}), 0);
-      writeFileSync(file, 'sh:hook-timeouts,role\n'); assert.equal(nodeless({}), 0);
-      writeFileSync(file, 'sh:role\n'); assert.equal(nodeless({}), 127);
-      writeFileSync(file, 'sh:role\n'); assert.equal(nodeless({ PROOFLINE_ENGINE: 'sh' }), 0);
-      writeFileSync(file, 'node\n'); assert.equal(nodeless({}), 127);
-      writeFileSync(file, ''); assert.equal(nodeless({}), 127);
-      writeFileSync(file, 'sh'); assert.equal(nodeless({}), 0);
-    }
-    rmSync(file, { force: true });
-  });
 });

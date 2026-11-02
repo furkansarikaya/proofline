@@ -320,7 +320,7 @@ done
 grep -qx 'my edit above the block' "$up6/AGENTS.md" && grep -qx '## Logging' "$up6/AGENTS.md" && grep -qx -- '- Log through internal/logx only.' "$up6/AGENTS.md" && grep -q 'upstream block change' "$up6/AGENTS.md" && [ -z "$(find "$up6" -name '*.proofline-new' -not -path '*/.git/*')" ] && ok "...the user's Logging section and the edit above survive, the block is updated, no .proofline-new" || { LAST=$(cat "$up6/AGENTS.md"); die "user AGENTS.md content lost or a .proofline-new appeared"; }
 
 # A162: README keeps the sentence that the entry skill lists the next-step table
-grep -qF 'One table in the control plane (`next-user.sh`) holds it; the entry skill lists it;' "$repo/README.md" && ok "README says the entry skill lists the next-step table" || die "README lost the entry-skill sentence"
+grep -qF 'One table in the control plane (`core/nextuser.mjs`) holds it; the entry skill lists it;' "$repo/README.md" && ok "README says the entry skill lists the next-step table" || die "README lost the entry-skill sentence"
 
 }
 
@@ -699,9 +699,9 @@ rd_cmds=$(rd_list "$repo/README.md")
 if [ "$hp_cmds" = "$rd_cmds" ]; then ok "the README command list names exactly the commands of proofline help"
 else LAST=$(printf 'help:\n%s\nREADME:\n%s\n' "$hp_cmds" "$rd_cmds"); die "README.md Commands list and proofline help name different commands"; fi
 # A159: the next-step table has an entry for every command of `proofline help`, and no other
-nu_cmds=$(sh "$repo/control-plane/agents/scripts/next-user.sh" --commands | sort -u)
+nu_cmds=$(node "$repo/control-plane/agents/scripts/proofline-core.mjs" cli next-line --commands | sort -u)
 if [ "$hp_cmds" = "$nu_cmds" ]; then ok "the next-step table names exactly the commands of proofline help"
-else LAST=$(printf 'help:\n%s\nnext-user:\n%s\n' "$hp_cmds" "$nu_cmds"); die "next-user.sh table and proofline help name different commands"; fi
+else LAST=$(printf 'help:\n%s\nnext-user:\n%s\n' "$hp_cmds" "$nu_cmds"); die "next-step table and proofline help name different commands"; fi
 # negative: a command missing from the README block (or an invented one) makes the same comparison fail
 mkdir -p "$T/rdneg"
 grep -v '^debt  ' "$repo/README.md" > "$T/rdneg/missing.md"

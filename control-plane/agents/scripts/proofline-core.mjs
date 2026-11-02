@@ -64,14 +64,14 @@ export function commandAllowed(role, command) {
 const validTaskId = (id) => /^[A-Za-z0-9_-]+$/.test(id);
 
 /**
- * Run the shell code for a command (the bridge, and the worktree rule). The engine is forced to the shell so that nothing loops.
+ * Run the shell code for a command (the bridge, and the worktree rule). PROOFLINE_BRIDGED makes agent.sh run the shell code, so that nothing loops.
  * @param {Context} ctx @param {string[]} argv @param {{ cwd?: string, script?: string, force?: boolean }} [opt]
  */
 function viaShell(ctx, argv, opt = {}) {
   // the bridge exists for the shell-error-text fallbacks of the commands this core owns, never for another command
   if (argv[0] === undefined || !Object.hasOwn(HANDLERS, argv[0])) throw new ProoflineError('proofline-core: the bridge only serves the commands of the Node core', 2, 'NOT_MOVED');
   ctx.discard();
-  const env = opt.force === false ? { ...ctx.env } : { ...ctx.env, PROOFLINE_ENGINE: 'sh' };
+  const env = opt.force === false ? { ...ctx.env } : { ...ctx.env, PROOFLINE_BRIDGED: '1' };
   // the script as agent.sh was typed (so that $0 is identical in the shell's own error texts), else the absolute path of the sibling agent.sh
   const script = opt.script ?? ctx.io.argv0 ?? path.join(ctx.scriptDir, 'agent.sh');
   const own = ctx.io.isProcess === true;
@@ -119,7 +119,7 @@ function dispatch(ctx, locks, argv) {
   if (command === 'cli') return runCli(ctx, args);
   const handler = Object.hasOwn(HANDLERS, command) ? HANDLERS[command] : undefined;
   // agent.sh parses the config at its start: a config that exists but cannot be read is the shell's (awk's) error
-  if (handler && isFile(ctx.configFile)) { try { accessSync(ctx.configFile, constants.R_OK); } catch { throw new BridgeToShell('config unreadable'); } }
+  if (handler && isFile(ctx.configFile)) { try { accessSync(ctx.configFile, constants.R_OK); } catch { throw new ProoflineError('proofline: the configuration file is not readable', 1); } }
   if (!validRole(ctx.role)) throw new ProoflineError(`invalid execution role: ${bytes(ctx.rawRole)}`, 1);
   // A169: a run that lives in its own worktree is served by that worktree's agent.sh (only for a command this core owns)
   const id = args[0];
@@ -190,6 +190,16 @@ export function splitArgv0(args, scriptPath, cwd) {
   return { argv: rest };
 }
 
+/**
+ * `cli next-line` runs for the project named by PROOFLINE_ROOT (the front end bin/proofline runs it from the plugin, also for a project that is
+ * not installed yet): the script path that names the root. No other command reads PROOFLINE_ROOT.
+ * @param {string[]} argv @param {NodeJS.ProcessEnv} env @returns {string | undefined}
+ */
+function cliRootScript(argv, env) {
+  const r = env.PROOFLINE_ROOT;
+  return argv[0] === 'cli' && argv[1] === 'next-line' && r && path.isAbsolute(r) ? path.join(r, '.agents', 'scripts', 'proofline-core.mjs') : undefined;
+}
+
 /** The entry point: the arguments of the process, its descriptors, its environment. @param {string} scriptPath */
 export function main(scriptPath) {
   const cwd = process.cwd();
@@ -197,7 +207,7 @@ export function main(scriptPath) {
   const io = {
     env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
     // from a run worktree the script that names the root is the worktree's agent.sh; the code that runs stays this core's
-    scriptPath: split.rootScript ?? path.resolve(scriptPath), argv0: split.argv0,
+    scriptPath: split.rootScript ?? cliRootScript(split.argv, process.env) ?? path.resolve(scriptPath), argv0: split.argv0,
   };
   return run(split.argv, io);
 }

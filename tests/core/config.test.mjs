@@ -7,7 +7,7 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { extractFunctions } from './helpers.mjs';
 import { Config, bytes, configGetFrom, configItems, configLines, dec0, smallInt } from '../../control-plane/agents/scripts/core/config.mjs';
-import { BridgeToShell } from '../../control-plane/agents/scripts/core/errors.mjs';
+import { ProoflineError } from '../../control-plane/agents/scripts/core/errors.mjs';
 
 describe('configLines (the awk program of config_lines)', () => {
   test('nested keys, comments, blanks, quotes', () => {
@@ -74,7 +74,7 @@ describe('numbers', () => {
   });
   test('smallInt leaves numbers beyond the shell integers to the shell code', () => {
     assert.equal(smallInt('000000000000009'), 9);
-    assert.throws(() => smallInt('1234567890123456'), BridgeToShell);
+    assert.throws(() => smallInt('1234567890123456'), ProoflineError);
   });
 });
 

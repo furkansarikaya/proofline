@@ -309,7 +309,6 @@ sc_park_skip_continue() {
   [ -d .agents/local/worktrees/T-1/.agents/runs/T-1 ] && [ -d .agents/local/worktrees/T-4/.agents/runs/T-4 ] || die "a parked or waiting task lost its worktree: $(git worktree list)"
   [ ! -d .agents/local/worktrees/T-3 ] && [ ! -e .agents/local/worktrees/T-2 ] || die "worktree of the merged T-3 left, or one made for the never-started T-2: $(git worktree list)"
   [ "$(cd .agents/local/worktrees/T-1 && sh .agents/scripts/agent.sh open-runs)" = 'T-1 -' ] || die "open runs of T-1's worktree"
-  A next-user batch status | grep -q 'reply in this session to the open question.*then run /proofline batch$' || die "next step for a parked task whose run is in a worktree: $(A next-user batch status)"
   A questions T-1 | grep -q 'Which cache' || die "questions for a run in a worktree are not forwarded from the main tree: $(A questions T-1 2>&1)"
   # the dependent waits for the merge: T-1 gets its answer and merges in the SAME worktree, then T-2 runs, not before
   printf 'a\n' > .agents/local/worktrees/T-1/.agents/runs/T-1/questions/001.answer.md

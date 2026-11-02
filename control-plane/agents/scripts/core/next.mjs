@@ -41,7 +41,7 @@ const kindSlug = (k) => k.replace(/:/g, '-');
 function safeStateFile(ctx, f) {
   try { const l = lstatSync(f); if (l.isSymbolicLink() || !l.isFile() || l.nlink !== 1) return false; } catch { return false; }
   let d = f.slice(0, f.lastIndexOf('/'));
-  if (d !== ctx.root && !d.startsWith(`${ctx.root}/`)) throw new BridgeToShell('approval outside the root');
+  if (d !== ctx.root && !d.startsWith(`${ctx.root}/`)) return false;
   while (d !== ctx.root) {
     if (!d.startsWith(`${ctx.root}/`)) return false;
     try { if (lstatSync(d).isSymbolicLink()) return false; } catch { return false; }

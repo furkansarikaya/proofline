@@ -21,9 +21,9 @@ LIB=$PL_HOME/bin/lib
 
 say() { printf '%s\n' "$*"; }
 warn() { printf 'proofline: %s\n' "$*" >&2; }
-# nu_line [--error[=KIND]]: the user's next step (A159), from the one table in next-user.sh, for the command being run.
+# nu_line [--error[=KIND]]: the user's next step (A159), from the one table in core/nextuser.mjs, for the command being run.
 PL_CMD=''; PL_ID=''; PL_KIND=''
-nu_line() { PROOFLINE_ROOT=$ROOT sh "$PL_HOME/control-plane/agents/scripts/next-user.sh" "${PL_CMD:-help}" ${PL_ID:+"$PL_ID"} "$@"; }
+nu_line() { PROOFLINE_ROOT=$ROOT node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli next-line "${PL_CMD:-help}" ${PL_ID:+"$PL_ID"} "$@"; }
 die() { printf 'proofline: %s\n' "$*" >&2; nu_line "--error${PL_KIND:+=$PL_KIND}" >&2 || :; exit 1; }
 if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
 else sha256() { sha256sum "$1" | awk '{print $1}'; }; fi
@@ -125,23 +125,11 @@ EOF
 installed() { [ -f "$CFG" ] && [ -f "$A" ]; }
 require_installed() { installed || die "proofline is not installed in $ROOT (.agents/config.yaml missing); run: proofline init"; }
 agent() { (cd "$ROOT" && sh "$A" "$@"); }
-# Stage 2: insights and queue are computed by the Node core (`proofline-core.mjs cli NAME`, ADR 0001) unless the engine is forced to the shell
-# the way the agent.sh preamble reads it (PROOFLINE_ENGINE=sh, PROOFLINE_ENGINE_SH=NAME, or .agents/local/engine: `sh` or `sh:NAME,...`), or this
-# project has no core or no node (then the shell code below runs, as before). core_wanted NAME: 0 when the core runs it.
-core_wanted() {
-  [ "${PROOFLINE_ENGINE:-}" != sh ] || return 1
-  case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) return 1 ;; esac
-  cw_sr=$ROOT
-  if [ -f "$ROOT/.git" ]; then
-    cw_m=$(git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); cw_p=$(cd "$ROOT" && pwd -P)
-    case "$cw_p" in "$cw_m"/.agents/local/worktrees/*) cw_sr=$cw_m ;; esac
-  fi
-  if [ -r "$cw_sr/.agents/local/engine" ]; then
-    cw_e=''; IFS= read -r cw_e < "$cw_sr/.agents/local/engine" || :
-    cw_e=${cw_e%"${cw_e##*[![:space:]]}"}
-    case "$cw_e" in sh) return 1 ;; sh:*) case ",${cw_e#sh:}," in *",$1,"*) return 1 ;; esac ;; esac
-  fi
-  [ -f "$ROOT/.agents/scripts/proofline-core.mjs" ] && [ -d "$ROOT/.agents/scripts/core" ] && command -v node >/dev/null 2>&1
+# core_cli NAME [ARGS]: insights and queue are computed by the Node core (`proofline-core.mjs cli NAME`, ADR 0001) of the installed project.
+core_cli() {
+  [ -f "$ROOT/.agents/scripts/proofline-core.mjs" ] && [ -d "$ROOT/.agents/scripts/core" ] || die "$ROOT/.agents/scripts/proofline-core.mjs or core/ is missing (run: proofline upgrade)"
+  command -v node >/dev/null 2>&1 || die "node is not on PATH; proofline needs Node 22.13 or newer"
+  (cd "$ROOT" && node "$ROOT/.agents/scripts/proofline-core.mjs" cli "$@")
 }
 active_id() { agent status 2>/dev/null | sed -n 's/^active_task=//p' | head -1; }
 tasks_dir() { cfg_val "$CFG" tasks.dir .agents/tasks; }
@@ -195,36 +183,7 @@ cmd_resume() {
 
 cmd_queue() {
   require_installed
-  if core_wanted queue; then (cd "$ROOT" && node "$ROOT/.agents/scripts/proofline-core.mjs" cli queue); return; fi
-  td=$ROOT/$(tasks_dir)
-  say "tasks ($(tasks_dir)):"
-  found=0
-  for d in todo backlog; do
-    for f in "$td/$d"/*.md; do [ -f "$f" ] || continue; say "  $d/$(basename "$f")"; found=1; done
-  done
-  for f in "$td"/*.md; do [ -f "$f" ] || continue; say "  $(basename "$f")"; found=1; done
-  [ "$found" = 1 ] || say "  (none)"
-  # A202: finished tasks show their title and status only (the first lines of the file); the completion report stays in the file as evidence and is never read here.
-  dn=0
-  for f in "$td"/done/*.md; do
-    [ -f "$f" ] || continue
-    dn=$((dn + 1)); [ "$dn" -le 20 ] || continue
-    [ "$dn" -gt 1 ] || say "done (title and status only):"
-    dh=$(head -n 12 "$f"); dt=$(printf '%s\n' "$dh" | sed -n '1s/^# *//p'); ds=$(printf '%s\n' "$dh" | sed -n 's/^\*\*Status:\*\* *//p' | head -n 1)
-    say "  done/$(basename "$f"): ${dt:-(no title)} [${ds:--}]"
-  done
-  [ "$dn" -le 20 ] || say "  ... and $((dn - 20)) more finished task(s)"
-  act=$(active_id); say "runs (.agents/runs):"
-  found=0
-  for r in "$ROOT"/.agents/runs/*/ "$ROOT"/.agents/local/worktrees/*/.agents/runs/*/; do
-    [ -d "$r" ] || continue; rid=$(basename "$r"); found=1
-    st=$(agent next "$rid" 2>/dev/null | sed -n 's/^state=//p; s/^handoff=/ handoff=/p' | tr '\n' ' ')
-    if [ "$rid" = "$act" ]; then mark='*'; else mark=' '; fi
-    wtm=''; case "$r" in "$ROOT"/.agents/local/worktrees/*) wtm=" (worktree .agents/local/worktrees/$rid)" ;; esac   # A169
-    say " $mark $rid  ${st:-state unknown}$wtm"
-  done
-  [ "$found" = 1 ] || say "  (none)"
-  say "(* = active run)"
+  core_cli queue
 }
 
 cmd_debt() {

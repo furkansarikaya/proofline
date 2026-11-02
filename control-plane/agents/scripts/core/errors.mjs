@@ -29,6 +29,16 @@ export class BridgeToShell extends Error {
   }
 }
 
+/**
+ * An input the Node implementation does not handle (A210: there is no fallback to the shell code any more): exit status 1 and a message that
+ * names the reason. `usage` stands for a missing or empty mandatory argument.
+ * @param {string} reason @returns {ProoflineError}
+ */
+export function unsupported(reason) {
+  if (reason === 'usage') return new ProoflineError('proofline: a mandatory argument is missing or empty (see: proofline help)', 1, 'USAGE');
+  return new ProoflineError(`proofline: input not supported (${reason})`, 1, 'UNSUPPORTED_INPUT');
+}
+
 /** Shell `fail "text"`: exit status 1 and the text on stderr. @param {string} message @returns {never} */
 export function fail(message) {
   throw new ProoflineError(message, 1);

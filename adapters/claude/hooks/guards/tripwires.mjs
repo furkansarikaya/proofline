@@ -10,7 +10,7 @@ import { grepq } from './kit.mjs';
 const S = ' \\t\\n\\v\\f\\r';
 const ID = 'A-Za-z0-9_.-';
 
-export const PROOFLINE_ASSIGN = new RegExp(`PROOFLINE_(ENGINE|TEST)[A-Za-z0-9_]*[${S}]*[+]?=`);
+export const PROOFLINE_ASSIGN = new RegExp(`PROOFLINE_(ENGINE|BRIDGED|TEST)[A-Za-z0-9_]*[${S}]*[+]?=`);
 export const NODE_OPTIONS_PRELOAD = new RegExp(`NODE_OPTIONS[${S}]*[+]?=[^;&|]*(--require|--import|--loader|--experimental-loader)|NODE_OPTIONS[${S}]*[+]?=([^;&|]*[${S}="'])?-r([${S}=./"']|$)`);
 
 const CORE = `(proofline-core([.]mjs|[^${ID}]|$)|[.]agents/scripts)`;

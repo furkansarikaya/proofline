@@ -4,7 +4,7 @@
 // plane range tests behind `base_moved_control_only` and the run folder walk of `validate_control_artifacts`. Every function keeps the
 // message text and the order of its shell original.
 import { lstatSync, opendirSync, renameSync, writeFileSync } from 'node:fs';
-import { BridgeToShell, fail } from './errors.mjs';
+import { fail, unsupported } from './errors.mjs';
 import { git, headSha, isAncestor, objectExists, show } from './git.mjs';
 import { sha256 } from './hash.mjs';
 import { ledgerAppend } from './ledger.mjs';
@@ -34,8 +34,8 @@ export function setRunValue(ctx, id, section, key, value) {
   const dir = runDir(ctx, id);
   const file = `${dir}/RUN.yaml`;
   const text = fileText(ctx, file);
-  if (text === null) throw new BridgeToShell('RUN.yaml is not readable');
-  if (value.includes('\\')) throw new BridgeToShell('awk -v reads backslash escapes');
+  if (text === null) throw unsupported('RUN.yaml is not readable');
+  if (value.includes('\\')) throw unsupported('awk -v reads backslash escapes');
   let inside = false;
   let found = false;
   const re = new RegExp(`^  ${key}:`);
@@ -81,7 +81,7 @@ export function localTaskSourceRun(ctx, id) { return sectionValue(ctx, runDir(ct
  */
 export function taskSourceContractHash(ctx, id, file) {
   const text = fileText(ctx, file);
-  if (text === null) throw new BridgeToShell('task source is not readable');
+  if (text === null) throw unsupported('task source is not readable');
   const line = textLines(text);
   const nr = line.length;
   const begin = `<!-- COMPLETION-REPORT:BEGIN:${id} -->`;
@@ -252,7 +252,7 @@ export function baseMovedLines(ctx, dir) {
 /** `git rev-parse HEAD` for the freshness check; a repository without a commit is the shell's (git's own message). @param {Context} ctx */
 export function headOrBridge(ctx) {
   const h = headSha(ctx);
-  if (h === '') throw new BridgeToShell('git rev-parse HEAD failed');
+  if (h === '') throw unsupported('git rev-parse HEAD failed');
   return h;
 }
 
@@ -279,7 +279,7 @@ export function walkRunFolder(ctx, dir) {
         const full = Buffer.concat([d, Buffer.from('/'), name]);
         let st;
         try { st = lstatSync(full); } catch { continue; }
-        if (name.includes(0x0a)) throw new BridgeToShell('newline in a run file name');
+        if (name.includes(0x0a)) throw unsupported('newline in a run file name');
         if (st.isSymbolicLink()) links.push(rel(full));
         else if (st.isDirectory()) walk(full);
         else if (st.isFile()) files.push(rel(full));

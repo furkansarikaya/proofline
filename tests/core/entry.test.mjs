@@ -87,13 +87,13 @@ describe('agent.sh without the core', () => {
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
   });
-  test('an installed project with both the core and core/ runs in Node; the engine switch to sh still works without them', () => {
+  test('an installed project with both the core and core/ runs in Node; one without them fails closed with 127', () => {
     const full = project({ manifest: true, core: true, coreDir: true });
     const bare = project({ manifest: true });
     try {
       assert.equal(agent(full, ['role']).stdout, 'role=lead\n');
-      const r = agent(bare, ['role'], { PROOFLINE_ENGINE: 'sh' });
-      assert.equal(r.status, 0); assert.equal(r.stdout, 'role=lead\n');
+      const r = agent(bare, ['role']);
+      assert.equal(r.status, 127);
     } finally { rmSync(full, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
   });
 });
@@ -107,7 +107,7 @@ describe('doctor and a missing core', () => {
       const pl = (/** @type {string[]} */ a) => spawnSync('sh', [path.join(repo, 'bin', 'proofline'), ...a], { cwd: root, encoding: 'utf8' });
       assert.equal(pl(['init', '--yes', '--runtimes', 'claude']).status, 0);
       const ok = pl(['doctor']).stdout;
-      assert.match(ok, /^PASS engine: the moved commands run in Node/m);
+      assert.match(ok, /^PASS engine: the commands run in Node/m);
       rmSync(path.join(root, '.agents', 'scripts', 'core'), { recursive: true });
       const noDir = pl(['doctor']);
       assert.match(noDir.stdout, /^FAIL engine: .*core\/ is missing/m); assert.doesNotMatch(noDir.stdout, /moved commands run in Node \(/);

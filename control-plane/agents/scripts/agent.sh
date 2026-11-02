@@ -26,11 +26,9 @@ fi
 shared_dir() { printf '%s/.agents/local/%s\n' "$sr_main" "$1"; }
 PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 
-# Node migration, stage 1 (ADR 0001 5.3): a moved command runs in proofline-core.mjs, before anything below is parsed, unless the engine is
-# forced to this shell code: by the file <main tree>/.agents/local/engine (one line, `sh` for every command or `sh:<command>,<command>`), or by
-# PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
-# exec fails with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its
-# error texts; the core uses it only when it names this very file. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
+# Node migration (ADR 0001): a moved command runs in proofline-core.mjs, before anything below is parsed. Without a usable node the exec fails
+# with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its error
+# texts; the core uses it only when it names this very file.
 # stage 3, package CMDS: the last line of the list below (worktree-root ... window-close)
 # stage 2, package C1: the last line of the list below (next summary plan-section digest report-facts report-execution report-tokens)
 case "${1:-}" in
@@ -42,13 +40,8 @@ case "${1:-}" in
   design-rationales|commands-check|scale-check|batch-check|\
   next-user|worktree-root|in-knowledge-scope|request-approval|approve|approve-pending|approval-consume|answer|hook-time|language-check|friction-note|window-open|window-close)
     pl_sh=no
-    [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
-    case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac
-    if [ "$pl_sh" = no ] && [ -r "$sr_main/.agents/local/engine" ]; then
-      pl_e=''; IFS= read -r pl_e < "$sr_main/.agents/local/engine" || :
-      pl_e=${pl_e%"${pl_e##*[![:space:]]}"}
-      case "$pl_e" in sh) pl_sh=yes ;; sh:*) case ",${pl_e#sh:}," in *",$1,"*) pl_sh=yes ;; esac ;; esac
-    fi
+    # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
+    [ -z "${PROOFLINE_BRIDGED:-}" ] || pl_sh=yes
     # A run worktree's scripts are tracked content a task could have rewritten (security round 3): from a worktree the PROJECT's (main tree's) core runs,
     # and --pl-argv0 below names the worktree's agent.sh, which tells the core which folder is the root. In the main tree pl_core_dir is self_dir.
     pl_core_dir=$self_dir
@@ -60,21 +53,6 @@ case "${1:-}" in
         echo "proofline: $pl_core_dir/proofline-core.mjs or $pl_core_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
       fi
       pl_sh=yes
-    fi
-    # The mandatory arguments of the moved commands (the `${N:?usage: ...}` of the dispatch below): when one is absent or empty the shell prints its
-    # own usage text, with its own $0 and status, so the core is not started. ONE table; tests/core/mandatory.test.mjs checks it against the dispatch.
-    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate worktree-root in-knowledge-scope request-approval answer friction-note window-open window-close'
-    pl_need3='plan-section request-approval answer'
-    case " $pl_need2 " in *" $1 "*) [ -n "${2:-}" ] || pl_sh=yes ;; esac
-    case " $pl_need3 " in *" $1 "*) [ -n "${3:-}" ] || pl_sh=yes ;; esac
-    if [ "$pl_sh" = no ]; then
-      case "$1" in
-        config-get) case "${2:-}" in ''|*\\*) pl_sh=yes ;; esac; [ -f "$config" ] || pl_sh=yes ;;
-        tm-scaled)
-          case "${2:-}" in ''|*[!0-9]*|?????????????*) pl_sh=yes ;; esac
-          case "${3:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac
-          case "${4:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac ;;
-      esac
     fi
     [ "$pl_sh" = yes ] || exec node "$pl_core_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
 esac
@@ -8925,7 +8903,7 @@ report_tokens() {
 summary_run() {
   sm_id=${1:-}; [ -n "$sm_id" ] || sm_id=$(active_run); [ -n "$sm_id" ] || fail "no active task: pass a TASK-ID"; require_run "$sm_id"; sm_d=$(run_dir "$sm_id")
   printf 'STATUS: %s (handoff %s, knowledge %s)\n' "$(ua "$(run_state "$sm_d")")" "$(ua "$(section_value "$sm_d" handoff state)")" "$(ua "$(section_value "$sm_d" execution knowledge_state)")"
-  [ "${2:-}" != --status ] || return 0   # next-user.sh needs the first line only; the gate labels below are the slow part
+  [ "${2:-}" != --status ] || return 0   # the next-user table needs the first line only; the gate labels below are the slow part
   printf 'TASK: %s %s\n' "$sm_id" "$(sed -n '1s/^#[[:space:]]*//p' "$sm_d/TASK.md" 2>/dev/null | tr -d '\000-\037\177')"
   printf 'CLASS/TOPOLOGY: %s / %s\n' "$(ua "$(pipeline_class "$sm_id" | grep -v PENDING || true)")" "$(ua "$(resolve_topology "$sm_d" 2>/dev/null || true)")"
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
@@ -9108,7 +9086,6 @@ case "$command" in
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   rules) case "${2:-}" in tally) require_lead ;; esac; shift; sh "$scripts/rules.sh" "$@" ;;   # A202: project rules budget; proposes, never edits
-  next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
   worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;

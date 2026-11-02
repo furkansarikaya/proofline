@@ -176,10 +176,6 @@ describe('ci.yml wiring', () => {
     assert.match(job('node-tests'), /node --test "tests\/ci\/\*\.test\.mjs" "tests\/enforcement\/\*\.test\.mjs" "tests\/core\/\*\.test\.mjs"/);
     for (const n of ['equivalence', 'node-tests', 'types']) assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(job(n)), n);
   });
-  test('the equivalence job also runs the Core invariants with the engine switched to sh', () => {
-    const j = job('equivalence');
-    assert.match(j, /PROOFLINE_ENGINE: sh\n\s+run: sh tests\/invariants\/invariants-test\.sh/);
-  });
   test('the heavy legacy jobs and the skill tests step are skipped by fast mode', () => {
     assert.match(job('selftest'), /needs\.changes\.outputs\.fast != 'true'/);
     assert.match(job('fixtures'), /needs\.changes\.outputs\.fast != 'true'/);
