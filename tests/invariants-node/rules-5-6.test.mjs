@@ -7,17 +7,23 @@ import { A, IMPLEMENTED, accepted, gateStatus, project, readdirSync, refused, ve
 
 test('inv5: the implementer (and any non-owner role) cannot record a review or any gate', () => {
   const d = project(`scaffold orchestrated no CRITICAL; ${IMPLEMENTED}`);
+  /** The result file is built and recorded in ONE shell session (the library removes its temporary folder when it ends). */
+  const recordAs = (/** @type {string} */ role, /** @type {string} */ gate) => verbs(d, `f=$(result_for ${gate} PASS high); AS ${role} record LC --file "$f"`);
+  const notRecorded = (/** @type {{ text: string, status: number | null }} */ r, /** @type {string} */ what) => {
+    refused(r, what);
+    assert.doesNotMatch(r.text, /result file not found/, `${what}: the result file did not exist, so nothing was tested`);
+  };
   for (const g of ['REVIEW_PLAN', 'REVIEW_RULES', 'REVIEW_TESTS', 'SECURITY', 'QA', 'VERIFY']) {
-    const f = accepted(verbs(d, `result_for ${g} PASS high`), `result for ${g}`).out.trim().split('\n').pop() ?? '';
-    refused(A(d, ['record', 'LC', '--file', f], { role: 'implementer' }), `the implementer recorded ${g}`);
-    refused(A(d, ['record', 'LC', '--file', f], { role: 'explorer' }), `an explorer recorded ${g}`);
+    notRecorded(recordAs('implementer', g), `the implementer recorded ${g}`);
+    notRecorded(recordAs('explorer', g), `an explorer recorded ${g}`);
   }
   refused(A(d, ['gate', 'LC', 'REVIEW_RULES', 'PASS'], { role: 'implementer' }), 'the implementer ran a gate command');
   refused(A(d, ['secret-scan', 'LC'], { role: 'implementer' }), 'the implementer ran secret-scan');
   refused(A(d, ['submit', 'LC', '--focus', 'rules+tests', '--confidence', 'high', '--findings', 'none', '--agent', 'self1'], { role: 'implementer' }), 'the implementer submitted a review');
   assert.deepEqual(existsSync(`${d}/.agents/runs/LC/gates`) ? readdirSync(`${d}/.agents/runs/LC/gates`).filter((n) => !n.includes('manifest')) : [], [], 'a rejected self-review left a gate record');
-  const f = accepted(verbs(d, 'result_for REVIEW_RULES PASS high'), 'result').out.trim().split('\n').pop() ?? '';
-  refused(A(d, ['record', 'LC', '--file', f], { role: 'verifier' }), 'a reviewer result recorded by the verifier');
+  notRecorded(recordAs('verifier', 'REVIEW_RULES'), 'a reviewer result recorded by the verifier');
+  // control: the owner of the gate is accepted (the helper builds a valid result)
+  accepted(recordAs('reviewer', 'REVIEW_RULES'), 'the reviewer could not record REVIEW_RULES');
 });
 
 test('inv6: low confidence, restated findings and unclear deltas do not pass a gate', () => {
