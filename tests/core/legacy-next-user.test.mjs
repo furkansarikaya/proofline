@@ -86,11 +86,10 @@ test('an error suggestion is the command that fixes the error; an unknown comman
   assert.equal(line(d, 'run', 'LC', '--error'), 'Next step: /proofline reopen LC');
   for (const k of ['not-installed', 'dirty-tree', 'knowledge', 'failed-run', 'doctor', 'usage', 'nonsense']) assert.ok(!NU(d, 'status', 'LC', `--error=${k}`).out.includes('agent.sh'), `--error=${k} names an internal command`);
   refused(NU(d, 'frobnicate'), 'an unknown command was accepted');
-  // outside an installed project the fix is to install it
+  // outside an installed project (no config) the fix is to install it
   const bare = project('new_repo');
-  rmSync(`${bare}/.agents`, { recursive: true, force: true });
-  const out = accepted(A(stateRun('none'), ['next-user', 'doctor', '--error'], { env: {} }), 'installed project').out;
-  void out;
+  rmSync(`${bare}/.agents/config.yaml`);
+  assert.equal(line(bare, 'doctor', '--error'), 'Next step: proofline init');
 });
 
 test('without a pull_request workflow the delivery step is the same (no CI is a warning, A180)', () => {
