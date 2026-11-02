@@ -1,0 +1,27 @@
+# Line endings (a Windows checkout must be byte-identical to a Linux one; tests compare bytes). The index holds LF; this file only decides what a
+# checkout writes. git ls-files --eol must show no i/crlf, and `git add --renormalize .` must change nothing.
+#
+# Everything git takes for text is written with LF whatever core.autocrlf says (scripts, JSON, TSV, Markdown, YAML, mjs).
+* text=auto eol=lf
+
+# Files whose BYTES are read or compared by tests, fixtures and golden files: never converted, never normalised (a byte string may hold CR, NUL or a
+# missing final newline, and the expected hashes are over those bytes). tests/ci/gitattributes.test.mjs checks that every tests/golden file is covered.
+tests/golden/** -text
+tests/enforcement/a132-commands/** -text
+tests/e2e/replies/** -text
+tests/legacy-hook/** -text
+tests/legacy-githooks/** -text
+tests/skills/fixtures/** -text
+fixtures/** -text
+
+# Binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.gz binary
+*.pdf binary
