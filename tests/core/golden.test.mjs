@@ -4,7 +4,7 @@
 //   the order of `agent.sh next` along the lifecycle (proofline-lead.test.mjs: classify, branch, baseline)  tests/core/golden/next-order.txt
 // Both engines must produce the recorded text. Until the Node engine has a risk_words_match the golden runs against the shell only; as soon as a
 // core module exports `riskWordsMatch(re, words, stdinText)` (true when the shell function would exit 0) that function is held to the same file.
-// `next` goes through agent.sh: the default engine is the Node core once `next` is a moved command and the shell before that, PROOFLINE_ENGINE=sh is the shell.
+// `next` goes through agent.sh, which runs the Node core (A210: there is no engine switch).
 // Re-record with `node tests/core/golden/record.mjs` only for a reviewed change of the shell specification (stage 10 removes the shell leg).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

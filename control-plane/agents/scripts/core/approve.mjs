@@ -753,7 +753,7 @@ export function approveInChild(parent, target, kinds) {
 
 /**
  * `approval_wait_o REQFILE KIND ID`: the `next` line of a pending approval request. A newer user prompt that is no approval leaves the request
- * pending and the lead asks again (A108); a newer prompt that approves but was not recorded (the hook was cut off) is recorded now (A171).
+ * pending and the lead asks again (A108); a newer prompt that approves but was not recorded (the hook was cut off) is only reported: the lead asks the user again (A210, #187).
  * @param {Context} ctx @param {string} req @param {string} kind @param {string} id @param {(m: string) => void} o
  */
 export function approvalWaitO(ctx, req, kind, id, o) {
@@ -772,16 +772,11 @@ export function approvalWaitO(ctx, req, kind, id, o) {
     o(`the user's last reply is not an explicit approval (an answer that is ambiguous or a refusal never approves): relay the question again verbatim with its accepted answers: agent.sh request-approval ${id} ${kind} (relay verbatim), then wait for the reply and: agent.sh next ${id}`);
     return;
   }
-  if (n !== null && ctx.role === 'lead') {
-    // the newest capture (latestCapture: same session, not dated ahead of the clock) approves this request but no approval exists: the prompt hook
-    // was cut off or could not take the lock. Record it now, so the user never has to run `approve` in a terminal (A171).
-    const { rc, output } = approveInChild(ctx, id, [kind]);
-    try { appendFileSync(`${ctx.sharedMain()}/.agents/local/approve.log`, `${now().iso} target=${id} kinds=${kind} rc=${rc} retry output: ${output.replace(/\n+$/, '').replace(/\n/g, ' ').slice(0, 300)}\n`); } catch { /* best effort */ }
-    if (rc === 0) {
-      forgetFiles(ctx);
-      o(`the user's approval of ${kind} was recorded just now (the prompt hook had not finished it, A171; log .agents/local/approve.log): agent.sh next ${id}`);
-      return;
-    }
+  if (n !== null) {
+    // the newest capture approves this request but no approval exists: the prompt hook was cut off or could not take the lock. `next` records nothing
+    // from a file (A210, #187: only the prompt hook records an approval, from the message it is handling): the lead asks the user again.
+    o(`the user's last reply looks like an approval of ${kind} but none is recorded (the prompt hook did not finish it): ask the user to send the approval again (the runtime records it from their reply; the lead never runs approve), then: agent.sh next ${id}`);
+    return;
   }
   o(`wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next ${id}`);
 }

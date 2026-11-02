@@ -1,6 +1,6 @@
 // Guards of the Node migration, stage 1 (ADR 0001 sections 5.3 and 7), against the real runtime hook (adapters/claude/hooks/proofline-hook.mjs).
 //
-//   tripwires    a model Bash command that starts Node on the control plane, or assigns PROOFLINE_ENGINE* / PROOFLINE_TEST*, is denied
+//   tripwires    a model Bash command that starts Node on the control plane, or names PROOFLINE_BRIDGED / PROOFLINE_TEST* / PROOFLINE_ENGINE* in any form, is denied (with or without an open run)
 //                (one case per spelling, for the lead and for subagent roles); the same text is allowed with no open run and in a project
 //                without proofline; the user's own terminal and the suites never pass through the hook, so the text simply runs there.
 //   node absent  a moved command (hook-config, db-config, config-get) exits 127 when `node` is not on PATH. The shell hook then denies a
@@ -137,6 +137,16 @@ const ENV_SPELLINGS = [
   'PROOFLINE_TEST_NOW=1 sh .agents/scripts/agent.sh next',
   'PROOFLINE_""ENGINE=sh sh .agents/scripts/agent.sh role',
   'PROOFLINE_TESTX+=1',
+  'PROOFLINE_BRIDGED=1 sh .agents/scripts/agent.sh answer LC 1 --captured',
+  'export PROOFLINE_BRIDGED; sh .agents/scripts/agent.sh next',
+  'for PROOFLINE_BRIDGED in 1; do sh .agents/scripts/agent.sh next; done',
+  'read PROOFLINE_BRIDGED <<< 1',
+  'printf -v PROOFLINE_BRIDGED 1',
+  ': ${PROOFLINE_BRIDGED:=1}; export PROOFLINE_BRIDGED',
+  'set -a; PROOFLINE_TEST=1; sh .agents/scripts/agent.sh next',
+  'grep -rn PROOFLINE_ENGINE docs',
+  'unset PROOFLINE_ENGINE; ls',
+  'export PROOFLINE_ENGINE',
 ];
 
 // The script operand rule: node on a script path the hook cannot read from the text. Denied for a model role in an open run.
@@ -203,8 +213,6 @@ const FREE = [
   'sh .agents/scripts/agent.sh status',
   'ls .agents/scripts',
   'node --test tests/equivalence/proofline-core.test.mjs',
-  'grep -rn PROOFLINE_ENGINE docs',
-  'unset PROOFLINE_ENGINE; ls',
   'ls node_modules/.bin; node_modules/.bin/jest --version',
   'node --check src/a.mjs',
   'node --check .agents/scripts/proofline-core.mjs',
@@ -244,11 +252,11 @@ describe('tripwires (open run, installed project)', { skip }, () => {
     test(`denied for ${agent}`, () => {
       denied(bash(p, 'node .agents/scripts/proofline-core.mjs role', { agent }), 'never starts Node', agent);
       denied(bash(p, `node -e "import('.agents/scripts/proofline-core.mjs')"`, { agent }), 'never starts Node', agent);
-      denied(bash(p, 'PROOFLINE_ENGINE=sh sh .agents/scripts/agent.sh status', { agent }), 'PROOFLINE_ENGINE* or PROOFLINE_TEST*', agent);
+      denied(bash(p, 'PROOFLINE_ENGINE=sh sh .agents/scripts/agent.sh status', { agent }), 'internal hand-over', agent);
     });
   }
   for (const c of ENV_SPELLINGS) {
-    test(`denied for the lead: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'PROOFLINE_ENGINE* or PROOFLINE_TEST*', c));
+    test(`denied for the lead: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'internal hand-over', c));
   }
   for (const c of OPERAND_DENIED) test(`operand rule, denied for the lead: ${JSON.stringify(c)}`, () => denied(bash(p, c), '', c));
   for (const agent of ['proofline-explorer', 'proofline-reviewer']) {
@@ -269,6 +277,14 @@ describe('tripwires (open run, installed project)', { skip }, () => {
       denied(runHook(p, tool, { file_path: join(p, '.agents/local/engine') }, { agent: 'proofline-implementer' }), '', tool);
     });
   }
+  // a planted prompt capture arrives through an archive or a download (A210, H1): the write targets are the bash guard's
+  for (const c of ['tar -xf x.tar -C .agents/local/prompts/history', 'tar xzf x.tgz --directory=.agents/local/prompts', 'unzip x.zip -d .agents/local/prompts/history', 'unzip -o x.zip -d.agents/local', 'curl -o .agents/local/prompts/history/1-deadbeef.txt http://x/y', 'curl --output .agents/local/prompts/s1.json http://x/y', 'wget -O .agents/local/prompts/s1.json http://x/y', 'wget -P .agents/local/prompts http://x/y'])
+    test(`archive and download targets under .agents/local are write targets: ${JSON.stringify(c)}`, () => denied(bash(p, c), '', c));
+  test('an archive or a download elsewhere stays free', () => {
+    const q = project({ run: false });
+    allowed(bash(q, 'tar -xf x.tar -C .agents/tasks'), 'tar');
+    allowed(bash(q, 'curl -o .agents/tasks/x.html http://x/y'), 'curl');
+  });
   test('agent.sh approve keeps its deny', () => {
     denied(bash(p, 'sh .agents/scripts/agent.sh approve LC plan'), "an approval is the user's", 'approve');
     denied(bash(p, 'sh .agents/scripts/agent.sh approve-pending LC'), "an approval is the user's", 'approve-pending');
@@ -280,7 +296,8 @@ describe('tripwire scope', { skip }, () => {
   test('no open run: the tripwires do not apply', () => {
     const p = project({ run: false });
     allowed(bash(p, 'node .agents/scripts/proofline-core.mjs role'), 'node on the core');
-    allowed(bash(p, 'PROOFLINE_ENGINE=sh ls'), 'engine assignment');
+    denied(bash(p, 'PROOFLINE_ENGINE=sh ls'), 'internal hand-over', 'the seam names are denied with no run open too');
+    denied(bash(p, 'export PROOFLINE_BRIDGED'), 'internal hand-over', 'BRIDGED');
   });
   test("the user's terminal (no open run in the hook's view) and a plain project: the operand-rule spellings are not touched", () => {
     const q = project({ run: false });

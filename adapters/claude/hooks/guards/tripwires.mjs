@@ -1,16 +1,17 @@
 // @ts-check
 // The Stage 1/2 tripwires (ADR 0001 sections 5.3 and 7): a model Bash command that starts Node on the control plane in a spelling the hook can see,
-// or assigns PROOFLINE_ENGINE* / PROOFLINE_TEST*, or sets NODE_OPTIONS with a preload. Tripwires, not the boundary (approve records only from a
+// or names the internal seams PROOFLINE_BRIDGED / PROOFLINE_TEST* (and the retired PROOFLINE_ENGINE*), or sets NODE_OPTIONS with a preload. Tripwires, not the boundary (approve records only from a
 // captured user message). Port of tw_core_node, tw_lit and tw_node_operand of proofline-hook.sh.
 //   twCoreNode(text)      the text starts Node on the control plane (inline code, stdin code, a script under .agents/scripts, process.execPath)
 //   twNodeOperand(text)   a node word whose script operand is not a plain literal path (a variable, substitution, glob, xargs / find -exec / stdin feed ...)
-//   PROOFLINE_ASSIGN / NODE_OPTIONS_PRELOAD   the two assignment patterns
+//   PROOFLINE_ASSIGN / NODE_OPTIONS_PRELOAD   the seam-name pattern and the preload pattern
 import { grepq } from './kit.mjs';
 
 const S = ' \\t\\n\\v\\f\\r';
 const ID = 'A-Za-z0-9_.-';
 
-export const PROOFLINE_ASSIGN = new RegExp(`PROOFLINE_(ENGINE|BRIDGED|TEST)[A-Za-z0-9_]*[${S}]*[+]?=`);
+// the bare names, in any form (an assignment, a for variable, read, printf -v, ${X:=}, export without =, a mention): a model has no use for them
+export const PROOFLINE_ASSIGN = /PROOFLINE_(ENGINE|BRIDGED|TEST)/;
 export const NODE_OPTIONS_PRELOAD = new RegExp(`NODE_OPTIONS[${S}]*[+]?=[^;&|]*(--require|--import|--loader|--experimental-loader)|NODE_OPTIONS[${S}]*[+]?=([^;&|]*[${S}="'])?-r([${S}=./"']|$)`);
 
 const CORE = `(proofline-core([.]mjs|[^${ID}]|$)|[.]agents/scripts)`;

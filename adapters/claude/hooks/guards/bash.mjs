@@ -80,10 +80,13 @@ async function check(ctx, cmd) {
   if (cmd.includes('PROOFLINE_PROBE_ROOT') || cmd.includes('PROOFLINE_SELFTEST')) {
     deny('PROOFLINE_PROBE_ROOT and PROOFLINE_SELFTEST are self-test switches of the capability probes (A102); a model command never sets or names them');
   }
+  // the internal seams are never named by a model command, with or without an open run (a tripwire, not the boundary)
+  for (const t of [cmd, norm]) {
+    if (grepq(PROOFLINE_ASSIGN, t)) deny('a model command never names PROOFLINE_BRIDGED, PROOFLINE_TEST* or the retired PROOFLINE_ENGINE*: they are the core\'s internal hand-over and the test seams, which only the core or a test harness sets');
+  }
   // ADR 0001 sections 5.3 and 7 (tripwires, not the boundary): this model Bash command text in an installed project with an open run
   if (act !== '') {
     for (const t of [cmd, norm]) {
-      if (grepq(PROOFLINE_ASSIGN, t)) deny('a model command never assigns PROOFLINE_ENGINE* or PROOFLINE_TEST*: they select the engine and the test seams, which only the user (.agents/local/engine) or a test harness sets');
       if (twCoreNode(t)) deny('a model command never starts Node on the control plane (the core under .agents/scripts, proofline-core.mjs): run it only through sh .agents/scripts/agent.sh <command>, which applies the role gate, the locks and the ledger');
       if (grepq(NODE_OPTIONS_PRELOAD, t)) deny('a model command never sets NODE_OPTIONS with --require, --import, -r or --loader: it would run a file before any node script, outside what the hook can read');
       if (twNodeOperand(t)) deny('a model command runs node only on a script path written out literally (no variable, substitution, glob, tilde, brace or quote splicing, and no script fed by xargs, find -exec or stdin): the hook cannot read the file such a command starts, and the control plane is reached only through sh .agents/scripts/agent.sh <command>');

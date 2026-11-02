@@ -121,7 +121,7 @@ gates-test	sc_validation_refreeze	no moved-command assertion: refreeze enforces 
 risk-test	sc_unsupported_evidence	unsupported evidence: the validator's own output, snapshotted and sha-bound [moved calls replayed]	tests/core/port-t2-replay.test.mjs::risk-test__sc_unsupported_evidence
 perf-test	sc_digest_same_output	digest agrees with next, and a recorded gate is seen by the next process	tests/core/port-t2-replay.test.mjs::perf-test__sc_digest_same_output
 perf-test	sc_hook_events_not_in_ledger	hook events go to HOOKS.log, never to the hash-chained ledger (verify-seal part)	tests/core/port-t2-replay.test.mjs::perf-test__sc_hook_events_not_in_ledger
-perf-test	sc_next_digest_budget	next and digest stay under the process budget on a realistic run	tests/bench/process-budgets.test.mjs (process budgets of next/digest, absolute)
+perf-test	sc_next_digest_budget	next and digest stay under the process budget on a realistic run	OBSOLETE (A210): tests/bench/process-budgets.test.mjs was deleted with the shell-engine baseline; the shell scenario stays in perf-test.sh (it counts processes with a PATH shim on the Node core)
 next-user-test	sc_every_state_finished	every next-user command in a finished run ends in one user command, never agent.sh	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_finished
 next-user-test	sc_every_state_codedone	same in a CODE_DONE run	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_codedone
 next-user-test	sc_every_state_failed	same in a failed (BLOCKED) run	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_failed
@@ -1090,7 +1090,7 @@ rig	rig:stage3-cases	stage 3 static cases (approvals, answer, next-user, hook-ti
 rig	rig:stage3-hardening	deliberate divergence: the Node core refuses a future-dated or foreign-session capture which the shell accepted	covered by T1 (tests/hook/hardening.test.mjs, feat/nd-t1); the shell half is obsolete
 rig	rig:seam-safety	with no stub, PROOFLINE_TEST*/PROOFLINE_ENGINE* values leave SECRETS, execution policy and approvals unchanged	obsolete: the engine switch is deleted and the Node core reads no PROOFLINE_TEST* seam; the approval half is T1 fail-closed (legacy-fail-closed)
 rig	rig:cases / cases-slow	stage 1 moved-command cases, run once per engine and compared	tests/core/port-t3-rig-stage1.test.mjs (15 cases; 2 skipped: unknown command is answered by the shell usage text)
-rig	rig:stage2-cases-1..8 / stage2-cases	stage 2 matrix (command x fixture state), compared per engine	tests/core/port-t3-rig-stage2-1..8.test.mjs (927 recorded cases)
+rig	rig:stage2-cases-1..8 / stage2-cases	stage 2 matrix (command x fixture state), compared per engine	OBSOLETE (A210, deleted: tests/core/port-t3-rig-stage2-1..8.test.mjs): tests/core/port-t3-rig-stage2-1..8.test.mjs (927 recorded cases)
 rig	rig:stage2-trace-1..8 / trace-replay / trace	trace recorder and its replay of the matrix on both engines	obsolete: rig machinery; the legacy-scenario calls are replayed by port-t2-replay and port-t3-replay
 rig	rig:lifecycle (alternating engines)	one full lifecycle with calls alternating old and new engine	obsolete: backward compatibility / engine switch
 rig	rig:downgrade	a run continues on the old release after a downgrade	obsolete: backward compatibility

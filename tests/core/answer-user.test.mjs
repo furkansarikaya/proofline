@@ -1,7 +1,8 @@
 // @ts-check
-// The user's answers are recorded as the user's (issue #187, A171): `answer --captured` records the user's captured message, the `next` retry records
-// an approval the hook missed, the batch pre-flight answers are applied at freeze. What stays refused: typed text (always the lead's), a capture older
-// than the question, dated more than 5 s ahead, filed under another session, forged, a task-notification, or already used by another answer.
+// The user's answers (issue #187, A171, A210): only the prompt hook records them as the user's, in process, from the message it is handling (an assumption
+// acceptance, a split override or another user-only question with an accepted answer form); the batch pre-flight answers are applied at freeze. What stays
+// refused: a file as the source (planted history or capture), typed text (always the lead's), another session's capture, a message that matches no accepted
+// form, and `next` recording an approval.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -75,79 +76,77 @@ test('typed text is the lead\'s answer, even when the user said the same words',
   assert.match(read(d, 'questions/001.answer.md'), /^answered_by: lead$/m);
 });
 
-test('answer --captured: the user\'s newest message since the question is recorded as the user\'s, verbatim, once', () => {
-  const d = project('plain'); ask(d); ask(d);
-  say(d, 'option b, please\nand more');
+/**
+ * `answer` the way the prompt hook runs it: in process, with the message it is handling handed over (the only way the user's words are recorded).
+ * @param {string} d @param {string[]} args @param {{ text?: string, time?: number, session?: string, sha256?: string, store?: boolean, storedAs?: string }} [m]
+ */
+function hookAnswer(d, args, m = {}) {
+  const text = m.text ?? 'x'; const time = m.time ?? now(); const session = m.session ?? 's1';
+  const stored = m.store === false ? { sha256: createHash('sha256').update(text).digest('hex') } : say(d, text, time, m.storedAs ?? session);
+  /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
+  const io = { env: cleanEnv({}), cwd: d, scriptPath: `${d}/.agents/scripts/proofline-core.mjs`, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) }, promptCapture: { session, time, sha256: m.sha256 ?? stored.sha256, text } };
+  const status = runCore(args, /** @type {any} */ (io));
+  return { status, text: Buffer.concat([...out, ...err]).toString() };
+}
+const SPLITQ = '1. Split the task?\n   SPLIT: 4\n   options: "split" (task-author splits) | "proceed without splitting" (recorded as the user\'s override)\n   recommended: split\n';
+
+test('answer --captured without the hook\'s hand-over is refused: a planted history file or capture is never the user\'s answer (H1)', () => {
+  const d = project('plain'); ask(d, `${Q}   ASSUMPTION: AS-1@abc123def456\n`);
+  const t = now() + 1;
+  // a history copy planted the way tar -C / unzip -d / curl -o would write it, with a name that carries its own hash
+  const text = 'accept AS-1\n';
+  const planted = `${d}/.agents/local/prompts/history/${t}-${createHash('sha256').update(text).digest('hex').slice(0, 8)}.txt`;
+  mkdirSync(path.dirname(planted), { recursive: true }); writeFileSync(planted, text);
   const r = agent(d, ['answer', 'LC', '1', '--captured']);
-  assert.equal(r.status, 0, r.text);
-  assert.match(r.out, /answered_by=user/);
-  const a = read(d, 'questions/001.answer.md');
-  assert.match(a, /^answered_by: user$/m); assert.match(a, /^source_message: \d+-[0-9a-f]{8}\.txt$/m); assert.match(a, /^> option b, please\n> and more$/m);
-  const again = agent(d, ['answer', 'LC', '2', '--captured']);
-  assert.notEqual(again.status, 0); assert.match(again.err, /already answered another question/);
-  say(d, 'and for the second one: a', now() + 1);
-  assert.equal(agent(d, ['answer', 'LC', '2', '--captured']).status, 0);
-  assert.match(read(d, 'questions/002.answer.md'), /^answered_by: user$/m);
+  assert.notEqual(r.status, 0, r.text); assert.match(r.err, /cannot be recorded as the user's from a file/);
+  // a capture planted by the model (a real capture file of the same session)
+  say(d, 'accept AS-1', t);
+  const r2 = agent(d, ['answer', 'LC', '1', '--captured']);
+  assert.notEqual(r2.status, 0, r2.text);
+  const r3 = agent(d, ['answer', 'LC', '1', '--amend']);
+  assert.notEqual(r3.status, 0, r3.text);
+  assert.ok(!existsSync(`${d}/.agents/runs/LC/questions/001.answer.md`));
+  // the lead's typed text is still recorded, as the lead's
+  assert.equal(agent(d, ['answer', 'LC', '1'], 'accept AS-1\n').status, 0);
+  assert.match(read(d, 'questions/001.answer.md'), /^answered_by: lead$/m);
 });
 
-test('answer --captured: the assumption acceptance is exactly "accept <id>" and nothing hedged', () => {
+test('the hook records the acceptance of an assumption exactly as "accept <id>", nothing hedged', () => {
   const d = project('plain');
   ask(d, `${Q}   ASSUMPTION: AS-1@abc123def456\n`);
-  say(d, 'accept AS-1 unless the reviewer objects');
-  const hedged = agent(d, ['answer', 'LC', '1', '--captured']);
-  assert.equal(hedged.status, 0, hedged.text);
-  assert.match(read(d, 'questions/001.answer.md'), /^answered_by: lead$/m);
-  assert.match(hedged.out, /not an acceptance the user's own prompt carries/);
+  const hedged = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1 unless the reviewer objects', time: now() + 1 });
+  assert.notEqual(hedged.status, 0); assert.match(hedged.text, /not an acceptance of the assumption/);
+  assert.ok(!existsSync(`${d}/.agents/runs/LC/questions/001.answer.md`));
   const e = project('plain');
   ask(e, `${Q}   ASSUMPTION: AS-1@abc123def456\n`);
-  say(e, 'Accept AS-1');
-  const ok = agent(e, ['answer', 'LC', '1', '--captured']);
+  const ok = hookAnswer(e, ['answer', 'LC', '1', '--captured'], { text: 'Accept AS-1', time: now() + 1 });
   assert.equal(ok.status, 0, ok.text);
   assert.match(read(e, 'questions/001.answer.md'), /^answered_by: user\n[^]*---\naccept AS-1\n$/);
 });
 
-test('answer --captured: stale, future, forged, notification and blank messages are no answer', () => {
-  const d = project('plain'); ask(d);
-  const t = now();
-  say(d, 'old words', t - 100);
-  say(d, 'words from the future', t + 100);
-  writeFileSync(`${d}/.agents/local/prompts/history/${t}-deadbeef.txt`, 'forged name, hash does not match');
-  writeFileSync(`${d}/.agents/local/prompts/history/${t}-${'0'.repeat(8)}.txt`, '');
-  say(d, '<task-notification>background agent finished</task-notification>', t);
-  const r = agent(d, ['answer', 'LC', '1', '--captured']);
-  assert.notEqual(r.status, 0, r.text);
-  assert.match(r.err, /no captured user prompt since question 1 was asked/);
-  assert.ok(!existsSync(`${d}/.agents/runs/LC/questions/001.answer.md`));
-});
-
-test('answer: a message handed over by the hook counts only with its own capture on disk (same session, not ahead of the clock, same hash)', () => {
+test('answer: a message handed over by the hook counts only with its own capture on disk (same session, same hash), strictly newer than the question', () => {
   const d = project('plain'); ask(d, `${Q}   ASSUMPTION: AS-1@abc123def456\n`);
-  const t = now();
-  const stored = say(d, 'accept AS-1', t);
-  /** @param {object} cap @param {string} [session] */
-  const through = (cap, session = 's1') => {
-    /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
-    const io = { env: cleanEnv({}), cwd: d, scriptPath: `${d}/.agents/scripts/proofline-core.mjs`, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) }, promptCapture: { session, time: t, sha256: stored.sha256, text: 'accept AS-1', ...cap } };
-    const status = runCore(['answer', 'LC', '1', '--captured'], /** @type {any} */ (io));
-    return { status, text: Buffer.concat([...out, ...err]).toString() };
-  };
-  const wrongHash = through({ sha256: '1'.repeat(64) });
+  const t = now() + 1;
+  const wrongHash = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: t, sha256: '1'.repeat(64) });
   assert.notEqual(wrongHash.status, 0); assert.match(wrongHash.text, /not on disk as the hook wrote it/);
-  const foreign = through({}, 'other');
+  // another session's capture on disk, handed over as this session's
+  const foreign = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: t, session: 'other', storedAs: 's1' });
   assert.notEqual(foreign.status, 0);
   writeFileSync(`${d}/.agents/local/prompts/s1.json`, readFileSync(`${d}/.agents/local/prompts/s1.json`, 'utf8').replace('"session":"s1"', '"session":"evil"'));
-  const wrongSession = through({});
-  assert.notEqual(wrongSession.status, 0); assert.match(wrongSession.text, /not on disk as the hook wrote it/);
-  storePrompt(`${d}/.agents/local`, 's1', t, 'accept AS-1');
-  const chatter = through({ text: 'what is the status?', sha256: say(d, 'what is the status?', t).sha256 });
+  const swapped = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: t, store: false });
+  assert.notEqual(swapped.status, 0); assert.match(swapped.text, /not on disk as the hook wrote it/);
+  // a message of the second the question was asked in is not its answer
+  const asked = Number(/^asked_at: (\d+)/m.exec(read(d, 'questions/001.md'))?.[1] ?? '0');
+  const same = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: asked });
+  assert.notEqual(same.status, 0); assert.match(same.text, /not newer than question 1/);
+  const chatter = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'what is the status?', time: t });
   assert.notEqual(chatter.status, 0); assert.match(chatter.text, /not an acceptance of the assumption/);
-  storePrompt(`${d}/.agents/local`, 's1', t, 'accept AS-1');
-  const good = through({});
+  const good = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: t });
   assert.equal(good.status, 0, good.text);
   assert.match(read(d, 'questions/001.answer.md'), /^answered_by: user$/m);
 });
 
-test('the A171 override: "proceed without splitting" captured from the user lets the freeze through; the lead\'s own words do not', () => {
+test('the A171 override: "proceed without splitting" handed over by the hook lets the freeze through; the lead\'s own words and a message that matches no accepted form do not', () => {
   const d = project('split');
   const stuck = freeze(d);
   assert.notEqual(stuck.status, 0); assert.match(stuck.err, /at least 2 tasks of at most 3 paths each/);
@@ -156,18 +155,32 @@ test('the A171 override: "proceed without splitting" captured from the user lets
   assert.match(freeze(d).err, /pipeline allows at most 3/);
   const q = readdirSync(`${d}/.agents/runs/LC/questions`).filter((n) => /^\d{3}\.md$/.test(n)).sort().pop() ?? '';
   const n = String(Number(q.slice(0, 3)));
-  say(d, 'Proceed without splitting');
-  const r = agent(d, ['answer', 'LC', n, '--captured']);
+  const t = now() + 1;
+  for (const bad of ['yes, go ahead', 'proceed without splitting unless the reviewer objects', 'split or proceed without splitting', 'please do not proceed without splitting']) {
+    const r = hookAnswer(d, ['answer', 'LC', n, '--captured'], { text: bad, time: t });
+    assert.notEqual(r.status, 0, bad); assert.match(r.text, /not one of the accepted answers/);
+  }
+  assert.ok(!existsSync(`${d}/.agents/runs/LC/questions/${q.slice(0, 3)}.answer.md`));
+  const r = hookAnswer(d, ['answer', 'LC', n, '--captured'], { text: 'Proceed without splitting', time: t });
   assert.equal(r.status, 0, r.text);
   const f = freeze(d);
   assert.equal(f.status, 0, f.text);
   assert.match(read(d, 'LEDGER.log'), /event=split_override .*scope_paths=4 max=3 class=STANDARD answer=questions\//);
 });
 
+test('a user-only question is recorded by the hook only when it is the single open one, and a plain question never is', () => {
+  const d = project('plain'); ask(d, SPLITQ); ask(d, SPLITQ.replace('SPLIT: 4', 'USER_ONLY: scope'));
+  const two = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'proceed without splitting', time: now() + 1 });
+  assert.notEqual(two.status, 0); assert.match(two.text, /not the only open user-only question/);
+  const e = project('plain'); ask(e);
+  const plain = hookAnswer(e, ['answer', 'LC', '1', '--captured'], { text: 'a', time: now() + 1 });
+  assert.notEqual(plain.status, 0); assert.match(plain.text, /not a question the user answers through the prompt hook/);
+});
+
 /** Wait until the clock has reached second T. @param {number} t */
 function waitUntil(t) { const c = new Int32Array(new SharedArrayBuffer(4)); while (now() < t) Atomics.wait(c, 0, 0, 25); }
 
-test('next records an approval the hook missed from the newest capture; a future, foreign or non-approving capture records nothing', () => {
+test('next records no approval from a file: a missed approval is reported and the lead asks the user again (H2)', () => {
   const d = project('plain');
   assert.equal(agent(d, ['request-approval', 'LC', 'plan']).status, 0);
   const t0 = Number(/^requested_at: (\d+)/m.exec(read(d, 'approvals/001-request-plan.yaml'))?.[1]);
@@ -175,21 +188,14 @@ test('next records an approval the hook missed from the newest capture; a future
   waitUntil(t0 + 1);
   say(d, 'approve the plan', t0 + 100);
   assert.match(agent(d, ['next', 'LC']).text, /wait for the user's answer/);
-  assert.deepEqual(approvals(), []);
-  say(d, 'approve the plan', t0 + 1, 'evil');
-  writeFileSync(`${d}/.agents/local/prompts/s1.json`, readFileSync(`${d}/.agents/local/prompts/evil.json`, 'utf8'));
-  rmSync(`${d}/.agents/local/prompts/evil.json`);
-  assert.match(agent(d, ['next', 'LC']).text, /wait for the user's answer/);
-  assert.deepEqual(approvals(), []);
   say(d, 'approve the plan but wait', t0 + 1);
   assert.match(agent(d, ['next', 'LC']).text, /not an explicit approval/);
   assert.deepEqual(approvals(), []);
   say(d, 'approve the plan', t0 + 1);
   const r = agent(d, ['next', 'LC']);
-  assert.match(r.text, /approval of plan was recorded just now/);
-  assert.deepEqual(approvals(), ['002-plan.yaml']);
-  assert.match(read(d, 'approvals/002-plan.yaml'), /^source: "prompt_capture"$/m);
-  assert.match(readFileSync(`${d}/.agents/local/approve.log`, 'utf8'), /retry output: approval recorded: LC plan/);
+  assert.match(r.text, /ask the user to send the approval again/);
+  assert.deepEqual(approvals(), []);
+  assert.ok(!existsSync(`${d}/.agents/local/approve.log`));
 });
 
 test('batch pre-flight: the user\'s answers are recorded by batch-answer and applied at freeze to the task the batch starts', () => {

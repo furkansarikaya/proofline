@@ -31,7 +31,7 @@ function disk(ctx, s) {
 
 /** `${N:?usage}` -> the shell prints a shell-specific error for a missing or empty argument. @param {string | undefined} a */
 function required(a) {
-  if (a === undefined || a === '') throw unsupported('missing argument');
+  if (a === undefined || a === '') throw unsupported('usage');
   return arg(a);
 }
 

@@ -85,7 +85,7 @@ test('an error suggestion is the command that fixes the error; an unknown comman
   d = stateRun('failed');
   assert.equal(line(d, 'run', 'LC', '--error'), 'Next step: /proofline reopen LC');
   for (const k of ['not-installed', 'dirty-tree', 'knowledge', 'failed-run', 'doctor', 'usage', 'nonsense']) assert.ok(!NU(d, 'status', 'LC', `--error=${k}`).out.includes('agent.sh'), `--error=${k} names an internal command`);
-  refused(NU(d, 'frobnicate'), 'an unknown command was accepted');
+  refused(NU(d, 'frobnicate'), 'an unknown command was accepted', 'next-user: unknown command: frobnicate');
   // outside an installed project (no config) the fix is to install it
   const bare = project('new_repo');
   rmSync(`${bare}/.agents/config.yaml`);

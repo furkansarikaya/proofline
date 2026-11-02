@@ -21,6 +21,7 @@ describe('legacy scenarios, moved commands', { concurrency: 4 }, () => {
       const rp = replayer(tr);
       /** @type {Map<string, string>} */ const roots = new Map();
       let i = 0;
+      if (!name.startsWith("state__")) assert.ok(tr.calls.length > 0, `${name}: the trace holds no call`); // a state__ trace only builds a state
       for (const c of tr.calls) {
         i++;
         const baseSha = tr.states[c.state].baseSha;

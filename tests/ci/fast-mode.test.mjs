@@ -165,10 +165,11 @@ describe('ci.yml wiring', () => {
     const kv = parseFile(readFileSync(join(repo, 'tests/ci/fast-mode.txt'), 'utf8'));
     assert.equal(kv.removal, 'in the stage in which the legacy shell tests are completely gone (the last stage of epic #165); remove by deleting this file');
   });
-  test('CODEOWNERS puts .github/ and tests/ci/ under the repository owner', () => {
+  test('CODEOWNERS puts .github/, tests/ci/ and tests/invariants-node/ under the repository owner', () => {
     const co = readFileSync(join(repo, '.github/CODEOWNERS'), 'utf8');
     assert.match(co, /^\/\.github\/ @furkansarikaya$/m);
     assert.match(co, /^\/tests\/ci\/ @furkansarikaya$/m);
+    assert.match(co, /^\/tests\/invariants-node\/ @furkansarikaya$/m);
   });
   test('node --test gets globs, never a bare directory, in the jobs of this stage', () => {
     assert.match(job('node-tests'), /node --test "tests\/ci\/\*\.test\.mjs" "tests\/enforcement\/\*\.test\.mjs" "tests\/core\/\*\.test\.mjs"/);

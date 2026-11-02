@@ -1,7 +1,7 @@
 // @ts-check
 // Behaviour of gates-test.sh sc_questions and sc_ask as absolute Node tests (tests/legacy-port-map.tsv): a specialist's NEEDS_INPUT stores the questions
 // verbatim and parks the run, `next` points at them, one NEEDS_INPUT round per role; the lead's `ask` is pending, verbatim and ledgered; the user's answer
-// is recorded by `answer --captured` (typed text is the lead's answer since #187: the shell's "contained in the capture" rule is gone on purpose).
+// is recorded as the user's only by the prompt hook (answer-user.test.mjs); typed text, and `answer --captured` from a file, are not (#187, A210).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -21,7 +21,7 @@ const rv = (/** @type {string} */ d, /** @type {string} */ section, /** @type {s
 };
 void template;
 
-test('NEEDS_INPUT: stored verbatim, one round per role, awaiting_input until every question is answered, answers from the user\'s captured message', () => {
+test('NEEDS_INPUT: stored verbatim, one round per role, awaiting_input until every question is answered, a typed answer is the lead\'s', () => {
   const d = project('scaffold orchestrated');
   const art = 'reports/snapshots/aaaaaaaaaaaa-explorer-reports_001-explorer.md';
   mkdirSync(`${d}/.agents/runs/LC/reports/snapshots`, { recursive: true });
@@ -46,11 +46,11 @@ test('NEEDS_INPUT: stored verbatim, one round per role, awaiting_input until eve
   accepted(A(d, ['answer', 'LC', '1'], { input: 'empty string\n' }), 'typed answer');
   assert.match(read(d, '.agents/runs/LC/questions/001.answer.md'), /^answered_by: lead$/m);
   assert.equal(rv(d, 'execution', 'awaiting_input'), 'true');
-  // the user's own message, captured: answered_by user, verbatim, naming its source
+  // the user's message from a file is never the user's answer (#187): `--captured` without the prompt hook's hand-over is refused; the lead types it
   say(d, 'yes, keep it');
-  const r = accepted(A(d, ['answer', 'LC', '2', '--captured']), 'captured answer');
-  assert.match(read(d, '.agents/runs/LC/questions/002.answer.md'), /^answered_by: user$/m);
-  assert.match(r.out, /answer source: the user's message \d+-[0-9a-f]{8}\.txt/);
+  refused(A(d, ['answer', 'LC', '2', '--captured']), 'a captured answer from a file', 'cannot be recorded as the user\'s from a file');
+  accepted(A(d, ['answer', 'LC', '2'], { input: 'yes, keep it\n' }), 'typed answer');
+  assert.match(read(d, '.agents/runs/LC/questions/002.answer.md'), /^answered_by: lead$/m);
   assert.equal(rv(d, 'execution', 'awaiting_input'), 'false', 'awaiting_input stays true with no question pending');
 });
 
@@ -68,8 +68,9 @@ test('ask: the lead\'s question is pending, verbatim, ledgered, answered like a 
   assert.match(A(d, ['next', 'LC']).out, /^next=agent\.sh questions LC/m);
   assert.match(read(d, '.agents/runs/LC/LEDGER.log'), /event=ask .*questions\/001\.md@/, 'ask was not ledgered');
   say(d, 'no, keep it in one module');
-  accepted(A(d, ['answer', 'LC', '1', '--captured']), 'answer');
-  assert.match(read(d, '.agents/runs/LC/questions/001.answer.md'), /^answered_by: user$/m);
+  refused(A(d, ['answer', 'LC', '1', '--captured']), 'answer from a file', 'cannot be recorded as the user\'s from a file');
+  accepted(A(d, ['answer', 'LC', '1'], { input: 'no, keep it in one module\n' }), 'answer');
+  assert.match(read(d, '.agents/runs/LC/questions/001.answer.md'), /^answered_by: lead$/m);
   assert.equal(rv(d, 'execution', 'awaiting_input'), 'false');
   accepted(A(d, ['verify-seal', 'LC']), 'the ledger seal');
 });

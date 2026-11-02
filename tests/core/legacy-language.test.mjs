@@ -101,7 +101,7 @@ test('language: the reject message says quote the project\'s text, do not transl
   const d = project('scaffold standalone no STANDARD manual');
   writeFileSync(`${d}/.agents/local/m.md`, 'Hesabınız silindi, lütfen tekrar giriş yapın şimdi\n');
   const r = A(d, ['language-check', `${d}/.agents/local/m.md`]);
-  refused(r, 'unquoted Turkish passed');
+  refused(r, 'unquoted Turkish passed', REFUSED);
   for (const want of ['Do NOT transliterate', 'do NOT ask the user', 'quote the text that exists in the project']) assert.ok(r.text.includes(want), `the reject message lacks: ${want}`);
   assert.match(r.out, /^language: run artifacts are English, but line 1 holds non-English text\./);
 });

@@ -32,7 +32,7 @@
 //
 // RECORD KINDS (the same letters as the awk; "literal" = the normalised literal flag: no $ expansion or substitution in the word)
 //   W path   the command writes path (redirection, tee, sed -i, perl -i, cp/mv/install/rsync/ln target, mv sources, touch/rm/truncate/
-//            unlink/rmdir/shred, chmod/chown/chgrp operands, dd of=)
+//            unlink/rmdir/shred, chmod/chown/chgrp operands, dd of=, tar -C, unzip -d, curl -o/--output, wget -O/-P)
 //   E path   for each operand of rm and unlink: the command deletes path
 //   P word   an operand of a command that edits files in place (sed -i, perl/ruby -i, awk -i inplace, patch)
 //   Q word   an operand of an editor run from a script (ed, ex, vi, vim)
@@ -383,6 +383,36 @@ function scan(input) {
       if (c === 'mv') for (j = 1; j < nopt + (tgt !== '' ? 1 : 0); j++) out('W', op[j]);
       if (tgt !== '') out('W', tgt); else if (nopt >= 2) out('W', op[nopt]); else if (c === 'ln' && nopt === 1) out('W', base(op[1]));
     } else if (c === 'dd') { for (j = k + 1; j <= nw; j++) if (/^of=/.test(W(j))) out('W', substr(W(j), 4)); }
+    else if (c === 'tar' || c === 'bsdtar' || c === 'gtar') {
+      // an extraction lands in the directory named by -C / --directory (A210: a planted prompts/history file arrived this way)
+      for (j = k + 1; j <= nw; j++) {
+        x = W(j);
+        if (x === '-C' || x === '--directory' || x === '--one-top-level') { if (j + 1 <= nw) out('W', W(++j)); continue; }
+        if (/^--directory=/.test(x)) { out('W', substr(x, 13)); continue; }
+        if (/^-[A-Za-z]+$/.test(x) && x.endsWith('C') && j + 1 <= nw) { out('W', W(++j)); continue; }
+        if (/^-C./.test(x)) out('W', substr(x, 3));
+      }
+    } else if (c === 'unzip') {
+      for (j = k + 1; j <= nw; j++) {
+        x = W(j);
+        if (x === '-d' && j + 1 <= nw) { out('W', W(++j)); continue; }
+        if (/^-d./.test(x)) out('W', substr(x, 3));
+      }
+    } else if (c === 'curl') {
+      for (j = k + 1; j <= nw; j++) {
+        x = W(j);
+        if ((x === '-o' || x === '--output' || x === '--output-dir') && j + 1 <= nw) { out('W', W(++j)); continue; }
+        if (/^--output(-dir)?=/.test(x)) { out('W', x.slice(x.indexOf('=') + 1)); continue; }
+        if (/^-o./.test(x)) out('W', substr(x, 3));
+      }
+    } else if (c === 'wget') {
+      for (j = k + 1; j <= nw; j++) {
+        x = W(j);
+        if ((x === '-O' || x === '--output-document' || x === '-P' || x === '--directory-prefix') && j + 1 <= nw) { out('W', W(++j)); continue; }
+        if (/^--(output-document|directory-prefix)=/.test(x)) { out('W', x.slice(x.indexOf('=') + 1)); continue; }
+        if (/^-[OP]./.test(x)) out('W', substr(x, 3));
+      }
+    }
     nw = 0;
   }
 

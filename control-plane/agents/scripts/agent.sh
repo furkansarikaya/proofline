@@ -5581,6 +5581,7 @@ approval_wait_o() {
 # was cut off or could not take the lock): record it now, so the user never has to run `approve` in a terminal. 0 when recorded.
 approval_retry() {
   [ "$execution_role" = lead ] || return 1
+  [ -z "${PROOFLINE_BRIDGED:-}" ] || return 1   # A210: the Node core records nothing from a file; this shell path is not reachable through the bridge guard
   ar_c=$(latest_capture 2>/dev/null) || return 1
   ar_t=$(capture_field "$ar_c" time 2>/dev/null) || return 1
   [ "$ar_t" -gt "$(gate_field "$1" requested_at)" ] 2>/dev/null || return 1
@@ -6443,6 +6444,7 @@ unquote_block() { sed 's/^> //; s/^>$//'; }
 # renamed NNN.answer.amended-K.md and marked `amended: true`; only a captured user message amends, never the lead's text.
 answer() {
   an_id=$1 an_n=$2; require_run "$an_id"; require_lead; an_d=$(run_dir "$an_id")
+  [ -z "${PROOFLINE_BRIDGED:-}" ] || fail "answer is a Node command: the shell code does not record answers through the bridge guard (A210)"
   case "$an_n" in ''|*[!0-9]*) fail "question number must be numeric" ;; esac
   an_q=$an_d/questions/$(printf '%03d' "$(printf '%s' "$an_n" | sed 's/^0*//; s/^$/0/')").md
   [ -f "$an_q" ] || fail "no question $an_n for $an_id"
@@ -9050,7 +9052,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)
   debt [list|page]   (A153: the project's `shortcut: <limit>, <when to improve>` code comments with file:line; read-only, needs no run; `page` is lead-only and rewrites the one wiki page)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
-  next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in next-user.sh, A159)
+  next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in core/nextuser.mjs, A159)
   design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)
   worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)

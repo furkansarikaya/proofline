@@ -14,8 +14,8 @@ test('tree recovery: the user\'s approval of the inspected tree keeps the run, e
   const inspect = accepted(A(d, ['tree-inspect', 'LC']), 'tree-inspect').out;
   assert.ok(inspect.includes('attested tree') && inspect.includes('impl.txt'), `tree-inspect does not show the tree: ${inspect}`);
   refused(A(d, ['tree-accept', 'LC']), 'tree-accept without the user\'s approval', 'needs your approval');
-  refused(A(d, ['tree-accept', 'LC'], { role: 'reviewer' }), 'a reviewer accepted the tree');
-  refused(A(d, ['tree-accept', 'LC']), 'tree-accept ran on an approval of nothing');
+  refused(A(d, ['tree-accept', 'LC'], { role: 'reviewer' }), 'a reviewer accepted the tree', 'command denied for reviewer');
+  refused(A(d, ['tree-accept', 'LC']), 'tree-accept ran on an approval of nothing', 'needs your approval');
   approveAsUser(d, 'tree', 'approve the tree');
   writeFileSync(`${d}/impl.txt`, 'one more late change\n', { flag: 'a' });
   refused(A(d, ['tree-accept', 'LC']), 'an approval of an older tree covered a newer one', 'needs your approval');
@@ -23,7 +23,7 @@ test('tree recovery: the user\'s approval of the inspected tree keeps the run, e
   accepted(A(d, ['tree-accept', 'LC']), 'tree-accept with the user\'s approval');
   assert.match(read(d, '.agents/runs/LC/RUN.yaml'), /^ {2}state: "IMPLEMENTING"$/m, 'the handoff did not go back to IMPLEMENTING');
   for (const g of A(d, ['pipeline', 'LC']).out.split('\n').filter((l) => l.startsWith('gate.'))) assert.ok(!/=pass/.test(g), `gate ${g} stayed green on the stale content after the tree was accepted`);
-  refused(A(d, ['tree-accept', 'LC']), 'a second accept of the same tree');
+  refused(A(d, ['tree-accept', 'LC']), 'a second accept of the same tree', 'there is nothing to accept');
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED after the accepted tree');
   accepted(verbs(d, 'pass_all'), 'the gates run again');
   accepted(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE after the gates ran again on the accepted tree');

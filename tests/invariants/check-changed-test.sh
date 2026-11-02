@@ -13,6 +13,7 @@ run() {
 }
 run 0 'no invariant file changed' '' README.md docs/a.md
 run 1 'invariant test changed, empty description' '' tests/invariants/invariants-test.sh
+run 1 'Node invariant test changed, empty description' '' tests/invariants-node/rule-3.test.mjs
 run 1 'invariant test changed, description without the line' 'Fixes the lookup.' tests/invariants/invariants-test.sh
 run 0 'invariant test changed, reason given' 'Fixes x.
 

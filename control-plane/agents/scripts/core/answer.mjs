@@ -1,6 +1,6 @@
 // @ts-check
-// `answer ID N [--captured|--amend]`. An answer is the user's when it is the user's captured message (`--captured`, `--amend`); text the lead types
-// is the lead's answer; an `accept <id>` the user's prompt does not carry is the lead's, never the user's. The status block update is a command that takes the locks itself, so the locks
+// `answer ID N [--captured|--amend]`. An answer is the user's only when the prompt hook hands over the message it is handling (`--captured`, `--amend`):
+// the core never reads the user's words from a file. Text the lead types is the lead's answer; an `accept <id>` the user's prompt does not carry is the lead's, never the user's. The status block update is a command that takes the locks itself, so the locks
 // are released before it runs (the shell ran it in the same process under the same locks; it is best effort either way).
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
@@ -8,7 +8,7 @@ import { approvalNormSpace, latestCapture, quoteLines, sortedNames } from './app
 import { captureField } from './capture.mjs';
 import { requireLead } from './approve.mjs';
 import { fail } from './errors.mjs';
-import { sha256 } from './hash.mjs';
+import { asciiLower } from './shellglob.mjs';
 import { setRunValue } from './lifecycle.mjs';
 import * as proc from './proc.mjs';
 import { ledgerAppend } from './ledger.mjs';
@@ -33,6 +33,38 @@ export function assumptionPromptAccepts(prompt, id) {
   return !NEGATION_BYTES.test(` ${rest} `);
 }
 
+/** The user-only kind a question carries: SPLIT (the split override of freeze, A171), USER_ONLY (an intent scope or batch pre-flight question). @param {string[]} lines */
+function userOnlyKind(lines) {
+  for (const l of lines) { const m = /^[ \t]*(SPLIT|USER_ONLY):/.exec(l); if (m) return m[1]; }
+  return '';
+}
+
+/** The number of open questions (no answer file) that carry a user-only kind. @param {Context} ctx @param {string} dir */
+function openUserOnly(ctx, dir) {
+  let c = 0;
+  for (const f of sortedNames(`${dir}/questions`, /^[0-9]{3}\.md$/)) {
+    if (existsSync(`${dir}/questions/${f.slice(0, -3)}.answer.md`)) continue;
+    if (userOnlyKind(fileLines(ctx, `${dir}/questions/${f}`)) !== '') c++;
+  }
+  return c;
+}
+
+/**
+ * The answer forms a question lists: the items of its `options:` / `seçenekler:` line (separated by | or ,, quotes and a leading `a)` removed). A
+ * message is an accepted answer when, in lower case with the white space folded, it starts with exactly ONE listed form (followed by the end or a
+ * non-letter) and the rest holds no negation or condition. Anything else (two forms, none, a hedge) records nothing.
+ * @param {string} norm @param {string[]} lines
+ */
+function matchesAcceptedForm(norm, lines) {
+  const opt = lines.find((l) => /^[ \t]*(options|seçenekler|secenekler):/i.test(l));
+  if (!opt) return false;
+  const forms = [...new Set(opt.slice(opt.indexOf(':') + 1).split(/\|/).map((x) => (/"([^"]+)"/.exec(x)?.[1] ?? x.trim().replace(/^[a-z]\)\s*/i, '').replace(/^['`]|['`]$/g, '')).trim()).map(asciiLower).filter((x) => x !== ''))];
+  const msg = asciiLower(norm).replace(/^[ \t\n]+/, '').replace(/[.!]+$/, '');
+  const hits = forms.filter((f) => msg === f || (msg.startsWith(f) && !/[a-zçğıöşü0-9]/i.test(msg.charAt(f.length))));
+  if (hits.length !== 1) return false;
+  return !NEGATION_BYTES.test(` ${msg.slice(hits[0].length)} `);
+}
+
 const TOKEN_LINE = /^[ \t\n\v\f\r]*ASSUMPTION: ([^ \t\n\v\f\r]*)[ \t\n\v\f\r]*$/;
 
 /** `epoch_iso` @param {string} e */
@@ -53,44 +85,23 @@ export function answer(ctx, args) {
   const prompts = sharedDirOf(ctx, 'prompts');
   const consumed = () => (readBytes(`${prompts}/consumed`) ?? '').split('\n');
   let text = ''; let cm = false; let used = ''; let src = ''; let pick = '';
-  // The user's own words (A171): `--captured` and `--amend` record the answer from a message the prompt hook captured, never from text the lead
-  // types (typed text is always the lead's answer). The message is the one the hook is handling when it hands it over in process
-  // (`ctx.io.promptCapture`: primary path), else the NEWEST real prompt since the question in prompts/history. A message dated more than 5 s
-  // ahead of the clock, one whose name does not carry its own hash, a blank one, a <task-notification> and one that already answered another
-  // question are not the user's answer. Only a capture of the SAME session and not in the future counts as the hook's (latestCapture).
   const handed = /** @type {{ promptCapture?: { session: string, time: number, sha256: string, text: string } }} */ (ctx.io).promptCapture;
   if (mode === '--captured' || amend) {
+    // A210, #187 (option 2): an answer is the user's ONLY when the prompt hook records it, in process, from the message it is handling; the core never
+    // takes the user's words from a file (a planted prompts/history file or capture cannot become the user's answer). The lead's `--captured` and
+    // `--amend` without that hand-over are refused: the user is asked again, and a typed answer (no flag) is the lead's.
+    if (!handed) fail(`answer ${n} cannot be recorded as the user's from a file: the prompt hook records the user's answer from the message it handles (ask the user in this session and wait for the reply); an answer the lead types without --captured is recorded as the lead's`);
     cm = true;
     let a0 = gateField(ctx, q, 'asked_at'); if (!/^[0-9]+$/.test(a0)) a0 = '0';
     let prevSrc = '';
     if (amend) { let pe = gateField(ctx, prev, 'answered_epoch'); if (!/^[0-9]+$/.test(pe)) pe = a0; a0 = pe; prevSrc = gateField(ctx, prev, 'source_message'); }
-    const limit = BigInt(now().epoch) + 5n;
-    if (handed) {
-      if (latestCapture(ctx, true) === null) fail('the capture of this message is not on disk as the hook wrote it');
-      if (BigInt(handed.time) < BigInt(a0)) fail(`this message is older than question ${n}`);
-      pick = `${handed.time}-${handed.sha256.slice(0, 8)}.txt`;
-      if (pick === prevSrc) fail(`this message (${pick}) is the one the recorded answer already came from`);
-      if (consumed().includes(pick)) fail(`this message (${pick}) already answered another question`);
-      text = Buffer.from(handed.text, 'utf8').toString('latin1');
-    } else {
-      for (const name of sortedNames(`${prompts}/history`, /\.txt$/)) {
-        const m = /^([0-9]+)-([0-9a-f]{8})\.txt$/.exec(name);
-        if (!m || !(BigInt(m[1]) >= BigInt(a0)) || BigInt(m[1]) > limit) continue;
-        const t = readBytes(`${prompts}/history/${name}`) ?? '';
-        if (sha256(t).slice(0, 8) !== m[2]) continue; // a copy the hook wrote carries its own hash in its name
-        if (!/[^ \t\n\v\f\r]/.test(t) || t.slice(0, 19) === '<task-notification>') continue;
-        if (name === prevSrc) continue;
-        if (amend && consumed().includes(name)) continue;
-        pick = name;
-      }
-      if (pick === '') {
-        if (amend) fail(`no captured user message newer than the recorded answer to question ${n}: only a new message of the user corrects an answer (ask the user, wait for the reply, then run this again)`);
-        fail(`no captured user prompt since question ${n} was asked: the user has not answered it (or the prompt hook is not wired)`);
-      }
-      // one message answers one question: the newest message was already used by an earlier --captured answer
-      if (consumed().includes(pick)) fail(`the user's newest message since question ${n} (${pick}) already answered another question: the user has not answered this one yet`);
-      text = readBytes(`${prompts}/history/${pick}`) ?? '';
-    }
+    if (latestCapture(ctx, true) === null) fail('the capture of this message is not on disk as the hook wrote it');
+    // strictly newer than the question (a message of the same second as the question is not its answer)
+    if (BigInt(handed.time) <= BigInt(a0)) fail(`this message is not newer than question ${n}`);
+    pick = `${handed.time}-${handed.sha256.slice(0, 8)}.txt`;
+    if (pick === prevSrc) fail(`this message (${pick}) is the one the recorded answer already came from`);
+    if (consumed().includes(pick)) fail(`this message (${pick}) already answered another question`);
+    text = Buffer.from(handed.text, 'utf8').toString('latin1');
     used = pick; src = pick;
   } else {
     text = readStdin(ctx);
@@ -102,11 +113,18 @@ export function answer(ctx, args) {
   let acc = false; let by = 'lead';
   let asked = gateField(ctx, q, 'asked_at'); if (!/^[0-9]+$/.test(asked)) asked = '';
   const norm = approvalNormSpace(text);
+  const qtext = fileLines(ctx, q);
   if (cm) {
     by = 'user';
     if (tok !== '' && assumptionPromptAccepts(norm, tokId)) acc = true;
-    // the prompt hook tries every open assumption question with each message it handles: it records an acceptance and nothing else
-    if (handed && !acc) fail(`this message is not an acceptance of the assumption of question ${n} (only an acceptance is recorded as the user's answer from the hook)`);
+    else if (tok === '' && userOnlyKind(qtext) !== '') {
+      // a split override or another user-only question: the single open one, answered by one of the forms the question lists
+      if (openUserOnly(ctx, dir) !== 1) fail(`question ${n} is not the only open user-only question: ask the user again`);
+      if (!matchesAcceptedForm(norm, qtext)) fail(`this message is not one of the accepted answers of question ${n} (nothing is recorded; ask the user again)`);
+      acc = true;
+    } else if (tok === '') fail(`question ${n} is not a question the user answers through the prompt hook (the lead types the answer; it is recorded as the lead's)`);
+    // the prompt hook tries every open user-only question with each message it handles: it records an acceptance or an accepted form and nothing else
+    if (!acc) fail(`this message is not an acceptance of the assumption of question ${n} (only an acceptance is recorded as the user's answer from the hook)`);
   }
   let body = text;
   if (tok !== '' && /^accept/i.test(norm)) {
@@ -142,7 +160,7 @@ export function answer(ctx, args) {
   }
   statusBlock(ctx, id);
   ctx.out(`answer recorded: ${id} ${qbase} answered_by=${by}${amends !== '' ? ` (amends ${amends}, the old record is kept)` : ''}\n`);
-  if (src !== '') ctx.out(`answer source: the user's message ${src} (${epochIso(src.slice(0, src.indexOf('-')))}): ${(readBytes(`${prompts}/history/${src}`) ?? '').replace(/[ \t\n\v\f\r]+/g, ' ').slice(0, 80)}\n`);
+  if (src !== '') ctx.out(`answer source: the user's message ${src} (${epochIso(src.slice(0, src.indexOf('-')))}): ${text.replace(/[ \t\n\v\f\r]+/g, ' ').slice(0, 80)}\n`);
   if (as !== '' && by !== 'user') ctx.out(`note:${as}: not an acceptance the user's own prompt carries (answered_by=${by}; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted\n`);
   return 0;
 }

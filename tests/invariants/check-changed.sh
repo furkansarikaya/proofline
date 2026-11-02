@@ -5,9 +5,9 @@
 # the event payload $GITHUB_EVENT_PATH (read with jq, else node). A run that is not a pull request (a push to main, the
 # nightly schedule, GITHUB_EVENT_NAME other than pull_request) has no description to check and passes.
 # The description needs a line that starts with `Invariant-test-change:` followed by a reason of at least 12 characters.
-# Exit 0: nothing under tests/invariants/ changed, or the line is there. Exit 1: changed without the line. Exit 2: usage.
+# Exit 0: nothing under tests/invariants/ or tests/invariants-node/ changed, or the line is there. Exit 1: changed without the line. Exit 2: usage.
 set -u
-changed=$(grep -E '^tests/invariants/' || true)
+changed=$(grep -E '^tests/invariants(-node)?/' || true)
 [ -n "$changed" ] || { echo "invariants: no file under tests/invariants/ changed"; exit 0; }
 case "${GITHUB_EVENT_NAME:-pull_request}" in pull_request|pull_request_target) ;; *) echo "invariants: ${GITHUB_EVENT_NAME} is not a pull request; nothing to check"; exit 0 ;; esac
 

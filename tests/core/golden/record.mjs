@@ -62,7 +62,7 @@ export function recordWords() {
 
 /** `next` for each state, the old engine. @returns {string} */
 export function recordNext() {
-  const run = (/** @type {string} */ dir, /** @type {string[]} */ args) => spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, { PROOFLINE_ENGINE: 'sh' }) });
+  const run = (/** @type {string} */ dir, /** @type {string[]} */ args) => spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, {}) });
   let out = '';
   const empty = stateFixture('empty'); const r0 = run(empty.dir, ['next']);
   out += `== no run (agent.sh next)\n# exit ${r0.status}\n${r0.stdout}`;
