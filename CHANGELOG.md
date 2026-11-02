@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.46 — 2026-11-02
+
+- Session-bound user answers verified live (A211, refs #196): Codex command environments carry `CODEX_SESSION_ID` and `CODEX_THREAD_ID` equal to the `session_id` of the Codex hook payload (no change to the binding); new real-session smoke row `SMOKE_ONLY=a196` for Claude Code only (the Codex row is left out: the ids were verified live, the end-to-end Codex row was not run) (an INTENT `USER_ONLY` question answered in the same Claude Code session is recorded as the user's; a question asked under another session id is not answered by this session).
+
 ## 0.0.45 — 2026-11-02
 
 - Node migration, direction change (A210, issues #165, #182, #186, #187): a migration of the same behaviour to one language, not a redesign. Removed: the engine switch (`.agents/local/engine`, `PROOFLINE_ENGINE`, `PROOFLINE_ENGINE_SH`), the equivalence rig (`tests/equivalence`, the CI jobs `equivalence` and `equivalence-macos`), the shell hook `proofline-hook.sh` with the released copies in `tests/legacy-hook` (`tests/legacy-githooks` is NOT removed: ten unmoved shell suites install the old shell git hooks from it), `next-user.sh`, the shell forms of `insights` and `queue`, the 0.0.40 to 0.0.42 wiring support and every fallback to the shell for a moved command. There is no backward compatibility: nobody uses the old versions.

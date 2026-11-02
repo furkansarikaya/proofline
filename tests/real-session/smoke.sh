@@ -14,6 +14,9 @@
 #                             filled, a test-only fix round without SECURITY, the lead continuing after CODE_DONE; every assertion reads agent.sh state and the gate records
 #   SMOKE_ONLY=a202           only the batch step with the A202 checks (no model call beyond the batch itself): the task status block is one section updated in place and
 #                             ends MERGED without a local path, and the branch of each batch task is proofline/<ID>-<slug> with a slug taken from the title (the same two rows also run in the default pass)
+#   SMOKE_ONLY=a196           only the session-bound user answer (A210, A211, #187, #196; not in the default run): the lead asks an INTENT scope question (USER_ONLY) through agent.sh ask, the script
+#                             plays the user and answers in the SAME session (the prompt hook must record answered_by: user), then a question asked under another session id is
+#                             answered from this session (nothing may be recorded as the user's); every assertion reads the answer files, never the model's text
 #   SMOKE_KEEP=1              keep the fixture and transcripts (their path is printed)
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
@@ -488,10 +491,53 @@ a200_fix() {
   else row "$fx_n (c) test-only fix: SECURITY not re-run" PASS "$(secs "$t0")" "SECURITY records $fx_sec1 -> $fx_sec2 (gate.SECURITY=$fx_gate), VERIFY $fx_ver1 -> $fx_ver2, only the test file changed"; fi
 }
 
+# --- A196 (SMOKE_ONLY=a196): a user-only answer is recorded by the prompt hook only from the session that asked the question (A210, #187) ---
+a196_ans() { # N: the answer file of question N of the run
+  printf '%s/.agents/runs/T-1/questions/%s.answer.md' "$P" "$1"
+}
+# a196_handled TEXT: the prompt hook captured a message with exactly this text (prompts/history/<time>-<sha>.txt); prints that file's name
+a196_handled() {
+  for ah_f in "$P"/.agents/local/prompts/history/*.txt; do [ -f "$ah_f" ] && [ "$(cat "$ah_f")" = "$1" ] && { basename "$ah_f"; return 0; }; done
+  return 1
+}
+a196_user_answer() { grep -qs '^answered_by: user$' "$(a196_ans "$1")"; }
+# shellcheck disable=SC2016 # the backticks and quotes in the task text and the prompt are literal
+a196_run() {
+  aq_n='a196 user answer bound to the asking session'
+  mk_fixture a196 || return 0
+  a200_task "$P/.agents/tasks/T-1.md" T-1 'TRIVIAL — one function in one module.' 'shout' 'Add `src/shout.js` exporting shout(text).' 'shout("a") returns "A!".' '`npm test` passes.'
+  git -C "$P" add -A; git -C "$P" commit -q -m 'chore: a196 task'; git -C "$P" push -q origin main
+  t0=$(date +%s)
+  # the run is opened by the script (a human start); the lead of the real session asks the question from its own Bash, so asked_session is the session's own id
+  if ! A start T-1 --task-file .agents/tasks/T-1.md > "$work/a196-start.txt" 2>&1; then row "$aq_n (positive)" FAIL "$(secs "$t0")" "start T-1 failed: $(head -n 1 "$work/a196-start.txt")"; return 0; fi
+  aq_out="$work/a196.jsonl"; : > "$aq_out"
+  aq_sess=$(claude_call "$P" "$aq_out" "Run this command exactly as it is, with the Bash tool, once: printf '%s\\n' '1. Fix the old defect in this change?' '   USER_ONLY: scope D-1' '   options: \"report it, out of scope\" | \"fix it in this change\"' '   recommended: report it, out of scope' | sh .agents/scripts/agent.sh ask T-1    Then stop and wait for my reply; run nothing else.")
+  [ -n "$aq_sess" ] || { row "$aq_n (positive)" FAIL "$(secs "$t0")" "no session id in $aq_out"; return 0; }
+  if [ ! -f "$P/.agents/runs/T-1/questions/001.md" ]; then row "$aq_n (positive)" FAIL "$(secs "$t0")" "the lead did not ask the question (no questions/001.md)"; return 0; fi
+  aq_asked=$(sed -n 's/^asked_session: //p' "$P/.agents/runs/T-1/questions/001.md")
+  if [ "$aq_asked" != "$aq_sess" ]; then row "$aq_n (positive)" FAIL "$(secs "$t0")" "asked_session '${aq_asked:-none}' is not the session id of the transcript ($aq_sess)"; return 0; fi
+  sleep 2   # a message of the second the question was asked in is not its answer
+  claude_call "$P" "$aq_out" "report it, out of scope" "$aq_sess" >/dev/null
+  aq_h1=$(a196_handled 'report it, out of scope') || { row "$aq_n (positive)" FAIL "$(secs "$t0")" "scenario invalid: the hook did not handle the message"; return 0; }
+  if a196_user_answer 001 && [ "$(sed -n 's/^source_message: //p' "$(a196_ans 001)")" = "$aq_h1" ]; then row "$aq_n (positive)" PASS "$(secs "$t0")" "asked_session = the hook's session id; questions/001.answer.md: answered_by: user, $(sed -n 's/^source_message: /source_message /p' "$(a196_ans 001)")"
+  else row "$aq_n (positive)" FAIL "$(secs "$t0")" "no answered_by: user record: $(head -n 3 "$(a196_ans 001)" 2>/dev/null | tr '\n' ' ')"; fi
+  # negative: a question that another session asked is not answered by a message of this one
+  t1=$(date +%s)
+  printf '1. Fix the other old defect in this change?\n   USER_ONLY: scope D-2\n   options: "report it, out of scope" | "fix it in this change"\n' | (cd "$P" && CLAUDE_CODE_SESSION_ID=smoke-other-session sh .agents/scripts/agent.sh ask T-1) > "$work/a196-ask2.txt" 2>&1
+  if [ ! -f "$P/.agents/runs/T-1/questions/002.md" ] || ! grep -q '^asked_session: smoke-other-session$' "$P/.agents/runs/T-1/questions/002.md"; then row "$aq_n (negative, other session)" FAIL "$(secs "$t1")" "scenario invalid: question 002 was not asked under the other session id"; return 0; fi
+  sleep 2
+  claude_call "$P" "$aq_out" "fix it in this change" "$aq_sess" >/dev/null
+  aq_h2=$(a196_handled 'fix it in this change') || { row "$aq_n (negative, other session)" FAIL "$(secs "$t1")" "scenario invalid: the hook did not handle the message"; return 0; }
+  if grep -qx "$aq_h2" "$P/.agents/local/prompts/consumed" 2>/dev/null; then row "$aq_n (negative, other session)" FAIL "$(secs "$t1")" "the message of the other session was consumed as an answer"
+  elif a196_user_answer 002; then row "$aq_n (negative, other session)" FAIL "$(secs "$t1")" "an answer from another session was recorded as the user's"
+  else row "$aq_n (negative, other session)" PASS "$(secs "$t1")" "questions/002.answer.md: $(sed -n 's/^answered_by: /answered_by /p' "$(a196_ans 002)" 2>/dev/null | head -n 1 | grep . || echo none)"; fi
+}
+
 a200_pass() { a200_batch; a200_fix; }
 
 smoke_user_settings=no
-if [ "${SMOKE_ONLY:-}" = a200 ]; then a200_pass   # not in the default run: three more real-model flows (a batch of two tasks and a run with a fix round) double its time
+if [ "${SMOKE_ONLY:-}" = a196 ]; then a196_run
+elif [ "${SMOKE_ONLY:-}" = a200 ]; then a200_pass   # not in the default run: three more real-model flows (a batch of two tasks and a run with a fix round) double its time
 else
 pass hermetic
 if [ "${SMOKE_ONLY:-}" = a202 ]; then :   # only the hermetic batch step
